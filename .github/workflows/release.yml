@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate JSON manifests and config
+        run: |
+          jq empty marketplace/manifests/marketplace.json
+          jq empty marketplace/config/release.json
+          found_plugin_manifest=false
+          for plugin_manifest in marketplace/manifests/plugins/*.json; do
+            [ -e "${plugin_manifest}" ] || continue
+            found_plugin_manifest=true
+            jq empty "${plugin_manifest}"
+          done
+          if [ "${found_plugin_manifest}" = false ]; then
+            echo "No plugin manifests (.json files) found in marketplace/manifests/plugins"
+            exit 1
+          fi
+          while IFS= read -r include_path; do
+            test -e "${include_path}"
+          done < <(jq -r '.include[]' marketplace/config/release.json)
+
+      - name: Build release artifact
+        run: |
+          ARTIFACT_NAME=$(jq -r '.artifactName' marketplace/config/release.json)
+          mapfile -t INCLUDE_PATHS < <(jq -r '.include[]' marketplace/config/release.json)
+          tar -czf "${ARTIFACT_NAME}.tar.gz" "${INCLUDE_PATHS[@]}"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            *.tar.gz
