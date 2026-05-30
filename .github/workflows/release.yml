@@ -1,0 +1,38 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate JSON manifests and config
+        run: |
+          jq empty marketplace/manifests/marketplace.json
+          jq empty marketplace/config/release.json
+          jq empty marketplace/manifests/plugins/*.json
+
+      - name: Build release artifact
+        run: |
+          ARTIFACT_NAME=$(jq -r '.artifactName' marketplace/config/release.json)
+          tar -czf "${ARTIFACT_NAME}.tar.gz" \
+            marketplace/manifests \
+            marketplace/config \
+            README.md \
+            LICENSE
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            *.tar.gz

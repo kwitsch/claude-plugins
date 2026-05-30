@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  validate-marketplace:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate JSON manifests and config
+        run: |
+          jq empty marketplace/manifests/marketplace.json
+          jq empty marketplace/config/release.json
+          jq empty marketplace/manifests/plugins/*.json
+
+      - name: Validate plugin references from marketplace index
+        run: |
+          while IFS= read -r plugin_path; do
+            test -f "marketplace/manifests/${plugin_path}"
+          done < <(jq -r '.plugins[]' marketplace/manifests/marketplace.json)

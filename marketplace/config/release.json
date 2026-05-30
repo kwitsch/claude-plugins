@@ -1,0 +1,8 @@
+{
+  "artifactName": "claude-plugins-marketplace",
+  "include": [
+    "marketplace/manifests",
+    "README.md",
+    "LICENSE"
+  ]
+}
