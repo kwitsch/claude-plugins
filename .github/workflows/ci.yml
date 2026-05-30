@@ -9,6 +9,8 @@ on:
 jobs:
   validate-marketplace:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout
@@ -18,10 +20,25 @@ jobs:
         run: |
           jq empty marketplace/manifests/marketplace.json
           jq empty marketplace/config/release.json
-          jq empty marketplace/manifests/plugins/*.json
+          found_plugin_manifest=false
+          for plugin_manifest in marketplace/manifests/plugins/*.json; do
+            [ -e "${plugin_manifest}" ] || continue
+            found_plugin_manifest=true
+            jq empty "${plugin_manifest}"
+          done
+          if [ "${found_plugin_manifest}" = false ]; then
+            echo "No plugin manifests (.json files) found in marketplace/manifests/plugins"
+            exit 1
+          fi
 
       - name: Validate plugin references from marketplace index
         run: |
           while IFS= read -r plugin_path; do
             test -f "marketplace/manifests/${plugin_path}"
           done < <(jq -r '.plugins[]' marketplace/manifests/marketplace.json)
+
+      - name: Validate release include paths
+        run: |
+          while IFS= read -r include_path; do
+            test -e "${include_path}"
+          done < <(jq -r '.include[]' marketplace/config/release.json)

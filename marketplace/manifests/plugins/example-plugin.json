@@ -3,6 +3,6 @@
   "name": "Example Plugin",
   "version": "0.1.0",
   "description": "Example plugin manifest for marketplace validation.",
-  "entrypoint": "https://example.com/plugins/example-plugin",
+  "pluginUrl": "https://example.com/plugins/example-plugin",
   "author": "kwitsch"
 }
