@@ -1,8 +1,0 @@
-{
-  "name": "claude-plugins-marketplace",
-  "version": "1.0.0",
-  "description": "Marketplace index for Claude Code plugins.",
-  "plugins": [
-    "plugins/example-plugin.json"
-  ]
-}

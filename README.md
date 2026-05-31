@@ -1,16 +1,25 @@
 # claude-plugins
 
-Claude Code plugin marketplace scaffold.
+A [Claude Code](https://docs.claude.com/en/docs/claude-code/plugins) plugin marketplace.
 
 ## Repository structure
 
-- `marketplace/manifests/marketplace.json` - Marketplace index manifest.
-- `marketplace/manifests/plugins/` - Individual plugin manifests.
-- `marketplace/config/release.json` - Release packaging config.
-- `.github/workflows/ci.yml` - CI validation for manifests/config.
-- `.github/workflows/release.yml` - Tag-based release workflow.
+- `.claude-plugin/marketplace.json` — marketplace manifest (name, owner, plugin list). Must live at the repo root.
+- `plugins/<plugin-name>/` — one directory per plugin.
+  - `.claude-plugin/plugin.json` — plugin manifest (name, version, description, …).
+  - `commands/`, `skills/`, `agents/`, `hooks/`, … — plugin components at the plugin root.
+- `.github/workflows/ci.yml` — validates the marketplace manifest and plugin sources.
 
-## CI-based release flow
+## Add a plugin
 
-1. Open a PR or push to `main` to run JSON and manifest reference validation.
-2. Tag a commit as `v*` (for example `v1.0.0`) to trigger release packaging and GitHub Release publishing.
+1. Create `plugins/<plugin-name>/` with at least a `.claude-plugin/plugin.json` and your components.
+2. Add an entry to the `plugins` array in `.claude-plugin/marketplace.json` with a `name` and a `source` (e.g. `"./plugins/<plugin-name>"`).
+
+See the [marketplace](https://docs.claude.com/en/docs/claude-code/plugin-marketplaces) and [plugin](https://docs.claude.com/en/docs/claude-code/plugins-reference) references for the full schema.
+
+## Use the marketplace
+
+```
+/plugin marketplace add kwitsch/claude-plugins
+/plugin install example-plugin@claude-plugins
+```

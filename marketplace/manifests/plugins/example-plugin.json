@@ -1,8 +1,0 @@
-{
-  "id": "example-plugin",
-  "name": "Example Plugin",
-  "version": "0.1.0",
-  "description": "Example plugin manifest for marketplace validation.",
-  "pluginUrl": "https://example.com/plugins/example-plugin",
-  "author": "kwitsch"
-}

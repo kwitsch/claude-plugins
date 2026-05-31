@@ -1,0 +1,22 @@
+{
+  "name": "claude-plugins",
+  "owner": {
+    "name": "Kwitsch",
+    "email": "kwitsch@gmail.com"
+  },
+  "description": "Claude Code plugin marketplace.",
+  "version": "1.0.0",
+  "plugins": [
+    {
+      "name": "example-plugin",
+      "source": "./plugins/example-plugin",
+      "description": "Example plugin demonstrating the spec-compliant marketplace layout.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Kwitsch"
+      },
+      "category": "example",
+      "tags": ["example", "scaffold"]
+    }
+  ]
+}

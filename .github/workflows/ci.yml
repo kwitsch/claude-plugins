@@ -16,29 +16,35 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate JSON manifests and config
+      - name: Validate marketplace manifest
         run: |
-          jq empty marketplace/manifests/marketplace.json
-          jq empty marketplace/config/release.json
-          found_plugin_manifest=false
-          for plugin_manifest in marketplace/manifests/plugins/*.json; do
-            [ -e "${plugin_manifest}" ] || continue
-            found_plugin_manifest=true
-            jq empty "${plugin_manifest}"
-          done
-          if [ "${found_plugin_manifest}" = false ]; then
-            echo "No plugin manifests (.json files) found in marketplace/manifests/plugins"
-            exit 1
-          fi
+          manifest=".claude-plugin/marketplace.json"
+          test -f "${manifest}" || { echo "Missing ${manifest}"; exit 1; }
+          jq empty "${manifest}"
 
-      - name: Validate plugin references from marketplace index
-        run: |
-          while IFS= read -r plugin_path; do
-            test -f "marketplace/manifests/${plugin_path}"
-          done < <(jq -r '.plugins[]' marketplace/manifests/marketplace.json)
+          # Required top-level fields per the marketplace spec.
+          jq -e '.name and .owner and (.plugins | type == "array")' "${manifest}" \
+            > /dev/null || { echo "marketplace.json must define name, owner and a plugins array"; exit 1; }
 
-      - name: Validate release include paths
+          # Each plugin entry must define at least name + source.
+          jq -e 'all(.plugins[]; .name and .source)' "${manifest}" \
+            > /dev/null || { echo "Every plugin entry must define name and source"; exit 1; }
+
+      - name: Validate plugin sources and manifests
         run: |
-          while IFS= read -r include_path; do
-            test -e "${include_path}"
-          done < <(jq -r '.include[]' marketplace/config/release.json)
+          manifest=".claude-plugin/marketplace.json"
+          while IFS= read -r source; do
+            case "${source}" in
+              ./*)
+                test -d "${source}" || { echo "Plugin source directory not found: ${source}"; exit 1; }
+                plugin_manifest="${source}/.claude-plugin/plugin.json"
+                if [ -f "${plugin_manifest}" ]; then
+                  jq empty "${plugin_manifest}"
+                fi
+                ;;
+              *)
+                # Non-path sources (github/url/git-subdir/npm) are remote; nothing to check locally.
+                echo "Skipping remote source: ${source}"
+                ;;
+            esac
+          done < <(jq -r '.plugins[].source | if type == "string" then . else "remote" end' "${manifest}")
