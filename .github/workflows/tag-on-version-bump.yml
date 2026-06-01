@@ -1,0 +1,77 @@
+name: Tag on version bump
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Serialize tag pushes so concurrent runs cannot race each other.
+concurrency:
+  group: tag-on-version-bump
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history + tags so we can tell which versions are already tagged.
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Tag plugins whose current version is not tagged yet
+        run: |
+          git config user.name "Kwitsch"
+          git config user.email "kwitsch@gmail.com"
+
+          created=()
+          skipped=()
+
+          # plugin.json is the authoritative version source. For each plugin,
+          # derive the tag <name>-<version> and create it only when missing —
+          # idempotent, so re-runs and missed pushes self-heal.
+          for manifest in plugins/*/.claude-plugin/plugin.json; do
+            [ -f "${manifest}" ] || continue
+
+            name="$(jq -r '.name' "${manifest}")"
+            version="$(jq -r '.version' "${manifest}")"
+            if [ -z "${name}" ] || [ "${name}" = "null" ] \
+              || [ -z "${version}" ] || [ "${version}" = "null" ]; then
+              echo "Skipping ${manifest}: missing name or version"
+              continue
+            fi
+
+            tag="${name}-${version}"
+            if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+              echo "Tag ${tag} already exists — skipping."
+              skipped+=("${tag}")
+              continue
+            fi
+
+            echo "Creating tag ${tag}"
+            git tag -a "${tag}" -m "${name} ${version}"
+            git push origin "${tag}"
+            created+=("${tag}")
+          done
+
+          {
+            echo "## Plugin version tags"
+            echo
+            if [ ${#created[@]} -gt 0 ]; then
+              echo "### Created"
+              for t in "${created[@]}"; do echo "- \`${t}\`"; done
+            else
+              echo "_No new tags created._"
+            fi
+            if [ ${#skipped[@]} -gt 0 ]; then
+              echo
+              echo "### Already present"
+              for t in "${skipped[@]}"; do echo "- \`${t}\`"; done
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"

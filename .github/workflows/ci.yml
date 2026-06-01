@@ -48,3 +48,47 @@ jobs:
                 ;;
             esac
           done < <(jq -r '.plugins[].source | if type == "string" then . else "remote" end' "${manifest}")
+
+  # Merge guard: the version a plugin declares in marketplace.json must match the
+  # version in its own plugin.json. A mismatch fails here and (as a required
+  # status check in branch protection) blocks the merge.
+  version-consistency:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Marketplace and plugin manifest versions must match
+        run: |
+          manifest=".claude-plugin/marketplace.json"
+          status=0
+
+          # name <TAB> source <TAB> marketplace-version, one local plugin per line.
+          while IFS=$'\t' read -r name source mp_version; do
+            case "${source}" in
+              ./*)
+                plugin_manifest="${source}/.claude-plugin/plugin.json"
+                if [ ! -f "${plugin_manifest}" ]; then
+                  echo "::error::${name}: plugin manifest not found at ${plugin_manifest}"
+                  status=1
+                  continue
+                fi
+
+                pl_version="$(jq -r '.version // "null"' "${plugin_manifest}")"
+                if [ "${mp_version}" != "${pl_version}" ]; then
+                  echo "::error::${name}: version mismatch — marketplace.json has '${mp_version}', ${plugin_manifest} has '${pl_version}'"
+                  status=1
+                else
+                  echo "${name}: ${pl_version} OK"
+                fi
+                ;;
+              *)
+                echo "${name}: remote source (${source}) — skipping version check"
+                ;;
+            esac
+          done < <(jq -r '.plugins[] | [.name, (.source | if type == "string" then . else "remote" end), (.version // "null")] | @tsv' "${manifest}")
+
+          exit "${status}"
