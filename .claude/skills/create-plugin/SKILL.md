@@ -1,6 +1,6 @@
 ---
 name: create-plugin
-description: Use when adding a new plugin to this claude-plugins marketplace - scaffolds plugins/<name>/ with a spec-compliant plugin.json and chosen components (commands, skills, agents, hooks), then registers the plugin in .claude-plugin/marketplace.json and verifies both manifests with the same checks the CI runs.
+description: Use when adding a new plugin to this claude-plugins marketplace - scaffolds plugins/<name>/ with a spec-compliant plugin.json and chosen components (commands, skills, agents, hooks), a README and CLAUDE.md, registers it in .claude-plugin/marketplace.json and the root README plugins table, scaffolds a bats test suite for hooks plugins, and verifies with the same checks the CI runs.
 ---
 
 # Creating a New Marketplace Plugin
@@ -13,9 +13,11 @@ manifest, so that it passes CI and is installable via the marketplace.
 - `.claude-plugin/marketplace.json` — marketplace manifest at the repo root. Lists every plugin.
 - `plugins/<plugin-name>/.claude-plugin/plugin.json` — per-plugin manifest.
 - `plugins/<plugin-name>/{commands,skills,agents,hooks}/` — plugin components at the plugin root.
-- `test/<plugin-name>/test.sh` — per-plugin test suite (top-level), executed by CI.
+- `plugins/<plugin-name>/README.md` and `plugins/<plugin-name>/CLAUDE.md` — per-plugin docs.
+- `test/<plugin-name>/test.bats` — per-plugin bats suite (top-level), executed by CI.
+- `package.json` — bats + bats-support + bats-assert devDependencies (run with `BATS_LIB_PATH="$PWD/node_modules" npx bats`).
 - `.github/workflows/ci.yml` — validates `marketplace.json` and each plugin manifest with `jq`.
-- `.github/workflows/test.yml` — runs each plugin's `test/<name>/test.sh` via a static matrix.
+- `.github/workflows/test.yml` — runs each plugin's `test/<name>/test.bats` via a static matrix.
 
 ## Checklist
 
@@ -24,10 +26,11 @@ Create a TodoWrite todo for each step and complete them in order.
 1. **Gather inputs** — ask one question at a time.
 2. **Validate the name** — kebab-case and not already taken.
 3. **Scaffold the plugin directory** — `plugin.json` + chosen component stubs.
-4. **Scaffold the test suite (hooks plugins only)** — `test/<name>/test.sh` + add the plugin to the `test.yml` matrix.
-5. **Register in marketplace.json** — add an entry to the `plugins` array.
-6. **Verify** — run the CI checks locally; both manifests must pass, and the test suite (if scaffolded) must pass.
-7. **Report** — list every file created or changed.
+4. **Scaffold docs** — `plugins/<name>/README.md` (minimal) + `plugins/<name>/CLAUDE.md`, and add a row to the root README plugins table.
+5. **Scaffold the test suite (hooks plugins only)** — `test/<name>/test.bats` + add the plugin to the `test.yml` matrix.
+6. **Register in marketplace.json** — add an entry to the `plugins` array.
+7. **Verify** — run the CI checks locally; manifests must pass and the bats suite (if scaffolded) must pass.
+8. **Report** — list every file created or changed.
 
 ## Step 1 — Gather inputs
 
@@ -110,45 +113,71 @@ Then scaffold a stub for each chosen component so the plugin is functional out o
 
 Only create the directories for components the user actually chose.
 
-## Step 4 — Scaffold the test suite (hooks plugins only)
+## Step 4 — Scaffold docs
 
-Only when the user chose the `hooks` component, scaffold a test suite so the
+Create `plugins/<name>/README.md` (minimal):
+
+````markdown
+# <name>
+
+<description>
+
+## Install
+
+```
+/plugin install <name>@claude-plugins
+```
+
+## What it does
+
+<one short paragraph describing the plugin's behavior>
+````
+
+Create `plugins/<name>/CLAUDE.md` (short, project-specific context):
+
+```markdown
+# CLAUDE.md — <name>
+
+<one or two lines on what the plugin is and its main component>.
+
+## Tests
+`test/<name>/test.bats` (bats). Run: `BATS_LIB_PATH="$PWD/node_modules" npx bats test/<name>/`.
+```
+
+Add a row to the `## Plugins` table in the root `README.md`, preserving existing rows:
+
+```markdown
+| [<name>](plugins/<name>/README.md) | <description> |
+```
+
+## Step 5 — Scaffold the test suite (hooks plugins only)
+
+Only when the user chose the `hooks` component, scaffold a bats suite so the
 plugin is exercised in CI. Prompt-only plugins (commands/skills/agents) have
 nothing executable to test — skip this step for them.
 
-Create `test/<name>/test.sh` with a runnable smoke test that already passes, so
-the plugin is green in CI from the start and there is a clear place to add real
-tests:
+Create `test/<name>/test.bats` with a smoke test that already passes:
 
 ```bash
-#!/usr/bin/env bash
-# Tests for the <name> plugin. Run: bash test/<name>/test.sh
-set -u
+#!/usr/bin/env bats
 
-HERE="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$HERE/../.." && pwd)"
-PLUGIN="$REPO_ROOT/plugins/<name>"
-fails=0
-pass() { echo "PASS: $1"; }
-fail() { echo "FAIL: $1 — $2"; fails=$((fails+1)); }
+setup() {
+  bats_load_library bats-support
+  bats_load_library bats-assert
+  REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
+  HOOKS="$REPO_ROOT/plugins/<name>/hooks/hooks.json"
+}
 
-# Smoke test: the hook configuration is valid JSON.
-if jq empty "$PLUGIN/hooks/hooks.json" 2>/dev/null; then
-  pass "hooks.json is valid JSON"
-else
-  fail "hooks.json is valid JSON" "invalid or missing"
-fi
+@test "hooks.json is valid JSON" {
+  run jq empty "$HOOKS"
+  assert_success
+}
 
 # TODO: add behavioral tests for this plugin's hooks here.
-
-echo "----"
-if [ "$fails" -eq 0 ]; then echo "ALL TESTS PASSED"; else echo "$fails TEST(S) FAILED"; fi
-exit "$fails"
 ```
 
-Then wire the plugin into CI: in `.github/workflows/test.yml`, append a new list
-item `- <name>` under the `plugin:` key, preserving the existing entries and
-valid YAML:
+Then wire the plugin into CI: in `.github/workflows/test.yml`, append `- <name>`
+under the `plugin:` key, preserving the existing entries and valid YAML:
 
 ```yaml
       matrix:
@@ -157,7 +186,7 @@ valid YAML:
           - <name>           # the new plugin
 ```
 
-## Step 5 — Register in marketplace.json
+## Step 6 — Register in marketplace.json
 
 Add an entry to the `plugins` array in `.claude-plugin/marketplace.json`. Keep
 the existing entries and valid JSON (no trailing commas):
@@ -179,7 +208,7 @@ the existing entries and valid JSON (no trailing commas):
 Omit `category`/`tags` if the user did not provide them. `name` and `source` are
 the only required fields per the marketplace spec.
 
-## Step 6 — Verify (mirror the CI)
+## Step 7 — Verify (mirror the CI)
 
 Run the same checks `.github/workflows/ci.yml` runs, so the PR is green:
 
@@ -213,17 +242,18 @@ If a test suite was scaffolded (a hooks plugin), also run it and confirm it is
 wired into the matrix:
 
 ```bash
-# The new suite passes
-bash "test/<name>/test.sh"   # must end with: ALL TESTS PASSED
+# The new bats suite passes
+BATS_LIB_PATH="$PWD/node_modules" npx bats "test/<name>/"
 
-# The plugin is present in the test matrix (\$ is grep's end-of-line anchor)
+# The plugin is present in the test matrix ($ is grep's end-of-line anchor)
 grep -q "^[[:space:]]*-[[:space:]]*<name>\$" .github/workflows/test.yml \
   || { echo "Missing test.yml matrix entry for <name>"; exit 1; }
 ```
 
-## Step 7 — Report
+## Step 8 — Report
 
-List every file created and the line added to `marketplace.json` (and, for a
-hooks plugin, the `test/<name>/test.sh` file plus the `test.yml` matrix entry),
-and remind the user that the plugin can now be committed and installed via
+List every file created — `plugin.json`, the chosen component stubs, `README.md`,
+`CLAUDE.md`, the `marketplace.json` entry, and (for a hooks plugin)
+`test/<name>/test.bats` plus the `test.yml` matrix entry — and remind the user
+that the plugin can now be committed and installed via
 `/plugin install <name>@claude-plugins`.
