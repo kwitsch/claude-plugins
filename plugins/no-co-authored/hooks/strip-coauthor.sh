@@ -15,7 +15,14 @@ if command -v jq >/dev/null 2>&1; then
 elif command -v node >/dev/null 2>&1; then
   JSON_TOOL=node
 else
-  printf '%s' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"no-co-authored: neither jq nor node is available to clean the commit message. Recreate the commit WITHOUT any Co-Authored-By trailer and without the \"Generated with [Claude Code]\" footer."}}'
+  # No JSON tool to parse the command. Only a git commit is worth blocking; grep
+  # the raw payload (we cannot parse it) and fail open for anything else, so a
+  # stripped PATH never denies unrelated Bash commands like `ls`.
+  case "$input" in
+    *"git commit"*)
+      printf '%s' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"no-co-authored: neither jq nor node is available to clean the commit message. Recreate the commit WITHOUT any Co-Authored-By trailer and without the \"Generated with [Claude Code]\" footer."}}'
+      ;;
+  esac
   exit 0
 fi
 

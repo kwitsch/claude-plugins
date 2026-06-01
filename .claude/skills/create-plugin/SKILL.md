@@ -111,6 +111,10 @@ Then scaffold a stub for each chosen component so the plugin is functional out o
   }
   ```
 
+  The empty `{}` registers no behavior — populate it with real hook entries
+  (e.g. a `PreToolUse`/`PostToolUse` matcher) and add the referenced script under
+  `plugins/<name>/hooks/`, then cover it with behavioral tests in Step 5.
+
 Only create the directories for components the user actually chose.
 
 ## Step 4 — Scaffold docs

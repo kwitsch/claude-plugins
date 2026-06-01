@@ -140,3 +140,11 @@ Co-Authored-By: Claude <noreply@anthropic.com>"')"
   assert_output --partial '"permissionDecision":"deny"'
   assert_output --partial "Co-Authored-By"
 }
+
+@test "no jq/node + non-commit command is left alone (no deny)" {
+  bindir="$BATS_TEST_TMPDIR/bin"; mkdir -p "$bindir"
+  for t in cat sed bash; do ln -s "$(command -v "$t")" "$bindir/$t"; done
+  run env PATH="$bindir" bash "$HOOK" <<<"$(make_input 'ls -la')"
+  assert_success
+  assert_output ""
+}

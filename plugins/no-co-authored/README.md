@@ -12,7 +12,8 @@ messages before they run.
 ## What it does
 
 A PreToolUse hook on the Bash tool rewrites `git commit` commands in place,
-removing co-author trailers and the `Generated with [Claude Code]` footer. It
-fails open (never blocks a normal commit); if neither `jq` nor `node` is
-available to parse the command, it blocks the commit and asks Claude to recreate
-the message without those lines.
+removing co-author trailers and the `Generated with [Claude Code]` footer. In
+normal operation it fails open and never blocks a commit. Only when neither `jq`
+nor `node` is available to parse the command does it block that git commit
+(non-commit commands are left alone) and ask Claude to recreate the message
+without those lines.
