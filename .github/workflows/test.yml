@@ -15,12 +15,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Add a plugin here when it gains a test/<plugin>/test.sh suite.
+        # Add a plugin here when it gains a test/<plugin>/test.bats suite.
         plugin:
           - no-co-authored
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install test dependencies
+        run: npm ci
+
       - name: Run ${{ matrix.plugin }} test suite
-        run: bash "test/${{ matrix.plugin }}/test.sh"
+        run: BATS_LIB_PATH="$PWD/node_modules" npx bats "test/${{ matrix.plugin }}/"
