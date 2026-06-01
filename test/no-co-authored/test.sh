@@ -3,7 +3,8 @@
 set -u
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-HOOK="${HERE}/../strip-coauthor.sh"
+REPO_ROOT="$(cd "$HERE/../.." && pwd)"
+HOOK="$REPO_ROOT/plugins/no-co-authored/hooks/strip-coauthor.sh"
 fails=0
 
 # Build a PreToolUse stdin payload from a command string (and optional description).
