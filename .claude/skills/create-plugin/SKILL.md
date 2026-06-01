@@ -13,7 +13,9 @@ manifest, so that it passes CI and is installable via the marketplace.
 - `.claude-plugin/marketplace.json` — marketplace manifest at the repo root. Lists every plugin.
 - `plugins/<plugin-name>/.claude-plugin/plugin.json` — per-plugin manifest.
 - `plugins/<plugin-name>/{commands,skills,agents,hooks}/` — plugin components at the plugin root.
+- `test/<plugin-name>/test.sh` — per-plugin test suite (top-level), executed by CI.
 - `.github/workflows/ci.yml` — validates `marketplace.json` and each plugin manifest with `jq`.
+- `.github/workflows/test.yml` — runs each plugin's `test/<name>/test.sh` via a static matrix.
 
 ## Checklist
 
@@ -22,9 +24,10 @@ Create a TodoWrite todo for each step and complete them in order.
 1. **Gather inputs** — ask one question at a time.
 2. **Validate the name** — kebab-case and not already taken.
 3. **Scaffold the plugin directory** — `plugin.json` + chosen component stubs.
-4. **Register in marketplace.json** — add an entry to the `plugins` array.
-5. **Verify** — run the CI checks locally; both manifests must pass.
-6. **Report** — list every file created or changed.
+4. **Scaffold the test suite (hooks plugins only)** — `test/<name>/test.sh` + add the plugin to the `test.yml` matrix.
+5. **Register in marketplace.json** — add an entry to the `plugins` array.
+6. **Verify** — run the CI checks locally; both manifests must pass, and the test suite (if scaffolded) must pass.
+7. **Report** — list every file created or changed.
 
 ## Step 1 — Gather inputs
 
@@ -107,7 +110,54 @@ Then scaffold a stub for each chosen component so the plugin is functional out o
 
 Only create the directories for components the user actually chose.
 
-## Step 4 — Register in marketplace.json
+## Step 4 — Scaffold the test suite (hooks plugins only)
+
+Only when the user chose the `hooks` component, scaffold a test suite so the
+plugin is exercised in CI. Prompt-only plugins (commands/skills/agents) have
+nothing executable to test — skip this step for them.
+
+Create `test/<name>/test.sh` with a runnable smoke test that already passes, so
+the plugin is green in CI from the start and there is a clear place to add real
+tests:
+
+```bash
+#!/usr/bin/env bash
+# Tests for the <name> plugin. Run: bash test/<name>/test.sh
+set -u
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$HERE/../.." && pwd)"
+PLUGIN="$REPO_ROOT/plugins/<name>"
+fails=0
+pass() { echo "PASS: $1"; }
+fail() { echo "FAIL: $1 — $2"; fails=$((fails+1)); }
+
+# Smoke test: the hook configuration is valid JSON.
+if jq empty "$PLUGIN/hooks/hooks.json" 2>/dev/null; then
+  pass "hooks.json is valid JSON"
+else
+  fail "hooks.json is valid JSON" "invalid or missing"
+fi
+
+# TODO: add behavioral tests for this plugin's hooks here.
+
+echo "----"
+if [ "$fails" -eq 0 ]; then echo "ALL TESTS PASSED"; else echo "$fails TEST(S) FAILED"; fi
+exit "$fails"
+```
+
+Then wire the plugin into CI: in `.github/workflows/test.yml`, append a new list
+item `- <name>` under the `plugin:` key, preserving the existing entries and
+valid YAML:
+
+```yaml
+      matrix:
+        plugin:
+          - <existing entries…>
+          - <name>
+```
+
+## Step 5 — Register in marketplace.json
 
 Add an entry to the `plugins` array in `.claude-plugin/marketplace.json`. Keep
 the existing entries and valid JSON (no trailing commas):
@@ -129,7 +179,7 @@ the existing entries and valid JSON (no trailing commas):
 Omit `category`/`tags` if the user did not provide them. `name` and `source` are
 the only required fields per the marketplace spec.
 
-## Step 5 — Verify (mirror the CI)
+## Step 6 — Verify (mirror the CI)
 
 Run the same checks `.github/workflows/ci.yml` runs, so the PR is green:
 
@@ -159,8 +209,21 @@ done
 
 All commands must succeed with no error output. Fix any failure before reporting done.
 
-## Step 6 — Report
+If a test suite was scaffolded (a hooks plugin), also run it and confirm it is
+wired into the matrix:
 
-List every file created and the line added to `marketplace.json`, and remind the
-user that the plugin can now be committed and installed via
+```bash
+# The new suite passes
+bash "test/<name>/test.sh"   # must end with: ALL TESTS PASSED
+
+# The plugin is present in the test matrix
+grep -q "^[[:space:]]*-[[:space:]]*<name>\$" .github/workflows/test.yml \
+  || { echo "Missing test.yml matrix entry for <name>"; exit 1; }
+```
+
+## Step 7 — Report
+
+List every file created and the line added to `marketplace.json` (and, for a
+hooks plugin, the `test/<name>/test.sh` file plus the `test.yml` matrix entry),
+and remind the user that the plugin can now be committed and installed via
 `/plugin install <name>@claude-plugins`.
