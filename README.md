@@ -17,6 +17,12 @@ A [Claude Code](https://docs.claude.com/en/docs/claude-code/plugins) plugin mark
 
 See the [marketplace](https://docs.claude.com/en/docs/claude-code/plugin-marketplaces) and [plugin](https://docs.claude.com/en/docs/claude-code/plugins-reference) references for the full schema.
 
+## Plugins
+
+| Plugin | Description |
+|--------|-------------|
+| [no-co-authored](plugins/no-co-authored/README.md) | Strips Co-Authored-By trailers and the Claude Code footer from git commit messages. |
+
 ## Use the marketplace
 
 ```
