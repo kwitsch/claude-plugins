@@ -32,3 +32,23 @@ jobs:
 
       - name: Run ${{ matrix.plugin }} test suite
         run: BATS_LIB_PATH="$PWD/node_modules" npx bats "test/${{ matrix.plugin }}/"
+
+  # Single stable check that aggregates the whole test matrix — use this as the
+  # required status check (merge guard) in branch protection. It is green only
+  # when every matrix leg succeeded; `if: always()` makes it run (and fail) even
+  # when a leg fails, instead of being skipped.
+  test-gate:
+    name: Test gate
+    needs: [test]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Require all test matrix jobs to succeed
+        run: |
+          if [ "${{ needs.test.result }}" != "success" ]; then
+            echo "Test matrix did not fully succeed (result: ${{ needs.test.result }})."
+            exit 1
+          fi
+          echo "All test matrix jobs succeeded."
