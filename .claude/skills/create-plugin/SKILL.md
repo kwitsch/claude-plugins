@@ -153,8 +153,8 @@ valid YAML:
 ```yaml
       matrix:
         plugin:
-          - <existing entries…>
-          - <name>
+          - no-co-authored   # existing entry — keep it
+          - <name>           # the new plugin
 ```
 
 ## Step 5 — Register in marketplace.json
@@ -216,7 +216,7 @@ wired into the matrix:
 # The new suite passes
 bash "test/<name>/test.sh"   # must end with: ALL TESTS PASSED
 
-# The plugin is present in the test matrix
+# The plugin is present in the test matrix (\$ is grep's end-of-line anchor)
 grep -q "^[[:space:]]*-[[:space:]]*<name>\$" .github/workflows/test.yml \
   || { echo "Missing test.yml matrix entry for <name>"; exit 1; }
 ```
