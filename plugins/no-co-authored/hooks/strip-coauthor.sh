@@ -26,8 +26,8 @@ esac
 # Clean the command string:
 #  1. own-line Co-Authored-By trailers (heredoc form)
 #  2. inline -m "Co-Authored-By: ..." arguments (double- and single-quoted)
-#  3. the Claude Code footer line, but never a line that is the commit command
-#     itself (guards against deleting `git commit ...` if footer text is inline)
+#  3. the Claude Code footer line, but never a line that also contains
+#     `git commit` (guards against deleting the command line if footer text is inline)
 cleaned=$(printf '%s' "$command_str" | sed -E \
   -e '/^[[:space:]]*[Cc]o-[Aa]uthored-[Bb]y:/d' \
   -e 's/[[:space:]]*-m[[:space:]]+"[[:space:]]*[Cc]o-[Aa]uthored-[Bb]y:[^"]*"//g' \
@@ -36,6 +36,11 @@ cleaned=$(printf '%s' "$command_str" | sed -E \
 
 # Nothing removed -> stay silent so clean commits are not auto-approved.
 [ "$cleaned" = "$command_str" ] && exit 0
+
+# Safety net: if removing the lines produced syntactically broken shell (e.g. a
+# trailer embedded mid-string in a multiline -m "..." argument, whose closing
+# quote shared the trailer's line), fail open and run the original untouched.
+bash -n <<<"$cleaned" 2>/dev/null || exit 0
 
 # Emit the rewritten command, preserving the other tool_input fields.
 printf '%s' "$input" | jq --arg cmd "$cleaned" '{

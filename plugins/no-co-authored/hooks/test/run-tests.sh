@@ -77,7 +77,7 @@ assert_silent "clean commit untouched" 'git commit -m "Just a fix"'
 assert_silent "non-commit untouched" 'ls -la'
 
 # 5. Malformed JSON on stdin -> fail-open, no output.
-out=$(printf '%s' 'not json at all' | bash "$HOOK")
+out=$(run_hook 'not json at all')
 [ -z "$out" ] && pass "malformed json fail-open" || fail "malformed json fail-open" "got: $out"
 
 # 6. git commit line that merely MENTIONS the footer text -> must NOT be deleted.
@@ -98,6 +98,17 @@ desc_kept=$(printf '%s' "$desc_out" | jq -r '.hookSpecificOutput.updatedInput.de
 BASH_BIN=$(command -v bash)
 out=$(PATH="/nonexistent" "$BASH_BIN" "$HOOK" </dev/null)
 [ -z "$out" ] && pass "missing jq fail-open" || fail "missing jq fail-open" "got: $out"
+
+# 9. Co-author embedded mid-string in a multiline -m arg: stripping the trailer
+#    line would orphan the closing quote, so the cleaned command would be broken
+#    -> fail-open (no output), original runs untouched.
+assert_silent "multiline -m mid-string co-author fails open" \
+  'git commit -m "Fix bug
+
+Co-Authored-By: Claude <noreply@anthropic.com>"'
+
+# 10. git commit --amend with no message flags -> nothing to strip, no output.
+assert_silent "amend without message untouched" 'git commit --amend --no-edit'
 
 echo "----"
 if [ "$fails" -eq 0 ]; then echo "ALL TESTS PASSED"; else echo "$fails TEST(S) FAILED"; fi
