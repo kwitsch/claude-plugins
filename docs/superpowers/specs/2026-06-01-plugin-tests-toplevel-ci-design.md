@@ -9,7 +9,9 @@
 Move per-plugin tests out of the plugin tree into a dedicated top-level `test/`
 directory (one subdirectory per plugin, named after the plugin), mirroring the
 layout of `kwitsch/devcontainer-features`. Add a separate CI workflow that runs
-each plugin's test suite on pull requests via a build matrix.
+each plugin's test suite on pull requests via a build matrix. Update the
+`create-plugin` skill so it keeps producing plugins that fit this convention and
+keeps the (static) CI matrix in sync.
 
 ## Motivation
 
@@ -107,6 +109,60 @@ jobs:
 Stays our own, self-contained Bash (`pass`/`fail`/`assert_silent`/
 `assert_rewritten`). No devcontainer CLI, no Docker, no shared test library
 (YAGNI — a single tested plugin; each `test.sh` is independent).
+
+## `create-plugin` skill update
+
+The skill at `.claude/skills/create-plugin/SKILL.md` scaffolds new plugins and
+registers them in `marketplace.json`. It must learn about the test layout and
+the static CI matrix, otherwise it produces plugins that don't fit the
+convention and the matrix is silently forgotten.
+
+Changes:
+
+1. **Layout recap** — add `test/<plugin-name>/test.sh` and
+   `.github/workflows/test.yml` to the "Repository layout (recap)" section.
+2. **Scaffold a test stub when `hooks` is chosen** — when (and only when) the
+   user selects the `hooks` component, also create `test/<name>/test.sh` and add
+   the plugin to the `test.yml` matrix. Prompt-only plugins (commands/skills/
+   agents) get no test scaffold (nothing executable to test). This matches the
+   user's decision: tests are scaffolded automatically for hook plugins.
+3. **Test stub content** — a runnable smoke test that already passes, so the new
+   plugin is green in CI from the start and gives a clear place to add real
+   tests:
+
+   ```bash
+   #!/usr/bin/env bash
+   # Tests for the <name> plugin. Run: bash test/<name>/test.sh
+   set -u
+
+   HERE="$(cd "$(dirname "$0")" && pwd)"
+   REPO_ROOT="$(cd "$HERE/../.." && pwd)"
+   PLUGIN="$REPO_ROOT/plugins/<name>"
+   fails=0
+   pass() { echo "PASS: $1"; }
+   fail() { echo "FAIL: $1 — $2"; fails=$((fails+1)); }
+
+   # Smoke test: the hook configuration is valid JSON.
+   if jq empty "$PLUGIN/hooks/hooks.json" 2>/dev/null; then
+     pass "hooks.json is valid JSON"
+   else
+     fail "hooks.json is valid JSON" "invalid or missing"
+   fi
+
+   # TODO: add behavioral tests for this plugin's hooks here.
+
+   echo "----"
+   if [ "$fails" -eq 0 ]; then echo "ALL TESTS PASSED"; else echo "$fails TEST(S) FAILED"; fi
+   exit "$fails"
+   ```
+
+4. **Matrix update** — add the new plugin name to the `plugin:` list in
+   `.github/workflows/test.yml`, keeping valid YAML.
+5. **Verify step** — when a test stub was scaffolded, the skill additionally:
+   runs `bash test/<name>/test.sh` (must print `ALL TESTS PASSED`), and confirms
+   `<name>` appears in the `test.yml` matrix.
+6. **Report step** — include the test file and the `test.yml` change in the list
+   of files touched.
 
 ## Branch / integration
 
