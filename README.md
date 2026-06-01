@@ -2,14 +2,6 @@
 
 A [Claude Code](https://docs.claude.com/en/docs/claude-code/plugins) plugin marketplace.
 
-## Repository structure
-
-- `.claude-plugin/marketplace.json` — marketplace manifest (name, owner, plugin list). Must live at the repo root.
-- `plugins/<plugin-name>/` — one directory per plugin.
-  - `.claude-plugin/plugin.json` — plugin manifest (name, version, description, …).
-  - `commands/`, `skills/`, `agents/`, `hooks/`, … — plugin components at the plugin root.
-- `.github/workflows/ci.yml` — validates the marketplace manifest and plugin sources.
-
 ## Add a plugin
 
 1. Create `plugins/<plugin-name>/` with at least a `.claude-plugin/plugin.json` and your components.

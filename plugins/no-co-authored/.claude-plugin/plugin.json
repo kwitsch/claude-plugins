@@ -1,6 +1,6 @@
 {
   "name": "no-co-authored",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Strips Co-Authored-By trailers and the Claude Code footer from git commit messages before they run.",
   "author": {
     "name": "Kwitsch"
