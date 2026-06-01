@@ -14,6 +14,7 @@ See the [marketplace](https://docs.claude.com/en/docs/claude-code/plugin-marketp
 | Plugin | Description |
 |--------|-------------|
 | [no-co-authored](plugins/no-co-authored/README.md) | Strips Co-Authored-By trailers and the Claude Code footer from git commit messages. |
+| [git-sign-key](plugins/git-sign-key/README.md) | Signs git commits with a `~/.claude/sign.key` file via SSH signing instead of the ssh-agent. |
 
 ## Use the marketplace
 
