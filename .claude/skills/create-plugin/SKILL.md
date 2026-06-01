@@ -140,6 +140,9 @@ Create `plugins/<name>/CLAUDE.md` (short, project-specific context):
 
 <one or two lines on what the plugin is and its main component>.
 
+## Behavior
+<what the plugin's component(s) do at runtime — key rules, guards, edge cases>.
+
 ## Tests
 `test/<name>/test.bats` (bats). Run: `BATS_LIB_PATH="$PWD/node_modules" npx bats test/<name>/`.
 ```
@@ -214,6 +217,7 @@ Run the same checks `.github/workflows/ci.yml` runs, so the PR is green:
 
 ```bash
 manifest=".claude-plugin/marketplace.json"
+test -f "$manifest" || { echo "Missing $manifest"; exit 1; }
 
 # marketplace.json is valid JSON
 jq empty "$manifest"
@@ -225,7 +229,7 @@ jq -e '.name and .owner and (.plugins | type == "array")' "$manifest" >/dev/null
 jq -e 'all(.plugins[]; .name and .source)' "$manifest" >/dev/null
 
 # Every local plugin source exists and its manifest is valid JSON
-jq -r '.plugins[].source' "$manifest" | while IFS= read -r src; do
+jq -r '.plugins[].source | if type == "string" then . else "remote" end' "$manifest" | while IFS= read -r src; do
   case "$src" in
     ./*)
       test -d "$src" || { echo "Missing source dir: $src"; exit 1; }
