@@ -4,3 +4,6 @@
 # Local planning artifacts (superpowers specs/plans) — kept local, never pushed.
 # Safe to delete after the related PR is merged.
 docs/
+
+# npm (bats test framework)
+node_modules/
