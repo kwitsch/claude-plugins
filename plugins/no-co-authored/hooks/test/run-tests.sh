@@ -61,6 +61,16 @@ EOF
 CMD
 )
 
+PROSE=$(cat <<'CMD'
+git commit -m "$(cat <<'EOF'
+Document the footer behavior
+
+We now strip the Generated with [Claude Code] line from messages.
+EOF
+)"
+CMD
+)
+
 # 1. Heredoc commit with footer + co-author -> both removed, real content kept.
 assert_rewritten "heredoc strips co-author" "$HEREDOC" "Co-Authored-By:" "Add feature X"
 assert_rewritten "heredoc strips footer" "$HEREDOC" "Generated with [Claude Code]" "Implements the thing."
@@ -109,6 +119,10 @@ Co-Authored-By: Claude <noreply@anthropic.com>"'
 
 # 10. git commit --amend with no message flags -> nothing to strip, no output.
 assert_silent "amend without message untouched" 'git commit --amend --no-edit'
+
+# 11. Body prose that mentions the footer NAME but not its URL must be preserved
+#     (the footer rule only matches the full "[Claude Code](http..." signature).
+assert_silent "footer prose without url preserved" "$PROSE"
 
 echo "----"
 if [ "$fails" -eq 0 ]; then echo "ALL TESTS PASSED"; else echo "$fails TEST(S) FAILED"; fi

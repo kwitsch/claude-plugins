@@ -26,13 +26,15 @@ esac
 # Clean the command string:
 #  1. own-line Co-Authored-By trailers (heredoc form)
 #  2. inline -m "Co-Authored-By: ..." arguments (double- and single-quoted)
-#  3. the Claude Code footer line, but never a line that also contains
-#     `git commit` (guards against deleting the command line if footer text is inline)
+#  3. the Claude Code footer line, matched by its full signature (the text
+#     immediately followed by its "(http..." URL) so that prose merely mentioning
+#     the footer name is preserved; and never a line that also contains
+#     `git commit` (so the command line itself is never deleted)
 cleaned=$(printf '%s' "$command_str" | sed -E \
   -e '/^[[:space:]]*[Cc]o-[Aa]uthored-[Bb]y:/d' \
   -e 's/[[:space:]]*-m[[:space:]]+"[[:space:]]*[Cc]o-[Aa]uthored-[Bb]y:[^"]*"//g' \
   -e "s/[[:space:]]*-m[[:space:]]+'[[:space:]]*[Cc]o-[Aa]uthored-[Bb]y:[^']*'//g" \
-  -e '/Generated with \[Claude Code\]/{/git[[:space:]]+commit/!d;}')
+  -e '/Generated with \[Claude Code\]\(http/{/git[[:space:]]+commit/!d;}')
 
 # Nothing removed -> stay silent so clean commits are not auto-approved.
 [ "$cleaned" = "$command_str" ] && exit 0
