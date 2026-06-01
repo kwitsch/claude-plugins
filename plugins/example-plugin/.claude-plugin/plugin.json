@@ -1,8 +1,0 @@
-{
-  "name": "example-plugin",
-  "version": "0.1.0",
-  "description": "Example plugin demonstrating the spec-compliant marketplace layout.",
-  "author": {
-    "name": "Kwitsch"
-  }
-}
