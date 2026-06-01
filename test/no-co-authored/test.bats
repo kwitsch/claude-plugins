@@ -123,10 +123,9 @@ Co-Authored-By: Claude <noreply@anthropic.com>"')"
 
 @test "node fallback rewrites when jq is absent" {
   command -v node >/dev/null || skip "node unavailable"
-  bindir="$(mktemp -d)"
+  bindir="$BATS_TEST_TMPDIR/bin"; mkdir -p "$bindir"
   for t in cat sed bash node; do ln -s "$(command -v "$t")" "$bindir/$t"; done
   run env PATH="$bindir" bash "$HOOK" <<<"$(make_input "$HEREDOC")"
-  rm -rf "$bindir"
   assert_success
   assert_output --partial '"permissionDecision"'
   assert_output --partial "allow"
@@ -134,10 +133,9 @@ Co-Authored-By: Claude <noreply@anthropic.com>"')"
 }
 
 @test "deny when neither jq nor node is present" {
-  bindir="$(mktemp -d)"
+  bindir="$BATS_TEST_TMPDIR/bin"; mkdir -p "$bindir"
   for t in cat sed bash; do ln -s "$(command -v "$t")" "$bindir/$t"; done
   run env PATH="$bindir" bash "$HOOK" <<<"$(make_input 'git commit -m "x"')"
-  rm -rf "$bindir"
   assert_success
   assert_output --partial '"permissionDecision":"deny"'
   assert_output --partial "Co-Authored-By"
