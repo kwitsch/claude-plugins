@@ -17,6 +17,17 @@
       },
       "category": "example",
       "tags": ["example", "scaffold"]
+    },
+    {
+      "name": "no-co-authored",
+      "source": "./plugins/no-co-authored",
+      "description": "Strips Co-Authored-By trailers and the Claude Code footer from git commit messages before they run.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Kwitsch"
+      },
+      "category": "git",
+      "tags": ["git", "hooks", "commit"]
     }
   ]
 }
