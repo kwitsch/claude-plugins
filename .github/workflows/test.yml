@@ -18,6 +18,7 @@ jobs:
         # Add a plugin here when it gains a test/<plugin>/test.bats suite.
         plugin:
           - no-co-authored
+          - git-sign-key
     steps:
       - name: Checkout
         uses: actions/checkout@v4
