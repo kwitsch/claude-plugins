@@ -1,0 +1,26 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # Add a plugin here when it gains a test/<plugin>/test.sh suite.
+        plugin:
+          - no-co-authored
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run ${{ matrix.plugin }} test suite
+        run: bash "test/${{ matrix.plugin }}/test.sh"
