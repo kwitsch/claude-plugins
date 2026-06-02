@@ -19,11 +19,15 @@ BIN="$(cctools_bin)"
 # Only intercept when cc-tools is actually installed and runnable.
 [ -x "$BIN" ] && "$BIN" --version >/dev/null 2>&1 || exit 0
 
-# Pick a JSON tool: jq preferred, else node. Without either, fail open.
+# Pick a JSON tool: jq preferred, else a Node-compatible JS runtime (node, or
+# bun — which context-mode installs and which runs the snippets below
+# byte-for-byte). Without any, fail open so the native tools stay usable.
 if command -v jq >/dev/null 2>&1; then
   JSON_TOOL=jq
 elif command -v node >/dev/null 2>&1; then
-  JSON_TOOL=node
+  JSON_TOOL=js; JS=node
+elif command -v bun >/dev/null 2>&1; then
+  JSON_TOOL=js; JS=bun
 else
   exit 0
 fi
@@ -33,7 +37,7 @@ if [ "$JSON_TOOL" = jq ]; then
   tool_name=$(printf '%s' "$input" | jq -r '.tool_name // empty' 2>/dev/null) || exit 0
   file_path=$(printf '%s' "$input" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
 else
-  IFS=$'\t' read -r tool_name file_path < <(printf '%s' "$input" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const o=JSON.parse(s);const t=o.tool_name||"";const f=(o.tool_input&&o.tool_input.file_path)||"";process.stdout.write(t+"\t"+f+"\n")}catch(e){}})' 2>/dev/null) || exit 0
+  IFS=$'\t' read -r tool_name file_path < <(printf '%s' "$input" | "$JS" -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const o=JSON.parse(s);const t=o.tool_name||"";const f=(o.tool_input&&typeof o.tool_input.file_path==="string")?o.tool_input.file_path:"";process.stdout.write(t+"\t"+f+"\n")}catch(e){}})' 2>/dev/null) || exit 0
 fi
 
 # Nothing actionable (malformed input, empty tool name) -> fail open.
@@ -84,6 +88,6 @@ if [ "$JSON_TOOL" = jq ]; then
     }
   }'
 else
-  REASON="$reason" node -e 'process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:process.env.REASON}}))'
+  REASON="$reason" "$JS" -e 'process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:process.env.REASON}}))'
 fi
 exit 0

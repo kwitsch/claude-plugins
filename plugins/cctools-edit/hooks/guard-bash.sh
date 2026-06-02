@@ -401,14 +401,15 @@ cctools_is_literal_target() {
   return 0
 }
 
-# Classify+report: if $1 is a clean literal path AND an existing legacy file,
-# print it; else stay silent.
-cctools_report_if_legacy() {
+# Classify+collect (NO subshell): if $1 is a clean literal path AND an existing
+# legacy-encoded file, append it to HITS. Deliberately subshell-free so the
+# per-run encoding memo in cctools_is_legacy_file (CCTOOLS_ENC_CACHE) survives
+# across the many path tokens a single command can mention — running it inside
+# $(...) would discard each cache update and re-fork `file` every time.
+cctools_consider() {
   local t="$1"
   cctools_is_literal_target "$t" || return 0
-  if cctools_is_legacy_file "$t"; then
-    printf '%s\n' "$t"
-  fi
+  cctools_is_legacy_file "$t" && cctools_collect "$t"
 }
 
 # Append newline-separated value(s) in $1 to the global HITS, de-duplicated,
@@ -481,14 +482,18 @@ cctools_detect_segment() {
       [0-9]'>'* | [0-9]'<'*) body="${body#?}" ;;
     esac
 
+    # Only OUTPUT redirections WRITE the file and can corrupt its encoding. An
+    # input redirect `< file` is a READ that feeds a (processing) command whose
+    # output — not the file's raw bytes — reaches the model, so it is NOT risky
+    # here. The single raw-view read worth denying, `cat < file`, is handled by
+    # the dedicated bare-cat detector instead. (`<<`/`<<-` heredoc operators are
+    # already neutralised — their delimiter token is sentinel'd by Pass A/B.)
     case "$body" in
       '&>>'*) op='&>>'; rest="${body#'&>>'}" ;;
       '&>'*)  op='&>';  rest="${body#'&>'}" ;;
       '>>'*)  op='>>';  rest="${body#'>>'}" ;;
       '>|'*)  op='>|';  rest="${body#'>|'}" ;;
       '>'*)   op='>';   rest="${body#'>'}" ;;
-      '<<'*)  op='';    rest='' ;;   # heredoc op (delimiter already sentinel'd)
-      '<'*)   op='<';   rest="${body#'<'}" ;;
       *)      op='';    rest='' ;;
     esac
 
@@ -503,7 +508,7 @@ cctools_detect_segment() {
           k=$nk                          # consume the separate target word
         fi
       fi
-      [ -n "$target" ] && cctools_collect "$(cctools_report_if_legacy "$target")"
+      [ -n "$target" ] && cctools_consider "$target"
     fi
     k=$((k + 1))
   done
@@ -538,38 +543,56 @@ cctools_detect_segment() {
       [ "$has_inplace" -eq 1 ] || return 0
       # Non-option words are file args. The sed *script* (s/a/b/) fails the
       # existing-file gate, so passing it through is harmless. BSD `sed -i ''`
-      # empty suffix arrives sentinel'd -> skipped by the gate.
+      # empty suffix arrives sentinel'd -> skipped by the gate. An input redirect
+      # `< file` (and heredoc/here-string ops) is NOT a sed file operand — its
+      # target is only read on stdin, so skip the operator and its target word
+      # (a `sed -i SCRIPT < legacy` mutates nothing -> denying it is a false
+      # positive).
       q=$((ci + 1))
+      local sed_skip_next=0
       while [ "$q" -lt "$total" ]; do
+        if [ "$sed_skip_next" -eq 1 ]; then sed_skip_next=0; q=$((q + 1)); continue; fi
         case "${args[$q]}" in
+          '<' | '<<' | '<<<' | '<<-') sed_skip_next=1; q=$((q + 1)); continue ;;
+          '<'*) q=$((q + 1)); continue ;;
           -*) q=$((q + 1)); continue ;;
         esac
-        cctools_collect "$(cctools_report_if_legacy "${args[$q]}")"
+        cctools_consider "${args[$q]}"
         q=$((q + 1))
       done
       ;;
     tee)
-      # Every non-option word after `tee` is a target (with/without -a).
+      # Every non-option word after `tee` is a WRITE target (with/without -a) —
+      # except an input redirect `< file` (and heredoc/here-string ops), whose
+      # target is only read on stdin, never written. Skip those so `tee < legacy`
+      # / `tee out.txt < legacy` do not falsely flag the input file.
       local p2=$((ci + 1))
+      local tee_skip_next=0
       while [ "$p2" -lt "$total" ]; do
+        if [ "$tee_skip_next" -eq 1 ]; then tee_skip_next=0; p2=$((p2 + 1)); continue; fi
         case "${args[$p2]}" in
+          '<' | '<<' | '<<<' | '<<-') tee_skip_next=1; p2=$((p2 + 1)); continue ;;
+          '<'*) p2=$((p2 + 1)); continue ;;
           -*) p2=$((p2 + 1)); continue ;;
         esac
-        cctools_collect "$(cctools_report_if_legacy "${args[$p2]}")"
+        cctools_consider "${args[$p2]}"
         p2=$((p2 + 1))
       done
       ;;
   esac
 }
 
-# BARE-cat detector: the WHOLE command must be exactly `cat` + path/option args
-# with NO control operator / newline / redirection anywhere. (cat in a pipeline
-# or chain is processing, not viewing, and is allowed.) Operates on the
-# transformed string so it can verify the no-operator condition.
+# BARE-cat detector: the WHOLE command must be exactly `cat` + path/option args,
+# optionally with a SINGLE input redirect `< file`, and NO other operator. Both
+# `cat file` and `cat < file` dump the file's raw bytes to the model, so for a
+# legacy file both are denied. Any pipe / chain / background / newline / OUTPUT
+# redirect means the data is being processed or written elsewhere (not shown raw
+# to the model) -> cat is then processing, not viewing, and is allowed. Operates
+# on the transformed string so it can verify the no-operator condition.
 cctools_detect_bare_cat() {
   local t="$1"
   case "$t" in
-    *'|'* | *';'* | *'&'* | *$'\n'* | *'>'* | *'<'*) return 0 ;;
+    *'|'* | *';'* | *'&'* | *$'\n'* | *'>'*) return 0 ;;
   esac
 
   # shellcheck disable=SC2086
@@ -591,12 +614,20 @@ cctools_detect_bare_cat() {
   [ "$cmd" = cat ] || return 0
   shift
 
-  local a
+  local a next_is_delim=0
   for a in "$@"; do
+    # The word after a heredoc/here-string operator is a delimiter/string fed on
+    # stdin, NOT a file cat reads — never classify it (e.g. `cat <<< legacy.txt`
+    # feeds the literal text "legacy.txt", it does not read the file).
+    if [ "$next_is_delim" -eq 1 ]; then next_is_delim=0; continue; fi
     case "$a" in
-      '-' | -*) continue ;;   # stdin marker or option
+      '<<' | '<<<' | '<<-') next_is_delim=1; continue ;;  # heredoc/here-string op; delimiter is the NEXT word
+      '<<'* | '<<<'*) continue ;;                         # glued heredoc/here-string: <<DELIM, <<<word
+      '<') continue ;;                                    # bare input redirect; the file is the next word (an operand below)
+      '<'*) a="${a#'<'}" ;;                               # glued input redirect:  <legacy.txt
+      '-' | -*) continue ;;                               # '-' stdin marker or an option
     esac
-    cctools_collect "$(cctools_report_if_legacy "$a")"
+    [ -n "$a" ] && cctools_consider "$a"
   done
 }
 
@@ -606,12 +637,17 @@ cctools_detect_bare_cat() {
 cctools_scan_command() {
   local cmd="$1"
   HITS=""
+  # Enable the per-run encoding memo in cctools_is_legacy_file (leading newline so
+  # the first appended "<rc><TAB><path><NL>" record matches the lookup patterns).
+  CCTOOLS_ENC_CACHE=$'\n'
 
-  # Performance guard: the transform scans char-by-char (~O(n^2) in bash), and
-  # this hook runs on EVERY Bash call. On a very long command (e.g. a big
-  # heredoc) skip rather than stall — a missed detection is acceptable for a
-  # secondary net; a multi-second hook is not. 2048 covers any real file-op
-  # command line while bounding worst-case latency (~0.25s here, more on 3.2).
+  # Performance guard: the de-quoting transform scans char-by-char (~O(n^2) in
+  # bash) and this hook runs on EVERY Bash call. On a very long command (e.g. a
+  # big heredoc) skip rather than stall — a missed detection is acceptable for a
+  # secondary net; a multi-second hook is not. Measured cost of a full parse near
+  # this 2048 cap is ~0.4–1.0s depending on shell (slower on bash 3.2); the
+  # char-scan, not `file`, dominates now that cctools_is_legacy_file memoises its
+  # forks. 2048 covers any real file-op command line while bounding that cost.
   [ "${#cmd}" -le 2048 ] || return 0
 
   # Fast path: every detector needs a redirect (> <) or one of cat/sed/tee. If
@@ -693,29 +729,34 @@ BIN="$(cctools_bin)"
 
 input=$(cat)
 
-# Parse JSON with jq if present, else node, else fail open.
+# Parse JSON with jq if present, else a Node-compatible JS runtime (node, or
+# bun — which context-mode installs and which runs the snippet byte-for-byte),
+# else fail open.
 command_str=""
 tool_name=""
 if command -v jq >/dev/null 2>&1; then
   tool_name=$(printf '%s' "$input" | jq -r '.tool_name // empty' 2>/dev/null) || exit 0
   command_str=$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null)
-elif command -v node >/dev/null 2>&1; then
+else
+  JS=""
+  command -v node >/dev/null 2>&1 && JS=node
+  [ -z "$JS" ] && command -v bun >/dev/null 2>&1 && JS=bun
+  [ -n "$JS" ] || exit 0
   # Carry the command (which may contain newlines) through base64 so the
-  # tab-delimited read stays intact.
-  IFS=$'\t' read -r tool_name command_str < <(printf '%s' "$input" | node -e '
+  # tab-delimited read stays intact. Coerce a non-string command to "" so a
+  # malformed array/object input fails open cleanly (no NUL-byte warning).
+  IFS=$'\t' read -r tool_name command_str < <(printf '%s' "$input" | "$JS" -e '
     let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
       try{
         const o=JSON.parse(s);
         const t=o.tool_name||"";
-        const c=(o.tool_input&&o.tool_input.command)||"";
+        const c=(o.tool_input&&typeof o.tool_input.command==="string")?o.tool_input.command:"";
         process.stdout.write(t+"\t"+Buffer.from(c,"utf8").toString("base64")+"\n");
       }catch(e){}
     })' 2>/dev/null) || exit 0
   if [ -n "${command_str:-}" ]; then
     command_str=$(printf '%s' "$command_str" | { base64 -d 2>/dev/null || base64 -D 2>/dev/null; })
   fi
-else
-  exit 0
 fi
 
 # Only the Bash tool is in scope; anything else fails open.
@@ -740,7 +781,7 @@ reason="cctools-edit Bash guard: this shell command would read/write the legacy-
   $BIN write --file '<file>' --stdin --encoding <ENC> <<'CCEOF' ... CCEOF   # to overwrite
 cc-tools preserves the original encoding automatically. Do NOT retry this shell command on the listed file(s)."
 
-# Emit the deny decision (jq preferred, node fallback — same shape).
+# Emit the deny decision (jq preferred, node/bun fallback — same shape).
 if command -v jq >/dev/null 2>&1; then
   jq -n --arg reason "$reason" '{
     hookSpecificOutput: {
@@ -750,6 +791,6 @@ if command -v jq >/dev/null 2>&1; then
     }
   }'
 else
-  REASON="$reason" node -e 'process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:process.env.REASON}}))'
+  REASON="$reason" "$JS" -e 'process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:process.env.REASON}}))'
 fi
 exit 0

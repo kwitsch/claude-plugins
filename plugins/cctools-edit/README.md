@@ -58,6 +58,26 @@ SessionStart hook surfaces a user-facing warning (via the hook `systemMessage`
 field) so you know encoding preservation is off, plus an `additionalContext`
 note that tells Claude to flag non-UTF-8 edits.
 
+The hooks parse/emit JSON with `jq`, or — when `jq` is absent — a
+Node-compatible runtime (`node`, or `bun`). With none of the three available the
+hooks fail open too, and SessionStart still emits a `systemMessage` warning so
+the silent-disable is visible rather than going unnoticed.
+
+## Working alongside context-mode
+
+If you also run [context-mode](https://github.com/mksglu/context-mode), it steers
+the model to read and process files through its MCP sandbox tools
+(`ctx_execute_file`, `ctx_batch_execute`, `ctx_execute`) instead of the native
+`Read`/`cat`. Those tools decode bytes as UTF-8 — which **corrupts** a Latin-1 /
+Windows-1252 / Shift_JIS / UTF-16 file — and they sit outside this plugin's hook
+matchers, so such a read would otherwise slip past encoding protection. To keep
+the two safe together, cctools-edit's SessionStart priming tells the model that
+**cc-tools takes precedence for any non-UTF-8 file**: read it with
+`cctools read --detect-encoding` and edit it with `cctools edit`, never through a
+sandbox/`ctx_execute*` tool. For plain UTF-8/ASCII files either path is fine. The
+two plugins' Bash hooks coexist cleanly (a cctools-edit deny wins; no redirect
+ping-pong).
+
 ## Configuration
 
 Environment overrides (read by the hooks):
@@ -75,11 +95,16 @@ Environment overrides (read by the hooks):
 - The redirect relies on the model following the deny reason. A native-tool
   retry just gets denied again (no loop), but costs a round-trip.
 - The `Bash` guard covers the common encoding-unsafe shell ops on **existing
-  legacy files** (`cat`, `sed -i`, `>`/`>>`/`>|`/`&>`, `tee`, `cat <`). By design
-  it does *not* flag: byte-preserving moves (`cp`, `mv`, `tar`), `cat` inside a
-  pipeline (`cat f | grep`), or non-`-i` `sed` (these read for processing, and
-  the redirect hook + priming already steer edits to cc-tools). It only acts on
-  literal, existing, non-UTF-8 targets — so it never blocks new-file writes.
+  legacy files** (`cat`, `cat < f`, `sed -i`, `>`/`>>`/`>|`/`&>`, `tee`). By
+  design it does *not* flag: byte-preserving moves (`cp`, `mv`, `tar`), `cat`
+  inside a pipeline (`cat f | grep`), a processing command reading via input
+  redirect (`grep x < f`, `wc < f` — the file isn't mutated and only processed
+  output reaches the model), non-`-i` `sed`, in-place editors other than `sed -i`
+  (`perl -i`, `awk -i inplace`, `ed`/`ex`), bare readers other than `cat`
+  (`tac`/`head`/`tail`), or any op past its 2048-char command cap. It biases hard
+  to precision (it must never block a legitimate command) and the redirect hook +
+  priming already steer edits to cc-tools. It only acts on literal, existing,
+  non-UTF-8 targets — so it never blocks new-file writes.
 - Reads are also routed through cc-tools (full encoding protection), which adds
   a Bash round-trip per read. Set `CCTOOLS_SKIP_INSTALL` or remove the plugin if
   that's too heavy for your workflow.
