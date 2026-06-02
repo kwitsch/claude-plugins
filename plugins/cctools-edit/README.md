@@ -18,7 +18,7 @@ file (CP1252, ISO-8859-1, Shift_JIS, …) that means non-ASCII characters are
 mangled — and a byte read as a partial UTF-8 sequence becomes the replacement
 character `U+FFFD`, after which edits no longer match.
 
-This plugin fixes that with two hooks:
+This plugin fixes that with three hooks:
 
 - **SessionStart** — downloads the matching cc-tools release for your platform
   (idempotent; cached under `~/.claude/cctools/`), then primes the model with
@@ -28,6 +28,13 @@ This plugin fixes that with two hooks:
   redirect runs over Bash, `cctools read` returns clean UTF-8, the model builds
   a correct `old_string`, and `cctools edit` re-encodes back to the original
   encoding — the read-side corruption is avoided end to end.
+- **PreToolUse** (`Bash`) — a secondary net for shell file ops the redirect
+  can't see. It parses the command and **denies** it only when it would
+  write/edit (`sed -i`, `>`, `>>`, `>|`, `&>`, `tee`) or bare-read (`cat`,
+  `cat <`) an **existing file whose on-disk encoding is non-UTF-8** (checked
+  with `file --mime-encoding`/`iconv`). New files, UTF-8/ASCII files, `/dev/*`,
+  fd-dups (`2>&1`), quoted/heredoc/`$()` occurrences and non-literal targets all
+  pass — it biases hard to precision and fails open on any uncertainty.
 
 cc-tools mapping the model is steered toward:
 
@@ -67,8 +74,12 @@ Environment overrides (read by the hooks):
 
 - The redirect relies on the model following the deny reason. A native-tool
   retry just gets denied again (no loop), but costs a round-trip.
-- Other Bash file operations (`cat`, `sed`, `>`) bypass cc-tools — the hook only
-  covers the four native tools.
+- The `Bash` guard covers the common encoding-unsafe shell ops on **existing
+  legacy files** (`cat`, `sed -i`, `>`/`>>`/`>|`/`&>`, `tee`, `cat <`). By design
+  it does *not* flag: byte-preserving moves (`cp`, `mv`, `tar`), `cat` inside a
+  pipeline (`cat f | grep`), or non-`-i` `sed` (these read for processing, and
+  the redirect hook + priming already steer edits to cc-tools). It only acts on
+  literal, existing, non-UTF-8 targets — so it never blocks new-file writes.
 - Reads are also routed through cc-tools (full encoding protection), which adds
   a Bash round-trip per read. Set `CCTOOLS_SKIP_INSTALL` or remove the plugin if
   that's too heavy for your workflow.

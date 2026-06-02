@@ -1,6 +1,7 @@
 #!/usr/bin/env bats
 # Tests for cctools-edit: platform→asset mapping (lib.sh / install-cctools.sh),
-# the redirect-to-cctools PreToolUse hook, and the session-start hook.
+# the redirect-to-cctools PreToolUse hook, the session-start hook, and the
+# guard-bash PreToolUse hook (adversarial corpus + unit cases).
 #
 # Hermetic — no network: a dummy executable stands in for the cc-tools binary,
 # the OS/arch mapping is checked via --print-asset/--print-url with
@@ -15,6 +16,8 @@ setup() {
   INSTALL="$HOOKS/install-cctools.sh"
   REDIRECT="$HOOKS/redirect-to-cctools.sh"
   SESSION="$HOOKS/session-start.sh"
+  GUARD="$HOOKS/guard-bash.sh"
+  CORPUS="$REPO_ROOT/test/cctools-edit/bash-guard-corpus.json"
 
   # A stand-in cc-tools binary that answers --version (so the "installed" guard
   # passes) without any download.
@@ -26,6 +29,22 @@ exit 0
 EOF
   chmod +x "$BIN"
   export CCTOOLS_BIN="$BIN"
+
+  # Encoding fixtures for the Bash-guard tests. legacy.txt is non-UTF-8
+  # (ISO-8859-1, byte 0xe9); utf8.txt is valid UTF-8; a/b.txt are ASCII.
+  WORK="$BATS_TEST_TMPDIR/work"
+  mkdir -p "$WORK"
+  printf 'caf\xe9\n'     > "$WORK/legacy.txt"
+  printf 'caf\xc3\xa9\n' > "$WORK/utf8.txt"
+  printf 'plain\n'       > "$WORK/a.txt"
+  printf 'plain\n'       > "$WORK/b.txt"
+}
+
+# Run the Bash guard in stdin (hook) mode from the fixture dir, on a command.
+guard_stdin() {
+  local payload
+  payload=$(jq -nc --arg c "$1" '{tool_name:"Bash",tool_input:{command:$c},hook_event_name:"PreToolUse"}')
+  (cd "$WORK" && printf '%s' "$payload" | bash "$GUARD")
 }
 
 # PreToolUse payload for a given tool + file path.
@@ -226,4 +245,74 @@ reason()   { jq -r '.hookSpecificOutput.permissionDecisionReason'; }
   ctx="$(jq -r '.hookSpecificOutput.additionalContext' <<<"$out")"
   grep -q "not installed" <<<"$ctx"
   grep -q "cc-tools/releases" <<<"$ctx"
+}
+
+#
+# guard-bash.sh — PreToolUse Bash guard
+#
+
+@test "bash guard: full adversarial corpus (deny vs allow), 0 mismatches" {
+  local n i cmd exp got fails=0 msg=""
+  n=$(jq 'length' "$CORPUS")
+  for ((i = 0; i < n; i++)); do
+    cmd=$(jq -r ".[$i].cmd" "$CORPUS")
+    exp=$(jq -r ".[$i].expect | map(sub(\".*/\"; \"\")) | unique | join(\",\")" "$CORPUS")
+    got=$(cd "$WORK" && bash "$GUARD" --check "$cmd" 2>/dev/null | sed 's#.*/##' | sort -u | paste -sd, -)
+    if [ "$got" != "$exp" ]; then
+      fails=$((fails + 1))
+      msg="$msg"$'\n'"case #$i: cmd=[$cmd] expected=[$exp] got=[$got]"
+    fi
+  done
+  [ "$fails" -eq 0 ] || { echo "$msg"; false; }
+}
+
+@test "bash guard: denies an in-place edit of a legacy file (valid deny JSON)" {
+  run guard_stdin "sed -i 's/a/b/' legacy.txt"
+  assert_success
+  assert_equal "$(echo "$output" | jq -r '.hookSpecificOutput.permissionDecision')" "deny"
+  echo "$output" | jq -r '.hookSpecificOutput.permissionDecisionReason' | grep -q "legacy.txt"
+  echo "$output" | jq -r '.hookSpecificOutput.permissionDecisionReason' | grep -q "cc-tools"
+}
+
+@test "bash guard: allows reading/writing a UTF-8 file" {
+  run guard_stdin "cat utf8.txt"
+  assert_success
+  assert_output ""
+  run guard_stdin "echo hi > utf8.txt"
+  assert_success
+  assert_output ""
+}
+
+@test "bash guard: fails open when the cc-tools binary is absent" {
+  run env CCTOOLS_BIN=/nonexistent/cctools bash -c "cd '$WORK' && printf '%s' '$(jq -nc '{tool_name:"Bash",tool_input:{command:"sed -i s/a/b/ legacy.txt"}}')' | bash '$GUARD'"
+  assert_success
+  assert_output ""
+}
+
+@test "bash guard: non-Bash tool falls open" {
+  local payload
+  payload=$(jq -nc '{tool_name:"Read",tool_input:{command:"cat legacy.txt"}}')
+  run bash -c "cd '$WORK' && printf '%s' '$payload' | bash '$GUARD'"
+  assert_success
+  assert_output ""
+}
+
+@test "bash guard: --strip removes operators inside quotes" {
+  run bash "$GUARD" --strip "echo '> legacy.txt'"
+  assert_success
+  refute_output --partial ">"
+}
+
+@test "bash guard: node fallback denies when jq is absent" {
+  command -v node >/dev/null || skip "node unavailable"
+  bindir="$BATS_TEST_TMPDIR/bin"; mkdir -p "$bindir"
+  for t in cat bash node dirname find head printf sed tr file base64 sort; do
+    src="$(command -v "$t")" && [ -n "$src" ] && ln -sf "$src" "$bindir/$t"
+  done
+  payload=$(jq -nc --arg c "sed -i s/a/b/ legacy.txt" '{tool_name:"Bash",tool_input:{command:$c}}')
+  run env PATH="$bindir" CCTOOLS_BIN="$BIN" bash -c "cd '$WORK' && printf '%s' '$payload' | bash '$GUARD'"
+  assert_success
+  assert_output --partial '"permissionDecision"'
+  assert_output --partial "deny"
+  assert_output --partial "legacy.txt"
 }
