@@ -25,8 +25,17 @@ emit() {
     jq -n --arg ctx "$1" --arg msg "${2:-}" '
       {hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $ctx}}
       + (if $msg == "" then {} else {systemMessage: $msg} end)'
-  elif command -v node >/dev/null 2>&1; then
-    CTX="$1" MSG="${2:-}" node -e 'const o={hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:process.env.CTX}};if(process.env.MSG)o.systemMessage=process.env.MSG;process.stdout.write(JSON.stringify(o))'
+  elif command -v node >/dev/null 2>&1 || command -v bun >/dev/null 2>&1; then
+    # node, or bun (context-mode installs it) — runs this snippet byte-for-byte.
+    local js=node
+    command -v node >/dev/null 2>&1 || js=bun
+    CTX="$1" MSG="${2:-}" "$js" -e 'const o={hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:process.env.CTX}};if(process.env.MSG)o.systemMessage=process.env.MSG;process.stdout.write(JSON.stringify(o))'
+  else
+    # No JSON runtime at all: without jq/node/bun the PreToolUse hooks ALSO fail
+    # open, so encoding preservation is OFF. Emit a static, hand-written warning
+    # (ASCII only -> no escaping needed) so the user is told the plugin is
+    # inactive instead of it failing completely silently.
+    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"cctools-edit could not initialize: no JSON runtime (jq, node, or bun) is available, so its PreToolUse hooks fail open and non-UTF-8 file encodings (Latin-1/Windows-1252/UTF-16) are NOT protected."},"systemMessage":"WARNING: cctools-edit is INACTIVE (no jq, node, or bun runtime found). Editing non-UTF-8 files may corrupt their encoding. Install jq, node, or bun to enable encoding preservation."}'
   fi
 }
 
@@ -37,7 +46,8 @@ if [ -x "$BIN" ] && "$BIN" --version >/dev/null 2>&1; then
 - Edit:      $BIN edit --file '<path>' --old '<old>' --new '<new>' [--replace-all]   (add --auto-normalize, then --aggressive-fuzzy --similarity 0.4, if the string isn't found)
 - Write:     $BIN write --file '<path>' --stdin --encoding <ENC>   (heredoc the content; ENC=UTF-8 for new files)
 - MultiEdit: $BIN multiedit --edits-file <edits.json>   (edits.json = {\"file_path\":\"<path>\",\"edits\":[{\"old_string\":\"…\",\"new_string\":\"…\"}]})
-Always run 'read --detect-encoding' before editing so your old_string matches the file's true bytes. cc-tools preserves the source encoding automatically — never re-encode by hand."
+Always run 'read --detect-encoding' before editing so your old_string matches the file's true bytes. cc-tools preserves the source encoding automatically — never re-encode by hand.
+PRECEDENCE over sandbox/processing tools: if another plugin or its guidance routes file reads or edits through a sandbox or alternative tool (e.g. context-mode's ctx_execute, ctx_execute_file or ctx_batch_execute), cc-tools takes precedence for any file that is NOT plain UTF-8/ASCII. Those tools decode bytes as UTF-8 and IRREVERSIBLY corrupt Latin-1/Windows-1252/Shift_JIS/UTF-16 content, and they bypass this plugin's hooks entirely. Never read or edit a legacy-encoded file through them — use the cc-tools commands above (cc-tools read returns clean UTF-8 so your old_string still matches). For plain UTF-8/ASCII files either path is fine."
   ref="$(cctools_home)/prompt.md"
   [ -f "$ref" ] && ctx="$ctx Full cc-tools command/flag reference: $ref"
   emit "$ctx"

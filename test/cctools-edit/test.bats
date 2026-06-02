@@ -233,6 +233,18 @@ reason()   { jq -r '.hookSpecificOutput.permissionDecisionReason'; }
   assert_equal "$(jq -r '.systemMessage // "null"' <<<"$out")" "null"
 }
 
+@test "SessionStart priming asserts cc-tools precedence over sandbox/ctx tools for legacy files" {
+  out="$(CCTOOLS_SKIP_INSTALL=1 bash "$SESSION")"
+  ctx="$(jq -r '.hookSpecificOutput.additionalContext' <<<"$out")"
+  # When another plugin (e.g. context-mode) routes file reads through a sandbox
+  # tool (ctx_execute_file/...), that path UTF-8-decodes and corrupts non-UTF-8
+  # bytes AND bypasses cctools-edit's matchers. The priming must tell the model
+  # cc-tools takes precedence for non-UTF-8 files.
+  grep -q "context-mode" <<<"$ctx"
+  grep -q "ctx_execute" <<<"$ctx"
+  grep -q "precedence" <<<"$ctx"
+}
+
 @test "SessionStart shows a user-facing warning when the binary is absent" {
   out="$(CCTOOLS_SKIP_INSTALL=1 CCTOOLS_BIN=/nonexistent/cctools bash "$SESSION")"
   run jq empty <<<"$out"
@@ -315,4 +327,106 @@ reason()   { jq -r '.hookSpecificOutput.permissionDecisionReason'; }
   assert_output --partial '"permissionDecision"'
   assert_output --partial "deny"
   assert_output --partial "legacy.txt"
+}
+
+@test "bash guard: classifier forks file(1) at most once per distinct path" {
+  # Stub `file` to count invocations and always report a legacy encoding. A
+  # command that mentions the SAME legacy file four times must fork `file` only
+  # ONCE (per-run encoding memo) — the fork dominates this hook's latency.
+  local sbin="$BATS_TEST_TMPDIR/sbin"; mkdir -p "$sbin"
+  local cnt="$BATS_TEST_TMPDIR/file-call-count"; : > "$cnt"
+  cat > "$sbin/file" <<EOF
+#!/usr/bin/env bash
+printf 'x' >> "$cnt"
+echo "iso-8859-1"
+EOF
+  chmod +x "$sbin/file"
+  local cmd="echo a > legacy.txt; echo b > legacy.txt; echo c > legacy.txt; echo d > legacy.txt"
+  ( cd "$WORK" && PATH="$sbin:$PATH" bash "$GUARD" --check "$cmd" >/dev/null )
+  assert_equal "$(wc -c < "$cnt" | tr -d ' ')" "1"
+}
+
+# --check from the fixture dir so the existing-legacy-file gate can see legacy.txt.
+guard_check() { (cd "$WORK" && bash "$GUARD" --check "$1"); }
+
+@test "bash guard: input redirect into a processor is allowed; cat read is denied" {
+  # A processing command reading via `< legacy.txt` returns processed output, not
+  # raw bytes, and never mutates the file -> ALLOW. A bare `cat` view dumps raw
+  # bytes -> DENY (both `cat < f` and `cat f`). Guards the false-positive fix.
+  run guard_check "grep -c x < legacy.txt"
+  assert_success
+  assert_output ""
+  run guard_check "wc -l < legacy.txt"
+  assert_success
+  assert_output ""
+  run guard_check "cat < legacy.txt"
+  assert_success
+  assert_output --partial "legacy.txt"
+}
+
+#
+# bun runtime fallback — context-mode brings bun; cctools-edit must not silently
+# disable when only bun (no jq, no node) is available.
+#
+
+@test "redirect: bun fallback denies when jq and node are absent" {
+  command -v bun >/dev/null || skip "bun unavailable"
+  bindir="$BATS_TEST_TMPDIR/bunbin1"; mkdir -p "$bindir"
+  for t in bash bun cat dirname printf; do
+    src="$(command -v "$t")" && [ -n "$src" ] && ln -sf "$src" "$bindir/$t"
+  done
+  run env PATH="$bindir" CCTOOLS_BIN="$BIN" bash "$REDIRECT" <<<"$(make_input Edit /work/legacy.pas)"
+  assert_success
+  assert_output --partial '"permissionDecision"'
+  assert_output --partial "deny"
+  assert_output --partial "edit --file '/work/legacy.pas'"
+}
+
+@test "bash guard: bun fallback denies when jq and node are absent" {
+  command -v bun >/dev/null || skip "bun unavailable"
+  bindir="$BATS_TEST_TMPDIR/bunbin2"; mkdir -p "$bindir"
+  for t in cat bash bun dirname find head printf sed tr file base64 sort; do
+    src="$(command -v "$t")" && [ -n "$src" ] && ln -sf "$src" "$bindir/$t"
+  done
+  payload=$(jq -nc --arg c "sed -i s/a/b/ legacy.txt" '{tool_name:"Bash",tool_input:{command:$c}}')
+  run env PATH="$bindir" CCTOOLS_BIN="$BIN" bash -c "cd '$WORK' && printf '%s' '$payload' | bash '$GUARD'"
+  assert_success
+  assert_output --partial "deny"
+  assert_output --partial "legacy.txt"
+}
+
+@test "SessionStart primes via bun when jq and node are absent" {
+  command -v bun >/dev/null || skip "bun unavailable"
+  bindir="$BATS_TEST_TMPDIR/bunbin3"; mkdir -p "$bindir"
+  for t in bash bun cat dirname printf head tr uname mktemp; do
+    src="$(command -v "$t")" && [ -n "$src" ] && ln -sf "$src" "$bindir/$t"
+  done
+  out="$(env PATH="$bindir" CCTOOLS_SKIP_INSTALL=1 CCTOOLS_BIN="$BIN" bash "$SESSION")"
+  grep -q "cctools-edit active" <<<"$out"
+  grep -q "read --file" <<<"$out"
+}
+
+@test "bash guard: JS fallback fails open cleanly on a non-string command (no NUL warning)" {
+  command -v node >/dev/null || skip "node unavailable"
+  bindir="$BATS_TEST_TMPDIR/arrbin"; mkdir -p "$bindir"
+  for t in cat bash node dirname find head printf sed tr file base64 sort; do
+    src="$(command -v "$t")" && [ -n "$src" ] && ln -sf "$src" "$bindir/$t"
+  done
+  # command as a JSON array (malformed) — must fail open: exit 0, no deny, and no
+  # "ignored null byte" warning leaking from the base64-carry command substitution.
+  payload='{"tool_name":"Bash","tool_input":{"command":["sed","-i","legacy.txt"]}}'
+  run env PATH="$bindir" CCTOOLS_BIN="$BIN" bash -c "cd '$WORK' && printf '%s' '$payload' | bash '$GUARD'"
+  assert_success
+  assert_output ""
+  refute_output --partial "null byte"
+}
+
+@test "SessionStart warns when no JSON runtime (jq/node/bun) is available" {
+  bindir="$BATS_TEST_TMPDIR/nort"; mkdir -p "$bindir"
+  for t in bash cat dirname printf head tr uname mktemp; do
+    src="$(command -v "$t")" && [ -n "$src" ] && ln -sf "$src" "$bindir/$t"
+  done
+  out="$(env PATH="$bindir" CCTOOLS_SKIP_INSTALL=1 CCTOOLS_BIN="$BIN" bash "$SESSION")"
+  grep -q "INACTIVE" <<<"$out"
+  grep -q "no jq, node, or bun" <<<"$out"
 }

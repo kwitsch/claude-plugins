@@ -360,5 +360,67 @@
     "expect": [
       "legacy.txt"
     ]
+  },
+  {
+    "cmd": "grep -c x < legacy.txt",
+    "expect": []
+  },
+  {
+    "cmd": "wc -l < legacy.txt",
+    "expect": []
+  },
+  {
+    "cmd": "sort -u < legacy.txt",
+    "expect": []
+  },
+  {
+    "cmd": "base64 < legacy.txt",
+    "expect": []
+  },
+  {
+    "cmd": "tr a b < legacy.txt",
+    "expect": []
+  },
+  {
+    "cmd": "cat < legacy.txt | head",
+    "expect": []
+  },
+  {
+    "cmd": "cat <legacy.txt",
+    "expect": [
+      "legacy.txt"
+    ]
+  },
+  {
+    "cmd": "cat -n < legacy.txt",
+    "expect": [
+      "legacy.txt"
+    ]
+  },
+  {
+    "cmd": "tee < legacy.txt",
+    "expect": []
+  },
+  {
+    "cmd": "tee out.txt < legacy.txt",
+    "expect": []
+  },
+  {
+    "cmd": "sed -i s/a/b/ < legacy.txt",
+    "expect": []
+  },
+  {
+    "cmd": "sed -i s/a/b/ utf8.txt < legacy.txt",
+    "expect": []
+  },
+  {
+    "cmd": "sed -i s/a/b/ legacy.txt < utf8.txt",
+    "expect": [
+      "legacy.txt"
+    ]
+  },
+  {
+    "cmd": "cat <<< legacy.txt",
+    "expect": []
   }
 ]
