@@ -28,6 +28,17 @@
       },
       "category": "git",
       "tags": ["git", "hooks", "signing", "ssh"]
+    },
+    {
+      "name": "cctools-edit",
+      "source": "./plugins/cctools-edit",
+      "description": "Installs the cc-tools binary for the host OS and routes Read/Write/Edit/MultiEdit through it so file encodings (Latin-1/Windows-1252/UTF-8) are preserved instead of corrupted.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Kwitsch"
+      },
+      "category": "files",
+      "tags": ["files", "hooks", "encoding", "cc-tools"]
     }
   ]
 }
