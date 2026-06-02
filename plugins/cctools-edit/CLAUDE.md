@@ -7,7 +7,9 @@ corrupted to UTF-8. Hook-only ("Instruct"/deny) architecture — no MCP server.
 ## Components
 - `hooks/lib.sh` — sourced helpers: platform → release-asset mapping
   (`cctools_asset`), resolved paths (`cctools_bin`, `cctools_home`), download
-  URL. All three scripts share it so they agree on where the binary lives.
+  URL, and `cctools_is_legacy_file` (encoding classifier via
+  `file --mime-encoding`/`iconv`; cc-tools' own detector is NOT used — it
+  mislabels ASCII as ISO-8859-1). All scripts share it.
 - `hooks/install-cctools.sh` — idempotent installer. Detects OS/arch
   (`uname -s`/`-m`, overridable via `CCTOOLS_OS`/`CCTOOLS_ARCH`), downloads the
   pinned release (`CCTOOLS_VERSION`, default `v1.0.0.0`) with curl/wget, extracts
@@ -22,6 +24,15 @@ corrupted to UTF-8. Hook-only ("Instruct"/deny) architecture — no MCP server.
 - `hooks/redirect-to-cctools.sh` (PreToolUse, matcher `Read|Write|Edit|MultiEdit`)
   — emits `permissionDecision: "deny"` with a per-tool
   `permissionDecisionReason` mapping the op to its cc-tools equivalent.
+- `hooks/guard-bash.sh` (PreToolUse, matcher `Bash`) — secondary net for shell
+  file ops. A two-pass de-quoting parser (Pass A strips heredoc bodies incl.
+  multiple/`<<-`/quoted delimiters; Pass B blanks quotes/`$'…'`/`$()`/backticks/
+  `<()`/`>()`/escapes/comments to a sentinel) then per-segment detectors find
+  `sed -i`, redirections (`>` `>>` `>|` `&>` `1>`, input `<`), `tee`, and a bare
+  `cat` read. Only **clean literal** tokens that are **existing non-UTF-8 files**
+  (`cctools_is_legacy_file`) are denied. `--check`/`--strip` modes aid testing;
+  bash-3.2 safe (no associative arrays); fast-path skips the parser when the
+  command has no `>`/`<`/cat/sed/tee.
 
 ## Behavior / key rules
 - **Fail-open everywhere.** The redirect denies ONLY when the binary is present
@@ -38,5 +49,7 @@ corrupted to UTF-8. Hook-only ("Instruct"/deny) architecture — no MCP server.
 ## Tests
 `test/cctools-edit/test.bats` (bats). Hermetic — no network: a dummy executable
 stands in for the binary, `--print-asset`/`--print-url` cover the OS/arch
-mapping, and `CCTOOLS_SKIP_INSTALL=1` keeps SessionStart offline. Run:
+mapping, and `CCTOOLS_SKIP_INSTALL=1` keeps SessionStart offline. The Bash guard
+runs against `test/cctools-edit/bash-guard-corpus.json` (71 deny/allow cases,
+incl. quoting/heredoc/fd-dup traps) using real ISO-8859-1 vs UTF-8 fixtures. Run:
 `BATS_LIB_PATH="$PWD/node_modules" npx bats test/cctools-edit/`.

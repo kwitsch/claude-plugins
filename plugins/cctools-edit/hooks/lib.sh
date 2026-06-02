@@ -58,3 +58,49 @@ cctools_download_url() {
   printf 'https://github.com/devslimbr/cc-tools/releases/download/%s/%s' \
     "$CCTOOLS_VERSION" "$(cctools_asset)"
 }
+
+# cctools_is_legacy_file <path>
+# Returns 0 (true) only if <path> is an existing, non-empty, regular file whose
+# on-disk encoding is "legacy" — i.e. NOT UTF-8 and NOT ASCII (e.g. ISO-8859-1 /
+# Windows-1252). Returns 1 (safe) for everything else: missing, empty, a
+# directory/special file, ASCII, UTF-8, or detected binary.
+#
+# Classification (precision-biased; fail OPEN = treat as safe on uncertainty):
+#   1. `file --mime-encoding`: us-ascii / utf-8 / binary -> safe; anything else
+#      (iso-8859-1, unknown-8bit, ...) -> legacy.
+#   2. If `file` is unavailable, fall back to `iconv -f UTF-8 -t UTF-8`: valid
+#      UTF-8 (incl. ASCII) round-trips with exit 0 -> safe; failure -> legacy.
+#   3. If NEITHER tool exists, fail open (return 1 = safe).
+#
+# NOTE: the cc-tools binary is intentionally NOT used here — its detector
+# mislabels plain ASCII as ISO-8859-1, which would cause false positives.
+cctools_is_legacy_file() {
+  local path="$1"
+  # Must be an existing, non-empty, regular file.
+  [ -n "$path" ] || return 1
+  [ -f "$path" ] || return 1
+  [ -s "$path" ] || return 1   # -s also rejects empty files
+
+  if command -v file >/dev/null 2>&1; then
+    local enc
+    enc=$(file --mime-encoding -b "$path" 2>/dev/null | tr '[:upper:]' '[:lower:]')
+    # Keep only the leading token (drop any trailing whitespace / CR / suffix),
+    # so a stray space or CRLF can't push a safe value into the legacy branch.
+    enc="${enc%%[[:space:]]*}"
+    case "$enc" in
+      us-ascii | ascii | utf-8 | utf8 | binary | '')
+        return 1 ;;   # safe (or undetermined -> fail open)
+      *)
+        return 0 ;;   # legacy encoding
+    esac
+  elif command -v iconv >/dev/null 2>&1; then
+    if iconv -f UTF-8 -t UTF-8 "$path" >/dev/null 2>&1; then
+      return 1        # valid UTF-8 / ASCII -> safe
+    else
+      return 0        # not valid UTF-8 -> legacy
+    fi
+  fi
+
+  # Neither tool available -> fail open (safe).
+  return 1
+}
