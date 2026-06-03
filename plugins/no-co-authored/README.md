@@ -1,7 +1,7 @@
 # no-co-authored
 
-Strips `Co-Authored-By:` trailers and the Claude Code footer from git commit
-messages before they run.
+Blocks `git commit` commands whose message carries a `Co-Authored-By:` trailer
+or the Claude Code footer, and asks Claude to recreate the message without them.
 
 ## Install
 
@@ -11,9 +11,11 @@ messages before they run.
 
 ## What it does
 
-A PreToolUse hook on the Bash tool rewrites `git commit` commands in place,
-removing co-author trailers and the `Generated with [Claude Code]` footer. In
-normal operation it fails open and never blocks a commit. Only when neither `jq`
-nor `node` is available to parse the command does it block that git commit
-(non-commit commands are left alone) and ask Claude to recreate the message
-without those lines.
+A PreToolUse hook on the Bash tool scans `git commit` commands. If the message
+contains a `Co-Authored-By:` trailer or the `Generated with [Claude Code](http…`
+footer, the hook returns a `deny` decision with a reason telling Claude to
+recreate the commit without those lines. It never rewrites the command itself.
+
+Clean commits, non-commit commands, and prose that merely mentions the footer
+(without the `](http…` URL) fall open and run untouched. The scan is pure shell
+with no `jq`/`node` dependency.

@@ -1,12 +1,14 @@
 # CLAUDE.md — no-co-authored
 
-A PreToolUse hook (`hooks/strip-coauthor.sh`, matcher `Bash`) that rewrites
-`git commit` commands to drop co-author/footer lines before they run.
+A PreToolUse hook (`hooks/deny-coauthor.sh`, matcher `Bash`) that scans
+`git commit` commands and **denies** them when the message carries a co-author
+trailer or the Claude Code footer. Scan only — it never rewrites the command.
 
 ## Behavior
-- JSON read/emit prefers `jq`, falls back to `node`; if neither exists it returns a `deny` decision for git commits only (telling Claude to recreate the message without those lines) and fails open for any other command.
-- Cleaning (sed, case-insensitive): own-line `Co-Authored-By:`, inline `-m "Co-Authored-By: …"` args, and the footer matched by its full `[Claude Code](http…` signature (so prose mentioning the footer survives).
-- Guards: never deletes a line containing `git commit`; runs `bash -n` on the result and falls open if cleaning broke the shell syntax; only emits a decision when something actually changed.
+- Pure shell `case` matching on the raw hook payload; no `jq`/`node` dependency. `Co-Authored-By:` and `Generated with [Claude Code](http` are plain ASCII that JSON never escapes, so they match verbatim in the payload.
+- Scope guard: only payloads containing `git commit` are considered; everything else exits 0 with no output.
+- Findings (case-insensitive trailer; footer matched by its full `[Claude Code](http` signature so prose mentioning the footer survives): returns `permissionDecision: "deny"` with a `permissionDecisionReason` that names what was found and tells Claude to recreate the commit without those lines.
+- Fails open (exit 0, no output) for clean commits, non-commit commands, and malformed input. The deny `reason` is hand-assembled into JSON, so it stays JSON-safe (plain ASCII, no double quotes/backslashes/newlines).
 
 ## Tests
 `test/no-co-authored/test.bats` (bats). Run: `BATS_LIB_PATH="$PWD/node_modules" npx bats test/no-co-authored/`.

@@ -1,7 +1,7 @@
 {
   "name": "no-co-authored",
-  "version": "1.0.0",
-  "description": "Strips Co-Authored-By trailers and the Claude Code footer from git commit messages before they run.",
+  "version": "2.0.0",
+  "description": "Blocks git commits whose message carries a Co-Authored-By trailer or the Claude Code footer, asking Claude to recreate the message without them.",
   "author": {
     "name": "Kwitsch"
   }
