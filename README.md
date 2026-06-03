@@ -21,5 +21,5 @@ See the [marketplace](https://docs.claude.com/en/docs/claude-code/plugin-marketp
 
 ```
 /plugin marketplace add kwitsch/claude-plugins
-/plugin install no-co-authored@claude-plugins
+/plugin install no-co-authored@kwitsch-plugins
 ```
