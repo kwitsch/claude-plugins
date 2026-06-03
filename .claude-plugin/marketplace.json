@@ -22,7 +22,7 @@
       "name": "git-sign-key",
       "source": "./plugins/git-sign-key",
       "description": "Signs git commits with a ~/.claude/sign.key file via SSH signing instead of the ssh-agent.",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "author": {
         "name": "Kwitsch"
       },

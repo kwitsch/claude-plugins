@@ -1,6 +1,6 @@
 {
   "name": "git-sign-key",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Signs git commits with a ~/.claude/sign.key file via SSH signing instead of the ssh-agent.",
   "author": {
     "name": "Kwitsch"

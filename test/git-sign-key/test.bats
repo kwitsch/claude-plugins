@@ -15,8 +15,11 @@ setup() {
   KEY_FILE="$HOME/.claude/sign.key"
 }
 
-make_key() { printf 'dummy-private-key\n' > "$KEY_FILE"; }
+make_key() { printf 'dummy-private-key\n' > "$KEY_FILE"; chmod 600 "$KEY_FILE"; }
 no_key()   { rm -f "$KEY_FILE"; }
+make_real_key()      { rm -f "$KEY_FILE" "$KEY_FILE.pub"; ssh-keygen -q -t ed25519 -N '' -C test -f "$KEY_FILE"; }
+make_encrypted_key() { rm -f "$KEY_FILE" "$KEY_FILE.pub"; ssh-keygen -q -t ed25519 -N 'secret-pw' -C test -f "$KEY_FILE"; }
+count_partial() { grep -o "$1" <<<"$2" | wc -l | tr -d ' '; }
 
 # Build a PreToolUse payload from a command (+ optional description).
 make_input() {
@@ -84,7 +87,7 @@ rewrite() { bash "$SIGN_HOOK" <<<"$1" | jq -r '.hookSpecificOutput.updatedInput.
   make_key
   run rewrite "$(make_input 'cd /repo && git commit')"
   assert_success
-  assert_output "cd /repo && git -c gpg.format=ssh -c user.signingkey='$KEY_FILE' -c commit.gpgsign=true commit"
+  assert_output "cd /repo && git -c gpg.format=ssh -c gpg.ssh.program=ssh-keygen -c user.signingkey='$KEY_FILE' -c commit.gpgsign=true commit"
 }
 
 @test "ampersand in \$HOME stays literal in the injected key path" {
@@ -171,6 +174,142 @@ CMD
   assert_output ""
 }
 
+@test "rewrite injects gpg.ssh.program=ssh-keygen to bypass a custom signer" {
+  make_key
+  run rewrite "$(make_input 'git commit -m x')"
+  assert_success
+  assert_output --partial "gpg.ssh.program=ssh-keygen"
+}
+
+@test "both commits in a compound command are signed" {
+  make_key
+  run rewrite "$(make_input 'git commit -m a && git commit -m b')"
+  assert_success
+  assert_equal "$(count_partial 'user.signingkey=' "$output")" "2"
+  assert_output --partial 'commit -m a'
+  assert_output --partial 'commit -m b'
+}
+
+@test "git -C <path> commit is signed" {
+  make_key
+  run rewrite "$(make_input 'git -C /repo commit -m x')"
+  assert_success
+  assert_output --partial "gpg.ssh.program=ssh-keygen"
+  assert_output --partial "-C /repo commit -m x"
+  run bash -n <<<"$output"
+  assert_success
+}
+
+@test "git --no-pager commit is signed" {
+  make_key
+  run rewrite "$(make_input 'git --no-pager commit -m x')"
+  assert_success
+  assert_output --partial "gpg.format=ssh"
+  assert_output --partial "--no-pager commit -m x"
+}
+
+@test "commit followed by a semicolon is signed" {
+  make_key
+  run rewrite "$(make_input 'git commit; echo done')"
+  assert_success
+  assert_output --partial "gpg.format=ssh"
+  assert_output --partial "commit; echo done"
+}
+
+@test "commit followed by a newline is signed" {
+  make_key
+  run rewrite "$(make_input "$(printf 'git commit\necho hi')")"
+  assert_success
+  assert_output --partial "gpg.format=ssh"
+  assert_output --partial "echo hi"
+}
+
+@test "quoted 'git commit' in an earlier argument is not mistaken for the real commit" {
+  make_key
+  run rewrite "$(make_input 'echo "git commit now" && git commit -m x')"
+  assert_success
+  assert_equal "$(count_partial 'user.signingkey=' "$output")" "1"
+  assert_output --partial 'echo "git commit now"'   # the echoed string must stay untouched
+  assert_output --partial 'commit -m x'
+}
+
+@test "already-wired command is left untouched (idempotent)" {
+  make_key
+  wired="git -c gpg.format=ssh -c gpg.ssh.program=ssh-keygen -c user.signingkey='$KEY_FILE' -c commit.gpgsign=true commit -m x"
+  run bash "$SIGN_HOOK" <<<"$(make_input "$wired")"
+  assert_success
+  assert_output ""
+}
+
+@test "a separator inside the commit message does not corrupt the message" {
+  make_key
+  run rewrite "$(make_input 'git commit -m "fix; git commit later"')"
+  assert_success
+  assert_equal "$(count_partial 'user.signingkey=' "$output")" "1"
+  assert_output --partial '-m "fix; git commit later"'   # message must be byte-for-byte intact
+}
+
+@test "parenthesised 'git commit' inside the message does not corrupt the message" {
+  make_key
+  run rewrite "$(make_input 'git commit -m "see (git commit) here"')"
+  assert_success
+  assert_equal "$(count_partial 'user.signingkey=' "$output")" "1"
+  assert_output --partial 'see (git commit) here'
+}
+
+@test "separator + 'git commit' inside a quoted argument is left untouched" {
+  make_key
+  run rewrite "$(make_input 'echo "x; git commit" && git commit -m x')"
+  assert_success
+  assert_equal "$(count_partial 'user.signingkey=' "$output")" "1"
+  assert_output --partial 'echo "x; git commit"'   # quoted literal untouched
+  assert_output --partial 'commit -m x'
+}
+
+@test "real 'git commit' inside \$(...) substitution is still signed (refactor guard)" {
+  make_key
+  run rewrite "$(make_input 'out=$(git commit -m x)')"
+  assert_success
+  assert_output --partial "gpg.format=ssh"
+  assert_output --partial 'commit -m x)'
+}
+
+@test "real 'git commit' inside backticks is signed" {
+  make_key
+  run rewrite "$(make_input 'out=`git commit`')"
+  assert_success
+  assert_output --partial "gpg.format=ssh"
+}
+
+@test "a user-pinned gpg.ssh.program alone does not suppress key injection" {
+  make_key
+  run rewrite "$(make_input 'git -c gpg.ssh.program=ssh-keygen commit -m x')"
+  assert_success
+  assert_output --partial "user.signingkey="
+}
+
+@test "degenerate 'git -- commit' is not treated as a commit invocation" {
+  make_key
+  run bash "$SIGN_HOOK" <<<"$(make_input 'git -- commit')"
+  assert_success
+  assert_output ""
+}
+
+@test "env-var assignment prefix before git commit is still signed" {
+  make_key
+  run rewrite "$(make_input 'GIT_COMMITTER_DATE="2020-01-01 00:00:00" git commit -m x')"
+  assert_success
+  assert_output --partial "gpg.format=ssh"
+  assert_output --partial 'commit -m x'
+}
+
+@test "assignment-looking token as a command argument is not a commit position" {
+  make_key
+  run bash "$SIGN_HOOK" <<<"$(make_input 'make FOO=bar')"
+  assert_success
+  assert_output ""
+}
+
 #
 # check-sign-key.sh — SessionStart
 #
@@ -197,5 +336,34 @@ CMD
   assert_success
   assert_equal "$(jq -r '.hookSpecificOutput.hookEventName' <<<"$out")" "SessionStart"
   run jq -e '.hookSpecificOutput.additionalContext' <<<"$out"
+  assert_success
+}
+
+@test "SessionStart warns when key is passphrase-encrypted" {
+  command -v ssh-keygen >/dev/null || skip "ssh-keygen unavailable"
+  make_encrypted_key
+  run bash "$CHECK_HOOK"
+  assert_success
+  assert_output --partial "encrypted"
+  run jq -e '.hookSpecificOutput.additionalContext' <<<"$output"
+  assert_success
+}
+
+@test "SessionStart is silent for a valid unencrypted key" {
+  command -v ssh-keygen >/dev/null || skip "ssh-keygen unavailable"
+  make_real_key
+  run bash "$CHECK_HOOK"
+  assert_success
+  assert_output ""
+}
+
+@test "SessionStart warns when an encrypted key also has loose permissions" {
+  command -v ssh-keygen >/dev/null || skip "ssh-keygen unavailable"
+  make_encrypted_key
+  chmod 644 "$KEY_FILE"   # ssh-keygen reports 'bad permissions' before it ever reaches the decrypt step
+  run bash "$CHECK_HOOK"
+  assert_success
+  assert_output --partial "sign.key"
+  run jq -e '.hookSpecificOutput.additionalContext' <<<"$output"
   assert_success
 }
