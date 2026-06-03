@@ -8,7 +8,7 @@ silently corrupted to UTF-8.
 ## Install
 
 ```
-/plugin install cctools-edit@claude-plugins
+/plugin install cctools-edit@kwitsch-plugins
 ```
 
 ## What it does

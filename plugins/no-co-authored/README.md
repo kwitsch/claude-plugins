@@ -6,7 +6,7 @@ messages before they run.
 ## Install
 
 ```
-/plugin install no-co-authored@claude-plugins
+/plugin install no-co-authored@kwitsch-plugins
 ```
 
 ## What it does

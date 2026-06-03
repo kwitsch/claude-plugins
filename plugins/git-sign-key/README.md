@@ -6,7 +6,7 @@ signing, instead of relying on the `ssh-agent`.
 ## Install
 
 ```
-/plugin install git-sign-key@claude-plugins
+/plugin install git-sign-key@kwitsch-plugins
 ```
 
 ## What it does

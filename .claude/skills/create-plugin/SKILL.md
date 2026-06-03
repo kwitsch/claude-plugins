@@ -129,7 +129,7 @@ Create `plugins/<name>/README.md` (minimal):
 ## Install
 
 ```
-/plugin install <name>@claude-plugins
+/plugin install <name>@kwitsch-plugins
 ```
 
 ## What it does
@@ -264,4 +264,4 @@ List every file created — `plugin.json`, the chosen component stubs, `README.m
 `CLAUDE.md`, the `marketplace.json` entry, and (for a hooks plugin)
 `test/<name>/test.bats` plus the `test.yml` matrix entry — and remind the user
 that the plugin can now be committed and installed via
-`/plugin install <name>@claude-plugins`.
+`/plugin install <name>@kwitsch-plugins`.
