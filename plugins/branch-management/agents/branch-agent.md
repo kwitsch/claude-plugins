@@ -36,9 +36,11 @@ let the dispatching skill handle the user interaction.
    verbatim; a bare description is slugged into `<type>/<kebab-case-slug>`
    with `<type>` from `feat`, `fix`, `chore`, or `docs`.
 
-5. **Create and switch.** If the name already exists
-   (`git show-ref --verify --quiet "refs/heads/<branch>"` succeeds):
-   `abort: name_exists` (include the name). Otherwise: `git checkout -b <branch>`.
+5. **Create and switch.** If the name already exists locally
+   (`git show-ref --verify --quiet "refs/heads/<branch>"`) or on the remote
+   (`git show-ref --verify --quiet "refs/remotes/origin/<branch>"` — fresh
+   after step 3's pull): `abort: name_exists` (include the name and whether
+   it is local or remote). Otherwise: `git checkout -b <branch>`.
 
 ## Result contract
 

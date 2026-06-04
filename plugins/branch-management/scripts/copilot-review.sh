@@ -26,18 +26,25 @@ if [ -z "${COPILOT_GITHUB_TOKEN:-}" ] && [ -z "${GH_TOKEN:-}" ] \
 fi
 
 # 3) Review — documented programmatic pattern, tool permission tightly scoped
-# to git. Output is captured so an auth failure (only visible in the output)
-# can be mapped to exit 3.
+# to git. Copilot's exit codes are undocumented and auth errors can surface in
+# either stream regardless of exit code, so both paths sniff a narrow auth
+# pattern (deliberately without bare 'unauthorized', which legitimate review
+# findings often contain).
+auth_re='not (logged in|authenticated)|authentication (required|failed)|run /login'
 err="$(mktemp)"
 trap 'rm -f "$err"' EXIT
 if ! out="$(timeout -k 10 "${REVIEW_TIMEOUT:-600}" copilot \
     -p "/review the changes on this branch compared to origin/${base}. Focus on bugs and security issues. Report each finding with file, line, severity (critical/major/minor), a short title and a concrete recommendation." \
     -s --no-ask-user --allow-tool='shell(git:*)' 2>"$err")"; then
-  if { cat "$err"; printf '%s' "$out"; } \
-      | grep -qiE 'not (logged in|authenticated)|authentication (required|failed)|unauthorized|run /login'; then
+  if { cat "$err"; printf '%s' "$out"; } | grep -qiE "$auth_re"; then
     exit 3
   fi
-  cat "$err" >&2
+  { cat "$err"; printf '%s\n' "$out"; } >&2
   exit 4
+fi
+# Short auth-error replies can come back with exit 0; real review output is
+# long, so only short outputs are sniffed.
+if [ "${#out}" -lt 400 ] && printf '%s' "$out" | grep -qiE "$auth_re"; then
+  exit 3
 fi
 printf '%s\n' "$out"

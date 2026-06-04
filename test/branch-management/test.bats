@@ -47,14 +47,14 @@ exit 64'
 }
 
 @test "codex: exit 3 when not logged in" {
-  make_stub codex 'if [ "$1" = "login" ]; then exit 1; fi' 'exit 0'
+  make_stub codex 'if [ "$1" = "login" ]; then [ "$2" = "status" ] || exit 99; exit 1; fi' 'exit 0'
   run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/codex-review.sh" main
   assert_failure 3
 }
 
 @test "codex: passes review output through and targets origin/<base>" {
   make_stub codex \
-    'if [ "$1" = "login" ]; then exit 0; fi' \
+    'if [ "$1" = "login" ]; then [ "$2" = "status" ] || exit 99; exit 0; fi' \
     'if [ "$1" = "exec" ]; then echo "CODEX REVIEW OUTPUT $*"; exit 0; fi' \
     'exit 64'
   run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/codex-review.sh" main
@@ -66,7 +66,7 @@ exit 64'
 
 @test "codex: exit 4 when the review hangs (timeout)" {
   make_stub codex \
-    'if [ "$1" = "login" ]; then exit 0; fi' \
+    'if [ "$1" = "login" ]; then [ "$2" = "status" ] || exit 99; exit 0; fi' \
     'if [ "$1" = "exec" ]; then sleep 5; fi'
   run env -i PATH="$MOCKBIN" HOME="$HOME" REVIEW_TIMEOUT=1 \
     bash "$SCRIPTS/codex-review.sh" main
@@ -75,7 +75,7 @@ exit 64'
 
 @test "codex: exit 4 when the review run fails" {
   make_stub codex \
-    'if [ "$1" = "login" ]; then exit 0; fi' \
+    'if [ "$1" = "login" ]; then [ "$2" = "status" ] || exit 99; exit 0; fi' \
     'if [ "$1" = "exec" ]; then echo boom >&2; exit 1; fi'
   run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/codex-review.sh" main
   assert_failure 4
@@ -142,6 +142,28 @@ exit 64'
   assert_output --partial "boom"
 }
 
+@test "copilot: stdout-only diagnostic survives an exit-4 failure" {
+  make_stub copilot 'echo "FATAL: model backend unavailable (502)"; exit 1'
+  run env -i PATH="$MOCKBIN" HOME="$HOME" GH_TOKEN=x \
+    bash "$SCRIPTS/copilot-review.sh" main
+  assert_failure 4
+  assert_output --partial "FATAL: model backend unavailable"
+}
+
+@test "copilot: auth error with exit 0 maps to exit 3" {
+  make_stub copilot 'echo "Error: not logged in. Run /login"; exit 0'
+  run env -i PATH="$MOCKBIN" HOME="$HOME" GH_TOKEN=x \
+    bash "$SCRIPTS/copilot-review.sh" main
+  assert_failure 3
+}
+
+@test "copilot: finding text mentioning unauthorized does not fake exit 3" {
+  make_stub copilot 'echo "major: code allows unauthorized access in auth.c"; exit 1'
+  run env -i PATH="$MOCKBIN" HOME="$HOME" GH_TOKEN=x \
+    bash "$SCRIPTS/copilot-review.sh" main
+  assert_failure 4
+}
+
 @test "copilot: exit 4 when the review hangs (timeout)" {
   make_stub copilot 'sleep 5'
   run env -i PATH="$MOCKBIN" HOME="$HOME" GH_TOKEN=x REVIEW_TIMEOUT=1 \
@@ -173,6 +195,12 @@ exit 64'
 
 @test "coderabbit: unrecognizable auth output maps to exit 3" {
   make_stub coderabbit 'if [ "$1" = "auth" ]; then echo "???"; exit 0; fi'
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh" main
+  assert_failure 3
+}
+
+@test "coderabbit: 'Not currently authenticated' wording maps to exit 3" {
+  make_stub coderabbit 'if [ "$1" = "auth" ]; then echo "Not currently authenticated to CodeRabbit"; exit 0; fi'
   run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh" main
   assert_failure 3
 }

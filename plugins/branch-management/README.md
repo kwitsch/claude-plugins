@@ -23,7 +23,7 @@ with its own model.
 | `copilot-reviewer` | haiku | runs `scripts/copilot-review.sh`, returns findings JSON |
 | `coderabbit-reviewer` | haiku | runs `scripts/coderabbit-review.sh`, returns findings JSON |
 | `review-fixer` | opus | verifies findings against the code, fixes, commits |
-| `ci-monitor` | sonnet | read-only: watches CI, collects CodeRabbit PR comments |
+| `ci-monitor` | sonnet | read-only: watches CI (bounded by `CI_WATCH_TIMEOUT`, default 30 min), collects CodeRabbit PR threads |
 
 When the context-mode plugin is installed, reviewer agents execute their
 script through `ctx_execute`, keeping raw review output out of the

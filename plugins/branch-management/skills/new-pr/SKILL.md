@@ -37,6 +37,12 @@ raw review output and CI logs never enter the main context.
 
    (The refspec update is refused when `$base` is checked out — that case
    aborts in step 3 anyway.)
+   It is also refused when the local `$base` has DIVERGED from
+   `origin/$base` (a local-only commit on the base). Check afterwards: if
+   `git rev-parse --verify -q "$base"` and `git rev-parse --verify -q
+   "origin/$base"` differ, skip the coderabbit reviewer in stage 2 and note
+   "coderabbit skipped: local base diverged" in the final report — coderabbit
+   diffs against the local base and would review the wrong range.
 
    If both come back empty, ask the user for the base branch instead of
    guessing. Everywhere below, git revisions use `origin/$base` — a local
@@ -118,7 +124,12 @@ raw review output and CI logs never enter the main context.
     - GitHub (`github.com` or a GitHub Enterprise host):
       `gh pr create --base "$base" --title "<title>" --body "<body>"`
     - GitLab (`gitlab.` or a self-managed GitLab host):
-      `glab mr create --target-branch "$base" --title "<title>" --description "<body>"`
+      `glab mr create --target-branch "$base" --title "<title>" --description "<body>" --yes`
+
+    If the origin URL matches neither anchor (a custom-domain Enterprise or
+    self-managed host), do not guess: check `gh auth status --hostname <host>`
+    and `glab auth status --hostname <host>` — if exactly one knows the host,
+    use that tool; otherwise ask the user.
 
     Derive the title from the branch's purpose and the body from
     `git log "origin/$base"..HEAD` — what changed and why, plus which review
@@ -138,7 +149,17 @@ hand the remaining findings to the user instead of pushing in circles.
 
 13. **If `ci` is `red` or `review_findings` is non-empty:** dispatch
     `branch-management:review-fixer` with both lists (CI failure analyses are
-    findings too), then push the fix commits.
+    findings too). Then:
+    - If the fixer returned commits: push them.
+    - For findings the fixer **skipped**, reply to the CodeRabbit thread with
+      the skip reason and resolve it, using the `thread_id` from ci-monitor
+      (GitHub: GraphQL mutation `resolveReviewThread`; GitLab:
+      `glab api -X PUT "projects/:id/merge_requests/<iid>/discussions/<thread_id>" -f resolved=true`)
+      — otherwise the same finding reappears every iteration.
+    - If an iteration produced no commits and the CI state is unchanged
+      (e.g. an infra flake the fixer skipped), stop early and hand the
+      remaining findings to the user — a push without commits restarts
+      nothing.
 
 14. **Loop.** Every push restarts the CI and triggers a CodeRabbit re-review;
     repeat steps 12–13 until both are quiet in the same iteration: CI green

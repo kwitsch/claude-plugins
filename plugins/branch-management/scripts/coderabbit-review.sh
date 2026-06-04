@@ -23,7 +23,7 @@ else exit 2; fi
 # 2) Login — "Not logged in" also contains "logged in", so check the negative
 # first, then require a positive signal.
 status_out="$("$bin" auth status 2>&1 || true)"
-printf '%s' "$status_out" | grep -qiE 'not[ -]?(logged|authenticated)' && exit 3
+printf '%s' "$status_out" | grep -qiE 'not[a-z ,-]{0,30}(logged|authenticated)' && exit 3
 printf '%s' "$status_out" | grep -qiE 'logged in|authenticated' || exit 3
 
 # 3) Review

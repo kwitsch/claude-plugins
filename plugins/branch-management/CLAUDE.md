@@ -16,8 +16,10 @@ Skills carry no `model:` key.
   parallel, each running `scripts/<tool>-review.sh <base>` (via context-mode
   `ctx_execute` when available, Bash otherwise) and returning findings JSON;
   dedupe in the skill; one `review-fixer` pass; push + `gh pr create`/`glab
-  mr create`; then a monitor loop (max 5): `ci-monitor` (read-only analysis,
-  gets platform + PR/MR reference + branch name) → `review-fixer` → push,
+  mr create`; then a monitor loop (max 5, with no-progress early exit):
+  `ci-monitor` (read-only analysis, gets platform + PR/MR reference + branch
+  name; CI watch bounded by `CI_WATCH_TIMEOUT`, default 1800 s) →
+  `review-fixer` → push fixes, reply to + resolve skipped CodeRabbit threads,
   until CI is green and no findings remain.
 - Script exit-code contract: 0 ran · 2 CLI missing (skip silently) ·
   3 not logged in (skip + report login command) · 4 run failed (skip +

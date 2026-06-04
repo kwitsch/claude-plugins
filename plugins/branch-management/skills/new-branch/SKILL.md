@@ -22,8 +22,10 @@ reports. Do not run the git steps yourself.
 2. **Handle a structured abort** from the agent:
    - `dirty_tree` — ask the user: commit, stash, or abort? Execute the choice
      (commit/stash in the main context), then re-dispatch the agent.
-   - `name_exists` — ask the user: switch to the existing branch (then run
-     `git checkout <branch>` yourself) or pick a different name (then
+   - `name_exists` — the tree is already on the default branch at this point;
+     mention that. Ask the user: switch to the existing branch (local:
+     `git checkout <branch>`; remote-only: `git checkout <branch>` creates a
+     tracking branch automatically) or pick a different name (then
      re-dispatch).
    - `no_remote` / `pull_failed` — report the detail and stop; never branch
      off a stale or unknown base. After `pull_failed` the working tree is

@@ -22,8 +22,11 @@ calls, `:id` is glab's own project placeholder (leave it literal), while
 ## Steps
 
 1. **Wait for the CI result.**
-   - GitHub: `gh pr checks <nr> --watch`
-   - GitLab: `glab ci status --live`
+   - GitHub: `timeout -k 10 "${CI_WATCH_TIMEOUT:-1800}" gh pr checks <nr> --watch`
+   - GitLab: `timeout -k 10 "${CI_WATCH_TIMEOUT:-1800}" glab ci status --live`
+   If the watch times out (checks still pending after ~30 min), stop
+   watching and report `ci: "red"` with a failures entry
+   `{job: "ci-watch", cause: "watch timed out — checks still pending"}`.
 2. **On failure, pull the evidence.** GitHub: `gh run view <run-id>
    --log-failed`; GitLab: `glab ci trace <job>` for each failing job. Distill
    every failing job into: job name, root cause (your analysis, one or two
@@ -45,7 +48,8 @@ calls, `:id` is glab's own project placeholder (leave it literal), while
      discussions carry a `resolved` flag; keep unresolved ones authored by
      `coderabbitai`.
    Normalize each into the findings shape below. No CodeRabbit app on the
-   repo → empty list, not an error.
+   repo → empty list, not an error. Carry each thread's id into `thread_id`
+   — the skill needs it to resolve skipped threads.
 
 ## Result contract
 
@@ -56,5 +60,6 @@ Return ONLY this JSON as your final message:
  "failures": [{"job": "name", "cause": "analysis", "log_excerpt": "lines"}],
  "review_findings": [{"file": "path", "line": 0,
                       "severity": "critical|major|minor", "title": "...",
-                      "description": "...", "recommendation": "..."}]}
+                      "description": "...", "recommendation": "...",
+                      "thread_id": "GraphQL thread node id / GitLab discussion id"}]}
 ```
