@@ -17,7 +17,8 @@ work) and `new-pr` (submit work). Per-skill model override in the frontmatter:
   `origin/<base>` for every git revision (a local base branch may be stale or
   missing — only `gh`/`glab` get the bare name). Review pipeline:
   `code-review --fix` (its default branch-diff scope), then `/copilot:review
-  --base` and `/coderabbit:review --base` when those plugins are installed.
+  --base`, `/codex:review --base`, and `/coderabbit:review --base` when
+  those plugins are installed.
   Fixes are committed after each stage so later reviewers see them; findings
   are verified before fixing, never blindly applied. Then: ensure a clean
   tree, push, and `gh pr create` / `glab mr create` chosen from the `origin`

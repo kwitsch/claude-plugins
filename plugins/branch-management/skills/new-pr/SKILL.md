@@ -1,6 +1,6 @@
 ---
 name: new-pr
-description: Use when work on a branch is complete and should become a pull/merge request - runs every available code review (code-review --fix, Copilot, CodeRabbit) against the base branch, fixes the findings, verifies everything is committed, pushes, and opens a PR or MR via gh or glab.
+description: Use when work on a branch is complete and should become a pull/merge request - runs every available code review (code-review --fix, Copilot, Codex, CodeRabbit) against the base branch, fixes the findings, verifies everything is committed, pushes, and opens a PR or MR via gh or glab.
 model: opus
 ---
 
@@ -65,7 +65,18 @@ Only when the `copilot:review` command is available in this session (from the
   merits — verify it against the code before acting, skip findings that are
   wrong or out of scope (note why), and fix the justified ones.
 
-### Stage 3 — CodeRabbit review (only if installed)
+### Stage 3 — OpenAI Codex review (only if installed)
+
+Only when the `codex:review` command is available in this session (from the
+[codex plugin](https://github.com/openai/codex-plugin-cc)):
+
+- Run `/codex:review --base "origin/$base" --wait`.
+- Like stage 2, the review is read-only and returns structured findings
+  (severity, file, line range, recommendation). Apply the same judgement:
+  verify findings against the code, fix the justified ones, skip and note
+  the rest.
+
+### Stage 4 — CodeRabbit review (only if installed)
 
 Only when the `coderabbit:review` command is available in this session (from
 the [coderabbit plugin](https://github.com/coderabbitai/claude-plugin)):
@@ -74,7 +85,7 @@ the [coderabbit plugin](https://github.com/coderabbitai/claude-plugin)):
 - Apply the same judgement as in stage 2: verify findings against the code,
   fix the justified ones, skip and note the rest.
 
-Skip stages 2 and 3 silently when the corresponding plugin is missing — their
+Skip stages 2–4 silently when the corresponding plugin is missing — their
 absence is not an error.
 
 ## Submit

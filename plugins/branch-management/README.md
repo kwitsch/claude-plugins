@@ -21,6 +21,8 @@ Two skills:
   base branch (the `code-review` skill with `--fix`, the
   [copilot plugin](https://github.com/wagnersza/copilot-plugin-cc)'s
   `/copilot:review`, the
+  [codex plugin](https://github.com/openai/codex-plugin-cc)'s
+  `/codex:review`, the
   [coderabbit plugin](https://github.com/coderabbitai/claude-plugin)'s
   `/coderabbit:review`), fixes the findings, makes sure everything is
   committed, pushes the branch, and opens a pull request (`gh`) or merge
