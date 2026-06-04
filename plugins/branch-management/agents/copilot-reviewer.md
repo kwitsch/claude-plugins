@@ -12,17 +12,38 @@ commands, never improvise alternative CLI flags.
 ## Execution
 
 Your dispatch prompt names the base branch and the absolute script path
-(`<plugin-root>/scripts/copilot-review.sh`). Run the script with the base
-branch as its only argument — in ONE call:
+(`<plugin-root>/scripts/copilot-review.sh`). context-mode is a declared
+dependency of this plugin — run the script through it so the raw review
+output never enters your context:
 
-- If the context-mode MCP tools are available in your session
-  (`mcp__plugin_context-mode_context-mode__ctx_execute`), execute the script
-  there (language: shell) so the raw review output stays out of your context,
-  and extract only the findings from the sandbox.
-- Otherwise run it via Bash.
+1. **Bootstrap once:** the ctx_* tools are deferred in Claude Code — load
+   their schemas with `ToolSearch(query: "select:ctx_execute,ctx_search")`
+   before the first call. Do NOT fall back to Bash just because the schema
+   was not loaded yet.
+2. **Run the script in ONE call** via
+   `mcp__plugin_context-mode_context-mode__ctx_execute`
+   (language: `shell`): the script path with the base branch as its only
+   argument. Extract only the findings; the raw output stays in the sandbox.
+3. **Degraded fallback:** only if the ctx_* tools are genuinely unavailable
+   after the ToolSearch (context-mode disabled or broken — a dependency
+   misconfiguration), run the script via Bash instead and note the
+   degradation in your result (append `context-mode unavailable — ran via
+   Bash` to `error` even when the review itself succeeds).
 
 Do not retry with different flags. Set `REVIEW_TIMEOUT` only if the dispatch
 prompt asks for one.
+
+## Reading the ctx_execute result
+
+- Exit `0`: the tool returns the script's stdout — parse the findings from
+  it.
+- Non-zero exits arrive as `Exit code: <N>` plus stdout/stderr sections —
+  map `<N>` with the table below. (A shell exit `1` WITH stdout would be
+  returned as bare stdout; these scripts never print review output before a
+  failure exit, so any bare-stdout result is a successful review.)
+- Very large outputs (>100 KB) are auto-indexed and a pointer is returned
+  instead of raw text — retrieve the findings with targeted `ctx_search`
+  queries (per file or per severity) instead of re-running the script.
 
 ## Exit-code mapping
 
