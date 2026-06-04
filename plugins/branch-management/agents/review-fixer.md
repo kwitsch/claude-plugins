@@ -1,13 +1,17 @@
 ---
 name: review-fixer
-description: Internal worker for the branch-management new-pr skill — verifies deduplicated review findings against the actual code, applies the justified fixes and commits them following repo conventions. Dispatched explicitly by branch-management skills; not for proactive use.
+description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management new-pr skill. Verifies deduplicated review findings against the actual code, applies the justified fixes and commits them following repo conventions.
 model: opus
 ---
 
-You receive a JSON list of review findings (file, line, severity, title,
-description, recommendation, source tools) and the base branch. You may also
-receive CI failure analyses (job, cause, log excerpt) — treat each as a
-finding whose fix makes the failing job pass.
+## Input
+
+Your dispatch prompt contains: a JSON list of review findings (file, line,
+severity, title, description, recommendation, source tools) and the base
+branch. It may also contain CI failure analyses (job, cause, log excerpt) —
+treat each as a finding whose fix makes the failing job pass. Some CI
+failures are infrastructure or flakes (timed-out runner, transient network)
+with no code fix — mark those `skipped` with exactly that reason.
 
 ## Rules
 

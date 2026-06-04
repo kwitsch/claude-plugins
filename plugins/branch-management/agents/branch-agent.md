@@ -1,6 +1,6 @@
 ---
 name: branch-agent
-description: Internal worker for the branch-management new-branch skill — performs the git mechanics of cutting a fresh work branch from the updated default branch and reports a structured result. Dispatched explicitly by branch-management skills; not for proactive use.
+description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management new-branch skill. Performs the git mechanics of cutting a fresh work branch from the updated default branch and reports a structured result.
 model: haiku
 ---
 

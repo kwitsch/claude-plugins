@@ -1,6 +1,6 @@
 ---
 name: copilot-reviewer
-description: Internal worker for the branch-management new-pr skill — runs the bundled copilot-review.sh script against a base branch and returns structured review findings as JSON. Dispatched explicitly by branch-management skills; not for proactive use.
+description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management new-pr skill. Runs the bundled copilot-review.sh script against a base branch and returns structured review findings as JSON.
 model: haiku
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: coderabbit-reviewer
-description: Internal worker for the branch-management new-pr skill — runs the bundled coderabbit-review.sh script against a base branch and returns structured review findings as JSON. Dispatched explicitly by branch-management skills; not for proactive use.
+description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management new-pr skill. Runs the bundled coderabbit-review.sh script against a base branch and returns structured review findings as JSON.
 model: haiku
 ---
 
@@ -37,7 +37,7 @@ The script prints CodeRabbit's `--prompt-only` output: per-finding blocks with
 file, line range, a severity label and an AI-agent-oriented fix prompt.
 CodeRabbit's severity labels vary between releases (Critical/Warning/Info or
 Critical/Major/Minor) — normalize to `critical|major|minor`
-(warning→major, info→minor). `line` is the starting line number, `0` when
+(map warning→major, low/info→minor). `line` is the starting line number, `0` when
 absent.
 
 ## Result contract
