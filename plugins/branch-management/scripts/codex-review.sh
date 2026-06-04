@@ -21,7 +21,7 @@ command -v codex >/dev/null 2>&1 || exit 2
 codex login status >/dev/null 2>&1 || exit 3
 
 # 3) Review
-timeout "${REVIEW_TIMEOUT:-600}" codex exec --skip-git-repo-check \
+timeout -k 10 "${REVIEW_TIMEOUT:-600}" codex exec --skip-git-repo-check \
   --sandbox read-only --color never \
   "Review the changes on the current branch against base branch origin/${base}.
 Run: git diff \"origin/${base}...HEAD\" and inspect the changed files as needed.

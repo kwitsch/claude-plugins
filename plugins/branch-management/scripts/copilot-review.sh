@@ -30,7 +30,7 @@ fi
 # can be mapped to exit 3.
 err="$(mktemp)"
 trap 'rm -f "$err"' EXIT
-if ! out="$(timeout "${REVIEW_TIMEOUT:-600}" copilot \
+if ! out="$(timeout -k 10 "${REVIEW_TIMEOUT:-600}" copilot \
     -p "/review the changes on this branch compared to origin/${base}. Focus on bugs and security issues. Report each finding with file, line, severity (critical/major/minor), a short title and a concrete recommendation." \
     -s --no-ask-user --allow-tool='shell(git:*)' 2>"$err")"; then
   if { cat "$err"; printf '%s' "$out"; } \

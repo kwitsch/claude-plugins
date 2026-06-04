@@ -114,6 +114,14 @@ make_stub() {
   assert_success
 }
 
+@test "copilot: COPILOT_HOME override satisfies the login heuristic" {
+  make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
+  mkdir -p "$BATS_TEST_TMPDIR/cphome"
+  run env -i PATH="$MOCKBIN" HOME="$HOME" COPILOT_HOME="$BATS_TEST_TMPDIR/cphome" \
+    bash "$SCRIPTS/copilot-review.sh" main
+  assert_success
+}
+
 @test "copilot: auth failure in the output maps to exit 3" {
   make_stub copilot 'echo "Error: not logged in. Run /login" >&2; exit 1'
   run env -i PATH="$MOCKBIN" HOME="$HOME" GH_TOKEN=x \
@@ -126,6 +134,7 @@ make_stub() {
   run env -i PATH="$MOCKBIN" HOME="$HOME" GH_TOKEN=x \
     bash "$SCRIPTS/copilot-review.sh" main
   assert_failure 4
+  assert_output --partial "boom"
 }
 
 @test "copilot: exit 4 when the review hangs (timeout)" {
