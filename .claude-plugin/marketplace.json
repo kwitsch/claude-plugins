@@ -43,13 +43,13 @@
     {
       "name": "branch-management",
       "source": "./plugins/branch-management",
-      "description": "Branch lifecycle skills: new-branch cuts a fresh work branch from the freshly pulled default branch, new-pr reviews the branch (code-review, Copilot, Codex, CodeRabbit), fixes findings, pushes, opens a PR or MR via gh or glab, and watches CI and CodeRabbit feedback until green.",
-      "version": "1.0.0",
+      "description": "Branch lifecycle skills backed by dedicated subagents: new-branch cuts a fresh work branch via the branch-agent (haiku), new-pr reviews the branch with code-review plus the codex, copilot and coderabbit CLIs (parallel haiku reviewer agents running bundled scripts), applies verified fixes via the opus review-fixer, pushes, opens a PR or MR via gh or glab, and watches CI and CodeRabbit feedback until green via the sonnet ci-monitor.",
+      "version": "2.0.0",
       "author": {
         "name": "Kwitsch"
       },
       "category": "git",
-      "tags": ["git", "skills", "branch", "pr", "review"]
+      "tags": ["git", "skills", "agents", "branch", "pr", "review"]
     }
   ]
 }
