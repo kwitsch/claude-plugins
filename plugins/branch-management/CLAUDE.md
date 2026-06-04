@@ -23,6 +23,12 @@ work) and `new-pr` (submit work). Per-skill model override in the frontmatter:
   are verified before fixing, never blindly applied. Then: ensure a clean
   tree, push, and `gh pr create` / `glab mr create` chosen from the `origin`
   URL.
+- After PR/MR creation `new-pr` enters a monitor loop (capped at 5 fix
+  iterations): watch CI (`gh pr checks --watch` / `glab ci status --live`),
+  fix failures from the logs; fetch unresolved CodeRabbit bot comments
+  (preferring the coderabbit plugin's `autofix` skill, falling back to
+  `gh api`/`glab api`), verify-then-fix, push — repeat until CI is green and
+  no findings remain open in the same iteration.
 - Missing optional plugins are skipped silently; a missing/unauthenticated
   `gh`/`glab` stops with the manual command instead.
 

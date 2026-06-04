@@ -26,7 +26,9 @@ Two skills:
   [coderabbit plugin](https://github.com/coderabbitai/claude-plugin)'s
   `/coderabbit:review`), fixes the findings, makes sure everything is
   committed, pushes the branch, and opens a pull request (`gh`) or merge
-  request (`glab`) depending on where `origin` points.
+  request (`glab`) depending on where `origin` points. Afterwards the PR/MR
+  is watched in a loop: CI failures and CodeRabbit bot findings are fixed
+  autonomously and pushed until the CI is green and no findings remain open.
 
 Optional integrations are skipped silently when the corresponding plugin is
 not installed.

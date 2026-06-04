@@ -1,6 +1,6 @@
 ---
 name: new-pr
-description: Use when work on a branch is complete and should become a pull/merge request - runs every available code review (code-review --fix, Copilot, Codex, CodeRabbit) against the base branch, fixes the findings, verifies everything is committed, pushes, and opens a PR or MR via gh or glab.
+description: Use when work on a branch is complete and should become a pull/merge request - runs every available code review (code-review --fix, Copilot, Codex, CodeRabbit) against the base branch, fixes the findings, verifies everything is committed, pushes, opens a PR or MR via gh or glab, then watches CI and CodeRabbit feedback in a fix-push loop until everything is green.
 model: opus
 ---
 
@@ -110,5 +110,40 @@ absence is not an error.
    stages ran. If the required CLI is missing or unauthenticated, stop and
    give the user the exact command to run themselves.
 
-7. **Report:** the PR/MR URL, which review stages ran, and how many findings
-   were fixed or skipped per stage.
+## Monitor until green
+
+After the PR/MR exists, stay in a watch loop until the CI is green and no
+review findings remain open. Cap the loop at 5 fix iterations — if it has not
+converged by then, stop and hand the remaining findings to the user instead
+of pushing in circles.
+
+7. **Watch the CI:**
+
+   - GitHub: `gh pr checks --watch`
+   - GitLab: `glab ci status --live`
+
+   On failure, pull the failing logs (GitHub: `gh run view <run-id>
+   --log-failed`; GitLab: `glab ci trace <job>` for the failing job), analyze
+   the cause, fix it autonomously, commit, push — then watch again.
+
+8. **Check for CodeRabbit findings on the PR/MR.** When the repository has
+   the CodeRabbit app, it comments a few minutes after each push — give it a
+   short grace period before concluding there is nothing:
+
+   - If the coderabbit plugin is installed, prefer its `autofix` skill: it
+     fetches the bot's review comments from the PR, applies fixes, commits,
+     and pushes.
+   - Otherwise fetch the unresolved bot comments yourself (GitHub:
+     `gh api repos/{owner}/{repo}/pulls/<nr>/comments`; GitLab:
+     `glab api "projects/:id/merge_requests/<iid>/discussions"` — filter for
+     the `coderabbitai` author). Judge each finding as in stages 2–4: fix the
+     justified ones, and reply to the ones you skip with a short reason
+     instead of silently ignoring them. Commit and push the fixes.
+   - No CodeRabbit app on the repository → no comments appear; skip silently.
+
+9. **Loop.** Every push restarts the CI and triggers a CodeRabbit re-review;
+   repeat steps 7–8 until both are quiet in the same iteration: CI green and
+   no unresolved findings.
+
+10. **Report:** the PR/MR URL, which review stages ran, how many findings
+    were fixed or skipped per stage, and how many monitor iterations it took.
