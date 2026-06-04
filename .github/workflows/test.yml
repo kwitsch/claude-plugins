@@ -20,6 +20,7 @@ jobs:
           - no-co-authored
           - git-sign-key
           - cctools-edit
+          - branch-management
     steps:
       - name: Checkout
         uses: actions/checkout@v6
