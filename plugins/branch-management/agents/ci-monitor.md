@@ -21,9 +21,10 @@ calls, `:id` is glab's own project placeholder (leave it literal), while
 
 ## Tooling
 
-context-mode is a declared dependency of this plugin — route your
-observations through it so raw CI logs and API responses never enter your
-context. Bootstrap once: the ctx_* tools are deferred in Claude Code — load
+context-mode is a declared dependency of this plugin — route the LARGE
+observations — failing-job logs and PR-thread payloads (steps 2-3) —
+through it so they never enter your context; the watch itself (step 1)
+stays on Bash. Bootstrap once: the ctx_* tools are deferred in Claude Code — load
 them with
 `ToolSearch(query: "select:mcp__plugin_context-mode_context-mode__ctx_execute,mcp__plugin_context-mode_context-mode__ctx_batch_execute,mcp__plugin_context-mode_context-mode__ctx_search")`
 before the first call. If nothing matches, retry with the bare names
@@ -41,18 +42,19 @@ report.
    If the watch times out (checks still pending after ~30 min), stop
    watching and report `ci: "red"` with a failures entry
    `{job: "ci-watch", cause: "watch timed out — checks still pending"}`.
-   Run the watch through `mcp__plugin_context-mode_context-mode__ctx_execute`
-   (language: `shell`); a non-zero exit arrives as `Exit code: <N>` plus the
-   check table — red checks are expected output here, not an error.
-   context-mode's own per-call time limit is undocumented — if the ctx call
-   dies before `CI_WATCH_TIMEOUT` elapses, rerun the watch via Bash instead
-   (its final check table is small); keep the log fetching of step 2 on
-   context-mode either way.
-2. **On failure, pull the evidence — through context-mode.** Fetch all
-   failing-job logs in one `ctx_batch_execute` call (one labeled command per
-   job, concurrency at most 4 — gh API rate limits), passing queries such as
-   the job names or "error"/"FAIL" so only the matching sections come back.
-   GitHub: `gh run view <run-id> --log-failed`; GitLab: `glab ci trace <job>`.
+   Run the watch on plain Bash: it is long-blocking with a guaranteed-small
+   final check table — exactly what context-mode's own guidance keeps on
+   Bash; routing it through `ctx_execute` would gain nothing and risks the
+   MCP host's RPC limit killing the call mid-watch. Derive green/red from
+   the TABLE CONTENT, not from exit codes: `gh pr checks` exits non-zero
+   both for failing (1) and still-pending (8) checks.
+2. **On failure, pull the evidence — through context-mode.**
+   - GitHub: ONE call — `gh run view <run-id> --log-failed` returns the logs
+     of every failed step; run it via `ctx_execute` with queries (job names,
+     "error", "FAIL") so only the matching sections come back.
+   - GitLab: one `glab ci trace <job>` per failing job — batch them in a
+     single `ctx_batch_execute` call (one labeled command per job,
+     concurrency at most 4), again with queries.
    Distill
    every failing job into: job name, root cause (your analysis, one or two
    sentences), and a minimal log excerpt (the failing lines only — not the
@@ -64,7 +66,7 @@ report.
    - GitHub: resolution state lives on review threads and is only available
      via GraphQL — query the PR's `reviewThreads` with `isResolved` and keep
      unresolved threads whose comments are authored by `coderabbitai`:
-     `gh api graphql -f query='query($owner:String!,$repo:String!,$nr:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$nr){reviewThreads(first:100){nodes{isResolved comments(first:10){nodes{author{login} path line body}}}}}}}' -f owner=<owner> -f repo=<repo> -F nr=<nr>`.
+     `gh api graphql -f query='query($owner:String!,$repo:String!,$nr:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$nr){reviewThreads(first:100){nodes{id isResolved comments(first:10){nodes{author{login} path line body}}}}}}}' -f owner=<owner> -f repo=<repo> -F nr=<nr>`.
      If the GraphQL query fails, fall back to
      `gh api repos/{owner}/{repo}/pulls/<nr>/comments` filtered to author
      `coderabbitai` — resolved comments may then reappear; the fixer's

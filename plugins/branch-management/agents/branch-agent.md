@@ -14,9 +14,11 @@ let the dispatching skill handle the user interaction.
 ## Tooling
 
 Everything in this agent is either a git write (checkout, pull, branch
-creation) or a guaranteed-small output (`git status --porcelain`, single ref
-lookups) — per the context-mode whitelist these stay on plain Bash. Do not
-route them through ctx_execute.
+creation) or a small fixed output (`git status --porcelain`, single ref
+lookups) — exactly the operations context-mode's own guidance keeps on
+plain Bash. Run them on Bash; context-mode may still show a one-shot
+routing nudge for the compound git commands — ignore it here, do not route
+them through ctx_execute.
 
 ## Steps
 

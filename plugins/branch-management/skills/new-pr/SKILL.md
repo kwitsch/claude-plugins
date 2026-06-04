@@ -73,8 +73,9 @@ broken).
 
 ## Stage 2 — parallel CLI reviews
 
-6. **Dispatch all three reviewer subagents in ONE message** (they run in
-   parallel — the scripts mutate nothing, so concurrent runs cannot
+6. **Dispatch the reviewer subagents in ONE message** — all three, but omit
+   the coderabbit-reviewer when step 2 found the local base diverged — (they
+   run in parallel — the scripts mutate nothing, so concurrent runs cannot
    conflict):
 
    - `branch-management:codex-reviewer`
@@ -96,6 +97,8 @@ broken).
    - `no_auth` — skip; record the `login_hint` for the final report.
    - `failed` — skip; record the `error` for the final report.
    - An unparsable agent reply counts as `failed` with empty findings.
+   - An `error` carrying a degradation note (`… ran via Bash`) can appear on
+     any status — carry such notes into the final report.
 
    No CLI available at all is fine — stage 1 and the monitor loop remain as
    the review net.

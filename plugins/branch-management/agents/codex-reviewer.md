@@ -11,6 +11,10 @@ commands, never improvise alternative CLI flags.
 
 ## Execution
 
+<!-- Keep Execution + "Reading the ctx_execute result" in sync across the
+     three reviewer agents (codex/copilot/coderabbit) — only the script
+     name, login hint and tool-specific notes may differ. -->
+
 Your dispatch prompt names the base branch and the absolute script path
 (`<plugin-root>/scripts/codex-review.sh`). context-mode is a declared
 dependency of this plugin — run the script through it so the raw review
@@ -27,11 +31,13 @@ output never enters your context:
    `mcp__plugin_context-mode_context-mode__ctx_execute`
    (language: `shell`): the script path with the base branch as its only
    argument. Extract only the findings; the raw output stays in the sandbox.
-3. **Degraded fallback:** only if the ctx_* tools are genuinely unavailable
-   after the ToolSearch (context-mode disabled or broken — a dependency
-   misconfiguration), run the script via Bash instead and note the
-   degradation in your result (append `context-mode unavailable — ran via
-   Bash` to `error` even when the review itself succeeds).
+3. **Degraded fallback:** if the ctx_* tools are genuinely unavailable after
+   the ToolSearch (context-mode disabled or broken), OR the ctx call aborts
+   before the script's own timeout can fire (`REVIEW_TIMEOUT`, default
+   600 s — e.g. the MCP host's RPC limit), run the script via Bash instead
+   and note the degradation in your result (append `context-mode
+   unavailable — ran via Bash` or `ctx call aborted — reran via Bash` to
+   `error` even when the review itself succeeds).
 
 Do not retry with different flags. Set `REVIEW_TIMEOUT` only if the dispatch
 prompt asks for one.
@@ -41,12 +47,18 @@ prompt asks for one.
 - Exit `0`: the tool returns the script's stdout — parse the findings from
   it.
 - Non-zero exits arrive as `Exit code: <N>` plus stdout/stderr sections —
-  map `<N>` with the table below. (A shell exit `1` WITH stdout would be
-  returned as bare stdout — but these scripts never exit with code 1 after
-  printing output, so any bare-stdout result is a successful review.)
-- Very large outputs (>100 KB) are auto-indexed and a pointer is returned
-  instead of raw text — retrieve the findings with targeted `ctx_search`
-  queries (per file or per severity) instead of re-running the script.
+  map `<N>` with the table below.
+  (Per context-mode's exit classification — soft-fail applies ONLY to shell
+  exit 1 with stdout, verified against v1.0.162 — and these scripts never
+  exit 1 after printing output, any bare-stdout result is a successful
+  review. Sanity-check it anyway: a real review reads as a complete report;
+  if it ends mid-stream, treat the run as `failed`.)
+- Very large outputs (>100 KB) are auto-indexed and only a pointer comes
+  back. Do NOT try to reconstruct the findings via `ctx_search` — its
+  ranked top-k results cannot enumerate a findings list. Re-run the script
+  once via Bash and parse the full output directly (rare large-review edge
+  case: correctness beats context savings here), and note `large output —
+  parsed via Bash` in your result.
 
 ## Exit-code mapping
 
@@ -76,4 +88,5 @@ Return ONLY this JSON as your final message — no prose around it:
                "recommendation": "concrete fix"}]}
 ```
 
-`login_hint` only when `no_auth`; `error` only when `failed`.
+`login_hint` only when `no_auth`; `error` when `failed` — or on ANY status
+when it carries a degradation note (`… ran via Bash`).

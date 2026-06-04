@@ -205,6 +205,12 @@ exit 64'
   assert_failure 3
 }
 
+@test "coderabbit: 'no longer logged in' wording maps to exit 3" {
+  make_stub coderabbit 'if [ "$1" = "auth" ]; then echo "Session expired. You are no longer logged in"; exit 0; fi'
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh" main
+  assert_failure 3
+}
+
 @test "coderabbit: 'Authenticated' wording satisfies the login check" {
   make_stub coderabbit 'if [ "$1" = "auth" ]; then echo "Authenticated as tester"; exit 0; fi
 if [ "$1" = "review" ]; then echo "CODERABBIT REVIEW OUTPUT"; exit 0; fi
