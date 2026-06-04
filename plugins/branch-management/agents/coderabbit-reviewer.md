@@ -2,6 +2,7 @@
 name: coderabbit-reviewer
 description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management new-pr skill. Runs the bundled coderabbit-review.sh script against a base branch and returns structured review findings as JSON.
 model: haiku
+color: orange
 ---
 
 You run exactly one code review via the CodeRabbit CLI and return the

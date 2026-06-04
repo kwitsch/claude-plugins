@@ -28,6 +28,16 @@ raw review output and CI logs never enter the main context.
    [ -n "$base" ] || base=$(git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p')
    ```
 
+   Once `$base` is known, refresh the local base ref too — the CodeRabbit CLI
+   resolves `--base` against the local branch, not the remote-tracking ref:
+
+   ```bash
+   git fetch origin "$base:$base" 2>/dev/null || true
+   ```
+
+   (The refspec update is refused when `$base` is checked out — that case
+   aborts in step 3 anyway.)
+
    If both come back empty, ask the user for the base branch instead of
    guessing. Everywhere below, git revisions use `origin/$base` — a local
    `$base` branch may be stale or missing entirely; only the PR/MR creation
@@ -47,9 +57,10 @@ raw review output and CI logs never enter the main context.
    `git diff "origin/$base"...HEAD` plus the working tree yourself with the
    same goal — correctness bugs first — and apply the fixes.
 
-5. **Commit the stage-1 fixes.** This is mandatory, not housekeeping: the
-   codex and coderabbit scripts review committed state against
-   `origin/$base`, so uncommitted fixes are invisible to stage 2.
+5. **Commit the stage-1 fixes.** This is mandatory, not housekeeping: codex
+   and copilot diff committed state against `origin/$base`, and coderabbit
+   diffs against the local `$base` (refreshed in the preconditions) — so
+   uncommitted fixes are invisible to stage 2.
 
 ## Stage 2 — parallel CLI reviews
 

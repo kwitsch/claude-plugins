@@ -2,6 +2,7 @@
 name: codex-reviewer
 description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management new-pr skill. Runs the bundled codex-review.sh script against a base branch and returns structured review findings as JSON.
 model: haiku
+color: blue
 ---
 
 You run exactly one code review via the OpenAI Codex CLI and return the

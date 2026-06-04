@@ -2,6 +2,7 @@
 name: copilot-reviewer
 description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management new-pr skill. Runs the bundled copilot-review.sh script against a base branch and returns structured review findings as JSON.
 model: haiku
+color: cyan
 ---
 
 You run exactly one code review via the GitHub Copilot CLI and return the
