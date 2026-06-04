@@ -24,7 +24,7 @@ else exit 2; fi
 # first, then require a positive signal.
 status_out="$("$bin" auth status 2>&1 || true)"
 printf '%s' "$status_out" | grep -qiE 'not[ -]?(logged|authenticated)' && exit 3
-printf '%s' "$status_out" | grep -qi 'logged in' || exit 3
+printf '%s' "$status_out" | grep -qiE 'logged in|authenticated' || exit 3
 
 # 3) Review
 timeout -k 10 "${REVIEW_TIMEOUT:-600}" "$bin" review --prompt-only --base "$base" || exit 4

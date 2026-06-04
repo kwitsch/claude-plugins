@@ -177,6 +177,14 @@ exit 64'
   assert_failure 3
 }
 
+@test "coderabbit: 'Authenticated' wording satisfies the login check" {
+  make_stub coderabbit 'if [ "$1" = "auth" ]; then echo "Authenticated as tester"; exit 0; fi
+if [ "$1" = "review" ]; then echo "CODERABBIT REVIEW OUTPUT"; exit 0; fi
+exit 64'
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh" main
+  assert_success
+}
+
 @test "coderabbit: passes review output through with --prompt-only and --base" {
   make_stub coderabbit "$CODERABBIT_OK_STUB"
   run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh" main
