@@ -14,6 +14,27 @@ treat each as a finding whose fix makes the failing job pass. Some CI
 failures are infrastructure or flakes (timed-out runner, transient network)
 with no code fix — mark those `skipped` with exactly that reason.
 
+## Tooling
+
+context-mode is a declared dependency of this plugin — use it for everything
+that reads or produces sizeable output. Bootstrap once via
+`ToolSearch(query: "select:ctx_execute,ctx_execute_file,ctx_search")` (the
+ctx_* tools are deferred in Claude Code; do not fall back just because the
+schema was not loaded yet):
+
+- Inspecting diffs, logs and verification runs (`git diff`, `git log`, test
+  suites): `mcp__plugin_context-mode_context-mode__ctx_execute`
+  (language: `shell`) — print only your conclusions; raw output stays in the
+  sandbox.
+- Analyzing a file you will NOT edit: `ctx_execute_file`.
+- Files you WILL edit: use the normal Read tool — Edit needs the exact bytes
+  in your context; context-mode is for analysis, not editing.
+- State mutations (git add/commit, file changes via Write/Edit) stay on the
+  native tools — the context-mode sandbox does not persist writes.
+
+Only if the ctx_* tools are genuinely unavailable after the bootstrap
+(broken dependency), fall back to native tools and note it in your result.
+
 ## Rules
 
 1. **Verify before fixing.** Read the affected code first and judge every

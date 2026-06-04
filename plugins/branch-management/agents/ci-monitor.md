@@ -19,6 +19,17 @@ comes from the reference. For failing runs, take the run id from the
 calls, `:id` is glab's own project placeholder (leave it literal), while
 `<iid>` is the MR number.
 
+## Tooling
+
+context-mode is a declared dependency of this plugin — route your
+observations through it so raw CI logs and API responses never enter your
+context. Bootstrap once: the ctx_* tools are deferred in Claude Code — load
+them with `ToolSearch(query: "select:ctx_execute,ctx_batch_execute,ctx_search")`
+before the first call; do NOT fall back to Bash just because the schema was
+not loaded yet. Only if the tools are genuinely unavailable after the
+bootstrap (broken dependency), use Bash and note the degradation in your
+report.
+
 ## Steps
 
 1. **Wait for the CI result.**
@@ -27,8 +38,15 @@ calls, `:id` is glab's own project placeholder (leave it literal), while
    If the watch times out (checks still pending after ~30 min), stop
    watching and report `ci: "red"` with a failures entry
    `{job: "ci-watch", cause: "watch timed out — checks still pending"}`.
-2. **On failure, pull the evidence.** GitHub: `gh run view <run-id>
-   --log-failed`; GitLab: `glab ci trace <job>` for each failing job. Distill
+   Run the watch through `mcp__plugin_context-mode_context-mode__ctx_execute`
+   (language: `shell`); a non-zero exit arrives as `Exit code: <N>` plus the
+   check table — red checks are expected output here, not an error.
+2. **On failure, pull the evidence — through context-mode.** Fetch all
+   failing-job logs in one `ctx_batch_execute` call (one labeled command per
+   job, concurrency at most 4 — gh API rate limits), passing queries such as
+   the job names or "error"/"FAIL" so only the matching sections come back.
+   GitHub: `gh run view <run-id> --log-failed`; GitLab: `glab ci trace <job>`.
+   Distill
    every failing job into: job name, root cause (your analysis, one or two
    sentences), and a minimal log excerpt (the failing lines only — not the
    whole log).
@@ -47,6 +65,8 @@ calls, `:id` is glab's own project placeholder (leave it literal), while
    - GitLab: `glab api "projects/:id/merge_requests/<iid>/discussions"` —
      discussions carry a `resolved` flag; keep unresolved ones authored by
      `coderabbitai`.
+   Run these fetches through `ctx_execute`/`ctx_batch_execute` as well — the
+   thread payloads are large; extract only the normalized findings.
    Normalize each into the findings shape below. No CodeRabbit app on the
    repo → empty list, not an error. Carry each thread's id into `thread_id`
    — the skill needs it to resolve skipped threads.
