@@ -1,7 +1,7 @@
 {
   "name": "branch-management",
   "version": "2.0.0",
-  "description": "Branch lifecycle skills backed by dedicated subagents: new-branch cuts a fresh work branch via the branch-agent (haiku), new-pr reviews the branch with code-review plus the codex, copilot and coderabbit CLIs (parallel haiku reviewer agents running bundled scripts), applies verified fixes via the opus review-fixer, pushes, opens a PR or MR via gh or glab, and watches CI and CodeRabbit feedback until green via the sonnet ci-monitor.",
+  "description": "Branch lifecycle skills backed by subagents: new-branch cuts a fresh branch; new-pr reviews via code-review plus the codex/copilot/coderabbit CLIs, applies verified fixes, opens a PR/MR via gh or glab, and watches CI until green.",
   "author": {
     "name": "Kwitsch"
   }
