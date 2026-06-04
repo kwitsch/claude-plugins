@@ -9,7 +9,10 @@ Thin orchestrator: reviews run in dedicated reviewer subagents (haiku) that
 execute the bundled CLI scripts, all fixes run in the `review-fixer` subagent
 (opus), CI watching runs in the `ci-monitor` subagent (sonnet). This skill
 handles preconditions, dispatching, dedupe, submission and the monitor loop —
-raw review output and CI logs never enter the main context.
+raw review output and CI logs never enter the main context:
+the subagents run their commands through the context-mode plugin, a declared
+dependency of this plugin (native-tool fallback only when that dependency is
+broken).
 
 ## Preconditions
 
@@ -83,6 +86,9 @@ raw review output and CI logs never enter the main context.
    script path, not a variable. Each dispatch prompt must contain: the base
    branch name (`$base`, bare) and the resolved absolute path of
    `<plugin-root>/scripts/<codex|copilot|coderabbit>-review.sh`.
+   The reviewers execute the script through context-mode's `ctx_execute`
+   (declared dependency) and report a degradation in their result if they
+   had to fall back to Bash — carry such notes into the final report.
 
    Each agent returns `{tool, status, login_hint?, error?, findings}`. Handle
    statuses:
