@@ -23,7 +23,7 @@ with its own model.
 | `copilot-reviewer` | haiku | runs `scripts/copilot-review.sh`, returns findings JSON |
 | `coderabbit-reviewer` | haiku | runs `scripts/coderabbit-review.sh`, returns findings JSON |
 | `review-fixer` | opus | verifies findings against the code, fixes, commits |
-| `ci-monitor` | sonnet | read-only: watches CI (bounded by `CI_WATCH_TIMEOUT`, default 30 min), collects CodeRabbit PR threads |
+| `ci-monitor` | sonnet | read-only: watches CI (bounded by `CI_WATCH_TIMEOUT`, default 1800 s / 30 min), collects CodeRabbit PR threads |
 
 ## Dependencies
 

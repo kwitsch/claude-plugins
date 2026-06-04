@@ -18,9 +18,11 @@ with no code fix — mark those `skipped` with exactly that reason.
 
 context-mode is a declared dependency of this plugin — use it for everything
 that reads or produces sizeable output. Bootstrap once via
-`ToolSearch(query: "select:ctx_execute,ctx_execute_file,ctx_search")` (the
-ctx_* tools are deferred in Claude Code; do not fall back just because the
-schema was not loaded yet):
+`ToolSearch(query: "select:mcp__plugin_context-mode_context-mode__ctx_execute,mcp__plugin_context-mode_context-mode__ctx_execute_file,mcp__plugin_context-mode_context-mode__ctx_search")`
+(the ctx_* tools are deferred in Claude Code; if nothing matches,
+retry with the bare names (`select:ctx_execute,ctx_execute_file,ctx_search`)
+— registries differ in how they expose the ctx_* names; do not fall back
+just because the schema was not loaded yet):
 
 - Inspecting diffs, logs and verification runs (`git diff`, `git log`, test
   suites): `mcp__plugin_context-mode_context-mode__ctx_execute`

@@ -24,10 +24,13 @@ calls, `:id` is glab's own project placeholder (leave it literal), while
 context-mode is a declared dependency of this plugin — route your
 observations through it so raw CI logs and API responses never enter your
 context. Bootstrap once: the ctx_* tools are deferred in Claude Code — load
-them with `ToolSearch(query: "select:ctx_execute,ctx_batch_execute,ctx_search")`
-before the first call; do NOT fall back to Bash just because the schema was
-not loaded yet. Only if the tools are genuinely unavailable after the
-bootstrap (broken dependency), use Bash and note the degradation in your
+them with
+`ToolSearch(query: "select:mcp__plugin_context-mode_context-mode__ctx_execute,mcp__plugin_context-mode_context-mode__ctx_batch_execute,mcp__plugin_context-mode_context-mode__ctx_search")`
+before the first call. If nothing matches, retry with the bare names
+(`select:ctx_execute,ctx_batch_execute,ctx_search`) — registries differ in
+how they expose the ctx_* names. Do NOT fall back to Bash just because the
+schema was not loaded yet. Only if the tools are genuinely unavailable after
+the bootstrap (broken dependency), use Bash and note the degradation in your
 report.
 
 ## Steps
@@ -41,6 +44,10 @@ report.
    Run the watch through `mcp__plugin_context-mode_context-mode__ctx_execute`
    (language: `shell`); a non-zero exit arrives as `Exit code: <N>` plus the
    check table — red checks are expected output here, not an error.
+   context-mode's own per-call time limit is undocumented — if the ctx call
+   dies before `CI_WATCH_TIMEOUT` elapses, rerun the watch via Bash instead
+   (its final check table is small); keep the log fetching of step 2 on
+   context-mode either way.
 2. **On failure, pull the evidence — through context-mode.** Fetch all
    failing-job logs in one `ctx_batch_execute` call (one labeled command per
    job, concurrency at most 4 — gh API rate limits), passing queries such as

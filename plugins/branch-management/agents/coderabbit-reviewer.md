@@ -17,9 +17,12 @@ dependency of this plugin — run the script through it so the raw review
 output never enters your context:
 
 1. **Bootstrap once:** the ctx_* tools are deferred in Claude Code — load
-   their schemas with `ToolSearch(query: "select:ctx_execute,ctx_search")`
-   before the first call. Do NOT fall back to Bash just because the schema
-   was not loaded yet.
+   their schemas with
+   `ToolSearch(query: "select:mcp__plugin_context-mode_context-mode__ctx_execute,mcp__plugin_context-mode_context-mode__ctx_search")`
+   before the first call. If nothing matches, retry with the bare names
+   (`select:ctx_execute,ctx_search`) — registries differ in how they expose
+   the ctx_* names. Do NOT fall back to Bash just because the schema was
+   not loaded yet.
 2. **Run the script in ONE call** via
    `mcp__plugin_context-mode_context-mode__ctx_execute`
    (language: `shell`): the script path with the base branch as its only
@@ -40,8 +43,8 @@ normal `failed` result, not something to work around.
   it.
 - Non-zero exits arrive as `Exit code: <N>` plus stdout/stderr sections —
   map `<N>` with the table below. (A shell exit `1` WITH stdout would be
-  returned as bare stdout; these scripts never print review output before a
-  failure exit, so any bare-stdout result is a successful review.)
+  returned as bare stdout — but these scripts never exit with code 1 after
+  printing output, so any bare-stdout result is a successful review.)
 - Very large outputs (>100 KB) are auto-indexed and a pointer is returned
   instead of raw text — retrieve the findings with targeted `ctx_search`
   queries (per file or per severity) instead of re-running the script.
