@@ -1,6 +1,7 @@
 ---
 name: new-pr
 description: Use when work on a branch is complete and should become a pull/merge request - runs every available code review (code-review --fix, Copilot, CodeRabbit) against the base branch, fixes the findings, verifies everything is committed, pushes, and opens a PR or MR via gh or glab.
+model: opus
 ---
 
 # Turn the current branch into a reviewed PR/MR

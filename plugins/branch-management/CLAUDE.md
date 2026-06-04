@@ -1,7 +1,9 @@
 # CLAUDE.md — branch-management
 
 Two prompt-only skills covering the branch lifecycle: `new-branch` (start
-work) and `new-pr` (submit work).
+work) and `new-pr` (submit work). Per-skill model override in the frontmatter:
+`new-branch` runs on `haiku` (mechanical git steps), `new-pr` on `opus`
+(review judgement and fixes).
 
 ## Behavior
 - `skills/new-branch`: refuses to run on a dirty tree; refreshes the

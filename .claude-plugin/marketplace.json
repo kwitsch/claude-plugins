@@ -44,7 +44,7 @@
       "name": "branch-management",
       "source": "./plugins/branch-management",
       "description": "Branch lifecycle skills: new-branch cuts a fresh work branch from the freshly pulled default branch, new-pr reviews the branch (code-review, Copilot, CodeRabbit), fixes findings, pushes, and opens a PR or MR via gh or glab.",
-      "version": "0.1.0",
+      "version": "1.0.0",
       "author": {
         "name": "Kwitsch"
       },

@@ -1,6 +1,7 @@
 ---
 name: new-branch
 description: Use when starting new feature, fix, or chore work that needs its own branch - switches to the default branch, pulls the latest state, creates and checks out a new work branch, and refreshes the context-mode index when that plugin is installed.
+model: haiku
 ---
 
 # Start a new work branch
