@@ -32,6 +32,11 @@ make_stub() {
   chmod +x "$MOCKBIN/$name"
 }
 
+# Stub body shared by the coderabbit happy-path tests: logged in + working review.
+CODERABBIT_OK_STUB='if [ "$1" = "auth" ]; then echo "Logged in as tester"; exit 0; fi
+if [ "$1" = "review" ]; then echo "CODERABBIT REVIEW OUTPUT $*"; exit 0; fi
+exit 64'
+
 #
 # codex-review.sh
 #
@@ -147,6 +152,58 @@ make_stub() {
 @test "copilot: usage error without base argument" {
   make_stub copilot 'exit 0'
   run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh"
+  assert_failure 1
+  assert_output --partial "usage"
+}
+
+#
+# coderabbit-review.sh
+#
+
+@test "coderabbit: exit 2 when neither coderabbit nor cr is installed" {
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh" main
+  assert_failure 2
+}
+
+@test "coderabbit: exit 3 when not logged in" {
+  make_stub coderabbit 'if [ "$1" = "auth" ]; then echo "Not logged in"; exit 0; fi'
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh" main
+  assert_failure 3
+}
+
+@test "coderabbit: unrecognizable auth output maps to exit 3" {
+  make_stub coderabbit 'if [ "$1" = "auth" ]; then echo "???"; exit 0; fi'
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh" main
+  assert_failure 3
+}
+
+@test "coderabbit: passes review output through with --prompt-only and --base" {
+  make_stub coderabbit "$CODERABBIT_OK_STUB"
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh" main
+  assert_success
+  assert_output --partial "CODERABBIT REVIEW OUTPUT"
+  assert_output --partial "--prompt-only"
+  assert_output --partial "--base main"
+}
+
+@test "coderabbit: cr alias is found when coderabbit is absent" {
+  make_stub cr "$CODERABBIT_OK_STUB"
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh" main
+  assert_success
+  assert_output --partial "CODERABBIT REVIEW OUTPUT"
+}
+
+@test "coderabbit: exit 4 when the review hangs (timeout)" {
+  make_stub coderabbit 'if [ "$1" = "auth" ]; then echo "Logged in"; exit 0; fi
+if [ "$1" = "review" ]; then sleep 5; fi'
+  run env -i PATH="$MOCKBIN" HOME="$HOME" REVIEW_TIMEOUT=1 \
+    bash "$SCRIPTS/coderabbit-review.sh" main
+  assert_failure 4
+}
+
+@test "coderabbit: usage error without base argument" {
+  make_stub coderabbit 'exit 0'
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh"
   assert_failure 1
   assert_output --partial "usage"
 }
