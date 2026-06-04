@@ -40,90 +40,99 @@ raw review output and CI logs never enter the main context.
 
 ## Stage 1 — built-in code review
 
-Invoke the `code-review` skill with `--fix`. Its default scope — the branch
-diff against the upstream/base plus the working tree — is exactly what should
-be reviewed here; do not invent flags it does not have. If no `code-review`
-skill is available in this session, review
-`git diff "origin/$base"...HEAD` plus the working tree yourself with the same
-goal — correctness bugs first — and apply the fixes. Commit the fixes before
-stage 2 so the CLI reviewers see them.
+4. **Invoke the `code-review` skill with `--fix`.** Its default scope — the
+   branch diff against the upstream/base plus the working tree — is exactly
+   what should be reviewed here; do not invent flags it does not have. If no
+   `code-review` skill is available in this session, review
+   `git diff "origin/$base"...HEAD` plus the working tree yourself with the
+   same goal — correctness bugs first — and apply the fixes.
+
+5. **Commit the stage-1 fixes.** This is mandatory, not housekeeping: the
+   codex and coderabbit scripts review committed state against
+   `origin/$base`, so uncommitted fixes are invisible to stage 2.
 
 ## Stage 2 — parallel CLI reviews
 
-Dispatch all three reviewer subagents in ONE message (they run in parallel;
-the scripts are read-only, so this is safe):
+6. **Dispatch all three reviewer subagents in ONE message** (they run in
+   parallel — the scripts mutate nothing, so concurrent runs cannot
+   conflict):
 
-- `branch-management:codex-reviewer`
-- `branch-management:copilot-reviewer`
-- `branch-management:coderabbit-reviewer`
+   - `branch-management:codex-reviewer`
+   - `branch-management:copilot-reviewer`
+   - `branch-management:coderabbit-reviewer`
 
-Each dispatch prompt must contain: the base branch name (`$base`, bare) and
-the absolute script path
-`${CLAUDE_PLUGIN_ROOT}/scripts/<codex|copilot|coderabbit>-review.sh`.
+   Resolve `${CLAUDE_PLUGIN_ROOT}` to a concrete absolute path first (e.g.
+   `echo "${CLAUDE_PLUGIN_ROOT}"`) — the subagents expect a literal absolute
+   script path, not a variable. Each dispatch prompt must contain: the base
+   branch name (`$base`, bare) and the resolved absolute path of
+   `<plugin-root>/scripts/<codex|copilot|coderabbit>-review.sh`.
 
-Each agent returns `{tool, status, login_hint?, error?, findings}`. Handle
-statuses:
-- `missing` — skip silently; absence is not an error.
-- `no_auth` — skip; record the `login_hint` for the final report.
-- `failed` — skip; record the `error` for the final report.
-- An unparsable agent reply counts as `failed` with empty findings.
+   Each agent returns `{tool, status, login_hint?, error?, findings}`. Handle
+   statuses:
+   - `missing` — skip silently; absence is not an error.
+   - `no_auth` — skip; record the `login_hint` for the final report.
+   - `failed` — skip; record the `error` for the final report.
+   - An unparsable agent reply counts as `failed` with empty findings.
 
-No CLI available at all is fine — stage 1 and the monitor loop remain as the
-review net.
+   No CLI available at all is fine — stage 1 and the monitor loop remain as
+   the review net.
 
 ## Dedupe
 
-Merge findings that point at the same file and overlapping lines and describe
-the same root cause: keep the most precise description, note every source
-tool. This is pure data work on the JSON — do not open the files here.
+7. **Merge findings** that point at the same file and overlapping lines and
+   describe the same root cause: keep the most precise description, note
+   every source tool. Treat `line: 0` (file-level) findings as overlapping
+   only when their titles describe the same issue. This is pure data work on
+   the JSON — do not open the files here.
 
 ## Fixer pass
 
-If any findings remain, dispatch `branch-management:review-fixer` ONCE with
-the full deduplicated findings JSON and the base branch. It verifies each
-finding against the code, fixes the justified ones, skips the rest with
-reasons, and commits. No findings → skip this step.
+8. **If any findings remain,** dispatch `branch-management:review-fixer` ONCE
+   with the full deduplicated findings JSON and the base branch. It verifies
+   each finding against the code, fixes the justified ones, skips the rest
+   with reasons, and commits. No findings → skip this step.
 
 ## Submit
 
-4. **Everything committed?** Run `git status --porcelain`. Commit remaining
+9. **Everything committed?** Run `git status --porcelain`. Commit remaining
    changes that belong to this branch's work, grouped into logical commits.
    Leave unrelated files untouched; if it is unclear whether a change belongs
    to the work, ask the user.
 
-5. **Push:** `git push -u origin "$branch"`.
+10. **Push:** `git push -u origin "$branch"`.
 
-6. **Open the PR/MR** — pick the tool from the `origin` URL
-   (`git remote get-url origin`):
+11. **Open the PR/MR** — pick the tool from the `origin` URL
+    (`git remote get-url origin`):
 
-   - GitHub (`github.com` or a GitHub Enterprise host):
-     `gh pr create --base "$base" --title "<title>" --body "<body>"`
-   - GitLab (`gitlab.` or a self-managed GitLab host):
-     `glab mr create --target-branch "$base" --title "<title>" --description "<body>"`
+    - GitHub (`github.com` or a GitHub Enterprise host):
+      `gh pr create --base "$base" --title "<title>" --body "<body>"`
+    - GitLab (`gitlab.` or a self-managed GitLab host):
+      `glab mr create --target-branch "$base" --title "<title>" --description "<body>"`
 
-   Derive the title from the branch's purpose and the body from
-   `git log "origin/$base"..HEAD` — what changed and why, plus which review
-   stages ran. If the required CLI is missing or unauthenticated, stop and
-   give the user the exact command to run themselves.
+    Derive the title from the branch's purpose and the body from
+    `git log "origin/$base"..HEAD` — what changed and why, plus which review
+    stages ran. If the required CLI is missing or unauthenticated, stop and
+    give the user the exact command to run themselves.
 
 ## Monitor until green
 
 Cap the loop at 5 fix iterations — if it has not converged by then, stop and
 hand the remaining findings to the user instead of pushing in circles.
 
-7. **Dispatch `branch-management:ci-monitor`** with the platform
-   (`github`/`gitlab`) and the PR/MR reference. It waits for the CI result,
-   analyzes failing jobs and collects unresolved CodeRabbit bot comments —
-   read-only — and returns `{ci, failures, review_findings}`.
+12. **Dispatch `branch-management:ci-monitor`** with the platform
+    (`github`/`gitlab`), the PR/MR reference, and the branch name
+    (`$branch` — its run-id fallback needs it). It waits for the CI result,
+    analyzes failing jobs and collects open CodeRabbit bot comments —
+    read-only — and returns `{ci, failures, review_findings}`.
 
-8. **If `ci` is `red` or `review_findings` is non-empty:** dispatch
-   `branch-management:review-fixer` with both lists (CI failure analyses are
-   findings too), then push the fix commits.
+13. **If `ci` is `red` or `review_findings` is non-empty:** dispatch
+    `branch-management:review-fixer` with both lists (CI failure analyses are
+    findings too), then push the fix commits.
 
-9. **Loop.** Every push restarts the CI and triggers a CodeRabbit re-review;
-   repeat steps 7–8 until both are quiet in the same iteration: CI green and
-   no unresolved findings.
+14. **Loop.** Every push restarts the CI and triggers a CodeRabbit re-review;
+    repeat steps 12–13 until both are quiet in the same iteration: CI green
+    and no unresolved findings.
 
-10. **Report:** the PR/MR URL; per CLI tool its status (ran / missing,
+15. **Report:** the PR/MR URL; per CLI tool its status (ran / missing,
     skipped silently / **not logged in + login command** / failed + reason);
     findings fixed/skipped per stage; monitor iterations used.
