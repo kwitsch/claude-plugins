@@ -1,14 +1,15 @@
 ---
 name: new-pr
-description: Use when work on a branch is complete and should become a pull/merge request - runs every available code review (code-review --fix, Copilot, Codex, CodeRabbit) against the base branch, fixes the findings, verifies everything is committed, pushes, opens a PR or MR via gh or glab, then watches CI and CodeRabbit feedback in a fix-push loop until everything is green.
-model: opus
+description: Use when work on a branch is complete and should become a pull/merge request - runs code-review --fix plus parallel codex/copilot/coderabbit CLI reviews through dedicated reviewer subagents, applies verified fixes through a fixer subagent, pushes, opens a PR or MR via gh or glab, then watches CI and CodeRabbit feedback in a fix-push loop until everything is green.
 ---
 
 # Turn the current branch into a reviewed PR/MR
 
-Run the branch through every review layer available in the session, fix what
-they find, then push and open a pull request (GitHub) or merge request
-(GitLab).
+Thin orchestrator: reviews run in dedicated reviewer subagents (haiku) that
+execute the bundled CLI scripts, all fixes run in the `review-fixer` subagent
+(opus), CI watching runs in the `ci-monitor` subagent (sonnet). This skill
+handles preconditions, dispatching, dedupe, submission and the monitor loop —
+raw review output and CI logs never enter the main context.
 
 ## Preconditions
 
@@ -27,123 +28,143 @@ they find, then push and open a pull request (GitHub) or merge request
    [ -n "$base" ] || base=$(git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p')
    ```
 
+   Once `$base` is known, refresh the local base ref too — the CodeRabbit CLI
+   resolves `--base` against the local branch, not the remote-tracking ref:
+
+   ```bash
+   git fetch origin "$base:$base" 2>/dev/null || true
+   ```
+
+   (The refspec update is refused when `$base` is checked out — that case
+   aborts in step 3 anyway.)
+   It is also refused when the local `$base` has DIVERGED from
+   `origin/$base` (a local-only commit on the base). Check afterwards: if
+   `git rev-parse --verify -q "$base"` and `git rev-parse --verify -q
+   "origin/$base"` differ, skip the coderabbit reviewer in stage 2 and note
+   "coderabbit skipped: local base diverged" in the final report — coderabbit
+   diffs against the local base and would review the wrong range.
+
    If both come back empty, ask the user for the base branch instead of
    guessing. Everywhere below, git revisions use `origin/$base` — a local
    `$base` branch may be stale or missing entirely; only the PR/MR creation
-   in step 6 takes the bare name.
+   takes the bare name.
 
 3. **Abort with a clear message if:**
    - the current branch *is* the base branch (nothing to open a PR from), or
    - `git log "origin/$base"..HEAD --oneline` is empty and
      `git status --porcelain` is also empty (no work to submit).
 
-## Review stages
+## Stage 1 — built-in code review
 
-Run the stages in order. After every stage that changed files, commit the
-fixes before the next stage — so each reviewer sees the previous reviewer's
-corrections, and reviewers that diff committed state don't miss them. Follow
-the repository's commit message conventions.
+4. **Invoke the `code-review` skill with `--fix`.** Its default scope — the
+   branch diff against the upstream/base plus the working tree — is exactly
+   what should be reviewed here; do not invent flags it does not have. If no
+   `code-review` skill is available in this session, review
+   `git diff "origin/$base"...HEAD` plus the working tree yourself with the
+   same goal — correctness bugs first — and apply the fixes.
 
-### Stage 1 — built-in code review
+5. **Commit the stage-1 fixes.** This is mandatory, not housekeeping: codex
+   and copilot diff committed state against `origin/$base`, and coderabbit
+   diffs against the local `$base` (refreshed in the preconditions) — so
+   uncommitted fixes are invisible to stage 2.
 
-Invoke the `code-review` skill with `--fix`. Its default scope — the branch
-diff against the upstream/base plus the working tree — is exactly what should
-be reviewed here; if the skill accepts a target argument, pass the base branch
-so it diffs against `origin/$base`, but do not invent flags it does not have.
-If no `code-review` skill is available in this session, review
-`git diff "origin/$base"...HEAD` plus the working tree yourself with the same
-goal — correctness bugs first — and apply the fixes.
+## Stage 2 — parallel CLI reviews
 
-### Stage 2 — GitHub Copilot review (only if installed)
+6. **Dispatch all three reviewer subagents in ONE message** (they run in
+   parallel — the scripts mutate nothing, so concurrent runs cannot
+   conflict):
 
-Only when the `copilot:review` command is available in this session (from the
-[copilot plugin](https://github.com/wagnersza/copilot-plugin-cc)):
+   - `branch-management:codex-reviewer`
+   - `branch-management:copilot-reviewer`
+   - `branch-management:coderabbit-reviewer`
 
-- Run `/copilot:review --base "origin/$base" --wait`.
-- The review is read-only: it returns findings (severity, file, line range,
-  recommendation) but changes nothing. Judge each finding on its technical
-  merits — verify it against the code before acting, skip findings that are
-  wrong or out of scope (note why), and fix the justified ones.
+   Resolve `${CLAUDE_PLUGIN_ROOT}` to a concrete absolute path first (e.g.
+   `echo "${CLAUDE_PLUGIN_ROOT}"`) — the subagents expect a literal absolute
+   script path, not a variable. Each dispatch prompt must contain: the base
+   branch name (`$base`, bare) and the resolved absolute path of
+   `<plugin-root>/scripts/<codex|copilot|coderabbit>-review.sh`.
 
-### Stage 3 — OpenAI Codex review (only if installed)
+   Each agent returns `{tool, status, login_hint?, error?, findings}`. Handle
+   statuses:
+   - `missing` — skip silently; absence is not an error.
+   - `no_auth` — skip; record the `login_hint` for the final report.
+   - `failed` — skip; record the `error` for the final report.
+   - An unparsable agent reply counts as `failed` with empty findings.
 
-Only when the `codex:review` command is available in this session (from the
-[codex plugin](https://github.com/openai/codex-plugin-cc)):
+   No CLI available at all is fine — stage 1 and the monitor loop remain as
+   the review net.
 
-- Run `/codex:review --base "origin/$base" --wait`.
-- Like stage 2, the review is read-only and returns structured findings
-  (severity, file, line range, recommendation). Apply the same judgement:
-  verify findings against the code, fix the justified ones, skip and note
-  the rest.
+## Dedupe
 
-### Stage 4 — CodeRabbit review (only if installed)
+7. **Merge findings** that point at the same file and overlapping lines and
+   describe the same root cause: keep the most precise description, note
+   every source tool. Treat `line: 0` (file-level) findings as overlapping
+   only when their titles describe the same issue. This is pure data work on
+   the JSON — do not open the files here.
 
-Only when the `coderabbit:review` command is available in this session (from
-the [coderabbit plugin](https://github.com/coderabbitai/claude-plugin)):
+## Fixer pass
 
-- Run `/coderabbit:review --base "origin/$base"`.
-- Apply the same judgement as in stage 2: verify findings against the code,
-  fix the justified ones, skip and note the rest.
-
-Skip stages 2–4 silently when the corresponding plugin is missing — their
-absence is not an error.
+8. **If any findings remain,** dispatch `branch-management:review-fixer` ONCE
+   with the full deduplicated findings JSON and the base branch. It verifies
+   each finding against the code, fixes the justified ones, skips the rest
+   with reasons, and commits. No findings → skip this step.
 
 ## Submit
 
-4. **Everything committed?** Run `git status --porcelain`. Commit remaining
+9. **Everything committed?** Run `git status --porcelain`. Commit remaining
    changes that belong to this branch's work, grouped into logical commits.
    Leave unrelated files untouched; if it is unclear whether a change belongs
    to the work, ask the user.
 
-5. **Push:** `git push -u origin "$branch"`.
+10. **Push:** `git push -u origin "$branch"`.
 
-6. **Open the PR/MR** — pick the tool from the `origin` URL
-   (`git remote get-url origin`):
+11. **Open the PR/MR** — pick the tool from the `origin` URL
+    (`git remote get-url origin`):
 
-   - GitHub (`github.com` or a GitHub Enterprise host):
-     `gh pr create --base "$base" --title "<title>" --body "<body>"`
-   - GitLab (`gitlab.` or a self-managed GitLab host):
-     `glab mr create --target-branch "$base" --title "<title>" --description "<body>"`
+    - GitHub (`github.com` or a GitHub Enterprise host):
+      `gh pr create --base "$base" --title "<title>" --body "<body>"`
+    - GitLab (`gitlab.` or a self-managed GitLab host):
+      `glab mr create --target-branch "$base" --title "<title>" --description "<body>" --yes`
 
-   Derive the title from the branch's purpose and the body from
-   `git log "origin/$base"..HEAD` — what changed and why, plus which review
-   stages ran. If the required CLI is missing or unauthenticated, stop and
-   give the user the exact command to run themselves.
+    If the origin URL matches neither anchor (a custom-domain Enterprise or
+    self-managed host), do not guess: check `gh auth status --hostname <host>`
+    and `glab auth status --hostname <host>` — if exactly one knows the host,
+    use that tool; otherwise ask the user.
+
+    Derive the title from the branch's purpose and the body from
+    `git log "origin/$base"..HEAD` — what changed and why, plus which review
+    stages ran. If the required CLI is missing or unauthenticated, stop and
+    give the user the exact command to run themselves.
 
 ## Monitor until green
 
-After the PR/MR exists, stay in a watch loop until the CI is green and no
-review findings remain open. Cap the loop at 5 fix iterations — if it has not
-converged by then, stop and hand the remaining findings to the user instead
-of pushing in circles.
+Cap the loop at 5 fix iterations — if it has not converged by then, stop and
+hand the remaining findings to the user instead of pushing in circles.
 
-7. **Watch the CI:**
+12. **Dispatch `branch-management:ci-monitor`** with the platform
+    (`github`/`gitlab`), the PR/MR reference, and the branch name
+    (`$branch` — its run-id fallback needs it). It waits for the CI result,
+    analyzes failing jobs and collects open CodeRabbit bot comments —
+    read-only — and returns `{ci, failures, review_findings}`.
 
-   - GitHub: `gh pr checks --watch`
-   - GitLab: `glab ci status --live`
+13. **If `ci` is `red` or `review_findings` is non-empty:** dispatch
+    `branch-management:review-fixer` with both lists (CI failure analyses are
+    findings too). Then:
+    - If the fixer returned commits: push them.
+    - For findings the fixer **skipped**, reply to the CodeRabbit thread with
+      the skip reason and resolve it, using the `thread_id` from ci-monitor
+      (GitHub: GraphQL mutation `resolveReviewThread`; GitLab:
+      `glab api -X PUT "projects/:id/merge_requests/<iid>/discussions/<thread_id>" -f resolved=true`)
+      — otherwise the same finding reappears every iteration.
+    - If an iteration produced no commits and the CI state is unchanged
+      (e.g. an infra flake the fixer skipped), stop early and hand the
+      remaining findings to the user — a push without commits restarts
+      nothing.
 
-   On failure, pull the failing logs (GitHub: `gh run view <run-id>
-   --log-failed`; GitLab: `glab ci trace <job>` for the failing job), analyze
-   the cause, fix it autonomously, commit, push — then watch again.
+14. **Loop.** Every push restarts the CI and triggers a CodeRabbit re-review;
+    repeat steps 12–13 until both are quiet in the same iteration: CI green
+    and no unresolved findings.
 
-8. **Check for CodeRabbit findings on the PR/MR.** When the repository has
-   the CodeRabbit app, it comments a few minutes after each push — give it a
-   short grace period before concluding there is nothing:
-
-   - If the coderabbit plugin is installed, prefer its `autofix` skill: it
-     fetches the bot's review comments from the PR, applies fixes, commits,
-     and pushes.
-   - Otherwise fetch the unresolved bot comments yourself (GitHub:
-     `gh api repos/{owner}/{repo}/pulls/<nr>/comments`; GitLab:
-     `glab api "projects/:id/merge_requests/<iid>/discussions"` — filter for
-     the `coderabbitai` author). Judge each finding as in stages 2–4: fix the
-     justified ones, and reply to the ones you skip with a short reason
-     instead of silently ignoring them. Commit and push the fixes.
-   - No CodeRabbit app on the repository → no comments appear; skip silently.
-
-9. **Loop.** Every push restarts the CI and triggers a CodeRabbit re-review;
-   repeat steps 7–8 until both are quiet in the same iteration: CI green and
-   no unresolved findings.
-
-10. **Report:** the PR/MR URL, which review stages ran, how many findings
-    were fixed or skipped per stage, and how many monitor iterations it took.
+15. **Report:** the PR/MR URL; per CLI tool its status (ran / missing,
+    skipped silently / **not logged in + login command** / failed + reason);
+    findings fixed/skipped per stage; monitor iterations used.
