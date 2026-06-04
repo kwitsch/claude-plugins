@@ -82,3 +82,62 @@ make_stub() {
   assert_failure 1
   assert_output --partial "usage"
 }
+
+#
+# copilot-review.sh
+#
+
+@test "copilot: exit 2 when CLI is missing" {
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  assert_failure 2
+}
+
+@test "copilot: exit 3 when no token env and no ~/.copilot state" {
+  make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  assert_failure 3
+}
+
+@test "copilot: token env var satisfies the login heuristic" {
+  make_stub copilot 'echo "COPILOT REVIEW OUTPUT $*"; exit 0'
+  run env -i PATH="$MOCKBIN" HOME="$HOME" GH_TOKEN=x \
+    bash "$SCRIPTS/copilot-review.sh" main
+  assert_success
+  assert_output --partial "COPILOT REVIEW OUTPUT"
+  assert_output --partial "origin/main"
+}
+
+@test "copilot: existing ~/.copilot satisfies the login heuristic" {
+  make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
+  mkdir -p "$HOME/.copilot"
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  assert_success
+}
+
+@test "copilot: auth failure in the output maps to exit 3" {
+  make_stub copilot 'echo "Error: not logged in. Run /login" >&2; exit 1'
+  run env -i PATH="$MOCKBIN" HOME="$HOME" GH_TOKEN=x \
+    bash "$SCRIPTS/copilot-review.sh" main
+  assert_failure 3
+}
+
+@test "copilot: other review failure maps to exit 4" {
+  make_stub copilot 'echo "boom" >&2; exit 1'
+  run env -i PATH="$MOCKBIN" HOME="$HOME" GH_TOKEN=x \
+    bash "$SCRIPTS/copilot-review.sh" main
+  assert_failure 4
+}
+
+@test "copilot: exit 4 when the review hangs (timeout)" {
+  make_stub copilot 'sleep 5'
+  run env -i PATH="$MOCKBIN" HOME="$HOME" GH_TOKEN=x REVIEW_TIMEOUT=1 \
+    bash "$SCRIPTS/copilot-review.sh" main
+  assert_failure 4
+}
+
+@test "copilot: usage error without base argument" {
+  make_stub copilot 'exit 0'
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh"
+  assert_failure 1
+  assert_output --partial "usage"
+}
