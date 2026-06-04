@@ -1,37 +1,36 @@
 # CLAUDE.md — branch-management
 
-Two prompt-only skills covering the branch lifecycle: `new-branch` (start
-work) and `new-pr` (submit work). Per-skill model override in the frontmatter:
-`new-branch` runs on `haiku` (mechanical git steps), `new-pr` on `opus`
-(review judgement and fixes).
+Two thin orchestrator skills (`new-branch`, `new-pr`) that dispatch six
+dedicated agents; all model selection lives in the agent frontmatter
+(haiku = mechanics/reviewers, sonnet = ci-monitor, opus = review-fixer).
+Skills carry no `model:` key.
 
 ## Behavior
-- `skills/new-branch`: refuses to run on a dirty tree; refreshes the
-  clone-time `origin/HEAD` (`git remote set-head origin --auto`) before
-  detecting the default branch (fallback `git remote show origin`), pulls
-  with `--ff-only`, then creates `<type>/<slug>` — guarding against an
-  already-existing branch name. Optional last step: invoke
-  `context-mode:ctx-index` when that plugin is installed.
-- `skills/new-pr`: aborts on detached HEAD or when already on the base
-  branch; runs `git fetch origin` + `set-head --auto` first and uses
-  `origin/<base>` for every git revision (a local base branch may be stale or
-  missing — only `gh`/`glab` get the bare name). Review pipeline:
-  `code-review --fix` (its default branch-diff scope), then `/copilot:review
-  --base`, `/codex:review --base`, and `/coderabbit:review --base` when
-  those plugins are installed.
-  Fixes are committed after each stage so later reviewers see them; findings
-  are verified before fixing, never blindly applied. Then: ensure a clean
-  tree, push, and `gh pr create` / `glab mr create` chosen from the `origin`
-  URL.
-- After PR/MR creation `new-pr` enters a monitor loop (capped at 5 fix
-  iterations): watch CI (`gh pr checks --watch` / `glab ci status --live`),
-  fix failures from the logs; fetch unresolved CodeRabbit bot comments
-  (preferring the coderabbit plugin's `autofix` skill, falling back to
-  `gh api`/`glab api`), verify-then-fix, push — repeat until CI is green and
-  no findings remain open in the same iteration.
-- Missing optional plugins are skipped silently; a missing/unauthenticated
-  `gh`/`glab` stops with the manual command instead.
+- `skills/new-branch`: dispatches `agents/branch-agent` (clean-tree guard,
+  `origin/HEAD` refresh, `--ff-only` pull, `<type>/<slug>` creation,
+  structured abort codes for user decisions); then optional
+  `context-mode:ctx-index` in the main context.
+- `skills/new-pr`: preconditions in the skill (fetch, base detection,
+  `origin/<base>` for all revisions); stage 1 `code-review --fix` with a
+  mandatory commit before stage 2; stage 2 the three reviewer agents in
+  parallel, each running `scripts/<tool>-review.sh <base>` (via context-mode
+  `ctx_execute` when available, Bash otherwise) and returning findings JSON;
+  dedupe in the skill; one `review-fixer` pass; push + `gh pr create`/`glab
+  mr create`; then a monitor loop (max 5): `ci-monitor` (read-only analysis,
+  gets platform + PR/MR reference + branch name) → `review-fixer` → push,
+  until CI is green and no findings remain.
+- Script exit-code contract: 0 ran · 2 CLI missing (skip silently) ·
+  3 not logged in (skip + report login command) · 4 run failed (skip +
+  report). Review runs wrapped in `timeout -k 10 "${REVIEW_TIMEOUT:-600}"`.
+- CLI specifics: codex has no headless review subcommand → `codex exec
+  --sandbox read-only` with the diff prompt; copilot has no auth-status
+  command → token-env/`~/.copilot` heuristic + auth-error sniffing of the
+  output; coderabbit auth/review exit codes are uncontractual → output
+  heuristics (`logged in|authenticated` positive, negative-first), `cr`
+  alias supported.
 
 ## Tests
-Prompt-only plugin — no executable hooks, so no bats suite. CI validates the
-manifests only.
+`test/branch-management/test.bats` covers the three scripts with stub CLIs
+on an isolated `PATH` (missing → 2, no login → 3, ok → passthrough, hang →
+timeout → 4, usage errors). Run:
+`BATS_LIB_PATH="$PWD/node_modules" npx bats test/branch-management/`.
