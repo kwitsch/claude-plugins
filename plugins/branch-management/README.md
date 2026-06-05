@@ -59,6 +59,7 @@ restrict — a project file can forbid more, never allow more:
 ```markdown
 ---
 reviews:
+  # only an explicit `false` has an effect — `true` just documents intent
   claude: true
   codex: true
   copilot: true

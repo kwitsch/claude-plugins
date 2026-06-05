@@ -1,6 +1,6 @@
 ---
 name: new-pr
-description: Use when work on a branch is complete and should become a pull/merge request - runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer subagents, max 3) with verified fixes between rounds, pushes, opens a PR or MR via gh or glab, then watches CI and CodeRabbit feedback until everything is green. Review sources are switchable per project.
+description: Use when work on a branch is complete and should become a pull/merge request - runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer subagents, max 3) with verified fixes between rounds, pushes, opens a PR or MR via gh or glab, then watches CI and CodeRabbit feedback until everything is green. Review sources can be disabled per user or per project.
 ---
 
 # Turn the current branch into a reviewed PR/MR
