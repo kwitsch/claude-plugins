@@ -58,22 +58,34 @@ stay on Bash per context-mode's own whitelist.
 - CLI specifics: codex has no headless review subcommand → `codex exec
   --sandbox read-only` with the diff prompt; copilot has no auth-status
   command → login heuristic (token env, non-empty `loggedInUsers` in
-  COPILOT_HOME's config.json, or gh CLI credentials — a bare `~/.copilot`
-  is created on first launch without login) + auth-error sniffing of the
-  output; the copilot run is hardened read-only (`--deny-tool write` +
-  allowlist of read-only git subcommands — `shell(git:*)` would also match
-  `git commit`); coderabbit auth/review exit codes are uncontractual → output
-  heuristics (`logged in|authenticated` positive, negative-first), `cr`
-  alias supported.
+  COPILOT_HOME's config.json, or a gh `user:` in `hosts.yml` — copilot falls
+  back to the gh credential store, and gh's default secure storage keeps no
+  `oauth_token` line; a bare `~/.copilot` is created on first launch without
+  login) + auth-error sniffing of the output. The copilot run is hardened
+  read-only on three layers (copilot has no `--sandbox` like codex): `--deny-
+  tool write`; an allowlist of only read-only git subcommands (`shell(git:*)`
+  would also match write subcommands like `git commit`, and copilot approves
+  per-subcommand); and `scripts/git-shim` (a `git` facade prepended to
+  copilot's PATH that refuses the `--output`/`-O` flag family, which the
+  per-subcommand allowlist cannot express — `git diff --output=PATH` otherwise
+  writes an arbitrary file, verified against CLI 1.0.60). coderabbit
+  auth/review exit codes are uncontractual → output heuristics (`logged
+  in|authenticated` positive, negative-first), `cr` alias supported.
 
 ## Tests
 `test/branch-management/test.bats` covers the three review scripts with
 stub CLIs on an isolated `PATH` (missing → 2, no login → 3, ok →
-passthrough, hang → timeout → 4, usage errors) plus the
-`review-settings.sh` toggle parsing (fail-open defaults, explicit/quoted/
-case-insensitive `false`, block and nesting boundaries, BOM/CRLF incl.
-UTF-8 locale, default-path resolution, user→project layering with
-neutral-value and unreadable-layer cases) plus `ci-watch.sh` polling
-(coderabbit exclusion, pending→done transitions, timeout, no-checks
-grace, gitlab status heuristics). Run:
+passthrough, hang → timeout → 4, usage errors). The copilot login heuristic
+is tested across its matrix (token env, recorded `loggedInUsers`,
+`COPILOT_HOME` override, gh keyring vs inline-token vs logged-out
+`hosts.yml`, `GH_CONFIG_DIR`; bare dir / first-launch / empty-array all →
+3), and `copilot-review.sh` is asserted hardened read-only (no write
+subcommand allowlisted). `scripts/git-shim` has direct unit tests
+(read-only passthrough; `--output`/`-o`/`-O`/`--output-directory` refused;
+unset real-git → 127). Plus `review-settings.sh` toggle parsing (fail-open
+defaults, explicit/quoted/case-insensitive `false`, block and nesting
+boundaries, BOM/CRLF incl. UTF-8 locale, default-path resolution,
+user→project layering with neutral-value and unreadable-layer cases) and
+`ci-watch.sh` polling (coderabbit exclusion, pending→done transitions,
+timeout, no-checks grace, gitlab status heuristics). Run:
 `BATS_LIB_PATH="$PWD/node_modules" npx bats test/branch-management/`.

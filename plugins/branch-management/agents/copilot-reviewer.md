@@ -65,8 +65,8 @@ prompt asks for one.
 
 - `0` — parse stdout into findings (an empty list is a valid clean review)
 - `2` — status `missing`
-- `3` — status `no_auth`, `login_hint`: `copilot login` (or set one of
-  `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN`)
+- `3` — status `no_auth`, `login_hint`: `copilot login` (or `gh auth login`,
+  or set one of `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN`)
 - anything else — status `failed`, include a short stderr excerpt as `error`
 
 ## Parsing

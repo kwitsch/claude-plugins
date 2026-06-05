@@ -12,6 +12,7 @@
 # mirror real gh/glab exit codes and output formats.
 
 setup() {
+  bats_require_minimum_version 1.5.0   # `run -N` exit-code checks
   bats_load_library bats-support
   bats_load_library bats-assert
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
@@ -164,8 +165,18 @@ exit 64'
   assert_failure 3
 }
 
-@test "copilot: gh CLI credentials satisfy the login heuristic" {
-  # copilot falls back to the gh credential store (~/.config/gh/hosts.yml).
+@test "copilot: gh keyring login (no token in hosts.yml) satisfies the heuristic" {
+  # gh's default secure storage keeps the token in the OS keyring, so a
+  # logged-in hosts.yml carries a user but NO oauth_token line.
+  make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
+  mkdir -p "$HOME/.config/gh"
+  printf '%s\n' 'github.com:' '    user: tester' '    git_protocol: https' \
+    > "$HOME/.config/gh/hosts.yml"
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  assert_success
+}
+
+@test "copilot: gh insecure-storage login (inline token) satisfies the heuristic" {
   make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
   mkdir -p "$HOME/.config/gh"
   printf '%s\n' 'github.com:' '    user: tester' '    oauth_token: gho_x' \
@@ -174,14 +185,44 @@ exit 64'
   assert_success
 }
 
+@test "copilot: gh config honours GH_CONFIG_DIR" {
+  make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
+  mkdir -p "$BATS_TEST_TMPDIR/ghcfg"
+  printf '%s\n' 'github.com:' '    user: tester' \
+    > "$BATS_TEST_TMPDIR/ghcfg/hosts.yml"
+  run env -i PATH="$MOCKBIN" HOME="$HOME" GH_CONFIG_DIR="$BATS_TEST_TMPDIR/ghcfg" \
+    bash "$SCRIPTS/copilot-review.sh" main
+  assert_success
+}
+
+@test "copilot: logged-out gh hosts.yml (no user) maps to exit 3" {
+  make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
+  mkdir -p "$HOME/.config/gh"
+  printf '%s\n' 'github.com:' '    git_protocol: https' \
+    > "$HOME/.config/gh/hosts.yml"
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  assert_failure 3
+}
+
 @test "copilot: review run is hardened read-only" {
+  # The stub echoes $*, so the full flag line (every --allow-tool) is asserted.
   make_stub copilot 'echo "COPILOT REVIEW OUTPUT $*"; exit 0'
   run env -i PATH="$MOCKBIN" HOME="$HOME" GH_TOKEN=x \
     bash "$SCRIPTS/copilot-review.sh" main
   assert_success
   assert_output --partial "deny-tool write"      # write tool must be denied
-  assert_output --partial "shell(git diff)"      # read-only git allowlist
+  assert_output --partial "shell(git diff)"      # read-only git allowlist present
   refute_output --partial "shell(git:*)"         # blanket git allow is gone
+  # No write-capable git subcommand may be allowlisted — copilot approves on a
+  # subcommand basis, so any of these would auto-approve a repo mutation.
+  refute_output --partial "shell(git branch)"
+  refute_output --partial "shell(git commit)"
+  refute_output --partial "shell(git push)"
+  refute_output --partial "shell(git checkout)"
+  refute_output --partial "shell(git restore)"
+  refute_output --partial "shell(git reset)"
+  refute_output --partial "shell(git stash)"
+  refute_output --partial "shell(git config)"
 }
 
 @test "copilot: auth failure in the output maps to exit 3" {
@@ -233,6 +274,64 @@ exit 64'
   run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh"
   assert_failure 1
   assert_output --partial "usage"
+}
+
+#
+# git-shim/git — read-only git facade prepended to copilot's PATH so even the
+# allowlisted read-only subcommands cannot write via the --output/-O flag
+# family (which copilot's per-subcommand allowlist cannot express).
+#
+
+# Drop a fake "real git" that echoes its args, so passthrough is observable
+# and a refusal is provable by the ABSENCE of that echo.
+fake_real_git() {
+  printf '%s\n' '#!/usr/bin/env bash' 'printf "REALGIT %s\n" "$*"' > "$1"
+  chmod +x "$1"
+}
+
+@test "git-shim: forwards a read-only invocation to the real git" {
+  fake_real_git "$BATS_TEST_TMPDIR/realgit"
+  run env COPILOT_REVIEW_REAL_GIT="$BATS_TEST_TMPDIR/realgit" \
+    "$SCRIPTS/git-shim/git" --no-pager diff origin/main...HEAD
+  assert_success
+  assert_output "REALGIT --no-pager diff origin/main...HEAD"
+}
+
+@test "git-shim: refuses git diff --output (arbitrary file write)" {
+  fake_real_git "$BATS_TEST_TMPDIR/realgit"
+  run env COPILOT_REVIEW_REAL_GIT="$BATS_TEST_TMPDIR/realgit" \
+    "$SCRIPTS/git-shim/git" diff --output=/tmp/pwned HEAD~1 HEAD
+  assert_failure 13
+  refute_output --partial "REALGIT"
+}
+
+@test "git-shim: refuses the short -o output flag" {
+  fake_real_git "$BATS_TEST_TMPDIR/realgit"
+  run env COPILOT_REVIEW_REAL_GIT="$BATS_TEST_TMPDIR/realgit" \
+    "$SCRIPTS/git-shim/git" diff -o /tmp/pwned
+  assert_failure 13
+  refute_output --partial "REALGIT"
+}
+
+@test "git-shim: refuses git grep -O (spawns a pager command)" {
+  fake_real_git "$BATS_TEST_TMPDIR/realgit"
+  run env COPILOT_REVIEW_REAL_GIT="$BATS_TEST_TMPDIR/realgit" \
+    "$SCRIPTS/git-shim/git" grep -Ovim pattern
+  assert_failure 13
+  refute_output --partial "REALGIT"
+}
+
+@test "git-shim: refuses --output-directory" {
+  fake_real_git "$BATS_TEST_TMPDIR/realgit"
+  run env COPILOT_REVIEW_REAL_GIT="$BATS_TEST_TMPDIR/realgit" \
+    "$SCRIPTS/git-shim/git" format-patch --output-directory=/tmp/x HEAD~1
+  assert_failure 13
+  refute_output --partial "REALGIT"
+}
+
+@test "git-shim: exits 127 when the real git path is not provided" {
+  run -127 env -u COPILOT_REVIEW_REAL_GIT "$SCRIPTS/git-shim/git" status
+  assert_output --partial "COPILOT_REVIEW_REAL_GIT"
 }
 
 #

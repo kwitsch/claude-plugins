@@ -33,32 +33,52 @@ has_copilot_login() {
   [ -f "$cfg" ] && awk '{gsub(/[ \t\r]/, ""); s = s $0}
     END {exit (index(s, "\"loggedInUsers\":[{") ? 0 : 1)}' "$cfg"
 }
+# gh records a logged-in host in hosts.yml as a `<host>:` block carrying a
+# `user:` line. The OAuth token only appears inline (`oauth_token:`) under
+# insecure storage; gh's default secure storage keeps it in the OS keyring,
+# so match the always-present `user:` line, not the token (gh ≥ 2.26).
+has_gh_login() {
+  [ -f "$gh_hosts" ] && grep -qE '^[[:space:]]*user:[[:space:]]*[^[:space:]]' "$gh_hosts"
+}
 if [ -z "${COPILOT_GITHUB_TOKEN:-}" ] && [ -z "${GH_TOKEN:-}" ] \
-   && [ -z "${GITHUB_TOKEN:-}" ] && ! has_copilot_login \
-   && ! { [ -f "$gh_hosts" ] && grep -q 'oauth_token' "$gh_hosts"; }; then
+   && [ -z "${GITHUB_TOKEN:-}" ] && ! has_copilot_login && ! has_gh_login; then
   exit 3
 fi
 
-# 3) Review — documented programmatic pattern, hardened read-only: the write
-# tool is denied (denial rules beat every allow rule) and the shell allowlist
-# names only read-only git subcommands — shell(git:*) would also match
-# write-path subcommands like "git commit" (verified against CLI 1.0.60).
-# Reading and searching the worktree need no allows: the internal read/search
-# tools run without approval. Copilot's exit codes are undocumented and auth
-# errors can surface in either stream regardless of exit code, so both paths
-# sniff a narrow auth pattern (deliberately without bare 'unauthorized',
-# which legitimate review findings often contain).
+# 3) Review — documented programmatic pattern, hardened read-only on three
+# layers: the write tool is denied (denial rules beat every allow rule); the
+# shell allowlist names only read-only git subcommands (shell(git:*) would also
+# match write-path subcommands like "git commit", verified against CLI 1.0.60);
+# and a git facade (scripts/git-shim) is prepended to copilot's PATH so even
+# the allowed subcommands cannot write via the --output/-O flag family, which
+# the per-subcommand allowlist cannot express. Reading and searching the
+# worktree need no allows: the internal read/search tools run without approval.
+# Copilot's exit codes are undocumented and auth errors can surface in either
+# stream regardless of exit code, so both paths sniff a narrow auth pattern
+# (deliberately without bare 'unauthorized', which legitimate findings carry).
 auth_re='not (logged in|authenticated)|authentication (required|failed)|run /login'
 err="$(mktemp)"
 trap 'rm -f "$err"' EXIT
-if ! out="$(timeout -k 10 "${REVIEW_TIMEOUT:-600}" copilot \
+
+# Read-only git facade: real git resolved before the shim shadows it, exported
+# so the shim can forward to it. Skipped only if git is absent (then copilot's
+# own git calls fail regardless). ${BASH_SOURCE%/*} avoids a dirname dependency.
+real_git="$(command -v git || true)"
+shim_path=""
+if [ -n "$real_git" ]; then
+  shim_path="${BASH_SOURCE[0]%/*}/git-shim"
+fi
+
+if ! out="$(COPILOT_REVIEW_REAL_GIT="$real_git" \
+    PATH="${shim_path:+$shim_path:}$PATH" \
+    timeout -k 10 "${REVIEW_TIMEOUT:-600}" copilot \
     -p "/review the changes on this branch compared to origin/${base}. Focus on bugs and security issues. Report each finding with file, line, severity (critical/major/minor), a short title and a concrete recommendation." \
     -s --no-ask-user --deny-tool write \
     --allow-tool='shell(git diff)' --allow-tool='shell(git log)' \
     --allow-tool='shell(git show)' --allow-tool='shell(git status)' \
-    --allow-tool='shell(git branch)' --allow-tool='shell(git merge-base)' \
-    --allow-tool='shell(git rev-parse)' --allow-tool='shell(git grep)' \
-    --allow-tool='shell(git blame)' --allow-tool='shell(git ls-files)' \
+    --allow-tool='shell(git merge-base)' --allow-tool='shell(git rev-parse)' \
+    --allow-tool='shell(git grep)' --allow-tool='shell(git blame)' \
+    --allow-tool='shell(git ls-files)' \
     2>"$err")"; then
   if { cat "$err"; printf '%s' "$out"; } | grep -qiE "$auth_re"; then
     exit 3
