@@ -28,9 +28,10 @@ stay on Bash per context-mode's own whitelist.
   itself, the CLI reviewers run `scripts/<tool>-review.sh <base>` through
   context-mode's `ctx_execute` (Bash only as reported degradation), all
   returning findings JSON; aggregation + dedupe in the skill with a
-  cross-round skip list; findings → one `review-fixer` pass + next
-  round; fixer commits nothing → converged; round 3 still red → stop
-  before pushing and hand findings to the user; push + `gh pr
+  cross-round skip list (fixer echoes per-finding ids); findings → one
+  `review-fixer` pass + next round; fixer commits nothing → converged;
+  round 3 still red → stop before pushing and hand findings to the user;
+  a round with zero `ok` reviewers retries once, then stops; push + `gh pr
   create`/`glab mr create`; then a monitor loop (max 5, with no-progress
   early exit):
   `ci-monitor` (read-only analysis, gets platform + PR/MR reference + branch

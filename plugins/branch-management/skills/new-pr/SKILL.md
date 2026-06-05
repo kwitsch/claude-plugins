@@ -127,18 +127,18 @@ preconditions through `scripts/review-settings.sh`.
    - `missing` — skip silently; absence is not an error.
    - `no_auth` — skip; record the `login_hint` for the final report.
    - `failed` — skip; record the `error` for the final report (the
-     claude-reviewer only knows `ok|failed`).
+     claude-reviewer only knows `ok|failed` and never emits a
+     `login_hint`).
    - An unparsable agent reply counts as `failed` with empty findings.
-   - An `error` carrying a degradation note (`… ran via Bash`,
-     `partial review — diff too large`) can appear on any status — carry
-     such notes into the final report.
+   - An `error` carrying a degradation note (e.g. `… ran via Bash`,
+     `… ran via native tools`, `partial review — diff too large`) can
+     appear on any status — carry such notes into the final report.
 
    Every enabled source runs in every round; one that drops out mid-run
-   (e.g. a coderabbit rate limit) degrades softly via these statuses. A
-   round in which every dispatched reviewer returned
-   `missing`/`no_auth`/`failed` simply produces zero findings and flows
-   through step 8's quiet branch — it does not loop. That is fine: the
-   monitor loop remains as the review net.
+   (e.g. a coderabbit rate limit) degrades softly via these statuses —
+   as long as at least one reviewer returns `ok`, the round counts. A
+   round in which EVERY dispatched reviewer failed reviewed nothing;
+   step 8 handles that case explicitly (one retry, then stop).
 
 7. **Aggregate and dedupe** the round's findings across all sources:
    merge findings that point at the same file and overlapping lines and
@@ -146,28 +146,43 @@ preconditions through `scripts/review-settings.sh`.
    every source tool. Treat `line: 0` (file-level) findings as
    overlapping only when their titles describe the same issue. This is
    pure data work on the JSON — do not open the files here. Then drop
-   every finding already on the skip list (findings the fixer skipped
-   with a reason in an earlier round; key: file + line + normalized
-   title, case-insensitive with collapsed whitespace — file + title alone
-   for `line: 0`) so a rejected finding cannot ping-pong between reviewer
-   and fixer. The skip list lives in your context for the rest of the
-   run.
+   every finding that matches an entry on the skip list (the full
+   finding objects the fixer skipped with a reason in earlier rounds): a
+   new finding matches a skip entry when it points at the same file and
+   describes the same root cause — same or clearly equivalent title, or
+   nearby lines (fix commits shift line numbers, so judge proximity, not
+   equality). This is a semantic comparison you make yourself; when
+   unsure, let the finding through — the fixer will re-verify it. The
+   skip list lives in your context for the rest of the run.
 
 8. **Decide:**
+   - **No reviewer in the round returned `ok`** (every dispatched one
+     came back `missing`/`no_auth`/`failed`): the round reviewed
+     nothing — do not treat it as quiet. Retry the round ONCE (the retry
+     does not count against the cap); if the retry also yields no `ok`
+     source, STOP before pushing and tell the user that no review source
+     succeeded.
    - **No findings left** → the round is quiet; continue with the Submit
-     stage.
+     stage. If the only `ok` review carried a `partial review` note, say
+     so prominently in the report — the unreviewed hunks were not
+     covered.
    - **Findings left and this was round 3** → do NOT dispatch the fixer
      again — a fix without a verification round would go out unreviewed.
      STOP before pushing anything and hand the open findings to the
-     user.
-   - **Findings left, rounds remaining** → dispatch
+     user, naming the fix commits from earlier rounds that now sit
+     unpushed on the branch (list them via `git log`) so that work is
+     not lost.
+   - **Findings left, rounds remaining** → assign each deduplicated
+     finding a stable `id` (`F1`, `F2`, …), then dispatch
      `branch-management:review-fixer` ONCE with the full deduplicated
-     findings JSON and the base branch. It verifies each finding against
-     the code, fixes the justified ones, skips the rest with reasons,
-     and commits. Add its skipped findings (with reasons) to the skip
-     list and the report — the fixer's resolutions carry no `line`, so
-     recover it by matching each skipped resolution (file + title) back
-     against the deduplicated findings JSON you just dispatched. Then:
+     findings JSON (including the ids) and the base branch. It verifies
+     each finding against the code, fixes the justified ones, skips the
+     rest with reasons, commits, and echoes each finding's `id` in its
+     resolutions. Add the skipped findings — looked up by `id` in the
+     JSON you dispatched — to the skip list (full finding object plus
+     the fixer's reason) and the report. Run `git status --porcelain`
+     afterwards and commit any leftover fix edits that belong to the
+     branch. Then:
      - The fixer produced at least one commit → start the next review
        round (step 6).
      - The fixer produced no commit (everything skipped) → treat as
@@ -236,11 +251,13 @@ hand the remaining findings to the user instead of pushing in circles.
     installed, rate limit exhausted) counts as quiet — the loop ends on CI
     green alone.
 
-15. **Report:** the PR/MR URL; the number of review rounds and their
-    outcome (quiet / converged via fixer skips / capped at 3 with open
-    findings); per review source its latest status (claude: ran / partial
-    (diff too large) / failed + reason / **disabled via settings**; CLI
-    tools: ran / missing,
+15. **Report:** the PR/MR URL — or, when a stop branch fired, the note
+    that nothing was pushed plus the fix commits left on the branch; the
+    number of review rounds and their outcome (quiet / converged via
+    fixer skips / capped at 3 with open findings / stopped: no review
+    source succeeded / skipped: no reviewer enabled); per review source
+    its latest status (claude: ran / partial (diff too large) / failed +
+    reason / **disabled via settings**; CLI tools: ran / missing,
     skipped silently / **not logged in + login command** / failed +
     reason / **disabled via settings**); findings fixed/skipped per
     round; monitor iterations used.

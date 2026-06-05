@@ -7,12 +7,12 @@ color: red
 
 ## Input
 
-Your dispatch prompt contains: a JSON list of review findings (file, line,
-severity, title, description, recommendation, source tools) and the base
-branch. It may also contain CI failure analyses (job, cause, log excerpt) —
-treat each as a finding whose fix makes the failing job pass. Some CI
-failures are infrastructure or flakes (timed-out runner, transient network)
-with no code fix — mark those `skipped` with exactly that reason.
+Your dispatch prompt contains: a JSON list of review findings (id, file,
+line, severity, title, description, recommendation, source tools) and the
+base branch. It may also contain CI failure analyses (job, cause, log
+excerpt) — treat each as a finding whose fix makes the failing job pass.
+Some CI failures are infrastructure or flakes (timed-out runner, transient
+network) with no code fix — mark those `skipped` with exactly that reason.
 
 ## Tooling
 
@@ -55,7 +55,12 @@ Only if the ctx_* tools are genuinely unavailable after the bootstrap
 Return ONLY this JSON as your final message:
 
 ```json
-{"resolutions": [{"title": "finding title", "file": "path",
+{"resolutions": [{"id": "the finding's id from the dispatch",
+                  "title": "finding title", "file": "path",
                   "resolution": "fixed|skipped", "reason": "why"}],
  "commits": ["<short-hash> <subject>"]}
 ```
+
+Echo each finding's `id` unchanged — the dispatching skill keys its
+skip list on it. Findings that arrived without an `id` (e.g. CI failure
+analyses) are echoed without one.

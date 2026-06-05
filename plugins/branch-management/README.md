@@ -9,7 +9,7 @@ finished branch into a reviewed, pushed PR/MR and watches it until green.
 | Skill | What it does |
 |---|---|
 | `new-branch` | Dispatches the `branch-agent` to switch to the default branch, pull, and create `<type>/<slug>`; refreshes the context-mode index (declared plugin dependency). |
-| `new-pr` | Runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer agents, max 3), aggregates + dedupes the findings, applies verified fixes via the `review-fixer` between rounds, pushes, opens the PR/MR via `gh`/`glab`, and loops `ci-monitor` → `review-fixer` until CI is green and no findings remain. Each review source can be disabled per project (see [Configuration](#configuration)). |
+| `new-pr` | Runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer agents, max 3), aggregates + dedupes the findings, applies verified fixes via the `review-fixer` between rounds (round 3 still red → stops before pushing), pushes, opens the PR/MR via `gh`/`glab`, and loops `ci-monitor` → `review-fixer` until CI is green and no findings remain. Each review source can be disabled per project (see [Configuration](#configuration)). |
 
 Skills no longer pin a `model:` — each unit of work runs in a dedicated agent
 with its own model.
