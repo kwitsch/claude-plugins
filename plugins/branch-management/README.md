@@ -53,8 +53,8 @@ Each review source of `new-pr` can be disabled per project in
 `.claude/branch-management.local.md` (YAML frontmatter, file in the
 repository root — the git toplevel; outside a git repo the current
 directory is used). A user-level `~/.claude/branch-management.local.md`
-with the same format supplies defaults across projects; the project file
-wins per key:
+with the same format supplies defaults across projects; layers only
+restrict — a project file can forbid more, never allow more:
 
 ```markdown
 ---
@@ -62,7 +62,7 @@ reviews:
   claude: true
   codex: true
   copilot: true
-  coderabbit: true
+  coderabbit: false
 ---
 ```
 
@@ -76,10 +76,11 @@ reviews:
   recognized and count as neutral.
 - Only direct children of the top-level block-style `reviews:` mapping
   count — nested sub-maps and flow-style (`reviews: {…}`) are ignored.
-- Precedence per key: project file → user file → default (`true`). Only
-  explicit `true`/`false` values assign — an invalid value is neutral and
-  leaves the lower layer untouched; an explicit `copilot: true` in the
-  project file re-enables a review the user file disabled.
+- Layers only restrict: any explicit `false` in either file — at any
+  position, duplicates included — disables that review; `true` is
+  documentation only and never re-enables. A user-level `copilot: false`
+  therefore overrides a project-level `copilot: true` — a project can
+  forbid more than the user level, never allow more.
 - `claude` gates the `claude-reviewer`;
   `codex`/`copilot`/`coderabbit` gate their CLI reviewers.
 - The toggles do not affect the monitor loop: CodeRabbit bot comments on
@@ -109,8 +110,8 @@ Review runs are wrapped in `timeout -k 10` (default 600 s, override with
 `scripts/review-settings.sh [settings-file]` — prints the four review
 toggles (`<tool>=true|false`, one line each, fail-open defaults) merged
 from the user-level and project-level settings files described under
-Configuration (project wins per key). The argument overrides the
-project-file path; without it the script reads
+Configuration (restrict-only — any explicit `false` wins). The argument
+overrides the project-file path; without it the script reads
 `<git-toplevel>/.claude/branch-management.local.md` (outside a repo:
 `$PWD/.claude/…`). Exit codes: `0` always · `1` usage error.
 

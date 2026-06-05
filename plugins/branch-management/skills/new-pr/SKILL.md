@@ -72,11 +72,11 @@ preconditions through `scripts/review-settings.sh`.
    step 6 and substitute the absolute path.)
 
    It prints one `<tool>=true|false` line per review source (`claude`,
-   `codex`, `copilot`, `coderabbit`), merged per key from the user-level
-   `~/.claude/branch-management.local.md` and the project-level
-   `.claude/branch-management.local.md` (project wins; only explicit
-   `true`/`false` values assign). Missing or malformed settings files
-   yield all `true` (fail-open) —
+   `codex`, `copilot`, `coderabbit`), merged restrict-only from the
+   user-level `~/.claude/branch-management.local.md` and the
+   project-level `.claude/branch-management.local.md` (any explicit
+   `false` in either layer disables; `true` never re-enables). Missing
+   or malformed settings files yield all `true` (fail-open) —
    only an explicit `false` (case-insensitive) disables a source. Keep
    the four values for the rest of the run; every disabled source appears
    in the final report as `disabled via settings`. The toggles gate the
