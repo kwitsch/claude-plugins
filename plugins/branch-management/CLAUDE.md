@@ -57,8 +57,12 @@ stay on Bash per context-mode's own whitelist.
   cadence via `CI_WATCH_INTERVAL`.
 - CLI specifics: codex has no headless review subcommand → `codex exec
   --sandbox read-only` with the diff prompt; copilot has no auth-status
-  command → token-env/`~/.copilot` heuristic + auth-error sniffing of the
-  output; coderabbit auth/review exit codes are uncontractual → output
+  command → login heuristic (token env, non-empty `loggedInUsers` in
+  COPILOT_HOME's config.json, or gh CLI credentials — a bare `~/.copilot`
+  is created on first launch without login) + auth-error sniffing of the
+  output; the copilot run is hardened read-only (`--deny-tool write` +
+  allowlist of read-only git subcommands — `shell(git:*)` would also match
+  `git commit`); coderabbit auth/review exit codes are uncontractual → output
   heuristics (`logged in|authenticated` positive, negative-first), `cr`
   alias supported.
 

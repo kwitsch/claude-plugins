@@ -2,11 +2,11 @@
 # copilot-review.sh <base-branch> — non-interactive GitHub Copilot review of
 # the current branch against origin/<base-branch>.
 #
-# Copilot CLI (public preview) has no non-interactive auth-status command and
-# no documented process exit codes, so: login is a heuristic (documented token
-# env precedence COPILOT_GITHUB_TOKEN > GH_TOKEN > GITHUB_TOKEN, or login
-# state under COPILOT_HOME), and auth failures during the run are detected
-# from the output.
+# Copilot CLI has no non-interactive auth-status command and no documented
+# process exit codes, so: login is a heuristic (documented token env
+# precedence COPILOT_GITHUB_TOKEN > GH_TOKEN > GITHUB_TOKEN, a recorded login
+# in COPILOT_HOME's config.json, or gh CLI credentials), and auth failures
+# during the run are detected from the output.
 #
 # Exit codes: 0 review ran (stdout = raw review output)
 #             2 copilot CLI not installed
@@ -19,23 +19,47 @@ base="${1:?usage: copilot-review.sh <base-branch>}"
 # 1) Presence
 command -v copilot >/dev/null 2>&1 || exit 2
 
-# 2) Login heuristic
+# 2) Login heuristic. A fresh COPILOT_HOME is created on first launch with
+# only a firstLaunchAt stamp, so directory existence alone proves nothing.
+# Logged in means: a token env var, a copilot login recorded in config.json
+# (a non-empty loggedInUsers array — present even when the token itself lives
+# in the system credential store), or gh CLI credentials (copilot falls back
+# to the gh credential store; verified against CLI 1.0.60).
+cfg="${COPILOT_HOME:-$HOME/.copilot}/config.json"
+gh_hosts="${GH_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/gh}/hosts.yml"
+# Whitespace-normalize so the match survives both pretty-printed and minified
+# JSON; '"loggedInUsers":[{' only appears when the array is non-empty.
+has_copilot_login() {
+  [ -f "$cfg" ] && awk '{gsub(/[ \t\r]/, ""); s = s $0}
+    END {exit (index(s, "\"loggedInUsers\":[{") ? 0 : 1)}' "$cfg"
+}
 if [ -z "${COPILOT_GITHUB_TOKEN:-}" ] && [ -z "${GH_TOKEN:-}" ] \
-   && [ -z "${GITHUB_TOKEN:-}" ] && [ ! -d "${COPILOT_HOME:-$HOME/.copilot}" ]; then
+   && [ -z "${GITHUB_TOKEN:-}" ] && ! has_copilot_login \
+   && ! { [ -f "$gh_hosts" ] && grep -q 'oauth_token' "$gh_hosts"; }; then
   exit 3
 fi
 
-# 3) Review — documented programmatic pattern, tool permission tightly scoped
-# to git. Copilot's exit codes are undocumented and auth errors can surface in
-# either stream regardless of exit code, so both paths sniff a narrow auth
-# pattern (deliberately without bare 'unauthorized', which legitimate review
-# findings often contain).
+# 3) Review — documented programmatic pattern, hardened read-only: the write
+# tool is denied (denial rules beat every allow rule) and the shell allowlist
+# names only read-only git subcommands — shell(git:*) would also match
+# write-path subcommands like "git commit" (verified against CLI 1.0.60).
+# Reading and searching the worktree need no allows: the internal read/search
+# tools run without approval. Copilot's exit codes are undocumented and auth
+# errors can surface in either stream regardless of exit code, so both paths
+# sniff a narrow auth pattern (deliberately without bare 'unauthorized',
+# which legitimate review findings often contain).
 auth_re='not (logged in|authenticated)|authentication (required|failed)|run /login'
 err="$(mktemp)"
 trap 'rm -f "$err"' EXIT
 if ! out="$(timeout -k 10 "${REVIEW_TIMEOUT:-600}" copilot \
     -p "/review the changes on this branch compared to origin/${base}. Focus on bugs and security issues. Report each finding with file, line, severity (critical/major/minor), a short title and a concrete recommendation." \
-    -s --no-ask-user --allow-tool='shell(git:*)' 2>"$err")"; then
+    -s --no-ask-user --deny-tool write \
+    --allow-tool='shell(git diff)' --allow-tool='shell(git log)' \
+    --allow-tool='shell(git show)' --allow-tool='shell(git status)' \
+    --allow-tool='shell(git branch)' --allow-tool='shell(git merge-base)' \
+    --allow-tool='shell(git rev-parse)' --allow-tool='shell(git grep)' \
+    --allow-tool='shell(git blame)' --allow-tool='shell(git ls-files)' \
+    2>"$err")"; then
   if { cat "$err"; printf '%s' "$out"; } | grep -qiE "$auth_re"; then
     exit 3
   fi

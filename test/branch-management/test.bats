@@ -101,7 +101,7 @@ exit 64'
   assert_failure 2
 }
 
-@test "copilot: exit 3 when no token env and no ~/.copilot state" {
+@test "copilot: exit 3 when no token env and no login state" {
   make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
   run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
   assert_failure 3
@@ -116,19 +116,72 @@ exit 64'
   assert_output --partial "origin/main"
 }
 
-@test "copilot: existing ~/.copilot satisfies the login heuristic" {
+@test "copilot: recorded login in config.json satisfies the login heuristic" {
   make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
   mkdir -p "$HOME/.copilot"
+  printf '%s\n' '{' '  "loggedInUsers": [' '    {' \
+    '      "host": "https://github.com",' '      "login": "tester"' \
+    '    }' '  ]' '}' > "$HOME/.copilot/config.json"
   run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
   assert_success
 }
 
-@test "copilot: COPILOT_HOME override satisfies the login heuristic" {
+@test "copilot: COPILOT_HOME override with recorded login satisfies the heuristic" {
   make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
   mkdir -p "$BATS_TEST_TMPDIR/cphome"
+  printf '{"loggedInUsers":[{"login":"tester"}]}' \
+    > "$BATS_TEST_TMPDIR/cphome/config.json"
   run env -i PATH="$MOCKBIN" HOME="$HOME" COPILOT_HOME="$BATS_TEST_TMPDIR/cphome" \
     bash "$SCRIPTS/copilot-review.sh" main
   assert_success
+}
+
+@test "copilot: bare ~/.copilot directory no longer satisfies the heuristic" {
+  # A fresh COPILOT_HOME is created on first launch without any login.
+  make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
+  mkdir -p "$HOME/.copilot"
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  assert_failure 3
+}
+
+@test "copilot: first-launch config.json without login maps to exit 3" {
+  make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
+  mkdir -p "$HOME/.copilot"
+  printf '{"firstLaunchAt":"2026-01-01T00:00:00.000Z"}' \
+    > "$HOME/.copilot/config.json"
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  assert_failure 3
+}
+
+@test "copilot: logged-out config.json (empty loggedInUsers) maps to exit 3" {
+  # Minified on purpose: lastLoggedInUser.login on the same line must not
+  # fake a match for the non-empty loggedInUsers check.
+  make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
+  mkdir -p "$HOME/.copilot"
+  printf '{"lastLoggedInUser":{"login":"tester"},"loggedInUsers":[]}' \
+    > "$HOME/.copilot/config.json"
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  assert_failure 3
+}
+
+@test "copilot: gh CLI credentials satisfy the login heuristic" {
+  # copilot falls back to the gh credential store (~/.config/gh/hosts.yml).
+  make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
+  mkdir -p "$HOME/.config/gh"
+  printf '%s\n' 'github.com:' '    user: tester' '    oauth_token: gho_x' \
+    > "$HOME/.config/gh/hosts.yml"
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  assert_success
+}
+
+@test "copilot: review run is hardened read-only" {
+  make_stub copilot 'echo "COPILOT REVIEW OUTPUT $*"; exit 0'
+  run env -i PATH="$MOCKBIN" HOME="$HOME" GH_TOKEN=x \
+    bash "$SCRIPTS/copilot-review.sh" main
+  assert_success
+  assert_output --partial "deny-tool write"      # write tool must be denied
+  assert_output --partial "shell(git diff)"      # read-only git allowlist
+  refute_output --partial "shell(git:*)"         # blanket git allow is gone
 }
 
 @test "copilot: auth failure in the output maps to exit 3" {
