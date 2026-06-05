@@ -486,11 +486,11 @@ ALL_ENABLED=$'claude=true\ncodex=true\ncopilot=true\ncoderabbit=true'
   assert_output $'claude=true\ncodex=false\ncopilot=false\ncoderabbit=true'
 }
 
-@test "settings: duplicate key last occurrence wins" {
+@test "settings: duplicate key: any explicit false sticks" {
   write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  copilot: false' '  copilot: true'
   run_settings "$BATS_TEST_TMPDIR/s.md"
   assert_success
-  assert_output "$ALL_ENABLED"
+  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
 }
 
 @test "settings: keys outside the reviews block are ignored" {
@@ -572,12 +572,28 @@ ALL_ENABLED=$'claude=true\ncodex=true\ncopilot=true\ncoderabbit=true'
   assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
 }
 
-@test "settings: project level overrides user level per key" {
+@test "settings: user-level false overrides a project-level true" {
   write_user_settings 'reviews:' '  copilot: false' '  codex: false'
   write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  copilot: true'
   run_settings "$BATS_TEST_TMPDIR/s.md"
   assert_success
-  assert_output $'claude=true\ncodex=false\ncopilot=true\ncoderabbit=true'
+  assert_output $'claude=true\ncodex=false\ncopilot=false\ncoderabbit=true'
+}
+
+@test "settings: project level can disable a review the user level leaves enabled" {
+  write_user_settings 'reviews:' '  copilot: true'
+  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  copilot: false' '  codex: false'
+  run_settings "$BATS_TEST_TMPDIR/s.md"
+  assert_success
+  assert_output $'claude=true\ncodex=false\ncopilot=false\ncoderabbit=true'
+}
+
+@test "settings: user-level false persists when the project file lacks the key" {
+  write_user_settings 'reviews:' '  copilot: false'
+  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  claude: true'
+  run_settings "$BATS_TEST_TMPDIR/s.md"
+  assert_success
+  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
 }
 
 @test "settings: invalid project value does not override user-level false" {

@@ -6,17 +6,20 @@
 # mapping in the YAML frontmatter of the user-level
 # ~/.claude/branch-management.local.md, then of the project-level
 # <git-toplevel>/.claude/branch-management.local.md (outside a repo: $PWD;
-# the argument overrides the project path). Later layers win per key, but
-# only explicit values assign: `true`/`false` (case-insensitive,
-# surrounding quotes tolerated) — anything else is neutral and leaves the
-# lower layer untouched. Only a block's direct children count — nested
-# sub-maps and flow-style (`reviews: {…}`) are ignored. Duplicate keys:
-# the last occurrence wins. Inline comments after the value are not
-# supported (the value is neutral then). Fail-open: a review is only
-# disabled by an explicit `false` in some layer — a missing or unreadable
-# file, missing block, missing key or invalid value never disables, and a
-# broken layer is skipped without affecting the other. Reviews are a
-# safety net; a broken settings file must not silently switch them off.
+# the argument overrides the project path). Layers only restrict: any
+# explicit `false` (case-insensitive, surrounding quotes tolerated) in any
+# layer — at any position, duplicates included — disables that review;
+# `true` is documentation only and never re-enables. A project file can
+# forbid more than the user file, never allow more, and a user-level
+# `false` overrides a project-level `true`. Anything other than
+# `true`/`false` is neutral. Only a block's direct children count — nested
+# sub-maps and flow-style (`reviews: {…}`) are ignored. Inline comments
+# after the value are not supported (the value is neutral then).
+# Fail-open: a review is only disabled by an explicit `false` somewhere —
+# a missing or unreadable file, missing block, missing key or invalid
+# value never disables, and a broken layer is skipped without affecting
+# the other. Reviews are a safety net; a broken settings file must not
+# silently switch them off.
 #
 # Exit codes: 0 always (query, not a gate) · 1 usage error
 set -euo pipefail
@@ -65,12 +68,12 @@ parse_file() {
 for f in "${HOME:+$HOME/$rel}" "$project"; do
   [ -n "$f" ] && [ -f "$f" ] && [ -r "$f" ] || continue
   while IFS='=' read -r k v; do
-    case "$v" in true|false) ;; *) continue ;; esac
+    [ "$v" = false ] || continue   # restrict-only: `true` never re-enables
     case "$k" in
-      claude)     claude=$v ;;
-      codex)      codex=$v ;;
-      copilot)    copilot=$v ;;
-      coderabbit) coderabbit=$v ;;
+      claude)     claude=false ;;
+      codex)      codex=false ;;
+      copilot)    copilot=false ;;
+      coderabbit) coderabbit=false ;;
     esac
   done < <(parse_file "$f")
 done
