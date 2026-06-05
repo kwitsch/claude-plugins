@@ -1,8 +1,9 @@
 # CLAUDE.md — branch-management
 
-Two thin orchestrator skills (`new-branch`, `new-pr`) that dispatch six
+Two thin orchestrator skills (`new-branch`, `new-pr`) that dispatch seven
 dedicated agents; all model selection lives in the agent frontmatter
-(haiku = mechanics/reviewers, sonnet = ci-monitor, opus = review-fixer).
+(haiku = mechanics/CLI reviewers, sonnet = ci-monitor, opus =
+claude-reviewer + review-fixer).
 Skills carry no `model:` key.
 context-mode (cross-marketplace dependency, declared in plugin.json with the
 marketplace allowlisted via `allowCrossMarketplaceDependenciesOn`) executes
@@ -21,13 +22,18 @@ stay on Bash per context-mode's own whitelist.
   `origin/<base>` for all revisions, review toggles via
   `scripts/review-settings.sh` from user-level `~/.claude/` plus
   project-level `.claude/branch-management.local.md` — fail-open, only
-  explicit `false` disables; gates stage 1 and the stage-2
-  dispatches, monitor loop unaffected); stage 1 `code-review --fix` with a
-  mandatory commit before stage 2; stage 2 the enabled reviewer agents in
-  parallel, each running `scripts/<tool>-review.sh <base>` through context-mode's
-  `ctx_execute` (Bash only as reported degradation) and returning findings JSON;
-  dedupe in the skill; one `review-fixer` pass; push + `gh pr create`/`glab
-  mr create`; then a monitor loop (max 5, with no-progress early exit):
+  explicit `false` disables; gates the reviewer dispatches, monitor loop
+  unaffected); mandatory commit, then iterative review rounds (max 3):
+  all enabled reviewers in parallel — `claude-reviewer` reviews the diff
+  itself, the CLI reviewers run `scripts/<tool>-review.sh <base>` through
+  context-mode's `ctx_execute` (Bash only as reported degradation), all
+  returning findings JSON; aggregation + dedupe in the skill with a
+  cross-round skip list (fixer echoes per-finding ids); findings → one
+  `review-fixer` pass + next round; fixer commits nothing → converged;
+  round 3 still red → stop before pushing and hand findings to the user;
+  a round with zero `ok` reviewers retries once, then stops; push + `gh pr
+  create`/`glab mr create`; then a monitor loop (max 5, with no-progress
+  early exit):
   `ci-monitor` (read-only analysis, gets platform + PR/MR reference + branch
   name + ci-watch.sh path; CI watch via `scripts/ci-watch.sh` — CodeRabbit
   checks excluded so a silent bot cannot block, bounded by

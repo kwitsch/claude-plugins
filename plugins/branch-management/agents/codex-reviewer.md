@@ -13,7 +13,8 @@ commands, never improvise alternative CLI flags.
 
 <!-- Keep Execution + "Reading the ctx_execute result" in sync across the
      three reviewer agents (codex/copilot/coderabbit) — only the script
-     name, login hint and tool-specific notes may differ. -->
+     name, login hint and tool-specific notes may differ. The findings
+     shape and severity enum are also mirrored in claude-reviewer.md. -->
 
 Your dispatch prompt names the base branch and the absolute script path
 (`<plugin-root>/scripts/codex-review.sh`). context-mode is a declared
