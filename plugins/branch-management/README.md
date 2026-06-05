@@ -51,7 +51,9 @@ conversation context.
 Each review source of `new-pr` can be disabled per project in
 `.claude/branch-management.local.md` (YAML frontmatter, file in the
 repository root — the git toplevel; outside a git repo the current
-directory is used):
+directory is used). A user-level `~/.claude/branch-management.local.md`
+with the same format supplies defaults across projects; the project file
+wins per key:
 
 ```markdown
 ---
@@ -63,14 +65,20 @@ reviews:
 ---
 ```
 
-- Fail-open: a missing file, a file without frontmatter, a missing key or
-  an invalid value keeps the review enabled — only an explicit `false`
-  (case-insensitive, quotes tolerated) disables a source.
-- Write bare values — a trailing inline comment (`false # note`) and YAML
-  aliases like `no`/`off`/`0` are not recognized and leave the source
-  enabled.
+- Fail-open: a review is only disabled by an explicit `false`
+  (case-insensitive, quotes tolerated) in some layer — a missing or
+  unreadable file, a file without frontmatter, a missing key or an
+  invalid value never disables anything, and a broken layer is skipped
+  without affecting the other.
+- Write bare `true`/`false` values — a trailing inline comment
+  (`false # note`) and YAML aliases like `no`/`off`/`0` are not
+  recognized and count as neutral.
 - Only direct children of the top-level block-style `reviews:` mapping
   count — nested sub-maps and flow-style (`reviews: {…}`) are ignored.
+- Precedence per key: project file → user file → default (`true`). Only
+  explicit `true`/`false` values assign — an invalid value is neutral and
+  leaves the lower layer untouched; an explicit `copilot: true` in the
+  project file re-enables a review the user file disabled.
 - `claude` gates stage 1 (`code-review --fix`);
   `codex`/`copilot`/`coderabbit` gate the stage-2 CLI reviews.
 - The toggles do not affect the monitor loop: CodeRabbit bot comments on
@@ -98,7 +106,9 @@ Review runs are wrapped in `timeout -k 10` (default 600 s, override with
 `REVIEW_TIMEOUT`).
 
 `scripts/review-settings.sh [settings-file]` — prints the four review
-toggles (`<tool>=true|false`, one line each, fail-open defaults) from the
-settings file described under Configuration. Without an argument it reads
+toggles (`<tool>=true|false`, one line each, fail-open defaults) merged
+from the user-level and project-level settings files described under
+Configuration (project wins per key). The argument overrides the
+project-file path; without it the script reads
 `<git-toplevel>/.claude/branch-management.local.md` (outside a repo:
 `$PWD/.claude/…`). Exit codes: `0` always · `1` usage error.

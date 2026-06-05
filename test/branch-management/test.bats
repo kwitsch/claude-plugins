@@ -267,6 +267,13 @@ run_settings() {
   run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/review-settings.sh" "$@"
 }
 
+# write_user_settings <frontmatter-line>... — user-level settings in the
+# isolated HOME.
+write_user_settings() {
+  mkdir -p "$HOME/.claude"
+  write_settings "$HOME/.claude/branch-management.local.md" "$@"
+}
+
 ALL_ENABLED=$'claude=true\ncodex=true\ncopilot=true\ncoderabbit=true'
 
 @test "settings: all enabled when the settings file is missing" {
@@ -402,6 +409,60 @@ ALL_ENABLED=$'claude=true\ncodex=true\ncopilot=true\ncoderabbit=true'
   run_settings
   assert_success
   assert_output $'claude=true\ncodex=false\ncopilot=true\ncoderabbit=true'
+}
+
+@test "settings: user-level config applies when no project file exists" {
+  write_user_settings 'reviews:' '  copilot: false'
+  run_settings "$BATS_TEST_TMPDIR/missing.md"
+  assert_success
+  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
+}
+
+@test "settings: project level overrides user level per key" {
+  write_user_settings 'reviews:' '  copilot: false' '  codex: false'
+  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  copilot: true'
+  run_settings "$BATS_TEST_TMPDIR/s.md"
+  assert_success
+  assert_output $'claude=true\ncodex=false\ncopilot=true\ncoderabbit=true'
+}
+
+@test "settings: invalid project value does not override user-level false" {
+  write_user_settings 'reviews:' '  copilot: false'
+  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  copilot: off'
+  run_settings "$BATS_TEST_TMPDIR/s.md"
+  assert_success
+  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
+}
+
+@test "settings: unreadable user layer is skipped, project still applies" {
+  [ "$(id -u)" -eq 0 ] && skip "root can read anything"
+  write_user_settings 'reviews:' '  copilot: false'
+  chmod 000 "$HOME/.claude/branch-management.local.md"
+  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  codex: false'
+  run_settings "$BATS_TEST_TMPDIR/s.md"
+  assert_success
+  assert_output $'claude=true\ncodex=false\ncopilot=true\ncoderabbit=true'
+}
+
+@test "settings: BOM is stripped under a UTF-8 locale" {
+  printf -- '\357\273\277---\nreviews:\n  copilot: false\n---\n' > "$BATS_TEST_TMPDIR/s.md"
+  run env -i PATH="$MOCKBIN" HOME="$HOME" LANG=C.UTF-8 LC_ALL=C.UTF-8 \
+    bash "$SCRIPTS/review-settings.sh" "$BATS_TEST_TMPDIR/s.md"
+  assert_success
+  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
+}
+
+@test "settings: no-arg run merges user and project level" {
+  ln -s "$(command -v git)" "$MOCKBIN/git"
+  git init -q "$BATS_TEST_TMPDIR/repo"
+  mkdir -p "$BATS_TEST_TMPDIR/repo/.claude"
+  write_user_settings 'reviews:' '  claude: false'
+  write_settings "$BATS_TEST_TMPDIR/repo/.claude/branch-management.local.md" \
+    'reviews:' '  codex: false'
+  cd "$BATS_TEST_TMPDIR/repo"
+  run_settings
+  assert_success
+  assert_output $'claude=false\ncodex=false\ncopilot=true\ncoderabbit=true'
 }
 
 @test "settings: usage error with more than one argument" {
