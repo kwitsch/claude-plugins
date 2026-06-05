@@ -45,10 +45,11 @@ stay on Bash per context-mode's own whitelist.
   report). Review runs wrapped in `timeout -k 10 "${REVIEW_TIMEOUT:-600}"`.
   `review-settings.sh`: prints `<tool>=true|false` for
   claude/codex/copilot/coderabbit, exit 0 always (usage error 1); only an
-  explicit case-insensitive `true`/`false` (quotes tolerated) under a
-  top-level block-style `reviews:` mapping assigns, direct children only,
-  invalid values are neutral; layered user (`~/.claude/`) → project (git
-  toplevel) merge, project wins per key, an unreadable layer is skipped.
+  explicit case-insensitive `false` (quotes tolerated) under a top-level
+  block-style `reviews:` mapping disables, direct children only, `true`
+  never re-enables, invalid values are neutral; the user (`~/.claude/`) +
+  project (git toplevel) merge is restrict-only (any `false` in any layer
+  disables), an unreadable layer is skipped.
   `ci-watch.sh <github|gitlab> <nr|branch>`: 0 green · 1 red · 2 deadline ·
   64 usage/environment (CLI missing/too old); green/red from check CONTENT
   (gh exits 1 fail / 8 pending with data), coderabbit-named checks
@@ -85,7 +86,8 @@ subcommand allowlisted). `scripts/git-shim` has direct unit tests
 unset real-git → 127). Plus `review-settings.sh` toggle parsing (fail-open
 defaults, explicit/quoted/case-insensitive `false`, block and nesting
 boundaries, BOM/CRLF incl. UTF-8 locale, default-path resolution,
-user→project layering with neutral-value and unreadable-layer cases) and
+restrict-only user+project layering — user `false` beats project `true` —
+with neutral-value and unreadable-layer cases) and
 `ci-watch.sh` polling (coderabbit exclusion, pending→done transitions,
 timeout, no-checks grace, gitlab status heuristics). Run:
 `BATS_LIB_PATH="$PWD/node_modules" npx bats test/branch-management/`.
