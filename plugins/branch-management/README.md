@@ -9,7 +9,7 @@ finished branch into a reviewed, pushed PR/MR and watches it until green.
 | Skill | What it does |
 |---|---|
 | `new-branch` | Dispatches the `branch-agent` to switch to the default branch, pull, and create `<type>/<slug>`; refreshes the context-mode index (declared plugin dependency). |
-| `new-pr` | Runs `code-review --fix`, then codex/copilot/coderabbit CLI reviews in parallel reviewer agents, applies verified fixes via the `review-fixer`, pushes, opens the PR/MR via `gh`/`glab`, and loops `ci-monitor` → `review-fixer` until CI is green and no findings remain. Each review source can be disabled per project (see [Configuration](#configuration)). |
+| `new-pr` | Runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer agents, max 3), aggregates + dedupes the findings, applies verified fixes via the `review-fixer` between rounds, pushes, opens the PR/MR via `gh`/`glab`, and loops `ci-monitor` → `review-fixer` until CI is green and no findings remain. Each review source can be disabled per project (see [Configuration](#configuration)). |
 
 Skills no longer pin a `model:` — each unit of work runs in a dedicated agent
 with its own model.
@@ -19,6 +19,7 @@ with its own model.
 | Agent | Model | Role |
 |---|---|---|
 | `branch-agent` | haiku | git mechanics of cutting a new branch |
+| `claude-reviewer` | opus | reviews the branch diff itself (read-only), returns findings JSON |
 | `codex-reviewer` | haiku | runs `scripts/codex-review.sh`, returns findings JSON |
 | `copilot-reviewer` | haiku | runs `scripts/copilot-review.sh`, returns findings JSON |
 | `coderabbit-reviewer` | haiku | runs `scripts/coderabbit-review.sh`, returns findings JSON |
@@ -79,8 +80,8 @@ reviews:
   explicit `true`/`false` values assign — an invalid value is neutral and
   leaves the lower layer untouched; an explicit `copilot: true` in the
   project file re-enables a review the user file disabled.
-- `claude` gates stage 1 (`code-review --fix`);
-  `codex`/`copilot`/`coderabbit` gate the stage-2 CLI reviews.
+- `claude` gates the `claude-reviewer`;
+  `codex`/`copilot`/`coderabbit` gate their CLI reviewers.
 - The toggles do not affect the monitor loop: CodeRabbit bot comments on
   the PR are still collected and processed.
 - The file is read on every `new-pr` run — no restart needed. Add
