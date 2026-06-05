@@ -92,7 +92,7 @@ reviews:
 | CLI | Login | Notes |
 |---|---|---|
 | [codex](https://developers.openai.com/codex/cli) | `codex login` | review runs headless via `codex exec --sandbox read-only` |
-| [copilot](https://docs.github.com/en/copilot/how-tos/copilot-cli) | `copilot login` or `COPILOT_GITHUB_TOKEN`/`GH_TOKEN`/`GITHUB_TOKEN` | uses the documented `-p '/review …'` programmatic mode |
+| [copilot](https://docs.github.com/en/copilot/how-tos/copilot-cli) | `copilot login`, gh CLI login, or `COPILOT_GITHUB_TOKEN`/`GH_TOKEN`/`GITHUB_TOKEN` | uses the documented `-p '/review …'` programmatic mode, hardened read-only (write tool denied, read-only git allowlist) |
 | [coderabbit](https://docs.coderabbit.ai/cli) | `coderabbit auth login` | uses `review --prompt-only --base`; free tier is rate-limited (3 reviews/h) |
 
 A missing CLI is skipped silently. An installed CLI without a login is
