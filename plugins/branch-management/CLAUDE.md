@@ -35,7 +35,9 @@ stay on Bash per context-mode's own whitelist.
   3 not logged in (skip + report login command) · 4 run failed (skip +
   report). Review runs wrapped in `timeout -k 10 "${REVIEW_TIMEOUT:-600}"`.
   `review-settings.sh`: prints `<tool>=true|false` for
-  claude/codex/copilot/coderabbit, exit 0 always (usage error 1).
+  claude/codex/copilot/coderabbit, exit 0 always (usage error 1); only an
+  explicit case-insensitive `false` (quotes tolerated) under a top-level
+  block-style `reviews:` mapping disables, direct children only.
 - CLI specifics: codex has no headless review subcommand → `codex exec
   --sandbox read-only` with the diff prompt; copilot has no auth-status
   command → token-env/`~/.copilot` heuristic + auth-error sniffing of the
@@ -47,6 +49,7 @@ stay on Bash per context-mode's own whitelist.
 `test/branch-management/test.bats` covers the three review scripts with
 stub CLIs on an isolated `PATH` (missing → 2, no login → 3, ok →
 passthrough, hang → timeout → 4, usage errors) plus the
-`review-settings.sh` toggle parsing (fail-open defaults, explicit/quoted
-`false`, block boundaries). Run:
+`review-settings.sh` toggle parsing (fail-open defaults, explicit/quoted/
+case-insensitive `false`, block and nesting boundaries, BOM/CRLF,
+default-path resolution). Run:
 `BATS_LIB_PATH="$PWD/node_modules" npx bats test/branch-management/`.

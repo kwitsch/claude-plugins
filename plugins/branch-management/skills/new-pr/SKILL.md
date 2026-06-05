@@ -59,24 +59,27 @@ broken). Review sources can be disabled per project via
    - `git log "origin/$base"..HEAD --oneline` is empty and
      `git status --porcelain` is also empty (no work to submit).
 
-4. **Read the review toggles.** Resolve `${CLAUDE_PLUGIN_ROOT}` to a
-   concrete absolute path (e.g. `echo "${CLAUDE_PLUGIN_ROOT}"`) and run
-   the bundled settings script with that path substituted for
-   `<plugin-root>` — deterministic parsing, do not parse the settings
+4. **Read the review toggles.** Run the bundled settings script in a
+   single Bash call — deterministic parsing, do not parse the settings
    file yourself:
 
    ```bash
-   "<plugin-root>/scripts/review-settings.sh"
+   "${CLAUDE_PLUGIN_ROOT}/scripts/review-settings.sh"
    ```
+
+   (If `${CLAUDE_PLUGIN_ROOT}` is not set in your shell, resolve it as in
+   step 7 and substitute the absolute path.)
 
    It prints one `<tool>=true|false` line per review source (`claude`,
    `codex`, `copilot`, `coderabbit`). A missing or malformed
    `.claude/branch-management.local.md` yields all `true` (fail-open) —
-   only an explicit `false` disables a source. Keep the four values for
-   the rest of the run; every disabled source appears in the final report
-   as `disabled via settings`. The toggles gate the review stages only —
-   the monitor loop is unaffected: ci-monitor keeps collecting CodeRabbit
-   bot comments even when `coderabbit=false`.
+   only an explicit `false` (case-insensitive) disables a source. Keep
+   the four values for the rest of the run; every disabled source appears
+   in the final report as `disabled via settings`. The toggles gate the
+   review stages only — the monitor loop is unaffected: ci-monitor keeps
+   collecting CodeRabbit bot comments even when `coderabbit=false`. All
+   four toggles `false` is allowed — the run then proceeds without any
+   pre-push review; flag that prominently in the final report.
 
 ## Stage 1 — built-in code review
 
@@ -103,10 +106,11 @@ broken). Review sources can be disabled per project via
 7. **Dispatch the enabled reviewer subagents in ONE message** — those whose
    step-4 toggle is `true`; omit the coderabbit-reviewer additionally when
    step 2 found the local base diverged (toggle off → `disabled via
-   settings` in the report, diverged base → the existing note). If no
-   stage-2 reviewer is enabled, skip stage 2, the dedupe and the fixer
-   pass and continue with the Submit stage. (They run in parallel — the
-   scripts mutate nothing, so concurrent runs cannot conflict):
+   settings` in the report, diverged base → the existing note). If the
+   dispatch set is empty — no reviewer is both enabled and eligible —
+   skip stage 2, the dedupe and the fixer pass and continue with the
+   Submit stage. (They run in parallel — the scripts mutate nothing, so
+   concurrent runs cannot conflict):
 
    - `branch-management:codex-reviewer`
    - `branch-management:copilot-reviewer`
@@ -130,8 +134,8 @@ broken). Review sources can be disabled per project via
    - An `error` carrying a degradation note (`… ran via Bash`) can appear on
      any status — carry such notes into the final report.
 
-   No CLI available at all is fine — stage 1 and the monitor loop remain as
-   the review net.
+   No CLI available at all is fine — whatever review stages are still
+   enabled plus the monitor loop remain as the review net.
 
 ## Dedupe
 
@@ -206,7 +210,9 @@ hand the remaining findings to the user instead of pushing in circles.
     repeat steps 13–14 until both are quiet in the same iteration: CI green
     and no unresolved findings.
 
-16. **Report:** the PR/MR URL; per review source its status (ran / missing,
-    skipped silently / **not logged in + login command** / failed + reason /
-    **disabled via settings**); findings fixed/skipped per stage; monitor
-    iterations used.
+16. **Report:** the PR/MR URL; per review source its status (claude: ran /
+    **disabled via settings** / reviewed manually when no `code-review`
+    skill was available; CLI tools: ran / missing, skipped silently /
+    **not logged in + login command** / failed + reason / **disabled via
+    settings**); findings fixed/skipped per stage; monitor iterations
+    used.

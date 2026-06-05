@@ -262,31 +262,36 @@ write_settings() {
   { printf -- '---\n'; printf '%s\n' "$@"; printf -- '---\n'; } > "$f"
 }
 
+# run_settings [arg]... — run review-settings.sh on the isolated PATH.
+run_settings() {
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/review-settings.sh" "$@"
+}
+
 ALL_ENABLED=$'claude=true\ncodex=true\ncopilot=true\ncoderabbit=true'
 
 @test "settings: all enabled when the settings file is missing" {
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/review-settings.sh" "$BATS_TEST_TMPDIR/missing.md"
+  run_settings "$BATS_TEST_TMPDIR/missing.md"
   assert_success
   assert_output "$ALL_ENABLED"
 }
 
 @test "settings: all enabled without a reviews block" {
   write_settings "$BATS_TEST_TMPDIR/s.md" 'other: value'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/review-settings.sh" "$BATS_TEST_TMPDIR/s.md"
+  run_settings "$BATS_TEST_TMPDIR/s.md"
   assert_success
   assert_output "$ALL_ENABLED"
 }
 
 @test "settings: all enabled without frontmatter" {
   printf 'just some notes\n' > "$BATS_TEST_TMPDIR/s.md"
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/review-settings.sh" "$BATS_TEST_TMPDIR/s.md"
+  run_settings "$BATS_TEST_TMPDIR/s.md"
   assert_success
   assert_output "$ALL_ENABLED"
 }
 
 @test "settings: explicit false disables exactly that review" {
   write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  copilot: false'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/review-settings.sh" "$BATS_TEST_TMPDIR/s.md"
+  run_settings "$BATS_TEST_TMPDIR/s.md"
   assert_success
   assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
 }
@@ -294,42 +299,113 @@ ALL_ENABLED=$'claude=true\ncodex=true\ncopilot=true\ncoderabbit=true'
 @test "settings: all four can be disabled" {
   write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' \
     '  claude: false' '  codex: false' '  copilot: false' '  coderabbit: false'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/review-settings.sh" "$BATS_TEST_TMPDIR/s.md"
+  run_settings "$BATS_TEST_TMPDIR/s.md"
   assert_success
   assert_output $'claude=false\ncodex=false\ncopilot=false\ncoderabbit=false'
 }
 
 @test "settings: invalid value stays enabled (fail-open)" {
   write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  copilot: no'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/review-settings.sh" "$BATS_TEST_TMPDIR/s.md"
+  run_settings "$BATS_TEST_TMPDIR/s.md"
   assert_success
   assert_output "$ALL_ENABLED"
 }
 
 @test "settings: quoted false disables" {
   write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  copilot: "false"'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/review-settings.sh" "$BATS_TEST_TMPDIR/s.md"
+  run_settings "$BATS_TEST_TMPDIR/s.md"
   assert_success
   assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
+}
+
+@test "settings: capitalized False disables (case-insensitive)" {
+  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  codex: False' '  copilot: FALSE'
+  run_settings "$BATS_TEST_TMPDIR/s.md"
+  assert_success
+  assert_output $'claude=true\ncodex=false\ncopilot=false\ncoderabbit=true'
+}
+
+@test "settings: duplicate key last occurrence wins" {
+  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  copilot: false' '  copilot: true'
+  run_settings "$BATS_TEST_TMPDIR/s.md"
+  assert_success
+  assert_output "$ALL_ENABLED"
 }
 
 @test "settings: keys outside the reviews block are ignored" {
   write_settings "$BATS_TEST_TMPDIR/s.md" \
     'copilot: false' 'reviews:' '  codex: false' 'other:' '  claude: false'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/review-settings.sh" "$BATS_TEST_TMPDIR/s.md"
+  run_settings "$BATS_TEST_TMPDIR/s.md"
   assert_success
   assert_output $'claude=true\ncodex=false\ncopilot=true\ncoderabbit=true'
 }
 
-@test "settings: defaults without argument outside a repo" {
-  cd "$BATS_TEST_TMPDIR"
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/review-settings.sh"
+@test "settings: nested sub-map keys are not toggles" {
+  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  tools:' '    copilot: false'
+  run_settings "$BATS_TEST_TMPDIR/s.md"
   assert_success
   assert_output "$ALL_ENABLED"
 }
 
+@test "settings: reviews header with trailing comment is recognized" {
+  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews: # toggles' '  copilot: false'
+  run_settings "$BATS_TEST_TMPDIR/s.md"
+  assert_success
+  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
+}
+
+@test "settings: body after the closing fence is ignored" {
+  { printf -- '---\nreviews:\n  codex: false\n---\n  copilot: false\n'; } > "$BATS_TEST_TMPDIR/s.md"
+  run_settings "$BATS_TEST_TMPDIR/s.md"
+  assert_success
+  assert_output $'claude=true\ncodex=false\ncopilot=true\ncoderabbit=true'
+}
+
+@test "settings: UTF-8 BOM and CRLF line endings are tolerated" {
+  printf -- '\357\273\277---\r\nreviews:\r\n  copilot: false\r\n---\r\n' > "$BATS_TEST_TMPDIR/s.md"
+  run_settings "$BATS_TEST_TMPDIR/s.md"
+  assert_success
+  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
+}
+
+@test "settings: script runs directly via its executable bit" {
+  run env -i PATH="$MOCKBIN" HOME="$HOME" "$SCRIPTS/review-settings.sh" "$BATS_TEST_TMPDIR/missing.md"
+  assert_success
+  assert_output "$ALL_ENABLED"
+}
+
+@test "settings: defaults without argument when git is unavailable" {
+  cd "$BATS_TEST_TMPDIR"
+  run_settings
+  assert_success
+  assert_output "$ALL_ENABLED"
+}
+
+@test "settings: no-arg run outside a repo falls back to \$PWD" {
+  ln -s "$(command -v git)" "$MOCKBIN/git"
+  mkdir -p "$BATS_TEST_TMPDIR/proj/.claude"
+  write_settings "$BATS_TEST_TMPDIR/proj/.claude/branch-management.local.md" \
+    'reviews:' '  copilot: false'
+  cd "$BATS_TEST_TMPDIR/proj"
+  run_settings
+  assert_success
+  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
+}
+
+@test "settings: no-arg run inside a repo resolves the git toplevel" {
+  ln -s "$(command -v git)" "$MOCKBIN/git"
+  git init -q "$BATS_TEST_TMPDIR/repo"
+  mkdir -p "$BATS_TEST_TMPDIR/repo/.claude" "$BATS_TEST_TMPDIR/repo/sub"
+  write_settings "$BATS_TEST_TMPDIR/repo/.claude/branch-management.local.md" \
+    'reviews:' '  codex: false'
+  cd "$BATS_TEST_TMPDIR/repo/sub"
+  run_settings
+  assert_success
+  assert_output $'claude=true\ncodex=false\ncopilot=true\ncoderabbit=true'
+}
+
 @test "settings: usage error with more than one argument" {
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/review-settings.sh" a b
+  run_settings a b
   assert_failure 1
   assert_output --partial "usage"
 }

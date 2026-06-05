@@ -50,7 +50,8 @@ conversation context.
 
 Each review source of `new-pr` can be disabled per project in
 `.claude/branch-management.local.md` (YAML frontmatter, file in the
-repository root — the git toplevel):
+repository root — the git toplevel; outside a git repo the current
+directory is used):
 
 ```markdown
 ---
@@ -62,10 +63,14 @@ reviews:
 ---
 ```
 
-- Fail-open: a missing file, missing key or invalid value keeps the
-  review enabled — only an explicit `false` disables a source.
-- Write bare values — a trailing inline comment (`false # note`) is not
-  recognized and leaves the source enabled.
+- Fail-open: a missing file, a file without frontmatter, a missing key or
+  an invalid value keeps the review enabled — only an explicit `false`
+  (case-insensitive, quotes tolerated) disables a source.
+- Write bare values — a trailing inline comment (`false # note`) and YAML
+  aliases like `no`/`off`/`0` are not recognized and leave the source
+  enabled.
+- Only direct children of the top-level block-style `reviews:` mapping
+  count — nested sub-maps and flow-style (`reviews: {…}`) are ignored.
 - `claude` gates stage 1 (`code-review --fix`);
   `codex`/`copilot`/`coderabbit` gate the stage-2 CLI reviews.
 - The toggles do not affect the monitor loop: CodeRabbit bot comments on
