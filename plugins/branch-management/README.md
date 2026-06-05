@@ -9,7 +9,7 @@ finished branch into a reviewed, pushed PR/MR and watches it until green.
 | Skill | What it does |
 |---|---|
 | `new-branch` | Dispatches the `branch-agent` to switch to the default branch, pull, and create `<type>/<slug>`; refreshes the context-mode index (declared plugin dependency). |
-| `new-pr` | Runs `code-review --fix`, then codex/copilot/coderabbit CLI reviews in parallel reviewer agents, applies verified fixes via the `review-fixer`, pushes, opens the PR/MR via `gh`/`glab`, and loops `ci-monitor` → `review-fixer` until CI is green and no findings remain. |
+| `new-pr` | Runs `code-review --fix`, then codex/copilot/coderabbit CLI reviews in parallel reviewer agents, applies verified fixes via the `review-fixer`, pushes, opens the PR/MR via `gh`/`glab`, and loops `ci-monitor` → `review-fixer` until CI is green and no findings remain. Each review source can be disabled per project (see [Configuration](#configuration)). |
 
 Skills no longer pin a `model:` — each unit of work runs in a dedicated agent
 with its own model.
@@ -46,6 +46,38 @@ conversation context.
 - `claude plugin uninstall branch-management --prune` removes the
   auto-installed dependency along with the plugin.
 
+## Configuration
+
+Each review source of `new-pr` can be disabled per project in
+`.claude/branch-management.local.md` (YAML frontmatter, file in the
+repository root — the git toplevel; outside a git repo the current
+directory is used):
+
+```markdown
+---
+reviews:
+  claude: true
+  codex: true
+  copilot: true
+  coderabbit: true
+---
+```
+
+- Fail-open: a missing file, a file without frontmatter, a missing key or
+  an invalid value keeps the review enabled — only an explicit `false`
+  (case-insensitive, quotes tolerated) disables a source.
+- Write bare values — a trailing inline comment (`false # note`) and YAML
+  aliases like `no`/`off`/`0` are not recognized and leave the source
+  enabled.
+- Only direct children of the top-level block-style `reviews:` mapping
+  count — nested sub-maps and flow-style (`reviews: {…}`) are ignored.
+- `claude` gates stage 1 (`code-review --fix`);
+  `codex`/`copilot`/`coderabbit` gate the stage-2 CLI reviews.
+- The toggles do not affect the monitor loop: CodeRabbit bot comments on
+  the PR are still collected and processed.
+- The file is read on every `new-pr` run — no restart needed. Add
+  `.claude/*.local.md` to your `.gitignore`.
+
 ## Review CLIs (all optional)
 
 | CLI | Login | Notes |
@@ -64,3 +96,9 @@ review run, in one bash block each. Exit codes: `0` review ran (stdout = raw
 review output) · `2` CLI not installed · `3` not logged in · `4` run failed.
 Review runs are wrapped in `timeout -k 10` (default 600 s, override with
 `REVIEW_TIMEOUT`).
+
+`scripts/review-settings.sh [settings-file]` — prints the four review
+toggles (`<tool>=true|false`, one line each, fail-open defaults) from the
+settings file described under Configuration. Without an argument it reads
+`<git-toplevel>/.claude/branch-management.local.md` (outside a repo:
+`$PWD/.claude/…`). Exit codes: `0` always · `1` usage error.
