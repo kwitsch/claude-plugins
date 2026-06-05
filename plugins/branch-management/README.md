@@ -23,7 +23,7 @@ with its own model.
 | `copilot-reviewer` | haiku | runs `scripts/copilot-review.sh`, returns findings JSON |
 | `coderabbit-reviewer` | haiku | runs `scripts/coderabbit-review.sh`, returns findings JSON |
 | `review-fixer` | opus | verifies findings against the code, fixes, commits |
-| `ci-monitor` | sonnet | read-only: watches CI (bounded by `CI_WATCH_TIMEOUT`, default 1800 s / 30 min), collects CodeRabbit PR threads |
+| `ci-monitor` | sonnet | read-only: watches CI via `scripts/ci-watch.sh` (CodeRabbit checks excluded, bounded by `CI_WATCH_TIMEOUT`, default 1800 s / 30 min), collects CodeRabbit PR threads |
 
 ## Dependencies
 
@@ -112,3 +112,18 @@ Configuration (project wins per key). The argument overrides the
 project-file path; without it the script reads
 `<git-toplevel>/.claude/branch-management.local.md` (outside a repo:
 `$PWD/.claude/…`). Exit codes: `0` always · `1` usage error.
+
+`scripts/ci-watch.sh <github|gitlab> <pr-number|branch>` — polls one CI
+round to completion and reflects only the real CI result: checks whose
+name contains `coderabbit` are excluded, so a CodeRabbit app that never
+reacts (not installed, rate-limited) can neither block the watch nor flip
+the result. Green/red is derived from the check/pipeline CONTENT (gh
+exits non-zero for failing and pending rounds alike); GitLab watches the
+branch pipeline (merged-results pipelines are not targeted), `skipped`
+counts green and a `manual` gate returns green with a note. Repos without
+checks/pipeline count as green after three consecutive such answers.
+Bounded by `CI_WATCH_TIMEOUT` (default 1800 s), poll cadence
+`CI_WATCH_INTERVAL` (default 30 s), each CLI call hard-capped by
+`timeout`. Exit codes: `0` green · `1` red · `2` deadline reached without
+a conclusive result · `64` usage/environment error (bad arguments, CLI
+missing or too old).

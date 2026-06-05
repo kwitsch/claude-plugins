@@ -190,10 +190,13 @@ Cap the loop at 5 fix iterations — if it has not converged by then, stop and
 hand the remaining findings to the user instead of pushing in circles.
 
 13. **Dispatch `branch-management:ci-monitor`** with the platform
-    (`github`/`gitlab`), the PR/MR reference, and the branch name
-    (`$branch` — its run-id fallback needs it). It waits for the CI result,
-    analyzes failing jobs and collects open CodeRabbit bot comments —
-    read-only — and returns `{ci, failures, review_findings}`.
+    (`github`/`gitlab`), the PR/MR reference, the branch name
+    (`$branch` — its run-id fallback needs it) and the resolved absolute
+    path of `<plugin-root>/scripts/ci-watch.sh`. It waits for the CI
+    result through that script — CodeRabbit's own PR checks are excluded
+    there, so a non-reacting CodeRabbit cannot block the watch — analyzes
+    failing jobs and collects open CodeRabbit bot comments — read-only —
+    and returns `{ci, failures, review_findings}`.
 
 14. **If `ci` is `red` or `review_findings` is non-empty:** dispatch
     `branch-management:review-fixer` with both lists (CI failure analyses are
@@ -211,7 +214,9 @@ hand the remaining findings to the user instead of pushing in circles.
 
 15. **Loop.** Every push restarts the CI and triggers a CodeRabbit re-review;
     repeat steps 13–14 until both are quiet in the same iteration: CI green
-    and no unresolved findings.
+    and no unresolved findings. A CodeRabbit that never reacts (no app
+    installed, rate limit exhausted) counts as quiet — the loop ends on CI
+    green alone.
 
 16. **Report:** the PR/MR URL; per review source its status (claude: ran /
     **disabled via settings** / reviewed manually when no `code-review`

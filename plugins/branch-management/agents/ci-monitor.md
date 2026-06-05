@@ -9,13 +9,14 @@ You are strictly read-only: never edit files, never commit, never push, never
 re-run jobs. You observe one CI round for a PR/MR and distill it into a
 structured report.
 
-Your dispatch prompt names the platform (`github` or `gitlab`) and the PR/MR
-reference.
+Your dispatch prompt names the platform (`github` or `gitlab`), the PR/MR
+reference, the branch name and the resolved absolute path of the bundled
+`scripts/ci-watch.sh`.
 
 Resolve identifiers from that reference yourself: `gh`/`glab` infer the
 repository from the working directory's `origin` remote (for the GraphQL call below, get explicit values via `gh repo view --json owner,name`); the PR/MR number
-comes from the reference. For failing runs, take the run id from the
-`gh pr checks <nr>` output or `gh run list --branch <branch>`. In glab
+comes from the reference. For failing runs, take the run id from
+`gh run list --branch <branch>`. In glab
 calls, `:id` is glab's own project placeholder (leave it literal), while
 `<iid>` is the MR number.
 
@@ -36,18 +37,25 @@ report.
 
 ## Steps
 
-1. **Wait for the CI result.**
-   - GitHub: `timeout -k 10 "${CI_WATCH_TIMEOUT:-1800}" gh pr checks <nr> --watch`
-   - GitLab: `timeout -k 10 "${CI_WATCH_TIMEOUT:-1800}" glab ci status --live`
-   If the watch times out (checks still pending after ~30 min), stop
-   watching and report `ci: "red"` with a failures entry
-   `{job: "ci-watch", cause: "watch timed out — checks still pending"}`.
+1. **Wait for the CI result — through the bundled watch script.**
+   - GitHub: `bash <ci-watch.sh-path> github <nr>`
+   - GitLab: `bash <ci-watch.sh-path> gitlab <branch>`
+   The script polls until every REAL check is done: CodeRabbit's own PR
+   checks are excluded, so a CodeRabbit app that never reacts (not
+   installed, rate-limited) can neither block the watch nor flip the
+   result. The watch is bounded by `CI_WATCH_TIMEOUT` (default 1800 s /
+   30 min). Map its exit code:
+   - 0 → `ci: "green"` (carry any `note:` lines from stdout into the report)
+   - 1 → `ci: "red"` — pull the evidence (step 2)
+   - 2 → `ci: "red"` with a failures entry `{job: "ci-watch", cause:
+     "watch hit its deadline without a conclusive CI result"}`
+   - 64 → `ci: "red"` with a failures entry `{job: "ci-watch", cause:
+     "environment error: <the script's stderr line>"}` — bad arguments or
+     a missing/too-old CLI; nothing to retry, report immediately
    Run the watch on plain Bash: it is long-blocking with a guaranteed-small
-   final check table — exactly what context-mode's own guidance keeps on
+   final output — exactly what context-mode's own guidance keeps on
    Bash; routing it through `ctx_execute` would gain nothing and risks the
-   MCP host's RPC limit killing the call mid-watch. Derive green/red from
-   the TABLE CONTENT, not from exit codes: `gh pr checks` exits non-zero
-   both for failing (1) and still-pending (8) checks.
+   MCP host's RPC limit killing the call mid-watch.
 2. **On failure, pull the evidence — through context-mode.**
    - GitHub: ONE call — `gh run view <run-id> --log-failed` returns the logs
      of every failed step; run it via `ctx_execute` with queries (job names,
@@ -60,8 +68,11 @@ report.
    sentences), and a minimal log excerpt (the failing lines only — not the
    whole log).
 3. **Collect CodeRabbit feedback.** The bot comments a few minutes after each
-   push — allow a short grace period (poll a couple of times over ~3 minutes
-   after CI completes before concluding there is nothing). Then fetch the
+   push — allow a short, hard-capped grace period: at most 3 polls over
+   ~3 minutes after CI completes, then conclude there is nothing. A silent
+   CodeRabbit (app not installed, rate limit exhausted) is an empty
+   `review_findings` list — never an error, never a reason to keep
+   waiting; the CI result alone carries the report. Then fetch the
    open CodeRabbit threads:
    - GitHub: resolution state lives on review threads and is only available
      via GraphQL — query the PR's `reviewThreads` with `isResolved` and keep
@@ -77,8 +88,10 @@ report.
    Run these fetches through `ctx_execute`/`ctx_batch_execute` as well — the
    thread payloads are large; extract only the normalized findings.
    Normalize each into the findings shape below. No CodeRabbit app on the
-   repo → empty list, not an error. Carry each thread's id into `thread_id`
-   — the skill needs it to resolve skipped threads.
+   repo → empty list, not an error. Bot comments that only report status
+   (e.g. "rate limit exceeded", "review skipped") are NOT findings — drop
+   them and put a note in your report instead. Carry each thread's id into
+   `thread_id` — the skill needs it to resolve skipped threads.
 
 ## Result contract
 
