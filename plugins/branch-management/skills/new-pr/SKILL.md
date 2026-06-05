@@ -1,6 +1,6 @@
 ---
 name: new-pr
-description: Use when work on a branch is complete and should become a pull/merge request - runs code-review --fix plus parallel codex/copilot/coderabbit CLI reviews through dedicated reviewer subagents, applies verified fixes through a fixer subagent, pushes, opens a PR or MR via gh or glab, then watches CI and CodeRabbit feedback in a fix-push loop until everything is green.
+description: Use when work on a branch is complete and should become a pull/merge request - runs code-review --fix plus parallel codex/copilot/coderabbit CLI reviews through dedicated reviewer subagents, applies verified fixes through a fixer subagent, pushes, opens a PR or MR via gh or glab, then watches CI and CodeRabbit feedback in a fix-push loop until everything is green. Each review source can be disabled per project via .claude/branch-management.local.md.
 ---
 
 # Turn the current branch into a reviewed PR/MR
@@ -12,7 +12,9 @@ handles preconditions, dispatching, dedupe, submission and the monitor loop —
 raw review output and CI logs never enter the main context:
 the subagents run their commands through the context-mode plugin, a declared
 dependency of this plugin (native-tool fallback only when that dependency is
-broken).
+broken). Review sources can be disabled per project via
+`.claude/branch-management.local.md`, read in the preconditions through
+`scripts/review-settings.sh`.
 
 ## Preconditions
 
@@ -57,26 +59,54 @@ broken).
    - `git log "origin/$base"..HEAD --oneline` is empty and
      `git status --porcelain` is also empty (no work to submit).
 
+4. **Read the review toggles.** Resolve `${CLAUDE_PLUGIN_ROOT}` to a
+   concrete absolute path (e.g. `echo "${CLAUDE_PLUGIN_ROOT}"`) and run
+   the bundled settings script with that path substituted for
+   `<plugin-root>` — deterministic parsing, do not parse the settings
+   file yourself:
+
+   ```bash
+   "<plugin-root>/scripts/review-settings.sh"
+   ```
+
+   It prints one `<tool>=true|false` line per review source (`claude`,
+   `codex`, `copilot`, `coderabbit`). A missing or malformed
+   `.claude/branch-management.local.md` yields all `true` (fail-open) —
+   only an explicit `false` disables a source. Keep the four values for
+   the rest of the run; every disabled source appears in the final report
+   as `disabled via settings`. The toggles gate the review stages only —
+   the monitor loop is unaffected: ci-monitor keeps collecting CodeRabbit
+   bot comments even when `coderabbit=false`.
+
 ## Stage 1 — built-in code review
 
-4. **Invoke the `code-review` skill with `--fix`.** Its default scope — the
-   branch diff against the upstream/base plus the working tree — is exactly
-   what should be reviewed here; do not invent flags it does not have. If no
+5. **Invoke the `code-review` skill with `--fix` — only when
+   `claude=true`.** When `claude=false`, skip stage 1, note
+   `claude: disabled via settings` for the report and continue with
+   step 6. The `code-review` skill's default scope — the branch diff
+   against the upstream/base plus the working tree — is exactly what
+   should be reviewed here; do not invent flags it does not have. If no
    `code-review` skill is available in this session, review
    `git diff "origin/$base"...HEAD` plus the working tree yourself with the
    same goal — correctness bugs first — and apply the fixes.
 
-5. **Commit the stage-1 fixes.** This is mandatory, not housekeeping: codex
-   and copilot diff committed state against `origin/$base`, and coderabbit
-   diffs against the local `$base` (refreshed in the preconditions) — so
-   uncommitted fixes are invisible to stage 2.
+6. **Commit pending work — also when stage 1 was skipped.** This is
+   mandatory, not housekeeping: codex and copilot diff committed state
+   against `origin/$base`, and coderabbit diffs against the local `$base`
+   (refreshed in the preconditions) — so uncommitted changes, stage-1
+   fixes and prior work-tree edits alike, are invisible to stage 2. Commit
+   only changes that belong to this branch's work; if it is unclear
+   whether a change belongs, ask the user.
 
 ## Stage 2 — parallel CLI reviews
 
-6. **Dispatch the reviewer subagents in ONE message** — all three, but omit
-   the coderabbit-reviewer when step 2 found the local base diverged — (they
-   run in parallel — the scripts mutate nothing, so concurrent runs cannot
-   conflict):
+7. **Dispatch the enabled reviewer subagents in ONE message** — those whose
+   step-4 toggle is `true`; omit the coderabbit-reviewer additionally when
+   step 2 found the local base diverged (toggle off → `disabled via
+   settings` in the report, diverged base → the existing note). If no
+   stage-2 reviewer is enabled, skip stage 2, the dedupe and the fixer
+   pass and continue with the Submit stage. (They run in parallel — the
+   scripts mutate nothing, so concurrent runs cannot conflict):
 
    - `branch-management:codex-reviewer`
    - `branch-management:copilot-reviewer`
@@ -105,7 +135,7 @@ broken).
 
 ## Dedupe
 
-7. **Merge findings** that point at the same file and overlapping lines and
+8. **Merge findings** that point at the same file and overlapping lines and
    describe the same root cause: keep the most precise description, note
    every source tool. Treat `line: 0` (file-level) findings as overlapping
    only when their titles describe the same issue. This is pure data work on
@@ -113,21 +143,23 @@ broken).
 
 ## Fixer pass
 
-8. **If any findings remain,** dispatch `branch-management:review-fixer` ONCE
+9. **If any findings remain,** dispatch `branch-management:review-fixer` ONCE
    with the full deduplicated findings JSON and the base branch. It verifies
    each finding against the code, fixes the justified ones, skips the rest
    with reasons, and commits. No findings → skip this step.
 
 ## Submit
 
-9. **Everything committed?** Run `git status --porcelain`. Commit remaining
-   changes that belong to this branch's work, grouped into logical commits.
-   Leave unrelated files untouched; if it is unclear whether a change belongs
-   to the work, ask the user.
+10. **Everything committed?** Run `git status --porcelain`. Step 6 and the
+    fixer pass should have committed everything already, so this is a
+    safety re-check that usually finds nothing. Commit any remainder that
+    belongs to this branch's work, grouped into logical commits. Leave
+    unrelated files untouched; if it is unclear whether a change belongs
+    to the work, ask the user.
 
-10. **Push:** `git push -u origin "$branch"`.
+11. **Push:** `git push -u origin "$branch"`.
 
-11. **Open the PR/MR** — pick the tool from the `origin` URL
+12. **Open the PR/MR** — pick the tool from the `origin` URL
     (`git remote get-url origin`):
 
     - GitHub (`github.com` or a GitHub Enterprise host):
@@ -150,13 +182,13 @@ broken).
 Cap the loop at 5 fix iterations — if it has not converged by then, stop and
 hand the remaining findings to the user instead of pushing in circles.
 
-12. **Dispatch `branch-management:ci-monitor`** with the platform
+13. **Dispatch `branch-management:ci-monitor`** with the platform
     (`github`/`gitlab`), the PR/MR reference, and the branch name
     (`$branch` — its run-id fallback needs it). It waits for the CI result,
     analyzes failing jobs and collects open CodeRabbit bot comments —
     read-only — and returns `{ci, failures, review_findings}`.
 
-13. **If `ci` is `red` or `review_findings` is non-empty:** dispatch
+14. **If `ci` is `red` or `review_findings` is non-empty:** dispatch
     `branch-management:review-fixer` with both lists (CI failure analyses are
     findings too). Then:
     - If the fixer returned commits: push them.
@@ -170,10 +202,11 @@ hand the remaining findings to the user instead of pushing in circles.
       remaining findings to the user — a push without commits restarts
       nothing.
 
-14. **Loop.** Every push restarts the CI and triggers a CodeRabbit re-review;
-    repeat steps 12–13 until both are quiet in the same iteration: CI green
+15. **Loop.** Every push restarts the CI and triggers a CodeRabbit re-review;
+    repeat steps 13–14 until both are quiet in the same iteration: CI green
     and no unresolved findings.
 
-15. **Report:** the PR/MR URL; per CLI tool its status (ran / missing,
-    skipped silently / **not logged in + login command** / failed + reason);
-    findings fixed/skipped per stage; monitor iterations used.
+16. **Report:** the PR/MR URL; per review source its status (ran / missing,
+    skipped silently / **not logged in + login command** / failed + reason /
+    **disabled via settings**); findings fixed/skipped per stage; monitor
+    iterations used.
