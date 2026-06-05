@@ -29,7 +29,9 @@ stay on Bash per context-mode's own whitelist.
   dedupe in the skill; one `review-fixer` pass; push + `gh pr create`/`glab
   mr create`; then a monitor loop (max 5, with no-progress early exit):
   `ci-monitor` (read-only analysis, gets platform + PR/MR reference + branch
-  name; CI watch bounded by `CI_WATCH_TIMEOUT`, default 1800 s / 30 min) →
+  name + ci-watch.sh path; CI watch via `scripts/ci-watch.sh` — CodeRabbit
+  checks excluded so a silent bot cannot block, bounded by
+  `CI_WATCH_TIMEOUT`, default 1800 s / 30 min) →
   `review-fixer` → push fixes, reply to + resolve skipped CodeRabbit threads,
   until CI is green and no findings remain.
 - Script exit-code contract: 0 ran · 2 CLI missing (skip silently) ·
@@ -41,6 +43,12 @@ stay on Bash per context-mode's own whitelist.
   top-level block-style `reviews:` mapping assigns, direct children only,
   invalid values are neutral; layered user (`~/.claude/`) → project (git
   toplevel) merge, project wins per key, an unreadable layer is skipped.
+  `ci-watch.sh <github|gitlab> <nr|branch>`: 0 green · 1 red · 2 deadline ·
+  64 usage/environment (CLI missing/too old); green/red from check CONTENT
+  (gh exits 1 fail / 8 pending with data), coderabbit-named checks
+  excluded, no-checks/no-pipeline green after 3 consecutive answers,
+  gitlab `skipped`/`manual` green (+note), per-call `timeout` guard,
+  cadence via `CI_WATCH_INTERVAL`.
 - CLI specifics: codex has no headless review subcommand → `codex exec
   --sandbox read-only` with the diff prompt; copilot has no auth-status
   command → token-env/`~/.copilot` heuristic + auth-error sniffing of the
@@ -55,5 +63,7 @@ passthrough, hang → timeout → 4, usage errors) plus the
 `review-settings.sh` toggle parsing (fail-open defaults, explicit/quoted/
 case-insensitive `false`, block and nesting boundaries, BOM/CRLF incl.
 UTF-8 locale, default-path resolution, user→project layering with
-neutral-value and unreadable-layer cases). Run:
+neutral-value and unreadable-layer cases) plus `ci-watch.sh` polling
+(coderabbit exclusion, pending→done transitions, timeout, no-checks
+grace, gitlab status heuristics). Run:
 `BATS_LIB_PATH="$PWD/node_modules" npx bats test/branch-management/`.
