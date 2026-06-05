@@ -19,8 +19,9 @@ stay on Bash per context-mode's own whitelist.
   `context-mode:ctx-index` in the main context.
 - `skills/new-pr`: preconditions in the skill (fetch, base detection,
   `origin/<base>` for all revisions, review toggles via
-  `scripts/review-settings.sh` from `.claude/branch-management.local.md` —
-  fail-open, only explicit `false` disables; gates stage 1 and the stage-2
+  `scripts/review-settings.sh` from user-level `~/.claude/` plus
+  project-level `.claude/branch-management.local.md` — fail-open, only
+  explicit `false` disables; gates stage 1 and the stage-2
   dispatches, monitor loop unaffected); stage 1 `code-review --fix` with a
   mandatory commit before stage 2; stage 2 the enabled reviewer agents in
   parallel, each running `scripts/<tool>-review.sh <base>` through context-mode's
@@ -36,8 +37,10 @@ stay on Bash per context-mode's own whitelist.
   report). Review runs wrapped in `timeout -k 10 "${REVIEW_TIMEOUT:-600}"`.
   `review-settings.sh`: prints `<tool>=true|false` for
   claude/codex/copilot/coderabbit, exit 0 always (usage error 1); only an
-  explicit case-insensitive `false` (quotes tolerated) under a top-level
-  block-style `reviews:` mapping disables, direct children only.
+  explicit case-insensitive `true`/`false` (quotes tolerated) under a
+  top-level block-style `reviews:` mapping assigns, direct children only,
+  invalid values are neutral; layered user (`~/.claude/`) → project (git
+  toplevel) merge, project wins per key, an unreadable layer is skipped.
 - CLI specifics: codex has no headless review subcommand → `codex exec
   --sandbox read-only` with the diff prompt; copilot has no auth-status
   command → token-env/`~/.copilot` heuristic + auth-error sniffing of the
@@ -50,6 +53,7 @@ stay on Bash per context-mode's own whitelist.
 stub CLIs on an isolated `PATH` (missing → 2, no login → 3, ok →
 passthrough, hang → timeout → 4, usage errors) plus the
 `review-settings.sh` toggle parsing (fail-open defaults, explicit/quoted/
-case-insensitive `false`, block and nesting boundaries, BOM/CRLF,
-default-path resolution). Run:
+case-insensitive `false`, block and nesting boundaries, BOM/CRLF incl.
+UTF-8 locale, default-path resolution, user→project layering with
+neutral-value and unreadable-layer cases). Run:
 `BATS_LIB_PATH="$PWD/node_modules" npx bats test/branch-management/`.
