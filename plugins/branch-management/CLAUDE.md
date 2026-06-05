@@ -4,6 +4,13 @@ Two thin orchestrator skills (`new-branch`, `new-pr`) that dispatch six
 dedicated agents; all model selection lives in the agent frontmatter
 (haiku = mechanics/reviewers, sonnet = ci-monitor, opus = review-fixer).
 Skills carry no `model:` key.
+context-mode (cross-marketplace dependency, declared in plugin.json with the
+marketplace allowlisted via `allowCrossMarketplaceDependenciesOn`) executes
+the scripts and heavy reads: agents bootstrap the deferred ctx_* tools via
+ToolSearch, run scripts/logs/threads through `ctx_execute`/
+`ctx_batch_execute`, and fall back to native tools only when the dependency
+is broken (degradation is reported). Git writes and guaranteed-small outputs
+stay on Bash per context-mode's own whitelist.
 
 ## Behavior
 - `skills/new-branch`: dispatches `agents/branch-agent` (clean-tree guard,
@@ -13,12 +20,12 @@ Skills carry no `model:` key.
 - `skills/new-pr`: preconditions in the skill (fetch, base detection,
   `origin/<base>` for all revisions); stage 1 `code-review --fix` with a
   mandatory commit before stage 2; stage 2 the three reviewer agents in
-  parallel, each running `scripts/<tool>-review.sh <base>` (via context-mode
-  `ctx_execute` when available, Bash otherwise) and returning findings JSON;
+  parallel, each running `scripts/<tool>-review.sh <base>` through context-mode's
+  `ctx_execute` (Bash only as reported degradation) and returning findings JSON;
   dedupe in the skill; one `review-fixer` pass; push + `gh pr create`/`glab
   mr create`; then a monitor loop (max 5, with no-progress early exit):
   `ci-monitor` (read-only analysis, gets platform + PR/MR reference + branch
-  name; CI watch bounded by `CI_WATCH_TIMEOUT`, default 1800 s) →
+  name; CI watch bounded by `CI_WATCH_TIMEOUT`, default 1800 s / 30 min) →
   `review-fixer` → push fixes, reply to + resolve skipped CodeRabbit threads,
   until CI is green and no findings remain.
 - Script exit-code contract: 0 ran · 2 CLI missing (skip silently) ·

@@ -8,7 +8,7 @@ finished branch into a reviewed, pushed PR/MR and watches it until green.
 
 | Skill | What it does |
 |---|---|
-| `new-branch` | Dispatches the `branch-agent` to switch to the default branch, pull, and create `<type>/<slug>`; refreshes the context-mode index when that plugin is installed. |
+| `new-branch` | Dispatches the `branch-agent` to switch to the default branch, pull, and create `<type>/<slug>`; refreshes the context-mode index (declared plugin dependency). |
 | `new-pr` | Runs `code-review --fix`, then codex/copilot/coderabbit CLI reviews in parallel reviewer agents, applies verified fixes via the `review-fixer`, pushes, opens the PR/MR via `gh`/`glab`, and loops `ci-monitor` → `review-fixer` until CI is green and no findings remain. |
 
 Skills no longer pin a `model:` — each unit of work runs in a dedicated agent
@@ -23,11 +23,28 @@ with its own model.
 | `copilot-reviewer` | haiku | runs `scripts/copilot-review.sh`, returns findings JSON |
 | `coderabbit-reviewer` | haiku | runs `scripts/coderabbit-review.sh`, returns findings JSON |
 | `review-fixer` | opus | verifies findings against the code, fixes, commits |
-| `ci-monitor` | sonnet | read-only: watches CI (bounded by `CI_WATCH_TIMEOUT`, default 30 min), collects CodeRabbit PR threads |
+| `ci-monitor` | sonnet | read-only: watches CI (bounded by `CI_WATCH_TIMEOUT`, default 1800 s / 30 min), collects CodeRabbit PR threads |
 
-When the context-mode plugin is installed, reviewer agents execute their
-script through `ctx_execute`, keeping raw review output out of the
+## Dependencies
+
+branch-management declares a cross-marketplace dependency on the
+[context-mode](https://github.com/mksglu/context-mode) plugin
+(`context-mode@context-mode`). All script execution and heavy output
+processing — review runs, CI logs, PR threads — run through context-mode's
+sandboxed `ctx_execute`/`ctx_batch_execute`, keeping raw output out of the
 conversation context.
+
+- Installing branch-management auto-installs context-mode once its
+  marketplace is known to Claude Code:
+  `/plugin marketplace add mksglu/context-mode`
+  (installing context-mode manually first also satisfies the dependency).
+- This marketplace allows the cross-marketplace resolution via
+  `allowCrossMarketplaceDependenciesOn: ["context-mode"]` in
+  `marketplace.json`.
+- If the dependency is disabled or broken, the agents degrade to native
+  tools (Bash/Read) and call out the degradation in their reports.
+- `claude plugin uninstall branch-management --prune` removes the
+  auto-installed dependency along with the plugin.
 
 ## Review CLIs (all optional)
 

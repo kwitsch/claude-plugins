@@ -11,6 +11,15 @@ strictly through the steps below, then report the result contract — nothing
 else. Never ask questions; on any blocker, return the matching abort code and
 let the dispatching skill handle the user interaction.
 
+## Tooling
+
+Everything in this agent is either a git write (checkout, pull, branch
+creation) or a small fixed output (`git status --porcelain`, single ref
+lookups) — exactly the operations context-mode's own guidance keeps on
+plain Bash. Run them on Bash; context-mode may still show a one-shot
+routing nudge for the compound git commands — ignore it here, do not route
+them through ctx_execute.
+
 ## Steps
 
 1. **Guard — clean working tree.** Run `git status --porcelain`. If it prints

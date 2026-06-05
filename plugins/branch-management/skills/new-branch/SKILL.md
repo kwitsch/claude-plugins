@@ -1,6 +1,6 @@
 ---
 name: new-branch
-description: Use when starting new feature, fix, or chore work that needs its own branch - dispatches the branch-agent subagent to switch to the default branch, pull the latest state and create a new work branch, then refreshes the context-mode index when that plugin is installed.
+description: Use when starting new feature, fix, or chore work that needs its own branch - dispatches the branch-agent subagent to switch to the default branch, pull the latest state and create a new work branch, then refreshes the context-mode index (declared plugin dependency).
 ---
 
 # Start a new work branch
@@ -32,12 +32,13 @@ reports. Do not run the git steps yourself.
      already on the default branch — say so in the report, so the user knows
      their starting branch changed.
 
-3. **context-mode indexing (only if installed).** If the context-mode plugin
-   is available in this session (its `context-mode:ctx-index` skill appears
-   in the skill list), invoke that skill for the repository root so the
-   knowledge base reflects the new branch state. This stays in the main
-   context because the index serves the main session. If the plugin is not
-   installed, skip silently — its absence is not an error.
+3. **context-mode indexing.** context-mode is a declared dependency of this
+   plugin — invoke its `context-mode:ctx-index` skill for the repository
+   root so the knowledge base reflects the new branch state. This stays in
+   the main context because the index serves the main session. If the skill
+   is missing from the session, the dependency is broken or disabled —
+   mention that in the report (point at `claude plugin list` /
+   `context-mode:ctx-doctor`) and continue without indexing.
 
 4. **Report:** the new branch name and the commit it was cut from, straight
    from the agent's result.
