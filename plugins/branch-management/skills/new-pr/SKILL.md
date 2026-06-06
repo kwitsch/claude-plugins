@@ -1,6 +1,6 @@
 ---
 name: new-pr
-description: Use when branch work complete and should become pull/merge request - runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer subagents, max 3) with verified fixes between rounds, pushes, opens PR or MR via gh or glab, then watches CI and CodeRabbit feedback until all green. Review sources can be disabled per user or per project.
+description: Use when branch work complete and should become pull/merge request - runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer subagents, max 3) with verified fixes between rounds, pushes, opens PR or MR via gh or glab, then watches CI and CodeRabbit feedback until all green. Optionally refreshes and separately commits the graphify output before pushing. Review sources can be disabled per user or per project.
 ---
 
 # Turn the current branch into a reviewed PR/MR
@@ -74,18 +74,22 @@ read in preconditions (step 4).
    | coderabbit | `${user_config.review_coderabbit}` |
    | ci_monitor | `${user_config.ci_monitor}` |
    | coderabbit_ci_comments | `${user_config.coderabbit_ci_comments}` |
+   | graphify_pr_update | `${user_config.graphify_pr_update}` |
+   | graphify_pr_commit | `${user_config.graphify_pr_commit}` |
 
    Evaluation rule (fail-open): ONLY the literal value `false` disables
    a toggle. Anything else — `true`, an empty value, or an
    uninterpolated `${user_config.…}` placeholder on an older Claude
-   Code version — counts as enabled. Keep all six values for the rest
+   Code version — counts as enabled. Keep all eight values for the rest
    of the run; every disabled review source appears in the final report
    as `disabled via settings`. The four review toggles gate the review
-   rounds only; `ci_monitor` gates the whole monitor loop (steps 12–14),
+   rounds only; `ci_monitor` gates the whole monitor loop (steps 13–15),
    while `coderabbit_ci_comments` only suppresses CodeRabbit comment
-   collection within step 12. All four review toggles `false` is
-   allowed — the run then proceeds without any pre-push review; flag
-   that prominently in the final report.
+   collection within step 13. `graphify_pr_update` gates the graphify
+   refresh in the Submit stage (step 9) and `graphify_pr_commit` its
+   separate commit. All four review toggles `false` is allowed — the run
+   then proceeds without any pre-push review; flag that prominently in
+   the final report.
 
 ## Review rounds
 
@@ -192,16 +196,37 @@ read in preconditions (step 4).
 
 ## Submit
 
-9. **Everything committed?** Run `git status --porcelain`. Step 5 and the
+9. **graphify update.** Gated by the `graphify_pr_update` toggle
+   (step 4) — `false` skips this step entirely; note
+   `graphify disabled via settings` in the report. Enabled → resolve
+   `${CLAUDE_PLUGIN_ROOT}` to a concrete absolute path and dispatch
+   `branch-management:graphify-agent` with: the absolute path of
+   `<plugin-root>/scripts/graphify-update.sh`, `force: no` (new-pr
+   never creates the folder — a missing `graphify-out/` comes back as
+   `skipped_no_dir`; just note it in the report), and `commit:` from
+   the `graphify_pr_commit` toggle (`false` → `commit: no`, anything
+   else → `commit: yes`).
+   - With `commit: yes` the agent commits refreshed graphify files as a
+     separate `chore: update graphify output` commit — generated
+     artifacts, intentionally NOT covered by the review rounds.
+   - With `commit: no` while the update ran: the graphify changes stay
+     uncommitted — step 10 must NOT pick them up; note
+     `graphify changes left uncommitted via settings` in the report.
+   - Soft-fail: a `failed` status is a report note, never a reason to
+     stop before pushing.
+
+10. **Everything committed?** Run `git status --porcelain`. Step 5 and the
    fixer rounds should have committed everything already, so this is a
    safety re-check that usually finds nothing. Commit any remainder that
    belongs to this branch's work, grouped into logical commits. Leave
-   unrelated files untouched; if it is unclear whether a change belongs
-   to the work, ask the user.
+   unrelated files untouched; never commit changes under `graphify-out`
+   here when the `graphify_pr_commit` toggle is `false` — they
+   intentionally stay in the working tree (step 9); if it is unclear
+   whether a change belongs to the work, ask the user.
 
-10. **Push:** `git push -u origin "$branch"`.
+11. **Push:** `git push -u origin "$branch"`.
 
-11. **Open the PR/MR** — pick the tool from the `origin` URL
+12. **Open the PR/MR** — pick the tool from the `origin` URL
     (`git remote get-url origin`):
 
     - GitHub (`github.com` or a GitHub Enterprise host):
@@ -221,14 +246,14 @@ read in preconditions (step 4).
 
 ## Monitor until green
 
-If the `ci_monitor` toggle (step 4) is `false`, skip steps 12–14 entirely
-and continue with the report (step 15), noting `CI monitoring disabled
+If the `ci_monitor` toggle (step 4) is `false`, skip steps 13–15 entirely
+and continue with the report (step 16), noting `CI monitoring disabled
 via settings` there.
 
 Cap the loop at 5 fix iterations — if it has not converged by then, stop and
 hand the remaining findings to the user instead of pushing in circles.
 
-12. **Dispatch `branch-management:ci-monitor`** with the platform
+13. **Dispatch `branch-management:ci-monitor`** with the platform
     (`github`/`gitlab`), the PR/MR reference, the branch name
     (`$branch` — its run-id fallback needs it) and the resolved absolute
     path of `<plugin-root>/scripts/ci-watch.sh`. It waits for the CI
@@ -242,7 +267,7 @@ hand the remaining findings to the user instead of pushing in circles.
     runs on the CI state alone; note `CodeRabbit comments disabled via
     settings` in the final report.
 
-13. **If `ci` is `red` or `review_findings` is non-empty:** dispatch
+14. **If `ci` is `red` or `review_findings` is non-empty:** dispatch
     `branch-management:review-fixer` with both lists (CI failure analyses are
     findings too). Then:
     - If the fixer returned commits: push them.
@@ -256,13 +281,13 @@ hand the remaining findings to the user instead of pushing in circles.
       remaining findings to user — push without commits restarts
       nothing.
 
-14. **Loop.** Every push restarts CI and triggers CodeRabbit re-review;
-    repeat steps 12–13 until both quiet in same iteration: CI green
+15. **Loop.** Every push restarts CI and triggers CodeRabbit re-review;
+    repeat steps 13–14 until both quiet in same iteration: CI green
     and no unresolved findings. CodeRabbit that never reacts (no app
     installed, rate limit exhausted) counts as quiet — loop ends on CI
     green alone.
 
-15. **Report:** PR/MR URL — or, when stop branch fired, note
+16. **Report:** PR/MR URL — or, when stop branch fired, note
     that nothing pushed plus fix commits left on branch; the
     number of review rounds and their outcome (quiet / converged via
     fixer skips / capped at 3 with open findings / stopped: no review
@@ -273,3 +298,6 @@ hand the remaining findings to the user instead of pushing in circles.
     reason / **disabled via settings**); findings fixed/skipped per
     round; monitor iterations used — or `CI monitoring disabled via
     settings` when the toggle was off.
+    Plus the graphify outcome: updated + committed / updated, left
+    uncommitted via settings / skipped: no CLI / skipped: no
+    graphify-out folder / failed + detail / disabled via settings.
