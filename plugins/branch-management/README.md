@@ -8,8 +8,8 @@ finished branch into a reviewed, pushed PR/MR and watches it until green.
 
 | Skill | What it does |
 |---|---|
-| `new-branch` | Dispatches the `branch-agent` to switch to the default branch, pull, and create `<type>/<slug>`; refreshes the context-mode index (declared plugin dependency, togglable via `context_index`). |
-| `new-pr` | Runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer agents, max 3), aggregates + dedupes the findings, applies verified fixes via the `review-fixer` between rounds (round 3 still red → stops before pushing), pushes, opens the PR/MR via `gh`/`glab`, and loops `ci-monitor` → `review-fixer` until CI is green and no findings remain. Every stage — review sources, CI watch, CodeRabbit comment handling — can be toggled via plugin options (see [Configuration](#configuration)). |
+| `new-branch` | Dispatches the `branch-agent` to switch to the default branch, pull, and create `<type>/<slug>`; optionally refreshes the graphify output via the graphify-agent (togglable via `graphify_branch_update` / `graphify_force_create`); refreshes the context-mode index (declared plugin dependency, togglable via `context_index`). |
+| `new-pr` | Runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer agents, max 3), aggregates + dedupes the findings, applies verified fixes via the `review-fixer` between rounds (round 3 still red → stops before pushing), optionally refreshes the graphify output and commits it separately (`graphify_pr_update` / `graphify_pr_commit`), pushes, opens the PR/MR via `gh`/`glab`, and loops `ci-monitor` → `review-fixer` until CI is green and no findings remain. Every stage — review sources, CI watch, CodeRabbit comment handling — can be toggled via plugin options (see [Configuration](#configuration)). |
 
 Skills no longer pin a `model:` — each unit of work runs in a dedicated agent
 with its own model.
@@ -19,6 +19,7 @@ with its own model.
 | Agent | Model | Role |
 |---|---|---|
 | `branch-agent` | haiku | git mechanics of cutting a new branch |
+| `graphify-agent` | haiku | runs `scripts/graphify-update.sh`, optionally commits `graphify-out` separately |
 | `claude-reviewer` | opus | reviews the branch diff itself (read-only), returns findings JSON |
 | `codex-reviewer` | haiku | runs `scripts/codex-review.sh`, returns findings JSON |
 | `copilot-reviewer` | haiku | runs `scripts/copilot-review.sh`, returns findings JSON |
@@ -65,6 +66,10 @@ the native settings order: `.claude/settings.local.json` (local) >
 | `ci_monitor` | `true` | `new-pr` ends after opening the PR/MR — no CI watch |
 | `context_index` | `true` | `new-branch` skips the context-mode index refresh |
 | `coderabbit_ci_comments` | `true` | the CI watch ignores CodeRabbit bot comments |
+| `graphify_branch_update` | `true` | `new-branch` skips the graphify refresh |
+| `graphify_force_create` | `false` | *(fail-closed — see below)* `new-branch` refresh runs even when `graphify-out/` is missing and creates the folder when set to `true` |
+| `graphify_pr_update` | `true` | `new-pr` skips the graphify refresh before pushing |
+| `graphify_pr_commit` | `true` | `new-pr` leaves refreshed graphify files uncommitted instead of committing them separately |
 
 Example (project scope, `.claude/settings.json`):
 
@@ -82,6 +87,9 @@ Example (project scope, `.claude/settings.json`):
 
 - Fail-open: only an explicit `false` disables a function — unset
   options fall back to their declared `default: true`.
+  Exception: `graphify_force_create` is fail-closed — it defaults to
+  `false` and ONLY an explicit `true` enables it, so a missing or
+  uninterpolated value can never create a folder.
 - The review toggles gate the review rounds only; CodeRabbit bot
   comments during the CI watch are controlled separately by
   `coderabbit_ci_comments`.
@@ -130,3 +138,11 @@ Bounded by `CI_WATCH_TIMEOUT` (default 1800 s), poll cadence
 `timeout`. Exit codes: `0` green · `1` red · `2` deadline reached without
 a conclusive result · `64` usage/environment error (bad arguments, CLI
 missing or too old).
+
+`scripts/graphify-update.sh [--force]` — refreshes the graphify output:
+resolves the repository root via git, then runs
+`graphify update -o graphify-out` (wrapped in `timeout -k 10`, default
+600 s, override with `GRAPHIFY_TIMEOUT`). Without `--force` it only runs
+when `graphify-out/` already exists; `--force` creates the folder first.
+Exit codes: `0` update ran · `2` graphify CLI not installed · `4` run
+failed · `5` `graphify-out/` missing without `--force`.

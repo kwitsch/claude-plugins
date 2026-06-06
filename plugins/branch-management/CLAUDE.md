@@ -1,11 +1,15 @@
 # CLAUDE.md — branch-management
 
-Two thin orchestrator skills (`new-branch`, `new-pr`) dispatch seven dedicated agents. Model selection all in agent frontmatter (haiku = mechanics/CLI reviewers, sonnet = ci-monitor, opus = claude-reviewer + review-fixer). Skills carry no `model:` key. context-mode (cross-marketplace dependency, declared in plugin.json, marketplace allowlisted via `allowCrossMarketplaceDependenciesOn`) runs scripts + heavy reads: agents bootstrap deferred ctx_* tools via ToolSearch, run scripts/logs/threads through `ctx_execute`/`ctx_batch_execute`, fall back to native tools only when dependency broken (degradation reported). Git writes + guaranteed-small outputs stay on Bash per context-mode whitelist.
+Two thin orchestrator skills (`new-branch`, `new-pr`) dispatch eight dedicated agents. Model selection all in agent frontmatter (haiku = mechanics/CLI reviewers/graphify, sonnet = ci-monitor, opus = claude-reviewer + review-fixer). Skills carry no `model:` key. context-mode (cross-marketplace dependency, declared in plugin.json, marketplace allowlisted via `allowCrossMarketplaceDependenciesOn`) runs scripts + heavy reads: agents bootstrap deferred ctx_* tools via ToolSearch, run scripts/logs/threads through `ctx_execute`/`ctx_batch_execute`, fall back to native tools only when dependency broken (degradation reported). Git writes + guaranteed-small outputs stay on Bash per context-mode whitelist.
 
 ## Behavior
 - `skills/new-branch`: dispatches `agents/branch-agent` (clean-tree guard,
   `origin/HEAD` refresh, `--ff-only` pull, `<type>/<slug>` creation,
   structured abort codes for user decisions); then
+  `agents/graphify-agent` (runs `scripts/graphify-update.sh`, commit:
+  no), gated by `graphify_branch_update` (fail-open) with force from
+  `graphify_force_create` (FAIL-CLOSED: only literal `true` enables — a
+  placeholder must never create a folder); then
   `context-mode:ctx-index` in main context, gated by the
   `context_index` toggle.
 - `skills/new-pr`: preconditions in skill (fetch, base detection,
@@ -22,7 +26,11 @@ Two thin orchestrator skills (`new-branch`, `new-pr`) dispatch seven dedicated a
   skip list (fixer echoes per-finding ids); findings → one
   `review-fixer` pass + next round; fixer commits nothing → converged;
   round 3 still red → stop before pushing, hand findings to user;
-  round with zero `ok` reviewers retries once, then stops; push + `gh pr
+  round with zero `ok` reviewers retries once, then stops; graphify
+  refresh before the push via `graphify-agent` (force: no), gated by
+  `graphify_pr_update`, separate `chore:` commit gated by
+  `graphify_pr_commit` (off → changes stay uncommitted, the commit
+  re-check leaves `graphify-out` alone); push + `gh pr
   create`/`glab mr create`; then monitor loop (max 5, no-progress
   early exit):
   `ci-monitor` (read-only analysis, gets platform + PR/MR reference + branch
@@ -34,6 +42,9 @@ Two thin orchestrator skills (`new-branch`, `new-pr`) dispatch seven dedicated a
 - Script exit-code contract: 0 ran · 2 CLI missing (skip silently) ·
   3 not logged in (skip + report login command) · 4 run failed (skip +
   report). Review runs wrapped in `timeout -k 10 "${REVIEW_TIMEOUT:-600}"`.
+  `graphify-update.sh [--force]`: 0 ran · 2 CLI missing · 4 run failed ·
+  5 `graphify-out/` missing without `--force`; repo root via git, bounded
+  by `GRAPHIFY_TIMEOUT` (default 600 s).
   `ci-watch.sh <github|gitlab> <nr|branch>`: 0 green · 1 red · 2 deadline ·
   64 usage/environment (CLI missing/too old); green/red from check CONTENT
   (gh exits 1 fail / 8 pending with data), coderabbit-named checks
@@ -76,9 +87,12 @@ tested across matrix (token env, recorded `loggedInUsers`,
 3), `copilot-review.sh` asserted hardened read-only (no write
 subcommand allowlisted). `scripts/git-shim` has direct unit tests
 (read-only passthrough; `--output`/`-o`/`-O`/`--output-directory` refused;
-unset real-git → 127). Plus plugin.json `userConfig` manifest checks
-(seven boolean toggles, all `default: true`, titles + descriptions,
-version sync with marketplace.json) and
+unset real-git → 127). `graphify-update.sh` covered with stub CLI +
+throwaway git repo (missing CLI → 2, missing folder → 5, `--force`
+creates it, repo-root resolution from subdirectories, failure/hang → 4).
+Plus plugin.json `userConfig` manifest checks (eleven boolean toggles,
+all `default: true` except fail-closed `graphify_force_create`, titles +
+descriptions, version sync with marketplace.json) and
 `ci-watch.sh` polling (coderabbit exclusion, pending→done transitions,
 timeout, no-checks grace, gitlab status heuristics). Run:
 `BATS_LIB_PATH="$PWD/node_modules" npx bats test/branch-management/`.
