@@ -8,8 +8,8 @@ finished branch into a reviewed, pushed PR/MR and watches it until green.
 
 | Skill | What it does |
 |---|---|
-| `new-branch` | Dispatches the `branch-agent` to switch to the default branch, pull, and create `<type>/<slug>`; refreshes the context-mode index (declared plugin dependency). |
-| `new-pr` | Runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer agents, max 3), aggregates + dedupes the findings, applies verified fixes via the `review-fixer` between rounds (round 3 still red → stops before pushing), pushes, opens the PR/MR via `gh`/`glab`, and loops `ci-monitor` → `review-fixer` until CI is green and no findings remain. Each review source can be disabled per project (see [Configuration](#configuration)). |
+| `new-branch` | Dispatches the `branch-agent` to switch to the default branch, pull, and create `<type>/<slug>`; refreshes the context-mode index (declared plugin dependency, togglable via `context_index`). |
+| `new-pr` | Runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer agents, max 3), aggregates + dedupes the findings, applies verified fixes via the `review-fixer` between rounds (round 3 still red → stops before pushing), pushes, opens the PR/MR via `gh`/`glab`, and loops `ci-monitor` → `review-fixer` until CI is green and no findings remain. Every stage — review sources, CI watch, CodeRabbit comment handling — can be toggled via plugin options (see [Configuration](#configuration)). |
 
 Skills no longer pin a `model:` — each unit of work runs in a dedicated agent
 with its own model.
@@ -49,45 +49,53 @@ conversation context.
 
 ## Configuration
 
-Each review source of `new-pr` can be disabled per project in
-`.claude/branch-management.local.md` (YAML frontmatter, file in the
-repository root — the git toplevel; outside a git repo the current
-directory is used). A user-level `~/.claude/branch-management.local.md`
-with the same format supplies defaults across projects; layers only
-restrict — a project file can forbid more, never allow more:
+Every plugin function is individually togglable via the plugin's
+`userConfig` options. Claude Code prompts for the values when the
+plugin is enabled; they can also be set manually in `settings.json`
+under `pluginConfigs["branch-management"].options`. Scope precedence is
+the native settings order: `.claude/settings.local.json` (local) >
+`.claude/settings.json` (project) > `~/.claude/settings.json` (user).
 
-```markdown
----
-reviews:
-  # only an explicit `false` has an effect — `true` just documents intent
-  claude: true
-  codex: true
-  copilot: true
-  coderabbit: false
----
+| Option | Default | Effect when `false` |
+|---|---|---|
+| `review_claude` | `true` | skip the `claude-reviewer` in review rounds |
+| `review_codex` | `true` | skip the `codex-reviewer` in review rounds |
+| `review_copilot` | `true` | skip the `copilot-reviewer` in review rounds |
+| `review_coderabbit` | `true` | skip the `coderabbit-reviewer` in review rounds |
+| `ci_monitor` | `true` | `new-pr` ends after opening the PR/MR — no CI watch |
+| `context_index` | `true` | `new-branch` skips the context-mode index refresh |
+| `coderabbit_ci_comments` | `true` | the CI watch ignores CodeRabbit bot comments |
+
+Example (project scope, `.claude/settings.json`):
+
+```json
+{
+  "pluginConfigs": {
+    "branch-management": {
+      "options": {
+        "review_coderabbit": false
+      }
+    }
+  }
+}
 ```
 
-- Fail-open: a review is only disabled by an explicit `false`
-  (case-insensitive, quotes tolerated) in some layer — a missing or
-  unreadable file, a file without frontmatter, a missing key or an
-  invalid value never disables anything, and a broken layer is skipped
-  without affecting the other.
-- Write bare `true`/`false` values — a trailing inline comment
-  (`false # note`) and YAML aliases like `no`/`off`/`0` are not
-  recognized and count as neutral.
-- Only direct children of the top-level block-style `reviews:` mapping
-  count — nested sub-maps and flow-style (`reviews: {…}`) are ignored.
-- Layers only restrict: any explicit `false` in either file — at any
-  position, duplicates included — disables that review; `true` is
-  documentation only and never re-enables. A user-level `copilot: false`
-  therefore overrides a project-level `copilot: true` — a project can
-  forbid more than the user level, never allow more.
-- `claude` gates the `claude-reviewer`;
-  `codex`/`copilot`/`coderabbit` gate their CLI reviewers.
-- The toggles do not affect the monitor loop: CodeRabbit bot comments on
-  the PR are still collected and processed.
-- The file is read on every `new-pr` run — no restart needed. Add
-  `.claude/*.local.md` to your `.gitignore`.
+- Fail-open: only an explicit `false` disables a function — unset
+  options fall back to their declared `default: true`.
+- The review toggles gate the review rounds only; CodeRabbit bot
+  comments during the CI watch are controlled separately by
+  `coderabbit_ci_comments`.
+- All four review toggles `false` is allowed — `new-pr` then proceeds
+  without any pre-push review and flags that in its report.
+
+### Breaking change in v3.0.0
+
+Configuration via `~/.claude/branch-management.local.md` and
+`.claude/branch-management.local.md` is no longer read — migrate by
+setting the equivalent options in the desired `settings.json` scope (see
+above). Note the changed precedence: the old system was restrict-only
+(any `false` in any layer won); the native scopes follow standard
+precedence, so a project or local value overrides a user-level one.
 
 ## Review CLIs (all optional)
 
@@ -107,14 +115,6 @@ review run, in one bash block each. Exit codes: `0` review ran (stdout = raw
 review output) · `2` CLI not installed · `3` not logged in · `4` run failed.
 Review runs are wrapped in `timeout -k 10` (default 600 s, override with
 `REVIEW_TIMEOUT`).
-
-`scripts/review-settings.sh [settings-file]` — prints the four review
-toggles (`<tool>=true|false`, one line each, fail-open defaults) merged
-from the user-level and project-level settings files described under
-Configuration (restrict-only — any explicit `false` wins). The argument
-overrides the project-file path; without it the script reads
-`<git-toplevel>/.claude/branch-management.local.md` (outside a repo:
-`$PWD/.claude/…`). Exit codes: `0` always · `1` usage error.
 
 `scripts/ci-watch.sh <github|gitlab> <pr-number|branch>` — polls one CI
 round to completion and reflects only the real CI result: checks whose
