@@ -57,6 +57,15 @@ Two thin orchestrator skills (`new-branch`, `new-pr`) dispatch seven dedicated a
   auth/review exit codes uncontractual → output heuristics (`logged
   in|authenticated` positive, negative-first), `cr` alias supported.
 
+## Conventions
+- Every new feature must be individually disableable via its own
+  `userConfig` boolean in plugin.json (`default: true`; fail-open — only
+  literal `false` disables). Wire it through everywhere: read it as
+  `${user_config.KEY}` in the consuming skill, add it to the README
+  option table and this file, and update the manifest tests in
+  `test/branch-management/test.bats` (they assert the exact sorted key
+  list and count).
+
 ## Tests
 `test/branch-management/test.bats` covers three review scripts with
 stub CLIs on isolated `PATH` (missing → 2, no login → 3, ok →
