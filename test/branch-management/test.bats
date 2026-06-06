@@ -437,6 +437,16 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
   assert_output "3.0.0"
 }
 
+@test "userConfig: no references to the removed settings implementation remain" {
+  run grep -rn "review-settings" "$REPO_ROOT/plugins/branch-management"
+  assert_failure 1
+  # The README's v3 breaking-change note is the one allowed mention of the
+  # old settings file; everywhere else it must be gone.
+  run grep -rn --exclude=README.md "branch-management.local.md" \
+    "$REPO_ROOT/plugins/branch-management"
+  assert_failure 1
+}
+
 #
 # ci-watch.sh
 #
