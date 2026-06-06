@@ -13,9 +13,9 @@ dispatching review rounds, aggregation + dedupe, fix loop, submission
 and monitor loop — raw review output and CI logs never enter main
 context: subagents run commands through context-mode plugin, declared
 dependency of this plugin (native-tool fallback only when dependency
-broken). Review sources disabled per project via
-`.claude/branch-management.local.md`, read in preconditions through
-`scripts/review-settings.sh`.
+broken). Review sources, CI monitoring and CodeRabbit comment handling
+are individually togglable via the plugin's `userConfig` options,
+read in preconditions (step 4).
 
 ## Preconditions
 
@@ -60,30 +60,32 @@ broken). Review sources disabled per project via
    - `git log "origin/$base"..HEAD --oneline` is empty and
      `git status --porcelain` is also empty (no work to submit).
 
-4. **Read the review toggles.** Run the bundled settings script in a
-   single Bash call — deterministic parsing, do not parse the settings
-   file yourself:
+4. **Read the feature toggles.** The plugin declares them via
+   `userConfig` in plugin.json; Claude Code stores the values in
+   settings.json under `pluginConfigs["branch-management"].options`
+   (native scope precedence: local > project > user) and interpolates
+   them directly into this skill:
 
-   ```bash
-   "${CLAUDE_PLUGIN_ROOT}/scripts/review-settings.sh"
-   ```
+   | Toggle | Value |
+   |---|---|
+   | claude | `${user_config.review_claude}` |
+   | codex | `${user_config.review_codex}` |
+   | copilot | `${user_config.review_copilot}` |
+   | coderabbit | `${user_config.review_coderabbit}` |
+   | ci_monitor | `${user_config.ci_monitor}` |
+   | coderabbit_ci_comments | `${user_config.coderabbit_ci_comments}` |
 
-   (If `${CLAUDE_PLUGIN_ROOT}` is not set in your shell, resolve it as in
-   step 6 and substitute the absolute path.)
-
-   It prints one `<tool>=true|false` line per review source (`claude`,
-   `codex`, `copilot`, `coderabbit`), merged restrict-only from the
-   user-level `~/.claude/branch-management.local.md` and the
-   project-level `.claude/branch-management.local.md` (any explicit
-   `false` in either layer disables; `true` never re-enables). Missing
-   or malformed settings files yield all `true` (fail-open) —
-   only an explicit `false` (case-insensitive) disables a source. Keep
-   the four values for the rest of the run; every disabled source appears
-   in the final report as `disabled via settings`. The toggles gate the
-   review rounds only — the monitor loop is unaffected: ci-monitor keeps
-   collecting CodeRabbit bot comments even when `coderabbit=false`. All
-   four toggles `false` is allowed — the run then proceeds without any
-   pre-push review; flag that prominently in the final report.
+   Evaluation rule (fail-open): ONLY the literal value `false` disables
+   a toggle. Anything else — `true`, an empty value, or an
+   uninterpolated `${user_config.…}` placeholder on an older Claude
+   Code version — counts as enabled. Keep all six values for the rest
+   of the run; every disabled review source appears in the final report
+   as `disabled via settings`. The four review toggles gate the review
+   rounds only; `ci_monitor` gates the whole monitor loop (steps 12–14),
+   while `coderabbit_ci_comments` only suppresses CodeRabbit comment
+   collection within step 12. All four review toggles `false` is
+   allowed — the run then proceeds without any pre-push review; flag
+   that prominently in the final report.
 
 ## Review rounds
 
@@ -97,7 +99,7 @@ broken). Review sources disabled per project via
 6. **Dispatch a review round** — ALL enabled reviewers in ONE message.
    One step-6 dispatch is one round: track the round number, the first
    dispatch is round 1, the cap is 3 rounds per run. Enabled means: the
-   step-4 toggle is `true`;
+   step-4 toggle is not `false`;
    the coderabbit-reviewer is additionally omitted when step 2 found the
    local base diverged (toggle off → `disabled via settings` in the
    report, diverged base → the existing note). If the dispatch set is
@@ -219,6 +221,10 @@ broken). Review sources disabled per project via
 
 ## Monitor until green
 
+If the `ci_monitor` toggle (step 4) is `false`, skip steps 12–14 entirely
+and continue with the report (step 15), noting `CI monitoring disabled
+via settings` there.
+
 Cap the loop at 5 fix iterations — if it has not converged by then, stop and
 hand the remaining findings to the user instead of pushing in circles.
 
@@ -229,7 +235,12 @@ hand the remaining findings to the user instead of pushing in circles.
     result through that script — CodeRabbit's own PR checks are excluded
     there, so a non-reacting CodeRabbit cannot block the watch — analyzes
     failing jobs and collects open CodeRabbit bot comments — read-only —
-    and returns `{ci, failures, review_findings}`.
+    and returns `{ci, failures, review_findings}`. If the
+    `coderabbit_ci_comments` toggle (step 4) is `false`, state in the
+    dispatch prompt that CodeRabbit comment collection (its step 3) must
+    be skipped — `review_findings` then comes back empty and the loop
+    runs on the CI state alone; note `CodeRabbit comments disabled via
+    settings` in the final report.
 
 13. **If `ci` is `red` or `review_findings` is non-empty:** dispatch
     `branch-management:review-fixer` with both lists (CI failure analyses are
@@ -260,4 +271,5 @@ hand the remaining findings to the user instead of pushing in circles.
     reason / **disabled via settings**; CLI tools: ran / missing,
     skipped silently / **not logged in + login command** / failed +
     reason / **disabled via settings**); findings fixed/skipped per
-    round; monitor iterations used.
+    round; monitor iterations used — or `CI monitoring disabled via
+    settings` when the toggle was off.
