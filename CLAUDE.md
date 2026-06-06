@@ -11,6 +11,7 @@ Claude Code plugin marketplace.
 ## Conventions
 - Commit messages: never include a `Co-Authored-By:` trailer or the "Generated with [Claude Code]" footer.
 - New plugins: use the `create-plugin` skill — it scaffolds the plugin, test, README, CLAUDE.md, and the `test.yml` matrix entry, and registers the plugin in `marketplace.json`.
+- Version bumps: update the plugin's `.claude-plugin/plugin.json` AND its entry in `.claude-plugin/marketplace.json` together — CI fails when they diverge.
 - `docs/` holds local planning artifacts; it is gitignored and never pushed.
 
 ## Tests
