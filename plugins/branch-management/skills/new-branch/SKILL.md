@@ -47,7 +47,10 @@ steps yourself.
    - Soft-fail: every agent status (`updated`, `skipped_no_cli`,
      `skipped_no_dir`, `failed`) only feeds the report — never abort
      the skill. Updated files stay uncommitted on the fresh branch;
-     mention that in the report when the agent reports `updated`.
+     mention that in the report when the agent reports `updated` —
+     and note that this dirty `graphify-out` will trip the
+     clean-tree guard on the next new-branch run (commit or stash
+     it first).
 
 4. **context-mode indexing.** Gated by the `context_index` toggle —
    current value: `${user_config.context_index}`. ONLY the literal value

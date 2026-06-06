@@ -269,7 +269,11 @@ hand the remaining findings to the user instead of pushing in circles.
 
 14. **If `ci` is `red` or `review_findings` is non-empty:** dispatch
     `branch-management:review-fixer` with both lists (CI failure analyses are
-    findings too). Then:
+    findings too). When the `graphify_pr_commit` toggle (step 4) is
+    false and step 9 left `graphify-out` changes uncommitted, state in
+    the dispatch prompt that the fixer must never stage paths under
+    `graphify-out` — they intentionally stay in the working tree.
+    Then:
     - If the fixer returned commits: push them.
     - For findings the fixer **skipped**, reply to the CodeRabbit thread with
       the skip reason and resolve it, using the `thread_id` from ci-monitor
