@@ -5,14 +5,16 @@ Two thin orchestrator skills (`new-branch`, `new-pr`) dispatch seven dedicated a
 ## Behavior
 - `skills/new-branch`: dispatches `agents/branch-agent` (clean-tree guard,
   `origin/HEAD` refresh, `--ff-only` pull, `<type>/<slug>` creation,
-  structured abort codes for user decisions); then optional
-  `context-mode:ctx-index` in main context.
+  structured abort codes for user decisions); then
+  `context-mode:ctx-index` in main context, gated by the
+  `context_index` toggle.
 - `skills/new-pr`: preconditions in skill (fetch, base detection,
-  `origin/<base>` for all revisions, review toggles via
-  `scripts/review-settings.sh` from user-level `~/.claude/` plus
-  project-level `.claude/branch-management.local.md` — fail-open, only
-  explicit `false` disables; gates reviewer dispatches, monitor loop
-  unaffected); mandatory commit, then iterative review rounds (max 3):
+  `origin/<base>` for all revisions, feature toggles from plugin.json
+  `userConfig` interpolated as `${user_config.KEY}` into the skill —
+  fail-open, only literal `false` disables, uninterpolated placeholders
+  count as enabled; review toggles gate reviewer dispatches, `ci_monitor`
+  gates the monitor loop, `coderabbit_ci_comments` gates CodeRabbit
+  thread collection); mandatory commit, then iterative review rounds (max 3):
   all enabled reviewers in parallel — `claude-reviewer` reviews diff
   itself, CLI reviewers run `scripts/<tool>-review.sh <base>` through
   context-mode `ctx_execute` (Bash only as reported degradation), all
@@ -32,13 +34,6 @@ Two thin orchestrator skills (`new-branch`, `new-pr`) dispatch seven dedicated a
 - Script exit-code contract: 0 ran · 2 CLI missing (skip silently) ·
   3 not logged in (skip + report login command) · 4 run failed (skip +
   report). Review runs wrapped in `timeout -k 10 "${REVIEW_TIMEOUT:-600}"`.
-  `review-settings.sh`: prints `<tool>=true|false` for
-  claude/codex/copilot/coderabbit, exit 0 always (usage error 1); only
-  explicit case-insensitive `false` (quotes tolerated) under top-level
-  block-style `reviews:` mapping disables, direct children only, `true`
-  never re-enables, invalid values neutral; user (`~/.claude/`) +
-  project (git toplevel) merge restrict-only (any `false` in any layer
-  disables), unreadable layer skipped.
   `ci-watch.sh <github|gitlab> <nr|branch>`: 0 green · 1 red · 2 deadline ·
   64 usage/environment (CLI missing/too old); green/red from check CONTENT
   (gh exits 1 fail / 8 pending with data), coderabbit-named checks
@@ -72,11 +67,9 @@ tested across matrix (token env, recorded `loggedInUsers`,
 3), `copilot-review.sh` asserted hardened read-only (no write
 subcommand allowlisted). `scripts/git-shim` has direct unit tests
 (read-only passthrough; `--output`/`-o`/`-O`/`--output-directory` refused;
-unset real-git → 127). Plus `review-settings.sh` toggle parsing (fail-open
-defaults, explicit/quoted/case-insensitive `false`, block + nesting
-boundaries, BOM/CRLF incl. UTF-8 locale, default-path resolution,
-restrict-only user+project layering — user `false` beats project `true` —
-with neutral-value + unreadable-layer cases) and
+unset real-git → 127). Plus plugin.json `userConfig` manifest checks
+(seven boolean toggles, all `default: true`, titles + descriptions,
+version sync with marketplace.json) and
 `ci-watch.sh` polling (coderabbit exclusion, pending→done transitions,
 timeout, no-checks grace, gitlab status heuristics). Run:
 `BATS_LIB_PATH="$PWD/node_modules" npx bats test/branch-management/`.
