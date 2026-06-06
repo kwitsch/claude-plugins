@@ -523,12 +523,12 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
   assert_success
 }
 
-@test "version: plugin.json and marketplace.json agree on 3.1.0" {
+@test "version: plugin.json and marketplace.json agree on 3.0.0" {
   run jq -r '.version' "$REPO_ROOT/$PLUGIN_JSON_REL"
-  assert_output "3.1.0"
+  assert_output "3.0.0"
   run jq -r '.plugins[] | select(.name == "branch-management") | .version' \
     "$REPO_ROOT/.claude-plugin/marketplace.json"
-  assert_output "3.1.0"
+  assert_output "3.0.0"
 }
 
 @test "userConfig: no references to the removed settings implementation remain" {
