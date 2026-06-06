@@ -63,7 +63,7 @@
     "graphify_force_create": {
       "type": "boolean",
       "title": "graphify force create",
-      "description": "new-branch only: run the graphify update even when graphify-out/ is missing and create the folder first (fail-closed: only an explicit true enables this)",
+      "description": "new-branch only: create a missing graphify-out/ folder and run the update anyway. Off by default so a missing folder is never created accidentally — only an explicit true enables this.",
       "default": false
     },
     "graphify_pr_update": {
@@ -75,7 +75,7 @@
     "graphify_pr_commit": {
       "type": "boolean",
       "title": "graphify separate commit",
-      "description": "Commit refreshed graphify-out files as a separate commit during new-pr (when disabled, graphify changes stay uncommitted)",
+      "description": "Commit refreshed graphify-out files as a separate commit during new-pr. When disabled, updated files are left uncommitted in the working tree.",
       "default": true
     }
   }
