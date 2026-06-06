@@ -1,31 +1,31 @@
 ---
 name: new-pr
-description: Use when work on a branch is complete and should become a pull/merge request - runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer subagents, max 3) with verified fixes between rounds, pushes, opens a PR or MR via gh or glab, then watches CI and CodeRabbit feedback until everything is green. Review sources can be disabled per user or per project.
+description: Use when branch work complete and should become pull/merge request - runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer subagents, max 3) with verified fixes between rounds, pushes, opens PR or MR via gh or glab, then watches CI and CodeRabbit feedback until all green. Review sources can be disabled per user or per project.
 ---
 
 # Turn the current branch into a reviewed PR/MR
 
 Thin orchestrator: reviews run in dedicated read-only reviewer subagents
-(`claude-reviewer` on opus, the three CLI reviewers on haiku), all fixes
-run in the `review-fixer` subagent (opus), CI watching runs in the
-`ci-monitor` subagent (sonnet). This skill handles preconditions,
-dispatching review rounds, aggregation + dedupe, the fix loop, submission
-and the monitor loop — raw review output and CI logs never enter the main
-context: the subagents run their commands through the context-mode
-plugin, a declared dependency of this plugin (native-tool fallback only
-when that dependency is broken). Review sources can be disabled per
-project via `.claude/branch-management.local.md`, read in the
-preconditions through `scripts/review-settings.sh`.
+(`claude-reviewer` on opus, three CLI reviewers on haiku), all fixes
+run in `review-fixer` subagent (opus), CI watch runs in
+`ci-monitor` subagent (sonnet). Skill handles preconditions,
+dispatching review rounds, aggregation + dedupe, fix loop, submission
+and monitor loop — raw review output and CI logs never enter main
+context: subagents run commands through context-mode plugin, declared
+dependency of this plugin (native-tool fallback only when dependency
+broken). Review sources disabled per project via
+`.claude/branch-management.local.md`, read in preconditions through
+`scripts/review-settings.sh`.
 
 ## Preconditions
 
 1. **Assert a named branch:** `branch=$(git branch --show-current)`. If this
-   prints nothing (detached HEAD), abort and tell the user to check out a
+   prints nothing (detached HEAD), abort and tell user check out a
    branch first.
 
-2. **Detect the base branch** (an explicit argument such as `--base develop`
-   overrides the detection). Fetch first so the review runs against the
-   remote's current state, and refresh the clone-time `origin/HEAD`:
+2. **Detect the base branch** (explicit argument like `--base develop`
+   overrides detection). Fetch first so review runs against the
+   remote's current state, and refresh clone-time `origin/HEAD`:
 
    ```bash
    git fetch origin
@@ -239,20 +239,20 @@ hand the remaining findings to the user instead of pushing in circles.
       the skip reason and resolve it, using the `thread_id` from ci-monitor
       (GitHub: GraphQL mutation `resolveReviewThread`; GitLab:
       `glab api -X PUT "projects/:id/merge_requests/<iid>/discussions/<thread_id>" -f resolved=true`)
-      — otherwise the same finding reappears every iteration.
-    - If an iteration produced no commits and the CI state is unchanged
-      (e.g. an infra flake the fixer skipped), stop early and hand the
-      remaining findings to the user — a push without commits restarts
+      — otherwise same finding reappears every iteration.
+    - If an iteration produced no commits and CI state unchanged
+      (e.g. infra flake fixer skipped), stop early and hand the
+      remaining findings to user — push without commits restarts
       nothing.
 
-14. **Loop.** Every push restarts the CI and triggers a CodeRabbit re-review;
-    repeat steps 12–13 until both are quiet in the same iteration: CI green
-    and no unresolved findings. A CodeRabbit that never reacts (no app
-    installed, rate limit exhausted) counts as quiet — the loop ends on CI
+14. **Loop.** Every push restarts CI and triggers CodeRabbit re-review;
+    repeat steps 12–13 until both quiet in same iteration: CI green
+    and no unresolved findings. CodeRabbit that never reacts (no app
+    installed, rate limit exhausted) counts as quiet — loop ends on CI
     green alone.
 
-15. **Report:** the PR/MR URL — or, when a stop branch fired, the note
-    that nothing was pushed plus the fix commits left on the branch; the
+15. **Report:** PR/MR URL — or, when stop branch fired, note
+    that nothing pushed plus fix commits left on branch; the
     number of review rounds and their outcome (quiet / converged via
     fixer skips / capped at 3 with open findings / stopped: no review
     source succeeded / skipped: no reviewer enabled); per review source
