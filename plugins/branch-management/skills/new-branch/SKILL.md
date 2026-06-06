@@ -5,40 +5,35 @@ description: Use when starting new feature, fix, or chore work that needs its ow
 
 # Start a new work branch
 
-Thin orchestrator: the git mechanics run in the dedicated `branch-agent`
-subagent (haiku); this skill only dispatches, handles user decisions and
-reports. Do not run the git steps yourself.
+Thin orchestrator: git mechanics run in dedicated `branch-agent` subagent
+(haiku); this skill only dispatch, handle user decisions, report. No run git
+steps yourself.
 
 ## Steps
 
-1. **Dispatch the branch-agent** (Agent tool, subagent type
-   `branch-management:branch-agent`). The dispatch prompt contains exactly
-   one of:
-   - the explicit branch name or description the user passed as argument, or
-   - the task context from the conversation to derive a name from.
-   If there is no argument and no task context to derive from, ask the user
-   first.
+1. **Dispatch branch-agent** (Agent tool, subagent type
+   `branch-management:branch-agent`). Dispatch prompt holds exactly one of:
+   - explicit branch name or description user passed as argument, or
+   - task context from conversation to derive name from.
+   No argument and no task context to derive from → ask user first.
 
-2. **Handle a structured abort** from the agent:
-   - `dirty_tree` — ask the user: commit, stash, or abort? Execute the choice
-     (commit/stash in the main context), then re-dispatch the agent.
-   - `name_exists` — the tree is already on the default branch at this point;
-     mention that. Ask the user: switch to the existing branch (local:
-     `git checkout <branch>`; remote-only: `git checkout <branch>` creates a
-     tracking branch automatically) or pick a different name (then
-     re-dispatch).
-   - `no_remote` / `pull_failed` — report the detail and stop; never branch
-     off a stale or unknown base. After `pull_failed` the working tree is
-     already on the default branch — say so in the report, so the user knows
-     their starting branch changed.
+2. **Handle structured abort** from agent:
+   - `dirty_tree` — ask user: commit, stash, or abort? Execute choice
+     (commit/stash in main context), then re-dispatch agent.
+   - `name_exists` — tree already on default branch now; mention that. Ask
+     user: switch to existing branch (local: `git checkout <branch>`;
+     remote-only: `git checkout <branch>` creates tracking branch
+     automatically) or pick different name (then re-dispatch).
+   - `no_remote` / `pull_failed` — report detail, stop; never branch off
+     stale or unknown base. After `pull_failed` working tree already on
+     default branch — say so in report, so user know starting branch changed.
 
-3. **context-mode indexing.** context-mode is a declared dependency of this
-   plugin — invoke its `context-mode:ctx-index` skill for the repository
-   root so the knowledge base reflects the new branch state. This stays in
-   the main context because the index serves the main session. If the skill
-   is missing from the session, the dependency is broken or disabled —
-   mention that in the report (point at `claude plugin list` /
-   `context-mode:ctx-doctor`) and continue without indexing.
+3. **context-mode indexing.** context-mode declared dependency of this
+   plugin — invoke its `context-mode:ctx-index` skill for repository root so
+   knowledge base reflects new branch state. Stays in main context because
+   index serves main session. Skill missing from session → dependency broken
+   or disabled — mention that in report (point at `claude plugin list` /
+   `context-mode:ctx-doctor`), continue without indexing.
 
-4. **Report:** the new branch name and the commit it was cut from, straight
-   from the agent's result.
+4. **Report:** new branch name and commit it was cut from, straight from
+   agent's result.
