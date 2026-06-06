@@ -1,7 +1,8 @@
 #!/usr/bin/env bats
 # Tests for branch-management: the three CLI review scripts
-# (codex-review.sh, copilot-review.sh, coderabbit-review.sh), the
-# plugin.json userConfig manifest and the ci-watch.sh CI poller.
+# (codex-review.sh, copilot-review.sh, coderabbit-review.sh),
+# graphify-update.sh, the plugin.json userConfig manifest and the
+# ci-watch.sh CI poller.
 #
 # Strategy: each script test runs with an isolated PATH that contains only
 # symlinks to the required system tools plus per-test stub binaries for the
@@ -401,6 +402,92 @@ if [ "$1" = "review" ]; then sleep 5; fi'
 @test "coderabbit: usage error without base argument" {
   make_stub coderabbit 'exit 0'
   run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh"
+  assert_failure 1
+  assert_output --partial "usage"
+}
+
+#
+# graphify-update.sh
+#
+# Exit-code contract: 0 update ran · 2 graphify CLI missing · 4 update run
+# failed · 5 graphify-out/ missing without --force. The script resolves the
+# repo root itself, so every test runs inside a throwaway git repo under
+# $BATS_TEST_TMPDIR — never against the real repository.
+
+# setup_graphify_repo — link the real git into MOCKBIN and create + enter a
+# throwaway git repo so graphify-update.sh resolves its repo root inside the
+# test sandbox.
+setup_graphify_repo() {
+  ln -sf "$(command -v git)" "$MOCKBIN/git"
+  GRAPHIFY_REPO="$BATS_TEST_TMPDIR/repo"
+  mkdir -p "$GRAPHIFY_REPO"
+  cd "$GRAPHIFY_REPO"
+  env -i PATH="$MOCKBIN" HOME="$HOME" git init -q
+}
+
+@test "graphify: exit 2 when CLI is missing" {
+  setup_graphify_repo
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/graphify-update.sh"
+  assert_failure 2
+}
+
+@test "graphify: exit 5 when graphify-out is missing without --force" {
+  setup_graphify_repo
+  make_stub graphify 'echo "GRAPHIFY $*"; exit 0'
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/graphify-update.sh"
+  assert_failure 5
+  [ ! -d "$GRAPHIFY_REPO/graphify-out" ]   # must not create the folder
+}
+
+@test "graphify: --force creates graphify-out and runs the update" {
+  setup_graphify_repo
+  make_stub graphify 'echo "GRAPHIFY $*"; exit 0'
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/graphify-update.sh" --force
+  assert_success
+  assert_output --partial "GRAPHIFY update -o graphify-out"
+  [ -d "$GRAPHIFY_REPO/graphify-out" ]
+}
+
+@test "graphify: runs the update when graphify-out exists" {
+  setup_graphify_repo
+  mkdir -p graphify-out
+  make_stub graphify 'echo "GRAPHIFY $*"; exit 0'
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/graphify-update.sh"
+  assert_success
+  assert_output --partial "GRAPHIFY update -o graphify-out"
+}
+
+@test "graphify: runs from the repository root regardless of cwd" {
+  setup_graphify_repo
+  mkdir -p graphify-out sub/dir
+  make_stub graphify 'echo "GRAPHIFY pwd=$PWD"; exit 0'
+  cd sub/dir
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/graphify-update.sh"
+  assert_success
+  assert_output --partial "pwd=$GRAPHIFY_REPO"
+}
+
+@test "graphify: exit 4 when the update fails" {
+  setup_graphify_repo
+  mkdir -p graphify-out
+  make_stub graphify 'echo boom >&2; exit 1'
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/graphify-update.sh"
+  assert_failure 4
+}
+
+@test "graphify: exit 4 when the update hangs (timeout)" {
+  setup_graphify_repo
+  mkdir -p graphify-out
+  make_stub graphify 'sleep 5'
+  run env -i PATH="$MOCKBIN" HOME="$HOME" GRAPHIFY_TIMEOUT=1 \
+    bash "$SCRIPTS/graphify-update.sh"
+  assert_failure 4
+}
+
+@test "graphify: usage error on unknown argument" {
+  setup_graphify_repo
+  make_stub graphify 'exit 0'
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/graphify-update.sh" --bogus
   assert_failure 1
   assert_output --partial "usage"
 }
