@@ -498,14 +498,21 @@ setup_graphify_repo() {
 
 PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 
-@test "userConfig: declares exactly the seven feature toggles" {
+@test "userConfig: declares exactly the eleven feature toggles" {
   run jq -r '.userConfig | keys | sort | join(" ")' "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
-  assert_output "ci_monitor coderabbit_ci_comments context_index review_claude review_coderabbit review_codex review_copilot"
+  assert_output "ci_monitor coderabbit_ci_comments context_index graphify_branch_update graphify_force_create graphify_pr_commit graphify_pr_update review_claude review_coderabbit review_codex review_copilot"
 }
 
-@test "userConfig: every toggle is a boolean defaulting to true" {
-  run jq -e '.userConfig | all(.[]; .type == "boolean" and .default == true)' \
+@test "userConfig: every toggle is a boolean" {
+  run jq -e '.userConfig | all(.[]; .type == "boolean")' \
+    "$REPO_ROOT/$PLUGIN_JSON_REL"
+  assert_success
+}
+
+@test "userConfig: every toggle defaults to true except fail-closed graphify_force_create" {
+  run jq -e '.userConfig | to_entries
+    | all(.[]; .value.default == (if .key == "graphify_force_create" then false else true end))' \
     "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
 }
@@ -516,12 +523,12 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
   assert_success
 }
 
-@test "version: plugin.json and marketplace.json agree on 3.0.0" {
+@test "version: plugin.json and marketplace.json agree on 3.1.0" {
   run jq -r '.version' "$REPO_ROOT/$PLUGIN_JSON_REL"
-  assert_output "3.0.0"
+  assert_output "3.1.0"
   run jq -r '.plugins[] | select(.name == "branch-management") | .version' \
     "$REPO_ROOT/.claude-plugin/marketplace.json"
-  assert_output "3.0.0"
+  assert_output "3.1.0"
 }
 
 @test "userConfig: no references to the removed settings implementation remain" {
