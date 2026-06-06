@@ -1,6 +1,6 @@
 ---
 name: new-branch
-description: Use when starting new feature, fix, or chore work that needs its own branch - dispatches the branch-agent subagent to switch to the default branch, pull the latest state and create a new work branch, then refreshes the context-mode index (declared plugin dependency).
+description: Use when starting new feature, fix, or chore work that needs its own branch - dispatches the branch-agent subagent to switch to the default branch, pull the latest state and create a new work branch, then refreshes the context-mode index (declared plugin dependency, togglable via the context_index option).
 ---
 
 # Start a new work branch
@@ -28,12 +28,18 @@ steps yourself.
      stale or unknown base. After `pull_failed` working tree already on
      default branch — say so in report, so user know starting branch changed.
 
-3. **context-mode indexing.** context-mode declared dependency of this
-   plugin — invoke its `context-mode:ctx-index` skill for repository root so
-   knowledge base reflects new branch state. Stays in main context because
-   index serves main session. Skill missing from session → dependency broken
-   or disabled — mention that in report (point at `claude plugin list` /
-   `context-mode:ctx-doctor`), continue without indexing.
+3. **context-mode indexing.** Gated by the `context_index` toggle —
+   current value: `${user_config.context_index}`. ONLY the literal value
+   `false` disables (fail-open: `true`, empty, or an uninterpolated
+   placeholder all mean enabled).
+   - Disabled → skip this step; report mentions
+     `indexing disabled via settings`.
+   - Enabled → context-mode declared dependency of this plugin — invoke
+     its `context-mode:ctx-index` skill for repository root so knowledge
+     base reflects new branch state. Stays in main context because index
+     serves main session. Skill missing from session → dependency broken
+     or disabled — mention that in report (point at `claude plugin list`
+     / `context-mode:ctx-doctor`), continue without indexing.
 
 4. **Report:** new branch name and commit it was cut from, straight from
    agent's result.
