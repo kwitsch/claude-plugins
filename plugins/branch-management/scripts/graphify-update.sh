@@ -8,6 +8,7 @@
 # is created first.
 #
 # Exit codes: 0 update ran
+#             1 usage error / not inside a git repository
 #             2 graphify CLI not installed
 #             4 update run failed (timeout, crash)
 #             5 graphify-out/ missing and --force not given
