@@ -1,13 +1,12 @@
 #!/usr/bin/env bats
 # Tests for branch-management: the three CLI review scripts
 # (codex-review.sh, copilot-review.sh, coderabbit-review.sh), the
-# review-settings.sh toggle script and the ci-watch.sh CI poller.
+# plugin.json userConfig manifest and the ci-watch.sh CI poller.
 #
-# Strategy: each test runs a script with an isolated PATH that contains only
+# Strategy: each script test runs with an isolated PATH that contains only
 # symlinks to the required system tools plus per-test stub binaries for the
 # reviewed CLI. Review-script exit-code contract: 0 review ran · 2 CLI
-# missing · 3 not logged in · 4 run failed. review-settings.sh:
-# exit 0 always, one `<tool>=true|false` line per review source, fail-open.
+# missing · 3 not logged in · 4 run failed.
 # ci-watch.sh: 0 green · 1 red · 2 deadline · 64 usage/environment; stubs
 # mirror real gh/glab exit codes and output formats.
 
@@ -407,238 +406,35 @@ if [ "$1" = "review" ]; then sleep 5; fi'
 }
 
 #
-# review-settings.sh
+# plugin.json userConfig
 #
 
-# write_settings <file> <frontmatter-line>... — settings file with frontmatter.
-write_settings() {
-  local f="$1"; shift
-  { printf -- '---\n'; printf '%s\n' "$@"; printf -- '---\n'; } > "$f"
-}
+PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 
-# run_settings [arg]... — run review-settings.sh on the isolated PATH.
-run_settings() {
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/review-settings.sh" "$@"
-}
-
-# write_user_settings <frontmatter-line>... — user-level settings in the
-# isolated HOME.
-write_user_settings() {
-  mkdir -p "$HOME/.claude"
-  write_settings "$HOME/.claude/branch-management.local.md" "$@"
-}
-
-ALL_ENABLED=$'claude=true\ncodex=true\ncopilot=true\ncoderabbit=true'
-
-@test "settings: all enabled when the settings file is missing" {
-  run_settings "$BATS_TEST_TMPDIR/missing.md"
+@test "userConfig: declares exactly the seven feature toggles" {
+  run jq -r '.userConfig | keys | sort | join(" ")' "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
-  assert_output "$ALL_ENABLED"
+  assert_output "ci_monitor coderabbit_ci_comments context_index review_claude review_coderabbit review_codex review_copilot"
 }
 
-@test "settings: all enabled without a reviews block" {
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'other: value'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
+@test "userConfig: every toggle is a boolean defaulting to true" {
+  run jq -e '.userConfig | all(.[]; .type == "boolean" and .default == true)' \
+    "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
-  assert_output "$ALL_ENABLED"
 }
 
-@test "settings: all enabled without frontmatter" {
-  printf 'just some notes\n' > "$BATS_TEST_TMPDIR/s.md"
-  run_settings "$BATS_TEST_TMPDIR/s.md"
+@test "userConfig: every toggle carries a non-empty title and description" {
+  run jq -e '.userConfig | all(.[]; (.title | length > 0) and (.description | length > 0))' \
+    "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
-  assert_output "$ALL_ENABLED"
 }
 
-@test "settings: explicit false disables exactly that review" {
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  copilot: false'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
-}
-
-@test "settings: all four can be disabled" {
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' \
-    '  claude: false' '  codex: false' '  copilot: false' '  coderabbit: false'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=false\ncodex=false\ncopilot=false\ncoderabbit=false'
-}
-
-@test "settings: invalid value stays enabled (fail-open)" {
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  copilot: no'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output "$ALL_ENABLED"
-}
-
-@test "settings: quoted false disables" {
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  copilot: "false"'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
-}
-
-@test "settings: capitalized False disables (case-insensitive)" {
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  codex: False' '  copilot: FALSE'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=false\ncopilot=false\ncoderabbit=true'
-}
-
-@test "settings: duplicate key: any explicit false sticks" {
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  copilot: false' '  copilot: true'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
-}
-
-@test "settings: keys outside the reviews block are ignored" {
-  write_settings "$BATS_TEST_TMPDIR/s.md" \
-    'copilot: false' 'reviews:' '  codex: false' 'other:' '  claude: false'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=false\ncopilot=true\ncoderabbit=true'
-}
-
-@test "settings: nested sub-map keys are not toggles" {
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  tools:' '    copilot: false'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output "$ALL_ENABLED"
-}
-
-@test "settings: reviews header with trailing comment is recognized" {
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews: # toggles' '  copilot: false'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
-}
-
-@test "settings: body after the closing fence is ignored" {
-  { printf -- '---\nreviews:\n  codex: false\n---\n  copilot: false\n'; } > "$BATS_TEST_TMPDIR/s.md"
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=false\ncopilot=true\ncoderabbit=true'
-}
-
-@test "settings: UTF-8 BOM and CRLF line endings are tolerated" {
-  printf -- '\357\273\277---\r\nreviews:\r\n  copilot: false\r\n---\r\n' > "$BATS_TEST_TMPDIR/s.md"
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
-}
-
-@test "settings: script runs directly via its executable bit" {
-  run env -i PATH="$MOCKBIN" HOME="$HOME" "$SCRIPTS/review-settings.sh" "$BATS_TEST_TMPDIR/missing.md"
-  assert_success
-  assert_output "$ALL_ENABLED"
-}
-
-@test "settings: defaults without argument when git is unavailable" {
-  cd "$BATS_TEST_TMPDIR"
-  run_settings
-  assert_success
-  assert_output "$ALL_ENABLED"
-}
-
-@test "settings: no-arg run outside a repo falls back to \$PWD" {
-  ln -s "$(command -v git)" "$MOCKBIN/git"
-  mkdir -p "$BATS_TEST_TMPDIR/proj/.claude"
-  write_settings "$BATS_TEST_TMPDIR/proj/.claude/branch-management.local.md" \
-    'reviews:' '  copilot: false'
-  cd "$BATS_TEST_TMPDIR/proj"
-  run_settings
-  assert_success
-  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
-}
-
-@test "settings: no-arg run inside a repo resolves the git toplevel" {
-  ln -s "$(command -v git)" "$MOCKBIN/git"
-  git init -q "$BATS_TEST_TMPDIR/repo"
-  mkdir -p "$BATS_TEST_TMPDIR/repo/.claude" "$BATS_TEST_TMPDIR/repo/sub"
-  write_settings "$BATS_TEST_TMPDIR/repo/.claude/branch-management.local.md" \
-    'reviews:' '  codex: false'
-  cd "$BATS_TEST_TMPDIR/repo/sub"
-  run_settings
-  assert_success
-  assert_output $'claude=true\ncodex=false\ncopilot=true\ncoderabbit=true'
-}
-
-@test "settings: user-level config applies when no project file exists" {
-  write_user_settings 'reviews:' '  copilot: false'
-  run_settings "$BATS_TEST_TMPDIR/missing.md"
-  assert_success
-  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
-}
-
-@test "settings: user-level false overrides a project-level true" {
-  write_user_settings 'reviews:' '  copilot: false' '  codex: false'
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  copilot: true'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=false\ncopilot=false\ncoderabbit=true'
-}
-
-@test "settings: project level can disable a review the user level leaves enabled" {
-  write_user_settings 'reviews:' '  copilot: true'
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  copilot: false' '  codex: false'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=false\ncopilot=false\ncoderabbit=true'
-}
-
-@test "settings: user-level false persists when the project file lacks the key" {
-  write_user_settings 'reviews:' '  copilot: false'
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  claude: true'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
-}
-
-@test "settings: invalid project value does not override user-level false" {
-  write_user_settings 'reviews:' '  copilot: false'
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  copilot: off'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
-}
-
-@test "settings: unreadable user layer is skipped, project still applies" {
-  [ "$(id -u)" -eq 0 ] && skip "root can read anything"
-  write_user_settings 'reviews:' '  copilot: false'
-  chmod 000 "$HOME/.claude/branch-management.local.md"
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  codex: false'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=false\ncopilot=true\ncoderabbit=true'
-}
-
-@test "settings: BOM is stripped under a UTF-8 locale" {
-  printf -- '\357\273\277---\nreviews:\n  copilot: false\n---\n' > "$BATS_TEST_TMPDIR/s.md"
-  run env -i PATH="$MOCKBIN" HOME="$HOME" LANG=C.UTF-8 LC_ALL=C.UTF-8 \
-    bash "$SCRIPTS/review-settings.sh" "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
-}
-
-@test "settings: no-arg run merges user and project level" {
-  ln -s "$(command -v git)" "$MOCKBIN/git"
-  git init -q "$BATS_TEST_TMPDIR/repo"
-  mkdir -p "$BATS_TEST_TMPDIR/repo/.claude"
-  write_user_settings 'reviews:' '  claude: false'
-  write_settings "$BATS_TEST_TMPDIR/repo/.claude/branch-management.local.md" \
-    'reviews:' '  codex: false'
-  cd "$BATS_TEST_TMPDIR/repo"
-  run_settings
-  assert_success
-  assert_output $'claude=false\ncodex=false\ncopilot=true\ncoderabbit=true'
-}
-
-@test "settings: usage error with more than one argument" {
-  run_settings a b
-  assert_failure 1
-  assert_output --partial "usage"
+@test "version: plugin.json and marketplace.json agree on 3.0.0" {
+  run jq -r '.version' "$REPO_ROOT/$PLUGIN_JSON_REL"
+  assert_output "3.0.0"
+  run jq -r '.plugins[] | select(.name == "branch-management") | .version' \
+    "$REPO_ROOT/.claude-plugin/marketplace.json"
+  assert_output "3.0.0"
 }
 
 #

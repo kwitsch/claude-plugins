@@ -1,6 +1,6 @@
 {
   "name": "branch-management",
-  "version": "2.5.0",
+  "version": "3.0.0",
   "description": "Branch lifecycle skills backed by subagents: new-branch cuts a fresh branch; new-pr runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewers), applies verified fixes between rounds, opens a PR/MR via gh or glab, and watches CI until green. Script execution and heavy output processing run through the context-mode plugin (declared cross-marketplace dependency).",
   "author": {
     "name": "Kwitsch"
@@ -10,5 +10,49 @@
       "name": "context-mode",
       "marketplace": "context-mode"
     }
-  ]
+  ],
+  "userConfig": {
+    "review_claude": {
+      "type": "boolean",
+      "title": "Claude reviewer",
+      "description": "Run the claude-reviewer subagent during new-pr review rounds",
+      "default": true
+    },
+    "review_codex": {
+      "type": "boolean",
+      "title": "Codex reviewer",
+      "description": "Run the codex-reviewer subagent (requires codex CLI login)",
+      "default": true
+    },
+    "review_copilot": {
+      "type": "boolean",
+      "title": "Copilot reviewer",
+      "description": "Run the copilot-reviewer subagent (requires copilot CLI login)",
+      "default": true
+    },
+    "review_coderabbit": {
+      "type": "boolean",
+      "title": "CodeRabbit reviewer",
+      "description": "Run the coderabbit-reviewer subagent (requires coderabbit CLI login)",
+      "default": true
+    },
+    "ci_monitor": {
+      "type": "boolean",
+      "title": "CI monitoring",
+      "description": "Watch CI results after the PR/MR is opened (new-pr final phase)",
+      "default": true
+    },
+    "context_index": {
+      "type": "boolean",
+      "title": "context-mode indexing",
+      "description": "Refresh the context-mode index after creating a new branch",
+      "default": true
+    },
+    "coderabbit_ci_comments": {
+      "type": "boolean",
+      "title": "CodeRabbit CI comments",
+      "description": "Collect and address open CodeRabbit bot comments while watching CI",
+      "default": true
+    }
+  }
 }
