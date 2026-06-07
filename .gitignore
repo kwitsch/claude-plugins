@@ -4,3 +4,6 @@ docs/
 
 # npm (bats test framework)
 node_modules/
+
+# caveman-compress backups of compressed memory files — local only.
+*.original.md
