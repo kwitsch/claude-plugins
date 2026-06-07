@@ -1,0 +1,18 @@
+# Machine-local graphify state — never commit.
+# Committable artifacts: graph.json, graph.html, GRAPH_REPORT.md
+
+# Interpreter/root pointers (absolute machine paths)
+.graphify_python
+.graphify_root
+
+# Runtime/temp state (.graphify_detect.json, .graphify_chunk_*.json, labels, …)
+.graphify_*
+
+# Extraction cache (machine-local, regenerated on demand)
+cache/
+
+# Incremental-update manifest (absolute paths + mtimes, machine-specific)
+manifest.json
+
+# Local token cost tracker
+cost.json
