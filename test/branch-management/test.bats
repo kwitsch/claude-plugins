@@ -549,6 +549,13 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
   assert_success
 }
 
+@test "userConfig: every boolean description documents values and default" {
+  run jq -e '.userConfig
+    | all(.[]; (.description | test("Values:[^\"]*true[^\"]*false")) and (.description | test("Default: (true|false)\\.")))' \
+    "$REPO_ROOT/$PLUGIN_JSON_REL"
+  assert_success
+}
+
 @test "version: declared once — plugin.json only, marketplace entry carries none" {
   run jq -r '.version' "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_output "3.1.0"

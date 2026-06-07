@@ -2,12 +2,11 @@
 
 A [Claude Code](https://docs.claude.com/en/docs/claude-code/plugins) plugin marketplace.
 
-## Add a plugin
+## Install
 
-1. Create `plugins/<plugin-name>/` with at least a `.claude-plugin/plugin.json` and your components.
-2. Add an entry to the `plugins` array in `.claude-plugin/marketplace.json` with a `name` and a `source` (e.g. `"./plugins/<plugin-name>"`).
-
-See the [marketplace](https://docs.claude.com/en/docs/claude-code/plugin-marketplaces) and [plugin](https://docs.claude.com/en/docs/claude-code/plugins-reference) references for the full schema.
+```
+/plugin marketplace add kwitsch/claude-plugins
+```
 
 ## Plugins
 
@@ -18,9 +17,7 @@ See the [marketplace](https://docs.claude.com/en/docs/claude-code/plugin-marketp
 | [cctools-edit](plugins/cctools-edit/README.md) | Installs the cc-tools binary for the host OS and routes Read/Write/Edit/MultiEdit through it to preserve file encodings. |
 | [branch-management](plugins/branch-management/README.md) | Skills that cut a fresh work branch from the updated default branch and turn a finished branch into a reviewed, pushed PR/MR. |
 
-## Use the marketplace
+## Configure plugins
 
-```
-/plugin marketplace add kwitsch/claude-plugins
-/plugin install no-co-authored@kwitsch-plugins
-```
+Plugins with configuration options can be configured via
+`/plugin -> installed -> select plugin -> Configure options`.

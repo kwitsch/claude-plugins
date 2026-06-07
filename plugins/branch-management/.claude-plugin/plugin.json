@@ -15,73 +15,73 @@
     "review_claude": {
       "type": "boolean",
       "title": "Claude reviewer",
-      "description": "Run the claude-reviewer subagent during new-pr review rounds",
+      "description": "Values: true = run the claude-reviewer subagent during new-pr review rounds; false = skip it. Default: true.",
       "default": true
     },
     "review_codex": {
       "type": "boolean",
       "title": "Codex reviewer",
-      "description": "Run the codex-reviewer subagent (requires codex CLI login)",
+      "description": "Values: true = run the codex-reviewer subagent (requires codex CLI login); false = skip it. Default: true.",
       "default": true
     },
     "review_copilot": {
       "type": "boolean",
       "title": "Copilot reviewer",
-      "description": "Run the copilot-reviewer subagent (requires copilot CLI login)",
+      "description": "Values: true = run the copilot-reviewer subagent (requires copilot CLI login); false = skip it. Default: true.",
       "default": true
     },
     "review_coderabbit": {
       "type": "boolean",
       "title": "CodeRabbit reviewer",
-      "description": "Run the coderabbit-reviewer subagent (requires coderabbit CLI login)",
+      "description": "Values: true = run the coderabbit-reviewer subagent (requires coderabbit CLI login); false = skip it. Default: true.",
       "default": true
     },
     "ci_monitor": {
       "type": "boolean",
       "title": "CI monitoring",
-      "description": "Watch CI results after the PR/MR is opened (new-pr final phase)",
+      "description": "Values: true = watch CI results after the PR/MR is opened; false = stop after opening the PR/MR. Default: true.",
       "default": true
     },
     "context_index": {
       "type": "boolean",
       "title": "context-mode indexing",
-      "description": "Refresh the context-mode index after creating a new branch",
+      "description": "Values: true = refresh the context-mode index after creating a new branch; false = skip the refresh. Default: true.",
       "default": true
     },
     "coderabbit_ci_comments": {
       "type": "boolean",
       "title": "CodeRabbit CI comments",
-      "description": "Collect and address open CodeRabbit bot comments while watching CI",
+      "description": "Values: true = collect and address open CodeRabbit bot comments while watching CI; false = ignore them. Default: true.",
       "default": true
     },
     "graphify_branch_update": {
       "type": "boolean",
       "title": "graphify update on new branch",
-      "description": "Refresh the graphify output (graphify update .) after creating a new branch",
+      "description": "Values: true = refresh the graphify output after creating a new branch; false = skip that refresh. Default: true.",
       "default": true
     },
     "graphify_force_create": {
       "type": "boolean",
       "title": "graphify force create",
-      "description": "new-branch only: create a missing graphify-out/ folder and run the update anyway. Off by default so a missing folder is never created accidentally — only an explicit true enables this.",
+      "description": "Values: true = create a missing graphify-out/ folder during new-branch and run the update anyway; false = never create the folder automatically. Default: false.",
       "default": false
     },
     "graphify_pr_update": {
       "type": "boolean",
       "title": "graphify update before PR",
-      "description": "Refresh the graphify output after the review rounds and before pushing in new-pr (requires an existing graphify-out/ folder)",
+      "description": "Values: true = refresh the graphify output after the review rounds and before pushing in new-pr; false = skip that refresh. Default: true.",
       "default": true
     },
     "graphify_pr_commit": {
       "type": "boolean",
       "title": "graphify separate commit",
-      "description": "Commit refreshed graphify-out files as a separate commit during new-pr. When disabled, updated files are left uncommitted in the working tree.",
+      "description": "Values: true = commit refreshed graphify-out files as a separate commit during new-pr; false = leave them uncommitted. Default: true.",
       "default": true
     },
     "graphify_user_files": {
       "type": "boolean",
       "title": "graphify human-only outputs",
-      "description": "Keep human-only graphify outputs (graph.html) after updates. Off by default — the graphify output serves agents, so the refresh prunes browser-only files; only an explicit true keeps them.",
+      "description": "Values: true = keep human-only graphify outputs such as graph.html after updates; false = prune them. Default: false.",
       "default": false
     }
   }
