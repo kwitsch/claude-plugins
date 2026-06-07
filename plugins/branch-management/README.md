@@ -25,7 +25,7 @@ with its own model.
 | `copilot-reviewer` | haiku | runs `scripts/copilot-review.sh`, returns findings JSON |
 | `coderabbit-reviewer` | haiku | runs `scripts/coderabbit-review.sh`, returns findings JSON |
 | `review-fixer` | opus | verifies findings against the code, fixes, commits |
-| `ci-monitor` | sonnet | read-only: watches CI via `scripts/ci-watch.sh` (CodeRabbit checks excluded, bounded by `CI_WATCH_TIMEOUT`, default 1800 s / 30 min), collects CodeRabbit PR threads |
+| `ci-monitor` | sonnet | read-only: watches CI via `scripts/ci-watch.sh` (CodeRabbit checks excluded, bounded by `userConfig.ci_watch_timeout`, default 1800 s / 30 min), collects CodeRabbit PR threads |
 
 ## Dependencies
 
@@ -57,13 +57,14 @@ under `pluginConfigs["branch-management"].options`. Scope precedence is
 the native settings order: `.claude/settings.local.json` (local) >
 `.claude/settings.json` (project) > `~/.claude/settings.json` (user).
 
-| Option | Default | Effect when `false` |
+| Option | Default | Effect / Value |
 |---|---|---|
 | `review_claude` | `true` | skip the `claude-reviewer` in review rounds |
 | `review_codex` | `true` | skip the `codex-reviewer` in review rounds |
 | `review_copilot` | `true` | skip the `copilot-reviewer` in review rounds |
 | `review_coderabbit` | `true` | skip the `coderabbit-reviewer` in review rounds |
 | `ci_monitor` | `true` | `new-pr` ends after opening the PR/MR — no CI watch |
+| `ci_watch_timeout` | `1800` | positive whole-number seconds for the CI watch deadline (`new-pr` passes this to the watch script; invalid/missing values fall back to `1800`) |
 | `context_index` | `true` | `new-branch` skips the context-mode index refresh |
 | `coderabbit_ci_comments` | `true` | the CI watch ignores CodeRabbit bot comments |
 | `graphify_branch_update` | `true` | `new-branch` skips the graphify refresh |
@@ -136,8 +137,9 @@ exits non-zero for failing and pending rounds alike); GitLab watches the
 branch pipeline (merged-results pipelines are not targeted), `skipped`
 counts green and a `manual` gate returns green with a note. Repos without
 checks/pipeline count as green after three consecutive such answers.
-Bounded by `CI_WATCH_TIMEOUT` (default 1800 s), poll cadence
-`CI_WATCH_INTERVAL` (default 30 s), each CLI call hard-capped by
+Bounded by `userConfig.ci_watch_timeout` (default 1800 s; passed to the
+script as `CI_WATCH_TIMEOUT`), poll cadence `CI_WATCH_INTERVAL` (default
+30 s), each CLI call hard-capped by
 `timeout`. Exit codes: `0` green · `1` red · `2` deadline reached without
 a conclusive result · `64` usage/environment error (bad arguments, CLI
 missing or too old).
