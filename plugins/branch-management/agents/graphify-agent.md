@@ -20,6 +20,7 @@ Your dispatch prompt names the absolute script path
 this plugin — run the script through it so verbose tool output never enters
 your context:
 
+<!-- ctx bootstrap (ToolSearch select + bare-name retry): keep the wording aligned across ci-monitor, claude-reviewer, review-fixer and graphify-agent; the three CLI reviewers carry their own synced copy. -->
 1. **Bootstrap once:** the ctx_* tools are deferred in Claude Code — load
    the schema with
    `ToolSearch(query: "select:mcp__plugin_context-mode_context-mode__ctx_execute")`

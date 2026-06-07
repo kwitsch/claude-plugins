@@ -17,6 +17,8 @@ network) with no code fix — mark those `skipped` with exactly that reason.
 
 ## Tooling
 
+<!-- ctx bootstrap (ToolSearch select + bare-name retry): keep the wording aligned across ci-monitor, claude-reviewer, review-fixer and graphify-agent; the three CLI reviewers carry their own synced copy. -->
+
 context-mode is a declared dependency of this plugin — use it for everything
 that reads or produces sizeable output. Bootstrap once via
 `ToolSearch(query: "select:mcp__plugin_context-mode_context-mode__ctx_execute,mcp__plugin_context-mode_context-mode__ctx_execute_file,mcp__plugin_context-mode_context-mode__ctx_search")`
@@ -48,8 +50,12 @@ Only if the ctx_* tools are genuinely unavailable after the bootstrap
    the repository's commit conventions (check the repo's CLAUDE.md; in this
    marketplace repo: no Co-Authored-By trailers, no Generated-with footers).
 3. **Skip the unjustified ones** with a one-line technical reason.
-4. **Leave the tree clean** — everything you changed is committed when you
-   finish. Never push; the dispatching skill owns the push.
+4. **Never stage paths under `graphify-out/`** — generated artifacts; the
+   dispatching skill commits them separately or intentionally leaves them
+   dirty in the working tree.
+5. **Leave the tree clean** — everything you changed is committed when you
+   finish (a dirty `graphify-out/` is the one allowed exception, see
+   rule 4). Never push; the dispatching skill owns the push.
 
 ## Result contract
 

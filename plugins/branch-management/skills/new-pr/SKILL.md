@@ -25,6 +25,7 @@ read in preconditions (step 4).
    prints nothing (detached HEAD), abort and tell user check out a
    branch first.
 
+<!-- same origin/HEAD detection recipe as agents/branch-agent.md step 2 — keep in sync -->
 2. **Detect the base branch** (explicit argument like `--base develop`
    overrides detection). Fetch first so review runs against the
    remote's current state, and refresh clone-time `origin/HEAD`:
@@ -118,9 +119,10 @@ read in preconditions (step 4).
    - `branch-management:copilot-reviewer`
    - `branch-management:coderabbit-reviewer`
 
-   Resolve `${CLAUDE_PLUGIN_ROOT}` to a concrete absolute path first (e.g.
-   `echo "${CLAUDE_PLUGIN_ROOT}"`) — the CLI reviewer subagents expect a
-   literal absolute script path, not a variable. Each CLI dispatch prompt
+   Resolve `${CLAUDE_PLUGIN_ROOT}` to a concrete absolute path ONCE (e.g.
+   `echo "${CLAUDE_PLUGIN_ROOT}"`) and reuse the value in steps 9 and
+   13 — the subagents expect a literal absolute script path, not a
+   variable. Each CLI dispatch prompt
    must contain: the base branch name (`$base`, bare) and the resolved
    absolute path of
    `<plugin-root>/scripts/<codex|copilot|coderabbit>-review.sh`. The
@@ -200,9 +202,10 @@ read in preconditions (step 4).
 
 9. **graphify update.** Gated by the `graphify_pr_update` toggle
    (step 4) — `false` skips this step entirely; note
-   `graphify disabled via settings` in the report. Enabled → resolve
-   `${CLAUDE_PLUGIN_ROOT}` to a concrete absolute path and dispatch
-   `branch-management:graphify-agent` with: the absolute path of
+   `graphify disabled via settings` in the report. Enabled → dispatch
+   `branch-management:graphify-agent` (plugin root as resolved in
+   step 6; resolve it now if the review rounds were skipped) with: the
+   absolute path of
    `<plugin-root>/scripts/graphify-update.sh`, `force: no` (new-pr
    never creates the folder — a missing `graphify-out/` comes back as
    `skipped_no_dir`; just note it in the report), and `commit:` from
@@ -212,8 +215,9 @@ read in preconditions (step 4).
      separate `chore: update graphify output` commit — generated
      artifacts, intentionally NOT covered by the review rounds.
    - With `commit: no` while the update ran: the graphify changes stay
-     uncommitted — step 10 must NOT pick them up; note
-     `graphify changes left uncommitted via settings` in the report.
+     uncommitted (step 10 and the review-fixer leave `graphify-out`
+     alone); note `graphify changes left uncommitted via settings` in
+     the report.
    - Soft-fail: a `failed` status is a report note, never a reason to
      stop before pushing.
 
@@ -221,10 +225,9 @@ read in preconditions (step 4).
    fixer rounds should have committed everything already, so this is a
    safety re-check that usually finds nothing. Commit any remainder that
    belongs to this branch's work, grouped into logical commits. Leave
-   unrelated files untouched; never commit changes under `graphify-out`
-   here when the `graphify_pr_commit` toggle is `false` — they
-   intentionally stay in the working tree (step 9); if it is unclear
-   whether a change belongs to the work, ask the user.
+   unrelated files untouched; `graphify-out` is owned by step 9 — never
+   commit it here (the review-fixer carries the same standing rule); if
+   it is unclear whether a change belongs to the work, ask the user.
 
 11. **Push:** `git push -u origin "$branch"`.
 
@@ -257,8 +260,12 @@ hand the remaining findings to the user instead of pushing in circles.
 
 13. **Dispatch `branch-management:ci-monitor`** with the platform
     (`github`/`gitlab`), the PR/MR reference, the branch name
-    (`$branch` — its run-id fallback needs it) and the resolved absolute
-    path of `<plugin-root>/scripts/ci-watch.sh`. It waits for the CI
+    (`$branch` — its run-id fallback needs it), the resolved absolute
+    path of `<plugin-root>/scripts/ci-watch.sh` and — on GitHub — the
+    repository `owner`/`name` (resolve them ONCE via
+    `gh repo view --json owner,name` before the first iteration and
+    reuse them in every loop dispatch; the agent's GraphQL call needs
+    them). It waits for the CI
     result through that script — CodeRabbit's own PR checks are excluded
     there, so a non-reacting CodeRabbit cannot block the watch — analyzes
     failing jobs and collects open CodeRabbit bot comments — read-only —
@@ -271,11 +278,8 @@ hand the remaining findings to the user instead of pushing in circles.
 
 14. **If `ci` is `red` or `review_findings` is non-empty:** dispatch
     `branch-management:review-fixer` with both lists (CI failure analyses are
-    findings too). When the `graphify_pr_commit` toggle (step 4) is
-    false and step 9 left `graphify-out` changes uncommitted, state in
-    the dispatch prompt that the fixer must never stage paths under
-    `graphify-out` — they intentionally stay in the working tree.
-    Then:
+    findings too). The fixer carries a standing rule to never stage
+    `graphify-out` — no per-dispatch instruction needed. Then:
     - If the fixer returned commits: push them.
     - For findings the fixer **skipped**, reply to the CodeRabbit thread with
       the skip reason and resolve it, using the `thread_id` from ci-monitor

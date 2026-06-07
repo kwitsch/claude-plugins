@@ -37,6 +37,14 @@ make_stub() {
   chmod +x "$MOCKBIN/$name"
 }
 
+# run_script <script-name> [args...] — run a plugin script on the isolated
+# PATH with a scrubbed environment (the common case; tests that need extra
+# env vars keep the explicit env -i form).
+run_script() {
+  local script="$1"; shift
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/$script" "$@"
+}
+
 # Stub body shared by the coderabbit happy-path tests: logged in + working review.
 CODERABBIT_OK_STUB='if [ "$1" = "auth" ]; then echo "Logged in as tester"; exit 0; fi
 if [ "$1" = "review" ]; then echo "CODERABBIT REVIEW OUTPUT $*"; exit 0; fi
@@ -47,13 +55,13 @@ exit 64'
 #
 
 @test "codex: exit 2 when CLI is missing" {
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/codex-review.sh" main
+  run_script codex-review.sh main
   assert_failure 2
 }
 
 @test "codex: exit 3 when not logged in" {
   make_stub codex 'if [ "$1" = "login" ]; then [ "$2" = "status" ] || exit 99; exit 1; fi' 'exit 0'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/codex-review.sh" main
+  run_script codex-review.sh main
   assert_failure 3
 }
 
@@ -62,7 +70,7 @@ exit 64'
     'if [ "$1" = "login" ]; then [ "$2" = "status" ] || exit 99; exit 0; fi' \
     'if [ "$1" = "exec" ]; then echo "CODEX REVIEW OUTPUT $*"; exit 0; fi' \
     'exit 64'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/codex-review.sh" main
+  run_script codex-review.sh main
   assert_success
   assert_output --partial "CODEX REVIEW OUTPUT"
   assert_output --partial "origin/main"        # diff target must be in the prompt
@@ -82,13 +90,13 @@ exit 64'
   make_stub codex \
     'if [ "$1" = "login" ]; then [ "$2" = "status" ] || exit 99; exit 0; fi' \
     'if [ "$1" = "exec" ]; then echo boom >&2; exit 1; fi'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/codex-review.sh" main
+  run_script codex-review.sh main
   assert_failure 4
 }
 
 @test "codex: usage error without base argument" {
   make_stub codex 'exit 0'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/codex-review.sh"
+  run_script codex-review.sh
   assert_failure 1
   assert_output --partial "usage"
 }
@@ -98,13 +106,13 @@ exit 64'
 #
 
 @test "copilot: exit 2 when CLI is missing" {
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  run_script copilot-review.sh main
   assert_failure 2
 }
 
 @test "copilot: exit 3 when no token env and no login state" {
   make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  run_script copilot-review.sh main
   assert_failure 3
 }
 
@@ -123,7 +131,7 @@ exit 64'
   printf '%s\n' '{' '  "loggedInUsers": [' '    {' \
     '      "host": "https://github.com",' '      "login": "tester"' \
     '    }' '  ]' '}' > "$HOME/.copilot/config.json"
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  run_script copilot-review.sh main
   assert_success
 }
 
@@ -141,7 +149,7 @@ exit 64'
   # A fresh COPILOT_HOME is created on first launch without any login.
   make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
   mkdir -p "$HOME/.copilot"
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  run_script copilot-review.sh main
   assert_failure 3
 }
 
@@ -150,7 +158,7 @@ exit 64'
   mkdir -p "$HOME/.copilot"
   printf '{"firstLaunchAt":"2026-01-01T00:00:00.000Z"}' \
     > "$HOME/.copilot/config.json"
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  run_script copilot-review.sh main
   assert_failure 3
 }
 
@@ -161,7 +169,7 @@ exit 64'
   mkdir -p "$HOME/.copilot"
   printf '{"lastLoggedInUser":{"login":"tester"},"loggedInUsers":[]}' \
     > "$HOME/.copilot/config.json"
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  run_script copilot-review.sh main
   assert_failure 3
 }
 
@@ -172,7 +180,7 @@ exit 64'
   mkdir -p "$HOME/.config/gh"
   printf '%s\n' 'github.com:' '    user: tester' '    git_protocol: https' \
     > "$HOME/.config/gh/hosts.yml"
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  run_script copilot-review.sh main
   assert_success
 }
 
@@ -181,7 +189,7 @@ exit 64'
   mkdir -p "$HOME/.config/gh"
   printf '%s\n' 'github.com:' '    user: tester' '    oauth_token: gho_x' \
     > "$HOME/.config/gh/hosts.yml"
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  run_script copilot-review.sh main
   assert_success
 }
 
@@ -200,7 +208,7 @@ exit 64'
   mkdir -p "$HOME/.config/gh"
   printf '%s\n' 'github.com:' '    git_protocol: https' \
     > "$HOME/.config/gh/hosts.yml"
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  run_script copilot-review.sh main
   assert_failure 3
 }
 
@@ -271,7 +279,7 @@ exit 64'
 
 @test "copilot: usage error without base argument" {
   make_stub copilot 'exit 0'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh"
+  run_script copilot-review.sh
   assert_failure 1
   assert_output --partial "usage"
 }
@@ -339,31 +347,31 @@ fake_real_git() {
 #
 
 @test "coderabbit: exit 2 when neither coderabbit nor cr is installed" {
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh" main
+  run_script coderabbit-review.sh main
   assert_failure 2
 }
 
 @test "coderabbit: exit 3 when not logged in" {
   make_stub coderabbit 'if [ "$1" = "auth" ]; then echo "Not logged in"; exit 0; fi'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh" main
+  run_script coderabbit-review.sh main
   assert_failure 3
 }
 
 @test "coderabbit: unrecognizable auth output maps to exit 3" {
   make_stub coderabbit 'if [ "$1" = "auth" ]; then echo "???"; exit 0; fi'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh" main
+  run_script coderabbit-review.sh main
   assert_failure 3
 }
 
 @test "coderabbit: 'Not currently authenticated' wording maps to exit 3" {
   make_stub coderabbit 'if [ "$1" = "auth" ]; then echo "Not currently authenticated to CodeRabbit"; exit 0; fi'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh" main
+  run_script coderabbit-review.sh main
   assert_failure 3
 }
 
 @test "coderabbit: 'no longer logged in' wording maps to exit 3" {
   make_stub coderabbit 'if [ "$1" = "auth" ]; then echo "Session expired. You are no longer logged in"; exit 0; fi'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh" main
+  run_script coderabbit-review.sh main
   assert_failure 3
 }
 
@@ -371,13 +379,13 @@ fake_real_git() {
   make_stub coderabbit 'if [ "$1" = "auth" ]; then echo "Authenticated as tester"; exit 0; fi
 if [ "$1" = "review" ]; then echo "CODERABBIT REVIEW OUTPUT"; exit 0; fi
 exit 64'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh" main
+  run_script coderabbit-review.sh main
   assert_success
 }
 
 @test "coderabbit: passes review output through with --prompt-only and --base" {
   make_stub coderabbit "$CODERABBIT_OK_STUB"
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh" main
+  run_script coderabbit-review.sh main
   assert_success
   assert_output --partial "CODERABBIT REVIEW OUTPUT"
   assert_output --partial "--prompt-only"
@@ -386,7 +394,7 @@ exit 64'
 
 @test "coderabbit: cr alias is found when coderabbit is absent" {
   make_stub cr "$CODERABBIT_OK_STUB"
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh" main
+  run_script coderabbit-review.sh main
   assert_success
   assert_output --partial "CODERABBIT REVIEW OUTPUT"
 }
@@ -401,7 +409,7 @@ if [ "$1" = "review" ]; then sleep 5; fi'
 
 @test "coderabbit: usage error without base argument" {
   make_stub coderabbit 'exit 0'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh"
+  run_script coderabbit-review.sh
   assert_failure 1
   assert_output --partial "usage"
 }
@@ -427,14 +435,14 @@ setup_graphify_repo() {
 
 @test "graphify: exit 2 when CLI is missing" {
   setup_graphify_repo
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/graphify-update.sh"
+  run_script graphify-update.sh
   assert_failure 2
 }
 
 @test "graphify: exit 5 when graphify-out is missing without --force" {
   setup_graphify_repo
   make_stub graphify 'echo "GRAPHIFY $*"; exit 0'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/graphify-update.sh"
+  run_script graphify-update.sh
   assert_failure 5
   [ ! -d "$GRAPHIFY_REPO/graphify-out" ]   # must not create the folder
 }
@@ -442,7 +450,7 @@ setup_graphify_repo() {
 @test "graphify: --force creates graphify-out and runs the update" {
   setup_graphify_repo
   make_stub graphify 'echo "GRAPHIFY $*"; exit 0'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/graphify-update.sh" --force
+  run_script graphify-update.sh --force
   assert_success
   assert_output --partial "GRAPHIFY update -o graphify-out"
   [ -d "$GRAPHIFY_REPO/graphify-out" ]
@@ -452,7 +460,7 @@ setup_graphify_repo() {
   setup_graphify_repo
   mkdir -p graphify-out
   make_stub graphify 'echo "GRAPHIFY $*"; exit 0'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/graphify-update.sh"
+  run_script graphify-update.sh
   assert_success
   assert_output --partial "GRAPHIFY update -o graphify-out"
 }
@@ -462,7 +470,7 @@ setup_graphify_repo() {
   mkdir -p graphify-out sub/dir
   make_stub graphify 'echo "GRAPHIFY pwd=$PWD"; exit 0'
   cd sub/dir
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/graphify-update.sh"
+  run_script graphify-update.sh
   assert_success
   assert_output --partial "pwd=$GRAPHIFY_REPO"
 }
@@ -471,7 +479,7 @@ setup_graphify_repo() {
   setup_graphify_repo
   mkdir -p graphify-out
   make_stub graphify 'echo boom >&2; exit 1'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/graphify-update.sh"
+  run_script graphify-update.sh
   assert_failure 4
 }
 
@@ -487,7 +495,7 @@ setup_graphify_repo() {
 @test "graphify: usage error on unknown argument" {
   setup_graphify_repo
   make_stub graphify 'exit 0'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/graphify-update.sh" --bogus
+  run_script graphify-update.sh --bogus
   assert_failure 1
   assert_output --partial "usage"
 }

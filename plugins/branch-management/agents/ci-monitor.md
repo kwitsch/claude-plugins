@@ -15,13 +15,18 @@ reference, the branch name and the resolved absolute path of the bundled
 `scripts/ci-watch.sh`.
 
 Resolve identifiers from that reference yourself: `gh`/`glab` infer the
-repository from the working directory's `origin` remote (for the GraphQL call below, get explicit values via `gh repo view --json owner,name`); the PR/MR number
+repository from the working directory's `origin` remote; on GitHub the
+dispatch prompt also carries the repository `owner`/`name` for the
+GraphQL call below — only if they are missing, resolve them yourself via
+`gh repo view --json owner,name`. The PR/MR number
 comes from the reference. For failing runs, take the run id from
 `gh run list --branch <branch>`. In glab
 calls, `:id` is glab's own project placeholder (leave it literal), while
 `<iid>` is the MR number.
 
 ## Tooling
+
+<!-- ctx bootstrap (ToolSearch select + bare-name retry): keep the wording aligned across ci-monitor, claude-reviewer, review-fixer and graphify-agent; the three CLI reviewers carry their own synced copy. -->
 
 context-mode is a declared dependency of this plugin — route the LARGE
 observations — failing-job logs and PR-thread payloads (steps 2-3) —
@@ -70,7 +75,9 @@ report.
    whole log).
 3. **Collect CodeRabbit feedback.** The bot comments a few minutes after each
    push — allow a short, hard-capped grace period: at most 3 polls over
-   ~3 minutes after CI completes, then conclude there is nothing. A silent
+   ~3 minutes after CI completes — stop early on the first poll that
+   finds comments (re-polling only re-fetches the same payloads) — then
+   conclude there is nothing. A silent
    CodeRabbit (app not installed, rate limit exhausted) is an empty
    `review_findings` list — never an error, never a reason to keep
    waiting; the CI result alone carries the report. Then fetch the

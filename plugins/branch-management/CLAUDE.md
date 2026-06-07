@@ -29,8 +29,9 @@ Two thin orchestrator skills (`new-branch`, `new-pr`) dispatch eight dedicated a
   round with zero `ok` reviewers retries once, then stops; graphify
   refresh before the push via `graphify-agent` (force: no), gated by
   `graphify_pr_update`, separate `chore:` commit gated by
-  `graphify_pr_commit` (off → changes stay uncommitted, the commit
-  re-check leaves `graphify-out` alone); push + `gh pr
+  `graphify_pr_commit` (off → changes stay uncommitted; the commit
+  re-check and a standing review-fixer rule leave `graphify-out`
+  alone); push + `gh pr
   create`/`glab mr create`; then monitor loop (max 5, no-progress
   early exit):
   `ci-monitor` (read-only analysis, gets platform + PR/MR reference + branch

@@ -27,6 +27,7 @@ them through ctx_execute.
    anything, stop: `abort: dirty_tree` (include the first few status lines as
    detail). Never switch branches over uncommitted changes.
 
+<!-- same origin/HEAD detection recipe as new-pr/SKILL.md precondition 2 — keep in sync -->
 2. **Detect the default branch.** Refresh `origin/HEAD` first — it is set at
    clone time and goes stale when the remote's default branch changes:
 

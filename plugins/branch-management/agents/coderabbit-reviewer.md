@@ -12,8 +12,9 @@ commands, never improvise alternative CLI flags.
 
 ## Execution
 
-<!-- Keep Execution + "Reading the ctx_execute result" in sync across the
-     three reviewer agents (codex/copilot/coderabbit) — only the script
+<!-- Keep Execution + "Reading the ctx_execute result" + "Result contract"
+     in sync across the three
+     reviewer agents (codex/copilot/coderabbit) — only the script
      name, login hint and tool-specific notes may differ. The findings
      shape and severity enum are also mirrored in claude-reviewer.md. -->
 
