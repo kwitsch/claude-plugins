@@ -8,8 +8,10 @@ Two thin orchestrator skills (`new-branch`, `new-pr`) dispatch eight dedicated a
   structured abort codes for user decisions); then
   `agents/graphify-agent` (runs `scripts/graphify-update.sh`, commit:
   no), gated by `graphify_branch_update` (fail-open) with force from
-  `graphify_force_create` (FAIL-CLOSED: only literal `true` enables —
-  placeholder must never create folder); then
+  `graphify_force_create` and user_files from `graphify_user_files`
+  (both FAIL-CLOSED: only literal `true` enables — placeholder must
+  never create folder; graphify output serves agents, human-only
+  `graph.html` pruned unless explicitly kept); then
   `context-mode:ctx-index` in main context, gated by
   `context_index` toggle.
 - `skills/new-pr`: preconditions in skill (fetch, base detection,
@@ -27,7 +29,8 @@ Two thin orchestrator skills (`new-branch`, `new-pr`) dispatch eight dedicated a
   `review-fixer` pass + next round; fixer commits nothing → converged;
   round 3 still red → stop before pushing, hand findings to user;
   round with zero `ok` reviewers retries once, then stops; graphify
-  refresh before push via `graphify-agent` (force: no), gated by
+  refresh before push via `graphify-agent` (force: no, user_files from
+  fail-closed `graphify_user_files`), gated by
   `graphify_pr_update`, separate `chore:` commit gated by
   `graphify_pr_commit` (off → changes stay uncommitted; commit
   re-check + standing review-fixer rule leave `graphify-out`
@@ -43,9 +46,11 @@ Two thin orchestrator skills (`new-branch`, `new-pr`) dispatch eight dedicated a
 - Script exit-code contract: 0 ran · 2 CLI missing (skip silently) ·
   3 not logged in (skip + report login command) · 4 run failed (skip +
   report). Review runs wrapped in `timeout -k 10 "${REVIEW_TIMEOUT:-600}"`.
-  `graphify-update.sh [--force]`: 0 ran · 2 CLI missing · 4 run failed ·
-  5 `graphify-out/` missing without `--force`; repo root via git, bounded
-  by `GRAPHIFY_TIMEOUT` (default 600 s).
+  `graphify-update.sh [--force] [--keep-user-files]`: 0 ran · 2 CLI
+  missing · 4 run failed · 5 `graphify-out/` missing without `--force`;
+  repo root via git, bounded by `GRAPHIFY_TIMEOUT` (default 600 s);
+  prunes human-only `graph.html` after the update unless
+  `--keep-user-files` (output serves agents).
   `ci-watch.sh <github|gitlab> <nr|branch>`: 0 green · 1 red · 2 deadline ·
   64 usage/environment (CLI missing/too old); green/red from check CONTENT
   (gh exits 1 fail / 8 pending with data), coderabbit-named checks
@@ -89,9 +94,11 @@ subcommand allowlisted). `scripts/git-shim` has direct unit tests
 (read-only passthrough; `--output`/`-o`/`-O`/`--output-directory` refused;
 unset real-git → 127). `graphify-update.sh` covered with stub CLI +
 throwaway git repo (missing CLI → 2, missing folder → 5, `--force`
-creates it, repo-root resolution from subdirectories, failure/hang → 4).
-Plus plugin.json `userConfig` manifest checks (eleven boolean toggles,
-all `default: true` except fail-closed `graphify_force_create`, titles +
+creates it, repo-root resolution from subdirectories, failure/hang → 4,
+`graph.html` pruned by default / kept with `--keep-user-files`).
+Plus plugin.json `userConfig` manifest checks (twelve boolean toggles,
+all `default: true` except fail-closed `graphify_force_create` +
+`graphify_user_files`, titles +
 descriptions, version declared only in plugin.json — marketplace
 entry carries none) and
 `ci-watch.sh` polling (coderabbit exclusion, pending→done transitions,
