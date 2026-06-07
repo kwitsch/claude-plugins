@@ -108,3 +108,72 @@ jobs:
           done < <(jq -r '.plugins[] | [.name, (.source | if type == "string" then . else "remote" end)] | @tsv' "${manifest}")
 
           exit "${status}"
+
+  minor-bump-on-functional-change:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Require plugin minor bump on functional changes
+        run: |
+          base_sha="${{ github.event.pull_request.base.sha }}"
+          head_sha="${{ github.event.pull_request.head.sha }}"
+          status=0
+          declare -A touched
+
+          while IFS= read -r file; do
+            [[ "${file}" =~ ^plugins/([^/]+)/ ]] || continue
+            plugin="${BASH_REMATCH[1]}"
+            case "${file}" in
+              "plugins/${plugin}/.claude-plugin/plugin.json"|"plugins/${plugin}/README.md"|"plugins/${plugin}/CLAUDE.md")
+                ;;
+              *)
+                touched["${plugin}"]=1
+                ;;
+            esac
+          done < <(git diff --name-only "${base_sha}" "${head_sha}" -- 'plugins/*')
+
+          for plugin in "${!touched[@]}"; do
+            manifest_rel="plugins/${plugin}/.claude-plugin/plugin.json"
+            if ! git cat-file -e "${base_sha}:${manifest_rel}" 2>/dev/null; then
+              echo "${plugin}: new plugin or missing manifest in base — skipping minor bump check"
+              continue
+            fi
+            if [ ! -f "${manifest_rel}" ]; then
+              echo "${plugin}: plugin removed in head — skipping minor bump check"
+              continue
+            fi
+
+            base_version="$(git show "${base_sha}:${manifest_rel}" | jq -r '.version // empty')"
+            head_version="$(jq -r '.version // empty' "${manifest_rel}")"
+
+            if [[ ! "${base_version}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              echo "::error::${plugin}: base version '${base_version}' is not strict semver (MAJOR.MINOR.PATCH)"
+              status=1
+              continue
+            fi
+            base_minor="${BASH_REMATCH[2]}"
+
+            if [[ ! "${head_version}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              echo "::error::${plugin}: head version '${head_version}' is not strict semver (MAJOR.MINOR.PATCH)"
+              status=1
+              continue
+            fi
+            head_minor="${BASH_REMATCH[2]}"
+
+            if [ "${head_minor}" -le "${base_minor}" ]; then
+              echo "::error::${plugin}: functional changes detected but minor version did not increase (${base_version} -> ${head_version})"
+              status=1
+            else
+              echo "${plugin}: functional changes detected and minor version increased (${base_version} -> ${head_version})"
+            fi
+          done
+
+          exit "${status}"
