@@ -33,7 +33,9 @@ jobs:
       - name: Validate plugin sources and manifests
         run: |
           manifest=".claude-plugin/marketplace.json"
-          # String sources resolve relative to metadata.pluginRoot (default: marketplace root).
+          # String sources are full ./plugins/<name> paths resolved from the marketplace root.
+          # The metadata.pluginRoot fallback below is kept forward-compatible pending
+          # anthropics/claude-code#61224; pluginRoot is intentionally unused for now.
           root="$(jq -r '.metadata.pluginRoot // "."' "${manifest}")"
           while IFS= read -r source; do
             case "${source}" in
@@ -70,6 +72,8 @@ jobs:
       - name: Plugin versions declared once, in plugin.json only
         run: |
           manifest=".claude-plugin/marketplace.json"
+          # pluginRoot fallback kept forward-compatible (see Validate job); sources
+          # are full ./plugins/<name> paths and pluginRoot is intentionally unused for now.
           root="$(jq -r '.metadata.pluginRoot // "."' "${manifest}")"
           status=0
 

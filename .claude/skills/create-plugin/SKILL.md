@@ -201,7 +201,7 @@ the existing entries and valid JSON (no trailing commas):
 ```json
 {
   "name": "<name>",
-  "source": "./<name>",
+  "source": "./plugins/<name>",
   "description": "<description>",
   "author": {
     "name": "<author>"
@@ -211,11 +211,12 @@ the existing entries and valid JSON (no trailing commas):
 }
 ```
 
-`source` resolves relative to `metadata.pluginRoot` (`./plugins`). Do NOT add a
-`version` field — the plugin's own plugin.json is the single source of truth
-(CI fails when a marketplace entry declares one). Omit `category`/`tags` if the
-user did not provide them. `name` and `source` are the only required fields per
-the marketplace spec.
+Use the full `./plugins/<name>` path — `metadata.pluginRoot` is documented but
+broken in Claude Code (anthropics/claude-code#61224/#64431); reintroduce only
+after the upstream fix. Do NOT add a `version` field — the plugin's own
+plugin.json is the single source of truth (CI fails when a marketplace entry
+declares one). Omit `category`/`tags` if the user did not provide them. `name`
+and `source` are the only required fields per the marketplace spec.
 
 ## Step 7 — Verify (mirror the CI)
 
@@ -237,8 +238,10 @@ jq -e 'all(.plugins[]; .name and .source)' "$manifest" >/dev/null
 # No marketplace entry carries a version (plugin.json is the single source)
 jq -e 'all(.plugins[]; has("version") | not)' "$manifest" >/dev/null
 
-# Every local plugin source (relative to metadata.pluginRoot) exists, its
-# manifest is valid JSON and declares a version
+# Every local plugin source (a full ./plugins/<name> path from the marketplace
+# root) exists, its manifest is valid JSON and declares a version. The
+# metadata.pluginRoot fallback is kept forward-compatible pending
+# anthropics/claude-code#61224; pluginRoot is intentionally unused for now.
 root="$(jq -r '.metadata.pluginRoot // "."' "$manifest")"
 jq -r '.plugins[].source | if type == "string" then . else "remote" end' "$manifest" | while IFS= read -r src; do
   case "$src" in
