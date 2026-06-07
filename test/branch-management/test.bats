@@ -551,7 +551,7 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 
 @test "userConfig: every boolean description documents values and default" {
   run jq -e '.userConfig
-    | all(.[]; (.description | test("Values:[^\"]*true[^\"]*false")) and (.description | test("Default: (true|false)\\.")))' \
+    | all(.[]; (.description | test("Values:")) and (.description | test("\\btrue\\b")) and (.description | test("\\bfalse\\b")) and (.description | test("Default: (true|false)\\.")))' \
     "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
 }
