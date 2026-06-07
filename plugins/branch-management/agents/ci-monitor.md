@@ -45,7 +45,7 @@ report.
 
 1. **Wait for the CI result — through the bundled watch script.**
    - Validate timeout from the dispatch prompt:
-     `watch_timeout=<value>`; if empty, non-numeric, or `<= 0`, set
+     `watch_timeout=<value>`; if empty, not a whole number, or `<= 0`, set
      `watch_timeout=1800`.
    - GitHub: `CI_WATCH_TIMEOUT="$watch_timeout" bash <ci-watch.sh-path> github <nr>`
    - GitLab: `CI_WATCH_TIMEOUT="$watch_timeout" bash <ci-watch.sh-path> gitlab <branch>`

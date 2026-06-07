@@ -45,7 +45,7 @@
     "ci_watch_timeout": {
       "type": "number",
       "title": "CI watch timeout (seconds)",
-      "description": "Values: positive seconds for the CI watch deadline; invalid or missing values fall back to 1800. Default: 1800.",
+      "description": "Values: positive whole-number seconds for the CI watch deadline; invalid or missing values fall back to 1800. Default: 1800.",
       "default": 1800
     },
     "context_index": {

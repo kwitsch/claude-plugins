@@ -548,11 +548,10 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
   assert_success
 }
 
-@test "userConfig: ci_watch_timeout is a positive number with default 1800" {
+@test "userConfig: ci_watch_timeout is numeric with default 1800" {
   run jq -e '.userConfig.ci_watch_timeout
     | (.type == "number")
-    and (.default == 1800)
-    and (.default > 0)' \
+    and (.default == 1800)' \
     "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
 }
@@ -574,7 +573,7 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 
 @test "userConfig: ci_watch_timeout description documents numeric value and default" {
   run jq -e '.userConfig.ci_watch_timeout.description
-    | test("positive seconds")
+    | test("positive whole-number seconds")
     and test("Default: 1800\\.")' \
     "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success

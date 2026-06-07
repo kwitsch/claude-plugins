@@ -88,8 +88,8 @@ read in preconditions (step 4).
    Code version — counts as enabled. Exception: `graphify_user_files`
    is FAIL-CLOSED — ONLY the literal value `true` keeps human-only
    graphify files (see step 9). `ci_watch_timeout` is numeric:
-   use the literal value only when it is a positive integer; otherwise
-   fall back to `1800`. Keep all ten values for the rest of the run;
+   use the literal value only when it is a positive whole-number value;
+   otherwise fall back to `1800`. Keep all ten values for the rest of the run;
    every disabled review source appears in the final report as
    `disabled via settings`. The four review toggles gate the review
    rounds only; `ci_monitor` gates the whole monitor loop (steps 13–15),

@@ -64,7 +64,7 @@ the native settings order: `.claude/settings.local.json` (local) >
 | `review_copilot` | `true` | skip the `copilot-reviewer` in review rounds |
 | `review_coderabbit` | `true` | skip the `coderabbit-reviewer` in review rounds |
 | `ci_monitor` | `true` | `new-pr` ends after opening the PR/MR — no CI watch |
-| `ci_watch_timeout` | `1800` | positive seconds for the CI watch deadline (`new-pr` passes this to the watch script; invalid/missing values fall back to `1800`) |
+| `ci_watch_timeout` | `1800` | positive whole-number seconds for the CI watch deadline (`new-pr` passes this to the watch script; invalid/missing values fall back to `1800`) |
 | `context_index` | `true` | `new-branch` skips the context-mode index refresh |
 | `coderabbit_ci_comments` | `true` | the CI watch ignores CodeRabbit bot comments |
 | `graphify_branch_update` | `true` | `new-branch` skips the graphify refresh |
