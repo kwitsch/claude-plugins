@@ -3,6 +3,7 @@ name: review-fixer
 description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management new-pr skill. Verifies deduplicated review findings against the actual code, applies the justified fixes and commits them following repo conventions.
 model: opus
 color: red
+tools: ["Read", "Edit", "Write", "Grep", "Glob", "Bash", "ToolSearch", "mcp__plugin_context-mode_context-mode__*", "mcp__context-mode__*"]
 ---
 
 ## Input

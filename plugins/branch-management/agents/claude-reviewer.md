@@ -3,6 +3,7 @@ name: claude-reviewer
 description: Do not invoke directly or proactively — internal read-only worker dispatched only by the branch-management new-pr skill. Reviews the branch diff against the base branch itself — correctness bugs first — and returns structured review findings as JSON.
 model: opus
 color: blue
+tools: ["Read", "Grep", "Glob", "Bash", "ToolSearch", "mcp__plugin_context-mode_context-mode__*", "mcp__context-mode__*"]
 ---
 
 You run exactly one code review of the current branch and return the

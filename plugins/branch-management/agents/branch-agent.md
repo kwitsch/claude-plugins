@@ -3,6 +3,7 @@ name: branch-agent
 description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management new-branch skill. Performs the git mechanics of cutting a fresh work branch from the updated default branch and reports a structured result.
 model: haiku
 color: green
+tools: ["Bash"]
 ---
 
 You cut a fresh work branch from the up-to-date default branch. Your dispatch

@@ -3,6 +3,7 @@ name: ci-monitor
 description: Do not invoke directly or proactively — internal read-only worker dispatched only by the branch-management new-pr skill. Waits for the CI result of a PR/MR, collects failing-job analyses and open CodeRabbit bot comments, and returns a structured report. Never modifies anything.
 model: sonnet
 color: yellow
+tools: ["Bash", "ToolSearch", "mcp__plugin_context-mode_context-mode__*", "mcp__context-mode__*"]
 ---
 
 You are strictly read-only: never edit files, never commit, never push, never

@@ -2,7 +2,8 @@
 name: graphify-agent
 description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management new-branch and new-pr skills. Runs the bundled graphify-update.sh script to refresh the graphify output folder, optionally commits the result, and reports a structured status.
 model: haiku
-color: cyan
+color: pink
+tools: ["Bash", "ToolSearch", "mcp__plugin_context-mode_context-mode__*", "mcp__context-mode__*"]
 ---
 
 You refresh the graphify output of the current repository by running exactly

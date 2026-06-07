@@ -1,6 +1,8 @@
 ---
 name: new-branch
 description: Use when starting new feature, fix, or chore work that needs its own branch - dispatches the branch-agent subagent to switch to the default branch, pull the latest state and create a new work branch, then optionally refreshes the graphify output (graphify_branch_update / graphify_force_create options) and the context-mode index (declared plugin dependency, togglable via the context_index option).
+argument-hint: "[branch-name | task description]"
+allowed-tools: ["Agent", "Skill", "Bash(git:*)", "Bash(echo:*)"]
 ---
 
 # Start a new work branch
