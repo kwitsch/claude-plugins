@@ -524,21 +524,35 @@ setup_graphify_repo() {
 
 PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 
-@test "userConfig: declares exactly the twelve feature toggles" {
+@test "userConfig: declares expected toggles plus ci_watch_timeout" {
   run jq -r '.userConfig | keys | sort | join(" ")' "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
-  assert_output "ci_monitor coderabbit_ci_comments context_index graphify_branch_update graphify_force_create graphify_pr_commit graphify_pr_update graphify_user_files review_claude review_coderabbit review_codex review_copilot"
+  assert_output "ci_monitor ci_watch_timeout coderabbit_ci_comments context_index graphify_branch_update graphify_force_create graphify_pr_commit graphify_pr_update graphify_user_files review_claude review_coderabbit review_codex review_copilot"
 }
 
-@test "userConfig: every toggle is a boolean" {
-  run jq -e '.userConfig | all(.[]; .type == "boolean")' \
+@test "userConfig: every toggle except ci_watch_timeout is a boolean" {
+  run jq -e '.userConfig
+    | to_entries
+    | map(select(.key != "ci_watch_timeout"))
+    | all(.[]; .value.type == "boolean")' \
     "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
 }
 
-@test "userConfig: every toggle defaults to true except the fail-closed ones" {
-  run jq -e '.userConfig | to_entries
+@test "userConfig: boolean toggles default to true except the fail-closed ones" {
+  run jq -e '.userConfig
+    | to_entries
+    | map(select(.key != "ci_watch_timeout"))
     | all(.[]; .value.default == (if .key == "graphify_force_create" or .key == "graphify_user_files" then false else true end))' \
+    "$REPO_ROOT/$PLUGIN_JSON_REL"
+  assert_success
+}
+
+@test "userConfig: ci_watch_timeout is a positive number with default 1800" {
+  run jq -e '.userConfig.ci_watch_timeout
+    | (.type == "number")
+    and (.default == 1800)
+    and (.default > 0)' \
     "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
 }
@@ -551,7 +565,17 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 
 @test "userConfig: every boolean description documents values and default" {
   run jq -e '.userConfig
-    | all(.[]; (.description | test("Values:")) and (.description | test("\\btrue\\b")) and (.description | test("\\bfalse\\b")) and (.description | test("Default: (true|false)\\.")))' \
+    | to_entries
+    | map(select(.key != "ci_watch_timeout"))
+    | all(.[]; (.value.description | test("Values:")) and (.value.description | test("\\btrue\\b")) and (.value.description | test("\\bfalse\\b")) and (.value.description | test("Default: (true|false)\\.")))' \
+    "$REPO_ROOT/$PLUGIN_JSON_REL"
+  assert_success
+}
+
+@test "userConfig: ci_watch_timeout description documents numeric value and default" {
+  run jq -e '.userConfig.ci_watch_timeout.description
+    | test("positive seconds")
+    and test("Default: 1800\\.")' \
     "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
 }

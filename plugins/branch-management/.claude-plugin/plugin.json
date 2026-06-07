@@ -42,6 +42,12 @@
       "description": "Values: true = watch CI results after the PR/MR is opened; false = stop after opening the PR/MR. Default: true.",
       "default": true
     },
+    "ci_watch_timeout": {
+      "type": "number",
+      "title": "CI watch timeout (seconds)",
+      "description": "Values: positive seconds for the CI watch deadline; invalid or missing values fall back to 1800. Default: 1800.",
+      "default": 1800
+    },
     "context_index": {
       "type": "boolean",
       "title": "context-mode indexing",

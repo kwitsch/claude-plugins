@@ -38,9 +38,10 @@ Two thin orchestrator skills (`new-branch`, `new-pr`) dispatch eight dedicated a
   create`/`glab mr create`; then monitor loop (max 5, no-progress
   early exit):
   `ci-monitor` (read-only analysis, gets platform + PR/MR reference + branch
-  name + ci-watch.sh path; CI watch via `scripts/ci-watch.sh` — CodeRabbit
-  checks excluded so silent bot cannot block, bounded by
-  `CI_WATCH_TIMEOUT`, default 1800 s / 30 min) →
+  name + ci-watch.sh path + resolved `ci_watch_timeout`; CI watch via
+  `scripts/ci-watch.sh` — CodeRabbit checks excluded so silent bot cannot
+  block, bounded by `userConfig.ci_watch_timeout` / `CI_WATCH_TIMEOUT`,
+  default 1800 s / 30 min) →
   `review-fixer` → push fixes, reply to + resolve skipped CodeRabbit threads,
   until CI green and no findings remain.
 - Script exit-code contract: 0 ran · 2 CLI missing (skip silently) ·
@@ -96,10 +97,10 @@ unset real-git → 127). `graphify-update.sh` covered with stub CLI +
 throwaway git repo (missing CLI → 2, missing folder → 5, `--force`
 creates it, repo-root resolution from subdirectories, failure/hang → 4,
 `graph.html` pruned by default / kept with `--keep-user-files`).
-Plus plugin.json `userConfig` manifest checks (twelve boolean toggles,
-all `default: true` except fail-closed `graphify_force_create` +
-`graphify_user_files`, titles +
-descriptions, version declared only in plugin.json — marketplace
+Plus plugin.json `userConfig` manifest checks (twelve boolean toggles +
+numeric `ci_watch_timeout`, boolean defaults all `true` except fail-closed
+`graphify_force_create` + `graphify_user_files`, timeout default `1800`,
+titles + descriptions, version declared only in plugin.json — marketplace
 entry carries none) and
 `ci-watch.sh` polling (coderabbit exclusion, pending→done transitions,
 timeout, no-checks grace, gitlab status heuristics).

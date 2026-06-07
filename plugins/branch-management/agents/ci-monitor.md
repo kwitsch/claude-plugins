@@ -11,8 +11,8 @@ re-run jobs. You observe one CI round for a PR/MR and distill it into a
 structured report.
 
 Your dispatch prompt names the platform (`github` or `gitlab`), the PR/MR
-reference, the branch name and the resolved absolute path of the bundled
-`scripts/ci-watch.sh`.
+reference, the branch name, the resolved CI watch timeout (seconds) and the
+resolved absolute path of the bundled `scripts/ci-watch.sh`.
 
 Resolve identifiers from that reference yourself: `gh`/`glab` infer the
 repository from the working directory's `origin` remote; on GitHub the
@@ -44,13 +44,16 @@ report.
 ## Steps
 
 1. **Wait for the CI result — through the bundled watch script.**
-   - GitHub: `bash <ci-watch.sh-path> github <nr>`
-   - GitLab: `bash <ci-watch.sh-path> gitlab <branch>`
+   - Validate timeout from the dispatch prompt:
+     `watch_timeout=<value>`; if empty, non-numeric, or `<= 0`, set
+     `watch_timeout=1800`.
+   - GitHub: `CI_WATCH_TIMEOUT="$watch_timeout" bash <ci-watch.sh-path> github <nr>`
+   - GitLab: `CI_WATCH_TIMEOUT="$watch_timeout" bash <ci-watch.sh-path> gitlab <branch>`
    The script polls until every REAL check is done: CodeRabbit's own PR
    checks are excluded, so a CodeRabbit app that never reacts (not
    installed, rate-limited) can neither block the watch nor flip the
-   result. The watch is bounded by `CI_WATCH_TIMEOUT` (default 1800 s /
-   30 min). Map its exit code:
+   result. The watch timeout comes from `userConfig.ci_watch_timeout`
+   (default 1800 s / 30 min). Map its exit code:
    - 0 → `ci: "green"` (carry any `note:` lines from stdout into the report)
    - 1 → `ci: "red"` — pull the evidence (step 2)
    - 2 → `ci: "red"` with a failures entry `{job: "ci-watch", cause:
