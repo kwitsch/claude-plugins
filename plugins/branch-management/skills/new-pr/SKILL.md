@@ -79,11 +79,14 @@ read in preconditions (step 4).
    | coderabbit_ci_comments | `${user_config.coderabbit_ci_comments}` |
    | graphify_pr_update | `${user_config.graphify_pr_update}` |
    | graphify_pr_commit | `${user_config.graphify_pr_commit}` |
+   | graphify_user_files | `${user_config.graphify_user_files}` |
 
    Evaluation rule (fail-open): ONLY the literal value `false` disables
    a toggle. Anything else — `true`, an empty value, or an
    uninterpolated `${user_config.…}` placeholder on an older Claude
-   Code version — counts as enabled. Keep all eight values for the rest
+   Code version — counts as enabled. Exception: `graphify_user_files`
+   is FAIL-CLOSED — ONLY the literal value `true` keeps human-only
+   graphify files (see step 9). Keep all nine values for the rest
    of the run; every disabled review source appears in the final report
    as `disabled via settings`. The four review toggles gate the review
    rounds only; `ci_monitor` gates the whole monitor loop (steps 13–15),
@@ -208,9 +211,13 @@ read in preconditions (step 4).
    absolute path of
    `<plugin-root>/scripts/graphify-update.sh`, `force: no` (new-pr
    never creates the folder — a missing `graphify-out/` comes back as
-   `skipped_no_dir`; just note it in the report), and `commit:` from
+   `skipped_no_dir`; just note it in the report), `commit:` from
    the `graphify_pr_commit` toggle (`false` → `commit: no`, anything
-   else → `commit: yes`).
+   else → `commit: yes`), and `user_files:` from the
+   `graphify_user_files` toggle (FAIL-CLOSED: ONLY the literal value
+   `true` means `user_files: yes` — the graphify output serves agents,
+   so human-only files like graph.html are pruned unless explicitly
+   kept).
    - With `commit: yes` the agent commits refreshed graphify files as a
      separate `chore: update graphify output` commit — generated
      artifacts, intentionally NOT covered by the review rounds.

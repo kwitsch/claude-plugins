@@ -40,12 +40,16 @@ steps yourself.
      path first (e.g. `echo "${CLAUDE_PLUGIN_ROOT}"`), then dispatch
      `branch-management:graphify-agent` (Agent tool) with: the absolute
      path of `<plugin-root>/scripts/graphify-update.sh`, `commit: no`,
-     and `force` from the `graphify_force_create` toggle — current
-     value: `${user_config.graphify_force_create}`. This toggle is
+     `force` from the `graphify_force_create` toggle — current
+     value: `${user_config.graphify_force_create}` — and `user_files`
+     from the `graphify_user_files` toggle — current value:
+     `${user_config.graphify_user_files}`. Both toggles are
      FAIL-CLOSED, inverted from every other toggle: ONLY the literal
-     value `true` means `force: yes`; `false`, empty, or an
-     uninterpolated placeholder all mean `force: no` — a placeholder
-     must never create a folder.
+     value `true` means `force: yes` / `user_files: yes`; `false`,
+     empty, or an uninterpolated placeholder all mean no — a
+     placeholder must never create a folder, and the graphify output
+     serves agents, so human-only files (graph.html) are pruned unless
+     explicitly kept.
    - Soft-fail: every agent status (`updated`, `skipped_no_cli`,
      `skipped_no_dir`, `failed`) only feeds the report — never abort
      the skill. Updated files stay uncommitted on the fresh branch;

@@ -1,0 +1,8 @@
+# Claude Code lock files
+*.lock
+
+# Personal local overrides (settings.local.json, *.local.md, …)
+*.local.*
+
+# Git worktrees created under the repo (e.g. by the Claude Code harness)
+worktrees/

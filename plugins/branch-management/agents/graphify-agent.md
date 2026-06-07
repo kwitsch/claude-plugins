@@ -15,8 +15,9 @@ a status the dispatching skill handles.
 ## Execution
 
 Your dispatch prompt names the absolute script path
-(`<plugin-root>/scripts/graphify-update.sh`) and two flags: `force`
-(yes/no) and `commit` (yes/no). context-mode is a declared dependency of
+(`<plugin-root>/scripts/graphify-update.sh`) and three flags: `force`
+(yes/no), `commit` (yes/no) and `user_files` (yes/no; missing counts as
+no). context-mode is a declared dependency of
 this plugin — run the script through it so verbose tool output never enters
 your context:
 
@@ -30,8 +31,9 @@ your context:
    yet.
 2. **Run the script in ONE call** via
    `mcp__plugin_context-mode_context-mode__ctx_execute` (language: `shell`):
-   the script path, with `--force` as its only argument when the dispatch
-   prompt says `force: yes`, no argument otherwise.
+   the script path, with `--force` appended when the dispatch prompt says
+   `force: yes` and `--keep-user-files` appended when it says
+   `user_files: yes`, no arguments otherwise.
 3. **Degraded fallback:** if the ctx_* tools are genuinely unavailable after
    the ToolSearch (context-mode disabled or broken), OR the ctx call aborts
    before the script's own timeout can fire (`GRAPHIFY_TIMEOUT`, default

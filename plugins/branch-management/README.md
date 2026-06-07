@@ -70,6 +70,7 @@ the native settings order: `.claude/settings.local.json` (local) >
 | `graphify_force_create` | `false` | *(fail-closed — see below)* `new-branch` refresh runs even when `graphify-out/` is missing and creates the folder when set to `true` |
 | `graphify_pr_update` | `true` | `new-pr` skips the graphify refresh before pushing |
 | `graphify_pr_commit` | `true` | `new-pr` leaves refreshed graphify files uncommitted instead of committing them separately |
+| `graphify_user_files` | `false` | *(fail-closed — see below)* the graphify refresh keeps human-only outputs (`graph.html`) instead of pruning them when set to `true` |
 
 Example (project scope, `.claude/settings.json`):
 
@@ -87,9 +88,11 @@ Example (project scope, `.claude/settings.json`):
 
 - Fail-open: only an explicit `false` disables a function — unset
   options fall back to their declared `default: true`.
-  Exception: `graphify_force_create` is fail-closed — it defaults to
-  `false` and ONLY an explicit `true` enables it, so a missing or
-  uninterpolated value can never create a folder.
+  Exceptions: `graphify_force_create` and `graphify_user_files` are
+  fail-closed — they default to `false` and ONLY an explicit `true`
+  enables them, so a missing or uninterpolated value can never create
+  a folder or keep human-only files (the graphify output serves
+  agents; `graph.html` is pruned after each refresh by default).
 - The review toggles gate the review rounds only; CodeRabbit bot
   comments during the CI watch are controlled separately by
   `coderabbit_ci_comments`.
@@ -139,10 +142,12 @@ Bounded by `CI_WATCH_TIMEOUT` (default 1800 s), poll cadence
 a conclusive result · `64` usage/environment error (bad arguments, CLI
 missing or too old).
 
-`scripts/graphify-update.sh [--force]` — refreshes the graphify output:
-resolves the repository root via git, then runs
-`graphify update -o graphify-out` (wrapped in `timeout -k 10`, default
+`scripts/graphify-update.sh [--force] [--keep-user-files]` — refreshes
+the graphify output: resolves the repository root via git, then runs
+`graphify update .` (wrapped in `timeout -k 10`, default
 600 s, override with `GRAPHIFY_TIMEOUT`). Without `--force` it only runs
 when `graphify-out/` already exists; `--force` creates the folder first.
+The output serves agents: human-only artifacts (`graph.html`) are pruned
+after the update unless `--keep-user-files` is given.
 Exit codes: `0` update ran · `2` graphify CLI not installed · `4` run
 failed · `5` `graphify-out/` missing without `--force`.
