@@ -12,7 +12,6 @@ Claude Code plugin marketplace.
 - Commit messages: never include `Co-Authored-By:` trailer or "Generated with [Claude Code]" footer.
 - New plugins: use `create-plugin` skill — scaffolds plugin, test, README, CLAUDE.md, `test.yml` matrix entry, registers plugin in `marketplace.json`.
 - Plugin versions live ONLY in plugin's `.claude-plugin/plugin.json` — marketplace.json entries carry no `version` (plugin.json wins silently; CI fails when entry declares one or plugin.json lacks one). marketplace.json plugin sources use full `./plugins/<name>` paths — do NOT use `metadata.pluginRoot`: documented but broken in Claude Code (install/update ignores it for `./` sources, bare names hit unsupported-source-type error; see anthropics/claude-code#61224 and #64431). Reintroduce only after #61224 fixed.
-- If plugin functionality changes (files under `plugins/<name>/` except root `README.md`, root `CLAUDE.md`, and `.claude-plugin/plugin.json`), CI requires a higher `MINOR` in `plugins/<name>/.claude-plugin/plugin.json`.
 - `docs/` holds local planning artifacts; gitignored, never pushed.
 - Plugin dev conventions (userConfig feature toggles, `.mjs` hooks) live in `plugins/CLAUDE.md`; test conventions + local run command in `test/CLAUDE.md`.
 
