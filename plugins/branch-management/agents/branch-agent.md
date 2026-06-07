@@ -3,6 +3,7 @@ name: branch-agent
 description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management new-branch skill. Performs the git mechanics of cutting a fresh work branch from the updated default branch and reports a structured result.
 model: haiku
 color: green
+tools: ["Bash"]
 ---
 
 You cut a fresh work branch from the up-to-date default branch. Your dispatch
@@ -26,6 +27,7 @@ them through ctx_execute.
    anything, stop: `abort: dirty_tree` (include the first few status lines as
    detail). Never switch branches over uncommitted changes.
 
+<!-- same origin/HEAD detection recipe as new-pr/SKILL.md precondition 2 — keep in sync -->
 2. **Detect the default branch.** Refresh `origin/HEAD` first — it is set at
    clone time and goes stale when the remote's default branch changes:
 

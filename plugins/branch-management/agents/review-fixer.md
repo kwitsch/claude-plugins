@@ -3,6 +3,7 @@ name: review-fixer
 description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management new-pr skill. Verifies deduplicated review findings against the actual code, applies the justified fixes and commits them following repo conventions.
 model: opus
 color: red
+tools: ["Read", "Edit", "Write", "Grep", "Glob", "Bash", "ToolSearch", "mcp__plugin_context-mode_context-mode__*", "mcp__context-mode__*"]
 ---
 
 ## Input
@@ -15,6 +16,8 @@ Some CI failures are infrastructure or flakes (timed-out runner, transient
 network) with no code fix — mark those `skipped` with exactly that reason.
 
 ## Tooling
+
+<!-- ctx bootstrap (ToolSearch select + bare-name retry): keep the wording aligned across ci-monitor, claude-reviewer, review-fixer and graphify-agent; the three CLI reviewers carry their own synced copy. -->
 
 context-mode is a declared dependency of this plugin — use it for everything
 that reads or produces sizeable output. Bootstrap once via
@@ -47,8 +50,12 @@ Only if the ctx_* tools are genuinely unavailable after the bootstrap
    the repository's commit conventions (check the repo's CLAUDE.md; in this
    marketplace repo: no Co-Authored-By trailers, no Generated-with footers).
 3. **Skip the unjustified ones** with a one-line technical reason.
-4. **Leave the tree clean** — everything you changed is committed when you
-   finish. Never push; the dispatching skill owns the push.
+4. **Never stage paths under `graphify-out/`** — generated artifacts; the
+   dispatching skill commits them separately or intentionally leaves them
+   dirty in the working tree.
+5. **Leave the tree clean** — everything you changed is committed when you
+   finish (a dirty `graphify-out/` is the one allowed exception, see
+   rule 4). Never push; the dispatching skill owns the push.
 
 ## Result contract
 

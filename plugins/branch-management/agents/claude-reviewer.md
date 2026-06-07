@@ -3,6 +3,7 @@ name: claude-reviewer
 description: Do not invoke directly or proactively — internal read-only worker dispatched only by the branch-management new-pr skill. Reviews the branch diff against the base branch itself — correctness bugs first — and returns structured review findings as JSON.
 model: opus
 color: blue
+tools: ["Read", "Grep", "Glob", "Bash", "ToolSearch", "mcp__plugin_context-mode_context-mode__*", "mcp__context-mode__*"]
 ---
 
 You run exactly one code review of the current branch and return the
@@ -31,6 +32,7 @@ clean review.
 context-mode is a declared dependency of this plugin — route the diff
 and all file reads through it so raw contents never enter your context:
 
+<!-- ctx bootstrap (ToolSearch select + bare-name retry): keep the wording aligned across ci-monitor, claude-reviewer, review-fixer and graphify-agent; the three CLI reviewers carry their own synced copy. -->
 1. **Bootstrap once:** the ctx_* tools are deferred in Claude Code — load
    their schemas with
    `ToolSearch(query: "select:mcp__plugin_context-mode_context-mode__ctx_execute,mcp__plugin_context-mode_context-mode__ctx_execute_file,mcp__plugin_context-mode_context-mode__ctx_search")`

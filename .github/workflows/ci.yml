@@ -33,25 +33,31 @@ jobs:
       - name: Validate plugin sources and manifests
         run: |
           manifest=".claude-plugin/marketplace.json"
+          # String sources resolve relative to metadata.pluginRoot (default: marketplace root).
+          root="$(jq -r '.metadata.pluginRoot // "."' "${manifest}")"
           while IFS= read -r source; do
             case "${source}" in
-              ./*)
-                test -d "${source}" || { echo "Plugin source directory not found: ${source}"; exit 1; }
-                plugin_manifest="${source}/.claude-plugin/plugin.json"
+              remote)
+                # Non-path sources (github/url/git-subdir/npm) are remote; nothing to check locally.
+                echo "Skipping remote source entry"
+                ;;
+              *)
+                dir="${root}/${source}"
+                test -d "${dir}" || { echo "Plugin source directory not found: ${dir}"; exit 1; }
+                plugin_manifest="${dir}/.claude-plugin/plugin.json"
                 if [ -f "${plugin_manifest}" ]; then
                   jq empty "${plugin_manifest}"
                 fi
                 ;;
-              *)
-                # Non-path sources (github/url/git-subdir/npm) are remote; nothing to check locally.
-                echo "Skipping remote source: ${source}"
-                ;;
             esac
           done < <(jq -r '.plugins[].source | if type == "string" then . else "remote" end' "${manifest}")
 
-  # Merge guard: the version a plugin declares in marketplace.json must match the
-  # version in its own plugin.json. A mismatch fails here and (as a required
-  # status check in branch protection) blocks the merge.
+  # Merge guard: plugin versions live ONLY in each plugin's own plugin.json
+  # (single source of truth — Claude Code lets plugin.json win silently over a
+  # marketplace entry anyway, and the official docs advise against declaring
+  # both). A marketplace entry that carries a version, or a local plugin
+  # manifest without one, fails here and (as a required status check in
+  # branch protection) blocks the merge.
   version-consistency:
     runs-on: ubuntu-latest
     permissions:
@@ -61,34 +67,40 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Marketplace and plugin manifest versions must match
+      - name: Plugin versions declared once, in plugin.json only
         run: |
           manifest=".claude-plugin/marketplace.json"
+          root="$(jq -r '.metadata.pluginRoot // "."' "${manifest}")"
           status=0
 
-          # name <TAB> source <TAB> marketplace-version, one local plugin per line.
-          while IFS=$'\t' read -r name source mp_version; do
+          # No marketplace entry may carry a version field.
+          while IFS= read -r name; do
+            echo "::error::${name}: marketplace.json entry declares a version — plugin.json is the single source of truth"
+            status=1
+          done < <(jq -r '.plugins[] | select(has("version")) | .name' "${manifest}")
+
+          # Every local plugin manifest must declare one.
+          while IFS=$'\t' read -r name source; do
             case "${source}" in
-              ./*)
-                plugin_manifest="${source}/.claude-plugin/plugin.json"
+              remote)
+                echo "${name}: remote source — skipping version check"
+                ;;
+              *)
+                plugin_manifest="${root}/${source}/.claude-plugin/plugin.json"
                 if [ ! -f "${plugin_manifest}" ]; then
                   echo "::error::${name}: plugin manifest not found at ${plugin_manifest}"
                   status=1
                   continue
                 fi
-
-                pl_version="$(jq -r '.version // "null"' "${plugin_manifest}")"
-                if [ "${mp_version}" != "${pl_version}" ]; then
-                  echo "::error::${name}: version mismatch — marketplace.json has '${mp_version}', ${plugin_manifest} has '${pl_version}'"
+                pl_version="$(jq -r '.version // empty' "${plugin_manifest}")"
+                if [ -z "${pl_version}" ]; then
+                  echo "::error::${name}: ${plugin_manifest} declares no version"
                   status=1
                 else
                   echo "${name}: ${pl_version} OK"
                 fi
                 ;;
-              *)
-                echo "${name}: remote source (${source}) — skipping version check"
-                ;;
             esac
-          done < <(jq -r '.plugins[] | [.name, (.source | if type == "string" then . else "remote" end), (.version // "null")] | @tsv' "${manifest}")
+          done < <(jq -r '.plugins[] | [.name, (.source | if type == "string" then . else "remote" end)] | @tsv' "${manifest}")
 
           exit "${status}"

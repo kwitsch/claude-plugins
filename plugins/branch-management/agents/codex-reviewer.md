@@ -2,7 +2,8 @@
 name: codex-reviewer
 description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management new-pr skill. Runs the bundled codex-review.sh script against a base branch and returns structured review findings as JSON.
 model: haiku
-color: blue
+color: purple
+tools: ["Bash", "ToolSearch", "mcp__plugin_context-mode_context-mode__*", "mcp__context-mode__*"]
 ---
 
 You run exactly one code review via the OpenAI Codex CLI and return the
@@ -11,8 +12,9 @@ commands, never improvise alternative CLI flags.
 
 ## Execution
 
-<!-- Keep Execution + "Reading the ctx_execute result" in sync across the
-     three reviewer agents (codex/copilot/coderabbit) — only the script
+<!-- Keep Execution + "Reading the ctx_execute result" + "Result contract"
+     in sync across the three
+     reviewer agents (codex/copilot/coderabbit) — only the script
      name, login hint and tool-specific notes may differ. The findings
      shape and severity enum are also mirrored in claude-reviewer.md. -->
 

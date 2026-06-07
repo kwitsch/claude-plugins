@@ -1,13 +1,13 @@
 #!/usr/bin/env bats
 # Tests for branch-management: the three CLI review scripts
-# (codex-review.sh, copilot-review.sh, coderabbit-review.sh), the
-# review-settings.sh toggle script and the ci-watch.sh CI poller.
+# (codex-review.sh, copilot-review.sh, coderabbit-review.sh),
+# graphify-update.sh, the plugin.json userConfig manifest and the
+# ci-watch.sh CI poller.
 #
-# Strategy: each test runs a script with an isolated PATH that contains only
+# Strategy: each script test runs with an isolated PATH that contains only
 # symlinks to the required system tools plus per-test stub binaries for the
 # reviewed CLI. Review-script exit-code contract: 0 review ran · 2 CLI
-# missing · 3 not logged in · 4 run failed. review-settings.sh:
-# exit 0 always, one `<tool>=true|false` line per review source, fail-open.
+# missing · 3 not logged in · 4 run failed.
 # ci-watch.sh: 0 green · 1 red · 2 deadline · 64 usage/environment; stubs
 # mirror real gh/glab exit codes and output formats.
 
@@ -37,6 +37,14 @@ make_stub() {
   chmod +x "$MOCKBIN/$name"
 }
 
+# run_script <script-name> [args...] — run a plugin script on the isolated
+# PATH with a scrubbed environment (the common case; tests that need extra
+# env vars keep the explicit env -i form).
+run_script() {
+  local script="$1"; shift
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/$script" "$@"
+}
+
 # Stub body shared by the coderabbit happy-path tests: logged in + working review.
 CODERABBIT_OK_STUB='if [ "$1" = "auth" ]; then echo "Logged in as tester"; exit 0; fi
 if [ "$1" = "review" ]; then echo "CODERABBIT REVIEW OUTPUT $*"; exit 0; fi
@@ -47,13 +55,13 @@ exit 64'
 #
 
 @test "codex: exit 2 when CLI is missing" {
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/codex-review.sh" main
+  run_script codex-review.sh main
   assert_failure 2
 }
 
 @test "codex: exit 3 when not logged in" {
   make_stub codex 'if [ "$1" = "login" ]; then [ "$2" = "status" ] || exit 99; exit 1; fi' 'exit 0'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/codex-review.sh" main
+  run_script codex-review.sh main
   assert_failure 3
 }
 
@@ -62,7 +70,7 @@ exit 64'
     'if [ "$1" = "login" ]; then [ "$2" = "status" ] || exit 99; exit 0; fi' \
     'if [ "$1" = "exec" ]; then echo "CODEX REVIEW OUTPUT $*"; exit 0; fi' \
     'exit 64'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/codex-review.sh" main
+  run_script codex-review.sh main
   assert_success
   assert_output --partial "CODEX REVIEW OUTPUT"
   assert_output --partial "origin/main"        # diff target must be in the prompt
@@ -82,13 +90,13 @@ exit 64'
   make_stub codex \
     'if [ "$1" = "login" ]; then [ "$2" = "status" ] || exit 99; exit 0; fi' \
     'if [ "$1" = "exec" ]; then echo boom >&2; exit 1; fi'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/codex-review.sh" main
+  run_script codex-review.sh main
   assert_failure 4
 }
 
 @test "codex: usage error without base argument" {
   make_stub codex 'exit 0'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/codex-review.sh"
+  run_script codex-review.sh
   assert_failure 1
   assert_output --partial "usage"
 }
@@ -98,13 +106,13 @@ exit 64'
 #
 
 @test "copilot: exit 2 when CLI is missing" {
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  run_script copilot-review.sh main
   assert_failure 2
 }
 
 @test "copilot: exit 3 when no token env and no login state" {
   make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  run_script copilot-review.sh main
   assert_failure 3
 }
 
@@ -123,7 +131,7 @@ exit 64'
   printf '%s\n' '{' '  "loggedInUsers": [' '    {' \
     '      "host": "https://github.com",' '      "login": "tester"' \
     '    }' '  ]' '}' > "$HOME/.copilot/config.json"
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  run_script copilot-review.sh main
   assert_success
 }
 
@@ -141,7 +149,7 @@ exit 64'
   # A fresh COPILOT_HOME is created on first launch without any login.
   make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
   mkdir -p "$HOME/.copilot"
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  run_script copilot-review.sh main
   assert_failure 3
 }
 
@@ -150,7 +158,7 @@ exit 64'
   mkdir -p "$HOME/.copilot"
   printf '{"firstLaunchAt":"2026-01-01T00:00:00.000Z"}' \
     > "$HOME/.copilot/config.json"
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  run_script copilot-review.sh main
   assert_failure 3
 }
 
@@ -161,7 +169,7 @@ exit 64'
   mkdir -p "$HOME/.copilot"
   printf '{"lastLoggedInUser":{"login":"tester"},"loggedInUsers":[]}' \
     > "$HOME/.copilot/config.json"
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  run_script copilot-review.sh main
   assert_failure 3
 }
 
@@ -172,7 +180,7 @@ exit 64'
   mkdir -p "$HOME/.config/gh"
   printf '%s\n' 'github.com:' '    user: tester' '    git_protocol: https' \
     > "$HOME/.config/gh/hosts.yml"
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  run_script copilot-review.sh main
   assert_success
 }
 
@@ -181,7 +189,7 @@ exit 64'
   mkdir -p "$HOME/.config/gh"
   printf '%s\n' 'github.com:' '    user: tester' '    oauth_token: gho_x' \
     > "$HOME/.config/gh/hosts.yml"
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  run_script copilot-review.sh main
   assert_success
 }
 
@@ -200,7 +208,7 @@ exit 64'
   mkdir -p "$HOME/.config/gh"
   printf '%s\n' 'github.com:' '    git_protocol: https' \
     > "$HOME/.config/gh/hosts.yml"
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh" main
+  run_script copilot-review.sh main
   assert_failure 3
 }
 
@@ -271,7 +279,7 @@ exit 64'
 
 @test "copilot: usage error without base argument" {
   make_stub copilot 'exit 0'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/copilot-review.sh"
+  run_script copilot-review.sh
   assert_failure 1
   assert_output --partial "usage"
 }
@@ -339,31 +347,31 @@ fake_real_git() {
 #
 
 @test "coderabbit: exit 2 when neither coderabbit nor cr is installed" {
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh" main
+  run_script coderabbit-review.sh main
   assert_failure 2
 }
 
 @test "coderabbit: exit 3 when not logged in" {
   make_stub coderabbit 'if [ "$1" = "auth" ]; then echo "Not logged in"; exit 0; fi'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh" main
+  run_script coderabbit-review.sh main
   assert_failure 3
 }
 
 @test "coderabbit: unrecognizable auth output maps to exit 3" {
   make_stub coderabbit 'if [ "$1" = "auth" ]; then echo "???"; exit 0; fi'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh" main
+  run_script coderabbit-review.sh main
   assert_failure 3
 }
 
 @test "coderabbit: 'Not currently authenticated' wording maps to exit 3" {
   make_stub coderabbit 'if [ "$1" = "auth" ]; then echo "Not currently authenticated to CodeRabbit"; exit 0; fi'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh" main
+  run_script coderabbit-review.sh main
   assert_failure 3
 }
 
 @test "coderabbit: 'no longer logged in' wording maps to exit 3" {
   make_stub coderabbit 'if [ "$1" = "auth" ]; then echo "Session expired. You are no longer logged in"; exit 0; fi'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh" main
+  run_script coderabbit-review.sh main
   assert_failure 3
 }
 
@@ -371,13 +379,13 @@ fake_real_git() {
   make_stub coderabbit 'if [ "$1" = "auth" ]; then echo "Authenticated as tester"; exit 0; fi
 if [ "$1" = "review" ]; then echo "CODERABBIT REVIEW OUTPUT"; exit 0; fi
 exit 64'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh" main
+  run_script coderabbit-review.sh main
   assert_success
 }
 
 @test "coderabbit: passes review output through with --prompt-only and --base" {
   make_stub coderabbit "$CODERABBIT_OK_STUB"
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh" main
+  run_script coderabbit-review.sh main
   assert_success
   assert_output --partial "CODERABBIT REVIEW OUTPUT"
   assert_output --partial "--prompt-only"
@@ -386,7 +394,7 @@ exit 64'
 
 @test "coderabbit: cr alias is found when coderabbit is absent" {
   make_stub cr "$CODERABBIT_OK_STUB"
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh" main
+  run_script coderabbit-review.sh main
   assert_success
   assert_output --partial "CODERABBIT REVIEW OUTPUT"
 }
@@ -401,244 +409,144 @@ if [ "$1" = "review" ]; then sleep 5; fi'
 
 @test "coderabbit: usage error without base argument" {
   make_stub coderabbit 'exit 0'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/coderabbit-review.sh"
+  run_script coderabbit-review.sh
   assert_failure 1
   assert_output --partial "usage"
 }
 
 #
-# review-settings.sh
+# graphify-update.sh
 #
+# Exit-code contract: 0 update ran · 2 graphify CLI missing · 4 update run
+# failed · 5 graphify-out/ missing without --force. The script resolves the
+# repo root itself, so every test runs inside a throwaway git repo under
+# $BATS_TEST_TMPDIR — never against the real repository.
 
-# write_settings <file> <frontmatter-line>... — settings file with frontmatter.
-write_settings() {
-  local f="$1"; shift
-  { printf -- '---\n'; printf '%s\n' "$@"; printf -- '---\n'; } > "$f"
+# setup_graphify_repo — link the real git into MOCKBIN and create + enter a
+# throwaway git repo so graphify-update.sh resolves its repo root inside the
+# test sandbox.
+setup_graphify_repo() {
+  ln -sf "$(command -v git)" "$MOCKBIN/git"
+  GRAPHIFY_REPO="$BATS_TEST_TMPDIR/repo"
+  mkdir -p "$GRAPHIFY_REPO"
+  cd "$GRAPHIFY_REPO"
+  env -i PATH="$MOCKBIN" HOME="$HOME" git init -q
 }
 
-# run_settings [arg]... — run review-settings.sh on the isolated PATH.
-run_settings() {
-  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/review-settings.sh" "$@"
+@test "graphify: exit 2 when CLI is missing" {
+  setup_graphify_repo
+  run_script graphify-update.sh
+  assert_failure 2
 }
 
-# write_user_settings <frontmatter-line>... — user-level settings in the
-# isolated HOME.
-write_user_settings() {
-  mkdir -p "$HOME/.claude"
-  write_settings "$HOME/.claude/branch-management.local.md" "$@"
+@test "graphify: exit 5 when graphify-out is missing without --force" {
+  setup_graphify_repo
+  make_stub graphify 'echo "GRAPHIFY $*"; exit 0'
+  run_script graphify-update.sh
+  assert_failure 5
+  [ ! -d "$GRAPHIFY_REPO/graphify-out" ]   # must not create the folder
 }
 
-ALL_ENABLED=$'claude=true\ncodex=true\ncopilot=true\ncoderabbit=true'
-
-@test "settings: all enabled when the settings file is missing" {
-  run_settings "$BATS_TEST_TMPDIR/missing.md"
+@test "graphify: --force creates graphify-out and runs the update" {
+  setup_graphify_repo
+  make_stub graphify 'echo "GRAPHIFY $*"; exit 0'
+  run_script graphify-update.sh --force
   assert_success
-  assert_output "$ALL_ENABLED"
+  assert_output --partial "GRAPHIFY update -o graphify-out"
+  [ -d "$GRAPHIFY_REPO/graphify-out" ]
 }
 
-@test "settings: all enabled without a reviews block" {
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'other: value'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
+@test "graphify: runs the update when graphify-out exists" {
+  setup_graphify_repo
+  mkdir -p graphify-out
+  make_stub graphify 'echo "GRAPHIFY $*"; exit 0'
+  run_script graphify-update.sh
   assert_success
-  assert_output "$ALL_ENABLED"
+  assert_output --partial "GRAPHIFY update -o graphify-out"
 }
 
-@test "settings: all enabled without frontmatter" {
-  printf 'just some notes\n' > "$BATS_TEST_TMPDIR/s.md"
-  run_settings "$BATS_TEST_TMPDIR/s.md"
+@test "graphify: runs from the repository root regardless of cwd" {
+  setup_graphify_repo
+  mkdir -p graphify-out sub/dir
+  make_stub graphify 'echo "GRAPHIFY pwd=$PWD"; exit 0'
+  cd sub/dir
+  run_script graphify-update.sh
   assert_success
-  assert_output "$ALL_ENABLED"
+  assert_output --partial "pwd=$GRAPHIFY_REPO"
 }
 
-@test "settings: explicit false disables exactly that review" {
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  copilot: false'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
+@test "graphify: exit 4 when the update fails" {
+  setup_graphify_repo
+  mkdir -p graphify-out
+  make_stub graphify 'echo boom >&2; exit 1'
+  run_script graphify-update.sh
+  assert_failure 4
 }
 
-@test "settings: all four can be disabled" {
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' \
-    '  claude: false' '  codex: false' '  copilot: false' '  coderabbit: false'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=false\ncodex=false\ncopilot=false\ncoderabbit=false'
+@test "graphify: exit 4 when the update hangs (timeout)" {
+  setup_graphify_repo
+  mkdir -p graphify-out
+  make_stub graphify 'sleep 5'
+  run env -i PATH="$MOCKBIN" HOME="$HOME" GRAPHIFY_TIMEOUT=1 \
+    bash "$SCRIPTS/graphify-update.sh"
+  assert_failure 4
 }
 
-@test "settings: invalid value stays enabled (fail-open)" {
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  copilot: no'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output "$ALL_ENABLED"
-}
-
-@test "settings: quoted false disables" {
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  copilot: "false"'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
-}
-
-@test "settings: capitalized False disables (case-insensitive)" {
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  codex: False' '  copilot: FALSE'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=false\ncopilot=false\ncoderabbit=true'
-}
-
-@test "settings: duplicate key: any explicit false sticks" {
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  copilot: false' '  copilot: true'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
-}
-
-@test "settings: keys outside the reviews block are ignored" {
-  write_settings "$BATS_TEST_TMPDIR/s.md" \
-    'copilot: false' 'reviews:' '  codex: false' 'other:' '  claude: false'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=false\ncopilot=true\ncoderabbit=true'
-}
-
-@test "settings: nested sub-map keys are not toggles" {
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  tools:' '    copilot: false'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output "$ALL_ENABLED"
-}
-
-@test "settings: reviews header with trailing comment is recognized" {
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews: # toggles' '  copilot: false'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
-}
-
-@test "settings: body after the closing fence is ignored" {
-  { printf -- '---\nreviews:\n  codex: false\n---\n  copilot: false\n'; } > "$BATS_TEST_TMPDIR/s.md"
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=false\ncopilot=true\ncoderabbit=true'
-}
-
-@test "settings: UTF-8 BOM and CRLF line endings are tolerated" {
-  printf -- '\357\273\277---\r\nreviews:\r\n  copilot: false\r\n---\r\n' > "$BATS_TEST_TMPDIR/s.md"
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
-}
-
-@test "settings: script runs directly via its executable bit" {
-  run env -i PATH="$MOCKBIN" HOME="$HOME" "$SCRIPTS/review-settings.sh" "$BATS_TEST_TMPDIR/missing.md"
-  assert_success
-  assert_output "$ALL_ENABLED"
-}
-
-@test "settings: defaults without argument when git is unavailable" {
-  cd "$BATS_TEST_TMPDIR"
-  run_settings
-  assert_success
-  assert_output "$ALL_ENABLED"
-}
-
-@test "settings: no-arg run outside a repo falls back to \$PWD" {
-  ln -s "$(command -v git)" "$MOCKBIN/git"
-  mkdir -p "$BATS_TEST_TMPDIR/proj/.claude"
-  write_settings "$BATS_TEST_TMPDIR/proj/.claude/branch-management.local.md" \
-    'reviews:' '  copilot: false'
-  cd "$BATS_TEST_TMPDIR/proj"
-  run_settings
-  assert_success
-  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
-}
-
-@test "settings: no-arg run inside a repo resolves the git toplevel" {
-  ln -s "$(command -v git)" "$MOCKBIN/git"
-  git init -q "$BATS_TEST_TMPDIR/repo"
-  mkdir -p "$BATS_TEST_TMPDIR/repo/.claude" "$BATS_TEST_TMPDIR/repo/sub"
-  write_settings "$BATS_TEST_TMPDIR/repo/.claude/branch-management.local.md" \
-    'reviews:' '  codex: false'
-  cd "$BATS_TEST_TMPDIR/repo/sub"
-  run_settings
-  assert_success
-  assert_output $'claude=true\ncodex=false\ncopilot=true\ncoderabbit=true'
-}
-
-@test "settings: user-level config applies when no project file exists" {
-  write_user_settings 'reviews:' '  copilot: false'
-  run_settings "$BATS_TEST_TMPDIR/missing.md"
-  assert_success
-  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
-}
-
-@test "settings: user-level false overrides a project-level true" {
-  write_user_settings 'reviews:' '  copilot: false' '  codex: false'
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  copilot: true'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=false\ncopilot=false\ncoderabbit=true'
-}
-
-@test "settings: project level can disable a review the user level leaves enabled" {
-  write_user_settings 'reviews:' '  copilot: true'
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  copilot: false' '  codex: false'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=false\ncopilot=false\ncoderabbit=true'
-}
-
-@test "settings: user-level false persists when the project file lacks the key" {
-  write_user_settings 'reviews:' '  copilot: false'
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  claude: true'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
-}
-
-@test "settings: invalid project value does not override user-level false" {
-  write_user_settings 'reviews:' '  copilot: false'
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  copilot: off'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
-}
-
-@test "settings: unreadable user layer is skipped, project still applies" {
-  [ "$(id -u)" -eq 0 ] && skip "root can read anything"
-  write_user_settings 'reviews:' '  copilot: false'
-  chmod 000 "$HOME/.claude/branch-management.local.md"
-  write_settings "$BATS_TEST_TMPDIR/s.md" 'reviews:' '  codex: false'
-  run_settings "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=false\ncopilot=true\ncoderabbit=true'
-}
-
-@test "settings: BOM is stripped under a UTF-8 locale" {
-  printf -- '\357\273\277---\nreviews:\n  copilot: false\n---\n' > "$BATS_TEST_TMPDIR/s.md"
-  run env -i PATH="$MOCKBIN" HOME="$HOME" LANG=C.UTF-8 LC_ALL=C.UTF-8 \
-    bash "$SCRIPTS/review-settings.sh" "$BATS_TEST_TMPDIR/s.md"
-  assert_success
-  assert_output $'claude=true\ncodex=true\ncopilot=false\ncoderabbit=true'
-}
-
-@test "settings: no-arg run merges user and project level" {
-  ln -s "$(command -v git)" "$MOCKBIN/git"
-  git init -q "$BATS_TEST_TMPDIR/repo"
-  mkdir -p "$BATS_TEST_TMPDIR/repo/.claude"
-  write_user_settings 'reviews:' '  claude: false'
-  write_settings "$BATS_TEST_TMPDIR/repo/.claude/branch-management.local.md" \
-    'reviews:' '  codex: false'
-  cd "$BATS_TEST_TMPDIR/repo"
-  run_settings
-  assert_success
-  assert_output $'claude=false\ncodex=false\ncopilot=true\ncoderabbit=true'
-}
-
-@test "settings: usage error with more than one argument" {
-  run_settings a b
+@test "graphify: usage error on unknown argument" {
+  setup_graphify_repo
+  make_stub graphify 'exit 0'
+  run_script graphify-update.sh --bogus
   assert_failure 1
   assert_output --partial "usage"
+}
+
+#
+# plugin.json userConfig
+#
+
+PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
+
+@test "userConfig: declares exactly the eleven feature toggles" {
+  run jq -r '.userConfig | keys | sort | join(" ")' "$REPO_ROOT/$PLUGIN_JSON_REL"
+  assert_success
+  assert_output "ci_monitor coderabbit_ci_comments context_index graphify_branch_update graphify_force_create graphify_pr_commit graphify_pr_update review_claude review_coderabbit review_codex review_copilot"
+}
+
+@test "userConfig: every toggle is a boolean" {
+  run jq -e '.userConfig | all(.[]; .type == "boolean")' \
+    "$REPO_ROOT/$PLUGIN_JSON_REL"
+  assert_success
+}
+
+@test "userConfig: every toggle defaults to true except fail-closed graphify_force_create" {
+  run jq -e '.userConfig | to_entries
+    | all(.[]; .value.default == (if .key == "graphify_force_create" then false else true end))' \
+    "$REPO_ROOT/$PLUGIN_JSON_REL"
+  assert_success
+}
+
+@test "userConfig: every toggle carries a non-empty title and description" {
+  run jq -e '.userConfig | all(.[]; (.title | length > 0) and (.description | length > 0))' \
+    "$REPO_ROOT/$PLUGIN_JSON_REL"
+  assert_success
+}
+
+@test "version: declared once — plugin.json only, marketplace entry carries none" {
+  run jq -r '.version' "$REPO_ROOT/$PLUGIN_JSON_REL"
+  assert_output "3.0.0"
+  run jq -e '.plugins[] | select(.name == "branch-management") | has("version") | not' \
+    "$REPO_ROOT/.claude-plugin/marketplace.json"
+  assert_success
+}
+
+@test "userConfig: no references to the removed settings implementation remain" {
+  run grep -rn "review-settings" "$REPO_ROOT/plugins/branch-management"
+  assert_failure 1
+  # The README's v3 breaking-change note is the one allowed mention of the
+  # old settings file; everywhere else it must be gone.
+  run grep -rn --exclude=README.md "branch-management.local.md" \
+    "$REPO_ROOT/plugins/branch-management"
+  assert_failure 1
 }
 
 #

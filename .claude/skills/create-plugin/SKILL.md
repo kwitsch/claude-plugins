@@ -201,9 +201,8 @@ the existing entries and valid JSON (no trailing commas):
 ```json
 {
   "name": "<name>",
-  "source": "./plugins/<name>",
+  "source": "./<name>",
   "description": "<description>",
-  "version": "<version>",
   "author": {
     "name": "<author>"
   },
@@ -212,8 +211,11 @@ the existing entries and valid JSON (no trailing commas):
 }
 ```
 
-Omit `category`/`tags` if the user did not provide them. `name` and `source` are
-the only required fields per the marketplace spec.
+`source` resolves relative to `metadata.pluginRoot` (`./plugins`). Do NOT add a
+`version` field — the plugin's own plugin.json is the single source of truth
+(CI fails when a marketplace entry declares one). Omit `category`/`tags` if the
+user did not provide them. `name` and `source` are the only required fields per
+the marketplace spec.
 
 ## Step 7 — Verify (mirror the CI)
 
@@ -232,13 +234,22 @@ jq -e '.name and .owner and (.plugins | type == "array")' "$manifest" >/dev/null
 # Every plugin entry has name + source
 jq -e 'all(.plugins[]; .name and .source)' "$manifest" >/dev/null
 
-# Every local plugin source exists and its manifest is valid JSON
+# No marketplace entry carries a version (plugin.json is the single source)
+jq -e 'all(.plugins[]; has("version") | not)' "$manifest" >/dev/null
+
+# Every local plugin source (relative to metadata.pluginRoot) exists, its
+# manifest is valid JSON and declares a version
+root="$(jq -r '.metadata.pluginRoot // "."' "$manifest")"
 jq -r '.plugins[].source | if type == "string" then . else "remote" end' "$manifest" | while IFS= read -r src; do
   case "$src" in
-    ./*)
-      test -d "$src" || { echo "Missing source dir: $src"; exit 1; }
-      pm="$src/.claude-plugin/plugin.json"
-      [ -f "$pm" ] && jq empty "$pm"
+    remote) ;;
+    *)
+      dir="$root/$src"
+      test -d "$dir" || { echo "Missing source dir: $dir"; exit 1; }
+      pm="$dir/.claude-plugin/plugin.json"
+      [ -f "$pm" ] || { echo "Missing plugin manifest: $pm"; exit 1; }
+      jq empty "$pm"
+      jq -e '.version' "$pm" >/dev/null || { echo "$pm declares no version"; exit 1; }
       ;;
   esac
 done

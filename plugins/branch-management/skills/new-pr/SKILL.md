@@ -1,6 +1,8 @@
 ---
 name: new-pr
-description: Use when branch work complete and should become pull/merge request - runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer subagents, max 3) with verified fixes between rounds, pushes, opens PR or MR via gh or glab, then watches CI and CodeRabbit feedback until all green. Review sources can be disabled per user or per project.
+description: Use when branch work complete and should become pull/merge request - runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer subagents, max 3) with verified fixes between rounds, pushes, opens PR or MR via gh or glab, then watches CI and CodeRabbit feedback until all green. Optionally refreshes and separately commits the graphify output before pushing. Review sources can be disabled per user or per project.
+argument-hint: "[--base <branch>]"
+allowed-tools: ["Agent", "Bash(git:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(echo:*)"]
 ---
 
 # Turn the current branch into a reviewed PR/MR
@@ -13,9 +15,9 @@ dispatching review rounds, aggregation + dedupe, fix loop, submission
 and monitor loop — raw review output and CI logs never enter main
 context: subagents run commands through context-mode plugin, declared
 dependency of this plugin (native-tool fallback only when dependency
-broken). Review sources disabled per project via
-`.claude/branch-management.local.md`, read in preconditions through
-`scripts/review-settings.sh`.
+broken). Review sources, CI monitoring and CodeRabbit comment handling
+are individually togglable via the plugin's `userConfig` options,
+read in preconditions (step 4).
 
 ## Preconditions
 
@@ -23,6 +25,7 @@ broken). Review sources disabled per project via
    prints nothing (detached HEAD), abort and tell user check out a
    branch first.
 
+<!-- same origin/HEAD detection recipe as agents/branch-agent.md step 2 — keep in sync -->
 2. **Detect the base branch** (explicit argument like `--base develop`
    overrides detection). Fetch first so review runs against the
    remote's current state, and refresh clone-time `origin/HEAD`:
@@ -60,30 +63,36 @@ broken). Review sources disabled per project via
    - `git log "origin/$base"..HEAD --oneline` is empty and
      `git status --porcelain` is also empty (no work to submit).
 
-4. **Read the review toggles.** Run the bundled settings script in a
-   single Bash call — deterministic parsing, do not parse the settings
-   file yourself:
+4. **Read the feature toggles.** The plugin declares them via
+   `userConfig` in plugin.json; Claude Code stores the values in
+   settings.json under `pluginConfigs["branch-management"].options`
+   (native scope precedence: local > project > user) and interpolates
+   them directly into this skill:
 
-   ```bash
-   "${CLAUDE_PLUGIN_ROOT}/scripts/review-settings.sh"
-   ```
+   | Toggle | Value |
+   |---|---|
+   | claude | `${user_config.review_claude}` |
+   | codex | `${user_config.review_codex}` |
+   | copilot | `${user_config.review_copilot}` |
+   | coderabbit | `${user_config.review_coderabbit}` |
+   | ci_monitor | `${user_config.ci_monitor}` |
+   | coderabbit_ci_comments | `${user_config.coderabbit_ci_comments}` |
+   | graphify_pr_update | `${user_config.graphify_pr_update}` |
+   | graphify_pr_commit | `${user_config.graphify_pr_commit}` |
 
-   (If `${CLAUDE_PLUGIN_ROOT}` is not set in your shell, resolve it as in
-   step 6 and substitute the absolute path.)
-
-   It prints one `<tool>=true|false` line per review source (`claude`,
-   `codex`, `copilot`, `coderabbit`), merged restrict-only from the
-   user-level `~/.claude/branch-management.local.md` and the
-   project-level `.claude/branch-management.local.md` (any explicit
-   `false` in either layer disables; `true` never re-enables). Missing
-   or malformed settings files yield all `true` (fail-open) —
-   only an explicit `false` (case-insensitive) disables a source. Keep
-   the four values for the rest of the run; every disabled source appears
-   in the final report as `disabled via settings`. The toggles gate the
-   review rounds only — the monitor loop is unaffected: ci-monitor keeps
-   collecting CodeRabbit bot comments even when `coderabbit=false`. All
-   four toggles `false` is allowed — the run then proceeds without any
-   pre-push review; flag that prominently in the final report.
+   Evaluation rule (fail-open): ONLY the literal value `false` disables
+   a toggle. Anything else — `true`, an empty value, or an
+   uninterpolated `${user_config.…}` placeholder on an older Claude
+   Code version — counts as enabled. Keep all eight values for the rest
+   of the run; every disabled review source appears in the final report
+   as `disabled via settings`. The four review toggles gate the review
+   rounds only; `ci_monitor` gates the whole monitor loop (steps 13–15),
+   while `coderabbit_ci_comments` only suppresses CodeRabbit comment
+   collection within step 13. `graphify_pr_update` gates the graphify
+   refresh in the Submit stage (step 9) and `graphify_pr_commit` its
+   separate commit. All four review toggles `false` is allowed — the run
+   then proceeds without any pre-push review; flag that prominently in
+   the final report.
 
 ## Review rounds
 
@@ -97,7 +106,7 @@ broken). Review sources disabled per project via
 6. **Dispatch a review round** — ALL enabled reviewers in ONE message.
    One step-6 dispatch is one round: track the round number, the first
    dispatch is round 1, the cap is 3 rounds per run. Enabled means: the
-   step-4 toggle is `true`;
+   step-4 toggle is not `false`;
    the coderabbit-reviewer is additionally omitted when step 2 found the
    local base diverged (toggle off → `disabled via settings` in the
    report, diverged base → the existing note). If the dispatch set is
@@ -110,9 +119,10 @@ broken). Review sources disabled per project via
    - `branch-management:copilot-reviewer`
    - `branch-management:coderabbit-reviewer`
 
-   Resolve `${CLAUDE_PLUGIN_ROOT}` to a concrete absolute path first (e.g.
-   `echo "${CLAUDE_PLUGIN_ROOT}"`) — the CLI reviewer subagents expect a
-   literal absolute script path, not a variable. Each CLI dispatch prompt
+   Resolve `${CLAUDE_PLUGIN_ROOT}` to a concrete absolute path ONCE (e.g.
+   `echo "${CLAUDE_PLUGIN_ROOT}"`) and reuse the value in steps 9 and
+   13 — the subagents expect a literal absolute script path, not a
+   variable. Each CLI dispatch prompt
    must contain: the base branch name (`$base`, bare) and the resolved
    absolute path of
    `<plugin-root>/scripts/<codex|copilot|coderabbit>-review.sh`. The
@@ -190,16 +200,38 @@ broken). Review sources disabled per project via
 
 ## Submit
 
-9. **Everything committed?** Run `git status --porcelain`. Step 5 and the
+9. **graphify update.** Gated by the `graphify_pr_update` toggle
+   (step 4) — `false` skips this step entirely; note
+   `graphify disabled via settings` in the report. Enabled → dispatch
+   `branch-management:graphify-agent` (plugin root as resolved in
+   step 6; resolve it now if the review rounds were skipped) with: the
+   absolute path of
+   `<plugin-root>/scripts/graphify-update.sh`, `force: no` (new-pr
+   never creates the folder — a missing `graphify-out/` comes back as
+   `skipped_no_dir`; just note it in the report), and `commit:` from
+   the `graphify_pr_commit` toggle (`false` → `commit: no`, anything
+   else → `commit: yes`).
+   - With `commit: yes` the agent commits refreshed graphify files as a
+     separate `chore: update graphify output` commit — generated
+     artifacts, intentionally NOT covered by the review rounds.
+   - With `commit: no` while the update ran: the graphify changes stay
+     uncommitted (step 10 and the review-fixer leave `graphify-out`
+     alone); note `graphify changes left uncommitted via settings` in
+     the report.
+   - Soft-fail: a `failed` status is a report note, never a reason to
+     stop before pushing.
+
+10. **Everything committed?** Run `git status --porcelain`. Step 5 and the
    fixer rounds should have committed everything already, so this is a
    safety re-check that usually finds nothing. Commit any remainder that
    belongs to this branch's work, grouped into logical commits. Leave
-   unrelated files untouched; if it is unclear whether a change belongs
-   to the work, ask the user.
+   unrelated files untouched; `graphify-out` is owned by step 9 — never
+   commit it here (the review-fixer carries the same standing rule); if
+   it is unclear whether a change belongs to the work, ask the user.
 
-10. **Push:** `git push -u origin "$branch"`.
+11. **Push:** `git push -u origin "$branch"`.
 
-11. **Open the PR/MR** — pick the tool from the `origin` URL
+12. **Open the PR/MR** — pick the tool from the `origin` URL
     (`git remote get-url origin`):
 
     - GitHub (`github.com` or a GitHub Enterprise host):
@@ -219,21 +251,37 @@ broken). Review sources disabled per project via
 
 ## Monitor until green
 
+If the `ci_monitor` toggle (step 4) is `false`, skip steps 13–15 entirely
+and continue with the report (step 16), noting `CI monitoring disabled
+via settings` there.
+
 Cap the loop at 5 fix iterations — if it has not converged by then, stop and
 hand the remaining findings to the user instead of pushing in circles.
 
-12. **Dispatch `branch-management:ci-monitor`** with the platform
+13. **Dispatch `branch-management:ci-monitor`** with the platform
     (`github`/`gitlab`), the PR/MR reference, the branch name
-    (`$branch` — its run-id fallback needs it) and the resolved absolute
-    path of `<plugin-root>/scripts/ci-watch.sh`. It waits for the CI
+    (`$branch` — its run-id fallback needs it), the resolved absolute
+    path of `<plugin-root>/scripts/ci-watch.sh` (plugin root as resolved
+    in step 6; resolve it now if both the review rounds and step 9 were
+    skipped) and — on GitHub — the
+    repository `owner`/`name` (resolve them ONCE via
+    `gh repo view --json owner,name` before the first iteration and
+    reuse them in every loop dispatch; the agent's GraphQL call needs
+    them). It waits for the CI
     result through that script — CodeRabbit's own PR checks are excluded
     there, so a non-reacting CodeRabbit cannot block the watch — analyzes
     failing jobs and collects open CodeRabbit bot comments — read-only —
-    and returns `{ci, failures, review_findings}`.
+    and returns `{ci, failures, review_findings}`. If the
+    `coderabbit_ci_comments` toggle (step 4) is `false`, state in the
+    dispatch prompt that CodeRabbit comment collection (its step 3) must
+    be skipped — `review_findings` then comes back empty and the loop
+    runs on the CI state alone; note `CodeRabbit comments disabled via
+    settings` in the final report.
 
-13. **If `ci` is `red` or `review_findings` is non-empty:** dispatch
+14. **If `ci` is `red` or `review_findings` is non-empty:** dispatch
     `branch-management:review-fixer` with both lists (CI failure analyses are
-    findings too). Then:
+    findings too). The fixer carries a standing rule to never stage
+    `graphify-out` — no per-dispatch instruction needed. Then:
     - If the fixer returned commits: push them.
     - For findings the fixer **skipped**, reply to the CodeRabbit thread with
       the skip reason and resolve it, using the `thread_id` from ci-monitor
@@ -245,13 +293,13 @@ hand the remaining findings to the user instead of pushing in circles.
       remaining findings to user — push without commits restarts
       nothing.
 
-14. **Loop.** Every push restarts CI and triggers CodeRabbit re-review;
-    repeat steps 12–13 until both quiet in same iteration: CI green
+15. **Loop.** Every push restarts CI and triggers CodeRabbit re-review;
+    repeat steps 13–14 until both quiet in same iteration: CI green
     and no unresolved findings. CodeRabbit that never reacts (no app
     installed, rate limit exhausted) counts as quiet — loop ends on CI
     green alone.
 
-15. **Report:** PR/MR URL — or, when stop branch fired, note
+16. **Report:** PR/MR URL — or, when stop branch fired, note
     that nothing pushed plus fix commits left on branch; the
     number of review rounds and their outcome (quiet / converged via
     fixer skips / capped at 3 with open findings / stopped: no review
@@ -260,4 +308,8 @@ hand the remaining findings to the user instead of pushing in circles.
     reason / **disabled via settings**; CLI tools: ran / missing,
     skipped silently / **not logged in + login command** / failed +
     reason / **disabled via settings**); findings fixed/skipped per
-    round; monitor iterations used.
+    round; monitor iterations used — or `CI monitoring disabled via
+    settings` when the toggle was off.
+    Plus the graphify outcome: updated + committed / updated, left
+    uncommitted via settings / skipped: no CLI / skipped: no
+    graphify-out folder / failed + detail / disabled via settings.
