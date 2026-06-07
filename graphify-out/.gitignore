@@ -1,5 +1,6 @@
 # Machine-local graphify state — never commit.
-# Committable artifacts: graph.json, graph.html, GRAPH_REPORT.md
+# Committable artifacts: graph.json, GRAPH_REPORT.md (agent-consumed).
+# graph.html is human-only — graphify here serves agents, keep it local.
 
 # Interpreter/root pointers (absolute machine paths)
 .graphify_python
@@ -16,3 +17,9 @@ manifest.json
 
 # Local token cost tracker
 cost.json
+
+# Date-named backup folders created by `graphify update`
+[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/
+
+# Human-only browser visualization (regenerated locally by `graphify update`)
+graph.html
