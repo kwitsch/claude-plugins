@@ -93,7 +93,8 @@ throwaway git repo (missing CLI → 2, missing folder → 5, `--force`
 creates it, repo-root resolution from subdirectories, failure/hang → 4).
 Plus plugin.json `userConfig` manifest checks (eleven boolean toggles,
 all `default: true` except fail-closed `graphify_force_create`, titles +
-descriptions, version sync with marketplace.json) and
+descriptions, version declared only in plugin.json — the marketplace
+entry carries none) and
 `ci-watch.sh` polling (coderabbit exclusion, pending→done transitions,
 timeout, no-checks grace, gitlab status heuristics). Run:
 `BATS_LIB_PATH="$PWD/node_modules" npx bats test/branch-management/`.
