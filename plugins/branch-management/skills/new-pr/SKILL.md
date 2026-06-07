@@ -261,7 +261,9 @@ hand the remaining findings to the user instead of pushing in circles.
 13. **Dispatch `branch-management:ci-monitor`** with the platform
     (`github`/`gitlab`), the PR/MR reference, the branch name
     (`$branch` — its run-id fallback needs it), the resolved absolute
-    path of `<plugin-root>/scripts/ci-watch.sh` and — on GitHub — the
+    path of `<plugin-root>/scripts/ci-watch.sh` (plugin root as resolved
+    in step 6; resolve it now if both the review rounds and step 9 were
+    skipped) and — on GitHub — the
     repository `owner`/`name` (resolve them ONCE via
     `gh repo view --json owner,name` before the first iteration and
     reuse them in every loop dispatch; the agent's GraphQL call needs
