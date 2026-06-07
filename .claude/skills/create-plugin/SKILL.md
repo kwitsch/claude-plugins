@@ -247,7 +247,8 @@ jq -r '.plugins[].source | if type == "string" then . else "remote" end' "$manif
       dir="$root/$src"
       test -d "$dir" || { echo "Missing source dir: $dir"; exit 1; }
       pm="$dir/.claude-plugin/plugin.json"
-      [ -f "$pm" ] && jq empty "$pm"
+      [ -f "$pm" ] || { echo "Missing plugin manifest: $pm"; exit 1; }
+      jq empty "$pm"
       jq -e '.version' "$pm" >/dev/null || { echo "$pm declares no version"; exit 1; }
       ;;
   esac
