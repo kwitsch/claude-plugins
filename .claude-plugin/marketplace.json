@@ -7,13 +7,10 @@
   "allowCrossMarketplaceDependenciesOn": ["context-mode"],
   "description": "Claude Code plugin marketplace.",
   "version": "1.0.0",
-  "metadata": {
-    "pluginRoot": "./plugins"
-  },
   "plugins": [
     {
       "name": "no-co-authored",
-      "source": "./no-co-authored",
+      "source": "./plugins/no-co-authored",
       "description": "Blocks git commits whose message carries a Co-Authored-By trailer or the Claude Code footer, asking Claude to recreate the message without them.",
       "author": {
         "name": "Kwitsch"
@@ -23,7 +20,7 @@
     },
     {
       "name": "git-sign-key",
-      "source": "./git-sign-key",
+      "source": "./plugins/git-sign-key",
       "description": "Signs git commits with a ~/.claude/sign.key file via SSH signing instead of the ssh-agent.",
       "author": {
         "name": "Kwitsch"
@@ -33,7 +30,7 @@
     },
     {
       "name": "cctools-edit",
-      "source": "./cctools-edit",
+      "source": "./plugins/cctools-edit",
       "description": "Installs the cc-tools binary for the host OS and routes Read/Write/Edit/MultiEdit through it so file encodings (Latin-1/Windows-1252/UTF-8) are preserved instead of corrupted.",
       "author": {
         "name": "Kwitsch"
@@ -43,7 +40,7 @@
     },
     {
       "name": "branch-management",
-      "source": "./branch-management",
+      "source": "./plugins/branch-management",
       "description": "Branch lifecycle skills backed by subagents: new-branch cuts a fresh branch; new-pr runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewers), applies verified fixes between rounds, opens a PR/MR via gh or glab, and watches CI until green. Optionally refreshes a graphify output folder on new-branch and before the PR push (separate commit). Script execution and heavy output processing run through the context-mode plugin (declared cross-marketplace dependency).",
       "author": {
         "name": "Kwitsch"

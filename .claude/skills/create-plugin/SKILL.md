@@ -201,7 +201,7 @@ the existing entries and valid JSON (no trailing commas):
 ```json
 {
   "name": "<name>",
-  "source": "./<name>",
+  "source": "./plugins/<name>",
   "description": "<description>",
   "author": {
     "name": "<author>"
@@ -211,11 +211,12 @@ the existing entries and valid JSON (no trailing commas):
 }
 ```
 
-`source` resolves relative to `metadata.pluginRoot` (`./plugins`). Do NOT add a
-`version` field — the plugin's own plugin.json is the single source of truth
-(CI fails when a marketplace entry declares one). Omit `category`/`tags` if the
-user did not provide them. `name` and `source` are the only required fields per
-the marketplace spec.
+Use the full `./plugins/<name>` path — `metadata.pluginRoot` is documented but
+broken in Claude Code (anthropics/claude-code#61224/#64431); reintroduce only
+after the upstream fix. Do NOT add a `version` field — the plugin's own
+plugin.json is the single source of truth (CI fails when a marketplace entry
+declares one). Omit `category`/`tags` if the user did not provide them. `name`
+and `source` are the only required fields per the marketplace spec.
 
 ## Step 7 — Verify (mirror the CI)
 
