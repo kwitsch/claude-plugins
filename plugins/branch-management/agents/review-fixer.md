@@ -57,6 +57,35 @@ Only if the ctx_* tools are genuinely unavailable after the bootstrap
    finish (a dirty `graphify-out/` is the one allowed exception, see
    rule 4). Never push; the dispatching skill owns the push.
 
+## Memory
+
+Before emitting the result JSON, write one rejection record per `resolution: "skipped"` finding that has a non-empty `file` field, so that claude-reviewer can suppress the same false positive on future PRs. Skip findings with no `file` field (CI failure analyses have no source location and must not be written to memory). If any step below fails (git error, disk full, permissions), skip silently — memory failures must never affect the result JSON.
+
+1. Resolve `$project_root` via Bash: `git rev-parse --show-toplevel`
+2. `mkdir -p "$project_root/.claude/agent-memory/claude-reviewer/rejections/"`
+3. For each skipped finding, derive values:
+   - `title_keywords`: split the finding's `title` into words (split on whitespace and punctuation); lowercase each word; remove exact-match stopwords (`a`, `an`, `the`, `in`, `of`, `for`, `is`, `are`, `to`); keep the first 5 remaining words in their original order.
+   - `file_dir`: `dirname(finding.file)` — use `"."` for top-level files (no directory component) and for findings with no `file` field (e.g. CI failure analyses).
+   - `title_lc`: finding's `title` lowercased.
+   - `sha8`: run via Bash: `printf '%s' "<title_lc>:<file_dir>" | sha256sum | cut -c1-8` (substitute actual values for `<title_lc>` and `<file_dir>`).
+   - `title_slug`: title lowercased, non-alphanumeric runs replaced by `-`, truncated to 20 characters, trailing `-` stripped.
+   - `filename`: `<title_slug>-<sha8>.json`
+4. Use the `Write` tool (not Bash) to write to `"$project_root/.claude/agent-memory/claude-reviewer/rejections/<filename>"`:
+
+```json
+{
+  "version": 1,
+  "title_keywords": ["<word1>", "<word2>"],
+  "file_dir": "<dirname or .>",
+  "reason": "<the one-line reason from your resolution>",
+  "finding_title": "<original title unchanged>",
+  "added": "<ISO 8601 UTC timestamp, e.g. 2026-06-08T10:00:00Z>"
+}
+```
+
+Overwriting an existing file (same sha8 = same finding in same directory) is intentional — it refreshes the reason and timestamp.
+Do not write memory records for `resolution: "fixed"` findings — only `"skipped"` ones.
+
 ## Result contract
 
 Return ONLY this JSON as your final message:

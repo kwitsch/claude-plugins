@@ -8,11 +8,13 @@ finished branch into a reviewed, pushed PR/MR and watches it until green.
 
 | Skill | What it does |
 |---|---|
-| `new-branch` | Dispatches the `branch-agent` to switch to the default branch, pull, and create `<type>/<slug>`; optionally refreshes the graphify output via the graphify-agent (togglable via `graphify_branch_update` / `graphify_force_create`); refreshes the context-mode index (declared plugin dependency, togglable via `context_index`). |
-| `new-pr` | Runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer agents, max 3), aggregates + dedupes the findings, applies verified fixes via the `review-fixer` between rounds (round 3 still red → stops before pushing), optionally refreshes the graphify output and commits it separately (`graphify_pr_update` / `graphify_pr_commit`), pushes, opens the PR/MR via `gh`/`glab`, and loops `ci-monitor` → `review-fixer` until CI is green and no findings remain. Every stage — review sources, CI watch, CodeRabbit comment handling — can be toggled via plugin options (see [Configuration](#configuration)). |
+| `new-branch` | Dispatches the `branch-agent` to switch to the default branch, pull, and create `<type>/<slug>`; invokes `graphify-update` sub-skill (togglable via `graphify_branch_update` / `graphify_force_create`); refreshes the context-mode index (declared plugin dependency, togglable via `context_index`). |
+| `new-pr` | Commits pending work, invokes the `review-branch` sub-skill for iterative review rounds, invokes `graphify-update --commit` before pushing (togglable via `graphify_pr_update` / `graphify_pr_commit`), pushes, opens the PR/MR via `gh`/`glab`, and loops `ci-monitor` → `review-fixer` until CI is green and no findings remain. Every stage — review sources, CI watch, CodeRabbit comment handling — can be toggled via plugin options (see [Configuration](#configuration)). |
+| `graphify-update` | Thin sub-skill (`context: fork`, haiku): refreshes the graphify knowledge-graph output via the `graphify-agent`. Pass `--commit` to commit the result as a separate `chore: update graphify output` commit. Also user-invocable directly. |
+| `review-branch` | Standalone review sub-skill (`context: fork`, sonnet): runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer agents, configurable via `review_max_rounds`), aggregates + dedupes findings, applies verified fixes via `review-fixer` between rounds, tracks quota limits. Invoked by `new-pr`; also user-invocable to review without opening a PR. |
 
 Skills no longer pin a `model:` — each unit of work runs in a dedicated agent
-with its own model.
+or sub-skill with its own model.
 
 ## Agents
 

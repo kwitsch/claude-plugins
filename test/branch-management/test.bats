@@ -678,7 +678,7 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 
 @test "version: declared once — plugin.json only, marketplace entry carries none" {
   run jq -r '.version' "$REPO_ROOT/$PLUGIN_JSON_REL"
-  assert_output "3.3.0"
+  assert_output "3.4.0"
   run jq -e '.plugins[] | select(.name == "branch-management") | has("version") | not' \
     "$REPO_ROOT/.claude-plugin/marketplace.json"
   assert_success
@@ -865,4 +865,73 @@ run_ci_watch() {
   run_ci_watch gitlab feature-branch
   assert_success
   assert_output --partial "no pipeline"
+}
+
+# --- effort: low assertions ---
+
+@test "branch-agent has effort: low" {
+  grep -q '^effort: low' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/branch-agent.md"
+}
+
+@test "graphify-agent has effort: low" {
+  grep -q '^effort: low' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/graphify-agent.md"
+}
+
+@test "codex-reviewer has effort: low" {
+  grep -q '^effort: low' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/codex-reviewer.md"
+}
+
+@test "copilot-reviewer has effort: low" {
+  grep -q '^effort: low' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/copilot-reviewer.md"
+}
+
+@test "coderabbit-reviewer has effort: low" {
+  grep -q '^effort: low' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/coderabbit-reviewer.md"
+}
+
+@test "ci-monitor has effort: low" {
+  grep -q '^effort: low' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/ci-monitor.md"
+}
+
+# --- graphify-update skill ---
+
+@test "graphify-update SKILL.md exists" {
+  [ -f "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/graphify-update/SKILL.md" ]
+}
+
+@test "graphify-update has context: fork" {
+  grep -q '^context: fork' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/graphify-update/SKILL.md"
+}
+
+@test "graphify-update has model: haiku" {
+  grep -q '^model: haiku' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/graphify-update/SKILL.md"
+}
+
+@test "graphify-update has effort: low" {
+  grep -q '^effort: low' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/graphify-update/SKILL.md"
+}
+
+# --- review-branch skill ---
+
+@test "review-branch SKILL.md exists" {
+  [ -f "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-branch/SKILL.md" ]
+}
+
+@test "review-branch has context: fork" {
+  grep -q '^context: fork' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-branch/SKILL.md"
+}
+
+@test "review-branch has model: sonnet" {
+  grep -q '^model: sonnet' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-branch/SKILL.md"
 }

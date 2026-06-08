@@ -5,51 +5,44 @@ Two thin orchestrator skills (`new-branch`, `new-pr`) dispatch eight dedicated a
 ## Behavior
 - `skills/new-branch`: dispatches `agents/branch-agent` (clean-tree guard,
   `origin/HEAD` refresh, `--ff-only` pull, `<type>/<slug>` creation,
-  structured abort codes for user decisions); then
-  `agents/graphify-agent` (runs `scripts/graphify-update.sh`, commit:
-  no), gated by `graphify_branch_update` (fail-open) with force from
-  `graphify_force_create` and user_files from `graphify_user_files`
-  (both FAIL-CLOSED: only literal `true` enables — placeholder must
-  never create folder; graphify output serves agents, human-only
-  `graph.html` pruned unless explicitly kept); then
-  `context-mode:ctx-index` in main context, gated by
-  `context_index` toggle.
-- `skills/new-pr`: preconditions in skill (fetch, base detection,
-  `origin/<base>` for all revisions, feature toggles from plugin.json
-  `userConfig` interpolated as `${user_config.KEY}` into skill —
-  fail-open, only literal `false` disables, uninterpolated placeholders
-  count as enabled; review toggles gate reviewer dispatches, `ci_monitor`
-  gates monitor loop, `coderabbit_ci_comments` gates CodeRabbit
-  thread collection); mandatory commit, then iterative review rounds (max $max_rounds, default 3, from `review_max_rounds`):
-  all enabled reviewers in parallel — `claude-reviewer` reviews diff
-  itself, CLI reviewers run `scripts/<tool>-review.sh <base>` through
-  context-mode `ctx_execute` (Bash only as reported degradation), all
-  return findings JSON; aggregation + dedupe in skill with cross-round
-  skip list (fixer echoes per-finding ids); findings → one
-  `review-fixer` pass + next round; fixer commits nothing → converged;
-  round $max_rounds still red → stop before pushing, hand findings to user;
-  round with zero `ok` reviewers retries once, then stops;
-  after each round, `failed` results run through
-  `scripts/quota-state.sh record <tool>` — exit 0 adds reviewer to
-  `quota_limited` set (skip in subsequent rounds + final report as
-  rate-limited); step-4 startup runs `quota-state.sh check <tool>` for
-  each enabled reviewer and pre-populates `quota_limited` from persisted
-  quota files in `~/.claude/branch-management/quota/`; graphify
-  refresh before push via `graphify-agent` (force: no, user_files from
-  fail-closed `graphify_user_files`), gated by
-  `graphify_pr_update`, separate `chore:` commit gated by
-  `graphify_pr_commit` (off → changes stay uncommitted; commit
-  re-check + standing review-fixer rule leave `graphify-out`
-  alone); push + `gh pr
-  create`/`glab mr create`; then monitor loop (max 5, no-progress
-  early exit):
-  `ci-monitor` (read-only analysis, gets platform + PR/MR reference + branch
-  name + ci-watch.sh path + resolved `ci_watch_timeout`; CI watch via
+  structured abort codes for user decisions); then invokes
+  `skills/graphify-update` sub-skill (`context: fork`, haiku), gated by
+  `graphify_branch_update` (fail-open); then `context-mode:ctx-index` in
+  main context, gated by `context_index` toggle.
+- `skills/graphify-update`: thin sub-skill (`context: fork`, `model: haiku`,
+  `effort: low`, `disable-model-invocation: true`); dispatches
+  `agents/graphify-agent` (runs `scripts/graphify-update.sh`, commit: no
+  unless `--commit` arg passed). `--force`/`--user-files` args fall back to
+  `graphify_force_create`/`graphify_user_files` toggles (both FAIL-CLOSED:
+  only literal `true` enables — placeholder must never create folder; graphify
+  output serves agents, human-only `graph.html` pruned unless explicitly kept).
+  User-invocable directly (e.g. `/graphify-update --commit`).
+- `skills/review-branch`: standalone review sub-skill (`context: fork`,
+  `model: sonnet`, `disable-model-invocation: true`); reads its own
+  `review_claude/codex/copilot/coderabbit` toggles and `review_max_rounds`
+  (default 3); runs quota check via `scripts/quota-state.sh check <tool>` at
+  startup; performs base-divergence check for coderabbit; dispatches all
+  enabled reviewers in parallel (`claude-reviewer`, CLI reviewers via
+  `ctx_execute`); aggregates + dedupes findings with cross-round skip list
+  (fixer echoes per-finding ids); findings → `review-fixer` + next round;
+  converges when fixer commits nothing; stops before pushing when round
+  $max_rounds still red; retries once when zero `ok` reviewers; records quota
+  hits via `quota-state.sh record <tool>`. User-invocable directly (e.g.
+  `/review-branch --rounds 5`).
+- `skills/new-pr`: preconditions (fetch, base detection, `origin/<base>` for
+  all revisions, feature toggles from `userConfig` interpolated as
+  `${user_config.KEY}` — fail-open, only literal `false` disables); mandatory
+  commit; invokes `skills/review-branch` sub-skill with `--base "$base"` (if
+  review-branch stops with open findings, stops before pushing); graphify
+  refresh before push via `skills/graphify-update` sub-skill (`--commit` when
+  `graphify_pr_commit` not `false`), gated by `graphify_pr_update`; push +
+  `gh pr create`/`glab mr create`; then monitor loop (max 5, no-progress early
+  exit): `ci-monitor` (read-only analysis, gets platform + PR/MR reference +
+  branch name + ci-watch.sh path + resolved `ci_watch_timeout`; CI watch via
   `scripts/ci-watch.sh` — CodeRabbit checks excluded so silent bot cannot
   block, bounded by `userConfig.ci_watch_timeout` / `CI_WATCH_TIMEOUT`,
-  default 1800 s / 30 min) →
-  `review-fixer` → push fixes, reply to + resolve skipped CodeRabbit threads,
-  until CI green and no findings remain.
+  default 1800 s / 30 min) → `review-fixer` → push fixes, reply to + resolve
+  skipped CodeRabbit threads, until CI green and no findings remain.
 - Script exit-code contract: 0 ran · 2 CLI missing (skip silently) ·
   3 not logged in (skip + report login command) · 4 run failed (skip +
   report). Review runs wrapped in `timeout -k 10 "${REVIEW_TIMEOUT:-600}"`.
@@ -88,6 +81,11 @@ Two thin orchestrator skills (`new-branch`, `new-pr`) dispatch eight dedicated a
   option table + this file, update manifest tests in
   `test/branch-management/test.bats` (assert exact sorted key
   list + count).
+- Sub-skills (`graphify-update`, `review-branch`) use `context: fork` +
+  `disable-model-invocation: true` — they receive no conversation history
+  and must resolve all toggles themselves or via explicit args. Parent
+  skills pass only resolved values (e.g. `--base "$base"`, `--commit`);
+  they never re-pass toggle values.
 
 ## Tests
 `test/branch-management/test.bats` covers three review scripts with

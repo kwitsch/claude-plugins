@@ -1,16 +1,16 @@
 # Graph Report - claude-plugins  (2026-06-08)
 
 ## Corpus Check
-- 60 files · ~37,971 words
+- 62 files · ~38,460 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 493 nodes · 514 edges · 73 communities (59 shown, 14 thin omitted)
+- 506 nodes · 525 edges · 74 communities (59 shown, 15 thin omitted)
 - Extraction: 96% EXTRACTED · 4% INFERRED · 0% AMBIGUOUS · INFERRED: 21 edges (avg confidence: 0.87)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `ad1f39ec`
+- Built from commit: `be791f14`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -87,6 +87,7 @@
 - [[_COMMUNITY_Community 70|Community 70]]
 - [[_COMMUNITY_Community 71|Community 71]]
 - [[_COMMUNITY_Community 72|Community 72]]
+- [[_COMMUNITY_Community 73|Community 73]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `userConfig` - 15 edges
@@ -123,7 +124,7 @@
 - **cc-tools platform/asset/path resolution helpers** — lib_cctools_goos, lib_cctools_goarch, lib_cctools_ext, lib_cctools_asset, lib_cctools_download_url, lib_cctools_bin [EXTRACTED 0.95]
 - **PreToolUse:Bash git-commit-intercepting hook plugins** — sign_commits_rewrite, deny_coauthor_deny_hook, git_sign_key_plugin, no_co_authored_plugin [INFERRED 0.75]
 
-## Communities (73 total, 14 thin omitted)
+## Communities (74 total, 15 thin omitted)
 
 ### Community 0 - "userConfig Schema Fields"
 Cohesion: 0.40
@@ -142,8 +143,8 @@ Cohesion: 0.08
 Nodes (24): author, bugs, url, description, devDependencies, bats, bats-assert, bats-support (+16 more)
 
 ### Community 4 - "Branch-Management Subagents"
-Cohesion: 0.15
-Nodes (20): branch-agent subagent, ci-monitor subagent, claude-reviewer subagent, coderabbit-reviewer subagent, codex-reviewer subagent, copilot-reviewer subagent, graphify-agent subagent, review-fixer subagent (+12 more)
+Cohesion: 0.09
+Nodes (30): branch-agent subagent, ci-monitor subagent, claude-reviewer subagent, coderabbit-reviewer subagent, codex-reviewer subagent, copilot-reviewer subagent, graphify-agent subagent, review-fixer subagent (+22 more)
 
 ### Community 5 - "CI Marketplace Validation"
 Cohesion: 0.13
@@ -246,8 +247,8 @@ Cohesion: 0.33
 Nodes (5): Execution, Exit-code mapping, Parsing, Reading the ctx_execute result, Result contract
 
 ### Community 37 - "Community 37"
-Cohesion: 0.33
-Nodes (5): Monitor until green, Preconditions, Review rounds, Submit, Turn the current branch into a reviewed PR/MR
+Cohesion: 0.29
+Nodes (6): Git context, Monitor until green, Preconditions, Review rounds, Submit, Turn the current branch into a reviewed PR/MR
 
 ### Community 38 - "Community 38"
 Cohesion: 0.33
@@ -258,8 +259,8 @@ Cohesion: 0.40
 Nodes (4): Commit step (only when `commit: yes` AND status is `updated`), Execution, Exit-code mapping, Result contract
 
 ### Community 40 - "Community 40"
-Cohesion: 0.40
-Nodes (4): Input, Result contract, Rules, Tooling
+Cohesion: 0.33
+Nodes (5): Input, Memory, Result contract, Rules, Tooling
 
 ### Community 41 - "Community 41"
 Cohesion: 0.40
@@ -314,8 +315,8 @@ Cohesion: 0.50
 Nodes (3): Result contract, Steps, Tooling
 
 ### Community 54 - "Community 54"
-Cohesion: 0.50
-Nodes (3): Result contract, Scope, Tooling
+Cohesion: 0.40
+Nodes (4): Memory suppression, Result contract, Scope, Tooling
 
 ### Community 55 - "Community 55"
 Cohesion: 0.50
@@ -346,8 +347,8 @@ Cohesion: 0.50
 Nodes (3): CLAUDE.md — test/, Conventions, Run
 
 ### Community 68 - "Community 68"
-Cohesion: 0.24
-Nodes (10): branch-management plugin design, Copilot login heuristic, Copilot three-layer read-only hardening, git-shim read-only git facade, coderabbit-review.sh script, codex-review.sh script, copilot-review.sh script, has_copilot_login() (+2 more)
+Cohesion: 0.29
+Nodes (6): Argument and config resolution, Base divergence check, Git context, Quota check, Report, Review loop
 
 ### Community 69 - "Community 69"
 Cohesion: 0.40
@@ -362,9 +363,9 @@ Nodes (5): default, description, title, type, review_max_rounds
   test/CLAUDE.md · relation: conceptually_related_to
 
 ## Knowledge Gaps
-- **257 isolated node(s):** `name`, `name`, `email`, `description`, `version` (+252 more)
+- **268 isolated node(s):** `name`, `name`, `email`, `description`, `version` (+263 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **14 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **15 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
@@ -372,11 +373,11 @@ _Questions this graph is uniquely positioned to answer:_
 - **What is the exact relationship between `CCTOOLS_ENC_CACHE (per-run encoding memo)` and `Hermetic Test Principle (no network, stubbed CLIs)`?**
   _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
 - **Why does `userConfig` connect `Graphify Branch Setting` to `userConfig Schema Fields`, `Community 69`, `Community 70`, `Plugin Manifest`, `Community 43`, `Community 44`, `Community 45`, `Community 46`, `CodeRabbit CI Setting`, `Community 47`, `Graphify PR Setting`, `Community 48`, `Community 49`, `Copilot Review Setting`?**
-  _High betweenness centrality (0.023) - this node is a cross-community bridge._
+  _High betweenness centrality (0.022) - this node is a cross-community bridge._
 - **Why does `cctools_scan_command (orchestration)` connect `Bash Guard Pipeline` to `Plugin Marketplace Conventions`?**
-  _High betweenness centrality (0.007) - this node is a cross-community bridge._
+  _High betweenness centrality (0.006) - this node is a cross-community bridge._
 - **What connects `name`, `name`, `email` to the rest of the system?**
-  _263 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _274 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Bash Guard Pipeline` be split into smaller, more focused modules?**
   _Cohesion score 0.13105413105413105 - nodes in this community are weakly interconnected._
 - **Should `Plugin Marketplace Conventions` be split into smaller, more focused modules?**

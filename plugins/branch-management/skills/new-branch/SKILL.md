@@ -34,29 +34,17 @@ steps yourself.
    current value: `${user_config.graphify_branch_update}`. ONLY the
    literal value `false` disables (fail-open: `true`, empty, or an
    uninterpolated placeholder all mean enabled).
-   - Disabled → skip this step; report mentions
-     `graphify disabled via settings`.
-   - Enabled → resolve `${CLAUDE_PLUGIN_ROOT}` to a concrete absolute
-     path first (e.g. `echo "${CLAUDE_PLUGIN_ROOT}"`), then dispatch
-     `branch-management:graphify-agent` (Agent tool) with: the absolute
-     path of `<plugin-root>/scripts/graphify-update.sh`, `commit: no`,
-     `force` from the `graphify_force_create` toggle — current
-     value: `${user_config.graphify_force_create}` — and `user_files`
-     from the `graphify_user_files` toggle — current value:
-     `${user_config.graphify_user_files}`. Both toggles are
-     FAIL-CLOSED, inverted from every other toggle: ONLY the literal
-     value `true` means `force: yes` / `user_files: yes`; `false`,
-     empty, or an uninterpolated placeholder all mean no — a
-     placeholder must never create a folder, and the graphify output
-     serves agents, so human-only files (graph.html) are pruned unless
-     explicitly kept.
-   - Soft-fail: every agent status (`updated`, `skipped_no_cli`,
-     `skipped_no_dir`, `failed`) only feeds the report — never abort
-     the skill. Updated files stay uncommitted on the fresh branch;
-     mention that in the report when the agent reports `updated` —
-     and note that this dirty `graphify-out` will trip the
-     clean-tree guard on the next new-branch run (commit or stash
-     it first).
+   - Disabled → skip; report `graphify disabled via settings`.
+   - Enabled → invoke the `branch-management:graphify-update` skill
+     (Skill tool) with no arguments. The sub-skill reads
+     `graphify_force_create` and `graphify_user_files` toggles itself
+     and never commits (commit is caller-explicit and new-branch always
+     omits `--commit`).
+   - Soft-fail: every status (`updated`, `skipped_no_cli`,
+     `skipped_no_dir`, `failed`) only feeds the report — never abort.
+     When status is `updated`, note that `graphify-out` files are left
+     uncommitted on the fresh branch; they will trip the clean-tree guard
+     on the next `new-branch` run (commit or stash them first).
 
 4. **context-mode indexing.** Gated by the `context_index` toggle —
    current value: `${user_config.context_index}`. ONLY the literal value

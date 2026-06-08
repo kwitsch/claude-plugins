@@ -2,6 +2,7 @@
 name: copilot-reviewer
 description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management new-pr skill. Runs the bundled copilot-review.sh script against a base branch and returns structured review findings as JSON.
 model: haiku
+effort: low
 color: cyan
 tools: ["Bash", "ToolSearch", "mcp__plugin_context-mode_context-mode__*", "mcp__context-mode__*"]
 ---
