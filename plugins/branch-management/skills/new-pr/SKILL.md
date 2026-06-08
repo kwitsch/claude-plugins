@@ -76,9 +76,9 @@ read in preconditions (step 4).
    graphify files (see step 9). `ci_watch_timeout` is numeric:
    use the literal value only when it is a positive whole-number value;
    otherwise fall back to `1800`. `ci_monitor` gates the whole monitor
-   loop (steps 11–13), while `coderabbit_ci_comments` only suppresses
-   CodeRabbit comment collection within step 11. `graphify_pr_update`
-   gates the graphify refresh in the Submit stage (step 7) and
+   loop (steps 13–15), while `coderabbit_ci_comments` only suppresses
+   CodeRabbit comment collection within step 13. `graphify_pr_update`
+   gates the graphify refresh in the Submit stage (step 9) and
    `graphify_pr_commit` its separate commit.
 
    Review toggles (`review_claude/codex/copilot/coderabbit`),
