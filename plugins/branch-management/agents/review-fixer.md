@@ -57,6 +57,34 @@ Only if the ctx_* tools are genuinely unavailable after the bootstrap
    finish (a dirty `graphify-out/` is the one allowed exception, see
    rule 4). Never push; the dispatching skill owns the push.
 
+## Memory
+
+Before emitting the result JSON, write one rejection record per `resolution: "skipped"` finding so that claude-reviewer can suppress the same false positive on future PRs. If any step below fails (git error, disk full, permissions), skip silently — memory failures must never affect the result JSON.
+
+1. Resolve `$project_root` via Bash: `git rev-parse --show-toplevel`
+2. `mkdir -p "$project_root/.claude/agent-memory/claude-reviewer/rejections/"`
+3. For each skipped finding, derive values:
+   - `title_keywords`: lowercase the finding's `title`; remove stopwords (`a an the in of for is are to`); keep max 5 remaining words.
+   - `file_dir`: `dirname(finding.file)` — use `"."` for top-level files (no directory component).
+   - `title_lc`: finding's `title` lowercased.
+   - `sha8`: first 8 hex characters of `sha256(title_lc + ":" + file_dir)` (UTF-8 input).
+   - `title_slug`: first 20 characters of the title lowercased with non-alphanumeric runs replaced by `-`.
+   - `filename`: `<title_slug>-<sha8>.json`
+4. Write to `"$project_root/.claude/agent-memory/claude-reviewer/rejections/<filename>"` using the `Write` tool:
+
+```json
+{
+  "version": 1,
+  "title_keywords": ["<word1>", "<word2>"],
+  "file_dir": "<dirname or .>",
+  "reason": "<the one-line reason from your resolution>",
+  "finding_title": "<original title unchanged>",
+  "added": "<ISO 8601 UTC timestamp, e.g. 2026-06-08T10:00:00Z>"
+}
+```
+
+Overwriting an existing file (same sha8 = same finding in same directory) is intentional — it refreshes the reason and timestamp.
+
 ## Result contract
 
 Return ONLY this JSON as your final message:
