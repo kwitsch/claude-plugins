@@ -20,7 +20,9 @@ Parse `$ARGUMENTS`:
 - `--base <branch>`: use the supplied value as `$base`. When absent,
   extract the value on the `detected_base:` line from the git context
   above. If still empty, abort and tell caller to supply `--base`.
-- `--rounds N`: parse as a positive integer; use as `$max_rounds`.
+- `--rounds N`: parse as a positive integer; use as `$max_rounds`;
+  if empty, non-numeric, or invalid use `3`; clamp to minimum `1`
+  (so `--rounds 0` / `--rounds -2` fall back to `1`).
   When absent, read `${user_config.review_max_rounds}`: parse as a
   positive integer; if empty, uninterpolated placeholder, or invalid,
   use `3`; clamp to minimum `1`.
@@ -118,8 +120,10 @@ Return a structured summary:
 - Rounds run / cap
 - Findings fixed (by round)
 - Open findings (if any — hand to user)
-- Disabled reviewers (via settings / quota-limited with reset epoch /
-  diverged base)
+- Disabled reviewers (via settings / quota-limited with reset time /
+  diverged base) — format each quota reset epoch as HH:MM via
+  `"$quota_sh" format_time <epoch>` before emitting; never surface the
+  raw Unix timestamp
 - Degradation notes (partial review, Bash fallback, etc.)
 
 Report DONE with summary, or BLOCKED if something prevents completion.
