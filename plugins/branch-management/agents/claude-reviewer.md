@@ -30,17 +30,17 @@ clean review.
 
 ## Memory suppression
 
-After gathering the diff (step 2 of Tooling) and before composing the findings list, suppress known false positives from prior PR runs:
+After completing the diff-gather step described in `## Tooling` below, and before composing the findings list, suppress known false positives from prior PR runs:
 
 1. Resolve `$project_root` via Bash: `git rev-parse --show-toplevel`. If this fails, skip suppression entirely and continue.
 2. Glob `"$project_root/.claude/agent-memory/claude-reviewer/rejections/*.json"` using the `Glob` tool. If the directory does not exist or the glob returns nothing, skip suppression entirely and continue.
 3. Read and parse each matched file with the `Read` tool. Skip any file that is missing, empty, or not valid JSON — never abort the review over a bad record.
 4. For each finding in your candidate list, test against every loaded record:
    - **Keyword condition:** ≥ 2 of the record's `title_keywords` appear as substrings in the finding's `title` (case-insensitive).
-   - **Directory condition:** `dirname(finding.file)` equals the record's `file_dir`, OR starts with `file_dir + "/"` (subdirectory), OR the record's `file_dir` is `"."` (matches any file). Plain string prefix is not sufficient — `"src"` must not match `"src-utils/foo.ts"`.
+   - **Directory condition:** `dirname(finding.file)` (paths in `finding.file` are always repo-root-relative forward-slash paths as produced by `git diff`; a bare filename like `foo.ts` gives `dirname` = `"."`) equals the record's `file_dir`, OR starts with `file_dir + "/"` (subdirectory), OR the record's `file_dir` is `"."` (matches any file). Plain string prefix is not sufficient — `"src"` must not match `"src-utils/foo.ts"`.
    - **Match:** both conditions hold simultaneously.
 5. Remove every matched finding from the output list.
-6. If N ≥ 1 findings were removed, append to the top-level `error` string: `suppressed N known-false-positive(s) from memory`. Use `error: "suppressed N known-false-positive(s) from memory"` if no other error exists; otherwise append with ` | `.
+6. If N ≥ 1 findings were removed, append to the top-level `error` string: `suppressed N known-false-positive(s) from memory`. Use `error: "suppressed N known-false-positive(s) from memory"` if no other error exists; otherwise append with ` | `. Append this note last — after any partial-review or degradation notes already in `error`.
 
 The two-condition match is intentional — a single keyword hit is not enough to suppress a finding.
 
