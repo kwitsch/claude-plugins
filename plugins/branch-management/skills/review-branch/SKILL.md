@@ -126,4 +126,21 @@ Return a structured summary:
   raw Unix timestamp
 - Degradation notes (partial review, Bash fallback, etc.)
 
-Report DONE with summary, or BLOCKED if something prevents completion.
+Lead that summary with a terminal-state token — exactly `DONE` or
+`BLOCKED` as the first token of its first line, nothing else — so the
+caller (new-pr step 6) can gate machine-readably without parsing prose.
+Map every terminal path to one of these two tokens:
+
+- **DONE** (safe to push):
+  - converged clean — a round came back quiet with no open findings;
+  - no reviewer enabled / dispatch set empty (all toggled off, all
+    quota-limited, or all diverged) — nothing was reviewable, treated
+    as pushable consistent with the all-disabled design.
+  - A partial-review degradation still reports DONE — flag it
+    prominently in the summary, but it does not block the push.
+- **BLOCKED** (caller must NOT push):
+  - round `$max_rounds` ended with open findings still red (the
+    no-fixer-without-verification stop above);
+  - no review source succeeded after the single retry.
+
+Follow the token with the summary on subsequent lines.

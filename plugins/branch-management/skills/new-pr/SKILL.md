@@ -94,9 +94,12 @@ read in preconditions (step 4).
    checks autonomously. It also handles the base-divergence check for
    coderabbit (performed independently from step 2).
 
-   If `review-branch` stops with open findings (max rounds reached or
-   no review source succeeded), do not proceed to Submit — surface the
-   findings and any unpushed fix commits to the user as-is.
+   `review-branch`'s report leads with a terminal-state token — `DONE`
+   or `BLOCKED` as the first token of its first line. If that token is
+   `BLOCKED` (round cap reached with open findings, or no review source
+   succeeded), do not proceed to Submit — surface the findings and any
+   unpushed fix commits to the user as-is. Only `DONE` continues to
+   Submit.
 
    (Former steps 7–8 — per-round dispatch and the fix loop — now live
    inside the `review-branch` sub-skill, so numbering continues at 9;
