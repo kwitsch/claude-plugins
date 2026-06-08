@@ -866,3 +866,35 @@ run_ci_watch() {
   assert_success
   assert_output --partial "no pipeline"
 }
+
+# --- effort: low assertions ---
+
+@test "branch-agent has effort: low" {
+  grep -q '^effort: low' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/branch-agent.md"
+}
+
+@test "graphify-agent has effort: low" {
+  grep -q '^effort: low' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/graphify-agent.md"
+}
+
+@test "codex-reviewer has effort: low" {
+  grep -q '^effort: low' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/codex-reviewer.md"
+}
+
+@test "copilot-reviewer has effort: low" {
+  grep -q '^effort: low' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/copilot-reviewer.md"
+}
+
+@test "coderabbit-reviewer has effort: low" {
+  grep -q '^effort: low' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/coderabbit-reviewer.md"
+}
+
+@test "ci-monitor has effort: low" {
+  grep -q '^effort: low' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/ci-monitor.md"
+}
