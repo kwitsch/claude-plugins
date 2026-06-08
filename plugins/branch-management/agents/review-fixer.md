@@ -59,12 +59,12 @@ Only if the ctx_* tools are genuinely unavailable after the bootstrap
 
 ## Memory
 
-Before emitting the result JSON, write one rejection record per `resolution: "skipped"` finding so that claude-reviewer can suppress the same false positive on future PRs. If any step below fails (git error, disk full, permissions), skip silently — memory failures must never affect the result JSON.
+Before emitting the result JSON, write one rejection record per `resolution: "skipped"` finding that has a non-empty `file` field, so that claude-reviewer can suppress the same false positive on future PRs. Skip findings with no `file` field (CI failure analyses have no source location and must not be written to memory). If any step below fails (git error, disk full, permissions), skip silently — memory failures must never affect the result JSON.
 
 1. Resolve `$project_root` via Bash: `git rev-parse --show-toplevel`
 2. `mkdir -p "$project_root/.claude/agent-memory/claude-reviewer/rejections/"`
 3. For each skipped finding, derive values:
-   - `title_keywords`: lowercase the finding's `title`; remove stopwords (`a an the in of for is are to`); keep max 5 remaining words.
+   - `title_keywords`: split the finding's `title` into words (split on whitespace and punctuation); lowercase each word; remove exact-match stopwords (`a`, `an`, `the`, `in`, `of`, `for`, `is`, `are`, `to`); keep the first 5 remaining words in their original order.
    - `file_dir`: `dirname(finding.file)` — use `"."` for top-level files (no directory component) and for findings with no `file` field (e.g. CI failure analyses).
    - `title_lc`: finding's `title` lowercased.
    - `sha8`: run via Bash: `printf '%s' "<title_lc>:<file_dir>" | sha256sum | cut -c1-8` (substitute actual values for `<title_lc>` and `<file_dir>`).
