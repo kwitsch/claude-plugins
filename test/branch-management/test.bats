@@ -898,3 +898,24 @@ run_ci_watch() {
   grep -q '^effort: low' \
     "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/ci-monitor.md"
 }
+
+# --- graphify-update skill ---
+
+@test "graphify-update SKILL.md exists" {
+  [ -f "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/graphify-update/SKILL.md" ]
+}
+
+@test "graphify-update has context: fork" {
+  grep -q '^context: fork' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/graphify-update/SKILL.md"
+}
+
+@test "graphify-update has model: haiku" {
+  grep -q '^model: haiku' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/graphify-update/SKILL.md"
+}
+
+@test "graphify-update has effort: low" {
+  grep -q '^effort: low' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/graphify-update/SKILL.md"
+}
