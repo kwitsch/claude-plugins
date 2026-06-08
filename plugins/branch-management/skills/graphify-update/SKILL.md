@@ -6,7 +6,7 @@ context: fork
 model: haiku
 effort: low
 disable-model-invocation: true
-allowed-tools: ["Agent"]
+allowed-tools: ["Agent", "Bash(echo:*)"]
 ---
 
 Refresh the graphify output for the current repository.
