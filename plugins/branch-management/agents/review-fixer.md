@@ -65,12 +65,12 @@ Before emitting the result JSON, write one rejection record per `resolution: "sk
 2. `mkdir -p "$project_root/.claude/agent-memory/claude-reviewer/rejections/"`
 3. For each skipped finding, derive values:
    - `title_keywords`: lowercase the finding's `title`; remove stopwords (`a an the in of for is are to`); keep max 5 remaining words.
-   - `file_dir`: `dirname(finding.file)` — use `"."` for top-level files (no directory component).
+   - `file_dir`: `dirname(finding.file)` — use `"."` for top-level files (no directory component) and for findings with no `file` field (e.g. CI failure analyses).
    - `title_lc`: finding's `title` lowercased.
-   - `sha8`: first 8 hex characters of `sha256(title_lc + ":" + file_dir)` (UTF-8 input).
-   - `title_slug`: first 20 characters of the title lowercased with non-alphanumeric runs replaced by `-`.
+   - `sha8`: run via Bash: `printf '%s' "<title_lc>:<file_dir>" | sha256sum | cut -c1-8` (substitute actual values for `<title_lc>` and `<file_dir>`).
+   - `title_slug`: title lowercased, non-alphanumeric runs replaced by `-`, truncated to 20 characters, trailing `-` stripped.
    - `filename`: `<title_slug>-<sha8>.json`
-4. Write to `"$project_root/.claude/agent-memory/claude-reviewer/rejections/<filename>"` using the `Write` tool:
+4. Use the `Write` tool (not Bash) to write to `"$project_root/.claude/agent-memory/claude-reviewer/rejections/<filename>"`:
 
 ```json
 {
@@ -84,6 +84,7 @@ Before emitting the result JSON, write one rejection record per `resolution: "sk
 ```
 
 Overwriting an existing file (same sha8 = same finding in same directory) is intentional — it refreshes the reason and timestamp.
+Do not write memory records for `resolution: "fixed"` findings — only `"skipped"` ones.
 
 ## Result contract
 
