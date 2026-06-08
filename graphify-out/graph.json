@@ -207,6 +207,24 @@
       "norm_label": "pretooluse"
     },
     {
+      "label": "settings.local.json",
+      "file_type": "code",
+      "source_file": ".claude/settings.local.json",
+      "source_location": "L1",
+      "id": "claude_settings_local",
+      "community": 71,
+      "norm_label": "settings.local.json"
+    },
+    {
+      "label": "spinnerTipsEnabled",
+      "file_type": "code",
+      "source_file": ".claude/settings.local.json",
+      "source_location": "L2",
+      "id": "claude_settings_local_spinnertipsenabled",
+      "community": 71,
+      "norm_label": "spinnertipsenabled"
+    },
+    {
       "label": "package.json",
       "file_type": "code",
       "source_file": "package.json",
@@ -500,7 +518,7 @@
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
       "source_location": "L14",
       "id": "claude_plugin_plugin_userconfig",
-      "community": 15,
+      "community": 16,
       "norm_label": "userconfig"
     },
     {
@@ -729,10 +747,55 @@
       "norm_label": "default"
     },
     {
-      "label": "context_index",
+      "label": "ci_watch_timeout",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
       "source_location": "L45",
+      "id": "claude_plugin_plugin_userconfig_ci_watch_timeout",
+      "community": 69,
+      "norm_label": "ci_watch_timeout"
+    },
+    {
+      "label": "type",
+      "file_type": "code",
+      "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
+      "source_location": "L46",
+      "id": "claude_plugin_plugin_ci_watch_timeout_type",
+      "community": 69,
+      "norm_label": "type"
+    },
+    {
+      "label": "title",
+      "file_type": "code",
+      "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
+      "source_location": "L47",
+      "id": "claude_plugin_plugin_ci_watch_timeout_title",
+      "community": 69,
+      "norm_label": "title"
+    },
+    {
+      "label": "description",
+      "file_type": "code",
+      "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
+      "source_location": "L48",
+      "id": "claude_plugin_plugin_ci_watch_timeout_description",
+      "community": 69,
+      "norm_label": "description"
+    },
+    {
+      "label": "default",
+      "file_type": "code",
+      "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
+      "source_location": "L49",
+      "id": "claude_plugin_plugin_ci_watch_timeout_default",
+      "community": 69,
+      "norm_label": "default"
+    },
+    {
+      "label": "context_index",
+      "file_type": "code",
+      "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
+      "source_location": "L51",
       "id": "claude_plugin_plugin_userconfig_context_index",
       "community": 43,
       "norm_label": "context_index"
@@ -741,7 +804,7 @@
       "label": "type",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L46",
+      "source_location": "L52",
       "id": "claude_plugin_plugin_context_index_type",
       "community": 43,
       "norm_label": "type"
@@ -750,7 +813,7 @@
       "label": "title",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L47",
+      "source_location": "L53",
       "id": "claude_plugin_plugin_context_index_title",
       "community": 43,
       "norm_label": "title"
@@ -759,7 +822,7 @@
       "label": "description",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L48",
+      "source_location": "L54",
       "id": "claude_plugin_plugin_context_index_description",
       "community": 43,
       "norm_label": "description"
@@ -768,7 +831,7 @@
       "label": "default",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L49",
+      "source_location": "L55",
       "id": "claude_plugin_plugin_context_index_default",
       "community": 43,
       "norm_label": "default"
@@ -777,7 +840,7 @@
       "label": "coderabbit_ci_comments",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L51",
+      "source_location": "L57",
       "id": "claude_plugin_plugin_userconfig_coderabbit_ci_comments",
       "community": 15,
       "norm_label": "coderabbit_ci_comments"
@@ -786,7 +849,7 @@
       "label": "type",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L52",
+      "source_location": "L58",
       "id": "claude_plugin_plugin_coderabbit_ci_comments_type",
       "community": 15,
       "norm_label": "type"
@@ -795,7 +858,7 @@
       "label": "title",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L53",
+      "source_location": "L59",
       "id": "claude_plugin_plugin_coderabbit_ci_comments_title",
       "community": 15,
       "norm_label": "title"
@@ -804,7 +867,7 @@
       "label": "description",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L54",
+      "source_location": "L60",
       "id": "claude_plugin_plugin_coderabbit_ci_comments_description",
       "community": 15,
       "norm_label": "description"
@@ -813,7 +876,7 @@
       "label": "default",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L55",
+      "source_location": "L61",
       "id": "claude_plugin_plugin_coderabbit_ci_comments_default",
       "community": 15,
       "norm_label": "default"
@@ -822,7 +885,7 @@
       "label": "graphify_branch_update",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L57",
+      "source_location": "L63",
       "id": "claude_plugin_plugin_userconfig_graphify_branch_update",
       "community": 16,
       "norm_label": "graphify_branch_update"
@@ -831,7 +894,7 @@
       "label": "type",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L58",
+      "source_location": "L64",
       "id": "claude_plugin_plugin_graphify_branch_update_type",
       "community": 16,
       "norm_label": "type"
@@ -840,7 +903,7 @@
       "label": "title",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L59",
+      "source_location": "L65",
       "id": "claude_plugin_plugin_graphify_branch_update_title",
       "community": 16,
       "norm_label": "title"
@@ -849,7 +912,7 @@
       "label": "description",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L60",
+      "source_location": "L66",
       "id": "claude_plugin_plugin_graphify_branch_update_description",
       "community": 16,
       "norm_label": "description"
@@ -858,7 +921,7 @@
       "label": "default",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L61",
+      "source_location": "L67",
       "id": "claude_plugin_plugin_graphify_branch_update_default",
       "community": 16,
       "norm_label": "default"
@@ -867,7 +930,7 @@
       "label": "graphify_force_create",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L63",
+      "source_location": "L69",
       "id": "claude_plugin_plugin_userconfig_graphify_force_create",
       "community": 44,
       "norm_label": "graphify_force_create"
@@ -876,7 +939,7 @@
       "label": "type",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L64",
+      "source_location": "L70",
       "id": "claude_plugin_plugin_graphify_force_create_type",
       "community": 44,
       "norm_label": "type"
@@ -885,7 +948,7 @@
       "label": "title",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L65",
+      "source_location": "L71",
       "id": "claude_plugin_plugin_graphify_force_create_title",
       "community": 44,
       "norm_label": "title"
@@ -894,7 +957,7 @@
       "label": "description",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L66",
+      "source_location": "L72",
       "id": "claude_plugin_plugin_graphify_force_create_description",
       "community": 44,
       "norm_label": "description"
@@ -903,7 +966,7 @@
       "label": "default",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L67",
+      "source_location": "L73",
       "id": "claude_plugin_plugin_graphify_force_create_default",
       "community": 44,
       "norm_label": "default"
@@ -912,7 +975,7 @@
       "label": "graphify_pr_update",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L69",
+      "source_location": "L75",
       "id": "claude_plugin_plugin_userconfig_graphify_pr_update",
       "community": 17,
       "norm_label": "graphify_pr_update"
@@ -921,7 +984,7 @@
       "label": "type",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L70",
+      "source_location": "L76",
       "id": "claude_plugin_plugin_graphify_pr_update_type",
       "community": 17,
       "norm_label": "type"
@@ -930,7 +993,7 @@
       "label": "title",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L71",
+      "source_location": "L77",
       "id": "claude_plugin_plugin_graphify_pr_update_title",
       "community": 17,
       "norm_label": "title"
@@ -939,7 +1002,7 @@
       "label": "description",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L72",
+      "source_location": "L78",
       "id": "claude_plugin_plugin_graphify_pr_update_description",
       "community": 17,
       "norm_label": "description"
@@ -948,7 +1011,7 @@
       "label": "default",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L73",
+      "source_location": "L79",
       "id": "claude_plugin_plugin_graphify_pr_update_default",
       "community": 17,
       "norm_label": "default"
@@ -957,7 +1020,7 @@
       "label": "graphify_pr_commit",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L75",
+      "source_location": "L81",
       "id": "claude_plugin_plugin_userconfig_graphify_pr_commit",
       "community": 45,
       "norm_label": "graphify_pr_commit"
@@ -966,7 +1029,7 @@
       "label": "type",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L76",
+      "source_location": "L82",
       "id": "claude_plugin_plugin_graphify_pr_commit_type",
       "community": 45,
       "norm_label": "type"
@@ -975,7 +1038,7 @@
       "label": "title",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L77",
+      "source_location": "L83",
       "id": "claude_plugin_plugin_graphify_pr_commit_title",
       "community": 45,
       "norm_label": "title"
@@ -984,7 +1047,7 @@
       "label": "description",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L78",
+      "source_location": "L84",
       "id": "claude_plugin_plugin_graphify_pr_commit_description",
       "community": 45,
       "norm_label": "description"
@@ -993,7 +1056,7 @@
       "label": "default",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L79",
+      "source_location": "L85",
       "id": "claude_plugin_plugin_graphify_pr_commit_default",
       "community": 45,
       "norm_label": "default"
@@ -1002,7 +1065,7 @@
       "label": "graphify_user_files",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L81",
+      "source_location": "L87",
       "id": "claude_plugin_plugin_userconfig_graphify_user_files",
       "community": 46,
       "norm_label": "graphify_user_files"
@@ -1011,7 +1074,7 @@
       "label": "type",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L82",
+      "source_location": "L88",
       "id": "claude_plugin_plugin_graphify_user_files_type",
       "community": 46,
       "norm_label": "type"
@@ -1020,7 +1083,7 @@
       "label": "title",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L83",
+      "source_location": "L89",
       "id": "claude_plugin_plugin_graphify_user_files_title",
       "community": 46,
       "norm_label": "title"
@@ -1029,7 +1092,7 @@
       "label": "description",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L84",
+      "source_location": "L90",
       "id": "claude_plugin_plugin_graphify_user_files_description",
       "community": 46,
       "norm_label": "description"
@@ -1038,9 +1101,54 @@
       "label": "default",
       "file_type": "code",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
-      "source_location": "L85",
+      "source_location": "L91",
       "id": "claude_plugin_plugin_graphify_user_files_default",
       "community": 46,
+      "norm_label": "default"
+    },
+    {
+      "label": "review_max_rounds",
+      "file_type": "code",
+      "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
+      "source_location": "L93",
+      "id": "claude_plugin_plugin_userconfig_review_max_rounds",
+      "community": 70,
+      "norm_label": "review_max_rounds"
+    },
+    {
+      "label": "type",
+      "file_type": "code",
+      "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
+      "source_location": "L94",
+      "id": "claude_plugin_plugin_review_max_rounds_type",
+      "community": 70,
+      "norm_label": "type"
+    },
+    {
+      "label": "title",
+      "file_type": "code",
+      "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
+      "source_location": "L95",
+      "id": "claude_plugin_plugin_review_max_rounds_title",
+      "community": 70,
+      "norm_label": "title"
+    },
+    {
+      "label": "description",
+      "file_type": "code",
+      "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
+      "source_location": "L96",
+      "id": "claude_plugin_plugin_review_max_rounds_description",
+      "community": 70,
+      "norm_label": "description"
+    },
+    {
+      "label": "default",
+      "file_type": "code",
+      "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
+      "source_location": "L97",
+      "id": "claude_plugin_plugin_review_max_rounds_default",
+      "community": 70,
       "norm_label": "default"
     },
     {
@@ -1105,7 +1213,7 @@
         "kind": "file"
       },
       "id": "scripts_coderabbit_review",
-      "community": 4,
+      "community": 68,
       "norm_label": "coderabbit-review.sh"
     },
     {
@@ -1118,7 +1226,7 @@
         "kind": "bash_entrypoint"
       },
       "id": "mnt_c_repos_claude_plugins_plugins_branch_management_scripts_coderabbit_review_sh__entry",
-      "community": 4,
+      "community": 68,
       "norm_label": "coderabbit-review.sh script"
     },
     {
@@ -1131,7 +1239,7 @@
         "kind": "file"
       },
       "id": "scripts_codex_review",
-      "community": 4,
+      "community": 68,
       "norm_label": "codex-review.sh"
     },
     {
@@ -1144,7 +1252,7 @@
         "kind": "bash_entrypoint"
       },
       "id": "mnt_c_repos_claude_plugins_plugins_branch_management_scripts_codex_review_sh__entry",
-      "community": 4,
+      "community": 68,
       "norm_label": "codex-review.sh script"
     },
     {
@@ -1157,7 +1265,7 @@
         "kind": "file"
       },
       "id": "scripts_copilot_review",
-      "community": 4,
+      "community": 68,
       "norm_label": "copilot-review.sh"
     },
     {
@@ -1170,7 +1278,7 @@
         "kind": "bash_entrypoint"
       },
       "id": "mnt_c_repos_claude_plugins_plugins_branch_management_scripts_copilot_review_sh__entry",
-      "community": 4,
+      "community": 68,
       "norm_label": "copilot-review.sh script"
     },
     {
@@ -1183,7 +1291,7 @@
         "kind": "bash_function"
       },
       "id": "scripts_copilot_review_has_copilot_login",
-      "community": 4,
+      "community": 68,
       "norm_label": "has_copilot_login()"
     },
     {
@@ -1196,7 +1304,7 @@
         "kind": "bash_function"
       },
       "id": "scripts_copilot_review_has_gh_login",
-      "community": 4,
+      "community": 68,
       "norm_label": "has_gh_login()"
     },
     {
@@ -1224,6 +1332,32 @@
       "id": "mnt_c_repos_claude_plugins_plugins_branch_management_scripts_graphify_update_sh__entry",
       "community": 4,
       "norm_label": "graphify-update.sh script"
+    },
+    {
+      "label": "quota-state.sh",
+      "file_type": "code",
+      "source_file": "plugins/branch-management/scripts/quota-state.sh",
+      "source_location": "L1",
+      "metadata": {
+        "language": "bash",
+        "kind": "file"
+      },
+      "id": "scripts_quota_state",
+      "community": 72,
+      "norm_label": "quota-state.sh"
+    },
+    {
+      "label": "quota-state.sh script",
+      "file_type": "code",
+      "source_file": "plugins/branch-management/scripts/quota-state.sh",
+      "source_location": "L1",
+      "metadata": {
+        "language": "bash",
+        "kind": "bash_entrypoint"
+      },
+      "id": "mnt_c_repos_claude_plugins_plugins_branch_management_scripts_quota_state_sh__entry",
+      "community": 72,
+      "norm_label": "quota-state.sh script"
     },
     {
       "label": "plugin.json",
@@ -2753,31 +2887,31 @@
       "norm_label": "claude-plugins"
     },
     {
-      "label": "Add a plugin",
+      "label": "Install",
       "file_type": "document",
       "source_file": "README.md",
       "source_location": "L5",
-      "id": "readme_add_a_plugin",
+      "id": "readme_install",
       "community": 51,
-      "norm_label": "add a plugin"
+      "norm_label": "install"
     },
     {
       "label": "Plugins",
       "file_type": "document",
       "source_file": "README.md",
-      "source_location": "L12",
+      "source_location": "L11",
       "id": "readme_plugins",
       "community": 51,
       "norm_label": "plugins"
     },
     {
-      "label": "Use the marketplace",
+      "label": "Configure plugins",
       "file_type": "document",
       "source_file": "README.md",
-      "source_location": "L21",
-      "id": "readme_use_the_marketplace",
+      "source_location": "L20",
+      "id": "readme_configure_plugins",
       "community": 51,
-      "norm_label": "use the marketplace"
+      "norm_label": "configure plugins"
     },
     {
       "label": "CLAUDE.md",
@@ -2855,7 +2989,7 @@
       "label": "Conventions",
       "file_type": "document",
       "source_file": "plugins/branch-management/CLAUDE.md",
-      "source_location": "L77",
+      "source_location": "L84",
       "id": "branch_management_claude_conventions",
       "community": 41,
       "norm_label": "conventions"
@@ -2864,7 +2998,7 @@
       "label": "Tests",
       "file_type": "document",
       "source_file": "plugins/branch-management/CLAUDE.md",
-      "source_location": "L85",
+      "source_location": "L92",
       "id": "branch_management_claude_tests",
       "community": 41,
       "norm_label": "tests"
@@ -2927,7 +3061,7 @@
       "label": "Breaking change in v3.0.0",
       "file_type": "document",
       "source_file": "plugins/branch-management/README.md",
-      "source_location": "L102",
+      "source_location": "L103",
       "id": "branch_management_readme_breaking_change_in_v3_0_0",
       "community": 30,
       "norm_label": "breaking change in v3.0.0"
@@ -2936,7 +3070,7 @@
       "label": "Review CLIs (all optional)",
       "file_type": "document",
       "source_file": "plugins/branch-management/README.md",
-      "source_location": "L111",
+      "source_location": "L112",
       "id": "branch_management_readme_review_clis_all_optional",
       "community": 30,
       "norm_label": "review clis (all optional)"
@@ -2945,7 +3079,7 @@
       "label": "Scripts",
       "file_type": "document",
       "source_file": "plugins/branch-management/README.md",
-      "source_location": "L122",
+      "source_location": "L123",
       "id": "branch_management_readme_scripts",
       "community": 30,
       "norm_label": "scripts"
@@ -3017,7 +3151,7 @@
       "label": "Result contract",
       "file_type": "document",
       "source_file": "plugins/branch-management/agents/ci-monitor.md",
-      "source_location": "L104",
+      "source_location": "L107",
       "id": "agents_ci_monitor_result_contract",
       "community": 53,
       "norm_label": "result contract"
@@ -3368,7 +3502,7 @@
       "label": "Review rounds",
       "file_type": "document",
       "source_file": "plugins/branch-management/skills/new-pr/SKILL.md",
-      "source_location": "L100",
+      "source_location": "L120",
       "id": "new_pr_skill_review_rounds",
       "community": 37,
       "norm_label": "review rounds"
@@ -3377,7 +3511,7 @@
       "label": "Submit",
       "file_type": "document",
       "source_file": "plugins/branch-management/skills/new-pr/SKILL.md",
-      "source_location": "L204",
+      "source_location": "L229",
       "id": "new_pr_skill_submit",
       "community": 37,
       "norm_label": "submit"
@@ -3386,7 +3520,7 @@
       "label": "Monitor until green",
       "file_type": "document",
       "source_file": "plugins/branch-management/skills/new-pr/SKILL.md",
-      "source_location": "L259",
+      "source_location": "L284",
       "id": "new_pr_skill_monitor_until_green",
       "community": 37,
       "norm_label": "monitor until green"
@@ -3779,6 +3913,24 @@
       "norm_label": "conventions"
     },
     {
+      "label": "Add a plugin",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": "L5",
+      "community": 51,
+      "norm_label": "add a plugin",
+      "id": "readme_add_a_plugin"
+    },
+    {
+      "label": "Use the marketplace",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": "L21",
+      "community": 51,
+      "norm_label": "use the marketplace",
+      "id": "readme_use_the_marketplace"
+    },
+    {
       "label": "kwitsch-plugins marketplace",
       "file_type": "document",
       "source_file": ".claude-plugin/marketplace.json",
@@ -3982,7 +4134,7 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 4,
+      "community": 68,
       "norm_label": "git-shim read-only git facade",
       "id": "git_shim_git_git_shim"
     },
@@ -3995,7 +4147,7 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 4,
+      "community": 68,
       "norm_label": "review script exit-code contract",
       "id": "scripts_review_exit_code_contract"
     },
@@ -4008,7 +4160,7 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 4,
+      "community": 68,
       "norm_label": "branch-management plugin design",
       "id": "claude_md_branch_management_design"
     },
@@ -4190,7 +4342,7 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 4,
+      "community": 68,
       "norm_label": "copilot login heuristic",
       "id": "copilot_login_heuristic"
     },
@@ -4203,7 +4355,7 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 4,
+      "community": 68,
       "norm_label": "copilot three-layer read-only hardening",
       "id": "copilot_readonly_hardening"
     },
@@ -5095,9 +5247,9 @@
       "source_file": ".claude/settings.json",
       "source_location": "L2",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "claude_settings",
-      "target": "claude_settings_hooks",
-      "confidence_score": 1.0
+      "target": "claude_settings_hooks"
     },
     {
       "relation": "contains",
@@ -5105,8 +5257,18 @@
       "source_file": ".claude/settings.json",
       "source_location": "L3",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "claude_settings_hooks",
-      "target": "claude_settings_hooks_pretooluse",
+      "target": "claude_settings_hooks_pretooluse"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": ".claude/settings.local.json",
+      "source_location": "L2",
+      "weight": 1.0,
+      "source": "claude_settings_local",
+      "target": "claude_settings_local_spinnertipsenabled",
       "confidence_score": 1.0
     },
     {
@@ -5433,6 +5595,16 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
+      "source_location": "L45",
+      "weight": 1.0,
+      "source": "claude_plugin_plugin_userconfig",
+      "target": "claude_plugin_plugin_userconfig_ci_watch_timeout",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
       "source_location": "L51",
       "weight": 1.0,
       "confidence_score": 1.0,
@@ -5495,9 +5667,9 @@
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
       "source_location": "L81",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "claude_plugin_plugin_userconfig",
-      "target": "claude_plugin_plugin_userconfig_graphify_user_files",
-      "confidence_score": 1.0
+      "target": "claude_plugin_plugin_userconfig_graphify_user_files"
     },
     {
       "relation": "contains",
@@ -5538,6 +5710,16 @@
       "confidence_score": 1.0,
       "source": "claude_plugin_plugin_userconfig",
       "target": "claude_plugin_plugin_userconfig_review_copilot"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
+      "source_location": "L93",
+      "weight": 1.0,
+      "source": "claude_plugin_plugin_userconfig",
+      "target": "claude_plugin_plugin_userconfig_review_max_rounds",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -5738,6 +5920,46 @@
       "confidence_score": 1.0,
       "source": "claude_plugin_plugin_userconfig_ci_monitor",
       "target": "claude_plugin_plugin_ci_monitor_type"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
+      "source_location": "L49",
+      "weight": 1.0,
+      "source": "claude_plugin_plugin_userconfig_ci_watch_timeout",
+      "target": "claude_plugin_plugin_ci_watch_timeout_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
+      "source_location": "L48",
+      "weight": 1.0,
+      "source": "claude_plugin_plugin_userconfig_ci_watch_timeout",
+      "target": "claude_plugin_plugin_ci_watch_timeout_description",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
+      "source_location": "L47",
+      "weight": 1.0,
+      "source": "claude_plugin_plugin_userconfig_ci_watch_timeout",
+      "target": "claude_plugin_plugin_ci_watch_timeout_title",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
+      "source_location": "L46",
+      "weight": 1.0,
+      "source": "claude_plugin_plugin_userconfig_ci_watch_timeout",
+      "target": "claude_plugin_plugin_ci_watch_timeout_type",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -5985,9 +6207,9 @@
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
       "source_location": "L85",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "claude_plugin_plugin_userconfig_graphify_user_files",
-      "target": "claude_plugin_plugin_graphify_user_files_default",
-      "confidence_score": 1.0
+      "target": "claude_plugin_plugin_graphify_user_files_default"
     },
     {
       "relation": "contains",
@@ -5995,9 +6217,9 @@
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
       "source_location": "L84",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "claude_plugin_plugin_userconfig_graphify_user_files",
-      "target": "claude_plugin_plugin_graphify_user_files_description",
-      "confidence_score": 1.0
+      "target": "claude_plugin_plugin_graphify_user_files_description"
     },
     {
       "relation": "contains",
@@ -6005,9 +6227,9 @@
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
       "source_location": "L83",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "claude_plugin_plugin_userconfig_graphify_user_files",
-      "target": "claude_plugin_plugin_graphify_user_files_title",
-      "confidence_score": 1.0
+      "target": "claude_plugin_plugin_graphify_user_files_title"
     },
     {
       "relation": "contains",
@@ -6015,8 +6237,48 @@
       "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
       "source_location": "L82",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "claude_plugin_plugin_userconfig_graphify_user_files",
-      "target": "claude_plugin_plugin_graphify_user_files_type",
+      "target": "claude_plugin_plugin_graphify_user_files_type"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
+      "source_location": "L97",
+      "weight": 1.0,
+      "source": "claude_plugin_plugin_userconfig_review_max_rounds",
+      "target": "claude_plugin_plugin_review_max_rounds_default",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
+      "source_location": "L96",
+      "weight": 1.0,
+      "source": "claude_plugin_plugin_userconfig_review_max_rounds",
+      "target": "claude_plugin_plugin_review_max_rounds_description",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
+      "source_location": "L95",
+      "weight": 1.0,
+      "source": "claude_plugin_plugin_userconfig_review_max_rounds",
+      "target": "claude_plugin_plugin_review_max_rounds_title",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "plugins/branch-management/.claude-plugin/plugin.json",
+      "source_location": "L94",
+      "weight": 1.0,
+      "source": "claude_plugin_plugin_userconfig_review_max_rounds",
+      "target": "claude_plugin_plugin_review_max_rounds_type",
       "confidence_score": 1.0
     },
     {
@@ -6281,6 +6543,16 @@
       "confidence_score": 1.0,
       "source": "scripts_graphify_update",
       "target": "mnt_c_repos_claude_plugins_plugins_branch_management_scripts_graphify_update_sh__entry"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "plugins/branch-management/scripts/quota-state.sh",
+      "source_location": "L1",
+      "weight": 1.0,
+      "source": "scripts_quota_state",
+      "target": "mnt_c_repos_claude_plugins_plugins_branch_management_scripts_quota_state_sh__entry",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7067,9 +7339,9 @@
       "source_file": ".claude/CLAUDE.md",
       "source_location": "L1",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "claude_claude",
-      "target": "claude_claude_graphify",
-      "confidence_score": 1.0
+      "target": "claude_claude_graphify"
     },
     {
       "relation": "references",
@@ -7087,9 +7359,9 @@
       "source_file": ".claude/skills/create-plugin/SKILL.md",
       "source_location": "L6",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "create_plugin_skill",
-      "target": "create_plugin_skill_creating_a_new_marketplace_plugin",
-      "confidence_score": 1.0
+      "target": "create_plugin_skill_creating_a_new_marketplace_plugin"
     },
     {
       "relation": "references",
@@ -7117,9 +7389,9 @@
       "source_file": ".claude/skills/create-plugin/SKILL.md",
       "source_location": "L22",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "create_plugin_skill_creating_a_new_marketplace_plugin",
-      "target": "create_plugin_skill_checklist",
-      "confidence_score": 1.0
+      "target": "create_plugin_skill_checklist"
     },
     {
       "relation": "contains",
@@ -7127,9 +7399,9 @@
       "source_file": ".claude/skills/create-plugin/SKILL.md",
       "source_location": "L11",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "create_plugin_skill_creating_a_new_marketplace_plugin",
-      "target": "create_plugin_skill_repository_layout_recap",
-      "confidence_score": 1.0
+      "target": "create_plugin_skill_repository_layout_recap"
     },
     {
       "relation": "contains",
@@ -7137,9 +7409,9 @@
       "source_file": ".claude/skills/create-plugin/SKILL.md",
       "source_location": "L35",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "create_plugin_skill_creating_a_new_marketplace_plugin",
-      "target": "create_plugin_skill_step_1_gather_inputs",
-      "confidence_score": 1.0
+      "target": "create_plugin_skill_step_1_gather_inputs"
     },
     {
       "relation": "contains",
@@ -7147,9 +7419,9 @@
       "source_file": ".claude/skills/create-plugin/SKILL.md",
       "source_location": "L47",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "create_plugin_skill_creating_a_new_marketplace_plugin",
-      "target": "create_plugin_skill_step_2_validate_the_name",
-      "confidence_score": 1.0
+      "target": "create_plugin_skill_step_2_validate_the_name"
     },
     {
       "relation": "contains",
@@ -7157,9 +7429,9 @@
       "source_file": ".claude/skills/create-plugin/SKILL.md",
       "source_location": "L55",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "create_plugin_skill_creating_a_new_marketplace_plugin",
-      "target": "create_plugin_skill_step_3_scaffold_the_plugin_directory",
-      "confidence_score": 1.0
+      "target": "create_plugin_skill_step_3_scaffold_the_plugin_directory"
     },
     {
       "relation": "contains",
@@ -7167,9 +7439,9 @@
       "source_file": ".claude/skills/create-plugin/SKILL.md",
       "source_location": "L120",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "create_plugin_skill_creating_a_new_marketplace_plugin",
-      "target": "create_plugin_skill_step_4_scaffold_docs",
-      "confidence_score": 1.0
+      "target": "create_plugin_skill_step_4_scaffold_docs"
     },
     {
       "relation": "contains",
@@ -7177,9 +7449,9 @@
       "source_file": ".claude/skills/create-plugin/SKILL.md",
       "source_location": "L160",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "create_plugin_skill_creating_a_new_marketplace_plugin",
-      "target": "create_plugin_skill_step_5_scaffold_the_test_suite_hooks_plugins_only",
-      "confidence_score": 1.0
+      "target": "create_plugin_skill_step_5_scaffold_the_test_suite_hooks_plugins_only"
     },
     {
       "relation": "contains",
@@ -7187,9 +7459,9 @@
       "source_file": ".claude/skills/create-plugin/SKILL.md",
       "source_location": "L196",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "create_plugin_skill_creating_a_new_marketplace_plugin",
-      "target": "create_plugin_skill_step_6_register_in_marketplace_json",
-      "confidence_score": 1.0
+      "target": "create_plugin_skill_step_6_register_in_marketplace_json"
     },
     {
       "relation": "contains",
@@ -7197,9 +7469,9 @@
       "source_file": ".claude/skills/create-plugin/SKILL.md",
       "source_location": "L221",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "create_plugin_skill_creating_a_new_marketplace_plugin",
-      "target": "create_plugin_skill_step_7_verify_mirror_the_ci",
-      "confidence_score": 1.0
+      "target": "create_plugin_skill_step_7_verify_mirror_the_ci"
     },
     {
       "relation": "contains",
@@ -7207,9 +7479,9 @@
       "source_file": ".claude/skills/create-plugin/SKILL.md",
       "source_location": "L275",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "create_plugin_skill_creating_a_new_marketplace_plugin",
-      "target": "create_plugin_skill_step_8_report",
-      "confidence_score": 1.0
+      "target": "create_plugin_skill_step_8_report"
     },
     {
       "relation": "contains",
@@ -7217,9 +7489,9 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L7",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "graphify_skill",
-      "target": "graphify_skill_graphify",
-      "confidence_score": 1.0
+      "target": "graphify_skill_graphify"
     },
     {
       "relation": "contains",
@@ -7227,9 +7499,9 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L597",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "graphify_skill_graphify",
-      "target": "graphify_skill_for_graphify_add_and_watch",
-      "confidence_score": 1.0
+      "target": "graphify_skill_for_graphify_add_and_watch"
     },
     {
       "relation": "contains",
@@ -7237,9 +7509,9 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L585",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "graphify_skill_graphify",
-      "target": "graphify_skill_for_graphify_query",
-      "confidence_score": 1.0
+      "target": "graphify_skill_for_graphify_query"
     },
     {
       "relation": "contains",
@@ -7247,9 +7519,9 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L603",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "graphify_skill_graphify",
-      "target": "graphify_skill_for_the_commit_hook_and_native_claude_md_integration",
-      "confidence_score": 1.0
+      "target": "graphify_skill_for_the_commit_hook_and_native_claude_md_integration"
     },
     {
       "relation": "contains",
@@ -7257,9 +7529,9 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L579",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "graphify_skill_graphify",
-      "target": "graphify_skill_for_update_and_cluster_only",
-      "confidence_score": 1.0
+      "target": "graphify_skill_for_update_and_cluster_only"
     },
     {
       "relation": "contains",
@@ -7267,9 +7539,9 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L609",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "graphify_skill_graphify",
-      "target": "graphify_skill_honesty_rules",
-      "confidence_score": 1.0
+      "target": "graphify_skill_honesty_rules"
     },
     {
       "relation": "contains",
@@ -7277,9 +7549,9 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L561",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "graphify_skill_graphify",
-      "target": "graphify_skill_interpreter_guard_for_subcommands",
-      "confidence_score": 1.0
+      "target": "graphify_skill_interpreter_guard_for_subcommands"
     },
     {
       "relation": "contains",
@@ -7287,9 +7559,9 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L11",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "graphify_skill_graphify",
-      "target": "graphify_skill_usage",
-      "confidence_score": 1.0
+      "target": "graphify_skill_usage"
     },
     {
       "relation": "contains",
@@ -7297,9 +7569,9 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L44",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "graphify_skill_graphify",
-      "target": "graphify_skill_what_graphify_is_for",
-      "confidence_score": 1.0
+      "target": "graphify_skill_what_graphify_is_for"
     },
     {
       "relation": "contains",
@@ -7307,9 +7579,9 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L48",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "graphify_skill_graphify",
-      "target": "graphify_skill_what_you_must_do_when_invoked",
-      "confidence_score": 1.0
+      "target": "graphify_skill_what_you_must_do_when_invoked"
     },
     {
       "relation": "contains",
@@ -7317,9 +7589,9 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L60",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "graphify_skill_what_you_must_do_when_invoked",
-      "target": "graphify_skill_step_0_github_repos_and_multi_path_merge_only_if_a_url_or_several_paths",
-      "confidence_score": 1.0
+      "target": "graphify_skill_step_0_github_repos_and_multi_path_merge_only_if_a_url_or_several_paths"
     },
     {
       "relation": "contains",
@@ -7327,9 +7599,9 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L64",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "graphify_skill_what_you_must_do_when_invoked",
-      "target": "graphify_skill_step_1_ensure_graphify_is_installed",
-      "confidence_score": 1.0
+      "target": "graphify_skill_step_1_ensure_graphify_is_installed"
     },
     {
       "relation": "contains",
@@ -7337,9 +7609,9 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L143",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "graphify_skill_what_you_must_do_when_invoked",
-      "target": "graphify_skill_step_2_5_video_and_audio_only_if_video_files_detected",
-      "confidence_score": 1.0
+      "target": "graphify_skill_step_2_5_video_and_audio_only_if_video_files_detected"
     },
     {
       "relation": "contains",
@@ -7347,9 +7619,9 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L106",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "graphify_skill_what_you_must_do_when_invoked",
-      "target": "graphify_skill_step_2_detect_files",
-      "confidence_score": 1.0
+      "target": "graphify_skill_step_2_detect_files"
     },
     {
       "relation": "contains",
@@ -7357,9 +7629,9 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L147",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "graphify_skill_what_you_must_do_when_invoked",
-      "target": "graphify_skill_step_3_extract_entities_and_relationships",
-      "confidence_score": 1.0
+      "target": "graphify_skill_step_3_extract_entities_and_relationships"
     },
     {
       "relation": "contains",
@@ -7367,9 +7639,9 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L369",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "graphify_skill_what_you_must_do_when_invoked",
-      "target": "graphify_skill_step_4_build_graph_cluster_analyze_generate_outputs",
-      "confidence_score": 1.0
+      "target": "graphify_skill_step_4_build_graph_cluster_analyze_generate_outputs"
     },
     {
       "relation": "contains",
@@ -7377,9 +7649,9 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L421",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "graphify_skill_what_you_must_do_when_invoked",
-      "target": "graphify_skill_step_5_label_communities",
-      "confidence_score": 1.0
+      "target": "graphify_skill_step_5_label_communities"
     },
     {
       "relation": "contains",
@@ -7387,9 +7659,9 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L461",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "graphify_skill_what_you_must_do_when_invoked",
-      "target": "graphify_skill_step_6_generate_obsidian_vault_opt_in_html",
-      "confidence_score": 1.0
+      "target": "graphify_skill_step_6_generate_obsidian_vault_opt_in_html"
     },
     {
       "relation": "contains",
@@ -7397,9 +7669,9 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L487",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "graphify_skill_what_you_must_do_when_invoked",
-      "target": "graphify_skill_step_9_save_manifest_update_cost_tracker_clean_up_and_report",
-      "confidence_score": 1.0
+      "target": "graphify_skill_step_9_save_manifest_update_cost_tracker_clean_up_and_report"
     },
     {
       "relation": "contains",
@@ -7407,9 +7679,9 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L481",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "graphify_skill_what_you_must_do_when_invoked",
-      "target": "graphify_skill_steps_6b_8_wiki_neo4j_svg_graphml_mcp_benchmark_only_on_their_flags",
-      "confidence_score": 1.0
+      "target": "graphify_skill_steps_6b_8_wiki_neo4j_svg_graphml_mcp_benchmark_only_on_their_flags"
     },
     {
       "relation": "contains",
@@ -7417,9 +7689,9 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L164",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "graphify_skill_step_3_extract_entities_and_relationships",
-      "target": "graphify_skill_part_a_structural_extraction_for_code_files",
-      "confidence_score": 1.0
+      "target": "graphify_skill_part_a_structural_extraction_for_code_files"
     },
     {
       "relation": "contains",
@@ -7427,9 +7699,9 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L190",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "graphify_skill_step_3_extract_entities_and_relationships",
-      "target": "graphify_skill_part_b_semantic_extraction_parallel_subagents",
-      "confidence_score": 1.0
+      "target": "graphify_skill_part_b_semantic_extraction_parallel_subagents"
     },
     {
       "relation": "contains",
@@ -7437,9 +7709,9 @@
       "source_file": ".claude/skills/graphify/SKILL.md",
       "source_location": "L335",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "graphify_skill_step_3_extract_entities_and_relationships",
-      "target": "graphify_skill_part_c_merge_ast_semantic_into_final_extraction",
-      "confidence_score": 1.0
+      "target": "graphify_skill_part_c_merge_ast_semantic_into_final_extraction"
     },
     {
       "relation": "contains",
@@ -7447,9 +7719,9 @@
       "source_file": ".claude/skills/graphify/references/add-watch.md",
       "source_location": "L1",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "references_add_watch",
-      "target": "references_add_watch_graphify_reference_add_a_url_and_watch_a_folder",
-      "confidence_score": 1.0
+      "target": "references_add_watch_graphify_reference_add_a_url_and_watch_a_folder"
     },
     {
       "relation": "contains",
@@ -7457,9 +7729,9 @@
       "source_file": ".claude/skills/graphify/references/add-watch.md",
       "source_location": "L5",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "references_add_watch_graphify_reference_add_a_url_and_watch_a_folder",
-      "target": "references_add_watch_for_graphify_add",
-      "confidence_score": 1.0
+      "target": "references_add_watch_for_graphify_add"
     },
     {
       "relation": "contains",
@@ -7467,9 +7739,9 @@
       "source_file": ".claude/skills/graphify/references/add-watch.md",
       "source_location": "L39",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "references_add_watch_graphify_reference_add_a_url_and_watch_a_folder",
-      "target": "references_add_watch_for_watch",
-      "confidence_score": 1.0
+      "target": "references_add_watch_for_watch"
     },
     {
       "relation": "contains",
@@ -7477,9 +7749,9 @@
       "source_file": ".claude/skills/graphify/references/exports.md",
       "source_location": "L1",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "references_exports",
-      "target": "references_exports_graphify_reference_extra_exports_and_benchmark",
-      "confidence_score": 1.0
+      "target": "references_exports_graphify_reference_extra_exports_and_benchmark"
     },
     {
       "relation": "contains",
@@ -7487,9 +7759,9 @@
       "source_file": ".claude/skills/graphify/references/exports.md",
       "source_location": "L5",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "references_exports_graphify_reference_extra_exports_and_benchmark",
-      "target": "references_exports_step_6b_wiki_only_if_wiki_flag",
-      "confidence_score": 1.0
+      "target": "references_exports_step_6b_wiki_only_if_wiki_flag"
     },
     {
       "relation": "contains",
@@ -7497,9 +7769,9 @@
       "source_file": ".claude/skills/graphify/references/exports.md",
       "source_location": "L15",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "references_exports_graphify_reference_extra_exports_and_benchmark",
-      "target": "references_exports_step_7_neo4j_export_only_if_neo4j_or_neo4j_push_flag",
-      "confidence_score": 1.0
+      "target": "references_exports_step_7_neo4j_export_only_if_neo4j_or_neo4j_push_flag"
     },
     {
       "relation": "contains",
@@ -7507,9 +7779,9 @@
       "source_file": ".claude/skills/graphify/references/exports.md",
       "source_location": "L31",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "references_exports_graphify_reference_extra_exports_and_benchmark",
-      "target": "references_exports_step_7b_svg_export_only_if_svg_flag",
-      "confidence_score": 1.0
+      "target": "references_exports_step_7b_svg_export_only_if_svg_flag"
     },
     {
       "relation": "contains",
@@ -7517,9 +7789,9 @@
       "source_file": ".claude/skills/graphify/references/exports.md",
       "source_location": "L37",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "references_exports_graphify_reference_extra_exports_and_benchmark",
-      "target": "references_exports_step_7c_graphml_export_only_if_graphml_flag",
-      "confidence_score": 1.0
+      "target": "references_exports_step_7c_graphml_export_only_if_graphml_flag"
     },
     {
       "relation": "contains",
@@ -7527,9 +7799,9 @@
       "source_file": ".claude/skills/graphify/references/exports.md",
       "source_location": "L43",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "references_exports_graphify_reference_extra_exports_and_benchmark",
-      "target": "references_exports_step_7d_mcp_server_only_if_mcp_flag",
-      "confidence_score": 1.0
+      "target": "references_exports_step_7d_mcp_server_only_if_mcp_flag"
     },
     {
       "relation": "contains",
@@ -7537,9 +7809,9 @@
       "source_file": ".claude/skills/graphify/references/exports.md",
       "source_location": "L63",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "references_exports_graphify_reference_extra_exports_and_benchmark",
-      "target": "references_exports_step_8_token_reduction_benchmark_only_if_total_words_5000",
-      "confidence_score": 1.0
+      "target": "references_exports_step_8_token_reduction_benchmark_only_if_total_words_5000"
     },
     {
       "relation": "contains",
@@ -7547,9 +7819,9 @@
       "source_file": ".claude/skills/graphify/references/extraction-spec.md",
       "source_location": "L1",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "references_extraction_spec",
-      "target": "references_extraction_spec_graphify_reference_extraction_subagent_prompt",
-      "confidence_score": 1.0
+      "target": "references_extraction_spec_graphify_reference_extraction_subagent_prompt"
     },
     {
       "relation": "contains",
@@ -7557,9 +7829,9 @@
       "source_file": ".claude/skills/graphify/references/github-and-merge.md",
       "source_location": "L1",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "references_github_and_merge",
-      "target": "references_github_and_merge_graphify_reference_github_clone_and_cross_repo_merge",
-      "confidence_score": 1.0
+      "target": "references_github_and_merge_graphify_reference_github_clone_and_cross_repo_merge"
     },
     {
       "relation": "contains",
@@ -7567,9 +7839,9 @@
       "source_file": ".claude/skills/graphify/references/github-and-merge.md",
       "source_location": "L5",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "references_github_and_merge_graphify_reference_github_clone_and_cross_repo_merge",
-      "target": "references_github_and_merge_step_0_clone_github_repo_s_only_if_a_github_url_was_given",
-      "confidence_score": 1.0
+      "target": "references_github_and_merge_step_0_clone_github_repo_s_only_if_a_github_url_was_given"
     },
     {
       "relation": "contains",
@@ -7577,9 +7849,9 @@
       "source_file": ".claude/skills/graphify/references/hooks.md",
       "source_location": "L1",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "references_hooks",
-      "target": "references_hooks_graphify_reference_commit_hook_and_native_claude_md_integration",
-      "confidence_score": 1.0
+      "target": "references_hooks_graphify_reference_commit_hook_and_native_claude_md_integration"
     },
     {
       "relation": "contains",
@@ -7587,9 +7859,9 @@
       "source_file": ".claude/skills/graphify/references/hooks.md",
       "source_location": "L5",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "references_hooks_graphify_reference_commit_hook_and_native_claude_md_integration",
-      "target": "references_hooks_for_git_commit_hook",
-      "confidence_score": 1.0
+      "target": "references_hooks_for_git_commit_hook"
     },
     {
       "relation": "contains",
@@ -7597,9 +7869,9 @@
       "source_file": ".claude/skills/graphify/references/hooks.md",
       "source_location": "L21",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "references_hooks_graphify_reference_commit_hook_and_native_claude_md_integration",
-      "target": "references_hooks_for_native_claude_md_integration",
-      "confidence_score": 1.0
+      "target": "references_hooks_for_native_claude_md_integration"
     },
     {
       "relation": "contains",
@@ -7607,9 +7879,9 @@
       "source_file": ".claude/skills/graphify/references/query.md",
       "source_location": "L1",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "references_query",
-      "target": "references_query_graphify_reference_query_path_explain",
-      "confidence_score": 1.0
+      "target": "references_query_graphify_reference_query_path_explain"
     },
     {
       "relation": "contains",
@@ -7617,9 +7889,9 @@
       "source_file": ".claude/skills/graphify/references/query.md",
       "source_location": "L89",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "references_query_graphify_reference_query_path_explain",
-      "target": "references_query_for_graphify_explain",
-      "confidence_score": 1.0
+      "target": "references_query_for_graphify_explain"
     },
     {
       "relation": "contains",
@@ -7627,9 +7899,9 @@
       "source_file": ".claude/skills/graphify/references/query.md",
       "source_location": "L71",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "references_query_graphify_reference_query_path_explain",
-      "target": "references_query_for_graphify_path",
-      "confidence_score": 1.0
+      "target": "references_query_for_graphify_path"
     },
     {
       "relation": "contains",
@@ -7637,9 +7909,9 @@
       "source_file": ".claude/skills/graphify/references/query.md",
       "source_location": "L12",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "references_query_graphify_reference_query_path_explain",
-      "target": "references_query_step_0_constrained_query_expansion_required_before_traversal",
-      "confidence_score": 1.0
+      "target": "references_query_step_0_constrained_query_expansion_required_before_traversal"
     },
     {
       "relation": "contains",
@@ -7647,9 +7919,9 @@
       "source_file": ".claude/skills/graphify/references/query.md",
       "source_location": "L50",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "references_query_graphify_reference_query_path_explain",
-      "target": "references_query_step_1_traversal",
-      "confidence_score": 1.0
+      "target": "references_query_step_1_traversal"
     },
     {
       "relation": "contains",
@@ -7657,9 +7929,9 @@
       "source_file": ".claude/skills/graphify/references/transcribe.md",
       "source_location": "L1",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "references_transcribe",
-      "target": "references_transcribe_graphify_reference_transcribe_video_and_audio",
-      "confidence_score": 1.0
+      "target": "references_transcribe_graphify_reference_transcribe_video_and_audio"
     },
     {
       "relation": "contains",
@@ -7667,9 +7939,9 @@
       "source_file": ".claude/skills/graphify/references/transcribe.md",
       "source_location": "L5",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "references_transcribe_graphify_reference_transcribe_video_and_audio",
-      "target": "references_transcribe_step_2_5_transcribe_video_audio_files_only_if_video_files_detected",
-      "confidence_score": 1.0
+      "target": "references_transcribe_step_2_5_transcribe_video_audio_files_only_if_video_files_detected"
     },
     {
       "relation": "contains",
@@ -7677,9 +7949,9 @@
       "source_file": ".claude/skills/graphify/references/update.md",
       "source_location": "L1",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "references_update",
-      "target": "references_update_graphify_reference_incremental_update_and_cluster_only",
-      "confidence_score": 1.0
+      "target": "references_update_graphify_reference_incremental_update_and_cluster_only"
     },
     {
       "relation": "contains",
@@ -7687,9 +7959,9 @@
       "source_file": ".claude/skills/graphify/references/update.md",
       "source_location": "L166",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "references_update_graphify_reference_incremental_update_and_cluster_only",
-      "target": "references_update_for_cluster_only",
-      "confidence_score": 1.0
+      "target": "references_update_for_cluster_only"
     },
     {
       "relation": "contains",
@@ -7697,9 +7969,9 @@
       "source_file": ".claude/skills/graphify/references/update.md",
       "source_location": "L5",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "references_update_graphify_reference_incremental_update_and_cluster_only",
-      "target": "references_update_for_update_incremental_re_extraction",
-      "confidence_score": 1.0
+      "target": "references_update_for_update_incremental_re_extraction"
     },
     {
       "relation": "contains",
@@ -7707,9 +7979,9 @@
       "source_file": "CLAUDE.md",
       "source_location": "L1",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "claude",
-      "target": "claude_claude_md",
-      "confidence_score": 1.0
+      "target": "claude_claude_md"
     },
     {
       "relation": "contains",
@@ -7717,9 +7989,9 @@
       "source_file": "CLAUDE.md",
       "source_location": "L11",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "claude_claude_md",
-      "target": "claude_conventions",
-      "confidence_score": 1.0
+      "target": "claude_conventions"
     },
     {
       "relation": "contains",
@@ -7727,9 +7999,9 @@
       "source_file": "CLAUDE.md",
       "source_location": "L18",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "claude_claude_md",
-      "target": "claude_graphify",
-      "confidence_score": 1.0
+      "target": "claude_graphify"
     },
     {
       "relation": "contains",
@@ -7737,9 +8009,9 @@
       "source_file": "CLAUDE.md",
       "source_location": "L5",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "claude_claude_md",
-      "target": "claude_layout",
-      "confidence_score": 1.0
+      "target": "claude_layout"
     },
     {
       "relation": "contains",
@@ -7747,8 +8019,28 @@
       "source_file": "README.md",
       "source_location": "L1",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "readme",
-      "target": "readme_claude_plugins",
+      "target": "readme_claude_plugins"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "README.md",
+      "source_location": "L5",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "readme_claude_plugins",
+      "target": "readme_add_a_plugin"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "README.md",
+      "source_location": "L20",
+      "weight": 1.0,
+      "source": "readme_claude_plugins",
+      "target": "readme_configure_plugins",
       "confidence_score": 1.0
     },
     {
@@ -7758,7 +8050,7 @@
       "source_location": "L5",
       "weight": 1.0,
       "source": "readme_claude_plugins",
-      "target": "readme_add_a_plugin",
+      "target": "readme_install",
       "confidence_score": 1.0
     },
     {
@@ -7767,9 +8059,9 @@
       "source_file": "README.md",
       "source_location": "L12",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "readme_claude_plugins",
-      "target": "readme_plugins",
-      "confidence_score": 1.0
+      "target": "readme_plugins"
     },
     {
       "relation": "contains",
@@ -7777,9 +8069,9 @@
       "source_file": "README.md",
       "source_location": "L21",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "readme_claude_plugins",
-      "target": "readme_use_the_marketplace",
-      "confidence_score": 1.0
+      "target": "readme_use_the_marketplace"
     },
     {
       "relation": "contains",
@@ -7787,9 +8079,9 @@
       "source_file": "plugins/CLAUDE.md",
       "source_location": "L1",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "plugins_claude",
-      "target": "plugins_claude_claude_md_plugins",
-      "confidence_score": 1.0
+      "target": "plugins_claude_claude_md_plugins"
     },
     {
       "relation": "contains",
@@ -7797,9 +8089,9 @@
       "source_file": "plugins/CLAUDE.md",
       "source_location": "L8",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "plugins_claude_claude_md_plugins",
-      "target": "plugins_claude_feature_toggles_userconfig",
-      "confidence_score": 1.0
+      "target": "plugins_claude_feature_toggles_userconfig"
     },
     {
       "relation": "contains",
@@ -7807,9 +8099,9 @@
       "source_file": "plugins/CLAUDE.md",
       "source_location": "L15",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "plugins_claude_claude_md_plugins",
-      "target": "plugins_claude_hooks",
-      "confidence_score": 1.0
+      "target": "plugins_claude_hooks"
     },
     {
       "relation": "contains",
@@ -7817,9 +8109,9 @@
       "source_file": "plugins/CLAUDE.md",
       "source_location": "L5",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "plugins_claude_claude_md_plugins",
-      "target": "plugins_claude_structure",
-      "confidence_score": 1.0
+      "target": "plugins_claude_structure"
     },
     {
       "relation": "contains",
@@ -7827,9 +8119,9 @@
       "source_file": "plugins/branch-management/CLAUDE.md",
       "source_location": "L1",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "branch_management_claude",
-      "target": "branch_management_claude_claude_md_branch_management",
-      "confidence_score": 1.0
+      "target": "branch_management_claude_claude_md_branch_management"
     },
     {
       "relation": "contains",
@@ -7837,9 +8129,9 @@
       "source_file": "plugins/branch-management/CLAUDE.md",
       "source_location": "L5",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "branch_management_claude_claude_md_branch_management",
-      "target": "branch_management_claude_behavior",
-      "confidence_score": 1.0
+      "target": "branch_management_claude_behavior"
     },
     {
       "relation": "contains",
@@ -7847,9 +8139,9 @@
       "source_file": "plugins/branch-management/CLAUDE.md",
       "source_location": "L77",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "branch_management_claude_claude_md_branch_management",
-      "target": "branch_management_claude_conventions",
-      "confidence_score": 1.0
+      "target": "branch_management_claude_conventions"
     },
     {
       "relation": "contains",
@@ -7857,9 +8149,9 @@
       "source_file": "plugins/branch-management/CLAUDE.md",
       "source_location": "L85",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "branch_management_claude_claude_md_branch_management",
-      "target": "branch_management_claude_tests",
-      "confidence_score": 1.0
+      "target": "branch_management_claude_tests"
     },
     {
       "relation": "contains",
@@ -7867,9 +8159,9 @@
       "source_file": "plugins/branch-management/README.md",
       "source_location": "L1",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "branch_management_readme",
-      "target": "branch_management_readme_branch_management",
-      "confidence_score": 1.0
+      "target": "branch_management_readme_branch_management"
     },
     {
       "relation": "contains",
@@ -7877,9 +8169,9 @@
       "source_file": "plugins/branch-management/README.md",
       "source_location": "L17",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "branch_management_readme_branch_management",
-      "target": "branch_management_readme_agents",
-      "confidence_score": 1.0
+      "target": "branch_management_readme_agents"
     },
     {
       "relation": "contains",
@@ -7887,9 +8179,9 @@
       "source_file": "plugins/branch-management/README.md",
       "source_location": "L51",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "branch_management_readme_branch_management",
-      "target": "branch_management_readme_configuration",
-      "confidence_score": 1.0
+      "target": "branch_management_readme_configuration"
     },
     {
       "relation": "contains",
@@ -7897,9 +8189,9 @@
       "source_file": "plugins/branch-management/README.md",
       "source_location": "L30",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "branch_management_readme_branch_management",
-      "target": "branch_management_readme_dependencies",
-      "confidence_score": 1.0
+      "target": "branch_management_readme_dependencies"
     },
     {
       "relation": "contains",
@@ -7907,9 +8199,9 @@
       "source_file": "plugins/branch-management/README.md",
       "source_location": "L111",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "branch_management_readme_branch_management",
-      "target": "branch_management_readme_review_clis_all_optional",
-      "confidence_score": 1.0
+      "target": "branch_management_readme_review_clis_all_optional"
     },
     {
       "relation": "contains",
@@ -7917,9 +8209,9 @@
       "source_file": "plugins/branch-management/README.md",
       "source_location": "L122",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "branch_management_readme_branch_management",
-      "target": "branch_management_readme_scripts",
-      "confidence_score": 1.0
+      "target": "branch_management_readme_scripts"
     },
     {
       "relation": "contains",
@@ -7927,9 +8219,9 @@
       "source_file": "plugins/branch-management/README.md",
       "source_location": "L7",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "branch_management_readme_branch_management",
-      "target": "branch_management_readme_skills",
-      "confidence_score": 1.0
+      "target": "branch_management_readme_skills"
     },
     {
       "relation": "contains",
@@ -7937,9 +8229,9 @@
       "source_file": "plugins/branch-management/README.md",
       "source_location": "L102",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "branch_management_readme_configuration",
-      "target": "branch_management_readme_breaking_change_in_v3_0_0",
-      "confidence_score": 1.0
+      "target": "branch_management_readme_breaking_change_in_v3_0_0"
     },
     {
       "relation": "contains",
@@ -7947,9 +8239,9 @@
       "source_file": "plugins/branch-management/agents/branch-agent.md",
       "source_location": "L56",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_branch_agent",
-      "target": "agents_branch_agent_result_contract",
-      "confidence_score": 1.0
+      "target": "agents_branch_agent_result_contract"
     },
     {
       "relation": "contains",
@@ -7957,9 +8249,9 @@
       "source_file": "plugins/branch-management/agents/branch-agent.md",
       "source_location": "L24",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_branch_agent",
-      "target": "agents_branch_agent_steps",
-      "confidence_score": 1.0
+      "target": "agents_branch_agent_steps"
     },
     {
       "relation": "contains",
@@ -7967,9 +8259,9 @@
       "source_file": "plugins/branch-management/agents/branch-agent.md",
       "source_location": "L15",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_branch_agent",
-      "target": "agents_branch_agent_tooling",
-      "confidence_score": 1.0
+      "target": "agents_branch_agent_tooling"
     },
     {
       "relation": "contains",
@@ -7977,9 +8269,9 @@
       "source_file": "plugins/branch-management/agents/ci-monitor.md",
       "source_location": "L104",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_ci_monitor",
-      "target": "agents_ci_monitor_result_contract",
-      "confidence_score": 1.0
+      "target": "agents_ci_monitor_result_contract"
     },
     {
       "relation": "contains",
@@ -7987,9 +8279,9 @@
       "source_file": "plugins/branch-management/agents/ci-monitor.md",
       "source_location": "L44",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_ci_monitor",
-      "target": "agents_ci_monitor_steps",
-      "confidence_score": 1.0
+      "target": "agents_ci_monitor_steps"
     },
     {
       "relation": "contains",
@@ -7997,9 +8289,9 @@
       "source_file": "plugins/branch-management/agents/ci-monitor.md",
       "source_location": "L27",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_ci_monitor",
-      "target": "agents_ci_monitor_tooling",
-      "confidence_score": 1.0
+      "target": "agents_ci_monitor_tooling"
     },
     {
       "relation": "contains",
@@ -8007,9 +8299,9 @@
       "source_file": "plugins/branch-management/agents/claude-reviewer.md",
       "source_location": "L59",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_claude_reviewer",
-      "target": "agents_claude_reviewer_result_contract",
-      "confidence_score": 1.0
+      "target": "agents_claude_reviewer_result_contract"
     },
     {
       "relation": "contains",
@@ -8017,9 +8309,9 @@
       "source_file": "plugins/branch-management/agents/claude-reviewer.md",
       "source_location": "L13",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_claude_reviewer",
-      "target": "agents_claude_reviewer_scope",
-      "confidence_score": 1.0
+      "target": "agents_claude_reviewer_scope"
     },
     {
       "relation": "contains",
@@ -8027,9 +8319,9 @@
       "source_file": "plugins/branch-management/agents/claude-reviewer.md",
       "source_location": "L30",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_claude_reviewer",
-      "target": "agents_claude_reviewer_tooling",
-      "confidence_score": 1.0
+      "target": "agents_claude_reviewer_tooling"
     },
     {
       "relation": "contains",
@@ -8037,9 +8329,9 @@
       "source_file": "plugins/branch-management/agents/coderabbit-reviewer.md",
       "source_location": "L13",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_coderabbit_reviewer",
-      "target": "agents_coderabbit_reviewer_execution",
-      "confidence_score": 1.0
+      "target": "agents_coderabbit_reviewer_execution"
     },
     {
       "relation": "contains",
@@ -8047,9 +8339,9 @@
       "source_file": "plugins/branch-management/agents/coderabbit-reviewer.md",
       "source_location": "L67",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_coderabbit_reviewer",
-      "target": "agents_coderabbit_reviewer_exit_code_mapping",
-      "confidence_score": 1.0
+      "target": "agents_coderabbit_reviewer_exit_code_mapping"
     },
     {
       "relation": "contains",
@@ -8057,9 +8349,9 @@
       "source_file": "plugins/branch-management/agents/coderabbit-reviewer.md",
       "source_location": "L74",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_coderabbit_reviewer",
-      "target": "agents_coderabbit_reviewer_parsing",
-      "confidence_score": 1.0
+      "target": "agents_coderabbit_reviewer_parsing"
     },
     {
       "relation": "contains",
@@ -8067,9 +8359,9 @@
       "source_file": "plugins/branch-management/agents/coderabbit-reviewer.md",
       "source_location": "L49",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_coderabbit_reviewer",
-      "target": "agents_coderabbit_reviewer_reading_the_ctx_execute_result",
-      "confidence_score": 1.0
+      "target": "agents_coderabbit_reviewer_reading_the_ctx_execute_result"
     },
     {
       "relation": "contains",
@@ -8077,9 +8369,9 @@
       "source_file": "plugins/branch-management/agents/coderabbit-reviewer.md",
       "source_location": "L83",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_coderabbit_reviewer",
-      "target": "agents_coderabbit_reviewer_result_contract",
-      "confidence_score": 1.0
+      "target": "agents_coderabbit_reviewer_result_contract"
     },
     {
       "relation": "contains",
@@ -8087,9 +8379,9 @@
       "source_file": "plugins/branch-management/agents/codex-reviewer.md",
       "source_location": "L13",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_codex_reviewer",
-      "target": "agents_codex_reviewer_execution",
-      "confidence_score": 1.0
+      "target": "agents_codex_reviewer_execution"
     },
     {
       "relation": "contains",
@@ -8097,9 +8389,9 @@
       "source_file": "plugins/branch-management/agents/codex-reviewer.md",
       "source_location": "L66",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_codex_reviewer",
-      "target": "agents_codex_reviewer_exit_code_mapping",
-      "confidence_score": 1.0
+      "target": "agents_codex_reviewer_exit_code_mapping"
     },
     {
       "relation": "contains",
@@ -8107,9 +8399,9 @@
       "source_file": "plugins/branch-management/agents/codex-reviewer.md",
       "source_location": "L73",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_codex_reviewer",
-      "target": "agents_codex_reviewer_parsing",
-      "confidence_score": 1.0
+      "target": "agents_codex_reviewer_parsing"
     },
     {
       "relation": "contains",
@@ -8117,9 +8409,9 @@
       "source_file": "plugins/branch-management/agents/codex-reviewer.md",
       "source_location": "L48",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_codex_reviewer",
-      "target": "agents_codex_reviewer_reading_the_ctx_execute_result",
-      "confidence_score": 1.0
+      "target": "agents_codex_reviewer_reading_the_ctx_execute_result"
     },
     {
       "relation": "contains",
@@ -8127,9 +8419,9 @@
       "source_file": "plugins/branch-management/agents/codex-reviewer.md",
       "source_location": "L81",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_codex_reviewer",
-      "target": "agents_codex_reviewer_result_contract",
-      "confidence_score": 1.0
+      "target": "agents_codex_reviewer_result_contract"
     },
     {
       "relation": "contains",
@@ -8137,9 +8429,9 @@
       "source_file": "plugins/branch-management/agents/copilot-reviewer.md",
       "source_location": "L13",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_copilot_reviewer",
-      "target": "agents_copilot_reviewer_execution",
-      "confidence_score": 1.0
+      "target": "agents_copilot_reviewer_execution"
     },
     {
       "relation": "contains",
@@ -8147,9 +8439,9 @@
       "source_file": "plugins/branch-management/agents/copilot-reviewer.md",
       "source_location": "L66",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_copilot_reviewer",
-      "target": "agents_copilot_reviewer_exit_code_mapping",
-      "confidence_score": 1.0
+      "target": "agents_copilot_reviewer_exit_code_mapping"
     },
     {
       "relation": "contains",
@@ -8157,9 +8449,9 @@
       "source_file": "plugins/branch-management/agents/copilot-reviewer.md",
       "source_location": "L74",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_copilot_reviewer",
-      "target": "agents_copilot_reviewer_parsing",
-      "confidence_score": 1.0
+      "target": "agents_copilot_reviewer_parsing"
     },
     {
       "relation": "contains",
@@ -8167,9 +8459,9 @@
       "source_file": "plugins/branch-management/agents/copilot-reviewer.md",
       "source_location": "L48",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_copilot_reviewer",
-      "target": "agents_copilot_reviewer_reading_the_ctx_execute_result",
-      "confidence_score": 1.0
+      "target": "agents_copilot_reviewer_reading_the_ctx_execute_result"
     },
     {
       "relation": "contains",
@@ -8177,9 +8469,9 @@
       "source_file": "plugins/branch-management/agents/copilot-reviewer.md",
       "source_location": "L82",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_copilot_reviewer",
-      "target": "agents_copilot_reviewer_result_contract",
-      "confidence_score": 1.0
+      "target": "agents_copilot_reviewer_result_contract"
     },
     {
       "relation": "contains",
@@ -8187,9 +8479,9 @@
       "source_file": "plugins/branch-management/agents/graphify-agent.md",
       "source_location": "L59",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_graphify_agent",
-      "target": "agents_graphify_agent_commit_step_only_when_commit_yes_and_status_is_updated",
-      "confidence_score": 1.0
+      "target": "agents_graphify_agent_commit_step_only_when_commit_yes_and_status_is_updated"
     },
     {
       "relation": "contains",
@@ -8197,9 +8489,9 @@
       "source_file": "plugins/branch-management/agents/graphify-agent.md",
       "source_location": "L15",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_graphify_agent",
-      "target": "agents_graphify_agent_execution",
-      "confidence_score": 1.0
+      "target": "agents_graphify_agent_execution"
     },
     {
       "relation": "contains",
@@ -8207,9 +8499,9 @@
       "source_file": "plugins/branch-management/agents/graphify-agent.md",
       "source_location": "L48",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_graphify_agent",
-      "target": "agents_graphify_agent_exit_code_mapping",
-      "confidence_score": 1.0
+      "target": "agents_graphify_agent_exit_code_mapping"
     },
     {
       "relation": "contains",
@@ -8217,9 +8509,9 @@
       "source_file": "plugins/branch-management/agents/graphify-agent.md",
       "source_location": "L80",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_graphify_agent",
-      "target": "agents_graphify_agent_result_contract",
-      "confidence_score": 1.0
+      "target": "agents_graphify_agent_result_contract"
     },
     {
       "relation": "contains",
@@ -8227,9 +8519,9 @@
       "source_file": "plugins/branch-management/agents/review-fixer.md",
       "source_location": "L9",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_review_fixer",
-      "target": "agents_review_fixer_input",
-      "confidence_score": 1.0
+      "target": "agents_review_fixer_input"
     },
     {
       "relation": "contains",
@@ -8237,9 +8529,9 @@
       "source_file": "plugins/branch-management/agents/review-fixer.md",
       "source_location": "L60",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_review_fixer",
-      "target": "agents_review_fixer_result_contract",
-      "confidence_score": 1.0
+      "target": "agents_review_fixer_result_contract"
     },
     {
       "relation": "contains",
@@ -8247,9 +8539,9 @@
       "source_file": "plugins/branch-management/agents/review-fixer.md",
       "source_location": "L43",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_review_fixer",
-      "target": "agents_review_fixer_rules",
-      "confidence_score": 1.0
+      "target": "agents_review_fixer_rules"
     },
     {
       "relation": "contains",
@@ -8257,9 +8549,9 @@
       "source_file": "plugins/branch-management/agents/review-fixer.md",
       "source_location": "L18",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "agents_review_fixer",
-      "target": "agents_review_fixer_tooling",
-      "confidence_score": 1.0
+      "target": "agents_review_fixer_tooling"
     },
     {
       "relation": "contains",
@@ -8267,9 +8559,9 @@
       "source_file": "plugins/branch-management/skills/new-branch/SKILL.md",
       "source_location": "L8",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "new_branch_skill",
-      "target": "new_branch_skill_start_a_new_work_branch",
-      "confidence_score": 1.0
+      "target": "new_branch_skill_start_a_new_work_branch"
     },
     {
       "relation": "contains",
@@ -8277,9 +8569,9 @@
       "source_file": "plugins/branch-management/skills/new-branch/SKILL.md",
       "source_location": "L14",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "new_branch_skill_start_a_new_work_branch",
-      "target": "new_branch_skill_steps",
-      "confidence_score": 1.0
+      "target": "new_branch_skill_steps"
     },
     {
       "relation": "contains",
@@ -8287,9 +8579,9 @@
       "source_file": "plugins/branch-management/skills/new-pr/SKILL.md",
       "source_location": "L8",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "new_pr_skill",
-      "target": "new_pr_skill_turn_the_current_branch_into_a_reviewed_pr_mr",
-      "confidence_score": 1.0
+      "target": "new_pr_skill_turn_the_current_branch_into_a_reviewed_pr_mr"
     },
     {
       "relation": "contains",
@@ -8297,9 +8589,9 @@
       "source_file": "plugins/branch-management/skills/new-pr/SKILL.md",
       "source_location": "L259",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "new_pr_skill_turn_the_current_branch_into_a_reviewed_pr_mr",
-      "target": "new_pr_skill_monitor_until_green",
-      "confidence_score": 1.0
+      "target": "new_pr_skill_monitor_until_green"
     },
     {
       "relation": "contains",
@@ -8307,9 +8599,9 @@
       "source_file": "plugins/branch-management/skills/new-pr/SKILL.md",
       "source_location": "L22",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "new_pr_skill_turn_the_current_branch_into_a_reviewed_pr_mr",
-      "target": "new_pr_skill_preconditions",
-      "confidence_score": 1.0
+      "target": "new_pr_skill_preconditions"
     },
     {
       "relation": "contains",
@@ -8317,9 +8609,9 @@
       "source_file": "plugins/branch-management/skills/new-pr/SKILL.md",
       "source_location": "L100",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "new_pr_skill_turn_the_current_branch_into_a_reviewed_pr_mr",
-      "target": "new_pr_skill_review_rounds",
-      "confidence_score": 1.0
+      "target": "new_pr_skill_review_rounds"
     },
     {
       "relation": "contains",
@@ -8327,9 +8619,9 @@
       "source_file": "plugins/branch-management/skills/new-pr/SKILL.md",
       "source_location": "L204",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "new_pr_skill_turn_the_current_branch_into_a_reviewed_pr_mr",
-      "target": "new_pr_skill_submit",
-      "confidence_score": 1.0
+      "target": "new_pr_skill_submit"
     },
     {
       "relation": "contains",
@@ -8337,9 +8629,9 @@
       "source_file": "plugins/cctools-edit/CLAUDE.md",
       "source_location": "L1",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "cctools_edit_claude",
-      "target": "cctools_edit_claude_claude_md_cctools_edit",
-      "confidence_score": 1.0
+      "target": "cctools_edit_claude_claude_md_cctools_edit"
     },
     {
       "relation": "contains",
@@ -8347,9 +8639,9 @@
       "source_file": "plugins/cctools-edit/CLAUDE.md",
       "source_location": "L43",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "cctools_edit_claude_claude_md_cctools_edit",
-      "target": "cctools_edit_claude_behavior_key_rules",
-      "confidence_score": 1.0
+      "target": "cctools_edit_claude_behavior_key_rules"
     },
     {
       "relation": "contains",
@@ -8357,9 +8649,9 @@
       "source_file": "plugins/cctools-edit/CLAUDE.md",
       "source_location": "L5",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "cctools_edit_claude_claude_md_cctools_edit",
-      "target": "cctools_edit_claude_components",
-      "confidence_score": 1.0
+      "target": "cctools_edit_claude_components"
     },
     {
       "relation": "contains",
@@ -8367,9 +8659,9 @@
       "source_file": "plugins/cctools-edit/CLAUDE.md",
       "source_location": "L57",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "cctools_edit_claude_claude_md_cctools_edit",
-      "target": "cctools_edit_claude_interaction_with_context_mode_and_other_sandbox_processing_plugins",
-      "confidence_score": 1.0
+      "target": "cctools_edit_claude_interaction_with_context_mode_and_other_sandbox_processing_plugins"
     },
     {
       "relation": "contains",
@@ -8377,9 +8669,9 @@
       "source_file": "plugins/cctools-edit/CLAUDE.md",
       "source_location": "L76",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "cctools_edit_claude_claude_md_cctools_edit",
-      "target": "cctools_edit_claude_known_limitations_by_design_precision_over_recall_fail_open",
-      "confidence_score": 1.0
+      "target": "cctools_edit_claude_known_limitations_by_design_precision_over_recall_fail_open"
     },
     {
       "relation": "contains",
@@ -8387,9 +8679,9 @@
       "source_file": "plugins/cctools-edit/CLAUDE.md",
       "source_location": "L95",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "cctools_edit_claude_claude_md_cctools_edit",
-      "target": "cctools_edit_claude_tests",
-      "confidence_score": 1.0
+      "target": "cctools_edit_claude_tests"
     },
     {
       "relation": "contains",
@@ -8397,9 +8689,9 @@
       "source_file": "plugins/cctools-edit/README.md",
       "source_location": "L1",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "cctools_edit_readme",
-      "target": "cctools_edit_readme_cctools_edit",
-      "confidence_score": 1.0
+      "target": "cctools_edit_readme_cctools_edit"
     },
     {
       "relation": "contains",
@@ -8407,9 +8699,9 @@
       "source_file": "plugins/cctools-edit/README.md",
       "source_location": "L93",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "cctools_edit_readme_cctools_edit",
-      "target": "cctools_edit_readme_caveats",
-      "confidence_score": 1.0
+      "target": "cctools_edit_readme_caveats"
     },
     {
       "relation": "contains",
@@ -8417,9 +8709,9 @@
       "source_file": "plugins/cctools-edit/README.md",
       "source_location": "L81",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "cctools_edit_readme_cctools_edit",
-      "target": "cctools_edit_readme_configuration",
-      "confidence_score": 1.0
+      "target": "cctools_edit_readme_configuration"
     },
     {
       "relation": "contains",
@@ -8427,9 +8719,9 @@
       "source_file": "plugins/cctools-edit/README.md",
       "source_location": "L51",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "cctools_edit_readme_cctools_edit",
-      "target": "cctools_edit_readme_fail_open_behaviour",
-      "confidence_score": 1.0
+      "target": "cctools_edit_readme_fail_open_behaviour"
     },
     {
       "relation": "contains",
@@ -8437,9 +8729,9 @@
       "source_file": "plugins/cctools-edit/README.md",
       "source_location": "L8",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "cctools_edit_readme_cctools_edit",
-      "target": "cctools_edit_readme_install",
-      "confidence_score": 1.0
+      "target": "cctools_edit_readme_install"
     },
     {
       "relation": "contains",
@@ -8447,9 +8739,9 @@
       "source_file": "plugins/cctools-edit/README.md",
       "source_location": "L14",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "cctools_edit_readme_cctools_edit",
-      "target": "cctools_edit_readme_what_it_does",
-      "confidence_score": 1.0
+      "target": "cctools_edit_readme_what_it_does"
     },
     {
       "relation": "contains",
@@ -8457,9 +8749,9 @@
       "source_file": "plugins/cctools-edit/README.md",
       "source_location": "L66",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "cctools_edit_readme_cctools_edit",
-      "target": "cctools_edit_readme_working_alongside_context_mode",
-      "confidence_score": 1.0
+      "target": "cctools_edit_readme_working_alongside_context_mode"
     },
     {
       "relation": "contains",
@@ -8467,9 +8759,9 @@
       "source_file": "plugins/git-sign-key/CLAUDE.md",
       "source_location": "L1",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "git_sign_key_claude",
-      "target": "git_sign_key_claude_claude_md_git_sign_key",
-      "confidence_score": 1.0
+      "target": "git_sign_key_claude_claude_md_git_sign_key"
     },
     {
       "relation": "contains",
@@ -8477,9 +8769,9 @@
       "source_file": "plugins/git-sign-key/CLAUDE.md",
       "source_location": "L6",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "git_sign_key_claude_claude_md_git_sign_key",
-      "target": "git_sign_key_claude_behavior",
-      "confidence_score": 1.0
+      "target": "git_sign_key_claude_behavior"
     },
     {
       "relation": "contains",
@@ -8487,9 +8779,9 @@
       "source_file": "plugins/git-sign-key/CLAUDE.md",
       "source_location": "L48",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "git_sign_key_claude_claude_md_git_sign_key",
-      "target": "git_sign_key_claude_tests",
-      "confidence_score": 1.0
+      "target": "git_sign_key_claude_tests"
     },
     {
       "relation": "contains",
@@ -8497,9 +8789,9 @@
       "source_file": "plugins/git-sign-key/README.md",
       "source_location": "L1",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "git_sign_key_readme",
-      "target": "git_sign_key_readme_git_sign_key",
-      "confidence_score": 1.0
+      "target": "git_sign_key_readme_git_sign_key"
     },
     {
       "relation": "contains",
@@ -8507,9 +8799,9 @@
       "source_file": "plugins/git-sign-key/README.md",
       "source_location": "L97",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "git_sign_key_readme_git_sign_key",
-      "target": "git_sign_key_readme_alternative_ssh_agents_1password_secretive",
-      "confidence_score": 1.0
+      "target": "git_sign_key_readme_alternative_ssh_agents_1password_secretive"
     },
     {
       "relation": "contains",
@@ -8517,9 +8809,9 @@
       "source_file": "plugins/git-sign-key/README.md",
       "source_location": "L6",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "git_sign_key_readme_git_sign_key",
-      "target": "git_sign_key_readme_install",
-      "confidence_score": 1.0
+      "target": "git_sign_key_readme_install"
     },
     {
       "relation": "contains",
@@ -8527,9 +8819,9 @@
       "source_file": "plugins/git-sign-key/README.md",
       "source_location": "L131",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "git_sign_key_readme_git_sign_key",
-      "target": "git_sign_key_readme_notes_limitations",
-      "confidence_score": 1.0
+      "target": "git_sign_key_readme_notes_limitations"
     },
     {
       "relation": "contains",
@@ -8537,9 +8829,9 @@
       "source_file": "plugins/git-sign-key/README.md",
       "source_location": "L119",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "git_sign_key_readme_git_sign_key",
-      "target": "git_sign_key_readme_security_notes",
-      "confidence_score": 1.0
+      "target": "git_sign_key_readme_security_notes"
     },
     {
       "relation": "contains",
@@ -8547,9 +8839,9 @@
       "source_file": "plugins/git-sign-key/README.md",
       "source_location": "L42",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "git_sign_key_readme_git_sign_key",
-      "target": "git_sign_key_readme_setting_up_the_signing_key",
-      "confidence_score": 1.0
+      "target": "git_sign_key_readme_setting_up_the_signing_key"
     },
     {
       "relation": "contains",
@@ -8557,9 +8849,9 @@
       "source_file": "plugins/git-sign-key/README.md",
       "source_location": "L12",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "git_sign_key_readme_git_sign_key",
-      "target": "git_sign_key_readme_what_it_does",
-      "confidence_score": 1.0
+      "target": "git_sign_key_readme_what_it_does"
     },
     {
       "relation": "contains",
@@ -8567,9 +8859,9 @@
       "source_file": "plugins/git-sign-key/README.md",
       "source_location": "L48",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "git_sign_key_readme_setting_up_the_signing_key",
-      "target": "git_sign_key_readme_option_a_create_a_dedicated_signing_key_recommended",
-      "confidence_score": 1.0
+      "target": "git_sign_key_readme_option_a_create_a_dedicated_signing_key_recommended"
     },
     {
       "relation": "contains",
@@ -8577,9 +8869,9 @@
       "source_file": "plugins/git-sign-key/README.md",
       "source_location": "L63",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "git_sign_key_readme_setting_up_the_signing_key",
-      "target": "git_sign_key_readme_option_b_reuse_an_existing_key",
-      "confidence_score": 1.0
+      "target": "git_sign_key_readme_option_b_reuse_an_existing_key"
     },
     {
       "relation": "contains",
@@ -8587,9 +8879,9 @@
       "source_file": "plugins/git-sign-key/README.md",
       "source_location": "L77",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "git_sign_key_readme_setting_up_the_signing_key",
-      "target": "git_sign_key_readme_register_the_public_key_for_the_verified_badge",
-      "confidence_score": 1.0
+      "target": "git_sign_key_readme_register_the_public_key_for_the_verified_badge"
     },
     {
       "relation": "contains",
@@ -8597,9 +8889,9 @@
       "source_file": "plugins/git-sign-key/README.md",
       "source_location": "L86",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "git_sign_key_readme_setting_up_the_signing_key",
-      "target": "git_sign_key_readme_verifying_signatures_locally_optional",
-      "confidence_score": 1.0
+      "target": "git_sign_key_readme_verifying_signatures_locally_optional"
     },
     {
       "relation": "contains",
@@ -8607,9 +8899,9 @@
       "source_file": "plugins/no-co-authored/CLAUDE.md",
       "source_location": "L1",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "no_co_authored_claude",
-      "target": "no_co_authored_claude_claude_md_no_co_authored",
-      "confidence_score": 1.0
+      "target": "no_co_authored_claude_claude_md_no_co_authored"
     },
     {
       "relation": "contains",
@@ -8617,9 +8909,9 @@
       "source_file": "plugins/no-co-authored/CLAUDE.md",
       "source_location": "L5",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "no_co_authored_claude_claude_md_no_co_authored",
-      "target": "no_co_authored_claude_behavior",
-      "confidence_score": 1.0
+      "target": "no_co_authored_claude_behavior"
     },
     {
       "relation": "contains",
@@ -8627,9 +8919,9 @@
       "source_file": "plugins/no-co-authored/CLAUDE.md",
       "source_location": "L11",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "no_co_authored_claude_claude_md_no_co_authored",
-      "target": "no_co_authored_claude_tests",
-      "confidence_score": 1.0
+      "target": "no_co_authored_claude_tests"
     },
     {
       "relation": "contains",
@@ -8637,9 +8929,9 @@
       "source_file": "plugins/no-co-authored/README.md",
       "source_location": "L1",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "no_co_authored_readme",
-      "target": "no_co_authored_readme_no_co_authored",
-      "confidence_score": 1.0
+      "target": "no_co_authored_readme_no_co_authored"
     },
     {
       "relation": "contains",
@@ -8647,9 +8939,9 @@
       "source_file": "plugins/no-co-authored/README.md",
       "source_location": "L6",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "no_co_authored_readme_no_co_authored",
-      "target": "no_co_authored_readme_install",
-      "confidence_score": 1.0
+      "target": "no_co_authored_readme_install"
     },
     {
       "relation": "contains",
@@ -8657,9 +8949,9 @@
       "source_file": "plugins/no-co-authored/README.md",
       "source_location": "L12",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "no_co_authored_readme_no_co_authored",
-      "target": "no_co_authored_readme_what_it_does",
-      "confidence_score": 1.0
+      "target": "no_co_authored_readme_what_it_does"
     },
     {
       "relation": "contains",
@@ -8667,9 +8959,9 @@
       "source_file": "test/CLAUDE.md",
       "source_location": "L1",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "test_claude",
-      "target": "test_claude_claude_md_test",
-      "confidence_score": 1.0
+      "target": "test_claude_claude_md_test"
     },
     {
       "relation": "contains",
@@ -8677,9 +8969,9 @@
       "source_file": "test/CLAUDE.md",
       "source_location": "L11",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "test_claude_claude_md_test",
-      "target": "test_claude_conventions",
-      "confidence_score": 1.0
+      "target": "test_claude_conventions"
     },
     {
       "relation": "contains",
@@ -8687,9 +8979,9 @@
       "source_file": "test/CLAUDE.md",
       "source_location": "L5",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "test_claude_claude_md_test",
-      "target": "test_claude_run",
-      "confidence_score": 1.0
+      "target": "test_claude_run"
     },
     {
       "relation": "references",
@@ -10106,5 +10398,5 @@
       "source_file": "plugins/git-sign-key/CLAUDE.md"
     }
   ],
-  "built_at_commit": "01710bd54c4ce7f9fc838ac28f53f8c4656fdf27"
+  "built_at_commit": "ad1f39ec05101b37d2c25caa7a5030ceb24cb33b"
 }

@@ -1,8 +1,8 @@
 #!/usr/bin/env bats
 # Tests for branch-management: the three CLI review scripts
 # (codex-review.sh, copilot-review.sh, coderabbit-review.sh),
-# graphify-update.sh, the plugin.json userConfig manifest and the
-# ci-watch.sh CI poller.
+# graphify-update.sh, quota-state.sh, the plugin.json userConfig manifest and
+# the ci-watch.sh CI poller.
 #
 # Strategy: each script test runs with an isolated PATH that contains only
 # symlinks to the required system tools plus per-test stub binaries for the
@@ -519,21 +519,102 @@ setup_graphify_repo() {
 }
 
 #
+# quota-state.sh
+#
+# check <tool>             -- exit 0: blocked (stdout: reset epoch); exit 1: clear
+# record <tool> <error>    -- exit 0: quota file written; exit 1: no match
+# format_time <epoch>      -- print HH:MM from epoch
+
+@test "quota: check exits 1 when no quota file exists" {
+  run bash "$SCRIPTS/quota-state.sh" check coderabbit
+  assert_failure 1
+}
+
+@test "quota: check exits 0 and prints epoch when reset is in the future" {
+  mkdir -p "$HOME/.claude/branch-management/quota"
+  future=$(( $(date +%s) + 3600 ))
+  echo "$future" > "$HOME/.claude/branch-management/quota/coderabbit.quota"
+  run bash "$SCRIPTS/quota-state.sh" check coderabbit
+  assert_success
+  assert_output "$future"
+}
+
+@test "quota: check exits 1 and removes file when reset has passed" {
+  mkdir -p "$HOME/.claude/branch-management/quota"
+  past=$(( $(date +%s) - 1 ))
+  echo "$past" > "$HOME/.claude/branch-management/quota/coderabbit.quota"
+  run bash "$SCRIPTS/quota-state.sh" check coderabbit
+  assert_failure 1
+  [ ! -f "$HOME/.claude/branch-management/quota/coderabbit.quota" ]
+}
+
+@test "quota: record exits 0 and creates file on rate-limit error" {
+  run bash "$SCRIPTS/quota-state.sh" record coderabbit "rate limit exceeded"
+  assert_success
+  [ -f "$HOME/.claude/branch-management/quota/coderabbit.quota" ]
+}
+
+@test "quota: record recognises quota keyword" {
+  run bash "$SCRIPTS/quota-state.sh" record codex "free tier quota exceeded"
+  assert_success
+}
+
+@test "quota: record recognises reviews/hour pattern" {
+  run bash "$SCRIPTS/quota-state.sh" record coderabbit "only 3 reviews/hour allowed"
+  assert_success
+}
+
+@test "quota: record recognises HTTP 429" {
+  run bash "$SCRIPTS/quota-state.sh" record copilot "HTTP 429: too many requests"
+  assert_success
+}
+
+@test "quota: record exits 1 on unrelated error" {
+  run bash "$SCRIPTS/quota-state.sh" record coderabbit "some other error occurred"
+  assert_failure 1
+  [ ! -f "$HOME/.claude/branch-management/quota/coderabbit.quota" ]
+}
+
+@test "quota: record exits 1 on unrelated disk-quota error" {
+  run bash "$SCRIPTS/quota-state.sh" record codex "disk quota exceeded on runner"
+  assert_failure 1
+  [ ! -f "$HOME/.claude/branch-management/quota/codex.quota" ]
+}
+
+@test "quota: record exits 1 when 429 appears outside an HTTP context" {
+  run bash "$SCRIPTS/quota-state.sh" record codex "build failed with code 429 artifacts"
+  assert_failure 1
+  [ ! -f "$HOME/.claude/branch-management/quota/codex.quota" ]
+}
+
+@test "quota: format_time prints HH:MM for a valid epoch" {
+  epoch=$(date +%s)
+  run bash "$SCRIPTS/quota-state.sh" format_time "$epoch"
+  assert_success
+  [[ "$output" =~ ^[0-9]{2}:[0-9]{2}$ ]]
+}
+
+@test "quota: usage error on unknown command" {
+  run bash "$SCRIPTS/quota-state.sh" bogus tool
+  assert_failure 64
+}
+
+#
 # plugin.json userConfig
 #
 
 PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 
-@test "userConfig: declares expected toggles plus ci_watch_timeout" {
+@test "userConfig: declares expected toggles plus ci_watch_timeout and review_max_rounds" {
   run jq -r '.userConfig | keys | sort | join(" ")' "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
-  assert_output "ci_monitor ci_watch_timeout coderabbit_ci_comments context_index graphify_branch_update graphify_force_create graphify_pr_commit graphify_pr_update graphify_user_files review_claude review_coderabbit review_codex review_copilot"
+  assert_output "ci_monitor ci_watch_timeout coderabbit_ci_comments context_index graphify_branch_update graphify_force_create graphify_pr_commit graphify_pr_update graphify_user_files review_claude review_coderabbit review_codex review_copilot review_max_rounds"
 }
 
-@test "userConfig: every toggle except ci_watch_timeout is a boolean" {
+@test "userConfig: every toggle except numeric ones is a boolean" {
   run jq -e '.userConfig
     | to_entries
-    | map(select(.key != "ci_watch_timeout"))
+    | map(select(.key != "ci_watch_timeout" and .key != "review_max_rounds"))
     | all(.[]; .value.type == "boolean")' \
     "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
@@ -542,7 +623,7 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 @test "userConfig: boolean toggles default to true except the fail-closed ones" {
   run jq -e '.userConfig
     | to_entries
-    | map(select(.key != "ci_watch_timeout"))
+    | map(select(.key != "ci_watch_timeout" and .key != "review_max_rounds"))
     | all(.[]; .value.default == (if .key == "graphify_force_create" or .key == "graphify_user_files" then false else true end))' \
     "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
@@ -556,6 +637,14 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
   assert_success
 }
 
+@test "userConfig: review_max_rounds is numeric with default 3" {
+  run jq -e '.userConfig.review_max_rounds
+    | (.type == "number")
+    and (.default == 3)' \
+    "$REPO_ROOT/$PLUGIN_JSON_REL"
+  assert_success
+}
+
 @test "userConfig: every toggle carries a non-empty title and description" {
   run jq -e '.userConfig | all(.[]; (.title | length > 0) and (.description | length > 0))' \
     "$REPO_ROOT/$PLUGIN_JSON_REL"
@@ -565,7 +654,7 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 @test "userConfig: every boolean description documents values and default" {
   run jq -e '.userConfig
     | to_entries
-    | map(select(.key != "ci_watch_timeout"))
+    | map(select(.key != "ci_watch_timeout" and .key != "review_max_rounds"))
     | all(.[]; (.value.description | test("Values:")) and (.value.description | test("\\btrue\\b")) and (.value.description | test("\\bfalse\\b")) and (.value.description | test("Default: (true|false)\\.")))' \
     "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
@@ -579,9 +668,17 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
   assert_success
 }
 
+@test "userConfig: review_max_rounds description documents numeric value and default" {
+  run jq -e '.userConfig.review_max_rounds.description
+    | test("positive whole-number")
+    and test("Default: 3\\.")' \
+    "$REPO_ROOT/$PLUGIN_JSON_REL"
+  assert_success
+}
+
 @test "version: declared once — plugin.json only, marketplace entry carries none" {
   run jq -r '.version' "$REPO_ROOT/$PLUGIN_JSON_REL"
-  assert_output "3.2.0"
+  assert_output "3.3.0"
   run jq -e '.plugins[] | select(.name == "branch-management") | has("version") | not' \
     "$REPO_ROOT/.claude-plugin/marketplace.json"
   assert_success
