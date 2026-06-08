@@ -919,3 +919,19 @@ run_ci_watch() {
   grep -q '^effort: low' \
     "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/graphify-update/SKILL.md"
 }
+
+# --- review-branch skill ---
+
+@test "review-branch SKILL.md exists" {
+  [ -f "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-branch/SKILL.md" ]
+}
+
+@test "review-branch has context: fork" {
+  grep -q '^context: fork' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-branch/SKILL.md"
+}
+
+@test "review-branch has model: sonnet" {
+  grep -q '^model: sonnet' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-branch/SKILL.md"
+}
