@@ -88,7 +88,7 @@ run `"$quota_sh" record <tool> "<error>"`. Exit 0 means rate-limited;
 add to `quota_limited`, exclude from subsequent rounds, note in report.
 
 **Aggregate and dedupe** — merge `findings` arrays from all `ok`
-sources. Remove exact-duplicate `{file, line, message}` triples.
+sources. Remove exact-duplicate `{file, line, title}` triples.
 Carry forward a persistent `skip_list` of findings already handled by
 the fixer across rounds.
 
