@@ -42,11 +42,8 @@ read in preconditions (step 4).
    ```
 
    (The refspec update is refused when `$base` is checked out — that case
-   aborts in step 3 anyway.) If `git rev-parse --verify -q "$base"` and
-   `git rev-parse --verify -q "origin/$base"` differ, skip coderabbit in
-   review rounds and note "coderabbit skipped: local base diverged" in
-   the final report. Everywhere below, git revisions use `origin/$base` —
-   only the PR/MR creation takes the bare name.
+   aborts in step 3 anyway.) Everywhere below, git revisions use
+   `origin/$base` — only the PR/MR creation takes the bare name.
 
 3. **Abort with a clear message if:**
    - the current branch *is* the base branch (nothing to open a PR from), or
@@ -66,14 +63,11 @@ read in preconditions (step 4).
    | coderabbit_ci_comments | `${user_config.coderabbit_ci_comments}` |
    | graphify_pr_update | `${user_config.graphify_pr_update}` |
    | graphify_pr_commit | `${user_config.graphify_pr_commit}` |
-   | graphify_user_files | `${user_config.graphify_user_files}` |
 
    Evaluation rule (fail-open): ONLY the literal value `false` disables
    a toggle. Anything else — `true`, an empty value, or an
    uninterpolated `${user_config.…}` placeholder on an older Claude
-   Code version — counts as enabled. Exception: `graphify_user_files`
-   is FAIL-CLOSED — ONLY the literal value `true` keeps human-only
-   graphify files (see step 9). `ci_watch_timeout` is numeric:
+   Code version — counts as enabled. `ci_watch_timeout` is numeric:
    use the literal value only when it is a positive whole-number value;
    otherwise fall back to `1800`. `ci_monitor` gates the whole monitor
    loop (steps 13–15), while `coderabbit_ci_comments` only suppresses
@@ -103,6 +97,10 @@ read in preconditions (step 4).
    If `review-branch` stops with open findings (max rounds reached or
    no review source succeeded), do not proceed to Submit — surface the
    findings and any unpushed fix commits to the user as-is.
+
+   (Former steps 7–8 — per-round dispatch and the fix loop — now live
+   inside the `review-branch` sub-skill, so numbering continues at 9;
+   existing cross-references stay stable.)
 
 ## Submit
 
