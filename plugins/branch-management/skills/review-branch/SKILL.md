@@ -10,17 +10,16 @@ allowed-tools: ["Agent", "Bash(git:*)", "Bash(echo:*)", "Bash(*/quota-state.sh*)
 
 Run review rounds against the current branch.
 
+## Git context
+
+!`git fetch origin >/dev/null 2>&1; git remote set-head origin --auto >/dev/null 2>&1; printf "detected_base: %s\n" "$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p')"`
+
 ## Argument and config resolution
 
 Parse `$ARGUMENTS`:
 - `--base <branch>`: use the supplied value as `$base`. When absent,
-  detect: run `git fetch origin`, then
-  ```bash
-  git remote set-head origin --auto >/dev/null 2>&1 || true
-  base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')
-  [ -n "$base" ] || base=$(git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p')
-  ```
-  If still empty, abort and tell caller to supply `--base`.
+  extract the value on the `detected_base:` line from the git context
+  above. If still empty, abort and tell caller to supply `--base`.
 - `--rounds N`: parse as a positive integer; use as `$max_rounds`.
   When absent, read `${user_config.review_max_rounds}`: parse as a
   positive integer; if empty, uninterpolated placeholder, or invalid,

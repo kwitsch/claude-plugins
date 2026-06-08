@@ -19,25 +19,22 @@ broken). Review sources, CI monitoring and CodeRabbit comment handling
 are individually togglable via the plugin's `userConfig` options,
 read in preconditions (step 4).
 
+## Git context
+
+!`git fetch origin >/dev/null 2>&1; git remote set-head origin --auto >/dev/null 2>&1; printf "current_branch: %s\ndetected_base: %s\n" "$(git branch --show-current)" "$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p')"`
+
 ## Preconditions
 
-1. **Assert a named branch:** `branch=$(git branch --show-current)`. If this
-   prints nothing (detached HEAD), abort and tell user check out a
-   branch first.
+1. **Assert a named branch:** from the git context above, extract the
+   value on the `current_branch:` line and assign it to `$branch`. If
+   empty (detached HEAD), abort and tell user to check out a branch first.
 
-<!-- same origin/HEAD detection recipe as agents/branch-agent.md step 2 — keep in sync -->
-2. **Detect the base branch** (explicit argument like `--base develop`
-   overrides detection). Fetch first so review runs against the
-   remote's current state, and refresh clone-time `origin/HEAD`:
+2. **Resolve base branch.** Check `$ARGUMENTS` for `--base <branch>`;
+   if present, use that value as `$base`. Otherwise extract the value on
+   the `detected_base:` line from the git context above. If still empty,
+   ask the user for the base branch.
 
-   ```bash
-   git fetch origin
-   git remote set-head origin --auto >/dev/null 2>&1 || true
-   base=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')
-   [ -n "$base" ] || base=$(git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p')
-   ```
-
-   Once `$base` is known, refresh the local base ref too — the CodeRabbit CLI
+   Once `$base` is known, refresh the local base ref — the CodeRabbit CLI
    resolves `--base` against the local branch, not the remote-tracking ref:
 
    ```bash
@@ -45,18 +42,11 @@ read in preconditions (step 4).
    ```
 
    (The refspec update is refused when `$base` is checked out — that case
-   aborts in step 3 anyway.)
-   It is also refused when the local `$base` has DIVERGED from
-   `origin/$base` (a local-only commit on the base). Check afterwards: if
-   `git rev-parse --verify -q "$base"` and `git rev-parse --verify -q
-   "origin/$base"` differ, skip the coderabbit reviewer in the review rounds and note
-   "coderabbit skipped: local base diverged" in the final report — coderabbit
-   diffs against the local base and would review the wrong range.
-
-   If both come back empty, ask the user for the base branch instead of
-   guessing. Everywhere below, git revisions use `origin/$base` — a local
-   `$base` branch may be stale or missing entirely; only the PR/MR creation
-   takes the bare name.
+   aborts in step 3 anyway.) If `git rev-parse --verify -q "$base"` and
+   `git rev-parse --verify -q "origin/$base"` differ, skip coderabbit in
+   review rounds and note "coderabbit skipped: local base diverged" in
+   the final report. Everywhere below, git revisions use `origin/$base` —
+   only the PR/MR creation takes the bare name.
 
 3. **Abort with a clear message if:**
    - the current branch *is* the base branch (nothing to open a PR from), or
