@@ -20,15 +20,21 @@ Two thin orchestrator skills (`new-branch`, `new-pr`) dispatch eight dedicated a
   fail-open, only literal `false` disables, uninterpolated placeholders
   count as enabled; review toggles gate reviewer dispatches, `ci_monitor`
   gates monitor loop, `coderabbit_ci_comments` gates CodeRabbit
-  thread collection); mandatory commit, then iterative review rounds (max 3):
+  thread collection); mandatory commit, then iterative review rounds (max $max_rounds, default 3, from `review_max_rounds`):
   all enabled reviewers in parallel — `claude-reviewer` reviews diff
   itself, CLI reviewers run `scripts/<tool>-review.sh <base>` through
   context-mode `ctx_execute` (Bash only as reported degradation), all
   return findings JSON; aggregation + dedupe in skill with cross-round
   skip list (fixer echoes per-finding ids); findings → one
   `review-fixer` pass + next round; fixer commits nothing → converged;
-  round 3 still red → stop before pushing, hand findings to user;
-  round with zero `ok` reviewers retries once, then stops; graphify
+  round $max_rounds still red → stop before pushing, hand findings to user;
+  round with zero `ok` reviewers retries once, then stops;
+  after each round, `failed` results run through
+  `scripts/quota-state.sh record <tool>` — exit 0 adds reviewer to
+  `quota_limited` set (skip in subsequent rounds + final report as
+  rate-limited); step-4 startup runs `quota-state.sh check <tool>` for
+  each enabled reviewer and pre-populates `quota_limited` from persisted
+  quota files in `~/.claude/branch-management/quota/`; graphify
   refresh before push via `graphify-agent` (force: no, user_files from
   fail-closed `graphify_user_files`), gated by
   `graphify_pr_update`, separate `chore:` commit gated by
@@ -98,9 +104,12 @@ throwaway git repo (missing CLI → 2, missing folder → 5, `--force`
 creates it, repo-root resolution from subdirectories, failure/hang → 4,
 `graph.html` pruned by default / kept with `--keep-user-files`).
 Plus plugin.json `userConfig` manifest checks (twelve boolean toggles +
-numeric `ci_watch_timeout`, boolean defaults all `true` except fail-closed
-`graphify_force_create` + `graphify_user_files`, timeout default `1800`,
+numeric `ci_watch_timeout` + numeric `review_max_rounds`, boolean defaults
+all `true` except fail-closed `graphify_force_create` +
+`graphify_user_files`, timeout default `1800`, rounds default `3`,
 titles + descriptions, version declared only in plugin.json — marketplace
 entry carries none) and
+`quota-state.sh` (check/record/format_time: blocked vs. clear, rate-limit
+pattern matching, expiry cleanup, HH:MM formatting). And
 `ci-watch.sh` polling (coderabbit exclusion, pending→done transitions,
 timeout, no-checks grace, gitlab status heuristics).

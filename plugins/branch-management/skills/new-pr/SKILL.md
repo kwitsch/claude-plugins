@@ -1,8 +1,8 @@
 ---
 name: new-pr
-description: Use when branch work complete and should become pull/merge request - runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer subagents, max 3) with verified fixes between rounds, pushes, opens PR or MR via gh or glab, then watches CI and CodeRabbit feedback until all green. Optionally refreshes and separately commits the graphify output before pushing. Review sources can be disabled per user or per project.
+description: Use when branch work complete and should become pull/merge request - runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer subagents, configurable max rounds) with verified fixes between rounds, pushes, opens PR or MR via gh or glab, then watches CI and CodeRabbit feedback until all green. Optionally refreshes and separately commits the graphify output before pushing. Review sources can be disabled per user or per project.
 argument-hint: "[--base <branch>]"
-allowed-tools: ["Agent", "Bash(git:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(echo:*)"]
+allowed-tools: ["Agent", "Bash(git:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(echo:*)", "Bash(*/quota-state.sh*)"]
 ---
 
 # Turn the current branch into a reviewed PR/MR
@@ -81,6 +81,7 @@ read in preconditions (step 4).
    | graphify_pr_update | `${user_config.graphify_pr_update}` |
    | graphify_pr_commit | `${user_config.graphify_pr_commit}` |
    | graphify_user_files | `${user_config.graphify_user_files}` |
+   | review_max_rounds | `${user_config.review_max_rounds}` |
 
    Evaluation rule (fail-open): ONLY the literal value `false` disables
    a toggle. Anything else — `true`, an empty value, or an
@@ -89,7 +90,11 @@ read in preconditions (step 4).
    is FAIL-CLOSED — ONLY the literal value `true` keeps human-only
    graphify files (see step 9). `ci_watch_timeout` is numeric:
    use the literal value only when it is a positive whole-number value;
-   otherwise fall back to `1800`. Keep all ten values for the rest of the run;
+   otherwise fall back to `1800`. Resolve `review_max_rounds`: parse
+   `${user_config.review_max_rounds}` as a positive integer; if empty,
+   an uninterpolated placeholder, or not a valid positive integer, use
+   `3`; clamp to minimum `1`. Store the result as `$max_rounds` for
+   steps 6 and 8. Keep all eleven values for the rest of the run;
    every disabled review source appears in the final report as
    `disabled via settings`. The four review toggles gate the review
    rounds only; `ci_monitor` gates the whole monitor loop (steps 13–15),
@@ -99,6 +104,18 @@ read in preconditions (step 4).
    separate commit. All four review toggles `false` is allowed — the run
    then proceeds without any pre-push review; flag that prominently in
    the final report.
+
+   Also resolve the absolute path of
+   `<plugin-root>/scripts/quota-state.sh` (same method as the review
+   scripts in step 6 — resolve `${CLAUDE_PLUGIN_ROOT}` once) and store
+   it as `$quota_sh`. For each of the four reviewer toggles that is
+   enabled (not `false`), run `"$quota_sh" check <tool>` — where
+   `<tool>` is `claude`, `codex`, `copilot`, or `coderabbit`. Exit 0
+   means the reviewer is quota-limited until the reset epoch printed on
+   stdout; add it to a `quota_limited` set and treat it identically to a
+   `false` toggle for this entire run, storing the reset epoch for the
+   final report. Exit 1 means the reviewer is clear. The `check` command
+   auto-deletes expired quota files.
 
 ## Review rounds
 
@@ -111,7 +128,7 @@ read in preconditions (step 4).
 
 6. **Dispatch a review round** — ALL enabled reviewers in ONE message.
    One step-6 dispatch is one round: track the round number, the first
-   dispatch is round 1, the cap is 3 rounds per run. Enabled means: the
+   dispatch is round 1, the cap is $max_rounds rounds per run. Enabled means: the
    step-4 toggle is not `false`;
    the coderabbit-reviewer is additionally omitted when step 2 found the
    local base diverged (toggle off → `disabled via settings` in the
@@ -171,7 +188,12 @@ read in preconditions (step 4).
    unsure, let the finding through — the fixer will re-verify it. The
    skip list lives in your context for the rest of the run.
 
-8. **Decide:**
+8. **Record quota hits, then decide.** For each reviewer with
+   `status: "failed"` in this round, run
+   `"$quota_sh" record <tool> "<error>"` — exit 0 means the error
+   matched a rate-limit pattern; add the reviewer to `quota_limited`
+   and exclude it from subsequent round dispatches, noting it in the
+   final report as rate-limited. Then:
    - **No reviewer in the round returned `ok`** (every dispatched one
      came back `missing`/`no_auth`/`failed`): the round reviewed
      nothing — do not treat it as quiet. Retry the round ONCE (the retry
@@ -182,7 +204,7 @@ read in preconditions (step 4).
      stage. If the only `ok` review carried a `partial review` note, say
      so prominently in the report — the unreviewed hunks were not
      covered.
-   - **Findings left and this was round 3** → do NOT dispatch the fixer
+   - **Findings left and this was round $max_rounds** → do NOT dispatch the fixer
      again — a fix without a verification round would go out unreviewed.
      STOP before pushing anything and hand the open findings to the
      user, naming the fix commits from earlier rounds that now sit
@@ -313,12 +335,14 @@ hand the remaining findings to the user instead of pushing in circles.
 16. **Report:** PR/MR URL — or, when stop branch fired, note
     that nothing pushed plus fix commits left on branch; the
     number of review rounds and their outcome (quiet / converged via
-    fixer skips / capped at 3 with open findings / stopped: no review
-    source succeeded / skipped: no reviewer enabled); per review source
-    its latest status (claude: ran / partial (diff too large) / failed +
-    reason / **disabled via settings**; CLI tools: ran / missing,
-    skipped silently / **not logged in + login command** / failed +
-    reason / **disabled via settings**); findings fixed/skipped per
+    fixer skips / capped at $max_rounds with open findings / stopped: no
+    review source succeeded / skipped: no reviewer enabled); per review
+    source its latest status (claude: ran / partial (diff too large) /
+    failed + reason / **disabled via settings** / **rate-limited until
+    HH:MM** (call `"$quota_sh" format_time <epoch>` for the time); CLI
+    tools: ran / missing, skipped silently / **not logged in + login
+    command** / failed + reason / **disabled via settings** /
+    **rate-limited until HH:MM**); findings fixed/skipped per
     round; monitor iterations used — or `CI monitoring disabled via
     settings` when the toggle was off.
     Plus the graphify outcome: updated + committed / updated, left
