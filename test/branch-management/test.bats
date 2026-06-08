@@ -575,6 +575,18 @@ setup_graphify_repo() {
   [ ! -f "$HOME/.claude/branch-management/quota/coderabbit.quota" ]
 }
 
+@test "quota: record exits 1 on unrelated disk-quota error" {
+  run bash "$SCRIPTS/quota-state.sh" record codex "disk quota exceeded on runner"
+  assert_failure 1
+  [ ! -f "$HOME/.claude/branch-management/quota/codex.quota" ]
+}
+
+@test "quota: record exits 1 when 429 appears outside an HTTP context" {
+  run bash "$SCRIPTS/quota-state.sh" record codex "build failed with code 429 artifacts"
+  assert_failure 1
+  [ ! -f "$HOME/.claude/branch-management/quota/codex.quota" ]
+}
+
 @test "quota: format_time prints HH:MM for a valid epoch" {
   epoch=$(date +%s)
   run bash "$SCRIPTS/quota-state.sh" format_time "$epoch"

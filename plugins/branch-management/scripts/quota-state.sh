@@ -31,7 +31,7 @@ case "$cmd" in
     ;;
   record)
     error_text="${3:-}"
-    if echo "$error_text" | grep -qiE 'rate.?limit|quota|reviews/hour|429|too many requests'; then
+    if echo "$error_text" | grep -qiE 'rate.?limit|(api|rate|usage|tier|account|plan|billing|monthly|daily)[ -]?quota|reviews/hour|\b(HTTP[ /]?429|status[ :]?429)\b|too many requests'; then
       mkdir -p "$QUOTA_DIR"
       window=3600
       reset_at=$(( $(date +%s) + window ))
