@@ -66,6 +66,20 @@ run_hook() {
   assert_output ""
 }
 
+@test "plans hook: silent when hook_plans=false even with hook_specs=true" {
+  write_settings false true
+  run run_hook "docs/superpowers/plans/2026-06-10-foo.md"
+  assert_success
+  assert_output ""
+}
+
+@test "specs hook: silent when hook_specs=false even with hook_plans=true" {
+  write_settings true false
+  run run_hook "docs/superpowers/specs/2026-06-10-bar.md"
+  assert_success
+  assert_output ""
+}
+
 @test "missing settings file: silent" {
   run run_hook "docs/superpowers/plans/2026-06-10-foo.md"
   assert_success
@@ -74,10 +88,14 @@ run_hook() {
 
 @test "output is valid JSON with hookSpecificOutput" {
   write_settings true false
-  run run_hook "docs/superpowers/plans/2026-06-10-foo.md"
+  local hook_output
+  hook_output="$(run_hook "docs/superpowers/plans/2026-06-10-foo.md")"
+  run jq -e '.hookSpecificOutput.hookEventName' <<< "$hook_output"
   assert_success
-  run jq -e '.hookSpecificOutput.hookEventName' <<< "$output"
   assert_output '"PostToolUse"'
+  run jq -e '(.hookSpecificOutput.additionalContext | type) == "string" and (.hookSpecificOutput.additionalContext | length) > 0' <<< "$hook_output"
+  assert_success
+  assert_output 'true'
 }
 
 @test "post-write.mjs is executable" {
