@@ -14,7 +14,6 @@ Scaffold new plugin, register in marketplace manifest, pass CI + installable.
 - `plugins/<plugin-name>/{commands,skills,agents,hooks}/` — plugin components at plugin root.
 - `plugins/<plugin-name>/README.md` and `plugins/<plugin-name>/CLAUDE.md` — per-plugin docs.
 - `test/<plugin-name>/test.bats` — per-plugin bats suite (top-level), run by CI.
-- `package.json` — bats + bats-support + bats-assert devDeps (run with `BATS_LIB_PATH="$PWD/node_modules" npx bats`).
 - `.github/workflows/ci.yml` — validates `marketplace.json` and each plugin manifest with `jq`.
 - `.github/workflows/test.yml` — runs each plugin's `test/<name>/test.bats` via static matrix.
 
@@ -149,7 +148,7 @@ Create `plugins/<name>/CLAUDE.md` (short, project-specific context):
 <what the plugin's component(s) do at runtime — key rules, guards, edge cases>.
 
 ## Tests
-`test/<name>/test.bats` (bats). Run: `BATS_LIB_PATH="$PWD/node_modules" npx bats test/<name>/`.
+`test/<name>/test.bats` (bats). Run: `BATS_LIB_PATH=/usr/lib/bats bats test/<name>/`.
 ```
 
 Add row to `## Plugins` table in root `README.md`, preserve existing rows:
@@ -256,7 +255,7 @@ For hooks plugin, also run suite + confirm matrix wiring:
 
 ```bash
 # The new bats suite passes
-BATS_LIB_PATH="$PWD/node_modules" npx bats "test/<name>/"
+BATS_LIB_PATH=/usr/lib/bats bats "test/<name>/"
 
 # The plugin is present in the test matrix ($ is grep's end-of-line anchor)
 grep -q "^[[:space:]]*-[[:space:]]*<name>\$" .github/workflows/test.yml \
