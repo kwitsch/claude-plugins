@@ -10,8 +10,7 @@ Claude Code plugin marketplace.
 
 ## Testing
 ```bash
-npm ci   # once
-BATS_LIB_PATH="$PWD/node_modules" npx bats test/<name>/
+BATS_LIB_PATH=/usr/lib/bats bats test/<name>/
 ```
 Conventions in `test/CLAUDE.md`.
 
