@@ -4,7 +4,6 @@ description: Run iterative parallel review rounds (claude/codex/copilot/coderabb
 argument-hint: "[--base <branch>] [--rounds N]"
 context: fork
 model: sonnet
-disable-model-invocation: true
 allowed-tools: ["Agent", "Bash(git:*)", "Bash(echo:*)", "Bash(*/quota-state.sh*)"]
 ---
 
@@ -35,7 +34,7 @@ Resolve toggles (fail-open — ONLY the literal value `false` disables):
 
 Resolve `${CLAUDE_PLUGIN_ROOT}` to a concrete absolute path once
 (e.g. `echo "${CLAUDE_PLUGIN_ROOT}"`). Store as `$plugin_root`.
-Set `$quota_sh` = `<$plugin_root>/scripts/quota-state.sh`.
+Set `$quota_sh` = `<$plugin_root>/bin/quota-state.sh`.
 
 ## Quota check
 
@@ -74,11 +73,11 @@ once and reuse:
 
 - `branch-management:claude-reviewer` — prompt contains: base branch `$base`.
 - `branch-management:codex-reviewer` — prompt contains: base branch `$base`,
-  absolute path `<$plugin_root>/scripts/codex-review.sh`.
+  absolute path `<$plugin_root>/bin/codex-review.sh`.
 - `branch-management:copilot-reviewer` — prompt contains: base branch `$base`,
-  absolute path `<$plugin_root>/scripts/copilot-review.sh`.
+  absolute path `<$plugin_root>/bin/copilot-review.sh`.
 - `branch-management:coderabbit-reviewer` — prompt contains: base branch `$base`,
-  absolute path `<$plugin_root>/scripts/coderabbit-review.sh`.
+  absolute path `<$plugin_root>/bin/coderabbit-review.sh`.
 
 Each agent returns `{tool, status, login_hint?, error?, findings}`.
 Handle statuses: `missing` → skip silently; `no_auth` → skip, record

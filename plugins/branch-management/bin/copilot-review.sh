@@ -16,7 +16,7 @@ set -euo pipefail
 
 base="${1:?usage: copilot-review.sh <base-branch>}"
 
-# 1) Presence
+# 1) Presence — `copilot` is the only binary name; `cr` is CodeRabbit's alias, not Copilot's.
 command -v copilot >/dev/null 2>&1 || exit 2
 
 # 2) Login heuristic. A fresh COPILOT_HOME is created on first launch with
@@ -49,7 +49,7 @@ fi
 # layers: the write tool is denied (denial rules beat every allow rule); the
 # shell allowlist names only read-only git subcommands (shell(git:*) would also
 # match write-path subcommands like "git commit", verified against CLI 1.0.60);
-# and a git facade (scripts/git-shim) is prepended to copilot's PATH so even
+# and a git facade (bin/git-shim) is prepended to copilot's PATH so even
 # the allowed subcommands cannot write via the --output/-O flag family, which
 # the per-subcommand allowlist cannot express. Reading and searching the
 # worktree need no allows: the internal read/search tools run without approval.

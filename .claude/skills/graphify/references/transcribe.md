@@ -1,25 +1,25 @@
 # graphify reference: transcribe video and audio
 
-Load this only when `detect` reported one or more `video` files. A corpus with no video never reads this.
+Load only when `detect` reported one or more `video` files. No video → never read this.
 
 ### Step 2.5 - Transcribe video / audio files (only if video files detected)
 
-Skip this step entirely if `detect` returned zero `video` files.
+Skip if `detect` returned zero `video` files.
 
-Video and audio files cannot be read directly. Transcribe them to text first, then treat the transcripts as doc files in Step 3.
+Video/audio not directly readable. Transcribe to text first, treat transcripts as doc files in Step 3.
 
-**Strategy:** Read the god nodes from `graphify-out/.graphify_detect.json` (or the analysis file if it exists from a previous run). You are already a language model — write a one-sentence domain hint yourself from those labels. Then pass it to Whisper as the initial prompt. No separate API call needed.
+**Strategy:** Read god nodes from `graphify-out/.graphify_detect.json` (or analysis file if exists from prior run). You are language model — write one-sentence domain hint from those labels. Pass to Whisper as initial prompt. No separate API call needed.
 
-**However**, if the corpus has *only* video files and no other docs/code, use the generic fallback prompt: `"Use proper punctuation and paragraph breaks."`
+**However**, if corpus has *only* video files and no docs/code, use generic fallback: `"Use proper punctuation and paragraph breaks."`
 
 **Step 1 - Write the Whisper prompt yourself.**
 
-Read the top god node labels from detect output or analysis, then compose a short domain hint sentence, for example:
+Read top god node labels from detect output or analysis, compose short domain hint:
 
 - Labels: `transformer, attention, encoder, decoder` → `"Machine learning research on transformer architectures and attention mechanisms. Use proper punctuation and paragraph breaks."`
 - Labels: `kubernetes, deployment, pod, helm` → `"DevOps discussion about Kubernetes deployments and Helm charts. Use proper punctuation and paragraph breaks."`
 
-Set it as `WHISPER_PROMPT` to use in the next command.
+Set as `WHISPER_PROMPT` for next command.
 
 **Step 2 - Transcribe:**
 
@@ -40,9 +40,9 @@ print(json.dumps(transcript_paths, ensure_ascii=False))
 ```
 
 After transcription:
-- Read the transcript paths from `graphify-out/.graphify_transcripts.json`
-- Add them to the docs list before dispatching semantic subagents in Step 3B
-- Print how many transcripts were created: `Transcribed N video file(s) -> treating as docs`
-- If transcription fails for a file, print a warning and continue with the rest
+- Read transcript paths from `graphify-out/.graphify_transcripts.json`
+- Add to docs list before dispatching semantic subagents in Step 3B
+- Print count: `Transcribed N video file(s) -> treating as docs`
+- Transcription fails for file → print warning, continue with rest
 
-**Whisper model:** Default is `base`. If the user passed `--whisper-model <name>`, set `GRAPHIFY_WHISPER_MODEL=<name>` in the environment before running the command above.
+**Whisper model:** Default `base`. User passed `--whisper-model <name>` → set `GRAPHIFY_WHISPER_MODEL=<name>` before running command above.

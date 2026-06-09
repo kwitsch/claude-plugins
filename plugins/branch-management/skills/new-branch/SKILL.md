@@ -1,8 +1,8 @@
 ---
 name: new-branch
-description: Use when starting new feature, fix, or chore work that needs its own branch - dispatches the branch-agent subagent to switch to the default branch, pull the latest state and create a new work branch, then optionally refreshes the graphify output (graphify_branch_update / graphify_force_create options) and the context-mode index (declared plugin dependency, togglable via the context_index option).
+description: Use when starting new feature, fix, or chore work that needs its own branch - dispatches the branch-agent subagent to switch to the default branch, pull the latest state and create a new work branch, then dispatches graphify-agent and ctx-index-agent in parallel (graphify_branch_update / graphify_force_create / graphify_user_files and context_index options).
 argument-hint: "[branch-name | task description]"
-allowed-tools: ["Agent", "Skill", "Bash(git:*)", "Bash(echo:*)"]
+allowed-tools: ["Agent", "Bash(git:*)", "Bash(echo:*)"]
 ---
 
 # Start a new work branch
@@ -30,36 +30,39 @@ steps yourself.
      stale or unknown base. After `pull_failed` working tree already on
      default branch — say so in report, so user know starting branch changed.
 
-3. **graphify update.** Gated by the `graphify_branch_update` toggle —
-   current value: `${user_config.graphify_branch_update}`. ONLY the
-   literal value `false` disables (fail-open: `true`, empty, or an
-   uninterpolated placeholder all mean enabled).
-   - Disabled → skip; report `graphify disabled via settings`.
-   - Enabled → invoke the `branch-management:graphify-update` skill
-     (Skill tool) with no arguments. The sub-skill reads
-     `graphify_force_create` and `graphify_user_files` toggles itself
-     and never commits (commit is caller-explicit and new-branch always
-     omits `--commit`).
-   - Soft-fail: every status (`updated`, `skipped_no_cli`,
-     `skipped_no_dir`, `failed`) only feeds the report — never abort.
-     When status is `updated`, note that `graphify-out` files are left
-     uncommitted on the fresh branch; they will trip the clean-tree guard
-     on the next `new-branch` run (commit or stash them first).
+3. **Resolve paths** (run both in one message via Bash before dispatching):
+   - Plugin root: `echo "${CLAUDE_PLUGIN_ROOT}"`
+   - Repository root: `git rev-parse --show-toplevel`
 
-4. **context-mode indexing.** Gated by the `context_index` toggle —
-   current value: `${user_config.context_index}`. ONLY the literal value
-   `false` disables (fail-open: `true`, empty, or an uninterpolated
-   placeholder all mean enabled).
-   - Disabled → skip this step; report mentions
-     `indexing disabled via settings`.
-   - Enabled → context-mode declared dependency of this plugin — invoke
-     its `context-mode:ctx-index` skill for repository root so knowledge
-     base reflects new branch state. Stays in main context because index
-     serves main session. Skill missing from session → dependency broken
-     or disabled — mention that in report (point at `claude plugin list`
-     / `context-mode:ctx-doctor`), continue without indexing.
+4. **Parallel graphify + ctx-index update.**
+
+   Check toggles:
+   - `graphify_branch_update`: `${user_config.graphify_branch_update}` —
+     ONLY literal `false` disables (fail-open). Disabled → skip graphify.
+   - `context_index`: `${user_config.context_index}` —
+     ONLY literal `false` disables (fail-open). Disabled → skip ctx-index.
+
+   Dispatch ALL enabled agents in ONE message (parallel, Agent tool):
+
+   - `branch-management:graphify-agent` (when graphify enabled) — prompt
+     contains: absolute path `<plugin-root>/bin/graphify-update.sh`;
+     `commit: no` (always for new-branch);
+     `force: yes` only when `${user_config.graphify_force_create}` is
+     literally `true`, otherwise `force: no` (FAIL-CLOSED);
+     `user_files: yes` only when `${user_config.graphify_user_files}` is
+     literally `true`, otherwise `user_files: no` (FAIL-CLOSED).
+   - `branch-management:ctx-index-agent` (when ctx-index enabled) — prompt
+     contains: the resolved repository root path.
+
+   If both are disabled, skip this step entirely.
+
+   Soft-fail: every agent status only feeds the report — never abort.
+   When graphify status is `updated`, note that `graphify-out` files are
+   left uncommitted on the fresh branch; they will trip the clean-tree
+   guard on the next `new-branch` run (commit or stash them first).
 
 5. **Report:** new branch name and commit it was cut from, straight from
-   agent's result; plus the graphify outcome (updated — files left
-   uncommitted / skipped: no CLI / skipped: no graphify-out folder /
-   failed + detail / disabled via settings).
+   agent's result; graphify outcome (updated — files left uncommitted /
+   skipped: no CLI / skipped: no graphify-out folder / failed + detail /
+   disabled via settings); ctx-index outcome (indexed / skipped / failed +
+   detail / disabled via settings).

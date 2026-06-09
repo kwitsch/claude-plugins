@@ -2,6 +2,9 @@
 # Safe to delete after the related PR is merged.
 docs/
 
+# graphify knowledge graph output — local development only, never pushed.
+graphify-out/
+
 # npm (bats test framework)
 node_modules/
 

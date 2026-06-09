@@ -1,6 +1,6 @@
 # graphify reference: extraction subagent prompt
 
-Load this in Step 3 Part B when the corpus has at least one doc, paper, or image chunk. A pure-code corpus skips Part B and never reads this file. Each semantic subagent receives the prompt below verbatim (substitute FILE_LIST, CHUNK_NUM, TOTAL_CHUNKS, DEEP_MODE, and CHUNK_PATH).
+Load in Step 3 Part B when corpus has at least one doc, paper, or image chunk. Pure-code corpus skips Part B, never reads file. Each semantic subagent gets prompt below verbatim (substitute FILE_LIST, CHUNK_NUM, TOTAL_CHUNKS, DEEP_MODE, CHUNK_PATH).
 
 ```
 You are a graphify extraction subagent. Read the files listed and extract a knowledge graph fragment.

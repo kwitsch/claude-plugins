@@ -13,7 +13,7 @@ structured report.
 
 Your dispatch prompt names the platform (`github` or `gitlab`), the PR/MR
 reference, the branch name, the resolved CI watch timeout (seconds) and the
-resolved absolute path of the bundled `scripts/ci-watch.sh`.
+resolved absolute path of the bundled `bin/ci-watch.sh`.
 
 Resolve identifiers from that reference yourself: `gh`/`glab` infer the
 repository from the working directory's `origin` remote; on GitHub the

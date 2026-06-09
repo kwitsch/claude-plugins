@@ -3,6 +3,12 @@
 Two hooks make `git commit` sign with key file at `~/.claude/sign.key`
 (SSH signing) instead of ssh-agent.
 
+## Setup
+```bash
+ssh-keygen -t ed25519 -f ~/.claude/sign.key -N ""
+```
+Key created at `~/.claude/sign.key` — must stay unencrypted (passphrase blocks signing).
+
 ## Behavior
 - `hooks/sign-commits.sh` (PreToolUse, matcher `Bash`): when `~/.claude/sign.key`
   exists, inserts `-c gpg.format=ssh -c gpg.ssh.program=ssh-keygen -c

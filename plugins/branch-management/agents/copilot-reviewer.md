@@ -1,6 +1,6 @@
 ---
 name: copilot-reviewer
-description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management new-pr skill. Runs the bundled copilot-review.sh script against a base branch and returns structured review findings as JSON.
+description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management review-branch skill. Runs the bundled copilot-review.sh script against a base branch and returns structured review findings as JSON.
 model: haiku
 effort: low
 color: cyan
@@ -20,7 +20,7 @@ commands, never improvise alternative CLI flags.
      shape and severity enum are also mirrored in claude-reviewer.md. -->
 
 Your dispatch prompt names the base branch and the absolute script path
-(`<plugin-root>/scripts/copilot-review.sh`). context-mode is a declared
+(`<plugin-root>/bin/copilot-review.sh`). context-mode is a declared
 dependency of this plugin — run the script through it so the raw review
 output never enters your context:
 

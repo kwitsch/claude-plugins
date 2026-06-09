@@ -164,7 +164,7 @@ hand the remaining findings to the user instead of pushing in circles.
 13. **Dispatch `branch-management:ci-monitor`** with the platform
     (`github`/`gitlab`), the PR/MR reference, the branch name
     (`$branch` — its run-id fallback needs it), the resolved absolute
-    path of `<plugin-root>/scripts/ci-watch.sh` (resolve
+    path of `<plugin-root>/bin/ci-watch.sh` (resolve
     `${CLAUDE_PLUGIN_ROOT}` to a concrete absolute path via
     `echo "${CLAUDE_PLUGIN_ROOT}"` if not already done), the resolved CI watch timeout from step 4 (positive integer
     in seconds, fallback `1800`) and — on GitHub — the

@@ -21,13 +21,13 @@ or sub-skill with its own model.
 | Agent | Model | Role |
 |---|---|---|
 | `branch-agent` | haiku | git mechanics of cutting a new branch |
-| `graphify-agent` | haiku | runs `scripts/graphify-update.sh`, optionally commits `graphify-out` separately |
+| `graphify-agent` | haiku | runs `bin/graphify-update.sh`, optionally commits `graphify-out` separately |
 | `claude-reviewer` | opus | reviews the branch diff itself (read-only), returns findings JSON |
-| `codex-reviewer` | haiku | runs `scripts/codex-review.sh`, returns findings JSON |
-| `copilot-reviewer` | haiku | runs `scripts/copilot-review.sh`, returns findings JSON |
-| `coderabbit-reviewer` | haiku | runs `scripts/coderabbit-review.sh`, returns findings JSON |
+| `codex-reviewer` | haiku | runs `bin/codex-review.sh`, returns findings JSON |
+| `copilot-reviewer` | haiku | runs `bin/copilot-review.sh`, returns findings JSON |
+| `coderabbit-reviewer` | haiku | runs `bin/coderabbit-review.sh`, returns findings JSON |
 | `review-fixer` | opus | verifies findings against the code, fixes, commits |
-| `ci-monitor` | sonnet | read-only: watches CI via `scripts/ci-watch.sh` (CodeRabbit checks excluded, bounded by `userConfig.ci_watch_timeout`, default 1800 s / 30 min), collects CodeRabbit PR threads |
+| `ci-monitor` | sonnet | read-only: watches CI via `bin/ci-watch.sh` (CodeRabbit checks excluded, bounded by `userConfig.ci_watch_timeout`, default 1800 s / 30 min), collects CodeRabbit PR threads |
 
 ## Dependencies
 
@@ -124,13 +124,13 @@ skipped and called out in the final report together with the login command.
 
 ## Scripts
 
-`scripts/<tool>-review.sh <base-branch>` — presence check → login check →
+`bin/<tool>-review.sh <base-branch>` — presence check → login check →
 review run, in one bash block each. Exit codes: `0` review ran (stdout = raw
 review output) · `2` CLI not installed · `3` not logged in · `4` run failed.
 Review runs are wrapped in `timeout -k 10` (default 600 s, override with
 `REVIEW_TIMEOUT`).
 
-`scripts/ci-watch.sh <github|gitlab> <pr-number|branch>` — polls one CI
+`bin/ci-watch.sh <github|gitlab> <pr-number|branch>` — polls one CI
 round to completion and reflects only the real CI result: checks whose
 name contains `coderabbit` are excluded, so a CodeRabbit app that never
 reacts (not installed, rate-limited) can neither block the watch nor flip
@@ -146,7 +146,7 @@ script as `CI_WATCH_TIMEOUT`), poll cadence `CI_WATCH_INTERVAL` (default
 a conclusive result · `64` usage/environment error (bad arguments, CLI
 missing or too old).
 
-`scripts/graphify-update.sh [--force] [--keep-user-files]` — refreshes
+`bin/graphify-update.sh [--force] [--keep-user-files]` — refreshes
 the graphify output: resolves the repository root via git, then runs
 `graphify update .` (wrapped in `timeout -k 10`, default
 600 s, override with `GRAPHIFY_TIMEOUT`). Without `--force` it only runs

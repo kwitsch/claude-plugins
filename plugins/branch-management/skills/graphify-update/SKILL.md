@@ -5,7 +5,6 @@ argument-hint: "[--commit] [--force] [--user-files]"
 context: fork
 model: haiku
 effort: low
-disable-model-invocation: true
 allowed-tools: ["Agent", "Bash(echo:*)"]
 ---
 
@@ -33,7 +32,7 @@ Parse `$ARGUMENTS` word by word:
 
 2. Dispatch `branch-management:graphify-agent` (Agent tool) with a
    prompt that contains:
-   - Absolute path: `<plugin-root>/scripts/graphify-update.sh`
+   - Absolute path: `<plugin-root>/bin/graphify-update.sh`
    - `commit: <yes|no>` as resolved above
    - `force: <yes|no>` as resolved above
    - `user_files: <yes|no>` as resolved above

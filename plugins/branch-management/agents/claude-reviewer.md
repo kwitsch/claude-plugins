@@ -1,6 +1,6 @@
 ---
 name: claude-reviewer
-description: Do not invoke directly or proactively — internal read-only worker dispatched only by the branch-management new-pr skill. Reviews the branch diff against the base branch itself — correctness bugs first — and returns structured review findings as JSON.
+description: Do not invoke directly or proactively — internal read-only worker dispatched only by the branch-management review-branch skill. Reviews the branch diff against the base branch itself — correctness bugs first — and returns structured review findings as JSON.
 model: opus
 color: blue
 memory: project
