@@ -940,3 +940,37 @@ run_ci_watch() {
   grep -q '^model: sonnet' \
     "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-branch/SKILL.md"
 }
+
+# --- configure-branch-management skill ---
+
+CONFIGURE_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/configure-branch-management/SKILL.md"
+
+@test "configure-branch-management SKILL.md exists" {
+  [ -f "$CONFIGURE_SKILL" ]
+}
+
+@test "configure-branch-management has name: configure-branch-management" {
+  grep -q '^name: configure-branch-management' "$CONFIGURE_SKILL"
+}
+
+@test "configure-branch-management allowed-tools includes AskUserQuestion" {
+  grep -q 'AskUserQuestion' "$CONFIGURE_SKILL"
+}
+
+@test "configure-branch-management allowed-tools includes Bash(jq:*)" {
+  grep -q 'Bash(jq:\*)' "$CONFIGURE_SKILL"
+}
+
+@test "configure-branch-management is not a sub-skill (no context: fork)" {
+  run grep '^context: fork' "$CONFIGURE_SKILL"
+  assert_failure
+}
+
+@test "configure-branch-management does not pin a model" {
+  run grep '^model:' "$CONFIGURE_SKILL"
+  assert_failure
+}
+
+@test "configure-branch-management has argument-hint frontmatter" {
+  grep -q '^argument-hint:' "$CONFIGURE_SKILL"
+}
