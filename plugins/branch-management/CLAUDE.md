@@ -9,7 +9,7 @@ Two thin orchestrator skills (`new-branch`, `new-pr`) dispatch nine dedicated ag
   `agents/graphify-agent` and `agents/ctx-index-agent` in parallel (gated
   by `graphify_branch_update` and `context_index` toggles, both fail-open).
 - `skills/graphify-update`: thin sub-skill (`context: fork`, `model: haiku`,
-  `effort: low`, `disable-model-invocation: true`); dispatches
+  `effort: low`); dispatches
   `agents/graphify-agent` (runs `bin/graphify-update.sh`, commit: no
   unless `--commit` arg passed). `--force`/`--user-files` args fall back to
   `graphify_force_create`/`graphify_user_files` toggles (both FAIL-CLOSED:
@@ -17,7 +17,7 @@ Two thin orchestrator skills (`new-branch`, `new-pr`) dispatch nine dedicated ag
   output serves agents, human-only `graph.html` pruned unless explicitly kept).
   User-invocable directly (e.g. `/graphify-update --commit`).
 - `skills/review-branch`: standalone review sub-skill (`context: fork`,
-  `model: sonnet`, `disable-model-invocation: true`); reads its own
+  `model: sonnet`); reads its own
   `review_claude/codex/copilot/coderabbit` toggles and `review_max_rounds`
   (default 3); runs quota check via `bin/quota-state.sh check <tool>` at
   startup; performs base-divergence check for coderabbit; dispatches all
@@ -80,9 +80,9 @@ Two thin orchestrator skills (`new-branch`, `new-pr`) dispatch nine dedicated ag
   option table + this file, update manifest tests in
   `test/branch-management/test.bats` (assert exact sorted key
   list + count).
-- Sub-skills (`graphify-update`, `review-branch`) use `context: fork` +
-  `disable-model-invocation: true` — they receive no conversation history
-  and must resolve all toggles themselves or via explicit args. Parent
+- Sub-skills (`graphify-update`, `review-branch`) use `context: fork` —
+  they receive no conversation history and must resolve all toggles
+  themselves or via explicit args. Parent
   skills pass only resolved values (e.g. `--base "$base"`, `--commit`);
   they never re-pass toggle values.
 
