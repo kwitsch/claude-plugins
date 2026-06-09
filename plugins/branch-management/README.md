@@ -12,6 +12,7 @@ finished branch into a reviewed, pushed PR/MR and watches it until green.
 | `new-pr` | Commits pending work, invokes the `review-branch` sub-skill for iterative review rounds, invokes `graphify-update --commit` before pushing (togglable via `graphify_pr_update` / `graphify_pr_commit`), pushes, opens the PR/MR via `gh`/`glab`, and loops `ci-monitor` → `review-fixer` until CI is green and no findings remain. Every stage — review sources, CI watch, CodeRabbit comment handling — can be toggled via plugin options (see [Configuration](#configuration)). |
 | `graphify-update` | Thin sub-skill (`context: fork`, haiku): refreshes the graphify knowledge-graph output via the `graphify-agent`. Pass `--commit` to commit the result as a separate `chore: update graphify output` commit. Also user-invocable directly. |
 | `review-branch` | Standalone review sub-skill (`context: fork`, sonnet): runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer agents, configurable via `review_max_rounds`), aggregates + dedupes findings, applies verified fixes via `review-fixer` between rounds, tracks quota limits. Invoked by `new-pr`; also user-invocable to review without opening a PR. |
+| `configure-branch-management` | Interactive configurator for all plugin options. Detects project context, presents thematic question groups (reviewers, CI monitoring, graphify, context-mode) with current values embedded, and writes only non-default values to the chosen settings scope. Requires `jq`. |
 
 Skills no longer pin a `model:` — each unit of work runs in a dedicated agent
 or sub-skill with its own model.
@@ -51,6 +52,8 @@ conversation context.
   auto-installed dependency along with the plugin.
 
 ## Configuration
+
+Run `/configure-branch-management` for an interactive wizard that guides you through all options and writes the result automatically. Manual editing via `settings.json` is also supported using the table below.
 
 Every plugin function is individually togglable via the plugin's
 `userConfig` options. Claude Code prompts for the values when the
@@ -101,15 +104,6 @@ Example (project scope, `.claude/settings.json`):
   `coderabbit_ci_comments`.
 - All four review toggles `false` is allowed — `new-pr` then proceeds
   without any pre-push review and flags that in its report.
-
-### Breaking change in v3.0.0
-
-Configuration via `~/.claude/branch-management.local.md` and
-`.claude/branch-management.local.md` is no longer read — migrate by
-setting the equivalent options in the desired `settings.json` scope (see
-above). Note the changed precedence: the old system was restrict-only
-(any `false` in any layer won); the native scopes follow standard
-precedence, so a project or local value overrides a user-level one.
 
 ## Review CLIs (all optional)
 
