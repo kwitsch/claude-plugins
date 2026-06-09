@@ -5,7 +5,6 @@ argument-hint: "[--commit] [--force] [--user-files]"
 context: fork
 model: haiku
 effort: low
-disable-model-invocation: true
 allowed-tools: ["Agent", "Bash(echo:*)"]
 ---
 

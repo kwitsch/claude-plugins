@@ -4,7 +4,6 @@ description: Run iterative parallel review rounds (claude/codex/copilot/coderabb
 argument-hint: "[--base <branch>] [--rounds N]"
 context: fork
 model: sonnet
-disable-model-invocation: true
 allowed-tools: ["Agent", "Bash(git:*)", "Bash(echo:*)", "Bash(*/quota-state.sh*)"]
 ---
 
