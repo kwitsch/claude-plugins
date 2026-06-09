@@ -19,6 +19,16 @@ Each plugin: `.claude-plugin/plugin.json` (manifest, holds only `version`) + com
 | `monitors/monitors.json` | Background monitors (watch logs/files, notify Claude per stdout line) |
 | `settings.json` | Default settings when plugin enabled; only `agent` + `subagentStatusLine` keys honored |
 
+## Versioning
+Every plugin change requires a `plugin.json` version bump — no exceptions.
+
+| Change type | Example |
+|---|---|
+| Feature (new behavior, new component) | `1.0.0` → `1.1.0` |
+| Bug fix | `1.0.0` → `1.0.1` |
+
+Use semver: `MAJOR.MINOR.PATCH`. Breaking changes bump MAJOR.
+
 ## Feature toggles (userConfig)
 Every plugin feature togglable via dedicated boolean `userConfig` in plugin.json (`default: true`, title + description). Claude Code stores values in settings.json under `pluginConfigs["<plugin>"].options` (scope: local > project > user), interpolates into skills as `${user_config.KEY}`.
 
