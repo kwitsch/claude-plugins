@@ -21,6 +21,7 @@ jobs:
           - git-sign-key
           - cctools-edit
           - branch-management
+          - superpowers-automation
     steps:
       - name: Checkout
         uses: actions/checkout@v6

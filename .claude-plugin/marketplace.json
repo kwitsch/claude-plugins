@@ -47,6 +47,16 @@
       },
       "category": "git",
       "tags": ["git", "skills", "agents", "branch", "pr", "review"]
+    },
+    {
+      "name": "superpowers-automation",
+      "source": "./plugins/superpowers-automation",
+      "description": "Packages two PostToolUse Write hooks from the superpowers workflow as individually-toggled options. All features default off. A configure skill provides an interactive wizard.",
+      "author": {
+        "name": "Kwitsch"
+      },
+      "category": "automation",
+      "tags": ["hooks", "superpowers", "automation", "workflow"]
     }
   ]
 }
