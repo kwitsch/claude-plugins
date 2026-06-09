@@ -3,8 +3,11 @@ import { readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 
-const input = JSON.parse(readFileSync(0, 'utf8'));
-const filePath = input?.tool_input?.file_path ?? '';
+let filePath = '';
+try {
+  const input = JSON.parse(readFileSync(0, 'utf8'));
+  filePath = input?.tool_input?.file_path ?? '';
+} catch { process.exit(0); }
 
 function getOptions() {
   try {
@@ -17,12 +20,12 @@ function getOptions() {
 
 const HOOKS = [
   {
-    pattern: /^docs\/superpowers\/plans\//,
+    pattern: /docs\/superpowers\/plans\//,
     toggle: 'hook_plans',
     message: 'Use approach: 1. Subagent-Driven.',
   },
   {
-    pattern: /^docs\/superpowers\/specs\//,
+    pattern: /docs\/superpowers\/specs\//,
     toggle: 'hook_specs',
     message: 'User has reviewed and confirmed the spec. Proceed after self-review.',
   },
