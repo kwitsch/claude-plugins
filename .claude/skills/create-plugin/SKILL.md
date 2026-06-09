@@ -5,52 +5,51 @@ description: Use when adding a new plugin to this claude-plugins marketplace - s
 
 # Creating a New Marketplace Plugin
 
-Scaffold a new plugin in this repository and register it in the marketplace
-manifest, so that it passes CI and is installable via the marketplace.
+Scaffold new plugin, register in marketplace manifest, pass CI + installable.
 
 ## Repository layout (recap)
 
-- `.claude-plugin/marketplace.json` — marketplace manifest at the repo root. Lists every plugin.
+- `.claude-plugin/marketplace.json` — repo root marketplace manifest. Lists every plugin.
 - `plugins/<plugin-name>/.claude-plugin/plugin.json` — per-plugin manifest.
-- `plugins/<plugin-name>/{commands,skills,agents,hooks}/` — plugin components at the plugin root.
+- `plugins/<plugin-name>/{commands,skills,agents,hooks}/` — plugin components at plugin root.
 - `plugins/<plugin-name>/README.md` and `plugins/<plugin-name>/CLAUDE.md` — per-plugin docs.
-- `test/<plugin-name>/test.bats` — per-plugin bats suite (top-level), executed by CI.
-- `package.json` — bats + bats-support + bats-assert devDependencies (run with `BATS_LIB_PATH="$PWD/node_modules" npx bats`).
+- `test/<plugin-name>/test.bats` — per-plugin bats suite (top-level), run by CI.
+- `package.json` — bats + bats-support + bats-assert devDeps (run with `BATS_LIB_PATH="$PWD/node_modules" npx bats`).
 - `.github/workflows/ci.yml` — validates `marketplace.json` and each plugin manifest with `jq`.
-- `.github/workflows/test.yml` — runs each plugin's `test/<name>/test.bats` via a static matrix.
+- `.github/workflows/test.yml` — runs each plugin's `test/<name>/test.bats` via static matrix.
 
 ## Checklist
 
-Create a TodoWrite todo for each step and complete them in order.
+TodoWrite todo per step, complete in order.
 
-1. **Gather inputs** — ask one question at a time.
-2. **Validate the name** — kebab-case and not already taken.
-3. **Scaffold the plugin directory** — `plugin.json` + chosen component stubs.
-4. **Scaffold docs** — `plugins/<name>/README.md` (minimal) + `plugins/<name>/CLAUDE.md`, and add a row to the root README plugins table.
-5. **Scaffold the test suite (hooks plugins only)** — `test/<name>/test.bats` + add the plugin to the `test.yml` matrix.
-6. **Register in marketplace.json** — add an entry to the `plugins` array.
-7. **Verify** — run the CI checks locally; manifests must pass and the bats suite (if scaffolded) must pass.
+1. **Gather inputs** — ask one at a time.
+2. **Validate name** — kebab-case, not already taken.
+3. **Scaffold plugin directory** — `plugin.json` + chosen component stubs.
+4. **Scaffold docs** — `plugins/<name>/README.md` (minimal) + `plugins/<name>/CLAUDE.md`, add row to root README plugins table.
+5. **Scaffold test suite (hooks only)** — `test/<name>/test.bats` + add plugin to `test.yml` matrix.
+6. **Register in marketplace.json** — add entry to `plugins` array.
+7. **Verify** — run CI checks locally; manifests + bats suite (if scaffolded) must pass.
 8. **Report** — list every file created or changed.
 
 ## Step 1 — Gather inputs
 
-Ask one question at a time. Collect:
+Ask one at a time. Collect:
 
-- **name** — kebab-case (lowercase letters, digits, hyphens), e.g. `my-plugin`. This is the directory name and the manifest `name`.
-- **description** — one sentence describing what the plugin does.
-- **author** — default to the marketplace owner (`Kwitsch`) unless told otherwise.
+- **name** — kebab-case (lowercase, digits, hyphens), e.g. `my-plugin`. Directory name and manifest `name`.
+- **description** — one sentence, what plugin does.
+- **author** — default `Kwitsch` unless told otherwise.
 - **version** — default `0.1.0`.
 - **category** — single string, e.g. `productivity`, `example` (optional).
-- **tags** — array of short keywords (optional).
-- **components** — which of `commands`, `skills`, `agents`, `hooks` to scaffold. At least one; `commands` is the common default.
+- **tags** — short keywords array (optional).
+- **components** — which of `skills`, `agents`, `hooks`, `commands` (legacy) to scaffold. Min one; `skills` is default.
 
 ## Step 2 — Validate the name
 
-- Confirm the name matches `^[a-z0-9]+(-[a-z0-9]+)*$`.
-- Confirm `plugins/<name>/` does not already exist.
-- Confirm no entry in `.claude-plugin/marketplace.json` already uses that `name`.
+- Confirm name matches `^[a-z0-9]+(-[a-z0-9]+)*$`.
+- Confirm `plugins/<name>/` doesn't exist.
+- Confirm no entry in `.claude-plugin/marketplace.json` uses that `name`.
 
-If any check fails, report the conflict and ask for a different name. Do not overwrite an existing plugin.
+Fail: report conflict, ask for different name. Never overwrite existing plugin.
 
 ## Step 3 — Scaffold the plugin directory
 
@@ -67,17 +66,9 @@ Create `plugins/<name>/.claude-plugin/plugin.json`:
 }
 ```
 
-Then scaffold a stub for each chosen component so the plugin is functional out of the box:
+**Important**: Component dirs at plugin root. Never put `skills/`, `commands/`, `agents/`, or `hooks/` inside `.claude-plugin/` — only `plugin.json` there.
 
-- **commands** → `plugins/<name>/commands/<name>.md`:
-
-  ```markdown
-  ---
-  description: <short description of what this command does>
-  ---
-
-  Describe here what Claude should do when this command runs.
-  ```
+Stub each chosen component:
 
 - **skills** → `plugins/<name>/skills/<name>/SKILL.md`:
 
@@ -90,6 +81,16 @@ Then scaffold a stub for each chosen component so the plugin is functional out o
   # <Human-readable title>
 
   Step-by-step instructions for the skill go here.
+  ```
+
+- **commands** (legacy — prefer `skills/` for new plugins) → `plugins/<name>/commands/<name>.md`:
+
+  ```markdown
+  ---
+  description: <short description of what this command does>
+  ---
+
+  Describe here what Claude should do when this command runs.
   ```
 
 - **agents** → `plugins/<name>/agents/<name>.md`:
@@ -151,7 +152,7 @@ Create `plugins/<name>/CLAUDE.md` (short, project-specific context):
 `test/<name>/test.bats` (bats). Run: `BATS_LIB_PATH="$PWD/node_modules" npx bats test/<name>/`.
 ```
 
-Add a row to the `## Plugins` table in the root `README.md`, preserving existing rows:
+Add row to `## Plugins` table in root `README.md`, preserve existing rows:
 
 ```markdown
 | [<name>](plugins/<name>/README.md) | <description> |
@@ -159,11 +160,9 @@ Add a row to the `## Plugins` table in the root `README.md`, preserving existing
 
 ## Step 5 — Scaffold the test suite (hooks plugins only)
 
-Only when the user chose the `hooks` component, scaffold a bats suite so the
-plugin is exercised in CI. Prompt-only plugins (commands/skills/agents) have
-nothing executable to test — skip this step for them.
+Only for `hooks` component. Prompt-only plugins (commands/skills/agents) have nothing to test — skip.
 
-Create `test/<name>/test.bats` with a smoke test that already passes:
+Create `test/<name>/test.bats` with passing smoke test:
 
 ```bash
 #!/usr/bin/env bats
@@ -183,8 +182,7 @@ setup() {
 # TODO: add behavioral tests for this plugin's hooks here.
 ```
 
-Then wire the plugin into CI: in `.github/workflows/test.yml`, append `- <name>`
-under the `plugin:` key, preserving the existing entries and valid YAML:
+Wire into CI: in `.github/workflows/test.yml`, append `- <name>` under `plugin:`, preserve existing entries + valid YAML:
 
 ```yaml
       matrix:
@@ -195,8 +193,7 @@ under the `plugin:` key, preserving the existing entries and valid YAML:
 
 ## Step 6 — Register in marketplace.json
 
-Add an entry to the `plugins` array in `.claude-plugin/marketplace.json`. Keep
-the existing entries and valid JSON (no trailing commas):
+Add entry to `plugins` array in `.claude-plugin/marketplace.json`. Preserve existing entries + valid JSON (no trailing commas):
 
 ```json
 {
@@ -211,16 +208,11 @@ the existing entries and valid JSON (no trailing commas):
 }
 ```
 
-Use the full `./plugins/<name>` path — `metadata.pluginRoot` is documented but
-broken in Claude Code (anthropics/claude-code#61224/#64431); reintroduce only
-after the upstream fix. Do NOT add a `version` field — the plugin's own
-plugin.json is the single source of truth (CI fails when a marketplace entry
-declares one). Omit `category`/`tags` if the user did not provide them. `name`
-and `source` are the only required fields per the marketplace spec.
+Use full `./plugins/<name>` path — `metadata.pluginRoot` documented but broken in Claude Code (anthropics/claude-code#61224/#64431); reintroduce after upstream fix. No `version` field — `plugin.json` is single source of truth (CI fails if marketplace entry declares one). Omit `category`/`tags` if not provided. `name` and `source` only required fields.
 
 ## Step 7 — Verify (mirror the CI)
 
-Run the same checks `.github/workflows/ci.yml` runs, so the PR is green:
+Run same checks as `.github/workflows/ci.yml`:
 
 ```bash
 manifest=".claude-plugin/marketplace.json"
@@ -258,10 +250,9 @@ jq -r '.plugins[].source | if type == "string" then . else "remote" end' "$manif
 done
 ```
 
-All commands must succeed with no error output. Fix any failure before reporting done.
+All commands must succeed with no error output. Fix before reporting done.
 
-If a test suite was scaffolded (a hooks plugin), also run it and confirm it is
-wired into the matrix:
+For hooks plugin, also run suite + confirm matrix wiring:
 
 ```bash
 # The new bats suite passes
@@ -274,8 +265,4 @@ grep -q "^[[:space:]]*-[[:space:]]*<name>\$" .github/workflows/test.yml \
 
 ## Step 8 — Report
 
-List every file created — `plugin.json`, the chosen component stubs, `README.md`,
-`CLAUDE.md`, the `marketplace.json` entry, and (for a hooks plugin)
-`test/<name>/test.bats` plus the `test.yml` matrix entry — and remind the user
-that the plugin can now be committed and installed via
-`/plugin install <name>@kwitsch-plugins`.
+List every file created: `plugin.json`, component stubs, `README.md`, `CLAUDE.md`, `marketplace.json` entry, and (hooks plugin) `test/<name>/test.bats` + `test.yml` matrix entry. Remind: commit and install via `/plugin install <name>@kwitsch-plugins`.
