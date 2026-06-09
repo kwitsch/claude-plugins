@@ -8,6 +8,13 @@ Claude Code plugin marketplace.
 - `test/<name>/test.bats` — per-plugin bats suite (top-level); conventions in `test/CLAUDE.md`.
 - `.github/workflows/ci.yml` validates manifests; `test.yml` runs bats suites; `tag-on-version-bump.yml` tags main plugins whose plugin.json version has no tag yet.
 
+## Testing
+```bash
+npm ci   # once
+BATS_LIB_PATH="$PWD/node_modules" npx bats test/<name>/
+```
+Full conventions in `test/CLAUDE.md`.
+
 ## Conventions
 - Commit messages: never include `Co-Authored-By:` trailer or "Generated with [Claude Code]" footer.
 - New plugins: use `create-plugin` skill — scaffolds plugin, test, README, CLAUDE.md, `test.yml` matrix entry, registers plugin in `marketplace.json`.
