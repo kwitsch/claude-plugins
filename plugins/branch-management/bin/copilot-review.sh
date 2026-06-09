@@ -16,7 +16,7 @@ set -euo pipefail
 
 base="${1:?usage: copilot-review.sh <base-branch>}"
 
-# 1) Presence
+# 1) Presence — `copilot` is the only binary name; `cr` is CodeRabbit's alias, not Copilot's.
 command -v copilot >/dev/null 2>&1 || exit 2
 
 # 2) Login heuristic. A fresh COPILOT_HOME is created on first launch with
