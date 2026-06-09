@@ -40,7 +40,7 @@ jobs:
           while IFS= read -r source; do
             case "${source}" in
               remote)
-                # Non-path sources (github/url/git-subdir/npm) are remote; nothing to check locally.
+                # Non-path sources (github/url/git-subdir/etc) are remote; nothing to check locally.
                 echo "Skipping remote source entry"
                 ;;
               *)
