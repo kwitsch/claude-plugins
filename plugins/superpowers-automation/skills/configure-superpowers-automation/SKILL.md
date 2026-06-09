@@ -107,11 +107,13 @@ jq --arg key "$plugin_key" --argjson opts "$delta_json" \
   && mv "${settings_path}.tmp" "$settings_path"
 ```
 
+`jq` creates `.pluginConfigs[$key]` automatically if the path is absent.
+
 ## Step 5 — Confirm
 
-Print:
+Print using the **new** values (from `$hook_plans` and `$hook_specs`, not `$cur_plans`/`$cur_specs`):
 ```
 superpowers-automation configured.
-  Plans hook: <on|off>
-  Specs hook:  <on|off>
+  Plans hook: <"on" if $hook_plans == true else "off">
+  Specs hook:  <"on" if $hook_specs  == true else "off">
 ```
