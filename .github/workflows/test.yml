@@ -26,9 +26,15 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Install bats
-        uses: bats-core/bats-action@3.0.0
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y bats
+          sudo mkdir -p /usr/lib/bats
+          sudo git clone --depth 1 https://github.com/bats-core/bats-support.git /usr/lib/bats/bats-support
+          sudo git clone --depth 1 https://github.com/bats-core/bats-assert.git /usr/lib/bats/bats-assert
 
       - name: Run ${{ matrix.plugin }} test suite
+        env:
+          BATS_LIB_PATH: /usr/lib/bats
         run: bats "test/${{ matrix.plugin }}/"
 
   # Single stable check that aggregates the whole test matrix — use this as the
