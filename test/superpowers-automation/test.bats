@@ -90,6 +90,7 @@ run_hook() {
   write_settings true false
   local hook_output
   hook_output="$(run_hook "docs/superpowers/plans/2026-06-10-foo.md")"
+  [ -n "$hook_output" ] || fail "hook produced no output"
   run jq -e '.hookSpecificOutput.hookEventName' <<< "$hook_output"
   assert_success
   assert_output '"PostToolUse"'
