@@ -1,14 +1,13 @@
 # CLAUDE.md — branch-management
 
-Two thin orchestrator skills (`new-branch`, `new-pr`) dispatch eight dedicated agents. Model selection all in agent frontmatter (haiku = mechanics/CLI reviewers/graphify, sonnet = ci-monitor, opus = claude-reviewer + review-fixer). Each agent declares least-privilege `tools:` allowlist (both context-mode MCP wildcard spellings listed — server name differs per install; distinct `color` per agent); skills declare `allowed-tools` pre-approvals + `argument-hint`. Skills carry no `model:` key. context-mode (cross-marketplace dependency, declared in plugin.json, marketplace allowlisted via `allowCrossMarketplaceDependenciesOn`) runs scripts + heavy reads: agents bootstrap deferred ctx_* tools via ToolSearch, run scripts/logs/threads through `ctx_execute`/`ctx_batch_execute`, fall back to native tools only when dependency broken (degradation reported). Git writes + guaranteed-small outputs stay on Bash per context-mode whitelist.
+Two thin orchestrator skills (`new-branch`, `new-pr`) dispatch nine dedicated agents. Model selection all in agent frontmatter (haiku = mechanics/CLI reviewers/graphify, sonnet = ci-monitor, opus = claude-reviewer + review-fixer). Each agent declares least-privilege `tools:` allowlist (both context-mode MCP wildcard spellings listed — server name differs per install; distinct `color` per agent); skills declare `allowed-tools` pre-approvals + `argument-hint`. Skills carry no `model:` key. context-mode (cross-marketplace dependency, declared in plugin.json, marketplace allowlisted via `allowCrossMarketplaceDependenciesOn`) runs scripts + heavy reads: agents bootstrap deferred ctx_* tools via ToolSearch, run scripts/logs/threads through `ctx_execute`/`ctx_batch_execute`, fall back to native tools only when dependency broken (degradation reported). Git writes + guaranteed-small outputs stay on Bash per context-mode whitelist.
 
 ## Behavior
 - `skills/new-branch`: dispatches `agents/branch-agent` (clean-tree guard,
   `origin/HEAD` refresh, `--ff-only` pull, `<type>/<slug>` creation,
-  structured abort codes for user decisions); then invokes
-  `skills/graphify-update` sub-skill (`context: fork`, haiku), gated by
-  `graphify_branch_update` (fail-open); then `context-mode:ctx-index` in
-  main context, gated by `context_index` toggle.
+  structured abort codes for user decisions); then dispatches
+  `agents/graphify-agent` and `agents/ctx-index-agent` in parallel (gated
+  by `graphify_branch_update` and `context_index` toggles, both fail-open).
 - `skills/graphify-update`: thin sub-skill (`context: fork`, `model: haiku`,
   `effort: low`, `disable-model-invocation: true`); dispatches
   `agents/graphify-agent` (runs `scripts/graphify-update.sh`, commit: no

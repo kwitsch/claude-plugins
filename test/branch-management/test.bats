@@ -899,6 +899,11 @@ run_ci_watch() {
     "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/ci-monitor.md"
 }
 
+@test "ctx-index-agent has effort: low" {
+  grep -q '^effort: low' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/ctx-index-agent.md"
+}
+
 # --- graphify-update skill ---
 
 @test "graphify-update SKILL.md exists" {
