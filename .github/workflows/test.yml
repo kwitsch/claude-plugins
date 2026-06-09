@@ -25,16 +25,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Set up Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: "20"
-
-      - name: Install test dependencies
-        run: npm ci
+      - name: Install bats
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y bats
+          sudo mkdir -p /usr/lib/bats
+          sudo git clone --depth 1 https://github.com/bats-core/bats-support.git /usr/lib/bats/bats-support
+          sudo git clone --depth 1 https://github.com/bats-core/bats-assert.git /usr/lib/bats/bats-assert
 
       - name: Run ${{ matrix.plugin }} test suite
-        run: BATS_LIB_PATH="$PWD/node_modules" npx bats "test/${{ matrix.plugin }}/"
+        env:
+          BATS_LIB_PATH: /usr/lib/bats
+        run: bats "test/${{ matrix.plugin }}/"
 
   # Single stable check that aggregates the whole test matrix — use this as the
   # required status check (merge guard) in branch protection. It is green only
