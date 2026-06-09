@@ -277,10 +277,12 @@ If `$settings_path` does not exist, initialise it:
 test -f "$settings_path" || printf '{}' > "$settings_path"
 ```
 
-**When delta is empty** — remove options key:
+**When delta is empty** — remove options key (and the parent entry if it
+becomes empty):
 ```bash
 jq --arg key "$plugin_key" \
-  'del(.pluginConfigs[$key].options)' \
+  'del(.pluginConfigs[$key].options)
+   | if (.pluginConfigs[$key] // {}) == {} then del(.pluginConfigs[$key]) else . end' \
   "$settings_path" > "${settings_path}.tmp" \
   && mv "${settings_path}.tmp" "$settings_path"
 ```
