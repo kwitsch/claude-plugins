@@ -2,7 +2,7 @@
 name: configure-branch-management
 description: Interactive configurator for branch-management plugin settings — reviewers, CI monitoring, graphify options. Detects project context and writes to the appropriate settings.json.
 argument-hint: ""
-allowed-tools: ["AskUserQuestion", "Bash(jq:*)", "Bash(test:*)", "Bash(mkdir:*)", "Bash(mv:*)"]
+allowed-tools: ["AskUserQuestion", "Bash(jq:*)", "Bash(test:*)", "Bash(mkdir:*)", "Bash(mv:*)", "Bash(printf:*)"]
 ---
 
 # Configure branch-management settings
@@ -155,7 +155,7 @@ Store: `$ci_monitor_raw`, `$ci_timeout_raw`, `$ci_comments_raw`.
 If `$ci_timeout_raw == "Other"` → run numeric validation loop for
 `ci_watch_timeout` (step 7) and store result as `$ci_timeout`.
 Otherwise extract the integer from the preset label (e.g. `"30 min (1800s)"` →
-`1800`): match the number inside the trailing parentheses.
+`1800`): match the number inside the trailing parentheses and store as `$ci_timeout`.
 
 ## Step 6 — Ask: Graphify + Context
 
@@ -202,8 +202,9 @@ Store: `$graphify_triggers` (list), `$graphify_extras` (list), `$ctx_index_raw`.
 
 ## Step 7 — Numeric validation loop
 
-Used when "Other" is selected for `review_max_rounds` or `ci_watch_timeout`.
-Receives `$field_label` (display name) and `$field_key` (config key name).
+Used when "Other" is selected for a numeric field. Set `$field_label` to the
+human-readable field name ("Max review rounds" or "CI watch timeout") before
+entering the loop.
 
 ```
 attempt = 1
