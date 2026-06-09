@@ -30,6 +30,16 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine dedicated agents.
   $max_rounds still red; retries once when zero `ok` reviewers; records quota
   hits via `quota-state.sh record <tool>`. User-invocable directly (e.g.
   `/review-branch --rounds 5`).
+- `skills/configure-branch-management`: user-invocable interactive
+  configurator; detects `.git`/`.claude` in cwd to offer project-scope
+  choices (falls back to user scope when absent); reads current
+  `pluginConfigs["branch-management@*"].options` from the selected settings
+  file, presents three thematic `AskUserQuestion` dialogs (reviewers+rounds,
+  CI, graphify+context-mode), validates numeric inputs with up to 3 re-asks,
+  then writes a delta-only options object back (only keys that differ from
+  plugin.json defaults are written; keys reverted to default are deleted).
+  Requires `jq`. Does NOT use `context: fork` or pin a `model:` (user-facing,
+  not a sub-skill).
 - `skills/new-pr`: preconditions (fetch, base detection, `origin/<base>` for
   all revisions, feature toggles from `userConfig` interpolated as
   `${user_config.KEY}` — fail-open, only literal `false` disables); mandatory
@@ -85,6 +95,11 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine dedicated agents.
   no conversation history, must resolve all toggles themselves or via
   explicit args. Parent skills pass only resolved values (e.g. `--base "$base"`,
   `--commit`); never re-pass toggle values.
+- `configure-branch-management` writes delta-only: only keys differing
+  from plugin.json defaults appear in settings; keys equal to defaults are
+  omitted or removed. When adding a new toggle, ensure its default in
+  plugin.json reflects the desired clean-state value — the configurator
+  uses plugin.json defaults as the authoritative baseline.
 
 ## Tests
 `test/branch-management/test.bats` covers three review scripts with
