@@ -72,7 +72,7 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine dedicated agents.
   which per-subcommand allowlist cannot express — `git diff --output=PATH`
   otherwise writes arbitrary file, verified against CLI 1.0.60). coderabbit
   auth/review exit codes uncontractual → output heuristics (`logged
-  in|authenticated` positive, negative-first), `cr` alias supported.
+  in|authenticated` positive, negative-first), `cr` (coderabbit CLI) alias supported.
 
 ## Conventions
 - Feature toggles follow repo-wide `userConfig` rule

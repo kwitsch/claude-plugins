@@ -7,7 +7,7 @@ Two hooks make `git commit` sign with key file at `~/.claude/sign.key`
 ```bash
 ssh-keygen -t ed25519 -f ~/.claude/sign.key -N ""
 ```
-Place key at `~/.claude/sign.key` (unencrypted — passphrase blocks signing).
+Key created at `~/.claude/sign.key` — must stay unencrypted (passphrase blocks signing).
 
 ## Behavior
 - `hooks/sign-commits.sh` (PreToolUse, matcher `Bash`): when `~/.claude/sign.key`
