@@ -1,0 +1,22 @@
+{
+  "name": "superpowers-automation",
+  "version": "1.0.0",
+  "description": "Packages two PostToolUse Write hooks from the superpowers workflow as individually-toggled options. All features default off. A configure skill provides an interactive wizard.",
+  "author": {
+    "name": "Kwitsch"
+  },
+  "userConfig": {
+    "hook_plans": {
+      "type": "boolean",
+      "title": "Plans hook",
+      "description": "Values: true = inject 'Use approach: 1. Subagent-Driven.' when writing docs/superpowers/plans/*.md; false = no injection. Default: false.",
+      "default": false
+    },
+    "hook_specs": {
+      "type": "boolean",
+      "title": "Specs hook",
+      "description": "Values: true = inject 'User has reviewed and confirmed the spec. Proceed after self-review.' when writing docs/superpowers/specs/*.md; false = no injection. Default: false.",
+      "default": false
+    }
+  }
+}
