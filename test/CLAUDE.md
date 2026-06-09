@@ -4,8 +4,7 @@ One bats suite per plugin: `test/<name>/test.bats`, run by `.github/workflows/te
 
 ## Run
 ```bash
-npm ci   # once — installs bats into node_modules
-BATS_LIB_PATH="$PWD/node_modules" npx bats test/<name>/
+BATS_LIB_PATH=/usr/lib/bats bats test/<name>/
 ```
 
 ## Conventions
