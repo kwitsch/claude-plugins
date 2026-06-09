@@ -16,7 +16,7 @@ a status the dispatching skill handles.
 ## Execution
 
 Your dispatch prompt names the absolute script path
-(`<plugin-root>/scripts/graphify-update.sh`) and three flags: `force`
+(`<plugin-root>/bin/graphify-update.sh`) and three flags: `force`
 (yes/no), `commit` (yes/no) and `user_files` (yes/no; missing counts as
 no). context-mode is a declared dependency of
 this plugin — run the script through it so verbose tool output never enters

@@ -45,7 +45,7 @@ steps yourself.
    Dispatch ALL enabled agents in ONE message (parallel, Agent tool):
 
    - `branch-management:graphify-agent` (when graphify enabled) — prompt
-     contains: absolute path `<plugin-root>/scripts/graphify-update.sh`;
+     contains: absolute path `<plugin-root>/bin/graphify-update.sh`;
      `commit: no` (always for new-branch);
      `force: yes` only when `${user_config.graphify_force_create}` is
      literally `true`, otherwise `force: no` (FAIL-CLOSED);

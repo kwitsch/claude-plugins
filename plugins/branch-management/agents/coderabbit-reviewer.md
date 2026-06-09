@@ -20,7 +20,7 @@ commands, never improvise alternative CLI flags.
      shape and severity enum are also mirrored in claude-reviewer.md. -->
 
 Your dispatch prompt names the base branch and the absolute script path
-(`<plugin-root>/scripts/coderabbit-review.sh`). context-mode is a declared
+(`<plugin-root>/bin/coderabbit-review.sh`). context-mode is a declared
 dependency of this plugin — run the script through it so the raw review
 output never enters your context:
 

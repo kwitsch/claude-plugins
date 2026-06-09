@@ -3,7 +3,7 @@
 Conventions for all plugins here.
 
 ## Structure
-Each plugin: `.claude-plugin/plugin.json` (manifest, holds only `version`) + components (`commands/`, `hooks/`, `skills/`, `agents/`, `scripts/`) + `README.md` + `CLAUDE.md`. Matching bats suite in `test/<name>/` (see `test/CLAUDE.md`).
+Each plugin: `.claude-plugin/plugin.json` (manifest, holds only `version`) + components (`commands/`, `hooks/`, `skills/`, `agents/`, `bin/`) + `README.md` + `CLAUDE.md`. Matching bats suite in `test/<name>/` (see `test/CLAUDE.md`).
 
 ## Feature toggles (userConfig)
 Every plugin feature togglable via dedicated boolean `userConfig` option in plugin.json (`default: true`, title + description). Claude Code stores values in settings.json under `pluginConfigs["<plugin>"].options` (scope precedence: local > project > user), interpolates into skills as `${user_config.KEY}`.

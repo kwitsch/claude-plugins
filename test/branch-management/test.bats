@@ -16,7 +16,7 @@ setup() {
   bats_load_library bats-support
   bats_load_library bats-assert
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
-  SCRIPTS="$REPO_ROOT/plugins/branch-management/scripts"
+  SCRIPTS="$REPO_ROOT/plugins/branch-management/bin"
 
   # Isolated PATH: required system tools only, stubs are added per test.
   MOCKBIN="$BATS_TEST_TMPDIR/bin"
@@ -678,7 +678,7 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 
 @test "version: declared once — plugin.json only, marketplace entry carries none" {
   run jq -r '.version' "$REPO_ROOT/$PLUGIN_JSON_REL"
-  assert_output "3.4.0"
+  assert_output "3.5.0"
   run jq -e '.plugins[] | select(.name == "branch-management") | has("version") | not' \
     "$REPO_ROOT/.claude-plugin/marketplace.json"
   assert_success

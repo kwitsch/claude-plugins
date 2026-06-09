@@ -10,7 +10,7 @@ Two thin orchestrator skills (`new-branch`, `new-pr`) dispatch nine dedicated ag
   by `graphify_branch_update` and `context_index` toggles, both fail-open).
 - `skills/graphify-update`: thin sub-skill (`context: fork`, `model: haiku`,
   `effort: low`, `disable-model-invocation: true`); dispatches
-  `agents/graphify-agent` (runs `scripts/graphify-update.sh`, commit: no
+  `agents/graphify-agent` (runs `bin/graphify-update.sh`, commit: no
   unless `--commit` arg passed). `--force`/`--user-files` args fall back to
   `graphify_force_create`/`graphify_user_files` toggles (both FAIL-CLOSED:
   only literal `true` enables — placeholder must never create folder; graphify
@@ -19,7 +19,7 @@ Two thin orchestrator skills (`new-branch`, `new-pr`) dispatch nine dedicated ag
 - `skills/review-branch`: standalone review sub-skill (`context: fork`,
   `model: sonnet`, `disable-model-invocation: true`); reads its own
   `review_claude/codex/copilot/coderabbit` toggles and `review_max_rounds`
-  (default 3); runs quota check via `scripts/quota-state.sh check <tool>` at
+  (default 3); runs quota check via `bin/quota-state.sh check <tool>` at
   startup; performs base-divergence check for coderabbit; dispatches all
   enabled reviewers in parallel (`claude-reviewer`, CLI reviewers via
   `ctx_execute`); aggregates + dedupes findings with cross-round skip list
@@ -38,7 +38,7 @@ Two thin orchestrator skills (`new-branch`, `new-pr`) dispatch nine dedicated ag
   `gh pr create`/`glab mr create`; then monitor loop (max 5, no-progress early
   exit): `ci-monitor` (read-only analysis, gets platform + PR/MR reference +
   branch name + ci-watch.sh path + resolved `ci_watch_timeout`; CI watch via
-  `scripts/ci-watch.sh` — CodeRabbit checks excluded so silent bot cannot
+  `bin/ci-watch.sh` — CodeRabbit checks excluded so silent bot cannot
   block, bounded by `userConfig.ci_watch_timeout` / `CI_WATCH_TIMEOUT`,
   default 1800 s / 30 min) → `review-fixer` → push fixes, reply to + resolve
   skipped CodeRabbit threads, until CI green and no findings remain.
@@ -66,7 +66,7 @@ Two thin orchestrator skills (`new-branch`, `new-pr`) dispatch nine dedicated ag
   read-only on three layers (copilot has no `--sandbox` like codex): `--deny-
   tool write`; allowlist of only read-only git subcommands (`shell(git:*)`
   would also match write subcommands like `git commit`, copilot approves
-  per-subcommand); and `scripts/git-shim` (`git` facade prepended to
+  per-subcommand); and `bin/git-shim` (`git` facade prepended to
   copilot PATH, refuses `--output`/`-O` flag family which per-subcommand
   allowlist cannot express — `git diff --output=PATH` otherwise
   writes arbitrary file, verified against CLI 1.0.60). coderabbit
@@ -94,7 +94,7 @@ tested across matrix (token env, recorded `loggedInUsers`,
 `COPILOT_HOME` override, gh keyring vs inline-token vs logged-out
 `hosts.yml`, `GH_CONFIG_DIR`; bare dir / first-launch / empty-array all →
 3), `copilot-review.sh` asserted hardened read-only (no write
-subcommand allowlisted). `scripts/git-shim` has direct unit tests
+subcommand allowlisted). `bin/git-shim` has direct unit tests
 (read-only passthrough; `--output`/`-o`/`-O`/`--output-directory` refused;
 unset real-git → 127). `graphify-update.sh` covered with stub CLI +
 throwaway git repo (missing CLI → 2, missing folder → 5, `--force`
