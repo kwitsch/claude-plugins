@@ -49,7 +49,7 @@ Sources: https://code.claude.com/docs/en/hooks · https://code.claude.com/docs/e
 | `type` | yes | `command` `http` `mcp_tool` `prompt` `agent` |
 | `command` | yes | Executable or shell string |
 | `args` | no | Exec form when present (no shell). Omit for shell form (pipes, `&&`). |
-| `if` | no | Permission-rule syntax filter — only on tool events. One rule per handler, no `&&`/`||`. Example: `"Bash(git *)"` `"Edit(*.ts)"` |
+| `if` | no | Permission-rule syntax filter — only on tool events. One rule per handler, no `&&`/`\|\|`. Example: `"Bash(git *)"` or `"Edit(*.ts)"` |
 | `timeout` | no | Seconds. Default: 600 (command/http/mcp_tool), 30 (prompt), 60 (agent) |
 | `statusMessage` | no | Spinner text while hook runs |
 | `shell` | no | `bash` or `powershell` (shell form only) |
