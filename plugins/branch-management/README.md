@@ -20,9 +20,6 @@ finished branch into a reviewed, pushed PR/MR and watches it until green.
 | `graphify-update` | Thin sub-skill (`context: fork`, haiku): refreshes the graphify knowledge-graph output via the `graphify-agent`. Pass `--commit` to commit the result as a separate `chore: update graphify output` commit. Also user-invocable directly. |
 | `review-branch` | Standalone review sub-skill (`context: fork`, sonnet): runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer agents, configurable via `review_max_rounds`), aggregates + dedupes findings, applies verified fixes via `review-fixer` between rounds, tracks quota limits. Invoked by `new-pr`; also user-invocable to review without opening a PR. |
 
-Skills no longer pin a `model:` — each unit of work runs in a dedicated agent
-or sub-skill with its own model.
-
 ## Agents
 
 | Agent | Model | Role |
