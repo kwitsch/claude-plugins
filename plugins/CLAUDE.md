@@ -38,3 +38,5 @@ Three hook-only plugins (cctools-edit, git-sign-key, no-co-authored) predate rul
 
 ## Hooks
 New/rewritten hooks: Node ES modules (`.mjs`), not shell scripts. Existing `.sh` hooks stay until rewritten.
+
+All hook files in `hooks/` — both `.sh` and `.mjs` — must be executable (`chmod +x`). Claude Code will silently skip non-executable hook files.
