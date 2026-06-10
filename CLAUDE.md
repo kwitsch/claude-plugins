@@ -10,7 +10,13 @@ Claude Code plugin marketplace.
 
 ## Testing
 ```bash
+# run plugin bats suite
 BATS_LIB_PATH=/usr/lib/bats bats test/<name>/
+
+# validate marketplace manifest + plugin.json files (mirrors CI)
+jq empty .claude-plugin/marketplace.json && \
+  jq -e '.name and .owner and (.plugins | type == "array")' .claude-plugin/marketplace.json > /dev/null && \
+  for d in plugins/*/; do [ -f "$d/.claude-plugin/plugin.json" ] && jq empty "$d/.claude-plugin/plugin.json"; done
 ```
 Conventions in `test/CLAUDE.md`.
 
