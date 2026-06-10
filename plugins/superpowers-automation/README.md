@@ -19,7 +19,13 @@ When **Advisor review gate** is enabled, an advisor gate instruction is appended
 
 > ADVISOR GATE (active): Call advisor() before proceeding. If advisor tool unavailable, skip this step and continue normally.
 
-## Setup
+## Skills
+
+| Skill | What it does |
+|---|---|
+| `configure-superpowers-automation` | Interactive wizard to enable/disable hook behaviors and the advisor review gate. Writes only non-default values to `~/.claude/settings.json`. |
+
+## Configuration
 
 Run `/configure-superpowers-automation` to enable/disable hooks interactively.
 
