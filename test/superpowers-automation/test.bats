@@ -135,6 +135,13 @@ run_hook() {
   assert_success
 }
 
+@test "plugin.json userConfig declares exactly the expected keys" {
+  run jq -r '.userConfig | keys | sort | join(" ")' \
+    "$REPO_ROOT/plugins/superpowers-automation/.claude-plugin/plugin.json"
+  assert_success
+  assert_output "hook_advisor_review hook_plans hook_specs"
+}
+
 @test "plans hook: includes advisor gate when hook_advisor_review=true" {
   write_settings true false true
   run run_hook "docs/superpowers/plans/2026-06-10-foo.md"
