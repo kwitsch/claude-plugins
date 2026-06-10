@@ -2,9 +2,6 @@
 name: graphify-update
 description: Refresh the graphify knowledge-graph output for the current repository. Pass --commit to commit the result as a separate chore commit. Called by new-branch (no commit) and new-pr (--commit); also user-invocable directly.
 argument-hint: "[--commit] [--force] [--user-files]"
-context: fork
-model: haiku
-effort: low
 allowed-tools: ["Agent", "Bash(echo:*)"]
 ---
 
@@ -27,8 +24,7 @@ Parse `$ARGUMENTS` word by word:
 ## Steps
 
 1. Resolve `${CLAUDE_PLUGIN_ROOT}` to a concrete absolute path:
-   run `echo "${CLAUDE_PLUGIN_ROOT}"` via the Agent tool's Bash
-   capability or note it if already known from the dispatch prompt.
+   run `echo "${CLAUDE_PLUGIN_ROOT}"` (pre-approved via `allowed-tools`).
 
 2. Dispatch `branch-management:graphify-agent` (Agent tool) with a
    prompt that contains:

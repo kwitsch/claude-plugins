@@ -678,7 +678,7 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 
 @test "version: declared once — plugin.json only, marketplace entry carries none" {
   run jq -r '.version' "$REPO_ROOT/$PLUGIN_JSON_REL"
-  assert_output "3.5.1"
+  assert_output "3.5.2"
   run jq -e '.plugins[] | select(.name == "branch-management") | has("version") | not' \
     "$REPO_ROOT/.claude-plugin/marketplace.json"
   assert_success
@@ -910,19 +910,22 @@ run_ci_watch() {
   [ -f "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/graphify-update/SKILL.md" ]
 }
 
-@test "graphify-update has context: fork" {
-  grep -q '^context: fork' \
+@test "graphify-update runs inline (NOT context: fork — a forked skill is a subagent and cannot dispatch graphify-agent)" {
+  run grep '^context: fork' \
     "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/graphify-update/SKILL.md"
+  assert_failure
 }
 
-@test "graphify-update has model: haiku" {
-  grep -q '^model: haiku' \
+@test "graphify-update does not pin a model (runs inline)" {
+  run grep '^model:' \
     "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/graphify-update/SKILL.md"
+  assert_failure
 }
 
-@test "graphify-update has effort: low" {
-  grep -q '^effort: low' \
+@test "graphify-update does not pin effort (runs inline)" {
+  run grep '^effort:' \
     "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/graphify-update/SKILL.md"
+  assert_failure
 }
 
 # --- review-branch skill ---
@@ -931,14 +934,16 @@ run_ci_watch() {
   [ -f "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-branch/SKILL.md" ]
 }
 
-@test "review-branch has context: fork" {
-  grep -q '^context: fork' \
+@test "review-branch runs inline (NOT context: fork — a forked skill is a subagent and cannot dispatch the reviewers)" {
+  run grep '^context: fork' \
     "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-branch/SKILL.md"
+  assert_failure
 }
 
-@test "review-branch has model: sonnet" {
-  grep -q '^model: sonnet' \
+@test "review-branch does not pin a model (runs inline)" {
+  run grep '^model:' \
     "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-branch/SKILL.md"
+  assert_failure
 }
 
 # --- configure-branch-management skill ---
