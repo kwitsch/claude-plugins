@@ -1,7 +1,7 @@
 {
   "name": "superpowers-automation",
-  "version": "1.0.1",
-  "description": "Packages two PostToolUse Write hooks from the superpowers workflow as individually-toggled options. All features default off. A configure skill provides an interactive wizard.",
+  "version": "1.0.2",
+  "description": "Packages two PostToolUse Write hooks from the superpowers workflow as individually-toggled options, with an optional advisor review gate. All features default off. A configure skill provides an interactive wizard.",
   "author": {
     "name": "Kwitsch"
   },
@@ -16,6 +16,12 @@
       "type": "boolean",
       "title": "Specs hook",
       "description": "Values: true = inject 'User has reviewed and confirmed the spec. Proceed after self-review.' when writing docs/superpowers/specs/*.md; false = no injection. Default: false.",
+      "default": false
+    },
+    "hook_advisor_review": {
+      "type": "boolean",
+      "title": "Advisor review gate",
+      "description": "Values: true = append advisor() gate instruction to any active hook's injected message; false = no gate. Applies to both hooks when enabled. Default: false.",
       "default": false
     }
   }
