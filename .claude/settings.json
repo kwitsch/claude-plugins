@@ -20,5 +20,14 @@
         ]
       }
     ]
+  },
+  "pluginConfigs": {
+    "branch-management@kwitsch-plugins": {
+      "options": {
+        "graphify_pr_update": false,
+        "ci_monitor": true,
+        "coderabbit_ci_comments": true
+      }
+    }
   }
 }
