@@ -10,6 +10,8 @@ paths:
 Every `plugins/*/README.md` must list its components in dedicated tabular sections.
 Model: `plugins/branch-management/README.md`.
 
+**Hooks must NOT appear as a dedicated section.** Hook behavior is described via the Skills table, Configuration options table, or the plugin's general description — never as a standalone `## Hooks` section.
+
 ### Skills (if any skills exist)
 
 ```markdown
