@@ -16,3 +16,10 @@ Reads options from `~/.claude/settings.json` at `pluginConfigs["superpowers-auto
 ## Skills
 
 `configure-superpowers-automation` — interactive settings wizard; always available (no userConfig toggle on the skill itself).
+
+## Tests
+
+`test/superpowers-automation/test.bats` — run with:
+```bash
+BATS_LIB_PATH=/usr/lib/bats bats test/superpowers-automation/
+```

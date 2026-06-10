@@ -13,4 +13,7 @@ Matched strings: `Co-Authored-By:` (case-insensitive) and `Generated with [Claud
 - Fails open (exit 0, no output) for clean commits, non-commit commands, malformed input. Deny `reason` hand-assembled into JSON, stays JSON-safe (plain ASCII, no double quotes/backslashes/newlines).
 
 ## Tests
-`test/no-co-authored/test.bats` (bats).
+`test/no-co-authored/test.bats` — run with:
+```bash
+BATS_LIB_PATH=/usr/lib/bats bats test/no-co-authored/
+```
