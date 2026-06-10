@@ -1,6 +1,6 @@
 ---
 name: configure-superpowers-automation
-description: Interactive configurator for superpowers-automation plugin settings — plans hook, specs hook, and advisor review gate. Writes to ~/.claude/settings.json.
+description: Interactive configurator for superpowers-automation plugin settings — plans hook and specs hook. Writes to ~/.claude/settings.json.
 argument-hint: ""
 allowed-tools: ["AskUserQuestion", "Bash(jq:*)", "Bash(test:*)", "Bash(mkdir:*)", "Bash(mv:*)", "Bash(printf:*)"]
 disable-model-invocation: true
@@ -19,7 +19,6 @@ Values equal to the plugin default (`false`) are omitted (clean settings).
 |---|---|
 | `hook_plans` | `false` |
 | `hook_specs` | `false` |
-| `hook_advisor_review` | `false` |
 
 ## Step 1 — Read current settings
 
@@ -46,12 +45,11 @@ Find plugin config key: search `pluginConfigs` for any key starting with
 Compute current display values:
 - `$cur_plans   = $stored.hook_plans          == true ? "on" : "off"`
 - `$cur_specs   = $stored.hook_specs           == true ? "on" : "off"`
-- `$cur_advisor = $stored.hook_advisor_review  == true ? "on" : "off"`
 
 ## Step 2 — Ask: Hooks
 
 ```
-AskUserQuestion (3 questions):
+AskUserQuestion (2 questions):
   Q1: multiSelect: false
       question: "Enable plans hook? Writes to docs/superpowers/plans/*.md will inject subagent-driven guidance."
       header:   "Plans hook [currently: <on|off>]"
@@ -65,30 +63,21 @@ AskUserQuestion (3 questions):
       options:
         - label: "Yes"  description: "inject 'User has reviewed and confirmed the spec. Proceed after self-review.' on spec file writes"
         - label: "No"   description: "no injection on spec file writes"
-
-  Q3: multiSelect: false
-      question: "Enable advisor review gate? When active, any firing hook also requires advisor() approval before the model proceeds."
-      header:   "Advisor gate [currently: <on|off>]"
-      options:
-        - label: "Yes"  description: "append advisor gate instruction to active hook messages (skipped if advisor tool unavailable)"
-        - label: "No"   description: "no advisor gate — hook messages unchanged"
 ```
 
-Store: `$plans_raw` ("Yes"/"No"), `$specs_raw` ("Yes"/"No"), `$advisor_raw` ("Yes"/"No").
+Store: `$plans_raw` ("Yes"/"No"), `$specs_raw` ("Yes"/"No").
 
 ## Step 3 — Build new config and compute delta
 
 Resolve values:
-- `$hook_plans          = ($plans_raw   == "Yes")` → boolean true or false
-- `$hook_specs          = ($specs_raw   == "Yes")` → boolean true or false
-- `$hook_advisor_review = ($advisor_raw == "Yes")` → boolean true or false
+- `$hook_plans = ($plans_raw == "Yes")` → boolean true or false
+- `$hook_specs = ($specs_raw == "Yes")` → boolean true or false
 
 Build delta — include key only when value is `true` (differs from default `false`):
-- `hook_plans: true`          included iff `$hook_plans == true`
-- `hook_specs: true`          included iff `$hook_specs == true`
-- `hook_advisor_review: true` included iff `$hook_advisor_review == true`
+- `hook_plans: true` included iff `$hook_plans == true`
+- `hook_specs: true` included iff `$hook_specs == true`
 
-`$delta_json` = JSON object of the delta (e.g. `{"hook_plans":true}`, `{}`, or `{"hook_plans":true,"hook_advisor_review":true}`).
+`$delta_json` = JSON object of the delta (e.g. `{"hook_plans":true}`, `{}`, or `{"hook_plans":true,"hook_specs":true}`).
 
 ## Step 4 — Write settings file
 
@@ -123,10 +112,9 @@ jq --arg key "$plugin_key" --argjson opts "$delta_json" \
 
 ## Step 5 — Confirm
 
-Print using the **new** values (from `$hook_plans`, `$hook_specs`, `$hook_advisor_review`):
+Print using the **new** values (from `$hook_plans`, `$hook_specs`):
 ```
 superpowers-automation configured.
   Plans hook:     <"on" if $hook_plans == true else "off">
   Specs hook:     <"on" if $hook_specs == true else "off">
-  Advisor gate:   <"on" if $hook_advisor_review == true else "off">
 ```
