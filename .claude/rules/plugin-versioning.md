@@ -1,11 +1,13 @@
 ---
-globs: "plugins/*/.claude-plugin/plugin.json,.claude-plugin/marketplace.json"
+paths:
+  - "plugins/*/.claude-plugin/plugin.json"
+  - ".claude-plugin/marketplace.json"
 ---
 # Rule: plugin versioning
 
 ## Version field ownership
 
-`version` lives **only** in `plugins/<name>/.claude-plugin/plugin.json`. Every plugin change requires a bump — no exceptions. Use semver (`MAJOR.MINOR.PATCH`); breaking changes bump MAJOR.
+Each plugin's `version` lives **only** in `plugins/<name>/.claude-plugin/plugin.json`. The marketplace manifest (`.claude-plugin/marketplace.json`) has its own top-level `version` field (the manifest version) — this is separate. Do not confuse the two: the rule is about individual plugin entry versions, not the manifest's own version. Every plugin change requires a bump — no exceptions. Use semver (`MAJOR.MINOR.PATCH`); breaking changes bump MAJOR.
 
 ## marketplace.json entries
 
