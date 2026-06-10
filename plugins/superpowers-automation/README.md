@@ -2,6 +2,12 @@
 
 Packages two PostToolUse Write hooks from the superpowers workflow as individually-toggled plugin options. All features default to off.
 
+## Install
+
+```
+/plugin install superpowers-automation@kwitsch-plugins
+```
+
 ## Hooks
 
 | Hook | Trigger | Injected message |

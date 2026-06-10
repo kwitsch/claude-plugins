@@ -4,6 +4,12 @@ Branch lifecycle skills backed by dedicated subagents. `new-branch` starts
 work on a fresh branch cut from the updated default branch; `new-pr` turns a
 finished branch into a reviewed, pushed PR/MR and watches it until green.
 
+## Install
+
+```
+/plugin install branch-management@kwitsch-plugins
+```
+
 ## Skills
 
 | Skill | What it does |
