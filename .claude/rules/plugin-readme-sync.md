@@ -3,7 +3,42 @@ paths:
   - "plugins/*/README.md"
 ---
 
-# Rule: sync plugin entry in root README.md
+# Rule: plugin README structure + root README sync
+
+## Section structure
+
+Every `plugins/*/README.md` must list its components in dedicated tabular sections.
+Model: `plugins/branch-management/README.md`.
+
+### Skills (if any skills exist)
+
+```markdown
+## Skills
+
+| Skill | What it does |
+|---|---|
+| `<name>` | description |
+```
+
+**If a skill named `configure-*` exists, it must be the first row** in the Skills table.
+
+### Agents (if any agents exist)
+
+```markdown
+## Agents
+
+| Agent | Model | Role |
+|---|---|---|
+| `<name>` | haiku/sonnet/opus | description |
+```
+
+### Configuration (if a `configure-*` skill exists)
+
+Include a `## Configuration` section describing how to invoke the configurator.
+
+---
+
+## Root README sync
 
 When modifying any `plugins/*/README.md`, validate the corresponding row in the root `README.md` plugins table.
 
