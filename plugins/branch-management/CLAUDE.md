@@ -1,6 +1,14 @@
 # CLAUDE.md — branch-management
 
-Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine dedicated agents. Model selection in agent frontmatter (haiku = mechanics/CLI reviewers/graphify, sonnet = ci-monitor, opus = claude-reviewer + review-fixer). Each agent declares least-privilege `tools:` allowlist (both context-mode MCP wildcard spellings — server name differs per install; unique `color` per scope — same color allowed across scopes (agents that never co-run in the same skill invocation), duplicate colors forbidden within a scope; white/default never used. Scopes: new-branch (branch-agent, graphify-agent, ctx-index-agent); review (claude-reviewer, coderabbit-reviewer, codex-reviewer, copilot-reviewer, review-fixer, ci-monitor)); skills declare `allowed-tools` pre-approvals + `argument-hint`. Skills carry no `model:` key. context-mode (cross-marketplace dependency, declared in plugin.json, marketplace allowlisted via `allowCrossMarketplaceDependenciesOn`) runs scripts + heavy reads: agents bootstrap deferred ctx_* tools via ToolSearch, run scripts/logs/threads through `ctx_execute`/`ctx_batch_execute`, fall back to native tools when dependency broken (degradation reported). Git writes + guaranteed-small outputs stay on Bash per context-mode whitelist.
+Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine dedicated subagents.
+
+| Concern | Rule |
+|---|---|
+| **Models** | haiku = branch-agent, graphify-agent, CLI reviewers; sonnet = ci-monitor; opus = claude-reviewer, review-fixer |
+| **Tools** | each agent declares least-privilege allowlist; both context-mode MCP wildcard spellings (server name differs per install) |
+| **Colors** | unique per scope; same color allowed across scopes (agents that never co-run); white/default banned. Scopes: new-branch (branch-agent, graphify-agent, ctx-index-agent); review (claude-reviewer, coderabbit-reviewer, codex-reviewer, copilot-reviewer, review-fixer, ci-monitor) |
+| **Skills** | declare `allowed-tools` pre-approvals + `argument-hint`; no `model:` key |
+| **context-mode** | cross-marketplace dep (declared in plugin.json, marketplace-allowlisted); agents bootstrap deferred ctx_* via ToolSearch; scripts/logs through `ctx_execute`/`ctx_batch_execute`; fall back to native on broken dep (reported). Git writes + short outputs stay on Bash |
 
 ## Behavior
 - `skills/new-branch`: dispatches `agents/branch-agent` (clean-tree guard,
@@ -100,6 +108,9 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine dedicated agents.
   uses plugin.json defaults as the authoritative baseline.
 
 ## Tests
+```bash
+BATS_LIB_PATH=/usr/lib/bats bats test/branch-management/
+```
 `test/branch-management/test.bats` covers three review scripts with
 stub CLIs on isolated `PATH` (missing → 2, no login → 3, ok →
 passthrough, hang → timeout → 4, usage errors). Copilot login heuristic

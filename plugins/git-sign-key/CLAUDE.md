@@ -52,5 +52,8 @@ Key created at `~/.claude/sign.key` — must stay unencrypted (passphrase blocks
   `node`; SessionStart needs neither (static JSON).
 
 ## Tests
+```bash
+BATS_LIB_PATH=/usr/lib/bats bats test/git-sign-key/
+```
 `test/git-sign-key/test.bats` (bats). The suite isolates `$HOME` to a temp dir
 to control `~/.claude/sign.key`.

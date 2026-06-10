@@ -93,6 +93,9 @@ Installs [cc-tools](https://github.com/devslimbr/cc-tools) binary, routes native
   primary encoding protection.
 
 ## Tests
+```bash
+BATS_LIB_PATH=/usr/lib/bats bats test/cctools-edit/
+```
 `test/cctools-edit/test.bats` (bats). Hermetic — no network: dummy executable
 stands in for binary, `--print-asset`/`--print-url` cover OS/arch
 mapping, `CCTOOLS_SKIP_INSTALL=1` keeps SessionStart offline. Bash guard
