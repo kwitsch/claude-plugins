@@ -1,23 +1,27 @@
 # superpowers-automation
 
-Hook plugin. Single `PostToolUse:Write` hook (`hooks/post-write.mjs`), two individually-toggled behaviors plus optional advisor gate via userConfig. All default **false** — intentional opt-in.
+Hook plugin + two forked review skills. `PostToolUse:Write` hook (`hooks/post-write.mjs`) matches the written `file_path`; when the matched toggle is `true`, injects `additionalContext` instructing the main thread to invoke the matching review skill with the file path. Both toggles default **false** (opt-in). Fails open on parse error / missing settings.
 
 ## Hooks
 
-`hooks/post-write.mjs` (PostToolUse, matcher `Write`) — matches `file_path` from tool input against two path patterns; injects `hookSpecificOutput` when matched toggle is `true`. Fails open on parse error or missing settings.
-
-| userConfig key | Path pattern | Injected message |
+| userConfig key | Path pattern | Injected instruction → skill |
 |---|---|---|
-| `hook_plans` | `(^|\/)docs\/superpowers\/plans\/` | `Use approach: 1. Subagent-Driven.` |
-| `hook_specs` | `(^|\/)docs\/superpowers\/specs\/` | `User has reviewed and confirmed the spec. Proceed after self-review.` |
+| `hook_plans` | `(^|\/)docs\/superpowers\/plans\/` | invoke `plan-advisor-review <path>` |
+| `hook_specs` | `(^|\/)docs\/superpowers\/specs\/` | invoke `spec-advisor-review <path>` |
 
-When `hook_advisor_review` is `true`, appends `\nADVISOR GATE (active): Call advisor() before proceeding. If advisor tool unavailable, skip this step and continue normally.` to active hook's message.
-
-Reads options from `~/.claude/settings.json` at `pluginConfigs["superpowers-automation@*"].options`. Supports absolute and relative `file_path` values (pattern anchors with `(^|\/)` prefix).
+Reads options from `~/.claude/settings.json` at `pluginConfigs["superpowers-automation@*"].options`. Supports absolute and relative `file_path` (pattern anchors with `(^|\/)`).
 
 ## Skills
 
-`configure-superpowers-automation` — interactive settings wizard; always available (no userConfig toggle on skill itself).
+- `configure-superpowers-automation` — interactive settings wizard (`disable-model-invocation`).
+- `spec-advisor-review` — `context: fork`, `model: claude-haiku-4-5-20251001`. Reads the spec, calls `advisor()` (clean-room; warns + continues if absent), hands off to `superpowers:writing-plans`.
+- `plan-advisor-review` — `context: fork`, `model: claude-haiku-4-5-20251001`. Reads the plan, calls `advisor()` (clean-room; warns + continues if absent), hands off to `superpowers:subagent-driven-development`.
+
+Forked skills have no conversation history, so they take the file via `$ARGUMENTS` and do not invoke the next skill themselves — they end with a handoff line the main thread acts on (best-effort chaining). Fork mechanism (advisor availability + arg delivery inside a fork) is unverified in-session; verify after 2.0.0 publishes (`/plugin update` then invoke a review skill on a file). If inert, flip both skills to inline.
+
+## Dependency
+
+`superpowers` (`claude-plugins-official`) — provides the `writing-plans` and `subagent-driven-development` skills the review skills hand off to.
 
 ## Tests
 
