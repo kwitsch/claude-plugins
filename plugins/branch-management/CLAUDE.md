@@ -6,7 +6,7 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine subagents.
 |---|---|
 | **Models** | haiku = branch-agent, graphify-agent, CLI reviewers; sonnet = ci-monitor; opus = claude-reviewer, review-fixer |
 | **Tools** | each agent declares least-privilege allowlist; both context-mode MCP wildcard spellings (server name differs per install) |
-| **Colors** | unique per scope; same color allowed across scopes (agents that never co-run); white/default banned. Scopes: new-branch (branch-agent, graphify-agent, ctx-index-agent); review (claude-reviewer, coderabbit-reviewer, codex-reviewer, copilot-reviewer, review-fixer, ci-monitor) |
+| **Colors** | unique per scope; same color OK across scopes (agents never co-run); white/default banned. Scopes: new-branch (branch-agent, graphify-agent, ctx-index-agent); review (claude-reviewer, coderabbit-reviewer, codex-reviewer, copilot-reviewer, review-fixer, ci-monitor) |
 | **Skills** | declare `allowed-tools` pre-approvals + `argument-hint`; no `model:` key |
 | **context-mode** | cross-marketplace dep (declared in plugin.json, marketplace-allowlisted); agents bootstrap deferred ctx_* via ToolSearch; scripts/logs via `ctx_execute`/`ctx_batch_execute`; fall back to native on broken dep (reported). Git writes + short outputs stay on Bash |
 
@@ -15,18 +15,18 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine subagents.
   `origin/HEAD` refresh, `--ff-only` pull, `<type>/<slug>` creation,
   structured abort codes for user decisions); then invokes
   `skills/init-branch` (Skill tool) which dispatches `agents/graphify-agent`
-  + `agents/ctx-index-agent` in parallel (gated by `graphify_branch_update`
+  + `agents/ctx-index-agent` parallel (gated by `graphify_branch_update`
   + `context_index` toggles, both fail-open).
 - `skills/init-branch`: thin sub-skill — runs INLINE (NOT `context: fork`):
-  dispatches `agents/graphify-agent` (commit: no, force/user_files from the
+  dispatches `agents/graphify-agent` (commit: no, force/user_files from
   fail-closed `graphify_force_create`/`graphify_user_files` toggles) +
-  `agents/ctx-index-agent` in parallel, gated by `graphify_branch_update` +
-  `context_index` (both fail-open). Inline because a forked skill is a
-  subagent and cannot dispatch agents. Called by new-branch after branch
-  creation; user-invocable directly to refresh graph + index anytime.
+  `agents/ctx-index-agent` parallel, gated by `graphify_branch_update` +
+  `context_index` (both fail-open). Inline because forked skill is subagent,
+  cannot dispatch agents. Called by new-branch after branch creation;
+  user-invocable directly to refresh graph + index anytime.
 - `skills/review-branch`: standalone review sub-skill — runs INLINE (NOT
-  `context: fork`; a forked skill is a subagent and cannot dispatch the
-  reviewer subagents); reads
+  `context: fork`; forked skill is subagent, cannot dispatch reviewer
+  subagents); reads
   `review_claude/codex/copilot/coderabbit` toggles + `review_max_rounds`
   (default 3); quota check via `bin/quota-state.sh check <tool>` at
   startup; base-divergence check for coderabbit; dispatches enabled
@@ -99,9 +99,9 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine subagents.
   `test/branch-management/test.bats` (assert exact sorted key
   list + count).
 - Sub-skills (`init-branch`, `review-branch`) run INLINE — NOT `context: fork`.
-  A forked skill is itself a subagent, and subagents have no Agent tool, so a
-  forked sub-skill cannot dispatch the agents it relies on; inline keeps them at
-  depth 0 so dispatches become visible depth-1 subagents. They resolve their own
+  Forked skill is itself subagent, subagents have no Agent tool, so forked
+  sub-skill cannot dispatch agents it relies on; inline keeps them at
+  depth 0 so dispatches become visible depth-1 subagents. They resolve own
   toggles via `${user_config.*}` interpolation; parent skills pass only resolved
   values (e.g. `--base "$base"`, `--commit`), never re-pass toggle values.
 - `configure-branch-management` writes delta-only: only keys differing
