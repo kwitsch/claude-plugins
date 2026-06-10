@@ -933,6 +933,11 @@ run_ci_watch() {
   assert_failure
 }
 
+@test "new-branch allowed-tools includes Skill (invokes init-branch)" {
+  grep -q 'allowed-tools:.*Skill' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-branch/SKILL.md"
+}
+
 # --- graphify-update skill ---
 
 @test "graphify-update SKILL.md exists" {

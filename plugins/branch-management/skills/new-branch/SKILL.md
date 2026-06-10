@@ -1,8 +1,8 @@
 ---
 name: new-branch
-description: Use when starting new feature, fix, or chore work that needs its own branch - dispatches the branch-agent subagent to switch to the default branch, pull the latest state and create a new work branch, then dispatches graphify-agent and ctx-index-agent in parallel (graphify_branch_update / graphify_force_create / graphify_user_files and context_index options).
+description: Use when starting new feature, fix, or chore work that needs its own branch - dispatches the branch-agent subagent to switch to the default branch, pull the latest state and create a new work branch, then invokes the init-branch skill to refresh the graphify output and context-mode index (graphify_branch_update / graphify_force_create / graphify_user_files and context_index options).
 argument-hint: "[branch-name | task description]"
-allowed-tools: ["Agent", "Bash(git:*)", "Bash(echo:*)"]
+allowed-tools: ["Agent", "Skill", "Bash(git:*)", "Bash(echo:*)"]
 ---
 
 # Start a new work branch
@@ -30,39 +30,13 @@ steps yourself.
      stale or unknown base. After `pull_failed` working tree already on
      default branch — say so in report, so user know starting branch changed.
 
-3. **Resolve paths** (run both in one message via Bash before dispatching):
-   - Plugin root: `echo "${CLAUDE_PLUGIN_ROOT}"`
-   - Repository root: `git rev-parse --show-toplevel`
+3. **Initialize branch tooling.** Invoke the `branch-management:init-branch`
+   skill (Skill tool) with no arguments. It resolves the plugin root, repo
+   root and all graphify/context-mode toggles itself, dispatches
+   `graphify-agent` + `ctx-index-agent` in parallel, and returns structured
+   graphify + ctx-index outcome lines. (Skipped silently if both its toggles
+   are off — it reports that.)
 
-4. **Parallel graphify + ctx-index update.**
-
-   Check toggles:
-   - `graphify_branch_update`: `${user_config.graphify_branch_update}` —
-     ONLY literal `false` disables (fail-open). Disabled → skip graphify.
-   - `context_index`: `${user_config.context_index}` —
-     ONLY literal `false` disables (fail-open). Disabled → skip ctx-index.
-
-   Dispatch ALL enabled agents in ONE message (parallel, Agent tool):
-
-   - `branch-management:graphify-agent` (when graphify enabled) — prompt
-     contains: absolute path `<plugin-root>/bin/graphify-update.sh`;
-     `commit: no` (always for new-branch);
-     `force: yes` only when `${user_config.graphify_force_create}` is
-     literally `true`, otherwise `force: no` (FAIL-CLOSED);
-     `user_files: yes` only when `${user_config.graphify_user_files}` is
-     literally `true`, otherwise `user_files: no` (FAIL-CLOSED).
-   - `branch-management:ctx-index-agent` (when ctx-index enabled) — prompt
-     contains: the resolved repository root path.
-
-   If both are disabled, skip this step entirely.
-
-   Soft-fail: every agent status only feeds the report — never abort.
-   When graphify status is `updated`, note that `graphify-out` files are
-   left uncommitted on the fresh branch; they will trip the clean-tree
-   guard on the next `new-branch` run (commit or stash them first).
-
-5. **Report:** new branch name and commit it was cut from, straight from
-   agent's result; graphify outcome (updated — files left uncommitted /
-   skipped: no CLI / skipped: no graphify-out folder / failed + detail /
-   disabled via settings); ctx-index outcome (indexed / skipped / failed +
-   detail / disabled via settings).
+4. **Report:** new branch name and the commit it was cut from (straight from
+   the branch-agent result), then include the init-branch skill's graphify +
+   ctx-index outcome lines verbatim.
