@@ -1,5 +1,3 @@
-The task is to output the fixed compressed file. The error is `--deny-tool write` should be `--deny-\n  tool write` (multiline inline code span). Output the fixed file:
-
 # CLAUDE.md — branch-management
 
 Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine dedicated agents. Model selection in agent frontmatter (haiku = mechanics/CLI reviewers/graphify, sonnet = ci-monitor, opus = claude-reviewer + review-fixer). Each agent declares least-privilege `tools:` allowlist (both context-mode MCP wildcard spellings — server name differs per install; distinct `color` per agent); skills declare `allowed-tools` pre-approvals + `argument-hint`. Skills carry no `model:` key. context-mode (cross-marketplace dependency, declared in plugin.json, marketplace allowlisted via `allowCrossMarketplaceDependenciesOn`) runs scripts + heavy reads: agents bootstrap deferred ctx_* tools via ToolSearch, run scripts/logs/threads through `ctx_execute`/`ctx_batch_execute`, fall back to native tools when dependency broken (degradation reported). Git writes + guaranteed-small outputs stay on Bash per context-mode whitelist.

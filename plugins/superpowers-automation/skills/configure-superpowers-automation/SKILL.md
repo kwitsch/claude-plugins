@@ -3,6 +3,7 @@ name: configure-superpowers-automation
 description: Interactive configurator for superpowers-automation plugin settings — plans hook and specs hook. Writes to ~/.claude/settings.json.
 argument-hint: ""
 allowed-tools: ["AskUserQuestion", "Bash(jq:*)", "Bash(test:*)", "Bash(mkdir:*)", "Bash(mv:*)", "Bash(printf:*)"]
+disable-model-invocation: true
 ---
 
 # Configure superpowers-automation

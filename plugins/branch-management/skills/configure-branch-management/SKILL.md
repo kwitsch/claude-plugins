@@ -3,6 +3,7 @@ name: configure-branch-management
 description: Interactive configurator for branch-management plugin settings — reviewers, CI monitoring, graphify options. Detects project context and writes to the appropriate settings.json.
 argument-hint: ""
 allowed-tools: ["AskUserQuestion", "Bash(jq:*)", "Bash(test:*)", "Bash(mkdir:*)", "Bash(mv:*)", "Bash(printf:*)"]
+disable-model-invocation: true
 ---
 
 # Configure branch-management settings

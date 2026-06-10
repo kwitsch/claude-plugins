@@ -1,6 +1,6 @@
 {
   "name": "superpowers-automation",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Packages two PostToolUse Write hooks from the superpowers workflow as individually-toggled options. All features default off. A configure skill provides an interactive wizard.",
   "author": {
     "name": "Kwitsch"
