@@ -20,12 +20,12 @@ function getOptions() {
 
 const HOOKS = [
   {
-    pattern: /docs\/superpowers\/plans\//,
+    pattern: /^docs\/superpowers\/plans\//,
     toggle: 'hook_plans',
     message: 'Use approach: 1. Subagent-Driven.',
   },
   {
-    pattern: /docs\/superpowers\/specs\//,
+    pattern: /^docs\/superpowers\/specs\//,
     toggle: 'hook_specs',
     message: 'User has reviewed and confirmed the spec. Proceed after self-review.',
   },
