@@ -129,8 +129,7 @@ run_hook() {
 @test "plugin.json userConfig defaults are false" {
   run jq -e '
     .userConfig.hook_plans.default == false and
-    .userConfig.hook_specs.default == false and
-    .userConfig.hook_advisor_review.default == false
+    .userConfig.hook_specs.default == false
   ' "$REPO_ROOT/plugins/superpowers-automation/.claude-plugin/plugin.json"
   assert_success
 }
@@ -139,6 +138,14 @@ run_hook() {
   run jq -r '.userConfig | keys | sort | join(" ")' \
     "$REPO_ROOT/plugins/superpowers-automation/.claude-plugin/plugin.json"
   assert_success
-  assert_output "hook_advisor_review hook_plans hook_specs"
+  assert_output "hook_plans hook_specs"
+}
+
+@test "plugin.json declares superpowers dependency" {
+  run jq -e '
+    (.dependencies | type == "array") and
+    (any(.dependencies[]; .name == "superpowers" and .marketplace == "claude-plugins-official"))
+  ' "$REPO_ROOT/plugins/superpowers-automation/.claude-plugin/plugin.json"
+  assert_success
 }
 

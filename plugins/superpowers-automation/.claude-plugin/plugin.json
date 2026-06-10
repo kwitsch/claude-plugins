@@ -1,27 +1,27 @@
 {
   "name": "superpowers-automation",
-  "version": "1.0.2",
-  "description": "Packages two PostToolUse Write hooks from the superpowers workflow as individually-toggled options, with an optional advisor review gate. All features default off. A configure skill provides an interactive wizard.",
+  "version": "2.0.0",
+  "description": "Two PostToolUse Write hooks that trigger forked advisor-review skills gating the superpowers workflow (spec -> writing-plans, plan -> subagent-driven-development). Hooks default off. A configure skill provides an interactive wizard.",
   "author": {
     "name": "Kwitsch"
   },
+  "dependencies": [
+    {
+      "name": "superpowers",
+      "marketplace": "claude-plugins-official"
+    }
+  ],
   "userConfig": {
     "hook_plans": {
       "type": "boolean",
       "title": "Plans hook",
-      "description": "Values: true = inject 'Use approach: 1. Subagent-Driven.' when writing docs/superpowers/plans/*.md; false = no injection. Default: false.",
+      "description": "Values: true = on writing docs/superpowers/plans/*.md, inject an instruction to invoke the plan-advisor-review skill with the file path; false = no injection. Default: false.",
       "default": false
     },
     "hook_specs": {
       "type": "boolean",
       "title": "Specs hook",
-      "description": "Values: true = inject 'User has reviewed and confirmed the spec. Proceed after self-review.' when writing docs/superpowers/specs/*.md; false = no injection. Default: false.",
-      "default": false
-    },
-    "hook_advisor_review": {
-      "type": "boolean",
-      "title": "Advisor review gate",
-      "description": "Values: true = append advisor() gate instruction to any active hook's injected message; false = no gate. Applies to both hooks when enabled. Default: false.",
+      "description": "Values: true = on writing docs/superpowers/specs/*.md, inject an instruction to invoke the spec-advisor-review skill with the file path; false = no injection. Default: false.",
       "default": false
     }
   }
