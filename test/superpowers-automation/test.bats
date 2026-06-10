@@ -35,7 +35,7 @@ run_hook() {
   write_settings true false
   run run_hook "docs/superpowers/plans/2026-06-10-foo.md"
   assert_success
-  assert_output --partial "plan-advisor-review"
+  assert_output --partial "superpowers-automation:plan-advisor-review"
   assert_output --partial "docs/superpowers/plans/2026-06-10-foo.md"
 }
 
@@ -43,7 +43,7 @@ run_hook() {
   write_settings false true
   run run_hook "docs/superpowers/specs/2026-06-10-bar.md"
   assert_success
-  assert_output --partial "spec-advisor-review"
+  assert_output --partial "superpowers-automation:spec-advisor-review"
   assert_output --partial "docs/superpowers/specs/2026-06-10-bar.md"
 }
 
@@ -72,14 +72,14 @@ run_hook() {
   write_settings true false
   run run_hook "/home/user/project/docs/superpowers/plans/2026-06-10-foo.md"
   assert_success
-  assert_output --partial "plan-advisor-review"
+  assert_output --partial "superpowers-automation:plan-advisor-review"
 }
 
 @test "specs hook: matches absolute path from Claude Code" {
   write_settings false true
   run run_hook "/home/user/project/docs/superpowers/specs/2026-06-10-bar.md"
   assert_success
-  assert_output --partial "spec-advisor-review"
+  assert_output --partial "superpowers-automation:spec-advisor-review"
 }
 
 @test "plans hook: silent when hook_plans=false even with hook_specs=true" {
