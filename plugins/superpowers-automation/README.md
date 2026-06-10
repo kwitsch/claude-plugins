@@ -27,7 +27,12 @@ When **Advisor review gate** is enabled, an advisor gate instruction is appended
 
 ## Configuration
 
-Run `/configure-superpowers-automation` to enable/disable hooks interactively.
+Run `/configure-superpowers-automation` to enable/disable hooks interactively. Manual editing via `settings.json` is also supported using the table below.
 
-Options are stored in `~/.claude/settings.json` under
-`pluginConfigs["superpowers-automation@kwitsch-plugins"].options`.
+Options stored under `pluginConfigs["superpowers-automation@kwitsch-plugins"].options`.
+
+| Option | Default | Effect / Value |
+|---|---|---|
+| `hook_plans` | `false` | `true` = inject "Use approach: 1. Subagent-Driven." when writing `docs/superpowers/plans/*.md` |
+| `hook_specs` | `false` | `true` = inject "User has reviewed and confirmed the spec. Proceed after self-review." when writing `docs/superpowers/specs/*.md` |
+| `hook_advisor_review` | `false` | `true` = append advisor() gate to any active hook's message |
