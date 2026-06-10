@@ -25,6 +25,7 @@
     "branch-management@kwitsch-plugins": {
       "options": {
         "graphify_pr_update": false,
+        "graphify_pr_commit": false,
         "ci_monitor": true,
         "coderabbit_ci_comments": true
       }
