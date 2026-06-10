@@ -6,26 +6,27 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine subagents.
 |---|---|
 | **Models** | haiku = branch-agent, graphify-agent, CLI reviewers; sonnet = ci-monitor; opus = claude-reviewer, review-fixer |
 | **Tools** | each agent declares least-privilege allowlist; both context-mode MCP wildcard spellings (server name differs per install) |
-| **Colors** | unique per scope; same color allowed across scopes (agents that never co-run); white/default banned. Scopes: new-branch (branch-agent, graphify-agent, ctx-index-agent); review (claude-reviewer, coderabbit-reviewer, codex-reviewer, copilot-reviewer, review-fixer, ci-monitor) |
+| **Colors** | unique per scope; same color OK across scopes (agents never co-run); white/default banned. Scopes: new-branch (branch-agent, graphify-agent, ctx-index-agent); review (claude-reviewer, coderabbit-reviewer, codex-reviewer, copilot-reviewer, review-fixer, ci-monitor) |
 | **Skills** | declare `allowed-tools` pre-approvals + `argument-hint`; no `model:` key |
 | **context-mode** | cross-marketplace dep (declared in plugin.json, marketplace-allowlisted); agents bootstrap deferred ctx_* via ToolSearch; scripts/logs via `ctx_execute`/`ctx_batch_execute`; fall back to native on broken dep (reported). Git writes + short outputs stay on Bash |
 
 ## Behavior
 - `skills/new-branch`: dispatches `agents/branch-agent` (clean-tree guard,
   `origin/HEAD` refresh, `--ff-only` pull, `<type>/<slug>` creation,
-  structured abort codes for user decisions); then dispatches
-  `agents/graphify-agent` + `agents/ctx-index-agent` parallel (gated
-  by `graphify_branch_update` + `context_index` toggles, both fail-open).
-- `skills/graphify-update`: thin sub-skill (`context: fork`, `model: haiku`,
-  `effort: low`); dispatches
-  `agents/graphify-agent` (runs `bin/graphify-update.sh`, commit: no
-  unless `--commit` arg passed). `--force`/`--user-files` fall back to
-  `graphify_force_create`/`graphify_user_files` toggles (both FAIL-CLOSED:
-  only literal `true` enables — placeholder must never create folder; graphify
-  output serves agents, human-only `graph.html` pruned unless explicitly kept).
-  User-invocable directly (e.g. `/graphify-update --commit`).
-- `skills/review-branch`: standalone review sub-skill (`context: fork`,
-  `model: sonnet`); reads
+  structured abort codes for user decisions); then invokes
+  `skills/init-branch` (Skill tool) which dispatches `agents/graphify-agent`
+  + `agents/ctx-index-agent` parallel (gated by `graphify_branch_update`
+  + `context_index` toggles, both fail-open).
+- `skills/init-branch`: thin sub-skill — runs INLINE (NOT `context: fork`):
+  dispatches `agents/graphify-agent` (commit: no, force/user_files from
+  fail-closed `graphify_force_create`/`graphify_user_files` toggles) +
+  `agents/ctx-index-agent` parallel, gated by `graphify_branch_update` +
+  `context_index` (both fail-open). Inline because forked skill is subagent,
+  cannot dispatch agents. Called by new-branch after branch creation;
+  user-invocable directly to refresh graph + index anytime.
+- `skills/review-branch`: standalone review sub-skill — runs INLINE (NOT
+  `context: fork`; forked skill is subagent, cannot dispatch reviewer
+  subagents); reads
   `review_claude/codex/copilot/coderabbit` toggles + `review_max_rounds`
   (default 3); quota check via `bin/quota-state.sh check <tool>` at
   startup; base-divergence check for coderabbit; dispatches enabled
@@ -44,15 +45,15 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine subagents.
   CI, graphify+context-mode), validates numeric inputs with up to 3 re-asks,
   writes delta-only options back (only keys differing from plugin.json defaults
   written; keys reverted to default deleted).
-  Requires `jq`. Does NOT use `context: fork` or pin `model:` (user-facing,
-  not sub-skill).
+  Requires `jq`. Does NOT use `context: fork` or pin `model:`
+  (user-facing interactive configurator).
 - `skills/new-pr`: preconditions (fetch, base detection, `origin/<base>` for
   all revisions, feature toggles from `userConfig` interpolated as
   `${user_config.KEY}` — fail-open, only literal `false` disables); mandatory
   commit; invokes `skills/review-branch` with `--base "$base"` (stops before
-  push on open findings); graphify refresh before push via
-  `skills/graphify-update` (`--commit` when `graphify_pr_commit` not `false`),
-  gated by `graphify_pr_update`; push + `gh pr create`/`glab mr create`; monitor
+  push on open findings); graphify refresh before push via direct
+  `agents/graphify-agent` dispatch (commit: yes when `graphify_pr_commit`
+  not `false`), gated by `graphify_pr_update`; push + `gh pr create`/`glab mr create`; monitor
   loop (max 5, no-progress early exit): `ci-monitor` (read-only, gets platform +
   PR/MR reference + branch name + ci-watch.sh path + resolved `ci_watch_timeout`;
   CI watch via `bin/ci-watch.sh` — CodeRabbit checks excluded, bounded by
@@ -97,10 +98,12 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine subagents.
   option table + this file, update manifest tests in
   `test/branch-management/test.bats` (assert exact sorted key
   list + count).
-- Sub-skills (`graphify-update`, `review-branch`) use `context: fork` —
-  no conversation history, must resolve all toggles themselves or via
-  explicit args. Parent skills pass only resolved values (e.g. `--base "$base"`,
-  `--commit`); never re-pass toggle values.
+- Sub-skills (`init-branch`, `review-branch`) run INLINE — NOT `context: fork`.
+  Forked skill is itself subagent, subagents have no Agent tool, so forked
+  sub-skill cannot dispatch agents it relies on; inline keeps them at
+  depth 0 so dispatches become visible depth-1 subagents. They resolve own
+  toggles via `${user_config.*}` interpolation; parent skills pass only resolved
+  values (e.g. `--base "$base"`, `--commit`), never re-pass toggle values.
 - `configure-branch-management` writes delta-only: only keys differing
   from plugin.json defaults in settings; keys equal to defaults omitted or
   removed. When adding toggle, ensure its default in plugin.json reflects

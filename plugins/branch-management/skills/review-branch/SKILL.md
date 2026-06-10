@@ -2,8 +2,6 @@
 name: review-branch
 description: Run iterative parallel review rounds (claude/codex/copilot/coderabbit) with verified fixes between rounds, up to a configurable cap. Fully standalone — reads its own toggles and quota state. Called by new-pr; also user-invocable directly.
 argument-hint: "[--base <branch>] [--rounds N]"
-context: fork
-model: sonnet
 allowed-tools: ["Agent", "Bash(git:*)", "Bash(echo:*)", "Bash(*/quota-state.sh*)"]
 ---
 

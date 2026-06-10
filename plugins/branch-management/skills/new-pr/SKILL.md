@@ -107,22 +107,27 @@ read in preconditions (step 4).
 
 ## Submit
 
-9. **graphify update.** Gated by the `graphify_pr_update` toggle
-   (step 4) — `false` skips this step entirely; note
-   `graphify disabled via settings` in the report. Enabled → invoke
-   the `branch-management:graphify-update` skill (Skill tool) with
-   `--commit` when `graphify_pr_commit` is not `false`, no `--commit`
-   otherwise. The sub-skill reads `graphify_force_create` and
-   `graphify_user_files` toggles autonomously (new-pr never passes
-   `--force`; `--user-files` is toggle-driven within the sub-skill).
-   - With `--commit`: sub-skill commits refreshed graphify files as a
-     separate `chore: update graphify output` commit — generated
-     artifacts, intentionally NOT covered by the review rounds.
-   - Without `--commit`: graphify changes stay uncommitted (step 10
-     and the review-fixer leave `graphify-out` alone); note
-     `graphify changes left uncommitted via settings` in the report.
-   - Soft-fail: any non-ok status is a report note, never a reason to
-     stop before pushing.
+9. **graphify update.** Gated by the `graphify_pr_update` toggle (step 4) —
+   `false` skips this step entirely; note `graphify disabled via settings` in
+   the report. Enabled → dispatch `branch-management:graphify-agent` directly
+   (Agent tool; new-pr runs inline at depth 0, so it can dispatch). Resolve
+   `${CLAUDE_PLUGIN_ROOT}` to a concrete path via `echo "${CLAUDE_PLUGIN_ROOT}"`
+   if not already done. Prompt contains:
+   - absolute path `<plugin-root>/bin/graphify-update.sh`;
+   - `commit: yes` when `graphify_pr_commit` is not literally `false`,
+     otherwise `commit: no`;
+   - `force: yes` only when `graphify_force_create` is literally `true`,
+     otherwise `force: no` (FAIL-CLOSED) — new-pr never forces implicitly;
+   - `user_files: yes` only when `graphify_user_files` is literally `true`,
+     otherwise `user_files: no` (FAIL-CLOSED).
+   - With `commit: yes` the agent commits refreshed graphify files as a
+     separate `chore: update graphify output` commit — generated artifacts,
+     intentionally NOT covered by the review rounds.
+   - With `commit: no` graphify changes stay uncommitted (step 10 and the
+     review-fixer leave `graphify-out` alone); note `graphify changes left
+     uncommitted via settings` in the report.
+   - Soft-fail: any non-ok status is a report note, never a reason to stop
+     before pushing.
 
 10. **Everything committed?** Run `git status --porcelain`. Step 5 and the
    fixer rounds should have committed everything already, so this is a

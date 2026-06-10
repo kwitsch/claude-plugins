@@ -678,7 +678,7 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 
 @test "version: declared once — plugin.json only, marketplace entry carries none" {
   run jq -r '.version' "$REPO_ROOT/$PLUGIN_JSON_REL"
-  assert_output "3.5.1"
+  assert_output "3.6.0"
   run jq -e '.plugins[] | select(.name == "branch-management") | has("version") | not' \
     "$REPO_ROOT/.claude-plugin/marketplace.json"
   assert_success
@@ -904,25 +904,38 @@ run_ci_watch() {
     "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/ctx-index-agent.md"
 }
 
-# --- graphify-update skill ---
+# --- init-branch skill ---
 
-@test "graphify-update SKILL.md exists" {
-  [ -f "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/graphify-update/SKILL.md" ]
+@test "init-branch SKILL.md exists" {
+  [ -f "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branch/SKILL.md" ]
 }
 
-@test "graphify-update has context: fork" {
-  grep -q '^context: fork' \
-    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/graphify-update/SKILL.md"
+@test "init-branch runs inline (NOT context: fork — it dispatches agents, must stay at depth 0)" {
+  run grep '^context: fork' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branch/SKILL.md"
+  assert_failure
 }
 
-@test "graphify-update has model: haiku" {
-  grep -q '^model: haiku' \
-    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/graphify-update/SKILL.md"
+@test "init-branch does not pin a model (runs inline)" {
+  run grep '^model:' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branch/SKILL.md"
+  assert_failure
 }
 
-@test "graphify-update has effort: low" {
-  grep -q '^effort: low' \
-    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/graphify-update/SKILL.md"
+@test "init-branch allowed-tools includes Agent" {
+  grep -q 'allowed-tools:.*Agent' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branch/SKILL.md"
+}
+
+@test "init-branch is user-invocable (no user-invocable: false)" {
+  run grep '^user-invocable: false' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branch/SKILL.md"
+  assert_failure
+}
+
+@test "new-branch allowed-tools includes Skill (invokes init-branch)" {
+  grep -q 'allowed-tools:.*Skill' \
+    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-branch/SKILL.md"
 }
 
 # --- review-branch skill ---
@@ -931,14 +944,16 @@ run_ci_watch() {
   [ -f "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-branch/SKILL.md" ]
 }
 
-@test "review-branch has context: fork" {
-  grep -q '^context: fork' \
+@test "review-branch runs inline (NOT context: fork — a forked skill is a subagent and cannot dispatch the reviewers)" {
+  run grep '^context: fork' \
     "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-branch/SKILL.md"
+  assert_failure
 }
 
-@test "review-branch has model: sonnet" {
-  grep -q '^model: sonnet' \
+@test "review-branch does not pin a model (runs inline)" {
+  run grep '^model:' \
     "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-branch/SKILL.md"
+  assert_failure
 }
 
 # --- configure-branch-management skill ---
