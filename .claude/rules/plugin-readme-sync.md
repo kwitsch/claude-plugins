@@ -34,7 +34,17 @@ Model: `plugins/branch-management/README.md`.
 
 ### Configuration (if a `configure-*` skill exists)
 
-Include a `## Configuration` section describing how to invoke the configurator.
+Include a `## Configuration` section with:
+1. How to invoke the configurator (`/configure-<name>`)
+2. **An options table** (if the plugin has `userConfig` entries):
+
+```markdown
+| Option | Default | Effect / Value |
+|---|---|---|
+| `<key>` | `<default>` | what it does / valid values |
+```
+
+Derive option keys + defaults from the plugin's `.claude-plugin/plugin.json` `userConfig` field.
 
 ---
 
