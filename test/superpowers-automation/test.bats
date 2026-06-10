@@ -129,7 +129,8 @@ run_hook() {
 @test "plugin.json userConfig defaults are false" {
   run jq -e '
     .userConfig.hook_plans.default == false and
-    .userConfig.hook_specs.default == false
+    .userConfig.hook_specs.default == false and
+    .userConfig.hook_advisor_review.default == false
   ' "$REPO_ROOT/plugins/superpowers-automation/.claude-plugin/plugin.json"
   assert_success
 }
