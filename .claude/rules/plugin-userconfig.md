@@ -22,6 +22,12 @@ ONLY literal `false` disables a feature. All of the following count as enabled:
 
 Toggles whose enabled state creates files or external state must be fail-closed: only literal `true` enables. Example: `graphify_force_create` in branch-management. An uninterpolated placeholder must NEVER create files or external state.
 
+## configure-* skill sync
+
+If a plugin has a `configure-*` skill, that skill must cover every option in `userConfig`.
+
+**Requirement:** when `userConfig` is changed, update the corresponding `configure-*/SKILL.md` in the same change.
+
 ## Legacy exception
 
 Three hook-only plugins predate this rule and declare no `userConfig` yet: `cctools-edit`, `git-sign-key`, `no-co-authored`.
