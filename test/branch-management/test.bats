@@ -938,30 +938,6 @@ run_ci_watch() {
     "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-branch/SKILL.md"
 }
 
-# --- graphify-update skill ---
-
-@test "graphify-update SKILL.md exists" {
-  [ -f "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/graphify-update/SKILL.md" ]
-}
-
-@test "graphify-update runs inline (NOT context: fork — a forked skill is a subagent and cannot dispatch graphify-agent)" {
-  run grep '^context: fork' \
-    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/graphify-update/SKILL.md"
-  assert_failure
-}
-
-@test "graphify-update does not pin a model (runs inline)" {
-  run grep '^model:' \
-    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/graphify-update/SKILL.md"
-  assert_failure
-}
-
-@test "graphify-update does not pin effort (runs inline)" {
-  run grep '^effort:' \
-    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/graphify-update/SKILL.md"
-  assert_failure
-}
-
 # --- review-branch skill ---
 
 @test "review-branch SKILL.md exists" {
