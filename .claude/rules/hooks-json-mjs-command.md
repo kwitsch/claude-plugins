@@ -9,12 +9,12 @@ paths:
 
 **Correct:**
 ```json
-{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/my-hook.mjs\"" }
+{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/my-hook.mjs" }
 ```
 
 **Wrong:**
 ```json
-{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/my-hook.mjs\"" }
+{ "type": "command", "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/my-hook.mjs" }
 ```
 
 When writing or reviewing `hooks.json`, remove any leading `node` (or `node --input-type=module`) from `.mjs` command entries.
