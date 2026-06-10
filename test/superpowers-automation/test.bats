@@ -13,13 +13,15 @@ setup() {
 write_settings() {
   local hook_plans="${1:-false}"
   local hook_specs="${2:-false}"
+  local hook_advisor_review="${3:-false}"
   cat > "$HOME/.claude/settings.json" <<EOF
 {
   "pluginConfigs": {
     "superpowers-automation@kwitsch-plugins": {
       "options": {
         "hook_plans": $hook_plans,
-        "hook_specs": $hook_specs
+        "hook_specs": $hook_specs,
+        "hook_advisor_review": $hook_advisor_review
       }
     }
   }
@@ -130,4 +132,33 @@ run_hook() {
     .userConfig.hook_specs.default == false
   ' "$REPO_ROOT/plugins/superpowers-automation/.claude-plugin/plugin.json"
   assert_success
+}
+
+@test "plans hook: includes advisor gate when hook_advisor_review=true" {
+  write_settings true false true
+  run run_hook "docs/superpowers/plans/2026-06-10-foo.md"
+  assert_success
+  assert_output --partial "ADVISOR GATE"
+}
+
+@test "specs hook: includes advisor gate when hook_advisor_review=true" {
+  write_settings false true true
+  run run_hook "docs/superpowers/specs/2026-06-10-bar.md"
+  assert_success
+  assert_output --partial "ADVISOR GATE"
+}
+
+@test "plans hook: no advisor gate when hook_advisor_review=false" {
+  write_settings true false false
+  run run_hook "docs/superpowers/plans/2026-06-10-foo.md"
+  assert_success
+  assert_output --partial "Subagent-Driven"
+  refute_output --partial "ADVISOR GATE"
+}
+
+@test "advisor gate: no output when hook disabled even if hook_advisor_review=true" {
+  write_settings false false true
+  run run_hook "docs/superpowers/plans/2026-06-10-foo.md"
+  assert_success
+  assert_output ""
 }
