@@ -149,3 +149,13 @@ run_hook() {
   assert_success
 }
 
+@test "spec-advisor-review skill declares fork + haiku" {
+  local f="$REPO_ROOT/plugins/superpowers-automation/skills/spec-advisor-review/SKILL.md"
+  run test -f "$f"
+  assert_success
+  run grep -q "context: fork" "$f"
+  assert_success
+  run grep -q "model: claude-haiku-4-5-20251001" "$f"
+  assert_success
+}
+
