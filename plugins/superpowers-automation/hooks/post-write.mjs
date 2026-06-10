@@ -18,6 +18,8 @@ function getOptions() {
   } catch { return {}; }
 }
 
+const ADVISOR_SUFFIX = 'ADVISOR GATE (active): Call advisor() before proceeding. If advisor tool unavailable, skip this step and continue normally.';
+
 const HOOKS = [
   {
     pattern: /(^|\/)docs\/superpowers\/plans\//,
@@ -35,10 +37,13 @@ const matched = HOOKS.find(h => h.pattern.test(filePath));
 if (matched) {
   const opts = getOptions();
   if (opts[matched.toggle] === true) {
+    const message = opts.hook_advisor_review === true
+      ? matched.message + '\n' + ADVISOR_SUFFIX
+      : matched.message;
     console.log(JSON.stringify({
       hookSpecificOutput: {
         hookEventName: 'PostToolUse',
-        additionalContext: matched.message,
+        additionalContext: message,
       },
     }));
   }
