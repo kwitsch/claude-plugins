@@ -18,13 +18,13 @@ Key created at `~/.claude/sign.key` — must stay unencrypted (passphrase blocks
   signer so custom global `gpg.ssh.program` (1Password `op-ssh-sign`, etc.)
   bypassed — without it git hands on-disk key path to that program, which can't
   read it, forced-signed commit fails.
-- `hooks/check-sign-key.sh` (SessionStart): warns (static JSON) when key file
-  missing (setup steps) OR when existing key passphrase-encrypted
+- `hooks/check-sign-key.sh` (SessionStart): warns (static JSON) when key missing
+  (setup steps) OR when existing key passphrase-encrypted
   (`ssh-keygen -y -f key -P '' </dev/null` stderr matches `passphrase`/`decrypt`)
   — only `ssh-keygen` needed; dummy/invalid file stays silent.
 - Scanner (replaces old first-`git commit ` `case`): `_rewrite` walks
   command char-by-char tracking single/double-quote and backslash state,
-  rewrites **every** `git` reached at **unquoted command position** — start of
+  rewrites **every** `git` at **unquoted command position** — start of
   string or after unquoted separator (`_is_cmd_start`: `;`&`|`(`{`` ` ``/
   newline) via a `cmd_pos` flag. Quote-awareness is what stops a separator
   *inside* a quoted commit message/arg (e.g. `-m "fix; git commit later"`) from
@@ -52,5 +52,8 @@ Key created at `~/.claude/sign.key` — must stay unencrypted (passphrase blocks
   `node`; SessionStart needs neither (static JSON).
 
 ## Tests
+```bash
+BATS_LIB_PATH=/usr/lib/bats bats test/git-sign-key/
+```
 `test/git-sign-key/test.bats` (bats). The suite isolates `$HOME` to a temp dir
 to control `~/.claude/sign.key`.

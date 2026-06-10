@@ -6,10 +6,9 @@ Installs [cc-tools](https://github.com/devslimbr/cc-tools) binary, routes native
 - `hooks/lib.sh` — sourced helpers: platform → release-asset mapping
   (`cctools_asset`), resolved paths (`cctools_bin`, `cctools_home`), download
   URL, `cctools_is_legacy_file` (encoding classifier via
-  `file --mime-encoding`/`iconv`; cc-tools' own detector NOT used — it
-  mislabels ASCII as ISO-8859-1). Classifier memoises per run via
+  `file --mime-encoding`/`iconv`; cc-tools' own detector NOT used — mislabels ASCII as ISO-8859-1). Classifier memoises per run via
   `CCTOOLS_ENC_CACHE` (set by `cctools_scan_command`) so each distinct path
-  classified — thus forks `file` — at most once, even when one command
+  classified — forks `file` — at most once, even when one command
   mentions it many times. All scripts share lib.sh.
 - `hooks/install-cctools.sh` — idempotent installer. Detects OS/arch
   (`uname -s`/`-m`, overridable via `CCTOOLS_OS`/`CCTOOLS_ARCH`), downloads
@@ -19,7 +18,7 @@ Installs [cc-tools](https://github.com/devslimbr/cc-tools) binary, routes native
   `--print-asset`/`--print-bin`/`--print-url` (test hooks, no network);
   `CCTOOLS_SKIP_INSTALL=1` no-ops; `CCTOOLS_FORCE=1` reinstalls.
 - `hooks/session-start.sh` (SessionStart) — runs installer (stderr noise
-  kept off JSON stdout), then emits `additionalContext` priming model
+  kept off JSON stdout), emits `additionalContext` priming model
   with cc-tools command per tool (and path to stashed
   `prompt.md` reference when present). Warns when binary absent.
 - `hooks/redirect-to-cctools.sh` (PreToolUse, matcher `Read|Write|Edit|MultiEdit`)
@@ -42,11 +41,11 @@ Installs [cc-tools](https://github.com/devslimbr/cc-tools) binary, routes native
 
 ## Behavior / key rules
 - **Fail-open everywhere.** Redirect denies ONLY when binary present
-  and `--version` runs; else exit 0 (native tools stay usable) so model
+  and `--version` runs; else exit 0 (native tools stay usable) — model
   never stranded. Same for missing curl/wget/tar/unzip, no jq/node, malformed
-  input, or unrecognised tool name.
+  input, unrecognised tool name.
 - **Why deny+Bash solves Read corruption:** `cctools read` runs over Bash,
-  its stdout returns clean UTF-8, so model's `old_string` matches file's
+  stdout returns clean UTF-8, so model's `old_string` matches file's
   true bytes and `cctools edit` re-encodes to original encoding.
 - JSON parse/emit prefers `jq`, then Node-compatible runtime — `node` or
   `bun` (context-mode installs it; embedded snippets run byte-for-byte
@@ -66,10 +65,10 @@ Installs [cc-tools](https://github.com/devslimbr/cc-tools) binary, routes native
   sandbox/`ctx_execute*` reads corrupt and bypass — model told to use
   `cctools read`/`edit` for legacy files regardless of other guidance. (Guard via
   guidance, not by matching context-mode's tools: denying `ctx_execute_file`
-  would break context-mode and those tools discard FS writes anyway.)
+  breaks context-mode and those tools discard FS writes anyway.)
 - Bash-hook coexistence correct: both plugins' `PreToolUse:Bash` hooks run as
   independent processes (each gets own stdin copy); cctools-edit `deny`
-  wins. No deny/redirect ping-pong — context-mode allows the exact `cctools …`
+  wins. No deny/redirect ping-pong — context-mode allows exact `cctools …`
   commands cctools-edit recommends (only redirects `curl`/`wget`-style large
   fetches).
 
@@ -93,6 +92,9 @@ Installs [cc-tools](https://github.com/devslimbr/cc-tools) binary, routes native
   primary encoding protection.
 
 ## Tests
+```bash
+BATS_LIB_PATH=/usr/lib/bats bats test/cctools-edit/
+```
 `test/cctools-edit/test.bats` (bats). Hermetic — no network: dummy executable
 stands in for binary, `--print-asset`/`--print-url` cover OS/arch
 mapping, `CCTOOLS_SKIP_INSTALL=1` keeps SessionStart offline. Bash guard

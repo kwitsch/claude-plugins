@@ -3,7 +3,7 @@ name: ctx-index-agent
 description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management new-branch skill. Indexes the repository in context-mode so the knowledge base reflects the current branch state.
 model: haiku
 effort: low
-color: white
+color: blue
 tools: ["ToolSearch", "mcp__plugin_context-mode_context-mode__*", "mcp__context-mode__*"]
 ---
 

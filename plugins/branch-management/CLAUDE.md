@@ -1,12 +1,20 @@
 # CLAUDE.md — branch-management
 
-Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine dedicated agents. Model selection in agent frontmatter (haiku = mechanics/CLI reviewers/graphify, sonnet = ci-monitor, opus = claude-reviewer + review-fixer). Each agent declares least-privilege `tools:` allowlist (both context-mode MCP wildcard spellings — server name differs per install; distinct `color` per agent); skills declare `allowed-tools` pre-approvals + `argument-hint`. Skills carry no `model:` key. context-mode (cross-marketplace dependency, declared in plugin.json, marketplace allowlisted via `allowCrossMarketplaceDependenciesOn`) runs scripts + heavy reads: agents bootstrap deferred ctx_* tools via ToolSearch, run scripts/logs/threads through `ctx_execute`/`ctx_batch_execute`, fall back to native tools when dependency broken (degradation reported). Git writes + guaranteed-small outputs stay on Bash per context-mode whitelist.
+Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine subagents.
+
+| Concern | Rule |
+|---|---|
+| **Models** | haiku = branch-agent, graphify-agent, CLI reviewers; sonnet = ci-monitor; opus = claude-reviewer, review-fixer |
+| **Tools** | each agent declares least-privilege allowlist; both context-mode MCP wildcard spellings (server name differs per install) |
+| **Colors** | unique per scope; same color allowed across scopes (agents that never co-run); white/default banned. Scopes: new-branch (branch-agent, graphify-agent, ctx-index-agent); review (claude-reviewer, coderabbit-reviewer, codex-reviewer, copilot-reviewer, review-fixer, ci-monitor) |
+| **Skills** | declare `allowed-tools` pre-approvals + `argument-hint`; no `model:` key |
+| **context-mode** | cross-marketplace dep (declared in plugin.json, marketplace-allowlisted); agents bootstrap deferred ctx_* via ToolSearch; scripts/logs via `ctx_execute`/`ctx_batch_execute`; fall back to native on broken dep (reported). Git writes + short outputs stay on Bash |
 
 ## Behavior
 - `skills/new-branch`: dispatches `agents/branch-agent` (clean-tree guard,
   `origin/HEAD` refresh, `--ff-only` pull, `<type>/<slug>` creation,
   structured abort codes for user decisions); then dispatches
-  `agents/graphify-agent` + `agents/ctx-index-agent` in parallel (gated
+  `agents/graphify-agent` + `agents/ctx-index-agent` parallel (gated
   by `graphify_branch_update` + `context_index` toggles, both fail-open).
 - `skills/graphify-update`: thin sub-skill (`context: fork`, `model: haiku`,
   `effort: low`); dispatches
@@ -19,9 +27,9 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine dedicated agents.
 - `skills/review-branch`: standalone review sub-skill (`context: fork`,
   `model: sonnet`); reads
   `review_claude/codex/copilot/coderabbit` toggles + `review_max_rounds`
-  (default 3); runs quota check via `bin/quota-state.sh check <tool>` at
-  startup; performs base-divergence check for coderabbit; dispatches enabled
-  reviewers in parallel (`claude-reviewer`, CLI reviewers via
+  (default 3); quota check via `bin/quota-state.sh check <tool>` at
+  startup; base-divergence check for coderabbit; dispatches enabled
+  reviewers parallel (`claude-reviewer`, CLI reviewers via
   `ctx_execute`); aggregates + dedupes findings with cross-round skip list
   (fixer echoes per-finding ids); findings → `review-fixer` + next round;
   converges when fixer commits nothing; stops before push when round
@@ -31,18 +39,18 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine dedicated agents.
 - `skills/configure-branch-management`: user-invocable interactive
   configurator; detects `.git`/`.claude` in cwd to offer project-scope
   choices (falls back to user scope when absent); reads current
-  `pluginConfigs["branch-management@*"].options` from the selected settings
+  `pluginConfigs["branch-management@*"].options` from selected settings
   file, presents three thematic `AskUserQuestion` dialogs (reviewers+rounds,
   CI, graphify+context-mode), validates numeric inputs with up to 3 re-asks,
-  then writes a delta-only options object back (only keys that differ from
-  plugin.json defaults are written; keys reverted to default are deleted).
-  Requires `jq`. Does NOT use `context: fork` or pin a `model:` (user-facing,
-  not a sub-skill).
+  writes delta-only options back (only keys differing from plugin.json defaults
+  written; keys reverted to default deleted).
+  Requires `jq`. Does NOT use `context: fork` or pin `model:` (user-facing,
+  not sub-skill).
 - `skills/new-pr`: preconditions (fetch, base detection, `origin/<base>` for
   all revisions, feature toggles from `userConfig` interpolated as
   `${user_config.KEY}` — fail-open, only literal `false` disables); mandatory
   commit; invokes `skills/review-branch` with `--base "$base"` (stops before
-  push if open findings); graphify refresh before push via
+  push on open findings); graphify refresh before push via
   `skills/graphify-update` (`--commit` when `graphify_pr_commit` not `false`),
   gated by `graphify_pr_update`; push + `gh pr create`/`glab mr create`; monitor
   loop (max 5, no-progress early exit): `ci-monitor` (read-only, gets platform +
@@ -84,7 +92,7 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine dedicated agents.
 
 ## Conventions
 - Feature toggles follow repo-wide `userConfig` rule
-  (`plugins/CLAUDE.md`). Wiring new toggle: read as
+  (`plugins/CLAUDE.md`). Wire new toggle: read as
   `${user_config.KEY}` in consuming skill, add to README
   option table + this file, update manifest tests in
   `test/branch-management/test.bats` (assert exact sorted key
@@ -94,12 +102,15 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine dedicated agents.
   explicit args. Parent skills pass only resolved values (e.g. `--base "$base"`,
   `--commit`); never re-pass toggle values.
 - `configure-branch-management` writes delta-only: only keys differing
-  from plugin.json defaults appear in settings; keys equal to defaults are
-  omitted or removed. When adding a new toggle, ensure its default in
-  plugin.json reflects the desired clean-state value — the configurator
-  uses plugin.json defaults as the authoritative baseline.
+  from plugin.json defaults in settings; keys equal to defaults omitted or
+  removed. When adding toggle, ensure its default in plugin.json reflects
+  desired clean-state value — configurator uses plugin.json defaults as
+  authoritative baseline.
 
 ## Tests
+```bash
+BATS_LIB_PATH=/usr/lib/bats bats test/branch-management/
+```
 `test/branch-management/test.bats` covers three review scripts with
 stub CLIs on isolated `PATH` (missing → 2, no login → 3, ok →
 passthrough, hang → timeout → 4, usage errors). Copilot login heuristic
