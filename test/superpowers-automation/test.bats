@@ -66,6 +66,20 @@ run_hook() {
   assert_output ""
 }
 
+@test "plans hook: matches absolute path from Claude Code" {
+  write_settings true false
+  run run_hook "/home/user/project/docs/superpowers/plans/2026-06-10-foo.md"
+  assert_success
+  assert_output --partial "Subagent-Driven"
+}
+
+@test "specs hook: matches absolute path from Claude Code" {
+  write_settings false true
+  run run_hook "/home/user/project/docs/superpowers/specs/2026-06-10-bar.md"
+  assert_success
+  assert_output --partial "Proceed after self-review"
+}
+
 @test "plans hook: silent when hook_plans=false even with hook_specs=true" {
   write_settings false true
   run run_hook "docs/superpowers/plans/2026-06-10-foo.md"
