@@ -19,6 +19,7 @@ finished branch into a reviewed, pushed PR/MR and watches it until green.
 | `init-branch` | Thin sub-skill (runs inline, not forked — so it can dispatch subagents): refreshes the graphify knowledge-graph output (via `graphify-agent`) and the context-mode index (via `ctx-index-agent`) for the current branch, gated by `graphify_branch_update` / `context_index`. Called by `new-branch` after branch creation; also user-invocable directly. |
 | `new-pr` | Commits pending work, invokes the `review-branch` sub-skill for iterative review rounds, dispatches `graphify-agent` directly before pushing (commit gated by `graphify_pr_commit`, refresh togglable via `graphify_pr_update`), pushes, opens the PR/MR via `gh`/`glab`, and loops `ci-monitor` → `review-fixer` until CI is green and no findings remain. Every stage — review sources, CI watch, CodeRabbit comment handling — can be toggled via plugin options (see [Configuration](#configuration)). |
 | `review-branch` | Standalone review sub-skill (runs inline, not forked): runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer agents, configurable via `review_max_rounds`), aggregates + dedupes findings, applies verified fixes via `review-fixer` between rounds, tracks quota limits. Invoked by `new-pr`; also user-invocable to review without opening a PR. |
+| `branch-management:clean-branches` | Fetch latest, prune merged upstream branches (gh/glab), delete local branches whose upstream is gone, list uncommitted files. |
 
 ## Agents
 
