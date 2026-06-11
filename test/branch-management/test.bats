@@ -1088,6 +1088,28 @@ run_clean_script() {
     assert_output --partial "feat/merged-remote"
 }
 
+@test "clean: default branch survives upstream pruning while a merged same-prefix branch is deleted" {
+    # Regression guard for exact-name exclusion (commit 8a33272): origin/main
+    # must never be push-deleted, but a merged branch sharing the prefix
+    # (origin/main-backup) must be. Substring matching wrongly spared it.
+    make_clean_repo
+    cd "$REPO_DIR"
+    # main-backup: branched from main (already merged into main), pushed.
+    git -C "$REPO_DIR" checkout -b main-backup
+    git -C "$REPO_DIR" push -u origin main-backup
+    git -C "$REPO_DIR" checkout main
+    make_stub gh 'if [ "$1" = "auth" ]; then exit 0; fi; exit 0'
+    run_clean_script
+    assert_success
+    assert_output --partial "Deleted upstream branches:"
+    assert_output --partial "main-backup"
+    # main-backup is gone from the remote; main still exists on the remote.
+    run git -C "$REMOTE_DIR" show-ref --verify --quiet refs/heads/main-backup
+    assert_failure
+    run git -C "$REMOTE_DIR" show-ref --verify --quiet refs/heads/main
+    assert_success
+}
+
 @test "clean: gh not logged in → upstream deletion skipped silently" {
     make_clean_repo
     cd "$REPO_DIR"
