@@ -169,38 +169,39 @@ run_hook() {
   assert_success
 }
 
-@test "save-advisor skill declares fork + sonnet + user-only + args" {
-  local f="$REPO_ROOT/plugins/superpowers-automation/skills/save-advisor/SKILL.md"
+@test "file-advisor-improver skill declares fork + sonnet + args, and is unlocked" {
+  local f="$REPO_ROOT/plugins/superpowers-automation/skills/file-advisor-improver/SKILL.md"
   run test -f "$f"
   assert_success
   run grep -q "context: fork" "$f"
   assert_success
   run grep -q "model: claude-sonnet-4-6" "$f"
   assert_success
-  run grep -q "disable-model-invocation: true" "$f"
-  assert_success
   run grep -q "arguments: file_path" "$f"
   assert_success
+  # unlocked: no disable-model-invocation
+  run grep -q "disable-model-invocation" "$f"
+  assert_failure
 }
 
-@test "save-advisor skill grants Edit and Write" {
-  local f="$REPO_ROOT/plugins/superpowers-automation/skills/save-advisor/SKILL.md"
+@test "file-advisor-improver skill grants Edit and Write" {
+  local f="$REPO_ROOT/plugins/superpowers-automation/skills/file-advisor-improver/SKILL.md"
   run grep -Eq 'allowed-tools:.*Edit' "$f"
   assert_success
   run grep -Eq 'allowed-tools:.*Write' "$f"
   assert_success
 }
 
-@test "save-advisor skill defines the file-gate and advisor-gate warnings" {
-  local f="$REPO_ROOT/plugins/superpowers-automation/skills/save-advisor/SKILL.md"
-  run grep -q "WARNING: save-advisor: no readable file to review — skipped" "$f"
+@test "file-advisor-improver skill defines the file-gate and advisor-gate warnings" {
+  local f="$REPO_ROOT/plugins/superpowers-automation/skills/file-advisor-improver/SKILL.md"
+  run grep -q "WARNING: file-advisor-improver: no readable file to review — skipped" "$f"
   assert_success
-  run grep -q "WARNING: save-advisor: advisor tool unavailable — skipped" "$f"
+  run grep -q "WARNING: file-advisor-improver: advisor tool unavailable — skipped" "$f"
   assert_success
 }
 
-@test "save-advisor skill signals on-disk change for re-read" {
-  local f="$REPO_ROOT/plugins/superpowers-automation/skills/save-advisor/SKILL.md"
+@test "file-advisor-improver skill signals on-disk change for re-read" {
+  local f="$REPO_ROOT/plugins/superpowers-automation/skills/file-advisor-improver/SKILL.md"
   run grep -q "FILE UPDATED ON DISK:" "$f"
   assert_success
   run grep -q "re-read before further edits" "$f"
