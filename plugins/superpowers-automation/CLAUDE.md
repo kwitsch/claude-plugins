@@ -1,28 +1,26 @@
 # superpowers-automation
 
-Hook plugin + two forked review skills. `PostToolUse:Write` hook (`hooks/post-write.mjs`) matches the written `file_path`; when the matched toggle is `true`, injects `additionalContext` instructing the main thread to invoke the matching review skill with the file path. Both toggles default **false** (opt-in). Fails open on parse error / missing settings.
+`new-feature` pipeline orchestrator + `file-advisor-improver` reviser + one opt-in `PostToolUse:Write` hook. The hook (`hooks/post-write.mjs`) matches a written plan `file_path`; when `hook_plans` is `true`, injects `additionalContext` telling the main thread to implement the plan with `superpowers:subagent-driven-development` (forcing Subagent-Driven in the native flow). Toggle defaults **false** (opt-in). Fails open on parse error / missing settings.
 
 ## Hooks
 
-| userConfig key | Path pattern | Injected instruction → skill |
+| userConfig key | Path pattern | Injected instruction |
 |---|---|---|
-| `hook_plans` | `(^|\/)docs\/superpowers\/plans\/` | invoke `plan-advisor-review <path>` |
-| `hook_specs` | `(^|\/)docs\/superpowers\/specs\/` | invoke `spec-advisor-review <path>` |
+| `hook_plans` | `(^|\/)docs\/superpowers\/plans\/` | implement plan via `superpowers:subagent-driven-development` |
 
 Reads options from `~/.claude/settings.json` at `pluginConfigs["superpowers-automation@*"].options`. Supports absolute and relative `file_path` (pattern anchors with `(^|\/)`).
 
 ## Skills
 
 - `configure-superpowers-automation` — interactive settings wizard (`disable-model-invocation`).
-- `spec-advisor-review` — `context: fork`, `model: claude-haiku-4-5-20251001`. Reads the spec, calls `advisor()` (clean-room; warns + continues if absent), hands off to `superpowers:writing-plans`.
-- `plan-advisor-review` — `context: fork`, `model: claude-haiku-4-5-20251001`. Reads the plan, calls `advisor()` (clean-room; warns + continues if absent), hands off to `superpowers:subagent-driven-development`.
-- `save-advisor` — `context: fork`, `model: claude-sonnet-4-6`, `disable-model-invocation: true` (user-invoked only — it rewrites a file). Reads the file passed as its argument, calls `advisor()` (clean-room; warns + skips if absent or no file), then revises the file to implement the feedback. No hook, no `userConfig` toggle. Terminal (no handoff).
+- `new-feature` — inline (not forked) pipeline orchestrator: `feature/` branch -> brainstorming -> `file-advisor-improver` (spec) -> writing-plans -> `file-advisor-improver` (plan) -> subagent-driven-development. Carries explicit suppression instructions so the downstream skills' auto-handoffs don't skip the reviser steps. Model + user invocable.
+- `file-advisor-improver` — `context: fork`, `model: claude-sonnet-4-6`. Reads the file passed as its argument, calls `advisor()` (clean-room; warns + skips if absent or no file), then revises the file in place. Terminal (no handoff). Unlocked (model + user invocable).
 
-Forked skills have no conversation history, so they take the file via `$ARGUMENTS` and do not invoke the next skill themselves — they end with a handoff line the main thread acts on (best-effort chaining). Fork mechanism (advisor availability + arg delivery inside a fork) is unverified in-session; verify after 2.0.0 publishes (`/plugin update` then invoke a review skill on a file). If inert, flip both skills to inline.
+Forked skills have no conversation history, so `file-advisor-improver` takes the file via `$ARGUMENTS`. Fork mechanism (advisor availability + arg delivery inside a fork) and the `new-feature` live orchestration are unverified in-session; verify after publish (`/plugin update`, then run `new-feature` on a description).
 
 ## Dependency
 
-`superpowers` (`claude-plugins-official`) — provides the `writing-plans` and `subagent-driven-development` skills the review skills hand off to.
+`superpowers` (`claude-plugins-official`) — provides the `brainstorming`, `writing-plans`, and `subagent-driven-development` skills the `new-feature` pipeline invokes.
 
 ## Tests
 

@@ -1,6 +1,6 @@
 # superpowers-automation
 
-Two PostToolUse Write hooks that trigger forked advisor-review skills gating the superpowers workflow: writing a spec runs `spec-advisor-review` (→ `superpowers:writing-plans`); writing a plan runs `plan-advisor-review` (→ `superpowers:subagent-driven-development`). Both hooks default off. The standalone, user-invoked `save-advisor` skill revises a target file to implement advisor feedback.
+A `new-feature` orchestrator that drives the full superpowers pipeline from a one-line description (create branch -> brainstorm -> review spec -> write plan -> review plan -> implement), with advisor-driven file revision at the spec and plan stages. Ships the `file-advisor-improver` skill (forked Sonnet; reviews a file via `advisor()` and revises it in place) and a single opt-in `PostToolUse:Write` hook that forces Subagent-Driven implementation after a plan is written. The hook defaults off.
 
 ## Install
 
@@ -8,18 +8,17 @@ Two PostToolUse Write hooks that trigger forked advisor-review skills gating the
 /plugin install superpowers-automation@kwitsch-plugins
 ```
 
-Depends on the `superpowers` plugin (`claude-plugins-official`), whose `writing-plans` and `subagent-driven-development` skills the review skills hand off to.
+Depends on the `superpowers` plugin (`claude-plugins-official`), whose `brainstorming`, `writing-plans`, and `subagent-driven-development` skills the `new-feature` pipeline invokes.
 
 ## Skills
 
 | Skill | What it does |
 |---|---|
-| `configure-superpowers-automation` | Interactive wizard to enable/disable the plans and specs hooks. Writes only non-default values to `~/.claude/settings.json`. |
-| `spec-advisor-review` | Forked (haiku) review of a written spec file via `advisor()`, then hands off to `superpowers:writing-plans`. Triggered by the specs hook. |
-| `plan-advisor-review` | Forked (haiku) review of a written plan file via `advisor()`, then hands off to `superpowers:subagent-driven-development`. Triggered by the plans hook. |
-| `save-advisor` | Forked (Sonnet) clean-room review of a target file via `advisor()`, then revises that file to implement the feedback. User-invoked only (`/superpowers-automation:save-advisor <path>`); warns and skips if the file is missing or `advisor` is unavailable. |
+| `configure-superpowers-automation` | Interactive wizard to enable/disable the plans hook. Writes only non-default values to `~/.claude/settings.json`. |
+| `new-feature` | Orchestrates the full superpowers pipeline for one feature: derives a `feature/` branch and creates it (via `branch-management:new-branch` or git), then runs brainstorming -> `file-advisor-improver` (spec) -> writing-plans -> `file-advisor-improver` (plan) -> subagent-driven-development, suppressing each stage's auto-handoff so the reviser steps run. |
+| `file-advisor-improver` | Forked (Sonnet) clean-room review of one file passed by path via `advisor()`, then revises that file in place to implement the feedback. Warns and skips if the file is missing or `advisor` is unavailable. |
 
-The review skills warn and continue if the `advisor` tool is unavailable.
+`file-advisor-improver` warns and skips if the `advisor` tool is unavailable.
 
 ## Configuration
 
@@ -29,5 +28,4 @@ Options stored under `pluginConfigs["superpowers-automation@kwitsch-plugins"].op
 
 | Option | Default | Effect / Value |
 |---|---|---|
-| `hook_plans` | `false` | `true` = on writing `docs/superpowers/plans/*.md`, instruct invoking `plan-advisor-review` with the file path |
-| `hook_specs` | `false` | `true` = on writing `docs/superpowers/specs/*.md`, instruct invoking `spec-advisor-review` with the file path |
+| `hook_plans` | `false` | `true` = on writing `docs/superpowers/plans/*.md`, inject an instruction to implement the plan with `superpowers:subagent-driven-development` (forcing Subagent-Driven) |
