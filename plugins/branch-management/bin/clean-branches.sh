@@ -5,6 +5,7 @@ set -uo pipefail
 
 _deleted_upstream=()
 _deleted_local=()
+_force_deleted_local=()
 
 # ── Step 1: fetch + prune stale remote-tracking refs ──────────────────
 git fetch --prune
@@ -63,9 +64,15 @@ gone_branches=$(git branch -vv | grep ': gone]' | grep -v '^\*' \
 if [ -n "$gone_branches" ]; then
     while IFS= read -r branch; do
         [ -z "$branch" ] && continue
-        if git branch -d "$branch" 2>/dev/null \
-            || git branch -D "$branch" 2>/dev/null; then
+        # Prefer the safe -d (refuses unmerged work). A gone upstream means the
+        # remote branch was deleted, not necessarily that the work was merged
+        # (e.g. a PR closed without merging), so force-deleting silently can
+        # destroy commits that exist nowhere else. Fall back to -D but record
+        # those branches separately so the loss is visible.
+        if git branch -d "$branch" 2>/dev/null; then
             _deleted_local+=("$branch")
+        elif git branch -D "$branch" 2>/dev/null; then
+            _force_deleted_local+=("$branch")
         fi
     done <<< "$gone_branches"
 fi
@@ -73,6 +80,11 @@ fi
 if [ ${#_deleted_local[@]} -gt 0 ]; then
     echo "Deleted local branches (upstream gone):"
     printf '  %s\n' "${_deleted_local[@]}"
+fi
+
+if [ ${#_force_deleted_local[@]} -gt 0 ]; then
+    echo "Force-deleted (had unmerged commits):"
+    printf '  %s\n' "${_force_deleted_local[@]}"
 fi
 
 # ── Step 4: list uncommitted files ────────────────────────────────────

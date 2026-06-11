@@ -1107,13 +1107,36 @@ run_clean_script() {
     assert_output --partial "feat/merged-remote"
 }
 
-@test "clean: local branch with gone tracking is deleted" {
+@test "clean: local branch with gone tracking and unmerged commits is force-deleted under its own header" {
+    # feat/gone-local carries an unmerged commit, so -d refuses it and the
+    # script falls back to -D — reported separately so the loss is visible.
     make_clean_repo
     cd "$REPO_DIR"
     run_clean_script
     assert_success
-    assert_output --partial "Deleted local branches (upstream gone):"
+    assert_output --partial "Force-deleted (had unmerged commits):"
     assert_output --partial "feat/gone-local"
+    refute_output --partial "Deleted local branches (upstream gone):"
+}
+
+@test "clean: merged local branch with gone tracking is deleted safely under the merged header" {
+    # feat/gone-merged is merged into main, so -d succeeds and it appears
+    # under the safe-delete header, never the force-deleted one.
+    make_clean_repo
+    cd "$REPO_DIR"
+    git -C "$REPO_DIR" checkout -b feat/gone-merged
+    echo "merged" > "$REPO_DIR/merged.txt"
+    git -C "$REPO_DIR" add merged.txt
+    git -C "$REPO_DIR" commit -m "merged work"
+    git -C "$REPO_DIR" push -u origin feat/gone-merged
+    git -C "$REPO_DIR" checkout main
+    git -C "$REPO_DIR" merge --no-ff feat/gone-merged -m "Merge feat/gone-merged"
+    git -C "$REMOTE_DIR" branch -D feat/gone-merged
+    git -C "$REPO_DIR" fetch --prune
+    run_clean_script
+    assert_success
+    assert_output --partial "Deleted local branches (upstream gone):"
+    assert_output --partial "feat/gone-merged"
 }
 
 @test "clean: no gone local branches → no local deletion output" {
