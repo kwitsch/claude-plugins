@@ -27,12 +27,15 @@ _delete_merged_upstream() {
     local _raw_merged
     _raw_merged=$(git branch -r --merged "origin/$default_branch") || return 0
 
-    # In one awk pass: drop the symref line (origin/HEAD -> ...), strip leading
-    # whitespace + "origin/" prefix, then exclude the default branch by EXACT
-    # name match (substring greps wrongly dropped e.g. "origin/main-backup").
+    # In one awk pass: drop the symref line (origin/HEAD -> ...), skip refs from
+    # other remotes (only origin/* may be push-deleted on origin — upstream/foo
+    # would otherwise be passed verbatim to `git push origin --delete`), strip
+    # leading whitespace + "origin/" prefix, then exclude the default branch by
+    # EXACT name match (substring greps wrongly dropped e.g. "origin/main-backup").
     merged_branches=$(printf '%s\n' "$_raw_merged" \
         | awk -v def="$default_branch" '
             /->/ { next }
+            !/^[[:space:]]*origin\// { next }
             { sub(/^[[:space:]]*origin\//, "") }
             $0 == def { next }
             $0 != "" { print }') || return 0
