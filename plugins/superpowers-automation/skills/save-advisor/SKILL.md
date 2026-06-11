@@ -32,7 +32,7 @@ invocation argument (`$file_path`, also available as `$ARGUMENTS`).
 4. **Revise the file.** Edit (or rewrite via Write) the file to implement the
    advisor's feedback. This is a revision of the content itself, NOT an appended
    notes section. If the advisor raises nothing actionable, leave the file
-   unchanged.
+   unchanged. Prefer `Edit` for targeted changes; use `Write` only for a full rewrite.
 
 5. **Report.** End with a 1–5 bullet summary of the changes you made (or
    `no changes — advisor raised nothing actionable`). The main thread relays
