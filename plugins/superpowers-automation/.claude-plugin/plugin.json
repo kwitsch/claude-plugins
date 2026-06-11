@@ -1,7 +1,7 @@
 {
   "name": "superpowers-automation",
-  "version": "2.0.0",
-  "description": "Two PostToolUse Write hooks that trigger forked advisor-review skills gating the superpowers workflow (spec -> writing-plans, plan -> subagent-driven-development). Hooks default off. A configure skill provides an interactive wizard.",
+  "version": "2.1.0",
+  "description": "Two PostToolUse Write hooks that trigger forked advisor-review skills gating the superpowers workflow (spec -> writing-plans, plan -> subagent-driven-development). Hooks default off. A configure skill provides an interactive wizard. The save-advisor skill (forked, Sonnet) revises a target file to implement advisor feedback on demand.",
   "author": {
     "name": "Kwitsch"
   },
