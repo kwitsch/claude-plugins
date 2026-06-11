@@ -5,7 +5,8 @@
     "email": "kwitsch@gmail.com"
   },
   "allowCrossMarketplaceDependenciesOn": [
-    "context-mode"
+    "context-mode",
+    "claude-plugins-official"
   ],
   "description": "Claude Code plugin marketplace.",
   "version": "1.0.0",
