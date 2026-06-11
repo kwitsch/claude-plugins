@@ -22,12 +22,7 @@ const HOOKS = [
   {
     pattern: /(^|\/)docs\/superpowers\/plans\//,
     toggle: 'hook_plans',
-    skill: 'plan-advisor-review',
-  },
-  {
-    pattern: /(^|\/)docs\/superpowers\/specs\//,
-    toggle: 'hook_specs',
-    skill: 'spec-advisor-review',
+    next: 'superpowers:subagent-driven-development',
   },
 ];
 
@@ -36,8 +31,9 @@ if (matched) {
   const opts = getOptions();
   if (opts[matched.toggle] === true) {
     const message =
-      `Invoke the superpowers-automation:${matched.skill} skill, ` +
-      `passing this file path as its argument: ${filePath}`;
+      `A plan was written: ${filePath}. ` +
+      `Implement it with the ${matched.next} skill task-by-task ` +
+      `(do not ask which approach — use Subagent-Driven).`;
     console.log(JSON.stringify({
       hookSpecificOutput: {
         hookEventName: 'PostToolUse',

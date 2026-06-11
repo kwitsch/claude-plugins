@@ -12,14 +12,12 @@ setup() {
 
 write_settings() {
   local hook_plans="${1:-false}"
-  local hook_specs="${2:-false}"
   cat > "$HOME/.claude/settings.json" <<EOF
 {
   "pluginConfigs": {
     "superpowers-automation@kwitsch-plugins": {
       "options": {
-        "hook_plans": $hook_plans,
-        "hook_specs": $hook_specs
+        "hook_plans": $hook_plans
       }
     }
   }
@@ -31,69 +29,40 @@ run_hook() {
   printf '{"tool_input":{"file_path":"%s"}}' "$1" | "$HOOK"
 }
 
-@test "plans hook: instructs plan-advisor-review with path when hook_plans=true" {
-  write_settings true false
+@test "plans hook: instructs subagent-driven-development with path when hook_plans=true" {
+  write_settings true
   run run_hook "docs/superpowers/plans/2026-06-10-foo.md"
   assert_success
-  assert_output --partial "superpowers-automation:plan-advisor-review"
+  assert_output --partial "superpowers:subagent-driven-development"
   assert_output --partial "docs/superpowers/plans/2026-06-10-foo.md"
 }
 
-@test "specs hook: instructs spec-advisor-review with path when hook_specs=true" {
-  write_settings false true
-  run run_hook "docs/superpowers/specs/2026-06-10-bar.md"
-  assert_success
-  assert_output --partial "superpowers-automation:spec-advisor-review"
-  assert_output --partial "docs/superpowers/specs/2026-06-10-bar.md"
-}
-
 @test "plans hook: silent when hook_plans=false" {
-  write_settings false false
+  write_settings false
   run run_hook "docs/superpowers/plans/2026-06-10-foo.md"
   assert_success
   assert_output ""
 }
 
-@test "specs hook: silent when hook_specs=false" {
-  write_settings false false
+@test "spec path: silent (spec hook removed) even when hook_plans=true" {
+  write_settings true
   run run_hook "docs/superpowers/specs/2026-06-10-bar.md"
   assert_success
   assert_output ""
 }
 
-@test "non-matching path: silent even when both enabled" {
-  write_settings true true
+@test "non-matching path: silent when hook_plans=true" {
+  write_settings true
   run run_hook "src/some/file.ts"
   assert_success
   assert_output ""
 }
 
 @test "plans hook: matches absolute path from Claude Code" {
-  write_settings true false
+  write_settings true
   run run_hook "/home/user/project/docs/superpowers/plans/2026-06-10-foo.md"
   assert_success
-  assert_output --partial "superpowers-automation:plan-advisor-review"
-}
-
-@test "specs hook: matches absolute path from Claude Code" {
-  write_settings false true
-  run run_hook "/home/user/project/docs/superpowers/specs/2026-06-10-bar.md"
-  assert_success
-  assert_output --partial "superpowers-automation:spec-advisor-review"
-}
-
-@test "plans hook: silent when hook_plans=false even with hook_specs=true" {
-  write_settings false true
-  run run_hook "docs/superpowers/plans/2026-06-10-foo.md"
-  assert_success
-  assert_output ""
-}
-
-@test "specs hook: silent when hook_specs=false even with hook_plans=true" {
-  write_settings true false
-  run run_hook "docs/superpowers/specs/2026-06-10-bar.md"
-  assert_success
-  assert_output ""
+  assert_output --partial "superpowers:subagent-driven-development"
 }
 
 @test "missing settings file: silent" {
@@ -103,7 +72,7 @@ run_hook() {
 }
 
 @test "output is valid JSON with hookSpecificOutput" {
-  write_settings true false
+  write_settings true
   local hook_output
   hook_output="$(run_hook "docs/superpowers/plans/2026-06-10-foo.md")"
   [ -n "$hook_output" ] || fail "hook produced no output"
