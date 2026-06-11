@@ -165,3 +165,34 @@ run_hook() {
   assert_success
 }
 
+@test "new-feature skill exists with frontmatter" {
+  local f="$REPO_ROOT/plugins/superpowers-automation/skills/new-feature/SKILL.md"
+  run test -f "$f"
+  assert_success
+  run grep -q "name: new-feature" "$f"
+  assert_success
+  run grep -q "argument-hint:" "$f"
+  assert_success
+}
+
+@test "new-feature skill is model+user invocable and not forked" {
+  local f="$REPO_ROOT/plugins/superpowers-automation/skills/new-feature/SKILL.md"
+  run grep -q "disable-model-invocation" "$f"
+  assert_failure
+  run grep -q "context: fork" "$f"
+  assert_failure
+}
+
+@test "new-feature skill names the pipeline sub-skills and branch step" {
+  local f="$REPO_ROOT/plugins/superpowers-automation/skills/new-feature/SKILL.md"
+  run grep -q "superpowers:brainstorming" "$f"
+  assert_success
+  run grep -q "superpowers-automation:file-advisor-improver" "$f"
+  assert_success
+  run grep -q "superpowers:writing-plans" "$f"
+  assert_success
+  run grep -q "superpowers:subagent-driven-development" "$f"
+  assert_success
+  run grep -q "branch-management:new-branch" "$f"
+  assert_success
+}
