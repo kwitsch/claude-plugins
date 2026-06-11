@@ -989,3 +989,165 @@ CONFIGURE_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/confi
 @test "configure-branch-management has argument-hint frontmatter" {
   grep -q '^argument-hint:' "$CONFIGURE_SKILL"
 }
+
+# ── Helpers for clean-branches.sh ──────────────────────────────────────────
+
+# make_clean_repo — create a bare "remote" + clone with topology:
+#   - origin/HEAD → main  (set via remote set-head)
+#   - feat/merged-remote: pushed to remote, merged into main on remote, local branch deleted
+#   - feat/gone-local: pushed then remote-deleted → local with ': gone]' tracking
+#   - one uncommitted modification on main
+#   - real git symlinked into $MOCKBIN so all clean tests have it by default
+make_clean_repo() {
+    REMOTE_DIR="$BATS_TEST_TMPDIR/remote.git"
+    REPO_DIR="$BATS_TEST_TMPDIR/repo"
+
+    git init --bare "$REMOTE_DIR"
+
+    git clone "$REMOTE_DIR" "$REPO_DIR"
+    git -C "$REPO_DIR" config user.email "test@test.com"
+    git -C "$REPO_DIR" config user.name "Test"
+
+    # initial commit on main (branch -M main: rename master→main for systems
+    # where init.defaultBranch is not configured to main)
+    echo "init" > "$REPO_DIR/file.txt"
+    git -C "$REPO_DIR" add file.txt
+    git -C "$REPO_DIR" commit -m "init"
+    git -C "$REPO_DIR" branch -M main
+    git -C "$REPO_DIR" push -u origin main
+
+    # set origin/HEAD on remote + sync to clone
+    git -C "$REMOTE_DIR" symbolic-ref HEAD refs/heads/main
+    git -C "$REPO_DIR" remote set-head origin -a
+
+    # feat/merged-remote: pushed + merged into main on remote; local tracking deleted
+    git -C "$REPO_DIR" checkout -b feat/merged-remote
+    echo "feature" > "$REPO_DIR/feature.txt"
+    git -C "$REPO_DIR" add feature.txt
+    git -C "$REPO_DIR" commit -m "feature"
+    git -C "$REPO_DIR" push -u origin feat/merged-remote
+    git -C "$REPO_DIR" checkout main
+    git -C "$REPO_DIR" merge --no-ff feat/merged-remote -m "Merge feat/merged-remote"
+    git -C "$REPO_DIR" push origin main
+    git -C "$REPO_DIR" branch -D feat/merged-remote
+
+    # feat/gone-local: pushed then remote branch deleted → local ': gone]' after prune
+    git -C "$REPO_DIR" checkout -b feat/gone-local
+    echo "gone" > "$REPO_DIR/gone.txt"
+    git -C "$REPO_DIR" add gone.txt
+    git -C "$REPO_DIR" commit -m "gone"
+    git -C "$REPO_DIR" push -u origin feat/gone-local
+    git -C "$REPO_DIR" checkout main
+    git -C "$REMOTE_DIR" branch -D feat/gone-local
+    git -C "$REPO_DIR" fetch --prune
+
+    # uncommitted change
+    echo "dirty" >> "$REPO_DIR/file.txt"
+
+    # provision real git into $MOCKBIN (tests that intercept override via make_stub git)
+    ln -sf "$(command -v git)" "$MOCKBIN/git"
+
+    CLEAN_SCRIPT="$REPO_ROOT/plugins/branch-management/bin/clean-branches.sh"
+}
+
+run_clean_script() {
+    run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$CLEAN_SCRIPT" "$@"
+}
+
+#
+# clean-branches.sh
+#
+
+@test "clean: git fetch --prune is called" {
+    make_clean_repo
+    cd "$REPO_DIR"
+    make_stub git \
+        '[ "$1" = "fetch" ] && [ "$2" = "--prune" ] && echo "FETCH_CALLED" && exit 0' \
+        'exec "'"$(command -v git)"'" "$@"'
+    run_clean_script
+    assert_success
+    assert_output --partial "FETCH_CALLED"
+}
+
+@test "clean: no gh/glab → upstream deletion skipped silently" {
+    make_clean_repo
+    cd "$REPO_DIR"
+    run_clean_script
+    assert_success
+    refute_output --partial "Deleted upstream"
+}
+
+@test "clean: gh present + logged in → deletes merged upstream branch" {
+    make_clean_repo
+    cd "$REPO_DIR"
+    make_stub gh 'if [ "$1" = "auth" ]; then exit 0; fi; exit 0'
+    run_clean_script
+    assert_success
+    assert_output --partial "Deleted upstream branches:"
+    assert_output --partial "feat/merged-remote"
+}
+
+@test "clean: gh not logged in → upstream deletion skipped silently" {
+    make_clean_repo
+    cd "$REPO_DIR"
+    make_stub gh 'if [ "$1" = "auth" ]; then exit 1; fi; exit 0'
+    run_clean_script
+    assert_success
+    refute_output --partial "Deleted upstream"
+}
+
+@test "clean: glab present + logged in → deletes merged upstream branch" {
+    make_clean_repo
+    cd "$REPO_DIR"
+    make_stub glab 'if [ "$1" = "auth" ]; then exit 0; fi; exit 0'
+    run_clean_script
+    assert_success
+    assert_output --partial "Deleted upstream branches:"
+    assert_output --partial "feat/merged-remote"
+}
+
+@test "clean: local branch with gone tracking is deleted" {
+    make_clean_repo
+    cd "$REPO_DIR"
+    run_clean_script
+    assert_success
+    assert_output --partial "Deleted local branches (upstream gone):"
+    assert_output --partial "feat/gone-local"
+}
+
+@test "clean: no gone local branches → no local deletion output" {
+    make_clean_repo
+    cd "$REPO_DIR"
+    git -C "$REPO_DIR" branch -D feat/gone-local 2>/dev/null || true
+    run_clean_script
+    assert_success
+    refute_output --partial "Deleted local branches"
+}
+
+@test "clean: uncommitted files are listed" {
+    make_clean_repo
+    cd "$REPO_DIR"
+    run_clean_script
+    assert_success
+    assert_output --partial "Uncommitted files:"
+    assert_output --partial "file.txt"
+}
+
+@test "clean: no uncommitted files → no uncommitted output" {
+    make_clean_repo
+    cd "$REPO_DIR"
+    git -C "$REPO_DIR" add file.txt
+    git -C "$REPO_DIR" commit -m "clean up"
+    run_clean_script
+    assert_success
+    refute_output --partial "Uncommitted files"
+}
+
+@test "clean: current branch with gone tracking is not deleted" {
+    make_clean_repo
+    cd "$REPO_DIR"
+    git -C "$REPO_DIR" checkout feat/gone-local
+    run_clean_script
+    assert_success
+    refute_output --partial "feat/gone-local"
+}
