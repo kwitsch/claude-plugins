@@ -58,8 +58,14 @@ if [ ${#_deleted_upstream[@]} -gt 0 ]; then
 fi
 
 # ── Step 3: delete local branches whose upstream is gone ──────────────
-gone_branches=$(git branch -vv | grep ': gone]' | grep -v '^\*' \
-    | awk '{print $1}') || true
+# Read the tracking field directly via for-each-ref rather than greping
+# `git branch -vv` output: ': gone]' there also matches a commit subject, so a
+# branch with a healthy upstream but that text in its subject would be deleted.
+# $NF == "[gone]" tests only the upstream:track column; $1 != cur drops the
+# current branch (git refuses to delete it; empty cur on detached HEAD is fine).
+current=$(git symbolic-ref --short HEAD 2>/dev/null)
+gone_branches=$(git for-each-ref --format '%(refname:short) %(upstream:track)' refs/heads/ \
+    | awk -v cur="$current" '$NF == "[gone]" && $1 != cur {print $1}') || true
 
 if [ -n "$gone_branches" ]; then
     while IFS= read -r branch; do
