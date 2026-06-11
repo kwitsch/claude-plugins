@@ -51,17 +51,17 @@ Compute current display values:
 ```
 AskUserQuestion (2 questions):
   Q1: multiSelect: false
-      question: "Enable plans hook? Writes to docs/superpowers/plans/*.md will inject subagent-driven guidance."
+      question: "Enable plans hook? Writes to docs/superpowers/plans/*.md will inject an instruction to invoke the plan-advisor-review skill with the file path."
       header:   "Plans hook [currently: <on|off>]"
       options:
-        - label: "Yes"  description: "inject 'Use approach: 1. Subagent-Driven.' on plan file writes"
+        - label: "Yes"  description: "inject an instruction to invoke plan-advisor-review with the file path on plan file writes"
         - label: "No"   description: "no injection on plan file writes"
 
   Q2: multiSelect: false
-      question: "Enable specs hook? Writes to docs/superpowers/specs/*.md will inject spec-confirmed message."
+      question: "Enable specs hook? Writes to docs/superpowers/specs/*.md will inject an instruction to invoke the spec-advisor-review skill with the file path."
       header:   "Specs hook [currently: <on|off>]"
       options:
-        - label: "Yes"  description: "inject 'User has reviewed and confirmed the spec. Proceed after self-review.' on spec file writes"
+        - label: "Yes"  description: "inject an instruction to invoke spec-advisor-review with the file path on spec file writes"
         - label: "No"   description: "no injection on spec file writes"
 ```
 
