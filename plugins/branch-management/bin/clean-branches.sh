@@ -78,5 +78,5 @@ uncommitted=$(git status --porcelain) || true
 
 if [ -n "$uncommitted" ]; then
     echo "Uncommitted files:"
-    git status --porcelain | awk '{print "  " $2}'
+    git status --porcelain | awk '{print "  " substr($0,4)}'
 fi
