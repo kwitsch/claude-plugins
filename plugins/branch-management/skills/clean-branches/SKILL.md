@@ -3,6 +3,7 @@ name: clean-branches
 description: Fetch latest state, prune merged upstream branches (when gh or glab is available), delete local branches whose upstream is gone, and list uncommitted files.
 context: fork
 model: claude-haiku-4-5-20251001
+disable-model-invocation: true
 allowed-tools: ["Bash(bash:*)", "Bash(git:*)", "Bash(gh:*)", "Bash(glab:*)"]
 ---
 
