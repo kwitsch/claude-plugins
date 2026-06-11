@@ -16,6 +16,7 @@ Reads options from `~/.claude/settings.json` at `pluginConfigs["superpowers-auto
 - `configure-superpowers-automation` — interactive settings wizard (`disable-model-invocation`).
 - `spec-advisor-review` — `context: fork`, `model: claude-haiku-4-5-20251001`. Reads the spec, calls `advisor()` (clean-room; warns + continues if absent), hands off to `superpowers:writing-plans`.
 - `plan-advisor-review` — `context: fork`, `model: claude-haiku-4-5-20251001`. Reads the plan, calls `advisor()` (clean-room; warns + continues if absent), hands off to `superpowers:subagent-driven-development`.
+- `save-advisor` — `context: fork`, `model: claude-sonnet-4-6`, `disable-model-invocation: true` (user-invoked only — it rewrites a file). Reads the file passed as its argument, calls `advisor()` (clean-room; warns + skips if absent or no file), then revises the file to implement the feedback. No hook, no `userConfig` toggle. Terminal (no handoff).
 
 Forked skills have no conversation history, so they take the file via `$ARGUMENTS` and do not invoke the next skill themselves — they end with a handoff line the main thread acts on (best-effort chaining). Fork mechanism (advisor availability + arg delivery inside a fork) is unverified in-session; verify after 2.0.0 publishes (`/plugin update` then invoke a review skill on a file). If inert, flip both skills to inline.
 
