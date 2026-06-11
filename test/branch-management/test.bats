@@ -33,6 +33,7 @@ setup() {
 # make_stub <name> <body-line>... — drop an executable stub into MOCKBIN.
 make_stub() {
   local name="$1"; shift
+  rm -f "$MOCKBIN/$name"
   { printf '#!/usr/bin/env bash\n'; printf '%s\n' "$@"; } > "$MOCKBIN/$name"
   chmod +x "$MOCKBIN/$name"
 }
