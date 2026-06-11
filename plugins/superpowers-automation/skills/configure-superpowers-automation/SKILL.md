@@ -1,6 +1,6 @@
 ---
 name: configure-superpowers-automation
-description: Interactive configurator for superpowers-automation plugin settings — plans hook and specs hook. Writes to ~/.claude/settings.json.
+description: Interactive configurator for superpowers-automation plugin settings — the plans hook. Writes to ~/.claude/settings.json.
 argument-hint: ""
 allowed-tools: ["AskUserQuestion", "Bash(jq:*)", "Bash(test:*)", "Bash(mkdir:*)", "Bash(mv:*)", "Bash(printf:*)"]
 disable-model-invocation: true
@@ -18,7 +18,6 @@ Values equal to the plugin default (`false`) are omitted (clean settings).
 | Key | Default |
 |---|---|
 | `hook_plans` | `false` |
-| `hook_specs` | `false` |
 
 ## Step 1 — Read current settings
 
@@ -44,40 +43,30 @@ Find plugin config key: search `pluginConfigs` for any key starting with
 
 Compute current display values:
 - `$cur_plans   = $stored.hook_plans          == true ? "on" : "off"`
-- `$cur_specs   = $stored.hook_specs           == true ? "on" : "off"`
 
 ## Step 2 — Ask: Hooks
 
 ```
-AskUserQuestion (2 questions):
+AskUserQuestion (1 question):
   Q1: multiSelect: false
-      question: "Enable plans hook? Writes to docs/superpowers/plans/*.md will inject an instruction to invoke the plan-advisor-review skill with the file path."
+      question: "Enable plans hook? Writes to docs/superpowers/plans/*.md will inject an instruction to implement the plan with superpowers:subagent-driven-development (forcing Subagent-Driven)."
       header:   "Plans hook [currently: <on|off>]"
       options:
-        - label: "Yes"  description: "inject an instruction to invoke plan-advisor-review with the file path on plan file writes"
+        - label: "Yes"  description: "force subagent-driven-development on plan file writes"
         - label: "No"   description: "no injection on plan file writes"
-
-  Q2: multiSelect: false
-      question: "Enable specs hook? Writes to docs/superpowers/specs/*.md will inject an instruction to invoke the spec-advisor-review skill with the file path."
-      header:   "Specs hook [currently: <on|off>]"
-      options:
-        - label: "Yes"  description: "inject an instruction to invoke spec-advisor-review with the file path on spec file writes"
-        - label: "No"   description: "no injection on spec file writes"
 ```
 
-Store: `$plans_raw` ("Yes"/"No"), `$specs_raw` ("Yes"/"No").
+Store: `$plans_raw` ("Yes"/"No").
 
 ## Step 3 — Build new config and compute delta
 
 Resolve values:
 - `$hook_plans = ($plans_raw == "Yes")` → boolean true or false
-- `$hook_specs = ($specs_raw == "Yes")` → boolean true or false
 
 Build delta — include key only when value is `true` (differs from default `false`):
 - `hook_plans: true` included iff `$hook_plans == true`
-- `hook_specs: true` included iff `$hook_specs == true`
 
-`$delta_json` = JSON object of the delta (e.g. `{"hook_plans":true}`, `{}`, or `{"hook_plans":true,"hook_specs":true}`).
+`$delta_json` = JSON object of the delta (e.g. `{"hook_plans":true}` or `{}`).
 
 ## Step 4 — Write settings file
 
@@ -112,9 +101,8 @@ jq --arg key "$plugin_key" --argjson opts "$delta_json" \
 
 ## Step 5 — Confirm
 
-Print using the **new** values (from `$hook_plans`, `$hook_specs`):
+Print using the **new** values (from `$hook_plans`):
 ```
 superpowers-automation configured.
   Plans hook:     <"on" if $hook_plans == true else "off">
-  Specs hook:     <"on" if $hook_specs == true else "off">
 ```
