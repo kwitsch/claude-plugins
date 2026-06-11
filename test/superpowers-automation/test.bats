@@ -13,15 +13,13 @@ setup() {
 write_settings() {
   local hook_plans="${1:-false}"
   local hook_specs="${2:-false}"
-  local hook_advisor_review="${3:-false}"
   cat > "$HOME/.claude/settings.json" <<EOF
 {
   "pluginConfigs": {
     "superpowers-automation@kwitsch-plugins": {
       "options": {
         "hook_plans": $hook_plans,
-        "hook_specs": $hook_specs,
-        "hook_advisor_review": $hook_advisor_review
+        "hook_specs": $hook_specs
       }
     }
   }
@@ -33,18 +31,20 @@ run_hook() {
   printf '{"tool_input":{"file_path":"%s"}}' "$1" | "$HOOK"
 }
 
-@test "plans hook: emits context when hook_plans=true" {
+@test "plans hook: instructs plan-advisor-review with path when hook_plans=true" {
   write_settings true false
   run run_hook "docs/superpowers/plans/2026-06-10-foo.md"
   assert_success
-  assert_output --partial "Subagent-Driven"
+  assert_output --partial "superpowers-automation:plan-advisor-review"
+  assert_output --partial "docs/superpowers/plans/2026-06-10-foo.md"
 }
 
-@test "specs hook: emits context when hook_specs=true" {
+@test "specs hook: instructs spec-advisor-review with path when hook_specs=true" {
   write_settings false true
   run run_hook "docs/superpowers/specs/2026-06-10-bar.md"
   assert_success
-  assert_output --partial "Proceed after self-review"
+  assert_output --partial "superpowers-automation:spec-advisor-review"
+  assert_output --partial "docs/superpowers/specs/2026-06-10-bar.md"
 }
 
 @test "plans hook: silent when hook_plans=false" {
@@ -72,14 +72,14 @@ run_hook() {
   write_settings true false
   run run_hook "/home/user/project/docs/superpowers/plans/2026-06-10-foo.md"
   assert_success
-  assert_output --partial "Subagent-Driven"
+  assert_output --partial "superpowers-automation:plan-advisor-review"
 }
 
 @test "specs hook: matches absolute path from Claude Code" {
   write_settings false true
   run run_hook "/home/user/project/docs/superpowers/specs/2026-06-10-bar.md"
   assert_success
-  assert_output --partial "Proceed after self-review"
+  assert_output --partial "superpowers-automation:spec-advisor-review"
 }
 
 @test "plans hook: silent when hook_plans=false even with hook_specs=true" {
@@ -129,8 +129,7 @@ run_hook() {
 @test "plugin.json userConfig defaults are false" {
   run jq -e '
     .userConfig.hook_plans.default == false and
-    .userConfig.hook_specs.default == false and
-    .userConfig.hook_advisor_review.default == false
+    .userConfig.hook_specs.default == false
   ' "$REPO_ROOT/plugins/superpowers-automation/.claude-plugin/plugin.json"
   assert_success
 }
@@ -139,34 +138,34 @@ run_hook() {
   run jq -r '.userConfig | keys | sort | join(" ")' \
     "$REPO_ROOT/plugins/superpowers-automation/.claude-plugin/plugin.json"
   assert_success
-  assert_output "hook_advisor_review hook_plans hook_specs"
+  assert_output "hook_plans hook_specs"
 }
 
-@test "plans hook: includes advisor gate when hook_advisor_review=true" {
-  write_settings true false true
-  run run_hook "docs/superpowers/plans/2026-06-10-foo.md"
+@test "plugin.json declares superpowers dependency" {
+  run jq -e '
+    (.dependencies | type == "array") and
+    (any(.dependencies[]; .name == "superpowers" and .marketplace == "claude-plugins-official"))
+  ' "$REPO_ROOT/plugins/superpowers-automation/.claude-plugin/plugin.json"
   assert_success
-  assert_output --partial "ADVISOR GATE"
 }
 
-@test "specs hook: includes advisor gate when hook_advisor_review=true" {
-  write_settings false true true
-  run run_hook "docs/superpowers/specs/2026-06-10-bar.md"
+@test "spec-advisor-review skill declares fork + haiku" {
+  local f="$REPO_ROOT/plugins/superpowers-automation/skills/spec-advisor-review/SKILL.md"
+  run test -f "$f"
   assert_success
-  assert_output --partial "ADVISOR GATE"
+  run grep -q "context: fork" "$f"
+  assert_success
+  run grep -q "model: claude-haiku-4-5-20251001" "$f"
+  assert_success
 }
 
-@test "plans hook: no advisor gate when hook_advisor_review=false" {
-  write_settings true false false
-  run run_hook "docs/superpowers/plans/2026-06-10-foo.md"
+@test "plan-advisor-review skill declares fork + haiku" {
+  local f="$REPO_ROOT/plugins/superpowers-automation/skills/plan-advisor-review/SKILL.md"
+  run test -f "$f"
   assert_success
-  assert_output --partial "Subagent-Driven"
-  refute_output --partial "ADVISOR GATE"
+  run grep -q "context: fork" "$f"
+  assert_success
+  run grep -q "model: claude-haiku-4-5-20251001" "$f"
+  assert_success
 }
 
-@test "advisor gate: no output when hook disabled even if hook_advisor_review=true" {
-  write_settings false false true
-  run run_hook "docs/superpowers/plans/2026-06-10-foo.md"
-  assert_success
-  assert_output ""
-}

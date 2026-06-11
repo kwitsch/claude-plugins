@@ -18,18 +18,16 @@ function getOptions() {
   } catch { return {}; }
 }
 
-const ADVISOR_SUFFIX = 'ADVISOR GATE (active): Call advisor() before proceeding. If advisor tool unavailable, skip this step and continue normally.';
-
 const HOOKS = [
   {
     pattern: /(^|\/)docs\/superpowers\/plans\//,
     toggle: 'hook_plans',
-    message: 'Use approach: 1. Subagent-Driven.',
+    skill: 'plan-advisor-review',
   },
   {
     pattern: /(^|\/)docs\/superpowers\/specs\//,
     toggle: 'hook_specs',
-    message: 'User has reviewed and confirmed the spec. Proceed after self-review.',
+    skill: 'spec-advisor-review',
   },
 ];
 
@@ -37,9 +35,9 @@ const matched = HOOKS.find(h => h.pattern.test(filePath));
 if (matched) {
   const opts = getOptions();
   if (opts[matched.toggle] === true) {
-    const message = opts.hook_advisor_review === true
-      ? matched.message + '\n' + ADVISOR_SUFFIX
-      : matched.message;
+    const message =
+      `Invoke the superpowers-automation:${matched.skill} skill, ` +
+      `passing this file path as its argument: ${filePath}`;
     console.log(JSON.stringify({
       hookSpecificOutput: {
         hookEventName: 'PostToolUse',

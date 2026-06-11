@@ -4,7 +4,10 @@
     "name": "Kwitsch",
     "email": "kwitsch@gmail.com"
   },
-  "allowCrossMarketplaceDependenciesOn": ["context-mode"],
+  "allowCrossMarketplaceDependenciesOn": [
+    "context-mode",
+    "claude-plugins-official"
+  ],
   "description": "Claude Code plugin marketplace.",
   "version": "1.0.0",
   "plugins": [
@@ -16,7 +19,11 @@
         "name": "Kwitsch"
       },
       "category": "git",
-      "tags": ["git", "hooks", "commit"]
+      "tags": [
+        "git",
+        "hooks",
+        "commit"
+      ]
     },
     {
       "name": "git-sign-key",
@@ -26,7 +33,12 @@
         "name": "Kwitsch"
       },
       "category": "git",
-      "tags": ["git", "hooks", "signing", "ssh"]
+      "tags": [
+        "git",
+        "hooks",
+        "signing",
+        "ssh"
+      ]
     },
     {
       "name": "cctools-edit",
@@ -36,7 +48,12 @@
         "name": "Kwitsch"
       },
       "category": "files",
-      "tags": ["files", "hooks", "encoding", "cc-tools"]
+      "tags": [
+        "files",
+        "hooks",
+        "encoding",
+        "cc-tools"
+      ]
     },
     {
       "name": "branch-management",
@@ -46,17 +63,29 @@
         "name": "Kwitsch"
       },
       "category": "git",
-      "tags": ["git", "skills", "agents", "branch", "pr", "review"]
+      "tags": [
+        "git",
+        "skills",
+        "agents",
+        "branch",
+        "pr",
+        "review"
+      ]
     },
     {
       "name": "superpowers-automation",
       "source": "./plugins/superpowers-automation",
-      "description": "Packages two PostToolUse Write hooks from the superpowers workflow as individually-toggled options. All features default off. A configure skill provides an interactive wizard.",
+      "description": "Two PostToolUse Write hooks that trigger forked advisor-review skills gating the superpowers spec->plan->implementation workflow. Hooks default off.",
       "author": {
         "name": "Kwitsch"
       },
       "category": "automation",
-      "tags": ["hooks", "superpowers", "automation", "workflow"]
+      "tags": [
+        "hooks",
+        "superpowers",
+        "automation",
+        "workflow"
+      ]
     }
   ]
 }

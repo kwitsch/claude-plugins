@@ -16,7 +16,7 @@ A [Claude Code](https://docs.claude.com/en/docs/claude-code/plugins) plugin mark
 | [git-sign-key](plugins/git-sign-key/README.md) | Signs git commits with a `~/.claude/sign.key` file via SSH signing instead of the ssh-agent. |
 | [cctools-edit](plugins/cctools-edit/README.md) | Installs the cc-tools binary for the host OS and routes Read/Write/Edit/MultiEdit through it to preserve file encodings. |
 | [branch-management](plugins/branch-management/README.md) | Skills that cut a fresh work branch from the updated default branch and turn a finished branch into a reviewed, pushed PR/MR. |
-| [superpowers-automation](plugins/superpowers-automation/README.md) | PostToolUse Write hooks with advisor review gate, individually-toggled plugin options. |
+| [superpowers-automation](plugins/superpowers-automation/README.md) | PostToolUse Write hooks that trigger forked advisor-review skills gating the superpowers spec→plan→implementation workflow. |
 
 ## Configure plugins
 

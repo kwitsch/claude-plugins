@@ -1,6 +1,6 @@
 # superpowers-automation
 
-Packages two PostToolUse Write hooks from the superpowers workflow as individually-toggled plugin options, with an optional advisor review gate. All features default to off.
+Two PostToolUse Write hooks that trigger forked advisor-review skills gating the superpowers workflow: writing a spec runs `spec-advisor-review` (→ `superpowers:writing-plans`); writing a plan runs `plan-advisor-review` (→ `superpowers:subagent-driven-development`). Both hooks default off.
 
 ## Install
 
@@ -8,11 +8,17 @@ Packages two PostToolUse Write hooks from the superpowers workflow as individual
 /plugin install superpowers-automation@kwitsch-plugins
 ```
 
+Depends on the `superpowers` plugin (`claude-plugins-official`), whose `writing-plans` and `subagent-driven-development` skills the review skills hand off to.
+
 ## Skills
 
 | Skill | What it does |
 |---|---|
-| `configure-superpowers-automation` | Interactive wizard to enable/disable hook behaviors and the advisor review gate. Writes only non-default values to `~/.claude/settings.json`. |
+| `configure-superpowers-automation` | Interactive wizard to enable/disable the plans and specs hooks. Writes only non-default values to `~/.claude/settings.json`. |
+| `spec-advisor-review` | Forked (haiku) review of a written spec file via `advisor()`, then hands off to `superpowers:writing-plans`. Triggered by the specs hook. |
+| `plan-advisor-review` | Forked (haiku) review of a written plan file via `advisor()`, then hands off to `superpowers:subagent-driven-development`. Triggered by the plans hook. |
+
+The review skills warn and continue if the `advisor` tool is unavailable.
 
 ## Configuration
 
@@ -22,6 +28,5 @@ Options stored under `pluginConfigs["superpowers-automation@kwitsch-plugins"].op
 
 | Option | Default | Effect / Value |
 |---|---|---|
-| `hook_plans` | `false` | `true` = inject "Use approach: 1. Subagent-Driven." when writing `docs/superpowers/plans/*.md` |
-| `hook_specs` | `false` | `true` = inject "User has reviewed and confirmed the spec. Proceed after self-review." when writing `docs/superpowers/specs/*.md` |
-| `hook_advisor_review` | `false` | `true` = append advisor() gate to any active hook's message |
+| `hook_plans` | `false` | `true` = on writing `docs/superpowers/plans/*.md`, instruct invoking `plan-advisor-review` with the file path |
+| `hook_specs` | `false` | `true` = on writing `docs/superpowers/specs/*.md`, instruct invoking `spec-advisor-review` with the file path |
