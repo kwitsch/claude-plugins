@@ -199,3 +199,11 @@ run_hook() {
   assert_success
 }
 
+@test "save-advisor skill signals on-disk change for re-read" {
+  local f="$REPO_ROOT/plugins/superpowers-automation/skills/save-advisor/SKILL.md"
+  run grep -q "FILE UPDATED ON DISK:" "$f"
+  assert_success
+  run grep -q "re-read before further edits" "$f"
+  assert_success
+}
+
