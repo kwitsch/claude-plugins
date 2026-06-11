@@ -99,9 +99,11 @@ fi
 # ── Step 4: list uncommitted files ────────────────────────────────────
 # Note: git status --porcelain excludes gitignored files; $2 is the path
 # field (simple paths only — renames show "old -> new", both are visible).
-uncommitted=$(git status --porcelain) || true
+# core.quotePath=false makes paths with non-ASCII bytes or embedded quotes
+# print literally instead of C-quoted (the default).
+uncommitted=$(git -c core.quotePath=false status --porcelain) || true
 
 if [ -n "$uncommitted" ]; then
     echo "Uncommitted files:"
-    git status --porcelain | awk '{print "  " substr($0,4)}'
+    git -c core.quotePath=false status --porcelain | awk '{print "  " substr($0,4)}'
 fi
