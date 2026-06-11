@@ -17,7 +17,7 @@ Depends on the `superpowers` plugin (`claude-plugins-official`), whose `writing-
 | `configure-superpowers-automation` | Interactive wizard to enable/disable the plans and specs hooks. Writes only non-default values to `~/.claude/settings.json`. |
 | `spec-advisor-review` | Forked (haiku) review of a written spec file via `advisor()`, then hands off to `superpowers:writing-plans`. Triggered by the specs hook. |
 | `plan-advisor-review` | Forked (haiku) review of a written plan file via `advisor()`, then hands off to `superpowers:subagent-driven-development`. Triggered by the plans hook. |
-| `save-advisor` | Forked (Sonnet) clean-room review of a target file via `advisor()`, then revises that file to implement the feedback. User-invoked only (`/save-advisor <path>`); warns and skips if the file is missing or `advisor` is unavailable. |
+| `save-advisor` | Forked (Sonnet) clean-room review of a target file via `advisor()`, then revises that file to implement the feedback. User-invoked only (`/superpowers-automation:save-advisor <path>`); warns and skips if the file is missing or `advisor` is unavailable. |
 
 The review skills warn and continue if the `advisor` tool is unavailable.
 
