@@ -47,6 +47,16 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine subagents.
   written; keys reverted to default deleted).
   Requires `jq`. Does NOT use `context: fork` or pin `model:`
   (user-facing interactive configurator).
+- `skills/clean-branches`: user-invocable standalone skill (`context: fork`,
+  model haiku); runs `bin/clean-branches.sh` which: (1) `git fetch --prune`;
+  (2) when `gh auth status` or `glab auth status` succeeds — finds
+  `origin/*` branches merged into the default branch (`origin/HEAD` symref,
+  falls back to `git remote show origin`), deletes them via
+  `git push origin --delete`, emits list (silent if none / no CLI access);
+  (3) finds local branches with `[origin/*: gone]` tracking (excluding
+  current branch), deletes them via `git branch -d`/`-D`, emits list
+  (silent if none); (4) emits `git status --porcelain` files (silent if
+  clean).
 - `skills/new-pr`: preconditions (fetch, base detection, `origin/<base>` for
   all revisions, feature toggles from `userConfig` interpolated as
   `${user_config.KEY}` — fail-open, only literal `false` disables); mandatory
