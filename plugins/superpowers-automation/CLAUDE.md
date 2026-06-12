@@ -6,7 +6,7 @@
 
 | userConfig key | Path pattern | Injected instruction |
 |---|---|---|
-| `hook_plans` | `(^|\/)docs\/superpowers\/plans\/` | implement plan via `superpowers:subagent-driven-development` |
+| `hook_plans` | `(^\|\/)docs\/superpowers\/plans\/` | implement plan via `superpowers:subagent-driven-development` |
 
 Reads options from `~/.claude/settings.json` at `pluginConfigs["superpowers-automation@*"].options`. Supports absolute and relative `file_path` (pattern anchors with `(^|\/)`).
 
