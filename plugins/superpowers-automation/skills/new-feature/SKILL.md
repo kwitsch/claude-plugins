@@ -28,8 +28,9 @@ Create one TodoWrite item per step below and work them in order.
    back to git:
 
    ```bash
-   default="$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')"
-   default="${default:-main}"
+   default="$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')"
+   [ -z "$default" ] && default="$(git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p')"
+   [ -z "$default" ] && { echo "new-feature: cannot determine default branch" >&2; exit 1; }
    git checkout "$default" && git pull --ff-only && git checkout -b "<branch>"
    ```
 
