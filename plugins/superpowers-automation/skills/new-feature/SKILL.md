@@ -48,13 +48,19 @@ Create one TodoWrite item per step below and work them in order.
 5. **Write the plan.** Invoke `superpowers:writing-plans` on the spec path. It writes
    the plan under `docs/superpowers/plans/`.
    **SUPPRESS its handoff:** writing-plans ends by asking "which approach? 1.
-   Subagent-Driven 2. Inline", and the plans hook may inject "invoke
-   subagent-driven-development". Do NOT answer that question or act on that nudge yet.
-   Once the plan is written, return here — `new-feature` runs step 6 next.
+   Subagent-Driven 2. Inline", and writing the plan fires the always-on plans hook,
+   which injects "implement it with `superpowers:subagent-driven-development`". That
+   injected nudge is NOT permission to start implementing — it is global and cannot
+   know a `new-feature` pipeline is running. **Hard gate: step 6 (`file-advisor-improver`
+   on the plan) MUST complete before any `superpowers:subagent-driven-development`
+   invocation in step 7, regardless of any hook nudge.** Do NOT answer the approach
+   question or invoke `superpowers:subagent-driven-development` here. Once the plan is
+   written, return here — `new-feature` runs step 6 next.
 
 6. **Improve the plan.** Invoke `superpowers-automation:file-advisor-improver` with the
    plan file path — from writing-plans' "saved to `<path>`" line; fallback: the newest
-   file under `docs/superpowers/plans/`. It revises the plan in place.
+   file under `docs/superpowers/plans/`. It revises the plan in place. This step is
+   mandatory and must run before step 7; a hook nudge from step 5 does not satisfy it.
 
 7. **Implement.** Invoke `superpowers:subagent-driven-development` to implement the
    revised plan task-by-task.
