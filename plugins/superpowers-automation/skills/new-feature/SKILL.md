@@ -42,9 +42,10 @@ Create one TodoWrite item per step below and work them in order.
    next, then invokes writing-plans itself in step 5.
 
 4. **Improve the spec.** Invoke `superpowers-automation:file-advisor-improver` with the
-   spec file path — read it from brainstorming's "saved to `<path>`" line; fallback: the
-   newest file under `docs/superpowers/specs/`. It revises the spec in place. (Note: the
-   "newest file" fallback is racy under parallel runs; prefer the reported path.)
+   exact spec file path parsed from brainstorming's "saved to `<path>`" line. Do NOT
+   scan for the "newest file" under `docs/superpowers/specs/` — that is racy under
+   parallel runs and could target another session's artifact. If the path can't be
+   parsed, STOP and ask the user for it (fail closed). It revises the spec in place.
 
 5. **Write the plan.** Invoke `superpowers:writing-plans` on the spec path. It writes
    the plan under `docs/superpowers/plans/`.
@@ -59,9 +60,11 @@ Create one TodoWrite item per step below and work them in order.
    written, return here — `new-feature` runs step 6 next.
 
 6. **Improve the plan.** Invoke `superpowers-automation:file-advisor-improver` with the
-   plan file path — from writing-plans' "saved to `<path>`" line; fallback: the newest
-   file under `docs/superpowers/plans/`. It revises the plan in place. This step is
-   mandatory and must run before step 7; a hook nudge from step 5 does not satisfy it.
+   exact plan file path parsed from writing-plans' "saved to `<path>`" line. Do NOT scan
+   for the "newest file" under `docs/superpowers/plans/` — that is racy under parallel
+   runs. If the path can't be parsed, STOP and ask the user for it (fail closed). It
+   revises the plan in place. This step is mandatory and must run before step 7; a hook
+   nudge from step 5 does not satisfy it.
 
 7. **Implement.** Invoke `superpowers:subagent-driven-development` to implement the
    revised plan task-by-task.
