@@ -75,7 +75,7 @@
     {
       "name": "superpowers-automation",
       "source": "./plugins/superpowers-automation",
-      "description": "Two PostToolUse Write hooks that trigger forked advisor-review skills gating the superpowers spec->plan->implementation workflow. Hooks default off.",
+      "description": "A new-feature pipeline orchestrator (branch -> brainstorm -> review -> plan -> review -> implement) plus the file-advisor-improver reviser and an opt-in plan hook forcing Subagent-Driven implementation.",
       "author": {
         "name": "Kwitsch"
       },

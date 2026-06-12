@@ -1,7 +1,7 @@
 {
   "name": "superpowers-automation",
-  "version": "2.1.0",
-  "description": "Two PostToolUse Write hooks that trigger forked advisor-review skills gating the superpowers workflow (spec -> writing-plans, plan -> subagent-driven-development). Hooks default off. A configure skill provides an interactive wizard. The save-advisor skill (forked, Sonnet) revises a target file to implement advisor feedback on demand.",
+  "version": "3.0.0",
+  "description": "A new-feature orchestrator skill that drives the full superpowers pipeline (branch -> brainstorm -> spec review -> plan -> plan review -> implement) with advisor-driven file revision at the spec and plan stages; the file-advisor-improver skill (forked Sonnet) that reviews a file via advisor() and revises it in place; and one opt-in PostToolUse:Write hook that forces Subagent-Driven implementation after a plan is written. Hook defaults off.",
   "author": {
     "name": "Kwitsch"
   },
@@ -15,13 +15,7 @@
     "hook_plans": {
       "type": "boolean",
       "title": "Plans hook",
-      "description": "Values: true = on writing docs/superpowers/plans/*.md, inject an instruction to invoke the plan-advisor-review skill with the file path; false = no injection. Default: false.",
-      "default": false
-    },
-    "hook_specs": {
-      "type": "boolean",
-      "title": "Specs hook",
-      "description": "Values: true = on writing docs/superpowers/specs/*.md, inject an instruction to invoke the spec-advisor-review skill with the file path; false = no injection. Default: false.",
+      "description": "Values: true = on writing docs/superpowers/plans/*.md, inject an instruction to implement the plan with superpowers:subagent-driven-development (forcing Subagent-Driven over the writing-plans execution-choice prompt); false = no injection. Default: false.",
       "default": false
     }
   }

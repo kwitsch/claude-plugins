@@ -12,14 +12,12 @@ setup() {
 
 write_settings() {
   local hook_plans="${1:-false}"
-  local hook_specs="${2:-false}"
   cat > "$HOME/.claude/settings.json" <<EOF
 {
   "pluginConfigs": {
     "superpowers-automation@kwitsch-plugins": {
       "options": {
-        "hook_plans": $hook_plans,
-        "hook_specs": $hook_specs
+        "hook_plans": $hook_plans
       }
     }
   }
@@ -31,69 +29,40 @@ run_hook() {
   printf '{"tool_input":{"file_path":"%s"}}' "$1" | "$HOOK"
 }
 
-@test "plans hook: instructs plan-advisor-review with path when hook_plans=true" {
-  write_settings true false
+@test "plans hook: instructs subagent-driven-development with path when hook_plans=true" {
+  write_settings true
   run run_hook "docs/superpowers/plans/2026-06-10-foo.md"
   assert_success
-  assert_output --partial "superpowers-automation:plan-advisor-review"
+  assert_output --partial "superpowers:subagent-driven-development"
   assert_output --partial "docs/superpowers/plans/2026-06-10-foo.md"
 }
 
-@test "specs hook: instructs spec-advisor-review with path when hook_specs=true" {
-  write_settings false true
-  run run_hook "docs/superpowers/specs/2026-06-10-bar.md"
-  assert_success
-  assert_output --partial "superpowers-automation:spec-advisor-review"
-  assert_output --partial "docs/superpowers/specs/2026-06-10-bar.md"
-}
-
 @test "plans hook: silent when hook_plans=false" {
-  write_settings false false
+  write_settings false
   run run_hook "docs/superpowers/plans/2026-06-10-foo.md"
   assert_success
   assert_output ""
 }
 
-@test "specs hook: silent when hook_specs=false" {
-  write_settings false false
+@test "spec path: silent (spec hook removed) even when hook_plans=true" {
+  write_settings true
   run run_hook "docs/superpowers/specs/2026-06-10-bar.md"
   assert_success
   assert_output ""
 }
 
-@test "non-matching path: silent even when both enabled" {
-  write_settings true true
+@test "non-matching path: silent when hook_plans=true" {
+  write_settings true
   run run_hook "src/some/file.ts"
   assert_success
   assert_output ""
 }
 
 @test "plans hook: matches absolute path from Claude Code" {
-  write_settings true false
+  write_settings true
   run run_hook "/home/user/project/docs/superpowers/plans/2026-06-10-foo.md"
   assert_success
-  assert_output --partial "superpowers-automation:plan-advisor-review"
-}
-
-@test "specs hook: matches absolute path from Claude Code" {
-  write_settings false true
-  run run_hook "/home/user/project/docs/superpowers/specs/2026-06-10-bar.md"
-  assert_success
-  assert_output --partial "superpowers-automation:spec-advisor-review"
-}
-
-@test "plans hook: silent when hook_plans=false even with hook_specs=true" {
-  write_settings false true
-  run run_hook "docs/superpowers/plans/2026-06-10-foo.md"
-  assert_success
-  assert_output ""
-}
-
-@test "specs hook: silent when hook_specs=false even with hook_plans=true" {
-  write_settings true false
-  run run_hook "docs/superpowers/specs/2026-06-10-bar.md"
-  assert_success
-  assert_output ""
+  assert_output --partial "superpowers:subagent-driven-development"
 }
 
 @test "missing settings file: silent" {
@@ -103,7 +72,7 @@ run_hook() {
 }
 
 @test "output is valid JSON with hookSpecificOutput" {
-  write_settings true false
+  write_settings true
   local hook_output
   hook_output="$(run_hook "docs/superpowers/plans/2026-06-10-foo.md")"
   [ -n "$hook_output" ] || fail "hook produced no output"
@@ -127,10 +96,8 @@ run_hook() {
 }
 
 @test "plugin.json userConfig defaults are false" {
-  run jq -e '
-    .userConfig.hook_plans.default == false and
-    .userConfig.hook_specs.default == false
-  ' "$REPO_ROOT/plugins/superpowers-automation/.claude-plugin/plugin.json"
+  run jq -e '.userConfig.hook_plans.default == false' \
+    "$REPO_ROOT/plugins/superpowers-automation/.claude-plugin/plugin.json"
   assert_success
 }
 
@@ -138,7 +105,7 @@ run_hook() {
   run jq -r '.userConfig | keys | sort | join(" ")' \
     "$REPO_ROOT/plugins/superpowers-automation/.claude-plugin/plugin.json"
   assert_success
-  assert_output "hook_plans hook_specs"
+  assert_output "hook_plans"
 }
 
 @test "plugin.json declares superpowers dependency" {
@@ -149,61 +116,83 @@ run_hook() {
   assert_success
 }
 
-@test "spec-advisor-review skill declares fork + haiku" {
-  local f="$REPO_ROOT/plugins/superpowers-automation/skills/spec-advisor-review/SKILL.md"
-  run test -f "$f"
-  assert_success
-  run grep -q "context: fork" "$f"
-  assert_success
-  run grep -q "model: claude-haiku-4-5-20251001" "$f"
-  assert_success
+@test "spec-advisor-review skill is removed" {
+  run test -e "$REPO_ROOT/plugins/superpowers-automation/skills/spec-advisor-review"
+  assert_failure
 }
 
-@test "plan-advisor-review skill declares fork + haiku" {
-  local f="$REPO_ROOT/plugins/superpowers-automation/skills/plan-advisor-review/SKILL.md"
-  run test -f "$f"
-  assert_success
-  run grep -q "context: fork" "$f"
-  assert_success
-  run grep -q "model: claude-haiku-4-5-20251001" "$f"
-  assert_success
+@test "plan-advisor-review skill is removed" {
+  run test -e "$REPO_ROOT/plugins/superpowers-automation/skills/plan-advisor-review"
+  assert_failure
 }
 
-@test "save-advisor skill declares fork + sonnet + user-only + args" {
-  local f="$REPO_ROOT/plugins/superpowers-automation/skills/save-advisor/SKILL.md"
+@test "file-advisor-improver skill declares fork + sonnet + args, and is unlocked" {
+  local f="$REPO_ROOT/plugins/superpowers-automation/skills/file-advisor-improver/SKILL.md"
   run test -f "$f"
   assert_success
   run grep -q "context: fork" "$f"
   assert_success
   run grep -q "model: claude-sonnet-4-6" "$f"
   assert_success
-  run grep -q "disable-model-invocation: true" "$f"
-  assert_success
   run grep -q "arguments: file_path" "$f"
   assert_success
+  # unlocked: no disable-model-invocation
+  run grep -q "disable-model-invocation" "$f"
+  assert_failure
 }
 
-@test "save-advisor skill grants Edit and Write" {
-  local f="$REPO_ROOT/plugins/superpowers-automation/skills/save-advisor/SKILL.md"
+@test "file-advisor-improver skill grants Edit and Write" {
+  local f="$REPO_ROOT/plugins/superpowers-automation/skills/file-advisor-improver/SKILL.md"
   run grep -Eq 'allowed-tools:.*Edit' "$f"
   assert_success
   run grep -Eq 'allowed-tools:.*Write' "$f"
   assert_success
 }
 
-@test "save-advisor skill defines the file-gate and advisor-gate warnings" {
-  local f="$REPO_ROOT/plugins/superpowers-automation/skills/save-advisor/SKILL.md"
-  run grep -q "WARNING: save-advisor: no readable file to review — skipped" "$f"
+@test "file-advisor-improver skill defines the file-gate and advisor-gate warnings" {
+  local f="$REPO_ROOT/plugins/superpowers-automation/skills/file-advisor-improver/SKILL.md"
+  run grep -q "WARNING: file-advisor-improver: no readable file to review — skipped" "$f"
   assert_success
-  run grep -q "WARNING: save-advisor: advisor tool unavailable — skipped" "$f"
+  run grep -q "WARNING: file-advisor-improver: advisor tool unavailable — skipped" "$f"
   assert_success
 }
 
-@test "save-advisor skill signals on-disk change for re-read" {
-  local f="$REPO_ROOT/plugins/superpowers-automation/skills/save-advisor/SKILL.md"
+@test "file-advisor-improver skill signals on-disk change for re-read" {
+  local f="$REPO_ROOT/plugins/superpowers-automation/skills/file-advisor-improver/SKILL.md"
   run grep -q "FILE UPDATED ON DISK:" "$f"
   assert_success
   run grep -q "re-read before further edits" "$f"
   assert_success
 }
 
+@test "new-feature skill exists with frontmatter" {
+  local f="$REPO_ROOT/plugins/superpowers-automation/skills/new-feature/SKILL.md"
+  run test -f "$f"
+  assert_success
+  run grep -q "name: new-feature" "$f"
+  assert_success
+  run grep -q "argument-hint:" "$f"
+  assert_success
+}
+
+@test "new-feature skill is model+user invocable and not forked" {
+  local f="$REPO_ROOT/plugins/superpowers-automation/skills/new-feature/SKILL.md"
+  run grep -q "disable-model-invocation" "$f"
+  assert_failure
+  run grep -q "context: fork" "$f"
+  assert_failure
+}
+
+@test "new-feature skill names the pipeline sub-skills and branch step" {
+  local f="$REPO_ROOT/plugins/superpowers-automation/skills/new-feature/SKILL.md"
+  run grep -q "superpowers:brainstorming" "$f"
+  assert_success
+  run grep -q "superpowers-automation:file-advisor-improver" "$f"
+  assert_success
+  run grep -q "superpowers:writing-plans" "$f"
+  assert_success
+  run grep -q "superpowers:subagent-driven-development" "$f"
+  assert_success
+  run grep -q "branch-management:new-branch" "$f"
+  assert_success
+}
