@@ -88,7 +88,7 @@ function startServer() {
           const result = await up.callTool(name, params?.arguments ?? {});
           return ok(id, result);
         }
-        if (id != null) return ok(id, {});
+        if (id != null) return fail(id, -32601, `method not found: ${method}`);
       } catch (e) {
         process.stderr.write(`[${SERVER_NAME}] handler crash: ${e?.stack ?? e}\n`);
         if (id != null) fail(id, -32603, String(e?.message ?? e));
