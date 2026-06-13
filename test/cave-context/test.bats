@@ -41,3 +41,30 @@ setup() {
   run jq -e '.version' "$REPO_ROOT/plugins/cave-context/.claude-plugin/plugin.json"
   assert_success
 }
+
+@test "userpromptsubmit shim emits caveman reminder after /caveman ultra" {
+  tmp="$(mktemp -d)"
+  run env CLAUDE_PLUGIN_DATA="$tmp" CAVE_CONTEXT_NO_UPSTREAM=1 \
+    node "$REPO_ROOT/plugins/cave-context/hooks/userpromptsubmit.mjs" <<< '{"hook_event_name":"UserPromptSubmit","prompt":"/caveman ultra"}'
+  assert_success
+  assert_output --partial "ultra"
+  rm -rf "$tmp"
+}
+
+@test "pretooluse shim runs without error (no upstream)" {
+  run env CAVE_CONTEXT_NO_UPSTREAM=1 \
+    node "$REPO_ROOT/plugins/cave-context/hooks/pretooluse.mjs" <<< '{"hook_event_name":"PreToolUse","tool_name":"Bash"}'
+  assert_success
+}
+
+@test "posttooluse shim runs without error (no upstream)" {
+  run env CAVE_CONTEXT_NO_UPSTREAM=1 \
+    node "$REPO_ROOT/plugins/cave-context/hooks/posttooluse.mjs" <<< '{"hook_event_name":"PostToolUse","tool_name":"Bash"}'
+  assert_success
+}
+
+@test "precompact shim runs without error (no upstream)" {
+  run env CAVE_CONTEXT_NO_UPSTREAM=1 \
+    node "$REPO_ROOT/plugins/cave-context/hooks/precompact.mjs" <<< '{"hook_event_name":"PreCompact"}'
+  assert_success
+}
