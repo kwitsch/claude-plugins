@@ -25,6 +25,7 @@ function fromDelegate(res) {
   if (res.hookSpecificOutput?.permissionDecision) hard.hookSpecificOutput = { permissionDecision: res.hookSpecificOutput.permissionDecision, permissionDecisionReason: res.hookSpecificOutput.permissionDecisionReason };
   if (res.updatedInput) hard.updatedInput = res.updatedInput;
   if (res.decision) hard.decision = res.decision;
+  if (res.reason) hard.reason = res.reason; // legacy decision:'block' pairs with a sibling reason
   return { ac, hard };
 }
 

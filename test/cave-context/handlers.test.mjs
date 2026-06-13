@@ -40,7 +40,7 @@ test("PreToolUse: no upstream, no caveman -> benign {} (no throw)", async () => 
   } finally { delete process.env.CAVE_CONTEXT_NO_UPSTREAM; }
 });
 
-test("PreToolUse: forwards ctx hard fields (permissionDecision/updatedInput/decision)", async () => {
+test("PreToolUse: forwards ctx hard fields (permissionDecision/updatedInput/decision/reason)", async () => {
   process.env.CAVE_CONTEXT_HOOK_CMD = FAKE_HARD;
   try {
     const out = await handlePreToolUse({ hook_event_name: "PreToolUse", tool_name: "Bash" });
@@ -49,5 +49,6 @@ test("PreToolUse: forwards ctx hard fields (permissionDecision/updatedInput/deci
     assert.equal(out.hookSpecificOutput.permissionDecisionReason, "blocked by ctx");
     assert.deepEqual(out.updatedInput, { command: "echo safe" });
     assert.equal(out.decision, "block");
+    assert.equal(out.reason, "blocked: unsafe command");
   } finally { delete process.env.CAVE_CONTEXT_HOOK_CMD; }
 });
