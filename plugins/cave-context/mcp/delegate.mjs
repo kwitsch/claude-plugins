@@ -1,13 +1,18 @@
 // delegate.mjs — run the context-mode hook CLI for one event, return parsed output or null.
 import { spawn } from "node:child_process";
 
-// Event-name token passed to the CLI. Task 0 confirms casing; default = capitalised event.
+// Event-name token passed to the CLI. Default = capitalised event (e.g. "PreToolUse").
 function hookCmd() {
   if (process.env.CAVE_CONTEXT_NO_UPSTREAM === "1") return null;
   if (process.env.CAVE_CONTEXT_HOOK_CMD) {
     try { const a = JSON.parse(process.env.CAVE_CONTEXT_HOOK_CMD); if (Array.isArray(a) && a.length) return a; } catch { /* fall through */ }
   }
-  return ["npx", "-y", "context-mode", "hook", "claude-code"]; // <client> confirmed in Task 0
+  // UNVERIFIED: both the context-mode hook CLI client token ("claude-code") and the
+  // event-name casing passed below (capitalised, e.g. "PreToolUse") are assumptions —
+  // NOT yet confirmed against the installed context-mode CLI. Confirm both during a
+  // real-install smoke test. delegateHook() already fails open (returns null) if either
+  // is wrong, so a bad guess degrades gracefully rather than breaking the hook.
+  return ["npx", "-y", "context-mode", "hook", "claude-code"];
 }
 
 export function delegateHook(event, stdinObj, timeoutMs = 8000) {

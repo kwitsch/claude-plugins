@@ -16,7 +16,7 @@ Unifies caveman + context-mode into one non-competing MCP server: proxies all `c
 cave-context replaces the caveman and context-mode plugins with a single component:
 
 - **MCP proxy** (`mcp/server.mjs`): spawns `npx -y context-mode` as an upstream server and re-exposes every `ctx_*` tool verbatim. Clients see the same tool surface as standalone context-mode.
-- **Aggregated hooks** (`hooks/hooks.json`): SessionStart fires a static caveman compress prompt; PreToolUse/PostToolUse delegate to `hook_*` MCP tools on the same server, which fan out to both caveman and context-mode logic in one round-trip.
+- **Aggregated hooks** (`hooks/hooks.json`): mid-loop PreToolUse/PostToolUse are `mcp_tool` hooks that delegate to `hook_*` tools on the same server, fanning out to both caveman and context-mode logic in one round-trip. Early-lifecycle events — SessionStart, UserPromptSubmit, PreCompact — are `command` hooks (`hooks/*.mjs`), because an `mcp_tool` hook fails open that early (the server is not reliably connected yet). SessionStart emits the caveman ruleset as `additionalContext`.
 - **caveman reimplemented** in `mcp/caveman.mjs` (levels lite/full/ultra, state in `$CLAUDE_PLUGIN_DATA`).
 
 Hook matchers exclude `hook_` tools to prevent reentrancy.
