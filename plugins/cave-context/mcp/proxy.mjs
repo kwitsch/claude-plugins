@@ -17,13 +17,23 @@ function upstreamCmd() {
 }
 
 export class Upstream {
-  constructor() { this.child = null; this.rl = null; this.pending = new Map(); this.nextId = 1; this.tools = []; }
+  constructor() { this.child = null; this.rl = null; this.pending = new Map(); this.nextId = 1; this.tools = []; this.alive = false; }
+
+  // Mark the child dead and reject everything still pending. Called from exit/error so a
+  // crash mid-session does not leave callers writing to dead stdin and waiting out the timer.
+  _die(reason) {
+    this.alive = false;
+    this.child = null;
+    for (const p of this.pending.values()) p.reject(new Error(reason));
+    this.pending.clear();
+  }
 
   start() {
     const [bin, ...args] = upstreamCmd();
     this.child = spawn(bin, args, { stdio: ["pipe", "pipe", "inherit"] });
-    this.child.on("exit", () => { for (const p of this.pending.values()) p.reject(new Error("upstream exited")); this.pending.clear(); });
-    this.child.on("error", () => { for (const p of this.pending.values()) p.reject(new Error("upstream spawn error")); this.pending.clear(); });
+    this.alive = true;
+    this.child.on("exit", () => this._die("upstream exited"));
+    this.child.on("error", () => this._die("upstream spawn error"));
     this.rl = readline.createInterface({ input: this.child.stdout });
     this.rl.on("line", (l) => this._onLine(l));
     return (async () => {
@@ -58,6 +68,10 @@ export class Upstream {
       msg.error ? reject(new Error(msg.error.message || "upstream error")) : resolve(msg.result);
     }
   }
-  callTool(name, args) { return this._request("tools/call", { name, arguments: args ?? {} }, TOOL_TIMEOUT); }
-  stop() { try { this.rl?.close(); } catch { /* ignore */ } try { this.child?.kill(); } catch { /* ignore */ } }
+  callTool(name, args) {
+    // Fail fast on a dead child instead of writing to dead stdin and waiting out the timer.
+    if (!this.alive || !this.child) return Promise.reject(new Error("upstream not running"));
+    return this._request("tools/call", { name, arguments: args ?? {} }, TOOL_TIMEOUT);
+  }
+  stop() { this.alive = false; try { this.rl?.close(); } catch { /* ignore */ } try { this.child?.kill(); } catch { /* ignore */ } }
 }

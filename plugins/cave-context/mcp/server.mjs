@@ -52,7 +52,11 @@ function startServer() {
 
     const up = new Upstream();
     let upStarted = null; // promise of tools[]
-    const ensureUp = () => { if (!upStarted) upStarted = up.start().catch(() => []); return upStarted; };
+    const ensureUp = () => {
+      if (upStarted && !up.alive) upStarted = null; // child died → re-spawn on next call
+      if (!upStarted) upStarted = up.start().catch(() => []);
+      return upStarted;
+    };
 
     const rl = readline.createInterface({ input: process.stdin });
     rl.on("line", async (line) => {
