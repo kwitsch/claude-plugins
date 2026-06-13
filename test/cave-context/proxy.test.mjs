@@ -32,9 +32,11 @@ test("after the child crashes, callTool fails fast and a fresh start re-spawns",
   try {
     await up.start();
     assert.equal(up.alive, true);
-    // Sentinel tool makes the fake upstream exit; wait for the exit handler to mark it dead.
+    // Sentinel tool makes the fake upstream exit; poll until the exit handler marks it
+    // dead (a fixed sleep is flaky on busy runners). Bounded: ~20ms steps, ~1000ms cap.
     await assert.rejects(up.callTool("ctx_crash", {}), /upstream exited/);
-    await new Promise((r) => setTimeout(r, 50));
+    const deadline = Date.now() + 1000;
+    while (up.alive && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
     assert.equal(up.alive, false);
     // Fail fast (reject, not hang) while dead — no waiting out the tool timeout.
     await assert.rejects(up.callTool("ctx_echo", { a: 1 }), /upstream not running/);
