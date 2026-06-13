@@ -1,7 +1,7 @@
 ---
 name: init-branch
 description: Use after creating or switching to a work branch to initialize its tooling context - refreshes the graphify knowledge-graph output and the context-mode index for the current branch. Called by new-branch after branch creation; also user-invocable directly to refresh graph + index anytime.
-allowed-tools: ["Agent", "Bash(git:*)", "Bash(echo:*)"]
+allowed-tools: ["Agent", "Bash(git:*)", "Bash(echo:*)", "ToolSearch"]
 ---
 
 # Initialize branch tooling context
