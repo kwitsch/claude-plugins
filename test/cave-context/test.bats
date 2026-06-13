@@ -17,14 +17,42 @@ setup() {
   assert_success
 }
 
-@test "SessionStart is a prompt hook" {
-  run jq -e '.hooks.SessionStart[0].hooks[0].type == "prompt"' "$HOOKS"
+@test "SessionStart is a command hook pointing at sessionstart.mjs (no node prefix)" {
+  run jq -e '.hooks.SessionStart[0].hooks[0].type == "command"' "$HOOKS"
+  assert_success
+  cmd="$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$HOOKS")"
+  [[ "$cmd" == *hooks/sessionstart.mjs ]]
+  run grep -qv '^node ' <<< "$cmd"
   assert_success
 }
 
-@test "mid-loop + lifecycle hooks are mcp_tool on the cave-context server" {
-  run jq -e '[.hooks.PreToolUse,.hooks.PostToolUse,.hooks.UserPromptSubmit,.hooks.PreCompact] | flatten | map(.hooks[0]) | all(.type=="mcp_tool" and .server=="cave-context")' "$HOOKS"
+@test "PreToolUse + PostToolUse are mcp_tool on the cave-context server" {
+  run jq -e '[.hooks.PreToolUse,.hooks.PostToolUse] | flatten | map(.hooks[0]) | all(.type=="mcp_tool" and .server=="cave-context")' "$HOOKS"
   assert_success
+}
+
+@test "SessionStart + UserPromptSubmit + PreCompact are command hooks" {
+  run jq -e '[.hooks.SessionStart,.hooks.UserPromptSubmit,.hooks.PreCompact] | flatten | map(.hooks[0]) | all(.type=="command")' "$HOOKS"
+  assert_success
+}
+
+@test "no command hook command starts with 'node '" {
+  run jq -e '[.hooks | to_entries[].value[].hooks[] | select(.type=="command") | .command] | all(startswith("node ") | not)' "$HOOKS"
+  assert_success
+}
+
+@test "referenced command-hook files exist and are executable" {
+  for f in sessionstart.mjs userpromptsubmit.mjs precompact.mjs; do
+    [ -x "$REPO_ROOT/plugins/cave-context/hooks/$f" ]
+  done
+}
+
+@test "sessionstart.mjs emits valid JSON with the caveman ruleset marker" {
+  run node "$REPO_ROOT/plugins/cave-context/hooks/sessionstart.mjs" < /dev/null
+  assert_success
+  run bash -c 'node "'"$REPO_ROOT"'/plugins/cave-context/hooks/sessionstart.mjs" < /dev/null | jq -r ".hookSpecificOutput.additionalContext"'
+  assert_success
+  assert_output --partial "CAVE-CONTEXT MODE ACTIVE"
 }
 
 @test "no PreToolUse/PostToolUse matcher matches the hook_ tools (reentrancy guard)" {
