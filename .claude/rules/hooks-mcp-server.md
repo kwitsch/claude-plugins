@@ -101,7 +101,7 @@ import readline from "node:readline";
 
 const SERVER_NAME = "example-hooks"; // the server's self-reported name; keep aligned with the .mcp.json key
 const SERVER_INFO = { name: SERVER_NAME, version: "0.1.0" };
-const DEFAULT_PROTOCOL = "2025-06-18";
+const DEFAULT_PROTOCOL = "2025-11-25"; // current stable MCP version; only used if client omits protocolVersion
 
 // Prefer bun, fall back to node. Under bun, process.versions.bun is set → no loop.
 if (process.versions.bun) {
