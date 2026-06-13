@@ -61,3 +61,69 @@ setup() {
   run -0 jq -e '.hooks.PreToolUse[0].hooks[0].type == "command"' "$f"
   run -0 jq -e '.hooks.PreToolUse[0].hooks[0].command | test("redirect-guide")' "$f"
 }
+
+# --- session-cache (SessionStart version-scoped doc cache) ---
+
+# Build a stub `claude` that prints a fixed version, placed first on PATH.
+_stub_claude() {
+  stub="$BATS_TEST_TMPDIR/bin"
+  mkdir -p "$stub"
+  cat >"$stub/claude" <<'SH'
+#!/usr/bin/env sh
+echo "2.1.89 (Claude Code)"
+SH
+  chmod +x "$stub/claude"
+  echo "$stub"
+}
+
+@test "session-cache keeps the current cache, purges stale, leaves non-cache dirs" {
+  stub="$(_stub_claude)"
+  data="$BATS_TEST_TMPDIR/data"
+  mkdir -p "$data/cache-2.1.89" "$data/cache-2.0.0" "$data/cache-old/sub" "$data/keepme"
+  run -0 env HOME="$BATS_TEST_TMPDIR/home" PATH="$stub:$PATH" CLAUDE_PLUGIN_DATA="$data" "$BIN/session-cache"
+  [ -d "$data/cache-2.1.89" ]
+  [ ! -e "$data/cache-2.0.0" ]
+  [ ! -e "$data/cache-old" ]
+  [ -d "$data/keepme" ]
+  echo "$output" | jq -e '.hookSpecificOutput.hookEventName == "SessionStart"'
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | contains("2.1.89")'
+  echo "$output" | jq -e --arg p "$data/cache-2.1.89" '.hookSpecificOutput.additionalContext | contains($p)'
+}
+
+@test "session-cache creates the current cache dir when missing" {
+  stub="$(_stub_claude)"
+  data="$BATS_TEST_TMPDIR/data2"
+  mkdir -p "$data"
+  run -0 env HOME="$BATS_TEST_TMPDIR/home" PATH="$stub:$PATH" CLAUDE_PLUGIN_DATA="$data" "$BIN/session-cache"
+  [ -d "$data/cache-2.1.89" ]
+}
+
+@test "session-cache without CLAUDE_PLUGIN_DATA never purges and exits 0" {
+  stub="$(_stub_claude)"
+  safe="$BATS_TEST_TMPDIR/data3"
+  mkdir -p "$safe/cache-x"
+  run -0 env -u CLAUDE_PLUGIN_DATA HOME="$BATS_TEST_TMPDIR/home" PATH="$stub:$PATH" "$BIN/session-cache"
+  [ -d "$safe/cache-x" ]
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("disabled|unavailable")'
+}
+
+@test "session-cache falls back to cache-unknown when version is unresolvable" {
+  badstub="$BATS_TEST_TMPDIR/badbin"
+  mkdir -p "$badstub"
+  cat >"$badstub/claude" <<'SH'
+#!/usr/bin/env sh
+exit 1
+SH
+  chmod +x "$badstub/claude"
+  data="$BATS_TEST_TMPDIR/data4"
+  mkdir -p "$data"
+  run -0 env HOME="$BATS_TEST_TMPDIR/home" PATH="$badstub:$PATH" CLAUDE_PLUGIN_DATA="$data" "$BIN/session-cache"
+  [ -d "$data/cache-unknown" ]
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | contains("unknown")'
+}
+
+@test "hooks.json registers SessionStart -> session-cache" {
+  f="$PLUGIN/hooks/hooks.json"
+  run -0 jq -e '.hooks.SessionStart[0].hooks[0].type == "command"' "$f"
+  run -0 jq -e '.hooks.SessionStart[0].hooks[0].command | test("session-cache")' "$f"
+}
