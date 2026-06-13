@@ -58,6 +58,28 @@ Sources: https://code.claude.com/docs/en/hooks · https://code.claude.com/docs/e
 
 **`.mjs` hooks**: executable, invoked directly — do NOT prefix with `node`. See hooks-executable rule and hooks-json-mjs-command rule.
 
+### `mcp_tool` hooks
+
+A `mcp_tool` hook calls a tool on an **already-connected** MCP server instead of
+running a command. Fields (besides the common ones): `server` (required — name
+of a configured, connected MCP server; the hook never triggers a connection
+flow) and `tool` (required — the tool to call).
+
+Two consequences: it only fires reliably for **mid-loop** events
+(`PreToolUse`/`PostToolUse`), and if the server is down it **fails open** (silent
+no-op). So `mcp_tool` is for **non-blocking** hooks only — early-lifecycle hooks
+and fail-closed guards stay command hooks. The preferred shape (a self-contained
+plugin-local `mcp/server.mjs`, bun-preferred with node fallback) is documented in
+the **hooks-mcp-server** rule.
+
+```json
+{
+  "type": "mcp_tool",
+  "server": "<name>-hooks",
+  "tool": "<tool>"
+}
+```
+
 ## Events reference
 
 | Event | Matcher support | Can block | Notes |
