@@ -20,9 +20,9 @@ commands, never improvise alternative CLI flags.
      shape and severity enum are also mirrored in claude-reviewer.md. -->
 
 Your dispatch prompt names the base branch and the absolute script path
-(`${CLAUDE_PLUGIN_ROOT}/bin/copilot-review.sh`). Run the script with the base
-branch as its only argument, then map its exit code per the Exit-code mapping
-section. Extract only the findings; the raw output stays out of your context.
+(`${CLAUDE_PLUGIN_ROOT}/bin/copilot-review.sh`). Run the `.sh` file with the
+base branch as its only argument so the raw review output never enters your
+context.
 
 **context-mode routing (optional acceleration).** When you run the script below,
 prefer context-mode's execute tool so large output stays out of your context;
@@ -39,11 +39,26 @@ tool instead.
 3. Tool genuinely unavailable → run via Bash and append `context-mode unavailable —
    ran via Bash` to your result.
 
-Run the `.sh` file via `…__ctx_execute_file`. Do not retry with different
-flags. Set `REVIEW_TIMEOUT` only if the dispatch prompt asks for one. On
-exit `0` the script's stdout is the raw Copilot report — parse the findings
-from it; a real review reads as a complete report, so if it ends mid-stream
-treat the run as `failed`.
+Do not retry with different flags. Set `REVIEW_TIMEOUT` only if the dispatch
+prompt asks for one.
+
+## Reading the ctx_execute result
+
+- Exit `0`: the tool returns the script's stdout — parse the findings from
+  it.
+- Non-zero exits arrive as `Exit code: <N>` plus stdout/stderr sections —
+  map `<N>` with the table below.
+  (Per context-mode's exit classification — soft-fail applies ONLY to shell
+  exit 1 with stdout, verified against v1.0.162 — and these scripts never
+  exit 1 after printing output, any bare-stdout result is a successful
+  review. Sanity-check it anyway: a real review reads as a complete report;
+  if it ends mid-stream, treat the run as `failed`.)
+- Very large outputs (>100 KB) are auto-indexed and only a pointer comes
+  back. Do NOT try to reconstruct the findings via `ctx_search` — its
+  ranked top-k results cannot enumerate a findings list. Re-run the script
+  once via Bash and parse the full output directly (rare large-review edge
+  case: correctness beats context savings here), and note `large output —
+  parsed via Bash` in your result.
 
 ## Exit-code mapping
 
