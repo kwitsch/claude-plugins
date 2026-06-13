@@ -68,3 +68,8 @@ setup() {
     node "$REPO_ROOT/plugins/cave-context/hooks/precompact.mjs" <<< '{"hook_event_name":"PreCompact"}'
   assert_success
 }
+
+@test "stat skill exists with valid frontmatter name" {
+  run grep -qE '^name:\s*stat$' "$REPO_ROOT/plugins/cave-context/skills/stat/SKILL.md"
+  assert_success
+}
