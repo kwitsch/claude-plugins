@@ -149,3 +149,22 @@ SH
   grep -qi 'curl' "$f"
   grep -qi 'training memory' "$f"
 }
+
+# --- shared references ---
+
+@test "shared workflow reference exists and covers the three modes" {
+  f="$PLUGIN/references/cck-workflow.md"
+  [ -f "$f" ]
+  grep -qi 'create' "$f"
+  grep -qi 'validate' "$f"
+  grep -qi 'adjust' "$f"
+  grep -q 'cc-knowledge' "$f"
+}
+
+@test "each component reference exists and points at a docs path" {
+  for c in skill agent rule hook; do
+    f="$PLUGIN/references/components/$c.md"
+    [ -f "$f" ]
+    grep -qE 'code.claude.com/docs|llms.txt|en/' "$f"
+  done
+}
