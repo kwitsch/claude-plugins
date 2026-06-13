@@ -3,6 +3,11 @@ import { spawn } from "node:child_process";
 import readline from "node:readline";
 
 const PROTOCOL = "2025-11-25";
+// Handshake (initialize / tools/list) must fail fast if the upstream is unavailable.
+const HANDSHAKE_TIMEOUT = 15000;
+// tools/call wraps slow-but-normal ctx_* ops (ctx_index, ctx_fetch_and_index,
+// ctx_batch_execute) that routinely run >15s; default to Claude Code's 600s hook bound.
+const TOOL_TIMEOUT = Number(process.env.CAVE_CONTEXT_TOOL_TIMEOUT_MS) || 600000;
 
 function upstreamCmd() {
   if (process.env.CAVE_CONTEXT_UPSTREAM_CMD) {
@@ -22,9 +27,9 @@ export class Upstream {
     this.rl = readline.createInterface({ input: this.child.stdout });
     this.rl.on("line", (l) => this._onLine(l));
     return (async () => {
-      await this._request("initialize", { protocolVersion: PROTOCOL, capabilities: {}, clientInfo: { name: "cave-context", version: "0.1.0" } });
+      await this._request("initialize", { protocolVersion: PROTOCOL, capabilities: {}, clientInfo: { name: "cave-context", version: "0.1.0" } }, HANDSHAKE_TIMEOUT);
       this._notify("notifications/initialized", {});
-      const res = await this._request("tools/list", {});
+      const res = await this._request("tools/list", {}, HANDSHAKE_TIMEOUT);
       this.tools = res?.tools ?? [];
       return this.tools;
     })();
@@ -32,7 +37,7 @@ export class Upstream {
 
   _send(o) { try { this.child.stdin.write(JSON.stringify(o) + "\n"); } catch { /* ignore */ } }
   _notify(method, params) { this._send({ jsonrpc: "2.0", method, params }); }
-  _request(method, params, timeoutMs = 15000) {
+  _request(method, params, timeoutMs = HANDSHAKE_TIMEOUT) {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -53,6 +58,6 @@ export class Upstream {
       msg.error ? reject(new Error(msg.error.message || "upstream error")) : resolve(msg.result);
     }
   }
-  callTool(name, args) { return this._request("tools/call", { name, arguments: args ?? {} }); }
+  callTool(name, args) { return this._request("tools/call", { name, arguments: args ?? {} }, TOOL_TIMEOUT); }
   stop() { try { this.rl?.close(); } catch { /* ignore */ } try { this.child?.kill(); } catch { /* ignore */ } }
 }
