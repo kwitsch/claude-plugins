@@ -20,3 +20,11 @@ Larger case sets live in data files next to the suite (e.g. `cctools-edit/bash-g
 ## Manifest assertions
 
 Pin plugin.json invariants in tests. branch-management: assert exact sorted `userConfig` key list and count — extend the assertion when adding a toggle. Version declared only in `plugin.json`, never in `marketplace.json`.
+
+## Inline scripts
+
+Inline scripts — skill/command `!` dynamic-context blocks and agent fenced bash —
+are **not** covered by bats. Their validation is the author's dev-time self-test
+(run it, confirm output), per the script-authoring rule. bats is reserved for
+standalone executables under `plugins/*/bin/`, hooks, and the manifest invariants
+above.
