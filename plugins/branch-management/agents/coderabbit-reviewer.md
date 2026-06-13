@@ -78,6 +78,13 @@ normal `failed` result, not something to work around. On exit `0` the script's
 stdout is the raw CodeRabbit report — parse the findings from it; a real review
 reads as a complete report, so if it ends mid-stream treat the run as `failed`.
 
+Very large outputs (>100 KB) are auto-indexed by context-mode and only a
+pointer comes back. Do NOT try to reconstruct the findings via `ctx_search` —
+its ranked top-k results cannot enumerate a findings list. Re-run the inline
+script once via Bash and parse the full output directly (rare large-review
+edge case: correctness beats context savings here), and note `large output —
+parsed via Bash` in your result.
+
 ## Exit-code mapping
 
 - `0` — parse stdout into findings (an empty list is a valid clean review)
