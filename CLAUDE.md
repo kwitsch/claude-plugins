@@ -27,6 +27,7 @@ Conventions in `.claude/rules/test-conventions.md`.
 - Plugin versions ONLY in `.claude-plugin/plugin.json` — no `version` in marketplace.json entries, no `metadata.pluginRoot`. See `.claude/rules/plugin-versioning.md`.
 - `docs/` holds local planning artifacts; gitignored, never pushed.
 - Plugin dev conventions (structure, `.mjs` hooks) in `plugins/CLAUDE.md`; versioning/userConfig in `.claude/rules/`.
+- Script authoring: prefer inline scripts over bundled `.sh` — skills/commands use `!` dynamic-context injection, agents use Bash-run fenced blocks; a dev-time self-test is the inline unit test. See `.claude/rules/script-authoring.md`.
 
 ## graphify
 
