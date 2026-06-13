@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 const MJSX = new URL("../../plugins/cave-context/bin/mjsx.sh", import.meta.url).pathname;
 
@@ -14,13 +14,18 @@ const MJSX = new URL("../../plugins/cave-context/bin/mjsx.sh", import.meta.url).
 //     it provides (bun/npx); /usr/bin:/bin is needed so `bash` and the node-fallback
 //     interpreter resolve. Real bun is NOT on /usr/bin (it lives in ~/.bun/bin), so it
 //     never leaks; a fake `npx` on the fake bin shadows the real /usr/bin/npx.
-function isolatedRun(args, { fakeBun = false, fakeNpx = false } = {}) {
+//   - realNode: append the directory of the node running this test to PATH so the
+//     node-fallback branch (`exec node`) resolves even when node is NOT in /usr/bin
+//     (e.g. on CI runners node lives in a toolcache dir). The fakebin still has no
+//     `bun` stub, so `command -v bun` fails and mjsx takes the node fallback.
+function isolatedRun(args, { fakeBun = false, fakeNpx = false, realNode = false } = {}) {
   const home = mkdtempSync(join(tmpdir(), "cc-mjsx-home-"));
   const fakebin = mkdtempSync(join(tmpdir(), "cc-mjsx-bin-"));
   try {
     if (fakeBun) writeFake(join(fakebin, "bun"));
     if (fakeNpx) writeFake(join(fakebin, "npx"));
-    const env = { HOME: home, PATH: `${fakebin}:/usr/bin:/bin` };
+    const nodeDir = realNode ? `${dirname(process.execPath)}:` : "";
+    const env = { HOME: home, PATH: `${fakebin}:${nodeDir}/usr/bin:/bin` };
     const res = spawnSync("bash", [MJSX, ...args], { env, encoding: "utf8" });
     return res;
   } finally {
@@ -55,12 +60,14 @@ test("mjsx.sh: .mjs script runs `bun <script>` when bun is present", () => {
 
 test("mjsx.sh: .mjs script runs via real node when no bun (node fallback)", () => {
   // No fake bun on PATH and no real bun reachable (temp HOME, no /usr/bin/bun), so mjsx
-  // falls back to node: real node from /usr/bin executes the script, which prints OK.
+  // falls back to node. realNode puts the running node's own directory on PATH, so the
+  // `exec node` branch resolves regardless of where node is installed (toolcache on CI,
+  // /usr/bin locally); the script then prints which runtime executed it.
   const scriptDir = mkdtempSync(join(tmpdir(), "cc-mjsx-script-"));
   const script = join(scriptDir, "ok.mjs");
   writeFileSync(script, 'process.stdout.write((process.versions.bun ? "bun" : "node") + "\\n");\n');
   try {
-    const res = isolatedRun([script], {});
+    const res = isolatedRun([script], { realNode: true });
     assert.equal(res.status, 0, res.stderr);
     assert.equal(res.stdout.trim(), "node");
   } finally {
