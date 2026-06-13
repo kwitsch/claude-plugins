@@ -13,57 +13,70 @@ commands, never improvise alternative CLI flags.
 
 ## Execution
 
-<!-- Keep Execution + "Reading the ctx_execute result" + "Result contract"
+<!-- Keep Execution + "Result contract"
      in sync across the three
      reviewer agents (codex/copilot/coderabbit) — only the script
      name, login hint and tool-specific notes may differ. The findings
      shape and severity enum are also mirrored in claude-reviewer.md. -->
 
-Your dispatch prompt names the base branch and the absolute script path
-(`<plugin-root>/bin/coderabbit-review.sh`). context-mode is a declared
-dependency of this plugin — run the script through it so the raw review
-output never enters your context:
+Your dispatch prompt names the base branch. Run the inline script below
+yourself (it has no separate file on disk) with the base branch as its only
+argument, then map its exit code per the Exit-code mapping section. Extract
+only the findings; the raw output stays out of your context.
 
-1. **Bootstrap once:** the ctx_* tools are deferred in Claude Code — load
-   their schemas with
-   `ToolSearch(query: "select:mcp__plugin_context-mode_context-mode__ctx_execute,mcp__plugin_context-mode_context-mode__ctx_search")`
-   before the first call. If nothing matches, retry with the bare names
-   (`select:ctx_execute,ctx_search`) — registries differ in how they expose
-   the ctx_* names. Do NOT fall back to Bash just because the schema was
-   not loaded yet.
-2. **Run the script in ONE call** via
-   `mcp__plugin_context-mode_context-mode__ctx_execute`
-   (language: `shell`): the script path with the base branch as its only
-   argument. Extract only the findings; the raw output stays in the sandbox.
-3. **Degraded fallback:** if the ctx_* tools are genuinely unavailable after
-   the ToolSearch (context-mode disabled or broken), OR the ctx call aborts
-   before the script's own timeout can fire (`REVIEW_TIMEOUT`, default
-   600 s — e.g. the MCP host's RPC limit), run the script via Bash instead
-   and note the degradation in your result (append `context-mode
-   unavailable — ran via Bash` or `ctx call aborted — reran via Bash` to
-   `error` even when the review itself succeeds).
+**context-mode routing (optional acceleration).** When you run the script below,
+prefer context-mode's execute tool so large output stays out of your context;
+fall back to Bash when it is absent — context-mode is optional, never block on it.
+This applies ONLY to read-only scripts (no persistent filesystem/git writes); the
+ctx sandbox discards writes, so state-mutating scripts MUST run on the native Bash
+tool instead.
+1. Load the tool once:
+   `ToolSearch(query: "select:mcp__plugin_context-mode_context-mode__ctx_execute,mcp__plugin_context-mode_context-mode__ctx_execute_file")`.
+   If nothing matches, retry the bare names (`select:ctx_execute,ctx_execute_file`)
+   as a robustness guard. Do not fall back just because the schema has not loaded yet.
+2. Tool available → run through `…__ctx_execute` (inline shell `code`) or
+   `…__ctx_execute_file` (a `.sh` file on disk); keep only the parsed result.
+3. Tool genuinely unavailable → run via Bash and append `context-mode unavailable —
+   ran via Bash` to your result.
+
+```bash
+#!/usr/bin/env bash
+# coderabbit-review.sh <base-branch> — non-interactive CodeRabbit review of
+# the current branch against <base-branch>.
+#
+# --prompt-only is the agent-optimized plain output (runs a full review).
+# The exit codes of `auth status` and `review` are not contractually
+# documented, so login is judged from the auth output and findings from the
+# review output, never from the review exit code alone.
+#
+# Exit codes: 0 review ran (stdout = raw review output)
+#             2 coderabbit CLI not installed (checks the `cr` alias too)
+#             3 not logged in
+#             4 review run failed (timeout, rate limit, crash)
+set -euo pipefail
+
+base="${1:?usage: coderabbit-review.sh <base-branch>}"
+
+# 1) Presence — `cr` is the documented alias.
+if command -v coderabbit >/dev/null 2>&1; then bin=coderabbit
+elif command -v cr >/dev/null 2>&1; then bin=cr
+else exit 2; fi
+
+# 2) Login — "Not logged in" also contains "logged in", so check the negative
+# first, then require a positive signal.
+status_out="$("$bin" auth status 2>&1 || true)"
+printf '%s' "$status_out" | grep -qiE 'not[a-z ,-]{0,30}(logged|authenticated)|no longer (logged|authenticated)|session expired|login required' && exit 3
+printf '%s' "$status_out" | grep -qiE 'logged in|authenticated' || exit 3
+
+# 3) Review
+timeout -k 10 "${REVIEW_TIMEOUT:-600}" "$bin" review --prompt-only --base "$base" || exit 4
+```
 
 Do not retry with different flags. Set `REVIEW_TIMEOUT` only if the dispatch
 prompt asks for one. A rate-limit failure (free tier: 3 reviews/hour) is a
-normal `failed` result, not something to work around.
-
-## Reading the ctx_execute result
-
-- Exit `0`: the tool returns the script's stdout — parse the findings from
-  it.
-- Non-zero exits arrive as `Exit code: <N>` plus stdout/stderr sections —
-  map `<N>` with the table below.
-  (Per context-mode's exit classification — soft-fail applies ONLY to shell
-  exit 1 with stdout, verified against v1.0.162 — and these scripts never
-  exit 1 after printing output, any bare-stdout result is a successful
-  review. Sanity-check it anyway: a real review reads as a complete report;
-  if it ends mid-stream, treat the run as `failed`.)
-- Very large outputs (>100 KB) are auto-indexed and only a pointer comes
-  back. Do NOT try to reconstruct the findings via `ctx_search` — its
-  ranked top-k results cannot enumerate a findings list. Re-run the script
-  once via Bash and parse the full output directly (rare large-review edge
-  case: correctness beats context savings here), and note `large output —
-  parsed via Bash` in your result.
+normal `failed` result, not something to work around. On exit `0` the script's
+stdout is the raw CodeRabbit report — parse the findings from it; a real review
+reads as a complete report, so if it ends mid-stream treat the run as `failed`.
 
 ## Exit-code mapping
 
