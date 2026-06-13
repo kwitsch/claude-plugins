@@ -1,8 +1,16 @@
 {
   "name": "cave-context",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Unifies caveman + context-mode into one non-competing MCP server: proxies all context-mode ctx_* tools 1-to-1 and aggregates both plugins' hooks.",
   "author": {
     "name": "Kwitsch"
+  },
+  "userConfig": {
+    "caveman_level": {
+      "type": "string",
+      "title": "Caveman compression level",
+      "description": "Values: lite | full | ultra — default terse-output level injected at session start and used by bare /caveman; invalid/missing falls back to lite. Default: lite.",
+      "default": "lite"
+    }
   }
 }

@@ -4,9 +4,44 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 
 export const VALID_LEVELS = ["lite", "full", "ultra"];
-export const DEFAULT_LEVEL = "full";
+export const DEFAULT_LEVEL = "lite";
 const STATE_FILE = "active-level";
 const MAX_BYTES = 16;
+
+// Read a settings.json file and return its caveman_level option, or null on any failure.
+// Fail-open: missing file / parse error / missing key / invalid value → null (never throw).
+function levelFromSettings(file) {
+  try {
+    const raw = readFileSync(file, "utf8");
+    const json = JSON.parse(raw);
+    const lvl = json?.pluginConfigs?.["cave-context"]?.options?.caveman_level;
+    return VALID_LEVELS.includes(lvl) ? lvl : null;
+  } catch { return null; }
+}
+
+// The configured default compression level, in precedence local > project > user:
+//   ${CLAUDE_PROJECT_DIR}/.claude/settings.local.json
+//   ${CLAUDE_PROJECT_DIR}/.claude/settings.json   (only when CLAUDE_PROJECT_DIR set)
+//   ${HOME}/.claude/settings.json
+// First file whose options.caveman_level is a VALID_LEVEL wins; else DEFAULT_LEVEL.
+// Fully fail-open — any error anywhere yields DEFAULT_LEVEL.
+export function configuredDefaultLevel() {
+  try {
+    const files = [];
+    const projectDir = process.env.CLAUDE_PROJECT_DIR && process.env.CLAUDE_PROJECT_DIR.trim();
+    if (projectDir) {
+      files.push(join(projectDir, ".claude", "settings.local.json"));
+      files.push(join(projectDir, ".claude", "settings.json"));
+    }
+    const home = process.env.HOME && process.env.HOME.trim();
+    if (home) files.push(join(home, ".claude", "settings.json"));
+    for (const f of files) {
+      const lvl = levelFromSettings(f);
+      if (lvl) return lvl;
+    }
+  } catch { /* fail open */ }
+  return DEFAULT_LEVEL;
+}
 
 export function stateDir() {
   const base = process.env.CLAUDE_PLUGIN_DATA && process.env.CLAUDE_PLUGIN_DATA.trim()
@@ -46,12 +81,12 @@ export function detectLevelChange(prompt) {
   const m = low.match(/^\/(?:caveman|cave-context)(?:\s+(\S+))?/);
   if (m) {
     const arg = m[1];
-    if (!arg) return DEFAULT_LEVEL;
+    if (!arg) return configuredDefaultLevel();
     if (["off", "stop", "disable"].includes(arg)) return "off";
     if (VALID_LEVELS.includes(arg)) return arg;
     return null; // unknown arg → no change
   }
-  if (ACT.test(low)) return DEFAULT_LEVEL;
+  if (ACT.test(low)) return configuredDefaultLevel();
   return null;
 }
 

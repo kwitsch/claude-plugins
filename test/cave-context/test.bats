@@ -70,11 +70,18 @@ setup() {
 }
 
 @test "sessionstart.mjs emits valid JSON with the caveman ruleset marker" {
-  run node "$REPO_ROOT/plugins/cave-context/hooks/sessionstart.mjs" < /dev/null
+  # sessionstart.mjs now seeds the state file under CLAUDE_PLUGIN_DATA and reads
+  # ${HOME}/.claude/settings.json for the configured level — isolate both so the
+  # test never writes to the real ~/.claude/cave-context/ and stays deterministic.
+  tmp="$(mktemp -d)"
+  home="$(mktemp -d)"
+  run env CLAUDE_PLUGIN_DATA="$tmp" HOME="$home" \
+    node "$REPO_ROOT/plugins/cave-context/hooks/sessionstart.mjs" < /dev/null
   assert_success
-  run bash -c 'node "'"$REPO_ROOT"'/plugins/cave-context/hooks/sessionstart.mjs" < /dev/null | jq -r ".hookSpecificOutput.additionalContext"'
+  run bash -c 'env CLAUDE_PLUGIN_DATA="'"$tmp"'" HOME="'"$home"'" node "'"$REPO_ROOT"'/plugins/cave-context/hooks/sessionstart.mjs" < /dev/null | jq -r ".hookSpecificOutput.additionalContext"'
   assert_success
   assert_output --partial "CAVE-CONTEXT MODE ACTIVE"
+  rm -rf "$tmp" "$home"
 }
 
 @test "no PreToolUse/PostToolUse matcher matches the hook_ tools (reentrancy guard)" {
@@ -89,6 +96,18 @@ setup() {
 
 @test "plugin.json has version" {
   run jq -e '.version' "$REPO_ROOT/plugins/cave-context/.claude-plugin/plugin.json"
+  assert_success
+}
+
+@test "plugin.json userConfig keys are exactly [caveman_level]" {
+  PJ="$REPO_ROOT/plugins/cave-context/.claude-plugin/plugin.json"
+  run jq -e '(.userConfig | keys) == ["caveman_level"]' "$PJ"
+  assert_success
+}
+
+@test "plugin.json caveman_level userConfig is a string defaulting to lite" {
+  PJ="$REPO_ROOT/plugins/cave-context/.claude-plugin/plugin.json"
+  run jq -e '.userConfig.caveman_level | .type == "string" and .default == "lite" and (.title|length>0) and (.description|length>0)' "$PJ"
   assert_success
 }
 
