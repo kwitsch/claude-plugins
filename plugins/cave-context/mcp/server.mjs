@@ -1,39 +1,16 @@
 #!/usr/bin/env node
 // Self-contained, zero-dependency MCP stdio server (Node/Bun built-ins only).
-// Started via #!/usr/bin/env node, it re-execs under bun when available.
+// Runtime selection (bun-preferred, node fallback) is owned by bin/mjsx.sh, which
+// launches this module; there is no in-file re-exec shim.
 // Transport: newline-delimited JSON-RPC 2.0. stdout = JSON-RPC only; logs → stderr.
 import process from "node:process";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import readline from "node:readline";
 
 const SERVER_NAME = "cave-context";
 const SERVER_INFO = { name: SERVER_NAME, version: "0.1.0" };
 const DEFAULT_PROTOCOL = "2025-11-25";
 
-// Prefer bun, fall back to node. Under bun, process.versions.bun is set → no loop.
-if (process.versions.bun) {
-  startServer();
-} else {
-  const home = process.env.HOME; // non-interactive PATH often lacks ~/.bun/bin
-  const env = { ...process.env };
-  if (home) env.PATH = `${home}/.bun/bin:${home}/.local/bin:${env.PATH ?? ""}`;
-  let spawned = false;
-  const child = spawn("bun", [fileURLToPath(import.meta.url), ...process.argv.slice(2)], {
-    stdio: "inherit", env,
-  });
-  child.once("spawn", () => {
-    spawned = true;
-    // node has no exec(): forward signals so bun is never orphaned.
-    for (const s of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(s, () => child.kill(s));
-  });
-  // Node may fire BOTH 'error' and 'exit' — guard with `spawned`.
-  child.once("error", () => { if (!spawned) startServer(); }); // bun missing (ENOENT) → node
-  child.once("exit", (code, sig) => {
-    if (!spawned) return;
-    sig ? process.kill(process.pid, sig) : process.exit(code ?? 0);
-  });
-}
+startServer();
 
 function startServer() {
   const HOOK_TOOLS = [

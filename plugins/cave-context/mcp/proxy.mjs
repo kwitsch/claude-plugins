@@ -1,5 +1,6 @@
 // proxy.mjs — client to the upstream context-mode MCP server over stdio.
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import readline from "node:readline";
 
 const PROTOCOL = "2025-11-25";
@@ -15,7 +16,10 @@ function upstreamCmd() {
   if (process.env.CAVE_CONTEXT_UPSTREAM_CMD) {
     try { const a = JSON.parse(process.env.CAVE_CONTEXT_UPSTREAM_CMD); if (Array.isArray(a) && a.length) return a; } catch { /* fall through */ }
   }
-  return ["npx", "-y", "context-mode"]; // bare-launch form confirmed in Task 0
+  // Default: launch context-mode through the bin/mjsx.sh launcher (bun x / npx -y by
+  // bun presence). mjsx.sh dispatches the package name "context-mode" as an npm package.
+  const mjsx = fileURLToPath(new URL("../bin/mjsx.sh", import.meta.url));
+  return [mjsx, "context-mode"];
 }
 
 export class Upstream {

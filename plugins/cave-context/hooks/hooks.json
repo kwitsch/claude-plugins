@@ -5,7 +5,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/sessionstart.mjs"
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/mjsx.sh",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/sessionstart.mjs"]
           }
         ]
       }
@@ -15,7 +16,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/userpromptsubmit.mjs"
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/mjsx.sh",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/userpromptsubmit.mjs"]
           }
         ]
       }
@@ -49,7 +51,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/precompact.mjs"
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/mjsx.sh",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/precompact.mjs"]
           }
         ]
       }
