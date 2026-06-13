@@ -27,20 +27,23 @@ calls, `:id` is glab's own project placeholder (leave it literal), while
 
 ## Tooling
 
-<!-- ctx bootstrap (ToolSearch select + bare-name retry): keep the wording aligned across ci-monitor, claude-reviewer, review-fixer and graphify-agent; the three CLI reviewers carry their own synced copy. -->
+**context-mode routing (optional acceleration).** When you run the script below,
+prefer context-mode's execute tool so large output stays out of your context;
+fall back to Bash when it is absent — context-mode is optional, never block on it.
+This applies ONLY to read-only scripts (no persistent filesystem/git writes); the
+ctx sandbox discards writes, so state-mutating scripts MUST run on the native Bash
+tool instead.
+1. Load the tool once:
+   `ToolSearch(query: "select:mcp__plugin_context-mode_context-mode__ctx_execute,mcp__plugin_context-mode_context-mode__ctx_execute_file")`.
+   If nothing matches, retry the bare names (`select:ctx_execute,ctx_execute_file`)
+   as a robustness guard. Do not fall back just because the schema has not loaded yet.
+2. Tool available → run through `…__ctx_execute` (inline shell `code`) or
+   `…__ctx_execute_file` (a `.sh` file on disk); keep only the parsed result.
+3. Tool genuinely unavailable → run via Bash and append `context-mode unavailable —
+   ran via Bash` to your result.
 
-context-mode is a declared dependency of this plugin — route the LARGE
-observations — failing-job logs and PR-thread payloads (steps 2-3) —
-through it so they never enter your context; the watch itself (step 1)
-stays on Bash. Bootstrap once: the ctx_* tools are deferred in Claude Code — load
-them with
-`ToolSearch(query: "select:mcp__plugin_context-mode_context-mode__ctx_execute,mcp__plugin_context-mode_context-mode__ctx_batch_execute,mcp__plugin_context-mode_context-mode__ctx_search")`
-before the first call. If nothing matches, retry with the bare names
-(`select:ctx_execute,ctx_batch_execute,ctx_search`) — registries differ in
-how they expose the ctx_* names. Do NOT fall back to Bash just because the
-schema was not loaded yet. Only if the tools are genuinely unavailable after
-the bootstrap (broken dependency), use Bash and note the degradation in your
-report.
+Apply this to the LARGE observations — failing-job logs and PR-thread payloads
+(steps 2-3); the watch itself (step 1) stays on Bash.
 
 ## Steps
 
