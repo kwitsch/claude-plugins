@@ -8,6 +8,23 @@ import { handleUserPromptSubmit, handlePreToolUse, mergeContext } from "../../pl
 const FAKE = JSON.stringify(["node", new URL("./fake-hook.mjs", import.meta.url).pathname]);
 const FAKE_HARD = JSON.stringify(["node", new URL("./fake-hook-hard.mjs", import.meta.url).pathname]);
 
+// Set env vars for the duration of fn(), restoring each to its prior value afterwards
+// (deleting only those that were originally undefined) so tests don't contaminate each
+// other or leak into the parent process.
+async function withEnv(vars, fn) {
+  const prior = {};
+  for (const k of Object.keys(vars)) prior[k] = process.env[k];
+  Object.assign(process.env, vars);
+  try {
+    return await fn();
+  } finally {
+    for (const k of Object.keys(vars)) {
+      if (prior[k] === undefined) delete process.env[k];
+      else process.env[k] = prior[k];
+    }
+  }
+}
+
 test("mergeContext joins both, caveman first", () => {
   assert.equal(mergeContext("CAVE", "CTX"), "CAVE\n\nCTX");
   assert.equal(mergeContext("CAVE", null), "CAVE");
@@ -17,32 +34,29 @@ test("mergeContext joins both, caveman first", () => {
 
 test("UserPromptSubmit: /caveman ultra sets level + reminder + ctx merge", async () => {
   const dir = mkdtempSync(join(tmpdir(), "cc-"));
-  process.env.CLAUDE_PLUGIN_DATA = dir;
-  process.env.CAVE_CONTEXT_HOOK_CMD = FAKE;
   try {
-    const out = await handleUserPromptSubmit({ hook_event_name: "UserPromptSubmit", prompt: "/caveman ultra" });
-    const ac = out.hookSpecificOutput.additionalContext;
-    assert.match(ac, /ultra/);
-    // delegate lowercases the event before invoking the CLI; the fake echoes it back.
-    assert.match(ac, /CTXMODE\[userpromptsubmit\]/);
+    await withEnv({ CLAUDE_PLUGIN_DATA: dir, CAVE_CONTEXT_HOOK_CMD: FAKE }, async () => {
+      const out = await handleUserPromptSubmit({ hook_event_name: "UserPromptSubmit", prompt: "/caveman ultra" });
+      const ac = out.hookSpecificOutput.additionalContext;
+      assert.match(ac, /ultra/);
+      // delegate lowercases the event before invoking the CLI; the fake echoes it back.
+      assert.match(ac, /CTXMODE\[userpromptsubmit\]/);
+    });
   } finally {
-    delete process.env.CLAUDE_PLUGIN_DATA; delete process.env.CAVE_CONTEXT_HOOK_CMD;
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
 test("PreToolUse: no upstream, no caveman -> benign {} (no throw)", async () => {
-  process.env.CAVE_CONTEXT_NO_UPSTREAM = "1";
-  try {
+  await withEnv({ CAVE_CONTEXT_NO_UPSTREAM: "1" }, async () => {
     const out = await handlePreToolUse({ hook_event_name: "PreToolUse", tool_name: "Bash" });
     // No upstream, no caveman PreToolUse → benign empty-ish output (no throw)
     assert.ok(out && typeof out === "object");
-  } finally { delete process.env.CAVE_CONTEXT_NO_UPSTREAM; }
+  });
 });
 
 test("PreToolUse: forwards ctx hard fields (permissionDecision/updatedInput/decision/reason)", async () => {
-  process.env.CAVE_CONTEXT_HOOK_CMD = FAKE_HARD;
-  try {
+  await withEnv({ CAVE_CONTEXT_HOOK_CMD: FAKE_HARD }, async () => {
     const out = await handlePreToolUse({ hook_event_name: "PreToolUse", tool_name: "Bash" });
     assert.equal(out.hookSpecificOutput.hookEventName, "PreToolUse");
     assert.equal(out.hookSpecificOutput.permissionDecision, "deny");
@@ -50,5 +64,5 @@ test("PreToolUse: forwards ctx hard fields (permissionDecision/updatedInput/deci
     assert.deepEqual(out.updatedInput, { command: "echo safe" });
     assert.equal(out.decision, "block");
     assert.equal(out.reason, "blocked: unsafe command");
-  } finally { delete process.env.CAVE_CONTEXT_HOOK_CMD; }
+  });
 });

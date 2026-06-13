@@ -4,19 +4,30 @@ import { Upstream } from "../../plugins/cave-context/mcp/proxy.mjs";
 
 const FAKE = JSON.stringify(["node", new URL("./fake-upstream.mjs", import.meta.url).pathname]);
 
+// Set CAVE_CONTEXT_UPSTREAM_CMD, returning a restore fn that reinstates the prior value
+// (or deletes the var if it was originally undefined) so tests don't leak state.
+function setUpstreamCmd(value) {
+  const prior = process.env.CAVE_CONTEXT_UPSTREAM_CMD;
+  process.env.CAVE_CONTEXT_UPSTREAM_CMD = value;
+  return () => {
+    if (prior === undefined) delete process.env.CAVE_CONTEXT_UPSTREAM_CMD;
+    else process.env.CAVE_CONTEXT_UPSTREAM_CMD = prior;
+  };
+}
+
 test("start lists upstream tools; callTool forwards", async () => {
-  process.env.CAVE_CONTEXT_UPSTREAM_CMD = FAKE;
+  const restoreEnv = setUpstreamCmd(FAKE);
   const up = new Upstream();
   try {
     const tools = await up.start();
     assert.ok(tools.find((t) => t.name === "ctx_echo"));
     const res = await up.callTool("ctx_echo", { a: 1 });
     assert.match(JSON.stringify(res), /echo:\{\\\"a\\\":1\}/);
-  } finally { up.stop(); delete process.env.CAVE_CONTEXT_UPSTREAM_CMD; }
+  } finally { up.stop(); restoreEnv(); }
 });
 
 test("after the child crashes, callTool fails fast and a fresh start re-spawns", async () => {
-  process.env.CAVE_CONTEXT_UPSTREAM_CMD = FAKE;
+  const restoreEnv = setUpstreamCmd(FAKE);
   const up = new Upstream();
   try {
     await up.start();
@@ -33,5 +44,5 @@ test("after the child crashes, callTool fails fast and a fresh start re-spawns",
     assert.equal(up.alive, true);
     const res = await up.callTool("ctx_echo", { a: 2 });
     assert.match(JSON.stringify(res), /echo:\{\\\"a\\\":2\}/);
-  } finally { up.stop(); delete process.env.CAVE_CONTEXT_UPSTREAM_CMD; }
+  } finally { up.stop(); restoreEnv(); }
 });
