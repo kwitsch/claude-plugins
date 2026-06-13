@@ -25,14 +25,13 @@ if (process.versions.bun) {
   child.once("spawn", () => {
     spawned = true;
     // node has no exec(): forward signals so bun is never orphaned.
-    process.on("SIGTERM", () => child.kill("SIGTERM"));
-    process.on("SIGINT", () => child.kill("SIGINT"));
+    for (const s of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(s, () => child.kill(s));
   });
   // Node may fire BOTH 'error' and 'exit' — guard with `spawned`.
   child.once("error", () => { if (!spawned) startServer(); }); // bun missing (ENOENT) → node
-  child.once("exit", (code) => {
+  child.once("exit", (code, sig) => {
     if (!spawned) return;
-    process.exit(code ?? 0);
+    sig ? process.kill(process.pid, sig) : process.exit(code ?? 0);
   });
 }
 
