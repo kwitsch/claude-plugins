@@ -80,7 +80,8 @@ function startServer() {
             const result = await HANDLERS[name](params?.arguments ?? {});
             return ok(id, { content: [{ type: "text", text: JSON.stringify(result) }] });
           }
-          await ensureUp();
+          const upTools = await ensureUp();
+          if (!upTools.length) return fail(id, -32603, "upstream context-mode server unavailable");
           const result = await up.callTool(name, params?.arguments ?? {});
           return ok(id, result);
         }

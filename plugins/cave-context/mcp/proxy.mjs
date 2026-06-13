@@ -32,9 +32,19 @@ export class Upstream {
 
   _send(o) { try { this.child.stdin.write(JSON.stringify(o) + "\n"); } catch { /* ignore */ } }
   _notify(method, params) { this._send({ jsonrpc: "2.0", method, params }); }
-  _request(method, params) {
+  _request(method, params, timeoutMs = 15000) {
     const id = this.nextId++;
-    return new Promise((resolve, reject) => { this.pending.set(id, { resolve, reject }); this._send({ jsonrpc: "2.0", id, method, params }); });
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`upstream request timed out: ${method}`));
+      }, timeoutMs);
+      this.pending.set(id, {
+        resolve: (v) => { clearTimeout(timer); resolve(v); },
+        reject: (e) => { clearTimeout(timer); reject(e); },
+      });
+      this._send({ jsonrpc: "2.0", id, method, params });
+    });
   }
   _onLine(line) {
     let msg; try { msg = JSON.parse(line); } catch { return; }
