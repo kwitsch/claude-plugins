@@ -34,20 +34,23 @@ Why the limits (documented Claude Code behavior):
 ```
 plugins/<name>/
   mcp/server.mjs     # self-contained, zero-dep MCP stdio server (chmod +x)
-  .mcp.json          # registers "<name>-hooks" -> ${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs
-  hooks/hooks.json   # { "type": "mcp_tool", "server": "<name>-hooks", "tool": "<tool>" }
+  .mcp.json          # registers "example-hooks" -> ${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs
+  hooks/hooks.json   # { "type": "mcp_tool", "server": "example-hooks", "tool": "<tool>" }
 ```
 
 No `bin/` directory and no wrapper script — the server file holds everything:
-runtime selection, the MCP protocol, and the hook logic. The server name in
-`.mcp.json` MUST equal the `server` value in `hooks.json`.
+runtime selection, the MCP protocol, and the hook logic. The three reference
+blocks below use the concrete name `example-hooks` so they work as a verbatim
+copy — **rename `example-hooks` to your plugin's `<name>-hooks` across all
+three files.** The `server` value in `hooks.json` must equal the server key in
+`.mcp.json` (that is how the `mcp_tool` hook is wired to the server).
 
 ## `.mcp.json`
 
 ```json
 {
   "mcpServers": {
-    "<name>-hooks": {
+    "example-hooks": {
       "command": "${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"
     }
   }
@@ -68,7 +71,7 @@ MCP-server spawning.
       {
         "matcher": "Read|Edit|Write",
         "hooks": [
-          { "type": "mcp_tool", "server": "<name>-hooks", "tool": "example_context" }
+          { "type": "mcp_tool", "server": "example-hooks", "tool": "example_context" }
         ]
       }
     ]
@@ -96,7 +99,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import readline from "node:readline";
 
-const SERVER_NAME = "example-hooks"; // MUST match the .mcp.json server key
+const SERVER_NAME = "example-hooks"; // the server's self-reported name; keep aligned with the .mcp.json key
 const SERVER_INFO = { name: SERVER_NAME, version: "0.1.0" };
 const DEFAULT_PROTOCOL = "2025-06-18";
 
@@ -223,6 +226,10 @@ function startServer() {
   silently fails to start, and the `mcp_tool` hook then fails open.
 - **Debug logging:** the per-`tools/call` stderr log is gated behind
   `MCP_HOOK_DEBUG` so production hooks stay quiet; set it to confirm the contract.
+- **Registration fallback:** if the direct shebang form does not connect (depends
+  on the executable bit + Claude Code exec'ing a script directly), register the
+  runtime explicitly instead — still wrapper-free, still re-execs to bun via the
+  shim: `"command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"]`.
 - **Native Windows:** the `#!/usr/bin/env node` shebang and the `spawn("bun", …)`
   path need a shell/`.exe` shim there; WSL2 / Linux / macOS are fine. Future: a
   compiled launcher or configure-time runtime detection.
