@@ -26,34 +26,29 @@ finished branch into a reviewed, pushed PR/MR and watches it until green.
 | Agent | Model | Role |
 |---|---|---|
 | `branch-agent` | haiku | git mechanics of cutting a new branch |
-| `graphify-agent` | haiku | runs `bin/graphify-update.sh`, optionally commits `graphify-out` separately |
+| `graphify-agent` | haiku | runs the embedded graphify update, optionally commits `graphify-out` separately |
 | `claude-reviewer` | opus | reviews the branch diff itself (read-only), returns findings JSON |
-| `codex-reviewer` | haiku | runs `bin/codex-review.sh`, returns findings JSON |
+| `codex-reviewer` | haiku | runs an inline codex review, returns findings JSON |
 | `copilot-reviewer` | haiku | runs `bin/copilot-review.sh`, returns findings JSON |
-| `coderabbit-reviewer` | haiku | runs `bin/coderabbit-review.sh`, returns findings JSON |
+| `coderabbit-reviewer` | haiku | runs an inline coderabbit review, returns findings JSON |
 | `review-fixer` | opus | verifies findings against the code, fixes, commits |
 | `ci-monitor` | sonnet | read-only: watches CI via `bin/ci-watch.sh` (CodeRabbit checks excluded, bounded by `userConfig.ci_watch_timeout`, default 1800 s / 30 min), collects CodeRabbit PR threads |
 
-## Dependencies
+## Optional acceleration: context-mode
 
-branch-management declares a cross-marketplace dependency on the
-[context-mode](https://github.com/mksglu/context-mode) plugin
-(`context-mode@context-mode`). All script execution and heavy output
-processing — review runs, CI logs, PR threads — run through context-mode's
-sandboxed `ctx_execute`/`ctx_batch_execute`, keeping raw output out of the
+branch-management has no required dependencies. When the
+[context-mode](https://github.com/mksglu/context-mode) plugin is installed,
+read-only script execution and heavy output processing — review runs, CI
+logs, PR threads — are routed through its sandboxed
+`ctx_execute`/`ctx_batch_execute`, keeping raw output out of the
 conversation context.
 
-- Installing branch-management auto-installs context-mode once its
-  marketplace is known to Claude Code:
-  `/plugin marketplace add mksglu/context-mode`
-  (installing context-mode manually first also satisfies the dependency).
-- This marketplace allows the cross-marketplace resolution via
-  `allowCrossMarketplaceDependenciesOn: ["context-mode"]` in
-  `marketplace.json`.
-- If the dependency is disabled or broken, the agents degrade to native
-  tools (Bash/Read) and call out the degradation in their reports.
-- `claude plugin uninstall branch-management --prune` removes the
-  auto-installed dependency along with the plugin.
+- context-mode is entirely optional. When it is absent or disabled, every
+  reviewer and monitor agent falls back to native tools (Bash/Read) and
+  notes the fallback in its report — nothing blocks on it.
+- State-mutating work (graphify refresh, branch cleanup) always runs on
+  the native Bash tool, since the ctx sandbox discards filesystem and git
+  writes.
 
 ## Configuration
 
@@ -122,11 +117,18 @@ skipped and called out in the final report together with the login command.
 
 ## Scripts
 
-`bin/<tool>-review.sh <base-branch>` — presence check → login check →
-review run, in one bash block each. Exit codes: `0` review ran (stdout = raw
+`bin/copilot-review.sh <base-branch>` — presence check → login check →
+review run, in one bash block. Exit codes: `0` review ran (stdout = raw
 review output) · `2` CLI not installed · `3` not logged in · `4` run failed.
-Review runs are wrapped in `timeout -k 10` (default 600 s, override with
-`REVIEW_TIMEOUT`).
+The review run is wrapped in `timeout -k 10` (default 600 s, override with
+`REVIEW_TIMEOUT`). The codex and coderabbit reviews are inlined into their
+respective reviewer agents rather than shipped as `bin/` scripts.
+
+`bin/git-shim/git` — a read-only git facade prepended to copilot's PATH
+during a review run so even allowlisted read-only git subcommands cannot
+write via the `--output`/`-O` flag family (refused with exit 13);
+forwards every other invocation to the real git named in
+`COPILOT_REVIEW_REAL_GIT` (exits 127 when that variable is unset).
 
 `bin/ci-watch.sh <github|gitlab> <pr-number|branch>` — polls one CI
 round to completion and reflects only the real CI result: checks whose
@@ -144,12 +146,6 @@ script as `CI_WATCH_TIMEOUT`), poll cadence `CI_WATCH_INTERVAL` (default
 a conclusive result · `64` usage/environment error (bad arguments, CLI
 missing or too old).
 
-`bin/graphify-update.sh [--force] [--keep-user-files]` — refreshes
-the graphify output: resolves the repository root via git, then runs
-`graphify update .` (wrapped in `timeout -k 10`, default
-600 s, override with `GRAPHIFY_TIMEOUT`). Without `--force` it only runs
-when `graphify-out/` already exists; `--force` creates the folder first.
-The output serves agents: human-only artifacts (`graph.html`) are pruned
-after the update unless `--keep-user-files` is given.
-Exit codes: `0` update ran · `2` graphify CLI not installed · `4` run
-failed · `5` `graphify-out/` missing without `--force`.
+The graphify refresh is inlined into the `graphify-agent` (it writes
+`graphify-out/`, so it always runs on the native Bash tool rather than the
+ctx sandbox).
