@@ -73,3 +73,8 @@ setup() {
   run grep -qE '^name:\s*stat$' "$REPO_ROOT/plugins/cave-context/skills/stat/SKILL.md"
   assert_success
 }
+
+@test "node unit tests pass" {
+  run node --test "$REPO_ROOT/test/cave-context/"*.test.mjs
+  assert_success
+}
