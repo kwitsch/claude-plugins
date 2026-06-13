@@ -33,14 +33,16 @@ setup() {
   assert_success
 }
 
-@test "UserPromptSubmit + PreCompact command hooks launch via mjsx.sh with their .mjs in args" {
-  for ev in UserPromptSubmit PreCompact; do
+@test "UserPromptSubmit + PreCompact + ConfigChange command hooks launch via mjsx.sh with their .mjs in args" {
+  for ev in UserPromptSubmit PreCompact ConfigChange; do
     cmd="$(jq -r ".hooks.${ev}[0].hooks[0].command" "$HOOKS")"
     [[ "$cmd" == *bin/mjsx.sh ]]
   done
   run jq -e '.hooks.UserPromptSubmit[0].hooks[0].args[0] | endswith("hooks/userpromptsubmit.mjs")' "$HOOKS"
   assert_success
   run jq -e '.hooks.PreCompact[0].hooks[0].args[0] | endswith("hooks/precompact.mjs")' "$HOOKS"
+  assert_success
+  run jq -e '.hooks.ConfigChange[0].hooks[0].args[0] | endswith("hooks/configchange.mjs")' "$HOOKS"
   assert_success
 }
 
@@ -53,8 +55,8 @@ setup() {
   assert_success
 }
 
-@test "SessionStart + UserPromptSubmit + PreCompact are command hooks" {
-  run jq -e '[.hooks.SessionStart,.hooks.UserPromptSubmit,.hooks.PreCompact] | flatten | map(.hooks[0]) | all(.type=="command")' "$HOOKS"
+@test "SessionStart + UserPromptSubmit + PreCompact + ConfigChange are command hooks" {
+  run jq -e '[.hooks.SessionStart,.hooks.UserPromptSubmit,.hooks.PreCompact,.hooks.ConfigChange] | flatten | map(.hooks[0]) | all(.type=="command")' "$HOOKS"
   assert_success
 }
 
@@ -64,9 +66,22 @@ setup() {
 }
 
 @test "referenced command-hook files exist and are executable" {
-  for f in sessionstart.mjs userpromptsubmit.mjs precompact.mjs; do
+  for f in sessionstart.mjs userpromptsubmit.mjs precompact.mjs configchange.mjs; do
     [ -x "$REPO_ROOT/plugins/cave-context/hooks/$f" ]
   done
+}
+
+@test "configchange.mjs re-seeds the caveman level from settings.json" {
+  tmp="$(mktemp -d)"
+  home="$(mktemp -d)"
+  mkdir -p "$home/.claude"
+  printf '%s\n' '{"pluginConfigs":{"cave-context":{"options":{"caveman_level":"ultra"}}}}' > "$home/.claude/settings.json"
+  run env CLAUDE_PLUGIN_DATA="$tmp" HOME="$home" \
+    node "$REPO_ROOT/plugins/cave-context/hooks/configchange.mjs" <<< '{"hook_event_name":"ConfigChange","source":"user_settings"}'
+  assert_success
+  run cat "$tmp/active-level"
+  assert_output "ultra"
+  rm -rf "$tmp" "$home"
 }
 
 @test "sessionstart.mjs emits valid JSON with the caveman ruleset marker" {
