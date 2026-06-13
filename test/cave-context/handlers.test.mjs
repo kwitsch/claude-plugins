@@ -1,8 +1,5 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { handleUserPromptSubmit, handlePreToolUse, mergeContext } from "../../plugins/cave-context/mcp/handlers.mjs";
 
 const FAKE = JSON.stringify(["node", new URL("./fake-hook.mjs", import.meta.url).pathname]);
@@ -32,19 +29,16 @@ test("mergeContext joins both, caveman first", () => {
   assert.equal(mergeContext(null, null), null);
 });
 
-test("UserPromptSubmit: /caveman ultra sets level + reminder + ctx merge", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "cc-"));
-  try {
-    await withEnv({ CLAUDE_PLUGIN_DATA: dir, CAVE_CONTEXT_HOOK_CMD: FAKE }, async () => {
-      const out = await handleUserPromptSubmit({ hook_event_name: "UserPromptSubmit", prompt: "/caveman ultra" });
-      const ac = out.hookSpecificOutput.additionalContext;
-      assert.match(ac, /ultra/);
-      // delegate lowercases the event before invoking the CLI; the fake echoes it back.
-      assert.match(ac, /CTXMODE\[userpromptsubmit\]/);
-    });
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+test("UserPromptSubmit: always-full reminder + ctx merge (ignores /caveman args)", async () => {
+  await withEnv({ CAVE_CONTEXT_HOOK_CMD: FAKE }, async () => {
+    // The "/caveman ultra" arg must be ignored — the level is fixed at full.
+    const out = await handleUserPromptSubmit({ hook_event_name: "UserPromptSubmit", prompt: "/caveman ultra" });
+    const ac = out.hookSpecificOutput.additionalContext;
+    assert.match(ac, /CAVE-CONTEXT MODE ACTIVE \(full\)/);
+    assert.doesNotMatch(ac, /ultra/);
+    // delegate lowercases the event before invoking the CLI; the fake echoes it back.
+    assert.match(ac, /CTXMODE\[userpromptsubmit\]/);
+  });
 });
 
 test("PreToolUse: no upstream, no caveman -> benign {} (no throw)", async () => {

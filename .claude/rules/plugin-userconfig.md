@@ -31,3 +31,7 @@ If a plugin has a `configure-*` skill, that skill must cover every option in `us
 ## Legacy exception
 
 Three hook-only plugins predate this rule and declare no `userConfig` yet: `cctools-edit`, `git-sign-key`, `no-co-authored`.
+
+## Intentionally config-free
+
+`cave-context` deliberately exposes **no** `userConfig`: its caveman compression level is fixed at `full` (no level selection, no on/off switch). Do not re-add a toggle without an explicit decision to make the behaviour configurable again.

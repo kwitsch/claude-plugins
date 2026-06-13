@@ -47,7 +47,9 @@ test("server routes hook_ tools/call through HANDLERS and returns both channels"
     // Routing + content wrapping: handler output is JSON-stringified into the text channel.
     const parsed = JSON.parse(result.content[0].text);
     assert.ok(parsed.hookSpecificOutput, "hook handler output carries hookSpecificOutput");
-    assert.match(parsed.hookSpecificOutput.additionalContext, /ultra/);
+    // Caveman level is fixed at full — the "/caveman ultra" arg is ignored.
+    assert.match(parsed.hookSpecificOutput.additionalContext, /CAVE-CONTEXT MODE ACTIVE \(full\)/);
+    assert.doesNotMatch(parsed.hookSpecificOutput.additionalContext, /ultra/);
     // Contract: structuredContent must deep-equal the parsed handler result (mcp_tool extraction channel).
     assert.deepEqual(result.structuredContent, parsed);
   } finally { proc.kill(); rmSync(dir, { recursive: true, force: true }); }

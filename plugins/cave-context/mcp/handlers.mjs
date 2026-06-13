@@ -1,5 +1,5 @@
 // handlers.mjs — aggregated hook handlers (caveman reimpl + context-mode delegation).
-import { stateDir, readLevel, writeLevel, clearLevel, detectLevelChange, reminderText } from "./caveman.mjs";
+import { reminderText } from "./caveman.mjs";
 import { delegateHook } from "./delegate.mjs";
 
 export function mergeContext(a, b) {
@@ -30,13 +30,10 @@ function fromDelegate(res) {
 }
 
 export async function handleUserPromptSubmit(input) {
-  const dir = stateDir();
-  const change = detectLevelChange(input.prompt || "");
-  if (change === "off") clearLevel(dir);
-  else if (change) writeLevel(dir, change);
-
-  const level = readLevel(dir);
-  const cavemanAc = level ? reminderText(level) : null;
+  // Caveman mode is always-on full: emit the per-turn reminder unconditionally,
+  // every prompt. No level detection, no runtime state — the prompt is no longer
+  // parsed for /caveman level changes.
+  const cavemanAc = reminderText();
   const { ac: ctxAc, hard } = fromDelegate(await delegateHook("UserPromptSubmit", input));
   return emit("UserPromptSubmit", mergeContext(cavemanAc, ctxAc), hard);
 }

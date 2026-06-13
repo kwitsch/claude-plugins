@@ -33,8 +33,8 @@ setup() {
   assert_success
 }
 
-@test "UserPromptSubmit + PreCompact + ConfigChange command hooks launch via mjsx.sh with their .mjs in args" {
-  for ev in UserPromptSubmit PreCompact ConfigChange; do
+@test "UserPromptSubmit + PreCompact command hooks launch via mjsx.sh with their .mjs in args" {
+  for ev in UserPromptSubmit PreCompact; do
     cmd="$(jq -r ".hooks.${ev}[0].hooks[0].command" "$HOOKS")"
     [[ "$cmd" == *bin/mjsx.sh ]]
   done
@@ -42,7 +42,10 @@ setup() {
   assert_success
   run jq -e '.hooks.PreCompact[0].hooks[0].args[0] | endswith("hooks/precompact.mjs")' "$HOOKS"
   assert_success
-  run jq -e '.hooks.ConfigChange[0].hooks[0].args[0] | endswith("hooks/configchange.mjs")' "$HOOKS"
+}
+
+@test "ConfigChange hook is not registered (caveman_level userConfig removed)" {
+  run jq -e 'has("hooks") and (.hooks | has("ConfigChange") | not)' "$HOOKS"
   assert_success
 }
 
@@ -55,8 +58,8 @@ setup() {
   assert_success
 }
 
-@test "SessionStart + UserPromptSubmit + PreCompact + ConfigChange are command hooks" {
-  run jq -e '[.hooks.SessionStart,.hooks.UserPromptSubmit,.hooks.PreCompact,.hooks.ConfigChange] | flatten | map(.hooks[0]) | all(.type=="command")' "$HOOKS"
+@test "SessionStart + UserPromptSubmit + PreCompact are command hooks" {
+  run jq -e '[.hooks.SessionStart,.hooks.UserPromptSubmit,.hooks.PreCompact] | flatten | map(.hooks[0]) | all(.type=="command")' "$HOOKS"
   assert_success
 }
 
@@ -66,28 +69,14 @@ setup() {
 }
 
 @test "referenced command-hook files exist and are executable" {
-  for f in sessionstart.mjs userpromptsubmit.mjs precompact.mjs configchange.mjs; do
+  for f in sessionstart.mjs userpromptsubmit.mjs precompact.mjs; do
     [ -x "$REPO_ROOT/plugins/cave-context/hooks/$f" ]
   done
 }
 
-@test "configchange.mjs re-seeds the caveman level from settings.json" {
-  tmp="$(mktemp -d)"
-  home="$(mktemp -d)"
-  mkdir -p "$home/.claude"
-  printf '%s\n' '{"pluginConfigs":{"cave-context":{"options":{"caveman_level":"ultra"}}}}' > "$home/.claude/settings.json"
-  run env CLAUDE_PLUGIN_DATA="$tmp" HOME="$home" \
-    node "$REPO_ROOT/plugins/cave-context/hooks/configchange.mjs" <<< '{"hook_event_name":"ConfigChange","source":"user_settings"}'
-  assert_success
-  run cat "$tmp/active-level"
-  assert_output "ultra"
-  rm -rf "$tmp" "$home"
-}
-
 @test "sessionstart.mjs emits valid JSON with the caveman ruleset marker" {
-  # sessionstart.mjs now seeds the state file under CLAUDE_PLUGIN_DATA and reads
-  # ${HOME}/.claude/settings.json for the configured level — isolate both so the
-  # test never writes to the real ~/.claude/cave-context/ and stays deterministic.
+  # Isolate HOME + CLAUDE_PLUGIN_DATA so the test stays deterministic and never
+  # touches the real ~/.claude/. sessionstart no longer seeds any state file.
   tmp="$(mktemp -d)"
   home="$(mktemp -d)"
   run env CLAUDE_PLUGIN_DATA="$tmp" HOME="$home" \
@@ -114,25 +103,18 @@ setup() {
   assert_success
 }
 
-@test "plugin.json userConfig keys are exactly [caveman_level]" {
+@test "plugin.json has no userConfig (caveman level fixed at full)" {
   PJ="$REPO_ROOT/plugins/cave-context/.claude-plugin/plugin.json"
-  run jq -e '(.userConfig | keys) == ["caveman_level"]' "$PJ"
+  run jq -e 'has("userConfig") | not' "$PJ"
   assert_success
 }
 
-@test "plugin.json caveman_level userConfig is a string defaulting to lite" {
-  PJ="$REPO_ROOT/plugins/cave-context/.claude-plugin/plugin.json"
-  run jq -e '.userConfig.caveman_level | .type == "string" and .default == "lite" and (.title|length>0) and (.description|length>0)' "$PJ"
-  assert_success
-}
-
-@test "userpromptsubmit shim emits caveman reminder after /caveman ultra" {
-  tmp="$(mktemp -d)"
-  run env CLAUDE_PLUGIN_DATA="$tmp" CAVE_CONTEXT_NO_UPSTREAM=1 \
+@test "userpromptsubmit shim emits always-full caveman reminder (ignores /caveman args)" {
+  run env CAVE_CONTEXT_NO_UPSTREAM=1 \
     node "$REPO_ROOT/plugins/cave-context/hooks/userpromptsubmit.mjs" <<< '{"hook_event_name":"UserPromptSubmit","prompt":"/caveman ultra"}'
   assert_success
-  assert_output --partial "ultra"
-  rm -rf "$tmp"
+  assert_output --partial "CAVE-CONTEXT MODE ACTIVE (full)"
+  refute_output --partial "ultra"
 }
 
 @test "pretooluse shim runs without error (no upstream)" {
