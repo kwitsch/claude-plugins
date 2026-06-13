@@ -3,8 +3,10 @@ import { spawn } from "node:child_process";
 import readline from "node:readline";
 
 const PROTOCOL = "2025-11-25";
-// Handshake (initialize / tools/list) must fail fast if the upstream is unavailable.
-const HANDSHAKE_TIMEOUT = 15000;
+// Handshake (initialize / tools/list). Generous enough to absorb a cold `npx -y context-mode`
+// fetch on first run, but bounded so a truly-unavailable upstream eventually fails (open) and
+// the server re-spawns on the next call instead of hanging the session.
+const HANDSHAKE_TIMEOUT = Number(process.env.CAVE_CONTEXT_HANDSHAKE_TIMEOUT_MS) || 60000;
 // tools/call wraps slow-but-normal ctx_* ops (ctx_index, ctx_fetch_and_index,
 // ctx_batch_execute) that routinely run >15s; default to Claude Code's 600s hook bound.
 const TOOL_TIMEOUT = Number(process.env.CAVE_CONTEXT_TOOL_TIMEOUT_MS) || 600000;
@@ -37,11 +39,19 @@ export class Upstream {
     this.rl = readline.createInterface({ input: this.child.stdout });
     this.rl.on("line", (l) => this._onLine(l));
     return (async () => {
-      await this._request("initialize", { protocolVersion: PROTOCOL, capabilities: {}, clientInfo: { name: "cave-context", version: "0.1.0" } }, HANDSHAKE_TIMEOUT);
-      this._notify("notifications/initialized", {});
-      const res = await this._request("tools/list", {}, HANDSHAKE_TIMEOUT);
-      this.tools = res?.tools ?? [];
-      return this.tools;
+      try {
+        await this._request("initialize", { protocolVersion: PROTOCOL, capabilities: {}, clientInfo: { name: "cave-context", version: "0.1.0" } }, HANDSHAKE_TIMEOUT);
+        this._notify("notifications/initialized", {});
+        const res = await this._request("tools/list", {}, HANDSHAKE_TIMEOUT);
+        this.tools = res?.tools ?? [];
+        return this.tools;
+      } catch (e) {
+        // Handshake failed/timed out (slow cold `npx` fetch, or upstream down): kill the child
+        // and mark dead so the server's ensureUp re-spawns on the next call instead of caching
+        // an empty tool list for the rest of the session.
+        this.stop();
+        throw e;
+      }
     })();
   }
 
