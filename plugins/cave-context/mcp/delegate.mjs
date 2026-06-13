@@ -1,17 +1,18 @@
 // delegate.mjs — run the context-mode hook CLI for one event, return parsed output or null.
 import { spawn } from "node:child_process";
 
-// Event-name token passed to the CLI. Default = capitalised event (e.g. "PreToolUse").
+// CLI invocation prefix: `context-mode hook <platform>`. The event name is appended
+// (lowercased) by delegateHook below.
 function hookCmd() {
   if (process.env.CAVE_CONTEXT_NO_UPSTREAM === "1") return null;
   if (process.env.CAVE_CONTEXT_HOOK_CMD) {
     try { const a = JSON.parse(process.env.CAVE_CONTEXT_HOOK_CMD); if (Array.isArray(a) && a.length) return a; } catch { /* fall through */ }
   }
-  // UNVERIFIED: both the context-mode hook CLI client token ("claude-code") and the
-  // event-name casing passed below (capitalised, e.g. "PreToolUse") are assumptions —
-  // NOT yet confirmed against the installed context-mode CLI. Confirm both during a
-  // real-install smoke test. delegateHook() already fails open (returns null) if either
-  // is wrong, so a bad guess degrades gracefully rather than breaking the hook.
+  // Platform token `claude-code` and lowercase event keys (pretooluse/posttooluse/
+  // precompact/sessionstart/userpromptsubmit) verified against context-mode 1.0.162
+  // cli.bundle.mjs `mq` routing map. The CLI process.exit(1)s silently on an unknown
+  // platform/event key (no stdout/stderr), and delegateHook() fails open (returns null)
+  // on any error — so the event MUST be lowercased before it reaches the CLI.
   return ["npx", "-y", "context-mode", "hook", "claude-code"];
 }
 
@@ -21,7 +22,8 @@ export function delegateHook(event, stdinObj, timeoutMs = 8000) {
   const [bin, ...args] = base;
   return new Promise((resolve) => {
     let child;
-    try { child = spawn(bin, [...args, event], { stdio: ["pipe", "pipe", "ignore"] }); }
+    // The context-mode CLI keys events lowercase; capitalised event names exit(1) silently.
+    try { child = spawn(bin, [...args, event.toLowerCase()], { stdio: ["pipe", "pipe", "ignore"] }); }
     catch { return resolve(null); }
     let out = ""; let done = false;
     const finish = (v) => { if (!done) { done = true; resolve(v); } };

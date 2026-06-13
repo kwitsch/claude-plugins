@@ -22,7 +22,8 @@ test("UserPromptSubmit: /caveman ultra sets level + reminder + ctx merge", async
     const out = await handleUserPromptSubmit({ hook_event_name: "UserPromptSubmit", prompt: "/caveman ultra" });
     const ac = out.hookSpecificOutput.additionalContext;
     assert.match(ac, /ultra/);
-    assert.match(ac, /CTXMODE\[UserPromptSubmit\]/);
+    // delegate lowercases the event before invoking the CLI; the fake echoes it back.
+    assert.match(ac, /CTXMODE\[userpromptsubmit\]/);
   } finally {
     delete process.env.CLAUDE_PLUGIN_DATA; delete process.env.CAVE_CONTEXT_HOOK_CMD;
     rmSync(dir, { recursive: true, force: true });
