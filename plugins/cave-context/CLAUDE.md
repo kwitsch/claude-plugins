@@ -1,11 +1,16 @@
 # CLAUDE.md — cave-context
 
-Unifies caveman + context-mode into one plugin: a hooks component (stub, ready for hook entries) and a skills component (cave-context skill).
+One MCP server that proxies the context-mode MCP server 1-to-1 and hosts aggregated caveman+context-mode hook handlers. Replaces both plugins.
 
 ## Behavior
-
-The `hooks/hooks.json` is currently a stub with no active hook entries. Populate it with real `PreToolUse`/`PostToolUse` matchers and corresponding scripts under `plugins/cave-context/hooks/` to aggregate caveman and context-mode hook behavior. The `skills/cave-context/SKILL.md` describes how to use the unified plugin.
+- `mcp/server.mjs`: spawns `npx -y context-mode` upstream, re-exposes every `ctx_*` tool verbatim, also serves `hook_*` tools.
+- `hooks/hooks.json`: SessionStart = static `type: prompt` (caveman:compress); other events = `mcp_tool` → `hook_*` (command-shim fallbacks in `hooks/*.mjs`).
+- caveman reimplemented in `mcp/caveman.mjs` (levels lite/full/ultra, state in `$CLAUDE_PLUGIN_DATA`); context-mode delegated via `npx -y context-mode hook`.
+- Reentrancy: PreToolUse/PostToolUse matchers must never match `hook_` tools.
 
 ## Tests
-
-`test/cave-context/test.bats` (bats). Run: `BATS_LIB_PATH=/usr/lib/bats bats test/cave-context/`.
+`test/cave-context/test.bats` (bats) + `test/cave-context/*.test.mjs` (node --test). Run:
+```
+BATS_LIB_PATH=/usr/lib/bats bats test/cave-context/
+node --test test/cave-context/
+```

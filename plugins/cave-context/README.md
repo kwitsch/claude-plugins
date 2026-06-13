@@ -1,6 +1,6 @@
 # cave-context
 
-Unifies caveman + context-mode into one non-competing MCP server: proxies all context-mode ctx_* tools 1-to-1 and aggregates both plugins' hooks.
+Unifies caveman + context-mode into one non-competing MCP server: proxies all `ctx_*` tools 1-to-1 and aggregates both plugins' hooks into a single handler set.
 
 ## Install
 
@@ -8,6 +8,25 @@ Unifies caveman + context-mode into one non-competing MCP server: proxies all co
 /plugin install cave-context@kwitsch-plugins
 ```
 
+> **Before installing:** uninstall both `caveman` and `context-mode` first.
+> Running cave-context alongside either plugin re-creates hook competition (duplicate PreToolUse/PostToolUse matchers) and spawns a second context-mode MCP server.
+
 ## What it does
 
-cave-context bridges the caveman compression plugin and the context-mode indexing plugin, routing all `ctx_*` tool calls through a unified MCP server while merging the hook configurations from both plugins so they coexist without conflicts.
+cave-context replaces the caveman and context-mode plugins with a single component:
+
+- **MCP proxy** (`mcp/server.mjs`): spawns `npx -y context-mode` as an upstream server and re-exposes every `ctx_*` tool verbatim. Clients see the same tool surface as standalone context-mode.
+- **Aggregated hooks** (`hooks/hooks.json`): SessionStart fires a static caveman compress prompt; PreToolUse/PostToolUse delegate to `hook_*` MCP tools on the same server, which fan out to both caveman and context-mode logic in one round-trip.
+- **caveman reimplemented** in `mcp/caveman.mjs` (levels lite/full/ultra, state in `$CLAUDE_PLUGIN_DATA`).
+
+Hook matchers exclude `hook_` tools to prevent reentrancy.
+
+## Runtime requirement
+
+The `context-mode` npm package must be reachable via `npx`. On first call it is downloaded automatically (network required or warm npm cache). Subsequent calls use the cached version.
+
+## Skills
+
+| Skill | What it does |
+|---|---|
+| `stat` | Show combined cave-context savings (caveman + context-mode) |
