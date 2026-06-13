@@ -1,0 +1,36 @@
+#!/usr/bin/env sh
+# redirect-guide — PreToolUse(Agent|Task) hook.
+# Reroute dispatches of the built-in `claude-code-guide` subagent to this
+# plugin's live-docs-grounded `cc-knowledge` agent.
+#
+# Reliable path: permissionDecision "allow" + updatedInput (the documented way
+# to rewrite a tool call's input). Do NOT use exit 2 for the Agent/Task path.
+# stdout = decision JSON only.
+
+input=$(cat)
+
+# Fail open: without jq we cannot parse/emit; never block or pollute stdout.
+command -v jq >/dev/null 2>&1 || exit 0
+
+subagent=$(printf '%s' "$input" | jq -r '.tool_input.subagent_type // empty' 2>/dev/null)
+
+# Normalize: lowercase, collapse non-alphanumeric runs to "-", trim. Matches
+# Claude Code's own case/separator-insensitive subagent_type resolution.
+norm=$(printf '%s' "$subagent" \
+  | tr '[:upper:]' '[:lower:]' \
+  | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')
+
+if [ "$norm" = "claude-code-guide" ]; then
+  # Preserve every original field; only override subagent_type.
+  printf '%s' "$input" | jq -c '{
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "allow",
+      permissionDecisionReason: "claude-code-knowledge: route guide queries to the live-docs-grounded cc-knowledge agent",
+      updatedInput: (.tool_input + {subagent_type: "claude-code-knowledge:cc-knowledge"})
+    }
+  }' 2>/dev/null
+  exit 0
+fi
+
+exit 0
