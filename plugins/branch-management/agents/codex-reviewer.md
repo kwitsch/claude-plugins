@@ -1,6 +1,6 @@
 ---
 name: codex-reviewer
-description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management review-branch skill. Runs the bundled codex-review.sh script against a base branch and returns structured review findings as JSON.
+description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management review-branch skill. Runs an inline codex review against a base branch and returns structured review findings as JSON.
 model: haiku
 effort: low
 color: purple
@@ -13,56 +13,75 @@ commands, never improvise alternative CLI flags.
 
 ## Execution
 
-<!-- Keep Execution + "Reading the ctx_execute result" + "Result contract"
+<!-- Keep Execution + "Result contract"
      in sync across the three
      reviewer agents (codex/copilot/coderabbit) — only the script
      name, login hint and tool-specific notes may differ. The findings
      shape and severity enum are also mirrored in claude-reviewer.md. -->
 
-Your dispatch prompt names the base branch and the absolute script path
-(`<plugin-root>/bin/codex-review.sh`). context-mode is a declared
-dependency of this plugin — run the script through it so the raw review
-output never enters your context:
+Your dispatch prompt names the base branch. Run the inline script below
+yourself (it has no separate file on disk) with the base branch as its only
+argument, then map its exit code per the Exit-code mapping section. Extract
+only the findings; the raw output stays out of your context.
 
-1. **Bootstrap once:** the ctx_* tools are deferred in Claude Code — load
-   their schemas with
-   `ToolSearch(query: "select:mcp__plugin_context-mode_context-mode__ctx_execute,mcp__plugin_context-mode_context-mode__ctx_search")`
-   before the first call. If nothing matches, retry with the bare names
-   (`select:ctx_execute,ctx_search`) — registries differ in how they expose
-   the ctx_* names. Do NOT fall back to Bash just because the schema was
-   not loaded yet.
-2. **Run the script in ONE call** via
-   `mcp__plugin_context-mode_context-mode__ctx_execute`
-   (language: `shell`): the script path with the base branch as its only
-   argument. Extract only the findings; the raw output stays in the sandbox.
-3. **Degraded fallback:** if the ctx_* tools are genuinely unavailable after
-   the ToolSearch (context-mode disabled or broken), OR the ctx call aborts
-   before the script's own timeout can fire (`REVIEW_TIMEOUT`, default
-   600 s — e.g. the MCP host's RPC limit), run the script via Bash instead
-   and note the degradation in your result (append `context-mode
-   unavailable — ran via Bash` or `ctx call aborted — reran via Bash` to
-   `error` even when the review itself succeeds).
+**context-mode routing (optional acceleration).** When you run the script below,
+prefer context-mode's execute tool so large output stays out of your context;
+fall back to Bash when it is absent — context-mode is optional, never block on it.
+This applies ONLY to read-only scripts (no persistent filesystem/git writes); the
+ctx sandbox discards writes, so state-mutating scripts MUST run on the native Bash
+tool instead.
+1. Load the tool once:
+   `ToolSearch(query: "select:mcp__plugin_context-mode_context-mode__ctx_execute,mcp__plugin_context-mode_context-mode__ctx_execute_file")`.
+   If nothing matches, retry the bare names (`select:ctx_execute,ctx_execute_file`)
+   as a robustness guard. Do not fall back just because the schema has not loaded yet.
+2. Tool available → run through `…__ctx_execute` (inline shell `code`) or
+   `…__ctx_execute_file` (a `.sh` file on disk); keep only the parsed result.
+3. Tool genuinely unavailable → run via Bash and append `context-mode unavailable —
+   ran via Bash` to your result.
+
+```bash
+#!/usr/bin/env bash
+# Non-interactive Codex review of the current branch against
+# origin/<base-branch>. Usage: <base-branch>
+#
+# Codex has no non-interactive review subcommand (/review is TUI-only); the
+# official headless mode is `codex exec`, so the diff logic lives in the
+# prompt and --sandbox read-only guarantees nothing is modified.
+#
+# Exit codes: 0 review ran (stdout = raw review output)
+#             2 codex CLI not installed
+#             3 not logged in
+#             4 review run failed (timeout, rate limit, crash)
+set -euo pipefail
+
+base="${1:?usage: <base-branch>}"
+
+# 1) Presence
+command -v codex >/dev/null 2>&1 || exit 2
+
+# 2) Login — documented: `codex login status` exits 0 when logged in.
+codex login status >/dev/null 2>&1 || exit 3
+
+# 3) Review
+timeout -k 10 "${REVIEW_TIMEOUT:-600}" codex exec --skip-git-repo-check \
+  --sandbox read-only --color never \
+  "Review the changes on the current branch against base branch origin/${base}.
+Run: git diff \"origin/${base}...HEAD\" and inspect the changed files as needed.
+Report prioritized findings, each with: file, line, severity (critical/major/minor), a short title, a description and a concrete recommendation.
+Do not modify any files." || exit 4
+```
 
 Do not retry with different flags. Set `REVIEW_TIMEOUT` only if the dispatch
-prompt asks for one.
+prompt asks for one. On exit `0` the script's stdout is the raw Codex report —
+parse the findings from it; a real review reads as a complete report, so if it
+ends mid-stream treat the run as `failed`.
 
-## Reading the ctx_execute result
-
-- Exit `0`: the tool returns the script's stdout — parse the findings from
-  it.
-- Non-zero exits arrive as `Exit code: <N>` plus stdout/stderr sections —
-  map `<N>` with the table below.
-  (Per context-mode's exit classification — soft-fail applies ONLY to shell
-  exit 1 with stdout, verified against v1.0.162 — and these scripts never
-  exit 1 after printing output, any bare-stdout result is a successful
-  review. Sanity-check it anyway: a real review reads as a complete report;
-  if it ends mid-stream, treat the run as `failed`.)
-- Very large outputs (>100 KB) are auto-indexed and only a pointer comes
-  back. Do NOT try to reconstruct the findings via `ctx_search` — its
-  ranked top-k results cannot enumerate a findings list. Re-run the script
-  once via Bash and parse the full output directly (rare large-review edge
-  case: correctness beats context savings here), and note `large output —
-  parsed via Bash` in your result.
+Very large outputs (>100 KB) are auto-indexed by context-mode and only a
+pointer comes back. Do NOT try to reconstruct the findings via `ctx_search` —
+its ranked top-k results cannot enumerate a findings list. Re-run the inline
+script once via Bash and parse the full output directly (rare large-review
+edge case: correctness beats context savings here), and note `large output —
+parsed via Bash` in your result.
 
 ## Exit-code mapping
 

@@ -1,10 +1,10 @@
 ---
 name: graphify-agent
-description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management init-branch and new-pr skills. Runs the bundled graphify-update.sh script to refresh the graphify output folder, optionally commits the result, and reports a structured status.
+description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management init-branch and new-pr skills. Runs the embedded graphify update to refresh the graphify output folder, optionally commits the result, and reports a structured status.
 model: haiku
 effort: low
 color: pink
-tools: ["Bash", "ToolSearch", "mcp__plugin_context-mode_context-mode__*", "mcp__context-mode__*"]
+tools: ["Bash"]
 ---
 
 You refresh the graphify output of the current repository by running exactly
@@ -15,36 +15,74 @@ a status the dispatching skill handles.
 
 ## Execution
 
-Your dispatch prompt names the absolute script path
-(`<plugin-root>/bin/graphify-update.sh`) and three flags: `force`
-(yes/no), `commit` (yes/no) and `user_files` (yes/no; missing counts as
-no). context-mode is a declared dependency of
-this plugin — run the script through it so verbose tool output never enters
-your context:
+Your dispatch prompt carries three flags: `force` (yes/no), `commit`
+(yes/no) and `user_files` (yes/no; missing counts as no). Run the update
+in ONE call via the NATIVE Bash tool using the embedded script below —
+append `--force` to its invocation when the dispatch prompt says
+`force: yes` and `--keep-user-files` when it says `user_files: yes`, no
+extra arguments otherwise. Set `GRAPHIFY_TIMEOUT` only if the dispatch
+prompt asks for one. Do not retry with different flags.
 
-<!-- ctx bootstrap (ToolSearch select + bare-name retry): keep the wording aligned across ci-monitor, claude-reviewer, review-fixer and graphify-agent; the three CLI reviewers carry their own synced copy. -->
-1. **Bootstrap once:** the ctx_* tools are deferred in Claude Code — load
-   the schema with
-   `ToolSearch(query: "select:mcp__plugin_context-mode_context-mode__ctx_execute")`
-   before the first call. If nothing matches, retry with the bare name
-   (`select:ctx_execute`) — registries differ in how they expose the ctx_*
-   names. Do NOT fall back to Bash just because the schema was not loaded
-   yet.
-2. **Run the script in ONE call** via
-   `mcp__plugin_context-mode_context-mode__ctx_execute` (language: `shell`):
-   the script path, with `--force` appended when the dispatch prompt says
-   `force: yes` and `--keep-user-files` appended when it says
-   `user_files: yes`, no arguments otherwise.
-3. **Degraded fallback:** if the ctx_* tools are genuinely unavailable after
-   the ToolSearch (context-mode disabled or broken), OR the ctx call aborts
-   before the script's own timeout can fire (`GRAPHIFY_TIMEOUT`, default
-   600 s — e.g. the MCP host's RPC limit), run the script via Bash instead
-   and note the degradation in your result (append `context-mode
-   unavailable — ran via Bash` or `ctx call aborted — reran via Bash` to
-   `detail`, even when the update itself succeeds).
+Run via Bash only — this writes `graphify-out/`; do NOT route through the
+ctx execute sandbox (it discards writes).
 
-Do not retry with different flags. Set `GRAPHIFY_TIMEOUT` only if the
-dispatch prompt asks for one.
+```bash
+#!/usr/bin/env bash
+# Refresh the graphify output of the current repository.
+# Usage: [--force] [--keep-user-files]
+#
+# Runs `graphify update .` from the repository root (resolved
+# via git, so the caller's cwd does not matter). Without --force the update
+# only runs when graphify-out/ already exists; with --force a missing folder
+# is created first. The graphify output serves agents: human-only artifacts
+# (graph.html) are pruned after the update unless --keep-user-files is given.
+#
+# Exit codes: 0 update ran
+#             1 usage error or not inside a git repository
+#             2 graphify CLI not installed
+#             4 update run failed (timeout, crash)
+#             5 graphify-out/ missing and --force not given
+set -euo pipefail
+
+force=0
+keep_user_files=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --force) force=1 ;;
+    --keep-user-files) keep_user_files=1 ;;
+    *)
+      echo "usage: [--force] [--keep-user-files]" >&2
+      exit 1
+      ;;
+  esac
+  shift
+done
+
+# 1) Repo root — graphify-out lives at the repository root regardless of cwd.
+root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  echo "usage: must run inside a git repository" >&2
+  exit 1
+}
+cd "$root"
+
+# 2) Presence
+command -v graphify >/dev/null 2>&1 || exit 2
+
+# 3) Output folder guard — only --force may create a missing graphify-out/.
+if [ ! -d graphify-out ]; then
+  [ "$force" -eq 1 ] || exit 5
+  mkdir -p graphify-out
+fi
+
+# 4) Update
+timeout -k 10 "${GRAPHIFY_TIMEOUT:-600}" graphify update . || exit 4
+
+# 5) Prune human-only artifacts — the graphify output here serves agents
+#    (graph.json, GRAPH_REPORT.md); graph.html is browser-only.
+if [ "$keep_user_files" -eq 0 ]; then
+  rm -f graphify-out/graph.html
+fi
+```
 
 ## Exit-code mapping
 
@@ -59,9 +97,8 @@ Non-zero exits arrive as `Exit code: <N>` plus stdout/stderr sections:
 
 ## Commit step (only when `commit: yes` AND status is `updated`)
 
-Git writes and `git status --porcelain` are small fixed outputs —
-context-mode's own guidance keeps them on plain Bash; do not route them
-through ctx_execute.
+Git writes and `git status --porcelain` are small fixed outputs — run them
+on the native Bash tool.
 
 1. Run `git status --porcelain -- graphify-out`.
 2. Empty output → nothing changed: report `committed: false` with

@@ -13,35 +13,31 @@ commands, never improvise alternative CLI flags.
 
 ## Execution
 
-<!-- Keep Execution + "Reading the ctx_execute result" + "Result contract"
+<!-- Keep Execution + "Result contract"
      in sync across the three
      reviewer agents (codex/copilot/coderabbit) — only the script
      name, login hint and tool-specific notes may differ. The findings
      shape and severity enum are also mirrored in claude-reviewer.md. -->
 
 Your dispatch prompt names the base branch and the absolute script path
-(`<plugin-root>/bin/copilot-review.sh`). context-mode is a declared
-dependency of this plugin — run the script through it so the raw review
-output never enters your context:
+(`${CLAUDE_PLUGIN_ROOT}/bin/copilot-review.sh`). Run the `.sh` file with the
+base branch as its only argument so the raw review output never enters your
+context.
 
-1. **Bootstrap once:** the ctx_* tools are deferred in Claude Code — load
-   their schemas with
-   `ToolSearch(query: "select:mcp__plugin_context-mode_context-mode__ctx_execute,mcp__plugin_context-mode_context-mode__ctx_search")`
-   before the first call. If nothing matches, retry with the bare names
-   (`select:ctx_execute,ctx_search`) — registries differ in how they expose
-   the ctx_* names. Do NOT fall back to Bash just because the schema was
-   not loaded yet.
-2. **Run the script in ONE call** via
-   `mcp__plugin_context-mode_context-mode__ctx_execute`
-   (language: `shell`): the script path with the base branch as its only
-   argument. Extract only the findings; the raw output stays in the sandbox.
-3. **Degraded fallback:** if the ctx_* tools are genuinely unavailable after
-   the ToolSearch (context-mode disabled or broken), OR the ctx call aborts
-   before the script's own timeout can fire (`REVIEW_TIMEOUT`, default
-   600 s — e.g. the MCP host's RPC limit), run the script via Bash instead
-   and note the degradation in your result (append `context-mode
-   unavailable — ran via Bash` or `ctx call aborted — reran via Bash` to
-   `error` even when the review itself succeeds).
+**context-mode routing (optional acceleration).** When you run the script below,
+prefer context-mode's execute tool so large output stays out of your context;
+fall back to Bash when it is absent — context-mode is optional, never block on it.
+This applies ONLY to read-only scripts (no persistent filesystem/git writes); the
+ctx sandbox discards writes, so state-mutating scripts MUST run on the native Bash
+tool instead.
+1. Load the tool once:
+   `ToolSearch(query: "select:mcp__plugin_context-mode_context-mode__ctx_execute,mcp__plugin_context-mode_context-mode__ctx_execute_file")`.
+   If nothing matches, retry the bare names (`select:ctx_execute,ctx_execute_file`)
+   as a robustness guard. Do not fall back just because the schema has not loaded yet.
+2. Tool available → run through `…__ctx_execute` (inline shell `code`) or
+   `…__ctx_execute_file` (a `.sh` file on disk); keep only the parsed result.
+3. Tool genuinely unavailable → run via Bash and append `context-mode unavailable —
+   ran via Bash` to your result.
 
 Do not retry with different flags. Set `REVIEW_TIMEOUT` only if the dispatch
 prompt asks for one.

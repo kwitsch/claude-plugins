@@ -1,8 +1,9 @@
 #!/usr/bin/env bats
-# Tests for branch-management: the three CLI review scripts
-# (codex-review.sh, copilot-review.sh, coderabbit-review.sh),
-# graphify-update.sh, quota-state.sh, the plugin.json userConfig manifest and
-# the ci-watch.sh CI poller.
+# Tests for branch-management's standalone bin/ scripts and manifest. The
+# codex, coderabbit and graphify reviews are inlined into their agents and
+# carry no bats coverage (dev-time self-test only). Covered here:
+# copilot-review.sh, git-shim, clean-branches.sh, ci-watch.sh, the plugin.json
+# userConfig manifest, and the review-branch rate-limit regex contract.
 #
 # Strategy: each script test runs with an isolated PATH that contains only
 # symlinks to the required system tools plus per-test stub binaries for the
@@ -44,62 +45,6 @@ make_stub() {
 run_script() {
   local script="$1"; shift
   run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$SCRIPTS/$script" "$@"
-}
-
-# Stub body shared by the coderabbit happy-path tests: logged in + working review.
-CODERABBIT_OK_STUB='if [ "$1" = "auth" ]; then echo "Logged in as tester"; exit 0; fi
-if [ "$1" = "review" ]; then echo "CODERABBIT REVIEW OUTPUT $*"; exit 0; fi
-exit 64'
-
-#
-# codex-review.sh
-#
-
-@test "codex: exit 2 when CLI is missing" {
-  run_script codex-review.sh main
-  assert_failure 2
-}
-
-@test "codex: exit 3 when not logged in" {
-  make_stub codex 'if [ "$1" = "login" ]; then [ "$2" = "status" ] || exit 99; exit 1; fi' 'exit 0'
-  run_script codex-review.sh main
-  assert_failure 3
-}
-
-@test "codex: passes review output through and targets origin/<base>" {
-  make_stub codex \
-    'if [ "$1" = "login" ]; then [ "$2" = "status" ] || exit 99; exit 0; fi' \
-    'if [ "$1" = "exec" ]; then echo "CODEX REVIEW OUTPUT $*"; exit 0; fi' \
-    'exit 64'
-  run_script codex-review.sh main
-  assert_success
-  assert_output --partial "CODEX REVIEW OUTPUT"
-  assert_output --partial "origin/main"        # diff target must be in the prompt
-  assert_output --partial "read-only"          # sandbox flag must be passed
-}
-
-@test "codex: exit 4 when the review hangs (timeout)" {
-  make_stub codex \
-    'if [ "$1" = "login" ]; then [ "$2" = "status" ] || exit 99; exit 0; fi' \
-    'if [ "$1" = "exec" ]; then sleep 5; fi'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" REVIEW_TIMEOUT=1 \
-    bash "$SCRIPTS/codex-review.sh" main
-  assert_failure 4
-}
-
-@test "codex: exit 4 when the review run fails" {
-  make_stub codex \
-    'if [ "$1" = "login" ]; then [ "$2" = "status" ] || exit 99; exit 0; fi' \
-    'if [ "$1" = "exec" ]; then echo boom >&2; exit 1; fi'
-  run_script codex-review.sh main
-  assert_failure 4
-}
-
-@test "codex: usage error without base argument" {
-  make_stub codex 'exit 0'
-  run_script codex-review.sh
-  assert_failure 1
-  assert_output --partial "usage"
 }
 
 #
@@ -344,260 +289,56 @@ fake_real_git() {
 }
 
 #
-# coderabbit-review.sh
+# review-branch rate-limit regex contract
 #
+# The reviewer quota-record logic now lives inline in
+# skills/review-branch/SKILL.md (no standalone quota script). The contract that
+# used to be covered by the old quota record tests is preserved here by extracting
+# the live regex from the skill and running the same corpus through it, so the
+# test tracks the real regex instead of a drifting copy.
 
-@test "coderabbit: exit 2 when neither coderabbit nor cr is installed" {
-  run_script coderabbit-review.sh main
-  assert_failure 2
+# regex_match <text> — exit 0 if the live review-branch rate-limit regex
+# matches <text>, exit 1 otherwise. The regex is pulled verbatim from the
+# `grep -qiE '…'` line in review-branch/SKILL.md.
+RB_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-branch/SKILL.md"
+regex_match() {
+  local re
+  re=$(grep -oE "grep -qiE '[^']*'" "$RB_SKILL" | head -n1 | sed -E "s/^grep -qiE '//; s/'$//")
+  [ -n "$re" ] || return 2   # regex not found → fail loudly
+  printf '%s' "$1" | grep -qiE "$re"
 }
 
-@test "coderabbit: exit 3 when not logged in" {
-  make_stub coderabbit 'if [ "$1" = "auth" ]; then echo "Not logged in"; exit 0; fi'
-  run_script coderabbit-review.sh main
-  assert_failure 3
+@test "rate-limit regex: extracted from review-branch SKILL.md" {
+  re=$(grep -oE "grep -qiE '[^']*'" "$RB_SKILL" | head -n1 | sed -E "s/^grep -qiE '//; s/'$//")
+  [ -n "$re" ]
 }
 
-@test "coderabbit: unrecognizable auth output maps to exit 3" {
-  make_stub coderabbit 'if [ "$1" = "auth" ]; then echo "???"; exit 0; fi'
-  run_script coderabbit-review.sh main
-  assert_failure 3
+@test "rate-limit regex: matches 'rate limit'" {
+  regex_match "rate limit exceeded"
 }
 
-@test "coderabbit: 'Not currently authenticated' wording maps to exit 3" {
-  make_stub coderabbit 'if [ "$1" = "auth" ]; then echo "Not currently authenticated to CodeRabbit"; exit 0; fi'
-  run_script coderabbit-review.sh main
-  assert_failure 3
+@test "rate-limit regex: matches 'free tier quota'" {
+  regex_match "free tier quota exceeded"
 }
 
-@test "coderabbit: 'no longer logged in' wording maps to exit 3" {
-  make_stub coderabbit 'if [ "$1" = "auth" ]; then echo "Session expired. You are no longer logged in"; exit 0; fi'
-  run_script coderabbit-review.sh main
-  assert_failure 3
+@test "rate-limit regex: matches 'reviews/hour'" {
+  regex_match "only 3 reviews/hour allowed"
 }
 
-@test "coderabbit: 'Authenticated' wording satisfies the login check" {
-  make_stub coderabbit 'if [ "$1" = "auth" ]; then echo "Authenticated as tester"; exit 0; fi
-if [ "$1" = "review" ]; then echo "CODERABBIT REVIEW OUTPUT"; exit 0; fi
-exit 64'
-  run_script coderabbit-review.sh main
-  assert_success
+@test "rate-limit regex: matches 'HTTP 429'" {
+  regex_match "HTTP 429: too many requests"
 }
 
-@test "coderabbit: passes review output through with --prompt-only and --base" {
-  make_stub coderabbit "$CODERABBIT_OK_STUB"
-  run_script coderabbit-review.sh main
-  assert_success
-  assert_output --partial "CODERABBIT REVIEW OUTPUT"
-  assert_output --partial "--prompt-only"
-  assert_output --partial "--base main"
+@test "rate-limit regex: does NOT match an unrelated error" {
+  ! regex_match "some other error occurred"
 }
 
-@test "coderabbit: cr alias is found when coderabbit is absent" {
-  make_stub cr "$CODERABBIT_OK_STUB"
-  run_script coderabbit-review.sh main
-  assert_success
-  assert_output --partial "CODERABBIT REVIEW OUTPUT"
+@test "rate-limit regex: does NOT match a bare disk-quota error" {
+  ! regex_match "disk quota exceeded on runner"
 }
 
-@test "coderabbit: exit 4 when the review hangs (timeout)" {
-  make_stub coderabbit 'if [ "$1" = "auth" ]; then echo "Logged in"; exit 0; fi
-if [ "$1" = "review" ]; then sleep 5; fi'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" REVIEW_TIMEOUT=1 \
-    bash "$SCRIPTS/coderabbit-review.sh" main
-  assert_failure 4
-}
-
-@test "coderabbit: usage error without base argument" {
-  make_stub coderabbit 'exit 0'
-  run_script coderabbit-review.sh
-  assert_failure 1
-  assert_output --partial "usage"
-}
-
-#
-# graphify-update.sh
-#
-# Exit-code contract: 0 update ran · 2 graphify CLI missing · 4 update run
-# failed · 5 graphify-out/ missing without --force. The script resolves the
-# repo root itself, so every test runs inside a throwaway git repo under
-# $BATS_TEST_TMPDIR — never against the real repository.
-
-# setup_graphify_repo — link the real git into MOCKBIN and create + enter a
-# throwaway git repo so graphify-update.sh resolves its repo root inside the
-# test sandbox.
-setup_graphify_repo() {
-  ln -sf "$(command -v git)" "$MOCKBIN/git"
-  GRAPHIFY_REPO="$BATS_TEST_TMPDIR/repo"
-  mkdir -p "$GRAPHIFY_REPO"
-  cd "$GRAPHIFY_REPO"
-  env -i PATH="$MOCKBIN" HOME="$HOME" git init -q
-}
-
-@test "graphify: exit 2 when CLI is missing" {
-  setup_graphify_repo
-  run_script graphify-update.sh
-  assert_failure 2
-}
-
-@test "graphify: exit 5 when graphify-out is missing without --force" {
-  setup_graphify_repo
-  make_stub graphify 'echo "GRAPHIFY $*"; exit 0'
-  run_script graphify-update.sh
-  assert_failure 5
-  [ ! -d "$GRAPHIFY_REPO/graphify-out" ]   # must not create the folder
-}
-
-@test "graphify: --force creates graphify-out and runs the update" {
-  setup_graphify_repo
-  make_stub graphify 'echo "GRAPHIFY $*"; exit 0'
-  run_script graphify-update.sh --force
-  assert_success
-  assert_output --partial "GRAPHIFY update ."
-  [ -d "$GRAPHIFY_REPO/graphify-out" ]
-}
-
-@test "graphify: runs the update when graphify-out exists" {
-  setup_graphify_repo
-  mkdir -p graphify-out
-  make_stub graphify 'echo "GRAPHIFY $*"; exit 0'
-  run_script graphify-update.sh
-  assert_success
-  assert_output --partial "GRAPHIFY update ."
-}
-
-@test "graphify: prunes human-only graph.html after the update" {
-  setup_graphify_repo
-  mkdir -p graphify-out
-  make_stub graphify 'mkdir -p graphify-out; echo viz > graphify-out/graph.html; exit 0'
-  run_script graphify-update.sh
-  assert_success
-  [ ! -f "$GRAPHIFY_REPO/graphify-out/graph.html" ]
-}
-
-@test "graphify: --keep-user-files keeps graph.html" {
-  setup_graphify_repo
-  mkdir -p graphify-out
-  make_stub graphify 'mkdir -p graphify-out; echo viz > graphify-out/graph.html; exit 0'
-  run_script graphify-update.sh --keep-user-files
-  assert_success
-  [ -f "$GRAPHIFY_REPO/graphify-out/graph.html" ]
-}
-
-@test "graphify: runs from the repository root regardless of cwd" {
-  setup_graphify_repo
-  mkdir -p graphify-out sub/dir
-  make_stub graphify 'echo "GRAPHIFY pwd=$PWD"; exit 0'
-  cd sub/dir
-  run_script graphify-update.sh
-  assert_success
-  assert_output --partial "pwd=$GRAPHIFY_REPO"
-}
-
-@test "graphify: exit 4 when the update fails" {
-  setup_graphify_repo
-  mkdir -p graphify-out
-  make_stub graphify 'echo boom >&2; exit 1'
-  run_script graphify-update.sh
-  assert_failure 4
-}
-
-@test "graphify: exit 4 when the update hangs (timeout)" {
-  setup_graphify_repo
-  mkdir -p graphify-out
-  make_stub graphify 'sleep 5'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" GRAPHIFY_TIMEOUT=1 \
-    bash "$SCRIPTS/graphify-update.sh"
-  assert_failure 4
-}
-
-@test "graphify: usage error on unknown argument" {
-  setup_graphify_repo
-  make_stub graphify 'exit 0'
-  run_script graphify-update.sh --bogus
-  assert_failure 1
-  assert_output --partial "usage"
-}
-
-#
-# quota-state.sh
-#
-# check <tool>             -- exit 0: blocked (stdout: reset epoch); exit 1: clear
-# record <tool> <error>    -- exit 0: quota file written; exit 1: no match
-# format_time <epoch>      -- print HH:MM from epoch
-
-@test "quota: check exits 1 when no quota file exists" {
-  run bash "$SCRIPTS/quota-state.sh" check coderabbit
-  assert_failure 1
-}
-
-@test "quota: check exits 0 and prints epoch when reset is in the future" {
-  mkdir -p "$HOME/.claude/branch-management/quota"
-  future=$(( $(date +%s) + 3600 ))
-  echo "$future" > "$HOME/.claude/branch-management/quota/coderabbit.quota"
-  run bash "$SCRIPTS/quota-state.sh" check coderabbit
-  assert_success
-  assert_output "$future"
-}
-
-@test "quota: check exits 1 and removes file when reset has passed" {
-  mkdir -p "$HOME/.claude/branch-management/quota"
-  past=$(( $(date +%s) - 1 ))
-  echo "$past" > "$HOME/.claude/branch-management/quota/coderabbit.quota"
-  run bash "$SCRIPTS/quota-state.sh" check coderabbit
-  assert_failure 1
-  [ ! -f "$HOME/.claude/branch-management/quota/coderabbit.quota" ]
-}
-
-@test "quota: record exits 0 and creates file on rate-limit error" {
-  run bash "$SCRIPTS/quota-state.sh" record coderabbit "rate limit exceeded"
-  assert_success
-  [ -f "$HOME/.claude/branch-management/quota/coderabbit.quota" ]
-}
-
-@test "quota: record recognises quota keyword" {
-  run bash "$SCRIPTS/quota-state.sh" record codex "free tier quota exceeded"
-  assert_success
-}
-
-@test "quota: record recognises reviews/hour pattern" {
-  run bash "$SCRIPTS/quota-state.sh" record coderabbit "only 3 reviews/hour allowed"
-  assert_success
-}
-
-@test "quota: record recognises HTTP 429" {
-  run bash "$SCRIPTS/quota-state.sh" record copilot "HTTP 429: too many requests"
-  assert_success
-}
-
-@test "quota: record exits 1 on unrelated error" {
-  run bash "$SCRIPTS/quota-state.sh" record coderabbit "some other error occurred"
-  assert_failure 1
-  [ ! -f "$HOME/.claude/branch-management/quota/coderabbit.quota" ]
-}
-
-@test "quota: record exits 1 on unrelated disk-quota error" {
-  run bash "$SCRIPTS/quota-state.sh" record codex "disk quota exceeded on runner"
-  assert_failure 1
-  [ ! -f "$HOME/.claude/branch-management/quota/codex.quota" ]
-}
-
-@test "quota: record exits 1 when 429 appears outside an HTTP context" {
-  run bash "$SCRIPTS/quota-state.sh" record codex "build failed with code 429 artifacts"
-  assert_failure 1
-  [ ! -f "$HOME/.claude/branch-management/quota/codex.quota" ]
-}
-
-@test "quota: format_time prints HH:MM for a valid epoch" {
-  epoch=$(date +%s)
-  run bash "$SCRIPTS/quota-state.sh" format_time "$epoch"
-  assert_success
-  [[ "$output" =~ ^[0-9]{2}:[0-9]{2}$ ]]
-}
-
-@test "quota: usage error on unknown command" {
-  run bash "$SCRIPTS/quota-state.sh" bogus tool
-  assert_failure 64
+@test "rate-limit regex: does NOT match 429 outside an HTTP context" {
+  ! regex_match "build failed with code 429 artifacts"
 }
 
 #
@@ -679,9 +420,14 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 
 @test "version: declared once — plugin.json only, marketplace entry carries none" {
   run jq -r '.version' "$REPO_ROOT/$PLUGIN_JSON_REL"
-  assert_output "3.7.0"
+  assert_output "3.8.0"
   run jq -e '.plugins[] | select(.name == "branch-management") | has("version") | not' \
     "$REPO_ROOT/.claude-plugin/marketplace.json"
+  assert_success
+}
+
+@test "dependencies: plugin.json declares none (context-mode is optional)" {
+  run jq -e 'has("dependencies") | not' "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
 }
 

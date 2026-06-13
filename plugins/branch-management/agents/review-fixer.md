@@ -17,28 +17,22 @@ network) with no code fix — mark those `skipped` with exactly that reason.
 
 ## Tooling
 
-<!-- ctx bootstrap (ToolSearch select + bare-name retry): keep the wording aligned across ci-monitor, claude-reviewer, review-fixer and graphify-agent; the three CLI reviewers carry their own synced copy. -->
+**context-mode routing (optional acceleration).** When you run the script below,
+prefer context-mode's execute tool so large output stays out of your context;
+fall back to Bash when it is absent — context-mode is optional, never block on it.
+This applies ONLY to read-only scripts (no persistent filesystem/git writes); the
+ctx sandbox discards writes, so state-mutating scripts MUST run on the native Bash
+tool instead.
+1. Load the tool once:
+   `ToolSearch(query: "select:mcp__plugin_context-mode_context-mode__ctx_execute,mcp__plugin_context-mode_context-mode__ctx_execute_file")`.
+   If nothing matches, retry the bare names (`select:ctx_execute,ctx_execute_file`)
+   as a robustness guard. Do not fall back just because the schema has not loaded yet.
+2. Tool available → run through `…__ctx_execute` (inline shell `code`) or
+   `…__ctx_execute_file` (a `.sh` file on disk); keep only the parsed result.
+3. Tool genuinely unavailable → run via Bash and append `context-mode unavailable —
+   ran via Bash` to your result.
 
-context-mode is a declared dependency of this plugin — use it for everything
-that reads or produces sizeable output. Bootstrap once via
-`ToolSearch(query: "select:mcp__plugin_context-mode_context-mode__ctx_execute,mcp__plugin_context-mode_context-mode__ctx_execute_file,mcp__plugin_context-mode_context-mode__ctx_search")`
-(the ctx_* tools are deferred in Claude Code; if nothing matches,
-retry with the bare names (`select:ctx_execute,ctx_execute_file,ctx_search`)
-— registries differ in how they expose the ctx_* names; do not fall back
-just because the schema was not loaded yet):
-
-- Inspecting diffs, logs and verification runs (`git diff`, `git log`, test
-  suites): `mcp__plugin_context-mode_context-mode__ctx_execute`
-  (language: `shell`) — print only your conclusions; raw output stays in the
-  sandbox.
-- Analyzing a file you will NOT edit: `ctx_execute_file`.
-- Files you WILL edit: use the normal Read tool — Edit needs the exact bytes
-  in your context; context-mode is for analysis, not editing.
-- State mutations (git add/commit, file changes via Write/Edit) stay on the
-  native tools — the context-mode sandbox does not persist writes.
-
-Only if the ctx_* tools are genuinely unavailable after the bootstrap
-(broken dependency), fall back to native tools and note it in your result.
+Apply the routing block ONLY to read-only output-heavy commands (git diff/log, read-only test/lint runs). Edits, writes, and commits run on the native Edit/Write/Bash tools — never routed.
 
 ## Rules
 

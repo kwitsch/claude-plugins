@@ -8,7 +8,7 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine subagents.
 | **Tools** | each agent declares least-privilege allowlist; both context-mode MCP wildcard spellings (server name differs per install) |
 | **Colors** | unique per scope; same color OK across scopes (agents never co-run); white/default banned. Scopes: new-branch (branch-agent, graphify-agent, ctx-index-agent); review (claude-reviewer, coderabbit-reviewer, codex-reviewer, copilot-reviewer, review-fixer, ci-monitor) |
 | **Skills** | declare `allowed-tools` pre-approvals + `argument-hint`; no `model:` key |
-| **context-mode** | cross-marketplace dep (declared in plugin.json, marketplace-allowlisted); agents bootstrap deferred ctx_* via ToolSearch; scripts/logs via `ctx_execute`/`ctx_batch_execute`; fall back to native on broken dep (reported). Git writes + short outputs stay on Bash |
+| **context-mode** | OPTIONAL accelerator (NOT a declared dependency); agents bootstrap deferred ctx_* via ToolSearch; read-only scripts/logs via `ctx_execute`/`ctx_batch_execute`; fall back to native when absent/broken (reported). Git writes + state-mutating scripts + short outputs stay on Bash |
 
 ## Behavior
 - `skills/new-branch`: dispatches `agents/branch-agent` (clean-tree guard,
@@ -28,15 +28,16 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine subagents.
   `context: fork`; forked skill is subagent, cannot dispatch reviewer
   subagents); reads
   `review_claude/codex/copilot/coderabbit` toggles + `review_max_rounds`
-  (default 3); quota check via `bin/quota-state.sh check <tool>` at
-  startup; base-divergence check for coderabbit; dispatches enabled
+  (default 3); quota read inline at startup via a `!` dynamic-context
+  injection block over `$HOME/.claude/branch-management/quota/*.quota`;
+  base-divergence check for coderabbit; dispatches enabled
   reviewers parallel (`claude-reviewer`, CLI reviewers via
   `ctx_execute`); aggregates + dedupes findings with cross-round skip list
   (fixer echoes per-finding ids); findings → `review-fixer` + next round;
   converges when fixer commits nothing; stops before push when round
   $max_rounds still red; retries once when zero `ok` reviewers; records quota
-  hits via `quota-state.sh record <tool>`. User-invocable directly (e.g.
-  `/review-branch --rounds 5`).
+  hits inline (rate-limit regex → write a 1-hour `.quota` window). User-invocable
+  directly (e.g. `/review-branch --rounds 5`).
 - `skills/configure-branch-management`: user-invocable interactive
   configurator; detects `.git`/`.claude` in cwd to offer project-scope
   choices (falls back to user scope when absent); reads current
@@ -73,11 +74,14 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine subagents.
 - Script exit-code contract: 0 ran · 2 CLI missing (skip silent) ·
   3 not logged in (skip + report login cmd) · 4 run failed (skip +
   report). Review runs wrapped in `timeout -k 10 "${REVIEW_TIMEOUT:-600}"`.
-  `graphify-update.sh [--force] [--keep-user-files]`: 0 ran · 2 CLI
-  missing · 4 run failed · 5 `graphify-out/` missing without `--force`;
-  repo root via git, bounded by `GRAPHIFY_TIMEOUT` (default 600 s);
-  prunes human-only `graph.html` after update unless
-  `--keep-user-files` (output serves agents).
+  codex + coderabbit reviews are inlined into their reviewer agents; only
+  `bin/copilot-review.sh` survives as a standalone script.
+  graphify refresh inlined into `graphify-agent` (`[--force]
+  [--keep-user-files]`): 0 ran · 2 CLI missing · 4 run failed · 5
+  `graphify-out/` missing without `--force`; repo root via git, bounded by
+  `GRAPHIFY_TIMEOUT` (default 600 s); prunes human-only `graph.html` after
+  update unless `--keep-user-files` (output serves agents); always Bash
+  (writes graphify-out/).
   `ci-watch.sh <github|gitlab> <nr|branch>`: 0 green · 1 red · 2 deadline ·
   64 usage/environment (CLI missing/too old); green/red from check CONTENT
   (gh exits 1 fail / 8 pending with data), coderabbit-named checks
@@ -124,25 +128,30 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine subagents.
 ```bash
 BATS_LIB_PATH=/usr/lib/bats bats test/branch-management/
 ```
-`test/branch-management/test.bats` covers three review scripts with
-stub CLIs on isolated `PATH` (missing → 2, no login → 3, ok →
-passthrough, hang → timeout → 4, usage errors). Copilot login heuristic
-tested across matrix (token env, recorded `loggedInUsers`,
+`test/branch-management/test.bats` covers the surviving standalone scripts —
+the codex + coderabbit + graphify reviews are now inlined into their agents
+(no bats; validated by dev-time self-test per the script-authoring rule).
+`bin/copilot-review.sh` is run with stub CLIs on an isolated `PATH` (missing →
+2, no login → 3, ok → passthrough, hang → timeout → 4, usage errors). Copilot
+login heuristic tested across matrix (token env, recorded `loggedInUsers`,
 `COPILOT_HOME` override, gh keyring vs inline-token vs logged-out
 `hosts.yml`, `GH_CONFIG_DIR`; bare dir / first-launch / empty-array all →
 3), `copilot-review.sh` asserted hardened read-only (no write
 subcommand allowlisted). `bin/git-shim` direct unit tests
 (read-only passthrough; `--output`/`-o`/`-O`/`--output-directory` refused;
-unset real-git → 127). `graphify-update.sh` covered with stub CLI +
-throwaway git repo (missing CLI → 2, missing folder → 5, `--force`
-creates it, repo-root resolution from subdirectories, failure/hang → 4,
-`graph.html` pruned by default / kept with `--keep-user-files`).
+unset real-git → 127). `bin/clean-branches.sh` covered against a throwaway
+bare-remote + clone (prune fetch, upstream/local merged + gone deletion,
+exact-name default-branch exclusion, uncommitted-file listing).
+The review-branch rate-limit regex is extracted live from
+`review-branch/SKILL.md` and run against the old quota corpus (positives:
+rate limit / free tier quota / reviews/hour / HTTP 429; negatives: bare
+"disk quota", 429 outside an HTTP context).
 Plus plugin.json `userConfig` manifest checks (twelve boolean toggles +
 numeric `ci_watch_timeout` + numeric `review_max_rounds`, boolean defaults
 all `true` except fail-closed `graphify_force_create` +
 `graphify_user_files`, timeout default `1800`, rounds default `3`,
-titles + descriptions, version declared only in plugin.json — marketplace
-entry carries none) + `quota-state.sh` (check/record/format_time: blocked vs. clear,
-rate-limit pattern matching, expiry cleanup, HH:MM formatting). `ci-watch.sh`
+titles + descriptions, version `3.8.0` declared only in plugin.json —
+marketplace entry carries none — and no top-level `dependencies` key
+(context-mode is optional)). `ci-watch.sh`
 polling (coderabbit exclusion, pending→done transitions, timeout, no-checks
 grace, gitlab status heuristics).

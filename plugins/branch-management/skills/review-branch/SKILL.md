@@ -2,7 +2,7 @@
 name: review-branch
 description: Run iterative parallel review rounds (claude/codex/copilot/coderabbit) with verified fixes between rounds, up to a configurable cap. Fully standalone — reads its own toggles and quota state. Called by new-pr; also user-invocable directly.
 argument-hint: "[--base <branch>] [--rounds N]"
-allowed-tools: ["Agent", "Bash(git:*)", "Bash(echo:*)", "Bash(*/quota-state.sh*)"]
+allowed-tools: ["Agent", "Bash(git:*)", "Bash(echo:*)", "Bash(date:*)", "Bash(mkdir:*)", "Bash(printf:*)", "Bash(grep:*)"]
 ---
 
 Run review rounds against the current branch.
@@ -32,21 +32,25 @@ Resolve toggles (fail-open — ONLY the literal value `false` disables):
 
 Resolve `${CLAUDE_PLUGIN_ROOT}` to a concrete absolute path once
 (e.g. `echo "${CLAUDE_PLUGIN_ROOT}"`). Store as `$plugin_root`.
-Set `$quota_sh` = `<$plugin_root>/bin/quota-state.sh`.
 
-## Quota check
+## Quota (dynamic-context injection)
 
-For each reviewer toggle that is enabled (not literally `false`), run:
-```bash
-"$quota_sh" check <tool>
+```!
+now=$(date +%s); dir="$HOME/.claude/branch-management/quota"
+for f in "$dir"/*.quota; do
+  [ -e "$f" ] || continue
+  tool=$(basename "$f" .quota); reset=$(cat "$f" 2>/dev/null)
+  if [ -n "$reset" ] && [ "$now" -lt "$reset" ]; then
+    printf 'QUOTA %s limited_until %s\n' "$tool" "$(date -d "@$reset" '+%H:%M' 2>/dev/null || date -r "$reset" '+%H:%M')"
+  else
+    rm -f "$f"
+  fi
+done
+echo "QUOTA_END"
 ```
-where `<tool>` is `claude`, `codex`, `copilot`, or `coderabbit`.
-- Exit 0: quota-limited; stdout is the reset epoch. Add reviewer to
-  `quota_limited` set; treat identically to a `false` toggle for this
-  run. Store the reset epoch for the final report.
-- Exit 1: reviewer is clear.
 
-The `check` command auto-deletes expired quota files.
+Treat any reviewer printed above as quota-limited for this run (exclude it; report
+its reset time). Reviewers not listed are clear.
 
 ## Base divergence check
 
@@ -70,21 +74,31 @@ skip all rounds and continue to the report. Resolve the script paths
 once and reuse:
 
 - `branch-management:claude-reviewer` — prompt contains: base branch `$base`.
-- `branch-management:codex-reviewer` — prompt contains: base branch `$base`,
-  absolute path `<$plugin_root>/bin/codex-review.sh`.
+- `branch-management:codex-reviewer` — prompt contains: base branch `$base`.
 - `branch-management:copilot-reviewer` — prompt contains: base branch `$base`,
   absolute path `<$plugin_root>/bin/copilot-review.sh`.
-- `branch-management:coderabbit-reviewer` — prompt contains: base branch `$base`,
-  absolute path `<$plugin_root>/bin/coderabbit-review.sh`.
+- `branch-management:coderabbit-reviewer` — prompt contains: base branch `$base`.
 
 Each agent returns `{tool, status, login_hint?, error?, findings}`.
 Handle statuses: `missing` → skip silently; `no_auth` → skip, record
 `login_hint`; `failed` → skip, record `error`. An unparsable reply
 counts as `failed` with empty findings.
 
-**Record quota hits** — for each reviewer with `status: "failed"`,
-run `"$quota_sh" record <tool> "<error>"`. Exit 0 means rate-limited;
-add to `quota_limited`, exclude from subsequent rounds, note in report.
+**Record quota hits (inline).** For each reviewer that returned
+`status: "failed"`, test its error against the rate-limit regex and, on a
+match, write a 1-hour window:
+
+```bash
+err='<reviewer error text>'; tool='<tool>'
+if printf '%s' "$err" | grep -qiE 'rate.?limit|(api|rate|usage|tier|account|plan|billing|monthly|daily)[ -]?quota|reviews/hour|\b(HTTP[ /]?429|status[ :]?429)\b|too many requests'; then
+  mkdir -p "$HOME/.claude/branch-management/quota"
+  echo $(( $(date +%s) + 3600 )) > "$HOME/.claude/branch-management/quota/$tool.quota"
+fi
+```
+
+(This write is a trivial output-less one-liner — exempt from the routing
+block.) On a match, add the reviewer to `quota_limited`, exclude it from
+subsequent rounds, and note it in the report.
 
 **Aggregate and dedupe** — merge `findings` arrays from all `ok`
 sources. Remove exact-duplicate `{file, line, title}` triples.
@@ -118,9 +132,8 @@ Return a structured summary:
 - Findings fixed (by round)
 - Open findings (if any — hand to user)
 - Disabled reviewers (via settings / quota-limited with reset time /
-  diverged base) — format each quota reset epoch as HH:MM via
-  `"$quota_sh" format_time <epoch>` before emitting; never surface the
-  raw Unix timestamp
+  diverged base) — emit the HH:MM reset time already produced by the
+  quota injection block above; never surface the raw Unix timestamp
 - Degradation notes (partial review, Bash fallback, etc.)
 
 Lead that summary with a terminal-state token — exactly `DONE` or
