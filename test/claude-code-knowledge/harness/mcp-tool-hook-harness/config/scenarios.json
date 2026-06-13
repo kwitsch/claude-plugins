@@ -7,7 +7,7 @@
     {
       "id": "sessionstart_context",
       "event": "SessionStart",
-      "matcher": "startup",
+      "matcher": "",
       "mode": "emit_context",
       "tool": "emit_context",
       "trigger": "auto",

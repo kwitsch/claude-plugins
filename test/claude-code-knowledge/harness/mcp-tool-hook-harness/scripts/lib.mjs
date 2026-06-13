@@ -28,7 +28,10 @@ export function settingsFor(scenario, marker, serverName = 'harness', timeout = 
     timeout,
   };
   const group = {};
-  if (scenario.matcher && scenario.matcher.length > 0) group.matcher = scenario.matcher;
+  // Only PreToolUse/PostToolUse accept a matcher; emitting one on other events
+  // (e.g. SessionStart) is at best ignored and may prevent registration.
+  const matcherEvent = scenario.event === 'PreToolUse' || scenario.event === 'PostToolUse';
+  if (matcherEvent && scenario.matcher && scenario.matcher.length > 0) group.matcher = scenario.matcher;
   group.hooks = [handler];
   return { hooks: { [scenario.event]: [group] } };
 }
