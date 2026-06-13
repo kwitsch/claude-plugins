@@ -1,0 +1,6 @@
+results/runs/
+results/manual/
+results/report.json
+results/report.md
+harness-scratch/
+node_modules/

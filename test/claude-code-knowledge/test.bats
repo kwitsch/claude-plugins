@@ -184,3 +184,14 @@ SH
     assert_failure
   done
 }
+
+# --- harness (test-only, hermetic mock protocol selftest) ---
+
+@test "harness mock protocol selftest passes (skipped if node absent)" {
+  if ! command -v node >/dev/null 2>&1; then
+    skip "node not installed"
+  fi
+  sel="$BATS_TEST_DIRNAME/harness/mcp-tool-hook-harness/scripts/selftest-mock.mjs"
+  [ -f "$sel" ]
+  run -0 node "$sel"
+}
