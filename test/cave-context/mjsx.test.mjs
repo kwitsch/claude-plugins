@@ -58,11 +58,11 @@ test("mjsx.sh: .mjs script runs via real node when no bun (node fallback)", () =
   // falls back to node: real node from /usr/bin executes the script, which prints OK.
   const scriptDir = mkdtempSync(join(tmpdir(), "cc-mjsx-script-"));
   const script = join(scriptDir, "ok.mjs");
-  writeFileSync(script, 'process.stdout.write("OK\\n");\n');
+  writeFileSync(script, 'process.stdout.write((process.versions.bun ? "bun" : "node") + "\\n");\n');
   try {
     const res = isolatedRun([script], {});
     assert.equal(res.status, 0, res.stderr);
-    assert.equal(res.stdout.trim(), "OK");
+    assert.equal(res.stdout.trim(), "node");
   } finally {
     rmSync(scriptDir, { recursive: true, force: true });
   }
