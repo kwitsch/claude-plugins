@@ -23,6 +23,7 @@ jobs:
           - branch-management
           - superpowers-automation
           - claude-code-knowledge
+          - cave-context
     steps:
       - name: Checkout
         uses: actions/checkout@v6
