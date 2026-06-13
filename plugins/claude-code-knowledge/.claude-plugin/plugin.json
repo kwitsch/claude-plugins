@@ -1,0 +1,8 @@
+{
+  "name": "claude-code-knowledge",
+  "version": "0.1.0",
+  "description": "Live-docs-grounded Claude Code authoring knowledge: a version-scoped doc cache, a cc-knowledge agent, and /cck-* skills to create, validate, and adjust skills, agents, rules, and hooks.",
+  "author": {
+    "name": "Kwitsch"
+  }
+}
