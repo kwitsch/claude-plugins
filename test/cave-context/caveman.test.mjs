@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -25,13 +25,23 @@ test("write/read/clear level round-trip", () => {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("readLevel rejects junk", () => {
+test("writeLevel refuses invalid level (no silent overwrite)", () => {
   const dir = freshDir();
   try {
     writeLevel(dir, "ultra");
-    // overwrite with junk
-    writeLevel(dir, "not-a-level"); // must refuse to persist invalid
-    assert.equal(readLevel(dir), "ultra");
+    assert.equal(writeLevel(dir, "not-a-level"), false); // refuses and writes nothing
+    assert.equal(readLevel(dir), "ultra");               // file unchanged
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("readLevel rejects invalid persisted content", () => {
+  const dir = freshDir();
+  try {
+    // Write junk directly, bypassing writeLevel's guard, so readLevel's own guards are exercised.
+    writeFileSync(join(dir, "active-level"), "not-a-level");
+    assert.equal(readLevel(dir), null);                  // invalid-content guard
+    writeFileSync(join(dir, "active-level"), "x".repeat(100));
+    assert.equal(readLevel(dir), null);                  // oversize guard (MAX_BYTES=16)
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
