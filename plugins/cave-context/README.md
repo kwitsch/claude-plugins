@@ -16,7 +16,7 @@ Unifies caveman + context-mode into one non-competing MCP server: proxies all `c
 cave-context replaces the caveman and context-mode plugins with a single component:
 
 - **MCP proxy** (`mcp/server.mjs`): launches `context-mode` as an upstream server (via the `bin/mjsx.sh` launcher) and re-exposes every `ctx_*` tool verbatim. Clients see the same tool surface as standalone context-mode.
-- **Aggregated hooks** (`hooks/hooks.json`): mid-loop PreToolUse/PostToolUse are `mcp_tool` hooks that delegate to `hook_*` tools on the same server, fanning out to both caveman and context-mode logic in one round-trip. Early-lifecycle events — SessionStart, UserPromptSubmit, PreCompact — are `command` hooks (each launched through `bin/mjsx.sh` with the `hooks/*.mjs` script as its argument), because an `mcp_tool` hook fails open that early (the server is not reliably connected yet). SessionStart emits the caveman ruleset as `additionalContext` and seeds the runtime level so per-turn reminders fire from turn 1.
+- **Aggregated hooks** (`hooks/hooks.json`): mid-loop PreToolUse/PostToolUse are `mcp_tool` hooks that delegate to `hook_*` tools on the same server, fanning out to both caveman and context-mode logic in one round-trip. Early-lifecycle events — SessionStart, UserPromptSubmit, PreCompact, ConfigChange — are `command` hooks (each launched through `bin/mjsx.sh` with the `hooks/*.mjs` script as its argument), because an `mcp_tool` hook fails open that early (the server is not reliably connected yet). SessionStart emits the caveman ruleset as `additionalContext` and seeds the runtime level so per-turn reminders fire from turn 1. ConfigChange re-seeds that level whenever settings change, so a `caveman_level` edit applies live (see Configuration).
 - **caveman reimplemented** in `mcp/caveman.mjs` (levels lite/full/ultra, state in `$CLAUDE_PLUGIN_DATA`).
 
 Hook matchers exclude `hook_` tools to prevent reentrancy.
@@ -38,6 +38,8 @@ cave-context reads its options from `pluginConfigs["cave-context"].options` in y
 | Option | Default | Effect / Value |
 |---|---|---|
 | `caveman_level` | `lite` | Default terse-output level injected at session start and used by a bare `/caveman` (no argument) or natural-language activation. Values: `lite`, `full`, `ultra`. Invalid or missing → falls back to `lite`. |
+
+Changes to `caveman_level` apply **live**: cave-context's `ConfigChange` hook re-reads `settings.json` and re-seeds the active level on any settings change, so you don't need to restart the session.
 
 Example (`~/.claude/settings.json`):
 
