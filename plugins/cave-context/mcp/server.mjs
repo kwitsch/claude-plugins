@@ -68,7 +68,7 @@ function startServer() {
       try {
         if (method === "initialize") {
           ensureUp(); // begin upstream startup in background
-          return ok(id, { protocolVersion: DEFAULT_PROTOCOL, capabilities: { tools: {} }, serverInfo: SERVER_INFO });
+          return ok(id, { protocolVersion: params?.protocolVersion ?? DEFAULT_PROTOCOL, capabilities: { tools: {} }, serverInfo: SERVER_INFO });
         }
         if (method === "notifications/initialized" || method === "notifications/cancelled") return;
         if (method === "ping") return ok(id, {});
