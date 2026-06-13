@@ -122,10 +122,9 @@ export function classify(scenario, ev) {
       if (ev.fileExists === false && reason > 0)
         return { verdict: 'PASS', note: 'write blocked and deny reason surfaced' };
       if (ev.fileExists === false)
-        return { verdict: 'PASS', note: 'write target absent (likely blocked); reason marker not confirmed' };
+        return { verdict: 'INCONCLUSIVE', note: 'write target absent but no deny reason surfaced; model may not have called Write' };
       return { verdict: 'FAIL', note: 'write target exists -> deny did not take effect' };
     case 'stop_blocked':
-      if (turns !== null && turns > 1) return { verdict: 'PASS', note: `turn continued (num_turns=${turns})` };
       if (reason > 0) return { verdict: 'PASS', note: 'stop reason marker surfaced' };
       return { verdict: 'INCONCLUSIVE', note: `could not confirm continuation (num_turns=${turns})` };
     case 'stopped_with_marker':
