@@ -1,25 +1,32 @@
 ---
 name: stat
-description: Show combined cave-context savings — caveman token reduction (from the Claude Code session log) plus context-mode context-window savings (via ctx_stats). Read-only. Trigger /cave-context:stat.
+description: Show cave-context savings — context-mode context-window savings (measured via ctx_stats) plus the active caveman compression level. Read-only. Trigger /cave-context:stat.
 ---
 
 # cave-context:stat
 
-Report both savings surfaces in one place. Read-only — never reset.
+Report cave-context's savings surfaces in one place. Read-only — never reset.
 
 ## Steps
 
-1. **context-mode savings.** Call the `ctx_stats` tool (proxied through the
-   cave-context server). Display its output verbatim — token consumption,
-   context-savings ratio, per-tool breakdown.
+1. **context-mode savings (measured).** Call the `ctx_stats` tool (proxied
+   through the cave-context server). Display its output verbatim — token
+   consumption, context-savings ratio, per-tool breakdown. This is the real
+   measured number.
 
-2. **caveman token savings.** Read the current Claude Code session log and
-   estimate token reduction from terse/caveman responses (the way caveman-stats
-   does — measured from the log, not model-estimated). If the log is
-   unavailable, say so; do not fabricate numbers.
+2. **Active caveman level.** Report the active compression level from the
+   cave-context state file:
 
-3. **Combine.** Present one short summary: context-mode context-savings ratio +
-   caveman token reduction + active caveman level (read from the cave-context
-   state file).
+   ```bash
+   cat "${CLAUDE_PLUGIN_DATA:-$HOME/.claude/cave-context}/active-level" 2>/dev/null || echo "off"
+   ```
+
+   Report the level (`lite` / `full` / `ultra`, or `off` when absent). caveman
+   trims output verbosity, but cave-context does NOT separately meter caveman
+   token savings — report the active level only; never fabricate a savings
+   number for it.
+
+3. **Combine.** One short summary: context-mode context-savings ratio (step 1) +
+   active caveman level (step 2).
 
 Output in caveman:compress format (terse; numbers exact).
