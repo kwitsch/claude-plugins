@@ -127,3 +127,25 @@ SH
   run -0 jq -e '.hooks.SessionStart[0].hooks[0].type == "command"' "$f"
   run -0 jq -e '.hooks.SessionStart[0].hooks[0].command | test("session-cache")' "$f"
 }
+
+# --- cc-knowledge agent ---
+
+@test "cc-knowledge agent declares name and description" {
+  f="$PLUGIN/agents/cc-knowledge.md"
+  [ -f "$f" ]
+  grep -qE '^name:[[:space:]]*cc-knowledge[[:space:]]*$' "$f"
+  grep -qE '^description:[[:space:]]*\S' "$f"
+}
+
+@test "cc-knowledge agent does not pin a tools allowlist (inherits all)" {
+  f="$PLUGIN/agents/cc-knowledge.md"
+  run grep -nE '^tools:' "$f"
+  assert_failure
+}
+
+@test "cc-knowledge agent instructs cache-first then fetch, never training memory" {
+  f="$PLUGIN/agents/cc-knowledge.md"
+  grep -q 'code.claude.com/docs' "$f"
+  grep -qi 'curl' "$f"
+  grep -qi 'training memory' "$f"
+}
