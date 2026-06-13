@@ -9,7 +9,7 @@ argument-hint: "create | validate <path> | adjust <path>"
 Component type: **skill** (`SKILL.md`).
 
 ## Resolved context
-- Cache dir (fallback compute): !`echo "${CLAUDE_PLUGIN_DATA:-UNSET}/cache-$(claude --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)"`
+- Cache dir (fallback compute): !`v=$(PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH" claude --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1); echo "${CLAUDE_PLUGIN_DATA:-UNSET}/cache-${v:-unknown}"`
 - Shared workflow + component reference:
 !`cat "${CLAUDE_PLUGIN_ROOT}/references/cck-workflow.md" "${CLAUDE_PLUGIN_ROOT}/references/components/skill.md" 2>/dev/null`
 
