@@ -96,5 +96,10 @@ function startServer() {
       }
     });
     rl.on("close", () => { up.stop(); process.exit(0); });
+  }).catch((e) => {
+    // The stdin reader lives inside .then; a failed startup import would otherwise leave
+    // the process alive-but-unresponsive (or crash unlabelled). Fail loudly and cleanly.
+    process.stderr.write(`[${SERVER_NAME}] startup import failed: ${e?.stack ?? e}\n`);
+    process.exit(1);
   });
 }
