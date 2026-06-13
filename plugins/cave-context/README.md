@@ -15,15 +15,41 @@ Unifies caveman + context-mode into one non-competing MCP server: proxies all `c
 
 cave-context replaces the caveman and context-mode plugins with a single component:
 
-- **MCP proxy** (`mcp/server.mjs`): spawns `npx -y context-mode` as an upstream server and re-exposes every `ctx_*` tool verbatim. Clients see the same tool surface as standalone context-mode.
-- **Aggregated hooks** (`hooks/hooks.json`): mid-loop PreToolUse/PostToolUse are `mcp_tool` hooks that delegate to `hook_*` tools on the same server, fanning out to both caveman and context-mode logic in one round-trip. Early-lifecycle events — SessionStart, UserPromptSubmit, PreCompact — are `command` hooks (`hooks/*.mjs`), because an `mcp_tool` hook fails open that early (the server is not reliably connected yet). SessionStart emits the caveman ruleset as `additionalContext`.
+- **MCP proxy** (`mcp/server.mjs`): launches `context-mode` as an upstream server (via the `bin/mjsx.sh` launcher) and re-exposes every `ctx_*` tool verbatim. Clients see the same tool surface as standalone context-mode.
+- **Aggregated hooks** (`hooks/hooks.json`): mid-loop PreToolUse/PostToolUse are `mcp_tool` hooks that delegate to `hook_*` tools on the same server, fanning out to both caveman and context-mode logic in one round-trip. Early-lifecycle events — SessionStart, UserPromptSubmit, PreCompact — are `command` hooks (each launched through `bin/mjsx.sh` with the `hooks/*.mjs` script as its argument), because an `mcp_tool` hook fails open that early (the server is not reliably connected yet). SessionStart emits the caveman ruleset as `additionalContext` and seeds the runtime level so per-turn reminders fire from turn 1.
 - **caveman reimplemented** in `mcp/caveman.mjs` (levels lite/full/ultra, state in `$CLAUDE_PLUGIN_DATA`).
 
 Hook matchers exclude `hook_` tools to prevent reentrancy.
 
-## Runtime requirement
+## Runtime launcher
 
-The `context-mode` npm package must be reachable via `npx`. On first call it is downloaded automatically (network required or warm npm cache). Subsequent calls use the cached version.
+All `.mjs` scripts (the MCP server, the command hooks) and the upstream `context-mode` package are launched through `bin/mjsx.sh`, a small bash launcher that owns runtime selection:
+
+- Prepends `~/.local/bin` and `~/.bun/bin` to `PATH` (non-interactive shells often miss these).
+- Prefers [bun](https://bun.sh) when `bun` is on `PATH`, otherwise falls back to node / npx.
+- Dispatches on its first argument: a `*.mjs` script runs under `bun <script>` (or `node <script>`); an npm package name runs under `bun x <pkg>` (or `npx -y <pkg>`).
+
+The `context-mode` npm package must therefore be reachable via bun or npx. On first call it is downloaded automatically (network required or warm cache); subsequent calls use the cached version.
+
+## Configuration
+
+cave-context reads its options from `pluginConfigs["cave-context"].options` in your `settings.json` (precedence: local `>` project `>` user — i.e. `${CLAUDE_PROJECT_DIR}/.claude/settings.local.json`, then `${CLAUDE_PROJECT_DIR}/.claude/settings.json`, then `~/.claude/settings.json`).
+
+| Option | Default | Effect / Value |
+|---|---|---|
+| `caveman_level` | `lite` | Default terse-output level injected at session start and used by a bare `/caveman` (no argument) or natural-language activation. Values: `lite`, `full`, `ultra`. Invalid or missing → falls back to `lite`. |
+
+Example (`~/.claude/settings.json`):
+
+```json
+{
+  "pluginConfigs": {
+    "cave-context": {
+      "options": { "caveman_level": "full" }
+    }
+  }
+}
+```
 
 ## Skills
 
