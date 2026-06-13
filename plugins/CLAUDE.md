@@ -13,6 +13,7 @@ Each plugin: `.claude-plugin/plugin.json` (manifest, holds only `version`) + com
 | `commands/` | Skills as flat `.md` files — legacy, avoid for new plugins |
 | `agents/` | Custom agent definitions |
 | `hooks/` | Event handlers in `hooks.json` |
+| `mcp/` | Self-contained zero-dep MCP stdio server (`server.mjs`, chmod +x) backing `mcp_tool` hooks |
 | `bin/` | Executables added to Bash `PATH` when plugin enabled (must be chmod +x) |
 | `.mcp.json` | MCP server configs |
 | `.lsp.json` | LSP server configs for code intelligence |
@@ -20,4 +21,12 @@ Each plugin: `.claude-plugin/plugin.json` (manifest, holds only `version`) + com
 | `settings.json` | Default settings when plugin enabled; only `agent` + `subagentStatusLine` keys honored |
 
 ## Hooks
-New/rewritten hooks: Node ES modules (`.mjs`), not shell scripts. Existing `.sh` hooks stay until rewritten.
+Pick by the decision tree (see `.claude/rules/hooks-mcp-server.md`):
+- **Non-blocking, mid-loop** (`PreToolUse`/`PostToolUse`) → **preferred:** an
+  `mcp_tool` hook backed by a self-contained plugin-local MCP server
+  (`mcp/server.mjs`, bun-preferred with node fallback, registered directly in
+  `.mcp.json`).
+- **Early-lifecycle** (`SessionStart`, etc.) or **fail-closed guards** → command
+  hooks. New/rewritten command hooks: Node ES modules (`.mjs`), not shell scripts.
+
+Existing `.sh` hooks stay until rewritten.
