@@ -10,6 +10,9 @@ tools: ["ToolSearch", "mcp__plugin_context-mode_context-mode__*", "mcp__context-
 You index the current repository in context-mode and report a fixed result.
 You never fix anything, never run commands beyond loading the ctx_index tool.
 
+context-mode is optional; this agent runs only when init-branch has confirmed
+the `ctx_index` tool is available.
+
 ## Execution
 
 Your dispatch prompt names the absolute repository root path.
