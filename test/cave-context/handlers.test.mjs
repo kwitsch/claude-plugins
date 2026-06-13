@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { handleUserPromptSubmit, handlePreToolUse, mergeContext } from "../../plugins/cave-context/mcp/handlers.mjs";
 
 const FAKE = JSON.stringify(["node", new URL("./fake-hook.mjs", import.meta.url).pathname]);
+const FAKE_HARD = JSON.stringify(["node", new URL("./fake-hook-hard.mjs", import.meta.url).pathname]);
 
 test("mergeContext joins both, caveman first", () => {
   assert.equal(mergeContext("CAVE", "CTX"), "CAVE\n\nCTX");
@@ -30,11 +31,23 @@ test("UserPromptSubmit: /caveman ultra sets level + reminder + ctx merge", async
   }
 });
 
-test("PreToolUse: caveman silent, passes through ctx hard fields", async () => {
+test("PreToolUse: no upstream, no caveman -> benign {} (no throw)", async () => {
   process.env.CAVE_CONTEXT_NO_UPSTREAM = "1";
   try {
     const out = await handlePreToolUse({ hook_event_name: "PreToolUse", tool_name: "Bash" });
     // No upstream, no caveman PreToolUse → benign empty-ish output (no throw)
     assert.ok(out && typeof out === "object");
   } finally { delete process.env.CAVE_CONTEXT_NO_UPSTREAM; }
+});
+
+test("PreToolUse: forwards ctx hard fields (permissionDecision/updatedInput/decision)", async () => {
+  process.env.CAVE_CONTEXT_HOOK_CMD = FAKE_HARD;
+  try {
+    const out = await handlePreToolUse({ hook_event_name: "PreToolUse", tool_name: "Bash" });
+    assert.equal(out.hookSpecificOutput.hookEventName, "PreToolUse");
+    assert.equal(out.hookSpecificOutput.permissionDecision, "deny");
+    assert.equal(out.hookSpecificOutput.permissionDecisionReason, "blocked by ctx");
+    assert.deepEqual(out.updatedInput, { command: "echo safe" });
+    assert.equal(out.decision, "block");
+  } finally { delete process.env.CAVE_CONTEXT_HOOK_CMD; }
 });
