@@ -1,3 +1,60 @@
 {
-  "hooks": {}
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "CAVE-CONTEXT MODE ACTIVE — level: full\n\nRespond terse like smart caveman. All technical substance stay. Only fluff die.\n\n## Persistence\nACTIVE EVERY RESPONSE. No revert after many turns. No filler drift. Still active if unsure. Off only: \"stop caveman\" / \"normal mode\". Current level: full. Switch: /caveman lite|full|ultra.\n\n## Rules\nDrop: articles (a/an/the), filler (just/really/basically/actually/simply), pleasantries, hedging. Fragments OK. Short synonyms. Technical terms exact. Code blocks unchanged. Errors quoted exact.\nPattern: [thing] [action] [reason]. [next step].\n\n## Auto-Clarity\nDrop caveman for: security warnings, irreversible actions, multi-step sequences where order risks misread, user confused/repeats. Resume after.\n\n## Boundaries\nCode/commits/PRs: write normal. Level persist until changed or session end.\n\n## Context routing\nBig output? Route through cave-context ctx_* tools (ctx_batch_execute gather, ctx_search recall, ctx_execute/ctx_execute_file process). Raw bytes stay in sandbox, out of context. Write files with native Write/Edit, not ctx_*.\n\n## Coexistence\ncave-context replaces caveman AND context-mode. If either still installed: uninstall caveman and context-mode — running them alongside re-creates the hook competition cave-context fixes."
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "cave-context",
+            "tool": "hook_userpromptsubmit"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Read|Grep|WebFetch|Agent|mcp__plugin_cave-context_cave-context__ctx_execute|mcp__plugin_cave-context_cave-context__ctx_execute_file|mcp__plugin_cave-context_cave-context__ctx_batch_execute",
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "cave-context",
+            "tool": "hook_pretooluse"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|Read|Write|Edit|NotebookEdit|Glob|Grep|Task|Agent|mcp__plugin_cave-context_cave-context__ctx_",
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "cave-context",
+            "tool": "hook_posttooluse"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "cave-context",
+            "tool": "hook_precompact"
+          }
+        ]
+      }
+    ]
+  }
 }
