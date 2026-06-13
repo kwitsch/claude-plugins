@@ -1,6 +1,6 @@
 ---
 name: coderabbit-reviewer
-description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management review-branch skill. Runs the bundled coderabbit-review.sh script against a base branch and returns structured review findings as JSON.
+description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management review-branch skill. Runs an inline coderabbit review against a base branch and returns structured review findings as JSON.
 model: haiku
 effort: low
 color: orange
@@ -41,8 +41,8 @@ tool instead.
 
 ```bash
 #!/usr/bin/env bash
-# coderabbit-review.sh <base-branch> — non-interactive CodeRabbit review of
-# the current branch against <base-branch>.
+# Non-interactive CodeRabbit review of the current branch against
+# <base-branch>. Usage: <base-branch>
 #
 # --prompt-only is the agent-optimized plain output (runs a full review).
 # The exit codes of `auth status` and `review` are not contractually
@@ -55,7 +55,7 @@ tool instead.
 #             4 review run failed (timeout, rate limit, crash)
 set -euo pipefail
 
-base="${1:?usage: coderabbit-review.sh <base-branch>}"
+base="${1:?usage: <base-branch>}"
 
 # 1) Presence — `cr` is the documented alias.
 if command -v coderabbit >/dev/null 2>&1; then bin=coderabbit

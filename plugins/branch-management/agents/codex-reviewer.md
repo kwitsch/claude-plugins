@@ -1,6 +1,6 @@
 ---
 name: codex-reviewer
-description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management review-branch skill. Runs the bundled codex-review.sh script against a base branch and returns structured review findings as JSON.
+description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management review-branch skill. Runs an inline codex review against a base branch and returns structured review findings as JSON.
 model: haiku
 effort: low
 color: purple
@@ -41,8 +41,8 @@ tool instead.
 
 ```bash
 #!/usr/bin/env bash
-# codex-review.sh <base-branch> — non-interactive Codex review of the current
-# branch against origin/<base-branch>.
+# Non-interactive Codex review of the current branch against
+# origin/<base-branch>. Usage: <base-branch>
 #
 # Codex has no non-interactive review subcommand (/review is TUI-only); the
 # official headless mode is `codex exec`, so the diff logic lives in the
@@ -54,7 +54,7 @@ tool instead.
 #             4 review run failed (timeout, rate limit, crash)
 set -euo pipefail
 
-base="${1:?usage: codex-review.sh <base-branch>}"
+base="${1:?usage: <base-branch>}"
 
 # 1) Presence
 command -v codex >/dev/null 2>&1 || exit 2

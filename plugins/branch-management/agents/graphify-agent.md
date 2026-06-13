@@ -1,6 +1,6 @@
 ---
 name: graphify-agent
-description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management init-branch and new-pr skills. Runs the bundled graphify-update.sh script to refresh the graphify output folder, optionally commits the result, and reports a structured status.
+description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management init-branch and new-pr skills. Runs the embedded graphify update to refresh the graphify output folder, optionally commits the result, and reports a structured status.
 model: haiku
 effort: low
 color: pink
@@ -28,8 +28,8 @@ ctx execute sandbox (it discards writes).
 
 ```bash
 #!/usr/bin/env bash
-# graphify-update.sh [--force] [--keep-user-files] — refresh the graphify
-# output of the current repository.
+# Refresh the graphify output of the current repository.
+# Usage: [--force] [--keep-user-files]
 #
 # Runs `graphify update .` from the repository root (resolved
 # via git, so the caller's cwd does not matter). Without --force the update
@@ -51,7 +51,7 @@ while [ $# -gt 0 ]; do
     --force) force=1 ;;
     --keep-user-files) keep_user_files=1 ;;
     *)
-      echo "usage: graphify-update.sh [--force] [--keep-user-files]" >&2
+      echo "usage: [--force] [--keep-user-files]" >&2
       exit 1
       ;;
   esac
@@ -60,7 +60,7 @@ done
 
 # 1) Repo root — graphify-out lives at the repository root regardless of cwd.
 root=$(git rev-parse --show-toplevel 2>/dev/null) || {
-  echo "usage: graphify-update.sh must run inside a git repository" >&2
+  echo "usage: must run inside a git repository" >&2
   exit 1
 }
 cd "$root"

@@ -13,9 +13,9 @@ run in `review-fixer` subagent (opus), CI watch runs in
 `ci-monitor` subagent (sonnet). Skill handles preconditions,
 dispatching review rounds, aggregation + dedupe, fix loop, submission
 and monitor loop — raw review output and CI logs never enter main
-context: subagents run commands through context-mode plugin, declared
-dependency of this plugin (native-tool fallback only when dependency
-broken). Review sources, CI monitoring and CodeRabbit comment handling
+context: subagents keep heavy output out of context via context-mode
+when it is installed, falling back to native tools otherwise. Review
+sources, CI monitoring and CodeRabbit comment handling
 are individually togglable via the plugin's `userConfig` options,
 read in preconditions (step 4).
 
@@ -113,7 +113,6 @@ read in preconditions (step 4).
    (Agent tool; new-pr runs inline at depth 0, so it can dispatch). Resolve
    `${CLAUDE_PLUGIN_ROOT}` to a concrete path via `echo "${CLAUDE_PLUGIN_ROOT}"`
    if not already done. Prompt contains:
-   - absolute path `<plugin-root>/bin/graphify-update.sh`;
    - `commit: yes` when `graphify_pr_commit` is not literally `false`,
      otherwise `commit: no`;
    - `force: yes` only when `graphify_force_create` is literally `true`,

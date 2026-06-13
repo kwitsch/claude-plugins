@@ -40,8 +40,7 @@ infer availability from your own tool list.
 
    - `branch-management:graphify-agent` — dispatch ONLY when the probe
      printed `GRAPHIFY=yes` AND `${user_config.graphify_branch_update}` is
-     not literally `false`. Prompt contains: absolute path
-     `<plugin-root>/bin/graphify-update.sh`;
+     not literally `false`. Prompt contains:
      `commit: no` (always);
      `force: yes` only when `${user_config.graphify_force_create}` is
      literally `true`, otherwise `force: no` (FAIL-CLOSED);

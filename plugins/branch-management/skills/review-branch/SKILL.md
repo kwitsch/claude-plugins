@@ -74,12 +74,10 @@ skip all rounds and continue to the report. Resolve the script paths
 once and reuse:
 
 - `branch-management:claude-reviewer` — prompt contains: base branch `$base`.
-- `branch-management:codex-reviewer` — prompt contains: base branch `$base`,
-  absolute path `<$plugin_root>/bin/codex-review.sh`.
+- `branch-management:codex-reviewer` — prompt contains: base branch `$base`.
 - `branch-management:copilot-reviewer` — prompt contains: base branch `$base`,
   absolute path `<$plugin_root>/bin/copilot-review.sh`.
-- `branch-management:coderabbit-reviewer` — prompt contains: base branch `$base`,
-  absolute path `<$plugin_root>/bin/coderabbit-review.sh`.
+- `branch-management:coderabbit-reviewer` — prompt contains: base branch `$base`.
 
 Each agent returns `{tool, status, login_hint?, error?, findings}`.
 Handle statuses: `missing` → skip silently; `no_auth` → skip, record
