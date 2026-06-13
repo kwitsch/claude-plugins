@@ -12,14 +12,15 @@ function upstreamCmd() {
 }
 
 export class Upstream {
-  constructor() { this.child = null; this.pending = new Map(); this.nextId = 1; this.tools = []; }
+  constructor() { this.child = null; this.rl = null; this.pending = new Map(); this.nextId = 1; this.tools = []; }
 
   start() {
     const [bin, ...args] = upstreamCmd();
     this.child = spawn(bin, args, { stdio: ["pipe", "pipe", "inherit"] });
     this.child.on("exit", () => { for (const p of this.pending.values()) p.reject(new Error("upstream exited")); this.pending.clear(); });
     this.child.on("error", () => { for (const p of this.pending.values()) p.reject(new Error("upstream spawn error")); this.pending.clear(); });
-    readline.createInterface({ input: this.child.stdout }).on("line", (l) => this._onLine(l));
+    this.rl = readline.createInterface({ input: this.child.stdout });
+    this.rl.on("line", (l) => this._onLine(l));
     return (async () => {
       await this._request("initialize", { protocolVersion: PROTOCOL, capabilities: {}, clientInfo: { name: "cave-context", version: "0.1.0" } });
       this._notify("notifications/initialized", {});
@@ -43,5 +44,5 @@ export class Upstream {
     }
   }
   callTool(name, args) { return this._request("tools/call", { name, arguments: args ?? {} }); }
-  stop() { try { this.child?.kill(); } catch { /* ignore */ } }
+  stop() { try { this.rl?.close(); } catch { /* ignore */ } try { this.child?.kill(); } catch { /* ignore */ } }
 }
