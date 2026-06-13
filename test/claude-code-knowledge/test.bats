@@ -168,3 +168,19 @@ SH
     grep -qE 'code.claude.com/docs|llms.txt|en/' "$f"
   done
 }
+
+# --- cck-* skills ---
+
+@test "each cck-* skill has frontmatter, references the workflow, and is model-invocable" {
+  for s in skill agent rule hook; do
+    f="$PLUGIN/skills/cck-$s/SKILL.md"
+    [ -f "$f" ]
+    grep -qE "^name:[[:space:]]*cck-$s[[:space:]]*$" "$f"
+    grep -qE '^description:[[:space:]]*\S' "$f"
+    grep -q 'cck-workflow.md' "$f"
+    grep -q "components/$s.md" "$f"
+    grep -q 'claude-code-knowledge:cc-knowledge' "$f"
+    run grep -nE '^disable-model-invocation:[[:space:]]*true' "$f"
+    assert_failure
+  done
+}
