@@ -13,3 +13,13 @@ setup() {
 }
 
 # TODO: add behavioral tests for this plugin's hooks here.
+
+@test "plugin.json is valid JSON" {
+  run jq empty "$REPO_ROOT/plugins/cave-context/.claude-plugin/plugin.json"
+  assert_success
+}
+
+@test "plugin.json has version" {
+  run jq -e '.version' "$REPO_ROOT/plugins/cave-context/.claude-plugin/plugin.json"
+  assert_success
+}
