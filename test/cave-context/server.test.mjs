@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const SERVER = new URL("../../plugins/cave-context/mcp/server.mjs", import.meta.url).pathname;
 const FAKE = JSON.stringify(["node", new URL("./fake-upstream.mjs", import.meta.url).pathname]);
@@ -30,4 +33,22 @@ test("server lists proxied + hook tools and routes calls", async () => {
     assert.ok(list.includes("hook_userpromptsubmit"));
     assert.match(JSON.stringify(out.find((m) => m.id === 3).result), /echo:\{/);
   } finally { proc.kill(); }
+});
+
+test("server routes hook_ tools/call through HANDLERS and returns both channels", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "cc-srv-"));
+  const proc = spawn("node", [SERVER], { env: { ...process.env, CAVE_CONTEXT_NO_UPSTREAM: "1", CLAUDE_PLUGIN_DATA: dir }, stdio: ["pipe", "pipe", "inherit"] });
+  try {
+    const out = await rpc(proc, [
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "t", version: "0" } } },
+      { jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "hook_userpromptsubmit", arguments: { hook_event_name: "UserPromptSubmit", prompt: "/caveman ultra" } } },
+    ]);
+    const result = out.find((m) => m.id === 4).result;
+    // Routing + content wrapping: handler output is JSON-stringified into the text channel.
+    const parsed = JSON.parse(result.content[0].text);
+    assert.ok(parsed.hookSpecificOutput, "hook handler output carries hookSpecificOutput");
+    assert.match(parsed.hookSpecificOutput.additionalContext, /ultra/);
+    // Contract: structuredContent must deep-equal the parsed handler result (mcp_tool extraction channel).
+    assert.deepEqual(result.structuredContent, parsed);
+  } finally { proc.kill(); rmSync(dir, { recursive: true, force: true }); }
 });

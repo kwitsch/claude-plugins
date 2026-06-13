@@ -78,7 +78,7 @@ function startServer() {
           if (HANDLERS[name]) {
             if (process.env.MCP_HOOK_DEBUG) process.stderr.write(`[${SERVER_NAME}] hook tool: ${name}\n`);
             const result = await HANDLERS[name](params?.arguments ?? {});
-            return ok(id, { content: [{ type: "text", text: JSON.stringify(result) }] });
+            return ok(id, { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result });
           }
           const upTools = await ensureUp();
           if (!upTools.length) return fail(id, -32603, "upstream context-mode server unavailable");
