@@ -21,12 +21,19 @@ Each plugin: `.claude-plugin/plugin.json` (manifest, holds only `version`) + com
 | `settings.json` | Default settings when plugin enabled; only `agent` + `subagentStatusLine` keys honored |
 
 ## Hooks
-Pick by the decision tree (see `.claude/rules/hooks-mcp-server.md`):
-- **Non-blocking, mid-loop** (`PreToolUse`/`PostToolUse`) → **preferred:** an
-  `mcp_tool` hook backed by a self-contained plugin-local MCP server
+Pick by the decision tree (see `.claude/rules/hooks-mcp-server.md`) — a command hook
+is required only in the cases below; otherwise prefer `mcp_tool`. Confirm the event's
+row in `.claude/rules/hooks-mcp-tool-event-matrix.md` (`documented` rows only).
+- **command hook** when **any** holds: the event fires **before the server connects**
+  (`SessionStart`/`Setup`); it must be a **fail-closed hard gate** (needs exit 2 —
+  `mcp_tool` fails open); it is a **fail-open-sensitive side-effect that must reliably
+  fire** (e.g. a `PreCompact` snapshot, or a state-write other hooks read); or it is
+  **latency-sensitive / high-frequency** (`UserPromptSubmit` 30 s, `MessageDisplay`
+  10 s). New/rewritten command hooks: Node ES modules (`.mjs`), not shell scripts.
+- **`mcp_tool` hook** otherwise — non-blocking, mid-session context injection /
+  observation (`PreToolUse`, `PostToolUse`, `Stop`, `SubagentStop`, … — all `full` in
+  the matrix). **Preferred:** backed by a self-contained plugin-local MCP server
   (`mcp/server.mjs`, bun-preferred with node fallback, registered directly in
-  `.mcp.json`).
-- **Early-lifecycle** (`SessionStart`, etc.) or **fail-closed guards** → command
-  hooks. New/rewritten command hooks: Node ES modules (`.mjs`), not shell scripts.
+  `.mcp.json`). `mcp_tool` can *soft*-block via returned JSON but never hard-gate.
 
 Existing `.sh` hooks stay until rewritten.

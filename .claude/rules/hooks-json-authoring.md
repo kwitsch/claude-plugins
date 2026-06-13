@@ -65,12 +65,17 @@ running a command. Fields (besides the common ones): `server` (required — name
 of a configured, connected MCP server; the hook never triggers a connection
 flow) and `tool` (required — the tool to call).
 
-Two consequences: it only fires reliably for **mid-loop** events
-(`PreToolUse`/`PostToolUse`), and if the server is down it **fails open** (silent
-no-op). So `mcp_tool` is for **non-blocking** hooks only — early-lifecycle hooks
-and fail-closed guards stay command hooks. The preferred shape (a self-contained
-plugin-local `mcp/server.mjs`, bun-preferred with node fallback) is documented in
-the **hooks-mcp-server** rule.
+Two consequences: it needs the server **already connected** (so it can't serve
+the *pre-connect* events `SessionStart`/`Setup` — on first run the server is not
+up and the hook **fails open**, a silent no-op), and it expresses any decision
+**only via returned JSON**, never exit code 2. So it can *soft*-block on
+block-capable events but cannot be a fail-closed hard gate. It fires fine for
+mid-session events well beyond `PreToolUse`/`PostToolUse` — `Stop`,
+`SubagentStop`, `PostToolUseFailure`, `PreCompact`, `ConfigChange`, etc. are all
+`full`. Choose the handler with the **hooks-mcp-server** decision tree and the
+per-event **hooks-mcp-tool-event-matrix** reference; the preferred shape (a
+self-contained plugin-local `mcp/server.mjs`, bun-preferred with node fallback)
+is documented in the **hooks-mcp-server** rule.
 
 ```json
 {
