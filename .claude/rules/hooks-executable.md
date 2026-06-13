@@ -2,11 +2,12 @@
 paths:
   - "plugins/*/hooks/*.sh"
   - "plugins/*/hooks/*.mjs"
+  - "plugins/*/mcp/*.mjs"
 ---
 
 # Rule: hook files must be executable
 
-All `.sh` and `.mjs` files under `plugins/*/hooks/` MUST have executable bit set. Claude Code silently skips non-executable hook files.
+All `.sh` and `.mjs` files under `plugins/*/hooks/`, and the self-contained MCP server `.mjs` under `plugins/*/mcp/`, MUST have the executable bit set. Claude Code silently skips non-executable hook files, and a non-executable `mcp/server.mjs` fails to start — so its `mcp_tool` hook then fails open.
 
 **After creating or writing any file in `plugins/*/hooks/` path, immediately run:**
 
@@ -14,10 +15,10 @@ All `.sh` and `.mjs` files under `plugins/*/hooks/` MUST have executable bit set
 chmod +x <file>
 ```
 
-Never leave a hook file without executable bit. Applies to both `.sh` and `.mjs` hooks.
+Never leave a hook file without executable bit. Applies to `.sh` and `.mjs` hooks under `hooks/` and the `mcp/server.mjs` server.
 
-**Verification:** After any Write or Edit to a `plugins/*/hooks/` file, confirm with:
+**Verification:** After any Write or Edit to a `plugins/*/hooks/` or `plugins/*/mcp/` file, confirm with:
 
 ```bash
-ls -la plugins/<name>/hooks/
+ls -la plugins/<name>/hooks/ plugins/<name>/mcp/
 ```
