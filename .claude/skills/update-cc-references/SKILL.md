@@ -38,7 +38,7 @@ If a URL 404s, run a `WebSearch` for the doc title (e.g. "Claude Code sub-agents
 
 Copy this checklist and track progress:
 
-```
+```text
 Update Progress:
 - [ ] 1. Resolve target file(s) from $ARGUMENTS
 - [ ] 2. Read the current reference file(s) on disk
