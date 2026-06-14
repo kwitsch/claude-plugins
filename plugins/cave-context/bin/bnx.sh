@@ -12,7 +12,7 @@
 # Use ${HOME}, never ~ (~ does not expand inside quotes / some non-interactive shells).
 set -euo pipefail
 
-export PATH="${HOME}/.local/bin:${HOME}/.bun/bin:${PATH}"
+export PATH="${HOME:-}/.local/bin:${HOME:-}/.bun/bin:${PATH}"
 
 if [ "$#" -eq 0 ]; then
   echo "bnx.sh: missing argument (expected a .mjs script or an npm package name)" >&2
