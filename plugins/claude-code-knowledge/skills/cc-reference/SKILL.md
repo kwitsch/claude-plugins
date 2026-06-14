@@ -21,19 +21,26 @@ Files live next to this skill:
 2. From the section index, pick the matching `## heading`. `Grep -n` that heading text in the file to get its line number.
 3. `Read` that file starting at the heading line with a small limit (~30–70 lines) to capture just that section. Extend the range minimally only if the section is cut off.
 4. Answer concisely in the user's language, naming the section you used. Keep field names, frontmatter keys, env vars, and tool names exact. Give the key directives, not a verbatim dump.
-5. If nothing matches the index, `Grep -ni` the question's keywords across both files, then read the best-matching span.
+5. If nothing matches the index, `Grep -ni` the question's keywords across the reference files, then read the best-matching span.
 
 Never `cat`/read an entire reference file. Load only matched sections so the main context stays small.
 
 ## Routing map (topic → file)
 
-**skills-reference** — skill discovery & progressive disclosure, SKILL.md frontmatter, command-name mapping, conciseness / degrees of freedom, descriptions & naming, progressive-disclosure patterns, workflows & feedback loops, executable-code/script best practices, MCP tool references, invocation control (`disable-model-invocation`, `user-invocable`), skill content lifecycle & compaction budget, dynamic context injection (`` !`cmd` `` / substitutions / `${CLAUDE_SKILL_DIR}`), `context: fork`, skill scopes & precedence, skill permissions (`allowed-tools`, `Skill(...)`, `skillOverrides`), evals, anti-patterns, pre-ship checklist.
+Map key → file on disk: `skills-reference` → `claude-code-skills-reference.md`;
+`agents-reference` → `claude-code-agents-reference.md`; `hooks-reference` →
+`claude-code-hooks-reference.md`; `hook-handler-selection` →
+`hook-handler-selection.md`. Hook questions usually need **both** hooks files
+(`claude-code-hooks-reference.md` for mechanics, `hook-handler-selection.md` for
+which handler `type`).
 
-**agents-reference** — subagent vs main vs skill vs fork decision, built-in agents (Explore/Plan/general-purpose), agent scopes & precedence, subagent frontmatter, model resolution order, tool/capability control (`tools`/`disallowedTools`/`Agent(...)`), MCP scoping, permission modes, conditional `PreToolUse` rules, preload skills (`skills:` field), persistent memory, hooks (`SubagentStart`/`SubagentStop`), delegation & `--agent`, foreground/background, parallel/chain patterns, nested subagents, forks, startup context, resume/transcripts, plugin restrictions, disabling subagents.
+**skills-reference** (`claude-code-skills-reference.md`) — skill discovery & progressive disclosure, SKILL.md frontmatter, command-name mapping, conciseness / degrees of freedom, descriptions & naming, progressive-disclosure patterns, workflows & feedback loops, executable-code/script best practices, MCP tool references, invocation control (`disable-model-invocation`, `user-invocable`), skill content lifecycle & compaction budget, dynamic context injection (`` !`cmd` `` / substitutions / `${CLAUDE_SKILL_DIR}`), `context: fork`, skill scopes & precedence, skill permissions (`allowed-tools`, `Skill(...)`, `skillOverrides`), evals, anti-patterns, pre-ship checklist.
 
-**hooks-reference** — hook events catalog & cadence, hook locations/scope, matcher semantics (3 modes, per-event field, MCP tool matching), `if` field, handler field tables (common/command/http/mcp_tool/prompt/agent), exec vs shell form + path placeholders, input schema (common + tool_input), exit codes + exit-2-per-event, HTTP response handling, JSON output (universal/`decision`/`hookSpecificOutput`), `additionalContext`, `terminalSequence`, decision-control-by-event, content rewriting, SessionStart env/`reloadSkills`, hooks in skills/agents, `/hooks` menu, `disableAllHooks`, security constraints.
+**agents-reference** (`claude-code-agents-reference.md`) — subagent vs main vs skill vs fork decision, built-in agents (Explore/Plan/general-purpose), agent scopes & precedence, subagent frontmatter, model resolution order, tool/capability control (`tools`/`disallowedTools`/`Agent(...)`), MCP scoping, permission modes, conditional `PreToolUse` rules, preload skills (`skills:` field), persistent memory, hooks (`SubagentStart`/`SubagentStop`), delegation & `--agent`, foreground/background, parallel/chain patterns, nested subagents, forks, startup context, resume/transcripts, plugin restrictions, disabling subagents.
 
-**hook-handler-selection** — choosing the handler `type`: decision rules top→bottom, fail-open vs fail-closed (security gating), type comparison table (process/latency/hard-block/state/timeout), `mcp_tool` shape, command exec/shell form on Windows, hard constraints, quick map (hot-path/stateful/semantic/off-host).
+**hooks-reference** (`claude-code-hooks-reference.md`) — hook events catalog & cadence, hook locations/scope, matcher semantics (3 modes, per-event field, MCP tool matching), `if` field, handler field tables (common/command/http/mcp_tool/prompt/agent), exec vs shell form + path placeholders, input schema (common + tool_input), exit codes + exit-2-per-event, HTTP response handling, JSON output (universal/`decision`/`hookSpecificOutput`), `additionalContext`, `terminalSequence`, decision-control-by-event, content rewriting, SessionStart env/`reloadSkills`, hooks in skills/agents, `/hooks` menu, `disableAllHooks`, security constraints.
+
+**hook-handler-selection** (`hook-handler-selection.md`) — choosing the handler `type`: decision rules top→bottom, fail-open vs fail-closed (security gating), type comparison table (process/latency/hard-block/state/timeout), `mcp_tool` shape, command exec/shell form on Windows, hard constraints, quick map (hot-path/stateful/semantic/off-host).
 
 ## Section index
 
