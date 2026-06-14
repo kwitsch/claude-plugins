@@ -148,6 +148,13 @@ setup() {
   done
 }
 
+@test "update-cc-references release does a patch bump and stamps the ingestion date" {
+  run grep -iE 'Patch version bump' "$MAINT"
+  [ "$status" -eq 0 ]
+  run grep -F 'CC docs read:' "$MAINT"
+  [ "$status" -eq 0 ]
+}
+
 # --- No stray rejected components ---
 
 @test "old rejected runtime-fetch artifacts are absent" {

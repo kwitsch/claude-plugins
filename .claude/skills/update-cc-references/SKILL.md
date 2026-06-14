@@ -114,19 +114,31 @@ drive a release ONLY if a reference file actually changed.
      print the short changelog, and STOP. Make no commit, no version bump, no PR.
    - **Output present** → continue.
 
-2. **Minor version bump** in `plugins/claude-code-knowledge/.claude-plugin/plugin.json`:
-   bump the middle number, reset patch to 0 (e.g. `0.1.0` → `0.2.0`). The version
-   lives ONLY in `plugin.json` (per `.claude/rules/plugin-versioning.md`). Do NOT
-   edit any version in `marketplace.json` and do NOT create a git tag — CI
+2. **Patch version bump** in `plugins/claude-code-knowledge/.claude-plugin/plugin.json`:
+   bump only the last number, leave major/minor untouched (e.g. `0.1.0` → `0.1.1`).
+   The version lives ONLY in `plugin.json` (per `.claude/rules/plugin-versioning.md`).
+   Do NOT edit any version in `marketplace.json` and do NOT create a git tag — CI
    (`tag-on-version-bump.yml`) tags after the PR merges.
 
-3. **Commit, push, open PR** by invoking the `commit-commands:commit-push-pr`
+3. **Stamp the ingestion date into the `description`** in the same `plugin.json`.
+   The date is when the docs were read this run — the same date written to the
+   reference files' `verified` headers (today). Append/refresh a suffix at the END
+   of the existing `description` string in this exact, stable form:
+   `... (CC docs read: YYYY-MM-DD)`.
+   - **Idempotent:** if the description already ends with a `(CC docs read: …)`
+     suffix, REPLACE its date in place — never stack a second suffix. Match/replace
+     the trailing ` (CC docs read: <date>)` token; keep the rest of the description
+     unchanged.
+   - Do not change the marketplace.json description here (it has no date suffix).
+
+4. **Commit, push, open PR** by invoking the `commit-commands:commit-push-pr`
    skill (Skill tool). Stage the changed reference files and the bumped
    `plugin.json`. Use a Conventional-Commit subject such as
-   `feat(claude-code-knowledge): refresh CC reference files`. Commit messages must
+   `fix(claude-code-knowledge): refresh CC reference files`. Commit messages must
    carry NO `Co-Authored-By:` trailer and NO "Generated with Claude Code" footer
    (repo convention). If `commit-push-pr` is unavailable, fall back to inline git:
    create a branch off the default branch if currently on it, commit, push, and
    `gh pr create`.
 
-4. **Report** the new version, the PR URL, and the changelog from the update step.
+5. **Report** the new version, the ingestion date stamped into the description, the
+   PR URL, and the changelog from the update step.
