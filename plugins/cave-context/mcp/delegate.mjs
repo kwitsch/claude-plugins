@@ -10,10 +10,14 @@ function hookCmd() {
     try { const a = JSON.parse(process.env.CAVE_CONTEXT_HOOK_CMD); if (Array.isArray(a) && a.length) return a; } catch { /* fall through */ }
   }
   // Platform token `claude-code` and lowercase event keys (pretooluse/posttooluse/
-  // precompact/sessionstart/userpromptsubmit) verified against context-mode 1.0.162
-  // cli.bundle.mjs `mq` routing map. The CLI process.exit(1)s silently on an unknown
-  // platform/event key (no stdout/stderr), and delegateHook() fails open (returns null)
-  // on any error — so the event MUST be lowercased before it reaches the CLI.
+  // precompact/userpromptsubmit) verified against context-mode 1.0.162 cli.bundle.mjs
+  // `mq` routing map; cave-context delegates exactly those four. `sessionstart` is
+  // ALSO a valid context-mode key but is intentionally NOT delegated — SessionStart
+  // is handled wholly by cave-context's own ruleset (context-mode's routing guidance
+  // is reimplemented inline in sessionprompt.mjs), so there is no SessionStart caller.
+  // The CLI process.exit(1)s silently on an unknown platform/event key (no stdout/
+  // stderr), and delegateHook() fails open (returns null) on any error — so the event
+  // MUST be lowercased before it reaches the CLI.
   // Launch via bin/bnx.sh (bun x / npx -y by bun presence); package name "context-mode".
   const bnx = fileURLToPath(new URL("../bin/bnx.sh", import.meta.url));
   return [bnx, "context-mode", "hook", "claude-code"];
