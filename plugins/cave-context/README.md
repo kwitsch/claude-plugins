@@ -38,3 +38,12 @@ caveman compression is fixed at the `full` level — there is no `userConfig` to
 | Skill | What it does |
 |---|---|
 | `stat` | Show measured context-mode context-window savings (caveman fixed at full) |
+
+## License & attribution
+
+cave-context itself is licensed under the repository's MIT license (© 2026 Kwitsch).
+
+It is a derivative/integration of two upstream plugins:
+
+- **caveman** ([JuliusBrussee/caveman](https://github.com/JuliusBrussee/caveman)) — MIT, © 2026 Julius Brussee. cave-context's caveman ruleset (`mcp/caveman.mjs`) is adapted from caveman; its MIT notice is reproduced in [`NOTICE`](NOTICE).
+- **context-mode** ([mksglu/context-mode](https://github.com/mksglu/context-mode)) — Elastic License 2.0, © 2026 Mert Koseoglu. cave-context proxies/delegates to the `context-mode` npm package at runtime; it **does not bundle context-mode source** (the package is installed separately via bun/npx), so no ELv2 code is redistributed here.
