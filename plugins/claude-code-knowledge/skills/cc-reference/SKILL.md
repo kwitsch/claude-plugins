@@ -78,7 +78,7 @@ Model resolution order
 Tool & capability control
 MCP scoping
 Permission modes
-Conditional rules (finer than tools)
+Conditional rules (finer than `tools`)
 Preload skills into a subagent
 Persistent memory
 Hooks
@@ -102,7 +102,7 @@ Hook locations / scope
 Event catalog (cadence + when)
 Matcher semantics                          # incl. if field, MCP tool matching
 Handler types (field tables)               # incl. Exec vs shell form
-Input (stdin / POST body)
+Input (stdin for command; POST body for http)
 Exit codes                                 # incl. exit 2 effect per event
 HTTP response handling
 JSON output                                # universal; decision control by event; content rewriting
@@ -116,7 +116,7 @@ Version gates
 ### hook-handler-selection.md
 ```
 Handler types
-Decision rules — top→bottom, first match wins
+Decision rules — evaluate top→bottom, first match wins
 Type comparison
 mcp_tool handler shape
 command form (.sh / .mjs / binary)
