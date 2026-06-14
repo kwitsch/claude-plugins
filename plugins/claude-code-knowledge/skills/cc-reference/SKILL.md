@@ -18,7 +18,7 @@ Files live next to this skill:
 ## Retrieval procedure
 
 1. Pick the file from the question using the routing map below. If the topic appears in both (forks, preload-skills, `context: fork`), check both. Hook questions usually need **both** hooks files: `claude-code-hooks-reference.md` for mechanics, `hook-handler-selection.md` for "which `type` should I use".
-2. From the section index, pick the matching `## heading`. `Grep -n` that heading text in the file to get its line number.
+2. From the section index, pick the matching entry — it is an abbreviated navigation label, not a verbatim heading. `Grep -n` a distinctive substring of it (the leading words) to find the actual `## ` heading and its line number; real headings may carry version-gate or qualifier suffixes the index omits.
 3. `Read` that file starting at the heading line with a small limit (~30–70 lines) to capture just that section. Extend the range minimally only if the section is cut off.
 4. Answer concisely in the user's language, naming the section you used. Keep field names, frontmatter keys, env vars, and tool names exact. Give the key directives, not a verbatim dump.
 5. If nothing matches the index, `Grep -ni` the question's keywords across the reference files, then read the best-matching span.
@@ -43,6 +43,8 @@ which handler `type`).
 **hook-handler-selection** (`hook-handler-selection.md`) — choosing the handler `type`: decision rules top→bottom, fail-open vs fail-closed (security gating), type comparison table (process/latency/hard-block/state/timeout), `mcp_tool` shape, command exec/shell form on Windows, hard constraints, quick map (hot-path/stateful/semantic/off-host).
 
 ## Section index
+
+Entries are abbreviated navigation labels, not verbatim `## ` headings — real headings may include version-gate or qualifier suffixes. Match by distinctive substring (see retrieval step 2).
 
 ### claude-code-skills-reference.md
 ```
