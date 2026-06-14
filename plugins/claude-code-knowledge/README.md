@@ -14,6 +14,12 @@ Lookup skill plus harness-optimized reference files for authoring Claude Code sk
 |---|---|
 | `cc-reference` | Looks up the relevant section from the bundled reference files and loads only that section into context, keeping token cost low. |
 
+## Agents
+
+| Agent | Model | Role |
+|---|---|---|
+| `claude-code-expert` | haiku | Answers Claude Code authoring questions (skills, subagents, hooks) strictly via the `cc-reference` skill — read-only, never from training memory. A `PreToolUse` hook transparently reroutes the built-in `claude-code-guide` agent to it, so existing "ask the guide" flows get the curated answer. |
+
 ## Reference files
 
 | File | Covers |
@@ -32,6 +38,8 @@ Once installed, invoke the skill with your question:
 ```
 
 The skill matches your question against the section index in `SKILL.md` and loads only the matched reference section, keeping context small. The bundled reference files are the primary source (no network needed). When they don't cover a question, the skill falls back to `WebFetch` against the current official Anthropic docs and flags that the answer came from live docs rather than the bundled reference — a hint to run `/update-cc-references`.
+
+You can also let the expert agent drive: any dispatch of the built-in `claude-code-guide` subagent is rerouted by a `PreToolUse` hook to `claude-code-knowledge:claude-code-expert`, which answers only from the cc-reference knowledge and has no write access.
 
 ## Maintenance
 
