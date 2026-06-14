@@ -22,6 +22,7 @@ jobs:
           - cctools-edit
           - branch-management
           - superpowers-automation
+          - claude-code-knowledge
     steps:
       - name: Checkout
         uses: actions/checkout@v6

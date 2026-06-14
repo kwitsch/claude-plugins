@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "claude-code-knowledge-hooks",
+            "tool": "reroute_guide"
+          }
+        ]
+      }
+    ]
+  }
+}

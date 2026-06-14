@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "claude-code-knowledge-hooks": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"
+    }
+  }
+}
