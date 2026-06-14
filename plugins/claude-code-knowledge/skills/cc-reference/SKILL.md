@@ -1,6 +1,6 @@
 ---
 name: cc-reference
-description: Answers questions about authoring Claude Code Skills, subagents, and hooks (frontmatter fields, lifecycle, permissions, invocation, dynamic context injection, forks, memory, hook events/matchers/exit-codes/decision-control, hook handler-type choice) by retrieving only the relevant section from the bundled reference files, falling back to the live official docs via WebFetch when the bundled files don't cover the question. Use when the user asks how a Claude Code skill, subagent, or hook feature works, or invokes /cc-reference with a question.
+description: Answers questions about authoring and configuring Claude Code — Skills, subagents, hooks, slash commands, MCP servers, plugins, CLAUDE.md memory, and settings/permissions (frontmatter fields, lifecycle, invocation, dynamic context, forks, hook events/matchers/exit-codes, handler-type choice, .mcp.json/transports, plugin.json/marketplace, settings.json/env vars/permission modes) by retrieving only the relevant section from the bundled reference files, falling back to the live official docs via WebFetch when the bundled files don't cover the question. Use when the user asks how a Claude Code authoring or configuration feature works, or invokes /cc-reference with a question.
 argument-hint: [your question]
 allowed-tools: Read, Grep, WebFetch, WebSearch
 ---
@@ -14,6 +14,11 @@ Files live next to this skill:
 - `${CLAUDE_SKILL_DIR}/claude-code-agents-reference.md` — authoring **subagents / agents**
 - `${CLAUDE_SKILL_DIR}/claude-code-hooks-reference.md` — **hooks** mechanics (events, matchers, I/O, exit codes, decision control)
 - `${CLAUDE_SKILL_DIR}/hook-handler-selection.md` — choosing a hook **handler `type`** (command/.sh/.mjs/binary vs http/mcp_tool/prompt/agent)
+- `${CLAUDE_SKILL_DIR}/claude-code-commands-reference.md` — authoring **slash commands** (`.claude/commands`, frontmatter, `$ARGUMENTS`, dynamic context, namespacing)
+- `${CLAUDE_SKILL_DIR}/claude-code-mcp-reference.md` — **MCP** integration (`.mcp.json`, transports, scopes, auth, tool naming, managed restrictions)
+- `${CLAUDE_SKILL_DIR}/claude-code-plugins-reference.md` — **plugins** (`plugin.json`/`marketplace.json`, layout, path variables, components, CLI)
+- `${CLAUDE_SKILL_DIR}/claude-code-memory-reference.md` — **memory** (`CLAUDE.md` locations/precedence, `@imports`, auto-memory)
+- `${CLAUDE_SKILL_DIR}/claude-code-settings-reference.md` — **settings/config** (`settings.json`, env vars, permissions & modes, model config, output styles, statusline, sandboxing)
 
 ## Retrieval procedure
 
@@ -34,13 +39,22 @@ docs the `update-cc-references` maintenance skill refreshes from:
 - **skills** → `https://code.claude.com/docs/en/skills` (+ best practices: `https://docs.claude.com/en/docs/agents-and-tools/agent-skills/best-practices`)
 - **subagents / agents** → `https://code.claude.com/docs/en/sub-agents`
 - **hooks** (mechanics + handler selection) → `https://code.claude.com/docs/en/hooks` (+ examples: `https://code.claude.com/docs/en/hooks-guide`)
+- **slash commands** → `https://code.claude.com/docs/en/slash-commands` (+ built-ins: `https://code.claude.com/docs/en/commands`)
+- **MCP** → `https://code.claude.com/docs/en/mcp` (+ `https://code.claude.com/docs/en/mcp-quickstart`, `https://code.claude.com/docs/en/managed-mcp`)
+- **plugins** → `https://code.claude.com/docs/en/plugins` (+ `https://code.claude.com/docs/en/plugins-reference`, `https://code.claude.com/docs/en/plugin-marketplaces`)
+- **memory** → `https://code.claude.com/docs/en/memory`
+- **settings/config** → `https://code.claude.com/docs/en/settings` (+ `env-vars`, `permissions`, `permission-modes`, `model-config`, `output-styles`, `statusline`, `sandboxing` under `https://code.claude.com/docs/en/`)
 
 ## Routing map (topic → file)
 
 Map key → file on disk: `skills-reference` → `claude-code-skills-reference.md`;
 `agents-reference` → `claude-code-agents-reference.md`; `hooks-reference` →
 `claude-code-hooks-reference.md`; `hook-handler-selection` →
-`hook-handler-selection.md`. Hook questions usually need **both** hooks files
+`hook-handler-selection.md`; `commands-reference` →
+`claude-code-commands-reference.md`; `mcp-reference` → `claude-code-mcp-reference.md`;
+`plugins-reference` → `claude-code-plugins-reference.md`; `memory-reference` →
+`claude-code-memory-reference.md`; `settings-reference` →
+`claude-code-settings-reference.md`. Hook questions usually need **both** hooks files
 (`claude-code-hooks-reference.md` for mechanics, `hook-handler-selection.md` for
 which handler `type`).
 
@@ -51,6 +65,16 @@ which handler `type`).
 **hooks-reference** (`claude-code-hooks-reference.md`) — hook events catalog & cadence, hook locations/scope, matcher semantics (3 modes, per-event field, MCP tool matching), `if` field, handler field tables (common/command/http/mcp_tool/prompt/agent), exec vs shell form + path placeholders, input schema (common + tool_input), exit codes + exit-2-per-event, HTTP response handling, JSON output (universal/`decision`/`hookSpecificOutput`), `additionalContext`, `terminalSequence`, decision-control-by-event, content rewriting, SessionStart env/`reloadSkills`, hooks in skills/agents, `/hooks` menu, `disableAllHooks`, security constraints.
 
 **hook-handler-selection** (`hook-handler-selection.md`) — choosing the handler `type`: decision rules top→bottom, fail-open vs fail-closed (security gating), type comparison table (process/latency/hard-block/state/timeout), `mcp_tool` shape, command exec/shell form on Windows, hard constraints, quick map (hot-path/stateful/semantic/off-host).
+
+**commands-reference** (`claude-code-commands-reference.md`) — custom slash commands: command vs skill, locations & precedence (`.claude/commands`, `~/.claude/commands`, plugin commands), frontmatter, `$ARGUMENTS`/`$1..$N`/named args, dynamic context (`` !`bash` ``, `@file`), namespacing & invocation, built-in commands.
+
+**mcp-reference** (`claude-code-mcp-reference.md`) — MCP integration: `.mcp.json`, config scopes & precedence, transports (stdio/http/sse/ws), server config schema, authentication, `claude mcp`/`/mcp`, tool naming & permissions (`mcp__server__tool`), managed/enterprise restrictions.
+
+**plugins-reference** (`claude-code-plugins-reference.md`) — plugin authoring: structure/layout, `plugin.json` schema, `${CLAUDE_PLUGIN_ROOT}`/`${CLAUDE_PLUGIN_DATA}`, component auto-discovery, `marketplace.json`, dependencies, hints, plugin CLI.
+
+**memory-reference** (`claude-code-memory-reference.md`) — `CLAUDE.md` memory: locations & precedence, `@imports`, auto-memory, what belongs, quick-add / `/memory`.
+
+**settings-reference** (`claude-code-settings-reference.md`) — config surface: `settings.json` & scope precedence, settings keys, env vars, permissions & permission modes, model config, output styles, statusline, sandboxed Bash.
 
 ## Section index
 
@@ -134,4 +158,69 @@ mcp_tool handler shape
 command form (.sh / .mjs / binary)
 Hard constraints
 Quick map
+```
+
+### claude-code-commands-reference.md
+```
+What a slash command is / when vs a skill
+Locations & precedence
+Frontmatter reference
+Arguments                                  # $ARGUMENTS, $1..$N, named args
+Dynamic context                            # !`bash` injection, @file references
+Environment
+Namespacing & invocation
+Built-in commands
+Version notes
+```
+
+### claude-code-mcp-reference.md
+```
+What MCP is / when to use
+Config locations & scopes
+Transports
+Server config schema
+Authentication
+Adding & managing servers
+Tool naming & permissions
+Managed MCP / enterprise
+Version notes
+```
+
+### claude-code-plugins-reference.md
+```
+What a plugin is / components
+Plugin structure & layout
+plugin.json schema
+Path variables
+Component auto-discovery
+Marketplace
+Plugin dependencies
+Plugin hints
+Plugin CLI
+Version notes
+```
+
+### claude-code-memory-reference.md
+```
+CLAUDE.md: what & when
+Locations & precedence
+Imports                                    # @path syntax, recursion depth, home-dir imports
+Auto memory
+What belongs / what doesn't
+Quick add & editing
+Version notes
+```
+
+### claude-code-settings-reference.md
+```
+settings.json: locations & scope precedence
+Settings keys
+Environment variables
+Permissions
+Permission modes
+Model configuration
+Output styles
+Statusline
+Sandboxed Bash tool
+Version notes
 ```
