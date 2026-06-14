@@ -124,14 +124,36 @@ setup() {
 
 # --- No stray rejected components ---
 
-@test "rejected PR #48 components are absent" {
-  [ ! -d "$PLUGIN/agents" ]
+@test "old rejected runtime-fetch artifacts are absent" {
+  [ ! -f "$PLUGIN/agents/cc-knowledge.md" ]
   [ ! -d "$PLUGIN/bin" ]
-  [ ! -d "$PLUGIN/hooks" ]
   [ ! -d "$PLUGIN/references" ]
   [ ! -d "$PLUGIN/skills/cck-skill" ]
   [ ! -d "$PLUGIN/skills/cck-agent" ]
   [ ! -d "$PLUGIN/skills/cck-rule" ]
   [ ! -d "$PLUGIN/skills/cck-hook" ]
   [ ! -d "$REPO_ROOT/test/claude-code-knowledge/harness" ]
+}
+
+@test "claude-code-expert agent has name and description" {
+  run grep -E '^name:[[:space:]]*claude-code-expert' "$PLUGIN/agents/claude-code-expert.md"
+  [ "$status" -eq 0 ]
+  run grep -E '^description:' "$PLUGIN/agents/claude-code-expert.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "claude-code-expert declares a model and cc-reference tools (Skill, Read, Grep)" {
+  run grep -E '^model:' "$PLUGIN/agents/claude-code-expert.md"
+  [ "$status" -eq 0 ]
+  run grep -E '^tools:.*Skill' "$PLUGIN/agents/claude-code-expert.md"
+  [ "$status" -eq 0 ]
+  run grep -E '^tools:.*Read' "$PLUGIN/agents/claude-code-expert.md"
+  [ "$status" -eq 0 ]
+  run grep -E '^tools:.*Grep' "$PLUGIN/agents/claude-code-expert.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "claude-code-expert has no write tools" {
+  run grep -E '^tools:.*(Write|Edit|NotebookEdit)' "$PLUGIN/agents/claude-code-expert.md"
+  [ "$status" -ne 0 ]
 }
