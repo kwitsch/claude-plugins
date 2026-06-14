@@ -72,16 +72,22 @@ setup() {
 
 # --- Reference files ---
 
-@test "all four reference files exist and are non-empty" {
+@test "all reference files exist and are non-empty" {
   for f in claude-code-skills-reference.md claude-code-agents-reference.md \
-           claude-code-hooks-reference.md hook-handler-selection.md; do
+           claude-code-hooks-reference.md hook-handler-selection.md \
+           claude-code-commands-reference.md claude-code-mcp-reference.md \
+           claude-code-plugins-reference.md claude-code-memory-reference.md \
+           claude-code-settings-reference.md; do
     [ -s "$SKILL/$f" ]
   done
 }
 
 @test "each reference file has at least one '## ' heading" {
   for f in claude-code-skills-reference.md claude-code-agents-reference.md \
-           claude-code-hooks-reference.md hook-handler-selection.md; do
+           claude-code-hooks-reference.md hook-handler-selection.md \
+           claude-code-commands-reference.md claude-code-mcp-reference.md \
+           claude-code-plugins-reference.md claude-code-memory-reference.md \
+           claude-code-settings-reference.md; do
     run grep -cE '^## ' "$SKILL/$f"
     [ "$status" -eq 0 ]
     [ "$output" -ge 1 ]
@@ -90,7 +96,10 @@ setup() {
 
 @test "each reference file header carries a verified date" {
   for f in claude-code-skills-reference.md claude-code-agents-reference.md \
-           claude-code-hooks-reference.md hook-handler-selection.md; do
+           claude-code-hooks-reference.md hook-handler-selection.md \
+           claude-code-commands-reference.md claude-code-mcp-reference.md \
+           claude-code-plugins-reference.md claude-code-memory-reference.md \
+           claude-code-settings-reference.md; do
     run grep -iE 'verified' "$SKILL/$f"
     [ "$status" -eq 0 ]
   done
@@ -98,7 +107,10 @@ setup() {
 
 @test "SKILL.md routing/section index names each reference file" {
   for f in claude-code-skills-reference.md claude-code-agents-reference.md \
-           claude-code-hooks-reference.md hook-handler-selection.md; do
+           claude-code-hooks-reference.md hook-handler-selection.md \
+           claude-code-commands-reference.md claude-code-mcp-reference.md \
+           claude-code-plugins-reference.md claude-code-memory-reference.md \
+           claude-code-settings-reference.md; do
     run grep -F "$f" "$SKILL/SKILL.md"
     [ "$status" -eq 0 ]
   done
@@ -118,6 +130,20 @@ setup() {
 @test "update-cc-references allowed-tools include fetch + edit + release tools" {
   for tool in WebFetch Read Edit Write Glob Bash Skill; do
     run grep -E "^allowed-tools:.*$tool" "$MAINT"
+    [ "$status" -eq 0 ]
+  done
+}
+
+@test "update-cc-references covers the new targets and files" {
+  run grep -E '^argument-hint:' "$MAINT"
+  [ "$status" -eq 0 ]
+  for tok in commands mcp plugins memory settings; do
+    printf '%s\n' "$output" | grep -q "$tok"
+  done
+  for f in claude-code-commands-reference.md claude-code-mcp-reference.md \
+           claude-code-plugins-reference.md claude-code-memory-reference.md \
+           claude-code-settings-reference.md; do
+    run grep -F "$f" "$MAINT"
     [ "$status" -eq 0 ]
   done
 }

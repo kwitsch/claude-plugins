@@ -28,6 +28,11 @@ Lookup skill plus harness-optimized reference files for authoring Claude Code sk
 | `claude-code-agents-reference.md` | Authoring Claude Code subagents: manifest fields, tool lists, delegation patterns, model selection. |
 | `claude-code-hooks-reference.md` | Hook mechanics: event types, hook schemas, lifecycle, exit codes, input/output shapes. |
 | `hook-handler-selection.md` | Choosing the right hook-handler type: decision table mapping event + behavior to command hook vs. mcp_tool hook. |
+| `claude-code-commands-reference.md` | Authoring custom slash commands: locations & precedence, frontmatter, arguments, dynamic context, namespacing; built-in commands. |
+| `claude-code-mcp-reference.md` | MCP integration: `.mcp.json`, transports, config scopes, auth, tool naming, managed restrictions. |
+| `claude-code-plugins-reference.md` | Plugin authoring: `plugin.json`/`marketplace.json` schema, layout, path variables, components, dependencies, CLI. |
+| `claude-code-memory-reference.md` | `CLAUDE.md` memory: locations & precedence, imports, auto-memory, what belongs. |
+| `claude-code-settings-reference.md` | Config surface: `settings.json` & scope precedence, env vars, permissions & modes, model config, output styles, statusline, sandboxing. |
 
 ## Usage
 
