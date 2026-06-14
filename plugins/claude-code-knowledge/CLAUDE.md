@@ -1,34 +1,34 @@
 # claude-code-knowledge — dev notes
 
-## Components
-- `bin/session-cache` — SessionStart command hook: version-scoped doc cache
-  manager (purge stale `cache-*`, ensure current, announce path). Never `rm`
-  without a guarded `${CLAUDE_PLUGIN_DATA}`.
-- `bin/redirect-guide` — PreToolUse(`Agent|Task`) command hook: reroutes
-  `claude-code-guide` → `claude-code-knowledge:cc-knowledge` via `updatedInput`
-  (never exit-2; that path is buggy for Agent/Task).
-- `agents/cc-knowledge.md` — inherits all tools (needs Bash/curl + Read/Write +
-  WebFetch). Live-docs-grounded, citation-first, never training memory.
-- `skills/cck-*` — thin wrappers over `references/cck-workflow.md` +
-  `references/components/<type>.md`; delegate current rules to `cc-knowledge`.
+## Boundary rule
+
+The plugin ships exactly one component: `plugins/claude-code-knowledge/skills/cc-reference/`.
+
+Maintenance tooling lives at `.claude/skills/update-cc-references/` (repo root) and does NOT ship — the plugin loader reads only the plugin's own `skills/` directory. Do not add agents, hooks, or bin scripts to this plugin without a deliberate design decision.
+
+## Reference-file authoring style
+
+The four files under `skills/cc-reference/` are harness reference files, not prose documentation. Follow these conventions:
+
+- Directives not prose: state rules as imperatives or tables, not explanatory paragraphs.
+- Tables for field references: frontmatter keys, schema fields, and option enumerations all go in markdown tables.
+- `verified:` date in each file's header: keep it accurate when editing.
+- Forward slashes for paths; no backslashes.
+- No time-sensitive phrasing: instead of "new in X.Y", use a version-gate note (`version >= X.Y:` prefix on the row).
+- Body under 500 lines per file.
+
+## Versioning
+
+Version lives ONLY in `.claude-plugin/plugin.json`. Rules:
+
+- Minor-bump on any reference-file refresh (handled automatically by `update-cc-references`).
+- Do NOT put a `version` field in the marketplace.json entry for this plugin.
+- Do NOT create git tags manually — CI (`tag-on-version-bump.yml`) tags after merge.
 
 ## Tests
-- `test/claude-code-knowledge/test.bats` — manifest, both hooks, agent, refs,
-  skills, harness selftest. Hermetic: stub `claude`, redirect `$HOME` and
-  `$CLAUDE_PLUGIN_DATA`, no network.
-  Run: `BATS_LIB_PATH=/usr/lib/bats bats test/claude-code-knowledge/`.
 
-## Harness (dev-only, not shipped)
-`test/claude-code-knowledge/harness/mcp-tool-hook-harness/` validates the
-mcp_tool hook event-matrix knowledge encoded in `/cck-hook` and `cc-knowledge`.
-- Hermetic, no Claude: `node scripts/selftest-mock.mjs` (run in CI via bats).
-- Full matrix (drives real `claude -p`, dev machine only):
-  `scripts/run-all.sh` (see `--dry-run` / `--include-semi`). Env overrides:
-  `CLAUDE_BIN`, `CLAUDE_PERM_MODE`, `CLAUDE_MAX_TURNS`, `CLAUDE_EXTRA_FLAGS`.
+```bash
+BATS_LIB_PATH=/usr/lib/bats bats test/claude-code-knowledge/
+```
 
-## Open verification items (from the design spec §7)
-Confirm against a live install before relying on them: `${CLAUDE_PLUGIN_DATA}`
-export + path + update-survival; `claude`/`curl` on the hook/agent PATH; the
-redirect target name (`claude-code-knowledge:cc-knowledge`); the doc URL scheme
-and `llms.txt` index; that the inherit-all agent can actually write the cache;
-and the `updatedInput`/`permissionDecision:"allow"` hook schema.
+The suite is structural: it checks the plugin manifest, the cc-reference skill shape, the four reference files, and that the update-cc-references maintenance skill is present but user-only.

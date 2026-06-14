@@ -17,7 +17,7 @@ A [Claude Code](https://docs.claude.com/en/docs/claude-code/plugins) plugin mark
 | [cctools-edit](plugins/cctools-edit/README.md) | Installs the cc-tools binary for the host OS and routes Read/Write/Edit/MultiEdit through it to preserve file encodings. |
 | [branch-management](plugins/branch-management/README.md) | Skills that cut a fresh work branch from the updated default branch and turn a finished branch into a reviewed, pushed PR/MR. |
 | [superpowers-automation](plugins/superpowers-automation/README.md) | A new-feature pipeline orchestrator (branch -> brainstorm -> review -> plan -> review -> implement) plus the file-advisor-improver reviser and an opt-in plan hook forcing Subagent-Driven implementation. |
-| [claude-code-knowledge](plugins/claude-code-knowledge/README.md) | Live-docs-grounded Claude Code authoring knowledge: a cc-knowledge agent + /cck-* skills to create, validate, and adjust skills, agents, rules, and hooks. |
+| [claude-code-knowledge](plugins/claude-code-knowledge/README.md) | Lookup skill + harness-optimized reference files for authoring Claude Code skills, subagents, and hooks; retrieves only the relevant section into context. |
 
 ## Configure plugins
 

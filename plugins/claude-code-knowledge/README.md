@@ -1,10 +1,6 @@
 # claude-code-knowledge
 
-Corrects stale model knowledge about authoring Claude Code components by
-grounding every answer in the *current* official docs (`code.claude.com/docs`).
-A SessionStart hook maintains a version-scoped local doc cache, and a PreToolUse
-hook reroutes any `claude-code-guide` subagent dispatch to the live-docs-grounded
-`cc-knowledge` agent.
+Lookup skill plus harness-optimized reference files for authoring Claude Code skills, subagents, and hooks. Retrieves only the relevant section into context.
 
 ## Install
 
@@ -16,31 +12,27 @@ hook reroutes any `claude-code-guide` subagent dispatch to the live-docs-grounde
 
 | Skill | What it does |
 |---|---|
-| `cck-skill` | Create, validate, or adjust a Skill (`SKILL.md`) against the current docs. |
-| `cck-agent` | Create, validate, or adjust a subagent (`agents/<name>.md`) against the current docs. |
-| `cck-rule` | Create, validate, or adjust a path-scoped rule (`.claude/rules/*.md`) against the current docs. |
-| `cck-hook` | Create, validate, or adjust a hook (`hooks.json` / `plugin.json` hooks) against the current docs. |
+| `cc-reference` | Looks up the relevant section from the bundled reference files and loads only that section into context, keeping token cost low. |
 
-Each skill runs `create | validate <path> | adjust <path>` and routes through the
-`cc-knowledge` agent, so frontmatter keys, schemas, and structure match the
-running Claude Code version rather than stale training memory.
+## Reference files
 
-## Agents
+| File | Covers |
+|---|---|
+| `claude-code-skills-reference.md` | Authoring Claude Code skills: frontmatter fields, trigger patterns, tool access, inline script conventions. |
+| `claude-code-agents-reference.md` | Authoring Claude Code subagents: manifest fields, tool lists, delegation patterns, model selection. |
+| `claude-code-hooks-reference.md` | Hook mechanics: event types, hook schemas, lifecycle, exit codes, input/output shapes. |
+| `hook-handler-selection.md` | Choosing the right hook-handler type: decision table mapping event + behavior to command hook vs. mcp_tool hook. |
 
-| Agent | Model | Role |
-|---|---|---|
-| `cc-knowledge` | haiku | Answers Claude Code authoring questions only from a version-scoped local cache of the live docs (fetching on miss) and cites the doc it used. Complements the built-in `claude-code-guide`. |
+## Usage
 
-## Requirements
+Once installed, invoke the skill with your question:
 
-- The `claude` CLI on PATH (used to detect the running version).
-- `curl` (the agent's primary doc fetch path) and network access to
-  `code.claude.com`. Without them the agent degrades to a WebFetch fallback and
-  reports that caching is unavailable.
+```
+/claude-code-knowledge:cc-reference <your question>
+```
 
-## Notes
+The skill matches your question against the section index in `SKILL.md` and loads only the matched reference section, keeping context small. No network calls at lookup time — the reference files ship with the plugin.
 
-- Cache location: `~/.claude/plugins/data/claude-code-knowledge/cache-<version>/`
-  (the SessionStart hook announces the exact runtime path).
-- The version-scoped layout means upgrading Claude Code transparently refreshes
-  the cached docs (old caches are purged on the next session start).
+## Maintenance
+
+Reference files are kept current by the repo-only skill `/update-cc-references [skills|agents|hooks|all]` (not shipped with the plugin). It re-fetches the official Anthropic docs, and on any change minor-bumps the version in `plugin.json` and opens a PR. CI tags the version after merge.
