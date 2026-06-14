@@ -51,10 +51,17 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
-@test "cc-reference SKILL.md allowed-tools includes Read and Grep" {
+@test "cc-reference SKILL.md allowed-tools includes Read, Grep, and WebFetch fallback" {
   run grep -E '^allowed-tools:.*Read' "$SKILL/SKILL.md"
   [ "$status" -eq 0 ]
   run grep -E '^allowed-tools:.*Grep' "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
+  run grep -E '^allowed-tools:.*WebFetch' "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-reference SKILL.md documents a live-doc fallback" {
+  run grep -iE 'Live-doc|WebFetch' "$SKILL/SKILL.md"
   [ "$status" -eq 0 ]
 }
 

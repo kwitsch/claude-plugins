@@ -1,8 +1,8 @@
 ---
 name: cc-reference
-description: Answers questions about authoring Claude Code Skills, subagents, and hooks (frontmatter fields, lifecycle, permissions, invocation, dynamic context injection, forks, memory, hook events/matchers/exit-codes/decision-control, hook handler-type choice) by retrieving only the relevant section from the bundled reference files. Use when the user asks how a Claude Code skill, subagent, or hook feature works, or invokes /cc-reference with a question.
+description: Answers questions about authoring Claude Code Skills, subagents, and hooks (frontmatter fields, lifecycle, permissions, invocation, dynamic context injection, forks, memory, hook events/matchers/exit-codes/decision-control, hook handler-type choice) by retrieving only the relevant section from the bundled reference files, falling back to the live official docs via WebFetch when the bundled files don't cover the question. Use when the user asks how a Claude Code skill, subagent, or hook feature works, or invokes /cc-reference with a question.
 argument-hint: [your question]
-allowed-tools: Read, Grep
+allowed-tools: Read, Grep, WebFetch, WebSearch
 ---
 
 # Claude Code reference lookup
@@ -22,8 +22,18 @@ Files live next to this skill:
 3. `Read` that file starting at the heading line with a small limit (~30–70 lines) to capture just that section. Extend the range minimally only if the section is cut off.
 4. Answer concisely in the user's language, naming the section you used. Keep field names, frontmatter keys, env vars, and tool names exact. Give the key directives, not a verbatim dump.
 5. If nothing matches the index, `Grep -ni` the question's keywords across the reference files, then read the best-matching span.
+6. **Live-doc fallback.** If the bundled files still don't answer the question — the topic is absent, or the matched section is silent on what was asked — `WebFetch` the current official doc for that topic from the *Live-doc sources* map below (prefer the `.md` variant; `WebSearch` for the canonical page if a URL 404s). Answer from the fetched page and **state explicitly that the answer came from the live docs, not the bundled reference** (the bundled file may simply be stale — flag it so the user can run `/update-cc-references`). Do not fall back to training memory.
 
-Never `cat`/read an entire reference file. Load only matched sections so the main context stays small.
+Never `cat`/read an entire reference file. Load only matched sections so the main context stays small. Prefer the bundled files first; the WebFetch fallback is only for gaps they don't cover.
+
+## Live-doc sources (fallback only)
+
+Fetch these only when the bundled files don't answer (step 6). Same canonical
+docs the `update-cc-references` maintenance skill refreshes from:
+
+- **skills** → `https://code.claude.com/docs/en/skills` (+ best practices: `https://docs.claude.com/en/docs/agents-and-tools/agent-skills/best-practices`)
+- **subagents / agents** → `https://code.claude.com/docs/en/sub-agents`
+- **hooks** (mechanics + handler selection) → `https://code.claude.com/docs/en/hooks` (+ examples: `https://code.claude.com/docs/en/hooks-guide`)
 
 ## Routing map (topic → file)
 

@@ -31,7 +31,7 @@ Once installed, invoke the skill with your question:
 /claude-code-knowledge:cc-reference <your question>
 ```
 
-The skill matches your question against the section index in `SKILL.md` and loads only the matched reference section, keeping context small. No network calls at lookup time — the reference files ship with the plugin.
+The skill matches your question against the section index in `SKILL.md` and loads only the matched reference section, keeping context small. The bundled reference files are the primary source (no network needed). When they don't cover a question, the skill falls back to `WebFetch` against the current official Anthropic docs and flags that the answer came from live docs rather than the bundled reference — a hint to run `/update-cc-references`.
 
 ## Maintenance
 
