@@ -1,8 +1,0 @@
-{
-  "name": "hook-harness-mock-mcp",
-  "version": "1.0.0",
-  "private": true,
-  "type": "module",
-  "description": "Zero-dependency stdio MCP mock server emitting canonical hook decisions for mcp_tool handler testing.",
-  "bin": { "hook-harness-mock": "server.mjs" }
-}
