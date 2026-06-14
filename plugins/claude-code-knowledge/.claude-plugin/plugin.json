@@ -1,8 +1,15 @@
 {
   "name": "claude-code-knowledge",
   "version": "0.1.0",
-  "description": "Live-docs-grounded Claude Code authoring knowledge: a version-scoped doc cache, a cc-knowledge agent, and /cck-* skills to create, validate, and adjust skills, agents, rules, and hooks.",
+  "description": "Lookup skill plus harness-optimized reference files for authoring Claude Code skills, subagents, and hooks. Retrieves only the relevant section into context.",
   "author": {
     "name": "Kwitsch"
-  }
+  },
+  "keywords": [
+    "claude-code",
+    "skills",
+    "subagents",
+    "hooks",
+    "reference"
+  ]
 }
