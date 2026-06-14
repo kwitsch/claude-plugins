@@ -191,54 +191,67 @@ setup() {
   [ "$status" -ne 0 ]
 }
 
-@test "hooks.json is valid JSON with a PreToolUse Agent reroute" {
+# Drive the reroute MCP server: initialize + one tools/call, echo the
+# structuredContent of the tools/call (id 2) response. $1 = arguments JSON object.
+reroute_call() {
+  printf '%s\n%s\n' \
+    '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+    "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"reroute_guide\",\"arguments\":$1}}" \
+    | node "$PLUGIN/mcp/server.mjs" 2>/dev/null \
+    | jq -c 'select(.id==2) | .result.structuredContent'
+}
+
+@test "hooks.json wires the PreToolUse Agent reroute to the mcp_tool" {
   run jq empty "$PLUGIN/hooks/hooks.json"
   [ "$status" -eq 0 ]
   run jq -e '.hooks.PreToolUse[0].matcher | test("Agent")' "$PLUGIN/hooks/hooks.json"
   [ "$output" = "true" ]
-  run jq -e '.hooks.PreToolUse[0].hooks[0].command | test("reroute-guide.mjs")' "$PLUGIN/hooks/hooks.json"
-  [ "$output" = "true" ]
+  run jq -r '.hooks.PreToolUse[0].hooks[0].type' "$PLUGIN/hooks/hooks.json"
+  [ "$output" = "mcp_tool" ]
+  run jq -r '.hooks.PreToolUse[0].hooks[0].server' "$PLUGIN/hooks/hooks.json"
+  [ "$output" = "claude-code-knowledge-hooks" ]
+  run jq -r '.hooks.PreToolUse[0].hooks[0].tool' "$PLUGIN/hooks/hooks.json"
+  [ "$output" = "reroute_guide" ]
 }
 
-@test "hooks.json invokes the .mjs directly (no node prefix; repo rule)" {
-  run jq -e '.hooks.PreToolUse[0].hooks[0].command | test("^node") | not' "$PLUGIN/hooks/hooks.json"
-  [ "$output" = "true" ]
+@test ".mcp.json registers the hooks server pointing at mcp/server.mjs" {
+  run jq empty "$PLUGIN/.mcp.json"
+  [ "$status" -eq 0 ]
+  run jq -r '.mcpServers["claude-code-knowledge-hooks"].command' "$PLUGIN/.mcp.json"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"mcp/server.mjs" ]]
 }
 
-@test "reroute-guide.mjs is executable (repo rule)" {
-  [ -x "$PLUGIN/hooks/reroute-guide.mjs" ]
+@test "mcp/server.mjs is executable (repo rule)" {
+  [ -x "$PLUGIN/mcp/server.mjs" ]
 }
 
-@test "reroute-guide.mjs reroutes claude-code-guide, preserving prompt and model" {
+@test "old command reroute hook is gone" {
+  [ ! -f "$PLUGIN/hooks/reroute-guide.mjs" ]
+}
+
+@test "reroute server reroutes claude-code-guide, preserving prompt and model" {
   if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
-  out=$(printf '%s' '{"tool_name":"Agent","tool_input":{"subagent_type":"claude-code-guide","prompt":"P","model":"m"}}' | node "$PLUGIN/hooks/reroute-guide.mjs")
-  run jq -r '.hookSpecificOutput.permissionDecision' <<<"$out"
+  sc=$(reroute_call '{"hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"subagent_type":"claude-code-guide","prompt":"P","model":"m"}}')
+  run jq -r '.hookSpecificOutput.permissionDecision' <<<"$sc"
   [ "$output" = "allow" ]
-  run jq -r '.hookSpecificOutput.updatedInput.subagent_type' <<<"$out"
+  run jq -r '.hookSpecificOutput.updatedInput.subagent_type' <<<"$sc"
   [ "$output" = "claude-code-knowledge:claude-code-expert" ]
-  run jq -r '.hookSpecificOutput.updatedInput.prompt' <<<"$out"
+  run jq -r '.hookSpecificOutput.updatedInput.prompt' <<<"$sc"
   [ "$output" = "P" ]
-  run jq -r '.hookSpecificOutput.updatedInput.model' <<<"$out"
+  run jq -r '.hookSpecificOutput.updatedInput.model' <<<"$sc"
   [ "$output" = "m" ]
 }
 
-@test "reroute-guide.mjs reroutes a case/separator variant" {
+@test "reroute server reroutes a case/separator variant" {
   if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
-  out=$(printf '%s' '{"tool_name":"Agent","tool_input":{"subagent_type":"Claude Code Guide","prompt":"x"}}' | node "$PLUGIN/hooks/reroute-guide.mjs")
-  run jq -r '.hookSpecificOutput.updatedInput.subagent_type' <<<"$out"
+  sc=$(reroute_call '{"hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"subagent_type":"Claude Code Guide","prompt":"x"}}')
+  run jq -r '.hookSpecificOutput.updatedInput.subagent_type' <<<"$sc"
   [ "$output" = "claude-code-knowledge:claude-code-expert" ]
 }
 
-@test "reroute-guide.mjs is silent for other subagents" {
+@test "reroute server is a no-op for other subagents" {
   if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
-  out=$(printf '%s' '{"tool_name":"Agent","tool_input":{"subagent_type":"general-purpose"}}' | node "$PLUGIN/hooks/reroute-guide.mjs")
-  [ -z "$out" ]
-}
-
-@test "reroute-guide.mjs fails open (exit 0, no output) on invalid JSON" {
-  if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
-  out=$(printf '%s' 'not json' | node "$PLUGIN/hooks/reroute-guide.mjs")
-  rc=$?
-  [ "$rc" -eq 0 ]
-  [ -z "$out" ]
+  sc=$(reroute_call '{"hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"subagent_type":"general-purpose"}}')
+  [ "$sc" = "{}" ]
 }

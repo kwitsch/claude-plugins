@@ -5,8 +5,9 @@
         "matcher": "Agent|Task",
         "hooks": [
           {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/reroute-guide.mjs"
+            "type": "mcp_tool",
+            "server": "claude-code-knowledge-hooks",
+            "tool": "reroute_guide"
           }
         ]
       }
