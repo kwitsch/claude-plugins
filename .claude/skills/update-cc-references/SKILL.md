@@ -1,7 +1,7 @@
 ---
 name: update-cc-references
-description: Updates the harness-optimized Claude Code reference files (claude-code-skills-reference.md, claude-code-agents-reference.md, claude-code-hooks-reference.md) by re-fetching the official Anthropic docs and applying deltas — new/renamed/removed frontmatter fields, changed best practices, new hook events/handler fields, new version gates, env vars, and settings. Use when Anthropic ships Claude Code changes or the reference files look stale.
-argument-hint: [skills|agents|hooks|all]
+description: Updates the harness-optimized Claude Code reference files (skills, agents, hooks, hook-handler-selection, commands, mcp, plugins, memory, settings) by re-fetching the official Anthropic docs and applying deltas — new/renamed/removed frontmatter fields, changed best practices, new hook events/handler fields, new MCP transports, plugin schema changes, new version gates, env vars, settings keys, and permission modes. Use when Anthropic ships Claude Code changes or the reference files look stale.
+argument-hint: [skills|agents|hooks|commands|mcp|plugins|memory|settings|all]
 disable-model-invocation: true
 allowed-tools: WebFetch, WebSearch, Read, Edit, Write, Glob, Bash, Skill
 ---
@@ -9,7 +9,8 @@ allowed-tools: WebFetch, WebSearch, Read, Edit, Write, Glob, Bash, Skill
 # Update Claude Code reference files
 
 Maintains the harness-optimized reference files against the live Anthropic docs.
-Target selected by `$ARGUMENTS`: `skills`, `agents`, `hooks`, or `all` (default `all`).
+Target selected by `$ARGUMENTS`: `skills`, `agents`, `hooks`, `commands`, `mcp`,
+`plugins`, `memory`, `settings`, or `all` (default `all`).
 
 ## Source-of-truth mapping
 
@@ -32,6 +33,25 @@ Always prefer the `.md` variant of a doc URL when it returns clean markdown; fal
 **`hook-handler-selection.md`** (CURATED decision aid — update conservatively)
 - Same source: `https://code.claude.com/docs/en/hooks`. This file is a hand-tuned decision table for choosing a handler `type`, not a 1:1 doc mirror. Only touch it when the docs change something it actually asserts: handler types, fail-open/closed semantics, per-call cost/latency/state characteristics, default timeouts, `mcp_tool`/command-form shape, exit-code/decision constraints. Preserve its rule ordering and quick-map structure. Never regenerate it wholesale.
 
+**`claude-code-commands-reference.md`**
+- Slash commands (custom `.claude/commands` authoring, frontmatter, arguments, dynamic context, namespacing): `https://code.claude.com/docs/en/slash-commands`
+- Commands reference (built-ins + bundled skills): `https://code.claude.com/docs/en/commands`
+
+**`claude-code-mcp-reference.md`**
+- MCP integration (config, transports, scopes, auth, tool naming): `https://code.claude.com/docs/en/mcp`
+- Supporting — quickstart: `https://code.claude.com/docs/en/mcp-quickstart`; managed/enterprise: `https://code.claude.com/docs/en/managed-mcp`
+
+**`claude-code-plugins-reference.md`**
+- Plugins (create, components): `https://code.claude.com/docs/en/plugins`
+- Plugins reference (schemas, CLI, component specs): `https://code.claude.com/docs/en/plugins-reference`
+- Supporting — marketplaces: `https://code.claude.com/docs/en/plugin-marketplaces`; dependencies: `https://code.claude.com/docs/en/plugin-dependencies`; hints: `https://code.claude.com/docs/en/plugin-hints`
+
+**`claude-code-memory-reference.md`**
+- Memory (CLAUDE.md files, imports, auto-memory): `https://code.claude.com/docs/en/memory`
+
+**`claude-code-settings-reference.md`**
+- Settings: `https://code.claude.com/docs/en/settings`; env vars: `https://code.claude.com/docs/en/env-vars`; permissions: `https://code.claude.com/docs/en/permissions`; permission modes: `https://code.claude.com/docs/en/permission-modes`; model config: `https://code.claude.com/docs/en/model-config`; output styles: `https://code.claude.com/docs/en/output-styles`; statusline: `https://code.claude.com/docs/en/statusline`; sandboxed Bash: `https://code.claude.com/docs/en/sandboxing`
+
 If a URL 404s, run a `WebSearch` for the doc title (e.g. "Claude Code sub-agents docs") and fetch the canonical result before proceeding. Do not update a file from search snippets alone — fetch full pages.
 
 ## Workflow
@@ -49,7 +69,7 @@ Update Progress:
 - [ ] 7. Verify against the post-update checks
 ```
 
-**1. Resolve targets.** `skills` → skills file; `agents` → agents file; `hooks` → both hooks files (`claude-code-hooks-reference.md` + `hook-handler-selection.md`, the latter per its conservative rule above); `all`/empty → everything. Locate files with `Glob` (`plugins/claude-code-knowledge/skills/cc-reference/*.md`); if absent, create them at that path. The canonical location is `plugins/claude-code-knowledge/skills/cc-reference/` — update files there.
+**1. Resolve targets.** `skills` → skills file; `agents` → agents file; `hooks` → both hooks files (`claude-code-hooks-reference.md` + `hook-handler-selection.md`, the latter per its conservative rule above); `commands` → `claude-code-commands-reference.md`; `mcp` → `claude-code-mcp-reference.md`; `plugins` → `claude-code-plugins-reference.md`; `memory` → `claude-code-memory-reference.md`; `settings` → `claude-code-settings-reference.md`; `all`/empty → everything. Locate files with `Glob` (`plugins/claude-code-knowledge/skills/cc-reference/*.md`); if absent, create them at that path. The canonical location is `plugins/claude-code-knowledge/skills/cc-reference/` — update files there.
 
 **2. Read current file(s).** Note the existing structure and the `verified` date in the header comment.
 
