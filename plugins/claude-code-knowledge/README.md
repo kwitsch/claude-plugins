@@ -1,6 +1,6 @@
 # claude-code-knowledge
 
-Lookup skill plus harness-optimized reference files for authoring Claude Code skills, subagents, and hooks. Retrieves only the relevant section into context.
+Lookup skill plus harness-optimized reference files for authoring and configuring Claude Code — skills, subagents, hooks, slash commands, MCP, plugins, CLAUDE.md memory, and settings — with a read-only expert agent that replaces the built-in claude-code-guide. Retrieves only the relevant section into context.
 
 ## Install
 

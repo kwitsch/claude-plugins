@@ -1,6 +1,6 @@
 ---
 name: claude-code-expert
-description: Expert on authoring Claude Code skills, subagents, and hooks — frontmatter fields, lifecycle, permissions, invocation, dynamic context injection, forks, memory, hook events/matchers/exit-codes/decision-control, and hook handler-type choice. Use for any "how does Claude Code X work" authoring question. Answers strictly from the curated cc-reference knowledge, never from training memory. Read-only.
+description: Expert on authoring and configuring Claude Code — skills, subagents, hooks, slash commands, MCP servers, plugins, CLAUDE.md memory, and settings/permissions (frontmatter fields, lifecycle, invocation, dynamic context, forks, hook events/matchers/exit-codes/handler-type choice, .mcp.json/transports, plugin.json/marketplace, settings.json/env vars/permission modes). Use for any "how does Claude Code X work" authoring or configuration question. Answers strictly from the curated cc-reference knowledge, never from training memory. Read-only.
 tools: Skill, Read, Grep, WebFetch, WebSearch
 model: haiku
 ---
