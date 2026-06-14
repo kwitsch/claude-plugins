@@ -33,13 +33,9 @@ setup() {
   assert_success
 }
 
-@test "UserPromptSubmit + PreCompact command hooks launch via mjsx.sh with their .mjs in args" {
-  for ev in UserPromptSubmit PreCompact; do
-    cmd="$(jq -r ".hooks.${ev}[0].hooks[0].command" "$HOOKS")"
-    [[ "$cmd" == *bin/mjsx.sh ]]
-  done
-  run jq -e '.hooks.UserPromptSubmit[0].hooks[0].args[0] | endswith("hooks/userpromptsubmit.mjs")' "$HOOKS"
-  assert_success
+@test "PreCompact command hook launches via mjsx.sh with its .mjs in args" {
+  cmd="$(jq -r '.hooks.PreCompact[0].hooks[0].command' "$HOOKS")"
+  [[ "$cmd" == *bin/mjsx.sh ]]
   run jq -e '.hooks.PreCompact[0].hooks[0].args[0] | endswith("hooks/precompact.mjs")' "$HOOKS"
   assert_success
 }
@@ -53,13 +49,18 @@ setup() {
   [ -x "$REPO_ROOT/plugins/cave-context/bin/mjsx.sh" ]
 }
 
-@test "PreToolUse + PostToolUse are mcp_tool on the cave-context server" {
-  run jq -e '[.hooks.PreToolUse,.hooks.PostToolUse] | flatten | map(.hooks[0]) | all(.type=="mcp_tool" and .server=="cave-context")' "$HOOKS"
+@test "UserPromptSubmit + PreToolUse + PostToolUse are mcp_tool on the cave-context server" {
+  run jq -e '[.hooks.UserPromptSubmit,.hooks.PreToolUse,.hooks.PostToolUse] | flatten | map(.hooks[0]) | all(.type=="mcp_tool" and .server=="cave-context")' "$HOOKS"
   assert_success
 }
 
-@test "SessionStart + UserPromptSubmit + PreCompact are command hooks" {
-  run jq -e '[.hooks.SessionStart,.hooks.UserPromptSubmit,.hooks.PreCompact] | flatten | map(.hooks[0]) | all(.type=="command")' "$HOOKS"
+@test "UserPromptSubmit mcp_tool calls hook_userpromptsubmit" {
+  run jq -e '.hooks.UserPromptSubmit[0].hooks[0].tool == "hook_userpromptsubmit"' "$HOOKS"
+  assert_success
+}
+
+@test "SessionStart + PreCompact are command hooks" {
+  run jq -e '[.hooks.SessionStart,.hooks.PreCompact] | flatten | map(.hooks[0]) | all(.type=="command")' "$HOOKS"
   assert_success
 }
 
@@ -69,7 +70,7 @@ setup() {
 }
 
 @test "referenced command-hook files exist and are executable" {
-  for f in sessionstart.mjs userpromptsubmit.mjs precompact.mjs; do
+  for f in sessionstart.mjs precompact.mjs; do
     [ -x "$REPO_ROOT/plugins/cave-context/hooks/$f" ]
   done
 }
@@ -107,14 +108,6 @@ setup() {
   PJ="$REPO_ROOT/plugins/cave-context/.claude-plugin/plugin.json"
   run jq -e 'has("userConfig") | not' "$PJ"
   assert_success
-}
-
-@test "userpromptsubmit shim emits always-full caveman reminder (ignores /caveman args)" {
-  run env CAVE_CONTEXT_NO_UPSTREAM=1 \
-    node "$REPO_ROOT/plugins/cave-context/hooks/userpromptsubmit.mjs" <<< '{"hook_event_name":"UserPromptSubmit","prompt":"/caveman ultra"}'
-  assert_success
-  assert_output --partial "CAVE-CONTEXT MODE ACTIVE (full)"
-  refute_output --partial "ultra"
 }
 
 @test "precompact shim runs without error (no upstream)" {
