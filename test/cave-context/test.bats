@@ -12,30 +12,30 @@ setup() {
   assert_success
 }
 
-@test ".mcp.json registers the cave-context server via mjsx.sh launcher" {
+@test ".mcp.json registers the cave-context server via bnx.sh launcher" {
   MCP="$REPO_ROOT/plugins/cave-context/.mcp.json"
   cmd="$(jq -r '.mcpServers["cave-context"].command' "$MCP")"
-  [[ "$cmd" == *bin/mjsx.sh ]]
+  [[ "$cmd" == *bin/bnx.sh ]]
   # The server.mjs is passed as the first arg to the launcher, not the command.
   run jq -e '.mcpServers["cave-context"].args[0] | endswith("mcp/server.mjs")' "$MCP"
   assert_success
 }
 
-@test "SessionStart command hook launches via mjsx.sh with sessionstart.mjs in args" {
+@test "SessionStart command hook launches via bnx.sh with sessionstart.mjs in args" {
   run jq -e '.hooks.SessionStart[0].hooks[0].type == "command"' "$HOOKS"
   assert_success
   cmd="$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$HOOKS")"
   # Command is now the launcher, NOT the .mjs.
-  [[ "$cmd" == *bin/mjsx.sh ]]
+  [[ "$cmd" == *bin/bnx.sh ]]
   [[ "$cmd" != *sessionstart.mjs ]]
   # The .mjs script path appears in args.
   run jq -e '.hooks.SessionStart[0].hooks[0].args[0] | endswith("hooks/sessionstart.mjs")' "$HOOKS"
   assert_success
 }
 
-@test "PreCompact command hook launches via mjsx.sh with its .mjs in args" {
+@test "PreCompact command hook launches via bnx.sh with its .mjs in args" {
   cmd="$(jq -r '.hooks.PreCompact[0].hooks[0].command' "$HOOKS")"
-  [[ "$cmd" == *bin/mjsx.sh ]]
+  [[ "$cmd" == *bin/bnx.sh ]]
   run jq -e '.hooks.PreCompact[0].hooks[0].args[0] | endswith("hooks/precompact.mjs")' "$HOOKS"
   assert_success
 }
@@ -45,8 +45,8 @@ setup() {
   assert_success
 }
 
-@test "bin/mjsx.sh exists and is executable" {
-  [ -x "$REPO_ROOT/plugins/cave-context/bin/mjsx.sh" ]
+@test "bin/bnx.sh exists and is executable" {
+  [ -x "$REPO_ROOT/plugins/cave-context/bin/bnx.sh" ]
 }
 
 @test "UserPromptSubmit + PreToolUse + PostToolUse are mcp_tool on the cave-context server" {

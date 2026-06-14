@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "cave-context": {
-      "command": "${CLAUDE_PLUGIN_ROOT}/bin/mjsx.sh",
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/bnx.sh",
       "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"]
     }
   }

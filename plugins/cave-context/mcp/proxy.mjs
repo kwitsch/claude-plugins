@@ -16,10 +16,10 @@ function upstreamCmd() {
   if (process.env.CAVE_CONTEXT_UPSTREAM_CMD) {
     try { const a = JSON.parse(process.env.CAVE_CONTEXT_UPSTREAM_CMD); if (Array.isArray(a) && a.length) return a; } catch { /* fall through */ }
   }
-  // Default: launch context-mode through the bin/mjsx.sh launcher (bun x / npx -y by
-  // bun presence). mjsx.sh dispatches the package name "context-mode" as an npm package.
-  const mjsx = fileURLToPath(new URL("../bin/mjsx.sh", import.meta.url));
-  return [mjsx, "context-mode"];
+  // Default: launch context-mode through the bin/bnx.sh launcher (bun x / npx -y by
+  // bun presence). bnx.sh dispatches the package name "context-mode" as an npm package.
+  const bnx = fileURLToPath(new URL("../bin/bnx.sh", import.meta.url));
+  return [bnx, "context-mode"];
 }
 
 export class Upstream {

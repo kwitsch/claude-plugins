@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# mjsx.sh — runtime launcher for cave-context .mjs scripts and npm packages.
-# Prefers bun; falls back to node (.mjs) / npx (npm packages). Owns runtime
-# selection so .mjs/server/package callers never invoke node/npx directly.
+# bnx.sh — runtime launcher for cave-context .mjs scripts and npm packages
+# (the upstream context-mode MCP server included). Prefers bun; falls back to
+# node (.mjs) / npx (npm packages). Owns runtime selection so .mjs/server/package
+# callers never invoke node/npx directly.
 #
 # Dispatch on the FIRST argument:
 #   *.mjs        local script  → `bun <args>`   if bun present, else `node <args>`
@@ -14,7 +15,7 @@ set -euo pipefail
 export PATH="${HOME}/.local/bin:${HOME}/.bun/bin:${PATH}"
 
 if [ "$#" -eq 0 ]; then
-  echo "mjsx.sh: missing argument (expected a .mjs script or an npm package name)" >&2
+  echo "bnx.sh: missing argument (expected a .mjs script or an npm package name)" >&2
   exit 64
 fi
 

@@ -14,9 +14,9 @@ function hookCmd() {
   // cli.bundle.mjs `mq` routing map. The CLI process.exit(1)s silently on an unknown
   // platform/event key (no stdout/stderr), and delegateHook() fails open (returns null)
   // on any error — so the event MUST be lowercased before it reaches the CLI.
-  // Launch via bin/mjsx.sh (bun x / npx -y by bun presence); package name "context-mode".
-  const mjsx = fileURLToPath(new URL("../bin/mjsx.sh", import.meta.url));
-  return [mjsx, "context-mode", "hook", "claude-code"];
+  // Launch via bin/bnx.sh (bun x / npx -y by bun presence); package name "context-mode".
+  const bnx = fileURLToPath(new URL("../bin/bnx.sh", import.meta.url));
+  return [bnx, "context-mode", "hook", "claude-code"];
 }
 
 export function delegateHook(event, stdinObj, timeoutMs = 8000) {
