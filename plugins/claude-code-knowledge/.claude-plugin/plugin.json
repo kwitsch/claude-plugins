@@ -1,7 +1,7 @@
 {
   "name": "claude-code-knowledge",
   "version": "0.1.0",
-  "description": "Lookup skill plus harness-optimized reference files for authoring Claude Code skills, subagents, and hooks. Retrieves only the relevant section into context.",
+  "description": "Lookup skill plus harness-optimized reference files for authoring Claude Code skills, subagents, and hooks. Retrieves only the relevant section into context. (CC docs read: 2026-06-14)",
   "author": {
     "name": "Kwitsch"
   },
