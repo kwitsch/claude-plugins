@@ -153,8 +153,8 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
-@test "claude-code-expert has no write tools" {
-  run grep -E '^tools:.*(Write|Edit|NotebookEdit)' "$PLUGIN/agents/claude-code-expert.md"
+@test "claude-code-expert has no write or Bash tools" {
+  run grep -E '^tools:.*(Write|Edit|NotebookEdit|Bash)' "$PLUGIN/agents/claude-code-expert.md"
   [ "$status" -ne 0 ]
 }
 
@@ -165,6 +165,15 @@ setup() {
   [ "$output" = "true" ]
   run jq -e '.hooks.PreToolUse[0].hooks[0].command | test("reroute-guide.mjs")' "$PLUGIN/hooks/hooks.json"
   [ "$output" = "true" ]
+}
+
+@test "hooks.json invokes the .mjs directly (no node prefix; repo rule)" {
+  run jq -e '.hooks.PreToolUse[0].hooks[0].command | test("^node") | not' "$PLUGIN/hooks/hooks.json"
+  [ "$output" = "true" ]
+}
+
+@test "reroute-guide.mjs is executable (repo rule)" {
+  [ -x "$PLUGIN/hooks/reroute-guide.mjs" ]
 }
 
 @test "reroute-guide.mjs reroutes claude-code-guide, preserving prompt and model" {
