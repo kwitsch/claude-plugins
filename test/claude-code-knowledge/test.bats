@@ -128,8 +128,9 @@ setup() {
 
 @test "reference files live in the references/ subfolder, not the skill root" {
   [ -d "$REFS" ]
-  run bash -c 'ls "$1"/*-reference.md 2>/dev/null' _ "$SKILL"
-  [ "$status" -ne 0 ]   # no *-reference.md directly under the skill root
+  # only SKILL.md may sit at the skill root; every other *.md lives under references/
+  run bash -c 'ls "$1"/*.md 2>/dev/null | grep -v "/SKILL.md$" || true' _ "$SKILL"
+  [ -z "$output" ]
 }
 
 @test "SKILL.md points reference paths at the references/ subfolder" {
