@@ -44,7 +44,7 @@ export function detectInflightSubagents(transcriptPath, nowMs) {
     const last = lastNonEmpty(body);
     if (!last) continue;
     if (last.includes('"stop_reason":"end_turn"')) continue; // finished
-    inflight.push(name.replace(/\.jsonl$/, ""));
+    inflight.push(name.replace(/\.jsonl$/, "")); // review-skip(F2): mtime+last-line edges are an accepted best-effort trade-off (fail-open + one-shot guard bound them)
   }
   return inflight;
 }
