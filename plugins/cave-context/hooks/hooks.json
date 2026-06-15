@@ -1,0 +1,61 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/bnx.sh",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/sessionstart.mjs"]
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "cave-context",
+            "tool": "hook_userpromptsubmit"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Read|Grep|WebFetch|Agent|mcp__plugin_cave-context_cave-context__ctx_execute|mcp__plugin_cave-context_cave-context__ctx_execute_file|mcp__plugin_cave-context_cave-context__ctx_batch_execute",
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "cave-context",
+            "tool": "hook_pretooluse"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|Read|Write|Edit|NotebookEdit|Glob|Grep|Task|Agent|mcp__plugin_cave-context_cave-context__ctx_",
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "cave-context",
+            "tool": "hook_posttooluse"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/bnx.sh",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/precompact.mjs"]
+          }
+        ]
+      }
+    ]
+  }
+}

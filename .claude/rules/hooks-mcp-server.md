@@ -2,32 +2,56 @@
 paths:
   - "plugins/*/mcp/server.mjs"
   - "plugins/*/.mcp.json"
+  - "plugins/*/hooks/hooks.json"
+  - "plugins/*/hooks/*.mjs"
 ---
 
-# Rule: MCP-server hooks (preferred for non-blocking mid-loop hooks)
+# Rule: MCP-server hooks (preferred for non-blocking mid-session hooks)
 
-Source: https://code.claude.com/docs/en/hooks#mcp-tool-hook-fields
+Sources: https://code.claude.com/docs/en/hooks#mcp-tool-hook-fields ·
+per-event compatibility table: `.claude/rules/hooks-mcp-tool-event-matrix.md`
 
 For a **new** hook, prefer implementing it as a tool on a plugin-local MCP server
-and registering the hook with `type: "mcp_tool"` — **but only for non-blocking,
-mid-loop hooks**. Use the decision tree.
+and registering the hook with `type: "mcp_tool"` — **for mid-session,
+non-blocking hooks**. A command hook is required only in the four cases below; pick
+with the decision tree, then confirm the event's row in the
+[event matrix](./hooks-mcp-tool-event-matrix.md) (lean on `confidence: documented`
+rows only).
 
 ## Decision tree
 
-| Hook need | Implementation |
+A `command` hook is required when **any** of these hold; otherwise prefer `mcp_tool`.
+
+| Use a **command** hook when… | Why |
 |---|---|
-| Early-lifecycle (`SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreCompact`) | command hook (`.mjs`) — the server is not reliably connected that early |
-| Must block / deny — a fail-closed guard | command hook (`.mjs`) — `mcp_tool` no-ops silently if the server is down |
-| **Non-blocking, mid-loop** (`PreToolUse` / `PostToolUse`): inject context, observe, needs a real runtime/deps | **MCP-server hook** (`mcp_tool`) — preferred |
+| The event fires **before the server connects** — `SessionStart`, `Setup` | `mcp_tool` needs an already-connected server; on first run it is not up yet, so the hook **fails open** (silent no-op). These are the *only* events with a connectivity problem. |
+| You need a **fail-closed hard gate** (must deny / abort) | `mcp_tool` has no exit-2 path and fails open on server-down — it can express only a *soft* JSON decision, never a guaranteed block. A guard that fails open is a silent security regression. |
+| The hook is a **fail-open-sensitive side-effect that must reliably fire** — e.g. a pre-context-loss snapshot (`PreCompact`), or a state-write that *other* command hooks read (`ConfigChange`) | A command hook spawns independently of server liveness; an `mcp_tool` hook would silently skip exactly when the side-effect matters most. |
+| The event is **latency-sensitive / high-frequency** — `UserPromptSubmit` (30 s timeout), `MessageDisplay` (10 s) | An MCP round-trip on every prompt / streamed line-batch is a latency + cost choice; the shorter timeout also bites. (A hook here that also does a must-run state-write falls under the fail-open-sensitive row too.) |
+| **Otherwise: non-blocking, mid-session context injection / observation** — `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Stop`, `SubagentStop`, … | **Prefer `mcp_tool`.** The server is reliably connected mid-session; you reuse a live runtime/deps instead of spawning a process per event. |
 
 Why the limits (documented Claude Code behavior):
 - `mcp_tool` requires an **already-connected** server; the hook never triggers a
-  connection flow. MCP servers connect during/after startup, so early-lifecycle
-  hooks can't rely on it (the type is technically permitted on `SessionStart`,
-  but the server may not be up).
-- If the server is not connected (startup race, no runtime, crash), the
-  `mcp_tool` hook **fails open** (silent no-op). A guard that fails open is a
-  silent security regression — guards stay command hooks.
+  connection flow. Servers connect during/after startup, so only the *pre-connect*
+  events (`SessionStart`, `Setup`) genuinely can't rely on it. Mid-session
+  lifecycle events (`PreCompact`, `ConfigChange`, `Stop`, `SubagentStop`, …) are
+  `full` in the matrix — connectivity is **not** the reason to keep them command
+  hooks.
+- `mcp_tool` expresses a decision **only via the JSON it returns as tool text** —
+  it cannot emit exit code 2. On block-capable events it can do a *soft* block
+  (`permissionDecision: "deny"` / `decision: "block"`), but if the server is down
+  it **fails open**. For *hard* enforcement use a command hook + exit 2.
+- Because the failure mode is non-blocking, an `mcp_tool` hook standing in for a
+  must-fire side-effect (snapshot, state-write) silently no-ops when the server is
+  down. Keep those as command hooks even though the event itself is `full`.
+
+> Correction note (superseded reasoning): an earlier version of this rule grouped
+> `SessionEnd`/`UserPromptSubmit`/`PreCompact` with `SessionStart` as
+> "early-lifecycle, server not connected." Per the event matrix that is inaccurate —
+> only `SessionStart`/`Setup` have the pre-connect problem. `PreCompact` and
+> `SessionEnd` are mid/late-session and `full`; `UserPromptSubmit` is limited by
+> timeout/latency, not connectivity. Keep `PreCompact`/`ConfigChange` as command
+> hooks for the *fail-open-sensitive side-effect* reason, not a connectivity one.
 
 ## Plugin layout
 
