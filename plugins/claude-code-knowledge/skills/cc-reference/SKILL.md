@@ -14,6 +14,7 @@ Files live in the `references/` subfolder of this skill:
 - `${CLAUDE_SKILL_DIR}/references/claude-code-agents-reference.md` — authoring **subagents / agents**
 - `${CLAUDE_SKILL_DIR}/references/claude-code-hooks-reference.md` — **hooks** mechanics (events, matchers, I/O, exit codes, decision control)
 - `${CLAUDE_SKILL_DIR}/references/hook-handler-selection.md` — choosing a hook **handler `type`** (command/.sh/.mjs/binary vs http/mcp_tool/prompt/agent)
+- `${CLAUDE_SKILL_DIR}/references/claude-code-mcp-tool-hooks-reference.md` — **`mcp_tool` hooks** (server-name namespacing `plugin:<plugin>:<key>`, fields, tool-text→decision output, fail-open, plugin server pattern)
 - `${CLAUDE_SKILL_DIR}/references/claude-code-commands-reference.md` — authoring **slash commands** (`.claude/commands`, frontmatter, `$ARGUMENTS`, dynamic context, namespacing)
 - `${CLAUDE_SKILL_DIR}/references/claude-code-mcp-reference.md` — **MCP** integration (`.mcp.json`, transports, scopes, auth, tool naming, managed restrictions)
 - `${CLAUDE_SKILL_DIR}/references/claude-code-plugins-reference.md` — **plugins** (`plugin.json`/`marketplace.json`, layout, path variables, components, CLI)
@@ -51,7 +52,8 @@ docs the `update-cc-references` maintenance skill refreshes from:
 Map key → file on disk: `skills-reference` → `claude-code-skills-reference.md`;
 `agents-reference` → `claude-code-agents-reference.md`; `hooks-reference` →
 `claude-code-hooks-reference.md`; `hook-handler-selection` →
-`hook-handler-selection.md`; `commands-reference` →
+`hook-handler-selection.md`; `mcp-tool-hooks-reference` →
+`claude-code-mcp-tool-hooks-reference.md`; `commands-reference` →
 `claude-code-commands-reference.md`; `mcp-reference` → `claude-code-mcp-reference.md`;
 `plugins-reference` → `claude-code-plugins-reference.md`; `memory-reference` →
 `claude-code-memory-reference.md`; `settings-reference` →
@@ -67,6 +69,8 @@ which handler `type`).
 **hooks-reference** (`claude-code-hooks-reference.md`) — hook events catalog & cadence, hook locations/scope, matcher semantics (3 modes, per-event field, MCP tool matching), `if` field, handler field tables (common/command/http/mcp_tool/prompt/agent), exec vs shell form + path placeholders, input schema (common + tool_input), exit codes + exit-2-per-event, HTTP response handling, JSON output (universal/`decision`/`hookSpecificOutput`), `additionalContext`, `terminalSequence`, decision-control-by-event, content rewriting, SessionStart env/`reloadSkills`, hooks in skills/agents, `/hooks` menu, `disableAllHooks`, security constraints.
 
 **hook-handler-selection** (`hook-handler-selection.md`) — choosing the handler `type`: decision rules top→bottom, fail-open vs fail-closed (security gating), type comparison table (process/latency/hard-block/state/timeout), `mcp_tool` shape, command exec/shell form on Windows, hard constraints, quick map (hot-path/stateful/semantic/off-host).
+
+**mcp-tool-hooks-reference** (`claude-code-mcp-tool-hooks-reference.md`) — backing a hook with an MCP server tool (`type: mcp_tool`): when to use vs command hook, hook fields (`server`/`tool`/`input`), the **server-name namespacing rule** (`plugin:<plugin>:<server-key>` from `claude mcp list`; bare key → "not connected"), the tool-text-as-decision output contract (`updatedInput` etc.), fail-open semantics, self-contained plugin server pattern.
 
 **commands-reference** (`claude-code-commands-reference.md`) — custom slash commands: command vs skill, locations & precedence (`.claude/commands`, `~/.claude/commands`, plugin commands), frontmatter, `$ARGUMENTS`/`$1..$N`/named args, dynamic context (`!bash`, `@file`), namespacing & invocation, built-in commands.
 
@@ -162,6 +166,16 @@ mcp_tool handler shape
 command form (.sh / .mjs / binary)
 Hard constraints
 Quick map
+```
+
+### claude-code-mcp-tool-hooks-reference.md
+```
+When to use mcp_tool vs a command hook
+Hook fields
+Server name — the namespacing rule (gotcha)
+Output contract
+Self-contained plugin server pattern
+Version notes
 ```
 
 ### claude-code-commands-reference.md

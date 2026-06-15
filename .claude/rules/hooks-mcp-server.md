@@ -59,15 +59,25 @@ Why the limits (documented Claude Code behavior):
 plugins/<name>/
   mcp/server.mjs     # self-contained, zero-dep MCP stdio server (chmod +x)
   .mcp.json          # registers "example-hooks" -> ${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs
-  hooks/hooks.json   # { "type": "mcp_tool", "server": "example-hooks", "tool": "<tool>" }
+  hooks/hooks.json   # { "type": "mcp_tool", "server": "plugin:<plugin-name>:example-hooks", "tool": "<tool>" }
 ```
 
 No `bin/` directory and no wrapper script — the server file holds everything:
 runtime selection, the MCP protocol, and the hook logic. The three reference
 blocks below use the concrete name `example-hooks` so they work as a verbatim
 copy — **rename `example-hooks` to your plugin's `<name>-hooks` across all
-three files.** The `server` value in `hooks.json` must equal the server key in
-`.mcp.json` (that is how the `mcp_tool` hook is wired to the server).
+three files.**
+
+**`server` value in `hooks.json` — use the runtime-namespaced name, NOT the bare
+`.mcp.json` key.** A plugin's MCP server connects under
+`plugin:<plugin-name>:<server-key>` (verify with `claude mcp list` / `/mcp` — e.g.
+`plugin:context7:context7`). An `mcp_tool` hook's `server` field is matched against
+that connected name, so a plugin's own hook MUST reference
+`plugin:<plugin-name>:<server-key>`; the bare `.mcp.json` key resolves to
+`MCP server '<key>' not connected` on every fire. The `.mcp.json` server key and
+the server's self-reported `SERVER_NAME` stay the bare `<name>-hooks`; only the
+hook's `server` reference is namespaced. (Bare-key matching only works for
+non-plugin servers defined directly in settings.)
 
 ## `.mcp.json`
 
@@ -95,7 +105,7 @@ MCP-server spawning.
       {
         "matcher": "Read|Edit|Write",
         "hooks": [
-          { "type": "mcp_tool", "server": "example-hooks", "tool": "example_context" }
+          { "type": "mcp_tool", "server": "plugin:<plugin-name>:example-hooks", "tool": "example_context" }
         ]
       }
     ]

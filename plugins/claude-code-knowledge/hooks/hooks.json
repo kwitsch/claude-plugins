@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "mcp_tool",
-            "server": "claude-code-knowledge-hooks",
+            "server": "plugin:claude-code-knowledge:claude-code-knowledge-hooks",
             "tool": "reroute_guide"
           }
         ]

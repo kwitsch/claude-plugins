@@ -31,6 +31,7 @@ All reference files live in the skill's `references/` subfolder
 | `claude-code-agents-reference.md` | Authoring Claude Code subagents: manifest fields, tool lists, delegation patterns, model selection. |
 | `claude-code-hooks-reference.md` | Hook mechanics: event types, hook schemas, lifecycle, exit codes, input/output shapes. |
 | `hook-handler-selection.md` | Choosing the right hook-handler type: decision table mapping event + behavior to command hook vs. mcp_tool hook. |
+| `claude-code-mcp-tool-hooks-reference.md` | Backing a hook with an MCP-server tool (`mcp_tool`): fields, the `plugin:<plugin>:<key>` server-name namespacing gotcha, tool-text→decision output contract, fail-open, plugin server pattern. |
 | `claude-code-commands-reference.md` | Authoring custom slash commands: locations & precedence, frontmatter, arguments, dynamic context, namespacing; built-in commands. |
 | `claude-code-mcp-reference.md` | MCP integration: `.mcp.json`, transports, config scopes, auth, tool naming, managed restrictions. |
 | `claude-code-plugins-reference.md` | Plugin authoring: `plugin.json`/`marketplace.json` schema, layout, path variables, components, dependencies, CLI. |
