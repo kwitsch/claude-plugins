@@ -156,7 +156,7 @@ Plus plugin.json `userConfig` manifest checks (twelve boolean toggles +
 numeric `ci_watch_timeout` + numeric `review_max_rounds`, boolean defaults
 all `true` except fail-closed `graphify_force_create` +
 `graphify_user_files`, timeout default `1800`, rounds default `3`,
-titles + descriptions, version `3.8.0` declared only in plugin.json —
+titles + descriptions, version declared only in plugin.json —
 marketplace entry carries none — and no top-level `dependencies` key
 (context-mode is optional)). `ci-watch.sh`
 polling (coderabbit exclusion, pending→done transitions, timeout, no-checks
