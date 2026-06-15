@@ -1,6 +1,6 @@
 {
   "name": "claude-code-knowledge",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Lookup skill plus harness-optimized reference files for authoring and configuring Claude Code — skills, subagents, hooks, slash commands, MCP, plugins, CLAUDE.md memory, and settings — plus a read-only expert agent that replaces the built-in claude-code-guide. Retrieves only the relevant section into context. (CC docs read: 2026-06-14)",
   "author": {
     "name": "Kwitsch"
