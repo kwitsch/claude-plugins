@@ -2,7 +2,7 @@
 name: cc-review
 description: Review a Claude Code component (a plugin dir, skill, agent, hook, command, .mcp.json, CLAUDE.md, or settings.json) against the curated cc-reference authoring rules, then interactively apply the recommendations you select. Use when the user asks to review, audit, or check a Claude Code skill/agent/hook/command/plugin/MCP/memory/settings file for errors or best-practice violations.
 argument-hint: [target path]
-allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, AskUserQuestion, Skill
+allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, AskUserQuestion
 ---
 
 # cc-review — audit a Claude Code component and apply selected fixes
@@ -46,7 +46,8 @@ elif [ -d "$T" ]; then
   [ -d "$T/commands" ] && echo "commands:$T/commands"
   [ -f "$T/.mcp.json" ]  && echo "mcp:$T/.mcp.json"
   [ -f "$T/CLAUDE.md" ]  && echo "memory:$T/CLAUDE.md"
-  [ -f "$T/settings.json" ] && echo "settings:$T/settings.json"
+  [ -f "$T/settings.json" ]       && echo "settings:$T/settings.json"
+  [ -f "$T/settings.local.json" ] && echo "settings:$T/settings.local.json"
 else
   echo "NOT_FOUND:$T"
 fi
@@ -85,16 +86,23 @@ always shown with a visual tag (e.g. `[uncovered]` in the option label) and thei
 `AskUserQuestion` hard caps: at most **4 questions (tabs)** per call, each tab
 **2–4 options**, so **16 selectable findings per call** maximum.
 
-- Chunk the full sorted finding list into windows of up to 16. Within a window,
-  group findings into ≤4 tabs by `component_type`, ≤4 options each, with
-  `multiSelect: true` on every tab.
+Chunking is **tab-driven** (a tab maps to one component type, so a type never
+splits across tabs ambiguously):
+
+- For each `component_type`, split its severity-sorted findings into groups of ≤4.
+  Each group becomes one **tab** (≤4 options), `multiSelect: true`. A type with
+  more than 4 findings therefore contributes several tabs.
+- Pack up to **4 tabs per `AskUserQuestion` call**. With up to 8 component types
+  (and types that exceed 4 findings), there are usually more than 4 tabs total —
+  issue successive calls of ≤4 tabs each until every tab has been shown. Order the
+  tabs high→med→low by their group's top severity so the most severe come first;
+  a type with leftover findings simply resumes in a later call.
 - Each option label must begin with the finding `id` (e.g. `"skills-01: <issue>"`)
   so a selection maps back to its finding record.
 - If a tab would have only one finding, add an explicit `"Skip this group"` option
   so the tab has ≥2 options.
-- Repeat AskUserQuestion rounds (next 16, etc.) until every finding has been shown.
-  After the high+med findings are triaged, if low-severity findings remain you may
-  ask once whether to continue into them before paginating the rest.
+- After the high+med tabs are triaged, if only low-severity tabs remain you may ask
+  once whether to continue into them before issuing the remaining calls.
 
 ## 6. Apply selected findings
 
