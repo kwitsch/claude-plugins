@@ -236,6 +236,43 @@ setup() {
   [ "$status" -ne 0 ]
 }
 
+# --- cc-reviewer agent (parameterized read-only reviewer) ---
+
+@test "cc-reviewer agent has name and description" {
+  run grep -E '^name:[[:space:]]*cc-reviewer' "$PLUGIN/agents/cc-reviewer.md"
+  [ "$status" -eq 0 ]
+  run grep -E '^description:' "$PLUGIN/agents/cc-reviewer.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-reviewer declares model haiku and cc-reference tools (Skill, Read, Grep, Glob)" {
+  run grep -E '^model:[[:space:]]*haiku' "$PLUGIN/agents/cc-reviewer.md"
+  [ "$status" -eq 0 ]
+  for tool in Skill Read Grep Glob; do
+    run grep -E "^tools:.*$tool" "$PLUGIN/agents/cc-reviewer.md"
+    [ "$status" -eq 0 ]
+  done
+}
+
+@test "cc-reviewer has no write or Bash tools" {
+  run grep -E '^tools:.*(Write|Edit|NotebookEdit|Bash)' "$PLUGIN/agents/cc-reviewer.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "cc-reviewer is cc-reference-only and never answers from training memory" {
+  run grep -F 'cc-reference' "$PLUGIN/agents/cc-reviewer.md"
+  [ "$status" -eq 0 ]
+  run grep -iE 'never.*training memory|not.*training memory' "$PLUGIN/agents/cc-reviewer.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-reviewer documents the structured findings output contract" {
+  run grep -iE 'suggested_fix' "$PLUGIN/agents/cc-reviewer.md"
+  [ "$status" -eq 0 ]
+  run grep -iE 'severity' "$PLUGIN/agents/cc-reviewer.md"
+  [ "$status" -eq 0 ]
+}
+
 # Drive the reroute MCP server: initialize + one tools/call, echo the
 # structuredContent of the tools/call (id 2) response. $1 = arguments JSON object.
 reroute_call() {
