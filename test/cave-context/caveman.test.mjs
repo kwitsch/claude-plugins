@@ -22,6 +22,6 @@ test("rulesetText carries no level-switch / off-switch copy", () => {
 
 test("reminderText is fixed at full", () => {
   const r = reminderText();
-  assert.match(r, /CAVE-CONTEXT MODE ACTIVE \(full\)/);
-  assert.match(r, /Drop articles/);
+  assert.match(r, /^CAVE-CONTEXT: Drop articles/);
+  assert.doesNotMatch(r, /MODE ACTIVE/);   // "MODE ACTIVE (full)." dropped from the reminder
 });

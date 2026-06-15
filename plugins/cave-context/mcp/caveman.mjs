@@ -28,5 +28,5 @@ export function rulesetText() {
 }
 
 export function reminderText() {
-  return "CAVE-CONTEXT MODE ACTIVE (full). Drop articles/filler/pleasantries/hedging. Fragments OK. Code/commits/security: write normal.";
+  return "CAVE-CONTEXT: Drop articles/filler/pleasantries/hedging. Fragments OK. Code/commits/security: write normal.";
 }
