@@ -11,7 +11,7 @@ One MCP server that proxies the context-mode MCP server 1-to-1 and hosts aggrega
 
 ## Tests
 `test/cave-context/test.bats` (bats) + `test/cave-context/*.test.mjs` (node --test). Run:
-```
+```bash
 BATS_LIB_PATH=/usr/lib/bats bats test/cave-context/
 node --test test/cave-context/*.test.mjs
 ```
