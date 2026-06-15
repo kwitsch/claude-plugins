@@ -125,3 +125,17 @@ setup() {
   run node --test "$REPO_ROOT/test/cave-context/"*.test.mjs
   assert_success
 }
+
+@test "Stop hook is an mcp_tool routed to hook_stop on the namespaced server" {
+  run jq -e '.hooks.Stop[0].hooks[0].type == "mcp_tool"' "$HOOKS"
+  [ "$status" -eq 0 ]
+  run jq -e '.hooks.Stop[0].hooks[0].server == "plugin:cave-context:cave-context"' "$HOOKS"
+  [ "$status" -eq 0 ]
+  run jq -e '.hooks.Stop[0].hooks[0].tool == "hook_stop"' "$HOOKS"
+  [ "$status" -eq 0 ]
+}
+
+@test "Stop hook has no matcher (Stop event takes none)" {
+  run jq -e '.hooks.Stop[0] | has("matcher") | not' "$HOOKS"
+  [ "$status" -eq 0 ]
+}
