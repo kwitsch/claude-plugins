@@ -50,7 +50,7 @@ setup() {
 }
 
 @test "UserPromptSubmit + PreToolUse + PostToolUse are mcp_tool on the cave-context server" {
-  run jq -e '[.hooks.UserPromptSubmit,.hooks.PreToolUse,.hooks.PostToolUse] | flatten | map(.hooks[0]) | all(.type=="mcp_tool" and .server=="cave-context")' "$HOOKS"
+  run jq -e '[.hooks.UserPromptSubmit,.hooks.PreToolUse,.hooks.PostToolUse] | flatten | map(.hooks[]) | all(.type=="mcp_tool" and .server=="cave-context")' "$HOOKS"
   assert_success
 }
 
