@@ -22,6 +22,9 @@ Lookup skill plus harness-optimized reference files for authoring and configurin
 
 ## Reference files
 
+All reference files live in the skill's `references/` subfolder
+(`skills/cc-reference/references/`).
+
 | File | Covers |
 |---|---|
 | `claude-code-skills-reference.md` | Authoring Claude Code skills: frontmatter fields, trigger patterns, tool access, inline script conventions. |
@@ -33,6 +36,7 @@ Lookup skill plus harness-optimized reference files for authoring and configurin
 | `claude-code-plugins-reference.md` | Plugin authoring: `plugin.json`/`marketplace.json` schema, layout, path variables, components, dependencies, CLI. |
 | `claude-code-memory-reference.md` | `CLAUDE.md` memory: locations & precedence, imports, auto-memory, what belongs. |
 | `claude-code-settings-reference.md` | Config surface: `settings.json` & scope precedence, env vars, permissions & modes, model config, output styles, statusline, sandboxing. |
+| `skill-folder-structure.md` | Claude Code skill directory layout + the convention that ≥2 bundled reference files live in a `references/` subfolder. Static — not refreshed by `/update-cc-references`. |
 
 ## Usage
 

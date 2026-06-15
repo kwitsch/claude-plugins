@@ -6,6 +6,7 @@ setup() {
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
   PLUGIN="$REPO_ROOT/plugins/claude-code-knowledge"
   SKILL="$PLUGIN/skills/cc-reference"
+  REFS="$SKILL/references"
   MARKET="$REPO_ROOT/.claude-plugin/marketplace.json"
   MAINT="$REPO_ROOT/.claude/skills/update-cc-references/SKILL.md"
 }
@@ -78,7 +79,7 @@ setup() {
            claude-code-commands-reference.md claude-code-mcp-reference.md \
            claude-code-plugins-reference.md claude-code-memory-reference.md \
            claude-code-settings-reference.md; do
-    [ -s "$SKILL/$f" ]
+    [ -s "$REFS/$f" ]
   done
 }
 
@@ -88,7 +89,7 @@ setup() {
            claude-code-commands-reference.md claude-code-mcp-reference.md \
            claude-code-plugins-reference.md claude-code-memory-reference.md \
            claude-code-settings-reference.md; do
-    run grep -cE '^## ' "$SKILL/$f"
+    run grep -cE '^## ' "$REFS/$f"
     [ "$status" -eq 0 ]
     [ "$output" -ge 1 ]
   done
@@ -100,7 +101,7 @@ setup() {
            claude-code-commands-reference.md claude-code-mcp-reference.md \
            claude-code-plugins-reference.md claude-code-memory-reference.md \
            claude-code-settings-reference.md; do
-    run grep -iE 'verified' "$SKILL/$f"
+    run grep -iE 'verified' "$REFS/$f"
     [ "$status" -eq 0 ]
   done
 }
@@ -114,6 +115,38 @@ setup() {
     run grep -F "$f" "$SKILL/SKILL.md"
     [ "$status" -eq 0 ]
   done
+}
+
+@test "cc-reference SKILL.md has no executable !-injection trigger" {
+  # `!` immediately followed by a backtick is Claude Code's dynamic-context
+  # injection trigger — it RUNS at skill load. SKILL.md must never contain it
+  # (it would execute, e.g. `cmd: command not found`). Such examples belong only
+  # in the reference files, which are Read on demand and never preprocessed.
+  run grep -nE '!`' "$SKILL/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "reference files live in the references/ subfolder, not the skill root" {
+  [ -d "$REFS" ]
+  # only SKILL.md may sit at the skill root; every other *.md lives under references/
+  run bash -c 'ls "$1"/*.md 2>/dev/null | grep -v "/SKILL.md$" || true' _ "$SKILL"
+  [ -z "$output" ]
+}
+
+@test "SKILL.md points reference paths at the references/ subfolder" {
+  run grep -E '\$\{CLAUDE_SKILL_DIR\}/references/claude-code-skills-reference.md' "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "skill-folder-structure convention file exists and documents the references/ rule" {
+  [ -s "$REFS/skill-folder-structure.md" ]
+  run grep -cE '^## ' "$REFS/skill-folder-structure.md"
+  [ "$status" -eq 0 ]
+  [ "$output" -ge 1 ]
+  run grep -F 'references/' "$REFS/skill-folder-structure.md"
+  [ "$status" -eq 0 ]
+  run grep -F "skill-folder-structure.md" "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
 }
 
 # --- Maintenance skill (repo-root project skill; cross-tree coupling is intentional) ---
