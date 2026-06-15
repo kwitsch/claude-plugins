@@ -117,6 +117,15 @@ setup() {
   done
 }
 
+@test "cc-reference SKILL.md has no executable !-injection trigger" {
+  # `!` immediately followed by a backtick is Claude Code's dynamic-context
+  # injection trigger — it RUNS at skill load. SKILL.md must never contain it
+  # (it would execute, e.g. `cmd: command not found`). Such examples belong only
+  # in the reference files, which are Read on demand and never preprocessed.
+  run grep -nE '!`' "$SKILL/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
 @test "reference files live in the references/ subfolder, not the skill root" {
   [ -d "$REFS" ]
   run bash -c 'ls "$1"/*-reference.md 2>/dev/null' _ "$SKILL"

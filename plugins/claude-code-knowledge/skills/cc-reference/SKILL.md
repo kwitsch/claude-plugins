@@ -60,7 +60,7 @@ Map key → file on disk: `skills-reference` → `claude-code-skills-reference.m
 (`claude-code-hooks-reference.md` for mechanics, `hook-handler-selection.md` for
 which handler `type`).
 
-**skills-reference** (`claude-code-skills-reference.md`) — skill discovery & progressive disclosure, SKILL.md frontmatter, command-name mapping, conciseness / degrees of freedom, descriptions & naming, progressive-disclosure patterns, workflows & feedback loops, executable-code/script best practices, MCP tool references, invocation control (`disable-model-invocation`, `user-invocable`), skill content lifecycle & compaction budget, dynamic context injection (`` !`cmd` `` / substitutions / `${CLAUDE_SKILL_DIR}`), `context: fork`, skill scopes & precedence, skill permissions (`allowed-tools`, `Skill(...)`, `skillOverrides`), evals, anti-patterns, pre-ship checklist.
+**skills-reference** (`claude-code-skills-reference.md`) — skill discovery & progressive disclosure, SKILL.md frontmatter, command-name mapping, conciseness / degrees of freedom, descriptions & naming, progressive-disclosure patterns, workflows & feedback loops, executable-code/script best practices, MCP tool references, invocation control (`disable-model-invocation`, `user-invocable`), skill content lifecycle & compaction budget, dynamic context injection (`!cmd` / substitutions / `${CLAUDE_SKILL_DIR}`), `context: fork`, skill scopes & precedence, skill permissions (`allowed-tools`, `Skill(...)`, `skillOverrides`), evals, anti-patterns, pre-ship checklist.
 
 **agents-reference** (`claude-code-agents-reference.md`) — subagent vs main vs skill vs fork decision, built-in agents (Explore/Plan/general-purpose), agent scopes & precedence, subagent frontmatter, model resolution order, tool/capability control (`tools`/`disallowedTools`/`Agent(...)`), MCP scoping, permission modes, conditional `PreToolUse` rules, preload skills (`skills:` field), persistent memory, hooks (`SubagentStart`/`SubagentStop`), delegation & `--agent`, foreground/background, parallel/chain patterns, nested subagents, forks, startup context, resume/transcripts, plugin restrictions, disabling subagents.
 
@@ -68,7 +68,7 @@ which handler `type`).
 
 **hook-handler-selection** (`hook-handler-selection.md`) — choosing the handler `type`: decision rules top→bottom, fail-open vs fail-closed (security gating), type comparison table (process/latency/hard-block/state/timeout), `mcp_tool` shape, command exec/shell form on Windows, hard constraints, quick map (hot-path/stateful/semantic/off-host).
 
-**commands-reference** (`claude-code-commands-reference.md`) — custom slash commands: command vs skill, locations & precedence (`.claude/commands`, `~/.claude/commands`, plugin commands), frontmatter, `$ARGUMENTS`/`$1..$N`/named args, dynamic context (`` !`bash` ``, `@file`), namespacing & invocation, built-in commands.
+**commands-reference** (`claude-code-commands-reference.md`) — custom slash commands: command vs skill, locations & precedence (`.claude/commands`, `~/.claude/commands`, plugin commands), frontmatter, `$ARGUMENTS`/`$1..$N`/named args, dynamic context (`!bash`, `@file`), namespacing & invocation, built-in commands.
 
 **mcp-reference** (`claude-code-mcp-reference.md`) — MCP integration: `.mcp.json`, config scopes & precedence, transports (stdio/http/sse/ws), server config schema, authentication, `claude mcp`/`/mcp`, tool naming & permissions (`mcp__server__tool`), managed/enterprise restrictions.
 
@@ -170,7 +170,7 @@ What a slash command is / when vs a skill
 Locations & precedence
 Frontmatter reference
 Arguments                                  # $ARGUMENTS, $1..$N, named args
-Dynamic context                            # !`bash` injection, @file references
+Dynamic context                            # !bash injection, @file references
 Environment
 Namespacing & invocation
 Built-in commands
