@@ -3,6 +3,7 @@ name: cc-review
 description: Review a Claude Code component (a plugin dir, skill, agent, hook, command, .mcp.json, CLAUDE.md, or settings.json) against the curated cc-reference authoring rules, then interactively apply the recommendations you select. Use when the user asks to review, audit, or check a Claude Code skill/agent/hook/command/plugin/MCP/memory/settings file for errors or best-practice violations.
 argument-hint: [target path]
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, AskUserQuestion
+# review-skip(F1): unscoped Bash/Edit/Write is required — detection (sec 2) runs against an arbitrary user-supplied path so Bash cannot be prefix-scoped, and fixes (sec 6) Edit/Write arbitrary files; allowed-tools only pre-approves, never restricts.
 ---
 
 # cc-review — audit a Claude Code component and apply selected fixes
