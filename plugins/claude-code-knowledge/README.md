@@ -13,12 +13,14 @@ Lookup skill plus harness-optimized reference files for authoring and configurin
 | Skill | What it does |
 |---|---|
 | `cc-reference` | Looks up the relevant section from the bundled reference files and loads only that section into context, keeping token cost low. |
+| `cc-review` | Audits a Claude Code component (plugin/skill/agent/hook/command/MCP/memory/settings) against the `cc-reference` rules via the read-only `cc-reviewer` agent, then interactively applies the recommendations you select. |
 
 ## Agents
 
 | Agent | Model | Role |
 |---|---|---|
 | `claude-code-expert` | haiku | Answers Claude Code authoring questions (skills, subagents, hooks) strictly via the `cc-reference` skill — read-only, never from training memory. A `PreToolUse` hook transparently reroutes the built-in `claude-code-guide` agent to it, so existing "ask the guide" flows get the curated answer. |
+| `cc-reviewer` | haiku | Read-only worker dispatched by the `cc-review` skill. Audits one component type in a target against the `cc-reference` rules and returns structured JSON findings — never writes. |
 
 ## Reference files
 
