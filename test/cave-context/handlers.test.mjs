@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { handleUserPromptSubmit, handlePreToolUse, mergeContext } from "../../plugins/cave-context/mcp/handlers.mjs";
+import { reminderText } from "../../plugins/cave-context/mcp/caveman.mjs";
 
 const FAKE = JSON.stringify(["node", new URL("./fake-hook.mjs", import.meta.url).pathname]);
 const FAKE_HARD = JSON.stringify(["node", new URL("./fake-hook-hard.mjs", import.meta.url).pathname]);
@@ -34,7 +35,7 @@ test("UserPromptSubmit: always-full reminder + ctx merge (ignores /caveman args)
     // The "/caveman ultra" arg must be ignored — the level is fixed at full.
     const out = await handleUserPromptSubmit({ hook_event_name: "UserPromptSubmit", prompt: "/caveman ultra" });
     const ac = out.hookSpecificOutput.additionalContext;
-    assert.match(ac, /CAVE-CONTEXT MODE ACTIVE \(full\)/);
+    assert.ok(ac.includes(reminderText()));   // merged output carries the reminder verbatim
     assert.doesNotMatch(ac, /ultra/);
     // delegate lowercases the event before invoking the CLI; the fake echoes it back.
     assert.match(ac, /CTXMODE\[userpromptsubmit\]/);

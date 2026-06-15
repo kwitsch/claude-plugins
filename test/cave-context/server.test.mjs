@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { reminderText } from "../../plugins/cave-context/mcp/caveman.mjs";
 
 const SERVER = new URL("../../plugins/cave-context/mcp/server.mjs", import.meta.url).pathname;
 const FAKE = JSON.stringify(["node", new URL("./fake-upstream.mjs", import.meta.url).pathname]);
@@ -48,7 +49,7 @@ test("server routes hook_ tools/call through HANDLERS and returns both channels"
     const parsed = JSON.parse(result.content[0].text);
     assert.ok(parsed.hookSpecificOutput, "hook handler output carries hookSpecificOutput");
     // Caveman level is fixed at full — the "/caveman ultra" arg is ignored.
-    assert.match(parsed.hookSpecificOutput.additionalContext, /CAVE-CONTEXT MODE ACTIVE \(full\)/);
+    assert.ok(parsed.hookSpecificOutput.additionalContext.includes(reminderText()));
     assert.doesNotMatch(parsed.hookSpecificOutput.additionalContext, /ultra/);
     // Contract: structuredContent must deep-equal the parsed handler result (mcp_tool extraction channel).
     assert.deepEqual(result.structuredContent, parsed);
