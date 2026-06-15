@@ -19,6 +19,13 @@ steps yourself.
    - task context from conversation to derive name from.
    No argument and no task context to derive from → ask user first.
 
+   **Gate on completion before any subsequent work.** branch-agent runs
+   `git checkout -b <branch>` in the shared working tree. Do NOT start
+   file edits or git operations until the agent completion notification
+   arrives. Reads of branch-invariant content (e.g. scanning for files
+   to audit) may overlap; any write to a file or git operation MUST wait
+   — otherwise changes land on the wrong branch.
+
 2. **Handle structured abort** from agent:
    - `dirty_tree` — ask user: commit, stash, or abort? Execute choice
      (commit/stash in main context), then re-dispatch agent.

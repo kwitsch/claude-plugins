@@ -17,6 +17,12 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine subagents.
   `skills/init-branch` (Skill tool) which dispatches `agents/graphify-agent`
   + `agents/ctx-index-agent` parallel (gated by `graphify_branch_update`
   + `context_index` toggles, both fail-open).
+  **Race-condition guard:** orchestrator MUST gate on branch-agent
+  completion notification before any file edits or git operations.
+  branch-agent runs `git checkout -b <branch>` in the shared working tree;
+  edits that start before checkout completes land on the wrong branch.
+  Branch-invariant reads (e.g. file-type scans with no edit intent) may
+  overlap the agent dispatch safely.
 - `skills/init-branch`: thin sub-skill — runs INLINE (NOT `context: fork`):
   dispatches `agents/graphify-agent` (commit: no, force/user_files from
   fail-closed `graphify_force_create`/`graphify_user_files` toggles) +
@@ -150,7 +156,7 @@ Plus plugin.json `userConfig` manifest checks (twelve boolean toggles +
 numeric `ci_watch_timeout` + numeric `review_max_rounds`, boolean defaults
 all `true` except fail-closed `graphify_force_create` +
 `graphify_user_files`, timeout default `1800`, rounds default `3`,
-titles + descriptions, version `3.8.0` declared only in plugin.json —
+titles + descriptions, version declared only in plugin.json —
 marketplace entry carries none — and no top-level `dependencies` key
 (context-mode is optional)). `ci-watch.sh`
 polling (coderabbit exclusion, pending→done transitions, timeout, no-checks
