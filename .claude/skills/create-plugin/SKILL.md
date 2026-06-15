@@ -41,7 +41,7 @@ Ask one at a time. Collect:
 - **category** — single string, e.g. `productivity`, `example` (optional).
 - **tags** — short keywords array (optional).
 - **components** — which of `skills`, `agents`, `hooks`, `commands` (legacy) to scaffold. Min one; `skills` is default. For `hooks`, also pick the **hook kind** (see `.claude/rules/hooks-mcp-server.md` decision tree):
-  - **command** — required only for: pre-connect events (`SessionStart`/`Setup`), fail-closed hard gates (need exit 2), fail-open-sensitive side-effects that must reliably fire (e.g. `PreCompact` snapshot, a state-write other hooks read), or latency-sensitive high-frequency events (`UserPromptSubmit`/`MessageDisplay`) → a `.mjs`/`.sh` command hook.
+  - **command** — required only for: pre-connect events (`SessionStart`/`Setup`), fail-closed hard gates (need exit 2), or fail-open-sensitive side-effects that must reliably fire (e.g. `PreCompact` snapshot, a state-write other hooks read). Also the default for latency-sensitive high-frequency events (`MessageDisplay`; `UserPromptSubmit` is a latency/cost trade-off where `mcp_tool` is also viable — cave-context wires it as `mcp_tool`, see the matrix) → a `.mjs`/`.sh` command hook.
   - **mcp** — otherwise, non-blocking mid-session hooks (`PreToolUse`, `PostToolUse`, `Stop`, `SubagentStop`, `PreCompact`/`ConfigChange` when no must-fire side-effect, …) → an `mcp_tool` hook backed by a self-contained plugin-local MCP server (preferred). See the per-event `hooks-mcp-tool-event-matrix`.
 
 ## Step 2 — Validate the name
