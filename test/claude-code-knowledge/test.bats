@@ -241,8 +241,11 @@ reroute_call() {
   [ "$output" = "true" ]
   run jq -r '.hooks.PreToolUse[0].hooks[0].type' "$PLUGIN/hooks/hooks.json"
   [ "$output" = "mcp_tool" ]
+  # A plugin's own mcp_tool hook must reference the runtime-namespaced server name
+  # (plugin:<plugin>:<server-key>, as shown by `claude mcp list` / `/mcp`), NOT the
+  # bare .mcp.json key — the bare key resolves to "MCP server not connected".
   run jq -r '.hooks.PreToolUse[0].hooks[0].server' "$PLUGIN/hooks/hooks.json"
-  [ "$output" = "claude-code-knowledge-hooks" ]
+  [ "$output" = "plugin:claude-code-knowledge:claude-code-knowledge-hooks" ]
   run jq -r '.hooks.PreToolUse[0].hooks[0].tool' "$PLUGIN/hooks/hooks.json"
   [ "$output" = "reroute_guide" ]
 }
