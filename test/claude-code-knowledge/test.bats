@@ -76,6 +76,7 @@ setup() {
 @test "all reference files exist and are non-empty" {
   for f in claude-code-skills-reference.md claude-code-agents-reference.md \
            claude-code-hooks-reference.md hook-handler-selection.md \
+           claude-code-mcp-tool-hooks-reference.md \
            claude-code-commands-reference.md claude-code-mcp-reference.md \
            claude-code-plugins-reference.md claude-code-memory-reference.md \
            claude-code-settings-reference.md; do
@@ -86,6 +87,7 @@ setup() {
 @test "each reference file has at least one '## ' heading" {
   for f in claude-code-skills-reference.md claude-code-agents-reference.md \
            claude-code-hooks-reference.md hook-handler-selection.md \
+           claude-code-mcp-tool-hooks-reference.md \
            claude-code-commands-reference.md claude-code-mcp-reference.md \
            claude-code-plugins-reference.md claude-code-memory-reference.md \
            claude-code-settings-reference.md; do
@@ -98,6 +100,7 @@ setup() {
 @test "each reference file header carries a verified date" {
   for f in claude-code-skills-reference.md claude-code-agents-reference.md \
            claude-code-hooks-reference.md hook-handler-selection.md \
+           claude-code-mcp-tool-hooks-reference.md \
            claude-code-commands-reference.md claude-code-mcp-reference.md \
            claude-code-plugins-reference.md claude-code-memory-reference.md \
            claude-code-settings-reference.md; do
@@ -109,6 +112,7 @@ setup() {
 @test "SKILL.md routing/section index names each reference file" {
   for f in claude-code-skills-reference.md claude-code-agents-reference.md \
            claude-code-hooks-reference.md hook-handler-selection.md \
+           claude-code-mcp-tool-hooks-reference.md \
            claude-code-commands-reference.md claude-code-mcp-reference.md \
            claude-code-plugins-reference.md claude-code-memory-reference.md \
            claude-code-settings-reference.md; do
@@ -135,6 +139,14 @@ setup() {
 
 @test "SKILL.md points reference paths at the references/ subfolder" {
   run grep -E '\$\{CLAUDE_SKILL_DIR\}/references/claude-code-skills-reference.md' "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "mcp-tool-hooks reference documents the plugin server-name namespacing gotcha" {
+  [ -s "$REFS/claude-code-mcp-tool-hooks-reference.md" ]
+  run grep -F 'plugin:<plugin-name>:<server-key>' "$REFS/claude-code-mcp-tool-hooks-reference.md"
+  [ "$status" -eq 0 ]
+  run grep -iE 'not connected' "$REFS/claude-code-mcp-tool-hooks-reference.md"
   [ "$status" -eq 0 ]
 }
 

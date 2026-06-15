@@ -30,6 +30,9 @@ Always prefer the `.md` variant of a doc URL when it returns clean markdown; fal
 - Hooks reference (events, matchers, I/O, exit codes, decision control, handler fields, scopes): `https://code.claude.com/docs/en/hooks`
 - Supporting — Hooks guide (examples): `https://code.claude.com/docs/en/hooks-guide`
 
+**`claude-code-mcp-tool-hooks-reference.md`** (CURATED — update conservatively)
+- Source: `https://code.claude.com/docs/en/hooks` (mcp_tool hook fields) + `https://code.claude.com/docs/en/mcp`. This file mixes doc-mirrored fields with a hard-won gotcha: a plugin's own `mcp_tool` hook must reference the server as `plugin:<plugin>:<server-key>` (per `claude mcp list`), not the bare `.mcp.json` key. PRESERVE that namespacing rule and the output-contract section on any refresh; never regenerate wholesale.
+
 **`hook-handler-selection.md`** (CURATED decision aid — update conservatively)
 - Same source: `https://code.claude.com/docs/en/hooks`. This file is a hand-tuned decision table for choosing a handler `type`, not a 1:1 doc mirror. Only touch it when the docs change something it actually asserts: handler types, fail-open/closed semantics, per-call cost/latency/state characteristics, default timeouts, `mcp_tool`/command-form shape, exit-code/decision constraints. Preserve its rule ordering and quick-map structure. Never regenerate it wholesale.
 
@@ -69,7 +72,7 @@ Update Progress:
 - [ ] 7. Verify against the post-update checks
 ```
 
-**1. Resolve targets.** `skills` → skills file; `agents` → agents file; `hooks` → both hooks files (`claude-code-hooks-reference.md` + `hook-handler-selection.md`, the latter per its conservative rule above); `commands` → `claude-code-commands-reference.md`; `mcp` → `claude-code-mcp-reference.md`; `plugins` → `claude-code-plugins-reference.md`; `memory` → `claude-code-memory-reference.md`; `settings` → `claude-code-settings-reference.md`; `all`/empty → everything. Locate files with `Glob` (`plugins/claude-code-knowledge/skills/cc-reference/references/*.md`); if absent, create them there. The canonical location is the `references/` subfolder `plugins/claude-code-knowledge/skills/cc-reference/references/` — update files there. (Note: `skill-folder-structure.md` in that folder is a static convention doc — NOT a maintained target; never refresh it from docs.)
+**1. Resolve targets.** `skills` → skills file; `agents` → agents file; `hooks` → the hooks files (`claude-code-hooks-reference.md` + `hook-handler-selection.md` + `claude-code-mcp-tool-hooks-reference.md`, the latter two per their conservative rules — preserve curated gotchas, never regenerate wholesale); `commands` → `claude-code-commands-reference.md`; `mcp` → `claude-code-mcp-reference.md`; `plugins` → `claude-code-plugins-reference.md`; `memory` → `claude-code-memory-reference.md`; `settings` → `claude-code-settings-reference.md`; `all`/empty → everything. Locate files with `Glob` (`plugins/claude-code-knowledge/skills/cc-reference/references/*.md`); if absent, create them there. The canonical location is the `references/` subfolder `plugins/claude-code-knowledge/skills/cc-reference/references/` — update files there. (Note: `skill-folder-structure.md` in that folder is a static convention doc — NOT a maintained target; never refresh it from docs.)
 
 **2. Read current file(s).** Note the existing structure and the `verified` date in the header comment.
 
