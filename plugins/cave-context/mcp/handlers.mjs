@@ -68,7 +68,7 @@ export async function handleStop(input) {
       "a Bash run_in_background poll like `until tail -1 <subagent>.jsonl | grep -q '\"stop_reason\":\"end_turn\"'; do sleep 5; done` " +
       `with a deadline, whose exit deterministically re-invokes you. Do NOT use the Monitor tool for this ` +
       `single all-done completion.`;
-    return emit("Stop", reason, { decision: "block", reason });
+    return emit("Stop", null, { decision: "block", reason });
   } catch {
     return {};                                                 // fail-open on any error
   }
