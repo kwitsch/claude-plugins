@@ -8,20 +8,21 @@ Maintenance tooling lives at `.claude/skills/update-cc-references/` (repo root) 
 
 ## Reference-file authoring style
 
-The four files under `skills/cc-reference/` are harness reference files, not prose documentation. Follow these conventions:
+The reference files under `skills/cc-reference/references/` are harness reference files, not prose documentation. Follow these conventions:
 
 - Directives not prose: state rules as imperatives or tables, not explanatory paragraphs.
 - Tables for field references: frontmatter keys, schema fields, and option enumerations all go in markdown tables.
-- `verified:` date in each file's header: keep it accurate when editing.
+- `verified:` date in each maintained file's header: keep it accurate when editing. (`skill-folder-structure.md` is a static convention doc — no verified date, not refreshed by `update-cc-references`.)
 - Forward slashes for paths; no backslashes.
 - No time-sensitive phrasing: instead of "new in X.Y", use a version-gate note (`version >= X.Y:` prefix on the row).
 - Body under 500 lines per file.
+- Layout convention: a single bundled reference file sits next to `SKILL.md`; **≥2 reference files live in the `references/` subfolder** (documented in `references/skill-folder-structure.md`).
 
 ## Versioning
 
 Version lives ONLY in `.claude-plugin/plugin.json`. Rules:
 
-- Minor-bump on any reference-file refresh (handled automatically by `update-cc-references`).
+- Patch-bump on any reference-file refresh (handled automatically by `update-cc-references`, which also stamps the ingestion date into the plugin `description`).
 - Do NOT put a `version` field in the marketplace.json entry for this plugin.
 - Do NOT create git tags manually — CI (`tag-on-version-bump.yml`) tags after merge.
 
@@ -31,7 +32,7 @@ Version lives ONLY in `.claude-plugin/plugin.json`. Rules:
 BATS_LIB_PATH=/usr/lib/bats bats test/claude-code-knowledge/
 ```
 
-The suite is structural: it checks the plugin manifest, the cc-reference skill shape, the four reference files, and that the update-cc-references maintenance skill is present but user-only.
+The suite is structural: it checks the plugin manifest, the cc-reference skill shape, the reference files under `references/` (incl. the `references/` layout convention + `skill-folder-structure.md`), the expert agent, the mcp_tool reroute server, and that the update-cc-references maintenance skill is present but user-only.
 
 ## Expert agent + reroute hook
 

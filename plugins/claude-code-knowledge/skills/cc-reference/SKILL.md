@@ -9,16 +9,17 @@ allowed-tools: Read, Grep, WebFetch, WebSearch
 
 Answer `$ARGUMENTS` from the bundled reference files. Retrieve only the matching section(s) — do NOT read whole files into context.
 
-Files live next to this skill:
-- `${CLAUDE_SKILL_DIR}/claude-code-skills-reference.md` — authoring **Skills**
-- `${CLAUDE_SKILL_DIR}/claude-code-agents-reference.md` — authoring **subagents / agents**
-- `${CLAUDE_SKILL_DIR}/claude-code-hooks-reference.md` — **hooks** mechanics (events, matchers, I/O, exit codes, decision control)
-- `${CLAUDE_SKILL_DIR}/hook-handler-selection.md` — choosing a hook **handler `type`** (command/.sh/.mjs/binary vs http/mcp_tool/prompt/agent)
-- `${CLAUDE_SKILL_DIR}/claude-code-commands-reference.md` — authoring **slash commands** (`.claude/commands`, frontmatter, `$ARGUMENTS`, dynamic context, namespacing)
-- `${CLAUDE_SKILL_DIR}/claude-code-mcp-reference.md` — **MCP** integration (`.mcp.json`, transports, scopes, auth, tool naming, managed restrictions)
-- `${CLAUDE_SKILL_DIR}/claude-code-plugins-reference.md` — **plugins** (`plugin.json`/`marketplace.json`, layout, path variables, components, CLI)
-- `${CLAUDE_SKILL_DIR}/claude-code-memory-reference.md` — **memory** (`CLAUDE.md` locations/precedence, `@imports`, auto-memory)
-- `${CLAUDE_SKILL_DIR}/claude-code-settings-reference.md` — **settings/config** (`settings.json`, env vars, permissions & modes, model config, output styles, statusline, sandboxing)
+Files live in the `references/` subfolder of this skill:
+- `${CLAUDE_SKILL_DIR}/references/claude-code-skills-reference.md` — authoring **Skills**
+- `${CLAUDE_SKILL_DIR}/references/claude-code-agents-reference.md` — authoring **subagents / agents**
+- `${CLAUDE_SKILL_DIR}/references/claude-code-hooks-reference.md` — **hooks** mechanics (events, matchers, I/O, exit codes, decision control)
+- `${CLAUDE_SKILL_DIR}/references/hook-handler-selection.md` — choosing a hook **handler `type`** (command/.sh/.mjs/binary vs http/mcp_tool/prompt/agent)
+- `${CLAUDE_SKILL_DIR}/references/claude-code-commands-reference.md` — authoring **slash commands** (`.claude/commands`, frontmatter, `$ARGUMENTS`, dynamic context, namespacing)
+- `${CLAUDE_SKILL_DIR}/references/claude-code-mcp-reference.md` — **MCP** integration (`.mcp.json`, transports, scopes, auth, tool naming, managed restrictions)
+- `${CLAUDE_SKILL_DIR}/references/claude-code-plugins-reference.md` — **plugins** (`plugin.json`/`marketplace.json`, layout, path variables, components, CLI)
+- `${CLAUDE_SKILL_DIR}/references/claude-code-memory-reference.md` — **memory** (`CLAUDE.md` locations/precedence, `@imports`, auto-memory)
+- `${CLAUDE_SKILL_DIR}/references/claude-code-settings-reference.md` — **settings/config** (`settings.json`, env vars, permissions & modes, model config, output styles, statusline, sandboxing)
+- `${CLAUDE_SKILL_DIR}/references/skill-folder-structure.md` — **skill folder layout** (skill dir structure + the `references/` subfolder convention; static, not doc-refreshed)
 
 ## Retrieval procedure
 
@@ -54,7 +55,8 @@ Map key → file on disk: `skills-reference` → `claude-code-skills-reference.m
 `claude-code-commands-reference.md`; `mcp-reference` → `claude-code-mcp-reference.md`;
 `plugins-reference` → `claude-code-plugins-reference.md`; `memory-reference` →
 `claude-code-memory-reference.md`; `settings-reference` →
-`claude-code-settings-reference.md`. Hook questions usually need **both** hooks files
+`claude-code-settings-reference.md`; `skill-folder-structure` →
+`skill-folder-structure.md`. Hook questions usually need **both** hooks files
 (`claude-code-hooks-reference.md` for mechanics, `hook-handler-selection.md` for
 which handler `type`).
 
@@ -75,6 +77,8 @@ which handler `type`).
 **memory-reference** (`claude-code-memory-reference.md`) — `CLAUDE.md` memory: locations & precedence, `@imports`, auto-memory, what belongs, quick-add / `/memory`.
 
 **settings-reference** (`claude-code-settings-reference.md`) — config surface: `settings.json` & scope precedence, settings keys, env vars, permissions & permission modes, model config, output styles, statusline, sandboxed Bash.
+
+**skill-folder-structure** (`skill-folder-structure.md`) — skill directory layout: `SKILL.md` + supporting files, `scripts/`, and the convention that ≥2 bundled reference files live in a `references/` subfolder (1 file → next to `SKILL.md`). Static layout reference, not doc-refreshed.
 
 ## Section index
 
@@ -223,4 +227,11 @@ Output styles
 Statusline
 Sandboxed Bash tool
 Version notes
+```
+
+### skill-folder-structure.md
+```
+Skill directory layout
+Convention: one supporting file vs many → references/
+Example (this skill)
 ```

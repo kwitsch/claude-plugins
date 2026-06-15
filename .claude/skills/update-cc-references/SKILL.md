@@ -69,7 +69,7 @@ Update Progress:
 - [ ] 7. Verify against the post-update checks
 ```
 
-**1. Resolve targets.** `skills` → skills file; `agents` → agents file; `hooks` → both hooks files (`claude-code-hooks-reference.md` + `hook-handler-selection.md`, the latter per its conservative rule above); `commands` → `claude-code-commands-reference.md`; `mcp` → `claude-code-mcp-reference.md`; `plugins` → `claude-code-plugins-reference.md`; `memory` → `claude-code-memory-reference.md`; `settings` → `claude-code-settings-reference.md`; `all`/empty → everything. Locate files with `Glob` (`plugins/claude-code-knowledge/skills/cc-reference/*.md`); if absent, create them at that path. The canonical location is `plugins/claude-code-knowledge/skills/cc-reference/` — update files there.
+**1. Resolve targets.** `skills` → skills file; `agents` → agents file; `hooks` → both hooks files (`claude-code-hooks-reference.md` + `hook-handler-selection.md`, the latter per its conservative rule above); `commands` → `claude-code-commands-reference.md`; `mcp` → `claude-code-mcp-reference.md`; `plugins` → `claude-code-plugins-reference.md`; `memory` → `claude-code-memory-reference.md`; `settings` → `claude-code-settings-reference.md`; `all`/empty → everything. Locate files with `Glob` (`plugins/claude-code-knowledge/skills/cc-reference/references/*.md`); if absent, create them there. The canonical location is the `references/` subfolder `plugins/claude-code-knowledge/skills/cc-reference/references/` — update files there. (Note: `skill-folder-structure.md` in that folder is a static convention doc — NOT a maintained target; never refresh it from docs.)
 
 **2. Read current file(s).** Note the existing structure and the `verified` date in the header comment.
 
