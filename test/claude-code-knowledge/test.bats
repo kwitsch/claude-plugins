@@ -340,3 +340,38 @@ reroute_call() {
   sc=$(reroute_call '{"hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"subagent_type":"general-purpose"}}')
   [ "$sc" = "{}" ]
 }
+
+# --- cc-review orchestrator skill ---
+
+@test "cc-review SKILL.md exists" {
+  [ -f "$PLUGIN/skills/cc-review/SKILL.md" ]
+}
+
+@test "cc-review SKILL.md has name and argument-hint frontmatter" {
+  run grep -E '^name:[[:space:]]*cc-review' "$PLUGIN/skills/cc-review/SKILL.md"
+  [ "$status" -eq 0 ]
+  run grep -E '^argument-hint:' "$PLUGIN/skills/cc-review/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-review runs inline (NOT context: fork — needs Agent + Edit/Write)" {
+  run grep -E '^context:[[:space:]]*fork' "$PLUGIN/skills/cc-review/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "cc-review dispatches the cc-reviewer agent" {
+  run grep -F 'cc-reviewer' "$PLUGIN/skills/cc-review/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-review gates application through AskUserQuestion" {
+  run grep -F 'AskUserQuestion' "$PLUGIN/skills/cc-review/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-review detection is runtime Bash, not a load-time !-injection" {
+  # The skill must not carry a `!`+backtick dynamic-context trigger (would run at
+  # load, before the target is resolved). Detection is a model-run bash block.
+  run grep -nE '!`' "$PLUGIN/skills/cc-review/SKILL.md"
+  [ "$status" -ne 0 ]
+}
