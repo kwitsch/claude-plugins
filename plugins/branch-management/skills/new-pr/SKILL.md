@@ -215,10 +215,10 @@ hand the remaining findings to the user instead of pushing in circles.
     `branch-management:review-fixer` with both lists (CI failure analyses are
     findings too). The fixer carries a standing rule to never stage
     `graphify-out` — no per-dispatch instruction needed. Then:
-    - If the fixer returned commits: push them.
     - Gate: track this review-fixer dispatch in the ledger; do NOT push or resolve any
       CodeRabbit thread until `TaskList` shows it terminal and its resolutions JSON is
       in hand — so commits and `thread_id`s are never used stale.
+    - If the fixer returned commits: push them.
     - For findings the fixer **skipped**, reply to the CodeRabbit thread with
       the skip reason and resolve it, using the `thread_id` from ci-monitor
       (GitHub: GraphQL mutation `resolveReviewThread`; GitLab:

@@ -43,7 +43,7 @@ subagent-scoped probe.
   arrives, nothing wakes the orchestrator and the `TaskStop` escape cannot fire —
   that pathological case needs operator intervention. Document, do not pretend.
 
-## Canonical gate block (verbatim — carry inline in each skill)
+## Canonical gate block (carry inline in each skill — tailored per skill)
 
 > **Subagent reconciliation gate.** Track every async dispatch so you never advance
 > on a partial batch and never miss a finish. Load the ledger tools once (deferred;
@@ -74,4 +74,4 @@ subagent-scoped probe.
 | review-branch | per round: enabled reviewers; separately review-fixer | quota record / aggregate / Decide / the `DONE`/`BLOCKED` token | highest (missed finish → dropped findings → false `DONE` → unreviewed push) |
 | new-pr | graphify-agent; ci-monitor; review-fixer (each sequential) | the commit/clean check; review-fixer dispatch; the push | medium |
 | new-branch | branch-agent | invoking init-branch | medium (formalizes existing race-guard) |
-| init-branch | graphify-agent + ctx-index-agent (parallel) | the step-4 report | lowest (missed finish → wrong report line) |
+| init-branch | graphify-agent + ctx-index-agent (parallel) | the step-5 report (gate is step 4) | lowest (missed finish → wrong report line) |

@@ -146,14 +146,13 @@ the fixer across rounds.
 - **Findings remain and rounds remain**: assign each finding a stable
   id (`F1`, `F2`, …). Dispatch `branch-management:review-fixer` ONCE
   with the full deduplicated findings JSON (including ids) and the base
-  branch. It verifies, fixes justified findings, skips others with
+  branch. Track this fixer dispatch as a one-entry batch (`TaskCreate`
+  with `metadata.dispatch_id` = the fixer's Agent `task_id`,
+  `in_progress`); `TaskList` and confirm it is `completed` before
+  consuming its result, so the loop never advances on an un-returned
+  fixer. It verifies, fixes justified findings, skips others with
   reasons, commits, and echoes each finding's `id` in its resolutions.
-  Add skipped finding ids to `skip_list`.
-   Track this fixer dispatch as a one-entry batch (`TaskCreate` with
-   `metadata.dispatch_id` = the fixer's Agent `task_id`, `in_progress`); `TaskList`
-   and confirm it is `completed` before adding skipped ids to `skip_list` or
-   incrementing the round counter, so the loop never advances on an un-returned fixer.
-   Increment round counter and
+  Add skipped finding ids to `skip_list`. Increment round counter and
   continue loop.
 
 ## Report
