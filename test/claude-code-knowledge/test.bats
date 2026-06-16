@@ -236,6 +236,43 @@ setup() {
   [ "$status" -ne 0 ]
 }
 
+# --- cc-reviewer agent (parameterized read-only reviewer) ---
+
+@test "cc-reviewer agent has name and description" {
+  run grep -E '^name:[[:space:]]*cc-reviewer' "$PLUGIN/agents/cc-reviewer.md"
+  [ "$status" -eq 0 ]
+  run grep -E '^description:' "$PLUGIN/agents/cc-reviewer.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-reviewer declares model haiku and cc-reference tools (Skill, Read, Grep, Glob)" {
+  run grep -E '^model:[[:space:]]*haiku' "$PLUGIN/agents/cc-reviewer.md"
+  [ "$status" -eq 0 ]
+  for tool in Skill Read Grep Glob; do
+    run grep -E "^tools:.*$tool" "$PLUGIN/agents/cc-reviewer.md"
+    [ "$status" -eq 0 ]
+  done
+}
+
+@test "cc-reviewer has no write or Bash tools" {
+  run grep -E '^tools:.*(Write|Edit|NotebookEdit|Bash)' "$PLUGIN/agents/cc-reviewer.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "cc-reviewer is cc-reference-only and never answers from training memory" {
+  run grep -F 'cc-reference' "$PLUGIN/agents/cc-reviewer.md"
+  [ "$status" -eq 0 ]
+  run grep -iE 'never.*training memory|not.*training memory' "$PLUGIN/agents/cc-reviewer.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-reviewer documents the structured findings output contract" {
+  run grep -iE 'suggested_fix' "$PLUGIN/agents/cc-reviewer.md"
+  [ "$status" -eq 0 ]
+  run grep -iE 'severity' "$PLUGIN/agents/cc-reviewer.md"
+  [ "$status" -eq 0 ]
+}
+
 # Drive the reroute MCP server: initialize + one tools/call, echo the
 # structuredContent of the tools/call (id 2) response. $1 = arguments JSON object.
 reroute_call() {
@@ -302,4 +339,39 @@ reroute_call() {
   if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
   sc=$(reroute_call '{"hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"subagent_type":"general-purpose"}}')
   [ "$sc" = "{}" ]
+}
+
+# --- cc-review orchestrator skill ---
+
+@test "cc-review SKILL.md exists" {
+  [ -f "$PLUGIN/skills/cc-review/SKILL.md" ]
+}
+
+@test "cc-review SKILL.md has name and argument-hint frontmatter" {
+  run grep -E '^name:[[:space:]]*cc-review' "$PLUGIN/skills/cc-review/SKILL.md"
+  [ "$status" -eq 0 ]
+  run grep -E '^argument-hint:' "$PLUGIN/skills/cc-review/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-review runs inline (NOT context: fork — needs Agent + Edit/Write)" {
+  run grep -E '^context:[[:space:]]*fork' "$PLUGIN/skills/cc-review/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "cc-review dispatches the cc-reviewer agent" {
+  run grep -F 'cc-reviewer' "$PLUGIN/skills/cc-review/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-review gates application through AskUserQuestion" {
+  run grep -F 'AskUserQuestion' "$PLUGIN/skills/cc-review/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-review detection is runtime Bash, not a load-time !-injection" {
+  # The skill must not carry a `!`+backtick dynamic-context trigger (would run at
+  # load, before the target is resolved). Detection is a model-run bash block.
+  run grep -nE '!`' "$PLUGIN/skills/cc-review/SKILL.md"
+  [ "$status" -ne 0 ]
 }

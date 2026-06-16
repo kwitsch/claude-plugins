@@ -2,9 +2,14 @@
 
 ## Boundary rule
 
-The plugin ships exactly one component: `plugins/claude-code-knowledge/skills/cc-reference/`.
+The plugin ships these components:
+- `skills/cc-reference/` — the lookup skill + bundled reference files.
+- `skills/cc-review/` — the inline review orchestrator (dispatches `cc-reviewer`, gates fixes through AskUserQuestion).
+- `agents/claude-code-expert.md` — the read-only Q&A expert (reroute target).
+- `agents/cc-reviewer.md` — the read-only parameterized review worker dispatched by `cc-review`.
+- `hooks/hooks.json` + `mcp/server.mjs` + `.mcp.json` — the `claude-code-guide` reroute hook backend.
 
-Maintenance tooling lives at `.claude/skills/update-cc-references/` (repo root) and does NOT ship — the plugin loader reads only the plugin's own `skills/` directory. Do not add agents, hooks, or bin scripts to this plugin without a deliberate design decision.
+Maintenance tooling lives at `.claude/skills/update-cc-references/` (repo root) and does NOT ship — the plugin loader reads only the plugin's own `skills/` directory. Adding further components requires a deliberate design decision.
 
 ## Reference-file authoring style
 
