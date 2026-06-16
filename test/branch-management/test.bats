@@ -420,7 +420,7 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 
 @test "version: declared once — plugin.json only, marketplace entry carries none" {
   run jq -r '.version' "$REPO_ROOT/$PLUGIN_JSON_REL"
-  assert_output "3.8.1"
+  assert_output "3.9.0"
   run jq -e '.plugins[] | select(.name == "branch-management") | has("version") | not' \
     "$REPO_ROOT/.claude-plugin/marketplace.json"
   assert_success
@@ -942,4 +942,93 @@ run_clean_script() {
     run_clean_script
     assert_success
     refute_output --partial "feat/gone-local"
+}
+
+# --- subagent-tracking rule ---
+
+@test "subagent-tracking rule exists, carries the canonical block + inoculation note" {
+  RULE="$REPO_ROOT/.claude/rules/subagent-tracking.md"
+  [ -f "$RULE" ]
+  run grep -qi 'Subagent reconciliation gate' "$RULE"
+  assert_success
+  run grep -qi 'inoculation' "$RULE"
+  assert_success
+  run grep -q 'select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop' "$RULE"
+  assert_success
+}
+
+# --- init-branch subagent tracking ---
+INIT_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branch/SKILL.md"
+
+@test "init-branch allowed-tools includes the Task* ledger tools and ToolSearch" {
+  line=$(grep '^allowed-tools:' "$INIT_SKILL")
+  for t in TaskCreate TaskUpdate TaskList TaskGet TaskStop ToolSearch; do
+    echo "$line" | grep -q "$t" || { echo "missing $t in init-branch allowed-tools"; return 1; }
+  done
+}
+
+@test "init-branch carries the subagent reconciliation gate" {
+  run grep -q 'select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop' "$INIT_SKILL"
+  assert_success
+  run grep -qi 'Subagent reconciliation gate' "$INIT_SKILL"
+  assert_success
+}
+
+# --- review-branch subagent tracking ---
+RB_SKILL2="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-branch/SKILL.md"
+
+@test "review-branch allowed-tools includes the Task* ledger tools and ToolSearch" {
+  line=$(grep '^allowed-tools:' "$RB_SKILL2")
+  for t in TaskCreate TaskUpdate TaskList TaskGet TaskStop ToolSearch; do
+    echo "$line" | grep -q "$t" || { echo "missing $t in review-branch allowed-tools"; return 1; }
+  done
+}
+
+@test "review-branch carries the subagent reconciliation gate" {
+  run grep -q 'select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop' "$RB_SKILL2"
+  assert_success
+  run grep -qi 'Subagent reconciliation gate' "$RB_SKILL2"
+  assert_success
+}
+
+@test "review-branch gate appears before the DONE/BLOCKED token section (no DONE on an unreconciled batch)" {
+  gate=$(grep -n 'select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop' "$RB_SKILL2" | head -n1 | cut -d: -f1)
+  tok=$(grep -n 'terminal-state token' "$RB_SKILL2" | head -n1 | cut -d: -f1)
+  [ -n "$gate" ] || { echo "gate line not found"; return 1; }
+  [ -n "$tok" ]  || { echo "token line not found"; return 1; }
+  [ "$gate" -lt "$tok" ] || { echo "gate ($gate) must precede DONE/BLOCKED token ($tok)"; return 1; }
+}
+
+# --- new-branch subagent tracking ---
+NB_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-branch/SKILL.md"
+
+@test "new-branch allowed-tools includes the Task* ledger tools and ToolSearch" {
+  line=$(grep '^allowed-tools:' "$NB_SKILL")
+  for t in TaskCreate TaskUpdate TaskList TaskGet TaskStop ToolSearch; do
+    echo "$line" | grep -q "$t" || { echo "missing $t in new-branch allowed-tools"; return 1; }
+  done
+}
+
+@test "new-branch carries the subagent reconciliation gate" {
+  run grep -q 'select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop' "$NB_SKILL"
+  assert_success
+  run grep -qi 'Subagent reconciliation gate' "$NB_SKILL"
+  assert_success
+}
+
+# --- new-pr subagent tracking ---
+NPR_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-pr/SKILL.md"
+
+@test "new-pr allowed-tools includes the Task* ledger tools and ToolSearch" {
+  line=$(grep '^allowed-tools:' "$NPR_SKILL")
+  for t in TaskCreate TaskUpdate TaskList TaskGet TaskStop ToolSearch; do
+    echo "$line" | grep -q "$t" || { echo "missing $t in new-pr allowed-tools"; return 1; }
+  done
+}
+
+@test "new-pr carries the subagent reconciliation gate" {
+  run grep -q 'select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop' "$NPR_SKILL"
+  assert_success
+  run grep -qi 'Subagent reconciliation gate' "$NPR_SKILL"
+  assert_success
 }

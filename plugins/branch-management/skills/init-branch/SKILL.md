@@ -1,7 +1,7 @@
 ---
 name: init-branch
 description: Use after creating or switching to a work branch to initialize its tooling context - refreshes the graphify knowledge-graph output and the context-mode index for the current branch. Called by new-branch after branch creation; also user-invocable directly to refresh graph + index anytime.
-allowed-tools: ["Agent", "Bash(git:*)", "Bash(echo:*)", "ToolSearch"]
+allowed-tools: ["Agent", "Bash(git:*)", "Bash(echo:*)", "ToolSearch", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TaskStop"]
 ---
 
 # Initialize branch tooling context
@@ -59,7 +59,33 @@ infer availability from your own tool list.
    files are left uncommitted on the current branch; they will trip the
    clean-tree guard on the next `new-branch` run (commit or stash first).
 
-4. **Report** these structured outcome lines (the caller — new-branch —
+4. **Reconcile dispatch before reporting (subagent gate).**
+
+   **Subagent reconciliation gate.** Track every async dispatch so you never advance
+   on a partial batch and never miss a finish. Load the ledger tools once (deferred;
+   resolve at depth 0, where this skill runs — a subagent-scoped probe falsely reports
+   these absent, do NOT skip the ledger on that basis):
+   `ToolSearch(query: "select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop")`
+   (retry bare names). Only if nothing loads, use the prose-count fallback below.
+   1. On dispatch (step 3), `TaskCreate` one entry per agent actually dispatched
+      (`subject` = `graphify-agent` / `ctx-index-agent`, `metadata.dispatch_id` =
+      its Agent `task_id`), then `TaskUpdate` it to `in_progress`. If neither agent
+      was dispatched, the batch is empty — skip the rest of this step.
+   2. On each `<task-notification>`, match by `dispatch_id`, record the agent's
+      outcome string, `TaskUpdate` → `completed` (a failed/`disabled` outcome is
+      terminal too — soft-fail, never abort).
+   3. **Gate:** before assembling the report (next step), `TaskList`; if any batch
+      entry is still `pending`/`in_progress`, do NOT advance — wait for the remaining
+      `<task-notification>`(s).
+   4. Escape hatch only: if, when next awake, a still-`in_progress` entry is judged
+      genuinely stuck, `TaskStop` its `dispatch_id`, mark it terminal
+      (`metadata.outcome: "stopped"`), record it as a `failed` outcome, and proceed.
+      Never `TaskOutput` a dispatch_id (transcript overflow).
+   Prose-count fallback (tools genuinely absent): track the dispatched count
+   explicitly; do not assemble the report until that many outcomes are in hand.
+   See `.claude/rules/subagent-tracking.md`.
+
+5. **Report** these structured outcome lines (the caller — new-branch —
    includes them verbatim under the branch name it reports):
    - graphify outcome: `updated — files left uncommitted` /
      `skipped: graphify unavailable` (probe printed `GRAPHIFY=no`) /

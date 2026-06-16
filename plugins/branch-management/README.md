@@ -21,6 +21,10 @@ finished branch into a reviewed, pushed PR/MR and watches it until green.
 | `review-branch` | Standalone review sub-skill (runs inline, not forked): runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer agents, configurable via `review_max_rounds`), aggregates + dedupes findings, applies verified fixes via `review-fixer` between rounds, tracks quota limits. Invoked by `new-pr`; also user-invocable to review without opening a PR. |
 | `branch-management:clean-branches` | Fetch latest, prune merged upstream branches (gh/glab), delete local branches whose upstream is gone, list uncommitted files. |
 
+All four dispatcher skills reconcile their async subagents via a Task* To-Do ledger
+(`TaskCreate`/`TaskList`/`TaskStop`) — no dispatch's completion is missed and no
+skill advances on a partial batch. See `.claude/rules/subagent-tracking.md`.
+
 ## Agents
 
 | Agent | Model | Role |

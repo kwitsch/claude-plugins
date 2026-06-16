@@ -2,7 +2,7 @@
 name: new-pr
 description: Use when branch work complete and should become pull/merge request - runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer subagents, configurable max rounds) with verified fixes between rounds, pushes, opens PR or MR via gh or glab, then watches CI and CodeRabbit feedback until all green. Optionally refreshes and separately commits the graphify output before pushing. Review sources can be disabled per user or per project.
 argument-hint: "[--base <branch>]"
-allowed-tools: ["Agent", "Skill", "Bash(git:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(echo:*)"]
+allowed-tools: ["Agent", "Skill", "Bash(git:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(echo:*)", "ToolSearch", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TaskStop"]
 ---
 
 # Turn the current branch into a reviewed PR/MR
@@ -79,6 +79,25 @@ read in preconditions (step 4).
    `review_max_rounds`, and reviewer quota checks are handled
    autonomously by the `review-branch` sub-skill (step 6).
 
+## Subagent dispatch tracking
+
+**Subagent reconciliation gate.** This skill dispatches subagents sequentially
+(graphify-agent in step 9; ci-monitor and review-fixer in the monitor loop). Track
+each so a result is never consumed before its dispatch is terminal. Load the ledger
+tools once (deferred; resolve at depth 0, where this skill runs — a subagent-scoped
+probe falsely reports these absent, do NOT skip the ledger on that basis):
+`ToolSearch(query: "select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop")`
+(retry bare names). Only if nothing loads, use the prose-count fallback.
+For every Agent dispatch below: `TaskCreate` an entry (`metadata.dispatch_id` =
+the Agent `task_id`, `in_progress`); on its `<task-notification>` record the
+structured result and `TaskUpdate` → `completed`; and at the named gate point, do
+NOT advance until `TaskList` shows that entry terminal. Stuck entry when next awake
+→ `TaskStop` + soft-fail. Never `TaskOutput` a dispatch_id (transcript overflow).
+Prose-count fallback (tools genuinely absent): hold each step until the dispatched
+subagent's structured result is in hand. (review-branch in step 6 is a Skill
+invocation, not an Agent dispatch — it runs its own internal gate, not tracked here.)
+See `.claude/rules/subagent-tracking.md`.
+
 ## Review rounds
 
 5. **Commit pending work.** This is mandatory: codex and copilot diff
@@ -127,6 +146,9 @@ read in preconditions (step 4).
      uncommitted via settings` in the report.
    - Soft-fail: any non-ok status is a report note, never a reason to stop
      before pushing.
+   - Gate: `TaskCreate`/track this graphify-agent dispatch; do NOT proceed to step 10
+     (the everything-committed check) until `TaskList` shows it terminal — a soft-fail
+     status is terminal and does not block.
 
 10. **Everything committed?** Run `git status --porcelain`. Step 5 and the
    fixer rounds should have committed everything already, so this is a
@@ -185,11 +207,17 @@ hand the remaining findings to the user instead of pushing in circles.
     be skipped — `review_findings` then comes back empty and the loop
     runs on the CI state alone; note `CodeRabbit comments disabled via
     settings` in the final report.
+    Gate: track this ci-monitor dispatch in the ledger; do NOT proceed to step 14
+    until `TaskList` shows it terminal and its `{ci, failures, review_findings}` JSON
+    is in hand.
 
 14. **If `ci` is `red` or `review_findings` is non-empty:** dispatch
     `branch-management:review-fixer` with both lists (CI failure analyses are
     findings too). The fixer carries a standing rule to never stage
     `graphify-out` — no per-dispatch instruction needed. Then:
+    - Gate: track this review-fixer dispatch in the ledger; do NOT push or resolve any
+      CodeRabbit thread until `TaskList` shows it terminal and its resolutions JSON is
+      in hand — so commits and `thread_id`s are never used stale.
     - If the fixer returned commits: push them.
     - For findings the fixer **skipped**, reply to the CodeRabbit thread with
       the skip reason and resolve it, using the `thread_id` from ci-monitor
