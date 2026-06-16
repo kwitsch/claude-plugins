@@ -124,6 +124,16 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine subagents.
   depth 0 so dispatches become visible depth-1 subagents. They resolve own
   toggles via `${user_config.*}` interpolation; parent skills pass only resolved
   values (e.g. `--base "$base"`, `--commit`), never re-pass toggle values.
+- **Subagent tracking (cross-skill invariant).** Every dispatcher skill
+  (`init-branch`, `review-branch`, `new-branch`, `new-pr`) reconciles its async
+  Agent dispatches via a Task* ledger before advancing — `TaskCreate` per dispatch
+  (`metadata.dispatch_id` = Agent `task_id`), `TaskUpdate`→`completed` on each
+  `<task-notification>`, `TaskList` gate before aggregating/deciding/reporting,
+  `TaskStop` escape for a stuck dispatch. Severity is asymmetric: a missed finish
+  in `review-branch` drops findings → false `DONE` → unreviewed push (real bug);
+  in `init-branch` it only corrupts a report line. Always-on (no toggle). The
+  Task* tools resolve at depth 0 where these skills run; a subagent-scoped
+  `ToolSearch` falsely reports them absent — see `.claude/rules/subagent-tracking.md`.
 - `configure-branch-management` writes delta-only: only keys differing
   from plugin.json defaults in settings; keys equal to defaults omitted or
   removed. When adding toggle, ensure its default in plugin.json reflects
