@@ -956,3 +956,20 @@ run_clean_script() {
   run grep -q 'select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop' "$RULE"
   assert_success
 }
+
+# --- init-branch subagent tracking ---
+INIT_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branch/SKILL.md"
+
+@test "init-branch allowed-tools includes the Task* ledger tools and ToolSearch" {
+  line=$(grep '^allowed-tools:' "$INIT_SKILL")
+  for t in TaskCreate TaskUpdate TaskList TaskGet TaskStop ToolSearch; do
+    echo "$line" | grep -q "$t" || { echo "missing $t in init-branch allowed-tools"; return 1; }
+  done
+}
+
+@test "init-branch carries the subagent reconciliation gate" {
+  run grep -q 'select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop' "$INIT_SKILL"
+  assert_success
+  run grep -qi 'Subagent reconciliation gate' "$INIT_SKILL"
+  assert_success
+}
