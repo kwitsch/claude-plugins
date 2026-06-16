@@ -1015,3 +1015,20 @@ NB_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-branch/S
   run grep -qi 'Subagent reconciliation gate' "$NB_SKILL"
   assert_success
 }
+
+# --- new-pr subagent tracking ---
+NPR_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-pr/SKILL.md"
+
+@test "new-pr allowed-tools includes the Task* ledger tools and ToolSearch" {
+  line=$(grep '^allowed-tools:' "$NPR_SKILL")
+  for t in TaskCreate TaskUpdate TaskList TaskGet TaskStop ToolSearch; do
+    echo "$line" | grep -q "$t" || { echo "missing $t in new-pr allowed-tools"; return 1; }
+  done
+}
+
+@test "new-pr carries the subagent reconciliation gate" {
+  run grep -q 'select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop' "$NPR_SKILL"
+  assert_success
+  run grep -qi 'Subagent reconciliation gate' "$NPR_SKILL"
+  assert_success
+}
