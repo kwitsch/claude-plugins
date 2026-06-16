@@ -2,7 +2,7 @@
 name: review-branch
 description: Run iterative parallel review rounds (claude/codex/copilot/coderabbit) with verified fixes between rounds, up to a configurable cap. Fully standalone — reads its own toggles and quota state. Called by new-pr; also user-invocable directly.
 argument-hint: "[--base <branch>] [--rounds N]"
-allowed-tools: ["Agent", "Bash(git:*)", "Bash(echo:*)", "Bash(date:*)", "Bash(mkdir:*)", "Bash(printf:*)", "Bash(grep:*)"]
+allowed-tools: ["Agent", "Bash(git:*)", "Bash(echo:*)", "Bash(date:*)", "Bash(mkdir:*)", "Bash(printf:*)", "Bash(grep:*)", "ToolSearch", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TaskStop"]
 ---
 
 Run review rounds against the current branch.
@@ -79,6 +79,32 @@ once and reuse:
   absolute path `<$plugin_root>/bin/copilot-review.sh`.
 - `branch-management:coderabbit-reviewer` — prompt contains: base branch `$base`.
 
+**Reconcile reviewers before aggregating (subagent gate).**
+
+**Subagent reconciliation gate.** Track every async dispatch so you never advance
+on a partial batch and never miss a reviewer's findings. Load the ledger tools once
+(deferred; resolve at depth 0, where this skill runs — a subagent-scoped probe
+falsely reports these absent, do NOT skip the ledger on that basis):
+`ToolSearch(query: "select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop")`
+(retry bare names). Only if nothing loads, use the prose-count fallback below.
+1. On dispatch, `TaskCreate` one entry per reviewer actually dispatched this round
+   (`subject` = reviewer tool name, `metadata` = `{ dispatch_id: <Agent task_id>,
+   batch: "review-round-<N>" }`), then `TaskUpdate` it to `in_progress`.
+2. On each `<task-notification>`, match by `dispatch_id`, record the reviewer's
+   `{tool, status, login_hint?, error?, findings}`, `TaskUpdate` → `completed`
+   (`missing`/`no_auth`/`failed` are terminal too).
+3. **Gate:** do NOT proceed to "Record quota hits", "Aggregate and dedupe", or
+   "Decide" — and never emit `DONE`/`BLOCKED` — until `TaskList` shows zero
+   `review-round-<N>` entries still `pending`/`in_progress`. A missed reviewer must
+   never be silently dropped from the aggregate.
+4. Escape hatch only: if, when next awake, a still-`in_progress` reviewer is judged
+   genuinely stuck, `TaskStop` its `dispatch_id`, mark it terminal
+   (`metadata.outcome: "stopped"`), treat it as `failed` (empty findings), and
+   proceed. Never `TaskOutput` a dispatch_id (transcript overflow).
+Prose-count fallback (tools genuinely absent): track the dispatched reviewer count
+explicitly; do not aggregate or decide until that many `{…}` replies are in hand.
+See `.claude/rules/subagent-tracking.md`.
+
 Each agent returns `{tool, status, login_hint?, error?, findings}`.
 Handle statuses: `missing` → skip silently; `no_auth` → skip, record
 `login_hint`; `failed` → skip, record `error`. An unparsable reply
@@ -122,7 +148,12 @@ the fixer across rounds.
   with the full deduplicated findings JSON (including ids) and the base
   branch. It verifies, fixes justified findings, skips others with
   reasons, commits, and echoes each finding's `id` in its resolutions.
-  Add skipped finding ids to `skip_list`. Increment round counter and
+  Add skipped finding ids to `skip_list`.
+   Track this fixer dispatch as a one-entry batch (`TaskCreate` with
+   `metadata.dispatch_id` = the fixer's Agent `task_id`, `in_progress`); `TaskList`
+   and confirm it is `completed` before adding skipped ids to `skip_list` or
+   incrementing the round counter, so the loop never advances on an un-returned fixer.
+   Increment round counter and
   continue loop.
 
 ## Report

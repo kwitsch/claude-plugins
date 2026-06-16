@@ -973,3 +973,28 @@ INIT_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branc
   run grep -qi 'Subagent reconciliation gate' "$INIT_SKILL"
   assert_success
 }
+
+# --- review-branch subagent tracking ---
+RB_SKILL2="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-branch/SKILL.md"
+
+@test "review-branch allowed-tools includes the Task* ledger tools and ToolSearch" {
+  line=$(grep '^allowed-tools:' "$RB_SKILL2")
+  for t in TaskCreate TaskUpdate TaskList TaskGet TaskStop ToolSearch; do
+    echo "$line" | grep -q "$t" || { echo "missing $t in review-branch allowed-tools"; return 1; }
+  done
+}
+
+@test "review-branch carries the subagent reconciliation gate" {
+  run grep -q 'select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop' "$RB_SKILL2"
+  assert_success
+  run grep -qi 'Subagent reconciliation gate' "$RB_SKILL2"
+  assert_success
+}
+
+@test "review-branch gate appears before the DONE/BLOCKED token section (no DONE on an unreconciled batch)" {
+  gate=$(grep -n 'select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop' "$RB_SKILL2" | head -n1 | cut -d: -f1)
+  tok=$(grep -n 'terminal-state token' "$RB_SKILL2" | head -n1 | cut -d: -f1)
+  [ -n "$gate" ] || { echo "gate line not found"; return 1; }
+  [ -n "$tok" ]  || { echo "token line not found"; return 1; }
+  [ "$gate" -lt "$tok" ] || { echo "gate ($gate) must precede DONE/BLOCKED token ($tok)"; return 1; }
+}
