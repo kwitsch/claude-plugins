@@ -998,3 +998,20 @@ RB_SKILL2="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-bran
   [ -n "$tok" ]  || { echo "token line not found"; return 1; }
   [ "$gate" -lt "$tok" ] || { echo "gate ($gate) must precede DONE/BLOCKED token ($tok)"; return 1; }
 }
+
+# --- new-branch subagent tracking ---
+NB_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-branch/SKILL.md"
+
+@test "new-branch allowed-tools includes the Task* ledger tools and ToolSearch" {
+  line=$(grep '^allowed-tools:' "$NB_SKILL")
+  for t in TaskCreate TaskUpdate TaskList TaskGet TaskStop ToolSearch; do
+    echo "$line" | grep -q "$t" || { echo "missing $t in new-branch allowed-tools"; return 1; }
+  done
+}
+
+@test "new-branch carries the subagent reconciliation gate" {
+  run grep -q 'select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop' "$NB_SKILL"
+  assert_success
+  run grep -qi 'Subagent reconciliation gate' "$NB_SKILL"
+  assert_success
+}

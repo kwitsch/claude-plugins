@@ -2,7 +2,7 @@
 name: new-branch
 description: Use when starting new feature, fix, or chore work that needs its own branch - dispatches the branch-agent subagent to switch to the default branch, pull the latest state and create a new work branch, then invokes the init-branch skill to refresh the graphify output and context-mode index (graphify_branch_update / graphify_force_create / graphify_user_files and context_index options).
 argument-hint: "[branch-name | task description]"
-allowed-tools: ["Agent", "Skill", "Bash(git:*)", "Bash(echo:*)"]
+allowed-tools: ["Agent", "Skill", "Bash(git:*)", "Bash(echo:*)", "ToolSearch", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TaskStop"]
 ---
 
 # Start a new work branch
@@ -25,6 +25,27 @@ steps yourself.
    arrives. Reads of branch-invariant content (e.g. scanning for files
    to audit) may overlap; any write to a file or git operation MUST wait
    — otherwise changes land on the wrong branch.
+
+   **Subagent reconciliation gate.** Formalize the gate above with the ledger so the
+   branch-agent finish is never missed. Load the ledger tools once (deferred; resolve
+   at depth 0, where this skill runs — a subagent-scoped probe falsely reports these
+   absent, do NOT skip the ledger on that basis):
+   `ToolSearch(query: "select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop")`
+   (retry bare names). Only if nothing loads, use the prose-count fallback below.
+   1. On dispatch, `TaskCreate` one entry (`subject` = `branch-agent`,
+      `metadata.dispatch_id` = its Agent `task_id`), then `TaskUpdate` → `in_progress`.
+   2. On the `<task-notification>`, match by `dispatch_id`, record the structured
+      result (success, or an abort code), `TaskUpdate` → `completed` (an abort code
+      is terminal too).
+   3. **Gate:** do NOT handle aborts (step 2), invoke init-branch (step 3), or do any
+      file edit / git operation until `TaskList` shows the branch-agent entry
+      terminal.
+   4. Escape hatch only: if, when next awake, the entry is judged genuinely stuck,
+      `TaskStop` its `dispatch_id`, mark it terminal, report the stall, and stop
+      (never branch off an unknown base). Never `TaskOutput` a dispatch_id
+      (transcript overflow).
+   Prose-count fallback (tools genuinely absent): do not advance until the
+   branch-agent's structured result is in hand. See `.claude/rules/subagent-tracking.md`.
 
 2. **Handle structured abort** from agent:
    - `dirty_tree` — ask user: commit, stash, or abort? Execute choice
