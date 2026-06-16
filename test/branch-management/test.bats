@@ -943,3 +943,16 @@ run_clean_script() {
     assert_success
     refute_output --partial "feat/gone-local"
 }
+
+# --- subagent-tracking rule ---
+
+@test "subagent-tracking rule exists, carries the canonical block + inoculation note" {
+  RULE="$REPO_ROOT/.claude/rules/subagent-tracking.md"
+  [ -f "$RULE" ]
+  run grep -qi 'Subagent reconciliation gate' "$RULE"
+  assert_success
+  run grep -qi 'inoculation' "$RULE"
+  assert_success
+  run grep -q 'select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop' "$RULE"
+  assert_success
+}
