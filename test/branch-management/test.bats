@@ -621,11 +621,6 @@ run_ci_watch() {
     "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/branch-agent.md"
 }
 
-@test "graphify-agent has effort: low" {
-  grep -q '^effort: low' \
-    "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/graphify-agent.md"
-}
-
 @test "codex-reviewer has effort: low" {
   grep -q '^effort: low' \
     "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/codex-reviewer.md"
@@ -646,18 +641,13 @@ run_ci_watch() {
     "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/ci-monitor.md"
 }
 
-@test "ctx-index-agent has effort: low" {
-  grep -q '^effort: low' \
-    "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/ctx-index-agent.md"
-}
-
 # --- init-branch skill ---
 
 @test "init-branch SKILL.md exists" {
   [ -f "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branch/SKILL.md" ]
 }
 
-@test "init-branch runs inline (NOT context: fork — it dispatches agents, must stay at depth 0)" {
+@test "init-branch runs inline (NOT context: fork)" {
   run grep '^context: fork' \
     "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branch/SKILL.md"
   assert_failure
@@ -669,9 +659,10 @@ run_ci_watch() {
   assert_failure
 }
 
-@test "init-branch allowed-tools includes Agent" {
-  grep -q 'allowed-tools:.*Agent' \
+@test "init-branch allowed-tools does NOT include Agent (no async subagents)" {
+  run grep -q 'allowed-tools:.*Agent' \
     "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branch/SKILL.md"
+  assert_failure
 }
 
 @test "init-branch is user-invocable (no user-invocable: false)" {
@@ -957,21 +948,33 @@ run_clean_script() {
   assert_success
 }
 
-# --- init-branch subagent tracking ---
+# --- init-branch inline tooling assertions ---
 INIT_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branch/SKILL.md"
 
-@test "init-branch allowed-tools includes the Task* ledger tools and ToolSearch" {
+@test "init-branch allowed-tools includes Bash(bash:*) and ToolSearch" {
   line=$(grep '^allowed-tools:' "$INIT_SKILL")
-  for t in TaskCreate TaskUpdate TaskList TaskGet TaskStop ToolSearch; do
-    echo "$line" | grep -q "$t" || { echo "missing $t in init-branch allowed-tools"; return 1; }
-  done
+  echo "$line" | grep -qF 'Bash(bash:*)' || { echo "missing Bash(bash:*) in init-branch allowed-tools"; return 1; }
+  echo "$line" | grep -q 'ToolSearch'     || { echo "missing ToolSearch in init-branch allowed-tools"; return 1; }
 }
 
-@test "init-branch carries the subagent reconciliation gate" {
-  run grep -q 'select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop' "$INIT_SKILL"
-  assert_success
+@test "init-branch allowed-tools includes cave-context and context-mode MCP wildcards" {
+  line=$(grep '^allowed-tools:' "$INIT_SKILL")
+  echo "$line" | grep -qF 'mcp__plugin_cave-context_cave-context__*' \
+    || { echo "missing cave-context wildcard in init-branch allowed-tools"; return 1; }
+  echo "$line" | grep -qF 'mcp__plugin_context-mode_context-mode__*' \
+    || { echo "missing context-mode wildcard in init-branch allowed-tools"; return 1; }
+}
+
+@test "init-branch allowed-tools does NOT include Task* tools (no async subagents)" {
+  line=$(grep '^allowed-tools:' "$INIT_SKILL")
+  ! echo "$line" | grep -q 'TaskCreate'
+  ! echo "$line" | grep -q 'TaskUpdate'
+  ! echo "$line" | grep -q 'TaskList'
+}
+
+@test "init-branch does NOT carry a subagent reconciliation gate (no async agents)" {
   run grep -qi 'Subagent reconciliation gate' "$INIT_SKILL"
-  assert_success
+  assert_failure
 }
 
 # --- review-branch subagent tracking ---
