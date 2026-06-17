@@ -375,3 +375,143 @@ reroute_call() {
   run grep -nE '!`' "$PLUGIN/skills/cc-review/SKILL.md"
   [ "$status" -ne 0 ]
 }
+
+# --- cc-author-planner agent (read-only authoring planner) ---
+
+@test "cc-author-planner agent has name and description" {
+  run grep -E '^name:[[:space:]]*cc-author-planner' "$PLUGIN/agents/cc-author-planner.md"
+  [ "$status" -eq 0 ]
+  run grep -E '^description:' "$PLUGIN/agents/cc-author-planner.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-author-planner declares model haiku and cc-reference tools (Skill, Read, Grep)" {
+  run grep -E '^model:[[:space:]]*haiku' "$PLUGIN/agents/cc-author-planner.md"
+  [ "$status" -eq 0 ]
+  for tool in Skill Read Grep; do
+    run grep -E "^tools:.*$tool" "$PLUGIN/agents/cc-author-planner.md"
+    [ "$status" -eq 0 ]
+  done
+}
+
+@test "cc-author-planner has no write or Bash tools" {
+  run grep -E '^tools:.*(Write|Edit|NotebookEdit|Bash)' "$PLUGIN/agents/cc-author-planner.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "cc-author-planner is cc-reference-only and never invents from training memory" {
+  run grep -F 'cc-reference' "$PLUGIN/agents/cc-author-planner.md"
+  [ "$status" -eq 0 ]
+  run grep -iE 'never.*training memory|not.*training memory' "$PLUGIN/agents/cc-author-planner.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-author-planner documents the structured output contract (files + uncovered)" {
+  run grep -F 'full_content' "$PLUGIN/agents/cc-author-planner.md"
+  [ "$status" -eq 0 ]
+  run grep -F 'uncovered' "$PLUGIN/agents/cc-author-planner.md"
+  [ "$status" -eq 0 ]
+}
+
+# --- cc-author orchestrator skill ---
+
+@test "cc-author SKILL.md exists" {
+  [ -f "$PLUGIN/skills/cc-author/SKILL.md" ]
+}
+
+@test "cc-author SKILL.md has name and argument-hint frontmatter" {
+  run grep -E '^name:[[:space:]]*cc-author' "$PLUGIN/skills/cc-author/SKILL.md"
+  [ "$status" -eq 0 ]
+  run grep -E '^argument-hint:' "$PLUGIN/skills/cc-author/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-author runs inline (NOT context: fork — needs Agent + Write)" {
+  run grep -E '^context:[[:space:]]*fork' "$PLUGIN/skills/cc-author/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "cc-author allowed-tools include Agent, Write, AskUserQuestion" {
+  for tool in Agent Write AskUserQuestion; do
+    run grep -E "^allowed-tools:.*$tool" "$PLUGIN/skills/cc-author/SKILL.md"
+    [ "$status" -eq 0 ]
+  done
+}
+
+@test "cc-author dispatches the cc-author-planner agent" {
+  run grep -F 'cc-author-planner' "$PLUGIN/skills/cc-author/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-author surfaces uncovered points and gates via AskUserQuestion" {
+  run grep -F 'uncovered' "$PLUGIN/skills/cc-author/SKILL.md"
+  [ "$status" -eq 0 ]
+  run grep -F 'AskUserQuestion' "$PLUGIN/skills/cc-author/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-author is model-invocable (no disable-model-invocation)" {
+  run grep -E '^disable-model-invocation:[[:space:]]*true' "$PLUGIN/skills/cc-author/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "cc-author has no load-time !-injection trigger" {
+  run grep -nE '!`' "$PLUGIN/skills/cc-author/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "cc-author is cc-reference-grounded" {
+  run grep -F 'cc-reference' "$PLUGIN/skills/cc-author/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+# --- cc-memory orchestrator skill ---
+
+@test "cc-memory SKILL.md exists" {
+  [ -f "$PLUGIN/skills/cc-memory/SKILL.md" ]
+}
+
+@test "cc-memory SKILL.md has name and argument-hint frontmatter" {
+  run grep -E '^name:[[:space:]]*cc-memory' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -eq 0 ]
+  run grep -E '^argument-hint:' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-memory runs inline (NOT context: fork)" {
+  run grep -E '^context:[[:space:]]*fork' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "cc-memory reuses cc-reviewer with component_type memory" {
+  run grep -F 'cc-reviewer' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -eq 0 ]
+  run grep -E 'component_type:[[:space:]]*memory' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-memory gates application through AskUserQuestion" {
+  run grep -F 'AskUserQuestion' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-memory discovery is runtime Bash, not load-time !-injection" {
+  run grep -nE '!`' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "cc-memory is model-invocable (no disable-model-invocation)" {
+  run grep -E '^disable-model-invocation:[[:space:]]*true' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "cc-memory is cc-reference-grounded" {
+  run grep -F 'cc-reference' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "plugin.json description mentions the authoring capability" {
+  run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"author"* ]]
+}
