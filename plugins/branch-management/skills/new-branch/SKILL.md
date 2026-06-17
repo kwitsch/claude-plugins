@@ -46,7 +46,7 @@ working tree and no completion-reconciliation ledger to maintain.
    [ -n "$default" ] || { echo "origin/HEAD undetectable (no remote / offline)" >&2; exit 4; }
 
    # 3) update the default branch — never branch off a stale base
-   git checkout "$default" >/dev/null 2>&1 || { echo "checkout $default failed" >&2; exit 5; }
+   git checkout "$default" >/dev/null || { echo "checkout $default failed" >&2; exit 5; }
    if ! err="$(git pull --ff-only 2>&1 1>/dev/null)"; then printf '%s\n' "$err" >&2; exit 5; fi
 
    # 4) the name must be free, locally and on the remote (fresh after the pull)
@@ -64,8 +64,7 @@ working tree and no completion-reconciliation ledger to maintain.
      branch). Ask the user: commit, stash, or abort? Execute the choice, then
      re-run step 2.
    - `4` `no_remote` — report the detail and stop; never branch off an unknown base.
-   - `5` `pull_failed` — report the git error and stop; the tree is now on the
-     default branch — say so (the starting branch changed).
+   - `5` — a git operation failed (pull, or the checkout of the default/new branch). Report the git error from stderr and stop. If the pull failed the tree is now on the default branch (the starting branch changed — say so); if switching to the default branch itself failed the tree is unchanged. Report what stderr indicates.
    - `6` `name_exists` — the tree is now on the default branch; mention that. Ask
      the user: switch to the existing branch (`git checkout <branch>` — creates a
      tracking branch when it is remote-only) or pick a different name, then
