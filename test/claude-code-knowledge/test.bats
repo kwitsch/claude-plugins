@@ -375,3 +375,40 @@ reroute_call() {
   run grep -nE '!`' "$PLUGIN/skills/cc-review/SKILL.md"
   [ "$status" -ne 0 ]
 }
+
+# --- cc-author-planner agent (read-only authoring planner) ---
+
+@test "cc-author-planner agent has name and description" {
+  run grep -E '^name:[[:space:]]*cc-author-planner' "$PLUGIN/agents/cc-author-planner.md"
+  [ "$status" -eq 0 ]
+  run grep -E '^description:' "$PLUGIN/agents/cc-author-planner.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-author-planner declares model haiku and cc-reference tools (Skill, Read, Grep)" {
+  run grep -E '^model:[[:space:]]*haiku' "$PLUGIN/agents/cc-author-planner.md"
+  [ "$status" -eq 0 ]
+  for tool in Skill Read Grep; do
+    run grep -E "^tools:.*$tool" "$PLUGIN/agents/cc-author-planner.md"
+    [ "$status" -eq 0 ]
+  done
+}
+
+@test "cc-author-planner has no write or Bash tools" {
+  run grep -E '^tools:.*(Write|Edit|NotebookEdit|Bash)' "$PLUGIN/agents/cc-author-planner.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "cc-author-planner is cc-reference-only and never invents from training memory" {
+  run grep -F 'cc-reference' "$PLUGIN/agents/cc-author-planner.md"
+  [ "$status" -eq 0 ]
+  run grep -iE 'never.*training memory|not.*training memory' "$PLUGIN/agents/cc-author-planner.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-author-planner documents the structured output contract (files + uncovered)" {
+  run grep -F 'full_content' "$PLUGIN/agents/cc-author-planner.md"
+  [ "$status" -eq 0 ]
+  run grep -F 'uncovered' "$PLUGIN/agents/cc-author-planner.md"
+  [ "$status" -eq 0 ]
+}
