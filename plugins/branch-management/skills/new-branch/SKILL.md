@@ -54,7 +54,7 @@ working tree and no completion-reconciliation ledger to maintain.
    git show-ref --verify --quiet "refs/remotes/origin/$branch" && { echo "$branch exists on remote" >&2; exit 6; }
 
    # 5) create and switch
-   git checkout -b "$branch" >/dev/null 2>&1 || { echo "checkout -b $branch failed" >&2; exit 5; }
+   if ! err="$(git checkout -b "$branch" 2>&1 1>/dev/null)"; then printf '%s\n' "$err" >&2; exit 5; fi
    printf 'branch: %s\nbase: %s\ncommit: %s\n' "$branch" "$default" "$(git log -1 --oneline)"
    ```
 
