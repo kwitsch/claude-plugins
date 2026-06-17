@@ -2,7 +2,7 @@
 name: new-pr
 description: Use when branch work complete and should become pull/merge request - runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer subagents, configurable max rounds) with verified fixes between rounds, pushes, opens PR or MR via gh or glab, then watches CI and CodeRabbit feedback until all green. Optionally refreshes and separately commits the graphify output before pushing. Review sources can be disabled per user or per project.
 argument-hint: "[--base <branch>]"
-allowed-tools: ["Agent", "Skill", "Bash(git:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(echo:*)", "ToolSearch", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TaskStop"]
+allowed-tools: ["Agent", "Skill", "Bash(git:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(echo:*)", "Bash(bash:*)", "ToolSearch", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TaskStop"]
 ---
 
 # Turn the current branch into a reviewed PR/MR
@@ -82,7 +82,7 @@ read in preconditions (step 4).
 ## Subagent dispatch tracking
 
 **Subagent reconciliation gate.** This skill dispatches subagents sequentially
-(graphify-agent in step 9; ci-monitor and review-fixer in the monitor loop). Track
+(ci-monitor and review-fixer in the monitor loop). Track
 each so a result is never consumed before its dispatch is terminal. Load the ledger
 tools once (deferred; resolve at depth 0, where this skill runs — a subagent-scoped
 probe falsely reports these absent, do NOT skip the ledger on that basis):
@@ -128,27 +128,66 @@ See `.claude/rules/subagent-tracking.md`.
 
 9. **graphify update.** Gated by the `graphify_pr_update` toggle (step 4) —
    `false` skips this step entirely; note `graphify disabled via settings` in
-   the report. Enabled → dispatch `branch-management:graphify-agent` directly
-   (Agent tool; new-pr runs inline at depth 0, so it can dispatch). Resolve
-   `${CLAUDE_PLUGIN_ROOT}` to a concrete path via `echo "${CLAUDE_PLUGIN_ROOT}"`
-   if not already done. Prompt contains:
-   - `commit: yes` when `graphify_pr_commit` is not literally `false`,
-     otherwise `commit: no`;
-   - `force: yes` only when `graphify_force_create` is literally `true`,
-     otherwise `force: no` (FAIL-CLOSED) — new-pr never forces implicitly;
-   - `user_files: yes` only when `graphify_user_files` is literally `true`,
-     otherwise `user_files: no` (FAIL-CLOSED).
-   - With `commit: yes` the agent commits refreshed graphify files as a
-     separate `chore: update graphify output` commit — generated artifacts,
-     intentionally NOT covered by the review rounds.
-   - With `commit: no` graphify changes stay uncommitted (step 10 and the
-     review-fixer leave `graphify-out` alone); note `graphify changes left
-     uncommitted via settings` in the report.
-   - Soft-fail: any non-ok status is a report note, never a reason to stop
-     before pushing.
-   - Gate: `TaskCreate`/track this graphify-agent dispatch; do NOT proceed to step 10
-     (the everything-committed check) until `TaskList` shows it terminal — a soft-fail
-     status is terminal and does not block.
+   the report.
+
+   Enabled → run via `Bash(run_in_background: true)`. Graphify writes
+   `graphify-out/`; always native Bash (ctx sandbox discards filesystem writes).
+
+   Compose the command with:
+   - `--force` appended when `${user_config.graphify_force_create}` is literally
+     `true` (FAIL-CLOSED — new-pr never forces implicitly)
+   - `--keep-user-files` appended when `${user_config.graphify_user_files}` is
+     literally `true` (FAIL-CLOSED)
+   - `DO_COMMIT=1` in the environment when `${user_config.graphify_pr_commit}` is
+     not literally `false`; `DO_COMMIT=0` when it is literally `false`
+
+   ```bash
+   #!/usr/bin/env bash
+   set -euo pipefail
+   DO_COMMIT="${DO_COMMIT:-1}"
+   force=0; keep_user_files=0
+   while [ $# -gt 0 ]; do
+     case "$1" in
+       --force) force=1 ;;
+       --keep-user-files) keep_user_files=1 ;;
+       *) echo "usage: [--force] [--keep-user-files]" >&2; exit 1 ;;
+     esac; shift
+   done
+   root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+     echo "not inside a git repository" >&2; exit 1
+   }
+   cd "$root"
+   command -v graphify >/dev/null 2>&1 || exit 2
+   if [ ! -d graphify-out ]; then
+     [ "$force" -eq 1 ] || exit 5
+     mkdir -p graphify-out
+   fi
+   timeout -k 10 "${GRAPHIFY_TIMEOUT:-600}" graphify update . || exit 4
+   if [ "$keep_user_files" -eq 0 ]; then rm -f graphify-out/graph.html; fi
+   # Commit section — only reached when update succeeded (exit 0)
+   if [ "$DO_COMMIT" = "1" ]; then
+     if git status --porcelain -- graphify-out | grep -q .; then
+       git add graphify-out
+       git commit -m "chore: update graphify output"
+     fi
+     # If no changes: nothing to commit, graphify output unchanged (not an error)
+   fi
+   ```
+
+   Exit-code mapping (read from the notification):
+   - `0` — status `updated`; when `DO_COMMIT=1`: `committed: true` if commit ran,
+     `committed: false, detail: graphify output unchanged` if nothing changed;
+     when `DO_COMMIT=0`: note `graphify changes left uncommitted via settings`
+   - `2` — `skipped: graphify unavailable`
+   - `5` — `skipped: no graphify-out folder`
+   - other — `failed` — include stderr excerpt as `detail`
+
+   Gate: do NOT proceed to step 10 until the background Bash notification
+   arrives and its exit code is mapped to a status string — any graphify commit
+   lands inside this background script.
+
+   Soft-fail: any non-ok status is a report note, never a reason to stop
+   before pushing.
 
 10. **Everything committed?** Run `git status --porcelain`. Step 5 and the
    fixer rounds should have committed everything already, so this is a
