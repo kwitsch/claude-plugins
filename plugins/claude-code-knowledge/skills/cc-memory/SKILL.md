@@ -34,7 +34,11 @@ ROOT="${1:-.}"
 find "$ROOT" -type f -name CLAUDE.md -not -path '*/.git/*' 2>/dev/null | sort
 ```
 
-Each output line is a CLAUDE.md path. If none are found, tell the user and stop.
+Each output line is a CLAUDE.md path. When the user explicitly asked for the
+user-global memory (step 1), append `~/.claude/CLAUDE.md` to this discovered set —
+the `find` is rooted at the scope and cannot reach a path outside it, so the
+explicit request must be honored here. If the resulting set is empty, tell the user
+and stop.
 
 ## 3. Dispatch reviewers (parallel)
 
