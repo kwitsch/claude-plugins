@@ -1047,6 +1047,8 @@ NB_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-branch/S
 
 @test "new-branch cuts the branch with an inline git script (synchronous)" {
   grep -q 'set -uo pipefail' "$NB_SKILL"
+  grep -q 'git checkout -b' "$NB_SKILL"
+  grep -q 'exit 6' "$NB_SKILL"
 }
 
 # --- new-pr subagent tracking ---
