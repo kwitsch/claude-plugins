@@ -60,10 +60,11 @@ steps yourself.
 
 3. **Initialize branch tooling.** Invoke the `branch-management:init-branch`
    skill (Skill tool) with no arguments. It resolves the plugin root, repo
-   root and all graphify/context-mode toggles itself, dispatches
-   `graphify-agent` + `ctx-index-agent` in parallel, and returns structured
-   graphify + ctx-index outcome lines. (Skipped silently if both its toggles
-   are off — it reports that.)
+   root and all graphify/context-mode toggles itself, runs background Bash
+   for graphify refresh (toggled by `graphify_branch_update`) + makes a
+   direct ctx_index MCP call (toggled by `context_index`), and returns
+   structured graphify + ctx-index outcome lines. (Skipped silently if both
+   its toggles are off — it reports that.)
 
 4. **Report:** new branch name and the commit it was cut from (straight from
    the branch-agent result), then include the init-branch skill's graphify +

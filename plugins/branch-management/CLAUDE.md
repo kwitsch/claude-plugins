@@ -14,9 +14,9 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine subagents.
 - `skills/new-branch`: dispatches `agents/branch-agent` (clean-tree guard,
   `origin/HEAD` refresh, `--ff-only` pull, `<type>/<slug>` creation,
   structured abort codes for user decisions); then invokes
-  `skills/init-branch` (Skill tool) which dispatches `agents/graphify-agent`
-  + `agents/ctx-index-agent` parallel (gated by `graphify_branch_update`
-  + `context_index` toggles, both fail-open).
+  `skills/init-branch` (Skill tool) which runs background Bash for graphify
+  refresh + direct ctx_index MCP call (gated by `graphify_branch_update` +
+  `context_index` toggles, both fail-open).
   **Race-condition guard:** orchestrator MUST gate on branch-agent
   completion notification before any file edits or git operations.
   branch-agent runs `git checkout -b <branch>` in the shared working tree;
@@ -82,8 +82,8 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine subagents.
   report). Review runs wrapped in `timeout -k 10 "${REVIEW_TIMEOUT:-600}"`.
   codex + coderabbit reviews are inlined into their reviewer agents; only
   `bin/copilot-review.sh` survives as a standalone script.
-  graphify refresh inlined into `graphify-agent` (`[--force]
-  [--keep-user-files]`): 0 ran · 2 CLI missing · 4 run failed · 5
+  graphify refresh (embedded Bash script, `[--force] [--keep-user-files]`):
+  0 ran · 2 CLI missing · 4 run failed · 5
   `graphify-out/` missing without `--force`; repo root via git, bounded by
   `GRAPHIFY_TIMEOUT` (default 600 s); prunes human-only `graph.html` after
   update unless `--keep-user-files` (output serves agents); always Bash
@@ -130,8 +130,8 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine subagents.
   (`metadata.dispatch_id` = Agent `task_id`), `TaskUpdate`→`completed` on each
   `<task-notification>`, `TaskList` gate before aggregating/deciding/reporting,
   `TaskStop` escape for a stuck dispatch. Severity is asymmetric: a missed finish
-  in `review-branch` drops findings → false `DONE` → unreviewed push (real bug);
-  in `init-branch` it only corrupts a report line. Always-on (no toggle). The
+  in `review-branch` drops findings → false `DONE` → unreviewed push (real bug).
+  Always-on (no toggle). The
   Task* tools resolve at depth 0 where these skills run; a subagent-scoped
   `ToolSearch` falsely reports them absent — see `.claude/rules/subagent-tracking.md`.
 - `configure-branch-management` writes delta-only: only keys differing
