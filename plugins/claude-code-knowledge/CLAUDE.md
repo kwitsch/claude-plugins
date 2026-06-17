@@ -14,9 +14,9 @@ The plugin ships these components:
 
 Maintenance tooling lives at `.claude/skills/update-cc-references/` (repo root) and does NOT ship — the plugin loader reads only the plugin's own `skills/` directory. Adding further components requires a deliberate design decision.
 The `cc-author`/`cc-memory`/`cc-author-planner` components were added by the
-2026-06-17 authoring-extension design (see `docs/superpowers/plans/`); they extend
-the lookup→review pair into a lookup→author→review triad, all sourced from
-`cc-reference` (no duplicated reference files).
+2026-06-17 authoring-extension design; they extend the lookup→review pair into a
+lookup→author→review triad, all sourced from `cc-reference` (no duplicated
+reference files).
 
 ## Reference-file authoring style
 
