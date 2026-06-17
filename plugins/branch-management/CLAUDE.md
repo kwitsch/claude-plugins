@@ -1,6 +1,6 @@
 # CLAUDE.md — branch-management
 
-Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine subagents.
+Two orchestrator skills (`new-branch`, `new-pr`) dispatch seven subagents.
 
 | Concern | Rule |
 |---|---|
