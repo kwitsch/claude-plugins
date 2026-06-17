@@ -32,7 +32,7 @@ test("condensed rulesetText keeps every behavioral anchor and stays under budget
   assert.match(r, /CAVE-CONTEXT MODE ACTIVE/);
   assert.match(r, /level: full/);
   assert.match(r, /Drop: articles/);
-  // Every behavioral rule survives the condense:
+  // Behavioral substance preserved (two micro-phrasings folded into the terse-intent line):
   assert.match(r, /terse/i);                       // terse caveman intent
   assert.match(r, /every response/i);              // persistence
   assert.match(r, /Fragments OK/);                 // fragments allowed
