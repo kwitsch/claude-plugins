@@ -1,28 +1,26 @@
 # CLAUDE.md — branch-management
 
-Two orchestrator skills (`new-branch`, `new-pr`) dispatch seven subagents.
+Orchestrator skills (`new-pr`, `review-branch`) dispatch six subagents; `new-branch` cuts the branch inline (no subagent).
 
 | Concern | Rule |
 |---|---|
-| **Models** | haiku = branch-agent, CLI reviewers; sonnet = ci-monitor; opus = claude-reviewer, review-fixer |
+| **Models** | haiku = CLI reviewers; sonnet = ci-monitor; opus = claude-reviewer, review-fixer |
 | **Tools** | each agent declares least-privilege allowlist; both context-mode MCP wildcard spellings (server name differs per install) |
-| **Colors** | unique per scope; same color OK across scopes (agents never co-run); white/default banned. Scopes: new-branch (branch-agent); review (claude-reviewer, coderabbit-reviewer, codex-reviewer, copilot-reviewer, review-fixer, ci-monitor) |
+| **Colors** | unique per scope; same color OK across scopes (agents never co-run); white/default banned. Scope: review (claude-reviewer, coderabbit-reviewer, codex-reviewer, copilot-reviewer, review-fixer, ci-monitor) |
 | **Skills** | declare `allowed-tools` pre-approvals + `argument-hint`; no `model:` key |
 | **context-mode** | OPTIONAL accelerator (NOT a declared dependency); agents bootstrap deferred ctx_* via ToolSearch; read-only scripts/logs via `ctx_execute`/`ctx_batch_execute`; fall back to native when absent/broken (reported). Git writes + state-mutating scripts + short outputs stay on Bash |
 
 ## Behavior
-- `skills/new-branch`: dispatches `agents/branch-agent` (clean-tree guard,
-  `origin/HEAD` refresh, `--ff-only` pull, `<type>/<slug>` creation,
-  structured abort codes for user decisions); then invokes
-  `skills/init-branch` (Skill tool) which runs background Bash for graphify
-  refresh + direct ctx_index MCP call (gated by `graphify_branch_update` +
-  `context_index` toggles, both fail-open).
-  **Race-condition guard:** orchestrator MUST gate on branch-agent
-  completion notification before any file edits or git operations.
-  branch-agent runs `git checkout -b <branch>` in the shared working tree;
-  edits that start before checkout completes land on the wrong branch.
-  Branch-invariant reads (e.g. file-type scans with no edit intent) may
-  overlap the agent dispatch safely.
+- `skills/new-branch`: decides the branch name (explicit arg verbatim, or
+  `<type>/<slug>` slugged from a description), then cuts the branch inline via a
+  single **synchronous** Bash script (clean-tree guard, `origin/HEAD` refresh,
+  `--ff-only` pull, local+remote name-exists check, `git checkout -b`; structured
+  exit codes 0/3/4/5/6 → success/dirty_tree/no_remote/git_op_failed/name_exists drive
+  the user decisions); then invokes `skills/init-branch` (Skill tool) which runs
+  background Bash for graphify refresh + a direct ctx_index MCP call (gated by
+  `graphify_branch_update` + `context_index`, both fail-open). No subagent
+  dispatch — the script is synchronous, so there is no async race against the
+  shared working tree and no Task* ledger.
 - `skills/init-branch`: thin sub-skill — runs INLINE (NOT `context: fork`):
   refreshes graphify output via background Bash (embedded script, commit:no,
   force/user_files from fail-closed toggles) and indexes the repo via direct
@@ -54,8 +52,9 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch seven subagents.
   written; keys reverted to default deleted).
   Requires `jq`. Does NOT use `context: fork` or pin `model:`
   (user-facing interactive configurator).
-- `skills/clean-branches`: user-invocable standalone skill (`context: fork`,
-  model haiku); runs `bin/clean-branches.sh` which: (1) `git fetch --prune`;
+- `skills/clean-branches`: user-invocable standalone skill (runs inline — NOT
+  `context: fork`, no pinned model; `disable-model-invocation: true`); runs
+  `bin/clean-branches.sh` which: (1) `git fetch --prune`;
   (2) when `gh auth status` or `glab auth status` succeeds — finds
   `origin/*` branches merged into the default branch (`origin/HEAD` symref,
   falls back to `git remote show origin`), deletes them via
@@ -125,7 +124,7 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch seven subagents.
   toggles via `${user_config.*}` interpolation; parent skills pass only resolved
   values (e.g. `--base "$base"`, `--commit`), never re-pass toggle values.
 - **Subagent tracking (cross-skill invariant).** Every dispatcher skill
-  (`review-branch`, `new-branch`, `new-pr`) reconciles its async
+  (`review-branch`, `new-pr`) reconciles its async
   Agent dispatches via a Task* ledger before advancing — `TaskCreate` per dispatch
   (`metadata.dispatch_id` = Agent `task_id`), `TaskUpdate`→`completed` on each
   `<task-notification>`, `TaskList` gate before aggregating/deciding/reporting,
@@ -139,6 +138,13 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch seven subagents.
   removed. When adding toggle, ensure its default in plugin.json reflects
   desired clean-state value — configurator uses plugin.json defaults as
   authoritative baseline.
+- **Why the script-running agents stay subagents.** The CLI reviewer agents
+  (`copilot`/`codex`/`coderabbit`) and `ci-monitor` keep their subagent dispatch
+  even though each runs a script: they parse **free-form review/CI prose →
+  structured JSON findings** (model work) and isolate **large raw output**
+  (>100 KB, auto-indexed) from the orchestrator's context. A subagent that only
+  runs a script with small structured output (the former `branch-agent`,
+  graphify/ctx-index agents) does NOT — those are inline scripts.
 
 ## Tests
 ```bash

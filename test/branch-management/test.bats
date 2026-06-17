@@ -420,7 +420,7 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 
 @test "version: declared once — plugin.json only, marketplace entry carries none" {
   run jq -r '.version' "$REPO_ROOT/$PLUGIN_JSON_REL"
-  assert_output "3.10.0"
+  assert_output "3.11.0"
   run jq -e '.plugins[] | select(.name == "branch-management") | has("version") | not' \
     "$REPO_ROOT/.claude-plugin/marketplace.json"
   assert_success
@@ -616,11 +616,6 @@ run_ci_watch() {
 
 # --- effort: low assertions ---
 
-@test "branch-agent has effort: low" {
-  grep -q '^effort: low' \
-    "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/branch-agent.md"
-}
-
 @test "codex-reviewer has effort: low" {
   grep -q '^effort: low' \
     "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/codex-reviewer.md"
@@ -726,6 +721,27 @@ CONFIGURE_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/confi
 
 @test "configure-branch-management has argument-hint frontmatter" {
   grep -q '^argument-hint:' "$CONFIGURE_SKILL"
+}
+
+# --- clean-branches skill (runs inline — not a forked subagent) ---
+CLEAN_BRANCHES_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/clean-branches/SKILL.md"
+
+@test "clean-branches SKILL.md exists" {
+  [ -f "$CLEAN_BRANCHES_SKILL" ]
+}
+
+@test "clean-branches runs inline (NOT context: fork)" {
+  run grep '^context: fork' "$CLEAN_BRANCHES_SKILL"
+  assert_failure
+}
+
+@test "clean-branches does not pin a model (runs inline)" {
+  run grep '^model:' "$CLEAN_BRANCHES_SKILL"
+  assert_failure
+}
+
+@test "clean-branches stays user-only (disable-model-invocation: true)" {
+  grep -q '^disable-model-invocation: true' "$CLEAN_BRANCHES_SKILL"
 }
 
 # ── Helpers for clean-branches.sh ──────────────────────────────────────────
@@ -1002,21 +1018,37 @@ RB_SKILL2="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-bran
   [ "$gate" -lt "$tok" ] || { echo "gate ($gate) must precede DONE/BLOCKED token ($tok)"; return 1; }
 }
 
-# --- new-branch subagent tracking ---
+# --- new-branch (branch creation inlined — no subagent dispatch) ---
 NB_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-branch/SKILL.md"
 
-@test "new-branch allowed-tools includes the Task* ledger tools and ToolSearch" {
-  line=$(grep '^allowed-tools:' "$NB_SKILL")
-  for t in TaskCreate TaskUpdate TaskList TaskGet TaskStop ToolSearch; do
-    echo "$line" | grep -q "$t" || { echo "missing $t in new-branch allowed-tools"; return 1; }
-  done
+@test "branch-agent agent is deleted (inlined into new-branch)" {
+  [ ! -f "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/branch-agent.md" ]
 }
 
-@test "new-branch carries the subagent reconciliation gate" {
-  run grep -q 'select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop' "$NB_SKILL"
-  assert_success
-  run grep -qi 'Subagent reconciliation gate' "$NB_SKILL"
-  assert_success
+@test "new-branch does not dispatch the branch-agent subagent" {
+  grep -q '^allowed-tools:' "$NB_SKILL"   # load-bearing: file + frontmatter present
+  run grep -q 'branch-management:branch-agent' "$NB_SKILL"
+  assert_failure
+}
+
+@test "new-branch allowed-tools excludes Agent and the Task* ledger (no async dispatch)" {
+  line=$(grep '^allowed-tools:' "$NB_SKILL")
+  [ -n "$line" ] || { echo "allowed-tools line missing in new-branch SKILL.md"; return 1; }
+  for t in Agent TaskCreate TaskUpdate TaskList TaskGet TaskStop; do
+    echo "$line" | grep -q "$t" && { echo "unexpected $t in new-branch allowed-tools"; return 1; }
+  done
+  return 0
+}
+
+@test "new-branch allowed-tools includes Bash(bash:*) (runs the inline git script)" {
+  line=$(grep '^allowed-tools:' "$NB_SKILL")
+  echo "$line" | grep -qF 'Bash(bash:*)' || { echo "missing Bash(bash:*) in new-branch allowed-tools"; return 1; }
+}
+
+@test "new-branch cuts the branch with an inline git script (synchronous)" {
+  grep -q 'set -uo pipefail' "$NB_SKILL"
+  grep -q 'git checkout -b' "$NB_SKILL"
+  grep -q 'exit 6' "$NB_SKILL"
 }
 
 # --- new-pr subagent tracking ---

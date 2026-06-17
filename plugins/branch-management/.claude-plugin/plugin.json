@@ -1,7 +1,7 @@
 {
   "name": "branch-management",
-  "version": "3.10.0",
-  "description": "Branch lifecycle skills backed by subagents: new-branch cuts a fresh branch; new-pr runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewers), applies verified fixes between rounds, opens a PR/MR via gh or glab, and watches CI until green. Optionally refreshes a graphify output folder on new-branch and before the PR push (separate commit). Uses context-mode to keep heavy script output out of context when it is installed, with a native Bash fallback otherwise.",
+  "version": "3.11.0",
+  "description": "Branch lifecycle skills. new-branch cuts a fresh branch inline; new-pr runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewers) backed by subagents, applies verified fixes between rounds, opens a PR/MR via gh or glab, and watches CI until green. Optionally refreshes a graphify output folder on new-branch and before the PR push (separate commit). Uses context-mode to keep heavy script output out of context when it is installed, with a native Bash fallback otherwise.",
   "author": {
     "name": "Kwitsch"
   },
