@@ -76,10 +76,27 @@ that file as failed and continue with the others.
 
 Present the fixable findings (those with `uncovered: false` and a non-null
 `suggested_fix`) for selection via `AskUserQuestion`, the same way `cc-review`
-does: one tab per file, two to four options per tab, at most four tabs per call,
-`multiSelect: true`, each option label beginning with the finding `id`. Findings
-with `uncovered: true` are shown as informational notes (never selectable for
-auto-apply — they require manual judgment because cc-reference does not cover them).
+does. `AskUserQuestion` hard caps: at most **4 tabs** per call, each tab **2–4
+options**.
+
+Chunking is **tab-driven** (a tab maps to one file, so a file never splits across
+tabs ambiguously):
+
+- For each file, split its severity-sorted fixable findings into groups of ≤4.
+  Each group becomes one **tab** (≤4 options), `multiSelect: true`. A file with
+  more than 4 fixable findings therefore contributes several tabs.
+- Pack up to **4 tabs per `AskUserQuestion` call**. When there are more than 4
+  tabs total (more than 4 files, or files that exceed 4 findings), issue
+  successive calls of ≤4 tabs each until every file's every fixable finding has
+  been shown. Order the tabs high→med→low by their group's top severity.
+- Each option label must begin with the finding `id` so a selection maps back to
+  its finding record.
+- If a tab would have only one finding, add an explicit `"Skip this group"` option
+  so the tab has ≥2 options.
+
+Findings with `uncovered: true` are shown as informational notes (never selectable
+for auto-apply — they require manual judgment because cc-reference does not cover
+them).
 
 ## 6. Apply selected findings
 
