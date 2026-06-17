@@ -5,8 +5,8 @@ paths:
 
 # Rule: subagent completion-reconciliation tracking
 
-The branch-management dispatcher skills (`review-branch`,
-`new-branch`, `new-pr`) offload work to async subagents via the Agent tool. In
+The branch-management dispatcher skills (`review-branch`, `new-pr`)
+offload work to async subagents via the Agent tool. In
 this harness an Agent dispatch returns immediately with a `task_id`; completion
 arrives later as a `<task-notification>` that re-invokes the orchestrator. Each
 such skill MUST carry the canonical gate block below (inline — rules are not
@@ -73,4 +73,3 @@ subagent-scoped probe.
 |---|---|---|---|
 | review-branch | per round: enabled reviewers; separately review-fixer | quota record / aggregate / Decide / the `DONE`/`BLOCKED` token | highest (missed finish → dropped findings → false `DONE` → unreviewed push) |
 | new-pr | ci-monitor; review-fixer (each sequential) | review-fixer dispatch; the push | medium |
-| new-branch | branch-agent | invoking init-branch | medium (formalizes existing race-guard) |
