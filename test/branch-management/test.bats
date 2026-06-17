@@ -723,6 +723,27 @@ CONFIGURE_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/confi
   grep -q '^argument-hint:' "$CONFIGURE_SKILL"
 }
 
+# --- clean-branches skill (runs inline — not a forked subagent) ---
+CLEAN_BRANCHES_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/clean-branches/SKILL.md"
+
+@test "clean-branches SKILL.md exists" {
+  [ -f "$CLEAN_BRANCHES_SKILL" ]
+}
+
+@test "clean-branches runs inline (NOT context: fork)" {
+  run grep '^context: fork' "$CLEAN_BRANCHES_SKILL"
+  assert_failure
+}
+
+@test "clean-branches does not pin a model (runs inline)" {
+  run grep '^model:' "$CLEAN_BRANCHES_SKILL"
+  assert_failure
+}
+
+@test "clean-branches stays user-only (disable-model-invocation: true)" {
+  grep -q '^disable-model-invocation: true' "$CLEAN_BRANCHES_SKILL"
+}
+
 # ── Helpers for clean-branches.sh ──────────────────────────────────────────
 
 # make_clean_repo — create a bare "remote" + clone with topology:
