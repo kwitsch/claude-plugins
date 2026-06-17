@@ -59,7 +59,7 @@ steps yourself.
      default branch — say so in report, so user know starting branch changed.
 
 3. **Initialize branch tooling.** Invoke the `branch-management:init-branch`
-   skill (Skill tool) with no arguments. It resolves the plugin root, repo
+   skill (Skill tool) with no arguments. It resolves the repo
    root and all graphify/context-mode toggles itself, runs background Bash
    for graphify refresh (toggled by `graphify_branch_update`) + makes a
    direct ctx_index MCP call (toggled by `context_index`), and returns
