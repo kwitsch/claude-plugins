@@ -412,3 +412,55 @@ reroute_call() {
   run grep -F 'uncovered' "$PLUGIN/agents/cc-author-planner.md"
   [ "$status" -eq 0 ]
 }
+
+# --- cc-author orchestrator skill ---
+
+@test "cc-author SKILL.md exists" {
+  [ -f "$PLUGIN/skills/cc-author/SKILL.md" ]
+}
+
+@test "cc-author SKILL.md has name and argument-hint frontmatter" {
+  run grep -E '^name:[[:space:]]*cc-author' "$PLUGIN/skills/cc-author/SKILL.md"
+  [ "$status" -eq 0 ]
+  run grep -E '^argument-hint:' "$PLUGIN/skills/cc-author/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-author runs inline (NOT context: fork — needs Agent + Write)" {
+  run grep -E '^context:[[:space:]]*fork' "$PLUGIN/skills/cc-author/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "cc-author allowed-tools include Agent, Write, AskUserQuestion" {
+  for tool in Agent Write AskUserQuestion; do
+    run grep -E "^allowed-tools:.*$tool" "$PLUGIN/skills/cc-author/SKILL.md"
+    [ "$status" -eq 0 ]
+  done
+}
+
+@test "cc-author dispatches the cc-author-planner agent" {
+  run grep -F 'cc-author-planner' "$PLUGIN/skills/cc-author/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-author surfaces uncovered points and gates via AskUserQuestion" {
+  run grep -F 'uncovered' "$PLUGIN/skills/cc-author/SKILL.md"
+  [ "$status" -eq 0 ]
+  run grep -F 'AskUserQuestion' "$PLUGIN/skills/cc-author/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-author is model-invocable (no disable-model-invocation)" {
+  run grep -E '^disable-model-invocation:[[:space:]]*true' "$PLUGIN/skills/cc-author/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "cc-author has no load-time !-injection trigger" {
+  run grep -nE '!`' "$PLUGIN/skills/cc-author/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "cc-author is cc-reference-grounded" {
+  run grep -F 'cc-reference' "$PLUGIN/skills/cc-author/SKILL.md"
+  [ "$status" -eq 0 ]
+}
