@@ -30,7 +30,7 @@ working tree and no completion-reconciliation ledger to maintain.
    #!/usr/bin/env bash
    # Cut a fresh work branch from the up-to-date default branch.
    # Usage: <branch-name>
-   # Exit: 0 ok · 3 dirty_tree · 4 no_remote · 5 pull_failed · 6 name_exists
+   # Exit: 0 ok · 3 dirty_tree · 4 no_remote · 5 git op failed (checkout-default / pull / checkout-b) · 6 name_exists
    set -uo pipefail
    branch="${1:?usage: <branch-name>}"
 
@@ -46,7 +46,7 @@ working tree and no completion-reconciliation ledger to maintain.
    [ -n "$default" ] || { echo "origin/HEAD undetectable (no remote / offline)" >&2; exit 4; }
 
    # 3) update the default branch — never branch off a stale base
-   git checkout "$default" >/dev/null || { echo "checkout $default failed" >&2; exit 5; }
+   if ! err="$(git checkout "$default" 2>&1 1>/dev/null)"; then printf '%s\n' "$err" >&2; exit 5; fi
    if ! err="$(git pull --ff-only 2>&1 1>/dev/null)"; then printf '%s\n' "$err" >&2; exit 5; fi
 
    # 4) the name must be free, locally and on the remote (fresh after the pull)
