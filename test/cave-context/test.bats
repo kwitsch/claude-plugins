@@ -80,10 +80,10 @@ setup() {
   # touches the real ~/.claude/. sessionstart no longer seeds any state file.
   tmp="$(mktemp -d)"
   home="$(mktemp -d)"
-  run env CLAUDE_PLUGIN_DATA="$tmp" HOME="$home" \
+  run env CAVE_CONTEXT_NO_UPSTREAM=1 CLAUDE_PLUGIN_DATA="$tmp" HOME="$home" \
     node "$REPO_ROOT/plugins/cave-context/hooks/sessionstart.mjs" < /dev/null
   assert_success
-  run bash -c 'env CLAUDE_PLUGIN_DATA="'"$tmp"'" HOME="'"$home"'" node "'"$REPO_ROOT"'/plugins/cave-context/hooks/sessionstart.mjs" < /dev/null | jq -r ".hookSpecificOutput.additionalContext"'
+  run bash -c 'env CAVE_CONTEXT_NO_UPSTREAM=1 CLAUDE_PLUGIN_DATA="'"$tmp"'" HOME="'"$home"'" node "'"$REPO_ROOT"'/plugins/cave-context/hooks/sessionstart.mjs" < /dev/null | jq -r ".hookSpecificOutput.additionalContext"'
   assert_success
   assert_output --partial "CAVE-CONTEXT MODE ACTIVE"
   rm -rf "$tmp" "$home"

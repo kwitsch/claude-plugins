@@ -10,5 +10,5 @@ test("contains caveman ruleset, routing guidance, coexistence warning", () => {
   assert.match(p, /ctx_search/);
   assert.match(p, /ctx_execute/);
   assert.match(p, /ctx_batch_execute/);
-  assert.match(p, /uninstall caveman and context-mode/i);
+  assert.match(p, /uninstall both/i);
 });

@@ -12,9 +12,11 @@ function hookCmd() {
   // Platform token `claude-code` and lowercase event keys (pretooluse/posttooluse/
   // precompact/userpromptsubmit) verified against context-mode 1.0.162 cli.bundle.mjs
   // `mq` routing map; cave-context delegates exactly those four. `sessionstart` is
-  // ALSO a valid context-mode key but is intentionally NOT delegated — SessionStart
-  // is handled wholly by cave-context's own ruleset (context-mode's routing guidance
-  // is reimplemented inline in sessionprompt.mjs), so there is no SessionStart caller.
+  // delegated by hooks/sessionstart.mjs (since v0.5.0) to run
+  // context-mode's session-init side-effects and return the continuity payload; the
+  // SessionStart hook strips context-mode's routing block and injects its own condensed
+  // ruleset. The four mid-loop events (pretooluse/posttooluse/precompact/userpromptsubmit)
+  // are delegated as before.
   // The CLI process.exit(1)s silently on an unknown platform/event key (no stdout/
   // stderr), and delegateHook() fails open (returns null) on any error — so the event
   // MUST be lowercased before it reaches the CLI.
