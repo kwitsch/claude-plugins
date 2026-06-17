@@ -17,6 +17,11 @@ export function resolveCacheLayout(pluginRoot) {
 }
 
 // Delete sibling version dirs older than 1h (lstat mtime) except current.
+// mtime gates on extraction time, not last use — the current version is always
+// safe (skipped by name below), but a concurrent session pinned to an OLDER
+// non-current version (>1h old) could have its cache dir removed here. Accepted:
+// this mirrors context-mode #181's eviction model (see spec §4.3/§7); active-use
+// tracking is YAGNI for this cross-version edge case.
 export function gcOldVersions(pluginRoot, now) {
   const layout = resolveCacheLayout(pluginRoot);
   if (!layout) return [];
