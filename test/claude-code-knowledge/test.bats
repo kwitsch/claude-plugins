@@ -464,3 +464,48 @@ reroute_call() {
   run grep -F 'cc-reference' "$PLUGIN/skills/cc-author/SKILL.md"
   [ "$status" -eq 0 ]
 }
+
+# --- cc-memory orchestrator skill ---
+
+@test "cc-memory SKILL.md exists" {
+  [ -f "$PLUGIN/skills/cc-memory/SKILL.md" ]
+}
+
+@test "cc-memory SKILL.md has name and argument-hint frontmatter" {
+  run grep -E '^name:[[:space:]]*cc-memory' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -eq 0 ]
+  run grep -E '^argument-hint:' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-memory runs inline (NOT context: fork)" {
+  run grep -E '^context:[[:space:]]*fork' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "cc-memory reuses cc-reviewer with component_type memory" {
+  run grep -F 'cc-reviewer' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -eq 0 ]
+  run grep -E 'component_type:[[:space:]]*memory' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-memory gates application through AskUserQuestion" {
+  run grep -F 'AskUserQuestion' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-memory discovery is runtime Bash, not load-time !-injection" {
+  run grep -nE '!`' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "cc-memory is model-invocable (no disable-model-invocation)" {
+  run grep -E '^disable-model-invocation:[[:space:]]*true' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "cc-memory is cc-reference-grounded" {
+  run grep -F 'cc-reference' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -eq 0 ]
+}
