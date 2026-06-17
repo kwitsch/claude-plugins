@@ -1012,6 +1012,7 @@ NB_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-branch/S
 
 @test "new-branch allowed-tools excludes Agent and the Task* ledger (no async dispatch)" {
   line=$(grep '^allowed-tools:' "$NB_SKILL")
+  [ -n "$line" ] || { echo "allowed-tools line missing in new-branch SKILL.md"; return 1; }
   for t in Agent TaskCreate TaskUpdate TaskList TaskGet TaskStop; do
     echo "$line" | grep -q "$t" && { echo "unexpected $t in new-branch allowed-tools"; return 1; }
   done
@@ -1024,7 +1025,7 @@ NB_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-branch/S
 }
 
 @test "new-branch cuts the branch with an inline git script (synchronous)" {
-  grep -q 'git checkout -b' "$NB_SKILL"
+  grep -q 'set -uo pipefail' "$NB_SKILL"
 }
 
 # --- new-pr subagent tracking ---
