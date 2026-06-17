@@ -2,8 +2,8 @@
 name: cc-author
 description: Create a new Claude Code component (a skill, agent, hook, command, .mcp.json, plugin, CLAUDE.md, or settings.json) grounded strictly in the curated cc-reference authoring rules, then write it and optionally hand it to cc-review. Use when the user asks to create, scaffold, author, or generate a Claude Code skill/agent/hook/command/plugin/MCP/memory/settings component.
 argument-hint: [component type and/or target path]
-allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, AskUserQuestion, Skill
-# review-skip(F1): unscoped Bash/Edit/Write is required — the target path is an arbitrary user-supplied location, so Bash cannot be prefix-scoped and Write creates arbitrary files; allowed-tools only pre-approves, never restricts.
+allowed-tools: Read, Grep, Glob, Write, Agent, AskUserQuestion, Skill
+# review-skip: unscoped Write is required — the target path is an arbitrary user-supplied location, so Write creates files at a path that cannot be prefix-scoped; allowed-tools only pre-approves, never restricts. (No Bash/Edit: there is no detection step and step 3 always writes whole files, never edits.)
 ---
 
 # cc-author — create a Claude Code component grounded in cc-reference
