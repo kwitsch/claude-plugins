@@ -15,13 +15,13 @@ finished branch into a reviewed, pushed PR/MR and watches it until green.
 | Skill | What it does |
 |---|---|
 | `configure-branch-management` | Interactive configurator for all plugin options. Detects project context, presents thematic question groups (reviewers, CI monitoring, graphify, context-mode) with current values embedded, and writes only non-default values to the chosen settings scope. Requires `jq`. |
-| `new-branch` | Dispatches the `branch-agent` to switch to the default branch, pull, and create `<type>/<slug>`; then invokes the `init-branch` sub-skill to refresh the graphify output and context index (togglable via `graphify_branch_update` / `graphify_force_create` / `context_index`). |
+| `new-branch` | Switches to the default branch, pulls, and creates `<type>/<slug>` inline (synchronous git script, no subagent); then invokes the `init-branch` sub-skill to refresh the graphify output and context index (togglable via `graphify_branch_update` / `graphify_force_create` / `context_index`). |
 | `init-branch` | Thin sub-skill (runs inline, not forked): refreshes the graphify knowledge-graph output (background Bash, commit:no) and the context index (direct ctx_index MCP call — cave-context preferred, falls back to context-mode) for the current branch, gated by `graphify_branch_update` / `context_index`. Called by `new-branch` after branch creation; also user-invocable directly. |
 | `new-pr` | Commits pending work, invokes the `review-branch` sub-skill for iterative review rounds, runs a background Bash graphify refresh before pushing (commit gated by `graphify_pr_commit`, refresh togglable via `graphify_pr_update`), pushes, opens the PR/MR via `gh`/`glab`, and loops `ci-monitor` → `review-fixer` until CI is green and no findings remain. Every stage — review sources, CI watch, CodeRabbit comment handling — can be toggled via plugin options (see [Configuration](#configuration)). |
 | `review-branch` | Standalone review sub-skill (runs inline, not forked): runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer agents, configurable via `review_max_rounds`), aggregates + dedupes findings, applies verified fixes via `review-fixer` between rounds, tracks quota limits. Invoked by `new-pr`; also user-invocable to review without opening a PR. |
 | `branch-management:clean-branches` | Fetch latest, prune merged upstream branches (gh/glab), delete local branches whose upstream is gone, list uncommitted files. |
 
-Three dispatcher skills (`new-branch`, `new-pr`, `review-branch`) reconcile their
+Two dispatcher skills (`new-pr`, `review-branch`) reconcile their
 async subagents via a Task* To-Do ledger (`TaskCreate`/`TaskList`/`TaskStop`) — no
 dispatch's completion is missed and no skill advances on a partial batch.
 See `.claude/rules/subagent-tracking.md`.
@@ -30,7 +30,6 @@ See `.claude/rules/subagent-tracking.md`.
 
 | Agent | Model | Role |
 |---|---|---|
-| `branch-agent` | haiku | git mechanics of cutting a new branch |
 | `claude-reviewer` | opus | reviews the branch diff itself (read-only), returns findings JSON |
 | `codex-reviewer` | haiku | runs an inline codex review, returns findings JSON |
 | `copilot-reviewer` | haiku | runs `bin/copilot-review.sh`, returns findings JSON |
