@@ -967,9 +967,9 @@ INIT_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branc
 
 @test "init-branch allowed-tools does NOT include Task* tools (no async subagents)" {
   line=$(grep '^allowed-tools:' "$INIT_SKILL")
-  ! echo "$line" | grep -q 'TaskCreate'
-  ! echo "$line" | grep -q 'TaskUpdate'
-  ! echo "$line" | grep -q 'TaskList'
+  for t in TaskCreate TaskUpdate TaskList; do
+    if echo "$line" | grep -q "$t"; then echo "unexpected $t in init-branch allowed-tools"; return 1; fi
+  done
 }
 
 @test "init-branch does NOT carry a subagent reconciliation gate (no async agents)" {
