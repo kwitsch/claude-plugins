@@ -4,9 +4,9 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine subagents.
 
 | Concern | Rule |
 |---|---|
-| **Models** | haiku = branch-agent, graphify-agent, CLI reviewers; sonnet = ci-monitor; opus = claude-reviewer, review-fixer |
+| **Models** | haiku = branch-agent, CLI reviewers; sonnet = ci-monitor; opus = claude-reviewer, review-fixer |
 | **Tools** | each agent declares least-privilege allowlist; both context-mode MCP wildcard spellings (server name differs per install) |
-| **Colors** | unique per scope; same color OK across scopes (agents never co-run); white/default banned. Scopes: new-branch (branch-agent, graphify-agent, ctx-index-agent); review (claude-reviewer, coderabbit-reviewer, codex-reviewer, copilot-reviewer, review-fixer, ci-monitor) |
+| **Colors** | unique per scope; same color OK across scopes (agents never co-run); white/default banned. Scopes: new-branch (branch-agent); review (claude-reviewer, coderabbit-reviewer, codex-reviewer, copilot-reviewer, review-fixer, ci-monitor) |
 | **Skills** | declare `allowed-tools` pre-approvals + `argument-hint`; no `model:` key |
 | **context-mode** | OPTIONAL accelerator (NOT a declared dependency); agents bootstrap deferred ctx_* via ToolSearch; read-only scripts/logs via `ctx_execute`/`ctx_batch_execute`; fall back to native when absent/broken (reported). Git writes + state-mutating scripts + short outputs stay on Bash |
 
@@ -24,12 +24,12 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine subagents.
   Branch-invariant reads (e.g. file-type scans with no edit intent) may
   overlap the agent dispatch safely.
 - `skills/init-branch`: thin sub-skill — runs INLINE (NOT `context: fork`):
-  dispatches `agents/graphify-agent` (commit: no, force/user_files from
-  fail-closed `graphify_force_create`/`graphify_user_files` toggles) +
-  `agents/ctx-index-agent` parallel, gated by `graphify_branch_update` +
-  `context_index` (both fail-open). Inline because forked skill is subagent,
-  cannot dispatch agents. Called by new-branch after branch creation;
-  user-invocable directly to refresh graph + index anytime.
+  refreshes graphify output via background Bash (embedded script, commit:no,
+  force/user_files from fail-closed toggles) and indexes the repo via direct
+  ctx_index MCP call (probe order: cave-context → context-mode → bare
+  fallback), both gated by `graphify_branch_update` + `context_index`
+  (fail-open). No subagent dispatches. Called by new-branch after branch
+  creation; user-invocable directly to refresh graph + index anytime.
 - `skills/review-branch`: standalone review sub-skill — runs INLINE (NOT
   `context: fork`; forked skill is subagent, cannot dispatch reviewer
   subagents); reads
@@ -68,9 +68,9 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine subagents.
   all revisions, feature toggles from `userConfig` interpolated as
   `${user_config.KEY}` — fail-open, only literal `false` disables); mandatory
   commit; invokes `skills/review-branch` with `--base "$base"` (stops before
-  push on open findings); graphify refresh before push via direct
-  `agents/graphify-agent` dispatch (commit: yes when `graphify_pr_commit`
-  not `false`), gated by `graphify_pr_update`; push + `gh pr create`/`glab mr create`; monitor
+  push on open findings); graphify refresh before push via background
+  Bash (embedded script, commit gated by `graphify_pr_commit`, message
+  `chore: update graphify output`), gated by `graphify_pr_update`; push + `gh pr create`/`glab mr create`; monitor
   loop (max 5, no-progress early exit): `ci-monitor` (read-only, gets platform +
   PR/MR reference + branch name + ci-watch.sh path + resolved `ci_watch_timeout`;
   CI watch via `bin/ci-watch.sh` — CodeRabbit checks excluded, bounded by
@@ -125,7 +125,7 @@ Two orchestrator skills (`new-branch`, `new-pr`) dispatch nine subagents.
   toggles via `${user_config.*}` interpolation; parent skills pass only resolved
   values (e.g. `--base "$base"`, `--commit`), never re-pass toggle values.
 - **Subagent tracking (cross-skill invariant).** Every dispatcher skill
-  (`init-branch`, `review-branch`, `new-branch`, `new-pr`) reconciles its async
+  (`review-branch`, `new-branch`, `new-pr`) reconciles its async
   Agent dispatches via a Task* ledger before advancing — `TaskCreate` per dispatch
   (`metadata.dispatch_id` = Agent `task_id`), `TaskUpdate`→`completed` on each
   `<task-notification>`, `TaskList` gate before aggregating/deciding/reporting,
