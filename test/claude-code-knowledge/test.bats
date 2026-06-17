@@ -509,3 +509,9 @@ reroute_call() {
   run grep -F 'cc-reference' "$PLUGIN/skills/cc-memory/SKILL.md"
   [ "$status" -eq 0 ]
 }
+
+@test "plugin.json description mentions the authoring capability" {
+  run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"author"* ]]
+}
