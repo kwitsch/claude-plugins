@@ -1,8 +1,9 @@
 # branch-management
 
-Branch lifecycle skills backed by dedicated subagents. `new-branch` starts
-work on a fresh branch cut from the updated default branch; `new-pr` turns a
-finished branch into a reviewed, pushed PR/MR and watches it until green.
+Branch lifecycle skills. `new-branch` starts work on a fresh branch cut from
+the updated default branch (inline); `new-pr` turns a finished branch into a
+reviewed, pushed PR/MR — backed by reviewer and CI subagents — and watches it
+until green.
 
 ## Install
 
