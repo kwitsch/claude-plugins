@@ -5,11 +5,18 @@
 The plugin ships these components:
 - `skills/cc-reference/` — the lookup skill + bundled reference files.
 - `skills/cc-review/` — the inline review orchestrator (dispatches `cc-reviewer`, gates fixes through AskUserQuestion).
+- `skills/cc-author/` — the inline authoring orchestrator (dispatches `cc-author-planner`, writes the returned files, gates the optional `cc-review` hand-off).
+- `skills/cc-memory/` — the inline CLAUDE.md audit-&-improve orchestrator (discovers CLAUDE.md files, reuses `cc-reviewer` with `component_type: memory`, grades, gates fixes).
 - `agents/claude-code-expert.md` — the read-only Q&A expert (reroute target).
 - `agents/cc-reviewer.md` — the read-only parameterized review worker dispatched by `cc-review`.
+- `agents/cc-author-planner.md` — the read-only authoring planner dispatched by `cc-author`; composes component content strictly from `cc-reference` and returns JSON, never writes.
 - `hooks/hooks.json` + `mcp/server.mjs` + `.mcp.json` — the `claude-code-guide` reroute hook backend.
 
 Maintenance tooling lives at `.claude/skills/update-cc-references/` (repo root) and does NOT ship — the plugin loader reads only the plugin's own `skills/` directory. Adding further components requires a deliberate design decision.
+The `cc-author`/`cc-memory`/`cc-author-planner` components were added by the
+2026-06-17 authoring-extension design (see `docs/superpowers/plans/`); they extend
+the lookup→review pair into a lookup→author→review triad, all sourced from
+`cc-reference` (no duplicated reference files).
 
 ## Reference-file authoring style
 
