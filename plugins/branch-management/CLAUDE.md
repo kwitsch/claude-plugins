@@ -15,7 +15,7 @@ Orchestrator skills (`new-pr`, `review-branch`) dispatch six subagents; `new-bra
   `<type>/<slug>` slugged from a description), then cuts the branch inline via a
   single **synchronous** Bash script (clean-tree guard, `origin/HEAD` refresh,
   `--ff-only` pull, local+remote name-exists check, `git checkout -b`; structured
-  exit codes 0/3/4/5/6 → success/dirty_tree/no_remote/pull_failed/name_exists drive
+  exit codes 0/3/4/5/6 → success/dirty_tree/no_remote/git_op_failed/name_exists drive
   the user decisions); then invokes `skills/init-branch` (Skill tool) which runs
   background Bash for graphify refresh + a direct ctx_index MCP call (gated by
   `graphify_branch_update` + `context_index`, both fail-open). No subagent
