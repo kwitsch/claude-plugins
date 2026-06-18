@@ -121,3 +121,21 @@ setup() {
   assert_success
 }
 
+@test "cave-compress SKILL.md exists with required frontmatter" {
+  SKILL="$REPO_ROOT/plugins/cave-context/skills/cave-compress/SKILL.md"
+  [ -f "$SKILL" ]
+  run grep -qxE 'name: cave-compress' "$SKILL"
+  assert_success
+  run grep -qxE 'disable-model-invocation: true' "$SKILL"
+  assert_success
+}
+
+@test "cave-compress declares the minimal allowed-tools and no userConfig leakage" {
+  SKILL="$REPO_ROOT/plugins/cave-context/skills/cave-compress/SKILL.md"
+  # AskUserQuestion (confirmation gate) and Bash(git:*) (recoverability) must be granted.
+  run grep -q 'AskUserQuestion' "$SKILL"
+  assert_success
+  run grep -q 'Bash(git:\*)' "$SKILL"
+  assert_success
+}
+
