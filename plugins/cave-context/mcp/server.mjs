@@ -12,6 +12,12 @@ const DEFAULT_PROTOCOL = "2025-11-25";
 
 startServer();
 
+// Upstream ctx_* tools cave-context deliberately does NOT re-expose: the savings
+// reporter (ctx_stats — its `stat` skill was removed) and the install-management
+// tools (ctx_doctor, ctx_upgrade). Filtered out of tools/list and rejected on
+// tools/call so a removed tool is indistinguishable from one that never existed.
+const DENIED_UPSTREAM_TOOLS = new Set(["ctx_stats", "ctx_doctor", "ctx_upgrade"]);
+
 function startServer() {
   const HOOK_TOOLS = [
     { name: "hook_userpromptsubmit", description: "Aggregated UserPromptSubmit hook (caveman + context-mode).", inputSchema: { type: "object", additionalProperties: true } },
@@ -51,7 +57,7 @@ function startServer() {
         if (method === "notifications/initialized" || method === "notifications/cancelled") return;
         if (method === "ping") return ok(id, {});
         if (method === "tools/list") {
-          const upstreamTools = await ensureUp();
+          const upstreamTools = (await ensureUp()).filter((t) => !DENIED_UPSTREAM_TOOLS.has(t.name));
           return ok(id, { tools: [...upstreamTools, ...HOOK_TOOLS] });
         }
         if (method === "tools/call") {
@@ -61,6 +67,9 @@ function startServer() {
             const result = await HANDLERS[name](params?.arguments ?? {});
             return ok(id, { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result });
           }
+          // Reject denied upstream tools before the liveness check so the verdict is
+          // deterministic regardless of upstream state, and they never reach up.callTool.
+          if (DENIED_UPSTREAM_TOOLS.has(name)) return fail(id, -32602, `unknown tool: ${name}`);
           const upTools = await ensureUp();
           if (!upTools.length) return fail(id, -32603, "upstream context-mode server unavailable");
           const result = await up.callTool(name, params?.arguments ?? {});

@@ -56,6 +56,26 @@ test("server routes hook_ tools/call through HANDLERS and returns both channels"
   } finally { proc.kill(); rmSync(dir, { recursive: true, force: true }); }
 });
 
+test("server filters ctx_stats/ctx_doctor/ctx_upgrade from tools/list and rejects calling them", async () => {
+  const proc = spawn("node", [SERVER], { env: { ...process.env, CAVE_CONTEXT_UPSTREAM_CMD: FAKE }, stdio: ["pipe", "pipe", "inherit"] });
+  try {
+    const out = await rpc(proc, [
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "t", version: "0" } } },
+      { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} },
+      { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "ctx_stats", arguments: {} } },
+    ]);
+    const list = out.find((m) => m.id === 2).result.tools.map((t) => t.name);
+    assert.ok(list.includes("ctx_echo"), "non-denied upstream tool still exposed");
+    for (const denied of ["ctx_stats", "ctx_doctor", "ctx_upgrade"]) {
+      assert.ok(!list.includes(denied), `${denied} must be filtered from tools/list`);
+    }
+    // Calling a denied tool errors like an unknown tool — never forwarded upstream.
+    const call = out.find((m) => m.id === 3);
+    assert.ok(call.error, "calling a denied tool returns a JSON-RPC error");
+    assert.match(call.error.message, /unknown tool: ctx_stats/);
+  } finally { proc.kill(); }
+});
+
 test("server advertises hook_stop in tools/list", async () => {
   const proc = spawn("node", [SERVER], { env: { ...process.env, CAVE_CONTEXT_NO_UPSTREAM: "1" }, stdio: ["pipe", "pipe", "inherit"] });
   try {

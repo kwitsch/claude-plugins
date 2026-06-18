@@ -18,7 +18,7 @@ A [Claude Code](https://docs.claude.com/en/docs/claude-code/plugins) plugin mark
 | [branch-management](plugins/branch-management/README.md) | Skills that cut a fresh work branch from the updated default branch and turn a finished branch into a reviewed, pushed PR/MR. |
 | [superpowers-automation](plugins/superpowers-automation/README.md) | A new-feature pipeline orchestrator (branch -> brainstorm -> review -> plan -> review -> implement) plus the file-advisor-improver reviser and an opt-in plan hook forcing Subagent-Driven implementation. |
 | [claude-code-knowledge](plugins/claude-code-knowledge/README.md) | Lookup skill plus harness-optimized reference files for authoring & configuring Claude Code (skills, subagents, hooks, commands, MCP, plugins, memory, settings), a read-only expert agent that replaces the built-in claude-code-guide, a cc-review skill that audits components and applies fixes, a cc-author skill that creates new components, and a cc-memory skill that audits & improves CLAUDE.md — all grounded in the same cc-reference knowledge. |
-| [cave-context](plugins/cave-context/README.md) | Unifies caveman + context-mode into one non-competing MCP server: proxies all context-mode ctx_* tools 1-to-1 and aggregates both plugins' hooks. |
+| [cave-context](plugins/cave-context/README.md) | Unifies caveman + context-mode into one non-competing MCP server: proxies context-mode ctx_* tools and aggregates both plugins' hooks. |
 
 ## Configure plugins
 
