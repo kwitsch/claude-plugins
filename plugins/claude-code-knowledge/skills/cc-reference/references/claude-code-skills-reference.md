@@ -95,6 +95,7 @@ Note: the SDK ignores `allowed-tools`; it is CLI-only. In the SDK, control acces
 ## Workflows & feedback loops
 
 - Break complex tasks into explicit sequential steps. For long workflows, provide a copy-able checklist Claude checks off.
+- **Progress display → Task tools, not `TodoWrite`.** To surface step progress, instruct the skill to create one task per step with `TaskCreate`, then patch each with `TaskUpdate` (`status`: `pending`→`in_progress`→`completed`; `TaskList`/`TaskGet` read back; `status: deleted` removes). Task tools are the session default as of Claude Code v2.1.142 / TS Agent SDK 0.3.142, superseding the single-call `TodoWrite` (still forced via `CLAUDE_CODE_ENABLE_TASKS=0`). `TaskUpdate` patches one task by `taskId` (the id returns in the `TaskCreate` tool_result as `{ task: { id } }`), so a sub-skill's tasks append instead of overwriting the parent's — unlike `TodoWrite`, which rewrites the whole array each call. Source: https://code.claude.com/docs/en/agent-sdk/todo-tracking
 - **Validation loop** (raises quality): run validator → fix → repeat. Validator can be a script OR a reference doc (e.g. compare against `STYLE_GUIDE.md`). "Only proceed when validation passes."
 - **Conditional workflow:** route at decision points ("Creating? → workflow A. Editing? → workflow B").
 - If a workflow gets large, push it to a separate file and tell Claude to read the right one for the task.
