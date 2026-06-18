@@ -73,6 +73,7 @@ read in preconditions (step 4).
    | ci_watch_timeout | `${user_config.ci_watch_timeout}` |
    | coderabbit_ci_comments | `${user_config.coderabbit_ci_comments}` |
    | delete_branch_on_merge | `${user_config.delete_branch_on_merge}` |
+   | rebase_before_pr | `${user_config.rebase_before_pr}` |
    | graphify_pr_update | `${user_config.graphify_pr_update}` |
    | graphify_pr_commit | `${user_config.graphify_pr_commit}` |
 
@@ -86,7 +87,8 @@ read in preconditions (step 4).
    CodeRabbit comment collection within step 13. `graphify_pr_update`
    gates the graphify refresh in the Submit stage (step 9) and
    `graphify_pr_commit` its separate commit. `delete_branch_on_merge` gates the
-   auto-delete-on-merge wiring in step 12.
+   auto-delete-on-merge wiring in step 12. `rebase_before_pr` gates the
+   onto-latest-base rebase in step 8.
 
    Review toggles (`review_claude/codex/copilot/coderabbit`),
    `review_max_rounds`, and reviewer quota checks are handled
@@ -133,9 +135,57 @@ See `.claude/rules/subagent-tracking.md`.
    unpushed fix commits to the user as-is. Only `DONE` continues to
    Submit.
 
-   (Former steps 7–8 — per-round dispatch and the fix loop — now live
-   inside the `review-branch` sub-skill, so numbering continues at 9;
-   existing cross-references stay stable.)
+   (The former per-round dispatch and fix loop now live inside the
+   `review-branch` sub-skill. Step 8 below is the pre-submit base rebase;
+   numbering then continues at 9 — existing cross-references stay stable.)
+
+8. **Rebase onto the latest base** — after the work is committed (step 5) and the
+   review rounds have settled (step 6), and **before** the graphify refresh (step 9),
+   check whether the base branch (`$base` — the branch the work was cut from, usually
+   `main`) gained new upstream commits and, if so, rebase the work branch onto it.
+   This keeps the PR on top of current `$base` and surfaces conflicts now instead of
+   in the PR. Gated by the `rebase_before_pr` toggle (step 4) — literally `false`
+   skips this step (note `rebase before PR disabled via settings`).
+
+   **Synchronous, native Bash** (git fetch + rebase are writes — never the ctx
+   sandbox). Pass `$base` (the bare base name from precondition 2) as `$1`.
+
+   ```bash
+   #!/usr/bin/env bash
+   # Rebase the work branch onto the latest origin/<base>. Run from the work tree.
+   # Always exits 0; outcome on the REBASE_RESULT= line (not the exit code).
+   set -uo pipefail
+   base="${1:?usage: <base>}"
+   if [ -n "$(git status --porcelain)" ]; then echo "REBASE_RESULT=skipped_dirty"; exit 0; fi
+   if ! out="$(git fetch origin "$base" 2>&1)"; then
+     echo "REBASE_RESULT=failed"; echo "DETAIL=fetch: $(printf '%s' "$out" | tail -2 | tr '\n' ' ' | cut -c1-200)"; exit 0
+   fi
+   # already contains every origin/<base> commit? then base has no new upstream work
+   if git merge-base --is-ancestor "origin/$base" HEAD; then
+     echo "REBASE_RESULT=up_to_date"; exit 0
+   fi
+   if git rebase "origin/$base" >/dev/null 2>&1; then
+     echo "REBASE_RESULT=rebased"
+   else
+     git rebase --abort >/dev/null 2>&1 || true   # never leave a half-rebased tree
+     echo "REBASE_RESULT=conflict"
+   fi
+   exit 0
+   ```
+
+   Map the `REBASE_RESULT=` line:
+   - `up_to_date` → base has no new commits; nothing to do, continue.
+   - `rebased` → the branch was replayed onto new base commits; **history was
+     rewritten**, so set a `rebased=yes` marker — step 11's push MUST then use
+     `--force-with-lease`. Continue.
+   - `skipped_dirty` → uncommitted changes remain (shouldn't happen after step 5 /
+     the fixer); commit or stash them and re-run this step. Never rebase a dirty tree.
+   - `conflict` → the rebase hit conflicts and was aborted (branch unchanged). Do
+     **not** push or open a PR — stop and hand the conflict to the user to resolve
+     manually (a PR that cannot land cleanly on `$base` is worse than stopping).
+   - `failed` → fetch/setup failed (e.g. offline); report `DETAIL` as a soft note and
+     continue — the branch is still pushable, the PR just may sit behind `$base`.
+   - no `REBASE_RESULT=` line → treat as `failed` (soft note).
 
 ## Submit
 
@@ -238,16 +288,19 @@ See `.claude/rules/subagent-tracking.md`.
    commit it here (the review-fixer carries the same standing rule); if
    it is unclear whether a change belongs to the work, ask the user.
 
-11. **Push** the session/work branch to origin:
-    - `linked_worktree:` `no` → `git push -u origin "$branch"`.
-    - `linked_worktree:` `yes` → `git push --force-with-lease -u origin "$branch"`.
-      In a linked worktree the branch may already exist on origin (a bridge/remote
-      session can pre-push it) and init-branch may have self-rebased it, rewriting
-      history relative to that ref — a plain push would then be rejected as
-      non-fast-forward. `--force-with-lease` covers both cases: it creates the ref
-      when origin does not have it yet, and safely force-updates a diverged ref
-      (refusing only if the remote moved unexpectedly, since only this session
-      writes the branch). Do NOT use a bare `--force`.
+11. **Push** the session/work branch to origin. Use `--force-with-lease` when the
+    history may have been rewritten relative to an existing remote ref — i.e. when
+    `linked_worktree:` is `yes` (a bridge/remote session can pre-push the branch and
+    init-branch may have self-rebased it) **or** step 8 reported `rebased=yes`.
+    Otherwise a plain push:
+    - neither condition → `git push -u origin "$branch"`.
+    - `linked_worktree:` `yes` OR step-8 `rebased=yes` →
+      `git push --force-with-lease -u origin "$branch"`.
+
+    `--force-with-lease` covers both regimes: it creates the ref when origin does
+    not have it yet, and safely force-updates a diverged ref (refusing only if the
+    remote moved unexpectedly, since only this session writes the branch). Do NOT
+    use a bare `--force`.
 
 12. **Open the PR/MR** — pick the tool from the `origin` URL
     (`git remote get-url origin`):
@@ -361,3 +414,6 @@ hand the remaining findings to the user instead of pushing in circles.
     Plus the auto-delete-on-merge outcome from step 12: enabled repo
     `delete_branch_on_merge` / already true / could not set (no admin) /
     GitLab `--remove-source-branch` set / disabled via settings.
+    Plus the step-8 base-rebase outcome: up to date / rebased onto
+    `origin/$base` (force-pushed) / conflict — stopped / failed + detail /
+    disabled via settings.

@@ -81,14 +81,19 @@ Orchestrator skills (`new-pr`, `review-branch`) dispatch six subagents; `new-bra
   all revisions, `linked_worktree` detection, feature toggles from `userConfig`
   interpolated as `${user_config.KEY}` — fail-open, only literal `false`
   disables); mandatory commit; invokes `skills/review-branch` with `--base
-  "$base"` (stops before push on open findings); graphify refresh before push via
+  "$base"` (stops before push on open findings); pre-submit base rebase (step 8,
+  gated by `rebase_before_pr`, fail-open): when `origin/$base` has commits not in
+  HEAD, rebase the work branch onto it — synchronous native Bash, always exits 0
+  with a `REBASE_RESULT=` line (`up_to_date`/`rebased`/`skipped_dirty`/`conflict`/
+  `failed`); `conflict` aborts the rebase and STOPS before push, `rebased` forces
+  the step-11 push; graphify refresh before push via
   background Bash (embedded script **always exits 0**, status on
   `GRAPHIFY_RESULT=` / `COMMITTED=` lines; commit gated by `graphify_pr_commit`,
   message `chore: update graphify output`), gated by `graphify_pr_update`; push
-  (`git push -u origin "$branch"`; in a linked worktree `--force-with-lease`,
-  which both creates the ref when origin lacks it and safely force-updates it
-  when the branch already exists on origin and init-branch self-rebased it —
-  verified across both regimes) + `gh pr create`/`glab mr create`.
+  (`git push -u origin "$branch"`; `--force-with-lease` when a linked worktree OR
+  the step-8 rebase rewrote history — it both creates the ref when origin lacks it
+  and safely force-updates a diverged ref, verified across both regimes) +
+  `gh pr create`/`glab mr create`.
   **Auto-delete on merge** (gated by `delete_branch_on_merge`, fail-open): GitLab
   adds `--remove-source-branch` at create; GitHub has no per-PR flag, so after the
   PR opens new-pr ensures the repo-level `delete_branch_on_merge=true` via
@@ -202,7 +207,7 @@ The review-branch rate-limit regex is extracted live from
 `review-branch/SKILL.md` and run against the old quota corpus (positives:
 rate limit / free tier quota / reviews/hour / HTTP 429; negatives: bare
 "disk quota", 429 outside an HTTP context).
-Plus plugin.json `userConfig` manifest checks (thirteen boolean toggles +
+Plus plugin.json `userConfig` manifest checks (fourteen boolean toggles +
 numeric `ci_watch_timeout` + numeric `review_max_rounds`, boolean defaults
 all `true` except fail-closed `graphify_force_create` +
 `graphify_user_files`, timeout default `1800`, rounds default `3`,

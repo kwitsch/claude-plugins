@@ -20,10 +20,10 @@ review_claude: true        review_codex: true
 review_copilot: true       review_coderabbit: true
 review_max_rounds: 3       ci_monitor: true
 ci_watch_timeout: 1800     coderabbit_ci_comments: true
-delete_branch_on_merge: true   context_index: true
-graphify_branch_update: true   graphify_pr_update: true
-graphify_pr_commit: true   graphify_force_create: false
-graphify_user_files: false
+delete_branch_on_merge: true   rebase_before_pr: true
+context_index: true        graphify_branch_update: true
+graphify_pr_update: true   graphify_pr_commit: true
+graphify_force_create: false   graphify_user_files: false
 ```
 
 ## Step 1 — Detect project context
@@ -126,6 +126,7 @@ From `$current`:
 - `coderabbit_ci_comments` current value → `$cur_cr_comments = "on"` if `true` else `"off"`
 - `ci_watch_timeout` current value → `$cur_timeout`
 - `delete_branch_on_merge` current value → `$cur_delete_branch = "on"` if `true` else `"off"`
+- `rebase_before_pr` current value → `$cur_rebase = "on"` if `true` else `"off"`
 
 ```
 AskUserQuestion (4 questions):
@@ -158,9 +159,16 @@ AskUserQuestion (4 questions):
       options:
         - label: "Yes"  description: "GitHub: set repo delete_branch_on_merge (needs admin); GitLab: --remove-source-branch"
         - label: "No"   description: "leave branch-deletion settings untouched"
+
+  Q5: multiSelect: false
+      question: "Rebase the work branch onto its base before opening the PR/MR?"
+      header:   "Rebase before PR [currently: <on|off>]"
+      options:
+        - label: "Yes"  description: "when the base (usually main) gained new commits, rebase onto origin/<base> before submitting (force-with-lease push)"
+        - label: "No"   description: "open the PR/MR without rebasing onto the latest base"
 ```
 
-Store: `$ci_monitor_raw`, `$ci_timeout_raw`, `$ci_comments_raw`, `$delete_branch_raw`.
+Store: `$ci_monitor_raw`, `$ci_timeout_raw`, `$ci_comments_raw`, `$delete_branch_raw`, `$rebase_before_pr_raw`.
 
 If `$ci_timeout_raw == "Other"` → run numeric validation loop for
 `ci_watch_timeout` (step 7) and store result as `$ci_timeout`.
@@ -253,6 +261,7 @@ ci_monitor             = ($ci_monitor_raw == "Yes")
 ci_watch_timeout       = $ci_timeout            [integer]
 coderabbit_ci_comments = ($ci_comments_raw == "Yes")
 delete_branch_on_merge = ($delete_branch_raw == "Yes")
+rebase_before_pr       = ($rebase_before_pr_raw == "Yes")
 graphify_branch_update = ("on new branch"               is in $graphify_triggers)
 graphify_pr_update     = ("before PR push"              is in $graphify_triggers)
 graphify_pr_commit     = ("separate PR commit"          is in $graphify_triggers)
@@ -269,7 +278,8 @@ defaults = {
   review_copilot: true,     review_coderabbit: true,
   review_max_rounds: 3,     ci_monitor: true,
   ci_watch_timeout: 1800,   coderabbit_ci_comments: true,
-  delete_branch_on_merge: true, context_index: true,
+  delete_branch_on_merge: true, rebase_before_pr: true,
+  context_index: true,
   graphify_branch_update: true,
   graphify_pr_update: true, graphify_pr_commit: true,
   graphify_force_create: false, graphify_user_files: false

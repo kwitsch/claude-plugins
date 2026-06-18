@@ -1,6 +1,6 @@
 {
   "name": "branch-management",
-  "version": "3.13.0",
+  "version": "3.14.0",
   "description": "Branch lifecycle skills. new-branch cuts a fresh branch inline; new-pr runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewers) backed by subagents, applies verified fixes between rounds, opens a PR/MR via gh or glab, and watches CI until green. Optionally refreshes a graphify output folder on new-branch and before the PR push (separate commit). Uses context-mode to keep heavy script output out of context when it is installed, with a native Bash fallback otherwise.",
   "author": {
     "name": "Kwitsch"
@@ -58,6 +58,12 @@
       "type": "boolean",
       "title": "Delete branch on merge",
       "description": "Values: true = after opening the PR/MR, enable automatic deletion of the head/source branch when it merges (GitHub: sets the repo delete_branch_on_merge setting via gh api, idempotent, soft-fails without admin; GitLab: passes --remove-source-branch); false = leave branch-deletion settings untouched. Default: true.",
+      "default": true
+    },
+    "rebase_before_pr": {
+      "type": "boolean",
+      "title": "Rebase onto base before PR",
+      "description": "Values: true = in new-pr, after committing and before the graphify refresh, rebase the work branch onto origin/<base> when the base branch (usually main) gained new upstream commits (force-with-lease push; stops on conflict); false = skip the rebase. Default: true.",
       "default": true
     },
     "graphify_branch_update": {
