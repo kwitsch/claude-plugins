@@ -75,6 +75,7 @@ the native settings order: `.claude/settings.local.json` (local) >
 | `ci_watch_timeout` | `1800` | positive whole-number seconds for the CI watch deadline (`new-pr` passes this to the watch script; invalid/missing values fall back to `1800`) |
 | `context_index` | `true` | `new-branch` skips the context-mode index refresh |
 | `coderabbit_ci_comments` | `true` | the CI watch ignores CodeRabbit bot comments |
+| `delete_branch_on_merge` | `true` | `new-pr` does not wire auto-delete-on-merge — the merged branch is left in place (GitHub repo `delete_branch_on_merge` untouched; GitLab MR keeps its source branch). When `true`, `new-pr` enables it: GitHub via `gh api` (idempotent, soft-fails without admin), GitLab via `--remove-source-branch` |
 | `graphify_branch_update` | `true` | `new-branch` skips the graphify refresh |
 | `graphify_force_create` | `false` | *(fail-closed — see below)* `new-branch` refresh runs even when `graphify-out/` is missing and creates the folder when set to `true` |
 | `graphify_pr_update` | `true` | `new-pr` skips the graphify refresh before pushing |

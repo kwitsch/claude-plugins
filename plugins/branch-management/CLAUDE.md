@@ -88,7 +88,12 @@ Orchestrator skills (`new-pr`, `review-branch`) dispatch six subagents; `new-bra
   (`git push -u origin "$branch"`; in a linked worktree `--force-with-lease`,
   which both creates the ref when origin lacks it and safely force-updates it
   when the branch already exists on origin and init-branch self-rebased it —
-  verified across both regimes) + `gh pr create`/`glab mr create`. **Session-PR
+  verified across both regimes) + `gh pr create`/`glab mr create`.
+  **Auto-delete on merge** (gated by `delete_branch_on_merge`, fail-open): GitLab
+  adds `--remove-source-branch` at create; GitHub has no per-PR flag, so after the
+  PR opens new-pr ensures the repo-level `delete_branch_on_merge=true` via
+  `gh api -X PATCH repos/{owner}/{repo}` (idempotent, soft-fail without admin —
+  never aborts). **Session-PR
   linkage:** in a bridge/remote worktree the remote links the PR as the session
   PR only when the head ref is the session branch (`worktree-bridge-cse_<id>`), so
   new-pr opens from `$branch` as-is and never renames/re-pushes under another
@@ -197,7 +202,7 @@ The review-branch rate-limit regex is extracted live from
 `review-branch/SKILL.md` and run against the old quota corpus (positives:
 rate limit / free tier quota / reviews/hour / HTTP 429; negatives: bare
 "disk quota", 429 outside an HTTP context).
-Plus plugin.json `userConfig` manifest checks (twelve boolean toggles +
+Plus plugin.json `userConfig` manifest checks (thirteen boolean toggles +
 numeric `ci_watch_timeout` + numeric `review_max_rounds`, boolean defaults
 all `true` except fail-closed `graphify_force_create` +
 `graphify_user_files`, timeout default `1800`, rounds default `3`,

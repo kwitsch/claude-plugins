@@ -72,6 +72,7 @@ read in preconditions (step 4).
    | ci_monitor | `${user_config.ci_monitor}` |
    | ci_watch_timeout | `${user_config.ci_watch_timeout}` |
    | coderabbit_ci_comments | `${user_config.coderabbit_ci_comments}` |
+   | delete_branch_on_merge | `${user_config.delete_branch_on_merge}` |
    | graphify_pr_update | `${user_config.graphify_pr_update}` |
    | graphify_pr_commit | `${user_config.graphify_pr_commit}` |
 
@@ -84,7 +85,8 @@ read in preconditions (step 4).
    loop (steps 13–15), while `coderabbit_ci_comments` only suppresses
    CodeRabbit comment collection within step 13. `graphify_pr_update`
    gates the graphify refresh in the Submit stage (step 9) and
-   `graphify_pr_commit` its separate commit.
+   `graphify_pr_commit` its separate commit. `delete_branch_on_merge` gates the
+   auto-delete-on-merge wiring in step 12.
 
    Review toggles (`review_claude/codex/copilot/coderabbit`),
    `review_max_rounds`, and reviewer quota checks are handled
@@ -254,6 +256,8 @@ See `.claude/rules/subagent-tracking.md`.
       `gh pr create --base "$base" --title "<title>" --body "<body>"`
     - GitLab (`gitlab.` or a self-managed GitLab host):
       `glab mr create --target-branch "$base" --title "<title>" --description "<body>" --yes`
+      — append `--remove-source-branch` unless `delete_branch_on_merge` (step 4)
+      is literally `false`, so the source branch is removed when the MR merges.
 
     If the origin URL matches neither anchor (a custom-domain Enterprise or
     self-managed host), do not guess: check `gh auth status --hostname <host>`
@@ -264,6 +268,28 @@ See `.claude/rules/subagent-tracking.md`.
     `git log "origin/$base"..HEAD` — what changed and why, plus which review
     rounds ran. If the required CLI is missing or unauthenticated, stop and
     give the user the exact command to run themselves.
+
+    **Auto-delete the branch on merge** (unless `delete_branch_on_merge` from
+    step 4 is literally `false`). `gh pr create` has no per-PR flag for this, so
+    on **GitHub** ensure the repo-level setting after the PR is open — idempotent,
+    soft-fail, never a reason to abort (it needs admin; a non-admin token just
+    leaves it unchanged):
+
+    ```bash
+    # GitHub only; skip entirely when delete_branch_on_merge is literally false.
+    if [ "$(gh repo view --json deleteBranchOnMerge -q .deleteBranchOnMerge 2>/dev/null)" != "true" ]; then
+      gh api -X PATCH "repos/{owner}/{repo}" -F delete_branch_on_merge=true >/dev/null 2>&1 \
+        && echo "auto-delete: enabled repo delete_branch_on_merge" \
+        || echo "auto-delete: could not set delete_branch_on_merge (likely no admin) — left as-is"
+    else
+      echo "auto-delete: repo delete_branch_on_merge already true"
+    fi
+    ```
+
+    `{owner}/{repo}` is resolved by `gh` from the origin remote — pass the literal
+    placeholder string. On **GitLab** the `--remove-source-branch` flag above
+    already covers this per-MR; no repo-level change is made. Record the
+    auto-delete outcome for the report (step 16).
 
 ## Monitor until green
 
@@ -332,3 +358,6 @@ hand the remaining findings to the user instead of pushing in circles.
     Plus the graphify outcome: updated + committed / updated, left
     uncommitted via settings / skipped: no CLI / skipped: no
     graphify-out folder / failed + detail / disabled via settings.
+    Plus the auto-delete-on-merge outcome from step 12: enabled repo
+    `delete_branch_on_merge` / already true / could not set (no admin) /
+    GitLab `--remove-source-branch` set / disabled via settings.
