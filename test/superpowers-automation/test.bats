@@ -196,3 +196,15 @@ run_hook() {
   run grep -q "branch-management:new-branch" "$f"
   assert_success
 }
+
+@test "new-feature skill mandates per-step task tracking via Task tools (TaskCreate/TaskUpdate)" {
+  local f="$REPO_ROOT/plugins/superpowers-automation/skills/new-feature/SKILL.md"
+  run grep -q "TaskCreate" "$f"
+  assert_success
+  run grep -q "TaskUpdate" "$f"
+  assert_success
+  run grep -q "in_progress" "$f"
+  assert_success
+  run grep -q "completed" "$f"
+  assert_success
+}

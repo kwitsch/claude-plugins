@@ -14,7 +14,13 @@ because it invokes sub-skills — do NOT fork it.
 `$feature_description` (also `$ARGUMENTS`) is the feature description. If it is empty,
 stop and ask the user for one before doing anything else.
 
-Create one TodoWrite item per step below and work them in order.
+**Track progress as tasks.** Before step 1, create one task per step below (steps
+1–7) with `TaskCreate` (each starts `pending`). As the pipeline runs, `TaskUpdate`
+the active step to `in_progress` on entry and to `completed` the moment it finishes
+— keep exactly one task `in_progress` at a time — so the user always sees which
+stage of the flow is active. Use the Task tools (`TaskCreate`/`TaskUpdate`), not
+`TodoWrite`: they are the session default since Claude Code v2.1.142 and patch one
+task by id, so a sub-skill's own tasks append instead of overwriting yours.
 
 ## Steps
 
