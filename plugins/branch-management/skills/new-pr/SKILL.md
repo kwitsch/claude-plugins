@@ -21,13 +21,24 @@ read in preconditions (step 4).
 
 ## Git context
 
-!`git fetch origin >/dev/null 2>&1; git remote set-head origin --auto >/dev/null 2>&1; printf "current_branch: %s\ndetected_base: %s\n" "$(git branch --show-current)" "$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p')"`
+!`git fetch origin >/dev/null 2>&1; git remote set-head origin --auto >/dev/null 2>&1; wt=no; [ "$(git rev-parse --git-dir 2>/dev/null)" != "$(git rev-parse --git-common-dir 2>/dev/null)" ] && wt=yes; printf "current_branch: %s\ndetected_base: %s\nlinked_worktree: %s\n" "$(git branch --show-current)" "$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p')" "$wt"`
 
 ## Preconditions
 
 1. **Assert a named branch:** from the git context above, extract the
    value on the `current_branch:` line and assign it to `$branch`. If
    empty (detached HEAD), abort and tell user to check out a branch first.
+   Also note the `linked_worktree:` value (`yes`/`no`) — it governs the push in
+   step 11.
+
+   **Session-PR linkage (bridge / remote sessions).** When `linked_worktree:` is
+   `yes` the current branch is the session branch the remote tracks
+   (`worktree-bridge-cse_<id>`), and the bridge links a PR as the *session PR*
+   only when the PR head ref **is** that branch. So this skill opens the PR from
+   `$branch` as-is — it never renames the branch or pushes under a different
+   name. (new-branch already preserves the session branch in a worktree; if you
+   reach here on a manually-created non-session branch, the PR will still open
+   but may not register as the session PR — say so in the report.)
 
 2. **Resolve base branch.** Check `$ARGUMENTS` for `--base <branch>`;
    if present, use that value as `$base`. Otherwise extract the value on
@@ -141,50 +152,78 @@ See `.claude/rules/subagent-tracking.md`.
    - `DO_COMMIT=1` in the environment when `${user_config.graphify_pr_commit}` is
      not literally `false`; `DO_COMMIT=0` when it is literally `false`
 
+   The script **always exits 0**; its outcome rides the `GRAPHIFY_RESULT=` /
+   `COMMITTED=` lines it prints (a background script that exits non-zero is
+   reported by the harness as a failed command — status must NOT ride the exit
+   code, and the commit result can no longer be signalled that way either, so it
+   is reported on its own line).
+
    ```bash
    #!/usr/bin/env bash
-   set -euo pipefail
+   # Always exits 0; status rides the GRAPHIFY_RESULT= / COMMITTED= lines below.
+   set -uo pipefail
    DO_COMMIT="${DO_COMMIT:-1}"
    force=0; keep_user_files=0
    while [ $# -gt 0 ]; do
      case "$1" in
        --force) force=1 ;;
        --keep-user-files) keep_user_files=1 ;;
-       *) echo "usage: [--force] [--keep-user-files]" >&2; exit 1 ;;
+       *) echo "GRAPHIFY_RESULT=failed"; echo "DETAIL=usage: [--force] [--keep-user-files]"; exit 0 ;;
      esac; shift
    done
    root=$(git rev-parse --show-toplevel 2>/dev/null) || {
-     echo "not inside a git repository" >&2; exit 1
+     echo "GRAPHIFY_RESULT=failed"; echo "DETAIL=not inside a git repository"; exit 0
    }
-   cd "$root"
-   command -v graphify >/dev/null 2>&1 || exit 2
+   cd "$root" || { echo "GRAPHIFY_RESULT=failed"; echo "DETAIL=cannot cd to repo root"; exit 0; }
+   command -v graphify >/dev/null 2>&1 || { echo "GRAPHIFY_RESULT=unavailable"; exit 0; }
    if [ ! -d graphify-out ]; then
-     [ "$force" -eq 1 ] || exit 5
-     mkdir -p graphify-out
+     if [ "$force" -eq 1 ]; then mkdir -p graphify-out; else echo "GRAPHIFY_RESULT=no_folder"; exit 0; fi
    fi
-   timeout -k 10 "${GRAPHIFY_TIMEOUT:-600}" graphify update . || exit 4
-   if [ "$keep_user_files" -eq 0 ]; then rm -f graphify-out/graph.html; fi
-   # Commit section — only reached when update succeeded (exit 0)
+   if ! out="$(timeout -k 10 "${GRAPHIFY_TIMEOUT:-600}" graphify update . 2>&1)"; then
+     echo "GRAPHIFY_RESULT=failed"; echo "DETAIL=$(printf '%s' "$out" | tail -3 | tr '\n' ' ' | cut -c1-300)"; exit 0
+   fi
+   [ "$keep_user_files" -eq 0 ] && rm -f graphify-out/graph.html
+   echo "GRAPHIFY_RESULT=updated"
+   # Commit section — only reached when the update succeeded
    if [ "$DO_COMMIT" = "1" ]; then
-     if git status --porcelain -- graphify-out | grep -q .; then
-       git add graphify-out
-       git commit -m "chore: update graphify output"
+     if git check-ignore -q graphify-out; then
+       # graphify-out is gitignored (e.g. "local development only, never pushed"):
+       # `git status` hides ignored files and `git add` refuses them, so there is
+       # nothing to commit — report the real reason rather than "unchanged".
+       echo "COMMITTED=false"; echo "COMMIT_DETAIL=graphify-out is gitignored — left local, not committed"
+     elif git status --porcelain -- graphify-out | grep -q .; then
+       if git add graphify-out && git commit -m "chore: update graphify output" >/dev/null 2>&1; then
+         echo "COMMITTED=true"
+       else
+         echo "COMMITTED=false"; echo "COMMIT_DETAIL=commit failed"
+       fi
+     else
+       echo "COMMITTED=false"; echo "COMMIT_DETAIL=graphify output unchanged"
      fi
-     # If no changes: nothing to commit, graphify output unchanged (not an error)
+   else
+     echo "COMMITTED=skipped"
    fi
+   exit 0
    ```
 
-   Exit-code mapping (read from the notification):
-   - `0` — status `updated`; when `DO_COMMIT=1`: `committed: true` if commit ran,
-     `committed: false, detail: graphify output unchanged` if nothing changed;
-     when `DO_COMMIT=0`: note `graphify changes left uncommitted via settings`
-   - `2` — `skipped: graphify unavailable`
-   - `5` — `skipped: no graphify-out folder`
-   - other — `failed` — include stderr excerpt as `detail`
+   Status mapping (read the `GRAPHIFY_RESULT=` line, NOT the exit code):
+   - `updated` — status `updated`; then read `COMMITTED=`:
+     `true` → `committed`; `false` with `COMMIT_DETAIL=graphify output unchanged`
+     → `committed: false, detail: graphify output unchanged`; `false` with
+     `COMMIT_DETAIL=graphify-out is gitignored …` → `committed: false — graphify-out
+     is gitignored, left local` (expected when the repo keeps graphify-out
+     local-only); `false` with `COMMIT_DETAIL=commit failed` → note the commit
+     failed (soft); `skipped` (`DO_COMMIT=0`) → `graphify changes left uncommitted
+     via settings`
+   - `unavailable` — `skipped: graphify unavailable`
+   - `no_folder` — `skipped: no graphify-out folder`
+   - `failed` — `failed` — include the `DETAIL` excerpt
+   - no `GRAPHIFY_RESULT=` line at all (e.g. the background script was killed
+     before printing) — treat as `failed` (soft-fail, never block the push)
 
    Gate: do NOT proceed to step 10 until the background Bash notification
-   arrives and its exit code is mapped to a status string — any graphify commit
-   lands inside this background script.
+   arrives and its `GRAPHIFY_RESULT=` line is mapped to a status string — any
+   graphify commit lands inside this background script.
 
    Soft-fail: any non-ok status is a report note, never a reason to stop
    before pushing.
@@ -197,7 +236,16 @@ See `.claude/rules/subagent-tracking.md`.
    commit it here (the review-fixer carries the same standing rule); if
    it is unclear whether a change belongs to the work, ask the user.
 
-11. **Push:** `git push -u origin "$branch"`.
+11. **Push** the session/work branch to origin:
+    - `linked_worktree:` `no` → `git push -u origin "$branch"`.
+    - `linked_worktree:` `yes` → `git push --force-with-lease -u origin "$branch"`.
+      In a linked worktree the branch may already exist on origin (a bridge/remote
+      session can pre-push it) and init-branch may have self-rebased it, rewriting
+      history relative to that ref — a plain push would then be rejected as
+      non-fast-forward. `--force-with-lease` covers both cases: it creates the ref
+      when origin does not have it yet, and safely force-updates a diverged ref
+      (refusing only if the remote moved unexpectedly, since only this session
+      writes the branch). Do NOT use a bare `--force`.
 
 12. **Open the PR/MR** — pick the tool from the `origin` URL
     (`git remote get-url origin`):
