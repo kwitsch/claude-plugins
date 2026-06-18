@@ -20,6 +20,12 @@ cave-context replaces the caveman and context-mode plugins with a single compone
 
 Hook matchers exclude `hook_` tools to prevent reentrancy.
 
+## Skills
+
+| Skill | What it does |
+|---|---|
+| `cave-compress` | Compress one Markdown file in place using the caveman terse-encoding ruleset — cuts prose tokens while preserving every fact and verbatim region (code, paths, URLs, numbers, frontmatter). User-invoked only (`/cave-compress <path/to/file.md>`). Auto-allows `**/CLAUDE.md`, `docs/**/*.md`, `plan/**/*.md`; any other `.md` requires explicit confirmation, and the file must have a git restore point before the lossy overwrite. |
+
 ## Runtime launcher
 
 All `.mjs` scripts (the MCP server, the command hooks) and the upstream `context-mode` package are launched through `bin/bnx.sh`, a small bash launcher that owns runtime selection:
