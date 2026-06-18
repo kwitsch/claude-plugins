@@ -10,13 +10,13 @@ const SERVER_NAME = "cave-context";
 const SERVER_INFO = { name: SERVER_NAME, version: "0.1.0" };
 const DEFAULT_PROTOCOL = "2025-11-25";
 
-startServer();
-
 // Upstream ctx_* tools cave-context deliberately does NOT re-expose: the savings
 // reporter (ctx_stats — its `stat` skill was removed) and the install-management
 // tools (ctx_doctor, ctx_upgrade). Filtered out of tools/list and rejected on
 // tools/call so a removed tool is indistinguishable from one that never existed.
 const DENIED_UPSTREAM_TOOLS = new Set(["ctx_stats", "ctx_doctor", "ctx_upgrade"]);
+
+startServer();
 
 function startServer() {
   const HOOK_TOOLS = [
