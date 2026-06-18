@@ -74,7 +74,7 @@
     {
       "name": "superpowers-automation",
       "source": "./plugins/superpowers-automation",
-      "description": "A new-feature pipeline orchestrator (branch -> brainstorm -> review -> plan -> review -> implement) plus the file-advisor-improver reviser and an opt-in plan hook forcing Subagent-Driven implementation.",
+      "description": "A new-work pipeline orchestrator that classifies a description as feature/fix/refactor and runs the matching flow (feature/refactor: branch -> brainstorm -> review -> plan -> review -> implement; fix: systematic-debugging), plus the file-advisor-improver reviser and an opt-in plan hook forcing Subagent-Driven implementation.",
       "author": {
         "name": "Kwitsch"
       },

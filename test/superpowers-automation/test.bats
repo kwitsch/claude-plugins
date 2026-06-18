@@ -165,27 +165,29 @@ run_hook() {
   assert_success
 }
 
-@test "new-feature skill exists with frontmatter" {
-  local f="$REPO_ROOT/plugins/superpowers-automation/skills/new-feature/SKILL.md"
+@test "new-work skill exists with frontmatter" {
+  local f="$REPO_ROOT/plugins/superpowers-automation/skills/new-work/SKILL.md"
   run test -f "$f"
   assert_success
-  run grep -q "name: new-feature" "$f"
+  run grep -q "name: new-work" "$f"
   assert_success
   run grep -q "argument-hint:" "$f"
   assert_success
 }
 
-@test "new-feature skill is model+user invocable and not forked" {
-  local f="$REPO_ROOT/plugins/superpowers-automation/skills/new-feature/SKILL.md"
+@test "new-work skill is model+user invocable and not forked" {
+  local f="$REPO_ROOT/plugins/superpowers-automation/skills/new-work/SKILL.md"
   run grep -q "disable-model-invocation" "$f"
   assert_failure
   run grep -q "context: fork" "$f"
   assert_failure
 }
 
-@test "new-feature skill names the pipeline sub-skills and branch step" {
-  local f="$REPO_ROOT/plugins/superpowers-automation/skills/new-feature/SKILL.md"
+@test "new-work skill names the pipeline sub-skills and branch step" {
+  local f="$REPO_ROOT/plugins/superpowers-automation/skills/new-work/SKILL.md"
   run grep -q "superpowers:brainstorming" "$f"
+  assert_success
+  run grep -q "superpowers:systematic-debugging" "$f"
   assert_success
   run grep -q "superpowers-automation:file-advisor-improver" "$f"
   assert_success
@@ -197,8 +199,26 @@ run_hook() {
   assert_success
 }
 
-@test "new-feature skill mandates per-step task tracking via Task tools (TaskCreate/TaskUpdate)" {
-  local f="$REPO_ROOT/plugins/superpowers-automation/skills/new-feature/SKILL.md"
+@test "new-work skill classifies work into feature/fix/refactor branch prefixes" {
+  local f="$REPO_ROOT/plugins/superpowers-automation/skills/new-work/SKILL.md"
+  run grep -q "feature/" "$f"
+  assert_success
+  run grep -q "fix/" "$f"
+  assert_success
+  run grep -q "refactor/" "$f"
+  assert_success
+}
+
+@test "new-work skill documents step-numbered task-list integration" {
+  local f="$REPO_ROOT/plugins/superpowers-automation/skills/new-work/SKILL.md"
+  run grep -q "Task-list integration" "$f"
+  assert_success
+  run grep -qE "Step N\.1" "$f"
+  assert_success
+}
+
+@test "new-work skill mandates per-step task tracking via Task tools (TaskCreate/TaskUpdate)" {
+  local f="$REPO_ROOT/plugins/superpowers-automation/skills/new-work/SKILL.md"
   run grep -q "TaskCreate" "$f"
   assert_success
   run grep -q "TaskUpdate" "$f"

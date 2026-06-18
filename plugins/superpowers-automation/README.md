@@ -1,6 +1,6 @@
 # superpowers-automation
 
-A `new-feature` orchestrator that drives the full superpowers pipeline from a one-line description (create branch -> brainstorm -> review spec -> write plan -> review plan -> implement), with advisor-driven file revision at the spec and plan stages. Ships the `file-advisor-improver` skill (forked Sonnet; reviews a file via `advisor()` and revises it in place) and a single opt-in `PostToolUse:Write` hook that forces Subagent-Driven implementation after a plan is written. The hook defaults off.
+A `new-work` orchestrator that classifies a one-line description as a feature, fix, or refactor, then drives the matching superpowers pipeline. Feature/refactor run brainstorm -> review spec -> write plan -> review plan -> implement (advisor-driven file revision at the spec and plan stages); fix runs `systematic-debugging` to completion. The branch is prefixed by type (`feature/`, `fix/`, `refactor/`). Ships the `file-advisor-improver` skill (forked Sonnet; reviews a file via `advisor()` and revises it in place) and a single opt-in `PostToolUse:Write` hook that forces Subagent-Driven implementation after a plan is written. The hook defaults off.
 
 ## Install
 
@@ -8,14 +8,14 @@ A `new-feature` orchestrator that drives the full superpowers pipeline from a on
 /plugin install superpowers-automation@kwitsch-plugins
 ```
 
-Depends on the `superpowers` plugin (`claude-plugins-official`), whose `brainstorming`, `writing-plans`, and `subagent-driven-development` skills the `new-feature` pipeline invokes.
+Depends on the `superpowers` plugin (`claude-plugins-official`), whose `brainstorming`, `systematic-debugging`, `writing-plans`, and `subagent-driven-development` skills the `new-work` pipeline invokes.
 
 ## Skills
 
 | Skill | What it does |
 |---|---|
 | `configure-superpowers-automation` | Interactive wizard to enable/disable the plans hook. Writes only non-default values to `~/.claude/settings.json`. |
-| `new-feature` | Orchestrates the full superpowers pipeline for one feature: derives a `feature/` branch and creates it (via `branch-management:new-branch` or git), then runs brainstorming -> `file-advisor-improver` (spec) -> writing-plans -> `file-advisor-improver` (plan) -> subagent-driven-development, suppressing each stage's auto-handoff so the reviser steps run. |
+| `new-work` | Classifies a description as feature/fix/refactor, derives a type-prefixed branch and creates it (via `branch-management:new-branch` or git), then runs the matching process skill: feature/refactor -> brainstorming -> `file-advisor-improver` (spec) -> writing-plans -> `file-advisor-improver` (plan) -> subagent-driven-development (each stage's auto-handoff suppressed so the reviser steps run); fix -> systematic-debugging to completion. |
 | `file-advisor-improver` | Forked (Sonnet) clean-room review of one file passed by path via `advisor()`, then revises that file in place to implement the feedback. Warns and skips if the file is missing or `advisor` is unavailable. |
 
 `file-advisor-improver` warns and skips if the `advisor` tool is unavailable.
