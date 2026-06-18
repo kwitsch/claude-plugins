@@ -56,17 +56,6 @@
           }
         ]
       }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "mcp_tool",
-            "server": "plugin:cave-context:cave-context",
-            "tool": "hook_stop"
-          }
-        ]
-      }
     ]
   }
 }
