@@ -130,7 +130,7 @@ setup() {
   assert_success
 }
 
-@test "cave-compress declares the minimal allowed-tools and no userConfig leakage" {
+@test "cave-compress grants required allowed-tools (AskUserQuestion + Bash git)" {
   SKILL="$REPO_ROOT/plugins/cave-context/skills/cave-compress/SKILL.md"
   # AskUserQuestion (confirmation gate) and Bash(git:*) (recoverability) must be granted.
   run grep -q 'AskUserQuestion' "$SKILL"
