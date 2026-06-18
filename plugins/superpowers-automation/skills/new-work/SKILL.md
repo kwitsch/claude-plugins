@@ -18,11 +18,13 @@ and ask the user for one before doing anything else.
 
 **Track progress with the Task tools, not `TodoWrite`.** `TaskCreate`/`TaskUpdate`
 are the session default (since Claude Code v2.1.142) and patch one task by id, so a
-sub-skill's own tasks append instead of overwriting yours. Before step 1, `TaskCreate`
-one task per step you will run (each starts `pending`), named `Step N: <title>`
-(`Step 1: …`, `Step 2: …`, …). As the pipeline runs, `TaskUpdate` the active step to
-`in_progress` on entry and to `completed` the moment it finishes — keep exactly one
-task `in_progress` at a time.
+sub-skill's own tasks append instead of overwriting yours. Up front, `TaskCreate` only
+the step-1 task `Step 1: Classify the work` (`pending`) — the rest of the path isn't
+known until step 1 runs. Once step 1 selects the path, `TaskCreate` the remaining step
+tasks for that path (fix: steps 2–4; feature/refactor: steps 2–8), each `pending` and
+named `Step N: <title>` (`Step 2: …`, `Step 3: …`, …). As the pipeline runs,
+`TaskUpdate` the active step to `in_progress` on entry and to `completed` the moment it
+finishes — keep exactly one task `in_progress` at a time.
 
 When a step invokes a sub-skill that creates its own tasks, those tasks belong to the
 step that spawned them — do NOT append them to the end of the list or start a separate
@@ -45,10 +47,10 @@ Step 8: Implement
 
 ## Steps
 
-`TaskCreate` one task per step (named `Step N: <title>`) and work them in order, per
-the task-list integration rule above. The fix path runs steps 1–4; the feature/refactor
-path runs steps 1–8 — after step 1 classifies the work, add the step tasks that path
-needs.
+`TaskCreate` only the `Step 1: Classify the work` task up front, then work in order per
+the task-list integration rule above. After step 1 classifies the work, `TaskCreate`
+the remaining tasks for the chosen path: the fix path runs steps 1–4 (add steps 2–4);
+the feature/refactor path runs steps 1–8 (add steps 2–8).
 
 1. **Classify the work.** From `$work_description` decide the work type — this sets both
    the branch prefix and the process skill invoked in step 4:
