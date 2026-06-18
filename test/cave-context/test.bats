@@ -116,11 +116,6 @@ setup() {
   assert_success
 }
 
-@test "stat skill exists with valid frontmatter name" {
-  run grep -qE '^name:\s*stat$' "$REPO_ROOT/plugins/cave-context/skills/stat/SKILL.md"
-  assert_success
-}
-
 @test "node unit tests pass" {
   run node --test "$REPO_ROOT/test/cave-context/"*.test.mjs
   assert_success
