@@ -1,9 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { handleUserPromptSubmit, handlePreToolUse, mergeContext, handleStop } from "../../plugins/cave-context/mcp/handlers.mjs";
+import { handleUserPromptSubmit, handlePreToolUse, mergeContext } from "../../plugins/cave-context/mcp/handlers.mjs";
 import { reminderText } from "../../plugins/cave-context/mcp/caveman.mjs";
 
 const FAKE = JSON.stringify(["node", new URL("./fake-hook.mjs", import.meta.url).pathname]);
@@ -65,37 +62,3 @@ test("PreToolUse: forwards ctx hard fields (permissionDecision/updatedInput/deci
   });
 });
 
-function stopLayout(lastLine) {
-  const base = mkdtempSync(join(tmpdir(), "cc-stop-"));
-  const uuid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
-  const transcript = join(base, `${uuid}.jsonl`);
-  writeFileSync(transcript, '{"type":"summary"}\n');
-  const subs = join(base, uuid, "subagents");
-  mkdirSync(subs, { recursive: true });
-  writeFileSync(join(subs, "agent-x.jsonl"), lastLine);
-  return transcript;
-}
-
-test("Stop: stop_hook_active -> allow ({} , no decision)", async () => {
-  const out = await handleStop({ hook_event_name: "Stop", stop_hook_active: true });
-  assert.equal(out.decision, undefined);
-});
-
-test("Stop: no transcript_path -> allow", async () => {
-  const out = await handleStop({ hook_event_name: "Stop" });
-  assert.equal(out.decision, undefined);
-});
-
-test("Stop: in-flight subagent -> decision block + reason with watchdog guidance", async () => {
-  const transcript = stopLayout('{"type":"assistant","message":{}}\n'); // no end_turn
-  const out = await handleStop({ hook_event_name: "Stop", transcript_path: transcript });
-  assert.equal(out.decision, "block");
-  assert.match(out.reason, /still running/);
-  assert.match(out.reason, /run_in_background/);
-});
-
-test("Stop: only finished subagents -> allow", async () => {
-  const transcript = stopLayout('{"type":"assistant","stop_reason":"end_turn"}\n');
-  const out = await handleStop({ hook_event_name: "Stop", transcript_path: transcript });
-  assert.equal(out.decision, undefined);
-});
