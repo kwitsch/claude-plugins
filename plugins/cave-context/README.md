@@ -24,7 +24,7 @@ Hook matchers exclude `hook_` tools to prevent reentrancy.
 
 | Skill | What it does |
 |---|---|
-| `cave-compress` | Compress one Markdown file in place using the caveman terse-encoding ruleset — cuts prose tokens while preserving every fact and verbatim region (code, paths, URLs, numbers, frontmatter). User-invoked only (`/cave-compress <path/to/file.md>`). Auto-allows `**/CLAUDE.md`, `docs/**/*.md`, `plan/**/*.md`; any other `.md` requires explicit confirmation, and the file must have a git restore point before the lossy overwrite. |
+| `cave-compress` | Compress one Markdown file in place using the caveman terse-encoding ruleset — cuts prose tokens while preserving every fact and verbatim region (code, paths, URLs, numbers, frontmatter). Model- and user-invocable (`/cave-compress <path/to/file.md>`); its `description`/`when_to_use` hint the eligible paths so the model knows when to apply it. Auto-allows `**/CLAUDE.md`, `docs/**/*.md`, `plan/**/*.md`; any other `.md` requires explicit confirmation, and the file must have a git restore point before the lossy overwrite. |
 
 ## Runtime launcher
 

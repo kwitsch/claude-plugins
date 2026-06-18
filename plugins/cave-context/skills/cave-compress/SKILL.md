@@ -1,20 +1,29 @@
 ---
 name: cave-compress
-description: Compress a single Markdown file in place using the caveman terse-encoding ruleset — cut prose tokens while preserving every fact and verbatim region (code, paths, URLs, numbers, frontmatter). User-invoked only. Auto-allows **/CLAUDE.md, docs/**/*.md, plan/**/*.md; any other .md needs explicit confirmation.
+description: Compress a single Markdown file in place using the caveman terse-encoding ruleset — cut prose tokens while preserving every fact and verbatim region (code, paths, URLs, numbers, frontmatter). Use when asked to compress/shrink/condense a Markdown doc, or proactively on a verbose Markdown file under the auto-allowed paths. Auto-allows **/CLAUDE.md, docs/**/*.md, plan/**/*.md; any other .md needs explicit confirmation.
+when_to_use: |
+  Invoke when the user asks to compress / shrink / condense / "cavemanify" a Markdown
+  file, or when a Markdown file under the auto-allowed paths has grown verbose and would
+  benefit from terser prose. Eligible auto-allowed targets (no scope confirmation):
+  any **/CLAUDE.md (basename anywhere), and any .md under the repo-root docs/ or plan/
+  directories. Any other .md path requires explicit user confirmation before compressing.
 argument-hint: "<path/to/file.md>"
 allowed-tools: ["Read", "Write", "Edit", "AskUserQuestion", "Glob", "Bash(git:*)"]
-disable-model-invocation: true
 ---
 
 # cave-compress
 
 Compress ONE Markdown file *in place* by rewriting its prose under the caveman
 ruleset below. Cut tokens, keep every fact. This is a **lossy, in-place
-overwrite** — run the gates in order before writing. User-invoked only; never
-runs automatically.
+overwrite** — run the gates in order before writing.
 
-Target = the file path in the argument. No argument → ask which `.md` file; never
-guess a "newest file."
+Both you (the model) and the user can invoke this skill. Target = the file path in
+the argument. **Path hints — where this applies:** the auto-allowed targets are any
+`**/CLAUDE.md` (basename at any depth), and any `.md` under the repo-root `docs/` or
+`plan/` directories; these compress without a scope prompt. When you invoke this
+yourself, target one of those paths — any other `.md` triggers the scope-confirmation
+gate (step 3). No path given → ask which `.md` file; never guess a "newest file."
+The gates below still run regardless of who invoked the skill.
 
 ## Decision flow — run in order; any non-affirmative answer → STOP
 

@@ -121,13 +121,14 @@ setup() {
   assert_success
 }
 
-@test "cave-compress SKILL.md exists with required frontmatter" {
+@test "cave-compress SKILL.md exists with required frontmatter and is model-invocable" {
   SKILL="$REPO_ROOT/plugins/cave-context/skills/cave-compress/SKILL.md"
   [ -f "$SKILL" ]
   run grep -qxE 'name: cave-compress' "$SKILL"
   assert_success
-  run grep -qxE 'disable-model-invocation: true' "$SKILL"
-  assert_success
+  # Model-invocable by design: the skill must NOT disable model invocation.
+  run grep -q 'disable-model-invocation' "$SKILL"
+  assert_failure
 }
 
 @test "cave-compress grants required allowed-tools (AskUserQuestion + Bash git)" {
