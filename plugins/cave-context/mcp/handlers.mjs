@@ -53,14 +53,9 @@ export async function handlePreCompact(input) {
   return emit("PreCompact", ac, hard);
 }
 
-export async function handleStop(_input) {
-  return {};
-}
-
 export const HANDLERS = {
   hook_userpromptsubmit: handleUserPromptSubmit,
   hook_pretooluse: handlePreToolUse,
   hook_posttooluse: handlePostToolUse,
   hook_precompact: handlePreCompact,
-  hook_stop: handleStop,
 };

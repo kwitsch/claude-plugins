@@ -24,7 +24,6 @@ function startServer() {
     { name: "hook_pretooluse", description: "Aggregated PreToolUse hook (context-mode routing).", inputSchema: { type: "object", additionalProperties: true } },
     { name: "hook_posttooluse", description: "Aggregated PostToolUse hook (context-mode capture).", inputSchema: { type: "object", additionalProperties: true } },
     { name: "hook_precompact", description: "Aggregated PreCompact hook (context-mode snapshot).", inputSchema: { type: "object", additionalProperties: true } },
-    { name: "hook_stop", description: "Stop hook: fail-open passthrough (always allows turn-end).", inputSchema: { type: "object", additionalProperties: true } },
   ];
 
   // Lazy imports — keep shim path dependency-free until we actually serve.

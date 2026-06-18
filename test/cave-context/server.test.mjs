@@ -76,14 +76,3 @@ test("server filters ctx_stats/ctx_doctor/ctx_upgrade from tools/list and reject
   } finally { proc.kill(); }
 });
 
-test("server advertises hook_stop in tools/list", async () => {
-  const proc = spawn("node", [SERVER], { env: { ...process.env, CAVE_CONTEXT_NO_UPSTREAM: "1" }, stdio: ["pipe", "pipe", "inherit"] });
-  try {
-    const out = await rpc(proc, [
-      { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "t", version: "0" } } },
-      { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} },
-    ]);
-    const list = out.find((m) => m.id === 2).result.tools.map((t) => t.name);
-    assert.ok(list.includes("hook_stop"));
-  } finally { proc.kill(); }
-});
