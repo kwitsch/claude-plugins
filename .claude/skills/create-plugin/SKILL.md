@@ -19,7 +19,7 @@ Scaffold new plugin, register in marketplace manifest, pass CI + installable.
 
 ## Checklist
 
-TodoWrite todo per step, complete in order.
+`TaskCreate` one task per step below, then `TaskUpdate` each to `in_progress`/`completed` in order — Task tools are the session default (Claude Code v2.1.142+), superseding `TodoWrite`.
 
 1. **Gather inputs** — ask one at a time.
 2. **Validate name** — kebab-case, not already taken.

@@ -1,6 +1,6 @@
 {
   "name": "superpowers-automation",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "A new-feature orchestrator skill that drives the full superpowers pipeline (branch -> brainstorm -> spec review -> plan -> plan review -> implement) with advisor-driven file revision at the spec and plan stages; the file-advisor-improver skill (forked Sonnet) that reviews a file via advisor() and revises it in place; and one opt-in PostToolUse:Write hook that forces Subagent-Driven implementation after a plan is written. Hook defaults off.",
   "author": {
     "name": "Kwitsch"
