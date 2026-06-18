@@ -15,19 +15,33 @@ Orchestrator skills (`new-pr`, `review-branch`) dispatch six subagents; `new-bra
   `<type>/<slug>` slugged from a description), then cuts the branch inline via a
   single **synchronous** Bash script (clean-tree guard, `origin/HEAD` refresh,
   `--ff-only` pull, local+remote name-exists check, `git checkout -b`; structured
-  exit codes 0/3/4/5/6 → success/dirty_tree/no_remote/git_op_failed/name_exists drive
-  the user decisions); then invokes `skills/init-branch` (Skill tool) which runs
-  background Bash for graphify refresh + a direct ctx_index MCP call (gated by
+  exit codes 0/3/4/5/6/7 → success/dirty_tree/no_remote/git_op_failed/name_exists/worktree
+  drive the user decisions); then invokes `skills/init-branch` (Skill tool) which
+  runs background Bash for graphify refresh + a direct ctx_index MCP call (gated by
   `graphify_branch_update` + `context_index`, both fail-open). No subagent
   dispatch — the script is synchronous, so there is no async race against the
-  shared working tree and no Task* ledger.
+  shared working tree and no Task* ledger. **Linked-worktree path** (git-dir ≠
+  git-common-dir): the default branch is checked out in the primary worktree so
+  `git checkout <default>` fails; the script skips create+switch and keeps the
+  current branch (exit 7), and new-branch invokes init-branch with
+  `--worktree-rebase <base>` so the kept branch is refreshed in place. The
+  determined `<type>/<slug>` is then only PR title context, never applied as a
+  branch name — keeping the current (session) branch is what lets a later new-pr
+  register as the remote session's PR.
 - `skills/init-branch`: thin sub-skill — runs INLINE (NOT `context: fork`):
-  refreshes graphify output via background Bash (embedded script, commit:no,
-  force/user_files from fail-closed toggles) and indexes the repo via direct
-  ctx_index MCP call (probe order: cave-context → context-mode → bare
-  fallback), both gated by `graphify_branch_update` + `context_index`
-  (fail-open). No subagent dispatches. Called by new-branch after branch
-  creation; user-invocable directly to refresh graph + index anytime.
+  optionally self-rebases (only with `--worktree-rebase <default>` in
+  `$ARGUMENTS`, passed by new-branch's worktree path — synchronous native Bash:
+  clean-tree guard → `git fetch origin <default>` → `git rebase origin/<default>`,
+  `git rebase --abort` on conflict so the tree is never left half-rebased; never
+  rebases on a bare standalone invocation), then refreshes graphify output via
+  background Bash (embedded script, commit:no, force/user_files from fail-closed
+  toggles) and indexes the repo via direct ctx_index MCP call (probe order:
+  cave-context → context-mode → bare fallback), both gated by
+  `graphify_branch_update` + `context_index` (fail-open). The graphify script
+  **always exits 0**, carrying its outcome on a `GRAPHIFY_RESULT=` line (a
+  background non-zero exit reads as a failed command — status must not ride the
+  exit code). No subagent dispatches. Called by new-branch after branch creation;
+  user-invocable directly to refresh graph + index anytime.
 - `skills/review-branch`: standalone review sub-skill — runs INLINE (NOT
   `context: fork`; forked skill is subagent, cannot dispatch reviewer
   subagents); reads
@@ -64,12 +78,31 @@ Orchestrator skills (`new-pr`, `review-branch`) dispatch six subagents; `new-bra
   (silent if none); (4) emits `git status --porcelain` files (silent if
   clean).
 - `skills/new-pr`: preconditions (fetch, base detection, `origin/<base>` for
-  all revisions, feature toggles from `userConfig` interpolated as
-  `${user_config.KEY}` — fail-open, only literal `false` disables); mandatory
-  commit; invokes `skills/review-branch` with `--base "$base"` (stops before
-  push on open findings); graphify refresh before push via background
-  Bash (embedded script, commit gated by `graphify_pr_commit`, message
-  `chore: update graphify output`), gated by `graphify_pr_update`; push + `gh pr create`/`glab mr create`; monitor
+  all revisions, `linked_worktree` detection, feature toggles from `userConfig`
+  interpolated as `${user_config.KEY}` — fail-open, only literal `false`
+  disables); mandatory commit; invokes `skills/review-branch` with `--base
+  "$base"` (stops before push on open findings); pre-submit base rebase (step 8,
+  gated by `rebase_before_pr`, fail-open): when `origin/$base` has commits not in
+  HEAD, rebase the work branch onto it — synchronous native Bash, always exits 0
+  with a `REBASE_RESULT=` line (`up_to_date`/`rebased`/`skipped_dirty`/`conflict`/
+  `failed`); `conflict` aborts the rebase and STOPS before push, `rebased` forces
+  the step-11 push; graphify refresh before push via
+  background Bash (embedded script **always exits 0**, status on
+  `GRAPHIFY_RESULT=` / `COMMITTED=` lines; commit gated by `graphify_pr_commit`,
+  message `chore: update graphify output`), gated by `graphify_pr_update`; push
+  (`git push -u origin "$branch"`; `--force-with-lease` when a linked worktree OR
+  the step-8 rebase rewrote history — it both creates the ref when origin lacks it
+  and safely force-updates a diverged ref, verified across both regimes) +
+  `gh pr create`/`glab mr create`.
+  **Auto-delete on merge** (gated by `delete_branch_on_merge`, fail-open): GitLab
+  adds `--remove-source-branch` at create; GitHub has no per-PR flag, so after the
+  PR opens new-pr ensures the repo-level `delete_branch_on_merge=true` via
+  `gh api -X PATCH repos/{owner}/{repo}` (idempotent, soft-fail without admin —
+  never aborts). **Session-PR
+  linkage:** in a bridge/remote worktree the remote links the PR as the session
+  PR only when the head ref is the session branch (`worktree-bridge-cse_<id>`), so
+  new-pr opens from `$branch` as-is and never renames/re-pushes under another
+  name; monitor
   loop (max 5, no-progress early exit): `ci-monitor` (read-only, gets platform +
   PR/MR reference + branch name + ci-watch.sh path + resolved `ci_watch_timeout`;
   CI watch via `bin/ci-watch.sh` — CodeRabbit checks excluded, bounded by
@@ -82,11 +115,17 @@ Orchestrator skills (`new-pr`, `review-branch`) dispatch six subagents; `new-bra
   codex + coderabbit reviews are inlined into their reviewer agents; only
   `bin/copilot-review.sh` survives as a standalone script.
   graphify refresh (embedded Bash script, `[--force] [--keep-user-files]`):
-  0 ran · 2 CLI missing · 4 run failed · 5
-  `graphify-out/` missing without `--force`; repo root via git, bounded by
-  `GRAPHIFY_TIMEOUT` (default 600 s); prunes human-only `graph.html` after
-  update unless `--keep-user-files` (output serves agents); always Bash
-  (writes graphify-out/).
+  runs in background and **always exits 0** — outcome on a `GRAPHIFY_RESULT=`
+  line (`updated` / `unavailable` / `no_folder` / `failed`+`DETAIL`), and in
+  new-pr a `COMMITTED=` line (`true` / `false`+`COMMIT_DETAIL` / `skipped`); a
+  background non-zero exit reads as a failed command, so status never rides the
+  exit code. repo root via git, bounded by `GRAPHIFY_TIMEOUT` (default 600 s);
+  prunes human-only `graph.html` after update unless `--keep-user-files` (output
+  serves agents); always Bash (writes graphify-out/). The init-branch worktree
+  self-rebase (`--worktree-rebase <default>`) likewise always exits 0 with a
+  `REBASE_RESULT=` line (`rebased` / `skipped_dirty` / `conflict` /
+  `failed`+`DETAIL`); state-mutating, so always native Bash, never the ctx
+  sandbox.
   `ci-watch.sh <github|gitlab> <nr|branch>`: 0 green · 1 red · 2 deadline ·
   64 usage/environment (CLI missing/too old); green/red from check CONTENT
   (gh exits 1 fail / 8 pending with data), coderabbit-named checks
@@ -168,7 +207,7 @@ The review-branch rate-limit regex is extracted live from
 `review-branch/SKILL.md` and run against the old quota corpus (positives:
 rate limit / free tier quota / reviews/hour / HTTP 429; negatives: bare
 "disk quota", 429 outside an HTTP context).
-Plus plugin.json `userConfig` manifest checks (twelve boolean toggles +
+Plus plugin.json `userConfig` manifest checks (fourteen boolean toggles +
 numeric `ci_watch_timeout` + numeric `review_max_rounds`, boolean defaults
 all `true` except fail-closed `graphify_force_create` +
 `graphify_user_files`, timeout default `1800`, rounds default `3`,

@@ -350,7 +350,7 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 @test "userConfig: declares expected toggles plus ci_watch_timeout and review_max_rounds" {
   run jq -r '.userConfig | keys | sort | join(" ")' "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
-  assert_output "ci_monitor ci_watch_timeout coderabbit_ci_comments context_index graphify_branch_update graphify_force_create graphify_pr_commit graphify_pr_update graphify_user_files review_claude review_coderabbit review_codex review_copilot review_max_rounds"
+  assert_output "ci_monitor ci_watch_timeout coderabbit_ci_comments context_index delete_branch_on_merge graphify_branch_update graphify_force_create graphify_pr_commit graphify_pr_update graphify_user_files rebase_before_pr review_claude review_coderabbit review_codex review_copilot review_max_rounds"
 }
 
 @test "userConfig: every toggle except numeric ones is a boolean" {
@@ -420,7 +420,7 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 
 @test "version: declared once — plugin.json only, marketplace entry carries none" {
   run jq -r '.version' "$REPO_ROOT/$PLUGIN_JSON_REL"
-  assert_output "3.11.0"
+  assert_output "3.14.0"
   run jq -e '.plugins[] | select(.name == "branch-management") | has("version") | not' \
     "$REPO_ROOT/.claude-plugin/marketplace.json"
   assert_success
