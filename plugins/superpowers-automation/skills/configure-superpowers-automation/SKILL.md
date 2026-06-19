@@ -13,6 +13,14 @@ superpowers-automation plugin, presents questions with current values
 embedded, and writes only non-default values back to `~/.claude/settings.json`.
 Values equal to the plugin default (`false`) are omitted (clean settings).
 
+> **Ask the user via `AskUserQuestion`.** When this skill needs a decision from
+> the user and the answers are a fixed / multiple-choice set, it MUST present the
+> question through the `AskUserQuestion` tool — never as plain prose that waits for
+> a typed reply. Remote sessions do not reliably surface a plain-text "waiting for
+> input" prompt, whereas `AskUserQuestion` raises a notification. Open-ended,
+> free-text prompts may be asked inline, but prefer `AskUserQuestion` whenever the
+> choices can be enumerated.
+
 ## Plugin defaults
 
 | Key | Default |
