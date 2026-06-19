@@ -124,6 +124,26 @@ For each file, a block with:
 If an agent returns non-JSON or errors, note that file as failed and continue
 with the others.
 
+## 4b. Compression check (only when `COMPRESS_AVAILABLE`)
+
+Skip this entire section when `COMPRESS_AVAILABLE` is false.
+
+For each discovered `CLAUDE.md`, `Read` the file and apply a **lightweight
+prose-density heuristic** to decide whether it is *likely not yet compressed*.
+Language-neutral signals of uncompressed prose: multi-clause full sentences,
+auxiliary verbs (`should`, `would`, `can be`), filler phrasing, and explanatory
+paragraphs. When uncertain, **bias toward offering compression** — false
+positives are cheap: `cave-compress` self-reports "already terse — no changes"
+if the guess was wrong.
+
+For each file judged likely-uncompressed, add a **"Compress with cave-compress"**
+actionable task to that file's Recommended actions (§4).
+
+**Precedence note:** if a file also has a leanness/split to-do, recommend running
+compression FIRST and re-evaluating length afterward — compression may bring the
+file under the 200-line target and make the split unnecessary. (This is a
+*recommendation* ordering, distinct from the *execution* ordering in §6.)
+
 ## 5. Gate via AskUserQuestion
 
 Present the fixable findings (those with `uncovered: false` and a non-null

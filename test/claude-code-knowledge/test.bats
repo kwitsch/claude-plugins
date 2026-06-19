@@ -539,6 +539,14 @@ reroute_call() {
   run grep -iF 'files needing update' "$f";        [ "$status" -eq 0 ]
 }
 
+@test "cc-memory has a conditional compression check (4b)" {
+  local f="$PLUGIN/skills/cc-memory/SKILL.md"
+  run grep -F '## 4b' "$f";                          [ "$status" -eq 0 ]
+  run grep -iF 'prose-density' "$f";                 [ "$status" -eq 0 ]
+  run grep -iF 'Compress with cave-compress' "$f";   [ "$status" -eq 0 ]
+  run grep -F 'COMPRESS_AVAILABLE' "$f";             [ "$status" -eq 0 ]
+}
+
 @test "plugin.json description mentions the authoring capability" {
   run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
