@@ -11,4 +11,10 @@ test("contains caveman ruleset, routing guidance, coexistence warning", () => {
   assert.match(p, /ctx_execute/);
   assert.match(p, /ctx_batch_execute/);
   assert.match(p, /uninstall both/i);
+  // Routing TABLE (directive) — the per-tool redirects must be present.
+  assert.match(p, /ctx_execute_file/);
+  assert.match(p, /ctx_fetch_and_index/);
+  assert.match(p, /WebFetch/);
+  assert.match(p, /Think-in-code/i);
+  assert.match(p, /\| native/);                       // markdown table header
 });
