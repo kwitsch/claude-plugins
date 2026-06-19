@@ -102,9 +102,27 @@ findings are gaps in cc-reference coverage — do not count them toward the grad
 | one `high` | D |
 | multiple `high` | F |
 
-Report a per-file summary (path, grade, covered finding count by severity, uncovered
-finding count) BEFORE making any change. If an agent returns non-JSON or errors, note
-that file as failed and continue with the others.
+Leanness/splittability findings (§3) are `uncovered: false` and therefore **count
+toward this table** — capped at `med`, they can lower a grade to C but never to
+D/F on their own (faithful to claude-md-improver's Conciseness criterion).
+
+Emit a report **before making any change**, in claude-md-improver's shape:
+
+### Summary
+- Files found: N
+- Grade distribution (or average): …
+- Files needing update: N (grade < A, or any fixable finding / actionable task)
+
+### Per-file assessment
+For each file, a block with:
+- **Path** and **Grade** (with covered finding counts by severity, uncovered count).
+- **Issues** — the findings (one line each: severity · rule · issue).
+- **Recommended actions** — fixable `suggested_fix` items, plus manual to-dos
+  (leanness/split recommendations with their candidate target path / `paths:`
+  glob), plus — when `COMPRESS_AVAILABLE` — the compression offer from §4b.
+
+If an agent returns non-JSON or errors, note that file as failed and continue
+with the others.
 
 ## 5. Gate via AskUserQuestion
 

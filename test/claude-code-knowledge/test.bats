@@ -532,6 +532,13 @@ reroute_call() {
   run grep -iF 'never `high`' "$f";       [ "$status" -eq 0 ]
 }
 
+@test "cc-memory report has claude-md-improver-style summary + per-file blocks" {
+  local f="$PLUGIN/skills/cc-memory/SKILL.md"
+  run grep -F '### Summary' "$f";                  [ "$status" -eq 0 ]
+  run grep -F 'Recommended actions' "$f";          [ "$status" -eq 0 ]
+  run grep -iF 'files needing update' "$f";        [ "$status" -eq 0 ]
+}
+
 @test "plugin.json description mentions the authoring capability" {
   run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
