@@ -69,7 +69,7 @@ in a single message so they run concurrently. Both kinds are audited as
 `component_type: memory` — the cc-reference memory section covers CLAUDE.md *and*
 path-scoped `.claude/rules/` files. Each dispatch prompt must state:
 
-```
+```text
 component_type: memory
 target_paths: <path to one memory file — a CLAUDE.md or a .claude/rules/*.md file>
 
