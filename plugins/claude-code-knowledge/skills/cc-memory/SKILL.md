@@ -162,7 +162,8 @@ tabs ambiguously):
   successive calls of ≤4 tabs each until every file's every fixable finding has
   been shown. Order the tabs high→med→low by their group's top severity.
 - Each option label must begin with the finding `id` so a selection maps back to
-  its finding record.
+  its finding record. (Compress actions are the exception — they have no finding
+  `id`, so their label begins with `compress <file>`, which §6 keys off.)
 - If a tab would have only one finding, add an explicit `"Skip this group"` option
   so the tab has ≥2 options.
 
