@@ -66,6 +66,24 @@ concurrently. Each dispatch prompt must state:
 component_type: memory
 target_paths: <path to one CLAUDE.md>
 
+In addition to the usual memory rule-compliance findings, also surface — against
+the cc-reference memory rules you already apply — these leanness/splittability
+findings:
+- LENGTH/LEANNESS: if the file exceeds the cc-reference ~200-line target, emit a
+  finding noting the length and that it should be trimmed.
+- SPLITTABILITY: if a section's content is scoped to ONE subdirectory, recommend
+  moving it to that subdirectory's CLAUDE.md (grounded in the cc-reference
+  locations table — subdir files load on-demand). If a section's content applies
+  to a FILE TYPE / EXTENSION across the tree, recommend moving it to
+  .claude/rules/ with a `paths:` glob, e.g. `paths: ["**/*.kt"]` (grounded in the
+  cc-reference "What belongs" table). Both targets are co-equal; choose by scope.
+
+For every leanness/splittability finding: set `uncovered: false` (cc-reference
+covers both the 200-line target and the .claude/rules/+paths: route),
+`suggested_fix: null` (new-file/multi-file coordination — recommend-only), and
+severity `low` (or at most `med` for an egregiously long file) — NEVER `high`.
+Include the candidate target path / `paths:` glob in the `recommendation` text.
+
 Return ONLY the JSON findings array per your output contract.
 ```
 

@@ -522,6 +522,16 @@ reroute_call() {
   [ "$status" -eq 0 ]
 }
 
+@test "cc-memory dispatch prompt asks reviewer for leanness/split findings" {
+  local f="$PLUGIN/skills/cc-memory/SKILL.md"
+  run grep -F 'leanness' "$f";            [ "$status" -eq 0 ]
+  run grep -F 'splittab' "$f";            [ "$status" -eq 0 ]
+  run grep -F '.claude/rules/' "$f";      [ "$status" -eq 0 ]
+  run grep -E '\bpaths:' "$f";            [ "$status" -eq 0 ]
+  run grep -F 'uncovered: false' "$f";    [ "$status" -eq 0 ]
+  run grep -iF 'never `high`' "$f";       [ "$status" -eq 0 ]
+}
+
 @test "plugin.json description mentions the authoring capability" {
   run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
