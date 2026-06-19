@@ -2,7 +2,7 @@
 name: new-branch
 description: Use when starting new feature, fix, or chore work that needs its own branch - switches to the default branch, pulls the latest state and creates a new work branch via an inline git script, then invokes the init-branch skill to refresh the graphify output and context-mode index (graphify_branch_update / graphify_force_create / graphify_user_files and context_index options).
 argument-hint: "[branch-name | task description]"
-allowed-tools: ["Skill", "Bash(git:*)", "Bash(echo:*)", "Bash(bash:*)"]
+allowed-tools: ["Skill", "AskUserQuestion", "Bash(git:*)", "Bash(echo:*)", "Bash(bash:*)"]
 ---
 
 # Start a new work branch
