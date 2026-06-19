@@ -10,3 +10,7 @@ node_modules/
 
 # caveman-compress backups of compressed memory files — local only.
 *.original.md
+
+# Agent runtime artifacts — local only, never pushed.
+.claude/agent-memory/
+**/.orphaned_at
