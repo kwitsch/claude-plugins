@@ -24,6 +24,8 @@ test("reminderText is fixed at full", () => {
   const r = reminderText();
   assert.match(r, /^CAVE-CONTEXT: Drop articles/);
   assert.doesNotMatch(r, /MODE ACTIVE/);   // "MODE ACTIVE (full)." dropped from the reminder
+  assert.match(r, /ctx_\*/);                         // routing nudge aligned with SessionStart
+  assert.match(r, /write normal/i);                  // boundary wording matches the ruleset
 });
 
 test("condensed rulesetText keeps every behavioral anchor and stays under budget", () => {
@@ -42,6 +44,10 @@ test("condensed rulesetText keeps every behavioral anchor and stays under budget
   assert.match(r, /irreversible/i);                // auto-clarity trigger
   assert.match(r, /security/i);                    // auto-clarity trigger
   assert.match(r, /commits/i);                     // boundaries: code/commits/PRs normal
-  // Condense budget: must be shorter than the 0.4.1 baseline (621 chars).
-  assert.ok(r.length < 600, `rulesetText length ${r.length} not under budget`);
+  // Full cave-compress alignment (GRAMMAR + SYMBOLS + BOUNDARIES) is larger than the
+  // 0.4.1 condensed baseline; keep a regression budget at the new size.
+  assert.match(r, /→/);                              // SYMBOLS table present
+  assert.match(r, /symbol-spam/i);                   // symbol guardrail kept
+  assert.match(r, /amputation/i);                    // WHEN-UNSURE rule
+  assert.ok(r.length < 1000, `rulesetText length ${r.length} not under budget`);
 });
