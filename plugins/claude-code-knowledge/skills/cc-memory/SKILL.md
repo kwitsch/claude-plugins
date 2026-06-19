@@ -84,6 +84,10 @@ findings:
   to a FILE TYPE / EXTENSION across the tree, recommend moving it to
   .claude/rules/ with a `paths:` glob, e.g. `paths: ["**/*.kt"]` (grounded in the
   cc-reference "What belongs" table). Both targets are co-equal; choose by scope.
+  When the target IS itself a `.claude/rules/*.md` file, the move-into-`.claude/rules/`
+  branch does not apply (it is already a rule file) and the ~200-line LENGTH target is
+  advisory there rather than a cited rule — for a rule file, audit what genuinely fits
+  it (e.g. a well-formed `paths:` frontmatter glob, terseness) and skip the rest.
 
 For every leanness/splittability finding: set `uncovered: false` (cc-reference
 covers both the 200-line target and the .claude/rules/+paths: route),
@@ -153,26 +157,29 @@ file under the 200-line target and make the split unnecessary. (This is a
 
 ## 5. Gate via AskUserQuestion
 
-Present the fixable findings (those with `uncovered: false` and a non-null
-`suggested_fix`) for selection via `AskUserQuestion`, the same way `cc-review`
-does. `AskUserQuestion` hard caps: at most **4 tabs** per call, each tab **2–4
-options**.
+Present each file's **selectable actions** — its fixable findings (`uncovered: false`
+with a non-null `suggested_fix`) plus, when §4b offered one, its `compress <file>`
+action — for selection via `AskUserQuestion`, the same way `cc-review` does.
+`AskUserQuestion` hard caps: at most **4 tabs** per call, each tab **2–4 options**.
 
 Chunking is **tab-driven** (a tab maps to one file, so a file never splits across
 tabs ambiguously):
 
-- For each file, split its severity-sorted fixable findings into groups of ≤4.
-  Each group becomes one **tab** (≤4 options), `multiSelect: true`. A file with
-  more than 4 fixable findings therefore contributes several tabs.
+- For each file, split its severity-sorted **selectable actions** (fixable findings
+  plus its `compress <file>` action, if §4b offered one) into groups of ≤4. Each
+  group becomes one **tab** (≤4 options), `multiSelect: true`. A file with more than
+  4 selectable actions therefore contributes several tabs; a file whose ONLY
+  selectable action is the compress action still gets its own tab.
 - Pack up to **4 tabs per `AskUserQuestion` call**. When there are more than 4
-  tabs total (more than 4 files, or files that exceed 4 findings), issue
-  successive calls of ≤4 tabs each until every file's every fixable finding has
-  been shown. Order the tabs high→med→low by their group's top severity.
+  tabs total (more than 4 files, or files that exceed 4 actions), issue successive
+  calls of ≤4 tabs each until every file's every selectable action has been shown.
+  Order the tabs high→med→low by their group's top severity (a compress-only tab
+  sorts lowest).
 - Each option label must begin with the finding `id` so a selection maps back to
   its finding record. (Compress actions are the exception — they have no finding
   `id`, so their label begins with `compress <file>`, which §6 keys off.)
-- If a tab would have only one finding, add an explicit `"Skip this group"` option
-  so the tab has ≥2 options.
+- If a tab would have only one action (a lone compress action, or a single
+  finding), add an explicit `"Skip this group"` option so the tab has ≥2 options.
 
 Findings with `uncovered: true` are shown as informational notes (never selectable
 for auto-apply — they require manual judgment because cc-reference does not cover
