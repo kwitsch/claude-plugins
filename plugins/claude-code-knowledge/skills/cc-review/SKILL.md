@@ -15,6 +15,14 @@ agents and writes files; never run it as `context: fork`.
 
 The dispatched `cc-reviewer` agents are read-only. **This skill is the only writer.**
 
+> **Ask the user via `AskUserQuestion`.** When this skill needs a decision from
+> the user and the answers are a fixed / multiple-choice set, it MUST present the
+> question through the `AskUserQuestion` tool — never as plain prose that waits for
+> a typed reply. Remote sessions do not reliably surface a plain-text "waiting for
+> input" prompt, whereas `AskUserQuestion` raises a notification. Open-ended,
+> free-text prompts may be asked inline, but prefer `AskUserQuestion` whenever the
+> choices can be enumerated.
+
 ## 1. Resolve the target
 
 The target is `$ARGUMENTS`. If it is empty, ask the user for a path (a file or a

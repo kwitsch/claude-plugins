@@ -25,6 +25,14 @@ yourself, target one of those paths — any other `.md` triggers the scope-confi
 gate (step 3). No path given → ask which `.md` file; never guess a "newest file."
 The gates below still run regardless of who invoked the skill.
 
+> **Ask the user via `AskUserQuestion`.** When this skill needs a decision from
+> the user and the answers are a fixed / multiple-choice set, it MUST present the
+> question through the `AskUserQuestion` tool — never as plain prose that waits for
+> a typed reply. Remote sessions do not reliably surface a plain-text "waiting for
+> input" prompt, whereas `AskUserQuestion` raises a notification. Open-ended,
+> free-text prompts may be asked inline, but prefer `AskUserQuestion` whenever the
+> choices can be enumerated.
+
 ## Decision flow — run in order; any non-affirmative answer → STOP
 
 1. **Resolve & type-check.** Resolve the argument to a path.

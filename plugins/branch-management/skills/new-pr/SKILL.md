@@ -2,7 +2,7 @@
 name: new-pr
 description: Use when branch work complete and should become pull/merge request - runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer subagents, configurable max rounds) with verified fixes between rounds, pushes, opens PR or MR via gh or glab, then watches CI and CodeRabbit feedback until all green. Optionally refreshes and separately commits the graphify output before pushing. Review sources can be disabled per user or per project.
 argument-hint: "[--base <branch>]"
-allowed-tools: ["Agent", "Skill", "Bash(git:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(echo:*)", "Bash(bash:*)", "ToolSearch", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TaskStop"]
+allowed-tools: ["Agent", "Skill", "AskUserQuestion", "Bash(git:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(echo:*)", "Bash(bash:*)", "ToolSearch", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TaskStop"]
 ---
 
 # Turn the current branch into a reviewed PR/MR
@@ -18,6 +18,14 @@ when it is installed, falling back to native tools otherwise. Review
 sources, CI monitoring and CodeRabbit comment handling
 are individually togglable via the plugin's `userConfig` options,
 read in preconditions (step 4).
+
+> **Ask the user via `AskUserQuestion`.** When this skill needs a decision from
+> the user and the answers are a fixed / multiple-choice set, it MUST present the
+> question through the `AskUserQuestion` tool — never as plain prose that waits for
+> a typed reply. Remote sessions do not reliably surface a plain-text "waiting for
+> input" prompt, whereas `AskUserQuestion` raises a notification. Open-ended,
+> free-text prompts may be asked inline, but prefer `AskUserQuestion` whenever the
+> choices can be enumerated.
 
 ## Git context
 

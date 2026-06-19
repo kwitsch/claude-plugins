@@ -14,6 +14,14 @@ between stages. Runs inline because it invokes sub-skills — do NOT fork it.
 `$work_description` (also `$ARGUMENTS`) is the work description. If it is empty, stop
 and ask the user for one before doing anything else.
 
+> **Ask the user via `AskUserQuestion`.** When this skill needs a decision from
+> the user and the answers are a fixed / multiple-choice set, it MUST present the
+> question through the `AskUserQuestion` tool — never as plain prose that waits for
+> a typed reply. Remote sessions do not reliably surface a plain-text "waiting for
+> input" prompt, whereas `AskUserQuestion` raises a notification. Open-ended,
+> free-text prompts may be asked inline, but prefer `AskUserQuestion` whenever the
+> choices can be enumerated.
+
 ## Task-list integration (read first — applies to every step)
 
 **Track progress with the Task tools, not `TodoWrite`.** `TaskCreate`/`TaskUpdate`
