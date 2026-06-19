@@ -62,3 +62,18 @@ test("PreToolUse: forwards ctx hard fields (permissionDecision/updatedInput/deci
   });
 });
 
+test("PreToolUse: WebFetch is denied with a ctx_fetch_and_index hint (main agent)", async () => {
+  await withEnv({ CAVE_CONTEXT_NO_UPSTREAM: "1" }, async () => {
+    const out = await handlePreToolUse({ hook_event_name: "PreToolUse", tool_name: "WebFetch" });
+    assert.equal(out.hookSpecificOutput.permissionDecision, "deny");
+    assert.match(out.hookSpecificOutput.permissionDecisionReason, /ctx_fetch_and_index/);
+  });
+});
+
+test("PreToolUse: WebFetch inside a subagent is NOT denied (agent_id present)", async () => {
+  await withEnv({ CAVE_CONTEXT_NO_UPSTREAM: "1" }, async () => {
+    const out = await handlePreToolUse({ hook_event_name: "PreToolUse", tool_name: "WebFetch", agent_id: "a1" });
+    assert.notEqual(out?.hookSpecificOutput?.permissionDecision, "deny");
+  });
+});
+

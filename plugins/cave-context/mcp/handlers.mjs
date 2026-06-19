@@ -2,6 +2,9 @@
 import { reminderText } from "./caveman.mjs";
 import { delegateHook } from "./delegate.mjs";
 
+const WEBFETCH_DENY_REASON =
+  "cave-context routing: use ctx_fetch_and_index instead of WebFetch — full network access, results indexed for ctx_search, raw page bytes never enter context.";
+
 export function mergeContext(a, b) {
   const parts = [a, b].filter((s) => s && String(s).trim());
   return parts.length ? parts.join("\n\n") : null;
@@ -39,6 +42,19 @@ export async function handleUserPromptSubmit(input) {
 }
 
 export async function handlePreToolUse(input) {
+  // Hard-redirect WebFetch → ctx_fetch_and_index. Scoped to the main agent
+  // (`!input.agent_id`) so subagents that carry WebFetch but no ctx_* tools are spared.
+  // Soft deny: if the server is down this hook never fires (fails open) and WebFetch
+  // proceeds — consistent, since ctx_fetch_and_index would be unavailable then too.
+  if (input?.tool_name === "WebFetch" && !input?.agent_id) {
+    return {
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: WEBFETCH_DENY_REASON,
+      },
+    };
+  }
   const { ac, hard } = fromDelegate(await delegateHook("PreToolUse", input));
   return emit("PreToolUse", ac, hard); // caveman has no PreToolUse
 }
