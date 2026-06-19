@@ -555,6 +555,12 @@ reroute_call() {
   run grep -F 'cave-context:cave-compress' "$f";      [ "$status" -eq 0 ]
 }
 
+@test "cc-memory default scope discovers CLAUDE.md and .claude/rules files" {
+  local f="$PLUGIN/skills/cc-memory/SKILL.md"
+  run grep -F "name CLAUDE.md -o -path '*/.claude/rules/*.md'" "$f"; [ "$status" -eq 0 ]
+  run grep -F '.claude/rules/*.md' "$f";                            [ "$status" -eq 0 ]
+}
+
 @test "plugin.json description mentions the authoring capability" {
   run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]

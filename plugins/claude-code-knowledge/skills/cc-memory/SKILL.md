@@ -1,6 +1,6 @@
 ---
 name: cc-memory
-description: Audit and improve the CLAUDE.md memory files across a repository against the curated cc-reference memory rules — discover every CLAUDE.md, grade each, report quality, then interactively apply the improvements you select. Use when the user asks to check, audit, improve, grade, or maintain CLAUDE.md / project-memory files.
+description: Audit and improve a project's memory files (every CLAUDE.md and .claude/rules/*.md) against the curated cc-reference memory rules — discover every CLAUDE.md and .claude/rules file, grade each, report quality, then interactively apply the improvements you select. Use when the user asks to check, audit, improve, grade, or maintain CLAUDE.md / .claude/rules / project-memory files.
 argument-hint: [optional repo path]
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, AskUserQuestion, Skill
 # review-skip(F1): unscoped Bash/Edit/Write is required — discovery runs against an arbitrary repo path and fixes Edit/Write arbitrary CLAUDE.md files; Skill is required to invoke cave-context:cave-compress on a selected CLAUDE.md; allowed-tools only pre-approves, never restricts.
@@ -8,9 +8,10 @@ allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, AskUserQuestion, Skil
 
 # cc-memory — audit & improve CLAUDE.md memory grounded in cc-reference
 
-Audit every CLAUDE.md in `$ARGUMENTS` (default: the current repo) against the
-curated `cc-reference` memory rules by dispatching the read-only `cc-reviewer`
-agent per file, grade each file, then gate every change behind an interactive
+Audit every CLAUDE.md and `.claude/rules/*.md` file in `$ARGUMENTS` (default: the
+whole current project) against the curated `cc-reference` memory rules by dispatching
+the read-only `cc-reviewer` agent per file, grade each file, then gate every change
+behind an interactive
 selection. **This skill runs inline (depth 0)** — it dispatches agents and writes
 files; never run it as `context: fork`.
 
@@ -35,11 +36,13 @@ silently, with no mention to the user.
 
 ## 1. Resolve the scope
 
-The scope is `$ARGUMENTS` when given, otherwise the current repository root. Only
-include `~/.claude/CLAUDE.md` (the user-global memory) when the user explicitly
-asks for it.
+The scope is `$ARGUMENTS` when given, otherwise the **whole current project**
+(repository root). Either way the audited set is the project's full memory surface
+under that scope: every `**/CLAUDE.md` **and** every `.claude/rules/*.md` rule file
+(see §2). Only include `~/.claude/CLAUDE.md` (the user-global memory) when the user
+explicitly asks for it.
 
-## 2. Discover CLAUDE.md files
+## 2. Discover memory files (CLAUDE.md + .claude/rules)
 
 Run this with the Bash tool, passing the resolved scope as the argument. (Runs at
 runtime, not as a load-time dynamic-context injection, because the scope may be
@@ -47,24 +50,28 @@ supplied interactively.)
 
 ```bash
 ROOT="${1:-.}"
-find "$ROOT" -type f -name CLAUDE.md -not -path '*/.git/*' 2>/dev/null | sort
+find "$ROOT" -type f \( -name CLAUDE.md -o -path '*/.claude/rules/*.md' \) \
+  -not -path '*/.git/*' 2>/dev/null | sort
 ```
 
-Each output line is a CLAUDE.md path. When the user explicitly asked for the
-user-global memory (step 1), append `~/.claude/CLAUDE.md` to this discovered set —
-the `find` is rooted at the scope and cannot reach a path outside it, so the
-explicit request must be honored here. If the resulting set is empty, tell the user
-and stop.
+Each output line is a memory file — a `CLAUDE.md` or a `.claude/rules/*.md` rule
+file (path-scoped rules, possibly with a `paths:` frontmatter glob). When the user
+explicitly asked for the user-global memory (step 1), append `~/.claude/CLAUDE.md`
+to this discovered set — the `find` is rooted at the scope and cannot reach a path
+outside it, so the explicit request must be honored here. If the resulting set is
+empty, tell the user and stop.
 
 ## 3. Dispatch reviewers (parallel)
 
-For each discovered path, dispatch the `cc-reviewer` agent (Agent tool,
-`subagent_type: claude-code-knowledge:cc-reviewer`) in a single message so they run
-concurrently. Each dispatch prompt must state:
+For each discovered path (both `CLAUDE.md` and `.claude/rules/*.md` files), dispatch
+the `cc-reviewer` agent (Agent tool, `subagent_type: claude-code-knowledge:cc-reviewer`)
+in a single message so they run concurrently. Both kinds are audited as
+`component_type: memory` — the cc-reference memory section covers CLAUDE.md *and*
+path-scoped `.claude/rules/` files. Each dispatch prompt must state:
 
 ```
 component_type: memory
-target_paths: <path to one CLAUDE.md>
+target_paths: <path to one memory file — a CLAUDE.md or a .claude/rules/*.md file>
 
 In addition to the usual memory rule-compliance findings, also surface — against
 the cc-reference memory rules you already apply — these leanness/splittability
