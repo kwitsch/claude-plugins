@@ -2,8 +2,8 @@
 name: cc-memory
 description: Audit and improve the CLAUDE.md memory files across a repository against the curated cc-reference memory rules — discover every CLAUDE.md, grade each, report quality, then interactively apply the improvements you select. Use when the user asks to check, audit, improve, grade, or maintain CLAUDE.md / project-memory files.
 argument-hint: [optional repo path]
-allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, AskUserQuestion
-# review-skip(F1): unscoped Bash/Edit/Write is required — discovery runs against an arbitrary repo path and fixes Edit/Write arbitrary CLAUDE.md files; allowed-tools only pre-approves, never restricts.
+allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, AskUserQuestion, Skill
+# review-skip(F1): unscoped Bash/Edit/Write is required — discovery runs against an arbitrary repo path and fixes Edit/Write arbitrary CLAUDE.md files; Skill is required to invoke cave-context:cave-compress on a selected CLAUDE.md; allowed-tools only pre-approves, never restricts.
 ---
 
 # cc-memory — audit & improve CLAUDE.md memory grounded in cc-reference
@@ -16,6 +16,22 @@ files; never run it as `context: fork`.
 
 The dispatched `cc-reviewer` agents are read-only. **This skill is the only
 writer.**
+
+## 0. Preconditions — detect cave-compress (depth 0, model-side)
+
+Before anything else, decide whether the compression behavior is active. **If
+`cave-context:cave-compress` appears in your available skills, set
+`COMPRESS_AVAILABLE = true`; otherwise `COMPRESS_AVAILABLE = false`.** This is a
+model-side check against your available-skills listing (the same way other
+orchestrators check for an optional sibling skill) — deliberately NOT a
+load-time dynamic-context block, because this skill's discovery must stay runtime
+Bash and a skill cannot reliably enumerate available skills from a shell. The
+cave-compress skill is only visible here at depth 0, never inside the read-only
+`cc-reviewer` subagent.
+
+When `COMPRESS_AVAILABLE` is false, skip every compression substep below (no
+heuristic in §4b, no compression option in §5, no `cave-compress` call in §6) —
+silently, with no mention to the user.
 
 ## 1. Resolve the scope
 

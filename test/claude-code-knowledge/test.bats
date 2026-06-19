@@ -510,6 +510,18 @@ reroute_call() {
   [ "$status" -eq 0 ]
 }
 
+@test "cc-memory allowed-tools grants Skill (for cave-compress)" {
+  run grep -E '^allowed-tools:.*\bSkill\b' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-memory detects cave-compress availability at depth 0 (model-side)" {
+  run grep -F 'cave-context:cave-compress' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -eq 0 ]
+  run grep -F 'COMPRESS_AVAILABLE' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
 @test "plugin.json description mentions the authoring capability" {
   run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
