@@ -510,6 +510,57 @@ reroute_call() {
   [ "$status" -eq 0 ]
 }
 
+@test "cc-memory allowed-tools grants Skill (for cave-compress)" {
+  run grep -E '^allowed-tools:.*\bSkill\b' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-memory detects cave-compress availability at depth 0 (model-side)" {
+  run grep -F 'cave-context:cave-compress' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -eq 0 ]
+  run grep -F 'COMPRESS_AVAILABLE' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-memory dispatch prompt asks reviewer for leanness/split findings" {
+  local f="$PLUGIN/skills/cc-memory/SKILL.md"
+  run grep -F 'leanness' "$f";            [ "$status" -eq 0 ]
+  run grep -F 'splittab' "$f";            [ "$status" -eq 0 ]
+  run grep -F '.claude/rules/' "$f";      [ "$status" -eq 0 ]
+  run grep -E '\bpaths:' "$f";            [ "$status" -eq 0 ]
+  run grep -F 'uncovered: false' "$f";    [ "$status" -eq 0 ]
+  run grep -iF 'never `high`' "$f";       [ "$status" -eq 0 ]
+}
+
+@test "cc-memory report has claude-md-improver-style summary + per-file blocks" {
+  local f="$PLUGIN/skills/cc-memory/SKILL.md"
+  run grep -F '### Summary' "$f";                  [ "$status" -eq 0 ]
+  run grep -F 'Recommended actions' "$f";          [ "$status" -eq 0 ]
+  run grep -iF 'files needing update' "$f";        [ "$status" -eq 0 ]
+}
+
+@test "cc-memory has a conditional compression check (4b)" {
+  local f="$PLUGIN/skills/cc-memory/SKILL.md"
+  run grep -F '## 4b' "$f";                          [ "$status" -eq 0 ]
+  run grep -iF 'prose-density' "$f";                 [ "$status" -eq 0 ]
+  run grep -iF 'Compress with cave-compress' "$f";   [ "$status" -eq 0 ]
+  run grep -F 'COMPRESS_AVAILABLE' "$f";             [ "$status" -eq 0 ]
+}
+
+@test "cc-memory gate offers compression and applies fixes before compression" {
+  local f="$PLUGIN/skills/cc-memory/SKILL.md"
+  run grep -iF 'selectable action kinds' "$f";        [ "$status" -eq 0 ]
+  run grep -iE 'fix(es)?[^.]*first' "$f";             [ "$status" -eq 0 ]
+  run grep -iE 'compress[^.]*last' "$f";              [ "$status" -eq 0 ]
+  run grep -F 'cave-context:cave-compress' "$f";      [ "$status" -eq 0 ]
+}
+
+@test "cc-memory default scope discovers CLAUDE.md and .claude/rules files" {
+  local f="$PLUGIN/skills/cc-memory/SKILL.md"
+  run grep -F "name CLAUDE.md -o -path '*/.claude/rules/*.md'" "$f"; [ "$status" -eq 0 ]
+  run grep -F '.claude/rules/*.md' "$f";                            [ "$status" -eq 0 ]
+}
+
 @test "plugin.json description mentions the authoring capability" {
   run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]

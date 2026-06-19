@@ -1,7 +1,7 @@
 {
   "name": "claude-code-knowledge",
-  "version": "1.2.1",
-  "description": "Lookup skill plus harness-optimized reference files for authoring and configuring Claude Code — skills, subagents, hooks, slash commands, MCP, plugins, CLAUDE.md memory, and settings — a read-only expert agent that replaces the built-in claude-code-guide, a cc-review skill that audits components, a cc-author skill that creates new components, and a cc-memory skill that audits & improves CLAUDE.md, all grounded in the same cc-reference knowledge. Retrieves only the relevant section into context. (CC docs read: 2026-06-14)",
+  "version": "1.4.0",
+  "description": "Lookup skill plus harness-optimized reference files for authoring and configuring Claude Code — skills, subagents, hooks, slash commands, MCP, plugins, CLAUDE.md memory, and settings — a read-only expert agent that replaces the built-in claude-code-guide, a cc-review skill that audits components, a cc-author skill that creates new components, and a cc-memory skill that audits & improves a project's memory (every CLAUDE.md and .claude/rules/*.md by default) with a claude-md-improver-style quality report, leanness/scope-split recommendations, and a conditional cave-compress offer, all grounded in the same cc-reference knowledge. Retrieves only the relevant section into context. (CC docs read: 2026-06-14)",
   "author": {
     "name": "Kwitsch"
   },
