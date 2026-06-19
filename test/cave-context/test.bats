@@ -33,10 +33,12 @@ setup() {
   assert_success
 }
 
-@test "PreCompact command hook launches via bnx.sh with its .mjs in args" {
-  cmd="$(jq -r '.hooks.PreCompact[0].hooks[0].command' "$HOOKS")"
-  [[ "$cmd" == *bin/bnx.sh ]]
-  run jq -e '.hooks.PreCompact[0].hooks[0].args[0] | endswith("hooks/precompact.mjs")' "$HOOKS"
+@test "PreCompact is an mcp_tool hook calling hook_precompact on the cave-context server" {
+  run jq -e '.hooks.PreCompact[0].hooks[0].type == "mcp_tool"' "$HOOKS"
+  assert_success
+  run jq -e '.hooks.PreCompact[0].hooks[0].server == "plugin:cave-context:cave-context"' "$HOOKS"
+  assert_success
+  run jq -e '.hooks.PreCompact[0].hooks[0].tool == "hook_precompact"' "$HOOKS"
   assert_success
 }
 
@@ -59,9 +61,11 @@ setup() {
   assert_success
 }
 
-@test "SessionStart + PreCompact are command hooks" {
-  run jq -e '[.hooks.SessionStart,.hooks.PreCompact] | flatten | map(.hooks[0]) | all(.type=="command")' "$HOOKS"
+@test "SessionStart is a command hook (PreCompact is now mcp_tool)" {
+  run jq -e '.hooks.SessionStart[0].hooks[0].type == "command"' "$HOOKS"
   assert_success
+  run jq -e '.hooks.PreCompact[0].hooks[0].type == "command"' "$HOOKS"
+  assert_failure
 }
 
 @test "no command hook command starts with 'node '" {
@@ -70,7 +74,7 @@ setup() {
 }
 
 @test "referenced command-hook files exist and are executable" {
-  for f in sessionstart.mjs precompact.mjs; do
+  for f in sessionstart.mjs; do
     [ -x "$REPO_ROOT/plugins/cave-context/hooks/$f" ]
   done
 }
@@ -110,11 +114,6 @@ setup() {
   assert_success
 }
 
-@test "precompact shim runs without error (no upstream)" {
-  run env CAVE_CONTEXT_NO_UPSTREAM=1 \
-    node "$REPO_ROOT/plugins/cave-context/hooks/precompact.mjs" <<< '{"hook_event_name":"PreCompact"}'
-  assert_success
-}
 
 @test "node unit tests pass" {
   run node --test "$REPO_ROOT/test/cave-context/"*.test.mjs
