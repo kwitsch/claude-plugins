@@ -547,6 +547,14 @@ reroute_call() {
   run grep -F 'COMPRESS_AVAILABLE' "$f";             [ "$status" -eq 0 ]
 }
 
+@test "cc-memory gate offers compression and applies fixes before compression" {
+  local f="$PLUGIN/skills/cc-memory/SKILL.md"
+  run grep -iF 'selectable action kinds' "$f";        [ "$status" -eq 0 ]
+  run grep -iE 'fix(es)?[^.]*first' "$f";             [ "$status" -eq 0 ]
+  run grep -iE 'compress[^.]*last' "$f";              [ "$status" -eq 0 ]
+  run grep -F 'cave-context:cave-compress' "$f";      [ "$status" -eq 0 ]
+}
+
 @test "plugin.json description mentions the authoring capability" {
   run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]

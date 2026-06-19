@@ -170,14 +170,39 @@ Findings with `uncovered: true` are shown as informational notes (never selectab
 for auto-apply — they require manual judgment because cc-reference does not cover
 them).
 
-## 6. Apply selected findings
+**Two selectable action kinds.** Each `AskUserQuestion` option is either:
+1. **apply a `suggested_fix`** (existing behavior — `uncovered: false` finding
+   with a non-null `suggested_fix`), or
+2. **compress `<file>` with cave-compress** (only when `COMPRESS_AVAILABLE`, one
+   option per likely-uncompressed file from §4b).
 
-For each selected finding (all have `uncovered: false`), apply its `suggested_fix`:
-`{ "old_string", "new_string" }` → an `Edit` call; `{ "full_content" }` → a
-`Write` call. Apply nothing the user did not select.
+Leanness/split to-dos are **report-only** and never selectable here — not because
+they are uncovered (they are `uncovered: false` and count toward the grade) but
+because their `suggested_fix` is `null` (the same gating rule that excludes any
+manual-to-do finding). `uncovered: true` findings remain informational notes.
+
+## 6. Apply selected actions
+
+Apply in this strict order:
+
+1. **Content fixes FIRST.** For each selected finding (all `uncovered: false`
+   with a non-null `suggested_fix`), apply its `suggested_fix`:
+   `{ "old_string", "new_string" }` → an `Edit` call; `{ "full_content" }` → a
+   `Write` call. Apply nothing the user did not select.
+2. **Compressions LAST.** For each selected "compress `<file>`" action, invoke
+   the `cave-context:cave-compress` skill (Skill tool) on that file.
+
+Ordering rationale: `cave-compress` is a **lossy in-place rewrite** that would
+invalidate the `old_string` anchors of any not-yet-applied fix, so all content
+fixes must land before any compression runs. `cave-compress` runs **its own**
+recoverability + scope gates (a `CLAUDE.md` is auto-allowed by its `**/CLAUDE.md`
+glob); cc-memory does **not** auto-commit — if the just-applied edits are
+uncommitted, the user may pass cave-compress's recoverability prompt.
 
 ## 7. Report
 
 Summarize per file: grade, which findings were applied, which were skipped, which
-are manual to-dos (`suggested_fix: null`), which are uncovered, and any file whose
-reviewer failed.
+are manual to-dos (`suggested_fix: null` — including leanness/scope-split
+recommendations with their candidate target), the compression outcome when one
+was run (`compressed` / `already terse` / `skipped`), which findings are uncovered,
+and any file whose reviewer failed.
