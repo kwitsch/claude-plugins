@@ -25,6 +25,14 @@ context, not applied as a branch name (even though `git checkout -b` would
 technically work outside a bridge session). If you want a brand-new named branch
 in a generic worktree, create and switch to it before invoking this skill.
 
+> **Ask the user via `AskUserQuestion`.** When this skill needs a decision from
+> the user and the answers are a fixed / multiple-choice set, it MUST present the
+> question through the `AskUserQuestion` tool — never as plain prose that waits for
+> a typed reply. Remote sessions do not reliably surface a plain-text "waiting for
+> input" prompt, whereas `AskUserQuestion` raises a notification. Open-ended,
+> free-text prompts may be asked inline, but prefer `AskUserQuestion` whenever the
+> choices can be enumerated.
+
 ## Steps
 
 1. **Decide the branch name.** Exactly one source:
@@ -87,14 +95,16 @@ in a generic worktree, create and switch to it before invoking this skill.
 3. **Map the exit code.**
    - `0` — success; keep the `branch:` / `base:` / `commit:` lines for the report.
    - `3` `dirty_tree` — the tree had uncommitted changes (still on the original
-     branch). Ask the user: commit, stash, or abort? Execute the choice, then
-     re-run step 2.
+     branch). Ask the user via `AskUserQuestion` how to proceed — options
+     **Commit** (commit the changes, then cut the branch) / **Stash** (stash, cut
+     the branch, then unstash) / **Abort** (stop — leave the tree as-is). Execute
+     the choice, then re-run step 2.
    - `4` `no_remote` — report the detail and stop; never branch off an unknown base.
    - `5` — a git operation failed (pull, or the checkout of the default/new branch). Report the git error from stderr and stop. If the pull failed the tree is now on the default branch (the starting branch changed — say so); if switching to the default branch itself failed the tree is unchanged. Report what stderr indicates.
    - `6` `name_exists` — the tree is now on the default branch; mention that. Ask
-     the user: switch to the existing branch (`git checkout <branch>` — creates a
-     tracking branch when it is remote-only) or pick a different name, then
-     re-run step 2.
+     the user via `AskUserQuestion` — options **Switch to existing branch**
+     (`git checkout <branch>` — creates a tracking branch when it is remote-only) /
+     **Pick a different name** — then re-run step 2.
    - `7` `worktree` — a linked worktree was detected; no branch was created or
      switched (the default branch is checked out elsewhere). The script kept the
      current branch — keep its `branch:` / `base:` lines. The determined name from
