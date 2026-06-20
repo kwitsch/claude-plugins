@@ -49,5 +49,6 @@ test("condensed rulesetText keeps every behavioral anchor and stays under budget
   assert.match(r, /→/);                              // SYMBOLS table present
   assert.match(r, /symbol-spam/i);                   // symbol guardrail kept
   assert.match(r, /amputation/i);                    // WHEN-UNSURE rule
-  assert.ok(r.length < 1000, `rulesetText length ${r.length} not under budget`);
+  assert.match(r, /§/);                              // § section symbol present (cave-compress alignment)
+  assert.ok(r.length < 1100, `rulesetText length ${r.length} not under budget`);
 });
