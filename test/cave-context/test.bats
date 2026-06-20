@@ -80,18 +80,20 @@ setup() {
   done
 }
 
-@test "sessionstart.mjs emits valid SessionStart JSON (ruleset now via SessionStart.md)" {
+@test "sessionstart.mjs emits valid JSON and never additionalContext: null on fresh start" {
   # Isolate HOME + CLAUDE_PLUGIN_DATA so the test stays deterministic and never
   # touches the real ~/.claude/. sessionstart no longer seeds any state file, and no
   # longer emits the caveman ruleset (that is the `cat hooks/SessionStart.md` hook now).
+  # Fresh start has no continuity to inject; Claude Code's SessionStart schema rejects
+  # additionalContext: null (must be a string or omitted), so the hook emits exactly `{}`.
   tmp="$(mktemp -d)"
   home="$(mktemp -d)"
   run env CAVE_CONTEXT_NO_UPSTREAM=1 CLAUDE_PLUGIN_DATA="$tmp" HOME="$home" \
     node "$REPO_ROOT/plugins/cave-context/hooks/sessionstart.mjs" < /dev/null
   assert_success
-  # Output must parse as JSON and carry the SessionStart envelope (jq -e fails on a
-  # parse error or a false result, so this stays load-bearing despite null context).
-  run bash -c 'env CAVE_CONTEXT_NO_UPSTREAM=1 CLAUDE_PLUGIN_DATA="'"$tmp"'" HOME="'"$home"'" node "'"$REPO_ROOT"'/plugins/cave-context/hooks/sessionstart.mjs" < /dev/null | jq -e ".hookSpecificOutput.hookEventName == \"SessionStart\""'
+  # Output must parse as JSON and be exactly {} — regression guard for the invalid
+  # additionalContext: null envelope (jq -e fails on a parse error or a false result).
+  run bash -c 'env CAVE_CONTEXT_NO_UPSTREAM=1 CLAUDE_PLUGIN_DATA="'"$tmp"'" HOME="'"$home"'" node "'"$REPO_ROOT"'/plugins/cave-context/hooks/sessionstart.mjs" < /dev/null | jq -e ". == {}"'
   assert_success
   rm -rf "$tmp" "$home"
 }

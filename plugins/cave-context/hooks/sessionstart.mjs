@@ -26,10 +26,13 @@ process.stdin.on("end", async () => {
     if (input.source !== "clear") continuity = extractContinuity(ctxAc); // clear = intentional fresh start
   } catch { /* fail-open */ }
 
-  process.stdout.write(JSON.stringify({
-    hookSpecificOutput: {
-      hookEventName: "SessionStart",
-      additionalContext: continuity,
-    },
-  }));
+  // Claude Code's SessionStart hook schema requires additionalContext to be a string (or
+  // the field omitted) — emitting `additionalContext: null` fails output validation
+  // ("(root): Invalid input"). On a fresh start there is no continuity to inject, so emit
+  // an empty object `{}` (mirrors mcp/handlers.mjs `emit()`); only attach the envelope when
+  // there is actual continuity to restore (resume/compact).
+  const out = continuity
+    ? { hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: continuity } }
+    : {};
+  process.stdout.write(JSON.stringify(out));
 });
