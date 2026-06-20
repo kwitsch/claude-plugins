@@ -28,8 +28,8 @@ disable-model-invocation: true        # true = only user can invoke (/name). Use
 user-invocable: false                 # false = only Claude can invoke (background knowledge skills)
 context: fork                         # Run skill in isolated subagent (no conversation history).
                                       # Only useful for skills with explicit task instructions.
-model: claude-haiku-4-5-20251001      # Override model for this skill's subagent (context: fork only)
-effort: low                           # Effort level: low / medium / high / xhigh (context: fork only)
+model: claude-haiku-4-5-20251001      # Model while this skill is active (rest of current turn; not saved). /model values or `inherit`.
+effort: low                           # Effort while active: low/medium/high/xhigh/max; overrides session effort.
 allowed-tools: Bash(git *) Read       # Pre-approve tools — no permission prompt while skill active.
                                       # Does NOT restrict other tools; permission settings still apply.
                                       # Takes effect only after workspace trust dialog accepted.
