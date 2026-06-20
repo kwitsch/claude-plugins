@@ -1,7 +1,7 @@
 # Claude Code — Hook Handler Selection
 
 <!-- AGENT-FACING REFERENCE. Not prose. Optimize for lookup + decision, not readability. -->
-<!-- Source: code.claude.com/docs/en/hooks. Verified 2026-06. Re-verify against docs if version differs. -->
+<!-- Source: code.claude.com/docs/en/hooks. Verified 2026-06-21. Re-verify against docs if version differs. -->
 <!-- Scope: choosing the `type` of a hook handler. Not about when hooks vs CLAUDE.md vs skills. -->
 
 ## Handler types
@@ -15,6 +15,7 @@
 1. **Hard allow/deny enforcement** (security, irreversible, policy gate)
    → use the permission system, NOT a hook. If a hook must signal: `command` with `exit 2` (or `permissionDecision: "deny"`).
    WHY: `http` + `mcp_tool` fail OPEN. non-2xx / connection failure / timeout / `isError:true` / server-not-connected = non-blocking error → action proceeds. Never gate security on a fail-open handler.
+   `http` nuance: unlike `command`, an http hook CANNOT signal a blocking error via status code — to block/deny it MUST return a 2xx response carrying a JSON decision body (e.g. `permissionDecision:"deny"`). non-2xx is still just a fail-open error. Verdict unchanged: NOT reliable for hard gating.
 
 2. **Event is `SessionStart` or `Setup`**
    → `command`. Only `command` + `mcp_tool` are supported on these events, and MCP servers are usually NOT yet connected when they fire → `mcp_tool` returns "not connected" on first run. Use `mcp_tool` here only if first-run miss is acceptable.
@@ -49,6 +50,15 @@
 
 `UserPromptSubmit` lowers command/http/mcp_tool default to 30 s. `MessageDisplay` lowers to 10 s.
 
+## Handler fields (config, all types unless noted)
+
+| field | type | effect |
+|---|---|---|
+| `async` | `command` | `true` → runs in background, does NOT block. A backgrounded hook can't hard-block (exit 2 is not awaited inline). |
+| `asyncRewake` | `command` | `true` → runs in background AND wakes Claude on `exit 2` (implies `async`). The hook's stderr (or stdout if stderr empty) is shown to Claude as a system reminder — the path by which a long-running background failure reaches Claude. |
+| `once` | handler | `true` → runs once per session then is removed. ONLY honored for hooks declared in skill frontmatter; ignored in settings files and agent frontmatter. |
+| `statusMessage` | handler | custom spinner/status message shown while the hook runs. |
+
 ## mcp_tool handler shape
 
 ```json
@@ -72,7 +82,7 @@
 - Exit codes: only `exit 2` blocks (most events). `exit 1` = non-blocking error → action PROCEEDS. Exception: `WorktreeCreate` aborts on any non-zero.
 - JSON output only parsed on `exit 0`. Pick one: exit-code signaling OR `exit 0` + JSON. Not both.
 - `if` filter is best-effort; fails OPEN on unparseable Bash. Do not use `if` for security gating — use permission rules.
-- Command hooks run with NO controlling terminal (macOS/Linux, v2.1.139+). Cannot write `/dev/tty`. Surface to user via `systemMessage`; notify via `terminalSequence` (allowlisted OSC only).
+- Command hooks run with NO controlling terminal (macOS/Linux, v2.1.139+). Cannot write `/dev/tty`. Surface to user via `systemMessage`; notify via `terminalSequence` (allowlisted OSC only). `version >= 2.1.141:` `terminalSequence` is supported.
 - stdout reaches Claude only on `UserPromptSubmit`, `UserPromptExpansion`, `SessionStart`; elsewhere use `hookSpecificOutput.additionalContext`. Output strings capped 10k chars.
 - State: `command` holds NO state between fires. Stateful/expensive init must live in a persistent server → `mcp_tool` or `http`.
 - Context/token cost: model-facing MCP tools load tool defs into model context (ongoing token cost). A tool used ONLY as an `mcp_tool` hook trigger is config-driven and need not be exposed to the model — keep hook-only tools off the model surface to avoid context cost.

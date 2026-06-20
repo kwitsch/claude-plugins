@@ -1,7 +1,7 @@
 # Claude Code Commands — Authoring Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Sources: Anthropic official docs
-> (commands reference + skills/slash-commands authoring), verified: 2026-06-20.
+> (commands reference + skills/slash-commands authoring), verified: 2026-06-21.
 > Apply when authoring, reviewing, or invoking slash commands or custom skills/commands.
 
 ## What a slash command is / when vs a skill
@@ -31,6 +31,8 @@ Skills and commands are resolved in this order (highest → lowest precedence):
 - Nested `.claude/skills/` under a subdirectory load on demand when Claude accesses files there.
 - `--add-dir` / `/add-dir` directories: `.claude/skills/` inside them is loaded automatically (exception to the general rule that `--add-dir` is file-access only, not config discovery).
 - `permissions.additionalDirectories` in `settings.json` grants file access only — does NOT load skills.
+- A skill folder with a `.claude-plugin/plugin.json` loads as a skills-directory plugin named `<name>@skills-dir` — it can then bundle `agents/`, `hooks/`, and MCP servers. In a project's `.claude/skills/`, this requires accepting the workspace trust dialog first.
+- `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` env var loads `CLAUDE.md` from `--add-dir` directories (not loaded by default).
 
 ## Frontmatter reference
 
@@ -187,6 +189,24 @@ Absent from `skillOverrides` = treated as `"on"`. Plugin skills are NOT affected
 - If a large skill or many later skills push it out, re-invoke after compaction to restore full content.
 - In a regular session, skill descriptions load into context but full content loads only on invoke. Subagents with preloaded skills differ: full content is injected at startup; `disable-model-invocation: true` blocks that preload.
 
+### Live change detection
+- Adding/editing/removing a skill under a *watched* dir (`~/.claude/skills/`, project `.claude/skills/`, or a `.claude/skills/` inside an `--add-dir` dir) takes effect mid-session without restart. Live detection covers `SKILL.md` **text** only.
+- Creating a top-level skills dir that did NOT exist at session start requires restarting Claude Code so it can be watched.
+- For a skill folder that is also a plugin, changes to `hooks/`, `.mcp.json`, `agents/`, and `output-styles/` need `/reload-plugins` to take effect (not live).
+
+## Evaluating a skill (skill-creator)
+
+- A skill triggering only proves Claude found it — measure invocation rate AND output quality separately. Method: baseline comparison — run realistic prompts in fresh sessions with the skill available vs disabled (`skillOverrides: off`), compare.
+- The `skill-creator` plugin (`/plugin install skill-creator@claude-plugins-official`, then `/reload-plugins`) automates the loop. Ask e.g. `evaluate my <name> skill with skill-creator`. It produces, inside the skill dir:
+
+| Artifact | Contents |
+|---|---|
+| `evals/evals.json` | Test cases: prompts, input files, expected behavior |
+| `grading.json` | Per-assertion pass/fail with evidence (one subagent per case, clean context) |
+| `benchmark.json` | Aggregated pass rate / time / tokens, with-skill vs without |
+
+- Also: blind A/B between two skill versions; description tuning via should-trigger / should-not-trigger prompts; HTML review viewer for qualitative feedback.
+
 ## Built-in commands (overview)
 
 The following built-in commands are shipped with Claude Code. Entries marked **[Skill]** are bundled skills (prompt-based; Claude can also auto-invoke). Entries marked **[Workflow]** are bundled dynamic workflows (fan out across subagents, run in the background). Others are CLI-coded behaviors. Bundled skills are gated by the `disableBundledSkills` setting. Note: a few CLI-coded built-ins (`/init`, `/review`, `/security-review`) are ALSO callable via the `Skill` tool — that is distinct from being a bundled skill (see closing note).
@@ -196,34 +216,36 @@ The following built-in commands are shipped with Claude Code. Entries marked **[
 | `/add-dir <path>` | Grant file access to an extra directory without moving the session |
 | `/advisor [model\|off]` | Enable/disable the advisor tool (consults a second model). Accepts `opus`, `sonnet`, `fable`, or a model ID |
 | `/agents` | Open the subagent manager |
+| `/autofix-pr [prompt]` | Spawn a Claude Code on the web session that watches the current branch's PR and pushes fixes when CI fails or reviewers comment. Detects the open PR via `gh pr view`; pass a prompt to scope it (e.g. `only fix lint and type errors`). Requires `gh` + web access |
 | `/background [prompt]` | Detach session to run as a background agent. Alias: `/bg` |
 | `/batch <instruction>` | **[Skill]** Decompose a large change into 5-30 independent units, run each in its own worktree subagent + PR |
 | `/branch [name]` | Fork the current conversation to a new branch (switch into the copy; original kept in `/resume`) |
 | `/btw <question>` | Ask a quick side question without adding to conversation history |
-| `/cd <path>` | Move session to a new working directory (preserves prompt cache) |
+| `/cd <path>` | Move session to a new working directory (preserves prompt cache; new dir's `CLAUDE.md` appended as a message). Session relocated to new dir's project storage; prompts to trust an unfamiliar dir. Restrict/disable targets via `Cd` permission rules |
 | `/claude-api [migrate\|managed-agents-onboard]` | **[Skill]** Load Claude API reference for the project language; `migrate` upgrades code to a newer model |
 | `/clear [name]` | Start new conversation; previous stays in `/resume`. Aliases: `/reset`, `/new` |
 | `/code-review [low\|medium\|high\|xhigh\|max\|ultra] [--fix] [--comment] [target]` | **[Skill]** Review diff for correctness bugs + reuse/simplification/efficiency cleanups; `--fix` applies findings; `--comment` posts inline GitHub PR comments; `ultra` runs multi-agent cloud review |
 | `/compact [instructions]` | Summarize conversation to free context while continuing the same task |
 | `/config [key=value ...]` | View/edit configuration; `key=value` form sets a setting directly (also in `-p` mode). Alias: `/settings` |
-| `/context` | Show context window usage breakdown |
+| `/context [all]` | Show context window usage as a colored grid with optimization suggestions; in fullscreen the per-item breakdown collapses — pass `all` to expand it |
 | `/debug [description]` | **[Skill]** Enable debug logging mid-session and troubleshoot from the session debug log |
 | `/diff` | Show what changed in the current working tree |
 | `/doctor` | Diagnose install issues and skill/config problems (reports description budget overflow) |
-| `/effort [level\|auto]` | Adjust reasoning effort level (`low`/`medium`/`high`/`xhigh`/`max`/`ultracode`); `auto` resets to model default |
-| `/exit` | Exit the CLI. Alias: `/quit` |
+| `/effort [level\|auto]` | Adjust reasoning effort level (`low`/`medium`/`high`/`xhigh`/`max`/`ultracode`); `max` and `ultracode` are session-only. `ultracode` = `xhigh` reasoning + automatic workflow orchestration. `auto` resets to model default. Takes effect immediately |
+| `/exit` | Exit the CLI. In an attached background session this detaches and the session keeps running. Alias: `/quit` |
 | `/feedback [report]` | Submit feedback or report a bug. Aliases: `/bug`, `/share` |
 | `/fewer-permission-prompts` | **[Skill]** Scan transcripts for common read-only Bash/MCP calls, add a prioritized allowlist to project settings |
 | `/focus` | Toggle focus view (last prompt + tool summary + final response only) |
 | `/fork <directive>` | Spawn a forked background subagent that inherits the full conversation; result returns when done |
-| `/goal [condition\|clear]` | Set a goal; Claude works across turns until condition is met |
+| `/goal [condition\|clear]` | Set a goal; Claude works across turns until condition is met. No arg shows the current/last goal. Remove an active goal early with `clear`, `stop`, `off`, `reset`, `none`, or `cancel` |
 | `/help` | Show available commands |
 | `/hooks` | View/manage hooks |
 | `/init` | Generate a starter `CLAUDE.md` for the repo (CLI-coded; also Skill-tool callable). `CLAUDE_CODE_NEW_INIT=1` → interactive flow covering skills/hooks/personal memory |
+| `/keybindings` | Open your keyboard shortcuts file |
 | `/login` | Authenticate with Anthropic |
 | `/logout` | Sign out |
 | `/loop [interval] [prompt]` | **[Skill]** Run a prompt repeatedly while the session stays open; omit interval for self-pacing. Alias: `/proactive` |
-| `/mcp` | Manage MCP server connections |
+| `/mcp [reconnect <server>\|enable\|disable [<server>\|all]]` | Manage MCP server connections and OAuth. No arg opens the interactive list; `reconnect <server>` reconnects one disconnected server; `enable`/`disable` with a server name or `all` changes connection state without the dialog |
 | `/memory` | Edit project or user memory |
 | `/model [name]` | View or change the active model |
 | `/permissions` | View/manage tool permission rules |
@@ -237,15 +259,26 @@ The following built-in commands are shipped with Claude Code. Entries marked **[
 | `/rewind` | Roll code and/or conversation back to a checkpoint. Aliases: `/checkpoint`, `/undo` |
 | `/run` | **[Skill]** Launch and drive the project's app to see a change working |
 | `/run-skill-generator` | **[Skill]** Record a per-project recipe so `/run` + `/verify` know how to build/launch the app |
+| `/sandbox` | Toggle sandbox mode. Supported platforms only |
+| `/schedule [description]` | Create/update/list/run routines that execute on Anthropic-managed cloud infra; Claude walks setup conversationally. Alias: `/routines` |
 | `/security-review` | Security-focused review of branch diff (CLI-coded; also Skill-tool callable) |
+| `/setup-bedrock` | Configure Amazon Bedrock auth/region/model pins via wizard. Only visible when `CLAUDE_CODE_USE_BEDROCK=1` |
+| `/setup-vertex` | Configure Google Vertex AI auth/project/region/model pins via wizard. Only visible when `CLAUDE_CODE_USE_VERTEX=1` |
 | `/simplify [target]` | **[Skill]** Cleanup-only review (reuse/simplification/efficiency/abstraction) and apply fixes; does NOT hunt bugs |
 | `/skills` | List skills; `t` sorts by token count; `Space`+`Enter` writes `skillOverrides` |
 | `/status` | Show session status |
+| `/statusline` | Configure the status line; describe what you want, or run with no arg to auto-configure from your shell prompt |
+| `/stop` | Stop the current background session (only while attached; transcript + worktree kept). To detach without stopping use `/exit` |
 | `/tasks` | View/manage background work in the session. Also `/bashes` |
+| `/team-onboarding` | Generate a team onboarding guide from your last-30-days Claude Code usage (sessions, commands, MCP servers) as markdown a teammate can paste; on paid claude.ai plans also returns a Claude Code share link |
 | `/teleport` | Pull a web session into this terminal. Also `/tp` |
 | `/terminal-setup` | Configure terminal keybindings (Shift+Enter etc.); shown only where needed |
-| `/usage` | Show token/cost usage for the session. Aliases: `/cost`, `/stats` |
+| `/ultraplan <prompt>` | Draft a plan in an ultraplan session, review it in the browser, then execute remotely or send it back to your terminal |
+| `/ultrareview [PR]` | Run a deep multi-agent code review in a cloud sandbox. Preferred invocation is now `/code-review ultra`; `/ultrareview` remains as an alias |
+| `/usage` | Show session cost, plan usage limits, and activity stats; on a paid plan (Pro/Max/Team/Enterprise) includes a per-skill/subagent/plugin/MCP-server breakdown. Aliases: `/cost`, `/stats` |
+| `/usage-credits` | Configure usage credits to keep working past a limit. Previously `/extra-usage` |
 | `/verify` | **[Skill]** Build + run the app to confirm a change works (not just tests) |
+| `/workflows` | Open the workflow progress view to watch, pause, resume, or save running/completed workflows |
 
 Bundled workflows (run via `/`): `/deep-research <question>` **[Workflow]** — fan out web searches, cross-check sources, synthesize a cited report.
 
