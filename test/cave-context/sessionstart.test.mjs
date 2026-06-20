@@ -22,12 +22,14 @@ function run(envExtra, sourceObj) {
 
 // New contract: sessionstart.mjs no longer emits the caveman ruleset (that is now the
 // static `cat hooks/SessionStart.md` second SessionStart hook). additionalContext is the
-// restored continuity payload on resume/compact, else null.
+// restored continuity payload on resume/compact. When there is no continuity to inject the
+// hook emits an empty object `{}` — Claude Code's SessionStart schema rejects
+// additionalContext: null (must be a string or the field omitted), so the field is never
+// present-and-null.
 
-test("fresh startup with upstream disabled emits no ruleset and no continuity", () => {
+test("fresh startup with upstream disabled emits {} (no continuity, never null additionalContext)", () => {
   const out = run({ CAVE_CONTEXT_NO_UPSTREAM: "1" }, { source: "startup" });
-  assert.equal(out.hookSpecificOutput.hookEventName, "SessionStart");
-  assert.equal(out.hookSpecificOutput.additionalContext, null);
+  assert.deepEqual(out, {}); // no hookSpecificOutput, no additionalContext: null
 });
 
 test("compact restores continuity only (routing dropped, no ruleset prefix)", () => {
@@ -40,5 +42,5 @@ test("compact restores continuity only (routing dropped, no ruleset prefix)", ()
 
 test("clear source never restores continuity even if upstream returns it", () => {
   const out = run({ CAVE_CONTEXT_HOOK_CMD: FAKE_SS }, { source: "clear" });
-  assert.equal(out.hookSpecificOutput.additionalContext, null);
+  assert.deepEqual(out, {}); // suppressed continuity → {}, never additionalContext: null
 });
