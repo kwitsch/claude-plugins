@@ -1,6 +1,6 @@
 # Claude Code mcp_tool hooks reference
 
-<!-- verified 2026-06-15 · CURATED: doc-derived + hard-won gotchas. The server-name
+<!-- verified 2026-06-20 · CURATED: doc-derived + hard-won gotchas. The server-name
      namespacing rule below is NOT reliably in the official docs — preserve it on any
      refresh; never regenerate this file wholesale. -->
 
@@ -48,7 +48,8 @@ necessarily the key you wrote in config.
   bare; only the hook's `server` *reference* is namespaced.
 
 Hook-tool *matchers* (a different surface) use the sanitized tool name
-`mcp__plugin_<plugin>_<server-key>__<tool>` (non-alphanumerics → `_`); the `server`
+`mcp__plugin_<plugin>_<server-key>__<tool>` (chars outside `[A-Za-z0-9_-]` → `_`;
+hyphens preserved, e.g. `mcp__plugin_my-plugin_database-tools__query`); the `server`
 field uses the colon-form connected name.
 
 ## Output contract
