@@ -1,6 +1,6 @@
 # Claude Code Hooks — Mechanics Reference
 
-> Harness-optimized knowledge file. Directives, not prose. Source: code.claude.com/docs/en/hooks, verified 2026-06.
+> Harness-optimized knowledge file. Directives, not prose. Source: code.claude.com/docs/en/hooks, verified 2026-06-20.
 > Scope: event catalog, config schema, matchers, I/O, exit codes, decision control, scopes.
 > For choosing a handler `type` (command/.sh/.mjs/binary vs http/mcp_tool/prompt/agent), see **hook-handler-selection.md** — not repeated here.
 
@@ -73,10 +73,11 @@ Cadence: once/session (SessionStart, SessionEnd), once/turn (UserPromptSubmit, S
 | any other char | JavaScript regex (`^Notebook`, `mcp__memory__.*`) |
 
 - MCP tools appear as `mcp__<server>__<tool>`. To match a whole server you MUST append `.*` (`mcp__memory__.*`) — `mcp__memory` is exact-string and matches nothing.
-- What the matcher filters per event: tool events → `tool_name`; `SessionStart` → `startup|resume|clear|compact`; `SubagentStart/Stop` → agent type; `PreCompact/PostCompact` → `manual|auto`; `SessionEnd` → end reason; `Notification` → type; `StopFailure` → error type; `InstructionsLoaded` → load reason; `ConfigChange` → source; `UserPromptExpansion` → command name; `Elicitation*` → MCP server.
+- What the matcher filters per event: tool events → `tool_name`; `SessionStart` → `startup|resume|clear|compact`; `SubagentStart/Stop` → agent type (`general-purpose`, `Explore`, `Plan`, or custom names); `PreCompact/PostCompact` → `manual|auto`; `SessionEnd` → end reason; `Notification` → type; `StopFailure` → error type; `InstructionsLoaded` → load reason; `ConfigChange` → source; `UserPromptExpansion` → command name; `Elicitation*` → MCP server.
 - No matcher (silently ignored if set): `UserPromptSubmit`, `PostToolBatch`, `Stop`, `TeammateIdle`, `TaskCreated`, `TaskCompleted`, `WorktreeCreate`, `WorktreeRemove`, `CwdChanged`, `MessageDisplay`.
 
 ### `if` field (per-handler, tool events only)
+- version >= 2.1.85: required (earlier versions ignore `if` and run on every matched call).
 - Permission-rule syntax against tool name + args: `Bash(git *)`, `Edit(*.ts)`. Exactly one rule; no `&&`/`||`/list — use separate handlers.
 - Only evaluated on `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest`, `PermissionDenied`; on other events a handler with `if` never runs.
 - Bash matching: leading `VAR=val` stripped; each subcommand and `$()`/backtick content checked; patterns more specific than the command name run anyway on `$()`/backtick/`$VAR`. **Fails OPEN on unparseable Bash** → never gate security with `if`; use permission rules.
@@ -90,17 +91,18 @@ Common fields (all types): `type` (req), `if`, `timeout` (defaults: 600s command
 - `command`: `command` (req), `args` (→ exec form), `async`, `asyncRewake` (bg + wake Claude on exit 2), `shell` (`bash`|`powershell`).
 - `http`: `url` (req), `headers` (`$VAR` interp), `allowedEnvVars` (required for any interp; unlisted → empty).
 - `mcp_tool`: `server` (req, must be connected), `tool` (req), `input` (`${path}` substitution from hook JSON).
-- `prompt`/`agent`: `prompt` (req; `$ARGUMENTS` = hook input JSON), `model` (default fast model).
+- `prompt`/`agent`: `prompt` (req; `$ARGUMENTS` = hook input JSON), `model` (default fast model, Haiku). Output contract = JSON `{"ok":true|false,"reason":...}` (NOT exit codes / `decision`). `ok:false` per event: Stop/SubagentStop → `reason` fed back, keeps working; PreToolUse → tool denied, `reason` = tool error; PostToolUse/PostToolBatch/UserPromptSubmit/UserPromptExpansion → turn ends, `reason` shown as warning. `agent` is EXPERIMENTAL (may change; prefer `command` for production); 60s default timeout, up to 50 tool-use turns.
 
 ### Exec vs shell form (command)
 - `args` present → **exec form**: `command` resolved on PATH, spawned directly; each `args` element = one arg, no shell, no quoting; placeholders substituted as plain strings. Use whenever referencing a path placeholder.
 - `args` absent → **shell form**: `sh -c` (macOS/Linux), Git Bash/PowerShell (Windows); enables pipes, `&&`, globs, var expansion. Quote placeholders.
 - Windows: `.cmd`/`.bat` shims aren't executables → use shell form, OR exec via `node` + script path (`node` + path works everywhere).
 - Path placeholders (also exported as env vars): `${CLAUDE_PROJECT_DIR}`, `${CLAUDE_PLUGIN_ROOT}` (changes per update), `${CLAUDE_PLUGIN_DATA}` (survives updates). Plugin hooks also substitute `${user_config.*}`.
+- Other env vars to hooks: `$CLAUDE_CODE_REMOTE` = `"true"` in remote web environments (unset in local CLI).
 
 ## Input (stdin for command; POST body for http)
 
-Common fields: `session_id`, `transcript_path`, `cwd`, `permission_mode` (not all events), `effort.level` (tool-context events; also `$CLAUDE_EFFORT`), `hook_event_name`. In subagent/`--agent`: `agent_id`, `agent_type`. Only `SessionStart` may receive `model` (not guaranteed; no `$CLAUDE_MODEL`).
+Common fields: `session_id`, `transcript_path`, `cwd`, `permission_mode` (not all events; values `default`/`plan`/`acceptEdits`/`auto`/`dontAsk`/`bypassPermissions`), `effort.level` (`low`/`medium`/`high`/`xhigh`/`max`; tool-context events; also `$CLAUDE_EFFORT`), `hook_event_name`. In subagent/`--agent`: `agent_id`, `agent_type`. Only `SessionStart` may receive `model` (not guaranteed; no `$CLAUDE_MODEL`).
 Tool events add `tool_name`, `tool_input` (and `tool_use_id` on PreToolUse). `tool_input` shape per tool — Bash `command`; Write `file_path`+`content`; Edit `file_path`+`old_string`+`new_string`+`replace_all`; Read `file_path`+`offset`+`limit`; Glob `pattern`+`path`; Grep `pattern`+`output_mode`+…; WebFetch `url`+`prompt`; Agent `prompt`+`subagent_type`+`model`. PostToolUse Agent `tool_response` carries usage telemetry (`totalTokens`, `usage`, `resolvedModel` [≥v2.1.174], …) for per-subagent cost logging.
 
 ## Exit codes (command)
@@ -135,7 +137,7 @@ Universal fields: `continue` (false → Claude stops entirely; precedence over d
 | UserPromptSubmit, UserPromptExpansion, PostToolUse, PostToolUseFailure, PostToolBatch, Stop, SubagentStop, ConfigChange, PreCompact | top-level `decision` | `decision:"block"`, `reason`. Stop/SubagentStop also take `hookSpecificOutput.additionalContext` (non-error feedback, continues turn) |
 | TeammateIdle, TaskCreated, TaskCompleted | exit 2 or `continue:false` | |
 | PreToolUse | `hookSpecificOutput` | `permissionDecision` allow/deny/ask/defer + `permissionDecisionReason`; `updatedInput` (full replace); `additionalContext`. Multi-hook precedence deny>defer>ask>allow. `defer` ≥v2.1.89, `-p` only |
-| PermissionRequest | `hookSpecificOutput` | `decision.behavior` allow/deny, `decision.updatedInput` |
+| PermissionRequest | `hookSpecificOutput` | `decision.behavior` allow/deny, `decision.updatedInput`; on allow, `decision.updatedPermissions` array `{type:"setMode", mode, destination:"session"}` switches mode (any mode; `bypassPermissions` only if session launched bypass-capable, never persisted). Does NOT fire in `-p` → use PreToolUse for automated decisions |
 | PermissionDenied | `hookSpecificOutput` | `retry:true` |
 | WorktreeCreate | path return | stdout path (command) / `hookSpecificOutput.worktreePath` (http) |
 | Elicitation / ElicitationResult | `hookSpecificOutput` | `action` accept/decline/cancel, `content` |
@@ -146,6 +148,8 @@ Universal fields: `continue` (false → Claude stops entirely; precedence over d
 Content rewriting: PreToolUse `updatedInput` (before run), PostToolUse `updatedToolOutput` (after), PermissionRequest `decision.updatedInput`, UserPromptSubmit injects `additionalContext` only (can't replace prompt). Redact outbound at PreToolUse, inbound at PostToolUse.
 
 - **PreToolUse: top-level `decision`/`reason` are DEPRECATED** for this event → use `hookSpecificOutput.permissionDecision`/`permissionDecisionReason`. (Deprecated `approve`/`block` → `allow`/`deny`.) PostToolUse/Stop still use top-level `decision`.
+- **Stop**: fires whenever Claude finishes responding (not only at task completion); does NOT fire on user interrupts (API errors fire `StopFailure` instead). Block cap: Claude Code overrides a Stop hook after it blocks 8 consecutive times without progress. Read input field `stop_hook_active` (true once a continuation already triggered) → exit 0 early. Raise cap via env `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`.
+- **Multi-hook merge**: every matched hook runs to completion before merge — a `deny` does NOT stop sibling hooks (don't rely on it to suppress another hook's side effects). Multiple PreToolUse `updatedInput`: last-to-finish wins, order non-deterministic → avoid >1 hook rewriting the same tool input.
 
 ## SessionStart specifics
 - `CLAUDE_ENV_FILE` (also Setup/CwdChanged/FileChanged): append `export` lines → persist env into later Bash. Use `>>`.
@@ -161,10 +165,11 @@ Content rewriting: PreToolUse `updatedInput` (before run), PostToolUse `updatedT
 - `disableAllHooks:true` disables all (no per-hook disable). Respects managed hierarchy — only managed-level can disable managed hooks.
 
 ## Hard constraints / security
+- PreToolUse fires BEFORE any permission-mode check → `permissionDecision:"deny"` blocks even in `bypassPermissions` / `--dangerously-skip-permissions`. Reverse fails: `"allow"` never overrides settings deny rules (hooks tighten, never loosen). Deny rules from any scope (incl. managed) outrank hook approvals.
 - No controlling terminal (macOS/Linux ≥v2.1.139): no `/dev/tty`. Surface via `systemMessage`; notify via `terminalSequence`.
 - Security/irreversible gates → permission system, NOT hooks. `if` and http/mcp_tool fail OPEN (see hook-handler-selection.md).
 - `command` holds no state between fires; stateful/expensive init → persistent server via `mcp_tool`/`http`.
 - Hook-only `mcp_tool` triggers are config-driven; keep them off the model tool surface to avoid context/token cost.
 
 ## Version gates
-- v2.1.89 `defer` · v2.1.139 no-TTY · v2.1.141 `terminalSequence` · v2.1.174 Agent `tool_response.resolvedModel`.
+- v2.1.85 `if` field · v2.1.89 `defer` · v2.1.139 no-TTY · v2.1.141 `terminalSequence` · v2.1.174 Agent `tool_response.resolvedModel`.

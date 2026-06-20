@@ -1,7 +1,7 @@
 # Claude Code Skills — Authoring Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (Skill authoring best practices + Claude Code Skills), verified 2026-06.
+> (Skill authoring best practices + Claude Code Skills + Agent Skills overview + Agent SDK skills), verified 2026-06-20.
 > Apply when authoring, reviewing, or refactoring a `SKILL.md`.
 
 ## What a skill is / when to choose it
@@ -45,7 +45,7 @@ All fields optional; only `description` recommended. YAML between `---` markers.
 | `paths` | Glob patterns; auto-activate only on matching files. Comma string or YAML list. |
 | `shell` | `bash` (default) or `powershell` for `!` injection (PowerShell needs `CLAUDE_CODE_USE_POWERSHELL_TOOL=1`). |
 
-Note: the SDK ignores `allowed-tools`; it is CLI-only. In the SDK, control access via `allowedTools` + `permissionMode: "dontAsk"`.
+Note: the SDK ignores `allowed-tools`; it is CLI-only. In the SDK, control access via `allowedTools` + `permissionMode: "dontAsk"` (denies anything not in `allowedTools`). SDK skill discovery: `settingSources`/`setting_sources` must include `user` or `project` (else no skills load); the `skills` option filters them (`"all"` | name list | `[]`), and setting it auto-adds the `Skill` tool to `allowedTools`. Plugin skills load via the `plugins` option / `plugin:skill` names.
 
 ### Command-name mapping
 
@@ -147,7 +147,8 @@ Note: the SDK ignores `allowed-tools`; it is CLI-only. In the SDK, control acces
   - Recognized only at line start or after whitespace; `KEY=!`cmd`` is literal.
   - Single pass; injected output is not re-scanned for further placeholders.
 - Multi-line: fenced ` ```! ` block.
-- Disable via `disableSkillShellExecution: true` (managed settings); bundled/managed skills unaffected.
+- Disable via `disableSkillShellExecution: true` (managed settings); each `!` block becomes `[shell command execution disabled by policy]`; bundled/managed skills unaffected.
+- Include `ultrathink` anywhere in the skill content to request deeper reasoning when the skill runs.
 
 ### Substitutions
 - `$ARGUMENTS` (full string; appended as `ARGUMENTS: …` if absent), `$ARGUMENTS[N]` / `$N` (0-based, shell-quoted), `$name` (from `arguments`).
@@ -172,20 +173,23 @@ Note: the SDK ignores `allowed-tools`; it is CLI-only. In the SDK, control acces
 
 - Precedence on name clash: enterprise > personal > project. Plugin skills are `plugin:skill` namespaced (no clash). Skill beats same-named command.
 - Project skills load from `.claude/skills/` in cwd and every parent up to repo root; nested package skills (`packages/x/.claude/skills/`) load on demand (monorepo support).
+- A skill folder with a `.claude-plugin/plugin.json` loads as a plugin named `<name>@skills-dir` (can bundle agents/hooks/MCP). In a project `.claude/skills/`, requires accepting the workspace trust dialog first.
 - `--add-dir`/`/add-dir`: `.claude/skills/` IS loaded (exception); `permissions.additionalDirectories` setting does NOT load skills. Other config (agents/commands/output-styles) not loaded from added dirs.
-- Live change detection: edits to watched `SKILL.md` apply mid-session; a brand-new top-level skills dir needs a restart. Plugin-folder `hooks/`/`.mcp.json`/`agents/` changes need `/reload-plugins`.
+- Live change detection: edits to watched `SKILL.md` apply mid-session; a brand-new top-level skills dir needs a restart. Plugin-folder `hooks/`/`.mcp.json`/`agents/`/`output-styles/` changes need `/reload-plugins`.
 
 ## Permissions / access control
 
 - `allowed-tools` grants no-prompt use while active; for project skills it activates only after accepting the workspace trust dialog. Review project skills before trusting a repo (a skill can self-grant broad access).
 - Control which skills Claude may invoke:
   - Deny `Skill` tool entirely; or allow/deny specific: `Skill(commit)`, `Skill(review-pr *)`, `Skill(deploy *)` (exact vs prefix).
+  - A few built-in commands are also reachable via the `Skill` tool: `/init`, `/review`, `/security-review`. Others (e.g. `/compact`) are not.
   - `disable-model-invocation: true` removes a skill from Claude's context entirely (`user-invocable` only affects menu visibility).
 - `skillOverrides` (settings, written by `/skills`): per-skill `"on" | "name-only" | "user-invocable-only" | "off"`; absent = `"on"`. Plugin skills managed via `/plugin`, not this.
 
 ## Evaluation & iterative development
 
 - **Build evals first.** 1) run task without skill, log failures; 2) create ≥3 scenarios; 3) baseline; 4) write minimal instructions to pass; 5) iterate vs baseline. (No built-in runner; eval JSON = `skills`, `query`, `files`, `expected_behavior`.)
+- **Eval automation:** the `skill-creator` plugin (`/plugin install skill-creator@claude-plugins-official`) automates the baseline-comparison loop — stores cases in `evals/evals.json`, spawns a subagent per case, writes `grading.json` + `benchmark.json` (with-skill vs without), and runs blind A/B version comparison. It is a plugin, not a built-in runner.
 - **Claude A / Claude B loop:** Claude A authors/refines; fresh Claude B uses it on real tasks; observe B's behavior; bring specifics back to A. Claude understands the skill format natively — no special "writing-skills" skill needed.
 - Observe: unexpected exploration paths, missed reference links, over-relied sections (→ inline them), ignored files (→ remove or signal better). `name`+`description` are the most critical levers.
 
@@ -208,5 +212,6 @@ Note: the SDK ignores `allowed-tools`; it is CLI-only. In the SDK, control acces
 ## Version / surface notes
 
 - Commands merged into skills; `.claude/commands/*.md` still work with same frontmatter.
+- Bundled skills ship in every session (prompt-based, invoked like any skill): `/code-review`, `/batch`, `/debug`, `/loop`, `/claude-api`, plus `/run`, `/verify`, `/run-skill-generator`. Disable the whole set via `disableBundledSkills` setting. A same-named user/project/plugin skill overrides a bundled one.
 - `/run`, `/verify`, `/run-skill-generator` require Claude Code ≥ v2.1.145.
 - `allowed-tools` is CLI-only (SDK ignores it). Use skills only from trusted sources; a malicious skill can direct tool/code execution. Skills feature is not ZDR-eligible.

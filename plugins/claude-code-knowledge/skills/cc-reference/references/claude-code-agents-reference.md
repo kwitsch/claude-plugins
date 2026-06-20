@@ -1,7 +1,7 @@
 # Claude Code Subagents / Agents — Authoring Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (Claude Code "Create custom subagents"), verified 2026-06.
+> (Claude Code "Create custom subagents"), verified 2026-06-20.
 > Apply when authoring, reviewing, or refactoring a subagent definition (`.claude/agents/*.md`).
 
 ## What a subagent is / when to choose it
@@ -45,7 +45,8 @@
 
 - Identity comes only from the `name` field, not the path. Scanned recursively → organize in subfolders (`agents/review/`). Keep `name` unique across the tree (silent dedup on clash within a scope).
 - Plugin subfolders DO scope the identifier: `agents/review/security.md` in `my-plugin` → `my-plugin:review:security`.
-- Project agents discovered by walking up from cwd to repo root. `--add-dir` grants file access only — NOT scanned for agents (use `~/.claude/agents/` or a plugin to share).
+- Project agents discovered by walking up from cwd to repo root. version >= 2.1.178: when nested project `.claude/agents/` dirs define the same `name`, the definition closest to cwd wins.
+- `--add-dir` dirs ARE scanned: a `.claude/agents/` inside an added dir loads alongside project agents. To share across projects without `--add-dir`, use `~/.claude/agents/` or a plugin.
 - Edits on disk need a session restart; agents created via `/agents` apply immediately.
 
 ## Frontmatter reference
@@ -177,7 +178,7 @@ skills:
 ## Nested subagents (≥ v2.1.172)
 
 - A subagent can spawn its own subagents (delegated task splits into parallel subtasks; intermediate output never reaches main).
-- Depth = subagent levels below main. Foreground: any depth (self-limiting — each level blocks its parent). Background: a bg agent at **depth 5** gets no Agent tool and cannot spawn further (fixed, not configurable).
+- Depth = subagent levels below main, counted regardless of foreground/background. A subagent at **depth 5** gets no Agent tool and cannot spawn further. Limit is fixed, not configurable.
 - Prevent spawning: omit `Agent` from `tools` or add to `disallowedTools`. A fork cannot spawn another fork (but can spawn named types, counting toward depth).
 
 ## Forks (≥ v2.1.117; `/fork` default ≥ v2.1.161)
@@ -225,4 +226,4 @@ Or `claude --disallowedTools "Agent(Explore)"`.
 
 ## Version notes
 
-- v2.1.63 Task→Agent rename (alias kept) · v2.1.117 forks · v2.1.153 MCP restrictions cover subagent frontmatter · v2.1.161 `/fork` default-on · v2.1.172 nested subagents.
+- v2.1.63 Task→Agent rename (alias kept) · v2.1.117 forks · v2.1.153 MCP restrictions cover subagent frontmatter · v2.1.161 `/fork` default-on · v2.1.172 nested subagents · v2.1.178 nearest-cwd wins for duplicate `name` in nested project dirs.

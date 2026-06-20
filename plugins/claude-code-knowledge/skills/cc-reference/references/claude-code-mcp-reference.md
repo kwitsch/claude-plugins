@@ -1,7 +1,7 @@
 # Claude Code MCP — Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (MCP overview, MCP quickstart, Managed MCP), verified 2026-06-14.
+> (MCP overview, MCP quickstart, Managed MCP), verified 2026-06-20.
 > Apply when configuring, authoring, or troubleshooting MCP servers in Claude Code.
 
 ## What MCP is / when to use
@@ -10,7 +10,7 @@
 - Use when: you repeatedly copy data from an external tool into chat; Claude needs to read or act on a system directly (issue trackers, monitoring dashboards, databases, browsers).
 - MCP servers expose **tools** (callable functions), **resources** (readable data), and **prompts** (slash-command templates).
 - Server types: remote (HTTP, SSE, WebSocket) and local (stdio process).
-- Find servers at mcp.so, Smithery, or build your own.
+- Find servers in the Anthropic MCP directory (claude.ai/directory), or build your own.
 
 ## Config locations & scopes
 
@@ -30,7 +30,7 @@
 4. Plugin-provided servers
 5. claude.ai connectors
 
-When the same server name appears in more than one scope, Claude Code uses the highest-precedence definition in full; fields are not merged across scopes.
+When the same server appears in more than one source, Claude Code uses the highest-precedence definition in full; fields are not merged. The three scopes match duplicates by name; plugins and connectors match by endpoint (same URL or command).
 
 ### Notes
 
@@ -58,9 +58,9 @@ When the same server name appears in more than one scope, Claude Code uses the h
 | `type` | `"http"` or `"streamable-http"` | Aliases — `streamable-http` accepted for spec compatibility |
 | `url` | string | Must use `https://` for OAuth |
 | `headers` | object | Static key/value pairs; string values only |
-| `headersHelper` | object | Dynamic header generator; see Server config schema |
+| `headersHelper` | string | Shell command (script path or inline) that prints JSON headers; see Server config schema |
 | `timeout` | number (ms) | Per-request timeout |
-| `alwaysLoad` | boolean | Load even when not in active project |
+| `alwaysLoad` | boolean | Exempt server's tools from tool-search deferral — load all upfront; see Tool search. version >= 2.1.121 |
 | `oauth` | object | OAuth config; see Authentication |
 
 ### SSE (deprecated)
@@ -93,9 +93,9 @@ When the same server name appears in more than one scope, Claude Code uses the h
 | `env` | object | Key/value injected into server environment |
 | `type` | `"stdio"` | Optional; inferred when `command` present |
 
-- Claude Code sets `CLAUDE_PROJECT_DIR` in spawned server environment to project root.
+- Claude Code sets `CLAUDE_PROJECT_DIR` in spawned server environment to project root. Server may also call MCP `roots/list` to get the launch directory.
 - In `project`/`user` scoped configs, use `${CLAUDE_PROJECT_DIR:-.}` (with default) because the var is set in the server env, not Claude's env.
-- Plugin-provided configs may use `${CLAUDE_PROJECT_DIR}` directly (no default needed).
+- Plugin-provided configs may use `${CLAUDE_PROJECT_DIR}` directly (no default needed). Plugin configs also expand `${CLAUDE_PLUGIN_ROOT}` (bundled files) and `${CLAUDE_PLUGIN_DATA}` (persistent state surviving plugin updates).
 
 ### WebSocket
 
@@ -125,26 +125,28 @@ When the same server name appears in more than one scope, Claude Code uses the h
 | `type` | string | Yes | `http`, `streamable-http`, `sse`, or `ws` |
 | `url` | string | Yes | Server URL |
 | `headers` | object | No | Static headers (string values) |
-| `headersHelper` | object | No | Dynamic header generator |
-| `timeout` | number | No | Request timeout in ms |
-| `alwaysLoad` | boolean | No | Load outside active project context |
-| `oauth` | object | No | OAuth config; `clientId`, `clientSecret`, `scopes`, `authServerMetadataUrl` |
+| `headersHelper` | string | No | Shell command (script path or inline) printing JSON headers |
+| `timeout` | number | No | Per-tool-call wall-clock timeout in ms; values < 1000 ignored → fall through to `MCP_TOOL_TIMEOUT` (default ~28h). HTTP/SSE first-byte budget has a 60s minimum |
+| `alwaysLoad` | boolean | No | Exempt from tool-search deferral; blocks startup until connected (capped at 5s connect timeout). version >= 2.1.121 |
+| `oauth` | object | No | OAuth config; `clientId`, `scopes`, `authServerMetadataUrl`, `callbackPort` (the client secret is a CLI flag / keychain, never a config field) |
 
 ### Dynamic headers (`headersHelper`)
 
+- `headersHelper` is a **string** — a script path or inline shell command. Use for non-OAuth auth (Kerberos, short-lived tokens, internal SSO).
+
 ```json
-{
-  "headersHelper": {
-    "command": "node",
-    "args": ["/path/to/generate-token.js"]
-  }
-}
+{ "headersHelper": "/opt/bin/get-mcp-auth-headers.sh" }
+```
+
+```json
+{ "headersHelper": "echo '{\"Authorization\": \"Bearer '\"$(get-token)\"'\"}'" }
 ```
 
 - Helper must write a JSON object of string key/value pairs to stdout.
-- Runs in a shell with a 10-second timeout; no output caching — runs fresh on each connection.
+- Runs in a shell with a 10-second timeout; no output caching — runs fresh on each connection (session start and reconnect). Script owns any token reuse.
 - Dynamic headers override static `headers` with the same name.
 - Claude Code sets `CLAUDE_CODE_MCP_SERVER_NAME` and `CLAUDE_CODE_MCP_SERVER_URL` in the helper's environment for multi-server scripts.
+- Executes arbitrary shell. At project/local scope it runs only after you accept the workspace trust dialog.
 
 ### Environment variable expansion in `.mcp.json`
 
@@ -171,8 +173,9 @@ Expansion applies in: `command`, `args`, `env`, `url`, `headers`.
 
 ### OAuth 2.0 flow (HTTP servers)
 
-- Triggered automatically when server responds `401 Unauthorized` or `403 Forbidden`.
+- Triggered automatically when server responds `401 Unauthorized` or `403 Forbidden`, or returns a `WWW-Authenticate` header pointing to its auth server.
 - If `headers.Authorization` is set and rejected, Claude Code reports connection failed — it does not fall back to OAuth. Remove the header to use OAuth.
+- OAuth applies to HTTP/SSE only; flags have no effect on stdio servers.
 
 Steps:
 1. `claude mcp add --transport http sentry https://mcp.sentry.dev/mcp`
@@ -180,15 +183,28 @@ Steps:
 3. Tokens stored securely, refreshed automatically.
 4. Use "Clear authentication" in `/mcp` menu to revoke.
 
+- If the browser redirect fails after authenticating, paste the full callback URL into the URL prompt Claude Code shows.
+
+### Discovery chain
+
+- Default order: RFC 9728 Protected Resource Metadata at `/.well-known/oauth-protected-resource`, then RFC 8414 auth-server metadata at `/.well-known/oauth-authorization-server`.
+- Supports Dynamic Client Registration (DCR) and Client ID Metadata Document (CIMD), discovered automatically.
+- "Incompatible auth server: does not support dynamic client registration" → server needs pre-configured credentials (`--client-id` / `oauth.clientId`).
+
 ### OAuth options
 
 | Option | CLI flag | Config field | Description |
 |---|---|---|---|
-| Fixed callback port | `--callback-port PORT` | — | Fixes OAuth redirect URI to `http://localhost:PORT/callback` |
+| Fixed callback port | `--callback-port PORT` | `oauth.callbackPort` | Fixes OAuth redirect URI to `http://localhost:PORT/callback`; usable with or without `--client-id` |
 | Pre-configured client ID | `--client-id ID` | `oauth.clientId` | Skip dynamic client registration |
-| Pre-configured client secret | `--client-secret SECRET` | `oauth.clientSecret` | Use with `clientId` |
-| Custom auth server | — | `oauth.authServerMetadataUrl` | Override autodiscovery metadata URL |
+| Pre-configured client secret | `--client-secret` | — | Bare flag prompts for secret with masked input; `MCP_CLIENT_SECRET` env var skips the prompt (CI). Stored in system keychain (macOS) or a credentials file, not in config. Public clients: use `--client-id` alone |
+| Custom auth server | — | `oauth.authServerMetadataUrl` | Override autodiscovery metadata URL (must be `https://`); its `scopes_supported` overrides upstream. version >= 2.1.64 |
 | Restricted scopes | — | `oauth.scopes` | Space-separated scope string (RFC 6749 §3.3) |
+
+Scope rules:
+- `oauth.scopes` takes precedence over `authServerMetadataUrl` and `/.well-known`-discovered scopes. Unset → server determines scopes.
+- If the auth server advertises `offline_access`, it is appended so tokens refresh without re-sign-in.
+- A 403 `insufficient_scope` re-authenticates with the same pinned scopes; widen `oauth.scopes` if a tool needs more.
 
 ```json
 {
@@ -294,7 +310,66 @@ mcp__github__*
 
 ### Dynamic tool discovery
 
-- Tools are discovered at session start; updates (tools added/removed mid-session) trigger automatic discovery without session restart.
+- Tools discovered at session start; MCP `list_changed` notifications refresh tools/prompts/resources mid-session without reconnect.
+
+### Reconnection & startup retry
+
+- Mid-session: HTTP/SSE servers that drop reconnect with exponential backoff — up to 5 attempts, 1s initial delay, doubling. Marked failed after; retry from `/mcp`. Stdio not auto-reconnected.
+- Startup: HTTP/SSE initial connection retried up to 3× on transient errors (5xx, refused, timeout). Auth/not-found errors are NOT retried. version >= 2.1.121
+
+## Tool search
+
+- Default: MCP tool definitions are deferred — only tool names + server instructions load at session start. Claude uses a search tool to pull relevant tools on demand. No fixed per-server tool cap; budget is the context window.
+- Disabled by default on Vertex AI and when `ANTHROPIC_BASE_URL` is a non-first-party host (most proxies drop `tool_reference` blocks). Requires a model supporting `tool_reference`; Haiku does not. On Vertex: Sonnet 4.5+ / Opus 4.5+.
+- Tool descriptions and server instructions truncate at 2KB each — keep terse, critical detail first.
+- With tool search on, a needed server still connecting blocks inside the `ToolSearch` call; without it (Vertex / custom base URL / `ENABLE_TOOL_SEARCH=false`), the `WaitForMcpServers` tool is used.
+- `alwaysLoad: true` on a server (or `_meta["anthropic/alwaysLoad"]: true` on a tool) exempts it from deferral — loaded upfront every turn; also blocks startup until connected (capped at 5s).
+
+### `ENABLE_TOOL_SEARCH`
+
+| Value | Behavior |
+|---|---|
+| (unset) | All deferred, on demand; falls back to upfront on Vertex/non-first-party base URL |
+| `true` | All deferred; sends beta header even on Vertex/proxies (fails on unsupported models) |
+| `auto` | Threshold: load upfront if tools fit within 10% of context window, defer overflow |
+| `auto:N` | Threshold with custom percent `N` (0-100), e.g. `auto:5` |
+| `false` | All loaded upfront, no deferral |
+
+- Disable the search tool itself via `permissions.deny: ["ToolSearch"]`.
+
+## Output limits
+
+- Warning when any MCP tool output exceeds 10,000 tokens.
+- `MAX_MCP_OUTPUT_TOKENS` env var raises the cap; default 25,000. Applies to tools without their own declared limit; image-returning tools always subject to it.
+- Server authors: set `_meta["anthropic/maxResultSizeChars"]` in a tool's `tools/list` entry to raise that tool's persist-to-disk threshold for text content, up to a 500,000-char ceiling (independent of `MAX_MCP_OUTPUT_TOKENS`). Over-threshold results without the annotation are persisted to disk and replaced with a file reference.
+
+## Timeouts (env)
+
+| Var | Controls |
+|---|---|
+| `MCP_TIMEOUT` | Server startup timeout in ms (default 30s) |
+| `MCP_TOOL_TIMEOUT` | Default per-tool-call timeout; per-server `timeout` field overrides it. Default ~28h when unset |
+
+- Per-server `timeout` is a hard wall-clock limit per call; progress notifications do not extend it. Values < 1000 are ignored → fall through to `MCP_TOOL_TIMEOUT`. version >= 2.1.162: sub-1000 ignored (previously floored to 1s). HTTP/SSE first-byte budget has a 60s minimum.
+
+## claude.ai connectors
+
+- Connectors added at claude.ai/customize/connectors load automatically in the CLI when signed in with that Claude.ai account; appear in `/mcp` flagged as claude.ai.
+- Fetched only when the active auth method is the Claude.ai subscription — NOT when `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `apiKeyHelper`, or Bedrock/Vertex is active. Run `/status` to check; `/login` to select the Claude.ai account.
+- A CLI-added server takes precedence over a connector at the same URL (connector listed hidden).
+- version >= 2.1.161: connectors never signed in to collapse behind a `Show unused connectors` row.
+- version >= 2.1.162: Anthropic-hosted connectors needing claude.ai-registered redirect (Microsoft 365, Gmail, Google Calendar) cannot do local OAuth from `/mcp`; connect them at Settings → Connectors on claude.ai.
+- Disable all: `disableClaudeAiConnectors: true` (any settings scope; any-source-true — a project `false` cannot re-enable a user/policy `true`) or `ENABLE_CLAUDEAI_MCP_SERVERS=false`. Block individual ones via `deniedMcpServers` by `serverName`/`serverUrl`. Servers passed via `--mcp-config` are unaffected. On Claude Code on the web these settings do not apply (connectors arrive as `--mcp-config`, URLs rewritten through the session proxy).
+
+## Cross-references (one level deep)
+
+- Channels: a server with the `claude/channel` capability, opted in via `--channels` at startup, pushes messages into the session. See `/en/channels`, `/en/channels-reference`.
+- Elicitation: servers request structured input mid-task (form or URL mode) — dialogs appear automatically; auto-respond via the `Elicitation` hook (`/en/hooks#elicitation`).
+- Resources: reference via `@server:protocol://resource/path` mentions.
+- `claude mcp serve` — run Claude Code itself as a stdio MCP server.
+- `claude mcp add-from-claude-desktop` — import Claude Desktop servers (macOS/WSL).
+- `CLAUDE_CONFIG_DIR` env var relocates `.claude.json`.
+- OTEL: `OTEL_LOG_TOOL_DETAILS=1` includes MCP server/tool names in tool events (see `/en/monitoring-usage`).
 
 ## Managed MCP / enterprise
 
@@ -313,11 +388,20 @@ Deploy this file to give the system exclusive control over which servers load. U
 }
 ```
 
-- Place at the system-managed settings path (MDM plist / HKLM registry / system `managed-mcp.json`).
-- `claude mcp add` fails with `Cannot add MCP server: enterprise MCP configuration is active...`.
+- When present, ONLY these servers load — including plugin-provided servers and (by default) claude.ai connectors are suppressed.
+- Standalone file; cannot be delivered via server-managed settings. Deploy via MDM/GPO/Intune/fleet tooling (any admin-priv write).
+
+| Platform | Path |
+|---|---|
+| macOS | `/Library/Application Support/ClaudeCode/managed-mcp.json` |
+| Linux/WSL | `/etc/claude-code/managed-mcp.json` |
+| Windows | `C:\Program Files\ClaudeCode\managed-mcp.json` |
+
+- `claude mcp add` fails with `Cannot add MCP server: enterprise MCP configuration is active and has exclusive control over MCP servers`.
 - `claude mcp list` shows only servers from this file.
-- Deploy empty `{ "mcpServers": {} }` to disable MCP entirely.
+- Deploy empty `{ "mcpServers": {} }` to disable MCP entirely (users see none; previously-configured servers stop loading silently).
 - Do not store credentials in `env` blocks — readable by any user; use `${VAR}` expansion, OAuth, or `headersHelper` instead.
+- Plugin-servers-only pattern (no managed-mcp.json): `strictPluginOnlyCustomization` with `mcp` in its list — servers may come only from plugins; users cannot add their own.
 
 ### Allowlists and denylists
 
@@ -339,21 +423,33 @@ Set in managed settings (e.g., `managed-settings.json`):
 
 | Field | Type | Matches |
 |---|---|---|
-| `serverUrl` | string (glob) | HTTP/SSE/WS server URL; `*` wildcard anywhere |
-| `serverName` | string | Server name in config |
+| `serverUrl` | string (glob) | HTTP/SSE server URL; `*` wildcard anywhere |
+| `serverName` | string | User-assigned label; exact match, no wildcards. NOT a security control (user picks any name) |
 | `serverCommand` | string[] | Stdio command + args; exact match, every argument |
+
+`allowedMcpServers` unset vs empty:
+
+| Setting | Unset (default) | Empty `[]` | Populated |
+|---|---|---|---|
+| `allowedMcpServers` | All allowed | None allowed | Only matching allowed |
+| `deniedMcpServers` | None blocked | None blocked | Matching blocked |
+
+`serverName` validation differs by list:
+- `allowedMcpServers`: limited to letters/numbers/`-`/`_`. Use `serverUrl` to allowlist a claude.ai connector.
+- `deniedMcpServers`: accepts any non-empty string — block a claude.ai connector by display name, e.g. `{ "serverName": "claude.ai Slack" }`. version >= 2.1.182. Prefer `serverUrl` to be robust to renames / ` (N)` suffix collisions.
 
 ### Evaluation order
 
 1. Merge lists from all settings sources (when `allowManagedMcpServersOnly: true`, only managed allowlist is kept; denylist always merges from all sources).
 2. Denylist check: any match → blocked; nothing overrides.
-3. Allowlist check: if `allowedMcpServers` not set → all remaining load; if set, server must match an entry of the appropriate type (URL entry for HTTP; command entry for stdio; name entry counts only when no typed entries exist).
+3. Allowlist check: if `allowedMcpServers` not set anywhere → all remaining load. If set: remote (HTTP/SSE) must match a `serverUrl` entry (a `serverName` match counts only when no `serverUrl` entries exist); stdio must match a `serverCommand` entry (a `serverName` match counts only when no `serverCommand` entries exist).
 
 ### URL wildcard matching rules
 
 | Pattern | Allows |
 |---|---|
 | `https://mcp.example.com/*` | All paths on that domain |
+| `https://mcp.example.com` | Also all paths on that domain (no path = any path) |
 | `https://*.example.com/*` | Any subdomain of example.com |
 | `http://localhost:*/*` | Any port on localhost |
 | `*://mcp.example.com/*` | Any scheme to that domain |
@@ -370,13 +466,16 @@ Set in managed settings (e.g., `managed-settings.json`):
 ### `allowAllClaudeAiMcps`
 
 - Set in managed settings to load claude.ai connectors alongside `managed-mcp.json` servers.
-- Allowlists and denylists still apply to those connectors.
-- Has no effect when placed in user or project settings; must come from admin-controlled tiers.
+- Allowlists and denylists still apply to those connectors. Affects only claude.ai connectors — plugin-provided servers stay suppressed.
+- Has no effect when placed in user or project settings; must come from admin-controlled tiers. version >= 2.1.149
 
 ## Version notes
 
 | version >= | Feature |
 |---|---|
 | 2.1.64 | `oauth.authServerMetadataUrl` field |
-| 2.1.121 | HTTP/SSE initial connection retried up to 3× on transient errors (5xx, refused, timeout) before marking failed |
+| 2.1.121 | `alwaysLoad` field; HTTP/SSE initial connection retried up to 3× on transient errors (5xx, refused, timeout) before marking failed |
 | 2.1.149 | `allowAllClaudeAiMcps` setting |
+| 2.1.161 | Unused claude.ai connectors collapse behind `Show unused connectors` row |
+| 2.1.162 | Per-server `timeout` < 1000 now ignored (was floored to 1s); Anthropic-hosted connectors (M365/Gmail/Calendar) direct local-OAuth to claude.ai Settings → Connectors |
+| 2.1.182 | `serverName` in `deniedMcpServers` accepts any non-empty string |

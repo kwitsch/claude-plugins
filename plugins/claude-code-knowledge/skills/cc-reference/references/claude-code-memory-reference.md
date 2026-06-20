@@ -1,7 +1,7 @@
 # Claude Code Memory — Authoring Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (How Claude remembers your project), verified 2026-06-14.
+> (How Claude remembers your project), verified 2026-06-20.
 > Apply when authoring or editing CLAUDE.md files or configuring auto memory.
 
 ## CLAUDE.md: what & when
@@ -10,9 +10,13 @@
 - Use it to give Claude persistent instructions it would otherwise need re-explaining.
 - Add to it when: Claude repeats the same mistake, a convention must hold every session, or a setup step isn't discoverable from the codebase alone.
 - Do NOT use it as a scratchpad or project log; keep it to directives Claude must hold every session.
-- Run `/init` to generate a starting CLAUDE.md automatically; Claude analyzes the codebase and creates build commands, test instructions, and project conventions it discovers.
+- Run `/init` to generate a starting CLAUDE.md automatically; Claude analyzes the codebase and creates build commands, test instructions, and project conventions it discovers. If a CLAUDE.md already exists, `/init` suggests improvements rather than overwriting. `/init` also reads `AGENTS.md`, `.cursorrules`, `.devin/rules/`, `.windsurfrules` and incorporates relevant parts.
+- `CLAUDE_CODE_NEW_INIT=1`: enables interactive multi-phase `/init` — asks which artifacts to set up (CLAUDE.md/skills/hooks), explores via subagent, asks follow-ups, presents a reviewable proposal before writing.
 - Target **under 200 lines** per CLAUDE.md file — longer files consume more context and reduce adherence.
 - CLAUDE.md instructions are context, not enforced configuration. To block an action regardless of Claude's decision, use a `PreToolUse` hook instead.
+- CLAUDE.md content is delivered as a **user message after the system prompt**, not part of the system prompt — no guarantee of strict compliance, especially for vague/conflicting instructions.
+- For system-prompt-level instructions, use `--append-system-prompt` (must be passed every invocation; suited to scripts/automation, not interactive use).
+- Block-level HTML comments (`<!-- ... -->`) in CLAUDE.md are stripped before injection into context (use them for human-maintainer notes). Comments inside code blocks are preserved; the Read tool shows all comments.
 
 ### Write effective instructions
 
@@ -34,9 +38,12 @@ Files load in the order below (broadest to most specific); a later entry wins on
 
 - CLAUDE.md and CLAUDE.local.md files **in the directory hierarchy above the working directory** load in full at launch.
 - Files **in subdirectories** load on demand when Claude reads files in those directories.
+- Load ordering: Claude walks up the directory tree from cwd, concatenating all discovered files (not overriding). Ordered filesystem-root → cwd, so files closest to launch dir are read **last**. Within each directory, `CLAUDE.local.md` is appended **after** `CLAUDE.md`.
 - Managed policy CLAUDE.md **cannot be excluded** by `claudeMdExcludes` — always loads.
 - `claudeMd` key in `managed-settings.json` injects CLAUDE.md content directly; honored only in managed/policy scope.
-- `claudeMdExcludes` in `.claude/settings.local.json` skips files by path or glob (matched against absolute paths); arrays merge across settings layers.
+- `claudeMdExcludes` skips files by path or glob (matched against absolute paths); configurable at **any** settings layer (user/project/local/managed); arrays merge across layers. Put it in `.claude/settings.local.json` to keep the exclusion local to your machine.
+- `--add-dir` directories do NOT load their CLAUDE.md by default. Set `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` to load `CLAUDE.md`, `.claude/CLAUDE.md`, `.claude/rules/*.md`, `CLAUDE.local.md` from them (`CLAUDE.local.md` skipped if `local` is excluded from `--setting-sources`).
+- Compaction: project-root CLAUDE.md **survives `/compact`** — re-read from disk and re-injected. Nested subdirectory CLAUDE.md files are NOT re-injected automatically; they reload next time Claude reads a file in that subdirectory.
 
 ### User-level rules
 
@@ -48,8 +55,9 @@ Files load in the order below (broadest to most specific); a later entry wins on
 - Syntax: `@path/to/file` anywhere in a CLAUDE.md file.
 - Both relative and absolute paths are allowed.
 - Relative paths resolve relative to the **importing file**, not the working directory.
-- Imported files are expanded and loaded into context at launch (not on demand).
+- Imported files are expanded and loaded into context at launch (not on demand). Imports do NOT reduce context — imported files load at launch.
 - Recursive imports are allowed; **maximum depth: 4 hops**.
+- Import parsing **skips Markdown code spans and fenced code blocks**. Wrap a path in backticks (`` `@README` ``) to keep it literal; `@README` outside backticks imports.
 - To share personal instructions across git worktrees, import from home directory:
 
 ```text
@@ -60,12 +68,19 @@ Files load in the order below (broadest to most specific); a later entry wins on
 - First encounter of external imports: Claude shows an approval dialog listing the files; declining disables imports (dialog does not reappear).
 - Imported files still load at launch and consume context window tokens.
 
+### AGENTS.md
+
+- Claude Code reads `CLAUDE.md`, **not** `AGENTS.md`.
+- To reuse an existing `AGENTS.md`: create a `CLAUDE.md` that imports it (`@AGENTS.md`) — add Claude-specific instructions below the import. Or symlink (`ln -s AGENTS.md CLAUDE.md`) if no Claude-specific content is needed.
+- On Windows symlinks need Administrator/Developer Mode → use the `@AGENTS.md` import instead.
+
 ## Auto memory
 
 - Auto memory = notes Claude writes itself, based on corrections, preferences, and patterns it discovers.
 - Claude decides what to save; it does not write something every session.
 - Machine-local; not shared across machines or cloud environments.
 - All worktrees and subdirectories in the same git repo share one auto memory directory.
+- Subagents can maintain their own auto memory (see subagent docs `/en/sub-agents#enable-persistent-memory`).
 - version >= 2.1.59: feature requires at least this Claude Code version (`claude --version`).
 
 ### Storage location
@@ -90,7 +105,7 @@ Default path: `~/.claude/projects/<project>/memory/` where `<project>` is derive
 }
 ```
 
-Value must be an absolute path or start with `~/`. When set in a project's `.claude/settings.json` or `.claude/settings.local.json`, honored only after workspace trust dialog is accepted.
+Value must be an absolute path or start with `~/`. Read from **any** settings scope (user/project/local/policy/`--settings`). When set in a project's `.claude/settings.json` or `.claude/settings.local.json`, honored only after the workspace trust dialog is accepted (same gate as hooks).
 
 ### Enable / disable
 
@@ -122,9 +137,9 @@ Value must be an absolute path or start with `~/`. When set in a project's `.cla
 
 ### `.claude/rules/` for path-scoped rules
 
-- Place rule files in `.claude/rules/` directory.
-- Rules without a `paths` frontmatter field load unconditionally for all files.
-- Rules with `paths` load only when Claude works with matching files:
+- Place rule files in `.claude/rules/` directory; one topic per file. All `.md` files are discovered **recursively** (organize into subdirs like `frontend/`, `backend/`).
+- Rules without a `paths` frontmatter field load unconditionally for all files, at the same priority as `.claude/CLAUDE.md`.
+- Rules with `paths` load only when Claude works with matching files (trigger on read of a matching file, not on every tool use):
 
 ```markdown
 ---
@@ -136,8 +151,19 @@ paths:
 - All API endpoints must include input validation
 ```
 
-- User-level rules: `~/.claude/rules/` — apply to every project on the machine.
-- Share across projects with symlinks.
+- Glob patterns in `paths`; brace expansion matches multiple extensions:
+
+| Pattern | Matches |
+|---|---|
+| `**/*.ts` | All TypeScript files in any directory |
+| `src/**/*` | All files under `src/` |
+| `*.md` | Markdown files in project root |
+| `src/components/*.tsx` | React components in a specific directory |
+| `src/**/*.{ts,tsx}` | Both extensions under `src/` (brace expansion) |
+
+- User-level rules: `~/.claude/rules/` — apply to every project on the machine; loaded **before** project rules, so project rules win.
+- Share across projects with symlinks (directories or individual files); circular symlinks are detected and handled gracefully.
+- Debug: the `InstructionsLoaded` hook (`/en/hooks#instructionsloaded`) logs which instruction files load, when, and why — useful for path-specific/lazy-loaded rules.
 
 ## Quick add & editing
 
