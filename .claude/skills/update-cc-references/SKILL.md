@@ -3,7 +3,7 @@ name: update-cc-references
 description: Updates the harness-optimized Claude Code reference files (skills, agents, hooks, hook-handler-selection, commands, mcp, plugins, memory, settings) by re-fetching the official Anthropic docs and applying deltas — new/renamed/removed frontmatter fields, changed best practices, new hook events/handler fields, new MCP transports, plugin schema changes, new version gates, env vars, settings keys, and permission modes. Use when Anthropic ships Claude Code changes or the reference files look stale.
 argument-hint: [skills|agents|hooks|commands|mcp|plugins|memory|settings|all]
 disable-model-invocation: true
-allowed-tools: WebFetch, WebSearch, Read, Edit, Write, Glob, Bash, Skill
+allowed-tools: WebFetch, WebSearch, Read, Edit, Write, Glob, Bash, Skill, Agent, ToolSearch, TaskCreate, TaskUpdate, TaskList, TaskGet, TaskStop
 ---
 
 # Update Claude Code reference files
