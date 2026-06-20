@@ -50,9 +50,9 @@
       {
         "hooks": [
           {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/bin/bnx.sh",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/precompact.mjs"]
+            "type": "mcp_tool",
+            "server": "plugin:cave-context:cave-context",
+            "tool": "hook_precompact"
           }
         ]
       }

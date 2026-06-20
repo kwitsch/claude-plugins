@@ -26,7 +26,7 @@ A `command` hook is required when **any** of these hold; otherwise prefer `mcp_t
 |---|---|
 | The event fires **before the server connects** — `SessionStart`, `Setup` | `mcp_tool` needs an already-connected server; on first run it is not up yet, so the hook **fails open** (silent no-op). These are the *only* events with a connectivity problem. |
 | You need a **fail-closed hard gate** (must deny / abort) | `mcp_tool` has no exit-2 path and fails open on server-down — it can express only a *soft* JSON decision, never a guaranteed block. A guard that fails open is a silent security regression. |
-| The hook is a **fail-open-sensitive side-effect that must reliably fire** — e.g. a pre-context-loss snapshot (`PreCompact`), or a state-write that *other* command hooks read (`ConfigChange`) | A command hook spawns independently of server liveness; an `mcp_tool` hook would silently skip exactly when the side-effect matters most. |
+| The hook is a **fail-open-sensitive side-effect that must reliably fire** — e.g. a state-write that *other* command hooks read (`ConfigChange`) | A command hook spawns independently of server liveness; an `mcp_tool` hook would silently skip exactly when the side-effect matters most. |
 | The event is **latency-sensitive / high-frequency** — `UserPromptSubmit` (30 s timeout), `MessageDisplay` (10 s) | An MCP round-trip on every prompt / streamed line-batch is a latency + cost choice; the shorter timeout also bites. (A hook here that also does a must-run state-write falls under the fail-open-sensitive row too.) |
 | **Otherwise: non-blocking, mid-session context injection / observation** — `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Stop`, `SubagentStop`, … | **Prefer `mcp_tool`.** The server is reliably connected mid-session; you reuse a live runtime/deps instead of spawning a process per event. |
 
@@ -50,8 +50,12 @@ Why the limits (documented Claude Code behavior):
 > "early-lifecycle, server not connected." Per the event matrix that is inaccurate —
 > only `SessionStart`/`Setup` have the pre-connect problem. `PreCompact` and
 > `SessionEnd` are mid/late-session and `full`; `UserPromptSubmit` is limited by
-> timeout/latency, not connectivity. Keep `PreCompact`/`ConfigChange` as command
-> hooks for the *fail-open-sensitive side-effect* reason, not a connectivity one.
+> timeout/latency, not connectivity. Keep `ConfigChange` as a command hook for the
+> *fail-open-sensitive side-effect* reason, not a connectivity one. `PreCompact` is
+> no longer a must-stay-command-hook case: cave-context now runs it as an `mcp_tool`
+> hook (`hook_precompact`) mid-session, with the server reliably connected — the
+> delegated context-mode resume snapshot is **best-effort** and fails open if the
+> server is momentarily down at compact time, which is an accepted trade-off.
 
 ## Plugin layout
 
