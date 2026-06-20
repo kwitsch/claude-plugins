@@ -114,7 +114,6 @@ setup() {
   assert_success
 }
 
-
 @test "node unit tests pass" {
   run node --test "$REPO_ROOT/test/cave-context/"*.test.mjs
   assert_success

@@ -16,5 +16,5 @@ test("contains caveman ruleset, routing guidance, coexistence warning", () => {
   assert.match(p, /ctx_fetch_and_index/);
   assert.match(p, /WebFetch/);
   assert.match(p, /Think-in-code/i);
-  assert.match(p, /\| native/);                       // markdown table header
+  assert.match(p, /\| native/);                       // routing table present (matches a data row in the tool-routing table)
 });

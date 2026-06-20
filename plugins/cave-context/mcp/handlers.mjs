@@ -43,7 +43,10 @@ export async function handleUserPromptSubmit(input) {
 
 export async function handlePreToolUse(input) {
   // Hard-redirect WebFetch → ctx_fetch_and_index. Scoped to the main agent
-  // (`!input.agent_id`) so subagents that carry WebFetch but no ctx_* tools are spared.
+  // (`!input.agent_id`): subagent WebFetch falls through to the context-mode delegate,
+  // which independently governs WebFetch — end-to-end "sparing" of subagents is not
+  // guaranteed; this guard only scopes cave-context's own deny to the main agent, where
+  // the ctx_fetch_and_index hint is actionable.
   // Soft deny: if the server is down this hook never fires (fails open) and WebFetch
   // proceeds — consistent, since ctx_fetch_and_index would be unavailable then too.
   if (input?.tool_name === "WebFetch" && !input?.agent_id) {
