@@ -591,3 +591,16 @@ reroute_call() {
   grep -qi "advisor" "$agent"
   grep -qi "available" "$agent"
 }
+
+# --- update-cc-references contradiction-validation gate ---
+
+@test "update-cc-references skill has the contradiction-validation gate" {
+  grep -qi "Contradiction-validation gate" "$MAINT"
+  grep -q "cc-reference-validator" "$MAINT"
+  grep -qi "git diff HEAD" "$MAINT"
+  grep -q "UNVERIFIABLE" "$MAINT"
+}
+
+@test "update-cc-references Release is gated on the contradiction gate" {
+  grep -qi "zero unconfirmed contradictions" "$MAINT"
+}

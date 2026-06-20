@@ -12,7 +12,7 @@ The plugin ships these components:
 - `agents/cc-author-planner.md` — the read-only authoring planner dispatched by `cc-author`; composes component content strictly from `cc-reference` and returns JSON, never writes.
 - `hooks/hooks.json` + `mcp/server.mjs` + `.mcp.json` — the `claude-code-guide` reroute hook backend.
 
-Maintenance tooling lives at `.claude/skills/update-cc-references/` (repo root) and does NOT ship — the plugin loader reads only the plugin's own `skills/` directory. Adding further components requires a deliberate design decision.
+Maintenance tooling lives at `.claude/skills/update-cc-references/` (repo root) and does NOT ship — the plugin loader reads only the plugin's own `skills/` directory. Adding further components requires a deliberate design decision. Its contradiction-validation gate dispatches the repo-root `.claude/agents/cc-reference-validator.md` read-only agent (also not shipped).
 The `cc-author`/`cc-memory`/`cc-author-planner` components were added by the
 2026-06-17 authoring-extension design; they extend the lookup→review pair into a
 lookup→author→review triad, all sourced from `cc-reference` (no duplicated
