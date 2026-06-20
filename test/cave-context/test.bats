@@ -188,3 +188,13 @@ setup() {
   assert_success
 }
 
+@test "SessionStart.md Part 1 stays byte-identical to rulesetText()" {
+  # Drift guard: Part 1 (everything before the "# Context routing" heading) is an
+  # intentional static duplicate of caveman.mjs rulesetText(). A rulesetText()
+  # change must be mirrored here, or this test fails. Command substitution strips
+  # trailing newlines from both sides, so they differ only by a trailing newline.
+  rt="$(node --input-type=module -e 'import("'"$REPO_ROOT"'/plugins/cave-context/mcp/caveman.mjs").then(m=>process.stdout.write(m.rulesetText()))')"
+  part1="$(awk '/^# Context routing/{exit} {print}' "$SS_MD" | sed -e :a -e '/^[[:space:]]*$/{$d;N;ba}')"
+  [ "$part1" = "$rt" ]
+}
+
