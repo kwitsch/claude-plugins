@@ -134,8 +134,9 @@ validate every change that contradicts the predecessor version.
     any cascading change.
   - UNVERIFIABLE → revert that hunk to the predecessor version (cc-reference must mirror the docs;
     silence is not evidence — repo augmentations live in `.claude/rules/`, not here).
-  - If reverts leave a file with no real content change, drop it from the release and do not bump its
-    `verified` date.
+  - If reverts leave a file with no real content change, drop it from the release and revert the
+    step-6 `verified`-date bump for that file (step 6 already freshened the date, so "do not bump" is
+    unreachable — the dropped file must be returned to its predecessor date so it reads as unchanged).
   - Release is BLOCKED until the diff contains zero unconfirmed contradictions.
 - **8d. Provenance report.** Record every contradicting hunk for the PR body:
   `file · claim · old → new · verdict · sourceUrl + verbatim quote · action (kept/reverted/escalated)`.
