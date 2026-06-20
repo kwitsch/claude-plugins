@@ -3,7 +3,7 @@ name: update-cc-references
 description: Updates the harness-optimized Claude Code reference files (skills, agents, hooks, hook-handler-selection, commands, mcp, plugins, memory, settings) by re-fetching the official Anthropic docs and applying deltas — new/renamed/removed frontmatter fields, changed best practices, new hook events/handler fields, new MCP transports, plugin schema changes, new version gates, env vars, settings keys, and permission modes. Use when Anthropic ships Claude Code changes or the reference files look stale.
 argument-hint: [skills|agents|hooks|commands|mcp|plugins|memory|settings|all]
 disable-model-invocation: true
-allowed-tools: WebFetch, WebSearch, Read, Edit, Write, Glob, Bash, Skill
+allowed-tools: WebFetch, WebSearch, Read, Edit, Write, Glob, Bash, Skill, Agent, ToolSearch, TaskCreate, TaskUpdate, TaskList, TaskGet, TaskStop
 ---
 
 # Update Claude Code reference files
@@ -70,6 +70,7 @@ Update Progress:
 - [ ] 5. Apply edits in the existing harness style
 - [ ] 6. Update the verified-date and version notes
 - [ ] 7. Verify against the post-update checks
+- [ ] 8. Contradiction-validation gate — classify diff, validate each contradiction via cc-reference-validator, revert unconfirmed, block release until clean
 ```
 
 **1. Resolve targets.** `skills` → skills file; `agents` → agents file; `hooks` → the hooks files (`claude-code-hooks-reference.md` + `hook-handler-selection.md` + `claude-code-mcp-tool-hooks-reference.md`, the latter two per their conservative rules — preserve curated gotchas, never regenerate wholesale); `commands` → `claude-code-commands-reference.md`; `mcp` → `claude-code-mcp-reference.md`; `plugins` → `claude-code-plugins-reference.md`; `memory` → `claude-code-memory-reference.md`; `settings` → `claude-code-settings-reference.md`; `all`/empty → everything. Locate files with `Glob` (`plugins/claude-code-knowledge/skills/cc-reference/references/*.md`); if absent, create them there. The canonical location is the `references/` subfolder `plugins/claude-code-knowledge/skills/cc-reference/references/` — update files there. (Note: `skill-folder-structure.md` in that folder is a static convention doc — NOT a maintained target; never refresh it from docs.)
@@ -100,6 +101,56 @@ Update Progress:
 - Body still under 500 lines; references still one level deep.
 - Report a short changelog: what changed vs the previous version, grouped by the delta checklist categories. If nothing changed, say so and leave the file (except the verified date) untouched.
 
+**8. Contradiction-validation gate (MANDATORY — blocks Release).** The step-7 self-check is not
+enough: a refresh agent can overturn a correct prior claim with a wrong or fabricated one (a
+non-existent config field, an inverted env-var meaning, an unsourced version gate). Before Release,
+validate every change that contradicts the predecessor version.
+
+- **8a. Classify the diff.** For each refreshed file, run `git diff HEAD -- <file>` and label each hunk:
+  - ADDITIVE — a purely new field/row/section that overturns no prior claim → no extra validation.
+  - CONTRADICTING — modifies, removes, flips, or re-scopes an existing claim (changed table cell,
+    reworded *meaning*, deleted line, changed version gate / default / threshold).
+  - On doubt, label CONTRADICTING (a false positive costs one validation; a false negative ships an
+    error). Semantic-equivalent rewording is ADDITIVE.
+  - Version tell (run explicitly): extract every `v?MAJOR.MINOR.PATCH` token ADDED in the diff and
+    check each against the fetched source-doc text; any token absent from the docs is CONTRADICTING
+    (unsourced), regardless of the prose label.
+- **8b. Validate each contradiction individually.** For EACH contradicting hunk, dispatch one
+  `cc-reference-validator` subagent (read-only; one hunk per dispatch). Pass it the file path, the
+  predecessor claim, the new claim, and the file's source-doc URL(s). It returns
+  `{verdict, quote, sourceUrl, confidence, notes}`. Escalate to a 2-of-3 majority of fresh
+  `cc-reference-validator` dispatches ONLY when a single verdict is UNVERIFIABLE or `confidence:"low"`.
+  - **Reconciliation gate (per `.claude/rules/subagent-tracking.md`).** Agent dispatch is async:
+    each `cc-reference-validator` returns a `task_id` now and its verdict arrives later as a
+    `<task-notification>`. Load the ledger tools once (deferred; resolve at depth 0, where this skill
+    runs — a subagent-scoped probe falsely reports these absent, do NOT skip the ledger on that basis):
+    `ToolSearch(query: "select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop")` (retry bare names).
+    Only if the CRUD ledger tools (TaskCreate/TaskUpdate/TaskList) fail to load, use the prose count —
+    TaskStop loading alone is not sufficient to activate the ledger path. Track every dispatch
+    (including the 2-of-3 escalation batch) with the `Task*` ledger — `TaskCreate` one entry per
+    dispatch (`metadata.dispatch_id` = the Agent `task_id`), `TaskUpdate` → `completed` on each matching
+    notification. Do NOT advance to 8c resolution or Release until dispatched-count == result-count,
+    i.e. EVERY dispatched validator (initial + escalations) has returned a terminal verdict. Escape
+    hatch only: if a still-`in_progress` dispatch is judged genuinely stuck, `TaskStop` its
+    `dispatch_id`, mark it terminal (record a soft-failure), and proceed. If the CRUD ledger tools
+    fail to load, use a prose count: do not advance until that many structured verdicts are in hand.
+- **8c. Resolve + gate.**
+  - CONFIRMED (with quote) → keep the change.
+  - REJECTED → revert that hunk to the predecessor version; keep the rest of the file; re-run 8a/8b on
+    any cascading change.
+  - UNVERIFIABLE → revert that hunk to the predecessor version (cc-reference must mirror the docs;
+    silence is not evidence — repo augmentations live in `.claude/rules/`, not here).
+  - No majority (the 2-of-3 escalation batch returns three different verdicts, e.g.
+    CONFIRMED/REJECTED/UNVERIFIABLE one each) → apply the skeptical default: treat as UNVERIFIABLE and
+    revert that hunk to the predecessor version.
+  - If reverts leave a file with no real content change, drop it from the release and revert the
+    step-6 `verified`-date bump for that file (step 6 already freshened the date, so "do not bump" is
+    unreachable — the dropped file must be returned to its predecessor date so it reads as unchanged).
+  - Release is BLOCKED until the diff contains zero unconfirmed contradictions.
+- **8d. Provenance report.** Record every contradicting hunk for the PR body:
+  `file · claim · old → new · verdict · sourceUrl + verbatim quote · action (kept/reverted/escalated)`.
+  List reverted/blocked items explicitly — never drop them silently.
+
 ## Notes
 
 - The reference files are written in English to match Claude Code terminology; keep updates in English regardless of conversation language.
@@ -108,6 +159,9 @@ Update Progress:
 
 This skill is run manually by the user. After the doc-update workflow finishes,
 drive a release ONLY if a reference file actually changed.
+
+**Precondition: the step-8 contradiction-validation gate must report zero unconfirmed contradictions.**
+If any hunk was reverted in step 8c, re-run the change detection below against the post-revert tree.
 
 1. **Detect change:**
    ```bash

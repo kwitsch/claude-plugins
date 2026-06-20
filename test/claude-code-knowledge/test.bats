@@ -566,3 +566,41 @@ reroute_call() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"author"* ]]
 }
+
+# --- cc-reference-validator agent (read-only contradiction validator) ---
+
+@test "cc-reference-validator agent exists and is read-only" {
+  agent="$REPO_ROOT/.claude/agents/cc-reference-validator.md"
+  [ -f "$agent" ]
+  grep -Eq "^name: cc-reference-validator$" "$agent"
+  grep -Eq "^tools:.*WebFetch" "$agent"
+  grep -Eq "^tools:.*Read" "$agent"
+  ! grep -Eq "^tools:.*(Write|Edit)" "$agent"
+}
+
+@test "cc-reference-validator encodes the adversarial verdict discipline" {
+  agent="$REPO_ROOT/.claude/agents/cc-reference-validator.md"
+  grep -qi "verbatim" "$agent"
+  grep -q "CONFIRMED" "$agent"
+  grep -q "REJECTED" "$agent"
+  grep -q "UNVERIFIABLE" "$agent"
+}
+
+@test "cc-reference-validator consults the advisor on difficult decisions when one is available" {
+  agent="$REPO_ROOT/.claude/agents/cc-reference-validator.md"
+  grep -qi "advisor" "$agent"
+  grep -qi "available" "$agent"
+}
+
+# --- update-cc-references contradiction-validation gate ---
+
+@test "update-cc-references skill has the contradiction-validation gate" {
+  grep -qi "Contradiction-validation gate" "$MAINT"
+  grep -q "cc-reference-validator" "$MAINT"
+  grep -qi "git diff HEAD" "$MAINT"
+  grep -q "UNVERIFIABLE" "$MAINT"
+}
+
+@test "update-cc-references Release is gated on the contradiction gate" {
+  grep -qi "zero unconfirmed contradictions" "$MAINT"
+}
