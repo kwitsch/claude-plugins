@@ -61,7 +61,7 @@ NOT the full Claude Code system prompt. No conversation history.
 - **One task**: each agent should excel at exactly one specific task.
 - **Precise description**: Claude auto-delegates based on description match. Include "Use proactively after X" to encourage delegation. Vague descriptions → missed or wrong delegation.
 - **Least privilege tools**: grant only the tools the agent actually needs. Read-only agents → omit `Write`/`Edit`. Reduces blast radius.
-- **No nested subagents**: subagents cannot spawn other subagents. Use Skills or chain subagents from the main conversation instead.
+- **Nested subagents** (v2.1.172+): a subagent can spawn its own subagents, down to a fixed depth of 5 levels below the main conversation (a subagent at depth 5 receives no Agent tool; the cap counts foreground and background levels alike and is not configurable). Prefer shallow chains — deep nesting compounds latency and context loss.
 - **`skills` not `Skill` in tools**: to inject skill content into the agent, use the `skills` frontmatter field. Listing `Skill` in `tools` does not preload content.
 - **`isolation: worktree`**: use only when the agent makes file edits that would conflict with parallel agents or the main checkout. Adds setup cost (~200–500 ms + disk).
 - **`context: fork` alternative**: for a one-off isolated run that should inherit the current conversation context, use a skill with `context: fork` instead of a named agent.
