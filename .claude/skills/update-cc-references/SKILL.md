@@ -120,6 +120,14 @@ validate every change that contradicts the predecessor version.
   predecessor claim, the new claim, and the file's source-doc URL(s). It returns
   `{verdict, quote, sourceUrl, confidence, notes}`. Escalate to a 2-of-3 majority of fresh
   `cc-reference-validator` dispatches ONLY when a single verdict is UNVERIFIABLE or `confidence:"low"`.
+  - **Reconciliation gate (per `.claude/rules/subagent-tracking.md`).** Agent dispatch is async:
+    each `cc-reference-validator` returns a `task_id` now and its verdict arrives later as a
+    `<task-notification>`. Track every dispatch (including the 2-of-3 escalation batch) with the
+    `Task*` ledger — `TaskCreate` one entry per dispatch (`metadata.dispatch_id` = the Agent
+    `task_id`), `TaskUpdate` → `completed` on each matching notification. Do NOT advance to 8c
+    resolution or Release until dispatched-count == result-count, i.e. EVERY dispatched validator
+    (initial + escalations) has returned a terminal verdict. If the ledger tools fail to load, use a
+    prose count: do not advance until that many structured verdicts are in hand.
 - **8c. Resolve + gate.**
   - CONFIRMED (with quote) → keep the change.
   - REJECTED → revert that hunk to the predecessor version; keep the rest of the file; re-run 8a/8b on
