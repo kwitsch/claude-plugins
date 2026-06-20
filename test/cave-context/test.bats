@@ -167,3 +167,24 @@ setup() {
   assert_failure
 }
 
+@test "SessionStart has two command-hook entries" {
+  run jq -e '.hooks.SessionStart | length == 2' "$HOOKS"
+  assert_success
+}
+
+@test "second SessionStart hook cats SessionStart.md via exec-form cat" {
+  run jq -e '.hooks.SessionStart[1].hooks[0].type == "command"' "$HOOKS"
+  assert_success
+  run jq -e '.hooks.SessionStart[1].hooks[0].command == "cat"' "$HOOKS"
+  assert_success
+  run jq -e '.hooks.SessionStart[1].hooks[0].args[0] | endswith("hooks/SessionStart.md")' "$HOOKS"
+  assert_success
+}
+
+@test "first SessionStart hook is still the bnx.sh/sessionstart.mjs launcher (unchanged)" {
+  cmd="$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$HOOKS")"
+  [[ "$cmd" == *bin/bnx.sh ]]
+  run jq -e '.hooks.SessionStart[0].hooks[0].args[0] | endswith("hooks/sessionstart.mjs")' "$HOOKS"
+  assert_success
+}
+
