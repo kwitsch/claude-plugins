@@ -5,6 +5,7 @@ setup() {
   bats_load_library bats-assert
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
   HOOKS="$REPO_ROOT/plugins/cave-context/hooks/hooks.json"
+  SS_MD="$REPO_ROOT/plugins/cave-context/hooks/SessionStart.md"
 }
 
 @test "hooks.json is valid JSON" {
@@ -136,5 +137,33 @@ setup() {
   assert_success
   run grep -q 'Bash(git:\*)' "$SKILL"
   assert_success
+}
+
+@test "SessionStart.md exists and is non-empty" {
+  [ -s "$SS_MD" ]
+}
+
+@test "SessionStart.md carries the caveman ruleset marker (Part 1)" {
+  run grep -q "CAVE-CONTEXT MODE ACTIVE" "$SS_MD"
+  assert_success
+}
+
+@test "SessionStart.md states the WebFetch -> ctx_fetch_and_index routing rule" {
+  run grep -q "WebFetch" "$SS_MD"
+  assert_success
+  run grep -q "ctx_fetch_and_index" "$SS_MD"
+  assert_success
+}
+
+@test "SessionStart.md uses bare ctx_ tool names (Part 2 routing present)" {
+  run grep -qE "ctx_(execute|search|batch_execute|fetch_and_index)" "$SS_MD"
+  assert_success
+}
+
+@test "SessionStart.md omits denied tools and namespaced ctx_ prefix" {
+  run grep -qE "ctx_stats|ctx_doctor|ctx_upgrade" "$SS_MD"
+  assert_failure
+  run grep -q "mcp__plugin_cave-context" "$SS_MD"
+  assert_failure
 }
 
