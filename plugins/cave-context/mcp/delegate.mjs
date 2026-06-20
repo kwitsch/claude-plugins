@@ -16,7 +16,7 @@ function hookCmd() {
   // Platform token `claude-code` and lowercase event keys (pretooluse/posttooluse/
   // precompact/userpromptsubmit) verified against context-mode 1.0.162 cli.bundle.mjs
   // `mq` routing map; cave-context delegates exactly those four. `sessionstart` is
-  // delegated by hooks/sessionstart.mjs (since v0.5.0) to run
+  // delegated by hooks/sessionresume.mjs (since v0.5.0) to run
   // context-mode's session-init side-effects and return the continuity payload; the
   // SessionStart hook strips context-mode's routing block (the caveman ruleset is emitted
   // separately by the static `cat hooks/SessionStart.md` hook). The four mid-loop events
