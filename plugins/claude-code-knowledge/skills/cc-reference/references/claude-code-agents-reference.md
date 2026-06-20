@@ -1,7 +1,7 @@
 # Claude Code Subagents / Agents — Authoring Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (Claude Code "Create custom subagents"), verified 2026-06-20.
+> (Claude Code "Create custom subagents"), verified 2026-06-21.
 > Apply when authoring, reviewing, or refactoring a subagent definition (`.claude/agents/*.md`).
 
 ## What a subagent is / when to choose it
@@ -57,8 +57,8 @@ Required: `name`, `description`. Body = system prompt (subagent gets ONLY this +
 |---|---|
 | `name` | lowercase + hyphens, unique. Hooks receive it as `agent_type`. Filename need not match. |
 | `description` | when Claude should delegate here. Add "use proactively" to encourage delegation. |
-| `tools` | allowlist; inherits all if omitted. Use `skills` field (not `Skill` here) to preload skills. |
-| `disallowedTools` | denylist; removed from inherited/specified set. |
+| `tools` | allowlist; inherits all if omitted. Use `skills` field (not `Skill` here) to preload skills. Accepts MCP server-level patterns: `mcp__<server>` or `mcp__<server>__*` grants every tool from that server. |
+| `disallowedTools` | denylist; removed from inherited/specified set. Accepts MCP patterns: `mcp__<server>` / `mcp__<server>__*` removes every tool from that server; `mcp__*` removes every MCP tool from any server. |
 | `model` | `sonnet|opus|haiku|fable`, full ID (`claude-opus-4-8`), or `inherit`. Default `inherit`. |
 | `permissionMode` | `default|acceptEdits|auto|dontAsk|bypassPermissions|plan`. Ignored for plugin agents. |
 | `maxTurns` | max agentic turns before stop. |
@@ -93,6 +93,7 @@ actionable feedback on quality, security, and best practices.
 ## Tool & capability control
 
 - **Restrict tools:** `tools:` (allowlist) OR `disallowedTools:` (denylist). If both: denylist applied first, then allowlist against the remainder; a tool in both is removed.
+- **MCP server-level patterns** in either field: `mcp__<server>` / `mcp__<server>__*` = every tool from that server; in `disallowedTools`, `mcp__*` = every MCP tool from any server.
 - **Never available to subagents** (UI/session-bound), even if listed: `AskUserQuestion`, `EnterPlanMode`, `ScheduleWakeup`, `WaitForMcpServers`, and `ExitPlanMode` (unless `permissionMode: plan`).
 - **Restrict which agents a main-thread agent may spawn** (only under `claude --agent`): `tools: Agent(worker, researcher)` (allowlist). `Agent` w/o parens = any; omit `Agent` = none. In a *subagent* definition, the type-list inside parens is ignored (listing `Agent` just lets it spawn nested agents).
 
@@ -114,7 +115,7 @@ actionable feedback on quality, security, and best practices.
 | `plan` | read-only exploration |
 
 - Parent `bypassPermissions`/`acceptEdits` takes precedence and cannot be overridden by the child. Parent `auto` → child inherits auto; child `permissionMode` ignored.
-- `bypassPermissions` still prompts on explicit `ask` rules and root/home removals (`rm -rf /`), but allows writes to `.git`, `.claude`, `.vscode`, etc. — use with extreme caution.
+- `bypassPermissions` still prompts on explicit `ask` rules and root/home removals (`rm -rf /`), but allows writes to protected dirs `.git`, `.config/git`, `.claude`, `.vscode`, `.idea`, `.husky`, `.cargo`, `.devcontainer`, `.yarn`, `.mvn` — use with extreme caution.
 
 ## Conditional rules (finer than `tools`)
 
@@ -185,7 +186,7 @@ skills:
 
 - A fork inherits the ENTIRE conversation (system prompt, tools, model, history) — drops input isolation; its own tool calls stay out of main; only final result returns. First request reuses the parent's prompt cache → cheaper than a fresh subagent for same-context tasks.
 - Use when a named subagent would need too much background, or to try several approaches from the same start.
-- `CLAUDE_CODE_FORK_SUBAGENT=1` enables (works interactive/headless/SDK); `=0` disables everywhere. When on: Claude forks instead of using `general-purpose`; every spawn runs in background (`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` keeps synchronous).
+- `CLAUDE_CODE_FORK_SUBAGENT=1` enables (works interactive/headless/SDK); `=0` disables everywhere. When on: Claude forks only by requesting the `fork` subagent type explicitly (per-spawn opt-in); untyped spawns still use `general-purpose` and named subagents (e.g. Explore) spawn as before. Every fork spawn runs in background (`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` keeps synchronous).
 - Manual: `/fork <directive>`. Panel keys: ↑/↓ move, Enter open+steer, x dismiss/stop, Esc back to prompt.
 
 | | Fork | Named subagent |
@@ -208,6 +209,7 @@ skills:
 - Explore/Plan are one-shot (no agent ID, not resumable) — use `general-purpose`/custom to continue.
 - Resume uses `SendMessage` (agent ID as `to`) — only when agent teams enabled (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`). A stopped agent receiving `SendMessage` auto-resumes in background.
 - Transcripts: `~/.claude/projects/{project}/{sessionId}/subagents/agent-{agentId}.jsonl`; survive main compaction; persist within session; cleaned per `cleanupPeriodDays` (default 30). Subagents auto-compact with same logic; `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` applies.
+- Auto-compaction marker in the transcript: a `type: system` event with `subtype: compact_boundary`, `compactMetadata.trigger: "auto"`, and `compactMetadata.preTokens` (token count before compaction).
 
 ## Plugin subagent restrictions
 

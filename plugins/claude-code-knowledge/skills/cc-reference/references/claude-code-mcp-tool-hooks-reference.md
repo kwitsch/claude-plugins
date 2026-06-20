@@ -1,6 +1,6 @@
 # Claude Code mcp_tool hooks reference
 
-<!-- verified 2026-06-20 · CURATED: doc-derived + hard-won gotchas. The server-name
+<!-- verified 2026-06-21 · CURATED: doc-derived + hard-won gotchas. The server-name
      namespacing rule below is NOT reliably in the official docs — preserve it on any
      refresh; never regenerate this file wholesale. -->
 
@@ -21,6 +21,11 @@ handler-type choice see `hook-handler-selection.md`; for hook mechanics see
 `mcp_tool` requires an **already-connected** server; the hook never triggers a
 connection flow.
 
+**Fail-open is two-fold:** a *non-blocking error* (execution continues regardless)
+occurs both when the named server is **not connected** AND when the tool returns
+`isError: true`. So a tool that signals an error cannot block — to deny/abort, return
+a valid hook-decision JSON (see *Output contract*), never `isError`.
+
 ## Hook fields
 
 | Field | Required | Notes |
@@ -28,7 +33,7 @@ connection flow.
 | `type` | yes | `"mcp_tool"` |
 | `server` | yes | Name of a **connected** server — see *Server name* below |
 | `tool` | yes | Tool to call on that server |
-| `input` | no | Arguments object; `${path}` substitution from the hook JSON (e.g. `${tool_input.file_path}`, `${cwd}`). Omit → the tool receives the full hook event JSON as its arguments |
+| `input` | no | Arguments object; `${path}` substitution from the hook JSON (e.g. `${tool_input.file_path}`, `${session_id}`, `${cwd}`). Omit → the tool receives the full hook event JSON as its arguments |
 
 Common fields apply (`if`, `timeout` default 600s, `statusMessage`).
 
