@@ -22,15 +22,15 @@ setup() {
   assert_success
 }
 
-@test "SessionStart command hook launches via bnx.sh with sessionstart.mjs in args" {
+@test "SessionStart command hook launches via bnx.sh with sessionresume.mjs in args" {
   run jq -e '.hooks.SessionStart[0].hooks[0].type == "command"' "$HOOKS"
   assert_success
   cmd="$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$HOOKS")"
   # Command is now the launcher, NOT the .mjs.
   [[ "$cmd" == *bin/bnx.sh ]]
-  [[ "$cmd" != *sessionstart.mjs ]]
+  [[ "$cmd" != *sessionresume.mjs ]]
   # The .mjs script path appears in args.
-  run jq -e '.hooks.SessionStart[0].hooks[0].args[0] | endswith("hooks/sessionstart.mjs")' "$HOOKS"
+  run jq -e '.hooks.SessionStart[0].hooks[0].args[0] | endswith("hooks/sessionresume.mjs")' "$HOOKS"
   assert_success
 }
 
@@ -75,25 +75,27 @@ setup() {
 }
 
 @test "referenced command-hook files exist and are executable" {
-  for f in sessionstart.mjs; do
+  for f in sessionresume.mjs sessionstartup.mjs; do
     [ -x "$REPO_ROOT/plugins/cave-context/hooks/$f" ]
   done
 }
 
-@test "sessionstart.mjs emits valid JSON and never additionalContext: null on fresh start" {
+@test "sessionresume.mjs emits valid JSON and never additionalContext: null when no continuity" {
   # Isolate HOME + CLAUDE_PLUGIN_DATA so the test stays deterministic and never
-  # touches the real ~/.claude/. sessionstart no longer seeds any state file, and no
+  # touches the real ~/.claude/. sessionresume.mjs no longer seeds any state file, and no
   # longer emits the caveman ruleset (that is the `cat hooks/SessionStart.md` hook now).
-  # Fresh start has no continuity to inject; Claude Code's SessionStart schema rejects
+  # With no continuity to inject; Claude Code's SessionStart schema rejects
   # additionalContext: null (must be a string or omitted), so the hook emits exactly `{}`.
+  # (Invoked directly with empty stdin — the .mjs still fail-safes to {} regardless of the
+  # harness-level resume|compact matcher on hooks.json.)
   tmp="$(mktemp -d)"
   home="$(mktemp -d)"
   run env CAVE_CONTEXT_NO_UPSTREAM=1 CLAUDE_PLUGIN_DATA="$tmp" HOME="$home" \
-    node "$REPO_ROOT/plugins/cave-context/hooks/sessionstart.mjs" < /dev/null
+    node "$REPO_ROOT/plugins/cave-context/hooks/sessionresume.mjs" < /dev/null
   assert_success
   # Output must parse as JSON and be exactly {} — regression guard for the invalid
   # additionalContext: null envelope (jq -e fails on a parse error or a false result).
-  run bash -c 'env CAVE_CONTEXT_NO_UPSTREAM=1 CLAUDE_PLUGIN_DATA="'"$tmp"'" HOME="'"$home"'" node "'"$REPO_ROOT"'/plugins/cave-context/hooks/sessionstart.mjs" < /dev/null | jq -e ". == {}"'
+  run bash -c 'env CAVE_CONTEXT_NO_UPSTREAM=1 CLAUDE_PLUGIN_DATA="'"$tmp"'" HOME="'"$home"'" node "'"$REPO_ROOT"'/plugins/cave-context/hooks/sessionresume.mjs" < /dev/null | jq -e ". == {}"'
   assert_success
   rm -rf "$tmp" "$home"
 }
@@ -171,24 +173,47 @@ setup() {
   assert_failure
 }
 
-@test "SessionStart has two command-hook entries" {
-  run jq -e '.hooks.SessionStart | length == 2' "$HOOKS"
+@test "SessionStart has three command-hook entries" {
+  run jq -e '.hooks.SessionStart | length == 3' "$HOOKS"
   assert_success
 }
 
-@test "second SessionStart hook cats SessionStart.md via exec-form cat" {
-  run jq -e '.hooks.SessionStart[1].hooks[0].type == "command"' "$HOOKS"
-  assert_success
-  run jq -e '.hooks.SessionStart[1].hooks[0].command == "cat"' "$HOOKS"
-  assert_success
-  run jq -e '.hooks.SessionStart[1].hooks[0].args[0] | endswith("hooks/SessionStart.md")' "$HOOKS"
-  assert_success
-}
-
-@test "first SessionStart hook is still the bnx.sh/sessionstart.mjs launcher (unchanged)" {
+@test "SessionStart[0] is the bnx.sh/sessionresume.mjs launcher, matched resume|compact" {
   cmd="$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$HOOKS")"
   [[ "$cmd" == *bin/bnx.sh ]]
-  run jq -e '.hooks.SessionStart[0].hooks[0].args[0] | endswith("hooks/sessionstart.mjs")' "$HOOKS"
+  run jq -e '.hooks.SessionStart[0].hooks[0].args[0] | endswith("hooks/sessionresume.mjs")' "$HOOKS"
+  assert_success
+  # The continuity hook fires ONLY on resume|compact — SessionStart matchers filter on the
+  # session source, so startup/clear no longer trigger the (continuity-only) delegate.
+  run jq -e '.hooks.SessionStart[0].matcher == "resume|compact"' "$HOOKS"
+  assert_success
+}
+
+@test "SessionStart[1] is the bnx.sh/sessionstartup.mjs launcher, matched startup (side-effects only)" {
+  run jq -e '.hooks.SessionStart[1].hooks[0].type == "command"' "$HOOKS"
+  assert_success
+  cmd="$(jq -r '.hooks.SessionStart[1].hooks[0].command' "$HOOKS")"
+  [[ "$cmd" == *bin/bnx.sh ]]
+  run jq -e '.hooks.SessionStart[1].hooks[0].args[0] | endswith("hooks/sessionstartup.mjs")' "$HOOKS"
+  assert_success
+  # The startup hook fires ONLY on startup — it delegates to context-mode purely for its
+  # startup-only side-effects (CLAUDE.md capture, session GC, session_start lifecycle anchor)
+  # and injects no continuity (it always emits {}). Restores parity with context-mode.
+  run jq -e '.hooks.SessionStart[1].matcher == "startup"' "$HOOKS"
+  assert_success
+}
+
+@test "SessionStart[2] cats SessionStart.md via exec-form cat and fires on ALL sources (no matcher)" {
+  run jq -e '.hooks.SessionStart[2].hooks[0].type == "command"' "$HOOKS"
+  assert_success
+  run jq -e '.hooks.SessionStart[2].hooks[0].command == "cat"' "$HOOKS"
+  assert_success
+  run jq -e '.hooks.SessionStart[2].hooks[0].args[0] | endswith("hooks/SessionStart.md")' "$HOOKS"
+  assert_success
+  # TRIPWIRE: the ruleset hook MUST NOT carry a matcher. SessionStart matchers filter on
+  # source (startup|resume|clear|compact); a matcher here would stop the caveman ruleset
+  # from injecting on fresh `startup`/`clear` sessions — i.e. silently disable the plugin.
+  run jq -e '.hooks.SessionStart[2] | has("matcher") | not' "$HOOKS"
   assert_success
 }
 

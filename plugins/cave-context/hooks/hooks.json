@@ -2,11 +2,22 @@
   "hooks": {
     "SessionStart": [
       {
+        "matcher": "resume|compact",
         "hooks": [
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/bin/bnx.sh",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/sessionstart.mjs"]
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/sessionresume.mjs"]
+          }
+        ]
+      },
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/bnx.sh",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/sessionstartup.mjs"]
           }
         ]
       },
