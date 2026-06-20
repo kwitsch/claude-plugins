@@ -12,7 +12,6 @@ function run(envExtra, sourceObj) {
   const home = mkdtempSync(join(tmpdir(), "cc-ss-home-"));
   try {
     const env = { ...process.env, HOME: home, ...envExtra };
-    delete env.CLAUDE_PLUGIN_ROOT; // keep cache-heal a no-op in tests
     const res = spawnSync("node", [HOOK], { env, input: JSON.stringify(sourceObj), encoding: "utf8" });
     assert.equal(res.status, 0, res.stderr);
     return JSON.parse(res.stdout);

@@ -1,6 +1,10 @@
 // delegate.mjs — run the context-mode hook CLI for one event, return parsed output or null.
+// The spawn sets CONTEXT_MODE_DIR (context-mode's persistent storage root) via the shared
+// context-mode-env helper, so the delegate CLI shares the same context-mode data as the
+// upstream MCP server (no split-brain between hook-captured data and the server's store).
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { contextModeEnv } from "./context-mode-env.mjs";
 
 // CLI invocation prefix: `context-mode hook <platform>`. The event name is appended
 // (lowercased) by delegateHook below.
@@ -32,7 +36,7 @@ export function delegateHook(event, stdinObj, timeoutMs = 8000) {
   return new Promise((resolve) => {
     let child;
     // The context-mode CLI keys events lowercase; capitalised event names exit(1) silently.
-    try { child = spawn(bin, [...args, event.toLowerCase()], { stdio: ["pipe", "pipe", "ignore"] }); }
+    try { child = spawn(bin, [...args, event.toLowerCase()], { stdio: ["pipe", "pipe", "ignore"], env: contextModeEnv() }); }
     catch { return resolve(null); }
     let out = ""; let done = false;
     const finish = (v) => { if (!done) { done = true; resolve(v); } };
