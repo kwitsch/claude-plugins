@@ -140,6 +140,9 @@ validate every change that contradicts the predecessor version.
     any cascading change.
   - UNVERIFIABLE → revert that hunk to the predecessor version (cc-reference must mirror the docs;
     silence is not evidence — repo augmentations live in `.claude/rules/`, not here).
+  - No majority (the 2-of-3 escalation batch returns three different verdicts, e.g.
+    CONFIRMED/REJECTED/UNVERIFIABLE one each) → apply the skeptical default: treat as UNVERIFIABLE and
+    revert that hunk to the predecessor version.
   - If reverts leave a file with no real content change, drop it from the release and revert the
     step-6 `verified`-date bump for that file (step 6 already freshened the date, so "do not bump" is
     unreachable — the dropped file must be returned to its predecessor date so it reads as unchanged).
