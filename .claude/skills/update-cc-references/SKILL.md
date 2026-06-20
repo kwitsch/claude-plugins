@@ -122,12 +122,18 @@ validate every change that contradicts the predecessor version.
   `cc-reference-validator` dispatches ONLY when a single verdict is UNVERIFIABLE or `confidence:"low"`.
   - **Reconciliation gate (per `.claude/rules/subagent-tracking.md`).** Agent dispatch is async:
     each `cc-reference-validator` returns a `task_id` now and its verdict arrives later as a
-    `<task-notification>`. Track every dispatch (including the 2-of-3 escalation batch) with the
-    `Task*` ledger — `TaskCreate` one entry per dispatch (`metadata.dispatch_id` = the Agent
-    `task_id`), `TaskUpdate` → `completed` on each matching notification. Do NOT advance to 8c
-    resolution or Release until dispatched-count == result-count, i.e. EVERY dispatched validator
-    (initial + escalations) has returned a terminal verdict. If the ledger tools fail to load, use a
-    prose count: do not advance until that many structured verdicts are in hand.
+    `<task-notification>`. Load the ledger tools once (deferred; resolve at depth 0, where this skill
+    runs — a subagent-scoped probe falsely reports these absent, do NOT skip the ledger on that basis):
+    `ToolSearch(query: "select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop")` (retry bare names).
+    Only if the CRUD ledger tools (TaskCreate/TaskUpdate/TaskList) fail to load, use the prose count —
+    TaskStop loading alone is not sufficient to activate the ledger path. Track every dispatch
+    (including the 2-of-3 escalation batch) with the `Task*` ledger — `TaskCreate` one entry per
+    dispatch (`metadata.dispatch_id` = the Agent `task_id`), `TaskUpdate` → `completed` on each matching
+    notification. Do NOT advance to 8c resolution or Release until dispatched-count == result-count,
+    i.e. EVERY dispatched validator (initial + escalations) has returned a terminal verdict. Escape
+    hatch only: if a still-`in_progress` dispatch is judged genuinely stuck, `TaskStop` its
+    `dispatch_id`, mark it terminal (record a soft-failure), and proceed. If the CRUD ledger tools
+    fail to load, use a prose count: do not advance until that many structured verdicts are in hand.
 - **8c. Resolve + gate.**
   - CONFIRMED (with quote) → keep the change.
   - REJECTED → revert that hunk to the predecessor version; keep the rest of the file; re-run 8a/8b on
