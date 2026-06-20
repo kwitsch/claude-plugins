@@ -21,28 +21,25 @@ function run(envExtra, sourceObj) {
   }
 }
 
-test("always emits the condensed cave-context block", () => {
+// New contract: sessionstart.mjs no longer emits the caveman ruleset (that is now the
+// static `cat hooks/SessionStart.md` second SessionStart hook). additionalContext is the
+// restored continuity payload on resume/compact, else null.
+
+test("fresh startup with upstream disabled emits no ruleset and no continuity", () => {
   const out = run({ CAVE_CONTEXT_NO_UPSTREAM: "1" }, { source: "startup" });
   assert.equal(out.hookSpecificOutput.hookEventName, "SessionStart");
-  assert.match(out.hookSpecificOutput.additionalContext, /CAVE-CONTEXT MODE ACTIVE/);
+  assert.equal(out.hookSpecificOutput.additionalContext, null);
 });
 
-test("fresh startup with upstream disabled = condensed block only (no continuity)", () => {
-  const out = run({ CAVE_CONTEXT_NO_UPSTREAM: "1" }, { source: "startup" });
-  assert.ok(!out.hookSpecificOutput.additionalContext.includes("session_knowledge"));
-});
-
-test("compact merges the extracted continuity after the condensed block, drops routing", () => {
+test("compact restores continuity only (routing dropped, no ruleset prefix)", () => {
   const out = run({ CAVE_CONTEXT_HOOK_CMD: FAKE_SS }, { source: "compact" });
   const ac = out.hookSpecificOutput.additionalContext;
-  assert.match(ac, /CAVE-CONTEXT MODE ACTIVE/);          // condensed block present
   assert.match(ac, /<session_knowledge source="compact">/); // continuity present
-  assert.ok(!ac.includes("ctx_routing"));                 // context-mode routing block dropped
-  assert.ok(ac.indexOf("CAVE-CONTEXT") < ac.indexOf("session_knowledge")); // condensed first
+  assert.ok(!ac.includes("ctx_routing"));                    // context-mode routing block dropped
+  assert.doesNotMatch(ac, /CAVE-CONTEXT MODE ACTIVE/);       // no ruleset prefix anymore
 });
 
 test("clear source never restores continuity even if upstream returns it", () => {
   const out = run({ CAVE_CONTEXT_HOOK_CMD: FAKE_SS }, { source: "clear" });
-  assert.match(out.hookSpecificOutput.additionalContext, /CAVE-CONTEXT MODE ACTIVE/);
-  assert.ok(!out.hookSpecificOutput.additionalContext.includes("session_knowledge"));
+  assert.equal(out.hookSpecificOutput.additionalContext, null);
 });

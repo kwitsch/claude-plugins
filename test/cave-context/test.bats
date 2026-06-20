@@ -80,17 +80,19 @@ setup() {
   done
 }
 
-@test "sessionstart.mjs emits valid JSON with the caveman ruleset marker" {
+@test "sessionstart.mjs emits valid SessionStart JSON (ruleset now via SessionStart.md)" {
   # Isolate HOME + CLAUDE_PLUGIN_DATA so the test stays deterministic and never
-  # touches the real ~/.claude/. sessionstart no longer seeds any state file.
+  # touches the real ~/.claude/. sessionstart no longer seeds any state file, and no
+  # longer emits the caveman ruleset (that is the `cat hooks/SessionStart.md` hook now).
   tmp="$(mktemp -d)"
   home="$(mktemp -d)"
   run env CAVE_CONTEXT_NO_UPSTREAM=1 CLAUDE_PLUGIN_DATA="$tmp" HOME="$home" \
     node "$REPO_ROOT/plugins/cave-context/hooks/sessionstart.mjs" < /dev/null
   assert_success
-  run bash -c 'env CAVE_CONTEXT_NO_UPSTREAM=1 CLAUDE_PLUGIN_DATA="'"$tmp"'" HOME="'"$home"'" node "'"$REPO_ROOT"'/plugins/cave-context/hooks/sessionstart.mjs" < /dev/null | jq -r ".hookSpecificOutput.additionalContext"'
+  # Output must parse as JSON and carry the SessionStart envelope (jq -e fails on a
+  # parse error or a false result, so this stays load-bearing despite null context).
+  run bash -c 'env CAVE_CONTEXT_NO_UPSTREAM=1 CLAUDE_PLUGIN_DATA="'"$tmp"'" HOME="'"$home"'" node "'"$REPO_ROOT"'/plugins/cave-context/hooks/sessionstart.mjs" < /dev/null | jq -e ".hookSpecificOutput.hookEventName == \"SessionStart\""'
   assert_success
-  assert_output --partial "CAVE-CONTEXT MODE ACTIVE"
   rm -rf "$tmp" "$home"
 }
 
@@ -186,15 +188,5 @@ setup() {
   [[ "$cmd" == *bin/bnx.sh ]]
   run jq -e '.hooks.SessionStart[0].hooks[0].args[0] | endswith("hooks/sessionstart.mjs")' "$HOOKS"
   assert_success
-}
-
-@test "SessionStart.md Part 1 stays byte-identical to rulesetText()" {
-  # Drift guard: Part 1 (everything before the "# Context routing" heading) is an
-  # intentional static duplicate of caveman.mjs rulesetText(). A rulesetText()
-  # change must be mirrored here, or this test fails. Command substitution strips
-  # trailing newlines from both sides, so they differ only by a trailing newline.
-  rt="$(node --input-type=module -e 'import("'"$REPO_ROOT"'/plugins/cave-context/mcp/caveman.mjs").then(m=>process.stdout.write(m.rulesetText()))')"
-  part1="$(awk '/^# Context routing/{exit} {print}' "$SS_MD" | sed -e :a -e '/^[[:space:]]*$/{$d;N;ba}')"
-  [ "$part1" = "$rt" ]
 }
 

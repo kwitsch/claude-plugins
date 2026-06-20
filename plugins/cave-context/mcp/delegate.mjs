@@ -14,9 +14,9 @@ function hookCmd() {
   // `mq` routing map; cave-context delegates exactly those four. `sessionstart` is
   // delegated by hooks/sessionstart.mjs (since v0.5.0) to run
   // context-mode's session-init side-effects and return the continuity payload; the
-  // SessionStart hook strips context-mode's routing block and injects its own condensed
-  // ruleset. The four mid-loop events (pretooluse/posttooluse/precompact/userpromptsubmit)
-  // are delegated as before.
+  // SessionStart hook strips context-mode's routing block (the caveman ruleset is emitted
+  // separately by the static `cat hooks/SessionStart.md` hook). The four mid-loop events
+  // (pretooluse/posttooluse/precompact/userpromptsubmit) are delegated as before.
   // The CLI process.exit(1)s silently on an unknown platform/event key (no stdout/
   // stderr), and delegateHook() fails open (returns null) on any error — so the event
   // MUST be lowercased before it reaches the CLI.
