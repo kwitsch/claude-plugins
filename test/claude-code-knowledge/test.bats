@@ -585,3 +585,9 @@ reroute_call() {
   grep -q "REJECTED" "$agent"
   grep -q "UNVERIFIABLE" "$agent"
 }
+
+@test "cc-reference-validator consults the advisor on difficult decisions when one is available" {
+  agent="$REPO_ROOT/.claude/agents/cc-reference-validator.md"
+  grep -qi "advisor" "$agent"
+  grep -qi "available" "$agent"
+}

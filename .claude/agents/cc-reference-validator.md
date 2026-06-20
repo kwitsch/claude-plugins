@@ -29,6 +29,13 @@ correct prior claim with a wrong or fabricated one.
   fetched doc(s), it is at most UNVERIFIABLE — never CONFIRMED.
 - When genuinely torn between CONFIRMED and a weaker verdict, choose the weaker one.
 
+## Difficult decisions
+When the doc evidence is genuinely ambiguous, or you are torn between verdicts (e.g. CONFIRMED vs
+UNVERIFIABLE), and an `advisor` tool is available to you, call `advisor` BEFORE finalizing — it
+forwards your full context to a stronger reviewer; weight its input heavily. If no `advisor` tool is
+available, do not block: apply the skeptical default (choose the weaker verdict) and lower
+`confidence`. Never fabricate an advisor result or claim you consulted one when you did not.
+
 ## Output
 Your final message IS the return value: raw JSON only, no surrounding prose.
 {"verdict":"CONFIRMED|REJECTED|UNVERIFIABLE","quote":"<verbatim doc quote or empty>","sourceUrl":"<url used>","confidence":"high|medium|low","notes":"<one line>"}
