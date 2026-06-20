@@ -99,7 +99,7 @@ is documented in the **hooks-mcp-server** rule.
 | `UserPromptSubmit` | — (ignored) | Yes | Blocks prompt; erases it on block |
 | `Stop` | — | Yes | Prevents Claude stopping |
 | `SubagentStart` | agent type name | No | Notification only |
-| `SubagentStop` | agent type name | No | Notification only |
+| `SubagentStop` | agent type name | Yes | Prevents subagent stopping (exit 2 or `decision: "block"`) |
 | `PreCompact` | `manual` `auto` | Yes | Block compaction |
 | `PostCompact` | `manual` `auto` | No | |
 | `FileChanged` | — | No | Async file watch events |
