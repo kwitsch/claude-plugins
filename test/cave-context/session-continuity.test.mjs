@@ -1,7 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { extractContinuity } from "../../plugins/cave-context/mcp/session-continuity.mjs";
-import { sessionStartPrompt } from "../../plugins/cave-context/mcp/sessionprompt.mjs";
 
 const ROUTING = "<ctx_routing>Route big output through ctx_* tools.</ctx_routing>";
 
@@ -35,12 +34,13 @@ test("picks the earliest marker when both appear", () => {
   assert.match(extractContinuity(ac), /^# Session Resume/);
 });
 
-test("extractContinuity strips a sessionStartPrompt-shaped routing prefix", () => {
-  // Feed extractContinuity an upstream-shaped payload: sessionStartPrompt() as the
-  // routing prefix (simulating context-mode's routing block), followed by a continuity
-  // tail. Confirms the new routing table rows (ctx_fetch_and_index, | native) do not
-  // leak into the stripped continuity result.
-  const ac = sessionStartPrompt() + '\n\n<session_knowledge source="compact">resume payload</session_knowledge>';
+test("extractContinuity strips a multi-line routing-table prefix, keeps continuity", () => {
+  // Feed extractContinuity an upstream-shaped payload: a multi-line routing-table prefix
+  // (simulating context-mode's routing block), followed by a continuity tail. Confirms
+  // the routing table rows (ctx_fetch_and_index, | native) do not leak into the stripped
+  // continuity result.
+  const routingPrefix = "# Context routing\n\n| native | use instead |\n|---|---|\n| WebFetch | ctx_fetch_and_index |\n";
+  const ac = routingPrefix + '\n<session_knowledge source="compact">resume payload</session_knowledge>';
   const stripped = extractContinuity(ac);
   assert.doesNotMatch(stripped, /ctx_fetch_and_index/);
   assert.doesNotMatch(stripped, /\| native/);

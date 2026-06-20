@@ -1,6 +1,10 @@
 // delegate.mjs — run the context-mode hook CLI for one event, return parsed output or null.
+// The spawn sets CONTEXT_MODE_DIR (context-mode's persistent storage root) via the shared
+// context-mode-env helper, so the delegate CLI shares the same context-mode data as the
+// upstream MCP server (no split-brain between hook-captured data and the server's store).
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { contextModeEnv } from "./context-mode-env.mjs";
 
 // CLI invocation prefix: `context-mode hook <platform>`. The event name is appended
 // (lowercased) by delegateHook below.
@@ -14,9 +18,9 @@ function hookCmd() {
   // `mq` routing map; cave-context delegates exactly those four. `sessionstart` is
   // delegated by hooks/sessionstart.mjs (since v0.5.0) to run
   // context-mode's session-init side-effects and return the continuity payload; the
-  // SessionStart hook strips context-mode's routing block and injects its own condensed
-  // ruleset. The four mid-loop events (pretooluse/posttooluse/precompact/userpromptsubmit)
-  // are delegated as before.
+  // SessionStart hook strips context-mode's routing block (the caveman ruleset is emitted
+  // separately by the static `cat hooks/SessionStart.md` hook). The four mid-loop events
+  // (pretooluse/posttooluse/precompact/userpromptsubmit) are delegated as before.
   // The CLI process.exit(1)s silently on an unknown platform/event key (no stdout/
   // stderr), and delegateHook() fails open (returns null) on any error — so the event
   // MUST be lowercased before it reaches the CLI.
@@ -32,7 +36,7 @@ export function delegateHook(event, stdinObj, timeoutMs = 8000) {
   return new Promise((resolve) => {
     let child;
     // The context-mode CLI keys events lowercase; capitalised event names exit(1) silently.
-    try { child = spawn(bin, [...args, event.toLowerCase()], { stdio: ["pipe", "pipe", "ignore"] }); }
+    try { child = spawn(bin, [...args, event.toLowerCase()], { stdio: ["pipe", "pipe", "ignore"], env: contextModeEnv() }); }
     catch { return resolve(null); }
     let out = ""; let done = false;
     const finish = (v) => { if (!done) { done = true; resolve(v); } };

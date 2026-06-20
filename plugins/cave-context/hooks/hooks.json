@@ -9,6 +9,15 @@
             "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/sessionstart.mjs"]
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cat",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/SessionStart.md"]
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [

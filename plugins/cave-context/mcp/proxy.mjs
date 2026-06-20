@@ -2,6 +2,7 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import readline from "node:readline";
+import { contextModeEnv } from "./context-mode-env.mjs";
 
 const PROTOCOL = "2025-11-25";
 // Handshake (initialize / tools/list). Generous enough to absorb a cold `npx -y context-mode`
@@ -36,7 +37,10 @@ export class Upstream {
 
   start() {
     const [bin, ...args] = upstreamCmd();
-    this.child = spawn(bin, args, { stdio: ["pipe", "pipe", "inherit"] });
+    // One-time diagnostic (server spawns once per session, so no per-event spam): without
+    // CLAUDE_PLUGIN_DATA the helper leaves CONTEXT_MODE_DIR unset and context-mode uses its default.
+    if (!String(process.env.CLAUDE_PLUGIN_DATA ?? "").trim()) process.stderr.write("[cave-context] CLAUDE_PLUGIN_DATA unset — context-mode uses its default storage dir\n");
+    this.child = spawn(bin, args, { stdio: ["pipe", "pipe", "inherit"], env: contextModeEnv() });
     this.alive = true;
     this.child.on("exit", () => this._die("upstream exited"));
     this.child.on("error", () => this._die("upstream spawn error"));

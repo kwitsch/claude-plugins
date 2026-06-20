@@ -5,6 +5,7 @@ setup() {
   bats_load_library bats-assert
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
   HOOKS="$REPO_ROOT/plugins/cave-context/hooks/hooks.json"
+  SS_MD="$REPO_ROOT/plugins/cave-context/hooks/SessionStart.md"
 }
 
 @test "hooks.json is valid JSON" {
@@ -79,17 +80,19 @@ setup() {
   done
 }
 
-@test "sessionstart.mjs emits valid JSON with the caveman ruleset marker" {
+@test "sessionstart.mjs emits valid SessionStart JSON (ruleset now via SessionStart.md)" {
   # Isolate HOME + CLAUDE_PLUGIN_DATA so the test stays deterministic and never
-  # touches the real ~/.claude/. sessionstart no longer seeds any state file.
+  # touches the real ~/.claude/. sessionstart no longer seeds any state file, and no
+  # longer emits the caveman ruleset (that is the `cat hooks/SessionStart.md` hook now).
   tmp="$(mktemp -d)"
   home="$(mktemp -d)"
   run env CAVE_CONTEXT_NO_UPSTREAM=1 CLAUDE_PLUGIN_DATA="$tmp" HOME="$home" \
     node "$REPO_ROOT/plugins/cave-context/hooks/sessionstart.mjs" < /dev/null
   assert_success
-  run bash -c 'env CAVE_CONTEXT_NO_UPSTREAM=1 CLAUDE_PLUGIN_DATA="'"$tmp"'" HOME="'"$home"'" node "'"$REPO_ROOT"'/plugins/cave-context/hooks/sessionstart.mjs" < /dev/null | jq -r ".hookSpecificOutput.additionalContext"'
+  # Output must parse as JSON and carry the SessionStart envelope (jq -e fails on a
+  # parse error or a false result, so this stays load-bearing despite null context).
+  run bash -c 'env CAVE_CONTEXT_NO_UPSTREAM=1 CLAUDE_PLUGIN_DATA="'"$tmp"'" HOME="'"$home"'" node "'"$REPO_ROOT"'/plugins/cave-context/hooks/sessionstart.mjs" < /dev/null | jq -e ".hookSpecificOutput.hookEventName == \"SessionStart\""'
   assert_success
-  assert_output --partial "CAVE-CONTEXT MODE ACTIVE"
   rm -rf "$tmp" "$home"
 }
 
@@ -135,6 +138,55 @@ setup() {
   run grep -q 'AskUserQuestion' "$SKILL"
   assert_success
   run grep -q 'Bash(git:\*)' "$SKILL"
+  assert_success
+}
+
+@test "SessionStart.md exists and is non-empty" {
+  [ -s "$SS_MD" ]
+}
+
+@test "SessionStart.md carries the caveman ruleset marker (Part 1)" {
+  run grep -q "CAVE-CONTEXT MODE ACTIVE" "$SS_MD"
+  assert_success
+}
+
+@test "SessionStart.md states the WebFetch -> ctx_fetch_and_index routing rule" {
+  run grep -q "WebFetch" "$SS_MD"
+  assert_success
+  run grep -q "ctx_fetch_and_index" "$SS_MD"
+  assert_success
+}
+
+@test "SessionStart.md uses bare ctx_ tool names (Part 2 routing present)" {
+  run grep -qE "ctx_(execute|search|batch_execute|fetch_and_index)" "$SS_MD"
+  assert_success
+}
+
+@test "SessionStart.md omits denied tools and namespaced ctx_ prefix" {
+  run grep -qE "ctx_stats|ctx_doctor|ctx_upgrade" "$SS_MD"
+  assert_failure
+  run grep -q "mcp__plugin_cave-context" "$SS_MD"
+  assert_failure
+}
+
+@test "SessionStart has two command-hook entries" {
+  run jq -e '.hooks.SessionStart | length == 2' "$HOOKS"
+  assert_success
+}
+
+@test "second SessionStart hook cats SessionStart.md via exec-form cat" {
+  run jq -e '.hooks.SessionStart[1].hooks[0].type == "command"' "$HOOKS"
+  assert_success
+  run jq -e '.hooks.SessionStart[1].hooks[0].command == "cat"' "$HOOKS"
+  assert_success
+  run jq -e '.hooks.SessionStart[1].hooks[0].args[0] | endswith("hooks/SessionStart.md")' "$HOOKS"
+  assert_success
+}
+
+@test "first SessionStart hook is still the bnx.sh/sessionstart.mjs launcher (unchanged)" {
+  cmd="$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$HOOKS")"
+  [[ "$cmd" == *bin/bnx.sh ]]
+  run jq -e '.hooks.SessionStart[0].hooks[0].args[0] | endswith("hooks/sessionstart.mjs")' "$HOOKS"
   assert_success
 }
 
