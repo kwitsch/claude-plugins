@@ -35,7 +35,7 @@ test("picks the earliest marker when both appear", () => {
   assert.match(extractContinuity(ac), /^# Session Resume/);
 });
 
-test("extractContinuity strips routing table and coexistence section", () => {
+test("extractContinuity strips a sessionStartPrompt-shaped routing prefix", () => {
   // Feed extractContinuity an upstream-shaped payload: sessionStartPrompt() as the
   // routing prefix (simulating context-mode's routing block), followed by a continuity
   // tail. Confirms the new routing table rows (ctx_fetch_and_index, | native) do not

@@ -17,8 +17,5 @@ export function sessionStartPrompt() {
     "| recall prior work / search indexed | ctx_search | — |",
     "",
     "File writes → native Write/Edit, never ctx_* (sandbox FS discarded).",
-    "",
-    "## Coexistence",
-    "cave-context replaces caveman AND context-mode — uninstall both if installed (running alongside re-creates the hook competition this fixes).",
   ].join("\n");
 }
