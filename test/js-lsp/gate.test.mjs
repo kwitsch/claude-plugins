@@ -91,16 +91,21 @@ test('search guard passes Bash grep with JS symbol on non-JS file', () => {
   assert.deepEqual(o, {});
 });
 
-test('PostToolUse LSP success clears lspUnavailable (escape hatch re-arms gate)', () => {
-  // Trigger escape hatch: 2 blocked reads -> lspUnavailable, 3rd passes fail-open
-  assert.equal(isDeny(H.handlePreToolUse(read('/proj/a.js'))), true); // blockedNoNav=1
-  assert.equal(isDeny(H.handlePreToolUse(read('/proj/a.js'))), true); // blockedNoNav=2 -> lspUnavailable=true
+test('PostToolUse LSP success re-arms the read gate (one nav re-gates, two enter surgical mode)', () => {
+  // Trigger escape hatch: 2 blocked reads -> lspUnavailable, 3rd passes fail-open.
+  // readCount climbs to 2 (reads 1-2 increment; read 3 short-circuits at the entry check).
+  assert.equal(isDeny(H.handlePreToolUse(read('/proj/a.js'))), true); // readCount=1, blockedNoNav=1
+  assert.equal(isDeny(H.handlePreToolUse(read('/proj/a.js'))), true); // readCount=2, blockedNoNav=2 -> lspUnavailable=true
   assert.deepEqual(H.handlePreToolUse(read('/proj/a.js')), {});       // lspUnavailable: fail-open
 
-  // Successful LSP call: clears lspUnavailable, sets warmupDone, navCount=1
-  H.handlePostToolUse(lsp());
+  // ONE successful LSP call genuinely re-arms the gate: lspUnavailable=false,
+  // navCount=1, blockedNoNav reset to 0 (without the reset the entry check would
+  // short-circuit to ALLOW and re-set lspUnavailable, so the gate could never re-arm).
+  H.handlePostToolUse(lsp());                                         // navCount=1, blockedNoNav=0
+  assert.deepEqual(H.handlePreToolUse(read('/proj/a.js')), {});       // readCount=3 (<GATE2_AT): pass
+  assert.equal(isDeny(H.handlePreToolUse(read('/proj/a.js'))), true); // readCount=4 (>=GATE2_AT), navCount=1<2 -> gate 2 re-fires
 
-  // With 2 navs, gate 2 never fires regardless of readCount -> all reads pass
+  // A SECOND successful LSP call (navCount=2) enters surgical mode -> reads pass.
   H.handlePostToolUse(lsp());                                          // navCount=2 -> surgical mode
   for (let i = 0; i < 5; i++) assert.deepEqual(H.handlePreToolUse(read('/proj/a.js')), {});
 });

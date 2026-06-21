@@ -98,6 +98,7 @@ export function handlePostToolUse(event) {
     s.warmupDone = true;
     s.navCount += 1;
     s.lspUnavailable = false;
+    s.blockedNoNav = 0;   // re-arm the read gate: a successful LSP call clears the escape-hatch counter
     writeState(cwd, s);
     return ALLOW;
   } catch { return ALLOW; }
