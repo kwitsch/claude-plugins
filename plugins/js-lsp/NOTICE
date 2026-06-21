@@ -1,0 +1,7 @@
+js-lsp
+
+The enforcement design and the audited symbol-detection logic are derived from
+the LSP Enforcement Kit (https://github.com/nesaminua/claude-code-lsp-enforcement-kit),
+MIT License, Copyright (c) 2026 DenAleksandrov.
+
+vtsls (@vtsls/language-server) is MIT-licensed.

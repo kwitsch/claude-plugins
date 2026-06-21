@@ -24,6 +24,7 @@ jobs:
           - superpowers-automation
           - claude-code-knowledge
           - cave-context
+          - js-lsp
     steps:
       - name: Checkout
         uses: actions/checkout@v6

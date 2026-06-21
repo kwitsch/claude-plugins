@@ -117,6 +117,21 @@
         "context-mode",
         "mcp"
       ]
+    },
+    {
+      "name": "js-lsp",
+      "source": "./plugins/js-lsp",
+      "description": "JavaScript-only LSP via vtsls, with LSP-first enforcement hooks",
+      "author": {
+        "name": "Kwitsch"
+      },
+      "category": "development",
+      "tags": [
+        "lsp",
+        "javascript",
+        "vtsls",
+        "code-intelligence"
+      ]
     }
   ]
 }
