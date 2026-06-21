@@ -47,7 +47,9 @@ function readGate(cwd, file) {
 
   // Escape-hatch ceiling check at entry (before this read increments blockedNoNav),
   // so read #(ESCAPE_THRESHOLD+1) returns ALLOW after exactly ESCAPE_THRESHOLD denials.
-  if (s.navCount === 0 && s.blockedNoNav >= ESCAPE_THRESHOLD) {
+  // Fail open regardless of navCount (spec §5.3): once navCount===1, Gate 2 would
+  // otherwise deny every read forever (the escape hatch could never release).
+  if (s.blockedNoNav >= ESCAPE_THRESHOLD) {
     s.lspUnavailable = true;
     writeState(cwd, s);
     return ALLOW;

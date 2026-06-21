@@ -49,6 +49,13 @@ test('escape hatch: blocked reads with zero LSP release after ESCAPE_THRESHOLD',
   assert.equal(isDeny(H.handlePreToolUse(read('/proj/a.js'))), true); // blockedNoNav=2 -> sets lspUnavailable
   assert.deepEqual(H.handlePreToolUse(read('/proj/a.js')), {});       // now fail-open
 });
+test('post-warmup escape hatch: 1 LSP call then ESCAPE_THRESHOLD blocked reads release (F1)', () => {
+  H.handlePostToolUse(lsp());                                         // navCount=1, warmupDone
+  for (let i = 0; i < 3; i++) assert.deepEqual(H.handlePreToolUse(read('/proj/a.js')), {}); // reads 1-3 pass
+  assert.equal(isDeny(H.handlePreToolUse(read('/proj/a.js'))), true); // read 4: gate 2, blockedNoNav=1
+  assert.equal(isDeny(H.handlePreToolUse(read('/proj/a.js'))), true); // read 5: gate 2, blockedNoNav=2
+  assert.deepEqual(H.handlePreToolUse(read('/proj/a.js')), {});       // read 6: escape hatch -> fail-open
+});
 test('first-sighting reset wipes inherited surgical mode once per process', () => {
   H.handlePostToolUse(lsp()); H.handlePostToolUse(lsp());
   H.__resetSeenForTest();                       // simulate new server process, same cwd
