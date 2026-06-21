@@ -146,3 +146,44 @@ test("compressText refuses empty and oversized input", async () => {
   assert.equal(big.valid, false);
   assert.match(big.reason, /too large/i);
 });
+
+test("compressText preserves trailing newline on success (changed:true)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "cc-compress-"));
+  try {
+    const bin = makeFakeClaude(dir);
+    // Input ends with \n; model returns compressed body WITHOUT trailing newline
+    const out = await compressText("# H\nsome long body text\n", {
+      bin, env: { FAKE_OUT: "# H\nbody" }, // no trailing newline from model
+    });
+    assert.equal(out.valid, true);
+    assert.equal(out.changed, true);
+    assert.ok(out.compressed.endsWith("\n"), "trailing newline must be preserved");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("compressText does NOT add trailing newline when original had none", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "cc-compress-"));
+  try {
+    const bin = makeFakeClaude(dir);
+    // Input does NOT end with \n; model also returns no trailing newline
+    const out = await compressText("# H\nsome long body text", {
+      bin, env: { FAKE_OUT: "# H\nbody" },
+    });
+    assert.equal(out.valid, true);
+    assert.equal(out.changed, true);
+    assert.ok(!out.compressed.endsWith("\n"), "no spurious trailing newline should be added");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("compressText returns valid:false when claude exits non-zero", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "cc-compress-"));
+  try {
+    const bin = makeFakeClaude(dir);
+    const out = await compressText("# H\nbody text\n", {
+      bin, env: { FAKE_EXIT: "1" },
+    });
+    assert.equal(out.valid, false);
+    assert.match(out.reason, /exited/i);
+    assert.equal(out.compressed, "# H\nbody text\n"); // original untouched
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

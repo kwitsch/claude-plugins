@@ -13,6 +13,8 @@ export const MAX_INPUT_BYTES = 500000; // upstream MAX_FILE_SIZE — refuse beyo
 export const MAX_RETRIES = 2;          // upstream cherry-pick-fix budget
 
 const FRONTMATTER_RE = /^(---\r?\n[\s\S]*?\r?\n---\r?\n)([\s\S]*)$/;
+// NOTE: greedy match — over-strips a doc whose first AND last top-level lines are both fences
+// (treats them as one wrapper); fails safe: validate() then catches missing blocks → retries → valid:false.
 const OUTER_FENCE_RE = /^\s*(`{3,}|~{3,})[^\n]*\n([\s\S]*)\n\1\s*$/;
 const URL_RE = /https?:\/\/[^\s)]+/g;
 const HEADING_RE = /^#{1,6}[ \t]+\S.*$/gm;
@@ -140,11 +142,14 @@ export async function compressText(text, opts = {}) {
   const { frontmatter, body } = splitFrontmatter(text);
   if (!body.trim()) return fail(text, "body empty after frontmatter removal");
 
+  const endsWithNewline = text.endsWith("\n");
+  const ensureNl = (s) => endsWithNewline && !s.endsWith("\n") ? s + "\n" : s;
+
   let compressedBody;
   try { compressedBody = stripLlmWrapper((await callClaude(buildCompressPrompt(body), opts)).trim()); }
   catch (e) { return fail(text, String(e?.message ?? e)); }
   if (!compressedBody) return fail(text, "model returned empty output");
-  if (compressedBody.trim() === body.trim()) return { compressed: frontmatter + compressedBody, changed: false, valid: true, errors: [] };
+  if (compressedBody.trim() === body.trim()) return { compressed: ensureNl(frontmatter + compressedBody), changed: false, valid: true, errors: [] };
 
   let compressed = frontmatter + compressedBody;
   let result = validate(text, compressed);
@@ -157,5 +162,5 @@ export async function compressText(text, opts = {}) {
     result = validate(text, compressed);
   }
   if (!result.valid) return fail(text, "validation failed after retries", result.errors);
-  return { compressed, changed: true, valid: true, errors: [] };
+  return { compressed: ensureNl(compressed), changed: true, valid: true, errors: [] };
 }
