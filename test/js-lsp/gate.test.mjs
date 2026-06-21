@@ -38,7 +38,7 @@ test('non-JS read is never gated', () => {
 test('after 1 LSP call, reads 1-3 pass; gate 2 blocks read 4 until 2 LSP calls', () => {
   H.handlePostToolUse(lsp());                 // navCount=1, warmupDone
   for (let i = 0; i < 3; i++) assert.deepEqual(H.handlePreToolUse(read('/proj/a.js')), {});
-  assert.equal(isDeny(H.handlePreToolUse(read('/proj/a.js'))), true); // read #4, navCount<? -> depends; with nav=1 gate2 open, gate3 not
+  assert.equal(isDeny(H.handlePreToolUse(read('/proj/a.js'))), true); // read #4, navCount=1 < 2 -> gate 2 fires
 });
 test('surgical mode: 2 LSP calls unlock unlimited reads', () => {
   H.handlePostToolUse(lsp()); H.handlePostToolUse(lsp()); // navCount=2
@@ -57,4 +57,43 @@ test('first-sighting reset wipes inherited surgical mode once per process', () =
 test('malformed event fails open', () => {
   assert.deepEqual(H.handlePreToolUse(null), {});
   assert.deepEqual(H.handlePreToolUse({ tool_name: 'Read', tool_input: 42 }), {});
+});
+
+// M4.3 regression + coverage additions
+
+test('search guard denies Grep alternation pattern on JS target (I1 regression)', () => {
+  const o = H.handlePreToolUse({ tool_name: 'Grep', tool_input: { pattern: 'getUserById|createOrder', glob: '**/*.js' }, cwd: CWD });
+  assert.equal(isDeny(o), true);
+});
+
+test('search guard denies Glob with JS symbol token', () => {
+  const o = H.handlePreToolUse({ tool_name: 'Glob', tool_input: { pattern: '**/*Service*.js' }, cwd: CWD });
+  assert.equal(isDeny(o), true);
+});
+test('search guard passes Glob with non-JS extension', () => {
+  const o = H.handlePreToolUse({ tool_name: 'Glob', tool_input: { pattern: '**/*Service*.go' }, cwd: CWD });
+  assert.deepEqual(o, {});
+});
+
+test('search guard denies Bash grep with JS symbol on JS file', () => {
+  const o = H.handlePreToolUse({ tool_name: 'Bash', tool_input: { command: 'grep getUserById src/app.js' }, cwd: CWD });
+  assert.equal(isDeny(o), true);
+});
+test('search guard passes Bash grep with JS symbol on non-JS file', () => {
+  const o = H.handlePreToolUse({ tool_name: 'Bash', tool_input: { command: 'grep getUserById src/app.go' }, cwd: CWD });
+  assert.deepEqual(o, {});
+});
+
+test('PostToolUse LSP success clears lspUnavailable (escape hatch re-arms gate)', () => {
+  // Trigger escape hatch: 2 blocked reads -> lspUnavailable, 3rd passes fail-open
+  assert.equal(isDeny(H.handlePreToolUse(read('/proj/a.js'))), true); // blockedNoNav=1
+  assert.equal(isDeny(H.handlePreToolUse(read('/proj/a.js'))), true); // blockedNoNav=2 -> lspUnavailable=true
+  assert.deepEqual(H.handlePreToolUse(read('/proj/a.js')), {});       // lspUnavailable: fail-open
+
+  // Successful LSP call: clears lspUnavailable, sets warmupDone, navCount=1
+  H.handlePostToolUse(lsp());
+
+  // With 2 navs, gate 2 never fires regardless of readCount -> all reads pass
+  H.handlePostToolUse(lsp());                                          // navCount=2 -> surgical mode
+  for (let i = 0; i < 5; i++) assert.deepEqual(H.handlePreToolUse(read('/proj/a.js')), {});
 });

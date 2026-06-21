@@ -1,6 +1,6 @@
 'use strict';
 import { isJsTarget, isCodeSymbol, extractGrepTargets, globTokens } from './symbols.mjs';
-import { readState, writeState, resetState, freshState } from './state.mjs';
+import { readState, writeState, resetState } from './state.mjs';
 
 export const ESCAPE_THRESHOLD = 2;
 export const GATE2_AT = 4;
@@ -26,7 +26,7 @@ function maybeReset(cwd) {
 }
 
 function symbolInSearch(toolName, input) {
-  if (toolName === 'Grep') return isCodeSymbol(input.pattern);
+  if (toolName === 'Grep') return String(input.pattern ?? '').split('|').some(isCodeSymbol);
   if (toolName === 'Glob') return globTokens(input.pattern).some(isCodeSymbol);
   if (toolName === 'Bash') return extractGrepTargets(input.command).symbols.some(isCodeSymbol);
   return false;
@@ -59,7 +59,7 @@ function readGate(cwd, file) {
   if (!s.warmupDone) {
     reason = `js-lsp: warm up the LSP first — call the LSP tool on ${file} (jump to definition / find references), then re-read.`;
   } else if (s.readCount >= GATE2_AT && s.navCount < 2) {
-    // Gate 2: >4 reads and fewer than 2 LSP calls -> require surgical mode (2 navs)
+    // Gate 2: >=4 reads and fewer than 2 LSP calls -> require surgical mode (2 navs)
     reason = `js-lsp: ${s.readCount} reads with <2 LSP navigation calls. Make one more LSP call (find references / jump to definition) on ${file} to enter surgical mode.`;
   }
 
