@@ -25,6 +25,7 @@ jobs:
           - claude-code-knowledge
           - cave-context
           - js-lsp
+          - ts-lsp
     steps:
       - name: Checkout
         uses: actions/checkout@v6

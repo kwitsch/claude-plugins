@@ -132,6 +132,21 @@
         "vtsls",
         "code-intelligence"
       ]
+    },
+    {
+      "name": "ts-lsp",
+      "source": "./plugins/ts-lsp",
+      "description": "TypeScript-only LSP via vtsls, with LSP-first enforcement hooks",
+      "author": {
+        "name": "Kwitsch"
+      },
+      "category": "development",
+      "tags": [
+        "lsp",
+        "typescript",
+        "vtsls",
+        "code-intelligence"
+      ]
     }
   ]
 }
