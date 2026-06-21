@@ -1,0 +1,20 @@
+{
+  "name": "js-lsp",
+  "version": "0.1.0",
+  "description": "JavaScript-only LSP via vtsls, with LSP-first enforcement hooks",
+  "author": { "name": "Kwitsch" },
+  "userConfig": {
+    "enforce_search": {
+      "type": "boolean",
+      "default": true,
+      "title": "Enforce LSP over text search (JavaScript)",
+      "description": "Redirect Grep/Glob/Bash-grep for JavaScript code symbols to the LSP tool. Fail-open: disabled only when set to false."
+    },
+    "enforce_read_gate": {
+      "type": "boolean",
+      "default": true,
+      "title": "Progressive read gate (JavaScript)",
+      "description": "Require an LSP navigation call before reading many JavaScript files (warmup -> surgical mode). Creates per-project state; fail-closed: active only when explicitly true."
+    }
+  }
+}
