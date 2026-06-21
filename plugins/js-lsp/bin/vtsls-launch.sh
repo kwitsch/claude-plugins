@@ -4,6 +4,12 @@
 # stdout MUST stay clean (it is the LSP stdio channel); all messages go to stderr.
 set -euo pipefail
 
+# Claude Code launches LSP servers with a non-interactive PATH that often lacks
+# ~/.local/bin and ~/.bun/bin; prepend them so bun/node/npx — and a previously
+# bun-installed vtsls — are findable. Use ${HOME}, never ~ (~ does not expand
+# inside quotes / some non-interactive shells). Mirrors cave-context bin/bnx.sh.
+export PATH="${HOME:-}/.local/bin:${HOME:-}/.bun/bin:${PATH}"
+
 PKG="@vtsls/language-server"   # pulls typescript transitively via @vtsls/language-service
 
 # 1) Already installed?

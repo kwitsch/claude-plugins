@@ -28,6 +28,23 @@ PLUGIN="${BATS_TEST_DIRNAME}/../../plugins/js-lsp"
   [ "$status" -eq 0 ]
 }
 
+@test "vtsls-launch.sh prepends ~/.bun/bin so a bun-installed vtsls is found on a minimal PATH" {
+  # Claude Code launches LSP servers with a non-interactive PATH. Simulate a vtsls
+  # that exists only in ~/.bun/bin (a prior `bun add -g`) and a scrubbed PATH that
+  # excludes it. Without the PATH prepend the wrapper would find none of
+  # vtsls/bun/npx and exit 1; with the prepend it resolves the bun-global vtsls.
+  tmp="$BATS_TEST_TMPDIR/bunhome"
+  mkdir -p "$tmp/.bun/bin"
+  cat > "$tmp/.bun/bin/vtsls" <<'EOF'
+#!/usr/bin/env bash
+echo "VTSLS_STUB_OK"
+EOF
+  chmod +x "$tmp/.bun/bin/vtsls"
+  run env -i HOME="$tmp" PATH="/usr/bin:/bin" bash "$PLUGIN/bin/vtsls-launch.sh" --stdio
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "VTSLS_STUB_OK"
+}
+
 @test ".mcp.json registers the js-lsp-hooks server" {
   run jq -e '.mcpServers["js-lsp-hooks"].command | test("server\\.mjs$")' "$PLUGIN/.mcp.json"
   [ "$status" -eq 0 ]
