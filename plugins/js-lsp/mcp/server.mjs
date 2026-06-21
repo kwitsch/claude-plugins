@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import readline from "node:readline";
 
 const SERVER_NAME = "js-lsp-hooks";
-const SERVER_INFO = { name: SERVER_NAME, version: "0.1.0" };
+const SERVER_INFO = { name: SERVER_NAME, version: "1.0.0" };
 const DEFAULT_PROTOCOL = "2025-11-25";
 
 // Prefer bun, fall back to node. Under bun, process.versions.bun is set → no loop.
