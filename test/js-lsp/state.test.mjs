@@ -30,6 +30,17 @@ test('resetState wipes', () => {
   resetState(CWD);
   assert.deepEqual(readState(CWD), freshState());
 });
-test('writeState never throws on bad dir', () => {
-  assert.doesNotThrow(() => writeState(' bad', freshState()));
+test('writeState fails open when the data dir cannot be created', () => {
+  // Point CLAUDE_PLUGIN_DATA at a regular FILE so mkdirSync(dataRoot()) throws
+  // ENOTDIR — actually exercising the fail-open catch in writeState. (A bad cwd
+  // can't trigger this: it is MD5-hashed into a valid filename.)
+  const saved = process.env.CLAUDE_PLUGIN_DATA;
+  const f = join(mkdtempSync(join(tmpdir(), 'jslsp-f-')), 'not-a-dir');
+  writeFileSync(f, 'x');
+  process.env.CLAUDE_PLUGIN_DATA = f;
+  try {
+    assert.doesNotThrow(() => writeState('/proj', freshState()));
+  } finally {
+    process.env.CLAUDE_PLUGIN_DATA = saved;
+  }
 });
