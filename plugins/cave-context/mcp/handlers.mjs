@@ -1,6 +1,7 @@
 // handlers.mjs — aggregated hook handlers (caveman reimpl + context-mode delegation).
 import { reminderText } from "./caveman.mjs";
 import { delegateHook } from "./delegate.mjs";
+import { compressText } from "./compress.mjs";
 
 const WEBFETCH_DENY_REASON =
   "cave-context routing: use ctx_fetch_and_index instead of WebFetch — full network access, results indexed for ctx_search, raw page bytes never enter context.";
@@ -72,9 +73,14 @@ export async function handlePreCompact(input) {
   return emit("PreCompact", ac, hard);
 }
 
+export async function handleCompress(input = {}) {
+  return compressText(input?.text ?? "");
+}
+
 export const HANDLERS = {
   hook_userpromptsubmit: handleUserPromptSubmit,
   hook_pretooluse: handlePreToolUse,
   hook_posttooluse: handlePostToolUse,
   hook_precompact: handlePreCompact,
+  compress: handleCompress,
 };
