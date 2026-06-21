@@ -9,8 +9,8 @@ claude-code-lsp-enforcement-kit). Pure `mcp_tool` hooks.
 - `mcp/server.mjs` exposes `hook_pretooluse`/`hook_posttooluse`; `hooks.json`
   wires PreToolUse (`Grep|Glob|Bash|Read`) and PostToolUse (`LSP`).
 - Enforcement is JS-scoped (ambiguous targets pass through) and fail-open
-  (soft `mcp_tool` deny; read-gate escape hatch after 2 blocked reads with no
-  LSP success). Stale state is reset at server start (first-sighting per cwd).
+  (soft `mcp_tool` deny; read-gate escape hatch after 2 blocked reads). Stale
+  state is reset at server start (first-sighting per cwd).
 
 ## Tests
 `BATS_LIB_PATH=/usr/lib/bats bats test/js-lsp/` and `node --test test/js-lsp/`.
