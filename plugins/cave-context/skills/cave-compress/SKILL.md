@@ -8,7 +8,7 @@ when_to_use: |
   any **/CLAUDE.md (basename anywhere), and any .md under the repo-root docs/ or plan/
   directories. Any other .md path requires explicit user confirmation before compressing.
 argument-hint: "<path/to/file.md>"
-allowed-tools: ["Read", "Write", "Edit", "AskUserQuestion", "Glob", "Bash(git:*)"]
+allowed-tools: ["Read", "Write", "Edit", "AskUserQuestion", "Glob", "Bash(git:*)", "mcp__plugin_cave-context_cave-context__compress"]
 ---
 
 # cave-compress
@@ -73,9 +73,16 @@ The gates below still run regardless of who invoked the skill.
    "Non-affirmative" = anything other than an explicit yes/proceed. `AskUserQuestion`
    has no silent default; fail closed.
 
-4. **Compress.** Read the file, rewrite its prose under the ruleset below, `Write`
-   it back to the same path. Apply PRESERVE-VERBATIM and MARKDOWN-STRUCTURE rules
-   strictly.
+4. **Compress via the `compress` tool.** `Read` the file, then call the
+   `mcp__plugin_cave-context_cave-context__compress` MCP tool with
+   `{ text: <full file content> }`. Inspect the returned
+   `{ compressed, changed, valid, errors, reason }`:
+   - `valid && changed` → `Write` `compressed` back to the same path.
+   - `valid && !changed` → write nothing; report "already terse — no changes."
+   - `!valid` → write nothing; report `reason` (and `errors` if present). The
+     original file is left untouched.
+   The tool owns the caveman ruleset and performs the rewrite in an isolated
+   `claude` process — do not rewrite the prose yourself.
 
 5. **Report.** Show line/byte count before → after, a one-line summary of what was
    dropped, and whether the file is git-restorable. If no meaningful reduction is
@@ -83,52 +90,10 @@ The gates below still run regardless of who invoked the skill.
 
 ## Caveman ruleset
 
-Source: `https://github.com/JuliusBrussee/cavekit/blob/main/skills/caveman/SKILL.md`.
-Governing rule: "If cutting a word loses a fact, keep it. Compression, not amputation."
-
-### GRAMMAR
-- Drop articles (a/an/the).
-- Drop filler (just, really, basically, simply, actually).
-- Drop aux verbs where a fragment works (is/are/was/were/being).
-- Drop pleasantries. No hedging (might, perhaps, could be worth).
-- Fragments fine.
-- Short synonyms: fix > implement, big > extensive, run > execute.
-
-### SYMBOLS (use only where they increase clarity — do not symbol-spam prose)
-```
-→  leads to / becomes       ∴  therefore         ∀  for all / every
-∃  exists / some            !  must / required    ?  may / optional / unknown
-⊥  never / forbidden / nil  ≠  not equal          ∈  in          ∉  not in
-≤  at most                  ≥  at least           &  and          |  or
-§  section reference
-```
-
-### PRESERVE VERBATIM (hard rule — never compress)
-- Fenced & inline code blocks / snippets.
-- Paths (`src/auth/mw.go`), URLs, identifiers (function/variable/env names).
-- Numbers, versions, error-message strings.
-- SQL, regex, JSON, YAML — and the file's own **YAML frontmatter** (byte-for-byte).
-- Quoted strings.
-
-### MARKDOWN STRUCTURE (preserve)
-Keep heading levels, list nesting, tables, and link targets intact. Compress the
-*text within* the structure — never the structure itself.
-
-### SHAPES (conditional — apply ONLY if the file already uses them)
-The trigger is the file's own existing conventions, NOT its directory. If the file
-already uses these shapes, keep/extend them; otherwise leave prose as prose.
-```
-Invariant:  V<n>: <subject> <relation> <condition>
-Bug row:    id|date|cause|fix          (status markers: x done, ~ wip, . todo)
-Task row:   id|status|task|cites       (escape a literal | as \|)
-Interface:  <kind>: <name> → <shape>   e.g.  api: POST /x → 200 {id}
-```
-Do NOT impose shapes on prose `CLAUDE.md` / general docs that don't already use
-them — that changes meaning, not just density.
-
-### BOUNDARIES (write normal English; do not compress)
-- A section the file explicitly marks as prose for external readers.
-- Commit-message or diff-comment text quoted inside the doc.
-
-### WHEN UNSURE
-If cutting a word loses a fact, keep it. Caveman is compression, not amputation.
+The compression itself is performed by the cave-context `compress` MCP tool,
+which owns the authoritative caveman ruleset (GRAMMAR + PRESERVE-VERBATIM +
+MARKDOWN-STRUCTURE; governing rule: "If cutting a word loses a fact, keep it.
+Compression, not amputation."). Lineage:
+`https://github.com/JuliusBrussee/cavekit/blob/main/skills/caveman/SKILL.md`.
+This skill only gates the file (type/recoverability/scope) and applies the
+tool's result.
