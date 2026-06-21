@@ -8,7 +8,9 @@ works.
 ----------------------------------------------------------------------
 caveman — https://github.com/JuliusBrussee/caveman
 ----------------------------------------------------------------------
-The caveman ruleset text in mcp/caveman.mjs is adapted from caveman.
+The caveman ruleset text in mcp/caveman.mjs is adapted from caveman, and the
+file-compression engine in mcp/compress.mjs is ported from caveman's
+caveman-compress (compress.py + validate.py).
 
 MIT License
 

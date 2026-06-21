@@ -76,3 +76,34 @@ test("server filters ctx_stats/ctx_doctor/ctx_upgrade from tools/list and reject
   } finally { proc.kill(); }
 });
 
+test("server advertises the compress tool with a typed schema", async () => {
+  const proc = spawn("node", [SERVER], { env: { ...process.env, CAVE_CONTEXT_NO_UPSTREAM: "1" }, stdio: ["pipe", "pipe", "inherit"] });
+  try {
+    const out = await rpc(proc, [
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "t", version: "0" } } },
+      { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} },
+    ]);
+    const tools = out.find((m) => m.id === 2).result.tools;
+    const compress = tools.find((t) => t.name === "compress");
+    assert.ok(compress, "compress tool is advertised");
+    assert.deepEqual(compress.inputSchema.required, ["text"]);
+    assert.equal(compress.inputSchema.properties.text.type, "string");
+  } finally { proc.kill(); }
+});
+
+test("server tools/call compress returns well-formed MCP response on empty input", async () => {
+  const proc = spawn("node", [SERVER], { env: { ...process.env, CAVE_CONTEXT_NO_UPSTREAM: "1" }, stdio: ["pipe", "pipe", "inherit"] });
+  try {
+    const out = await rpc(proc, [
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "t", version: "0" } } },
+      { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "compress", arguments: { text: "" } } },
+    ]);
+    const res = out.find((m) => m.id === 2).result;
+    // Must have a content array (MCP tool response shape) and carry valid:false for empty input
+    assert.ok(Array.isArray(res.content), "response has content array");
+    const structured = res.structuredContent ?? JSON.parse(res.content[0].text);
+    assert.equal(structured.valid, false);
+    assert.match(structured.reason, /empty/i);
+  } finally { proc.kill(); }
+});
+

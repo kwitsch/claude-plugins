@@ -26,6 +26,14 @@ function startServer() {
     { name: "hook_precompact", description: "Aggregated PreCompact hook (context-mode snapshot).", inputSchema: { type: "object", additionalProperties: true } },
   ];
 
+  const LOCAL_TOOLS = [
+    {
+      name: "compress",
+      description: "Caveman-compress a markdown/prose string (model-driven via the claude CLI): cut prose tokens while preserving code, URLs, paths, numbers, frontmatter, and structure. Input { text }; returns { compressed, changed, valid, errors, reason? }.",
+      inputSchema: { type: "object", properties: { text: { type: "string", description: "The markdown/prose text to compress." } }, required: ["text"], additionalProperties: false },
+    },
+  ];
+
   // Lazy imports — keep shim path dependency-free until we actually serve.
   Promise.all([import("./proxy.mjs"), import("./handlers.mjs")]).then(([{ Upstream }, { HANDLERS }]) => {
     const send = (m) => process.stdout.write(JSON.stringify(m) + "\n");
@@ -57,7 +65,7 @@ function startServer() {
         if (method === "ping") return ok(id, {});
         if (method === "tools/list") {
           const upstreamTools = (await ensureUp()).filter((t) => !DENIED_UPSTREAM_TOOLS.has(t.name));
-          return ok(id, { tools: [...upstreamTools, ...HOOK_TOOLS] });
+          return ok(id, { tools: [...upstreamTools, ...LOCAL_TOOLS, ...HOOK_TOOLS] });
         }
         if (method === "tools/call") {
           const name = params?.name;

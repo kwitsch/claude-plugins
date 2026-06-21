@@ -217,3 +217,9 @@ setup() {
   assert_success
 }
 
+@test "cave-compress grants the compress MCP tool in allowed-tools" {
+  SKILL="$REPO_ROOT/plugins/cave-context/skills/cave-compress/SKILL.md"
+  run grep -q 'mcp__plugin_cave-context_cave-context__compress' "$SKILL"
+  assert_success
+}
+
