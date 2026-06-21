@@ -138,6 +138,29 @@ test("compressText recovers via the fix retry", async () => {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test("compressText re-pins original frontmatter on the fix retry path", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "cc-compress-"));
+  try {
+    const bin = makeFakeClaude(dir);
+    // Call 1 (compress) drops the URL → forces a retry. Call 2 (fix) restores the
+    // URL but MUTATES the frontmatter value. The retry path must re-pin the
+    // ORIGINAL frontmatter verbatim, discarding the model's frontmatter edit.
+    const out = await compressText("---\nname: x\n---\n# H\nsee https://example.com/a plus filler\n", {
+      bin,
+      env: {
+        FAKE_COUNTER: join(dir, "n.txt"),
+        FAKE_OUT: "# H\nsee\n",                                                  // call 1: body only, URL dropped
+        FAKE_OUT_2: "---\nname: MUTATED\n---\n# H\nsee https://example.com/a\n",  // call 2 (fix): URL restored, FM mutated
+      },
+    });
+    assert.equal(out.valid, true);
+    assert.equal(out.changed, true);
+    assert.ok(out.compressed.startsWith("---\nname: x\n---\n"), "original frontmatter kept verbatim");
+    assert.ok(!out.compressed.includes("MUTATED"), "model's frontmatter mutation discarded");
+    assert.ok(out.compressed.includes("https://example.com/a"), "body fix (restored URL) kept");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("compressText refuses empty and oversized input", async () => {
   const empty = await compressText("   \n  ");
   assert.equal(empty.valid, false);

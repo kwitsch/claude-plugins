@@ -166,7 +166,11 @@ export async function compressText(text, opts = {}) {
     try { fixed = stripLlmWrapper((await callClaude(buildFixPrompt(text, compressed, result.errors), opts)).trim()); }
     catch (e) { return fail(text, String(e?.message ?? e), result.errors); }
     if (!fixed) break;
-    compressed = fixed;                 // fix prompt operates on the FULL file (frontmatter included)
+    // Re-pin the ORIGINAL frontmatter: the fix prompt rewrites the FULL file
+    // (frontmatter included) and validate() never inspects frontmatter, so a model
+    // edit there would slip through. Keep the model's fixed body, restore FM verbatim
+    // (no-op when there was no frontmatter — `frontmatter` is "").
+    compressed = frontmatter + splitFrontmatter(fixed).body;
     result = validate(text, compressed);
   }
   if (!result.valid) return fail(text, "validation failed after retries", result.errors);
