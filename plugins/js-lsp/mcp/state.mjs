@@ -1,7 +1,7 @@
 'use strict';
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 
 export const EXPIRY_MS = 24 * 60 * 60 * 1000;
@@ -29,8 +29,9 @@ export function readState(cwd) {
 }
 export function writeState(cwd, s) {
   try {
-    mkdirSync(dataRoot(), { recursive: true });
-    writeFileSync(statePath(cwd), JSON.stringify({ ...freshState(), ...s, updated: Date.now() }));
+    const p = statePath(cwd);                 // resolves dataRoot() once (vs twice)
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, JSON.stringify({ ...freshState(), ...s, updated: Date.now() }));
   } catch { /* fail-open: never block on persistence errors */ }
 }
 export function resetState(cwd) {

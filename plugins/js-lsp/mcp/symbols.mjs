@@ -14,6 +14,28 @@ export function stripZeroWidth(s) {
   return String(s ?? '').replace(ZW, '');
 }
 
+// Allow-lists of explicit NON-symbols, hoisted to module scope so they are not
+// rebuilt on every call (these run on the hook hot path). They are TWO
+// intentionally-distinct verbatim ports and must NOT be unified:
+//   ISCODESYMBOL_ALLOWLIST — from the kit's lsp-first-guard.js (Grep/Glob path).
+//   CLASSIFY_SKIP          — from the kit's bash-grep-block.js (Bash path); a
+//     deliberately narrower list. The kit ships two different upstream filters,
+//     so Grep/Glob and Bash apply slightly different allow-lists by design.
+const ISCODESYMBOL_ALLOWLIST = [
+  /^(TODO|FIXME|HACK|XXX|NOTE)/i,
+  /^console\./, /^import\b/, /^require\(/, /^from\b/, /^export\b/,
+  /^\/\//, /^#/, /^\./, /^http/i, /^\d/,
+  /^[A-Z_]{3,}$/,    // SCREAMING_SNAKE — env vars / constants
+  /^[a-z]{1,8}$/,    // short all-lowercase — too generic
+  /^['"`]/,
+  /^use (client|server)/,
+];
+const CLASSIFY_SKIP = [
+  /^(TODO|FIXME|HACK|XXX|NOTE)/i,
+  /^console\b/, /^import\b/, /^export\b/, /^http/i, /^\d/,
+  /^[A-Z_]{3,}$/, /^[a-z]{1,8}$/, /^[a-z]+-[a-z]+/,
+];
+
 // ── isCodeSymbol ──────────────────────────────────────────────────────────────
 // Ported verbatim from lsp-first-guard.js (Grep hook) with String(??'').trim()
 // coercion from the security audit (bash-grep-block.js / detect-lsp-provider.js).
@@ -37,17 +59,8 @@ export function isCodeSymbol(tokenRaw) {
   if (/\s/.test(s)) return false;
   if (/[&?+[\]{}()\\^$*]/.test(s)) return false;
 
-  // Allow-list: explicit non-symbol patterns
-  const allowList = [
-    /^(TODO|FIXME|HACK|XXX|NOTE)/i,
-    /^console\./, /^import\b/, /^require\(/, /^from\b/, /^export\b/,
-    /^\/\//, /^#/, /^\./, /^http/i, /^\d/,
-    /^[A-Z_]{3,}$/,    // SCREAMING_SNAKE — env vars / constants
-    /^[a-z]{1,8}$/,    // short all-lowercase — too generic
-    /^['"`]/,
-    /^use (client|server)/,
-  ];
-  if (allowList.some(rx => rx.test(s))) return false;
+  // Allow-list: explicit non-symbol patterns (ISCODESYMBOL_ALLOWLIST, module scope)
+  if (ISCODESYMBOL_ALLOWLIST.some(rx => rx.test(s))) return false;
 
   // kebab-case handling — filename conventions are allowed, but specific
   // component/module suffixes and category prefixes are treated as symbols.
@@ -123,12 +136,7 @@ function classifyPatternToSymbols(fullPattern) {
     .filter(Boolean);
   return parts.filter(p => {
     if (p.length < 4 || /\s/.test(p)) return false;
-    const skip = [
-      /^(TODO|FIXME|HACK|XXX|NOTE)/i,
-      /^console\b/, /^import\b/, /^export\b/, /^http/i, /^\d/,
-      /^[A-Z_]{3,}$/, /^[a-z]{1,8}$/, /^[a-z]+-[a-z]+/,
-    ];
-    if (skip.some(rx => rx.test(p))) return false;
+    if (CLASSIFY_SKIP.some(rx => rx.test(p))) return false;
     return (/^[a-z][a-zA-Z0-9]{3,}$/.test(p) && /[A-Z]/.test(p)) ||
            /^[A-Z][a-zA-Z][a-zA-Z0-9]{2,}$/.test(p) ||
            (/^[a-z]+(_[a-z]+){2,}$/.test(p) && p.length >= 9);
