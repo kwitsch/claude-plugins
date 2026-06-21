@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 export const MAX_INPUT_BYTES = 500000; // upstream MAX_FILE_SIZE — refuse beyond
 export const MAX_RETRIES = 2;          // upstream cherry-pick-fix budget
 
-const FRONTMATTER_RE = /^(---\r?\n[\s\S]*?\r?\n---\r?\n)([\s\S]*)$/;
+const FRONTMATTER_RE = /^(---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$))([\s\S]*)$/;
 // NOTE: greedy match — over-strips a doc whose first AND last top-level lines are both fences
 // (treats them as one wrapper); fails safe: validate() then catches missing blocks → retries → valid:false.
 const OUTER_FENCE_RE = /^\s*(`{3,}|~{3,})[^\n]*\n([\s\S]*)\n\1\s*$/;

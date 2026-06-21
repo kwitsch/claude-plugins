@@ -18,6 +18,12 @@ test("splitFrontmatter returns empty frontmatter when none present", () => {
   assert.equal(body, "no frontmatter here");
 });
 
+test("splitFrontmatter peels a YAML block that ends at EOF (no trailing newline)", () => {
+  const { frontmatter, body } = splitFrontmatter("---\nname: x\n---");
+  assert.equal(frontmatter, "---\nname: x\n---");
+  assert.equal(body, "");
+});
+
 test("stripLlmWrapper unwraps an outer markdown fence only", () => {
   assert.equal(stripLlmWrapper("```markdown\ninner\n```"), "inner");
   assert.equal(stripLlmWrapper("plain text"), "plain text");
