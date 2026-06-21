@@ -71,7 +71,7 @@ export function isCodeSymbol(tokenRaw) {
   // Core symbol patterns
   const isCamelCase    = /^[a-z][a-zA-Z0-9]{3,}$/.test(s) && /[A-Z]/.test(s);
   const isPascalCase   = /^[A-Z][a-zA-Z][a-zA-Z0-9]{2,}$/.test(s);
-  const isDottedSymbol = /^[a-z][a-zA-Z]*\.[a-z][a-zA-Z]*$/.test(s);
+  const isDottedSymbol = /^[a-z][a-zA-Z]*\.[a-z][a-zA-Z]*$/i.test(s);
   const isSnakeCaseFn  = /^[a-z]+(_[a-z]+){2,}$/.test(s) && s.length >= 9;
 
   return isCamelCase || isPascalCase || isDottedSymbol || isSnakeCaseFn;
@@ -101,7 +101,7 @@ export function globTokens(patternRaw) {
 //   - grep detection case-insensitive (/i), matches grep|rg|ag|ack NOT git grep
 //   - String(??'').trim() coercion on input
 //   - Zero-width strip on command before regex matching
-//   - Pipe-exemption fires only when no symbol is present (security audit fix)
+//   - Pipe-exemption (no-symbol pass-through) is deferred to the hook decision layer, not here
 //   - Split on both | and . before symbol filter (avoids camelCase false positives)
 /**
  * Parse a Bash command and extract grep metadata.
