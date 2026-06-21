@@ -1,0 +1,60 @@
+import { test, beforeEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+process.env.CLAUDE_PLUGIN_DATA = mkdtempSync(join(tmpdir(), 'jslspgate-'));
+process.env.JS_LSP_ENFORCE_SEARCH = 'true';
+process.env.JS_LSP_ENFORCE_READ_GATE = 'true';
+const H = await import('../../plugins/js-lsp/mcp/handlers.mjs');
+const { resetState } = await import('../../plugins/js-lsp/mcp/state.mjs');
+
+const CWD = '/proj';
+const read = (fp) => ({ hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: fp }, cwd: CWD });
+const lsp = () => ({ hook_event_name: 'PostToolUse', tool_name: 'LSP', tool_input: {}, cwd: CWD });
+const isDeny = (o) => o?.hookSpecificOutput?.permissionDecision === 'deny';
+
+beforeEach(() => { H.__resetSeenForTest(); resetState(CWD); });
+
+test('search guard denies JS code-symbol grep', () => {
+  const o = H.handlePreToolUse({ tool_name: 'Grep', tool_input: { pattern: 'getUserById', glob: '**/*.js' }, cwd: CWD });
+  assert.equal(isDeny(o), true);
+});
+test('search guard passes ambiguous (no JS target)', () => {
+  const o = H.handlePreToolUse({ tool_name: 'Grep', tool_input: { pattern: 'getUserById' }, cwd: CWD });
+  assert.deepEqual(o, {});
+});
+test('search guard passes non-symbol JS grep', () => {
+  const o = H.handlePreToolUse({ tool_name: 'Grep', tool_input: { pattern: 'TODO', glob: '**/*.js' }, cwd: CWD });
+  assert.deepEqual(o, {});
+});
+test('Gate 1: first JS read is blocked until warmup', () => {
+  assert.equal(isDeny(H.handlePreToolUse(read('/proj/a.js'))), true);
+});
+test('non-JS read is never gated', () => {
+  assert.deepEqual(H.handlePreToolUse(read('/proj/a.go')), {});
+});
+test('after 1 LSP call, reads 1-3 pass; gate 2 blocks read 4 until 2 LSP calls', () => {
+  H.handlePostToolUse(lsp());                 // navCount=1, warmupDone
+  for (let i = 0; i < 3; i++) assert.deepEqual(H.handlePreToolUse(read('/proj/a.js')), {});
+  assert.equal(isDeny(H.handlePreToolUse(read('/proj/a.js'))), true); // read #4, navCount<? -> depends; with nav=1 gate2 open, gate3 not
+});
+test('surgical mode: 2 LSP calls unlock unlimited reads', () => {
+  H.handlePostToolUse(lsp()); H.handlePostToolUse(lsp()); // navCount=2
+  for (let i = 0; i < 10; i++) assert.deepEqual(H.handlePreToolUse(read('/proj/a.js')), {});
+});
+test('escape hatch: blocked reads with zero LSP release after ESCAPE_THRESHOLD', () => {
+  assert.equal(isDeny(H.handlePreToolUse(read('/proj/a.js'))), true); // blockedNoNav=1
+  assert.equal(isDeny(H.handlePreToolUse(read('/proj/a.js'))), true); // blockedNoNav=2 -> sets lspUnavailable
+  assert.deepEqual(H.handlePreToolUse(read('/proj/a.js')), {});       // now fail-open
+});
+test('first-sighting reset wipes inherited surgical mode once per process', () => {
+  H.handlePostToolUse(lsp()); H.handlePostToolUse(lsp());
+  H.__resetSeenForTest();                       // simulate new server process, same cwd
+  assert.equal(isDeny(H.handlePreToolUse(read('/proj/a.js'))), true); // reset re-armed Gate 1
+});
+test('malformed event fails open', () => {
+  assert.deepEqual(H.handlePreToolUse(null), {});
+  assert.deepEqual(H.handlePreToolUse({ tool_name: 'Read', tool_input: 42 }), {});
+});
