@@ -8,7 +8,7 @@ set -euo pipefail
 # ~/.local/bin and ~/.bun/bin; prepend them so bun/node/npx — and a previously
 # bun-installed vtsls — are findable. Use ${HOME}, never ~ (~ does not expand
 # inside quotes / some non-interactive shells). Mirrors cave-context bin/bnx.sh.
-export PATH="${HOME:-}/.local/bin:${HOME:-}/.bun/bin:${PATH}"
+export PATH="${HOME:-}/.local/bin:${HOME:-}/.bun/bin${PATH:+:${PATH}}"
 
 PKG="@vtsls/language-server"   # pulls typescript transitively via @vtsls/language-service
 

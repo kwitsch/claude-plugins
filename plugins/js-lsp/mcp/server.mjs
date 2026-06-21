@@ -18,20 +18,35 @@ if (process.versions.bun || process.env.JS_LSP_NO_BUN === "1") {
 } else {
   const env = { ...process.env };
   const home = process.env.HOME;
-  if (home) env.PATH = `${home}/.bun/bin:${home}/.local/bin:${env.PATH ?? ""}`;
+  if (home) {
+    // Avoid a trailing ':' (an empty PATH segment resolves to CWD — a code-exec
+    // risk in an untrusted workspace) when env.PATH is unset (CodeRabbit CR2).
+    const inherited = env.PATH ? `:${env.PATH}` : "";
+    env.PATH = `${home}/.bun/bin:${home}/.local/bin${inherited}`;
+  }
   let spawned = false;
   const child = spawn("bun", [fileURLToPath(import.meta.url), ...process.argv.slice(2)], {
     stdio: "inherit",
     env,
   });
+  const forwarders = new Map();
   child.once("spawn", () => {
     spawned = true;
-    for (const s of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(s, () => child.kill(s));
+    for (const s of ["SIGTERM", "SIGINT", "SIGHUP"]) {
+      const h = () => child.kill(s);
+      forwarders.set(s, h);
+      process.on(s, h);
+    }
   });
   child.once("error", () => { if (!spawned) startServer(); }); // bun missing (ENOENT) → node
   child.once("exit", (code, sig) => {
     if (!spawned) return;
-    sig ? process.kill(process.pid, sig) : process.exit(code ?? 0);
+    // Remove our signal forwarders before re-raising, so the re-raised signal
+    // performs default termination instead of re-invoking the (now stale)
+    // handler — otherwise the parent lingers (CodeRabbit CR3).
+    for (const [s, h] of forwarders) process.removeListener(s, h);
+    if (sig) process.kill(process.pid, sig);
+    else process.exit(code ?? 0);
   });
 }
 
