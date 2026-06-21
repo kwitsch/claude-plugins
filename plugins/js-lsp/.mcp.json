@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "js-lsp-hooks": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs",
+      "env": {
+        "JS_LSP_ENFORCE_SEARCH": "${user_config.enforce_search}",
+        "JS_LSP_ENFORCE_READ_GATE": "${user_config.enforce_read_gate}"
+      }
+    }
+  }
+}
