@@ -92,6 +92,49 @@ export function globTokens(patternRaw) {
     .filter(Boolean);
 }
 
+// ── extractGrepTargets helpers ──────────────────────────────────────────────────
+// Value-taking flags consume their following token (or `=value`) as a value,
+// grouped by what the value means. Without this, `rg -g '*.js' getUserById` and
+// `rg getUserById --glob '*.js'` mistake the glob value for the search pattern and
+// evade JS-symbol enforcement (CodeRabbit CR4).
+const GREP_FLAG_PATTERN = new Set(['e', 'regexp']);                              // value is a search pattern
+const GREP_FLAG_GLOB = new Set(['g', 'glob', 'iglob', 'include', 'include-dir']); // value is a glob/path
+const GREP_FLAG_SKIP = new Set([                                                  // value is non-pattern noise
+  'f', 'file', 'm', 'max-count', 'A', 'after-context', 'B', 'before-context',
+  'C', 'context', 't', 'type', 'T', 'type-not', 'exclude', 'exclude-dir', 'd', 'D',
+]);
+
+function stripQuotes(s) {
+  return String(s ?? '').replace(/^['"]|['"]$/g, '');
+}
+
+function grepFlagName(tok) {
+  const m = String(tok).match(/^--?([a-zA-Z][\w-]*)/);
+  return m ? m[1] : '';
+}
+
+// Classify one pattern token into code symbols. Verbatim from the kit's
+// bash-grep-block.js symbol filter: split on | and . (so dotted expressions
+// aren't merged into camelCase), strip regex metachars, then apply the predicates.
+function classifyPatternToSymbols(fullPattern) {
+  const parts = String(fullPattern)
+    .split(/\\?\||\./)
+    .map(p => p.replace(ZW, '').replace(/[*+?^${}()[\]\\]/g, '').trim())
+    .filter(Boolean);
+  return parts.filter(p => {
+    if (p.length < 4 || /\s/.test(p)) return false;
+    const skip = [
+      /^(TODO|FIXME|HACK|XXX|NOTE)/i,
+      /^console\b/, /^import\b/, /^export\b/, /^http/i, /^\d/,
+      /^[A-Z_]{3,}$/, /^[a-z]{1,8}$/, /^[a-z]+-[a-z]+/,
+    ];
+    if (skip.some(rx => rx.test(p))) return false;
+    return (/^[a-z][a-zA-Z0-9]{3,}$/.test(p) && /[A-Z]/.test(p)) ||
+           /^[A-Z][a-zA-Z][a-zA-Z0-9]{2,}$/.test(p) ||
+           (/^[a-z]+(_[a-z]+){2,}$/.test(p) && p.length >= 9);
+  });
+}
+
 // ── extractGrepTargets ────────────────────────────────────────────────────────
 // Ported from bash-grep-block.js with an added `paths` extraction for
 // isJsTarget's Bash case. Core grep detection and symbol extraction are
@@ -121,58 +164,52 @@ export function extractGrepTargets(commandRaw) {
     return { isGrep: false, symbols: [], paths: [] };
   }
 
-  // ── Extract the search pattern ────────────────────────────────────────────
-  const cleaned = cmd.replace(/\\"/g, '"');
-  const patternMatch =
-    cleaned.match(/\b(?:grep|rg|ag|ack)\s+(?:-\S+\s+)*"([^"]+)"/i) ||
-    cleaned.match(/\b(?:grep|rg|ag|ack)\s+(?:-\S+\s+)*'([^']+)'/i) ||
-    cleaned.match(/\b(?:grep|rg|ag|ack)\s+(?:(?:-\w+\s+(?:[a-z]+\s+)?)*?)([A-Z][a-zA-Z]\w+)/i);
-
-  let symbols = [];
-  if (patternMatch) {
-    const fullPattern = patternMatch[1];
-    // Split on both | and . so dotted expressions aren't merged into camelCase
-    const parts = fullPattern
-      .split(/\\?\||\./)
-      .map(p => p.replace(ZW, '').replace(/[*+?^${}()[\]\\]/g, '').trim())
-      .filter(Boolean);
-
-    symbols = parts.filter(p => {
-      if (p.length < 4 || /\s/.test(p)) return false;
-      const skip = [
-        /^(TODO|FIXME|HACK|XXX|NOTE)/i,
-        /^console\b/, /^import\b/, /^export\b/, /^http/i, /^\d/,
-        /^[A-Z_]{3,}$/, /^[a-z]{1,8}$/, /^[a-z]+-[a-z]+/,
-      ];
-      if (skip.some(rx => rx.test(p))) return false;
-
-      return (/^[a-z][a-zA-Z0-9]{3,}$/.test(p) && /[A-Z]/.test(p)) ||
-             /^[A-Z][a-zA-Z][a-zA-Z0-9]{2,}$/.test(p) ||
-             (/^[a-z]+(_[a-z]+){2,}$/.test(p) && p.length >= 9);
-    });
-  }
-
-  // ── Extract file/glob paths ───────────────────────────────────────────────
-  // Collect non-flag tokens that appear after the pattern position.
-  // These are candidate file paths / globs (e.g. "src/app.js", "**/*.js").
+  // ── Token walk: classify each arg as flag / flag-value / pattern / path ────
+  // Handles value-taking flags so a glob value (`-g '*.js'`) is never mistaken
+  // for the search pattern, and a JS glob/include value still marks the call as
+  // JS-targeted. The pattern is the first positional token (unless -e/--regexp
+  // supplied it); the audited symbol classification stays in classifyPatternToSymbols.
+  const tokens = cmd.replace(/\\"/g, '"').split(/\s+/).filter(Boolean);
+  const patternCandidates = [];
   const paths = [];
-  // Tokenize the command; skip flags (-r, --include=...) and the grep verb itself
-  // and the search pattern (first non-flag token after the verb).
-  const tokens = cleaned.split(/\s+/);
   let verbSeen = false;
-  let patternSeen = false;
-  for (const tok of tokens) {
+  let patternFromFlag = false;        // -e/--regexp provided the search pattern
+  let positionalPatternTaken = false;
+
+  const consumeFlagValue = (name, rawVal) => {
+    const val = stripQuotes(rawVal);
+    if (GREP_FLAG_PATTERN.has(name)) { patternCandidates.push(val); patternFromFlag = true; }
+    else if (GREP_FLAG_GLOB.has(name) && looksJs(val)) { paths.push(val); }
+    // GREP_FLAG_SKIP / unknown value-flags: value ignored
+  };
+
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i];
     if (!verbSeen) {
       if (/^(grep|rg|ag|ack)$/i.test(tok)) verbSeen = true;
       continue;
     }
-    if (tok.startsWith('-')) continue;        // flag
-    if (!patternSeen) { patternSeen = true; continue; } // skip search pattern token
-    // Everything after the pattern is a path/glob argument
-    // Strip surrounding quotes
-    paths.push(tok.replace(/^['"]|['"]$/g, ''));
+    if (tok.startsWith('-')) {
+      const name = grepFlagName(tok);
+      const eq = tok.indexOf('=');
+      if (eq >= 0) { consumeFlagValue(name, tok.slice(eq + 1)); continue; } // --glob=*.js
+      if (GREP_FLAG_PATTERN.has(name) || GREP_FLAG_GLOB.has(name) || GREP_FLAG_SKIP.has(name)) {
+        if (i + 1 < tokens.length) { consumeFlagValue(name, tokens[i + 1]); i++; } // next token is the value
+        continue;
+      }
+      continue;                                                            // boolean flag
+    }
+    // positional (non-flag) token
+    const val = stripQuotes(tok);
+    if (!patternFromFlag && !positionalPatternTaken) {
+      patternCandidates.push(val);
+      positionalPatternTaken = true;
+    } else {
+      paths.push(val);
+    }
   }
 
+  const symbols = patternCandidates.flatMap(classifyPatternToSymbols);
   return { isGrep: true, symbols, paths };
 }
 

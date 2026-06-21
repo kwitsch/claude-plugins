@@ -58,3 +58,24 @@ test('isJsTarget: Bash grep on a JS file', () => {
   assert.equal(isJsTarget('Bash', { command: 'grep getUserById src/app.go' }), false);
   assert.equal(isJsTarget('Bash', { command: 'grep getUserById' }), false); // ambiguous -> pass
 });
+
+// --- CR4: value-taking flags (rg -g/--glob) must not evade detection ---
+test('extractGrepTargets: rg glob-flag value does not swallow the symbol', () => {
+  // -g '*.js' VALUE must not be mistaken for the search pattern.
+  const a = extractGrepTargets("rg -g '*.js' getUserById src");
+  assert.ok(a.symbols.includes('getUserById'), 'symbol extracted past the -g value');
+  const b = extractGrepTargets("rg getUserById --glob '*.js'");
+  assert.ok(b.symbols.includes('getUserById'), 'symbol extracted before the --glob flag');
+});
+test('isJsTarget: rg with a JS glob flag is JS-targeted; non-JS glob is not', () => {
+  assert.equal(isJsTarget('Bash', { command: "rg -g '*.js' getUserById src" }), true);
+  assert.equal(isJsTarget('Bash', { command: "rg getUserById --glob '*.js'" }), true);
+  assert.equal(isJsTarget('Bash', { command: "rg --glob='*.js' getUserById" }), true); // = form
+  assert.equal(isJsTarget('Bash', { command: "rg -g '*.go' getUserById" }), false); // non-JS glob -> pass
+});
+test('extractGrepTargets: -e supplies the pattern, positional file is not a symbol', () => {
+  // `grep -e foo UserService.js` searches literal "foo"; the filename must NOT
+  // be classified as the symbol UserService (no false positive).
+  const r = extractGrepTargets('grep -e foo UserService.js');
+  assert.equal(r.symbols.includes('UserService'), false);
+});
