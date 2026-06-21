@@ -94,3 +94,68 @@ ${compressed}
 
 Return ONLY the fixed compressed file. No explanation, no outer fence.`;
 }
+
+// PATH augmentation mirrors bin/bnx.sh — non-interactive spawns often miss these.
+function augmentedPath() {
+  const home = process.env.HOME;
+  const extra = home ? `${home}/.local/bin:${home}/.bun/bin` : "";
+  return extra ? `${extra}:${process.env.PATH ?? ""}` : (process.env.PATH ?? "");
+}
+
+export function callClaude(prompt, opts = {}) {
+  const bin = opts.bin ?? process.env.CAVE_COMPRESS_CLAUDE_BIN ?? "claude";
+  const model = opts.model ?? process.env.CAVE_COMPRESS_MODEL;
+  const timeoutMs = opts.timeoutMs ?? (Number(process.env.CAVE_COMPRESS_TIMEOUT_MS) || 120000);
+  // Isolation: --strict-mcp-config (no MCP servers → no cave-context recursion),
+  // --setting-sources project from a config-less tmpdir cwd (no user plugins/hooks),
+  // text output, no session persistence.
+  const args = ["--print", "--output-format", "text", "--strict-mcp-config",
+    "--no-session-persistence", "--setting-sources", "project"];
+  if (model) args.push("--model", model);
+  const env = { ...process.env, ...(opts.env || {}), PATH: augmentedPath() };
+  return new Promise((resolve, reject) => {
+    const child = spawn(bin, args, { cwd: tmpdir(), env, stdio: ["pipe", "pipe", "pipe"] });
+    let out = "", err = "";
+    const timer = setTimeout(() => { child.kill("SIGKILL"); reject(new Error(`claude timed out after ${timeoutMs}ms`)); }, timeoutMs);
+    child.on("error", (e) => { clearTimeout(timer); reject(e); });        // ENOENT, etc.
+    child.stdout.on("data", (d) => { out += d; });
+    child.stderr.on("data", (d) => { err += d; });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve(out);
+      else reject(new Error(`claude exited ${code}: ${err.trim().slice(0, 300)}`));
+    });
+    child.stdin.end(prompt);
+  });
+}
+
+function fail(compressed, reason, errors = []) {
+  return { compressed, changed: false, valid: false, errors, reason };
+}
+
+export async function compressText(text, opts = {}) {
+  if (typeof text !== "string" || !text.trim()) return fail(typeof text === "string" ? text : "", "empty or whitespace-only input");
+  if (Buffer.byteLength(text, "utf8") > MAX_INPUT_BYTES) return fail(text, `input too large (max ${MAX_INPUT_BYTES} bytes)`);
+
+  const { frontmatter, body } = splitFrontmatter(text);
+  if (!body.trim()) return fail(text, "body empty after frontmatter removal");
+
+  let compressedBody;
+  try { compressedBody = stripLlmWrapper((await callClaude(buildCompressPrompt(body), opts)).trim()); }
+  catch (e) { return fail(text, String(e?.message ?? e)); }
+  if (!compressedBody) return fail(text, "model returned empty output");
+  if (compressedBody.trim() === body.trim()) return { compressed: frontmatter + compressedBody, changed: false, valid: true, errors: [] };
+
+  let compressed = frontmatter + compressedBody;
+  let result = validate(text, compressed);
+  for (let attempt = 0; !result.valid && attempt < MAX_RETRIES; attempt++) {
+    let fixed;
+    try { fixed = stripLlmWrapper((await callClaude(buildFixPrompt(text, compressed, result.errors), opts)).trim()); }
+    catch (e) { return fail(text, String(e?.message ?? e), result.errors); }
+    if (!fixed) break;
+    compressed = fixed;                 // fix prompt operates on the FULL file (frontmatter included)
+    result = validate(text, compressed);
+  }
+  if (!result.valid) return fail(text, "validation failed after retries", result.errors);
+  return { compressed, changed: true, valid: true, errors: [] };
+}
