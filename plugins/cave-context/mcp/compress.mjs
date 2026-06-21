@@ -127,6 +127,10 @@ export function callClaude(prompt, opts = {}) {
       if (code === 0) resolve(out);
       else reject(new Error(`claude exited ${code}: ${err.trim().slice(0, 300)}`));
     });
+    // A broken pipe (claude exits before draining a >64KB prompt) emits an async
+    // EPIPE on stdin outside the Promise path — swallow it so it can't crash the
+    // server; the close/error handlers still produce the real verdict.
+    child.stdin.on("error", () => {});
     child.stdin.end(prompt);
   });
 }
