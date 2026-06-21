@@ -175,6 +175,37 @@ test("compressText does NOT add trailing newline when original had none", async 
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+// Bespoke fake whose output contains an em dash (U+2014 = E2 80 94) split across
+// two stdout writes on separate ticks — forcing the parent to fire two `data`
+// events with the multi-byte sequence straddling the chunk boundary. Without
+// setEncoding("utf8") each chunk stringifies independently and the char corrupts
+// to U+FFFD replacement characters.
+function makeByteSplitFakeClaude(dir) {
+  const p = join(dir, "fake-claude-split.mjs");
+  writeFileSync(p, `#!/usr/bin/env node
+// "# H\\nbody " then split em dash bytes, then "tail\\n"
+process.stdout.write(Buffer.from([0x23,0x20,0x48,0x0a,0x62,0x6f,0x64,0x79,0x20,0xe2,0x80]));
+setTimeout(() => {
+  process.stdout.write(Buffer.from([0x94,0x20,0x74,0x61,0x69,0x6c,0x0a]));
+  process.exit(0);
+}, 10);
+`);
+  chmodSync(p, 0o755);
+  return p;
+}
+
+test("compressText decodes multi-byte UTF-8 split across stdout chunks intact", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "cc-compress-"));
+  try {
+    const bin = makeByteSplitFakeClaude(dir);
+    const out = await compressText("# H\nsome long original body text\n", { bin });
+    assert.equal(out.valid, true);
+    assert.equal(out.changed, true);
+    assert.ok(out.compressed.includes("—"), "em dash preserved intact across chunk boundary");
+    assert.ok(!out.compressed.includes("�"), "no replacement char from broken decode");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("compressText returns valid:false when claude exits non-zero", async () => {
   const dir = mkdtempSync(join(tmpdir(), "cc-compress-"));
   try {

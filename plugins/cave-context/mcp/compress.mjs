@@ -117,6 +117,10 @@ export function callClaude(prompt, opts = {}) {
   const env = { ...process.env, ...(opts.env || {}), PATH: augmentedPath() };
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, { cwd: tmpdir(), env, stdio: ["pipe", "pipe", "pipe"] });
+    // Decode as UTF-8 so a multi-byte char (CJK, emoji, en/em dash) straddling a
+    // chunk boundary is not corrupted by independently stringifying each Buffer.
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
     let out = "", err = "";
     const timer = setTimeout(() => { child.kill("SIGKILL"); reject(new Error(`claude timed out after ${timeoutMs}ms`)); }, timeoutMs);
     child.on("error", (e) => { clearTimeout(timer); reject(e); });        // ENOENT, etc.
