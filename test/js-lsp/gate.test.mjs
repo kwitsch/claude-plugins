@@ -8,11 +8,12 @@ process.env.CLAUDE_PLUGIN_DATA = mkdtempSync(join(tmpdir(), 'jslspgate-'));
 process.env.JS_LSP_ENFORCE_SEARCH = 'true';
 process.env.JS_LSP_ENFORCE_READ_GATE = 'true';
 const H = await import('../../plugins/js-lsp/mcp/handlers.mjs');
-const { resetState } = await import('../../plugins/js-lsp/mcp/state.mjs');
+const { resetState, readState } = await import('../../plugins/js-lsp/mcp/state.mjs');
 
 const CWD = '/proj';
 const read = (fp) => ({ hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: fp }, cwd: CWD });
 const lsp = () => ({ hook_event_name: 'PostToolUse', tool_name: 'LSP', tool_input: {}, cwd: CWD });
+const lspFail = () => ({ hook_event_name: 'PostToolUse', tool_name: 'LSP', tool_input: {}, tool_response: { success: false }, cwd: CWD });
 const isDeny = (o) => o?.hookSpecificOutput?.permissionDecision === 'deny';
 
 beforeEach(() => { H.__resetSeenForTest(); resetState(CWD); });
@@ -108,4 +109,31 @@ test('PostToolUse LSP success re-arms the read gate (one nav re-gates, two enter
   // A SECOND successful LSP call (navCount=2) enters surgical mode -> reads pass.
   H.handlePostToolUse(lsp());                                          // navCount=2 -> surgical mode
   for (let i = 0; i < 5; i++) assert.deepEqual(H.handlePreToolUse(read('/proj/a.js')), {});
+});
+
+test('PostToolUse failed LSP (success:false) does NOT re-arm: navCount stays 0, escape hatch holds (F4)', () => {
+  // Engage the escape hatch with zero LSP calls: 2 blocked reads (blockedNoNav=2),
+  // then the 3rd read entry sets lspUnavailable=true and fails open.
+  assert.equal(isDeny(H.handlePreToolUse(read('/proj/a.js'))), true); // blockedNoNav=1
+  assert.equal(isDeny(H.handlePreToolUse(read('/proj/a.js'))), true); // blockedNoNav=2
+  assert.deepEqual(H.handlePreToolUse(read('/proj/a.js')), {});       // entry check -> lspUnavailable=true, fail-open
+  assert.equal(readState(CWD).lspUnavailable, true);
+  assert.equal(readState(CWD).navCount, 0);
+
+  // A FAILED LSP call must not advance state: navCount unchanged, hatch still engaged.
+  H.handlePostToolUse(lspFail());
+  assert.equal(readState(CWD).navCount, 0, 'failed LSP must not bump navCount');
+  assert.equal(readState(CWD).lspUnavailable, true, 'failed LSP must not clear lspUnavailable');
+
+  // Reads keep flowing via the (still-engaged) hatch — the gate was NOT re-armed.
+  // Under the bug the cleared hatch + navCount=1 would re-deny once readCount>=GATE2_AT.
+  for (let i = 0; i < 5; i++) assert.deepEqual(H.handlePreToolUse(read('/proj/a.js')), {});
+});
+
+test('PostToolUse LSP with explicit success:true re-arms the gate as before (F4 positive)', () => {
+  const ok = () => ({ hook_event_name: 'PostToolUse', tool_name: 'LSP', tool_input: {}, tool_response: { success: true }, cwd: CWD });
+  H.handlePostToolUse(ok());                                          // navCount=1, warmupDone
+  assert.equal(readState(CWD).navCount, 1);
+  assert.equal(readState(CWD).warmupDone, true);
+  for (let i = 0; i < 3; i++) assert.deepEqual(H.handlePreToolUse(read('/proj/a.js')), {}); // reads 1-3 pass
 });

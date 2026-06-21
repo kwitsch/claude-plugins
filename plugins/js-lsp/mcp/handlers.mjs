@@ -92,6 +92,12 @@ export function handlePreToolUse(event) {
 export function handlePostToolUse(event) {
   try {
     if (!event || event.tool_name !== 'LSP') return ALLOW;
+    // Only a SUCCESSFUL LSP call re-arms the gate. Fail open on a missing field
+    // (absent tool_response → treat as success, unchanged behavior), but an
+    // explicit success:false must NOT advance warmupDone/navCount or clear
+    // lspUnavailable/blockedNoNav — else a failed LSP attempt (vtsls down) would
+    // wipe the escape-hatch state the read gate relies on to release reads.
+    if (event.tool_response && event.tool_response.success === false) return ALLOW;
     const cwd = event.cwd;
     maybeReset(cwd);
     const s = readState(cwd);
