@@ -34,4 +34,6 @@ Three hook-only plugins predate this rule and declare no `userConfig` yet: `ccto
 
 ## Intentionally config-free
 
-`cave-context` deliberately exposes **no** `userConfig`: its caveman compression level is fixed at `full` (no level selection, no on/off switch). Do not re-add a toggle without an explicit decision to make the behaviour configurable again.
+`cave-context`'s caveman compression level is deliberately **not** configurable — it is fixed at `full` (no level selection, no on/off switch). Do not add a level/compression toggle without an explicit decision to make that behaviour configurable.
+
+`cave-context` declares exactly one `userConfig` toggle, `branch_reindex` (default `true`), gating the PostToolUse branch-change auto-reindex (delivered to the MCP server as `CAVE_CONTEXT_BRANCH_REINDEX` via `.mcp.json` `env`). This was an explicit decision to make that side-effect opt-out; it is not a precedent for re-adding the compression-level toggle above.
