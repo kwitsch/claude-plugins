@@ -1,6 +1,6 @@
 {
   "name": "ts-lsp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "TypeScript-only LSP via vtsls, with LSP-first enforcement hooks",
   "author": { "name": "Kwitsch" },
   "userConfig": {
@@ -8,13 +8,13 @@
       "type": "boolean",
       "default": true,
       "title": "Enforce LSP over text search (TypeScript)",
-      "description": "Redirect Grep/Glob/Bash-grep for TypeScript code symbols to the LSP tool. Fail-open: disabled only when set to false."
+      "description": "Redirect Grep/Glob/Bash-grep for TypeScript code symbols to the LSP tool. Fail-open: disabled only when set to false. (Boolean, Default: true)"
     },
     "enforce_read_gate": {
       "type": "boolean",
       "default": true,
       "title": "Progressive read gate (TypeScript)",
-      "description": "Require an LSP navigation call before reading many TypeScript files (warmup -> surgical mode). Default: enabled. Because it creates per-project state, it is fail-closed at runtime — only a literal true value activates it (an uninterpolated placeholder is treated as off)."
+      "description": "Require an LSP navigation call before reading many TypeScript files (warmup -> surgical mode). Because it creates per-project state, it is fail-closed at runtime — only a literal true value activates it (an uninterpolated placeholder is treated as off). (Boolean, Default: true)"
     }
   }
 }

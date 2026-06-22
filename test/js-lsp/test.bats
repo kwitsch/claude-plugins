@@ -12,6 +12,14 @@ PLUGIN="${BATS_TEST_DIRNAME}/../../plugins/js-lsp"
   [ "$output" = "enforce_read_gate,enforce_search" ]
 }
 
+@test "every userConfig description ends with its (Type, Default: value) suffix" {
+  # Derive the required suffix per option from its own .type and .default:
+  # capitalize the type, stringify the default -> "(<Type>, Default: <value>)".
+  # Generalizes beyond the current boolean/true toggles.
+  run jq -e '[.userConfig[] | . as $o | (($o.type | (.[0:1] | ascii_upcase) + .[1:])) as $cap | ("(" + $cap + ", Default: " + ($o.default | tostring) + ")") as $s | select(($o.description | endswith($s)) | not)] | length == 0' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
+}
+
 @test ".lsp.json maps only JavaScript extensions (no .ts/.tsx)" {
   run jq -r '.vtsls.extensionToLanguage | keys | sort | join(",")' "$PLUGIN/.lsp.json"
   [ "$output" = ".cjs,.js,.jsx,.mjs" ]
