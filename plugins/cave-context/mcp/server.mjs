@@ -35,7 +35,7 @@ function startServer() {
   ];
 
   // Lazy imports — keep shim path dependency-free until we actually serve.
-  Promise.all([import("./proxy.mjs"), import("./handlers.mjs")]).then(([{ Upstream }, { HANDLERS }]) => {
+  Promise.all([import("./proxy.mjs"), import("./handlers.mjs"), import("./branch-index.mjs")]).then(([{ Upstream }, { HANDLERS }, { createBranchIndexer }]) => {
     const send = (m) => process.stdout.write(JSON.stringify(m) + "\n");
     const ok = (id, result) => send({ jsonrpc: "2.0", id, result });
     const fail = (id, code, message) => send({ jsonrpc: "2.0", id, error: { code, message } });
@@ -47,6 +47,12 @@ function startServer() {
       if (!upStarted) upStarted = up.start().catch(() => []);
       return upStarted;
     };
+
+    const branchIndexer = createBranchIndexer({
+      ensureUp,
+      callTool: (name, args) => up.callTool(name, args),
+      // detectBranch defaults to the git-spawn detector
+    });
 
     const rl = readline.createInterface({ input: process.stdin });
     rl.on("line", async (line) => {
@@ -72,6 +78,7 @@ function startServer() {
           if (HANDLERS[name]) {
             if (process.env.MCP_HOOK_DEBUG) process.stderr.write(`[${SERVER_NAME}] hook tool: ${name}\n`);
             const result = await HANDLERS[name](params?.arguments ?? {});
+            if (name === "hook_posttooluse") branchIndexer.note(params?.arguments?.cwd).catch(() => {}); // fire-and-forget; .catch keeps the no-unhandled-rejection guarantee robust to future edits in note()
             return ok(id, { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result });
           }
           // Reject denied upstream tools before the liveness check so the verdict is
