@@ -81,7 +81,7 @@ export async function handlePreCompact(input) {
   return emit("PreCompact", ac, hard);
 }
 
-// Delegate the compress MCP tool call to compressText; strips undefined input to empty string.
+// Forward the compress MCP tool call to compressText; passes input.text, or "" when absent.
 export async function handleCompress(input = {}) {
   return compressText(input?.text ?? "");
 }
