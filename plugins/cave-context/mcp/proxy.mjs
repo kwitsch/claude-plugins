@@ -1,4 +1,6 @@
-// proxy.mjs — client to the upstream context-mode MCP server over stdio.
+// proxy.mjs — stdio client to the upstream context-mode MCP server.
+// Backs ctx_* tool calls proxied by server.mjs; never writes stdout (would corrupt JSON-RPC); diagnostics → stderr.
+// Fail-open: if the upstream is down or the handshake times out, the server marks the child dead and re-spawns on the next call.
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import readline from "node:readline";
@@ -13,6 +15,7 @@ const HANDSHAKE_TIMEOUT = Number(process.env.CAVE_CONTEXT_HANDSHAKE_TIMEOUT_MS) 
 // ctx_batch_execute) that routinely run >15s; default to Claude Code's 600s hook bound.
 const TOOL_TIMEOUT = Number(process.env.CAVE_CONTEXT_TOOL_TIMEOUT_MS) || 600000;
 
+// Resolve the upstream context-mode spawn command: honour CAVE_CONTEXT_UPSTREAM_CMD override, else default to bin/bnx.sh context-mode.
 function upstreamCmd() {
   if (process.env.CAVE_CONTEXT_UPSTREAM_CMD) {
     try { const a = JSON.parse(process.env.CAVE_CONTEXT_UPSTREAM_CMD); if (Array.isArray(a) && a.length) return a; } catch { /* fall through */ }
