@@ -1,0 +1,13 @@
+{
+  "vtsls": {
+    "command": "${CLAUDE_PLUGIN_ROOT}/bin/vtsls-launch.sh",
+    "args": ["--stdio"],
+    "extensionToLanguage": {
+      ".ts": "typescript",
+      ".cts": "typescript",
+      ".mts": "typescript",
+      ".tsx": "typescriptreact"
+    },
+    "startupTimeout": 60000
+  }
+}
