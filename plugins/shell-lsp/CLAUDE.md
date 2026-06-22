@@ -18,4 +18,4 @@ extension-based (`.sh`/`.bash`); extensionless scripts are a fail-open
 pass-through.
 
 ## Tests
-`BATS_LIB_PATH=/usr/lib/bats bats test/shell-lsp/` and `node --test test/shell-lsp/`.
+`BATS_LIB_PATH=/usr/lib/bats bats test/shell-lsp/` and `node --test test/shell-lsp/*.test.mjs`.

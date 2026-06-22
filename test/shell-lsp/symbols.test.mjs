@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isShellCodeSymbol, isShellTarget, extractGrepTargets } from '../../plugins/shell-lsp/mcp/symbols.mjs';
+import { isShellCodeSymbol, isShellTarget, extractGrepTargets, stripZeroWidth } from '../../plugins/shell-lsp/mcp/symbols.mjs';
 
 const SYMBOLS = ['deploy_app', 'git::push', 'log::info', 'parse_args', 'build_image', 'run_tests', 'file_path', 'is_ok'];
 const NOT_SYMBOLS = ['run', 'main', 'setup', 'cd', 'i', 'PATH', 'HOME', 'MY_VAR', 'foo', 'usr/bin', 'echo', 'a_b'];
@@ -48,4 +48,10 @@ test('extractGrepTargets: alternation splits on | but namespaced symbols keep ::
 test('extractGrepTargets: git grep is excluded (isGrep false)', () => {
   const { isGrep } = extractGrepTargets('git grep foo deploy.sh');
   assert.equal(isGrep, false);
+});
+
+test('stripZeroWidth: removes U+200B and zero-width chars from symbol strings', () => {
+  // 'parse​_args' contains a literal U+200B (zero-width space) between 'parse' and '_args'
+  assert.equal(stripZeroWidth('parse​_args'), 'parse_args');
+  assert.equal(isShellCodeSymbol('parse​_args'), true, 'zero-width char injected into a symbol must not evade detection');
 });
