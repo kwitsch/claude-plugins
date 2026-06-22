@@ -19,11 +19,13 @@ const OUTER_FENCE_RE = /^\s*(`{3,}|~{3,})[^\n]*\n([\s\S]*)\n\1\s*$/;
 const URL_RE = /https?:\/\/[^\s)]+/g;
 const HEADING_RE = /^#{1,6}[ \t]+\S.*$/gm;
 
+// Split YAML front matter from the body; returns { frontmatter, body } — frontmatter is "" when absent.
 export function splitFrontmatter(text) {
   const m = FRONTMATTER_RE.exec(text);
   return m ? { frontmatter: m[1], body: m[2] } : { frontmatter: "", body: text };
 }
 
+// Remove a single outer ``` or ~~~ fence the model may have wrapped its output in; returns the inner content or text unchanged.
 export function stripLlmWrapper(text) {
   const m = OUTER_FENCE_RE.exec(text);
   return m ? m[2] : text;
@@ -46,6 +48,7 @@ function extractFencedBlocks(text) {
   return blocks;
 }
 
+// Check that compressed preserves all URLs, fenced code blocks, and headings from original; returns { valid, errors }.
 export function validate(original, compressed) {
   const errors = [];
   for (const u of new Set(original.match(URL_RE) || [])) {
@@ -62,6 +65,7 @@ export function validate(original, compressed) {
   return { valid: errors.length === 0, errors };
 }
 
+// Build the caveman-compress system prompt for a markdown body; returned string is fed to callClaude.
 export function buildCompressPrompt(body) {
   return `Compress the markdown below into caveman terse-encoding. Cut prose tokens; keep every fact.
 
@@ -77,6 +81,7 @@ TEXT:
 ${body}`;
 }
 
+// Build the cherry-pick-fix prompt asking the model to repair only the validation errors listed in errors.
 export function buildFixPrompt(original, compressed, errors) {
   const list = errors.map((e) => `- ${e}`).join("\n");
   return `You are fixing a caveman-compressed markdown file. Validation found specific errors.
@@ -104,6 +109,7 @@ function augmentedPath() {
   return extra ? `${extra}:${process.env.PATH ?? ""}` : (process.env.PATH ?? "");
 }
 
+// Spawn an isolated `claude --print` subprocess, feed prompt on stdin, resolve with stdout text or reject on timeout/non-zero exit.
 export function callClaude(prompt, opts = {}) {
   const bin = opts.bin ?? process.env.CAVE_COMPRESS_CLAUDE_BIN ?? "claude";
   const model = opts.model ?? process.env.CAVE_COMPRESS_MODEL;
@@ -139,10 +145,12 @@ export function callClaude(prompt, opts = {}) {
   });
 }
 
+// Construct a failure result: changed=false, valid=false, with the given reason and error list.
 function fail(compressed, reason, errors = []) {
   return { compressed, changed: false, valid: false, errors, reason };
 }
 
+// Orchestrate the full compress pipeline: guard → split frontmatter → compress body → validate → retry → reassemble.
 export async function compressText(text, opts = {}) {
   if (typeof text !== "string" || !text.trim()) return fail(typeof text === "string" ? text : "", "empty or whitespace-only input");
   if (Buffer.byteLength(text, "utf8") > MAX_INPUT_BYTES) return fail(text, `input too large (max ${MAX_INPUT_BYTES} bytes)`);
