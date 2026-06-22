@@ -1,4 +1,7 @@
 'use strict';
+// handlers.mjs — PreToolUse and PostToolUse hook handlers for LSP-first enforcement.
+// Enforces LSP warm-up and navigation quotas before allowing text search or file reads
+// on language-scoped targets. All decisions are fail-open (soft deny via JSON, never throws).
 import { isTsTarget, isCodeSymbol, extractGrepTargets, globTokens } from './symbols.mjs';
 import { readState, writeState, resetState } from './state.mjs';
 
@@ -19,12 +22,14 @@ const LSP_HINT = (file) =>
 // in-memory first-sighting reset (per server process)
 const seen = new Set();
 export function __resetSeenForTest() { seen.clear(); }
+// Reset persisted state on first encounter of a cwd within this server process.
 function maybeReset(cwd) {
   if (cwd == null || seen.has(cwd)) return;
   seen.add(cwd);
   resetState(cwd);
 }
 
+// Return true if the tool's search pattern or command contains a code symbol.
 function symbolInSearch(toolName, input) {
   if (toolName === 'Grep') return String(input.pattern ?? '').split('|').some(isCodeSymbol);
   if (toolName === 'Glob') return globTokens(input.pattern).some(isCodeSymbol);
@@ -32,6 +37,7 @@ function symbolInSearch(toolName, input) {
   return false;
 }
 
+// Deny symbol-bearing searches on language-scoped targets; pass everything else through.
 function searchGuard(toolName, input) {
   if (!ENFORCE_SEARCH) return ALLOW;
   if (!isTsTarget(toolName, input)) return ALLOW;
@@ -39,6 +45,8 @@ function searchGuard(toolName, input) {
   return deny(LSP_HINT('the TypeScript file you are searching'));
 }
 
+// Gate file reads: require LSP warm-up, enforce a navigation quota, and release
+// via an escape hatch after ESCAPE_THRESHOLD consecutive denials with no LSP call.
 function readGate(cwd, file) {
   if (!ENFORCE_READ_GATE) return ALLOW;
   if (cwd == null) return ALLOW;                       // malformed event: fail open
@@ -74,6 +82,7 @@ function readGate(cwd, file) {
   return ALLOW;
 }
 
+// PreToolUse hook entry point: route Read to the read gate, search tools to searchGuard.
 export function handlePreToolUse(event) {
   try {
     if (!event || typeof event !== 'object') return ALLOW;
@@ -89,6 +98,8 @@ export function handlePreToolUse(event) {
   } catch { return ALLOW; }
 }
 
+// PostToolUse hook entry point: on a successful LSP call, advance warm-up and nav counts,
+// then re-arm the read gate by clearing the escape-hatch counter.
 export function handlePostToolUse(event) {
   try {
     if (!event || event.tool_name !== 'LSP') return ALLOW;
