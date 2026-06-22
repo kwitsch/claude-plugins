@@ -26,6 +26,7 @@ jobs:
           - cave-context
           - js-lsp
           - ts-lsp
+          - shell-lsp
     steps:
       - name: Checkout
         uses: actions/checkout@v6

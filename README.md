@@ -21,6 +21,7 @@ A [Claude Code](https://docs.claude.com/en/docs/claude-code/plugins) plugin mark
 | [cave-context](plugins/cave-context/README.md) | Unifies caveman + context-mode into one non-competing MCP server: proxies context-mode ctx_* tools, aggregates both plugins' hooks, and adds the cave-compress Markdown compressor skill. |
 | [js-lsp](plugins/js-lsp/README.md) | JavaScript-only LSP (vtsls) with LSP-first enforcement hooks |
 | [ts-lsp](plugins/ts-lsp/README.md) | TypeScript-only LSP (vtsls) with LSP-first enforcement hooks |
+| [shell-lsp](plugins/shell-lsp/README.md) | Shell-only LSP (.sh/.bash) via bash-language-server + LSP-first enforcement |
 
 ## Configure plugins
 
