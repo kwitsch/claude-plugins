@@ -22,7 +22,7 @@ export function stripZeroWidth(s) {
 const NAMESPACED = /^[a-z][a-z0-9]*::[a-z][a-z0-9_]*$/;
 const SNAKE = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/;
 
-// Returns true if tokenRaw looks like a shell code symbol (namespaced or multi-word snake_case).
+// Returns true if tokenRaw is a namespaced function (name::sub) or a snake_case identifier of length >= 5.
 export function isShellCodeSymbol(tokenRaw) {
   const s = stripZeroWidth(tokenRaw).trim();
   if (!s) return false;
