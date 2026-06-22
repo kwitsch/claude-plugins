@@ -20,6 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 . "$SCRIPT_DIR/lib.sh"
 
+# Log a progress/error message to stderr; never touches stdout (the hook's JSON channel).
 log() { printf 'cctools-edit: %s\n' "$1" >&2; }
 
 case "${1:-}" in
@@ -43,8 +44,10 @@ URL="$(cctools_download_url)"
 
 # Need a downloader.
 if command -v curl >/dev/null 2>&1; then
+  # Download URL $2 to local path $1 using curl; silent, follow redirects, fail on HTTP errors.
   download() { curl -fsSL -o "$1" "$2"; }
 elif command -v wget >/dev/null 2>&1; then
+  # Download URL $2 to local path $1 using wget; quiet mode.
   download() { wget -qO "$1" "$2"; }
 else
   log "neither curl nor wget found; cannot install. Native file tools stay enabled."
