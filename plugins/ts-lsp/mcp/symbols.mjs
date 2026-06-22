@@ -1,4 +1,7 @@
 // Portions © 2026 DenAleksandrov (MIT) — claude-code-lsp-enforcement-kit
+// symbols.mjs — TypeScript symbol extraction and target classification for ts-lsp.
+// Determines whether a Bash/Grep/Glob/Read tool call targets TS files and extracts
+// code symbols from grep patterns. Pure logic, no stdout, safe on the hook hot-path.
 'use strict';
 
 // Zero-width / formatting chars that bypass ASCII regex symbol detection
