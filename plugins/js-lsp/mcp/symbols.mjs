@@ -1,4 +1,7 @@
 // Portions © 2026 DenAleksandrov (MIT) — claude-code-lsp-enforcement-kit
+// symbols.mjs — JavaScript symbol extraction and target classification for js-lsp.
+// Determines whether a Bash/Grep/Glob/Read tool call targets JS files and extracts
+// code symbols from grep patterns. Pure logic, no stdout, safe on the hook hot-path.
 'use strict';
 
 // Zero-width / formatting chars that bypass ASCII regex symbol detection
