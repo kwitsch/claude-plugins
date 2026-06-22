@@ -1,4 +1,6 @@
-// handlers.mjs — aggregated hook handlers (caveman reimpl + context-mode delegation).
+// handlers.mjs — aggregated hook handlers: caveman per-turn reminder + context-mode delegation.
+// Backs hook_userpromptsubmit, hook_pretooluse, hook_posttooluse, hook_precompact, and compress.
+// Never writes stdout (would corrupt the server's JSON-RPC stream); all diagnostics → stderr.
 import { reminderText } from "./caveman.mjs";
 import { delegateHook } from "./delegate.mjs";
 import { compressText } from "./compress.mjs";
@@ -6,11 +8,13 @@ import { compressText } from "./compress.mjs";
 const WEBFETCH_DENY_REASON =
   "cave-context routing: use ctx_fetch_and_index instead of WebFetch — full network access, results indexed for ctx_search, raw page bytes never enter context.";
 
+// Combine two additionalContext strings with a blank-line separator; returns null when both are empty.
 export function mergeContext(a, b) {
   const parts = [a, b].filter((s) => s && String(s).trim());
   return parts.length ? parts.join("\n\n") : null;
 }
 
+// Assemble the hook response envelope: wrap additionalContext in hookSpecificOutput and merge any hard fields from extra.
 function emit(event, additionalContext, extra = {}) {
   const out = { ...extra };
   if (additionalContext) {
@@ -33,6 +37,7 @@ function fromDelegate(res) {
   return { ac, hard };
 }
 
+// Emit the caveman full-level reminder plus any context-mode UserPromptSubmit additionalContext.
 export async function handleUserPromptSubmit(input) {
   // Caveman mode is always-on full: emit the per-turn reminder unconditionally,
   // every prompt. No level detection, no runtime state — the prompt is no longer
@@ -42,6 +47,7 @@ export async function handleUserPromptSubmit(input) {
   return emit("UserPromptSubmit", mergeContext(cavemanAc, ctxAc), hard);
 }
 
+// Hard-deny WebFetch for the main agent (→ ctx_fetch_and_index hint), then delegate to context-mode for all other tools.
 export async function handlePreToolUse(input) {
   // Hard-redirect WebFetch → ctx_fetch_and_index. Scoped to the main agent
   // (`!input.agent_id`): subagent WebFetch falls through to the context-mode delegate,
@@ -63,16 +69,19 @@ export async function handlePreToolUse(input) {
   return emit("PreToolUse", ac, hard); // caveman has no PreToolUse
 }
 
+// Forward PostToolUse to context-mode for capture; caveman has no PostToolUse action.
 export async function handlePostToolUse(input) {
   const { ac, hard } = fromDelegate(await delegateHook("PostToolUse", input));
   return emit("PostToolUse", ac, hard);
 }
 
+// Forward PreCompact to context-mode so it can snapshot session state before context is lost.
 export async function handlePreCompact(input) {
   const { ac, hard } = fromDelegate(await delegateHook("PreCompact", input));
   return emit("PreCompact", ac, hard);
 }
 
+// Delegate the compress MCP tool call to compressText; strips undefined input to empty string.
 export async function handleCompress(input = {}) {
   return compressText(input?.text ?? "");
 }
