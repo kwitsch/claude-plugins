@@ -14,7 +14,8 @@ _force_deleted_local=()
 git fetch --prune
 
 # ── Step 2: delete merged upstream branches (requires gh or glab) ─────
-# Delete every origin/* branch already merged into the default branch; appends names to _deleted_upstream.
+# Delete origin/* branches merged into the default branch: gh/glab finds them, git push --delete removes them.
+# Caller gates on gh/glab auth, so this is a no-op when neither CLI is authenticated. Appends names to _deleted_upstream.
 _delete_merged_upstream() {
     local default_branch
     # try local symref first; fall back to querying remote (network call)
