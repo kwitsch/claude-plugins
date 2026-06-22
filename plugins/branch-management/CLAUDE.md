@@ -16,32 +16,18 @@ Orchestrator skills (`new-pr`, `review-branch`) dispatch six subagents; `new-bra
   single **synchronous** Bash script (clean-tree guard, `origin/HEAD` refresh,
   `--ff-only` pull, local+remote name-exists check, `git checkout -b`; structured
   exit codes 0/3/4/5/6/7 → success/dirty_tree/no_remote/git_op_failed/name_exists/worktree
-  drive the user decisions); then invokes `skills/init-branch` (Skill tool) which
-  runs background Bash for graphify refresh + a direct ctx_index MCP call (gated by
-  `graphify_branch_update` + `context_index`, both fail-open). No subagent
+  drive the user decisions). No subagent
   dispatch — the script is synchronous, so there is no async race against the
   shared working tree and no Task* ledger. **Linked-worktree path** (git-dir ≠
   git-common-dir): the default branch is checked out in the primary worktree so
   `git checkout <default>` fails; the script skips create+switch and keeps the
-  current branch (exit 7), and new-branch invokes init-branch with
-  `--worktree-rebase <base>` so the kept branch is refreshed in place. The
-  determined `<type>/<slug>` is then only PR title context, never applied as a
-  branch name — keeping the current (session) branch is what lets a later new-pr
-  register as the remote session's PR.
-- `skills/init-branch`: thin sub-skill — runs INLINE (NOT `context: fork`):
-  optionally self-rebases (only with `--worktree-rebase <default>` in
-  `$ARGUMENTS`, passed by new-branch's worktree path — synchronous native Bash:
-  clean-tree guard → `git fetch origin <default>` → `git rebase origin/<default>`,
-  `git rebase --abort` on conflict so the tree is never left half-rebased; never
-  rebases on a bare standalone invocation), then refreshes graphify output via
-  background Bash (embedded script, commit:no, force/user_files from fail-closed
-  toggles) and indexes the repo via direct ctx_index MCP call (probe order:
-  cave-context → context-mode → bare fallback), both gated by
-  `graphify_branch_update` + `context_index` (fail-open). The graphify script
-  **always exits 0**, carrying its outcome on a `GRAPHIFY_RESULT=` line (a
-  background non-zero exit reads as a failed command — status must not ride the
-  exit code). No subagent dispatches. Called by new-branch after branch creation;
-  user-invocable directly to refresh graph + index anytime.
+  current branch (exit 7), and new-branch runs an inline self-rebase script
+  (synchronous native Bash: clean-tree guard → `git fetch origin <default>` →
+  `git rebase origin/<default>`, `git rebase --abort` on conflict so the tree is
+  never left half-rebased) to refresh the kept branch in place. The determined
+  `<type>/<slug>` is then only PR title context, never applied as a branch name —
+  keeping the current (session) branch is what lets a later new-pr register as
+  the remote session's PR.
 - `skills/review-branch`: standalone review sub-skill — runs INLINE (NOT
   `context: fork`; forked skill is subagent, cannot dispatch reviewer
   subagents); reads
@@ -121,11 +107,10 @@ Orchestrator skills (`new-pr`, `review-branch`) dispatch six subagents; `new-bra
   background non-zero exit reads as a failed command, so status never rides the
   exit code. repo root via git, bounded by `GRAPHIFY_TIMEOUT` (default 600 s);
   prunes human-only `graph.html` after update unless `--keep-user-files` (output
-  serves agents); always Bash (writes graphify-out/). The init-branch worktree
-  self-rebase (`--worktree-rebase <default>`) likewise always exits 0 with a
-  `REBASE_RESULT=` line (`rebased` / `skipped_dirty` / `conflict` /
-  `failed`+`DETAIL`); state-mutating, so always native Bash, never the ctx
-  sandbox.
+  serves agents); always Bash (writes graphify-out/). The new-branch worktree
+  self-rebase likewise always exits 0 with a `REBASE_RESULT=` line (`rebased` /
+  `skipped_dirty` / `conflict` / `failed`+`DETAIL`); state-mutating, so always
+  native Bash, never the ctx sandbox.
   `ci-watch.sh <github|gitlab> <nr|branch>`: 0 green · 1 red · 2 deadline ·
   64 usage/environment (CLI missing/too old); green/red from check CONTENT
   (gh exits 1 fail / 8 pending with data), coderabbit-named checks
@@ -156,7 +141,7 @@ Orchestrator skills (`new-pr`, `review-branch`) dispatch six subagents; `new-bra
   option table + this file, update manifest tests in
   `test/branch-management/test.bats` (assert exact sorted key
   list + count).
-- Sub-skills (`init-branch`, `review-branch`) run INLINE — NOT `context: fork`.
+- Sub-skills (`review-branch`) run INLINE — NOT `context: fork`.
   Forked skill is itself subagent, subagents have no Agent tool, so forked
   sub-skill cannot dispatch agents it relies on; inline keeps them at
   depth 0 so dispatches become visible depth-1 subagents. They resolve own

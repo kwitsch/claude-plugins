@@ -636,41 +636,6 @@ run_ci_watch() {
     "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/ci-monitor.md"
 }
 
-# --- init-branch skill ---
-
-@test "init-branch SKILL.md exists" {
-  [ -f "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branch/SKILL.md" ]
-}
-
-@test "init-branch runs inline (NOT context: fork)" {
-  run grep '^context: fork' \
-    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branch/SKILL.md"
-  assert_failure
-}
-
-@test "init-branch does not pin a model (runs inline)" {
-  run grep '^model:' \
-    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branch/SKILL.md"
-  assert_failure
-}
-
-@test "init-branch allowed-tools does NOT include Agent (no async subagents)" {
-  run grep -q 'allowed-tools:.*Agent' \
-    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branch/SKILL.md"
-  assert_failure
-}
-
-@test "init-branch is user-invocable (no user-invocable: false)" {
-  run grep '^user-invocable: false' \
-    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branch/SKILL.md"
-  assert_failure
-}
-
-@test "new-branch allowed-tools includes Skill (invokes init-branch)" {
-  grep -q 'allowed-tools:.*Skill' \
-    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-branch/SKILL.md"
-}
-
 # --- review-branch skill ---
 
 @test "review-branch SKILL.md exists" {
@@ -964,35 +929,6 @@ run_clean_script() {
   assert_success
 }
 
-# --- init-branch inline tooling assertions ---
-INIT_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branch/SKILL.md"
-
-@test "init-branch allowed-tools includes Bash(bash:*) and ToolSearch" {
-  line=$(grep '^allowed-tools:' "$INIT_SKILL")
-  echo "$line" | grep -qF 'Bash(bash:*)' || { echo "missing Bash(bash:*) in init-branch allowed-tools"; return 1; }
-  echo "$line" | grep -q 'ToolSearch'     || { echo "missing ToolSearch in init-branch allowed-tools"; return 1; }
-}
-
-@test "init-branch allowed-tools includes cave-context and context-mode MCP wildcards" {
-  line=$(grep '^allowed-tools:' "$INIT_SKILL")
-  echo "$line" | grep -qF 'mcp__plugin_cave-context_cave-context__*' \
-    || { echo "missing cave-context wildcard in init-branch allowed-tools"; return 1; }
-  echo "$line" | grep -qF 'mcp__plugin_context-mode_context-mode__*' \
-    || { echo "missing context-mode wildcard in init-branch allowed-tools"; return 1; }
-}
-
-@test "init-branch allowed-tools does NOT include Task* tools (no async subagents)" {
-  line=$(grep '^allowed-tools:' "$INIT_SKILL")
-  for t in TaskCreate TaskUpdate TaskList; do
-    if echo "$line" | grep -q "$t"; then echo "unexpected $t in init-branch allowed-tools"; return 1; fi
-  done
-}
-
-@test "init-branch does NOT carry a subagent reconciliation gate (no async agents)" {
-  run grep -qi 'Subagent reconciliation gate' "$INIT_SKILL"
-  assert_failure
-}
-
 # --- review-branch subagent tracking ---
 RB_SKILL2="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-branch/SKILL.md"
 
@@ -1049,6 +985,19 @@ NB_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-branch/S
   grep -q 'set -uo pipefail' "$NB_SKILL"
   grep -q 'git checkout -b' "$NB_SKILL"
   grep -q 'exit 6' "$NB_SKILL"
+}
+
+@test "init-branch skill is removed" {
+  [ ! -e "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branch" ]
+}
+
+@test "new-branch allowed-tools does NOT include Skill (no sub-skill invoked)" {
+  line=$(grep -m1 'allowed-tools' "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-branch/SKILL.md")
+  ! echo "$line" | grep -qw 'Skill'
+}
+
+@test "new-branch carries the inline worktree self-rebase" {
+  grep -q 'REBASE_RESULT=' "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-branch/SKILL.md"
 }
 
 # --- new-pr subagent tracking ---

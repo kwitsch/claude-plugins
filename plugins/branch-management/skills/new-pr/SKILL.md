@@ -299,7 +299,7 @@ See `.claude/rules/subagent-tracking.md`.
 11. **Push** the session/work branch to origin. Use `--force-with-lease` when the
     history may have been rewritten relative to an existing remote ref — i.e. when
     `linked_worktree:` is `yes` (a bridge/remote session can pre-push the branch and
-    init-branch may have self-rebased it) **or** step 8 reported `rebased=yes`.
+    new-branch may have self-rebased it) **or** step 8 reported `rebased=yes`.
     Otherwise a plain push:
     - neither condition → `git push -u origin "$branch"`.
     - `linked_worktree:` `yes` OR step-8 `rebased=yes` →
