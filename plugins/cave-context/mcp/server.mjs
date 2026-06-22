@@ -78,7 +78,7 @@ function startServer() {
           if (HANDLERS[name]) {
             if (process.env.MCP_HOOK_DEBUG) process.stderr.write(`[${SERVER_NAME}] hook tool: ${name}\n`);
             const result = await HANDLERS[name](params?.arguments ?? {});
-            if (name === "hook_posttooluse") branchIndexer.note(params?.arguments?.cwd); // fire-and-forget
+            if (name === "hook_posttooluse") branchIndexer.note(params?.arguments?.cwd).catch(() => {}); // fire-and-forget; .catch keeps the no-unhandled-rejection guarantee robust to future edits in note()
             return ok(id, { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result });
           }
           // Reject denied upstream tools before the liveness check so the verdict is
