@@ -42,6 +42,7 @@ cctools_goarch() {
 
 # Windows ships a .zip with cctools.exe; everything else a .tar.gz with cctools.
 cctools_ext() { [ "$(cctools_goos)" = windows ] && printf 'zip' || printf 'tar.gz'; }
+# Binary file extension for this platform: '.exe' on Windows, empty string elsewhere.
 cctools_exe() { [ "$(cctools_goos)" = windows ] && printf '.exe' || printf ''; }
 
 # Release asset filename, e.g. cctools_linux_amd64.tar.gz / cctools_windows_amd64.zip
