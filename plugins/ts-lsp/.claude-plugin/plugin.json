@@ -14,7 +14,7 @@
       "type": "boolean",
       "default": true,
       "title": "Progressive read gate (TypeScript)",
-      "description": "Require an LSP navigation call before reading many TypeScript files (warmup -> surgical mode). Creates per-project state; fail-closed: active only when explicitly true."
+      "description": "Require an LSP navigation call before reading many TypeScript files (warmup -> surgical mode). Default: enabled. Because it creates per-project state, it is fail-closed at runtime — only a literal true value activates it (an uninterpolated placeholder is treated as off)."
     }
   }
 }
