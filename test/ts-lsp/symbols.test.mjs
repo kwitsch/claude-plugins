@@ -8,7 +8,7 @@ const ALLOW = ['TODO', 'NEXT_PUBLIC_URL', 'flex-col', 'subdomain', 'auth', 'midd
 
 test('blocks code symbols', () => {
   for (const t of BLOCK) assert.equal(isCodeSymbol(t), true, `${t} should be a symbol`);
-  // /i fidelity: mixed-case dotted symbol must be detected (kit lsp-first-guard.ts:95)
+  // /i fidelity: mixed-case dotted symbol must be detected (kit lsp-first-guard.js:95)
   assert.equal(isCodeSymbol('Router.refresh'), true, 'Router.refresh (mixed-case dotted) should be a symbol');
 });
 test('allows non-symbols', () => {

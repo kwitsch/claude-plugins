@@ -223,7 +223,7 @@ export function extractGrepTargets(commandRaw) {
 
 // ── isTsTarget ────────────────────────────────────────────────────────────────
 // NEW — not in the kit. Returns true ONLY when the target is unambiguously
-// TypeScript (.js/.cjs/.mjs/.jsx). Ambiguous targets (bare grep with no TS
+// TypeScript (.ts/.tsx/.mts/.cts). Ambiguous targets (bare grep with no TS
 // path/glob, non-TS extensions) return false (fail-open / pass-through).
 const TS_EXT = /\.(?:ts|tsx|mts|cts)(?:$|["'\s])/i;
 
