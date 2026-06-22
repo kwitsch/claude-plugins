@@ -3,11 +3,12 @@
 // server.mjs → no executable bit (like compress.mjs). Pure logic + injected deps for
 // testability; the default git detector is added alongside parseGitInfo (see below).
 import { basename } from "node:path";
+import { spawn } from "node:child_process";
 
 // Track the branch per repo root; re-index via callTool("ctx_index", …) on change.
 // Returns { note(cwd) } — call it fire-and-forget (unawaited) on PostToolUse. `note`
 // never throws and never rejects.
-export function createBranchIndexer({ detectBranch, ensureUp, callTool, indexOpts = {} } = {}) {
+export function createBranchIndexer({ detectBranch = detectBranchViaGit, ensureUp, callTool, indexOpts = {} } = {}) {
   const maxDepth = indexOpts.maxDepth ?? 5;
   const maxFiles = indexOpts.maxFiles ?? 200;
   const lastBranch = new Map();    // root -> branchId (last SUCCESSFULLY indexed)
@@ -39,4 +40,35 @@ export function createBranchIndexer({ detectBranch, ensureUp, callTool, indexOpt
   }
 
   return { note };
+}
+
+// Parse `git -C <cwd> rev-parse --show-toplevel HEAD --abbrev-ref HEAD` stdout —
+// three lines [toplevel, fullSha, abbrevRef] — into { root, branch } | null.
+// Detached HEAD → abbrevRef === "HEAD" → use the short sha. Slash branch kept whole.
+export function parseGitInfo(stdout) {
+  if (typeof stdout !== "string") return null;
+  const lines = stdout.split("\n").map((l) => l.trim()).filter(Boolean);
+  if (lines.length < 3) return null;
+  const [toplevel, fullSha, abbrevRef] = lines;
+  const branch = abbrevRef === "HEAD" ? fullSha.slice(0, 12) : abbrevRef;
+  if (!toplevel || !branch) return null;
+  return { root: toplevel, branch };
+}
+
+// Default branch detector: one git spawn, parsed by parseGitInfo. Resolves
+// { root, branch } | null; never rejects (any error → null), so callers need no catch.
+export function detectBranchViaGit(cwd, timeoutMs = 2000) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn("git", ["-C", cwd, "rev-parse", "--show-toplevel", "HEAD", "--abbrev-ref", "HEAD"],
+        { stdio: ["ignore", "pipe", "ignore"] });
+    } catch { return resolve(null); }
+    let out = ""; let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    const timer = setTimeout(() => { try { child.kill(); } catch { /* ignore */ } finish(null); }, timeoutMs);
+    child.on("error", () => { clearTimeout(timer); finish(null); });
+    child.stdout.on("data", (d) => { out += d; });
+    child.on("close", (code) => { clearTimeout(timer); finish(code === 0 ? parseGitInfo(out) : null); });
+  });
 }
