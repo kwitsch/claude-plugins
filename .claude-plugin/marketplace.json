@@ -147,6 +147,22 @@
         "vtsls",
         "code-intelligence"
       ]
+    },
+    {
+      "name": "shell-lsp",
+      "source": "./plugins/shell-lsp",
+      "description": "Shell-only LSP (.sh/.bash) via bash-language-server, with LSP-first enforcement hooks",
+      "author": {
+        "name": "Kwitsch"
+      },
+      "category": "development",
+      "tags": [
+        "lsp",
+        "shell",
+        "bash",
+        "bash-language-server",
+        "code-intelligence"
+      ]
     }
   ]
 }
