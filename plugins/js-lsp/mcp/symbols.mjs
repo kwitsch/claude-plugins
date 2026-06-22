@@ -120,10 +120,12 @@ const GREP_FLAG_SKIP = new Set([                                                
   'C', 'context', 't', 'type', 'T', 'type-not', 'exclude', 'exclude-dir', 'd', 'D',
 ]);
 
+// Strip one matching leading/trailing quote (single or double) from a token.
 function stripQuotes(s) {
   return String(s ?? '').replace(/^['"]|['"]$/g, '');
 }
 
+// Extract the flag name (without dashes) from a -x / --xx option token; "" if not a flag.
 function grepFlagName(tok) {
   const m = String(tok).match(/^--?([a-zA-Z][\w-]*)/);
   return m ? m[1] : '';
