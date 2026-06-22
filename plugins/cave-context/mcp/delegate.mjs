@@ -29,6 +29,7 @@ function hookCmd() {
   return [bnx, "context-mode", "hook", "claude-code"];
 }
 
+// Spawn the context-mode hook CLI for one event, write stdinObj as JSON, and resolve with the parsed response or null on any error/timeout.
 export function delegateHook(event, stdinObj, timeoutMs = 8000) {
   const base = hookCmd();
   if (!base) return Promise.resolve(null);
