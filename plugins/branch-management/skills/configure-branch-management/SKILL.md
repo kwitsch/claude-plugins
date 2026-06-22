@@ -1,6 +1,6 @@
 ---
 name: configure-branch-management
-description: Interactive configurator for branch-management plugin settings — reviewers, CI monitoring, graphify options. Detects project context and writes to the appropriate settings.json.
+description: Interactive configurator for branch-management plugin settings — reviewers, CI monitoring. Detects project context and writes to the appropriate settings.json.
 argument-hint: ""
 allowed-tools: ["AskUserQuestion", "Bash(jq:*)", "Bash(test:*)", "Bash(mkdir:*)", "Bash(mv:*)", "Bash(printf:*)"]
 disable-model-invocation: true
@@ -29,9 +29,6 @@ review_copilot: true       review_coderabbit: true
 review_max_rounds: 3       ci_monitor: true
 ci_watch_timeout: 1800     coderabbit_ci_comments: true
 delete_branch_on_merge: true   rebase_before_pr: true
-context_index: true        graphify_branch_update: true
-graphify_pr_update: true   graphify_pr_commit: true
-graphify_force_create: false   graphify_user_files: false
 ```
 
 ## Step 1 — Detect project context
@@ -124,7 +121,7 @@ AskUserQuestion (2 questions):
 Store: `$reviewers` (list of selected labels), `$max_rounds_raw` (selected label).
 
 If `$max_rounds_raw == "Other"` → run numeric validation loop for
-`review_max_rounds` (step 7) and store result as `$max_rounds`.
+`review_max_rounds` (step 6) and store result as `$max_rounds`.
 Otherwise `$max_rounds = integer($max_rounds_raw)`.
 
 ## Step 5 — Ask: CI
@@ -179,54 +176,11 @@ AskUserQuestion (4 questions):
 Store: `$ci_monitor_raw`, `$ci_timeout_raw`, `$ci_comments_raw`, `$delete_branch_raw`, `$rebase_before_pr_raw`.
 
 If `$ci_timeout_raw == "Other"` → run numeric validation loop for
-`ci_watch_timeout` (step 7) and store result as `$ci_timeout`.
+`ci_watch_timeout` (step 6) and store result as `$ci_timeout`.
 Otherwise extract the integer from the preset label (e.g. `"30 min (1800s)"` →
 `1800`): match the number inside the trailing parentheses and store as `$ci_timeout`.
 
-## Step 6 — Ask: Graphify + Context
-
-Compute currently-enabled graphify triggers from `$current`:
-- `graphify_branch_update == true` → "on new branch"
-- `graphify_pr_update == true`     → "before PR push"
-- `graphify_pr_commit == true`     → "separate PR commit"
-
-Compute currently-enabled graphify extras:
-- `graphify_force_create == true` → "force-create missing folder"
-- `graphify_user_files == true`   → "keep human-only outputs"
-
-```
-AskUserQuestion (3 questions):
-  Q1: multiSelect: true
-      question: "Which graphify update triggers should be active?"
-      header:   "Graphify triggers [currently: <list or none>]"
-      options:
-        - label: "on new branch"
-          description: "refresh graphify output after new-branch (graphify_branch_update)"
-        - label: "before PR push"
-          description: "refresh graphify output before pushing in new-pr (graphify_pr_update)"
-        - label: "separate PR commit"
-          description: "commit refreshed graphify-out as a separate commit in new-pr (graphify_pr_commit)"
-
-  Q2: multiSelect: true
-      question: "Which graphify extras should be enabled? (both are fail-closed — off by default)"
-      header:   "Graphify extras [currently: <list or none>]"
-      options:
-        - label: "force-create missing folder"
-          description: "create graphify-out/ if absent instead of skipping (graphify_force_create)"
-        - label: "keep human-only outputs"
-          description: "retain graph.html and other human-only files after refresh (graphify_user_files)"
-
-  Q3: multiSelect: false
-      question: "Enable context-mode indexing when a new branch is created?"
-      header:   "context-mode indexing [currently: <on|off>]"
-      options:
-        - label: "Yes"  description: "refresh the context-mode index after new-branch"
-        - label: "No"   description: "skip the index refresh"
-```
-
-Store: `$graphify_triggers` (list), `$graphify_extras` (list), `$ctx_index_raw`.
-
-## Step 7 — Numeric validation loop
+## Step 6 — Numeric validation loop
 
 Used when "Other" is selected for a numeric field. Set `$field_label` to the
 human-readable field name ("Max review rounds" or "CI watch timeout") before
@@ -255,7 +209,7 @@ loop:
         continue loop
 ```
 
-## Step 8 — Build new config and compute delta
+## Step 7 — Build new config and compute delta
 
 Map all collected answers to config key values:
 
@@ -270,12 +224,6 @@ ci_watch_timeout       = $ci_timeout            [integer]
 coderabbit_ci_comments = ($ci_comments_raw == "Yes")
 delete_branch_on_merge = ($delete_branch_raw == "Yes")
 rebase_before_pr       = ($rebase_before_pr_raw == "Yes")
-graphify_branch_update = ("on new branch"               is in $graphify_triggers)
-graphify_pr_update     = ("before PR push"              is in $graphify_triggers)
-graphify_pr_commit     = ("separate PR commit"          is in $graphify_triggers)
-graphify_force_create  = ("force-create missing folder" is in $graphify_extras)
-graphify_user_files    = ("keep human-only outputs"     is in $graphify_extras)
-context_index          = ($ctx_index_raw == "Yes")
 ```
 
 Compute delta (keys where `new_value != default`):
@@ -286,16 +234,12 @@ defaults = {
   review_copilot: true,     review_coderabbit: true,
   review_max_rounds: 3,     ci_monitor: true,
   ci_watch_timeout: 1800,   coderabbit_ci_comments: true,
-  delete_branch_on_merge: true, rebase_before_pr: true,
-  context_index: true,
-  graphify_branch_update: true,
-  graphify_pr_update: true, graphify_pr_commit: true,
-  graphify_force_create: false, graphify_user_files: false
+  delete_branch_on_merge: true, rebase_before_pr: true
 }
 delta = { key: new_value[key] for each key where new_value[key] != defaults[key] }
 ```
 
-## Step 9 — Write settings file
+## Step 8 — Write settings file
 
 Create parent directory if needed:
 ```bash
@@ -328,7 +272,7 @@ jq --arg key "$plugin_key" --argjson opts "$delta_json" \
 
 `jq` creates `.pluginConfigs[$key]` automatically if the path is absent.
 
-## Step 10 — Confirm
+## Step 9 — Confirm
 
 Print exactly:
 ```
