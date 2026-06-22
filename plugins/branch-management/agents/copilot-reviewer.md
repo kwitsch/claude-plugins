@@ -24,41 +24,16 @@ Your dispatch prompt names the base branch and the absolute script path
 base branch as its only argument so the raw review output never enters your
 context.
 
-**context-mode routing (optional acceleration).** When you run the script below,
-prefer context-mode's execute tool so large output stays out of your context;
-fall back to Bash when it is absent — context-mode is optional, never block on it.
-This applies ONLY to read-only scripts (no persistent filesystem/git writes); the
-ctx sandbox discards writes, so state-mutating scripts MUST run on the native Bash
-tool instead.
-1. Load the tool once:
-   `ToolSearch(query: "select:mcp__plugin_context-mode_context-mode__ctx_execute,mcp__plugin_context-mode_context-mode__ctx_execute_file")`.
-   If nothing matches, retry the bare names (`select:ctx_execute,ctx_execute_file`)
-   as a robustness guard. Do not fall back just because the schema has not loaded yet.
-2. Tool available → run through `…__ctx_execute` (inline shell `code`) or
-   `…__ctx_execute_file` (a `.sh` file on disk); keep only the parsed result.
-3. Tool genuinely unavailable → run via Bash and append `context-mode unavailable —
-   ran via Bash` to your result.
+Run the script below via the Bash tool and keep only the parsed result.
 
 Do not retry with different flags. Set `REVIEW_TIMEOUT` only if the dispatch
 prompt asks for one.
 
-## Reading the ctx_execute result
+## Reading the review result
 
-- Exit `0`: the tool returns the script's stdout — parse the findings from
-  it.
-- Non-zero exits arrive as `Exit code: <N>` plus stdout/stderr sections —
-  map `<N>` with the table below.
-  (Per context-mode's exit classification — soft-fail applies ONLY to shell
-  exit 1 with stdout, verified against v1.0.162 — and these scripts never
-  exit 1 after printing output, any bare-stdout result is a successful
-  review. Sanity-check it anyway: a real review reads as a complete report;
-  if it ends mid-stream, treat the run as `failed`.)
-- Very large outputs (>100 KB) are auto-indexed and only a pointer comes
-  back. Do NOT try to reconstruct the findings via `ctx_search` — its
-  ranked top-k results cannot enumerate a findings list. Re-run the script
-  once via Bash and parse the full output directly (rare large-review edge
-  case: correctness beats context savings here), and note `large output —
-  parsed via Bash` in your result.
+- Exit `0`: parse the script's stdout into findings.
+- Non-zero exit: map `<N>` with the table below. A real review reads as a
+  complete report; if it ends mid-stream, treat the run as `failed`.
 
 ## Exit-code mapping
 

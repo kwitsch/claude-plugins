@@ -29,22 +29,9 @@ clean review.
 
 ## Tooling
 
-**context-mode routing (optional acceleration).** When you run the script below,
-prefer context-mode's execute tool so large output stays out of your context;
-fall back to Bash when it is absent — context-mode is optional, never block on it.
-This applies ONLY to read-only scripts (no persistent filesystem/git writes); the
-ctx sandbox discards writes, so state-mutating scripts MUST run on the native Bash
-tool instead.
-1. Load the tool once:
-   `ToolSearch(query: "select:mcp__plugin_context-mode_context-mode__ctx_execute,mcp__plugin_context-mode_context-mode__ctx_execute_file")`.
-   If nothing matches, retry the bare names (`select:ctx_execute,ctx_execute_file`)
-   as a robustness guard. Do not fall back just because the schema has not loaded yet.
-2. Tool available → run through `…__ctx_execute` (inline shell `code`) or
-   `…__ctx_execute_file` (a `.sh` file on disk); keep only the parsed result.
-3. Tool genuinely unavailable → run via Bash and append `context-mode unavailable —
-   ran via Bash` to your result.
+Run the script below via the Bash tool and keep only the parsed result.
 
-Gather the diff via the routing block above (`git diff "origin/<base>"...HEAD`)
+Gather the diff via Bash (`git diff "origin/<base>"...HEAD`)
 and read the enclosing context of changed functions the same way.
 
 Only run read-only commands (`git diff`, `git show`, `git log`, file
