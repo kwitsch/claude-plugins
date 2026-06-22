@@ -1,0 +1,11 @@
+{
+  "bashls": {
+    "command": "${CLAUDE_PLUGIN_ROOT}/bin/bash-ls-launch.sh",
+    "args": ["start"],
+    "extensionToLanguage": {
+      ".sh": "shellscript",
+      ".bash": "shellscript"
+    },
+    "startupTimeout": 60000
+  }
+}

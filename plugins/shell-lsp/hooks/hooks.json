@@ -1,0 +1,20 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Grep|Glob|Bash|Read",
+        "hooks": [
+          { "type": "mcp_tool", "server": "plugin:shell-lsp:shell-lsp-hooks", "tool": "hook_pretooluse" }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "LSP",
+        "hooks": [
+          { "type": "mcp_tool", "server": "plugin:shell-lsp:shell-lsp-hooks", "tool": "hook_posttooluse" }
+        ]
+      }
+    ]
+  }
+}
