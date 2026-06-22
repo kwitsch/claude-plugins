@@ -18,6 +18,7 @@ const DENIED_UPSTREAM_TOOLS = new Set(["ctx_stats", "ctx_doctor", "ctx_upgrade"]
 
 startServer();
 
+// Initialize the MCP stdio loop: build the tool list, start the upstream proxy, wire the readline/JSON-RPC dispatch, and handle clean shutdown.
 function startServer() {
   const HOOK_TOOLS = [
     { name: "hook_userpromptsubmit", description: "Aggregated UserPromptSubmit hook (caveman + context-mode).", inputSchema: { type: "object", additionalProperties: true } },
