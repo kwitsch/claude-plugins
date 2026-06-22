@@ -128,7 +128,7 @@ Orchestrator skills (`new-pr`, `review-branch`) dispatch six subagents; `new-bra
   option table + this file, update manifest tests in
   `test/branch-management/test.bats` (assert exact sorted key
   list + count).
-- Sub-skills (`review-branch`) run INLINE — NOT `context: fork`.
+- Sub-skill (`review-branch`) runs INLINE — NOT `context: fork`.
   Forked skill is itself subagent, subagents have no Agent tool, so forked
   sub-skill cannot dispatch agents it relies on; inline keeps them at
   depth 0 so dispatches become visible depth-1 subagents. They resolve own

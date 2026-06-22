@@ -143,7 +143,7 @@ See `.claude/rules/subagent-tracking.md`.
    numbering then continues at 9 — existing cross-references stay stable.)
 
 8. **Rebase onto the latest base** — after the work is committed (step 5) and the
-   review rounds have settled (step 6), and before pushing,
+   review rounds have settled (step 6), and **before** pushing,
    check whether the base branch (`$base` — the branch the work was cut from, usually
    `main`) gained new upstream commits and, if so, rebase the work branch onto it.
    This keeps the PR on top of current `$base` and surfaces conflicts now instead of
