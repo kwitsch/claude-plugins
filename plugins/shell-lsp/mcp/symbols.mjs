@@ -1,9 +1,13 @@
 // Portions © 2026 DenAleksandrov (MIT) — claude-code-lsp-enforcement-kit
+// symbols.mjs — shell symbol extraction and target classification for shell-lsp.
+// Determines whether a Bash/Grep/Glob/Read tool call targets shell files and extracts
+// code symbols from grep patterns. Pure logic, no stdout, safe on the hook hot-path.
 'use strict';
 
 // Zero-width / formatting chars that bypass ASCII regex symbol detection.
 const ZW = /[­​-‏⁠-⁤﻿]/g;
 
+// Coerce input to string and strip zero-width / invisible format chars.
 export function stripZeroWidth(s) {
   return String(s ?? '').replace(ZW, '');
 }
@@ -18,6 +22,7 @@ export function stripZeroWidth(s) {
 const NAMESPACED = /^[a-z][a-z0-9]*::[a-z][a-z0-9_]*$/;
 const SNAKE = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/;
 
+// Returns true if tokenRaw looks like a shell code symbol (namespaced or multi-word snake_case).
 export function isShellCodeSymbol(tokenRaw) {
   const s = stripZeroWidth(tokenRaw).trim();
   if (!s) return false;
