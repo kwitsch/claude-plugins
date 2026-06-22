@@ -20,6 +20,7 @@ BIN="$(cctools_bin)"
 # systemMessage (a warning shown directly to the USER). Needs a JSON tool to
 # escape safely; without one we stay silent (the hooks still work, the model
 # just isn't primed).
+# Emit the SessionStart hook JSON with additionalContext ($1) and optional systemMessage ($2).
 emit() {
   if command -v jq >/dev/null 2>&1; then
     jq -n --arg ctx "$1" --arg msg "${2:-}" '

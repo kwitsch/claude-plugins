@@ -15,6 +15,7 @@ export function createBranchIndexer({ detectBranch = detectBranchViaGit, ensureU
   const inflightCwds = new Set();  // cheap pre-await dedup (same cwd)
   const inflightRoots = new Set(); // authoritative single-flight guard (per repo root)
 
+  // Observe one PostToolUse cwd: detect the git branch and, if it changed, re-index via ctx_index; never throws.
   async function note(cwd) {
     if (process.env.CAVE_CONTEXT_BRANCH_REINDEX === "false") return; // toggle (fail-open)
     if (!cwd || inflightCwds.has(cwd)) return;

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// Self-contained, zero-dependency MCP stdio server (Node/Bun built-ins only).
+// server.mjs — self-contained, zero-dependency MCP stdio server (Node/Bun built-ins only).
 // Started via #!/usr/bin/env node, it re-execs under bun when available (TS_LSP_NO_BUN=1 bypasses).
 // Transport: newline-delimited JSON-RPC 2.0. stdout = JSON-RPC only; logs → stderr.
+// Exposes hook_pretooluse and hook_posttooluse tools backed by handlers.mjs.
 import process from "node:process";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -50,6 +51,7 @@ if (process.versions.bun || process.env.TS_LSP_NO_BUN === "1") {
   });
 }
 
+// Initialize the MCP readline loop: register tools, dispatch JSON-RPC messages, handle stdin close.
 function startServer() {
   const HOOK_TOOLS = [
     {

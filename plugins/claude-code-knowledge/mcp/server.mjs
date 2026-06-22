@@ -45,6 +45,7 @@ function normalize(value) {
     .replace(/^-+|-+$/g, "");
 }
 
+// Initialize the MCP stdio server: register tools, start the JSON-RPC readline loop.
 function startServer() {
   const TOOLS = [
     {

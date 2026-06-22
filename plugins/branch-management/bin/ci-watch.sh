@@ -23,6 +23,7 @@
 #             error (bad arguments, CLI missing or too old)
 set -euo pipefail
 
+# Print usage to stderr and exit 64; called on bad arg count or unknown platform.
 usage() { echo "usage: ci-watch.sh <github|gitlab> <pr-number|branch>" >&2; exit 64; }
 [ $# -eq 2 ] || usage
 platform="$1" ref="$2"

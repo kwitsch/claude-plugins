@@ -1,9 +1,13 @@
 // Portions © 2026 DenAleksandrov (MIT) — claude-code-lsp-enforcement-kit
+// symbols.mjs — shell symbol extraction and target classification for shell-lsp.
+// Determines whether a Bash/Grep/Glob/Read tool call targets shell files and extracts
+// code symbols from grep patterns. Pure logic, no stdout, safe on the hook hot-path.
 'use strict';
 
 // Zero-width / formatting chars that bypass ASCII regex symbol detection.
 const ZW = /[­​-‏⁠-⁤﻿]/g;
 
+// Coerce input to string and strip zero-width / invisible format chars.
 export function stripZeroWidth(s) {
   return String(s ?? '').replace(ZW, '');
 }
@@ -18,6 +22,7 @@ export function stripZeroWidth(s) {
 const NAMESPACED = /^[a-z][a-z0-9]*::[a-z][a-z0-9_]*$/;
 const SNAKE = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/;
 
+// Returns true if tokenRaw is a namespaced function (name::sub) or a snake_case identifier of length >= 5.
 export function isShellCodeSymbol(tokenRaw) {
   const s = stripZeroWidth(tokenRaw).trim();
   if (!s) return false;
@@ -49,7 +54,9 @@ const GREP_FLAG_SKIP = new Set([
   'C', 'context', 't', 'type', 'T', 'type-not', 'exclude', 'exclude-dir', 'd', 'D',
 ]);
 
+// Strip one matching leading/trailing quote (single or double) from a token.
 function stripQuotes(s) { return String(s ?? '').replace(/^['"]|['"]$/g, ''); }
+// Extract the flag name (without dashes) from a -x / --xx option token; "" if not a flag.
 function grepFlagName(tok) { const m = String(tok).match(/^--?([a-zA-Z][\w-]*)/); return m ? m[1] : ''; }
 
 // Shell pattern splitter: split ONLY on | (alternation) — NEVER on ':' (keep
@@ -63,6 +70,7 @@ function splitPatternTokens(fullPattern) {
 }
 
 const SHELL_EXT = /\.(?:sh|bash)(?:$|["'\s])/i;
+// True when the path ends in a .sh/.bash extension (shell-target heuristic).
 function looksShell(s) { return SHELL_EXT.test(String(s ?? '')); }
 
 // ── extractGrepTargets (ported from js-lsp; looksJs→looksShell, JS filter→shell) ─

@@ -1,4 +1,7 @@
 // Portions © 2026 DenAleksandrov (MIT) — claude-code-lsp-enforcement-kit
+// symbols.mjs — TypeScript symbol extraction and target classification for ts-lsp.
+// Determines whether a Bash/Grep/Glob/Read tool call targets TS files and extracts
+// code symbols from grep patterns. Pure logic, no stdout, safe on the hook hot-path.
 'use strict';
 
 // Zero-width / formatting chars that bypass ASCII regex symbol detection
@@ -117,10 +120,12 @@ const GREP_FLAG_SKIP = new Set([                                                
   'C', 'context', 't', 'type', 'T', 'type-not', 'exclude', 'exclude-dir', 'd', 'D',
 ]);
 
+// Strip one matching leading/trailing quote (single or double) from a token.
 function stripQuotes(s) {
   return String(s ?? '').replace(/^['"]|['"]$/g, '');
 }
 
+// Extract the flag name (without dashes) from a -x / --xx option token; "" if not a flag.
 function grepFlagName(tok) {
   const m = String(tok).match(/^--?([a-zA-Z][\w-]*)/);
   return m ? m[1] : '';
