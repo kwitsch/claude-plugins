@@ -2,7 +2,10 @@
   "mcpServers": {
     "cave-context": {
       "command": "${CLAUDE_PLUGIN_ROOT}/bin/bnx.sh",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"]
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"],
+      "env": {
+        "CAVE_CONTEXT_BRANCH_REINDEX": "${user_config.branch_reindex}"
+      }
     }
   }
 }

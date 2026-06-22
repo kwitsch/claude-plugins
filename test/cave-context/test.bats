@@ -115,9 +115,19 @@ setup() {
   assert_success
 }
 
-@test "plugin.json has no userConfig (caveman level fixed at full)" {
+@test "plugin.json declares exactly the branch_reindex userConfig toggle" {
   PJ="$REPO_ROOT/plugins/cave-context/.claude-plugin/plugin.json"
-  run jq -e 'has("userConfig") | not' "$PJ"
+  run jq -e '.userConfig | keys == ["branch_reindex"]' "$PJ"
+  assert_success
+  run jq -e '.userConfig.branch_reindex.type == "boolean" and .userConfig.branch_reindex.default == true' "$PJ"
+  assert_success
+  run jq -e '.userConfig.branch_reindex | has("title") and has("description")' "$PJ"
+  assert_success
+}
+
+@test ".mcp.json passes branch_reindex userConfig to the server env" {
+  MCP="$REPO_ROOT/plugins/cave-context/.mcp.json"
+  run jq -e '.mcpServers["cave-context"].env["CAVE_CONTEXT_BRANCH_REINDEX"] == "${user_config.branch_reindex}"' "$MCP"
   assert_success
 }
 
