@@ -350,7 +350,7 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 @test "userConfig: declares expected toggles plus ci_watch_timeout and review_max_rounds" {
   run jq -r '.userConfig | keys | sort | join(" ")' "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
-  assert_output "ci_monitor ci_watch_timeout coderabbit_ci_comments context_index delete_branch_on_merge graphify_branch_update graphify_force_create graphify_pr_commit graphify_pr_update graphify_user_files rebase_before_pr review_claude review_coderabbit review_codex review_copilot review_max_rounds"
+  assert_output "ci_monitor ci_watch_timeout coderabbit_ci_comments delete_branch_on_merge rebase_before_pr review_claude review_coderabbit review_codex review_copilot review_max_rounds"
 }
 
 @test "userConfig: every toggle except numeric ones is a boolean" {
@@ -362,11 +362,11 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
   assert_success
 }
 
-@test "userConfig: boolean toggles default to true except the fail-closed ones" {
+@test "userConfig: every boolean toggle defaults to true" {
   run jq -e '.userConfig
     | to_entries
     | map(select(.key != "ci_watch_timeout" and .key != "review_max_rounds"))
-    | all(.[]; .value.default == (if .key == "graphify_force_create" or .key == "graphify_user_files" then false else true end))' \
+    | all(.[]; .value.default == true)' \
     "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
 }
@@ -420,7 +420,7 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 
 @test "version: declared once — plugin.json only, marketplace entry carries none" {
   run jq -r '.version' "$REPO_ROOT/$PLUGIN_JSON_REL"
-  assert_output "3.14.1"
+  assert_output "4.0.0"
   run jq -e '.plugins[] | select(.name == "branch-management") | has("version") | not' \
     "$REPO_ROOT/.claude-plugin/marketplace.json"
   assert_success

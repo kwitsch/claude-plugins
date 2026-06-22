@@ -1,7 +1,7 @@
 {
   "name": "branch-management",
-  "version": "3.14.1",
-  "description": "Branch lifecycle skills. new-branch cuts a fresh branch inline; new-pr runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewers) backed by subagents, applies verified fixes between rounds, opens a PR/MR via gh or glab, and watches CI until green. Optionally refreshes a graphify output folder on new-branch and before the PR push (separate commit). Uses context-mode to keep heavy script output out of context when it is installed, with a native Bash fallback otherwise.",
+  "version": "4.0.0",
+  "description": "Branch lifecycle skills. new-branch cuts a fresh branch inline; new-pr runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewers) backed by subagents, applies verified fixes between rounds, opens a PR/MR via gh or glab, and watches CI until green.",
   "author": {
     "name": "Kwitsch"
   },
@@ -42,12 +42,6 @@
       "description": "Values: positive whole-number seconds for the CI watch deadline; invalid or missing values fall back to 1800. Default: 1800.",
       "default": 1800
     },
-    "context_index": {
-      "type": "boolean",
-      "title": "context-mode indexing",
-      "description": "Values: true = refresh the context-mode index after creating a new branch; false = skip the refresh. Default: true.",
-      "default": true
-    },
     "coderabbit_ci_comments": {
       "type": "boolean",
       "title": "CodeRabbit CI comments",
@@ -63,38 +57,8 @@
     "rebase_before_pr": {
       "type": "boolean",
       "title": "Rebase onto base before PR",
-      "description": "Values: true = in new-pr, after committing and before the graphify refresh, rebase the work branch onto origin/<base> when the base branch (usually main) gained new upstream commits (force-with-lease push; stops on conflict); false = skip the rebase. Default: true.",
+      "description": "Values: true = in new-pr, after committing and before pushing, rebase the work branch onto origin/<base> when the base branch (usually main) gained new upstream commits (force-with-lease push; stops on conflict); false = skip the rebase. Default: true.",
       "default": true
-    },
-    "graphify_branch_update": {
-      "type": "boolean",
-      "title": "graphify update on new branch",
-      "description": "Values: true = refresh the graphify output after creating a new branch; false = skip that refresh. Default: true.",
-      "default": true
-    },
-    "graphify_force_create": {
-      "type": "boolean",
-      "title": "graphify force create",
-      "description": "Values: true = create a missing graphify-out/ folder during new-branch and run the update anyway; false = never create the folder automatically. Default: false.",
-      "default": false
-    },
-    "graphify_pr_update": {
-      "type": "boolean",
-      "title": "graphify update before PR",
-      "description": "Values: true = refresh the graphify output after the review rounds and before pushing in new-pr; false = skip that refresh. Default: true.",
-      "default": true
-    },
-    "graphify_pr_commit": {
-      "type": "boolean",
-      "title": "graphify separate commit",
-      "description": "Values: true = commit refreshed graphify-out files as a separate commit during new-pr; false = leave them uncommitted. Default: true.",
-      "default": true
-    },
-    "graphify_user_files": {
-      "type": "boolean",
-      "title": "graphify human-only outputs",
-      "description": "Values: true = keep human-only graphify outputs such as graph.html after updates; false = prune them. Default: false.",
-      "default": false
     },
     "review_max_rounds": {
       "type": "number",
