@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# clean-branches: fetch, prune merged upstream branches (gh/glab),
-# remove stale local tracking branches, list uncommitted files.
+# clean-branches.sh — fetch, prune merged upstream branches (gh/glab),
+# remove stale local branches whose upstream is gone, and list uncommitted files.
+# stdout: human-readable lists of deleted branches and uncommitted files (silent when nothing to report).
+# Exit codes: 0 always (individual git/push failures are silently skipped).
+# No arguments.
 set -uo pipefail
 
 _deleted_upstream=()
@@ -11,6 +14,7 @@ _force_deleted_local=()
 git fetch --prune
 
 # ── Step 2: delete merged upstream branches (requires gh or glab) ─────
+# Delete every origin/* branch already merged into the default branch; appends names to _deleted_upstream.
 _delete_merged_upstream() {
     local default_branch
     # try local symref first; fall back to querying remote (network call)
