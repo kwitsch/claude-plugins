@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+// post-write.mjs — PostToolUse:Write hook for the superpowers-automation plugin.
+// Fires after any Write tool call; inspects file_path against HOOKS patterns.
+// When hook_plans is true and a plan file was written, emits hook JSON on stdout:
+//   { hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: "..." } }
+// Fails open (exits 0, no output) on parse errors or missing/toggled-off settings.
 import { readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
@@ -9,6 +14,7 @@ try {
   filePath = input?.tool_input?.file_path ?? '';
 } catch { process.exit(0); }
 
+// Read the superpowers-automation plugin options from ~/.claude/settings.json; returns {} on any error.
 function getOptions() {
   try {
     const s = JSON.parse(readFileSync(join(homedir(), '.claude/settings.json'), 'utf8'));
