@@ -58,14 +58,31 @@ EOF
   [ "$status" -eq 0 ]
 }
 
-@test "every hooks.json handler is mcp_tool with the namespaced server" {
-  run jq -e '[.hooks[][]?.hooks[]? | select(.type != "mcp_tool" or .server != "plugin:ts-lsp:ts-lsp-hooks")] | length == 0' "$PLUGIN/hooks/hooks.json"
+@test "every mcp_tool handler uses the namespaced server" {
+  # Universal across all events (not just Pre/Post): any mcp_tool handler must
+  # carry the namespaced server. The SessionStart cat hook is type=command, so
+  # it is excluded here and bounded by the command-hook test below.
+  run jq -e '[.hooks[][]?.hooks[]? | select(.type == "mcp_tool" and .server != "plugin:ts-lsp:ts-lsp-hooks")] | length == 0' "$PLUGIN/hooks/hooks.json"
   [ "$status" -eq 0 ]
 }
 
-@test "no command hooks exist (pure mcp_tool)" {
-  run jq -e '[.hooks[][]?.hooks[]? | select(.type == "command")] | length == 0' "$PLUGIN/hooks/hooks.json"
+@test "the only command hook is the SessionStart cat hint (exec form)" {
+  run jq -e '[.hooks[][]?.hooks[]? | select(.type == "command")] as $cmd | ($cmd | length == 1) and ($cmd[0].command == "cat") and ($cmd[0].args[0] | endswith("hooks/SessionStart.md"))' "$PLUGIN/hooks/hooks.json"
   [ "$status" -eq 0 ]
+}
+
+@test "SessionStart hook cats the bundled hint via exec form" {
+  run jq -e '.hooks.SessionStart[0].hooks[0] | .type == "command" and .command == "cat" and (.args[0] | endswith("hooks/SessionStart.md"))' "$PLUGIN/hooks/hooks.json"
+  [ "$status" -eq 0 ]
+}
+
+@test "SessionStart hint exists, non-empty, server-agnostic" {
+  f="$PLUGIN/hooks/SessionStart.md"
+  [ -s "$f" ]
+  grep -q "LSP-first symbol search" "$f"
+  grep -q "workspaceSymbol" "$f"
+  run grep -qE "js-lsp|ts-lsp|shell-lsp" "$f"
+  [ "$status" -ne 0 ]
 }
 
 @test "reentrancy: matchers never match the plugin's own hook tools" {
