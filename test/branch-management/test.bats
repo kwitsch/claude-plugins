@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # Tests for branch-management's standalone bin/ scripts and manifest. The
-# codex, coderabbit and graphify reviews are inlined into their agents and
+# codex and coderabbit reviews are inlined into their agents and
 # carry no bats coverage (dev-time self-test only). Covered here:
 # copilot-review.sh, git-shim, clean-branches.sh, ci-watch.sh, the plugin.json
 # userConfig manifest, and the review-branch rate-limit regex contract.
