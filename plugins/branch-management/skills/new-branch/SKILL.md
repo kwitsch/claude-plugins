@@ -1,8 +1,8 @@
 ---
 name: new-branch
-description: Use when starting new feature, fix, or chore work that needs its own branch - switches to the default branch, pulls the latest state and creates a new work branch via an inline git script, then invokes the init-branch skill to refresh the graphify output and context-mode index (graphify_branch_update / graphify_force_create / graphify_user_files and context_index options).
+description: Use when starting new feature, fix, or chore work that needs its own branch - switches to the default branch, pulls the latest state and creates a new <type>/<slug> work branch via an inline synchronous git script. Inside a linked worktree it keeps the current branch and self-rebases it onto the updated default in place.
 argument-hint: "[branch-name | task description]"
-allowed-tools: ["Skill", "AskUserQuestion", "Bash(git:*)", "Bash(echo:*)", "Bash(bash:*)"]
+allowed-tools: ["AskUserQuestion", "Bash(git:*)", "Bash(echo:*)", "Bash(bash:*)"]
 ---
 
 # Start a new work branch
@@ -15,8 +15,8 @@ working tree and no completion-reconciliation ledger to maintain.
 Inside a **linked worktree** (e.g. a bridge/remote session) the default branch is
 checked out in the primary worktree, so switching to it is impossible. There the
 script skips the create+switch and keeps the current branch as the work branch
-(exit `7`); init-branch then refreshes that branch in place via fetch +
-self-rebase. Keeping the current branch is also what lets a later `new-pr`
+(exit `7`); the script below self-rebases that branch in place via fetch +
+rebase. Keeping the current branch is also what lets a later `new-pr`
 register as the remote session's PR — the remote tracks the session branch.
 
 Limitation: this applies to **any** linked worktree, including a generic
@@ -54,7 +54,7 @@ in a generic worktree, create and switch to it before invoking this skill.
    # primary worktree, so `git checkout <default>` fails — there we skip the
    # create+switch entirely and KEEP the current branch as the work branch
    # (exit 7); the determined name is then used only as PR title context, not as a
-   # branch name, and init-branch refreshes the base via fetch + self-rebase.
+   # branch name; step 4 self-rebases the kept branch onto the updated default.
    # Usage: <branch-name>
    # Exit: 0 ok · 3 dirty_tree · 4 no_remote · 5 git op failed (checkout-default / pull / checkout-b) · 6 name_exists · 7 worktree (kept current branch)
    set -uo pipefail
@@ -114,20 +114,44 @@ in a generic worktree, create and switch to it before invoking this skill.
      session PR — keeping it is what lets a later `new-pr` register as that PR.)
    - any other non-zero — report stderr + the exit code, and stop.
 
-4. **Initialize branch tooling.** On success, invoke the
-   `branch-management:init-branch` skill (Skill tool). It resolves the repo root
-   and all graphify/context-mode toggles itself, runs background Bash for the
-   graphify refresh + a direct ctx_index MCP call, and returns structured
-   graphify + ctx-index outcome lines. (Skipped silently if both its toggles are
-   off — it reports that.)
-   - Exit `0` (normal): invoke it with **no arguments**.
-   - Exit `7` (worktree): invoke it with `--worktree-rebase <base>`, taking
-     `<base>` from the script's `base:` line, so it refreshes the kept branch via
-     a synchronous fetch + self-rebase onto `origin/<base>` before the graphify
-     refresh.
+4. **Worktree self-rebase (exit `7` only).** On a normal create (exit `0`) there
+   is nothing further to do. On the linked-worktree path (exit `7`) the default
+   branch could not be checked out, so refresh the kept branch in place: run the
+   script below via the Bash tool, passing the `base:` value from step 2's output
+   as its only argument. **Synchronous native Bash** (git writes — never the ctx
+   sandbox). It always exits `0`; read the outcome from the `REBASE_RESULT=` line.
+
+   ```bash
+   #!/usr/bin/env bash
+   # self-rebase the current worktree branch onto the refreshed default branch.
+   # Synchronous native Bash (git writes). Always exits 0 — REBASE_RESULT carries
+   # the outcome; a non-zero exit means a harness/dispatch error, not a git status.
+   set -uo pipefail
+   default="${1:-}"
+   [ -n "$default" ] || { echo "REBASE_RESULT=failed"; echo "DETAIL=no default branch given"; exit 0; }
+   root=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "REBASE_RESULT=failed"; echo "DETAIL=not inside a git repository"; exit 0; }
+   cd "$root" || { echo "REBASE_RESULT=failed"; echo "DETAIL=cannot cd to repo root"; exit 0; }
+   # a rebase needs a clean tree — skip (never stash silently) if dirty
+   if [ -n "$(git status --porcelain)" ]; then echo "REBASE_RESULT=skipped_dirty"; exit 0; fi
+   if ! out="$(git fetch origin "$default" 2>&1)"; then
+     echo "REBASE_RESULT=failed"; echo "DETAIL=fetch: $(printf '%s' "$out" | tail -2 | tr '\n' ' ' | cut -c1-200)"; exit 0
+   fi
+   if git rebase "origin/$default" >/dev/null 2>&1; then
+     echo "REBASE_RESULT=rebased"
+   else
+     git rebase --abort >/dev/null 2>&1 || true   # never leave a half-rebased tree
+     echo "REBASE_RESULT=conflict"
+   fi
+   exit 0
+   ```
+
+   Outcome (read the `REBASE_RESULT=` line):
+   - `rebased` → `self-rebased onto origin/<default>`
+   - `skipped_dirty` → `rebase skipped: uncommitted changes`
+   - `conflict` → `rebase aborted: conflicts with origin/<default> — resolve manually`
+   - `failed` → `rebase failed` + `DETAIL`
 
 5. **Report:** the branch name and the commit it points at (from the script's
-   `branch:` / `commit:` lines) — on exit `7` note the linked worktree was kept
+   `branch:` / `commit:` lines). On exit `7` note the linked worktree was kept
    on its current branch and the determined name (`<type>/<slug>`) will serve as
-   PR title context, not as a branch name — then the init-branch skill's rebase
-   (worktree only) + graphify + ctx-index outcome lines verbatim.
+   PR title context, not as a branch name; append the rebase outcome from step 4.

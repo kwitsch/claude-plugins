@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # Tests for branch-management's standalone bin/ scripts and manifest. The
-# codex, coderabbit and graphify reviews are inlined into their agents and
+# codex and coderabbit reviews are inlined into their agents and
 # carry no bats coverage (dev-time self-test only). Covered here:
 # copilot-review.sh, git-shim, clean-branches.sh, ci-watch.sh, the plugin.json
 # userConfig manifest, and the review-branch rate-limit regex contract.
@@ -350,7 +350,7 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 @test "userConfig: declares expected toggles plus ci_watch_timeout and review_max_rounds" {
   run jq -r '.userConfig | keys | sort | join(" ")' "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
-  assert_output "ci_monitor ci_watch_timeout coderabbit_ci_comments context_index delete_branch_on_merge graphify_branch_update graphify_force_create graphify_pr_commit graphify_pr_update graphify_user_files rebase_before_pr review_claude review_coderabbit review_codex review_copilot review_max_rounds"
+  assert_output "ci_monitor ci_watch_timeout coderabbit_ci_comments delete_branch_on_merge rebase_before_pr review_claude review_coderabbit review_codex review_copilot review_max_rounds"
 }
 
 @test "userConfig: every toggle except numeric ones is a boolean" {
@@ -362,11 +362,11 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
   assert_success
 }
 
-@test "userConfig: boolean toggles default to true except the fail-closed ones" {
+@test "userConfig: every boolean toggle defaults to true" {
   run jq -e '.userConfig
     | to_entries
     | map(select(.key != "ci_watch_timeout" and .key != "review_max_rounds"))
-    | all(.[]; .value.default == (if .key == "graphify_force_create" or .key == "graphify_user_files" then false else true end))' \
+    | all(.[]; .value.default == true)' \
     "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
 }
@@ -420,7 +420,7 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 
 @test "version: declared once — plugin.json only, marketplace entry carries none" {
   run jq -r '.version' "$REPO_ROOT/$PLUGIN_JSON_REL"
-  assert_output "3.14.1"
+  assert_output "4.0.0"
   run jq -e '.plugins[] | select(.name == "branch-management") | has("version") | not' \
     "$REPO_ROOT/.claude-plugin/marketplace.json"
   assert_success
@@ -634,41 +634,6 @@ run_ci_watch() {
 @test "ci-monitor has effort: low" {
   grep -q '^effort: low' \
     "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/ci-monitor.md"
-}
-
-# --- init-branch skill ---
-
-@test "init-branch SKILL.md exists" {
-  [ -f "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branch/SKILL.md" ]
-}
-
-@test "init-branch runs inline (NOT context: fork)" {
-  run grep '^context: fork' \
-    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branch/SKILL.md"
-  assert_failure
-}
-
-@test "init-branch does not pin a model (runs inline)" {
-  run grep '^model:' \
-    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branch/SKILL.md"
-  assert_failure
-}
-
-@test "init-branch allowed-tools does NOT include Agent (no async subagents)" {
-  run grep -q 'allowed-tools:.*Agent' \
-    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branch/SKILL.md"
-  assert_failure
-}
-
-@test "init-branch is user-invocable (no user-invocable: false)" {
-  run grep '^user-invocable: false' \
-    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branch/SKILL.md"
-  assert_failure
-}
-
-@test "new-branch allowed-tools includes Skill (invokes init-branch)" {
-  grep -q 'allowed-tools:.*Skill' \
-    "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-branch/SKILL.md"
 }
 
 # --- review-branch skill ---
@@ -964,35 +929,6 @@ run_clean_script() {
   assert_success
 }
 
-# --- init-branch inline tooling assertions ---
-INIT_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branch/SKILL.md"
-
-@test "init-branch allowed-tools includes Bash(bash:*) and ToolSearch" {
-  line=$(grep '^allowed-tools:' "$INIT_SKILL")
-  echo "$line" | grep -qF 'Bash(bash:*)' || { echo "missing Bash(bash:*) in init-branch allowed-tools"; return 1; }
-  echo "$line" | grep -q 'ToolSearch'     || { echo "missing ToolSearch in init-branch allowed-tools"; return 1; }
-}
-
-@test "init-branch allowed-tools includes cave-context and context-mode MCP wildcards" {
-  line=$(grep '^allowed-tools:' "$INIT_SKILL")
-  echo "$line" | grep -qF 'mcp__plugin_cave-context_cave-context__*' \
-    || { echo "missing cave-context wildcard in init-branch allowed-tools"; return 1; }
-  echo "$line" | grep -qF 'mcp__plugin_context-mode_context-mode__*' \
-    || { echo "missing context-mode wildcard in init-branch allowed-tools"; return 1; }
-}
-
-@test "init-branch allowed-tools does NOT include Task* tools (no async subagents)" {
-  line=$(grep '^allowed-tools:' "$INIT_SKILL")
-  for t in TaskCreate TaskUpdate TaskList; do
-    if echo "$line" | grep -q "$t"; then echo "unexpected $t in init-branch allowed-tools"; return 1; fi
-  done
-}
-
-@test "init-branch does NOT carry a subagent reconciliation gate (no async agents)" {
-  run grep -qi 'Subagent reconciliation gate' "$INIT_SKILL"
-  assert_failure
-}
-
 # --- review-branch subagent tracking ---
 RB_SKILL2="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-branch/SKILL.md"
 
@@ -1049,6 +985,19 @@ NB_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-branch/S
   grep -q 'set -uo pipefail' "$NB_SKILL"
   grep -q 'git checkout -b' "$NB_SKILL"
   grep -q 'exit 6' "$NB_SKILL"
+}
+
+@test "init-branch skill is removed" {
+  [ ! -e "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/init-branch" ]
+}
+
+@test "new-branch allowed-tools does NOT include Skill (no sub-skill invoked)" {
+  line=$(grep -m1 'allowed-tools' "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-branch/SKILL.md")
+  ! echo "$line" | grep -qw 'Skill'
+}
+
+@test "new-branch carries the inline worktree self-rebase" {
+  grep -q 'REBASE_RESULT=' "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-branch/SKILL.md"
 }
 
 # --- new-pr subagent tracking ---

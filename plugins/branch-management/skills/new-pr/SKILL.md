@@ -1,6 +1,6 @@
 ---
 name: new-pr
-description: Use when branch work complete and should become pull/merge request - runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer subagents, configurable max rounds) with verified fixes between rounds, pushes, opens PR or MR via gh or glab, then watches CI and CodeRabbit feedback until all green. Optionally refreshes and separately commits the graphify output before pushing. Review sources can be disabled per user or per project.
+description: Use when branch work complete and should become pull/merge request - runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer subagents, configurable max rounds) with verified fixes between rounds, pushes, opens PR or MR via gh or glab, then watches CI and CodeRabbit feedback until all green. Review sources can be disabled per user or per project.
 argument-hint: "[--base <branch>]"
 allowed-tools: ["Agent", "Skill", "AskUserQuestion", "Bash(git:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(echo:*)", "Bash(bash:*)", "ToolSearch", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TaskStop"]
 ---
@@ -13,8 +13,7 @@ run in `review-fixer` subagent (opus), CI watch runs in
 `ci-monitor` subagent (sonnet). Skill handles preconditions,
 dispatching review rounds, aggregation + dedupe, fix loop, submission
 and monitor loop — raw review output and CI logs never enter main
-context: subagents keep heavy output out of context via context-mode
-when it is installed, falling back to native tools otherwise. Review
+context: subagents keep heavy output out of the main context. Review
 sources, CI monitoring and CodeRabbit comment handling
 are individually togglable via the plugin's `userConfig` options,
 read in preconditions (step 4).
@@ -37,7 +36,7 @@ read in preconditions (step 4).
    value on the `current_branch:` line and assign it to `$branch`. If
    empty (detached HEAD), abort and tell user to check out a branch first.
    Also note the `linked_worktree:` value (`yes`/`no`) — it governs the push in
-   step 11.
+   step 10.
 
    **Session-PR linkage (bridge / remote sessions).** When `linked_worktree:` is
    `yes` the current branch is the session branch the remote tracks
@@ -69,7 +68,7 @@ read in preconditions (step 4).
    - `git log "origin/$base"..HEAD --oneline` is empty and
      `git status --porcelain` is also empty (no work to submit).
 
-4. **Read graphify and CI toggles.** The plugin declares them via
+4. **Read CI toggles.** The plugin declares them via
    `userConfig` in plugin.json; Claude Code stores the values in
    settings.json under `pluginConfigs["branch-management"].options`
    (native scope precedence: local > project > user) and interpolates
@@ -82,8 +81,6 @@ read in preconditions (step 4).
    | coderabbit_ci_comments | `${user_config.coderabbit_ci_comments}` |
    | delete_branch_on_merge | `${user_config.delete_branch_on_merge}` |
    | rebase_before_pr | `${user_config.rebase_before_pr}` |
-   | graphify_pr_update | `${user_config.graphify_pr_update}` |
-   | graphify_pr_commit | `${user_config.graphify_pr_commit}` |
 
    Evaluation rule (fail-open): ONLY the literal value `false` disables
    a toggle. Anything else — `true`, an empty value, or an
@@ -91,11 +88,9 @@ read in preconditions (step 4).
    Code version — counts as enabled. `ci_watch_timeout` is numeric:
    use the literal value only when it is a positive whole-number value;
    otherwise fall back to `1800`. `ci_monitor` gates the whole monitor
-   loop (steps 13–15), while `coderabbit_ci_comments` only suppresses
-   CodeRabbit comment collection within step 13. `graphify_pr_update`
-   gates the graphify refresh in the Submit stage (step 9) and
-   `graphify_pr_commit` its separate commit. `delete_branch_on_merge` gates the
-   auto-delete-on-merge wiring in step 12. `rebase_before_pr` gates the
+   loop (steps 12–14), while `coderabbit_ci_comments` only suppresses
+   CodeRabbit comment collection within step 12. `delete_branch_on_merge` gates the
+   auto-delete-on-merge wiring in step 11. `rebase_before_pr` gates the
    onto-latest-base rebase in step 8.
 
    Review toggles (`review_claude/codex/copilot/coderabbit`),
@@ -148,7 +143,7 @@ See `.claude/rules/subagent-tracking.md`.
    numbering then continues at 9 — existing cross-references stay stable.)
 
 8. **Rebase onto the latest base** — after the work is committed (step 5) and the
-   review rounds have settled (step 6), and **before** the graphify refresh (step 9),
+   review rounds have settled (step 6), and **before** pushing,
    check whether the base branch (`$base` — the branch the work was cut from, usually
    `main`) gained new upstream commits and, if so, rebase the work branch onto it.
    This keeps the PR on top of current `$base` and surfaces conflicts now instead of
@@ -184,7 +179,7 @@ See `.claude/rules/subagent-tracking.md`.
    Map the `REBASE_RESULT=` line:
    - `up_to_date` → base has no new commits; nothing to do, continue.
    - `rebased` → the branch was replayed onto new base commits; **history was
-     rewritten**, so set a `rebased=yes` marker — step 11's push MUST then use
+     rewritten**, so set a `rebased=yes` marker — step 10's push MUST then use
      `--force-with-lease`. Continue.
    - `skipped_dirty` → uncommitted changes remain (shouldn't happen after step 5 /
      the fixer); commit or stash them and re-run this step. Never rebase a dirty tree.
@@ -197,109 +192,17 @@ See `.claude/rules/subagent-tracking.md`.
 
 ## Submit
 
-9. **graphify update.** Gated by the `graphify_pr_update` toggle (step 4) —
-   `false` skips this step entirely; note `graphify disabled via settings` in
-   the report.
-
-   Enabled → run via `Bash(run_in_background: true)`. Graphify writes
-   `graphify-out/`; always native Bash (ctx sandbox discards filesystem writes).
-
-   Compose the command with:
-   - `--force` appended when `${user_config.graphify_force_create}` is literally
-     `true` (FAIL-CLOSED — new-pr never forces implicitly)
-   - `--keep-user-files` appended when `${user_config.graphify_user_files}` is
-     literally `true` (FAIL-CLOSED)
-   - `DO_COMMIT=1` in the environment when `${user_config.graphify_pr_commit}` is
-     not literally `false`; `DO_COMMIT=0` when it is literally `false`
-
-   The script **always exits 0**; its outcome rides the `GRAPHIFY_RESULT=` /
-   `COMMITTED=` lines it prints (a background script that exits non-zero is
-   reported by the harness as a failed command — status must NOT ride the exit
-   code, and the commit result can no longer be signalled that way either, so it
-   is reported on its own line).
-
-   ```bash
-   #!/usr/bin/env bash
-   # Always exits 0; status rides the GRAPHIFY_RESULT= / COMMITTED= lines below.
-   set -uo pipefail
-   DO_COMMIT="${DO_COMMIT:-1}"
-   force=0; keep_user_files=0
-   while [ $# -gt 0 ]; do
-     case "$1" in
-       --force) force=1 ;;
-       --keep-user-files) keep_user_files=1 ;;
-       *) echo "GRAPHIFY_RESULT=failed"; echo "DETAIL=usage: [--force] [--keep-user-files]"; exit 0 ;;
-     esac; shift
-   done
-   root=$(git rev-parse --show-toplevel 2>/dev/null) || {
-     echo "GRAPHIFY_RESULT=failed"; echo "DETAIL=not inside a git repository"; exit 0
-   }
-   cd "$root" || { echo "GRAPHIFY_RESULT=failed"; echo "DETAIL=cannot cd to repo root"; exit 0; }
-   command -v graphify >/dev/null 2>&1 || { echo "GRAPHIFY_RESULT=unavailable"; exit 0; }
-   if [ ! -d graphify-out ]; then
-     if [ "$force" -eq 1 ]; then mkdir -p graphify-out; else echo "GRAPHIFY_RESULT=no_folder"; exit 0; fi
-   fi
-   if ! out="$(timeout -k 10 "${GRAPHIFY_TIMEOUT:-600}" graphify update . 2>&1)"; then
-     echo "GRAPHIFY_RESULT=failed"; echo "DETAIL=$(printf '%s' "$out" | tail -3 | tr '\n' ' ' | cut -c1-300)"; exit 0
-   fi
-   [ "$keep_user_files" -eq 0 ] && rm -f graphify-out/graph.html
-   echo "GRAPHIFY_RESULT=updated"
-   # Commit section — only reached when the update succeeded
-   if [ "$DO_COMMIT" = "1" ]; then
-     if git check-ignore -q graphify-out; then
-       # graphify-out is gitignored (e.g. "local development only, never pushed"):
-       # `git status` hides ignored files and `git add` refuses them, so there is
-       # nothing to commit — report the real reason rather than "unchanged".
-       echo "COMMITTED=false"; echo "COMMIT_DETAIL=graphify-out is gitignored — left local, not committed"
-     elif git status --porcelain -- graphify-out | grep -q .; then
-       if git add graphify-out && git commit -m "chore: update graphify output" >/dev/null 2>&1; then
-         echo "COMMITTED=true"
-       else
-         echo "COMMITTED=false"; echo "COMMIT_DETAIL=commit failed"
-       fi
-     else
-       echo "COMMITTED=false"; echo "COMMIT_DETAIL=graphify output unchanged"
-     fi
-   else
-     echo "COMMITTED=skipped"
-   fi
-   exit 0
-   ```
-
-   Status mapping (read the `GRAPHIFY_RESULT=` line, NOT the exit code):
-   - `updated` — status `updated`; then read `COMMITTED=`:
-     `true` → `committed`; `false` with `COMMIT_DETAIL=graphify output unchanged`
-     → `committed: false, detail: graphify output unchanged`; `false` with
-     `COMMIT_DETAIL=graphify-out is gitignored …` → `committed: false — graphify-out
-     is gitignored, left local` (expected when the repo keeps graphify-out
-     local-only); `false` with `COMMIT_DETAIL=commit failed` → note the commit
-     failed (soft); `skipped` (`DO_COMMIT=0`) → `graphify changes left uncommitted
-     via settings`
-   - `unavailable` — `skipped: graphify unavailable`
-   - `no_folder` — `skipped: no graphify-out folder`
-   - `failed` — `failed` — include the `DETAIL` excerpt
-   - no `GRAPHIFY_RESULT=` line at all (e.g. the background script was killed
-     before printing) — treat as `failed` (soft-fail, never block the push)
-
-   Gate: do NOT proceed to step 10 until the background Bash notification
-   arrives and its `GRAPHIFY_RESULT=` line is mapped to a status string — any
-   graphify commit lands inside this background script.
-
-   Soft-fail: any non-ok status is a report note, never a reason to stop
-   before pushing.
-
-10. **Everything committed?** Run `git status --porcelain`. Step 5 and the
+9. **Everything committed?** Run `git status --porcelain`. Step 5 and the
    fixer rounds should have committed everything already, so this is a
    safety re-check that usually finds nothing. Commit any remainder that
    belongs to this branch's work, grouped into logical commits. Leave
-   unrelated files untouched; `graphify-out` is owned by step 9 — never
-   commit it here (the review-fixer carries the same standing rule); if
-   it is unclear whether a change belongs to the work, ask the user.
+   unrelated files untouched; if it is unclear whether a change belongs
+   to the work, ask the user.
 
-11. **Push** the session/work branch to origin. Use `--force-with-lease` when the
+10. **Push** the session/work branch to origin. Use `--force-with-lease` when the
     history may have been rewritten relative to an existing remote ref — i.e. when
     `linked_worktree:` is `yes` (a bridge/remote session can pre-push the branch and
-    init-branch may have self-rebased it) **or** step 8 reported `rebased=yes`.
+    new-branch may have self-rebased it) **or** step 8 reported `rebased=yes`.
     Otherwise a plain push:
     - neither condition → `git push -u origin "$branch"`.
     - `linked_worktree:` `yes` OR step-8 `rebased=yes` →
@@ -310,7 +213,7 @@ See `.claude/rules/subagent-tracking.md`.
     remote moved unexpectedly, since only this session writes the branch). Do NOT
     use a bare `--force`.
 
-12. **Open the PR/MR** — pick the tool from the `origin` URL
+11. **Open the PR/MR** — pick the tool from the `origin` URL
     (`git remote get-url origin`):
 
     - GitHub (`github.com` or a GitHub Enterprise host):
@@ -350,18 +253,18 @@ See `.claude/rules/subagent-tracking.md`.
     `{owner}/{repo}` is resolved by `gh` from the origin remote — pass the literal
     placeholder string. On **GitLab** the `--remove-source-branch` flag above
     already covers this per-MR; no repo-level change is made. Record the
-    auto-delete outcome for the report (step 16).
+    auto-delete outcome for the report (step 15).
 
 ## Monitor until green
 
-If the `ci_monitor` toggle (step 4) is `false`, skip steps 13–15 entirely
-and continue with the report (step 16), noting `CI monitoring disabled
+If the `ci_monitor` toggle (step 4) is `false`, skip steps 12–14 entirely
+and continue with the report (step 15), noting `CI monitoring disabled
 via settings` there.
 
 Cap the loop at 5 fix iterations — if it has not converged by then, stop and
 hand the remaining findings to the user instead of pushing in circles.
 
-13. **Dispatch `branch-management:ci-monitor`** with the platform
+12. **Dispatch `branch-management:ci-monitor`** with the platform
     (`github`/`gitlab`), the PR/MR reference, the branch name
     (`$branch` — its run-id fallback needs it), the resolved absolute
     path of `<plugin-root>/bin/ci-watch.sh` (resolve
@@ -381,14 +284,13 @@ hand the remaining findings to the user instead of pushing in circles.
     be skipped — `review_findings` then comes back empty and the loop
     runs on the CI state alone; note `CodeRabbit comments disabled via
     settings` in the final report.
-    Gate: track this ci-monitor dispatch in the ledger; do NOT proceed to step 14
+    Gate: track this ci-monitor dispatch in the ledger; do NOT proceed to step 13
     until `TaskList` shows it terminal and its `{ci, failures, review_findings}` JSON
     is in hand.
 
-14. **If `ci` is `red` or `review_findings` is non-empty:** dispatch
+13. **If `ci` is `red` or `review_findings` is non-empty:** dispatch
     `branch-management:review-fixer` with both lists (CI failure analyses are
-    findings too). The fixer carries a standing rule to never stage
-    `graphify-out` — no per-dispatch instruction needed. Then:
+    findings too). Then:
     - Gate: track this review-fixer dispatch in the ledger; do NOT push or resolve any
       CodeRabbit thread until `TaskList` shows it terminal and its resolutions JSON is
       in hand — so commits and `thread_id`s are never used stale.
@@ -403,23 +305,20 @@ hand the remaining findings to the user instead of pushing in circles.
       remaining findings to user — push without commits restarts
       nothing.
 
-15. **Loop.** Every push restarts CI and triggers CodeRabbit re-review;
-    repeat steps 13–14 until both quiet in same iteration: CI green
+14. **Loop.** Every push restarts CI and triggers CodeRabbit re-review;
+    repeat steps 12–13 until both quiet in same iteration: CI green
     and no unresolved findings. CodeRabbit that never reacts (no app
     installed, rate limit exhausted) counts as quiet — loop ends on CI
     green alone.
 
-16. **Report:** PR/MR URL — or, when stop branch fired, note
+15. **Report:** PR/MR URL — or, when stop branch fired, note
     that nothing pushed plus fix commits left on branch; include
     the review-branch sub-skill's report verbatim (rounds run,
     per-reviewer status, findings fixed/skipped, rate-limit notes) —
     or note why review rounds were skipped (no reviewer enabled,
     stopped early); monitor iterations used — or `CI monitoring
     disabled via settings` when the toggle was off.
-    Plus the graphify outcome: updated + committed / updated, left
-    uncommitted via settings / skipped: no CLI / skipped: no
-    graphify-out folder / failed + detail / disabled via settings.
-    Plus the auto-delete-on-merge outcome from step 12: enabled repo
+    Plus the auto-delete-on-merge outcome from step 11: enabled repo
     `delete_branch_on_merge` / already true / could not set (no admin) /
     GitLab `--remove-source-branch` set / disabled via settings.
     Plus the step-8 base-rebase outcome: up to date / rebased onto

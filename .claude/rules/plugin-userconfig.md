@@ -20,7 +20,7 @@ ONLY literal `false` disables a feature. All of the following count as enabled:
 
 ## Exception: fail-closed for state-creating toggles
 
-Toggles whose enabled state creates files or external state must be fail-closed: only literal `true` enables. Example: `graphify_force_create` in branch-management. An uninterpolated placeholder must NEVER create files or external state.
+Toggles whose enabled state creates files or external state must be fail-closed: only literal `true` enables — e.g. a toggle that auto-creates a folder or pushes to a remote. An uninterpolated placeholder must NEVER create files or external state.
 
 ## configure-* skill sync
 

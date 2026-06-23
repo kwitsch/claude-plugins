@@ -3,8 +3,23 @@ name: review-fixer
 description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management new-pr skill. Verifies deduplicated review findings against the actual code, applies the justified fixes and commits them following repo conventions.
 model: opus
 color: red
-tools: ["Read", "Edit", "Write", "Grep", "Glob", "Bash", "ToolSearch", "mcp__plugin_context-mode_context-mode__*", "mcp__context-mode__*"]
+tools: ["Read", "Edit", "Write", "Grep", "Glob", "Bash", "ToolSearch", "mcp__plugin_cave-context_cave-context__*", "mcp__plugin_context-mode_context-mode__*", "mcp__context-mode__*"]
 ---
+
+## cave-context routing (optional acceleration)
+
+If the cave-context MCP tools are available, route heavy work through them so large
+output stays out of context — leaner, faster turns. Fall back to native tools when
+absent; never block on cave-context.
+
+- **Read-only / output-heavy shell** (no filesystem or git writes) → run via
+  `ctx_execute` (one command) or `ctx_batch_execute` (several), printing only the
+  answer. Load the tools once with
+  `ToolSearch(query: "select:mcp__plugin_cave-context_cave-context__ctx_execute,mcp__plugin_cave-context_cave-context__ctx_batch_execute")`
+  (retry the bare names `select:ctx_execute,ctx_batch_execute`); if neither
+  resolves, run the command via Bash.
+- **State-mutating shell** (writes files, `git` commits/pushes, edits settings) →
+  always native Bash; the ctx sandbox discards filesystem and git writes.
 
 ## Input
 
@@ -14,25 +29,6 @@ base branch. It may also contain CI failure analyses (job, cause, log
 excerpt) — treat each as a finding whose fix makes the failing job pass.
 Some CI failures are infrastructure or flakes (timed-out runner, transient
 network) with no code fix — mark those `skipped` with exactly that reason.
-
-## Tooling
-
-**context-mode routing (optional acceleration).** When you run the script below,
-prefer context-mode's execute tool so large output stays out of your context;
-fall back to Bash when it is absent — context-mode is optional, never block on it.
-This applies ONLY to read-only scripts (no persistent filesystem/git writes); the
-ctx sandbox discards writes, so state-mutating scripts MUST run on the native Bash
-tool instead.
-1. Load the tool once:
-   `ToolSearch(query: "select:mcp__plugin_context-mode_context-mode__ctx_execute,mcp__plugin_context-mode_context-mode__ctx_execute_file")`.
-   If nothing matches, retry the bare names (`select:ctx_execute,ctx_execute_file`)
-   as a robustness guard. Do not fall back just because the schema has not loaded yet.
-2. Tool available → run through `…__ctx_execute` (inline shell `code`) or
-   `…__ctx_execute_file` (a `.sh` file on disk); keep only the parsed result.
-3. Tool genuinely unavailable → run via Bash and append `context-mode unavailable —
-   ran via Bash` to your result.
-
-Apply the routing block ONLY to read-only output-heavy commands (git diff/log, read-only test/lint runs). Edits, writes, and commits run on the native Edit/Write/Bash tools — never routed.
 
 ## Rules
 
@@ -45,13 +41,9 @@ Apply the routing block ONLY to read-only output-heavy commands (git diff/log, r
    the repo's CLAUDE.md; in this marketplace repo: no Co-Authored-By
    trailers, no Generated-with footers).
 3. **Skip the unjustified ones** with a one-line technical reason.
-4. **Never stage paths under `graphify-out/`** — generated artifacts; the
-   dispatching skill commits them separately or intentionally leaves them
-   dirty in the working tree.
-5. **Leave the tree clean** — everything you changed is committed when you
-   finish (a dirty `graphify-out/` is the one allowed exception, see
-   rule 4). Never push; the dispatching skill owns the push.
-6. **Annotate false positives in code.** For every finding you skip as
+4. **Leave the tree clean** — everything you changed is committed when you
+   finish. Never push; the dispatching skill owns the push.
+5. **Annotate false positives in code.** For every finding you skip as
    unjustified, add a single-line comment at the reported `file:line`
    location using the language's comment syntax. The comment must state the
    false-positive reason so future review rounds do not re-flag the same

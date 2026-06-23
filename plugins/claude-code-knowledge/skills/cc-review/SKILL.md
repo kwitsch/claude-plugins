@@ -2,7 +2,7 @@
 name: cc-review
 description: Review a Claude Code component (a plugin dir, skill, agent, hook, command, .mcp.json, CLAUDE.md, or settings.json) against the curated cc-reference authoring rules, then interactively apply the recommendations you select. Use when the user asks to review, audit, or check a Claude Code skill/agent/hook/command/plugin/MCP/memory/settings file for errors or best-practice violations.
 argument-hint: [target path]
-allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, AskUserQuestion
+allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, AskUserQuestion, mcp__plugin_cave-context_cave-context__*, ToolSearch
 # review-skip(F1): unscoped Bash/Edit/Write is required — detection (sec 2) runs against an arbitrary user-supplied path so Bash cannot be prefix-scoped, and fixes (sec 6) Edit/Write arbitrary files; allowed-tools only pre-approves, never restricts.
 ---
 
@@ -22,6 +22,21 @@ The dispatched `cc-reviewer` agents are read-only. **This skill is the only writ
 > input" prompt, whereas `AskUserQuestion` raises a notification. Open-ended,
 > free-text prompts may be asked inline, but prefer `AskUserQuestion` whenever the
 > choices can be enumerated.
+
+## cave-context routing (optional acceleration)
+
+If the cave-context MCP tools are available, route heavy work through them so large
+output stays out of context — leaner, faster turns. Fall back to native tools when
+absent; never block on cave-context.
+
+- **Read-only / output-heavy shell** (no filesystem or git writes) → run via
+  `ctx_execute` (one command) or `ctx_batch_execute` (several), printing only the
+  answer. Load the tools once with
+  `ToolSearch(query: "select:mcp__plugin_cave-context_cave-context__ctx_execute,mcp__plugin_cave-context_cave-context__ctx_batch_execute")`
+  (retry the bare names `select:ctx_execute,ctx_batch_execute`); if neither
+  resolves, run the command via Bash.
+- **State-mutating shell** (writes files, `git` commits/pushes, edits settings) →
+  always native Bash; the ctx sandbox discards filesystem and git writes.
 
 ## 1. Resolve the target
 
