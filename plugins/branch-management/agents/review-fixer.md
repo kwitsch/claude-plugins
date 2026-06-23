@@ -3,8 +3,23 @@ name: review-fixer
 description: Do not invoke directly or proactively — internal worker dispatched only by the branch-management new-pr skill. Verifies deduplicated review findings against the actual code, applies the justified fixes and commits them following repo conventions.
 model: opus
 color: red
-tools: ["Read", "Edit", "Write", "Grep", "Glob", "Bash", "ToolSearch", "mcp__plugin_context-mode_context-mode__*", "mcp__context-mode__*"]
+tools: ["Read", "Edit", "Write", "Grep", "Glob", "Bash", "ToolSearch", "mcp__plugin_cave-context_cave-context__*", "mcp__plugin_context-mode_context-mode__*", "mcp__context-mode__*"]
 ---
+
+## cave-context routing (optional acceleration)
+
+If the cave-context MCP tools are available, route heavy work through them so large
+output stays out of context — leaner, faster turns. Fall back to native tools when
+absent; never block on cave-context.
+
+- **Read-only / output-heavy shell** (no filesystem or git writes) → run via
+  `ctx_execute` (one command) or `ctx_batch_execute` (several), printing only the
+  answer. Load the tools once with
+  `ToolSearch(query: "select:mcp__plugin_cave-context_cave-context__ctx_execute,mcp__plugin_cave-context_cave-context__ctx_batch_execute")`
+  (retry the bare names `select:ctx_execute,ctx_batch_execute`); if neither
+  resolves, run the command via Bash.
+- **State-mutating shell** (writes files, `git` commits/pushes, edits settings) →
+  always native Bash; the ctx sandbox discards filesystem and git writes.
 
 ## Input
 
