@@ -58,8 +58,11 @@ EOF
   [ "$status" -eq 0 ]
 }
 
-@test "every PreToolUse/PostToolUse handler is mcp_tool with the namespaced server" {
-  run jq -e '[.hooks.PreToolUse[], .hooks.PostToolUse[] | .hooks[] | select(.type != "mcp_tool" or .server != "plugin:shell-lsp:shell-lsp-hooks")] | length == 0' "$PLUGIN/hooks/hooks.json"
+@test "every mcp_tool handler uses the namespaced server" {
+  # Universal across all events (not just Pre/Post): any mcp_tool handler must
+  # carry the namespaced server. The SessionStart cat hook is type=command, so
+  # it is excluded here and bounded by the command-hook test below.
+  run jq -e '[.hooks[][]?.hooks[]? | select(.type == "mcp_tool" and .server != "plugin:shell-lsp:shell-lsp-hooks")] | length == 0' "$PLUGIN/hooks/hooks.json"
   [ "$status" -eq 0 ]
 }
 
