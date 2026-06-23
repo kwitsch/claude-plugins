@@ -7,7 +7,7 @@ programming-language symbol — query the `LSP` tool **before** running
 Symbol-shaped names — use LSP first:
 - **camelCase** — `getUserById`, `parseConfig`
 - **PascalCase** — `UserService`, `HttpClient`
-- **snake_case** (multi-segment, length ≥ 9) — `get_user_by_id`, `parse_config_file`
+- **snake_case** (≥ 3 segments, length ≥ 9) — `get_user_by_id`, `parse_config_file`
 - **dotted member access** — `router.refresh`, `config.load`
 
 How:
