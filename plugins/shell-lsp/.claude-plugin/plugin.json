@@ -1,6 +1,6 @@
 {
   "name": "shell-lsp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Shell-only LSP (.sh/.bash) via bash-language-server, with LSP-first enforcement hooks",
   "author": { "name": "Kwitsch" },
   "userConfig": {
