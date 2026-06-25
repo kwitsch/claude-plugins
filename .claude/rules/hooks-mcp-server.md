@@ -269,3 +269,9 @@ function startServer() {
   `MCP_HOOK_DEBUG` so production hooks stay quiet; set it to confirm the contract.
 - **Native Windows:** the `#!/usr/bin/env bash` shebang in `bin/mjs-launch.sh`
   needs a shell/`.exe` shim on native Windows; WSL2 / Linux / macOS are fine.
+- **Direct-`.mjs` alternative (node-only plugins):** a **node-only** plugin MAY
+  invoke an executable `.mjs` (`#!/usr/bin/env node` + `chmod +x` / `100755`)
+  directly as the `command` instead of via the wrapper — cave-context does this
+  (its vendored context-mode removes any need for runtime selection). The wrapper
+  is the recommended default for new plugins; acknowledge this alternative when
+  reviewing cave-context so a future pass does not "restore" a wrapper for it.

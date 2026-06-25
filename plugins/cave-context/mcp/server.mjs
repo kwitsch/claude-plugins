@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Self-contained, zero-dependency MCP stdio server (Node/Bun built-ins only).
-// Runtime: node-only — bin/bnx.sh launches this module under node; there is no
-// in-file re-exec shim.
+// Runtime: node-only — invoked directly via its `#!/usr/bin/env node` shebang
+// (`.mcp.json` `command`); no wrapper / re-exec shim.
 // Transport: newline-delimited JSON-RPC 2.0. stdout = JSON-RPC only; logs → stderr.
 import process from "node:process";
 import readline from "node:readline";
