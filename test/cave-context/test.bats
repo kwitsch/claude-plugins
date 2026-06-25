@@ -4,6 +4,7 @@ setup() {
   bats_load_library bats-support
   bats_load_library bats-assert
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
+  PLUGIN="$REPO_ROOT/plugins/cave-context"
   HOOKS="$REPO_ROOT/plugins/cave-context/hooks/hooks.json"
   SS_MD="$REPO_ROOT/plugins/cave-context/hooks/SessionStart.md"
 }
@@ -233,3 +234,14 @@ setup() {
   assert_success
 }
 
+@test "vendored context-mode tree present with LICENSE and NOTICE" {
+  [ -f "$PLUGIN/bin/context-mode/server.bundle.mjs" ]
+  [ -f "$PLUGIN/bin/context-mode/LICENSE" ]
+  [ -f "$PLUGIN/bin/context-mode/NOTICE" ]
+}
+
+@test "vendored tree has no foreign-platform hook dirs" {
+  for d in gemini-cli cursor vscode-copilot codex kimi kiro jetbrains-copilot; do
+    [ ! -d "$PLUGIN/bin/context-mode/hooks/$d" ]
+  done
+}

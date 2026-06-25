@@ -1,0 +1,13 @@
+context-mode — vendored copy
+============================
+Vendored from context-mode v1.0.162 via `npm pack context-mode@1.0.162`.
+Upstream: https://github.com/mksglu/context-mode
+License: Elastic License 2.0 (see ./LICENSE), Copyright 2026 Mert Koseoglu.
+
+This is a redistribution under the Elastic License 2.0. The following
+directories were REMOVED from the published package (non-Claude-Code platform
+hook adapters, not used by cave-context):
+  hooks/gemini-cli, hooks/cursor, hooks/vscode-copilot, hooks/codex,
+  hooks/kimi, hooks/kiro, hooks/jetbrains-copilot
+
+All retained files are unmodified (byte-for-byte) from the published package.
