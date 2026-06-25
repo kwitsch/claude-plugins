@@ -1,55 +1,16 @@
 #!/usr/bin/env node
 // server.mjs — self-contained, zero-dependency MCP stdio server (Node/Bun built-ins only).
-// Started via #!/usr/bin/env node, it re-execs under bun when available (TS_LSP_NO_BUN=1 bypasses).
+// Launched via bin/mjs-launch.sh (prefers bun, falls back to node).
 // Transport: newline-delimited JSON-RPC 2.0. stdout = JSON-RPC only; logs → stderr.
 // Exposes hook_pretooluse and hook_posttooluse tools backed by handlers.mjs.
 import process from "node:process";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import readline from "node:readline";
 
 const SERVER_NAME = "ts-lsp-hooks";
 const SERVER_INFO = { name: SERVER_NAME, version: "1.0.0" };
 const DEFAULT_PROTOCOL = "2025-11-25";
 
-// Prefer bun, fall back to node. Under bun, process.versions.bun is set → no loop.
-// TS_LSP_NO_BUN=1 skips re-exec (used by smoke tests for determinism).
-if (process.versions.bun || process.env.TS_LSP_NO_BUN === "1") {
-  startServer();
-} else {
-  const env = { ...process.env };
-  const home = process.env.HOME;
-  if (home) {
-    // Avoid a trailing ':' (an empty PATH segment resolves to CWD — a code-exec
-    // risk in an untrusted workspace) when env.PATH is unset (CodeRabbit CR2).
-    const inherited = env.PATH ? `:${env.PATH}` : "";
-    env.PATH = `${home}/.bun/bin:${home}/.local/bin${inherited}`;
-  }
-  let spawned = false;
-  const child = spawn("bun", [fileURLToPath(import.meta.url), ...process.argv.slice(2)], {
-    stdio: "inherit",
-    env,
-  });
-  const forwarders = new Map();
-  child.once("spawn", () => {
-    spawned = true;
-    for (const s of ["SIGTERM", "SIGINT", "SIGHUP"]) {
-      const h = () => child.kill(s);
-      forwarders.set(s, h);
-      process.on(s, h);
-    }
-  });
-  child.once("error", () => { if (!spawned) startServer(); }); // bun missing (ENOENT) → node
-  child.once("exit", (code, sig) => {
-    if (!spawned) return;
-    // Remove our signal forwarders before re-raising, so the re-raised signal
-    // performs default termination instead of re-invoking the (now stale)
-    // handler — otherwise the parent lingers (CodeRabbit CR3).
-    for (const [s, h] of forwarders) process.removeListener(s, h);
-    if (sig) process.kill(process.pid, sig);
-    else process.exit(code ?? 0);
-  });
-}
+startServer();
 
 // Initialize the MCP readline loop: register tools, dispatch JSON-RPC messages, handle stdin close.
 function startServer() {
