@@ -13,7 +13,7 @@ Each plugin: `.claude-plugin/plugin.json` (manifest, holds only `version`) + com
 | `commands/` | Skills as flat `.md` files — legacy, avoid for new plugins |
 | `agents/` | Custom agent definitions |
 | `hooks/` | Event handlers in `hooks.json` |
-| `mcp/` | Self-contained zero-dep MCP stdio server (`server.mjs`, chmod +x) backing `mcp_tool` hooks |
+| `mcp/` | Self-contained zero-dep MCP stdio server (`server.mjs`) backing `mcp_tool` hooks, launched via `bin/mjs-launch.sh` wrapper |
 | `bin/` | Executables added to Bash `PATH` when plugin enabled (must be chmod +x) |
 | `.mcp.json` | MCP server configs |
 | `.lsp.json` | LSP server configs for code intelligence |
@@ -33,7 +33,10 @@ row in `.claude/rules/hooks-mcp-tool-event-matrix.md` (`documented` rows only).
 - **`mcp_tool` hook** otherwise — non-blocking, mid-session context injection /
   observation (`PreToolUse`, `PostToolUse`, `Stop`, `SubagentStop`, … — all `full` in
   the matrix). **Preferred:** backed by a self-contained plugin-local MCP server
-  (`mcp/server.mjs`, bun-preferred with node fallback, registered directly in
-  `.mcp.json`). `mcp_tool` can *soft*-block via returned JSON but never hard-gate.
+  (`mcp/server.mjs`), launched via the bun-first wrapper `bin/mjs-launch.sh`
+  (bun-preferred, node fallback — the wrapper owns runtime selection) and registered
+  in `.mcp.json` as `command: ${CLAUDE_PLUGIN_ROOT}/bin/mjs-launch.sh`, `args:
+  ["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"]`). `mcp_tool` can *soft*-block via
+  returned JSON but never hard-gate.
 
 Existing `.sh` hooks stay until rewritten.
