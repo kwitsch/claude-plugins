@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -71,21 +71,46 @@ test("UserPromptSubmit delegate returns null (capture-only, no hookSpecificOutpu
   });
 });
 
-test("PreToolUse stub returns null (Task 4 fills this in)", async () => {
+test("PreToolUse in-process routing returns a valid envelope and writes the latency marker", async () => {
   const dir = scratch();
   await withEnv({ CONTEXT_MODE_DIR: dir, CLAUDE_PROJECT_DIR: dir }, async () => {
     const { delegateHook } = await import("../../plugins/cave-context/mcp/delegate.mjs");
-    const res = await delegateHook("PreToolUse", { session_id: "s-preu", cwd: dir, tool_name: "Bash" });
-    assert.equal(res, null);
+    const { getSessionId } = await import(H("session-helpers.mjs"));
+    const input = { session_id: "s-preu-route", cwd: dir, tool_name: "Bash", tool_input: { command: "echo hi" } };
+    const res = await delegateHook("PreToolUse", input);
+    // Parity contract: object|null, and never additionalContext:null.
+    assert.ok(res === null || typeof res === "object");
+    if (res?.hookSpecificOutput) assert.notStrictEqual(res.hookSpecificOutput.additionalContext, null);
+    // Proof the body executed past routing into the marker writes (postToolUse reads this marker).
+    const sid = getSessionId(input);
+    const marker = join(tmpdir(), `context-mode-latency-${sid}-Bash.txt`);
+    assert.ok(existsSync(marker), "PreToolUse must write the latency-start marker");
+    try { unlinkSync(marker); } catch { /* cleanup */ }
   });
 });
 
-test("PreCompact stub returns null (Task 4 fills this in)", async () => {
+test("PreCompact in-process builds + persists a resume snapshot after capture", async () => {
   const dir = scratch();
   await withEnv({ CONTEXT_MODE_DIR: dir, CLAUDE_PROJECT_DIR: dir }, async () => {
     const { delegateHook } = await import("../../plugins/cave-context/mcp/delegate.mjs");
-    const res = await delegateHook("PreCompact", { session_id: "s-prec", cwd: dir });
-    assert.equal(res, null);
+    const sessionId = "s-precompact";
+    // Capture an event first so there is something to snapshot.
+    await delegateHook("PostToolUse", {
+      session_id: sessionId, cwd: dir, hook_event_name: "PostToolUse",
+      tool_name: "Bash", tool_input: { command: "git status" }, tool_response: "On branch main",
+    });
+    const res = await delegateHook("PreCompact", { session_id: sessionId, cwd: dir });
+    // Parity: vendored body writes JSON.stringify({}).
+    assert.deepEqual(res, {});
+    // Load-bearing: a resume snapshot row must exist and compact_count must be incremented.
+    const { SessionDB } = await import(H("session-db.bundle.mjs"));
+    const { getSessionDBPath } = await import(H("session-helpers.mjs"));
+    const reader = new SessionDB({ dbPath: getSessionDBPath() });
+    const resume = reader.getResume(sessionId);
+    const stats = reader.getSessionStats(sessionId);
+    reader.close();
+    assert.ok(resume, "expected a persisted resume row after PreCompact");
+    assert.ok((stats?.compact_count ?? 0) >= 1, `expected compact_count >= 1, got ${stats?.compact_count}`);
   });
 });
 
@@ -205,4 +230,50 @@ test("PostToolUse back-to-back captures do not error (WAL reuse test)", async ()
     assert.ok(rollup.tool_calls >= 2,
       `expected >= 2 tool_calls after burst, got ${rollup.tool_calls}`);
   });
+});
+
+// ── fail-open: a throw in the capture path must surface as null ─────────────────
+// The binding fail-open constraint: any error in the in-process work → delegateHook
+// returns null (the hook then emits {} and the session is unharmed). This forces the
+// load-bearing path to throw by pointing CONTEXT_MODE_DIR at a path whose parent is a
+// regular file (mkdir/open → ENOTDIR), proving delegateHook's catch (not just the
+// best-effort marker try/catch blocks) actually fails open.
+test("delegate fails open to null when the capture path throws (unwritable storage)", async () => {
+  const base = mkdtempSync(join(tmpdir(), "delegate-badenv-"));
+  const blocker = join(base, "afile");
+  writeFileSync(blocker, "x"); // a regular file …
+  const badDir = join(blocker, "cmdir"); // … so any dir under it can't be created
+  await withEnv({ CONTEXT_MODE_DIR: badDir, CLAUDE_PROJECT_DIR: base }, async () => {
+    const { delegateHook } = await import("../../plugins/cave-context/mcp/delegate.mjs");
+    const res = await delegateHook("PostToolUse", {
+      session_id: "s-failopen", cwd: base, hook_event_name: "PostToolUse",
+      tool_name: "Bash", tool_input: { command: "git status" }, tool_response: "ok",
+    });
+    assert.equal(res, null, "delegate must fail open to null when the capture path throws");
+  });
+});
+
+// ── hard-field propagation (restored from the removed FAKE_HARD coverage) ───────
+// fromDelegate is the seam that pulls context-mode's PreToolUse hard fields
+// (permissionDecision / updatedInput / decision / reason) out of the delegate result so
+// handlers.emit() can forward them. PreToolUse routing can produce these, so the merge
+// path must stay correct.
+test("fromDelegate extracts hard fields and additionalContext", async () => {
+  const { fromDelegate } = await import("../../plugins/cave-context/mcp/handlers.mjs");
+  const { ac, hard } = fromDelegate({
+    hookSpecificOutput: { permissionDecision: "deny", permissionDecisionReason: "blocked by routing", additionalContext: "ctx note" },
+    updatedInput: { command: "safe" },
+    decision: "block",
+    reason: "legacy reason",
+  });
+  assert.equal(ac, "ctx note");
+  assert.deepEqual(hard.hookSpecificOutput, { permissionDecision: "deny", permissionDecisionReason: "blocked by routing" });
+  assert.deepEqual(hard.updatedInput, { command: "safe" });
+  assert.equal(hard.decision, "block");
+  assert.equal(hard.reason, "legacy reason");
+});
+
+test("fromDelegate(null) yields empty ac/hard (fail-open shape)", async () => {
+  const { fromDelegate } = await import("../../plugins/cave-context/mcp/handlers.mjs");
+  assert.deepEqual(fromDelegate(null), { ac: null, hard: {} });
 });

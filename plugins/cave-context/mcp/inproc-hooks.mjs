@@ -9,7 +9,7 @@
 // PreToolUse / PreCompact are stubs (→ null) until Task 4.
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
-import { readFileSync, unlinkSync } from "node:fs";
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { contextModeEnv } from "./context-mode-env.mjs";
 
@@ -276,6 +276,133 @@ export async function userPromptSubmit(input) {
   return null;
 }
 
-// ── Stubs for Task 4 ──────────────────────────────────────────────────────────
-export async function preToolUse(_input) { return null; }
-export async function preCompact(_input) { return null; }
+// ── PreToolUse ──────────────────────────────────────────────────────────────────
+// Replicates the ROUTING + marker-write portion of bin/context-mode/hooks/pretooluse.mjs
+// (lines 157–222). DELIBERATELY SKIPS the self-heal/self-install block (lines 44–155):
+// that mutates the user's installed_plugins.json / settings.json to point at context-mode
+// and is gated to context-mode's own plugin-cache dir — wrong + harmful to run from
+// cave-context (which vendors context-mode and has its own hooks/settings).
+// Capture is done via tmpdir marker files that postToolUse() reads (same indirection as
+// the vendored body — PreToolUse deliberately does not touch the DB directly), so the
+// captured-data behavior is byte-identical. Returns the formatted routing decision (which
+// handlers.mjs surfaces via fromDelegate); null when routing has no decision.
+let _securityInited = false;
+export async function preToolUse(input) {
+  applyInputEnv(input);
+
+  const { routePreToolUse, initSecurity } = await import(H("core/routing.mjs"));
+  const { formatDecision } = await import(H("core/formatters.mjs"));
+  const { getSessionId } = await import(H("session-helpers.mjs"));
+
+  // Initialise the security classifier from the vendored build/ (once per process).
+  if (!_securityInited) {
+    try {
+      const buildDir = fileURLToPath(new URL("../bin/context-mode/build", import.meta.url));
+      await initSecurity(buildDir);
+    } catch { /* best-effort — routing still functions without the classifier */ }
+    _securityInited = true;
+  }
+
+  const tool = input.tool_name ?? "";
+  const toolInput = input.tool_input ?? {};
+  const sessionId = getSessionId(input);
+
+  const decision = routePreToolUse(tool, toolInput, process.env.CLAUDE_PROJECT_DIR, "claude-code", sessionId);
+  const response = formatDecision("claude-code", decision);
+
+  // Latency-start marker (Category 27) — postToolUse() reads it to compute duration.
+  try {
+    if (tool) {
+      const markerPath = resolve(tmpdir(), `context-mode-latency-${sessionId}-${tool}.txt`);
+      writeFileSync(markerPath, String(Date.now()), "utf-8");
+    }
+  } catch { /* best-effort — never block hook */ }
+
+  // Rejected-approach marker — postToolUse() turns it into a category=rejected-approach event.
+  if (decision && (decision.action === "deny" || decision.action === "modify")) {
+    try {
+      const reason = decision.action === "deny" ? (decision.reason || "denied") : "Redirected to context-mode sandbox";
+      const markerPath = resolve(tmpdir(), `context-mode-rejected-${sessionId}.txt`);
+      writeFileSync(markerPath, `${tool}:${reason}`, "utf-8");
+    } catch { /* best-effort — never block hook */ }
+  }
+
+  // Redirect marker (D2 byte-accounting) — postToolUse() emits a category=redirect event.
+  if (decision && decision.redirectMeta) {
+    try {
+      const meta = decision.redirectMeta;
+      const summary = String(meta.commandSummary ?? "").slice(0, 200);
+      const markerPath = resolve(tmpdir(), `context-mode-redirect-${sessionId}.txt`);
+      // tool:type:bytesAvoided:commandSummary — summary may contain ':' (URLs); postToolUse
+      // parses only the first 3 colons and treats the rest as data.
+      writeFileSync(markerPath, `${meta.tool}:${meta.type}:${meta.bytesAvoided}:${summary}`, "utf-8");
+    } catch { /* best-effort — never block hook */ }
+  }
+
+  // Parity: the vendored body writes JSON only when response !== null.
+  return response ?? null;
+}
+
+// ── PreCompact ──────────────────────────────────────────────────────────────────
+// Replicates bin/context-mode/hooks/precompact.mjs body (lines 33–99): build a
+// priority-sorted resume snapshot from captured events, persist it (upsertResume +
+// incrementCompactCount), and record compaction lifecycle events. Uses the shared cached
+// SessionDB handle (no per-call close, unlike the vendored body — the handle is reused and
+// the bundle's process-exit checkpoint flushes WAL). Returns {} (parity with the body's
+// `console.log(JSON.stringify({}))`).
+export async function preCompact(input) {
+  applyInputEnv(input);
+
+  const { getSessionDBPath, getSessionId, getInputProjectDir } = await import(H("session-helpers.mjs"));
+  const { createSessionLoaders, attributeAndInsertEvents } = await import(H("session-loaders.mjs"));
+
+  const HOOK_DIR = fileURLToPath(new URL("../bin/context-mode/hooks", import.meta.url));
+  const { loadSnapshot, loadProjectAttribution } = createSessionLoaders(HOOK_DIR);
+
+  const dbPath = getSessionDBPath();
+  const db = await openDb(dbPath);
+  const sessionId = getSessionId(input);
+
+  const events = db.getEvents(sessionId);
+  if (events.length > 0) {
+    const { buildResumeSnapshot } = await loadSnapshot();
+    const stats = db.getSessionStats(sessionId);
+    const snapshot = buildResumeSnapshot(events, { compactCount: (stats?.compact_count ?? 0) + 1 });
+
+    db.upsertResume(sessionId, snapshot, events.length);
+    db.incrementCompactCount(sessionId);
+
+    // Route compaction lifecycle events (dashboard compact widget joins on category='compaction').
+    try {
+      const fileEvents = events.filter((e) => e.category === "file");
+      const projectDirCompact = getInputProjectDir(input);
+      const { resolveProjectAttributions } = await loadProjectAttribution();
+      attributeAndInsertEvents(
+        db,
+        sessionId,
+        [
+          {
+            type: "compaction_summary",
+            category: "compaction",
+            data: `Session compacted. ${events.length} events, ${fileEvents.length} files touched.`,
+            priority: 1,
+          },
+          {
+            type: "snapshot-built",
+            category: "compaction",
+            data: `Snapshot built. ${snapshot.length} bytes for ${events.length} events.`,
+            priority: 1,
+            bytes_avoided: snapshot.length,
+          },
+        ],
+        input,
+        projectDirCompact,
+        "PreCompact",
+        resolveProjectAttributions,
+      );
+    } catch { /* best-effort — never block PreCompact */ }
+  }
+
+  // Parity with the vendored body: writes JSON.stringify({}).
+  return {};
+}
