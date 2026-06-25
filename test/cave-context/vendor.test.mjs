@@ -39,3 +39,17 @@ test("packaging artifacts removed from vendored tree", () => {
     assert.ok(!existsSync(join(V, p)), `packaging artifact removed: ${p}`);
   }
 });
+
+test("non-Claude-Code platform cruft + dev/install machinery stripped; runtime closure kept", () => {
+  // Stripped: tsc dev tree (ALL platform adapters incl codex), per-platform configs,
+  // CLI/install cruft, and the ctx_insight dashboard + CLI bundle (ctx_insight is denied
+  // at the server — see DENIED_UPSTREAM_TOOLS in mcp/server.mjs).
+  for (const p of ["build", "cli.bundle.mjs", "insight", "start.mjs", "scripts", "bin", "README.md",
+                   "configs/codex", "configs/cursor", "configs/gemini-cli"]) {
+    assert.ok(!existsSync(join(V, p)), `stripped: ${p}`);
+  }
+  // Kept: the in-process runtime closure.
+  for (const p of ["server.bundle.mjs", "hooks", "configs/claude-code", "package.json", "LICENSE", "NOTICE"]) {
+    assert.ok(existsSync(join(V, p)), `kept: ${p}`);
+  }
+});

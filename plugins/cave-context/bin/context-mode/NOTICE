@@ -28,6 +28,12 @@ and the dev/install machinery are unused here):
   configs/* EXCEPT configs/claude-code — per-platform install configs.
   start.mjs, scripts/, bin/, README.md — npm-package launcher / install-heal scripts /
     CLI shim / upstream docs (cave-context imports the bundle + spawns the vendored
-    hook script directly, so none run).
+    hook script directly, so none run). (Removing bin/ also drops bin/statusline.mjs;
+    the `context-mode statusline` feature lived only in cli.bundle.mjs, removed below.)
+  cli.bundle.mjs, insight/ — the CLI bundle (the `context-mode statusline` subcommand +
+    ctx_insight's upgrade-hint) and the ctx_insight localhost-dashboard sources. cave-context
+    DENIES ctx_insight (a web UI superfluous for headless context routing — see
+    DENIED_UPSTREAM_TOOLS in plugins/cave-context/mcp/server.mjs) and never invokes the CLI,
+    so both are unreachable.
 
 All retained files are unmodified (byte-for-byte) from the published package.

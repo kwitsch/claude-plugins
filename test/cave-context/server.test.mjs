@@ -57,7 +57,7 @@ test("server routes hook_ tools/call through HANDLERS and returns both channels"
   } finally { proc.kill(); rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("server filters ctx_stats/ctx_doctor/ctx_upgrade from tools/list and rejects calling them", async () => {
+test("server filters denied ctx_* tools (stats/doctor/upgrade/insight) from tools/list and rejects calling them", async () => {
   const dir = mkdtempSync(join(tmpdir(), "cc-srv-"));
   const proc = spawn("node", [SERVER], { env: { ...process.env, CONTEXT_MODE_DIR: dir, CLAUDE_PROJECT_DIR: dir }, stdio: ["pipe", "pipe", "inherit"] });
   try {
@@ -68,7 +68,7 @@ test("server filters ctx_stats/ctx_doctor/ctx_upgrade from tools/list and reject
     ]);
     const list = out.find((m) => m.id === 2).result.tools.map((t) => t.name);
     assert.ok(list.includes("ctx_search"), "non-denied upstream tool still exposed");
-    for (const denied of ["ctx_stats", "ctx_doctor", "ctx_upgrade"]) {
+    for (const denied of ["ctx_stats", "ctx_doctor", "ctx_upgrade", "ctx_insight"]) {
       assert.ok(!list.includes(denied), `${denied} must be filtered from tools/list`);
     }
     // Calling a denied tool errors like an unknown tool — never forwarded upstream.
