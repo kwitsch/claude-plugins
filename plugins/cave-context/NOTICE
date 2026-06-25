@@ -39,7 +39,11 @@ context-mode — https://github.com/mksglu/context-mode
 ----------------------------------------------------------------------
 Elastic License 2.0, Copyright 2026 Mert Koseoglu.
 
-cave-context proxies/delegates to the context-mode npm package at runtime
-and does NOT bundle or redistribute its source. The package is installed
-separately (via bun/npx) and carries its own LICENSE; no ELv2-covered code
-is included in this repository.
+cave-context **vendors** context-mode v1.0.162 under `plugins/cave-context/bin/context-mode/`
+and runs it (a) in-process — the embedded `ctx_*` tools and the mid-session hook work
+functions — and (b) by spawning the vendored `hooks/sessionstart.mjs`. The vendored
+subtree is licensed under the **Elastic License 2.0**; its LICENSE is reproduced at
+`bin/context-mode/LICENSE`, and the record of directories/files removed from the
+published package is at `bin/context-mode/NOTICE`. The repository's MIT license does
+**not** cover the `bin/context-mode/` subtree. ELv2 permits this redistribution and
+derivative use, subject to shipping the LICENSE and notices (which this repository does).
