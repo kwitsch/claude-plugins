@@ -46,10 +46,10 @@ test("PreToolUse: no upstream, no caveman -> benign {} (no throw)", async () => 
   });
 });
 
-test("PreToolUse: ctx hard-field forwarding (stub until Task 4 — benign pass-through)", async () => {
-  // PreToolUse is stubbed to null in Task 3; Task 4 will implement it in-process.
-  // Until then, handlePreToolUse falls through to emit("PreToolUse", null, {}) = {}
-  // (no hard fields, no hookSpecificOutput) — benign fail-open.
+test("PreToolUse: in-process routing — a benign tool yields no hard deny", async () => {
+  // PreToolUse now runs context-mode routing in-process (Task 4). A benign Bash command
+  // produces no deny/redirect, so handlePreToolUse returns a benign object with no
+  // permissionDecision:"deny" (hard-field forwarding itself is unit-tested in delegate.test.mjs).
   await withEnv({ CAVE_CONTEXT_NO_UPSTREAM: "0" }, async () => {
     const out = await handlePreToolUse({ hook_event_name: "PreToolUse", tool_name: "Bash" });
     assert.ok(out && typeof out === "object", "must return an object");

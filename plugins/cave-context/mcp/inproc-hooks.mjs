@@ -299,8 +299,8 @@ export async function preToolUse(input) {
     try {
       const buildDir = fileURLToPath(new URL("../bin/context-mode/build", import.meta.url));
       await initSecurity(buildDir);
-    } catch { /* best-effort — routing still functions without the classifier */ }
-    _securityInited = true;
+      _securityInited = true; // mark done ONLY on success, so a transient first-call failure retries next call
+    } catch { /* best-effort — routing still functions without the classifier; retry on the next call */ }
   }
 
   const tool = input.tool_name ?? "";
