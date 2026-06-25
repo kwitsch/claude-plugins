@@ -1,5 +1,6 @@
 // test/cave-context/fake-sessionstart-upstream.mjs
-// Fake context-mode SessionStart CLI double: emits a routing block FOLLOWED BY a
+// Fake vendored hooks/sessionstart.mjs double (spawned directly as `node <path>` via
+// CAVE_CONTEXT_SESSIONSTART_SCRIPT): emits a routing block FOLLOWED BY a
 // <session_knowledge> continuity directive, mirroring context-mode's real layout
 // (routing first, continuity appended).
 let buf = ""; process.stdin.on("data", (d) => (buf += d));
