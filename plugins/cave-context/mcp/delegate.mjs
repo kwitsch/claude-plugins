@@ -24,7 +24,7 @@ function hookCmd() {
   // The CLI process.exit(1)s silently on an unknown platform/event key (no stdout/
   // stderr), and delegateHook() fails open (returns null) on any error — so the event
   // MUST be lowercased before it reaches the CLI.
-  // Launch via bin/bnx.sh (bun x / npx -y by bun presence); package name "context-mode".
+  // Launch via bin/bnx.sh (bun add -g / npx -y by bun presence); package name "context-mode".
   const bnx = fileURLToPath(new URL("../bin/bnx.sh", import.meta.url));
   return [bnx, "context-mode", "hook", "claude-code"];
 }
