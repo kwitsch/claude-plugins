@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const HOOK = new URL("../../plugins/cave-context/hooks/sessionstartup.mjs", import.meta.url).pathname;
-const FAKE_SS = JSON.stringify(["node", new URL("./fake-sessionstart-upstream.mjs", import.meta.url).pathname]);
+const FAKE_SS_SCRIPT = new URL("./fake-sessionstart-upstream.mjs", import.meta.url).pathname;
 
 function run(envExtra, sourceObj) {
   const home = mkdtempSync(join(tmpdir(), "cc-su-home-"));
@@ -33,6 +33,6 @@ test("startup with upstream disabled emits {}", () => {
 });
 
 test("startup emits {} even when upstream returns routing + continuity (side-effects only, never injects)", () => {
-  const out = run({ CAVE_CONTEXT_HOOK_CMD: FAKE_SS }, { source: "startup" });
+  const out = run({ CAVE_CONTEXT_SESSIONSTART_SCRIPT: FAKE_SS_SCRIPT }, { source: "startup" });
   assert.deepEqual(out, {}); // context-mode's response is consumed for side-effects, never surfaced
 });

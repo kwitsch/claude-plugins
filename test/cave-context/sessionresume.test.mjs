@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const HOOK = new URL("../../plugins/cave-context/hooks/sessionresume.mjs", import.meta.url).pathname;
-const FAKE_SS = JSON.stringify(["node", new URL("./fake-sessionstart-upstream.mjs", import.meta.url).pathname]);
+const FAKE_SS_SCRIPT = new URL("./fake-sessionstart-upstream.mjs", import.meta.url).pathname;
 
 function run(envExtra, sourceObj) {
   const home = mkdtempSync(join(tmpdir(), "cc-ss-home-"));
@@ -35,7 +35,7 @@ test("no continuity (upstream disabled) emits {} — no hookSpecificOutput, neve
 });
 
 test("compact restores continuity only (routing dropped, no ruleset prefix)", () => {
-  const out = run({ CAVE_CONTEXT_HOOK_CMD: FAKE_SS }, { source: "compact" });
+  const out = run({ CAVE_CONTEXT_SESSIONSTART_SCRIPT: FAKE_SS_SCRIPT }, { source: "compact" });
   const ac = out.hookSpecificOutput.additionalContext;
   assert.match(ac, /<session_knowledge source="compact">/); // continuity present
   assert.ok(!ac.includes("ctx_routing"));                    // context-mode routing block dropped
@@ -43,6 +43,6 @@ test("compact restores continuity only (routing dropped, no ruleset prefix)", ()
 });
 
 test("clear source never restores continuity even if upstream returns it", () => {
-  const out = run({ CAVE_CONTEXT_HOOK_CMD: FAKE_SS }, { source: "clear" });
+  const out = run({ CAVE_CONTEXT_SESSIONSTART_SCRIPT: FAKE_SS_SCRIPT }, { source: "clear" });
   assert.deepEqual(out, {}); // suppressed continuity → {}, never additionalContext: null
 });
