@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync, chmodSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -40,10 +40,84 @@ function writeFake(path) {
   chmodSync(path, 0o755);
 }
 
-test("bnx.sh: npm package runs `bun x <pkg>` when bun is present", () => {
-  const res = isolatedRun(["context-mode"], { fakeBun: true });
-  assert.equal(res.status, 0, res.stderr);
-  assert.equal(res.stdout.trim(), "bun x context-mode");
+// Fake bun honoring the new bnx.sh package flow. Reads GBIN (global bin dir) and
+// ADDLOG (sentinel path) from the environment:
+//   `bun pm bin -g`    → prints $GBIN
+//   `bun add -g <pkg>` → records the call in $ADDLOG and installs a fake context-mode into $GBIN
+//   anything else      → echoes "bun <args>"
+function writeFakeBun(path) {
+  writeFileSync(path, [
+    '#!/usr/bin/env bash',
+    'if [ "$1 $2 $3" = "pm bin -g" ]; then echo "$GBIN"; exit 0; fi',
+    'if [ "$1" = "add" ] && [ "$2" = "-g" ]; then',
+    '  echo ran > "$ADDLOG"',
+    '  cat > "$GBIN/$3" <<\'PKG\'',
+    '#!/usr/bin/env bash',
+    'echo "context-mode $*"',
+    'PKG',
+    '  chmod +x "$GBIN/$3"',
+    '  exit 0',
+    'fi',
+    'echo "bun $*"',
+    '',
+  ].join("\n"));
+  chmodSync(path, 0o755);
+}
+
+test("bnx.sh: npm package not yet installed → `bun add -g` installs it, then execs from the bun bin dir (cold path)", () => {
+  const home = mkdtempSync(join(tmpdir(), "cc-bnx-home-"));
+  const fakebin = mkdtempSync(join(tmpdir(), "cc-bnx-bin-"));
+  const gbin = mkdtempSync(join(tmpdir(), "cc-bnx-gbin-")); // starts EMPTY → cold path forces `bun add -g`
+  const addlog = join(home, "addlog");
+  try {
+    writeFakeBun(join(fakebin, "bun"));
+    const env = { HOME: home, PATH: `${fakebin}:/usr/bin:/bin`, GBIN: gbin, ADDLOG: addlog };
+    const res = spawnSync("bash", [BNX, "context-mode", "hook", "claude-code"], { env, encoding: "utf8" });
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(res.stdout.trim(), "context-mode hook claude-code");
+    assert.ok(existsSync(addlog), "expected `bun add -g` to run on the cold path");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+    rmSync(fakebin, { recursive: true, force: true });
+    rmSync(gbin, { recursive: true, force: true });
+  }
+});
+
+test("bnx.sh: npm package already installed → execs from the bun bin dir WITHOUT `bun add -g` (warm path)", () => {
+  const home = mkdtempSync(join(tmpdir(), "cc-bnx-home-"));
+  const fakebin = mkdtempSync(join(tmpdir(), "cc-bnx-bin-"));
+  const gbin = mkdtempSync(join(tmpdir(), "cc-bnx-gbin-"));
+  const addlog = join(home, "addlog");
+  try {
+    writeFakeBun(join(fakebin, "bun"));
+    // pre-install context-mode → the warm-path guard must short-circuit before `bun add -g`
+    writeFileSync(join(gbin, "context-mode"), '#!/usr/bin/env bash\necho "context-mode $*"\n');
+    chmodSync(join(gbin, "context-mode"), 0o755);
+    const env = { HOME: home, PATH: `${fakebin}:/usr/bin:/bin`, GBIN: gbin, ADDLOG: addlog };
+    const res = spawnSync("bash", [BNX, "context-mode", "hook", "claude-code"], { env, encoding: "utf8" });
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(res.stdout.trim(), "context-mode hook claude-code");
+    assert.ok(!existsSync(addlog), "warm path must not call `bun add -g`");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+    rmSync(fakebin, { recursive: true, force: true });
+    rmSync(gbin, { recursive: true, force: true });
+  }
+});
+
+test("bnx.sh: npm package with neither bun nor npx exits 1", () => {
+  const bash = ["/usr/bin/bash", "/bin/bash"].find(existsSync);
+  const home = mkdtempSync(join(tmpdir(), "cc-bnx-home-"));
+  const emptybin = mkdtempSync(join(tmpdir(), "cc-bnx-empty-"));
+  try {
+    symlinkSync(bash, join(emptybin, "bash")); // only bash on PATH — no bun, no npx, no node
+    const res = spawnSync(bash, [BNX, "context-mode"], { env: { HOME: home, PATH: emptybin }, encoding: "utf8" });
+    assert.equal(res.status, 1, res.stdout);
+    assert.match(res.stderr, /neither bun nor npx/);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+    rmSync(emptybin, { recursive: true, force: true });
+  }
 });
 
 test("bnx.sh: npm package runs `npx -y <pkg>` when only npx is present", () => {
