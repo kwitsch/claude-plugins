@@ -4,6 +4,7 @@ setup() {
   bats_load_library bats-support
   bats_load_library bats-assert
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
+  PLUGIN="$REPO_ROOT/plugins/cave-context"
   HOOKS="$REPO_ROOT/plugins/cave-context/hooks/hooks.json"
   SS_MD="$REPO_ROOT/plugins/cave-context/hooks/SessionStart.md"
 }
@@ -13,24 +14,27 @@ setup() {
   assert_success
 }
 
-@test ".mcp.json registers the cave-context server via bnx.sh launcher" {
+@test ".mcp.json registers the cave-context server pointing directly at mcp/server.mjs" {
   MCP="$REPO_ROOT/plugins/cave-context/.mcp.json"
-  cmd="$(jq -r '.mcpServers["cave-context"].command' "$MCP")"
-  [[ "$cmd" == *bin/bnx.sh ]]
-  # The server.mjs is passed as the first arg to the launcher, not the command.
-  run jq -e '.mcpServers["cave-context"].args[0] | endswith("mcp/server.mjs")' "$MCP"
+  run jq -e '.mcpServers["cave-context"].command | endswith("mcp/server.mjs")' "$MCP"
+  assert_success
+  # No args array — .mjs is the command, not an argument to a wrapper.
+  run jq -e '.mcpServers["cave-context"] | has("args") | not' "$MCP"
   assert_success
 }
 
-@test "SessionStart command hook launches via bnx.sh with sessionresume.mjs in args" {
+@test "SessionStart command hook invokes sessionresume.mjs directly (no wrapper)" {
   run jq -e '.hooks.SessionStart[0].hooks[0].type == "command"' "$HOOKS"
   assert_success
-  cmd="$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$HOOKS")"
-  # Command is now the launcher, NOT the .mjs.
-  [[ "$cmd" == *bin/bnx.sh ]]
-  [[ "$cmd" != *sessionresume.mjs ]]
-  # The .mjs script path appears in args.
-  run jq -e '.hooks.SessionStart[0].hooks[0].args[0] | endswith("hooks/sessionresume.mjs")' "$HOOKS"
+  # The .mjs is the command directly — no wrapper, no args array.
+  run jq -e '.hooks.SessionStart[0].hooks[0].command | endswith("hooks/sessionresume.mjs")' "$HOOKS"
+  assert_success
+  run jq -e '.hooks.SessionStart[0].hooks[0] | has("args") | not' "$HOOKS"
+  assert_success
+  # Also verify the startup hook points directly at sessionstartup.mjs.
+  run jq -e '.hooks.SessionStart[1].hooks[0].command | endswith("hooks/sessionstartup.mjs")' "$HOOKS"
+  assert_success
+  run jq -e '.hooks.SessionStart[1].hooks[0] | has("args") | not' "$HOOKS"
   assert_success
 }
 
@@ -48,8 +52,12 @@ setup() {
   assert_success
 }
 
-@test "bin/bnx.sh exists and is executable" {
-  [ -x "$REPO_ROOT/plugins/cave-context/bin/bnx.sh" ]
+@test "directly-invoked .mjs are executable (100755) with a node shebang" {
+  for f in mcp/server.mjs hooks/sessionresume.mjs hooks/sessionstartup.mjs; do
+    mode=$(git -C "$REPO_ROOT" ls-tree HEAD "plugins/cave-context/$f" | awk '{print $1}')
+    [ "$mode" = "100755" ] || { echo "expected 100755 for $f, got $mode"; false; }
+    head -1 "$PLUGIN/$f" | grep -q '^#!/usr/bin/env node'
+  done
 }
 
 @test "UserPromptSubmit + PreToolUse + PostToolUse are mcp_tool on the cave-context server" {
@@ -188,10 +196,10 @@ setup() {
   assert_success
 }
 
-@test "SessionStart[0] is the bnx.sh/sessionresume.mjs launcher, matched resume|compact" {
-  cmd="$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$HOOKS")"
-  [[ "$cmd" == *bin/bnx.sh ]]
-  run jq -e '.hooks.SessionStart[0].hooks[0].args[0] | endswith("hooks/sessionresume.mjs")' "$HOOKS"
+@test "SessionStart[0] invokes sessionresume.mjs directly, matched resume|compact" {
+  run jq -e '.hooks.SessionStart[0].hooks[0].command | endswith("hooks/sessionresume.mjs")' "$HOOKS"
+  assert_success
+  run jq -e '.hooks.SessionStart[0].hooks[0] | has("args") | not' "$HOOKS"
   assert_success
   # The continuity hook fires ONLY on resume|compact — SessionStart matchers filter on the
   # session source, so startup/clear no longer trigger the (continuity-only) delegate.
@@ -199,12 +207,12 @@ setup() {
   assert_success
 }
 
-@test "SessionStart[1] is the bnx.sh/sessionstartup.mjs launcher, matched startup (side-effects only)" {
+@test "SessionStart[1] invokes sessionstartup.mjs directly, matched startup (side-effects only)" {
   run jq -e '.hooks.SessionStart[1].hooks[0].type == "command"' "$HOOKS"
   assert_success
-  cmd="$(jq -r '.hooks.SessionStart[1].hooks[0].command' "$HOOKS")"
-  [[ "$cmd" == *bin/bnx.sh ]]
-  run jq -e '.hooks.SessionStart[1].hooks[0].args[0] | endswith("hooks/sessionstartup.mjs")' "$HOOKS"
+  run jq -e '.hooks.SessionStart[1].hooks[0].command | endswith("hooks/sessionstartup.mjs")' "$HOOKS"
+  assert_success
+  run jq -e '.hooks.SessionStart[1].hooks[0] | has("args") | not' "$HOOKS"
   assert_success
   # The startup hook fires ONLY on startup — it delegates to context-mode purely for its
   # startup-only side-effects (CLAUDE.md capture, session GC, session_start lifecycle anchor)
@@ -233,3 +241,14 @@ setup() {
   assert_success
 }
 
+@test "vendored context-mode tree present with LICENSE and NOTICE" {
+  [ -f "$PLUGIN/bin/context-mode/server.bundle.mjs" ]
+  [ -f "$PLUGIN/bin/context-mode/LICENSE" ]
+  [ -f "$PLUGIN/bin/context-mode/NOTICE" ]
+}
+
+@test "vendored tree has no foreign-platform hook dirs" {
+  for d in gemini-cli cursor vscode-copilot codex kimi kiro jetbrains-copilot; do
+    [ ! -d "$PLUGIN/bin/context-mode/hooks/$d" ]
+  done
+}

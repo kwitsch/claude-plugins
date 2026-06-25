@@ -102,7 +102,7 @@ ${compressed}
 Return ONLY the fixed compressed file. No explanation, no outer fence.`;
 }
 
-// PATH augmentation mirrors bin/bnx.sh — non-interactive spawns often miss these.
+// PATH augmentation for the `claude` CLI spawn — non-interactive spawns often miss `~/.local/bin` etc.
 function augmentedPath() {
   const home = process.env.HOME;
   const extra = home ? `${home}/.local/bin:${home}/.bun/bin` : "";

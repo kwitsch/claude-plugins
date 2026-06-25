@@ -6,8 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/bin/bnx.sh",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/sessionresume.mjs"]
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/sessionresume.mjs"
           }
         ]
       },
@@ -16,8 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/bin/bnx.sh",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/sessionstartup.mjs"]
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/sessionstartup.mjs"
           }
         ]
       },

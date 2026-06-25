@@ -1,0 +1,39 @@
+context-mode — vendored copy
+============================
+Vendored from context-mode v1.0.162 via `npm pack context-mode@1.0.162`.
+Upstream: https://github.com/mksglu/context-mode
+License: Elastic License 2.0 (see ./LICENSE), Copyright 2026 Mert Koseoglu.
+
+This is a redistribution under the Elastic License 2.0. The following
+directories were REMOVED from the published package (non-Claude-Code platform
+hook adapters, not used by cave-context):
+  hooks/gemini-cli, hooks/cursor, hooks/vscode-copilot, hooks/codex,
+  hooks/kimi, hooks/kiro, hooks/jetbrains-copilot
+
+The following were ADDITIONALLY REMOVED from the published package:
+  .claude-plugin/, .codex-plugin/, .openclaw-plugin/, openclaw.plugin.json,
+  skills/, hooks/hooks.json
+  (context-mode's own plugin-packaging/skill/hook-registration metadata for
+  host integrations — not used by cave-context, which imports the bundle
+  directly; removed to avoid Claude Code discovering nested manifests)
+
+The following were FURTHER REMOVED to keep only what Claude Code needs at runtime
+(context-mode runs in-process from the `.bundle.mjs` files; the per-platform adapters
+and the dev/install machinery are unused here):
+  build/ — the tsc dev-output tree; ALL non-Claude-Code platform adapters live under
+    build/adapters/ (antigravity, codex, cursor, gemini-cli, jetbrains-copilot, kimi,
+    kiro, omp, openclaw, opencode, pi, qwen-code, vscode-copilot, zed). The runtime
+    loads the sibling hooks/*.bundle.mjs + server.bundle.mjs and never build/
+    (bundle-first; build/ is the npm-install fallback, excluded from marketplace installs).
+  configs/* EXCEPT configs/claude-code — per-platform install configs.
+  start.mjs, scripts/, bin/, README.md — npm-package launcher / install-heal scripts /
+    CLI shim / upstream docs (cave-context imports the bundle + spawns the vendored
+    hook script directly, so none run). (Removing bin/ also drops bin/statusline.mjs;
+    the `context-mode statusline` feature lived only in cli.bundle.mjs, removed below.)
+  cli.bundle.mjs, insight/ — the CLI bundle (the `context-mode statusline` subcommand +
+    ctx_insight's upgrade-hint) and the ctx_insight localhost-dashboard sources. cave-context
+    DENIES ctx_insight (a web UI superfluous for headless context routing — see
+    DENIED_UPSTREAM_TOOLS in plugins/cave-context/mcp/server.mjs) and never invokes the CLI,
+    so both are unreachable.
+
+All retained files are unmodified (byte-for-byte) from the published package.

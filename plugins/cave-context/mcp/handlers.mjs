@@ -26,7 +26,8 @@ function emit(event, additionalContext, extra = {}) {
 }
 
 // Pull additionalContext + hard fields out of a delegated context-mode result.
-function fromDelegate(res) {
+// Exported for unit testing (the hard-field propagation path).
+export function fromDelegate(res) {
   if (!res || typeof res !== "object") return { ac: null, hard: {} };
   const ac = res.hookSpecificOutput?.additionalContext ?? null;
   const hard = {};

@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://storage.googleapis.com/coderabbit_public_assets/schema.v2.json
+# CodeRabbit configuration for kwitsch-plugins.
+#
+# Exclude the vendored third-party context-mode tree from review. It is a prepared,
+# byte-for-byte vendored copy of the upstream `context-mode` package (Elastic License
+# 2.0, https://github.com/mksglu/context-mode) — not code authored in this repo — so
+# reviewing it only produces noise and false findings. See
+# `.claude/rules/cave-context-vendored.md` for how it is prepared.
+#
+# `path_filters` is a glob list; a pattern starting with `!` EXCLUDES, everything else is
+# reviewed as normal.
+reviews:
+  path_filters:
+    - "!plugins/cave-context/bin/context-mode/**"

@@ -53,8 +53,10 @@ Keep a `.sh`/binary under `plugins/*/bin/` ONLY when it must be:
 Such files keep their executable bit (see the bin-executable rule) **and** get a
 bats test when their behavior is non-trivial (exit-code contract, edge cases).
 
-The two canonical bundled-wrapper shapes in this repo are: **`bin/mjs-launch.sh`**
+The canonical bundled-wrapper shape in this repo is **`bin/mjs-launch.sh`**
 (bun-preferred, node fallback for `.mjs` programs — invoked via `.mcp.json`
-`command`) and **`bin/bnx.sh`** (bun-first npm-package launcher — `bun add -g` +
-exec from global bin, else `npx -y`). Copy the canonical file verbatim when adding
-a new plugin rather than reimplementing runtime selection from scratch.
+`command`). When adding a new plugin, copy **`bin/mjs-launch.sh`** verbatim (the
+reusable bun-preferred template) rather than reimplementing runtime selection from
+scratch. A **node-only** plugin may instead invoke an executable `.mjs`
+(`#!/usr/bin/env node` + `100755`) directly as the hook/MCP `command` — cave-context
+does this — but `bin/mjs-launch.sh` is the reusable default.

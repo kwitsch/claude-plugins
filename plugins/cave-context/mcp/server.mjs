@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Self-contained, zero-dependency MCP stdio server (Node/Bun built-ins only).
-// Runtime selection (bun-preferred, node fallback) is owned by bin/bnx.sh, which
-// launches this module; there is no in-file re-exec shim.
+// Runtime: node-only — invoked directly via its `#!/usr/bin/env node` shebang
+// (`.mcp.json` `command`); no wrapper / re-exec shim.
 // Transport: newline-delimited JSON-RPC 2.0. stdout = JSON-RPC only; logs → stderr.
 import process from "node:process";
 import readline from "node:readline";
@@ -11,10 +11,12 @@ const SERVER_INFO = { name: SERVER_NAME, version: "0.1.0" };
 const DEFAULT_PROTOCOL = "2025-11-25";
 
 // Upstream ctx_* tools cave-context deliberately does NOT re-expose: the savings
-// reporter (ctx_stats — its `stat` skill was removed) and the install-management
-// tools (ctx_doctor, ctx_upgrade). Filtered out of tools/list and rejected on
-// tools/call so a removed tool is indistinguishable from one that never existed.
-const DENIED_UPSTREAM_TOOLS = new Set(["ctx_stats", "ctx_doctor", "ctx_upgrade"]);
+// reporter (ctx_stats — its `stat` skill was removed), the install-management tools
+// (ctx_doctor, ctx_upgrade), and the local dashboard (ctx_insight — a localhost web UI
+// superfluous for headless context routing; its insight/ + cli.bundle.mjs are stripped
+// from the vendored tree, so its handler is never reachable). Filtered out of tools/list
+// and rejected on tools/call so a removed tool is indistinguishable from one that never existed.
+const DENIED_UPSTREAM_TOOLS = new Set(["ctx_stats", "ctx_doctor", "ctx_upgrade", "ctx_insight"]);
 
 startServer();
 
@@ -36,7 +38,7 @@ function startServer() {
   ];
 
   // Lazy imports — keep shim path dependency-free until we actually serve.
-  Promise.all([import("./proxy.mjs"), import("./handlers.mjs"), import("./branch-index.mjs")]).then(([{ Upstream }, { HANDLERS }, { createBranchIndexer }]) => {
+  Promise.all([import("./embed.mjs"), import("./handlers.mjs"), import("./branch-index.mjs")]).then(([{ Upstream }, { HANDLERS }, { createBranchIndexer }]) => {
     const send = (m) => process.stdout.write(JSON.stringify(m) + "\n");
     const ok = (id, result) => send({ jsonrpc: "2.0", id, result });
     const fail = (id, code, message) => send({ jsonrpc: "2.0", id, error: { code, message } });
