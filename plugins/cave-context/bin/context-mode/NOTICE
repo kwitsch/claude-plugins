@@ -10,4 +10,11 @@ hook adapters, not used by cave-context):
   hooks/gemini-cli, hooks/cursor, hooks/vscode-copilot, hooks/codex,
   hooks/kimi, hooks/kiro, hooks/jetbrains-copilot
 
+The following were ADDITIONALLY REMOVED from the published package:
+  .claude-plugin/, .codex-plugin/, .openclaw-plugin/, openclaw.plugin.json,
+  skills/, hooks/hooks.json
+  (context-mode's own plugin-packaging/skill/hook-registration metadata for
+  host integrations — not used by cave-context, which imports the bundle
+  directly; removed to avoid Claude Code discovering nested manifests)
+
 All retained files are unmodified (byte-for-byte) from the published package.

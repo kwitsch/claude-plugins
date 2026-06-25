@@ -28,7 +28,14 @@ test("server.bundle imports embedded and exposes ctx tools; sessionstart deps re
   }
   // hook work modules import without running fd-0/exit logic
   for (const m of ["routing-block.mjs", "session-extract.bundle.mjs", "session-loaders.mjs",
-                   "session-db.bundle.mjs", "session-snapshot.bundle.mjs"]) {
+                   "session-db.bundle.mjs", "session-snapshot.bundle.mjs",
+                   "auto-injection.mjs", "session-helpers.mjs"]) {
     await import(join(V, "hooks", m)); // throws if the closure is incomplete
+  }
+});
+
+test("packaging artifacts removed from vendored tree", () => {
+  for (const p of [".claude-plugin", ".codex-plugin", ".openclaw-plugin", "openclaw.plugin.json", "skills", "hooks/hooks.json"]) {
+    assert.ok(!existsSync(join(V, p)), `packaging artifact removed: ${p}`);
   }
 });
