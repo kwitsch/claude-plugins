@@ -36,7 +36,7 @@ function startServer() {
   ];
 
   // Lazy imports — keep shim path dependency-free until we actually serve.
-  Promise.all([import("./proxy.mjs"), import("./handlers.mjs"), import("./branch-index.mjs")]).then(([{ Upstream }, { HANDLERS }, { createBranchIndexer }]) => {
+  Promise.all([import("./embed.mjs"), import("./handlers.mjs"), import("./branch-index.mjs")]).then(([{ Upstream }, { HANDLERS }, { createBranchIndexer }]) => {
     const send = (m) => process.stdout.write(JSON.stringify(m) + "\n");
     const ok = (id, result) => send({ jsonrpc: "2.0", id, result });
     const fail = (id, code, message) => send({ jsonrpc: "2.0", id, error: { code, message } });

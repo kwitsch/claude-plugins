@@ -7,7 +7,6 @@ import { join } from "node:path";
 import { reminderText } from "../../plugins/cave-context/mcp/caveman.mjs";
 
 const SERVER = new URL("../../plugins/cave-context/mcp/server.mjs", import.meta.url).pathname;
-const FAKE = JSON.stringify(["node", new URL("./fake-upstream.mjs", import.meta.url).pathname]);
 
 function rpc(proc, msgs) {
   return new Promise((resolve) => {
@@ -21,24 +20,26 @@ function rpc(proc, msgs) {
   });
 }
 
-test("server lists proxied + hook tools and routes calls", async () => {
-  const proc = spawn("node", [SERVER], { env: { ...process.env, CAVE_CONTEXT_UPSTREAM_CMD: FAKE, CAVE_CONTEXT_NO_UPSTREAM: "1" }, stdio: ["pipe", "pipe", "inherit"] });
+test("server lists embedded ctx tools + hook tools and routes calls", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "cc-srv-"));
+  const proc = spawn("node", [SERVER], { env: { ...process.env, CONTEXT_MODE_DIR: dir, CLAUDE_PROJECT_DIR: dir, CAVE_CONTEXT_NO_UPSTREAM: "1" }, stdio: ["pipe", "pipe", "inherit"] });
   try {
     const out = await rpc(proc, [
       { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "t", version: "0" } } },
       { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} },
-      { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "ctx_echo", arguments: { a: 1 } } },
+      { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "ctx_search", arguments: { queries: ["hello"] } } },
     ]);
     const list = out.find((m) => m.id === 2).result.tools.map((t) => t.name);
-    assert.ok(list.includes("ctx_echo"));
-    assert.ok(list.includes("hook_userpromptsubmit"));
-    assert.match(JSON.stringify(out.find((m) => m.id === 3).result), /echo:\{/);
-  } finally { proc.kill(); }
+    assert.ok(list.includes("ctx_search"), "ctx_search listed from embedded tools");
+    assert.ok(list.includes("hook_userpromptsubmit"), "hook tool listed");
+    const callRes = out.find((m) => m.id === 3).result;
+    assert.ok(Array.isArray(callRes.content), "ctx_search returns MCP content envelope");
+  } finally { proc.kill(); rmSync(dir, { recursive: true, force: true }); }
 });
 
 test("server routes hook_ tools/call through HANDLERS and returns both channels", async () => {
   const dir = mkdtempSync(join(tmpdir(), "cc-srv-"));
-  const proc = spawn("node", [SERVER], { env: { ...process.env, CAVE_CONTEXT_NO_UPSTREAM: "1", CLAUDE_PLUGIN_DATA: dir }, stdio: ["pipe", "pipe", "inherit"] });
+  const proc = spawn("node", [SERVER], { env: { ...process.env, CONTEXT_MODE_DIR: dir, CAVE_CONTEXT_NO_UPSTREAM: "1", CLAUDE_PLUGIN_DATA: dir }, stdio: ["pipe", "pipe", "inherit"] });
   try {
     const out = await rpc(proc, [
       { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "t", version: "0" } } },
@@ -57,7 +58,8 @@ test("server routes hook_ tools/call through HANDLERS and returns both channels"
 });
 
 test("server filters ctx_stats/ctx_doctor/ctx_upgrade from tools/list and rejects calling them", async () => {
-  const proc = spawn("node", [SERVER], { env: { ...process.env, CAVE_CONTEXT_UPSTREAM_CMD: FAKE }, stdio: ["pipe", "pipe", "inherit"] });
+  const dir = mkdtempSync(join(tmpdir(), "cc-srv-"));
+  const proc = spawn("node", [SERVER], { env: { ...process.env, CONTEXT_MODE_DIR: dir, CLAUDE_PROJECT_DIR: dir }, stdio: ["pipe", "pipe", "inherit"] });
   try {
     const out = await rpc(proc, [
       { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "t", version: "0" } } },
@@ -65,7 +67,7 @@ test("server filters ctx_stats/ctx_doctor/ctx_upgrade from tools/list and reject
       { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "ctx_stats", arguments: {} } },
     ]);
     const list = out.find((m) => m.id === 2).result.tools.map((t) => t.name);
-    assert.ok(list.includes("ctx_echo"), "non-denied upstream tool still exposed");
+    assert.ok(list.includes("ctx_search"), "non-denied upstream tool still exposed");
     for (const denied of ["ctx_stats", "ctx_doctor", "ctx_upgrade"]) {
       assert.ok(!list.includes(denied), `${denied} must be filtered from tools/list`);
     }
@@ -73,11 +75,12 @@ test("server filters ctx_stats/ctx_doctor/ctx_upgrade from tools/list and reject
     const call = out.find((m) => m.id === 3);
     assert.ok(call.error, "calling a denied tool returns a JSON-RPC error");
     assert.match(call.error.message, /unknown tool: ctx_stats/);
-  } finally { proc.kill(); }
+  } finally { proc.kill(); rmSync(dir, { recursive: true, force: true }); }
 });
 
 test("server advertises the compress tool with a typed schema", async () => {
-  const proc = spawn("node", [SERVER], { env: { ...process.env, CAVE_CONTEXT_NO_UPSTREAM: "1" }, stdio: ["pipe", "pipe", "inherit"] });
+  const dir = mkdtempSync(join(tmpdir(), "cc-srv-"));
+  const proc = spawn("node", [SERVER], { env: { ...process.env, CONTEXT_MODE_DIR: dir, CAVE_CONTEXT_NO_UPSTREAM: "1" }, stdio: ["pipe", "pipe", "inherit"] });
   try {
     const out = await rpc(proc, [
       { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "t", version: "0" } } },
@@ -88,11 +91,12 @@ test("server advertises the compress tool with a typed schema", async () => {
     assert.ok(compress, "compress tool is advertised");
     assert.deepEqual(compress.inputSchema.required, ["text"]);
     assert.equal(compress.inputSchema.properties.text.type, "string");
-  } finally { proc.kill(); }
+  } finally { proc.kill(); rmSync(dir, { recursive: true, force: true }); }
 });
 
 test("server tools/call compress returns well-formed MCP response on empty input", async () => {
-  const proc = spawn("node", [SERVER], { env: { ...process.env, CAVE_CONTEXT_NO_UPSTREAM: "1" }, stdio: ["pipe", "pipe", "inherit"] });
+  const dir = mkdtempSync(join(tmpdir(), "cc-srv-"));
+  const proc = spawn("node", [SERVER], { env: { ...process.env, CONTEXT_MODE_DIR: dir, CAVE_CONTEXT_NO_UPSTREAM: "1" }, stdio: ["pipe", "pipe", "inherit"] });
   try {
     const out = await rpc(proc, [
       { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "t", version: "0" } } },
@@ -104,6 +108,5 @@ test("server tools/call compress returns well-formed MCP response on empty input
     const structured = res.structuredContent ?? JSON.parse(res.content[0].text);
     assert.equal(structured.valid, false);
     assert.match(structured.reason, /empty/i);
-  } finally { proc.kill(); }
+  } finally { proc.kill(); rmSync(dir, { recursive: true, force: true }); }
 });
-
