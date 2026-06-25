@@ -55,6 +55,8 @@ bats test when their behavior is non-trivial (exit-code contract, edge cases).
 
 The two canonical bundled-wrapper shapes in this repo are: **`bin/mjs-launch.sh`**
 (bun-preferred, node fallback for `.mjs` programs — invoked via `.mcp.json`
-`command`) and **`bin/bnx.sh`** (bun-first npm-package launcher — `bun add -g` +
-exec from global bin, else `npx -y`). Copy the canonical file verbatim when adding
-a new plugin rather than reimplementing runtime selection from scratch.
+`command`) and **`bin/bnx.sh`** (cave-context's node-only launcher for its local
+`.mjs` programs — context-mode is vendored and run in-process, so there is no
+npm-package launch; node only, per cave-context's explicit runtime choice). Copy
+the canonical file verbatim when adding a new plugin rather than reimplementing
+runtime selection from scratch.
