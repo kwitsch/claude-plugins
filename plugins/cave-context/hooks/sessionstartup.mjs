@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // sessionstartup.mjs — SessionStart command hook, gated to source `startup` by the matcher
 // in hooks.json (SessionStart matchers filter on the session source). It delegates to the
-// context-mode `sessionstart` CLI route PURELY to trigger context-mode's startup-only
+// vendored context-mode sessionstart script (via mcp/sessionstart-spawn.mjs) PURELY to trigger context-mode's startup-only
 // side-effects (CLAUDE.md rule-capture, old-session GC, the `session_start` lifecycle
 // anchor) and keeps parity with context-mode's session model. It injects NO continuity (a
 // fresh start has none) and never passes context-mode's routing block through — the caveman
@@ -9,7 +9,7 @@
 // ALWAYS emits `{}` (never `additionalContext: null`, which fails Claude Code's SessionStart
 // output-schema validation). The resume/compact continuity path is the sibling
 // hooks/sessionresume.mjs (matched `resume|compact`). COMMAND (not mcp_tool): SessionStart
-// is pre-connect. Fail-open: a slow/absent/erroring context-mode CLI is a no-op → still {}.
+// is pre-connect. Fail-open: a slow/absent/erroring sessionstart script is a no-op → still {}.
 import { delegateHook } from "../mcp/delegate.mjs";
 
 const DELEGATE_TIMEOUT_MS = Number(process.env.CAVE_CONTEXT_SESSIONSTART_TIMEOUT_MS) || 5000;

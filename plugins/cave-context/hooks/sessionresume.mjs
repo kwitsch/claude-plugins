@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 // sessionresume.mjs — SessionStart command hook, gated to source `resume|compact` by the
 // matcher in hooks.json (SessionStart matchers filter on the session source). It delegates
-// to the context-mode CLI to restore prior-session continuity, then emits the envelope. It
+// to the vendored context-mode sessionstart script (via mcp/sessionstart-spawn.mjs) to restore
+// prior-session continuity, then emits the envelope. It
 // does NOT emit the caveman ruleset — that is emitted by the static `cat hooks/SessionStart.md`
 // second SessionStart hook (sole source, matcher-less so it fires on every source). COMMAND
 // (not mcp_tool): SessionStart is pre-connect.
 // Because the matcher excludes `startup`/`clear`, context-mode's startup-only side-effects
 // (CLAUDE.md-capture, old-session GC, session_start lifecycle anchor) are NOT triggered by
 // this hook; mid-session capture (PostToolUse/UserPromptSubmit/PreCompact) is unaffected.
-// Fail-open: a slow/absent/erroring context-mode CLI just yields null continuity → emits {}.
+// Fail-open: a slow/absent/erroring sessionstart script just yields null continuity → emits {}.
 import { delegateHook } from "../mcp/delegate.mjs";
 import { extractContinuity } from "../mcp/session-continuity.mjs";
 

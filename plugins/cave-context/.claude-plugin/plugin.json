@@ -1,7 +1,7 @@
 {
   "name": "cave-context",
   "version": "0.15.0",
-  "description": "Unifies caveman + context-mode into one non-competing MCP server: proxies context-mode ctx_* tools and aggregates both plugins' hooks.",
+  "description": "Unifies caveman + context-mode into one non-competing MCP server: vendors context-mode (Elastic License 2.0) and serves its ctx_* tools in-process, and aggregates both plugins' hooks.",
   "author": {
     "name": "Kwitsch"
   },

@@ -1,6 +1,6 @@
 # cave-context
 
-Unifies caveman + context-mode into one non-competing MCP server: proxies context-mode's `ctx_*` tools and aggregates both plugins' hooks into a single handler set.
+Unifies caveman + context-mode into one non-competing MCP server: vendors context-mode (Elastic License 2.0) and serves its `ctx_*` tools in-process, and aggregates both plugins' hooks into a single handler set.
 
 ## Install
 
