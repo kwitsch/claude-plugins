@@ -34,18 +34,22 @@ async function openDb(dbPath) {
 }
 
 // ── Shared env setup ──────────────────────────────────────────────────────────
-// The vendored hooks ran as CLI processes that inherited their cwd from the spawn
-// env (contextModeEnv sets CONTEXT_MODE_DIR). In-process we MUST set the env vars
-// explicitly before the session-helpers resolve paths, or the server's own cwd
-// becomes the project root (silently wrong).
+// context-mode's session-helpers resolve the project dir (and thus the session-DB
+// path) from CONTEXT_MODE_PROJECT_DIR / CLAUDE_PROJECT_DIR. In-process there is no
+// per-call cwd, so we MUST set these explicitly before resolving, or the server's
+// own cwd would silently become the project root.
 function applyInputEnv(input) {
   // Apply CONTEXT_MODE_DIR from the shared env helper (only when not already set).
   const env = contextModeEnv();
   if (env.CONTEXT_MODE_DIR && !process.env.CONTEXT_MODE_DIR) {
     process.env.CONTEXT_MODE_DIR = env.CONTEXT_MODE_DIR;
   }
-  // Root the session DB to input.cwd so it matches what the CLI spawn would have
-  // produced (the CLI was launched with cwd=input.cwd via the hook event).
+  // Root the session DB to input.cwd (mid-session capture). NOTE: the session-DB
+  // filename derives from hash(projectDir); the SessionStart resume path (the spawned
+  // sessionstart.mjs) resolves it from its inherited CLAUDE_PROJECT_DIR. These agree in
+  // normal single-session operation (both = the project root; a Bash `cd` does not move
+  // the session cwd). On divergence the worst case is a resume MISS → extractContinuity(null)
+  // → {} (documented best-effort), never a wrong-file write or corruption.
   if (typeof input?.cwd === "string" && input.cwd) {
     process.env.CONTEXT_MODE_PROJECT_DIR = input.cwd;
     process.env.CLAUDE_PROJECT_DIR = input.cwd;
