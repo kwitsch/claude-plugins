@@ -1,7 +1,8 @@
 {
   "mcpServers": {
     "ts-lsp-hooks": {
-      "command": "${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs",
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/mjs-launch.sh",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"],
       "env": {
         "TS_LSP_ENFORCE_SEARCH": "${user_config.enforce_search}",
         "TS_LSP_ENFORCE_READ_GATE": "${user_config.enforce_read_gate}"

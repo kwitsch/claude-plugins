@@ -1,7 +1,8 @@
 {
   "mcpServers": {
     "claude-code-knowledge-hooks": {
-      "command": "${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/mjs-launch.sh",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"]
     }
   }
 }
