@@ -204,7 +204,6 @@ setup() {
 
 @test "old rejected runtime-fetch artifacts are absent" {
   [ ! -f "$PLUGIN/agents/cc-knowledge.md" ]
-  [ ! -d "$PLUGIN/bin" ]
   [ ! -d "$PLUGIN/references" ]
   [ ! -d "$PLUGIN/skills/cck-skill" ]
   [ ! -d "$PLUGIN/skills/cck-agent" ]
@@ -304,7 +303,12 @@ reroute_call() {
   [ "$status" -eq 0 ]
   run jq -r '.mcpServers["claude-code-knowledge-hooks"].command' "$PLUGIN/.mcp.json"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"mcp/server.mjs" ]]
+  [[ "$output" == *"mcp/server.mjs" ]] || [[ "$output" == *"bin/mjs-launch.sh" ]]
+}
+
+@test ".mcp.json launches the hooks server via the mjs-launch.sh wrapper" {
+  run jq -e '.mcpServers["claude-code-knowledge-hooks"] | (.command | endswith("bin/mjs-launch.sh")) and (.args[0] | endswith("mcp/server.mjs"))' "$PLUGIN/.mcp.json"
+  [ "$status" -eq 0 ]
 }
 
 @test "mcp/server.mjs is executable (repo rule)" {
@@ -603,4 +607,45 @@ reroute_call() {
 
 @test "update-cc-references Release is gated on the contradiction gate" {
   grep -qi "zero unconfirmed contradictions" "$MAINT"
+}
+
+# --- mjs-launch.sh wrapper ---
+
+@test "mjs-launch.sh is executable and passes bash -n" {
+  [ -x "$PLUGIN/bin/mjs-launch.sh" ]
+  run bash -n "$PLUGIN/bin/mjs-launch.sh"
+  [ "$status" -eq 0 ]
+}
+
+@test "mjs-launch.sh runs the script under bun when bun is present" {
+  tmp="$BATS_TEST_TMPDIR/bunhome"; mkdir -p "$tmp/.bun/bin"
+  cat > "$tmp/.bun/bin/bun" <<'EOF'
+#!/usr/bin/env bash
+echo "BUN_RAN $*"
+EOF
+  chmod +x "$tmp/.bun/bin/bun"
+  run env -i HOME="$tmp" PATH="/usr/bin:/bin" bash "$PLUGIN/bin/mjs-launch.sh" /x/server.mjs --flag
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "BUN_RAN /x/server.mjs --flag"
+}
+
+@test "mjs-launch.sh falls back to node when bun is absent" {
+  nodedir="$(dirname "$(command -v node)")"
+  script="$BATS_TEST_TMPDIR/which.mjs"
+  printf 'process.stdout.write(process.versions.bun ? "RUNTIME_BUN" : "RUNTIME_NODE");\n' > "$script"
+  run env -i HOME="$BATS_TEST_TMPDIR/nohome" PATH="$nodedir:/usr/bin:/bin" bash "$PLUGIN/bin/mjs-launch.sh" "$script"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "RUNTIME_NODE"
+}
+
+@test "mjs-launch.sh exits 1 when neither bun nor node is available" {
+  emptybin="$BATS_TEST_TMPDIR/empty"; mkdir -p "$emptybin"
+  ln -sf "$(command -v bash)" "$emptybin/bash"
+  run env -i HOME="$BATS_TEST_TMPDIR/nohome" PATH="$emptybin" bash "$PLUGIN/bin/mjs-launch.sh" /x/server.mjs
+  [ "$status" -eq 1 ]
+}
+
+@test "mjs-launch.sh exits 64 when no script argument is given" {
+  run env -i HOME="$BATS_TEST_TMPDIR/nohome" PATH="/usr/bin:/bin" bash "$PLUGIN/bin/mjs-launch.sh"
+  [ "$status" -eq 64 ]
 }

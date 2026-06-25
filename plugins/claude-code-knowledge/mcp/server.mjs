@@ -2,11 +2,9 @@
 // Self-contained, zero-dependency MCP stdio server (Node/Bun built-ins only).
 // Backs the claude-code-knowledge PreToolUse(Agent|Task) reroute hook: rewrites a
 // `claude-code-guide` subagent dispatch to this plugin's `claude-code-expert`.
-// Started via #!/usr/bin/env node, it re-execs under bun when available.
+// Launched via bin/mjs-launch.sh (prefers bun, falls back to node).
 // Transport: newline-delimited JSON-RPC 2.0. stdout = JSON-RPC only; logs → stderr.
 import process from "node:process";
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import readline from "node:readline";
 
 const SERVER_NAME = "claude-code-knowledge-hooks"; // keep aligned with the .mcp.json key
@@ -14,28 +12,7 @@ const SERVER_INFO = { name: SERVER_NAME, version: "0.1.0" };
 const DEFAULT_PROTOCOL = "2025-11-25"; // only used if client omits protocolVersion
 const REROUTE_TARGET = "claude-code-knowledge:claude-code-expert";
 
-// Prefer bun, fall back to node. Under bun, process.versions.bun is set → no loop.
-if (process.versions.bun) {
-  startServer();
-} else {
-  const env = { ...process.env };
-  const home = process.env.HOME; // non-interactive PATH often lacks ~/.bun/bin
-  if (home) env.PATH = `${home}/.bun/bin:${home}/.local/bin:${env.PATH ?? ""}`;
-  let spawned = false;
-  const child = spawn("bun", [fileURLToPath(import.meta.url), ...process.argv.slice(2)], {
-    stdio: "inherit",
-    env,
-  });
-  child.once("spawn", () => {
-    spawned = true;
-    for (const s of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(s, () => child.kill(s));
-  });
-  child.once("error", () => { if (!spawned) startServer(); }); // bun missing (ENOENT) → node
-  child.once("exit", (code, sig) => {
-    if (!spawned) return;
-    sig ? process.kill(process.pid, sig) : process.exit(code ?? 0);
-  });
-}
+startServer();
 
 // Normalize a subagent_type: lowercase, collapse non-alphanumeric runs to `-`, trim.
 function normalize(value) {
