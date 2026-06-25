@@ -17,4 +17,17 @@ The following were ADDITIONALLY REMOVED from the published package:
   host integrations — not used by cave-context, which imports the bundle
   directly; removed to avoid Claude Code discovering nested manifests)
 
+The following were FURTHER REMOVED to keep only what Claude Code needs at runtime
+(context-mode runs in-process from the `.bundle.mjs` files; the per-platform adapters
+and the dev/install machinery are unused here):
+  build/ — the tsc dev-output tree; ALL non-Claude-Code platform adapters live under
+    build/adapters/ (antigravity, codex, cursor, gemini-cli, jetbrains-copilot, kimi,
+    kiro, omp, openclaw, opencode, pi, qwen-code, vscode-copilot, zed). The runtime
+    loads the sibling hooks/*.bundle.mjs + server.bundle.mjs and never build/
+    (bundle-first; build/ is the npm-install fallback, excluded from marketplace installs).
+  configs/* EXCEPT configs/claude-code — per-platform install configs.
+  start.mjs, scripts/, bin/, README.md — npm-package launcher / install-heal scripts /
+    CLI shim / upstream docs (cave-context imports the bundle + spawns the vendored
+    hook script directly, so none run).
+
 All retained files are unmodified (byte-for-byte) from the published package.
