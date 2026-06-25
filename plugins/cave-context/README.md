@@ -34,7 +34,7 @@ All `.mjs` scripts (the MCP server, the command hooks) and the upstream `context
 
 - Prepends `~/.local/bin` and `~/.bun/bin` to `PATH` (non-interactive shells often miss these).
 - Prefers [bun](https://bun.sh) when `bun` is on `PATH`, otherwise falls back to node / npx.
-- Dispatches on its first argument: a `*.mjs` script runs under `bun <script>` (or `node <script>`); an npm package name runs under `bun x <pkg>` (or `npx -y <pkg>`).
+- Dispatches on its first argument: a `*.mjs` script runs under `bun <script>` (or `node <script>`); an npm package name is installed via `bun add -g <pkg>` and exec'd from the global bin directory (or `npx -y <pkg>` if bun is unavailable).
 
 The `context-mode` npm package must therefore be reachable via bun or npx. On first call it is downloaded automatically (network required or warm cache); subsequent calls use the cached version.
 
