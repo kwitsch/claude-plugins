@@ -8,15 +8,13 @@ context-mode v1.0.162 (ELv2, © 2026 Mert Koseoglu) is vendored at `bin/context-
 
 ### Re-vendor context-mode
 
-To update the vendored subtree to a new version:
-
-1. `npm pack context-mode@<ver>` — produces a tarball.
-2. Extract into `plugins/cave-context/bin/context-mode/` (replacing existing contents).
-3. Strip the foreign-platform hook dirs: `gemini-cli/`, `cursor/`, `vscode-copilot/`, `codex/`, `kimi/`, `kiro/`, `jetbrains-copilot/`.
-4. Strip packaging metadata: `.claude-plugin/`, `.codex-plugin/`, `.openclaw-plugin/`, `openclaw.plugin.json`, `skills/`, `hooks/hooks.json`.
-5. Verify the tarball sha256 matches the expected value.
-6. Update `bin/context-mode/NOTICE` with the list of removed dirs/files.
-7. Bump `plugin.json` version (minor if behavior-bearing).
+The vendored subtree is a **prepared** copy: `npm pack` then a strip pass that keeps only
+what Claude Code needs (drops the per-platform adapters/configs + dev/install machinery).
+**The authoritative strip set + step-by-step procedure live in
+[`.claude/rules/cave-context-vendored.md`](../../.claude/rules/cave-context-vendored.md)** —
+a path-scoped rule that loads whenever `bin/context-mode/**` is edited. Do **not** hand-edit
+the vendored files; re-vendor through that procedure (and re-apply the same strip set, or a
+future update silently re-introduces the platform cruft).
 
 **Pinned:** v1.0.162, tarball sha256 `f8996a8eec4c84bcac549f343682444fc968357eec0a04980808f1dce73148a0`.
 
