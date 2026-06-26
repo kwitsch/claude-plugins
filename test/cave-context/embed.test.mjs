@@ -18,10 +18,13 @@ test("embedded Upstream lists ctx tools and round-trips index->search", async ()
   // uncallable tool or silently drop a callable one — assert advertised == callable so the
   // drift fails loudly here. (DENIED_UPSTREAM_TOOLS is applied later in server.mjs, so this
   // embed-level invariant is simply advertised == callable.)
+  // Do NOT dedupe the advertised names: byName keys are already unique, so collapsing
+  // duplicates here would let a duplicated tools/list entry pass undetected. Compare the
+  // raw advertised names so a duplicate (a real drift) also fails this check.
   assert.deepEqual(
-    [...new Set(tools.map((t) => t.name))].sort(),
+    tools.map((t) => t.name).sort(),
     [...up.byName.keys()].sort(),
-    "advertised tools/list set must equal the callable byName set",
+    "advertised tools/list names must equal the callable byName set (no dupes, no drift)",
   );
   assert.ok(tools.some((t) => t.name === "ctx_search"), "ctx_search listed");
   assert.ok(tools.every((t) => t.name && t.inputSchema?.type === "object"), "tools expose a JSON-Schema inputSchema (type: object), not a raw Zod object");
