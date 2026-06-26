@@ -38,7 +38,7 @@ function startServer() {
   ];
 
   // Lazy imports — keep shim path dependency-free until we actually serve.
-  Promise.all([import("./embed.mjs"), import("./handlers.mjs"), import("./branch-index.mjs")]).then(([{ Upstream }, { HANDLERS }, { createBranchIndexer }]) => {
+  Promise.all([import("./embed.mjs"), import("./handlers.mjs"), import("./branch-index.mjs"), import("./capture-tracker.mjs")]).then(([{ Upstream }, { HANDLERS }, { createBranchIndexer }, { drainCaptures }]) => {
     const send = (m) => process.stdout.write(JSON.stringify(m) + "\n");
     const ok = (id, result) => send({ jsonrpc: "2.0", id, result });
     const fail = (id, code, message) => send({ jsonrpc: "2.0", id, error: { code, message } });
@@ -98,7 +98,14 @@ function startServer() {
         if (id != null) fail(id, -32603, String(e?.message ?? e));
       }
     });
-    rl.on("close", () => { up.stop(); process.exit(0); });
+    rl.on("close", () => {
+      // Drain in-flight fire-and-forget captures (PostToolUse/UserPromptSubmit) before exit so a
+      // session that ends WITHOUT a compaction doesn't lose its tail of events — process.exit()
+      // does not flush pending microtasks. Capped at 500 ms so a stuck capture can't hang
+      // shutdown. (PreCompact has its own drain for the compaction path.)
+      Promise.race([drainCaptures(), new Promise((r) => setTimeout(r, 500))])
+        .finally(() => { up.stop(); process.exit(0); });
+    });
   }).catch((e) => {
     // The stdin reader lives inside .then; a failed startup import would otherwise leave
     // the process alive-but-unresponsive (or crash unlabelled). Fail loudly and cleanly.

@@ -4,6 +4,7 @@
 import { reminderText } from "./caveman.mjs";
 import { delegateHook } from "./delegate.mjs";
 import { compressText } from "./compress.mjs";
+import { trackCapture } from "./capture-tracker.mjs";
 
 const WEBFETCH_DENY_REASON =
   "cave-context routing: use ctx_fetch_and_index instead of WebFetch — full network access, results indexed for ctx_search, raw page bytes never enter context.";
@@ -38,14 +39,21 @@ export function fromDelegate(res) {
   return { ac, hard };
 }
 
-// Emit the caveman full-level reminder plus any context-mode UserPromptSubmit additionalContext.
+// Emit the caveman full-level reminder; run context-mode's capture fire-and-forget.
 export async function handleUserPromptSubmit(input) {
   // Caveman mode is always-on full: emit the per-turn reminder unconditionally,
   // every prompt. No level detection, no runtime state — the prompt is no longer
-  // parsed for /caveman level changes.
+  // parsed for /caveman level changes. The reminder is the ONLY thing that must be
+  // delivered this turn, so it is built synchronously.
   const cavemanAc = reminderText();
-  const { ac: ctxAc, hard } = fromDelegate(await delegateHook("UserPromptSubmit", input));
-  return emit("UserPromptSubmit", mergeContext(cavemanAc, ctxAc), hard);
+  // context-mode's UserPromptSubmit work is capture-only — it saves the prompt + user events
+  // to the session DB and returns null (nothing the harness consumes). Don't await it: register
+  // it with the capture-tracker and return immediately to cut hook execution time. PreCompact
+  // drains in-flight captures before snapshotting, so a still-in-flight prompt can't be missed.
+  // (If a future re-vendor makes UserPromptSubmit return additionalContext, restore the awaited
+  // fromDelegate(...)/mergeContext path here.)
+  trackCapture(delegateHook("UserPromptSubmit", input));
+  return emit("UserPromptSubmit", cavemanAc, {});
 }
 
 // Hard-deny WebFetch for the main agent (→ ctx_fetch_and_index hint), then delegate to context-mode for all other tools.
@@ -70,10 +78,15 @@ export async function handlePreToolUse(input) {
   return emit("PreToolUse", ac, hard); // caveman has no PreToolUse
 }
 
-// Forward PostToolUse to context-mode for capture; caveman has no PostToolUse action.
+// Forward PostToolUse to context-mode for capture, fire-and-forget. The capture writes the
+// session DB and returns null (nothing the harness uses), so we DON'T await it — the hook
+// returns {} immediately to cut execution time (PostToolUse fires on nearly every tool call).
+// The promise is registered with the capture-tracker so PreCompact can drain in-flight captures
+// before snapshotting, and so a rejection can't escape. (branchIndexer.note() in server.mjs is
+// likewise fire-and-forget.) caveman has no PostToolUse action.
 export async function handlePostToolUse(input) {
-  const { ac, hard } = fromDelegate(await delegateHook("PostToolUse", input));
-  return emit("PostToolUse", ac, hard);
+  trackCapture(delegateHook("PostToolUse", input));
+  return {};
 }
 
 // Forward PreCompact to context-mode so it can snapshot session state before context is lost.
