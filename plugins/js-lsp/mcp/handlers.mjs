@@ -15,9 +15,16 @@ const ENFORCE_READ_GATE = process.env.JS_LSP_ENFORCE_READ_GATE === 'true'; // fa
 const ALLOW = {};
 const deny = (reason) => ({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } });
 
-const LSP_HINT = (file) =>
-  `js-lsp: use the LSP tool on ${file} (jump to definition / find references) instead of text search. ` +
-  `One LSP navigation call here is cheaper and more precise than grep.`;
+// Word-identical across js-lsp/ts-lsp/shell-lsp (maintainability; pinned by
+// test/js-lsp/messages.test.mjs). The builders take only data (file path / count),
+// never a language phrase, so the rendered strings are identical across plugins.
+export const LSP_HINT = () =>
+  `lsp: use the LSP tool (workspaceSymbol → goToDefinition / findReferences) instead of text search on code symbols. ` +
+  `One LSP navigation call is cheaper and more precise than grep.`;
+export const WARMUP_HINT = (file) =>
+  `lsp: warm up the LSP first — call the LSP tool on ${file} (goToDefinition / findReferences), then re-read.`;
+export const GATE2_HINT = (file, reads) =>
+  `lsp: ${reads} reads with <2 LSP navigation calls. Make one more LSP call (findReferences / goToDefinition) on ${file} to enter surgical mode.`;
 
 // in-memory first-sighting reset (per server process)
 const seen = new Set();
@@ -42,7 +49,7 @@ function searchGuard(toolName, input) {
   if (!ENFORCE_SEARCH) return ALLOW;
   if (!isJsTarget(toolName, input)) return ALLOW;
   if (!symbolInSearch(toolName, input)) return ALLOW;
-  return deny(LSP_HINT('the JavaScript file you are searching'));
+  return deny(LSP_HINT());
 }
 
 // Gate file reads: require LSP warm-up, enforce a navigation quota, and release
@@ -67,10 +74,10 @@ function readGate(cwd, file) {
   let reason = null;
 
   if (!s.warmupDone) {
-    reason = `js-lsp: warm up the LSP first — call the LSP tool on ${file} (jump to definition / find references), then re-read.`;
+    reason = WARMUP_HINT(file);
   } else if (s.readCount >= GATE2_AT && s.navCount < 2) {
     // Gate 2: >=4 reads and fewer than 2 LSP calls -> require surgical mode (2 navs)
-    reason = `js-lsp: ${s.readCount} reads with <2 LSP navigation calls. Make one more LSP call (find references / jump to definition) on ${file} to enter surgical mode.`;
+    reason = GATE2_HINT(file, s.readCount);
   }
 
   if (reason) {
