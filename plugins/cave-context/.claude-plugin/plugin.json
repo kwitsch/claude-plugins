@@ -1,6 +1,6 @@
 {
   "name": "cave-context",
-  "version": "0.16.0",
+  "version": "0.16.1",
   "description": "Unifies caveman + context-mode into one non-competing MCP server: vendors context-mode (Elastic License 2.0) and serves its ctx_* tools in-process, and aggregates both plugins' hooks.",
   "author": {
     "name": "Kwitsch"
