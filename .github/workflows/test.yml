@@ -24,6 +24,7 @@ jobs:
           - superpowers-automation
           - claude-code-knowledge
           - cave-context
+          - lsp-base
           - js-lsp
           - ts-lsp
           - shell-lsp
