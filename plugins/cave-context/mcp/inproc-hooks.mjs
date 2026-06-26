@@ -12,6 +12,7 @@ import { resolve } from "node:path";
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { contextModeEnv } from "./context-mode-env.mjs";
+import { drainCaptures } from "./capture-tracker.mjs";
 
 // Resolve a path inside the vendored hooks directory.
 const H = (p) => fileURLToPath(new URL(`../bin/context-mode/hooks/${p}`, import.meta.url));
@@ -39,6 +40,10 @@ async function openDb(dbPath) {
 // per-call cwd, so we MUST set these explicitly before resolving, or the server's
 // own cwd would silently become the project root.
 function applyInputEnv(input) {
+  // Fire-and-forget capture's post-await read of this global env (getSessionDBPath→getProjectDir)
+  // is safe: one MCP server per session → input.cwd is stable across every hook (a Bash `cd` does
+  // not move it) → identical env written each call. The multi-project-in-one-server misroute is out
+  // of the supported operating model, so no projectDir thread-through is needed (review F1, skipped).
   // Apply CONTEXT_MODE_DIR from the shared env helper (only when not already set).
   const env = contextModeEnv();
   if (env.CONTEXT_MODE_DIR && !process.env.CONTEXT_MODE_DIR) {
@@ -356,6 +361,12 @@ export async function preToolUse(input) {
 // `console.log(JSON.stringify({}))`).
 export async function preCompact(input) {
   applyInputEnv(input);
+
+  // The producers (PostToolUse / UserPromptSubmit) capture fire-and-forget — their DB writes may
+  // still be in flight. Drain them before reading the event store, or the snapshot would race the
+  // captures and could omit the most recent events (degrading resume continuity). See
+  // capture-tracker.mjs.
+  await drainCaptures();
 
   const { getSessionDBPath, getSessionId, getInputProjectDir } = await import(H("session-helpers.mjs"));
   const { createSessionLoaders, attributeAndInsertEvents } = await import(H("session-loaders.mjs"));

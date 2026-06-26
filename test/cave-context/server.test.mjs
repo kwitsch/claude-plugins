@@ -94,6 +94,55 @@ test("server advertises the compress tool with a typed schema", async () => {
   } finally { proc.kill(); rmSync(dir, { recursive: true, force: true }); }
 });
 
+test("server drains in-flight fire-and-forget captures on stdin-close shutdown", async () => {
+  // Regression guard: PostToolUse/UserPromptSubmit capture runs fire-and-forget. A session that
+  // ends WITHOUT a compaction (plain stdin close) must not lose its tail of events —
+  // server.mjs drains in-flight captures in its rl.on("close") handler before process.exit().
+  // Real capture path (no CAVE_CONTEXT_NO_UPSTREAM, which would short-circuit the delegate to null).
+  const dir = mkdtempSync(join(tmpdir(), "cc-srv-drain-"));
+  const sessionId = "s-shutdown-drain";
+  const priorEnv = { d: process.env.CONTEXT_MODE_DIR, p: process.env.CONTEXT_MODE_PROJECT_DIR, c: process.env.CLAUDE_PROJECT_DIR };
+  const proc = spawn("node", [SERVER], { env: { ...process.env, CONTEXT_MODE_DIR: dir, CLAUDE_PROJECT_DIR: dir }, stdio: ["pipe", "pipe", "inherit"] });
+  try {
+    const exited = new Promise((res) => proc.on("exit", res));
+    let buf = "";
+    proc.stdout.on("data", (d) => {
+      buf += d;
+      let i;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 1);
+        if (!line.trim()) continue;
+        const msg = JSON.parse(line);
+        // The hook returned {} (capture is now fire-and-forget, in flight). Close stdin to
+        // trigger the drain-on-shutdown path; without the drain the capture would be lost.
+        if (msg.id === 2) proc.stdin.end();
+      }
+    });
+    proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "t", version: "0" } } }) + "\n");
+    proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "hook_posttooluse", arguments: { session_id: sessionId, cwd: dir, hook_event_name: "PostToolUse", tool_name: "Bash", tool_input: { command: "git status" }, tool_response: "On branch main\nnothing to commit" } } }) + "\n");
+    await exited;
+
+    // After a clean shutdown the fire-and-forget capture must have been drained to disk.
+    process.env.CONTEXT_MODE_DIR = dir;
+    process.env.CONTEXT_MODE_PROJECT_DIR = dir;
+    process.env.CLAUDE_PROJECT_DIR = dir;
+    const H = (p) => new URL(`../../plugins/cave-context/bin/context-mode/hooks/${p}`, import.meta.url).pathname;
+    const { SessionDB } = await import(H("session-db.bundle.mjs"));
+    const { getSessionDBPath } = await import(H("session-helpers.mjs"));
+    const reader = new SessionDB({ dbPath: getSessionDBPath() });
+    const rollup = reader.getSessionRollup(sessionId);
+    reader.close();
+    assert.ok(rollup.tool_calls >= 1, `shutdown drain must persist the in-flight capture, got tool_calls=${rollup.tool_calls}`);
+  } finally {
+    proc.kill();
+    rmSync(dir, { recursive: true, force: true });
+    // restore env so later tests in this file are unaffected
+    for (const [k, v] of [["CONTEXT_MODE_DIR", priorEnv.d], ["CONTEXT_MODE_PROJECT_DIR", priorEnv.p], ["CLAUDE_PROJECT_DIR", priorEnv.c]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+});
+
 test("server tools/call compress returns well-formed MCP response on empty input", async () => {
   const dir = mkdtempSync(join(tmpdir(), "cc-srv-"));
   const proc = spawn("node", [SERVER], { env: { ...process.env, CONTEXT_MODE_DIR: dir, CAVE_CONTEXT_NO_UPSTREAM: "1" }, stdio: ["pipe", "pipe", "inherit"] });

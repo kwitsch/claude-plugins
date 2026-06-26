@@ -29,8 +29,11 @@ test("mergeContext joins both, caveman first", () => {
 
 test("UserPromptSubmit: always-full reminder (ignores /caveman args, no CLI spawn)", async () => {
   // delegateHook now runs in-process (no CLI); UserPromptSubmit is capture-only and
-  // returns null — additionalContext is caveman-only (no CTXMODE marker).
-  const out = await handleUserPromptSubmit({ hook_event_name: "UserPromptSubmit", prompt: "/caveman ultra" });
+  // returns null — additionalContext is caveman-only (no CTXMODE marker). The capture is now
+  // fire-and-forget; CAVE_CONTEXT_NO_UPSTREAM=1 short-circuits it so this reminder-only
+  // assertion does no background DB work.
+  const out = await withEnv({ CAVE_CONTEXT_NO_UPSTREAM: "1" }, () =>
+    handleUserPromptSubmit({ hook_event_name: "UserPromptSubmit", prompt: "/caveman ultra" }));
   const ac = out.hookSpecificOutput.additionalContext;
   assert.ok(ac.includes(reminderText()), "merged output must carry the full caveman reminder");
   assert.doesNotMatch(ac, /ultra/);
