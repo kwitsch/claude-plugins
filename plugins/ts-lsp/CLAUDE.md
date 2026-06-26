@@ -1,7 +1,7 @@
 # CLAUDE.md — ts-lsp
 
 TypeScript-only LSP (vtsls) + LSP-first enforcement (adapted from the
-claude-code-lsp-enforcement-kit). `mcp_tool` enforcement hooks + a `SessionStart` cat hint.
+claude-code-lsp-enforcement-kit). `mcp_tool` enforcement hooks + language-specific `SessionStart` examples (agnostic LSP-first rules via `lsp-base`).
 
 ## Behavior
 - `.lsp.json` launches vtsls via `npx -y @vtsls/language-server@0.3.0` (pinned,

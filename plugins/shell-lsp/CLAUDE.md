@@ -1,7 +1,7 @@
 # CLAUDE.md — shell-lsp
 
 Shell-only LSP (bash-language-server) + LSP-first enforcement (adapted from the
-claude-code-lsp-enforcement-kit). `mcp_tool` enforcement hooks + a `SessionStart` cat hint.
+claude-code-lsp-enforcement-kit). `mcp_tool` enforcement hooks + language-specific `SessionStart` examples (agnostic LSP-first rules via `lsp-base`).
 
 ## Behavior
 - `.lsp.json` launches bash-language-server via `npx -y bash-language-server@5.6.0 start`
