@@ -78,7 +78,7 @@ PLUGIN="${BATS_TEST_DIRNAME}/../../plugins/ts-lsp"
 @test "SessionStart examples exist, non-empty, server-agnostic" {
   f="$PLUGIN/hooks/SessionStart.md"
   [ -s "$f" ]
-  grep -q "workspaceSymbol" "$f"
+  grep -q "camelCase" "$f"
   run grep -qE "js-lsp|ts-lsp|shell-lsp" "$f"
   [ "$status" -ne 0 ]
 }
