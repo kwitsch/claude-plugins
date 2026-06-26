@@ -94,6 +94,33 @@ test("server advertises the compress tool with a typed schema", async () => {
   } finally { proc.kill(); rmSync(dir, { recursive: true, force: true }); }
 });
 
+test("every advertised tool exposes a JSON-Schema inputSchema (type: object)", async () => {
+  // Regression: Claude Code Zod-validates each tools/list entry's inputSchema.type === "object"
+  // and drops the whole server ("tools fetch failed") if any tool fails. The embedded upstream
+  // ctx_* tools must be emitted as converted JSON Schema, not raw Zod objects (which have no .type).
+  // Real upstream (no CAVE_CONTEXT_NO_UPSTREAM — that flag never gated the embed Upstream anyway).
+  const dir = mkdtempSync(join(tmpdir(), "cc-srv-schema-"));
+  const proc = spawn("node", [SERVER], { env: { ...process.env, CONTEXT_MODE_DIR: dir, CLAUDE_PROJECT_DIR: dir }, stdio: ["pipe", "pipe", "inherit"] });
+  try {
+    const out = await rpc(proc, [
+      { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "t", version: "0" } } },
+      { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} },
+    ]);
+    const tools = out.find((m) => m.id === 2).result.tools;
+    // The upstream ctx_* tools (the ones the client rejected) must be present and valid.
+    assert.ok(tools.some((t) => t.name === "ctx_execute"), "embedded ctx_* tools present in tools/list");
+    for (const t of tools) {
+      assert.equal(t.inputSchema?.type, "object", `tool ${t.name}: inputSchema.type must be "object" (Claude Code Zod-validates this)`);
+    }
+    // Guard against silent degradation: a permissive fallback schema also satisfies
+    // type:"object", so assert the SDK conversion is actually retaining the per-parameter
+    // schema. If the SDK-internal tools/list access ever breaks, this fails loudly instead
+    // of quietly serving param-less tools.
+    const ctxExecute = tools.find((t) => t.name === "ctx_execute");
+    assert.ok(ctxExecute.inputSchema.properties?.code, "ctx_execute retains the rich SDK-converted schema, not the permissive fallback");
+  } finally { proc.kill(); rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("server drains in-flight fire-and-forget captures on stdin-close shutdown", async () => {
   // Regression guard: PostToolUse/UserPromptSubmit capture runs fire-and-forget. A session that
   // ends WITHOUT a compaction (plain stdin close) must not lose its tail of events —

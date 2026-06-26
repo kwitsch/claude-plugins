@@ -19,12 +19,12 @@ export class Upstream {
     try { mod = await import(BUNDLE); }
     catch (e) { process.stderr.write(`[cave-context] embedded context-mode import failed: ${e?.message ?? e}\n`); this.alive = false; return []; }
     const reg = mod.REGISTERED_CTX_TOOLS ?? [];
+    // callTool dispatches to each tool's registered Zod-validated handler.
     this.byName = new Map(reg.map((t) => [t.name, t.handler]));
-    this.tools = reg.map((t) => ({
-      name: t.name,
-      description: t.config?.description ?? t.name,
-      inputSchema: t.config?.inputSchema ?? { type: "object", additionalProperties: true },
-    }));
+    // tools/list inputSchema MUST be a JSON Schema (`type: "object"`), NOT the raw Zod
+    // object context-mode registers tools with — Claude Code Zod-validates each entry's
+    // inputSchema.type and drops the whole server ("tools fetch failed") otherwise.
+    this.tools = await listToolSchemas(mod, reg);
     this.alive = true;
     return this.tools;
   }
@@ -36,4 +36,41 @@ export class Upstream {
   }
 
   stop() { this.alive = false; }
+}
+
+// A tool's inputSchema MUST be a JSON Schema object. Anything else (a raw Zod object,
+// undefined, a non-object) is replaced with a permissive object schema so an invalid
+// schema can never reach the wire and break the client's tools/list validation.
+const PERMISSIVE_SCHEMA = { type: "object", additionalProperties: true };
+function sanitizeTools(tools) {
+  return tools.map((t) => ({
+    name: t.name,
+    description: t.description ?? t.name,
+    inputSchema: t.inputSchema?.type === "object" ? t.inputSchema : PERMISSIVE_SCHEMA,
+  }));
+}
+
+// Build the tools/list payload with JSON-Schema inputSchemas.
+// Primary path: invoke the embedded MCP SDK server's own "tools/list" request handler —
+// it converts each tool's Zod schema to JSON Schema (type:"object", properties, enums, …),
+// identical to what the real stdio context-mode server emits. There is no public accessor
+// for this conversion, so we reach the SDK-internal request-handler map; the vendored bundle
+// is sha256-pinned, and sanitizeTools() + the server.test.mjs schema regression test guard
+// the reliance. Fallback (SDK shape changed / handler threw): tool names with permissive
+// schemas — degraded param hints, but never a connection-breaking invalid schema.
+async function listToolSchemas(mod, reg) {
+  try {
+    const handler = mod.server?.server?._requestHandlers?.get?.("tools/list");
+    if (typeof handler === "function") {
+      const res = await handler(
+        { method: "tools/list", params: {} },
+        { signal: new AbortController().signal, requestId: 0, sendNotification: async () => {}, sendRequest: async () => {} },
+      );
+      const tools = Array.isArray(res?.tools) ? res.tools : [];
+      if (tools.length) return sanitizeTools(tools);
+    }
+  } catch (e) {
+    process.stderr.write(`[cave-context] SDK tools/list conversion failed, using permissive schemas: ${e?.message ?? e}\n`);
+  }
+  return sanitizeTools(reg.map((t) => ({ name: t.name, description: t.config?.description ?? t.name, inputSchema: t.config?.inputSchema })));
 }
