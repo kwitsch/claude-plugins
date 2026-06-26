@@ -19,10 +19,10 @@ LSP-first navigation for shell scripts: it redirects shell code-symbol searches
 (Grep/Glob/Bash-grep) to the `LSP` tool and applies a progressive read gate,
 scoped to clearly-shell targets and fail-open by design.
 
-On session start it also injects a short, server-agnostic hint reminding Claude
-to use the `LSP` tool's symbol search before `grep` for code-symbol names
-(camelCase, PascalCase, snake_case, dotted) — the hint is identical across the
-LSP plugins so they reinforce one message rather than compete.
+This plugin depends on `lsp-base` (auto-enabled, Claude Code ≥ 2.1.143), which
+provides the language-agnostic LSP-first rules block (SessionStart) and a
+per-prompt reminder (UserPromptSubmit). This plugin's own `SessionStart` carries
+only the shell-specific symbol examples.
 
 ## Configuration
 
