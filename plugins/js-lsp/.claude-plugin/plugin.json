@@ -1,8 +1,10 @@
 {
   "name": "js-lsp",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "JavaScript-only LSP via vtsls, with LSP-first enforcement hooks",
-  "author": { "name": "Kwitsch" },
+  "author": {
+    "name": "Kwitsch"
+  },
   "userConfig": {
     "enforce_search": {
       "type": "boolean",
@@ -16,5 +18,8 @@
       "title": "Progressive read gate (JavaScript)",
       "description": "Require an LSP navigation call before reading many JavaScript files (warmup -> surgical mode). Creates per-project state; fail-closed: active only when explicitly true. (Boolean, Default: true)"
     }
-  }
+  },
+  "dependencies": [
+    "lsp-base"
+  ]
 }

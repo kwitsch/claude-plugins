@@ -1,8 +1,10 @@
 {
   "name": "ts-lsp",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "TypeScript-only LSP via vtsls, with LSP-first enforcement hooks",
-  "author": { "name": "Kwitsch" },
+  "author": {
+    "name": "Kwitsch"
+  },
   "userConfig": {
     "enforce_search": {
       "type": "boolean",
@@ -16,5 +18,8 @@
       "title": "Progressive read gate (TypeScript)",
       "description": "Require an LSP navigation call before reading many TypeScript files (warmup -> surgical mode). Because it creates per-project state, it is fail-closed at runtime — only a literal true value activates it (an uninterpolated placeholder is treated as off). (Boolean, Default: true)"
     }
-  }
+  },
+  "dependencies": [
+    "lsp-base"
+  ]
 }
