@@ -30,31 +30,13 @@ PLUGIN="${BATS_TEST_DIRNAME}/../../plugins/js-lsp"
   [ "$status" -eq 0 ]
 }
 
-@test "vtsls-launch.sh is executable and passes bash -n" {
-  [ -x "$PLUGIN/bin/vtsls-launch.sh" ]
-  run bash -n "$PLUGIN/bin/vtsls-launch.sh"
+@test ".mcp.json launches the js-lsp-hooks server via mcp/server.mjs directly (no wrapper, no args)" {
+  run jq -e '.mcpServers["js-lsp-hooks"] | (.command | test("\\$\\{CLAUDE_PLUGIN_ROOT\\}/mcp/server\\.mjs$")) and (has("args") | not)' "$PLUGIN/.mcp.json"
   [ "$status" -eq 0 ]
 }
 
-@test "vtsls-launch.sh prepends ~/.bun/bin so a bun-installed vtsls is found on a minimal PATH" {
-  # Claude Code launches LSP servers with a non-interactive PATH. Simulate a vtsls
-  # that exists only in ~/.bun/bin (a prior `bun add -g`) and a scrubbed PATH that
-  # excludes it. Without the PATH prepend the wrapper would find none of
-  # vtsls/bun/npx and exit 1; with the prepend it resolves the bun-global vtsls.
-  tmp="$BATS_TEST_TMPDIR/bunhome"
-  mkdir -p "$tmp/.bun/bin"
-  cat > "$tmp/.bun/bin/vtsls" <<'EOF'
-#!/usr/bin/env bash
-echo "VTSLS_STUB_OK"
-EOF
-  chmod +x "$tmp/.bun/bin/vtsls"
-  run env -i HOME="$tmp" PATH="/usr/bin:/bin" bash "$PLUGIN/bin/vtsls-launch.sh" --stdio
-  [ "$status" -eq 0 ]
-  echo "$output" | grep -q "VTSLS_STUB_OK"
-}
-
-@test ".mcp.json launches the js-lsp-hooks server via the mjs-launch.sh wrapper" {
-  run jq -e '.mcpServers["js-lsp-hooks"] | (.command | endswith("bin/mjs-launch.sh")) and (.args[0] | endswith("mcp/server.mjs"))' "$PLUGIN/.mcp.json"
+@test ".lsp.json launches vtsls via pinned npx (no wrapper)" {
+  run jq -e '.vtsls | (.command == "npx") and (.args[0] == "-y") and ((.args | index("@vtsls/language-server@0.3.0")) != null) and ((.args | index("--stdio")) != null)' "$PLUGIN/.lsp.json"
   [ "$status" -eq 0 ]
 }
 
@@ -122,41 +104,19 @@ EOF
   [ "$status" -eq 0 ]
 }
 
-@test "mjs-launch.sh is executable and passes bash -n" {
-  [ -x "$PLUGIN/bin/mjs-launch.sh" ]
-  run bash -n "$PLUGIN/bin/mjs-launch.sh"
-  [ "$status" -eq 0 ]
+@test "server.mjs has the node shebang (load-bearing for direct invocation)" {
+  run head -1 "$PLUGIN/mcp/server.mjs"
+  [ "$output" = "#!/usr/bin/env node" ]
 }
 
-@test "mjs-launch.sh runs the script under bun when bun is present" {
-  tmp="$BATS_TEST_TMPDIR/bunhome"; mkdir -p "$tmp/.bun/bin"
-  cat > "$tmp/.bun/bin/bun" <<'EOF'
-#!/usr/bin/env bash
-echo "BUN_RAN $*"
-EOF
-  chmod +x "$tmp/.bun/bin/bun"
-  run env -i HOME="$tmp" PATH="/usr/bin:/bin" bash "$PLUGIN/bin/mjs-launch.sh" /x/server.mjs --flag
-  [ "$status" -eq 0 ]
-  echo "$output" | grep -q "BUN_RAN /x/server.mjs --flag"
+@test "server.mjs has git mode 100755 (load-bearing for direct invocation)" {
+  run git ls-tree HEAD "$PLUGIN/mcp/server.mjs"
+  [[ "$output" == 100755* ]]
 }
 
-@test "mjs-launch.sh falls back to node when bun is absent" {
-  nodedir="$(dirname "$(command -v node)")"
-  script="$BATS_TEST_TMPDIR/which.mjs"
-  printf 'process.stdout.write(process.versions.bun ? "RUNTIME_BUN" : "RUNTIME_NODE");\n' > "$script"
-  run env -i HOME="$BATS_TEST_TMPDIR/nohome" PATH="$nodedir:/usr/bin:/bin" bash "$PLUGIN/bin/mjs-launch.sh" "$script"
-  [ "$status" -eq 0 ]
-  echo "$output" | grep -q "RUNTIME_NODE"
-}
-
-@test "mjs-launch.sh exits 1 when neither bun nor node is available" {
-  emptybin="$BATS_TEST_TMPDIR/empty"; mkdir -p "$emptybin"
-  ln -sf "$(command -v bash)" "$emptybin/bash"
-  run env -i HOME="$BATS_TEST_TMPDIR/nohome" PATH="$emptybin" bash "$PLUGIN/bin/mjs-launch.sh" /x/server.mjs
-  [ "$status" -eq 1 ]
-}
-
-@test "mjs-launch.sh exits 64 when no script argument is given" {
-  run env -i HOME="$BATS_TEST_TMPDIR/nohome" PATH="/usr/bin:/bin" bash "$PLUGIN/bin/mjs-launch.sh"
-  [ "$status" -eq 64 ]
+@test "no .sh launcher wrapper remains under bin/" {
+  if [ -d "$PLUGIN/bin" ]; then
+    run find "$PLUGIN/bin" -name '*.sh' -type f
+    [ -z "$output" ]
+  fi
 }
