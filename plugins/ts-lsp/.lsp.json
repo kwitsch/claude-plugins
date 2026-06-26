@@ -1,7 +1,7 @@
 {
   "vtsls": {
-    "command": "${CLAUDE_PLUGIN_ROOT}/bin/vtsls-launch.sh",
-    "args": ["--stdio"],
+    "command": "npx",
+    "args": ["-y", "@vtsls/language-server@0.3.0", "--stdio"],
     "extensionToLanguage": {
       ".ts": "typescript",
       ".cts": "typescript",
