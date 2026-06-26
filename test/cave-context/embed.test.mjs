@@ -12,6 +12,17 @@ test("embedded Upstream lists ctx tools and round-trips index->search", async ()
   const up = new Upstream();
   const tools = await up.start();
   assert.ok(up.alive, "alive after start");
+  // Set-equality guard: the advertised tools/list (built via listToolSchemas from the SDK
+  // server's tools/list handler) and the callable byName map (built from REGISTERED_CTX_TOOLS)
+  // derive from independent sources. A future re-vendor diverging them would advertise an
+  // uncallable tool or silently drop a callable one — assert advertised == callable so the
+  // drift fails loudly here. (DENIED_UPSTREAM_TOOLS is applied later in server.mjs, so this
+  // embed-level invariant is simply advertised == callable.)
+  assert.deepEqual(
+    [...new Set(tools.map((t) => t.name))].sort(),
+    [...up.byName.keys()].sort(),
+    "advertised tools/list set must equal the callable byName set",
+  );
   assert.ok(tools.some((t) => t.name === "ctx_search"), "ctx_search listed");
   assert.ok(tools.every((t) => t.name && t.inputSchema?.type === "object"), "tools expose a JSON-Schema inputSchema (type: object), not a raw Zod object");
   // Rich SDK-converted schema, not the permissive fallback (which also passes the check above).
