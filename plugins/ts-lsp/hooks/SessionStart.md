@@ -1,8 +1,5 @@
 ## JavaScript / TypeScript symbol shapes
 
-These name shapes are code symbols — locate them with `workspaceSymbol` first, then
-navigate:
-
 - **camelCase** — `getUserById`, `parseConfig`
 - **PascalCase** — `UserService`, `HttpClient`
 - **dotted member access** — `router.refresh`, `config.load`
