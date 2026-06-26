@@ -10,10 +10,12 @@
 
 Registers `bash-language-server` as a shell-only language server (`.sh`, `.bash`)
 so Claude's built-in `LSP` tool can jump to definitions, find references, and
-surface errors. bash-language-server is resolved at runtime via a
-`bun → npx` wrapper via `bin/bash-ls-launch.sh`, so you do not need to
-pre-install it (Node ≥16 or Bun required). The plugin then enforces LSP-first
-navigation for shell scripts: it redirects shell code-symbol searches
+surface errors. bash-language-server is resolved at runtime via `npx` at a
+pinned version (`bash-language-server@5.6.0`), node-only — no launcher wrapper.
+You do not need to pre-install it, but **`node` and `npx` must be on the PATH**
+Claude Code uses to launch LSP/MCP processes. First launch downloads the server
+(cached per version in `~/.npm/_npx` thereafter). The plugin then enforces
+LSP-first navigation for shell scripts: it redirects shell code-symbol searches
 (Grep/Glob/Bash-grep) to the `LSP` tool and applies a progressive read gate,
 scoped to clearly-shell targets and fail-open by design.
 

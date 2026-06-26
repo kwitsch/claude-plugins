@@ -53,10 +53,11 @@ Keep a `.sh`/binary under `plugins/*/bin/` ONLY when it must be:
 Such files keep their executable bit (see the bin-executable rule) **and** get a
 bats test when their behavior is non-trivial (exit-code contract, edge cases).
 
-The canonical bundled-wrapper shape in this repo is **`bin/mjs-launch.sh`**
-(bun-preferred, node fallback for `.mjs` programs — invoked via `.mcp.json`
-`command`). When adding a new plugin, copy **`bin/mjs-launch.sh`** verbatim (the
-reusable bun-preferred template) rather than reimplementing runtime selection from
-scratch. A **node-only** plugin may instead invoke an executable `.mjs`
-(`#!/usr/bin/env node` + `100755`) directly as the hook/MCP `command` — cave-context
-does this — but `bin/mjs-launch.sh` is the reusable default.
+The canonical shape in this repo is an **executable `.mjs` invoked directly** as the
+hook/MCP `command` (`#!/usr/bin/env node` + `100755`) — node-only, no wrapper.
+cave-context and the LSP plugins (js-lsp/ts-lsp/shell-lsp) do this. A plugin that
+genuinely needs bun-preferred runtime selection MAY instead keep a `bin/mjs-launch.sh`
+wrapper (bun-preferred, node fallback — invoked via `.mcp.json` `command` with the
+`server.mjs` path in `args`) as an **optional fallback**, but it is no longer the
+default and carries known edge-case issues (empty PATH segment, lingering signal
+forwarder); prefer the direct-`.mjs` form. See the **hooks-mcp-server** rule.

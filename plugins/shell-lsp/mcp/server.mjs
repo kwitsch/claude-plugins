@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // server.mjs — self-contained, zero-dependency MCP stdio server (Node/Bun built-ins only).
-// Launched via bin/mjs-launch.sh (prefers bun, falls back to node).
+// Invoked directly as the .mcp.json command (#!/usr/bin/env node; node-only, no wrapper).
 // Transport: newline-delimited JSON-RPC 2.0. stdout = JSON-RPC only; logs → stderr.
 // Exposes hook_pretooluse and hook_posttooluse tools backed by handlers.mjs.
 import process from "node:process";

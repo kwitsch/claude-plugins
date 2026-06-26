@@ -1,6 +1,6 @@
 {
   "name": "js-lsp",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "JavaScript-only LSP via vtsls, with LSP-first enforcement hooks",
   "author": { "name": "Kwitsch" },
   "userConfig": {

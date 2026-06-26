@@ -74,9 +74,10 @@ mid-session events well beyond `PreToolUse`/`PostToolUse` — `Stop`,
 `SubagentStop`, `PostToolUseFailure`, `PreCompact`, `ConfigChange`, etc. are all
 `full`. Choose the handler with the **hooks-mcp-server** decision tree and the
 per-event **hooks-mcp-tool-event-matrix** reference; the preferred shape (a
-self-contained plugin-local `mcp/server.mjs` launched via `bin/mjs-launch.sh`,
-bun-preferred with node fallback; `.mcp.json` `command` is the wrapper,
-`args[0]` is the `server.mjs` path) is documented in the **hooks-mcp-server** rule.
+self-contained plugin-local `mcp/server.mjs` invoked **directly** as the `.mcp.json`
+`command` — an executable `.mjs` (`#!/usr/bin/env node`, `100755`), node-only, no
+wrapper; an optional bun-preferred `bin/mjs-launch.sh` fallback remains documented)
+is documented in the **hooks-mcp-server** rule.
 
 ```json
 {

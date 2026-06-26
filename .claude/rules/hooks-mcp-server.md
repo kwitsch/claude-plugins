@@ -61,16 +61,19 @@ Why the limits (documented Claude Code behavior):
 
 ```
 plugins/<name>/
-  bin/mjs-launch.sh  # bun-preferred .mjs launcher (chmod +x)
-  mcp/server.mjs     # self-contained, zero-dep MCP stdio server (chmod +x)
-  .mcp.json          # registers "example-hooks" via bin/mjs-launch.sh with args: ["…/mcp/server.mjs"]
+  mcp/server.mjs     # self-contained, zero-dep MCP stdio server (executable .mjs: #!/usr/bin/env node + chmod +x)
+  .mcp.json          # registers "example-hooks" with command: "…/mcp/server.mjs" (direct — no wrapper, no args)
   hooks/hooks.json   # { "type": "mcp_tool", "server": "plugin:<plugin-name>:example-hooks", "tool": "<tool>" }
+  # bin/mjs-launch.sh  # OPTIONAL bun-preferred launcher (chmod +x) — only if the plugin needs bun runtime selection
 ```
 
-Runtime selection is owned by `bin/mjs-launch.sh` (bun-preferred, node fallback);
-`server.mjs` is a plain Node/Bun program. The three reference blocks below use the
-concrete name `example-hooks` so they work as a verbatim copy — **rename
-`example-hooks` to your plugin's `<name>-hooks` across all three files.**
+`server.mjs` is invoked **directly** as the `.mcp.json` `command` — an executable
+`.mjs` (`#!/usr/bin/env node`, `100755`), node-only, no runtime-selection wrapper.
+(A plugin that genuinely needs bun-preferred selection MAY use the optional
+`bin/mjs-launch.sh` wrapper documented at the end of this rule.) The reference
+blocks below use the concrete name `example-hooks` so they work as a verbatim copy —
+**rename `example-hooks` to your plugin's `<name>-hooks` across `.mcp.json`,
+`hooks/hooks.json`, and `server.mjs` (its `SERVER_NAME`).**
 
 **`server` value in `hooks.json` — use the runtime-namespaced name, NOT the bare
 `.mcp.json` key.** A plugin's MCP server connects under
@@ -89,17 +92,17 @@ non-plugin servers defined directly in settings.)
 {
   "mcpServers": {
     "example-hooks": {
-      "command": "${CLAUDE_PLUGIN_ROOT}/bin/mjs-launch.sh",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"]
+      "command": "${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"
     }
   }
 }
 ```
 
-`${CLAUDE_PLUGIN_ROOT}` is substituted directly in plugin MCP configs. The wrapper
-`bin/mjs-launch.sh` is what Claude Code exec's — it MUST have the executable bit set
-(see the hooks-executable rule). `server.mjs` is passed as an argument, not exec'd
-directly. The `bin/` PATH feature does not apply to MCP-server spawning.
+`${CLAUDE_PLUGIN_ROOT}` is substituted directly in plugin MCP configs. `mcp/server.mjs`
+is what Claude Code exec's — it MUST have the executable bit set (`100755`) and a
+`#!/usr/bin/env node` shebang (see the hooks-executable rule), and `node` must be on
+the PATH Claude Code launches MCP servers with. The `bin/` PATH feature does not apply
+to MCP-server spawning.
 
 ## `hooks/hooks.json`
 
@@ -121,11 +124,15 @@ directly. The `bin/` PATH feature does not apply to MCP-server spawning.
 `mcp_tool` fields: `server` (required — must match a connected server), `tool`
 (required). Common fields apply (`if`, `timeout` default 600, `statusMessage`).
 
-## `bin/mjs-launch.sh` (canonical wrapper — copy verbatim, `chmod +x`)
+## `bin/mjs-launch.sh` (OPTIONAL bun-preferred wrapper — not the default)
 
-Runtime selection is owned by this wrapper. Copy it from any plugin that has one
-(e.g. `plugins/js-lsp/bin/mjs-launch.sh`). Prefers bun; falls back to node; errors
-if neither is available. All messages go to stderr (stdout is the MCP stdio channel).
+This wrapper is an **optional fallback** for a plugin that genuinely needs
+bun-preferred runtime selection; the canonical shape is the direct-`.mjs` `command`
+shown above. It carries known edge-case issues (empty PATH segment, lingering signal
+forwarder); prefer the direct-`.mjs` form. No LSP plugin ships one anymore; only
+`claude-code-knowledge` still uses it — copy the template below if you need it.
+Prefers bun; falls back to node; errors if neither is available. All messages go to
+stderr (stdout is the MCP stdio channel).
 
 ```bash
 #!/usr/bin/env bash
@@ -150,18 +157,18 @@ exit 1
 
 ## `mcp/server.mjs` (reference, self-contained, zero-dep)
 
-`chmod +x` it (the file still needs the executable bit in case it is ever invoked
-directly, and `git ls-tree` will show 100755). Runtime selection is handled by
-`bin/mjs-launch.sh`; `server.mjs` is a plain Node/Bun program — no inline bun
-re-exec shim. Pure built-ins; identical protocol under bun and node. With
+`chmod +x` it — it is invoked **directly** as the `.mcp.json` `command`, so it MUST
+have the executable bit (`git ls-tree` shows 100755) and a `#!/usr/bin/env node`
+shebang. `server.mjs` is a plain Node program — no inline bun re-exec shim. Pure
+built-ins; runs identically under node (and under bun if used via the optional wrapper). With
 `MCP_HOOK_DEBUG` set, the tool logs each `tools/call` to stderr (handy for
 confirming the hook contract). Replace `example-hooks` / the example tool with
 your plugin's names.
 
 ```js
 #!/usr/bin/env node
-// Self-contained, zero-dependency MCP stdio server (Node/Bun built-ins only).
-// Runtime selection (bun-preferred, node fallback) is owned by bin/mjs-launch.sh.
+// Self-contained, zero-dependency MCP stdio server (Node built-ins only).
+// Invoked directly as the .mcp.json command (#!/usr/bin/env node; node-only, no wrapper).
 // Transport: newline-delimited JSON-RPC 2.0. stdout = JSON-RPC only; logs → stderr.
 import process from "node:process";
 import readline from "node:readline";
@@ -254,24 +261,26 @@ function startServer() {
 ## Gotchas
 
 - **stdout hygiene:** stdio MCP is JSON-RPC over stdout — every diagnostic to stderr.
-- **bun preference + node fallback:** `bin/mjs-launch.sh` owns runtime selection —
-  it prepends `~/.local/bin` and `~/.bun/bin` to PATH (non-interactive shells often
-  miss these; uses `${HOME}`, never `~`, and avoids empty PATH segments), then
-  `exec bun "$@"` if bun is found, `exec node "$@"` otherwise, and errors if
-  neither is available. `server.mjs` itself contains no re-exec shim.
-- **Executable bit:** `bin/mjs-launch.sh` is the file Claude Code exec's via
-  `.mcp.json` `command` — it MUST be `chmod +x` (enforced by the hooks-executable
-  rule). `server.mjs` keeps its executable bit too (`100755` in git) so it can be
-  invoked directly in development, but the MCP-server path goes through the wrapper.
-  A non-executable wrapper silently fails to start, and the `mcp_tool` hook then
-  fails open.
+- **Executable bit + `node` on PATH:** `mcp/server.mjs` is the file Claude Code
+  exec's via `.mcp.json` `command` — it MUST be `chmod +x` (`100755` in git,
+  enforced by the hooks-executable rule) and carry a `#!/usr/bin/env node` shebang,
+  and `node` must be on the PATH Claude Code launches MCP servers with. A
+  non-executable / shebang-less server silently fails to start, and the `mcp_tool`
+  hook then fails open. `server.mjs` contains no re-exec shim.
+- **Optional bun wrapper:** if a plugin uses the optional `bin/mjs-launch.sh`, the
+  wrapper (not `server.mjs`) is what Claude Code exec's and must be `chmod +x`; it
+  prepends `~/.local/bin` and `~/.bun/bin` to PATH (uses `${HOME}`, never `~`, and
+  avoids empty PATH segments), then `exec bun "$@"` if bun is found, `exec node "$@"`
+  otherwise. It is not the default — see the caveats above.
 - **Debug logging:** the per-`tools/call` stderr log is gated behind
   `MCP_HOOK_DEBUG` so production hooks stay quiet; set it to confirm the contract.
-- **Native Windows:** the `#!/usr/bin/env bash` shebang in `bin/mjs-launch.sh`
-  needs a shell/`.exe` shim on native Windows; WSL2 / Linux / macOS are fine.
-- **Direct-`.mjs` alternative (node-only plugins):** a **node-only** plugin MAY
-  invoke an executable `.mjs` (`#!/usr/bin/env node` + `chmod +x` / `100755`)
-  directly as the `command` instead of via the wrapper — cave-context does this
-  (its vendored context-mode removes any need for runtime selection). The wrapper
-  is the recommended default for new plugins; acknowledge this alternative when
-  reviewing cave-context so a future pass does not "restore" a wrapper for it.
+- **Native Windows:** a `#!/usr/bin/env node` server shebang resolves on native
+  Windows via the Node launcher; the optional `bin/mjs-launch.sh` wrapper's
+  `#!/usr/bin/env bash` shebang would need a shell/`.exe` shim. WSL2 / Linux / macOS
+  are fine either way.
+- **Direct-`.mjs` is the default:** invoke the executable `.mjs`
+  (`#!/usr/bin/env node` + `chmod +x` / `100755`) directly as the `command` — this is
+  the canonical shape. cave-context and the LSP plugins (js-lsp/ts-lsp/shell-lsp) do
+  this; the optional `bin/mjs-launch.sh` wrapper is only for plugins that need
+  bun-preferred runtime selection. Do not "restore" a wrapper for a plugin that
+  intentionally invokes its `.mjs` directly.
