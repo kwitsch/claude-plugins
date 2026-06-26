@@ -40,6 +40,10 @@ async function openDb(dbPath) {
 // per-call cwd, so we MUST set these explicitly before resolving, or the server's
 // own cwd would silently become the project root.
 function applyInputEnv(input) {
+  // Fire-and-forget capture's post-await read of this global env (getSessionDBPath→getProjectDir)
+  // is safe: one MCP server per session → input.cwd is stable across every hook (a Bash `cd` does
+  // not move it) → identical env written each call. The multi-project-in-one-server misroute is out
+  // of the supported operating model, so no projectDir thread-through is needed (review F1, skipped).
   // Apply CONTEXT_MODE_DIR from the shared env helper (only when not already set).
   const env = contextModeEnv();
   if (env.CONTEXT_MODE_DIR && !process.env.CONTEXT_MODE_DIR) {
