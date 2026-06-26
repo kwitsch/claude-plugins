@@ -3,7 +3,7 @@
 Conventions for all plugins here.
 
 ## Structure
-Each plugin: `.claude-plugin/plugin.json` (manifest, holds only `version`) + components + `README.md` + `CLAUDE.md`. Matching bats suite in `test/<name>/` (see `.claude/rules/test-conventions.md`).
+Each plugin: `.claude-plugin/plugin.json` (manifest: `version` plus metadata like `name`/`description`/`userConfig`, and may declare `dependencies`) + components + `README.md` + `CLAUDE.md`. Matching bats suite in `test/<name>/` (see `.claude/rules/test-conventions.md`). The `version` field lives only here — never in `marketplace.json` entries (see `.claude/rules/plugin-versioning.md`).
 
 **Important**: Only `plugin.json` goes inside `.claude-plugin/`. All component dirs at plugin root.
 

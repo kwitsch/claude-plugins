@@ -75,13 +75,17 @@ PLUGIN="${BATS_TEST_DIRNAME}/../../plugins/ts-lsp"
   [ "$status" -eq 0 ]
 }
 
-@test "SessionStart hint exists, non-empty, server-agnostic" {
+@test "SessionStart examples exist, non-empty, server-agnostic" {
   f="$PLUGIN/hooks/SessionStart.md"
   [ -s "$f" ]
-  grep -q "LSP-first symbol search" "$f"
-  grep -q "workspaceSymbol" "$f"
+  grep -q "camelCase" "$f"
   run grep -qE "js-lsp|ts-lsp|shell-lsp" "$f"
   [ "$status" -ne 0 ]
+}
+
+@test "plugin.json declares lsp-base as a dependency" {
+  run jq -e '(.dependencies // []) | index("lsp-base") != null' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
 }
 
 @test "reentrancy: matchers never match the plugin's own hook tools" {

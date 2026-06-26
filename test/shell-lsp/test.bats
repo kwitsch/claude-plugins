@@ -74,20 +74,24 @@ PLUGIN="${BATS_TEST_DIRNAME}/../../plugins/shell-lsp"
   [ "$status" -eq 0 ]
 }
 
-@test "SessionStart hint exists, non-empty, server-agnostic" {
+@test "SessionStart examples exist, non-empty, server-agnostic" {
   f="$PLUGIN/hooks/SessionStart.md"
   [ -s "$f" ]
-  grep -q "LSP-first symbol search" "$f"
-  grep -q "workspaceSymbol" "$f"
+  grep -q "snake_case" "$f"
   run grep -qE "js-lsp|ts-lsp|shell-lsp" "$f"
   [ "$status" -ne 0 ]
 }
 
-@test "SessionStart.md is byte-identical across js-lsp, ts-lsp, shell-lsp" {
+@test "SessionStart.md: js-lsp and ts-lsp identical, shell-lsp diverges" {
   base="${BATS_TEST_DIRNAME}/../../plugins"
   run cmp -s "$base/js-lsp/hooks/SessionStart.md" "$base/ts-lsp/hooks/SessionStart.md"
   [ "$status" -eq 0 ]
   run cmp -s "$base/js-lsp/hooks/SessionStart.md" "$base/shell-lsp/hooks/SessionStart.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "plugin.json declares lsp-base as a dependency" {
+  run jq -e '(.dependencies // []) | index("lsp-base") != null' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
 }
 

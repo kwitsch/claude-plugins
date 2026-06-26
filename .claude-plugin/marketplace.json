@@ -119,6 +119,21 @@
       ]
     },
     {
+      "name": "lsp-base",
+      "source": "./plugins/lsp-base",
+      "description": "Shared LSP-first guidance (SessionStart rules block + per-prompt reminder) depended on by the js-lsp/ts-lsp/shell-lsp plugins.",
+      "author": {
+        "name": "Kwitsch"
+      },
+      "category": "development",
+      "tags": [
+        "lsp",
+        "guidance",
+        "hooks",
+        "code-intelligence"
+      ]
+    },
+    {
       "name": "js-lsp",
       "source": "./plugins/js-lsp",
       "description": "JavaScript-only LSP via vtsls, with LSP-first enforcement hooks",

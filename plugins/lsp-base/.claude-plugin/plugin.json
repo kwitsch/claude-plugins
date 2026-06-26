@@ -1,0 +1,8 @@
+{
+  "name": "lsp-base",
+  "version": "0.1.0",
+  "description": "Shared LSP-first code-intelligence guidance — a SessionStart rules block plus a per-prompt reminder — depended on by the js-lsp, ts-lsp, and shell-lsp plugins. Hooks only; no LSP/MCP server.",
+  "author": {
+    "name": "Kwitsch"
+  }
+}

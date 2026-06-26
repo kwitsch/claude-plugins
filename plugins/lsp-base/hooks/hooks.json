@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "cat", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/SessionStart.md"] }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "cat", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/PromptReminder.md"] }
+        ]
+      }
+    ]
+  }
+}
