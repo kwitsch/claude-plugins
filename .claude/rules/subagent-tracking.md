@@ -71,5 +71,4 @@ subagent-scoped probe.
 
 | Skill | Batch(es) | Gate before | Severity |
 |---|---|---|---|
-| review-branch | per round: enabled reviewers; separately review-fixer | quota record / aggregate / Decide / the `DONE`/`BLOCKED` token | highest (missed finish → dropped findings → false `DONE` → unreviewed push) |
 | new-pr | ci-monitor; review-fixer (each sequential) | review-fixer dispatch; the push | medium |
