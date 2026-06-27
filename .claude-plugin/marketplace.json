@@ -117,6 +117,22 @@
         "context-mode",
         "mcp"
       ]
+    },
+    {
+      "name": "init",
+      "source": "./plugins/init",
+      "description": "Repo initialization skill collection — CLAUDE.md, .claude/.gitignore, codebase-memory index, and .lsp.json creation via idempotent per-concern skills and a repo-init orchestrator.",
+      "author": {
+        "name": "Kwitsch"
+      },
+      "category": "development",
+      "tags": [
+        "skills",
+        "init",
+        "setup",
+        "claude-md",
+        "lsp"
+      ]
     }
   ]
 }
