@@ -1,9 +1,7 @@
 #!/usr/bin/env bats
 # Tests for branch-management's standalone bin/ scripts and manifest. The
-# codex and coderabbit reviews are inlined into their agents and
-# carry no bats coverage (dev-time self-test only). Covered here:
-# copilot-review.sh, git-shim, clean-branches.sh, ci-watch.sh, the plugin.json
-# userConfig manifest, and the review-branch rate-limit regex contract.
+# suite covers clean-branches.sh, ci-watch.sh, and the plugin.json
+# userConfig manifest.
 #
 # Strategy: each script test runs with an isolated PATH that contains only
 # symlinks to the required system tools plus per-test stub binaries for the
@@ -289,58 +287,6 @@ fake_real_git() {
 }
 
 #
-# review-branch rate-limit regex contract
-#
-# The reviewer quota-record logic now lives inline in
-# skills/review-branch/SKILL.md (no standalone quota script). The contract that
-# used to be covered by the old quota record tests is preserved here by extracting
-# the live regex from the skill and running the same corpus through it, so the
-# test tracks the real regex instead of a drifting copy.
-
-# regex_match <text> — exit 0 if the live review-branch rate-limit regex
-# matches <text>, exit 1 otherwise. The regex is pulled verbatim from the
-# `grep -qiE '…'` line in review-branch/SKILL.md.
-RB_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-branch/SKILL.md"
-regex_match() {
-  local re
-  re=$(grep -oE "grep -qiE '[^']*'" "$RB_SKILL" | head -n1 | sed -E "s/^grep -qiE '//; s/'$//")
-  [ -n "$re" ] || return 2   # regex not found → fail loudly
-  printf '%s' "$1" | grep -qiE "$re"
-}
-
-@test "rate-limit regex: extracted from review-branch SKILL.md" {
-  re=$(grep -oE "grep -qiE '[^']*'" "$RB_SKILL" | head -n1 | sed -E "s/^grep -qiE '//; s/'$//")
-  [ -n "$re" ]
-}
-
-@test "rate-limit regex: matches 'rate limit'" {
-  regex_match "rate limit exceeded"
-}
-
-@test "rate-limit regex: matches 'free tier quota'" {
-  regex_match "free tier quota exceeded"
-}
-
-@test "rate-limit regex: matches 'reviews/hour'" {
-  regex_match "only 3 reviews/hour allowed"
-}
-
-@test "rate-limit regex: matches 'HTTP 429'" {
-  regex_match "HTTP 429: too many requests"
-}
-
-@test "rate-limit regex: does NOT match an unrelated error" {
-  ! regex_match "some other error occurred"
-}
-
-@test "rate-limit regex: does NOT match a bare disk-quota error" {
-  ! regex_match "disk quota exceeded on runner"
-}
-
-@test "rate-limit regex: does NOT match 429 outside an HTTP context" {
-  ! regex_match "build failed with code 429 artifacts"
-}
-
 #
 # plugin.json userConfig
 #
@@ -350,13 +296,13 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 @test "userConfig: declares expected toggles plus ci_watch_timeout and review_max_rounds" {
   run jq -r '.userConfig | keys | sort | join(" ")' "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
-  assert_output "ci_monitor ci_watch_timeout coderabbit_ci_comments delete_branch_on_merge rebase_before_pr review_claude review_coderabbit review_codex review_copilot review_max_rounds"
+  assert_output "ci_monitor ci_watch_timeout coderabbit_ci_comments delete_branch_on_merge rebase_before_pr review_level review_max_rounds"
 }
 
 @test "userConfig: every toggle except numeric ones is a boolean" {
   run jq -e '.userConfig
     | to_entries
-    | map(select(.key != "ci_watch_timeout" and .key != "review_max_rounds"))
+    | map(select(.key != "ci_watch_timeout" and .key != "review_max_rounds" and .key != "review_level"))
     | all(.[]; .value.type == "boolean")' \
     "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
@@ -365,7 +311,7 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 @test "userConfig: every boolean toggle defaults to true" {
   run jq -e '.userConfig
     | to_entries
-    | map(select(.key != "ci_watch_timeout" and .key != "review_max_rounds"))
+    | map(select(.key != "ci_watch_timeout" and .key != "review_max_rounds" and .key != "review_level"))
     | all(.[]; .value.default == true)' \
     "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
@@ -396,7 +342,7 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 @test "userConfig: every boolean description documents values and default" {
   run jq -e '.userConfig
     | to_entries
-    | map(select(.key != "ci_watch_timeout" and .key != "review_max_rounds"))
+    | map(select(.key != "ci_watch_timeout" and .key != "review_max_rounds" and .key != "review_level"))
     | all(.[]; (.value.description | test("Values:")) and (.value.description | test("\\btrue\\b")) and (.value.description | test("\\bfalse\\b")) and (.value.description | test("Default: (true|false)\\.")))' \
     "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
@@ -414,6 +360,26 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
   run jq -e '.userConfig.review_max_rounds.description
     | test("positive whole-number")
     and test("Default: 3\\.")' \
+    "$REPO_ROOT/$PLUGIN_JSON_REL"
+  assert_success
+}
+
+@test "userConfig: review_level is a string with default medium" {
+  run jq -e '.userConfig.review_level
+    | (.type == "string")
+    and (.default == "medium")' \
+    "$REPO_ROOT/$PLUGIN_JSON_REL"
+  assert_success
+}
+
+@test "userConfig: review_level description documents valid values and default" {
+  run jq -e '.userConfig.review_level.description
+    | test("low")
+    and test("medium")
+    and test("high")
+    and test("xhigh")
+    and test("max")
+    and test("Default: medium\\.")' \
     "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
 }
@@ -929,29 +895,24 @@ run_clean_script() {
   assert_success
 }
 
-# --- review-branch subagent tracking ---
+# --- review-branch inline /code-review loop (no async dispatch) ---
 RB_SKILL2="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-branch/SKILL.md"
 
-@test "review-branch allowed-tools includes the Task* ledger tools and ToolSearch" {
+@test "review-branch allowed-tools includes Skill (inline /code-review invocation)" {
+  run grep -q '"Skill"' "$RB_SKILL2"
+  assert_success
+}
+
+@test "review-branch allowed-tools excludes Agent (no async reviewer dispatch)" {
   line=$(grep '^allowed-tools:' "$RB_SKILL2")
-  for t in TaskCreate TaskUpdate TaskList TaskGet TaskStop ToolSearch; do
-    echo "$line" | grep -q "$t" || { echo "missing $t in review-branch allowed-tools"; return 1; }
+  echo "$line" | grep -qv '"Agent"'
+}
+
+@test "review-branch allowed-tools excludes Task* ledger tools (no async batch)" {
+  line=$(grep '^allowed-tools:' "$RB_SKILL2")
+  for t in TaskCreate TaskUpdate TaskList TaskGet TaskStop; do
+    echo "$line" | grep -qv "$t" || { echo "unexpected $t in review-branch allowed-tools"; return 1; }
   done
-}
-
-@test "review-branch carries the subagent reconciliation gate" {
-  run grep -q 'select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop' "$RB_SKILL2"
-  assert_success
-  run grep -qi 'Subagent reconciliation gate' "$RB_SKILL2"
-  assert_success
-}
-
-@test "review-branch gate appears before the DONE/BLOCKED token section (no DONE on an unreconciled batch)" {
-  gate=$(grep -n 'select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop' "$RB_SKILL2" | head -n1 | cut -d: -f1)
-  tok=$(grep -n 'terminal-state token' "$RB_SKILL2" | head -n1 | cut -d: -f1)
-  [ -n "$gate" ] || { echo "gate line not found"; return 1; }
-  [ -n "$tok" ]  || { echo "token line not found"; return 1; }
-  [ "$gate" -lt "$tok" ] || { echo "gate ($gate) must precede DONE/BLOCKED token ($tok)"; return 1; }
 }
 
 # --- new-branch (branch creation inlined — no subagent dispatch) ---
