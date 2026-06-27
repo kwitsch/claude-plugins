@@ -1,22 +1,18 @@
 ---
 name: new-pr
-description: Use when branch work complete and should become pull/merge request - runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewer subagents, configurable max rounds) with verified fixes between rounds, pushes, opens PR or MR via gh or glab, then watches CI and CodeRabbit feedback until all green. Review sources can be disabled per user or per project.
+description: Use when branch work complete and should become pull/merge request - runs iterative /code-review --fix review rounds (configurable max rounds) with fixes committed between rounds, pushes, opens PR or MR via gh or glab, then watches CI and CodeRabbit feedback until all green.
 argument-hint: "[--base <branch>]"
 allowed-tools: ["Agent", "Skill", "AskUserQuestion", "Bash(git:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(echo:*)", "Bash(bash:*)", "ToolSearch", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TaskStop"]
 ---
 
 # Turn the current branch into a reviewed PR/MR
 
-Thin orchestrator: reviews run in dedicated read-only reviewer subagents
-(`claude-reviewer` on opus, three CLI reviewers on haiku), all fixes
-run in `review-fixer` subagent (opus), CI watch runs in
-`ci-monitor` subagent (sonnet). Skill handles preconditions,
-dispatching review rounds, aggregation + dedupe, fix loop, submission
-and monitor loop — raw review output and CI logs never enter main
-context: subagents keep heavy output out of the main context. Review
-sources, CI monitoring and CodeRabbit comment handling
-are individually togglable via the plugin's `userConfig` options,
-read in preconditions (step 4).
+Thin orchestrator: reviews run inline via the bundled `/code-review` skill
+(`review-branch` sub-skill, Skill tool), CI watch runs in `ci-monitor`
+subagent (sonnet), fixes from CI/CodeRabbit findings run in `review-fixer`
+subagent (opus). CI monitoring and CodeRabbit comment handling are
+individually togglable via the plugin's `userConfig` options, read in
+preconditions (step 4).
 
 > **Ask the user via `AskUserQuestion`.** When this skill needs a decision from
 > the user and the answers are a fixed / multiple-choice set, it MUST present the
@@ -93,9 +89,8 @@ read in preconditions (step 4).
    auto-delete-on-merge wiring in step 11. `rebase_before_pr` gates the
    onto-latest-base rebase in step 8.
 
-   Review toggles (`review_claude/codex/copilot/coderabbit`),
-   `review_max_rounds`, and reviewer quota checks are handled
-   autonomously by the `review-branch` sub-skill (step 6).
+   `review_level` and `review_max_rounds` are handled autonomously by
+   the `review-branch` sub-skill (step 6).
 
 ## Subagent dispatch tracking
 
@@ -118,18 +113,15 @@ See `.claude/rules/subagent-tracking.md`.
 
 ## Review rounds
 
-5. **Commit pending work.** This is mandatory: codex and copilot diff
-   committed state against `origin/$base`, and coderabbit diffs against
-   the local `$base`. Uncommitted work-tree edits are invisible to
-   reviewers. Commit only changes that belong to this branch's work; if
-   unclear whether a change belongs, ask the user.
+5. **Commit pending work.** This is mandatory: `/code-review` reviews
+   the committed branch-vs-base diff (`$base` is passed as the diff target).
+   Uncommitted work-tree edits are invisible to the reviewer. Commit only
+   changes that belong to this branch's work; if unclear whether a change
+   belongs, ask the user.
 
 6. **Run review rounds.** Invoke the `branch-management:review-branch`
    skill (Skill tool) with: `--base "$base"`. The sub-skill reads its
-   own `review_max_rounds`, `review_claude`/`review_codex`/
-   `review_copilot`/`review_coderabbit` toggles, and performs quota
-   checks autonomously. It also handles the base-divergence check for
-   coderabbit (performed independently from step 2).
+   own `review_max_rounds` and `review_level` autonomously.
 
    `review-branch`'s report leads with a terminal-state token — `DONE`
    or `BLOCKED` as the first token of its first line. If that token is

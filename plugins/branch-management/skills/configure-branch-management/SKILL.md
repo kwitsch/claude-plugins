@@ -1,6 +1,6 @@
 ---
 name: configure-branch-management
-description: Interactive configurator for branch-management plugin settings — reviewers, CI monitoring. Detects project context and writes to the appropriate settings.json.
+description: Interactive configurator for branch-management plugin settings — review level, CI monitoring. Detects project context and writes to the appropriate settings.json.
 argument-hint: ""
 allowed-tools: ["AskUserQuestion", "Bash(jq:*)", "Bash(test:*)", "Bash(mkdir:*)", "Bash(mv:*)", "Bash(printf:*)"]
 disable-model-invocation: true
@@ -24,11 +24,10 @@ settings file. Values equal to the plugin default are omitted (clean settings).
 ## Plugin defaults
 
 ```
-review_claude: true        review_codex: true
-review_copilot: true       review_coderabbit: true
-review_max_rounds: 3       ci_monitor: true
-ci_watch_timeout: 1800     coderabbit_ci_comments: true
-delete_branch_on_merge: true   rebase_before_pr: true
+review_level: "medium"     review_max_rounds: 3
+ci_monitor: true           ci_watch_timeout: 1800
+coderabbit_ci_comments: true   delete_branch_on_merge: true
+rebase_before_pr: true
 ```
 
 ## Step 1 — Detect project context
@@ -84,28 +83,27 @@ Find plugin config key: search `pluginConfigs` for any key starting with
 Merge `$stored` with the defaults table above to produce `$current` (stored
 values override defaults for any key present in `$stored`).
 
-## Step 4 — Ask: Reviewers
+## Step 4 — Ask: Review level
 
-Compute currently-enabled reviewers from `$current`:
-- `review_claude == true` → "Claude"
-- `review_codex == true` → "Codex"
-- `review_copilot == true` → "Copilot"
-- `review_coderabbit == true` → "CodeRabbit"
+Compute current review level from `$current`:
+- `review_level` value → `$cur_level` (default `"medium"` if not set)
 
 ```
 AskUserQuestion (2 questions):
-  Q1: multiSelect: true
-      question: "Which reviewers should be enabled?"
-      header:   "Reviewers [currently: <comma-list or none>]"
+  Q1: multiSelect: false
+      question: "What effort level should /code-review use?"
+      header:   "Review level [currently: <$cur_level>]"
       options:
-        - label: "Claude"
-          description: "claude-reviewer subagent (opus)"
-        - label: "Codex"
-          description: "codex-reviewer — requires codex CLI login"
-        - label: "Copilot"
-          description: "copilot-reviewer — requires copilot CLI login"
-        - label: "CodeRabbit"
-          description: "coderabbit-reviewer — requires coderabbit CLI login, rate-limited (3/h free tier)"
+        - label: "low"
+          description: "fast — high-confidence findings only"
+        - label: "medium"
+          description: "balanced coverage (default)"
+        - label: "high"
+          description: "broader — may include uncertain findings"
+        - label: "xhigh"
+          description: "deeper reasoning"
+        - label: "max"
+          description: "maximum coverage"
 
   Q2: multiSelect: false
       question: "Maximum number of iterative review rounds?"
@@ -118,7 +116,9 @@ AskUserQuestion (2 questions):
         - label: "Other"  description: "enter a custom positive integer"
 ```
 
-Store: `$reviewers` (list of selected labels), `$max_rounds_raw` (selected label).
+Store: `$review_level_raw` (selected label), `$max_rounds_raw` (selected label).
+
+`$review_level = $review_level_raw` (one of: `low`, `medium`, `high`, `xhigh`, `max`).
 
 If `$max_rounds_raw == "Other"` → run numeric validation loop for
 `review_max_rounds` (step 6) and store result as `$max_rounds`.
@@ -214,10 +214,7 @@ loop:
 Map all collected answers to config key values:
 
 ```
-review_claude          = ("Claude"     is in $reviewers)
-review_codex           = ("Codex"      is in $reviewers)
-review_copilot         = ("Copilot"    is in $reviewers)
-review_coderabbit      = ("CodeRabbit" is in $reviewers)
+review_level           = $review_level_raw      [string]
 review_max_rounds      = $max_rounds            [integer]
 ci_monitor             = ($ci_monitor_raw == "Yes")
 ci_watch_timeout       = $ci_timeout            [integer]
@@ -230,11 +227,10 @@ Compute delta (keys where `new_value != default`):
 
 ```
 defaults = {
-  review_claude: true,      review_codex: true,
-  review_copilot: true,     review_coderabbit: true,
-  review_max_rounds: 3,     ci_monitor: true,
-  ci_watch_timeout: 1800,   coderabbit_ci_comments: true,
-  delete_branch_on_merge: true, rebase_before_pr: true
+  review_level: "medium",   review_max_rounds: 3,
+  ci_monitor: true,         ci_watch_timeout: 1800,
+  coderabbit_ci_comments: true, delete_branch_on_merge: true,
+  rebase_before_pr: true
 }
 delta = { key: new_value[key] for each key where new_value[key] != defaults[key] }
 ```

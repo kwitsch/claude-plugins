@@ -5,13 +5,17 @@ paths:
 
 # Rule: subagent completion-reconciliation tracking
 
-The branch-management dispatcher skills (`review-branch`, `new-pr`)
-offload work to async subagents via the Agent tool. In
-this harness an Agent dispatch returns immediately with a `task_id`; completion
-arrives later as a `<task-notification>` that re-invokes the orchestrator. Each
-such skill MUST carry the canonical gate block below (inline — rules are not
-loaded at skill runtime, so the operative copy lives in the SKILL.md body) and
-list the Task* ledger tools + `ToolSearch` in `allowed-tools`.
+`new-pr` dispatches async subagents via the Agent tool (`ci-monitor`,
+`review-fixer` in the monitor loop). In this harness an Agent dispatch returns
+immediately with a `task_id`; completion arrives later as a
+`<task-notification>` that re-invokes the orchestrator. Each such skill MUST
+carry the canonical gate block below (inline — rules are not loaded at skill
+runtime, so the operative copy lives in the SKILL.md body) and list the Task*
+ledger tools + `ToolSearch` in `allowed-tools`.
+
+`review-branch` dispatches `claude-reviewer` and `review-fixer` via the Agent tool
+and requires the Task* ledger. The constraint below applies to both `new-pr` and
+`review-branch`.
 
 The invariant: a skill MUST NOT advance past its aggregation/decision/report step
 until every dispatched subagent in the batch is reconciled to a terminal state.
@@ -22,7 +26,7 @@ toggled off, quota-limited, diverged) are not in the batch and are not waited on
 
 The Task* tools (`TaskCreate`, `TaskUpdate`, `TaskList`, `TaskGet`, `TaskStop`,
 `TaskOutput`) ARE present and callable at **depth 0** (the main loop), where all
-four skills run inline (NOT `context: fork`). A `ToolSearch` issued from inside a
+branch-management skills run inline (NOT `context: fork`). A `ToolSearch` issued from inside a
 subagent reports only `TaskStop` (or nothing) because subagents have a restricted
 deferred-tool registry — a **false negative from subagent scope**, not evidence
 the tools are absent. Do NOT remove the Task* ledger on the basis of a
@@ -71,5 +75,5 @@ subagent-scoped probe.
 
 | Skill | Batch(es) | Gate before | Severity |
 |---|---|---|---|
-| review-branch | per round: enabled reviewers; separately review-fixer | quota record / aggregate / Decide / the `DONE`/`BLOCKED` token | highest (missed finish → dropped findings → false `DONE` → unreviewed push) |
 | new-pr | ci-monitor; review-fixer (each sequential) | review-fixer dispatch; the push | medium |
+| review-branch | claude-reviewer (per round); review-fixer (per round, when findings remain) | decide step; next-round dispatch | medium |

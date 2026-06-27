@@ -1,9 +1,7 @@
 #!/usr/bin/env bats
 # Tests for branch-management's standalone bin/ scripts and manifest. The
-# codex and coderabbit reviews are inlined into their agents and
-# carry no bats coverage (dev-time self-test only). Covered here:
-# copilot-review.sh, git-shim, clean-branches.sh, ci-watch.sh, the plugin.json
-# userConfig manifest, and the review-branch rate-limit regex contract.
+# suite covers clean-branches.sh, ci-watch.sh, and the plugin.json
+# userConfig manifest.
 #
 # Strategy: each script test runs with an isolated PATH that contains only
 # symlinks to the required system tools plus per-test stub binaries for the
@@ -48,300 +46,6 @@ run_script() {
 }
 
 #
-# copilot-review.sh
-#
-
-@test "copilot: exit 2 when CLI is missing" {
-  run_script copilot-review.sh main
-  assert_failure 2
-}
-
-@test "copilot: exit 3 when no token env and no login state" {
-  make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
-  run_script copilot-review.sh main
-  assert_failure 3
-}
-
-@test "copilot: token env var satisfies the login heuristic" {
-  make_stub copilot 'echo "COPILOT REVIEW OUTPUT $*"; exit 0'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" GH_TOKEN=x \
-    bash "$SCRIPTS/copilot-review.sh" main
-  assert_success
-  assert_output --partial "COPILOT REVIEW OUTPUT"
-  assert_output --partial "origin/main"
-}
-
-@test "copilot: recorded login in config.json satisfies the login heuristic" {
-  make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
-  mkdir -p "$HOME/.copilot"
-  printf '%s\n' '{' '  "loggedInUsers": [' '    {' \
-    '      "host": "https://github.com",' '      "login": "tester"' \
-    '    }' '  ]' '}' > "$HOME/.copilot/config.json"
-  run_script copilot-review.sh main
-  assert_success
-}
-
-@test "copilot: COPILOT_HOME override with recorded login satisfies the heuristic" {
-  make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
-  mkdir -p "$BATS_TEST_TMPDIR/cphome"
-  printf '{"loggedInUsers":[{"login":"tester"}]}' \
-    > "$BATS_TEST_TMPDIR/cphome/config.json"
-  run env -i PATH="$MOCKBIN" HOME="$HOME" COPILOT_HOME="$BATS_TEST_TMPDIR/cphome" \
-    bash "$SCRIPTS/copilot-review.sh" main
-  assert_success
-}
-
-@test "copilot: bare ~/.copilot directory no longer satisfies the heuristic" {
-  # A fresh COPILOT_HOME is created on first launch without any login.
-  make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
-  mkdir -p "$HOME/.copilot"
-  run_script copilot-review.sh main
-  assert_failure 3
-}
-
-@test "copilot: first-launch config.json without login maps to exit 3" {
-  make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
-  mkdir -p "$HOME/.copilot"
-  printf '{"firstLaunchAt":"2026-01-01T00:00:00.000Z"}' \
-    > "$HOME/.copilot/config.json"
-  run_script copilot-review.sh main
-  assert_failure 3
-}
-
-@test "copilot: logged-out config.json (empty loggedInUsers) maps to exit 3" {
-  # Minified on purpose: lastLoggedInUser.login on the same line must not
-  # fake a match for the non-empty loggedInUsers check.
-  make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
-  mkdir -p "$HOME/.copilot"
-  printf '{"lastLoggedInUser":{"login":"tester"},"loggedInUsers":[]}' \
-    > "$HOME/.copilot/config.json"
-  run_script copilot-review.sh main
-  assert_failure 3
-}
-
-@test "copilot: gh keyring login (no token in hosts.yml) satisfies the heuristic" {
-  # gh's default secure storage keeps the token in the OS keyring, so a
-  # logged-in hosts.yml carries a user but NO oauth_token line.
-  make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
-  mkdir -p "$HOME/.config/gh"
-  printf '%s\n' 'github.com:' '    user: tester' '    git_protocol: https' \
-    > "$HOME/.config/gh/hosts.yml"
-  run_script copilot-review.sh main
-  assert_success
-}
-
-@test "copilot: gh insecure-storage login (inline token) satisfies the heuristic" {
-  make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
-  mkdir -p "$HOME/.config/gh"
-  printf '%s\n' 'github.com:' '    user: tester' '    oauth_token: gho_x' \
-    > "$HOME/.config/gh/hosts.yml"
-  run_script copilot-review.sh main
-  assert_success
-}
-
-@test "copilot: gh config honours GH_CONFIG_DIR" {
-  make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
-  mkdir -p "$BATS_TEST_TMPDIR/ghcfg"
-  printf '%s\n' 'github.com:' '    user: tester' \
-    > "$BATS_TEST_TMPDIR/ghcfg/hosts.yml"
-  run env -i PATH="$MOCKBIN" HOME="$HOME" GH_CONFIG_DIR="$BATS_TEST_TMPDIR/ghcfg" \
-    bash "$SCRIPTS/copilot-review.sh" main
-  assert_success
-}
-
-@test "copilot: logged-out gh hosts.yml (no user) maps to exit 3" {
-  make_stub copilot 'echo "COPILOT REVIEW OUTPUT"; exit 0'
-  mkdir -p "$HOME/.config/gh"
-  printf '%s\n' 'github.com:' '    git_protocol: https' \
-    > "$HOME/.config/gh/hosts.yml"
-  run_script copilot-review.sh main
-  assert_failure 3
-}
-
-@test "copilot: review run is hardened read-only" {
-  # The stub echoes $*, so the full flag line (every --allow-tool) is asserted.
-  make_stub copilot 'echo "COPILOT REVIEW OUTPUT $*"; exit 0'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" GH_TOKEN=x \
-    bash "$SCRIPTS/copilot-review.sh" main
-  assert_success
-  assert_output --partial "deny-tool write"      # write tool must be denied
-  assert_output --partial "shell(git diff)"      # read-only git allowlist present
-  refute_output --partial "shell(git:*)"         # blanket git allow is gone
-  # No write-capable git subcommand may be allowlisted — copilot approves on a
-  # subcommand basis, so any of these would auto-approve a repo mutation.
-  refute_output --partial "shell(git branch)"
-  refute_output --partial "shell(git commit)"
-  refute_output --partial "shell(git push)"
-  refute_output --partial "shell(git checkout)"
-  refute_output --partial "shell(git restore)"
-  refute_output --partial "shell(git reset)"
-  refute_output --partial "shell(git stash)"
-  refute_output --partial "shell(git config)"
-}
-
-@test "copilot: auth failure in the output maps to exit 3" {
-  make_stub copilot 'echo "Error: not logged in. Run /login" >&2; exit 1'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" GH_TOKEN=x \
-    bash "$SCRIPTS/copilot-review.sh" main
-  assert_failure 3
-}
-
-@test "copilot: other review failure maps to exit 4" {
-  make_stub copilot 'echo "boom" >&2; exit 1'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" GH_TOKEN=x \
-    bash "$SCRIPTS/copilot-review.sh" main
-  assert_failure 4
-  assert_output --partial "boom"
-}
-
-@test "copilot: stdout-only diagnostic survives an exit-4 failure" {
-  make_stub copilot 'echo "FATAL: model backend unavailable (502)"; exit 1'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" GH_TOKEN=x \
-    bash "$SCRIPTS/copilot-review.sh" main
-  assert_failure 4
-  assert_output --partial "FATAL: model backend unavailable"
-}
-
-@test "copilot: auth error with exit 0 maps to exit 3" {
-  make_stub copilot 'echo "Error: not logged in. Run /login"; exit 0'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" GH_TOKEN=x \
-    bash "$SCRIPTS/copilot-review.sh" main
-  assert_failure 3
-}
-
-@test "copilot: finding text mentioning unauthorized does not fake exit 3" {
-  make_stub copilot 'echo "major: code allows unauthorized access in auth.c"; exit 1'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" GH_TOKEN=x \
-    bash "$SCRIPTS/copilot-review.sh" main
-  assert_failure 4
-}
-
-@test "copilot: exit 4 when the review hangs (timeout)" {
-  make_stub copilot 'sleep 5'
-  run env -i PATH="$MOCKBIN" HOME="$HOME" GH_TOKEN=x REVIEW_TIMEOUT=1 \
-    bash "$SCRIPTS/copilot-review.sh" main
-  assert_failure 4
-}
-
-@test "copilot: usage error without base argument" {
-  make_stub copilot 'exit 0'
-  run_script copilot-review.sh
-  assert_failure 1
-  assert_output --partial "usage"
-}
-
-#
-# git-shim/git — read-only git facade prepended to copilot's PATH so even the
-# allowlisted read-only subcommands cannot write via the --output/-O flag
-# family (which copilot's per-subcommand allowlist cannot express).
-#
-
-# Drop a fake "real git" that echoes its args, so passthrough is observable
-# and a refusal is provable by the ABSENCE of that echo.
-fake_real_git() {
-  printf '%s\n' '#!/usr/bin/env bash' 'printf "REALGIT %s\n" "$*"' > "$1"
-  chmod +x "$1"
-}
-
-@test "git-shim: forwards a read-only invocation to the real git" {
-  fake_real_git "$BATS_TEST_TMPDIR/realgit"
-  run env COPILOT_REVIEW_REAL_GIT="$BATS_TEST_TMPDIR/realgit" \
-    "$SCRIPTS/git-shim/git" --no-pager diff origin/main...HEAD
-  assert_success
-  assert_output "REALGIT --no-pager diff origin/main...HEAD"
-}
-
-@test "git-shim: refuses git diff --output (arbitrary file write)" {
-  fake_real_git "$BATS_TEST_TMPDIR/realgit"
-  run env COPILOT_REVIEW_REAL_GIT="$BATS_TEST_TMPDIR/realgit" \
-    "$SCRIPTS/git-shim/git" diff --output=/tmp/pwned HEAD~1 HEAD
-  assert_failure 13
-  refute_output --partial "REALGIT"
-}
-
-@test "git-shim: refuses the short -o output flag" {
-  fake_real_git "$BATS_TEST_TMPDIR/realgit"
-  run env COPILOT_REVIEW_REAL_GIT="$BATS_TEST_TMPDIR/realgit" \
-    "$SCRIPTS/git-shim/git" diff -o /tmp/pwned
-  assert_failure 13
-  refute_output --partial "REALGIT"
-}
-
-@test "git-shim: refuses git grep -O (spawns a pager command)" {
-  fake_real_git "$BATS_TEST_TMPDIR/realgit"
-  run env COPILOT_REVIEW_REAL_GIT="$BATS_TEST_TMPDIR/realgit" \
-    "$SCRIPTS/git-shim/git" grep -Ovim pattern
-  assert_failure 13
-  refute_output --partial "REALGIT"
-}
-
-@test "git-shim: refuses --output-directory" {
-  fake_real_git "$BATS_TEST_TMPDIR/realgit"
-  run env COPILOT_REVIEW_REAL_GIT="$BATS_TEST_TMPDIR/realgit" \
-    "$SCRIPTS/git-shim/git" format-patch --output-directory=/tmp/x HEAD~1
-  assert_failure 13
-  refute_output --partial "REALGIT"
-}
-
-@test "git-shim: exits 127 when the real git path is not provided" {
-  run -127 env -u COPILOT_REVIEW_REAL_GIT "$SCRIPTS/git-shim/git" status
-  assert_output --partial "COPILOT_REVIEW_REAL_GIT"
-}
-
-#
-# review-branch rate-limit regex contract
-#
-# The reviewer quota-record logic now lives inline in
-# skills/review-branch/SKILL.md (no standalone quota script). The contract that
-# used to be covered by the old quota record tests is preserved here by extracting
-# the live regex from the skill and running the same corpus through it, so the
-# test tracks the real regex instead of a drifting copy.
-
-# regex_match <text> — exit 0 if the live review-branch rate-limit regex
-# matches <text>, exit 1 otherwise. The regex is pulled verbatim from the
-# `grep -qiE '…'` line in review-branch/SKILL.md.
-RB_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-branch/SKILL.md"
-regex_match() {
-  local re
-  re=$(grep -oE "grep -qiE '[^']*'" "$RB_SKILL" | head -n1 | sed -E "s/^grep -qiE '//; s/'$//")
-  [ -n "$re" ] || return 2   # regex not found → fail loudly
-  printf '%s' "$1" | grep -qiE "$re"
-}
-
-@test "rate-limit regex: extracted from review-branch SKILL.md" {
-  re=$(grep -oE "grep -qiE '[^']*'" "$RB_SKILL" | head -n1 | sed -E "s/^grep -qiE '//; s/'$//")
-  [ -n "$re" ]
-}
-
-@test "rate-limit regex: matches 'rate limit'" {
-  regex_match "rate limit exceeded"
-}
-
-@test "rate-limit regex: matches 'free tier quota'" {
-  regex_match "free tier quota exceeded"
-}
-
-@test "rate-limit regex: matches 'reviews/hour'" {
-  regex_match "only 3 reviews/hour allowed"
-}
-
-@test "rate-limit regex: matches 'HTTP 429'" {
-  regex_match "HTTP 429: too many requests"
-}
-
-@test "rate-limit regex: does NOT match an unrelated error" {
-  ! regex_match "some other error occurred"
-}
-
-@test "rate-limit regex: does NOT match a bare disk-quota error" {
-  ! regex_match "disk quota exceeded on runner"
-}
-
-@test "rate-limit regex: does NOT match 429 outside an HTTP context" {
-  ! regex_match "build failed with code 429 artifacts"
-}
-
-#
 # plugin.json userConfig
 #
 
@@ -350,13 +54,13 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 @test "userConfig: declares expected toggles plus ci_watch_timeout and review_max_rounds" {
   run jq -r '.userConfig | keys | sort | join(" ")' "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
-  assert_output "ci_monitor ci_watch_timeout coderabbit_ci_comments delete_branch_on_merge rebase_before_pr review_claude review_coderabbit review_codex review_copilot review_max_rounds"
+  assert_output "ci_monitor ci_watch_timeout coderabbit_ci_comments delete_branch_on_merge rebase_before_pr review_level review_max_rounds"
 }
 
 @test "userConfig: every toggle except numeric ones is a boolean" {
   run jq -e '.userConfig
     | to_entries
-    | map(select(.key != "ci_watch_timeout" and .key != "review_max_rounds"))
+    | map(select(.key != "ci_watch_timeout" and .key != "review_max_rounds" and .key != "review_level"))
     | all(.[]; .value.type == "boolean")' \
     "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
@@ -365,7 +69,7 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 @test "userConfig: every boolean toggle defaults to true" {
   run jq -e '.userConfig
     | to_entries
-    | map(select(.key != "ci_watch_timeout" and .key != "review_max_rounds"))
+    | map(select(.key != "ci_watch_timeout" and .key != "review_max_rounds" and .key != "review_level"))
     | all(.[]; .value.default == true)' \
     "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
@@ -396,7 +100,7 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 @test "userConfig: every boolean description documents values and default" {
   run jq -e '.userConfig
     | to_entries
-    | map(select(.key != "ci_watch_timeout" and .key != "review_max_rounds"))
+    | map(select(.key != "ci_watch_timeout" and .key != "review_max_rounds" and .key != "review_level"))
     | all(.[]; (.value.description | test("Values:")) and (.value.description | test("\\btrue\\b")) and (.value.description | test("\\bfalse\\b")) and (.value.description | test("Default: (true|false)\\.")))' \
     "$REPO_ROOT/$PLUGIN_JSON_REL"
   assert_success
@@ -418,9 +122,29 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
   assert_success
 }
 
+@test "userConfig: review_level is a string with default medium" {
+  run jq -e '.userConfig.review_level
+    | (.type == "string")
+    and (.default == "medium")' \
+    "$REPO_ROOT/$PLUGIN_JSON_REL"
+  assert_success
+}
+
+@test "userConfig: review_level description documents valid values and default" {
+  run jq -e '.userConfig.review_level.description
+    | test("low")
+    and test("medium")
+    and test("high")
+    and test("xhigh")
+    and test("max")
+    and test("Default: medium\\.")' \
+    "$REPO_ROOT/$PLUGIN_JSON_REL"
+  assert_success
+}
+
 @test "version: declared once — plugin.json only, marketplace entry carries none" {
   run jq -r '.version' "$REPO_ROOT/$PLUGIN_JSON_REL"
-  assert_output "4.0.0"
+  assert_output "5.0.0"
   run jq -e '.plugins[] | select(.name == "branch-management") | has("version") | not' \
     "$REPO_ROOT/.claude-plugin/marketplace.json"
   assert_success
@@ -615,21 +339,6 @@ run_ci_watch() {
 }
 
 # --- effort: low assertions ---
-
-@test "codex-reviewer has effort: low" {
-  grep -q '^effort: low' \
-    "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/codex-reviewer.md"
-}
-
-@test "copilot-reviewer has effort: low" {
-  grep -q '^effort: low' \
-    "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/copilot-reviewer.md"
-}
-
-@test "coderabbit-reviewer has effort: low" {
-  grep -q '^effort: low' \
-    "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/coderabbit-reviewer.md"
-}
 
 @test "ci-monitor has effort: low" {
   grep -q '^effort: low' \
@@ -929,29 +638,24 @@ run_clean_script() {
   assert_success
 }
 
-# --- review-branch subagent tracking ---
+# --- review-branch claude-reviewer + review-fixer dispatch ---
 RB_SKILL2="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-branch/SKILL.md"
 
-@test "review-branch allowed-tools includes the Task* ledger tools and ToolSearch" {
+@test "review-branch allowed-tools includes Agent (dispatches claude-reviewer and review-fixer)" {
+  line=$(grep '^allowed-tools:' "$RB_SKILL2")
+  echo "$line" | grep -q '"Agent"'
+}
+
+@test "review-branch allowed-tools includes Task* ledger tools (async dispatch tracking)" {
   line=$(grep '^allowed-tools:' "$RB_SKILL2")
   for t in TaskCreate TaskUpdate TaskList TaskGet TaskStop ToolSearch; do
     echo "$line" | grep -q "$t" || { echo "missing $t in review-branch allowed-tools"; return 1; }
   done
 }
 
-@test "review-branch carries the subagent reconciliation gate" {
-  run grep -q 'select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop' "$RB_SKILL2"
-  assert_success
-  run grep -qi 'Subagent reconciliation gate' "$RB_SKILL2"
-  assert_success
-}
-
-@test "review-branch gate appears before the DONE/BLOCKED token section (no DONE on an unreconciled batch)" {
-  gate=$(grep -n 'select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop' "$RB_SKILL2" | head -n1 | cut -d: -f1)
-  tok=$(grep -n 'terminal-state token' "$RB_SKILL2" | head -n1 | cut -d: -f1)
-  [ -n "$gate" ] || { echo "gate line not found"; return 1; }
-  [ -n "$tok" ]  || { echo "token line not found"; return 1; }
-  [ "$gate" -lt "$tok" ] || { echo "gate ($gate) must precede DONE/BLOCKED token ($tok)"; return 1; }
+@test "review-branch allowed-tools excludes Skill (no sub-skill invocation)" {
+  line=$(grep '^allowed-tools:' "$RB_SKILL2")
+  ! echo "$line" | grep -qw '"Skill"'
 }
 
 # --- new-branch (branch creation inlined — no subagent dispatch) ---
