@@ -227,6 +227,7 @@ Marketplace
 Plugin dependencies
 Plugin hints
 Plugin CLI
+LSP servers                            # schema, project-root scope (undocumented), example
 Version notes
 ```
 

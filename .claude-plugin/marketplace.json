@@ -117,67 +117,6 @@
         "context-mode",
         "mcp"
       ]
-    },
-    {
-      "name": "lsp-base",
-      "source": "./plugins/lsp-base",
-      "description": "Shared LSP-first guidance (SessionStart rules block + per-prompt reminder) depended on by the js-lsp/ts-lsp/shell-lsp plugins.",
-      "author": {
-        "name": "Kwitsch"
-      },
-      "category": "development",
-      "tags": [
-        "lsp",
-        "guidance",
-        "hooks",
-        "code-intelligence"
-      ]
-    },
-    {
-      "name": "js-lsp",
-      "source": "./plugins/js-lsp",
-      "description": "JavaScript-only LSP via vtsls, with LSP-first enforcement hooks",
-      "author": {
-        "name": "Kwitsch"
-      },
-      "category": "development",
-      "tags": [
-        "lsp",
-        "javascript",
-        "vtsls",
-        "code-intelligence"
-      ]
-    },
-    {
-      "name": "ts-lsp",
-      "source": "./plugins/ts-lsp",
-      "description": "TypeScript-only LSP via vtsls, with LSP-first enforcement hooks",
-      "author": {
-        "name": "Kwitsch"
-      },
-      "category": "development",
-      "tags": [
-        "lsp",
-        "typescript",
-        "vtsls",
-        "code-intelligence"
-      ]
-    },
-    {
-      "name": "shell-lsp",
-      "source": "./plugins/shell-lsp",
-      "description": "Shell-only LSP (.sh/.bash) via bash-language-server, with LSP-first enforcement hooks",
-      "author": {
-        "name": "Kwitsch"
-      },
-      "category": "development",
-      "tags": [
-        "lsp",
-        "shell",
-        "bash",
-        "bash-language-server",
-        "code-intelligence"
-      ]
     }
   ]
 }

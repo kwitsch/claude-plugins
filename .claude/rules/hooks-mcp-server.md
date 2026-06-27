@@ -280,7 +280,6 @@ function startServer() {
   are fine either way.
 - **Direct-`.mjs` is the default:** invoke the executable `.mjs`
   (`#!/usr/bin/env node` + `chmod +x` / `100755`) directly as the `command` — this is
-  the canonical shape. cave-context and the LSP plugins (js-lsp/ts-lsp/shell-lsp) do
-  this; the optional `bin/mjs-launch.sh` wrapper is only for plugins that need
+  the canonical shape. cave-context does this; the optional `bin/mjs-launch.sh` wrapper is only for plugins that need
   bun-preferred runtime selection. Do not "restore" a wrapper for a plugin that
   intentionally invokes its `.mjs` directly.

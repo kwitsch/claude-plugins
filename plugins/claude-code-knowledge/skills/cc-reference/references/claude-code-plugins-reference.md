@@ -431,6 +431,59 @@ Non-interactive plugin management commands.
 | `strictKnownMarketplaces` | Managed-settings allowlist of addable marketplace sources. `undefined` = no limit; `[]` = lockdown; list of `{source…}` / `{hostPattern}` / `{pathPattern}` (regex) = allowed only. Checked before every add/install/update/auto-update. |
 | `blockedMarketplaces` | Managed-settings blocklist (same enforcement); blocks `{"source":"skills-dir"}` to disable `plugin init`. |
 
+## LSP servers
+
+LSP server configurations supply code-intelligence (completions, diagnostics, hover) to Claude Code's editor integration.
+
+### Scopes
+
+| Scope | File location | Notes |
+|---|---|---|
+| Plugin-scoped | `<plugin-root>/.lsp.json` | Auto-discovered; override via `lspServers` in `plugin.json` |
+| Project-scoped | `<project-root>/.lsp.json` | Loaded for all sessions in that project; **not documented in official docs** (observed behavior); same format as plugin-scoped |
+
+Project-scoped `.lsp.json` is analogous to project-scoped `.mcp.json` — it requires per-user trust before loading.
+
+### Server entry schema
+
+Top-level keys are arbitrary server identifiers. Each value is a server config object:
+
+| Field | Type | Description |
+|---|---|---|
+| `command` | string | Executable name or path; resolved via `PATH`; `${CLAUDE_PLUGIN_ROOT}` interpolated in plugin context |
+| `args` | array | Argument array; when present triggers exec-form resolution (no shell expansion) |
+| `extensionToLanguage` | object | Maps file extensions (e.g. `".ts"`) to LSP language IDs (e.g. `"typescript"`) |
+| `startupTimeout` | number (ms) | How long to wait for the server to become ready; omit to use default |
+
+`${CLAUDE_PLUGIN_ROOT}` is interpolated in `command` and `args` within plugin context only; project-root `.lsp.json` has no path variable substitution.
+
+### Example (project-root `.lsp.json`)
+
+```json
+{
+  "vtsls": {
+    "command": "npx",
+    "args": ["-y", "@vtsls/language-server@0.3.0", "--stdio"],
+    "extensionToLanguage": {
+      ".js": "javascript",
+      ".mjs": "javascript",
+      ".ts": "typescript",
+      ".tsx": "typescriptreact"
+    },
+    "startupTimeout": 60000
+  },
+  "bashls": {
+    "command": "npx",
+    "args": ["-y", "bash-language-server@5.6.0", "start"],
+    "extensionToLanguage": {
+      ".sh": "shellscript",
+      ".bash": "shellscript"
+    },
+    "startupTimeout": 60000
+  }
+}
+```
+
 ## Version notes
 
 - version >= 2.1.105: plugin background monitors.
