@@ -638,24 +638,24 @@ run_clean_script() {
   assert_success
 }
 
-# --- review-branch inline /code-review loop (no async dispatch) ---
+# --- review-branch claude-reviewer + review-fixer dispatch ---
 RB_SKILL2="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-branch/SKILL.md"
 
-@test "review-branch allowed-tools includes Skill (inline /code-review invocation)" {
-  run grep -q '"Skill"' "$RB_SKILL2"
-  assert_success
+@test "review-branch allowed-tools includes Agent (dispatches claude-reviewer and review-fixer)" {
+  line=$(grep '^allowed-tools:' "$RB_SKILL2")
+  echo "$line" | grep -q '"Agent"'
 }
 
-@test "review-branch allowed-tools excludes Agent (no async reviewer dispatch)" {
+@test "review-branch allowed-tools includes Task* ledger tools (async dispatch tracking)" {
   line=$(grep '^allowed-tools:' "$RB_SKILL2")
-  echo "$line" | grep -qv '"Agent"'
-}
-
-@test "review-branch allowed-tools excludes Task* ledger tools (no async batch)" {
-  line=$(grep '^allowed-tools:' "$RB_SKILL2")
-  for t in TaskCreate TaskUpdate TaskList TaskGet TaskStop; do
-    echo "$line" | grep -qv "$t" || { echo "unexpected $t in review-branch allowed-tools"; return 1; }
+  for t in TaskCreate TaskUpdate TaskList TaskGet TaskStop ToolSearch; do
+    echo "$line" | grep -q "$t" || { echo "missing $t in review-branch allowed-tools"; return 1; }
   done
+}
+
+@test "review-branch allowed-tools excludes Skill (no sub-skill invocation)" {
+  line=$(grep '^allowed-tools:' "$RB_SKILL2")
+  ! echo "$line" | grep -qw '"Skill"'
 }
 
 # --- new-branch (branch creation inlined — no subagent dispatch) ---

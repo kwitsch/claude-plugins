@@ -13,9 +13,9 @@ carry the canonical gate block below (inline — rules are not loaded at skill
 runtime, so the operative copy lives in the SKILL.md body) and list the Task*
 ledger tools + `ToolSearch` in `allowed-tools`.
 
-`review-branch` runs the bundled `/code-review` skill inline via the Skill tool
-(no Agent dispatch, no Task* ledger needed). The constraint below applies to
-`new-pr` only.
+`review-branch` dispatches `claude-reviewer` and `review-fixer` via the Agent tool
+and requires the Task* ledger. The constraint below applies to both `new-pr` and
+`review-branch`.
 
 The invariant: a skill MUST NOT advance past its aggregation/decision/report step
 until every dispatched subagent in the batch is reconciled to a terminal state.
@@ -76,3 +76,4 @@ subagent-scoped probe.
 | Skill | Batch(es) | Gate before | Severity |
 |---|---|---|---|
 | new-pr | ci-monitor; review-fixer (each sequential) | review-fixer dispatch; the push | medium |
+| review-branch | claude-reviewer (per round); review-fixer (per round, when findings remain) | decide step; next-round dispatch | medium |

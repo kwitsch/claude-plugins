@@ -1,6 +1,6 @@
 # CLAUDE.md — branch-management
 
-Orchestrator skills (`new-pr`, `review-branch`) use the bundled `/code-review` skill inline; `new-branch` cuts the branch inline (no subagent).
+Orchestrator skills (`new-pr`, `review-branch`) dispatch subagents for review work; `new-branch` cuts the branch inline (no subagent).
 
 | Concern | Rule |
 |---|---|
@@ -28,14 +28,12 @@ Orchestrator skills (`new-pr`, `review-branch`) use the bundled `/code-review` s
   keeping the current (session) branch is what lets a later new-pr register as
   the remote session's PR.
 - `skills/review-branch`: standalone review sub-skill — runs INLINE (NOT
-  `context: fork`; forked skill is subagent, cannot dispatch the Skill tool at
-  depth 0); reads `review_level` (default `medium`) and `review_max_rounds`
-  (default 3); each round invokes the bundled `/code-review` skill (Skill tool)
-  with args `"$review_level --fix $base"`; detects working-tree changes via
-  `git diff --name-only HEAD`; auto-detects test command (bats → npm → make →
-  skip); commits specific changed files; repeats until DONE (no changes) or
-  BLOCKED (cap reached); test failure reported but not a gate. No async subagent
-  dispatches, no Task* ledger, no quota files.
+  `context: fork`; forked skill is a subagent and cannot dispatch Agent at depth 0);
+  reads `review_level` (default `medium`) and `review_max_rounds` (default 3);
+  each round dispatches `branch-management:claude-reviewer` with effort=`$review_level`
+  and tracks it via the Task* ledger; on findings dispatches `branch-management:review-fixer`
+  (also tracked) to fix and commit; repeats until DONE (no new findings) or BLOCKED
+  (cap reached or no review source succeeded). No quota files.
   User-invocable directly (e.g. `/review-branch --rounds 5`).
 - `skills/configure-branch-management`: user-invocable interactive
   configurator; detects `.git`/`.claude` in cwd to offer project-scope
