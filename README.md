@@ -20,7 +20,6 @@ A [Claude Code](https://docs.claude.com/en/docs/claude-code/plugins) plugin mark
 | [claude-code-knowledge](plugins/claude-code-knowledge/README.md) | Lookup skill plus harness-optimized reference files for authoring & configuring Claude Code (skills, subagents, hooks, commands, MCP, plugins, memory, settings), a read-only expert agent that replaces the built-in claude-code-guide, a cc-review skill that audits components and applies fixes, a cc-author skill that creates new components, and a cc-memory skill that audits & improves CLAUDE.md — all grounded in the same cc-reference knowledge. |
 | [cave-context](plugins/cave-context/README.md) | Unifies caveman + context-mode into one non-competing MCP server: vendors context-mode (Elastic License 2.0) and serves its ctx_* tools in-process, aggregates both plugins' hooks, and adds the cave-compress Markdown compressor skill. |
 
-
 ## Configure plugins
 
 Plugins with configuration options can be configured via

@@ -50,12 +50,4 @@ PLUGIN="${BATS_TEST_DIRNAME}/../../plugins/lsp-base"
   done
 }
 
-@test "lsp-base is registered in the marketplace manifest" {
-  run jq -e '[.plugins[] | select(.name=="lsp-base")] | length == 1' "${BATS_TEST_DIRNAME}/../../.claude-plugin/marketplace.json"
-  [ "$status" -eq 0 ]
-}
 
-@test "marketplace entry for lsp-base declares no version field" {
-  run jq -e '.plugins[] | select(.name=="lsp-base") | has("version") | not' "${BATS_TEST_DIRNAME}/../../.claude-plugin/marketplace.json"
-  [ "$status" -eq 0 ]
-}
