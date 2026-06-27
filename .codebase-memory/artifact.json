@@ -1,11 +1,11 @@
 {
     "schema_version": 1,
-    "commit": "2225bf05d569024dcf4a4f871737f145ee60386b",
-    "indexed_at": "2026-06-27T21:37:49Z",
+    "commit": "67122c00703424e4ac81d5a2323f31acd1bc2c6b",
+    "indexed_at": "2026-06-27T21:40:12Z",
     "project": "home-kwitsch-repos-claude-plugins",
     "nodes": 3639,
     "edges": 11080,
     "original_size": 12845056,
-    "compressed_size": 2401479,
+    "compressed_size": 2401478,
     "compression_level": 3
 }
