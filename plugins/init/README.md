@@ -1,6 +1,6 @@
 # init
 
-Repo initialization skill collection — CLAUDE.md, .claude/.gitignore, codebase-memory index, and .lsp.json creation via idempotent per-concern skills and a repo-init orchestrator.
+Idempotent repo-initialization skills for Claude Code projects.
 
 ## Install
 
@@ -8,6 +8,32 @@ Repo initialization skill collection — CLAUDE.md, .claude/.gitignore, codebase
 /plugin install init@kwitsch-plugins
 ```
 
-## What it does
+## Skills
 
-Provides a set of idempotent per-concern initialization skills (CLAUDE.md creation, .claude/.gitignore setup, codebase-memory indexing, .lsp.json generation) plus a `repo-init` orchestrator skill that runs them all in sequence for a fresh repository setup.
+| Skill | Purpose |
+|---|---|
+| `repo-init` | Orchestrator — runs all three init skills in sequence |
+| `claude-repo-init` | Creates `CLAUDE.md` (via cc-author) and `.claude/.gitignore` |
+| `codebase-repo-init` | Creates `.codebase-memory/.gitignore` and indexes the repo |
+| `lsp-repo-init` | Creates `.lsp.json` from detected file extensions |
+
+## Usage
+
+Run all checks at once:
+```
+/repo-init
+```
+
+Or invoke individual skills:
+```
+/claude-repo-init
+/codebase-repo-init
+/lsp-repo-init
+```
+
+All skills are idempotent — safe to re-run.
+
+## Dependencies
+
+- `claude-code-knowledge` (kwitsch marketplace) — used by `claude-repo-init` to create `CLAUDE.md` via `cc-author`
+- `codebase-memory-mcp` MCP server (optional) — required by `codebase-repo-init`; skips gracefully if not connected
