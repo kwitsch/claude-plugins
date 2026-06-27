@@ -658,6 +658,12 @@ RB_SKILL2="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-bran
   ! echo "$line" | grep -qw '"Skill"'
 }
 
+@test "claude-reviewer agent file exists and declares name: claude-reviewer" {
+  f="$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/claude-reviewer.md"
+  [ -f "$f" ]
+  grep -q '^name: claude-reviewer$' "$f"
+}
+
 # --- new-branch (branch creation inlined — no subagent dispatch) ---
 NB_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-branch/SKILL.md"
 
