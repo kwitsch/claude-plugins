@@ -113,11 +113,11 @@ See `.claude/rules/subagent-tracking.md`.
 
 ## Review rounds
 
-5. **Commit pending work.** This is mandatory: codex and copilot diff
-   committed state against `origin/$base`, and coderabbit diffs against
-   the local `$base`. Uncommitted work-tree edits are invisible to
-   reviewers. Commit only changes that belong to this branch's work; if
-   unclear whether a change belongs, ask the user.
+5. **Commit pending work.** This is mandatory: `/code-review` reviews
+   the committed branch-vs-base diff (`$base` is passed as the diff target).
+   Uncommitted work-tree edits are invisible to the reviewer. Commit only
+   changes that belong to this branch's work; if unclear whether a change
+   belongs, ask the user.
 
 6. **Run review rounds.** Invoke the `branch-management:review-branch`
    skill (Skill tool) with: `--base "$base"`. The sub-skill reads its

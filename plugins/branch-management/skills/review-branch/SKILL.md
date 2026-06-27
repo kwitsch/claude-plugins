@@ -79,12 +79,13 @@ the loop — the test result is a signal, not a gate.
 **Step 4 — Commit:**
 
 ```bash
-git add $changed_files
+while IFS= read -r f; do git add -- "$f"; done <<< "$changed_files"
 git commit -m "review-branch: code-review fixes (round N)"
 ```
 
 Use the exact file list from Step 2 (never `git add -A` — avoids sweeping
-untracked artifacts or `.env` files).
+untracked artifacts or `.env` files). The loop quotes each path so filenames
+containing spaces are handled correctly.
 
 **Step 5 — Check cap:**
 
