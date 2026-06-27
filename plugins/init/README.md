@@ -21,14 +21,14 @@ Idempotent repo-initialization skills for Claude Code projects.
 
 Run all checks at once:
 ```
-/repo-init
+/init:repo-init
 ```
 
 Or invoke individual skills:
 ```
-/claude-repo-init
-/codebase-repo-init
-/lsp-repo-init
+/init:claude-repo-init
+/init:codebase-repo-init
+/init:lsp-repo-init
 ```
 
 All skills are idempotent — safe to re-run.
