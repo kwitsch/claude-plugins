@@ -1,34 +1,16 @@
 {
   "name": "branch-management",
   "version": "4.0.0",
-  "description": "Branch lifecycle skills. new-branch cuts a fresh branch inline; new-pr runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewers) backed by subagents, applies verified fixes between rounds, opens a PR/MR via gh or glab, and watches CI until green.",
+  "description": "Branch lifecycle skills. new-branch cuts a fresh branch inline; new-pr runs iterative /code-review --fix review rounds, applies fixes between rounds, opens a PR/MR via gh or glab, and watches CI until green.",
   "author": {
     "name": "Kwitsch"
   },
   "userConfig": {
-    "review_claude": {
-      "type": "boolean",
-      "title": "Claude reviewer",
-      "description": "Values: true = run the claude-reviewer subagent during new-pr review rounds; false = skip it. Default: true.",
-      "default": true
-    },
-    "review_codex": {
-      "type": "boolean",
-      "title": "Codex reviewer",
-      "description": "Values: true = run the codex-reviewer subagent (requires codex CLI login); false = skip it. Default: true.",
-      "default": true
-    },
-    "review_copilot": {
-      "type": "boolean",
-      "title": "Copilot reviewer",
-      "description": "Values: true = run the copilot-reviewer subagent (requires copilot CLI login); false = skip it. Default: true.",
-      "default": true
-    },
-    "review_coderabbit": {
-      "type": "boolean",
-      "title": "CodeRabbit reviewer",
-      "description": "Values: true = run the coderabbit-reviewer subagent (requires coderabbit CLI login); false = skip it. Default: true.",
-      "default": true
+    "review_level": {
+      "type": "string",
+      "title": "Code review effort level",
+      "description": "Values: low / medium / high / xhigh / max — passed to /code-review as the effort level. low = fast, high-confidence findings only; medium = balanced coverage; high = broader, may include uncertain findings; xhigh = deeper reasoning; max = maximum coverage. Default: medium.",
+      "default": "medium"
     },
     "ci_monitor": {
       "type": "boolean",
