@@ -1,0 +1,26 @@
+{
+  "vtsls": {
+    "command": "npx",
+    "args": ["-y", "@vtsls/language-server@0.3.0", "--stdio"],
+    "extensionToLanguage": {
+      ".js": "javascript",
+      ".cjs": "javascript",
+      ".mjs": "javascript",
+      ".jsx": "javascriptreact",
+      ".ts": "typescript",
+      ".cts": "typescript",
+      ".mts": "typescript",
+      ".tsx": "typescriptreact"
+    },
+    "startupTimeout": 60000
+  },
+  "bashls": {
+    "command": "npx",
+    "args": ["-y", "bash-language-server@5.6.0", "start"],
+    "extensionToLanguage": {
+      ".sh": "shellscript",
+      ".bash": "shellscript"
+    },
+    "startupTimeout": 60000
+  }
+}
