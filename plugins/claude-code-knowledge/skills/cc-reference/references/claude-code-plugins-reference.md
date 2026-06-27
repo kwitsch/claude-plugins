@@ -455,7 +455,7 @@ Top-level keys are arbitrary server identifiers. Each value is a server config o
 | `extensionToLanguage` | object | Maps file extensions (e.g. `".ts"`) to LSP language IDs (e.g. `"typescript"`) |
 | `startupTimeout` | number (ms) | How long to wait for the server to become ready; omit to use default |
 
-`${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_PLUGIN_DATA}` are interpolated in `command` and `args` within plugin context only; project-root `.lsp.json` has no path variable substitution.
+`${CLAUDE_PLUGIN_ROOT}` is interpolated in `command` and `args` within plugin context only; project-root `.lsp.json` has no path variable substitution.
 
 ### Example (project-root `.lsp.json`)
 

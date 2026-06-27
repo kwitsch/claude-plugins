@@ -49,5 +49,3 @@ PLUGIN="${BATS_TEST_DIRNAME}/../../plugins/lsp-base"
     grep -q "$tok" "$rem"
   done
 }
-
-
