@@ -19,6 +19,7 @@ A [Claude Code](https://docs.claude.com/en/docs/claude-code/plugins) plugin mark
 | [superpowers-automation](plugins/superpowers-automation/README.md) | A new-work pipeline orchestrator that classifies a description as feature/fix/refactor and runs the matching flow (feature/refactor: branch -> brainstorm -> review -> plan -> review -> implement; fix: systematic-debugging), plus the file-advisor-improver reviser and an opt-in plan hook forcing Subagent-Driven implementation. |
 | [claude-code-knowledge](plugins/claude-code-knowledge/README.md) | Lookup skill plus harness-optimized reference files for authoring & configuring Claude Code (skills, subagents, hooks, commands, MCP, plugins, memory, settings), a read-only expert agent that replaces the built-in claude-code-guide, a cc-review skill that audits components and applies fixes, a cc-author skill that creates new components, and a cc-memory skill that audits & improves CLAUDE.md — all grounded in the same cc-reference knowledge. |
 | [cave-context](plugins/cave-context/README.md) | Unifies caveman + context-mode into one non-competing MCP server: vendors context-mode (Elastic License 2.0) and serves its ctx_* tools in-process, aggregates both plugins' hooks, and adds the cave-compress Markdown compressor skill. |
+| [init](plugins/init/README.md) | Repo initialization skill collection — CLAUDE.md, .claude/.gitignore, codebase-memory index, and .lsp.json creation via idempotent per-concern skills and a repo-init orchestrator. |
 
 ## Configure plugins
 
