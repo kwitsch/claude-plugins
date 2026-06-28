@@ -8,6 +8,7 @@
 // now lives statically in hooks/SessionStart.md (the sole source).
 
 // Return the fixed per-turn caveman reminder injected on every UserPromptSubmit.
+/** @returns {string} */
 export function reminderText() {
   return "CAVE-CONTEXT: Drop articles/filler/hedging. Fragments OK. Code/commits/security: write normal. Big output→ctx_*.";
 }

@@ -15,6 +15,7 @@ import { contextModeEnv } from "./context-mode-env.mjs";
 import { drainCaptures } from "./capture-tracker.mjs";
 
 // Resolve a path inside the vendored hooks directory.
+/** @param {any} p */
 const H = (p) => fileURLToPath(new URL(`../bin/context-mode/hooks/${p}`, import.meta.url));
 
 // ── Lazy SessionDB cache ──────────────────────────────────────────────────────
@@ -26,6 +27,7 @@ const H = (p) => fileURLToPath(new URL(`../bin/context-mode/hooks/${p}`, import.
 // PostToolUse events for the same project.
 const _dbCache = new Map(); // dbPath → SessionDB instance
 
+/** @param {any} dbPath */
 async function openDb(dbPath) {
   if (_dbCache.has(dbPath)) return _dbCache.get(dbPath);
   const { SessionDB } = await import(H("session-db.bundle.mjs"));
@@ -39,6 +41,7 @@ async function openDb(dbPath) {
 // path) from CONTEXT_MODE_PROJECT_DIR / CLAUDE_PROJECT_DIR. In-process there is no
 // per-call cwd, so we MUST set these explicitly before resolving, or the server's
 // own cwd would silently become the project root.
+/** @param {any} input */
 function applyInputEnv(input) {
   // Fire-and-forget capture's post-await read of this global env (getSessionDBPath→getProjectDir)
   // is safe: one MCP server per session → input.cwd is stable across every hook (a Bash `cd` does
@@ -67,6 +70,7 @@ function applyInputEnv(input) {
 //   - calls extractEvents → attributeAndInsertEvents (main capture)
 //   - handles the three tmpdir marker blocks (rejected / redirect / latency)
 // Returns null (parity with the vendored body which writes nothing to stdout).
+/** @param {any} input */
 export async function postToolUse(input) {
   applyInputEnv(input);
 
@@ -211,6 +215,7 @@ export async function postToolUse(input) {
 //   - saves raw prompt + features
 //   - extracts user events (decision/role/intent/data)
 // Returns null (parity with the vendored body which writes nothing to stdout).
+/** @param {any} input */
 export async function userPromptSubmit(input) {
   applyInputEnv(input);
 
@@ -296,6 +301,7 @@ export async function userPromptSubmit(input) {
 // captured-data behavior is byte-identical. Returns the formatted routing decision (which
 // handlers.mjs surfaces via fromDelegate); null when routing has no decision.
 let _securityInited = false;
+/** @param {any} input */
 export async function preToolUse(input) {
   applyInputEnv(input);
 
@@ -359,6 +365,7 @@ export async function preToolUse(input) {
 // SessionDB handle (no per-call close, unlike the vendored body — the handle is reused and
 // the bundle's process-exit checkpoint flushes WAL). Returns {} (parity with the body's
 // `console.log(JSON.stringify({}))`).
+/** @param {any} input */
 export async function preCompact(input) {
   applyInputEnv(input);
 
@@ -389,7 +396,7 @@ export async function preCompact(input) {
 
     // Route compaction lifecycle events (dashboard compact widget joins on category='compaction').
     try {
-      const fileEvents = events.filter((e) => e.category === "file");
+      const fileEvents = events.filter((/** @type {any} */ e) => e.category === "file");
       const projectDirCompact = getInputProjectDir(input);
       const { resolveProjectAttributions } = await loadProjectAttribution();
       attributeAndInsertEvents(

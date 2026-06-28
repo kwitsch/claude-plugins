@@ -15,6 +15,7 @@ const REROUTE_TARGET = "claude-code-knowledge:claude-code-expert";
 startServer();
 
 // Normalize a subagent_type: lowercase, collapse non-alphanumeric runs to `-`, trim.
+/** @param {any} value */
 function normalize(value) {
   return String(value == null ? "" : value)
     .toLowerCase()
@@ -30,6 +31,7 @@ function startServer() {
       description:
         "PreToolUse(Agent|Task) reroute: when subagent_type is claude-code-guide, rewrite it to claude-code-knowledge:claude-code-expert via permissionDecision allow + updatedInput. No-op otherwise.",
       inputSchema: { type: "object", additionalProperties: true },
+      /** @param {any} args */
       handler(args) {
         // `args` is the hook event JSON (no `input` mapping in hooks.json).
         const toolInput = (args && args.tool_input) || {};
@@ -48,12 +50,12 @@ function startServer() {
       },
     },
   ];
-  const findTool = (name) => TOOLS.find((t) => t.name === name);
-  const send = (msg) => process.stdout.write(JSON.stringify(msg) + "\n");
-  const ok = (id, result) => send({ jsonrpc: "2.0", id, result });
-  const fail = (id, code, message) => send({ jsonrpc: "2.0", id, error: { code, message } });
+  const findTool = (/** @type {any} */ name) => TOOLS.find((t) => t.name === name);
+  const send = (/** @type {any} */ msg) => process.stdout.write(JSON.stringify(msg) + "\n");
+  const ok = (/** @type {any} */ id, /** @type {any} */ result) => send({ jsonrpc: "2.0", id, result });
+  const fail = (/** @type {any} */ id, /** @type {any} */ code, /** @type {any} */ message) => send({ jsonrpc: "2.0", id, error: { code, message } });
 
-  const handle = (msg) => {
+  const handle = (/** @type {any} */ msg) => {
     const { id, method, params } = msg;
     switch (method) {
       case "initialize":
@@ -83,7 +85,8 @@ function startServer() {
         try {
           result = tool.handler(params?.arguments ?? {});
         } catch (e) {
-          return fail(id, -32603, `tool error: ${e?.message ?? e}`);
+          const err = /** @type {any} */ (e);
+          return fail(id, -32603, `tool error: ${err?.message ?? err}`);
         }
         return ok(id, {
           content: [{ type: "text", text: JSON.stringify(result) }],
@@ -97,14 +100,14 @@ function startServer() {
   };
 
   const rl = readline.createInterface({ input: process.stdin });
-  rl.on("line", (line) => {
+  rl.on("line", (/** @type {any} */ line) => {
     const trimmed = line.trim();
     if (!trimmed) return;
     let msg;
     try { msg = JSON.parse(trimmed); }
     catch { process.stderr.write(`[${SERVER_NAME}] non-JSON line ignored\n`); return; }
     try { handle(msg); }
-    catch (e) { process.stderr.write(`[${SERVER_NAME}] handler crash: ${e?.stack ?? e}\n`); }
+    catch (e) { const err = /** @type {any} */ (e); process.stderr.write(`[${SERVER_NAME}] handler crash: ${err?.stack ?? err}\n`); }
   });
   rl.on("close", () => process.exit(0));
 }

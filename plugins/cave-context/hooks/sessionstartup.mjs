@@ -15,9 +15,9 @@ import { delegateHook } from "../mcp/delegate.mjs";
 const DELEGATE_TIMEOUT_MS = Number(process.env.CAVE_CONTEXT_SESSIONSTART_TIMEOUT_MS) || 5000;
 
 let buf = "";
-process.stdin.on("data", (d) => (buf += d));
+process.stdin.on("data", /** @param {Buffer} d */ (d) => (buf += d));
 process.stdin.on("end", async () => {
-  let input = {};
+  let input = /** @type {HookCommonInput} */ ({});
   try { input = JSON.parse(buf || "{}"); } catch { /* treat as empty envelope */ }
 
   // Delegate for side-effects only. The CLI branches on input.source; forwarding the

@@ -4,9 +4,9 @@
 // When hook_plans is true and a plan file was written, emits hook JSON on stdout:
 //   { hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: "..." } }
 // Fails open (exits 0, no output) on parse errors or missing/toggled-off settings.
-import { readFileSync } from 'fs';
-import { homedir } from 'os';
-import { join } from 'path';
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 let filePath = '';
 try {
@@ -20,7 +20,7 @@ function getOptions() {
     const s = JSON.parse(readFileSync(join(homedir(), '.claude/settings.json'), 'utf8'));
     const configs = s?.pluginConfigs ?? {};
     const key = Object.keys(configs).find(k => k.startsWith('superpowers-automation@'));
-    return configs[key]?.options ?? {};
+    return key ? configs[key]?.options ?? {} : {};
   } catch { return {}; }
 }
 

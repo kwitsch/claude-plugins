@@ -39,11 +39,12 @@ function startServer() {
 
   // Lazy imports — keep shim path dependency-free until we actually serve.
   Promise.all([import("./embed.mjs"), import("./handlers.mjs"), import("./branch-index.mjs"), import("./capture-tracker.mjs")]).then(([{ Upstream }, { HANDLERS }, { createBranchIndexer }, { drainCaptures }]) => {
-    const send = (m) => process.stdout.write(JSON.stringify(m) + "\n");
-    const ok = (id, result) => send({ jsonrpc: "2.0", id, result });
-    const fail = (id, code, message) => send({ jsonrpc: "2.0", id, error: { code, message } });
+    const send = (/** @type {any} */ m) => process.stdout.write(JSON.stringify(m) + "\n");
+    const ok = (/** @type {any} */ id, /** @type {any} */ result) => send({ jsonrpc: "2.0", id, result });
+    const fail = (/** @type {any} */ id, /** @type {any} */ code, /** @type {any} */ message) => send({ jsonrpc: "2.0", id, error: { code, message } });
 
     const up = new Upstream();
+    /** @type {any} */
     let upStarted = null; // promise of tools[]
     const ensureUp = () => {
       if (upStarted && !up.alive) upStarted = null; // child died → re-spawn on next call
@@ -58,7 +59,7 @@ function startServer() {
     });
 
     const rl = readline.createInterface({ input: process.stdin });
-    rl.on("line", async (line) => {
+    rl.on("line", async (/** @type {any} */ line) => {
       const trimmed = line.trim();
       if (!trimmed) return;
       let msg;
@@ -73,14 +74,15 @@ function startServer() {
         if (method === "notifications/initialized" || method === "notifications/cancelled") return;
         if (method === "ping") return ok(id, {});
         if (method === "tools/list") {
-          const upstreamTools = (await ensureUp()).filter((t) => !DENIED_UPSTREAM_TOOLS.has(t.name));
+          const upstreamTools = (await ensureUp()).filter((/** @type {any} */ t) => !DENIED_UPSTREAM_TOOLS.has(t.name));
           return ok(id, { tools: [...upstreamTools, ...LOCAL_TOOLS, ...HOOK_TOOLS] });
         }
         if (method === "tools/call") {
           const name = params?.name;
-          if (HANDLERS[name]) {
+          const handler = /** @type {Record<string, any>} */ (HANDLERS)[name];
+          if (handler) {
             if (process.env.MCP_HOOK_DEBUG) process.stderr.write(`[${SERVER_NAME}] hook tool: ${name}\n`);
-            const result = await HANDLERS[name](params?.arguments ?? {});
+            const result = await handler(params?.arguments ?? {});
             if (name === "hook_posttooluse") branchIndexer.note(params?.arguments?.cwd).catch(() => {}); // fire-and-forget; .catch keeps the no-unhandled-rejection guarantee robust to future edits in note()
             return ok(id, { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result });
           }
@@ -94,8 +96,9 @@ function startServer() {
         }
         if (id != null) return fail(id, -32601, `method not found: ${method}`);
       } catch (e) {
-        process.stderr.write(`[${SERVER_NAME}] handler crash: ${e?.stack ?? e}\n`);
-        if (id != null) fail(id, -32603, String(e?.message ?? e));
+        const err = /** @type {any} */ (e);
+        process.stderr.write(`[${SERVER_NAME}] handler crash: ${err?.stack ?? err}\n`);
+        if (id != null) fail(id, -32603, String(err?.message ?? err));
       }
     });
     rl.on("close", () => {

@@ -9,37 +9,51 @@ import { trackCapture } from "./capture-tracker.mjs";
 const WEBFETCH_DENY_REASON =
   "cave-context routing: use ctx_fetch_and_index instead of WebFetch — full network access, results indexed for ctx_search, raw page bytes never enter context.";
 
-// Combine two additionalContext strings with a blank-line separator; returns null when both are empty.
+/**
+ * @param {string|null} a
+ * @param {string|null} b
+ * @returns {string|null}
+ */
 export function mergeContext(a, b) {
   const parts = [a, b].filter((s) => s && String(s).trim());
   return parts.length ? parts.join("\n\n") : null;
 }
 
-// Assemble the hook response envelope: wrap additionalContext in hookSpecificOutput and merge any hard fields from extra.
+/**
+ * @param {string} event
+ * @param {string|null} additionalContext
+ * @param {Partial<HookResult>} [extra]
+ * @returns {HookResult}
+ */
 function emit(event, additionalContext, extra = {}) {
   const out = { ...extra };
   if (additionalContext) {
-    out.hookSpecificOutput = { hookEventName: event, additionalContext, ...(extra.hookSpecificOutput || {}) };
+    out.hookSpecificOutput = Object.assign({}, extra.hookSpecificOutput, { hookEventName: event, additionalContext });
   } else if (extra.hookSpecificOutput) {
-    out.hookSpecificOutput = { hookEventName: event, ...extra.hookSpecificOutput };
+    out.hookSpecificOutput = Object.assign({}, extra.hookSpecificOutput, { hookEventName: event });
   }
   return out;
 }
 
-// Pull additionalContext + hard fields out of a delegated context-mode result.
-// Exported for unit testing (the hard-field propagation path).
+/**
+ * @param {HookResult|null} res
+ * @returns {{ ac: string|null, hard: Partial<HookResult> }}
+ */
 export function fromDelegate(res) {
   if (!res || typeof res !== "object") return { ac: null, hard: {} };
   const ac = res.hookSpecificOutput?.additionalContext ?? null;
-  const hard = {};
-  if (res.hookSpecificOutput?.permissionDecision) hard.hookSpecificOutput = { permissionDecision: res.hookSpecificOutput.permissionDecision, permissionDecisionReason: res.hookSpecificOutput.permissionDecisionReason };
+  const hard = /** @type {Partial<HookResult>} */ ({});
+  if (res.hookSpecificOutput?.permissionDecision) hard.hookSpecificOutput = /** @type {any} */ ({ permissionDecision: res.hookSpecificOutput.permissionDecision, permissionDecisionReason: res.hookSpecificOutput.permissionDecisionReason });
   if (res.updatedInput) hard.updatedInput = res.updatedInput;
   if (res.decision) hard.decision = res.decision;
   if (res.reason) hard.reason = res.reason; // legacy decision:'block' pairs with a sibling reason
   return { ac, hard };
 }
 
-// Emit the caveman full-level reminder; run context-mode's capture fire-and-forget.
+/**
+ * @param {HookCommonInput} input
+ * @returns {Promise<HookResult>}
+ */
 export async function handleUserPromptSubmit(input) {
   // Caveman mode is always-on full: emit the per-turn reminder unconditionally,
   // every prompt. No level detection, no runtime state — the prompt is no longer
@@ -56,7 +70,10 @@ export async function handleUserPromptSubmit(input) {
   return emit("UserPromptSubmit", cavemanAc, {});
 }
 
-// Hard-deny WebFetch for the main agent (→ ctx_fetch_and_index hint), then delegate to context-mode for all other tools.
+/**
+ * @param {ToolHookInput} input
+ * @returns {Promise<HookResult>}
+ */
 export async function handlePreToolUse(input) {
   // Hard-redirect WebFetch → ctx_fetch_and_index. Scoped to the main agent
   // (`!input.agent_id`): subagent WebFetch falls through to the context-mode delegate,
@@ -78,24 +95,28 @@ export async function handlePreToolUse(input) {
   return emit("PreToolUse", ac, hard); // caveman has no PreToolUse
 }
 
-// Forward PostToolUse to context-mode for capture, fire-and-forget. The capture writes the
-// session DB and returns null (nothing the harness uses), so we DON'T await it — the hook
-// returns {} immediately to cut execution time (PostToolUse fires on nearly every tool call).
-// The promise is registered with the capture-tracker so PreCompact can drain in-flight captures
-// before snapshotting, and so a rejection can't escape. (branchIndexer.note() in server.mjs is
-// likewise fire-and-forget.) caveman has no PostToolUse action.
+/**
+ * @param {ToolHookInput} input
+ * @returns {Promise<HookResult>}
+ */
 export async function handlePostToolUse(input) {
   trackCapture(delegateHook("PostToolUse", input));
   return {};
 }
 
-// Forward PreCompact to context-mode so it can snapshot session state before context is lost.
+/**
+ * @param {HookCommonInput} input
+ * @returns {Promise<HookResult>}
+ */
 export async function handlePreCompact(input) {
   const { ac, hard } = fromDelegate(await delegateHook("PreCompact", input));
   return emit("PreCompact", ac, hard);
 }
 
-// Forward the compress MCP tool call to compressText; passes input.text, or "" when absent.
+/**
+ * @param {{ text?: string }} [input]
+ * @returns {Promise<CompressResult>}
+ */
 export async function handleCompress(input = {}) {
   return compressText(input?.text ?? "");
 }
