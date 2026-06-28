@@ -4,16 +4,18 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "allowJs": true,
-    "checkJs": false,
+    "checkJs": true,
     "noEmit": true,
-    "strict": false,
+    "strict": true,
     "lib": ["ES2022"]
   },
   "include": [
     "plugins/**/*.mjs",
-    "test/**/*.mjs"
+    "test/**/*.mjs",
+    "types/**/*.d.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "plugins/cave-context/bin/context-mode/**"
   ]
 }
