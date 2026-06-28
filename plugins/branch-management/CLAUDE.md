@@ -4,9 +4,9 @@ Orchestrator skills (`new-pr`, `review-branch`) dispatch subagents for review wo
 
 | Concern | Rule |
 |---|---|
-| **Models** | sonnet = ci-monitor; opus = review-fixer |
+| **Models** | sonnet = ci-monitor; opus = review-fixer, claude-reviewer |
 | **Tools** | each agent declares least-privilege allowlist; both context-mode MCP wildcard spellings (server name differs per install) |
-| **Colors** | unique per scope; same color OK across scopes (agents never co-run); white/default banned. Scope: review (review-fixer, ci-monitor) |
+| **Colors** | unique per scope; same color OK across scopes (agents never co-run); white/default banned. Scope: review (review-fixer, ci-monitor, claude-reviewer) |
 | **Skills** | declare `allowed-tools` pre-approvals + `argument-hint`; no `model:` key |
 
 ## Behavior
