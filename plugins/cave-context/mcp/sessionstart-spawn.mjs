@@ -15,6 +15,7 @@ import { contextModeEnv } from "./context-mode-env.mjs";
 
 // Resolve the SessionStart script: a test override (CAVE_CONTEXT_SESSIONSTART_SCRIPT)
 // or the vendored hooks/sessionstart.mjs.
+/** @returns {string} */
 function scriptPath() {
   if (process.env.CAVE_CONTEXT_SESSIONSTART_SCRIPT) return process.env.CAVE_CONTEXT_SESSIONSTART_SCRIPT;
   return fileURLToPath(new URL("../bin/context-mode/hooks/sessionstart.mjs", import.meta.url));
@@ -22,6 +23,11 @@ function scriptPath() {
 
 // Spawn `node <sessionstart.mjs>`, write `input` as JSON to its stdin, resolve with the
 // parsed stdout response or null on any error/timeout. Honors CAVE_CONTEXT_NO_UPSTREAM.
+/**
+ * @param {HookCommonInput} input
+ * @param {number} [timeoutMs]
+ * @returns {Promise<HookResult|null>}
+ */
 export function runSessionStart(input, timeoutMs = 5000) {
   if (process.env.CAVE_CONTEXT_NO_UPSTREAM === "1") return Promise.resolve(null);
   return new Promise((resolve) => {
@@ -33,10 +39,11 @@ export function runSessionStart(input, timeoutMs = 5000) {
       });
     } catch { return resolve(null); }
     let out = ""; let done = false;
+    /** @param {HookResult|null} v */
     const finish = (v) => { if (!done) { done = true; resolve(v); } };
     const timer = setTimeout(() => { try { child.kill(); } catch { /* ignore */ } finish(null); }, timeoutMs);
     child.on("error", () => { clearTimeout(timer); finish(null); });
-    child.stdout.on("data", (d) => { out += d; });
+    child.stdout.on("data", /** @param {string} d */ (d) => { out += d; });
     child.on("close", () => {
       clearTimeout(timer);
       try { finish(out.trim() ? JSON.parse(out) : null); } catch { finish(null); }
