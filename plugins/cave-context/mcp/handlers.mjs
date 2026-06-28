@@ -28,22 +28,22 @@ export function mergeContext(a, b) {
 function emit(event, additionalContext, extra = {}) {
   const out = { ...extra };
   if (additionalContext) {
-    out.hookSpecificOutput = { hookEventName: event, additionalContext, ...(extra.hookSpecificOutput || {}) };
+    out.hookSpecificOutput = { hookEventName: event, additionalContext, ...(/** @type {any} */ (extra.hookSpecificOutput) || {}) };
   } else if (extra.hookSpecificOutput) {
-    out.hookSpecificOutput = { hookEventName: event, ...extra.hookSpecificOutput };
+    out.hookSpecificOutput = { hookEventName: event, ...(/** @type {any} */ (extra.hookSpecificOutput)) };
   }
   return out;
 }
 
 /**
- * @param {unknown} res
+ * @param {HookResult|null} res
  * @returns {{ ac: string|null, hard: Partial<HookResult> }}
  */
 export function fromDelegate(res) {
   if (!res || typeof res !== "object") return { ac: null, hard: {} };
   const ac = res.hookSpecificOutput?.additionalContext ?? null;
-  const hard = {};
-  if (res.hookSpecificOutput?.permissionDecision) hard.hookSpecificOutput = { permissionDecision: res.hookSpecificOutput.permissionDecision, permissionDecisionReason: res.hookSpecificOutput.permissionDecisionReason };
+  const hard = /** @type {Partial<HookResult>} */ ({});
+  if (res.hookSpecificOutput?.permissionDecision) hard.hookSpecificOutput = /** @type {any} */ ({ permissionDecision: res.hookSpecificOutput.permissionDecision, permissionDecisionReason: res.hookSpecificOutput.permissionDecisionReason });
   if (res.updatedInput) hard.updatedInput = res.updatedInput;
   if (res.decision) hard.decision = res.decision;
   if (res.reason) hard.reason = res.reason; // legacy decision:'block' pairs with a sibling reason

@@ -25,10 +25,10 @@ export class Upstream {
     process.env.CONTEXT_MODE_EMBEDDED_PLUGIN_TOOLS = "1";
     let mod;
     try { mod = await import(BUNDLE); }
-    catch (e) { process.stderr.write(`[cave-context] embedded context-mode import failed: ${e?.message ?? e}\n`); this.alive = false; return []; }
+    catch (e) { process.stderr.write(`[cave-context] embedded context-mode import failed: ${(/** @type {any} */ (e))?.message ?? e}\n`); this.alive = false; return []; }
     const reg = mod.REGISTERED_CTX_TOOLS ?? [];
     // callTool dispatches to each tool's registered Zod-validated handler.
-    this.byName = new Map(reg.map((t) => [t.name, t.handler]));
+    this.byName = new Map(reg.map(/** @param {any} t */ (t) => [t.name, t.handler]));
     // tools/list inputSchema MUST be a JSON Schema (`type: "object"`), NOT the raw Zod
     // object context-mode registers tools with — Claude Code Zod-validates each entry's
     // inputSchema.type and drops the whole server ("tools fetch failed") otherwise.
@@ -93,7 +93,7 @@ async function listToolSchemas(mod, reg) {
       if (tools.length) return sanitizeTools(tools);
     }
   } catch (e) {
-    process.stderr.write(`[cave-context] SDK tools/list conversion failed, using permissive schemas: ${e?.message ?? e}\n`);
+    process.stderr.write(`[cave-context] SDK tools/list conversion failed, using permissive schemas: ${(/** @type {any} */ (e))?.message ?? e}\n`);
   }
   return sanitizeTools(reg.map((t) => ({ name: t.name, description: t.config?.description ?? t.name, inputSchema: t.config?.inputSchema })));
 }

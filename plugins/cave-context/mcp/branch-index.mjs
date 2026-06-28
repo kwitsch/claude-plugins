@@ -42,6 +42,7 @@ export function createBranchIndexer({ detectBranch = detectBranchViaGit, ensureU
       inflightRoots.add(root);
       try {
         if (lastBranch.get(root) === branch) return;   // unchanged → no-op
+        if (!ensureUp || !callTool) return;            // no upstream injected (tests without DI)
         const tools = await ensureUp();                // "nach MCP upstream start"
         if (!tools || !tools.length) return;           // upstream down → retry next time (branch NOT committed)
         await callTool("ctx_index", { path: root, source: `project:${basename(root)}`, maxDepth, maxFiles });
@@ -93,6 +94,6 @@ export function detectBranchViaGit(cwd, timeoutMs = 2000) {
     const timer = setTimeout(() => { try { child.kill(); } catch { /* ignore */ } finish(null); }, timeoutMs);
     child.on("error", () => { clearTimeout(timer); finish(null); });
     child.stdout.on("data", /** @param {Buffer} d */ (d) => { out += d; });
-    child.on("close", (code) => { clearTimeout(timer); finish(code === 0 ? parseGitInfo(out) : null); });
+    child.on("close", /** @param {number|null} code */ (code) => { clearTimeout(timer); finish(code === 0 ? parseGitInfo(out) : null); });
   });
 }

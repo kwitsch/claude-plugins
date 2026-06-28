@@ -29,7 +29,7 @@ export async function delegateHook(event, input, timeoutMs = 8000) {
     return null;
   } catch (e) {
     if (process.env.MCP_HOOK_DEBUG) {
-      process.stderr.write(`[cave-context] delegateHook ${ev} failed: ${e?.message ?? e}\n`);
+      process.stderr.write(`[cave-context] delegateHook ${ev} failed: ${(/** @type {any} */ (e))?.message ?? e}\n`);
     }
     return null; // fail-open
   }

@@ -195,11 +195,12 @@ export async function compressText(text, opts = {}) {
   if (!body.trim()) return fail(text, "body empty after frontmatter removal");
 
   const endsWithNewline = text.endsWith("\n");
+  /** @type {(s: string) => string} */
   const ensureNl = (s) => endsWithNewline && !s.endsWith("\n") ? s + "\n" : s;
 
   let compressedBody;
   try { compressedBody = stripLlmWrapper((await callClaude(buildCompressPrompt(body), opts)).trim()); }
-  catch (e) { return fail(text, String(e?.message ?? e)); }
+  catch (e) { return fail(text, String((/** @type {any} */ (e))?.message ?? e)); }
   if (!compressedBody) return fail(text, "model returned empty output");
   if (compressedBody.trim() === body.trim()) return { compressed: ensureNl(frontmatter + compressedBody), changed: false, valid: true, errors: [] };
 
@@ -208,7 +209,7 @@ export async function compressText(text, opts = {}) {
   for (let attempt = 0; !result.valid && attempt < MAX_RETRIES; attempt++) {
     let fixed;
     try { fixed = stripLlmWrapper((await callClaude(buildFixPrompt(text, compressed, result.errors), opts)).trim()); }
-    catch (e) { return fail(text, String(e?.message ?? e), result.errors); }
+    catch (e) { return fail(text, String((/** @type {any} */ (e))?.message ?? e), result.errors); }
     if (!fixed) break;
     // Re-pin the ORIGINAL frontmatter: the fix prompt rewrites the FULL file
     // (frontmatter included) and validate() never inspects frontmatter, so a model

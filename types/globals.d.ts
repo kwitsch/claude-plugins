@@ -48,3 +48,7 @@ declare class Buffer {
 // Wildcard ambient declaration: types every `import { x } from 'node:*'` as `any`,
 // resolving TS2307 "Cannot find module 'node:path'" etc. without @types/node.
 declare module 'node:*';
+
+interface ImportMeta {
+  url: string;
+}
