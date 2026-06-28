@@ -13,10 +13,10 @@
 // load-bearing drain is PreCompact.)
 const _inflight = new Set();
 
-// Register a fire-and-forget capture promise. Returns the original value unchanged so callers
-// can `return trackCapture(...)` if they wish. Non-thenables pass through untracked. The wrapper
-// swallows rejections (the capture path already fails open to null upstream; an unhandled
-// rejection here would just be noise) and removes itself from the set once settled.
+/**
+ * @param {PromiseLike<any>|any} promise
+ * @returns {any}
+ */
 export function trackCapture(promise) {
   if (!promise || typeof promise.then !== "function") return promise;
   const tracked = Promise.resolve(promise).catch(() => {});
@@ -25,14 +25,16 @@ export function trackCapture(promise) {
   return promise;
 }
 
-// Await every capture in flight at call time (all settled — never rejects). Captures registered
-// after the call begins are not awaited (they belong to a later boundary, e.g. a post-compaction
-// turn). Snapshot the set so concurrently-added captures don't extend this drain.
+/**
+ * @returns {Promise<void>}
+ */
 export async function drainCaptures() {
   await Promise.allSettled([..._inflight]);
 }
 
-// Count of captures currently in flight. For tests/diagnostics.
+/**
+ * @returns {number}
+ */
 export function inflightCount() {
   return _inflight.size;
 }

@@ -7,6 +7,12 @@
 //   sessionstart                                             → spawn the vendored
 //                                                              hooks/sessionstart.mjs
 //                                                              (sessionstart-spawn.mjs, D1)
+/**
+ * @param {string} event
+ * @param {HookCommonInput} input
+ * @param {number} [timeoutMs]
+ * @returns {Promise<HookResult|null>}
+ */
 export async function delegateHook(event, input, timeoutMs = 8000) {
   if (process.env.CAVE_CONTEXT_NO_UPSTREAM === "1") return null;
   const ev = String(event).toLowerCase();
