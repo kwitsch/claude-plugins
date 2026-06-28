@@ -19,23 +19,34 @@ const OUTER_FENCE_RE = /^\s*(`{3,}|~{3,})[^\n]*\n([\s\S]*)\n\1\s*$/;
 const URL_RE = /https?:\/\/[^\s)]+/g;
 const HEADING_RE = /^#{1,6}[ \t]+\S.*$/gm;
 
-// Split YAML front matter from the body; returns { frontmatter, body } — frontmatter is "" when absent.
+/**
+ * @param {string} text
+ * @returns {{ frontmatter: string, body: string }}
+ */
 export function splitFrontmatter(text) {
   const m = FRONTMATTER_RE.exec(text);
   return m ? { frontmatter: m[1], body: m[2] } : { frontmatter: "", body: text };
 }
 
-// Remove a single outer ``` or ~~~ fence the model may have wrapped its output in; returns the inner content or text unchanged.
+/**
+ * @param {string} text
+ * @returns {string}
+ */
 export function stripLlmWrapper(text) {
   const m = OUTER_FENCE_RE.exec(text);
   return m ? m[2] : text;
 }
 
-// Extract fenced code blocks (``` or ~~~) as verbatim strings, fence lines included.
+/**
+ * @param {string} text
+ * @returns {string[]}
+ */
 function extractFencedBlocks(text) {
   const lines = text.split("\n");
   const blocks = [];
-  let openChar = null, buf = [];
+  let openChar = null;
+  /** @type {string[]} */
+  let buf = [];
   for (const line of lines) {
     const open = /^[ \t]{0,3}(`{3,}|~{3,})/.exec(line);
     if (!openChar && open) { openChar = open[1][0]; buf = [line]; continue; }
@@ -48,7 +59,11 @@ function extractFencedBlocks(text) {
   return blocks;
 }
 
-// Check that compressed preserves all URLs, fenced code blocks, and headings from original; returns { valid, errors }.
+/**
+ * @param {string} original
+ * @param {string} compressed
+ * @returns {{ valid: boolean, errors: string[] }}
+ */
 export function validate(original, compressed) {
   const errors = [];
   for (const u of new Set(original.match(URL_RE) || [])) {
@@ -65,7 +80,10 @@ export function validate(original, compressed) {
   return { valid: errors.length === 0, errors };
 }
 
-// Build the caveman-compress system prompt for a markdown body; returned string is fed to callClaude.
+/**
+ * @param {string} body
+ * @returns {string}
+ */
 export function buildCompressPrompt(body) {
   return `Compress the markdown below into caveman terse-encoding. Cut prose tokens; keep every fact.
 
@@ -81,7 +99,12 @@ TEXT:
 ${body}`;
 }
 
-// Build the cherry-pick-fix prompt asking the model to repair only the validation errors listed in errors.
+/**
+ * @param {string} original
+ * @param {string} compressed
+ * @param {string[]} errors
+ * @returns {string}
+ */
 export function buildFixPrompt(original, compressed, errors) {
   const list = errors.map((e) => `- ${e}`).join("\n");
   return `You are fixing a caveman-compressed markdown file. Validation found specific errors.
@@ -102,14 +125,18 @@ ${compressed}
 Return ONLY the fixed compressed file. No explanation, no outer fence.`;
 }
 
-// PATH augmentation for the `claude` CLI spawn — non-interactive spawns often miss `~/.local/bin` etc.
+/** @returns {string} */
 function augmentedPath() {
   const home = process.env.HOME;
   const extra = home ? `${home}/.local/bin:${home}/.bun/bin` : "";
   return extra ? `${extra}:${process.env.PATH ?? ""}` : (process.env.PATH ?? "");
 }
 
-// Spawn an isolated `claude --print` subprocess, feed prompt on stdin, resolve with stdout text or reject on timeout/non-zero exit.
+/**
+ * @param {string} prompt
+ * @param {{ bin?: string, model?: string, timeoutMs?: number, env?: Record<string, string> }} [opts]
+ * @returns {Promise<string>}
+ */
 export function callClaude(prompt, opts = {}) {
   const bin = opts.bin ?? process.env.CAVE_COMPRESS_CLAUDE_BIN ?? "claude";
   const model = opts.model ?? process.env.CAVE_COMPRESS_MODEL;
@@ -129,10 +156,10 @@ export function callClaude(prompt, opts = {}) {
     child.stderr.setEncoding("utf8");
     let out = "", err = "";
     const timer = setTimeout(() => { child.kill("SIGKILL"); reject(new Error(`claude timed out after ${timeoutMs}ms`)); }, timeoutMs);
-    child.on("error", (e) => { clearTimeout(timer); reject(e); });        // ENOENT, etc.
-    child.stdout.on("data", (d) => { out += d; });
-    child.stderr.on("data", (d) => { err += d; });
-    child.on("close", (code) => {
+    child.on("error", /** @param {Error} e */ (e) => { clearTimeout(timer); reject(e); });        // ENOENT, etc.
+    child.stdout.on("data", /** @param {string} d */ (d) => { out += d; });
+    child.stderr.on("data", /** @param {string} d */ (d) => { err += d; });
+    child.on("close", /** @param {number|null} code */ (code) => {
       clearTimeout(timer);
       if (code === 0) resolve(out);
       else reject(new Error(`claude exited ${code}: ${err.trim().slice(0, 300)}`));
@@ -145,12 +172,21 @@ export function callClaude(prompt, opts = {}) {
   });
 }
 
-// Construct a failure result: changed=false, valid=false, with the given reason and error list.
+/**
+ * @param {string} compressed
+ * @param {string} reason
+ * @param {string[]} [errors]
+ * @returns {CompressResult}
+ */
 function fail(compressed, reason, errors = []) {
   return { compressed, changed: false, valid: false, errors, reason };
 }
 
-// Orchestrate the full compress pipeline: guard → split frontmatter → compress body → validate → retry → reassemble.
+/**
+ * @param {string} text
+ * @param {{ bin?: string, model?: string, timeoutMs?: number, env?: Record<string, string> }} [opts]
+ * @returns {Promise<CompressResult>}
+ */
 export async function compressText(text, opts = {}) {
   if (typeof text !== "string" || !text.trim()) return fail(typeof text === "string" ? text : "", "empty or whitespace-only input");
   if (Buffer.byteLength(text, "utf8") > MAX_INPUT_BYTES) return fail(text, `input too large (max ${MAX_INPUT_BYTES} bytes)`);
