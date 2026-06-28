@@ -18,7 +18,7 @@ const DELEGATE_TIMEOUT_MS = Number(process.env.CAVE_CONTEXT_SESSIONSTART_TIMEOUT
 let buf = "";
 process.stdin.on("data", /** @param {Buffer} d */ (d) => (buf += d));
 process.stdin.on("end", async () => {
-  let input = {};
+  let input = /** @type {HookCommonInput} */ ({});
   try { input = JSON.parse(buf || "{}"); } catch { /* treat as empty envelope */ }
 
   // Delegate to context-mode: DB session-init / CLAUDE.md-capture / telemetry run
