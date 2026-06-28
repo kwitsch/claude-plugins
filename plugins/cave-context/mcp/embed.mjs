@@ -8,8 +8,16 @@ import { contextModeEnv } from "./context-mode-env.mjs";
 const BUNDLE = fileURLToPath(new URL("../bin/context-mode/server.bundle.mjs", import.meta.url));
 
 export class Upstream {
-  constructor() { this.tools = []; this.byName = new Map(); this.alive = false; }
+  constructor() {
+    /** @type {any[]} */
+    this.tools = [];
+    /** @type {Map<string, any>} */
+    this.byName = new Map();
+    /** @type {boolean} */
+    this.alive = false;
+  }
 
+  /** @returns {Promise<any[]>} */
   async start() {
     // Apply context-mode storage-root env BEFORE import (the bundle reads env at load).
     const env = contextModeEnv();
@@ -29,12 +37,18 @@ export class Upstream {
     return this.tools;
   }
 
+  /**
+   * @param {string} name
+   * @param {any} [args]
+   * @returns {Promise<any>}
+   */
   async callTool(name, args) {
     const handler = this.byName.get(name);
     if (!handler) throw new Error(`unknown tool: ${name}`);
     return handler(args ?? {}); // returns the MCP { content: [...] } envelope
   }
 
+  /** @returns {void} */
   stop() { this.alive = false; }
 }
 
@@ -42,6 +56,10 @@ export class Upstream {
 // undefined, a non-object) is replaced with a permissive object schema so an invalid
 // schema can never reach the wire and break the client's tools/list validation.
 const PERMISSIVE_SCHEMA = { type: "object", additionalProperties: true };
+/**
+ * @param {any[]} tools
+ * @returns {any[]}
+ */
 function sanitizeTools(tools) {
   return tools.map((t) => ({
     name: t.name,
@@ -58,6 +76,11 @@ function sanitizeTools(tools) {
 // is sha256-pinned, and sanitizeTools() + the server.test.mjs schema regression test guard
 // the reliance. Fallback (SDK shape changed / handler threw): tool names with permissive
 // schemas — degraded param hints, but never a connection-breaking invalid schema.
+/**
+ * @param {any} mod
+ * @param {any[]} reg
+ * @returns {Promise<any[]>}
+ */
 async function listToolSchemas(mod, reg) {
   try {
     const handler = mod.server?.server?._requestHandlers?.get?.("tools/list");
