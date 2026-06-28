@@ -28,9 +28,9 @@ export function mergeContext(a, b) {
 function emit(event, additionalContext, extra = {}) {
   const out = { ...extra };
   if (additionalContext) {
-    out.hookSpecificOutput = { hookEventName: event, additionalContext, ...(/** @type {any} */ (extra.hookSpecificOutput) || {}) };
+    out.hookSpecificOutput = Object.assign({}, extra.hookSpecificOutput, { hookEventName: event, additionalContext });
   } else if (extra.hookSpecificOutput) {
-    out.hookSpecificOutput = { hookEventName: event, ...(/** @type {any} */ (extra.hookSpecificOutput)) };
+    out.hookSpecificOutput = Object.assign({}, extra.hookSpecificOutput, { hookEventName: event });
   }
   return out;
 }
