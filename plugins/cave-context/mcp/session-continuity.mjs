@@ -6,6 +6,10 @@
 // Whitelist: slice from the earliest known marker to the end. null if no marker.
 const MARKERS = ["<session_knowledge", "# Session Resume"];
 
+/**
+ * @param {string|null|undefined} ctxAdditionalContext
+ * @returns {string|null}
+ */
 export function extractContinuity(ctxAdditionalContext) {
   if (!ctxAdditionalContext || typeof ctxAdditionalContext !== "string") return null;
   let idx = -1;

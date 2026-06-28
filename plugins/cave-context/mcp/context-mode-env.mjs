@@ -9,6 +9,10 @@ import { join } from "node:path";
 // context-mode requires CONTEXT_MODE_DIR to be ABSOLUTE and treats empty as unset, so a
 // missing/blank CLAUDE_PLUGIN_DATA leaves the var unset (context-mode falls back to its
 // own default) rather than producing a broken "undefined/context-mode" / relative path.
+/**
+ * @param {Record<string, string|undefined>} [base]
+ * @returns {Record<string, string|undefined>}
+ */
 export function contextModeEnv(base = process.env) {
   const env = { ...base };
   const data = (base.CLAUDE_PLUGIN_DATA ?? "").trim();
