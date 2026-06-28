@@ -43,7 +43,7 @@ export function runSessionStart(input, timeoutMs = 5000) {
     const finish = (v) => { if (!done) { done = true; resolve(v); } };
     const timer = setTimeout(() => { try { child.kill(); } catch { /* ignore */ } finish(null); }, timeoutMs);
     child.on("error", () => { clearTimeout(timer); finish(null); });
-    child.stdout.on("data", /** @param {string} d */ (d) => { out += d; });
+    child.stdout.on("data", /** @param {Buffer} d */ (d) => { out += d; });
     child.on("close", () => {
       clearTimeout(timer);
       try { finish(out.trim() ? JSON.parse(out) : null); } catch { finish(null); }

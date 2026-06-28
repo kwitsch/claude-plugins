@@ -1,7 +1,6 @@
 ---
 paths:
   - "plugins/**/*.mjs"
-  - "test/**/*.mjs"
 ---
 # Rule: JSDoc annotations in .mjs files
 
