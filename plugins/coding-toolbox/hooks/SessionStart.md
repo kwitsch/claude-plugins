@@ -68,10 +68,12 @@ named path leaves sibling callers broken.
 
 Rules: no unrequested abstractions; no avoidable dependencies; no speculative
 scaffolding; prefer deletion over addition; boring over clever; fewest files; shortest
-working diff wins once you understand the problem.
+working diff wins once you understand the problem; on a size tie between two stdlib
+options, pick the edge-case-correct one.
 
 Complex request → ship the lazy version + question it in the same response:
-"Did X. Y covers it. Need full X? Say so." Always state what you skipped.
+"Did X. Y covers it. Need full X? Say so." Always state what you skipped. User insists
+on the full version → build it, no re-arguing.
 
 When NOT to be lazy:
 - Never cut validation, error handling, security, accessibility, data-loss protection,
