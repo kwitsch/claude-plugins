@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cat",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/SessionStart.md"]
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit|Bash|Task|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cat",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/PreToolUse.json"]
+          }
+        ]
+      }
+    ]
+  }
+}

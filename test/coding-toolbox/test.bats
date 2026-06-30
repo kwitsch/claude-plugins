@@ -57,3 +57,37 @@ setup() {
   run jq -e '.hookSpecificOutput.hookEventName == "PreToolUse" and (.hookSpecificOutput.additionalContext | length > 0) and (.hookSpecificOutput | has("permissionDecision") | not)' "$HOOKS/PreToolUse.json"
   assert_success
 }
+
+@test "hooks.json is valid JSON" {
+  run jq empty "$HOOKS/hooks.json"
+  assert_success
+}
+
+@test "SessionStart hook cats SessionStart.md via a command hook (exec form)" {
+  run jq -e '.hooks.SessionStart[0].hooks[0] | .type == "command" and .command == "cat" and (.args[0] | endswith("/hooks/SessionStart.md"))' "$HOOKS/hooks.json"
+  assert_success
+}
+
+# Runtime/end-to-end test: run the wired SessionStart command+args and confirm it
+# emits the rules (catches a wrong args path; proves cat+args does not read stdin).
+@test "SessionStart hook command emits Golden Rules to stdout (end-to-end)" {
+  cmd="$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$HOOKS/hooks.json")"
+  arg="$(jq -r '.hooks.SessionStart[0].hooks[0].args[0]' "$HOOKS/hooks.json" | sed "s#\${CLAUDE_PLUGIN_ROOT}#$PLUGIN#")"
+  run "$cmd" "$arg"
+  assert_success
+  assert_output --partial "Golden Rules"
+}
+
+@test "PreToolUse hook is matcher-scoped and cats PreToolUse.json (exec form)" {
+  run jq -e '.hooks.PreToolUse[0] | .matcher == "Edit|Write|NotebookEdit|Bash|Task|Agent" and (.hooks[0].type == "command") and (.hooks[0].command == "cat") and (.hooks[0].args[0] | endswith("/hooks/PreToolUse.json"))' "$HOOKS/hooks.json"
+  assert_success
+}
+
+# Anti-flip tripwire (end-to-end): the wired PreToolUse command emits valid
+# additionalContext JSON and NO permissionDecision. `cat`ing the JSON file IS the output.
+@test "PreToolUse hook command emits valid additionalContext JSON (end-to-end)" {
+  cmd="$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$HOOKS/hooks.json")"
+  arg="$(jq -r '.hooks.PreToolUse[0].hooks[0].args[0]' "$HOOKS/hooks.json" | sed "s#\${CLAUDE_PLUGIN_ROOT}#$PLUGIN#")"
+  run bash -c "'$cmd' '$arg' | jq -e '.hookSpecificOutput.hookEventName == \"PreToolUse\" and (.hookSpecificOutput.additionalContext | length > 0) and (.hookSpecificOutput | has(\"permissionDecision\") | not)'"
+  assert_success
+}
