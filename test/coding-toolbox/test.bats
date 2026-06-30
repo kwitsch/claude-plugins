@@ -34,3 +34,26 @@ setup() {
   run grep -E "^\s*-\s*coding-toolbox\s*$" "$REPO_ROOT/.github/workflows/test.yml"
   assert_success
 }
+
+@test "SessionStart.md exists and is non-empty" {
+  run test -s "$HOOKS/SessionStart.md"
+  assert_success
+}
+
+@test "SessionStart.md covers all three axes and cites all three sources" {
+  run cat "$HOOKS/SessionStart.md"
+  assert_success
+  assert_output --partial "Language"
+  assert_output --partial "Behavior"
+  assert_output --partial "Mentality"
+  assert_output --partial "cavemem"
+  assert_output --partial "andrej-karpathy-skills"
+  assert_output --partial "ponytail-lite"
+}
+
+# Anti-flip tripwire: PreToolUse.json is a valid PreToolUse payload with a non-empty
+# additionalContext and NO permissionDecision (which would interfere with the permission flow).
+@test "PreToolUse.json is a valid PreToolUse additionalContext payload" {
+  run jq -e '.hookSpecificOutput.hookEventName == "PreToolUse" and (.hookSpecificOutput.additionalContext | length > 0) and (.hookSpecificOutput | has("permissionDecision") | not)' "$HOOKS/PreToolUse.json"
+  assert_success
+}
