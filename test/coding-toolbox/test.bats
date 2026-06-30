@@ -91,3 +91,19 @@ setup() {
   run bash -c "'$cmd' '$arg' | jq -e '.hookSpecificOutput.hookEventName == \"PreToolUse\" and (.hookSpecificOutput.additionalContext | length > 0) and (.hookSpecificOutput | has(\"permissionDecision\") | not)'"
   assert_success
 }
+
+@test "plugin README first ## heading is Install" {
+  run bash -c "grep -m1 '^## ' '$PLUGIN/README.md'"
+  assert_success
+  assert_output "## Install"
+}
+
+@test "plugin README contains the install command" {
+  run grep -F "/plugin install coding-toolbox@kwitsch-plugins" "$PLUGIN/README.md"
+  assert_success
+}
+
+@test "plugin README has no ## Hooks section" {
+  run grep -E "^## Hooks" "$PLUGIN/README.md"
+  assert_failure
+}
