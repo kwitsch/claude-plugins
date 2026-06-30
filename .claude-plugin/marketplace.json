@@ -133,6 +133,21 @@
         "claude-md",
         "lsp"
       ]
+    },
+    {
+      "name": "coding-toolbox",
+      "source": "./plugins/coding-toolbox",
+      "description": "Injects golden behavior rules (Language/Behavior/Mentality) at session start and reminds before consequential tool calls.",
+      "author": {
+        "name": "Kwitsch"
+      },
+      "category": "productivity",
+      "tags": [
+        "hooks",
+        "behavior",
+        "guidelines",
+        "context"
+      ]
     }
   ]
 }

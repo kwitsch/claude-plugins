@@ -1,0 +1,8 @@
+{
+  "name": "coding-toolbox",
+  "version": "0.1.0",
+  "description": "Injects golden behavior rules (Language/Behavior/Mentality) at session start and reminds before consequential tool calls.",
+  "author": {
+    "name": "Kwitsch"
+  }
+}
