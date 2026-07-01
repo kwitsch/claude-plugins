@@ -24,8 +24,8 @@ four axes — three sourced from external repos, one (Interaction) plugin-origin
 
 - A `SessionStart` hook injects the full rules document, now covering all four axes
   (it re-fires on resume and after compaction, so the rules survive a compaction).
-- A `PreToolUse` hook (scoped to `Edit`, `Write`, `NotebookEdit`, `Bash`, `Task`,
-  `Agent`) injects a one-line reminder covering all four axes before code edits, shell
-  commands, and subagent dispatch.
+- A `PreToolUse` hook (scoped to `Edit`, `Write`, `NotebookEdit`, `Bash` — not before
+  subagent dispatch) injects a one-line reminder covering all four axes before code
+  edits and shell commands, throttled to every 10th matching call.
 
 No configuration; nothing to set up — enabling the plugin is enough.

@@ -1,8 +1,9 @@
 # CLAUDE.md — coding-toolbox
 
-Plugin that injects "golden behavior rules" via two hooks. Content is baked in
-(`hooks/SessionStart.md`, `hooks/PreToolUse.json`); no MCP server, no Node handler, no
-userConfig, no runtime state.
+Plugin that injects "golden behavior rules" via two hooks. `SessionStart` content is
+baked in (`hooks/SessionStart.md`) with no runtime state. `PreToolUse` is backed by a
+self-contained MCP server (`mcp/server.mjs`) that carries one piece of session-lifetime
+runtime state: a call counter throttling the reminder. No userConfig.
 
 ## Hook design (do not "fix" without reading this)
 
@@ -15,11 +16,28 @@ userConfig, no runtime state.
   `claude-code-hooks-reference.md` "Exec vs shell form": *use exec form whenever
   referencing a path placeholder*; the shipped cave-context plugin uses this exact hook).
   (`.claude/rules/hooks-mcp-server.md`, `.claude/rules/hooks-mcp-tool-event-matrix.md`)
-- **PreToolUse → `command` hook: `cat` + `args:["${CLAUDE_PLUGIN_ROOT}/hooks/PreToolUse.json"]`** — NOT `mcp_tool`, NOT a `.mjs` handler. On exit 0 a command hook's stdout is parsed as JSON (cc-reference, `claude-code-hooks-reference.md` "Exit codes"/"JSON output"), so `cat PreToolUse.json` IS the hook output: the file holds a complete `{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"…"}}` payload — `additionalContext` only, never a `permissionDecision` (which would interfere with the permission flow). An MCP server or a `.mjs` wrapper for static text adds a file for zero dynamic value, against the decision tree and this plugin's fewest-files philosophy. A bats tripwire validates the payload shape — do not add a handler, a `permissionDecision`, or flip to `mcp_tool`.
+- **PreToolUse → `mcp_tool` hook: `server: "plugin:coding-toolbox:coding-toolbox-hooks"`,
+  `tool: "golden_rules_reminder"`** (server registered in `.mcp.json` as
+  `coding-toolbox-hooks`; the hook's `server` field must use the runtime-namespaced
+  `plugin:coding-toolbox:coding-toolbox-hooks` form, not the bare `.mcp.json` key — see
+  `.claude/rules/hooks-mcp-server.md`). Matcher `Edit|Write|NotebookEdit|Bash` —
+  deliberately **excludes** `Task`/`Agent`: the reminder must not fire before subagent
+  dispatch (2026-07-01 decision), so those names were dropped from the matcher entirely
+  rather than special-cased in the handler — the hook never fires for that tool, no
+  MCP round-trip spent. `mcp/server.mjs` keeps a module-level `callCount` for the
+  process lifetime (the server stays connected for the whole session) and returns
+  `additionalContext` with the reminder text only on every 10th matched call
+  (`callCount % 10 === 0`); every other call returns `{}` (no opinion, fail-open
+  no-op — consistent with `mcp_tool`'s soft-block-only semantics). This throttling is
+  exactly the kind of per-call dynamic state a static `cat`'d JSON file cannot express,
+  which is why this hook — unlike SessionStart — now uses `mcp_tool`: do not revert it
+  to a `command` hook over a static file, that would drop both the throttle and the
+  tool exclusion.
 
 ## Tests
 
 `test/coding-toolbox/test.bats` — manifest/registration invariants, content coverage,
-hook wiring, end-to-end command tests (both hooks `cat` their file), and the
-additionalContext-JSON anti-flip tripwire.
+hook wiring (SessionStart command + PreToolUse `mcp_tool`), the SessionStart
+end-to-end command test, and an end-to-end JSON-RPC driver against `mcp/server.mjs`
+proving the throttle (calls 1–9 return `{}`, call 10 returns the reminder).
 Run: `BATS_LIB_PATH=/usr/lib/bats bats test/coding-toolbox/`
