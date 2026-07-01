@@ -1,6 +1,6 @@
 {
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
-    "additionalContext": "Golden rules are active for this session (full text injected at session start). Language: compress — drop filler, preserve technical tokens. Behavior: think → simplify → surgical → verify. Mentality: lazy senior dev — YAGNI, reuse before building, prefer deletion, shortest working diff; never cut validation / security / tests."
+    "additionalContext": "Golden rules are active for this session (full text injected at session start). Interaction: user questions go through AskUserQuestion — never plain-text ask-and-wait. Language: compress — drop filler, preserve technical tokens. Behavior: think → simplify → surgical → verify. Mentality: lazy senior dev — YAGNI, reuse before building, prefer deletion, shortest working diff; never cut validation / security / tests."
   }
 }
