@@ -53,6 +53,12 @@ setup() {
   assert_output --partial "ponytail-lite"
 }
 
+@test "SessionStart.md forbids ending a turn with a bare '?'" {
+  run cat "$HOOKS/SessionStart.md"
+  assert_success
+  assert_output --partial 'bare "?"'
+}
+
 @test "hooks.json is valid JSON" {
   run jq empty "$HOOKS/hooks.json"
   assert_success
@@ -75,6 +81,11 @@ setup() {
 
 @test "PreToolUse hook is matcher-scoped (no Agent/Task) and wired to the mcp_tool" {
   run jq -e '.hooks.PreToolUse[0] | .matcher == "Edit|Write|NotebookEdit|Bash" and (.hooks[0].type == "mcp_tool") and (.hooks[0].server == "plugin:coding-toolbox:coding-toolbox-hooks") and (.hooks[0].tool == "golden_rules_reminder")' "$HOOKS/hooks.json"
+  assert_success
+}
+
+@test "Stop hook has no matcher and is wired to the interaction_gate mcp_tool" {
+  run jq -e '.hooks.Stop[0] | (has("matcher") | not) and (.hooks[0].type == "mcp_tool") and (.hooks[0].server == "plugin:coding-toolbox:coding-toolbox-hooks") and (.hooks[0].tool == "interaction_gate")' "$HOOKS/hooks.json"
   assert_success
 }
 
@@ -121,6 +132,31 @@ golden_rules_calls() {
   assert_success
   mapfile -t lines <<< "$output"
   echo "${lines[9]}" | jq -r '.hookSpecificOutput.additionalContext' | grep -q "AskUserQuestion"
+}
+
+# Drive the interaction_gate MCP tool with one last_assistant_message. Echoes the
+# tools/call structuredContent JSON.
+interaction_gate_call() {
+  local msg="$1"
+  {
+    printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n'
+    printf '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"interaction_gate","arguments":{"hook_event_name":"Stop","last_assistant_message":%s}}}\n' "$(jq -Rs . <<< "$msg")"
+  } | node "$PLUGIN/mcp/server.mjs" 2>/dev/null \
+    | jq -c 'select(.id == 2) | .result.structuredContent'
+}
+
+@test "interaction_gate blocks when the final line ends in a bare '?'" {
+  if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
+  run interaction_gate_call $'Done here.\nWant me to X or Y?'
+  assert_success
+  echo "$output" | jq -e '.decision == "block" and (.reason | length > 0)'
+}
+
+@test "interaction_gate allows a normal final line" {
+  if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
+  run interaction_gate_call "All done. Summary above."
+  assert_success
+  [ "$output" = "{}" ]
 }
 
 @test "plugin README first ## heading is Install" {

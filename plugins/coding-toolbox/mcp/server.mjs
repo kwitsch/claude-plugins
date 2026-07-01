@@ -12,7 +12,11 @@ const SERVER_INFO = { name: SERVER_NAME, version: "0.1.0" };
 const DEFAULT_PROTOCOL = "2025-11-25"; // only used if client omits protocolVersion
 const THROTTLE_EVERY = 10;
 const REMINDER_TEXT =
-  "Golden rules are active for this session (full text injected at session start). Interaction: user questions go through AskUserQuestion — never plain-text ask-and-wait. Language: compress — drop filler, preserve technical tokens. Behavior: think → simplify → surgical → verify. Mentality: lazy senior dev — YAGNI, reuse before building, prefer deletion, shortest working diff; never cut validation / security / tests.";
+  "Golden rules are active for this session (full text injected at session start). Interaction: user questions go through AskUserQuestion — never plain-text ask-and-wait, not even a bare '?' offer. Language: compress — drop filler, preserve technical tokens. Behavior: think → simplify → surgical → verify. Mentality: lazy senior dev — YAGNI, reuse before building, prefer deletion, shortest working diff; never cut validation / security / tests.";
+
+// Matches a final non-empty line ending in "?" outside fenced code blocks —
+// the Interaction axis's "never a bare question to the user" anti-pattern.
+const BARE_QUESTION_RE = /\?\s*$/;
 
 let callCount = 0;
 
@@ -32,6 +36,25 @@ function reminderHandler(args) {
   };
 }
 
+// Stop mechanical gate for the Interaction axis: `last_assistant_message` is
+// the documented Stop-hook field carrying Claude's final response text, so no
+// transcript parsing is needed. If the last non-empty line outside fenced
+// code blocks ends in "?", block the stop and tell Claude to redo it via
+// AskUserQuestion. Loop safety is the platform's (stop_hook_active input +
+// 8-consecutive-block cap) — no extra guard needed here.
+/** @param {StopHookInput} args @returns {HookResult} */
+function interactionGateHandler(args) {
+  const withoutFences = String(args?.last_assistant_message ?? "").replace(/```[\s\S]*?```/g, "");
+  const lines = withoutFences.split("\n").map((l) => l.trim()).filter(Boolean);
+  const lastLine = lines[lines.length - 1] ?? "";
+  if (!BARE_QUESTION_RE.test(lastLine)) return {}; // no opinion → allow stop
+  return {
+    decision: "block",
+    reason:
+      "Interaction rule violation: the final response ends with a plain-text question to the user. Route it through the AskUserQuestion tool instead — no exceptions, not even a casual yes/no offer.",
+  };
+}
+
 // Initialize the MCP stdio server: register tools, start the JSON-RPC readline loop.
 function startServer() {
   const TOOLS = [
@@ -41,6 +64,13 @@ function startServer() {
         "PreToolUse golden-rules reminder, throttled to every 10th matched call (Edit|Write|NotebookEdit|Bash). Returns additionalContext on the 10th/20th/... call, {} otherwise.",
       inputSchema: { type: "object", additionalProperties: true },
       handler: reminderHandler,
+    },
+    {
+      name: "interaction_gate",
+      description:
+        "Stop mechanical gate for the Interaction axis: blocks (decision:block+reason) when last_assistant_message ends in a bare '?' outside code fences, telling Claude to redo it via AskUserQuestion. {} otherwise.",
+      inputSchema: { type: "object", additionalProperties: true },
+      handler: interactionGateHandler,
     },
   ];
   const findTool = (/** @type {any} */ name) => TOOLS.find((t) => t.name === name);

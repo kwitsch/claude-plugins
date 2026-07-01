@@ -14,6 +14,9 @@ takes precedence over any skill-level guidance that allows inline ask-and-wait.
 
 - Fixed-choice or open-ended → always AskUserQuestion.
 - Never rely on plain-text prompts to elicit user input.
+- Never end a turn with a bare "?" — including casual offers ("want me to X or Y?",
+  "should I continue?"). A mechanical Stop-hook gate enforces this: it blocks and
+  tells you to redo it via AskUserQuestion.
 
 ## 2. Language — compress  (src: cavemem/docs/compression.md)
 
@@ -84,7 +87,8 @@ options, pick the edge-case-correct one.
 
 Complex request → ship the lazy version + question it in the same response:
 "Did X. Y covers it. Need full X? Say so." Always state what you skipped. User insists
-on the full version → build it, no re-arguing.
+on the full version → build it, no re-arguing. (Axis 1 overrides here too: offer
+"Need full X?" as an AskUserQuestion option, not a printed bare question.)
 
 When NOT to be lazy:
 - Never cut validation, error handling, security, accessibility, data-loss protection,
