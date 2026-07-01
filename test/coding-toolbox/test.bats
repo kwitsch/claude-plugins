@@ -44,6 +44,7 @@ setup() {
   run cat "$HOOKS/SessionStart.md"
   assert_success
   assert_output --partial "Interaction"
+  assert_output --partial "AskUserQuestion"
   assert_output --partial "Language"
   assert_output --partial "Behavior"
   assert_output --partial "Mentality"
