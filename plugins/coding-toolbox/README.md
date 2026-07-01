@@ -8,9 +8,9 @@
 
 ## What it does
 
-Injects a compact "golden behavior rules" contract into every Claude Code session and
-re-surfaces a short reminder before consequential tool calls, so the rules stay in
-context and are enforced.
+Injects a compact "golden behavior rules" contract into every Claude Code session,
+re-surfaces a short reminder before consequential tool calls, and mechanically enforces
+the Interaction axis, so the rules stay in context and are enforced.
 
 The rules document is written in cavemem's compressed-English notation and combines
 four axes — three sourced from external repos, one (Interaction) plugin-original:
@@ -24,8 +24,10 @@ four axes — three sourced from external repos, one (Interaction) plugin-origin
 
 - A `SessionStart` hook injects the full rules document, now covering all four axes
   (it re-fires on resume and after compaction, so the rules survive a compaction).
-- A `PreToolUse` hook (scoped to `Edit`, `Write`, `NotebookEdit`, `Bash`, `Task`,
-  `Agent`) injects a one-line reminder covering all four axes before code edits, shell
-  commands, and subagent dispatch.
+- A `PreToolUse` hook (scoped to `Edit`, `Write`, `NotebookEdit`, `Bash` — not before
+  subagent dispatch) injects a one-line reminder covering all four axes before code
+  edits and shell commands, throttled to every 10th matching call.
+- A `Stop` hook mechanically blocks a turn that ends with a plain-text question to the
+  user, telling Claude to redo it via `AskUserQuestion` instead.
 
 No configuration; nothing to set up — enabling the plugin is enough.

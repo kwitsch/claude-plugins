@@ -1,8 +1,10 @@
 # CLAUDE.md — coding-toolbox
 
-Plugin that injects "golden behavior rules" via two hooks. Content is baked in
-(`hooks/SessionStart.md`, `hooks/PreToolUse.json`); no MCP server, no Node handler, no
-userConfig, no runtime state.
+Plugin that injects and enforces "golden behavior rules" via three hooks. `SessionStart`
+content is baked in (`hooks/SessionStart.md`) with no runtime state. `PreToolUse` and
+`Stop` are backed by one self-contained MCP server (`mcp/server.mjs`): `PreToolUse`
+carries a session-lifetime call counter throttling the reminder; `Stop` is a stateless
+mechanical gate for the Interaction axis. No userConfig.
 
 ## Hook design (do not "fix" without reading this)
 
@@ -15,11 +17,42 @@ userConfig, no runtime state.
   `claude-code-hooks-reference.md` "Exec vs shell form": *use exec form whenever
   referencing a path placeholder*; the shipped cave-context plugin uses this exact hook).
   (`.claude/rules/hooks-mcp-server.md`, `.claude/rules/hooks-mcp-tool-event-matrix.md`)
-- **PreToolUse → `command` hook: `cat` + `args:["${CLAUDE_PLUGIN_ROOT}/hooks/PreToolUse.json"]`** — NOT `mcp_tool`, NOT a `.mjs` handler. On exit 0 a command hook's stdout is parsed as JSON (cc-reference, `claude-code-hooks-reference.md` "Exit codes"/"JSON output"), so `cat PreToolUse.json` IS the hook output: the file holds a complete `{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"…"}}` payload — `additionalContext` only, never a `permissionDecision` (which would interfere with the permission flow). An MCP server or a `.mjs` wrapper for static text adds a file for zero dynamic value, against the decision tree and this plugin's fewest-files philosophy. A bats tripwire validates the payload shape — do not add a handler, a `permissionDecision`, or flip to `mcp_tool`.
+- **PreToolUse → `mcp_tool` hook: `server: "plugin:coding-toolbox:coding-toolbox-hooks"`,
+  `tool: "golden_rules_reminder"`** (server registered in `.mcp.json` as
+  `coding-toolbox-hooks`; the hook's `server` field must use the runtime-namespaced
+  `plugin:coding-toolbox:coding-toolbox-hooks` form, not the bare `.mcp.json` key — see
+  `.claude/rules/hooks-mcp-server.md`). Matcher `Edit|Write|NotebookEdit|Bash` —
+  deliberately **excludes** `Task`/`Agent`: the reminder must not fire before subagent
+  dispatch (2026-07-01 decision), so those names were dropped from the matcher entirely
+  rather than special-cased in the handler — the hook never fires for that tool, no
+  MCP round-trip spent. `mcp/server.mjs` keeps a module-level `callCount` for the
+  process lifetime (the server stays connected for the whole session) and returns
+  `additionalContext` with the reminder text only on every 10th matched call
+  (`callCount % 10 === 0`); every other call returns `{}` (no opinion, fail-open
+  no-op — consistent with `mcp_tool`'s soft-block-only semantics). This throttling is
+  exactly the kind of per-call dynamic state a static `cat`'d JSON file cannot express,
+  which is why this hook — unlike SessionStart — now uses `mcp_tool`: do not revert it
+  to a `command` hook over a static file, that would drop both the throttle and the
+  tool exclusion.
+- **Stop → `mcp_tool` hook (no matcher — `Stop` ignores it): `tool: "interaction_gate"`**
+  (2026-07-01 addition, closing a gap where a turn ended with a plain-text question
+  instead of going through `AskUserQuestion`). Uses the documented `last_assistant_message` Stop-hook
+  input field — Claude's final response text, given directly, no transcript parsing
+  needed. Heuristic: strip fenced code blocks, take the last non-empty line; if it ends
+  in `?`, return `{"decision":"block","reason":"…"}` (from `HookResult`, already typed)
+  telling Claude to redo it via `AskUserQuestion`; otherwise `{}` (allow the stop). This
+  is deliberately a blunt heuristic — it will occasionally flag a rhetorical trailing
+  "?" as a false positive — traded for simplicity and for matching axis 1's own "no
+  exceptions" wording. No extra loop-guard needed: the platform's `stop_hook_active`
+  input and 8-consecutive-block cap already bound the worst case. Stateless — do not
+  add a counter here, unlike the PreToolUse tool.
 
 ## Tests
 
 `test/coding-toolbox/test.bats` — manifest/registration invariants, content coverage,
-hook wiring, end-to-end command tests (both hooks `cat` their file), and the
-additionalContext-JSON anti-flip tripwire.
+hook wiring (SessionStart command, PreToolUse `mcp_tool`, Stop `mcp_tool`), the
+SessionStart end-to-end command test, an end-to-end JSON-RPC driver against
+`mcp/server.mjs` proving the PreToolUse throttle (calls 1–9 return `{}`, call 10
+returns the reminder), and one proving the Stop gate blocks on a bare trailing `?`
+and allows through otherwise.
 Run: `BATS_LIB_PATH=/usr/lib/bats bats test/coding-toolbox/`

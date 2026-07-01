@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "coding-toolbox-hooks": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"
+    }
+  }
+}

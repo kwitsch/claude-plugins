@@ -1,7 +1,7 @@
 {
   "name": "coding-toolbox",
-  "version": "0.2.0",
-  "description": "Injects golden behavior rules (Interaction/Language/Behavior/Mentality) at session start and reminds before consequential tool calls.",
+  "version": "0.4.0",
+  "description": "Injects golden behavior rules (Interaction/Language/Behavior/Mentality) at session start, reminds before consequential tool calls, and mechanically enforces the Interaction axis on Stop.",
   "author": {
     "name": "Kwitsch"
   }

@@ -24,6 +24,13 @@ interface ToolHookInput extends HookCommonInput {
   tool_use_id?: string;
 }
 
+interface StopHookInput extends HookCommonInput {
+  stop_hook_active: boolean;
+  last_assistant_message: string;
+  background_tasks: unknown[];
+  session_crons: unknown[];
+}
+
 interface HookSpecificOutput {
   hookEventName: string;
   additionalContext?: string;

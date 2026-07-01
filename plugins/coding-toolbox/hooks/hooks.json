@@ -13,12 +13,23 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Edit|Write|NotebookEdit|Bash|Task|Agent",
+        "matcher": "Edit|Write|NotebookEdit|Bash",
         "hooks": [
           {
-            "type": "command",
-            "command": "cat",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/PreToolUse.json"]
+            "type": "mcp_tool",
+            "server": "plugin:coding-toolbox:coding-toolbox-hooks",
+            "tool": "golden_rules_reminder"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "plugin:coding-toolbox:coding-toolbox-hooks",
+            "tool": "interaction_gate"
           }
         ]
       }
