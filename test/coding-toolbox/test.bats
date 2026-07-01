@@ -40,9 +40,10 @@ setup() {
   assert_success
 }
 
-@test "SessionStart.md covers all three axes and cites all three sources" {
+@test "SessionStart.md covers all four axes and cites all three sourced axes" {
   run cat "$HOOKS/SessionStart.md"
   assert_success
+  assert_output --partial "Interaction"
   assert_output --partial "Language"
   assert_output --partial "Behavior"
   assert_output --partial "Mentality"
@@ -56,6 +57,12 @@ setup() {
 @test "PreToolUse.json is a valid PreToolUse additionalContext payload" {
   run jq -e '.hookSpecificOutput.hookEventName == "PreToolUse" and (.hookSpecificOutput.additionalContext | length > 0) and (.hookSpecificOutput | has("permissionDecision") | not)' "$HOOKS/PreToolUse.json"
   assert_success
+}
+
+@test "PreToolUse.json mentions AskUserQuestion" {
+  run cat "$HOOKS/PreToolUse.json"
+  assert_success
+  assert_output --partial "AskUserQuestion"
 }
 
 @test "hooks.json is valid JSON" {
