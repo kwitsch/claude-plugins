@@ -5,6 +5,9 @@ docs/
 # graphify knowledge graph output — local development only, never pushed.
 graphify-out/
 
+# codebase-memory-mcp persisted graph artifact — local development only, never pushed.
+.codebase-memory/
+
 # npm (bats test framework)
 node_modules/
 

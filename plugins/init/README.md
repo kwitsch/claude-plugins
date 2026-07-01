@@ -14,7 +14,7 @@ Idempotent repo-initialization skills for Claude Code projects.
 |---|---|
 | `repo-init` | Orchestrator — runs all three init skills in sequence |
 | `claude-repo-init` | Creates `CLAUDE.md` (via cc-author) and `.claude/.gitignore` |
-| `codebase-repo-init` | Creates `.codebase-memory/.gitignore` and indexes the repo |
+| `codebase-repo-init` | Indexes the repo into codebase-memory-mcp's knowledge graph |
 | `lsp-repo-init` | Creates `.lsp.json` from detected file extensions |
 
 ## Usage

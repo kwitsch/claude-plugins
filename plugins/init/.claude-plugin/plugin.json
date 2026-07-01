@@ -1,6 +1,6 @@
 {
   "name": "init",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Repo initialization skill collection — CLAUDE.md, .claude/.gitignore, codebase-memory index, and .lsp.json creation via idempotent per-concern skills and a repo-init orchestrator.",
   "author": { "name": "Kwitsch" },
   "dependencies": [
