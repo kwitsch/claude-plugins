@@ -93,6 +93,7 @@ for (const t of args.tasks) {
     break
   }
   let review = await agent(reviewerPrompt(t, impl), { label: `review:${t.id}`, phase: 'Implement', schema: VERDICT })
+  if (review === null) review = await agent(reviewerPrompt(t, impl), { label: `review:${t.id}:retry`, phase: 'Implement', schema: VERDICT })
   if (review && !review.approved) {
     const blocking = review.findings.filter((f) => f.severity !== 'minor')
     if (blocking.length) {

@@ -578,7 +578,7 @@ run_ci_watch() {
 
 @test "fresh-work skill dir is self-contained (no cross-plugin references)" {
   run bash -c "grep -riE 'superpowers|branch-management' '$PLUGIN/skills/fresh-work/'"
-  assert_failure
+  assert_failure 1
 }
 
 @test "fresh-work references/designing.md exists and is non-empty" {

@@ -29,9 +29,9 @@ options; the real description arrives via "Other" free text). Never guess.
 The design doc and the plan are **session temp files**, never repository files:
 
 - **Location:** the session scratchpad directory when your system prompt provides
-  one, provided dispatched subagents can read that absolute host path. No scratchpad
-  or unreadable → run `mktemp -d -t fresh-work-XXXXXX` once and use that directory.
-  Both unavailable → stop and report; later phases need these files.
+  one. When no scratchpad is provided — or you are unsure dispatched workers can
+  read that absolute path — run `mktemp -d -t fresh-work-XXXXXX` once and use that
+  directory. Both unavailable → stop and report; later phases need these files.
 - **Names:** `fresh-work-spec-<slug>.md` and `fresh-work-plan-<slug>.md`, where
   `<slug>` is the branch name without its `<type>/` prefix.
 - Record both **absolute paths** in the owning step task's `metadata`; hand later
