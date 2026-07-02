@@ -570,3 +570,21 @@ run_ci_watch() {
   run grep -F '| `fresh-pr`' "$PLUGIN/README.md"
   assert_success
 }
+
+@test "fresh-work skill dir is self-contained (no cross-plugin references)" {
+  run bash -c "grep -riE 'superpowers|branch-management' '$PLUGIN/skills/fresh-work/'"
+  assert_failure
+}
+
+@test "fresh-work references/designing.md exists and is non-empty" {
+  run test -s "$PLUGIN/skills/fresh-work/references/designing.md"
+  assert_success
+}
+
+@test "fresh-work designing reference gates user questions and keeps output out of the repo" {
+  run cat "$PLUGIN/skills/fresh-work/references/designing.md"
+  assert_success
+  assert_output --partial "genuinely changes the design"
+  assert_output --partial "AskUserQuestion"
+  assert_output --partial "spec temp path"
+}
