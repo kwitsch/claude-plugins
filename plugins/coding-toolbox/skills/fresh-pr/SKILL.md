@@ -122,13 +122,22 @@ dependency on `branch-management`; every script/agent used here lives in
 
 8. **Check for an existing PR/MR, then create/update/reopen/report:**
 
-   - GitHub: `gh pr view "$branch" --json number,state,url,title 2>/dev/null`
+   - GitHub: `gh pr view "$branch" --json number,state,url,title,baseRefName 2>/dev/null`
      — empty output or a non-zero exit means none exists.
-   - GitLab: `glab api "projects/:id/merge_requests?source_branch=$branch&target_branch=$base&state=all" 2>/dev/null | jq -c '.[0] // empty'`
+   - GitLab: `glab api "projects/:id/merge_requests?source_branch=$branch&state=all" 2>/dev/null | jq -c '.[0] // empty'`
      — empty output means none exists. When a GitLab MR is found, use `.iid`
      (per-project IID, not the global `.id`) as `$number` — every subsequent
      `glab mr update/reopen` call and the discussion-resolve endpoint in step
      9.4 require the IID.
+
+   Both queries key on the head/source branch alone (not the base), so
+   existing-PR/MR detection is symmetric across platforms — an existing PR/MR
+   is found even when it currently targets a base other than the resolved
+   `$base`. If the found PR/MR's base (GitHub `.baseRefName` / GitLab
+   `.target_branch`) differs from `$base`, surface that to the user via
+   `AskUserQuestion` before proceeding: the update path below rewrites only
+   title/body, never the base, so it will neither silently retarget the PR/MR
+   nor open a duplicate against `$base`.
 
    Derive a title from the branch's purpose and a body from
    `git log "origin/$base"..HEAD` (what changed and why) — both are reused by
