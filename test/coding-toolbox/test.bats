@@ -601,3 +601,17 @@ run_ci_watch() {
   assert_output --partial "plan temp path"
   refute_output --partial "Which approach"
 }
+
+@test "fresh-work references/implementing.md exists and is non-empty" {
+  run test -s "$PLUGIN/skills/fresh-work/references/implementing.md"
+  assert_success
+}
+
+@test "fresh-work implementing reference probes Workflow, falls back to Agent, and gates dispatches" {
+  run cat "$PLUGIN/skills/fresh-work/references/implementing.md"
+  assert_success
+  assert_output --partial "select:Workflow"
+  assert_output --partial "Agent engine"
+  assert_output --partial "Subagent reconciliation gate"
+  assert_output --partial "'critical'"
+}
