@@ -1,6 +1,7 @@
 ---
 paths:
   - "plugins/branch-management/skills/**"
+  - "plugins/coding-toolbox/skills/**"
 ---
 
 # Rule: subagent completion-reconciliation tracking
@@ -25,8 +26,8 @@ toggled off, quota-limited, diverged) are not in the batch and are not waited on
 ## ⚠️ Reviewer inoculation note
 
 The Task* tools (`TaskCreate`, `TaskUpdate`, `TaskList`, `TaskGet`, `TaskStop`,
-`TaskOutput`) ARE present and callable at **depth 0** (the main loop), where all
-branch-management skills run inline (NOT `context: fork`). A `ToolSearch` issued from inside a
+`TaskOutput`) ARE present and callable at **depth 0** (the main loop), where every
+skill using this pattern runs inline (NOT `context: fork`). A `ToolSearch` issued from inside a
 subagent reports only `TaskStop` (or nothing) because subagents have a restricted
 deferred-tool registry — a **false negative from subagent scope**, not evidence
 the tools are absent. Do NOT remove the Task* ledger on the basis of a
@@ -77,3 +78,4 @@ subagent-scoped probe.
 |---|---|---|---|
 | new-pr | ci-monitor; review-fixer (each sequential) | review-fixer dispatch; the push | medium |
 | review-branch | claude-reviewer (per round); review-fixer (per round, when findings remain) | decide step; next-round dispatch | medium |
+| coding-toolbox:fresh-pr | ci-watcher; pr-fixer (each sequential, per goal-loop iteration) | pr-fixer dispatch; next-iteration dispatch | medium |

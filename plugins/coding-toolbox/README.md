@@ -11,6 +11,14 @@
 | Skill | What it does |
 |---|---|
 | `fresh-branch` | Refresh the current branch onto its default base with no arguments (in any context), or cut a new branch off an optional custom base outside a worktree, or refresh onto an explicit base inside a linked git worktree. Auto-stashes/pops uncommitted changes around the operation. |
+| `fresh-pr` | Commit pending work, rebase onto an updated base, push, and open or refresh a PR/MR (GitHub and GitLab) — then drive it to CI-green (and, if CodeRabbit participates, all review threads resolved) via bundled `ci-watcher`/`pr-fixer` agents. No dependency on `branch-management`. |
+
+## Agents
+
+| Agent | Model | Role |
+|---|---|---|
+| `ci-watcher` | sonnet | read-only: watches CI via `bin/ci-watch.sh`, collects open CodeRabbit PR threads (including any attached AI-agent fix prompt) |
+| `pr-fixer` | opus | verifies CI/CodeRabbit findings against the code, applies justified fixes, commits (never pushes), always annotates skipped findings in code |
 
 ## What it does
 
