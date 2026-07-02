@@ -615,3 +615,16 @@ run_ci_watch() {
   assert_output --partial "Subagent reconciliation gate"
   assert_output --partial "'critical'"
 }
+
+@test "fresh-work references/debugging.md exists and is non-empty" {
+  run test -s "$PLUGIN/skills/fresh-work/references/debugging.md"
+  assert_success
+}
+
+@test "fresh-work debugging reference demands root cause and a failing test before any fix" {
+  run cat "$PLUGIN/skills/fresh-work/references/debugging.md"
+  assert_success
+  assert_output --partial "root cause"
+  assert_output --partial "failing test"
+  assert_output --partial "AskUserQuestion"
+}
