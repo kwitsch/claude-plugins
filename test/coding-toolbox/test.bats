@@ -561,9 +561,14 @@ run_ci_watch() {
   assert_success
 }
 
-@test "plugin.json version bumped for fresh-pr" {
+@test "plugin.json version bumped for fresh-work" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.6.0"
+  assert_output "0.7.0"
+}
+
+@test "plugin.json description mentions fresh-work" {
+  run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
+  assert_output --partial "fresh-work"
 }
 
 @test "plugin README lists fresh-pr in the Skills section" {
