@@ -54,8 +54,9 @@ as `branch-management:new-branch`), self-detecting worktree state via `git
 rev-parse --git-dir` vs `--git-common-dir`. Deliberately independent of
 `branch-management` — supports a custom base/upstream and a branch+base pair,
 which `new-branch` does not. Auto-stashes (`git stash push -u`) and pops
-unconditionally around both paths, including the worktree-refresh-only path
-that creates no new branch (2026-07-02 decision, confirmed with the user) —
+unconditionally around both paths, including the refresh-only path (now
+universal for zero-argument invocations, not just inside a worktree —
+2026-07-02, extended same day per user request) that creates no new branch —
 never silently drops a stash on a pop conflict (exit `8`, reported). The
 non-worktree branch-name collision check runs *before* any stash or checkout so
 that path never has to unwind a stash from the wrong branch. See `skills/fresh-branch/SKILL.md`'s parameter table for the full worktree × arg-count truth table.

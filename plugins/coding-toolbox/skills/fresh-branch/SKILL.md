@@ -1,26 +1,27 @@
 ---
 name: fresh-branch
-description: Use to start a fresh work branch off an optional custom base, or — inside a linked git worktree — fetch and rebase the current branch onto its base in place instead of switching branches. Auto-stashes and restores uncommitted changes around the operation.
+description: Use to start a fresh work branch off an optional custom base, or — with no arguments (or inside a linked git worktree) — fetch and rebase the current branch onto its base in place instead of switching branches. Auto-stashes and restores uncommitted changes around the operation.
 argument-hint: "[branch-name|base] [base]"
 allowed-tools: ["AskUserQuestion", "Bash(git:*)", "Bash(bash:*)"]
 ---
 
 # Start or refresh a branch
 
-Outside a git worktree this skill cuts a brand-new branch off an up-to-date base
-(the repo default branch, or an explicit second argument). Inside a **linked
-worktree** — where the default/base branch is typically checked out elsewhere and
-switching is impossible — it instead fetches and rebases the *current* branch onto
-its base in place; no new branch is created. Uncommitted changes are stashed
-before either operation and popped afterward: in the newly created branch when one
-is created, in place otherwise.
+With no arguments this skill always fetches and rebases the *current* branch onto
+the repo's default branch in place — no new branch is created, whether or not
+you're in a worktree. With arguments, outside a git worktree it instead cuts a
+brand-new branch off an up-to-date base (the default branch, or an explicit second
+argument). Inside a **linked worktree**, a single argument is treated as an
+explicit upstream/base to refresh onto instead of the default. Uncommitted changes
+are stashed before either operation and popped afterward: in the newly created
+branch when one is created, in place otherwise.
 
 Parameter meaning depends on context (the script below detects it and validates
 the argument count itself):
 
 | Context | Args | Meaning |
 |---|---|---|
-| worktree | 0 | fetch+rebase onto the repo default branch |
+| any | 0 | fetch+rebase current branch onto the repo default branch |
 | worktree | 1 | fetch+rebase onto `$1` (explicit upstream/base) |
 | non-worktree | 1 | create branch `$1` off the repo default branch |
 | non-worktree | 2 | create branch `$1` off base `$2` |
@@ -40,16 +41,20 @@ the argument count itself):
 
    ```bash
    #!/usr/bin/env bash
-   # fresh-branch: outside a worktree, cut a new branch off an (optionally
-   # custom) base; inside a worktree, fetch + rebase the current branch onto its
-   # base in place. Uncommitted changes are auto-stashed before and popped after
-   # — in the new branch when one is created, in place otherwise.
+   # fresh-branch: with no arguments, always fetch + rebase the *current*
+   # branch onto the repo default branch in place (no new branch created),
+   # whether or not you're in a worktree. With arguments, outside a worktree
+   # it cuts a new branch off an (optionally custom) base; inside a worktree a
+   # single argument is an explicit base to refresh onto instead. Uncommitted
+   # changes are auto-stashed before and popped after — in the new branch when
+   # one is created, in place otherwise.
    #
-   # Usage (worktree):      fresh-branch.sh [base]
+   # Usage (no args):       fresh-branch.sh
+   # Usage (worktree):      fresh-branch.sh <base>
    # Usage (non-worktree):  fresh-branch.sh <branch-name> [base]
    #
    # Exit: 0 ok · 2 usage · 3 stash_failed · 4 no_remote · 5 git_op_failed ·
-   #       6 name_exists (non-worktree) · 7 rebase_conflict (worktree) ·
+   #       6 name_exists (non-worktree) · 7 rebase_conflict (refresh path) ·
    #       8 pop_conflict (stash left in place, everything else succeeded)
    set -uo pipefail
 
@@ -85,12 +90,11 @@ the argument count itself):
      return 0
    }
 
-   if [ "$is_worktree" = true ]; then
-     [ "$#" -le 1 ] || { echo "usage: fresh-branch.sh [base]  (worktree: at most 1 arg)" >&2; exit 2; }
-     base="${1:-}"
-     [ -n "$base" ] || base="$(detect_default)"
-     [ -n "$base" ] || { echo "origin/HEAD undetectable (no remote / offline)" >&2; exit 4; }
-
+   # Fetch + rebase the current branch onto origin/$1 in place. Never creates or
+   # switches branches. Used both for the universal no-args refresh and for the
+   # worktree explicit-base form.
+   refresh_onto() {
+     base="$1"
      stash_if_dirty
 
      if ! err="$(git fetch origin "$base" 2>&1 1>/dev/null)"; then
@@ -102,7 +106,7 @@ the argument count itself):
      if git rebase "origin/$base" >/dev/null 2>&1; then
        pop_ok=true
        pop_stash || pop_ok=false
-       printf 'mode: worktree-refresh\nbranch: %s\nbase: %s\ncommit: %s\n' "$(git branch --show-current)" "$base" "$(git log -1 --oneline)"
+       printf 'mode: refresh\nbranch: %s\nbase: %s\ncommit: %s\n' "$(git branch --show-current)" "$base" "$(git log -1 --oneline)"
        [ "$pop_ok" = true ] || exit 8
        exit 0
      else
@@ -111,8 +115,16 @@ the argument count itself):
        echo "rebase conflict against origin/$base" >&2
        exit 7
      fi
+   }
+
+   if [ "$#" -eq 0 ]; then
+     base="$(detect_default)"
+     [ -n "$base" ] || { echo "origin/HEAD undetectable (no remote / offline)" >&2; exit 4; }
+     refresh_onto "$base"
+   elif [ "$is_worktree" = true ]; then
+     [ "$#" -eq 1 ] || { echo "usage: fresh-branch.sh [base]  (worktree: at most 1 arg)" >&2; exit 2; }
+     refresh_onto "$1"
    else
-     [ "$#" -ge 1 ] || { echo "usage: fresh-branch.sh <branch-name> [base]  (non-worktree: needs a branch name)" >&2; exit 2; }
      [ "$#" -le 2 ] || { echo "usage: fresh-branch.sh <branch-name> [base]  (non-worktree: at most 2 args)" >&2; exit 2; }
      branch="$1"
      base="${2:-}"
@@ -151,7 +163,7 @@ the argument count itself):
    - `0` — success; keep the `mode:` / `branch:` / `base:` / `commit:` lines for
      the report.
    - `2` `usage` — the caller passed the wrong number of arguments for the
-     detected context (e.g. 2 args inside a worktree, or 0 args outside one).
+     detected context (e.g. 2 args inside a worktree, or 3+ args outside one).
      Report the stderr message and stop.
    - `3` `stash_failed` — the tree was dirty but `git stash push -u` itself
      failed (rare). Report stderr and stop; nothing was touched.
@@ -166,14 +178,15 @@ the argument count itself):
      or branch switch, so nothing was touched. Ask the user via
      `AskUserQuestion` — options **Switch to existing branch** (`git checkout
      <branch>`) / **Pick a different name** — then re-run step 1.
-   - `7` `rebase_conflict` — worktree only; the rebase was aborted so the branch
-     is back to its pre-rebase state (stash popped or preserved — check
-     stderr). Report the conflict; resolve manually.
+   - `7` `rebase_conflict` — the refresh path only (no args in any context, or
+     worktree with an explicit base); the rebase was aborted so the branch is
+     back to its pre-rebase state (stash popped or preserved — check stderr).
+     Report the conflict; resolve manually.
    - `8` `pop_conflict` — the primary operation (branch created, or rebase
      done) succeeded — read the `mode:`/`branch:`/`base:`/`commit:` lines — but
      the final `git stash pop` failed. Report explicitly that the stash is
      preserved (`git stash list`) for manual recovery; never say the operation
      fully succeeded without this caveat.
 
-3. **Report:** the mode (`create` vs `worktree-refresh`), branch name, base, and
+3. **Report:** the mode (`create` vs `refresh`), branch name, base, and
    commit from the script's printed lines.

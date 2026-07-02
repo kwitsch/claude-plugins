@@ -10,7 +10,7 @@
 
 | Skill | What it does |
 |---|---|
-| `fresh-branch` | Cut a new branch off an optional custom base, or — inside a linked git worktree — fetch and rebase the current branch onto its base in place. Auto-stashes/pops uncommitted changes around the operation. |
+| `fresh-branch` | Refresh the current branch onto its default base with no arguments (in any context), or cut a new branch off an optional custom base outside a worktree, or refresh onto an explicit base inside a linked git worktree. Auto-stashes/pops uncommitted changes around the operation. |
 
 ## What it does
 

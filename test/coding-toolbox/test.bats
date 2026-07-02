@@ -219,3 +219,8 @@ interaction_gate_call() {
   run grep -F '| `fresh-branch`' "$PLUGIN/README.md"
   assert_success
 }
+
+@test "fresh-branch treats zero args as a universal refresh, not a non-worktree usage error" {
+  run grep -F 'if [ "$#" -eq 0 ]; then' "$PLUGIN/skills/fresh-branch/SKILL.md"
+  assert_success
+}
