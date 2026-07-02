@@ -129,7 +129,7 @@ the argument count itself):
        pop_stash || echo "stash pop also failed; stash preserved" >&2
        exit 5
      fi
-     if ! err="$(git pull --ff-only 2>&1 1>/dev/null)"; then
+     if ! err="$(git pull --ff-only origin "$base" 2>&1 1>/dev/null)"; then
        printf '%s\n' "$err" >&2
        pop_stash || echo "stash pop also failed; stash preserved" >&2
        exit 5
