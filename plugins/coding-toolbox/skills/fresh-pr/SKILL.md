@@ -201,8 +201,9 @@ dependency on `branch-management`; every script/agent used here lives in
       agent chains `cd "<worktree_path>" &&` into each cwd-dependent `gh`/`glab`
       command so they resolve against the correct `origin` remote, not the
       primary-repo root). On GitHub also resolve
-      `owner`/`name` once via `gh repo view --json owner,name` and pass them
-      along. Track the dispatch via the ledger above; do not proceed until
+      `owner`/`name` once via `gh repo view --json owner,name --jq '{owner: .owner.login, name: .name}'`
+      (`owner` comes back as an object, not a bare string — extract `.login`)
+      and pass them along. Track the dispatch via the ledger above; do not proceed until
       `{ci, failures, review_findings}` is in hand.
    2. **If `ci` is `green` and `review_findings` is empty:** the goal is met —
       exit the loop.
