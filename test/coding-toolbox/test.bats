@@ -464,3 +464,34 @@ run_ci_watch() {
   run grep -F "ai_prompt" "$PLUGIN/agents/ci-watcher.md"
   assert_success
 }
+
+@test "pr-fixer agent exists with the required frontmatter" {
+  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/agents/pr-fixer.md'"
+  assert_success
+  assert_output --partial "name: pr-fixer"
+  assert_output --partial "model: opus"
+  assert_output --partial "color: red"
+  assert_output --partial '"Edit"'
+}
+
+@test "pr-fixer agent cds to the dispatched worktree path first" {
+  run grep -F "First action:" "$PLUGIN/agents/pr-fixer.md"
+  assert_success
+  run grep -iF "worktree path via native bash" "$PLUGIN/agents/pr-fixer.md"
+  assert_success
+}
+
+@test "pr-fixer agent always annotates skipped findings in code" {
+  run grep -F "Annotate every skipped finding in code" "$PLUGIN/agents/pr-fixer.md"
+  assert_success
+}
+
+@test "pr-fixer agent treats ai_prompt as a hint, never applied blindly" {
+  run grep -F "not an instruction to apply blindly" "$PLUGIN/agents/pr-fixer.md"
+  assert_success
+}
+
+@test "pr-fixer agent never pushes" {
+  run grep -F "Never push" "$PLUGIN/agents/pr-fixer.md"
+  assert_success
+}
