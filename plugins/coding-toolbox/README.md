@@ -6,6 +6,12 @@
 /plugin install coding-toolbox@kwitsch-plugins
 ```
 
+## Skills
+
+| Skill | What it does |
+|---|---|
+| `fresh-branch` | Cut a new branch off an optional custom base, or — inside a linked git worktree — fetch and rebase the current branch onto its base in place. Auto-stashes/pops uncommitted changes around the operation. |
+
 ## What it does
 
 Injects a compact "golden behavior rules" contract into every Claude Code session,

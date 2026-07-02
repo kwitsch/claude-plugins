@@ -1,7 +1,7 @@
 {
   "name": "coding-toolbox",
-  "version": "0.4.0",
-  "description": "Injects golden behavior rules (Interaction/Language/Behavior/Mentality) at session start, reminds before consequential tool calls, and mechanically enforces the Interaction axis on Stop.",
+  "version": "0.5.0",
+  "description": "Injects golden behavior rules (Interaction/Language/Behavior/Mentality) at session start, reminds before consequential tool calls, mechanically enforces the Interaction axis on Stop, and provides a fresh-branch skill for starting or refreshing git work branches.",
   "author": {
     "name": "Kwitsch"
   }

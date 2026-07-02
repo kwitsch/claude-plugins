@@ -214,3 +214,8 @@ interaction_gate_call() {
   run grep -F 'refs/heads/$branch' "$PLUGIN/skills/fresh-branch/SKILL.md"
   assert_success
 }
+
+@test "plugin README lists fresh-branch in a Skills section" {
+  run grep -F '| `fresh-branch`' "$PLUGIN/README.md"
+  assert_success
+}
