@@ -474,11 +474,12 @@ run_ci_watch() {
   assert_output --partial '"Edit"'
 }
 
-@test "pr-fixer agent cds to the dispatched worktree path first" {
-  run grep -F "First action:" "$PLUGIN/agents/pr-fixer.md"
+@test "pr-fixer agent chains cd into each git command (not a one-time cd)" {
+  run grep -F 'cd "<worktree path>" && git' "$PLUGIN/agents/pr-fixer.md"
   assert_success
+  # regression guard: the one-time-cd phrasing must not creep back
   run grep -iF "worktree path via native bash" "$PLUGIN/agents/pr-fixer.md"
-  assert_success
+  assert_failure
 }
 
 @test "pr-fixer agent always annotates skipped findings in code" {

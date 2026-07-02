@@ -28,10 +28,13 @@ Your dispatch prompt contains: a JSON list of CI failures (`job`, `cause`,
 `severity`, `title`, `description`, `recommendation`, optional `ai_prompt`,
 `thread_id`), the base branch, and an absolute worktree path.
 
-**First action: `cd` to the provided worktree path via native Bash.** In
-bridge/linked-worktree sessions, Agent-tool subagents default their cwd to the
-primary repo root — without this `cd`, your reads and commits would land on
-the wrong branch/worktree.
+**Run every `git` command from the worktree by chaining the path inline** —
+`cd "<worktree path>" && git add … && git commit …`. A standalone `cd` does
+**not** persist to your next Bash call, and in bridge/linked-worktree sessions
+Agent-tool subagents default their cwd to the primary repo root — so a one-time
+`cd` first action would leave your commits landing on the wrong branch/worktree.
+`Read`/`Edit`/`Write` take absolute paths and are unaffected. Chaining is a
+no-op when the worktree path is already the repo root.
 
 Treat each CI failure as a finding whose fix makes the failing job pass. Some
 CI failures are infrastructure or flakes (timed-out runner, transient
