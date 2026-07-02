@@ -547,3 +547,13 @@ run_ci_watch() {
   run grep -F "capped at 5 iterations" "$PLUGIN/skills/fresh-pr/SKILL.md"
   assert_success
 }
+
+@test "plugin.json version bumped for fresh-pr" {
+  run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
+  assert_output "0.6.0"
+}
+
+@test "plugin README lists fresh-pr in the Skills section" {
+  run grep -F '| `fresh-pr`' "$PLUGIN/README.md"
+  assert_success
+}

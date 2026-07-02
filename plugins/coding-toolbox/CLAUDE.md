@@ -61,6 +61,26 @@ never silently drops a stash on a pop conflict (exit `8`, reported). The
 non-worktree branch-name collision check runs *before* any stash or checkout so
 that path never has to unwind a stash from the wrong branch. See `skills/fresh-branch/SKILL.md`'s parameter table for the full worktree × arg-count truth table.
 
+## Skill design (`fresh-pr`)
+
+Self-contained PR-lifecycle skill: inline synchronous git/gh/glab
+orchestration (`skills/fresh-pr/SKILL.md`, same idiom as `fresh-branch`) for
+commit→rebase→push→PR-open-or-refresh, then a Task*-ledger-tracked goal loop
+dispatching two plugin-local agents — `agents/ci-watcher.md` (read-only,
+polls `bin/ci-watch.sh`, collects open CodeRabbit threads plus any attached
+"Prompt for AI Agents" text) and `agents/pr-fixer.md` (applies justified
+fixes, commits, never pushes, always annotates skipped findings in code) —
+until CI is green and, only if CodeRabbit ever comments, its threads are
+resolved. Deliberately independent of `branch-management`: `bin/ci-watch.sh`
+is a near-verbatim port of `branch-management/bin/ci-watch.sh` (same exit
+contract), and the two agents port `branch-management`'s
+`ci-monitor`/`review-fixer` logic — no cross-plugin dependency, no
+code-review-rounds step (not requested). Existing-PR handling (create if
+none / update title+body via `gh api PATCH` — never `gh pr edit`, known to
+silently fail on this repo's Projects-classic board — or `glab mr update` if
+open / reopen-then-update if closed / report-and-stop if merged) has no
+`branch-management:new-pr` equivalent.
+
 ## Tests
 
 `test/coding-toolbox/test.bats` — manifest/registration invariants, content coverage,
@@ -68,5 +88,8 @@ hook wiring (SessionStart command, PreToolUse `mcp_tool`, Stop `mcp_tool`), the
 SessionStart end-to-end command test, an end-to-end JSON-RPC driver against
 `mcp/server.mjs` proving the PreToolUse throttle (calls 1–9 return `{}`, call 10
 returns the reminder), and one proving the Stop gate blocks on a bare trailing `?`
-and allows through otherwise.
+and allows through otherwise. Coverage now also includes: a ported `ci-watch.sh`
+bats suite (hermetic, stubbed `gh`/`glab`), structural assertions for
+`fresh-pr/SKILL.md` and the `ci-watcher`/`pr-fixer` agent frontmatter, and the
+version-bump manifest assertion.
 Run: `BATS_LIB_PATH=/usr/lib/bats bats test/coding-toolbox/`

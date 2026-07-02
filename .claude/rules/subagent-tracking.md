@@ -77,3 +77,4 @@ subagent-scoped probe.
 |---|---|---|---|
 | new-pr | ci-monitor; review-fixer (each sequential) | review-fixer dispatch; the push | medium |
 | review-branch | claude-reviewer (per round); review-fixer (per round, when findings remain) | decide step; next-round dispatch | medium |
+| coding-toolbox:fresh-pr | ci-watcher; pr-fixer (each sequential, per goal-loop iteration) | pr-fixer dispatch; next-iteration dispatch | medium |
