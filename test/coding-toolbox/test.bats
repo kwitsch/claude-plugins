@@ -174,3 +174,43 @@ interaction_gate_call() {
   run grep -E "^## Hooks" "$PLUGIN/README.md"
   assert_failure
 }
+
+@test "fresh-branch SKILL.md exists and is non-empty" {
+  run test -s "$PLUGIN/skills/fresh-branch/SKILL.md"
+  assert_success
+}
+
+@test "fresh-branch frontmatter declares name and required allowed-tools" {
+  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/skills/fresh-branch/SKILL.md'"
+  assert_success
+  assert_output --partial "name: fresh-branch"
+  assert_output --partial "AskUserQuestion"
+  assert_output --partial 'Bash(git:*)'
+}
+
+@test "fresh-branch script detects linked worktree via git-dir comparison" {
+  run grep -F 'git rev-parse --git-dir' "$PLUGIN/skills/fresh-branch/SKILL.md"
+  assert_success
+}
+
+@test "fresh-branch script carries the documented exit-code contract" {
+  run grep -F 'Exit: 0 ok' "$PLUGIN/skills/fresh-branch/SKILL.md"
+  assert_success
+}
+
+@test "fresh-branch script auto-stashes and pops uncommitted changes" {
+  run grep -F 'git stash push -u' "$PLUGIN/skills/fresh-branch/SKILL.md"
+  assert_success
+  run grep -F 'git stash pop' "$PLUGIN/skills/fresh-branch/SKILL.md"
+  assert_success
+}
+
+@test "fresh-branch worktree path rebases instead of switching branches" {
+  run grep -F 'git rebase "origin/$base"' "$PLUGIN/skills/fresh-branch/SKILL.md"
+  assert_success
+}
+
+@test "fresh-branch checks branch-name collision before touching the tree" {
+  run grep -F 'refs/heads/$branch' "$PLUGIN/skills/fresh-branch/SKILL.md"
+  assert_success
+}
