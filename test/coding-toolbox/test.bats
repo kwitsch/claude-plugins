@@ -662,3 +662,8 @@ run_ci_watch() {
   assert_output --partial "mktemp"
   assert_output --partial "Never commit them"
 }
+
+@test "plugin README lists fresh-work in the Skills section" {
+  run grep -F '| `fresh-work`' "$PLUGIN/README.md"
+  assert_success
+}
