@@ -588,3 +588,16 @@ run_ci_watch() {
   assert_output --partial "AskUserQuestion"
   assert_output --partial "spec temp path"
 }
+
+@test "fresh-work references/planning.md exists and is non-empty" {
+  run test -s "$PLUGIN/skills/fresh-work/references/planning.md"
+  assert_success
+}
+
+@test "fresh-work planning reference keeps global constraints and drops the execution-choice handoff" {
+  run cat "$PLUGIN/skills/fresh-work/references/planning.md"
+  assert_success
+  assert_output --partial "Global Constraints"
+  assert_output --partial "plan temp path"
+  refute_output --partial "Which approach"
+}
