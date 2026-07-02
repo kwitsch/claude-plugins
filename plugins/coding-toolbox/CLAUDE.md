@@ -47,6 +47,20 @@ mechanical gate for the Interaction axis. No userConfig.
   input and 8-consecutive-block cap already bound the worst case. Stateless — do not
   add a counter here, unlike the PreToolUse tool.
 
+## Skill design (`fresh-branch`)
+
+Single inline synchronous bash script (no MCP server, no subagent — same idiom
+as `branch-management:new-branch`), self-detecting worktree state via `git
+rev-parse --git-dir` vs `--git-common-dir`. Deliberately independent of
+`branch-management` — supports a custom base/upstream and a branch+base pair,
+which `new-branch` does not. Auto-stashes (`git stash push -u`) and pops
+unconditionally around both paths, including the refresh-only path (now
+universal for zero-argument invocations, not just inside a worktree —
+2026-07-02, extended same day per user request) that creates no new branch —
+never silently drops a stash on a pop conflict (exit `8`, reported). The
+non-worktree branch-name collision check runs *before* any stash or checkout so
+that path never has to unwind a stash from the wrong branch. See `skills/fresh-branch/SKILL.md`'s parameter table for the full worktree × arg-count truth table.
+
 ## Tests
 
 `test/coding-toolbox/test.bats` — manifest/registration invariants, content coverage,
