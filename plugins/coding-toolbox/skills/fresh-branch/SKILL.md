@@ -26,6 +26,11 @@ the argument count itself):
 | non-worktree | 1 | create branch `$1` off the repo default branch |
 | non-worktree | 2 | create branch `$1` off base `$2` |
 
+Any explicit base — the worktree single argument (`$1`) or the non-worktree
+second argument (`$2`) — is an **origin-tracked branch name**: it is resolved as
+`origin/<name>` (fetch/pull/rebase). `fresh-branch` works with remote `origin`
+only; "upstream" here means a base branch on `origin`, not a different git remote.
+
 > **Ask the user via `AskUserQuestion`.** When this skill needs a decision from
 > the user and the answers are a fixed / multiple-choice set, it MUST present the
 > question through the `AskUserQuestion` tool — never as plain prose that waits for
