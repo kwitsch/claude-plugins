@@ -29,9 +29,9 @@ dependency on `branch-management`; every script/agent used here lives in
 1. **Assert a named branch:** take `current_branch:` from the git context
    above; if empty (detached HEAD), abort and tell the user to check out a
    branch first. Note `linked_worktree:` (governs the push mode in step 6) and
-   `worktree_path:` (passed verbatim to every `pr-fixer` dispatch in the goal
-   loop, step 9, so it can `cd` there first — a bridge/worktree session's
-   subagents otherwise default to the primary repo root).
+   `worktree_path:` (passed verbatim to every `ci-watcher`/`pr-fixer` dispatch
+   in the goal loop, step 9, so it can `cd` there first — a bridge/worktree
+   session's subagents otherwise default to the primary repo root).
 
 2. **Commit pending work.** Run `git status --porcelain`. If non-empty: review
    `git diff` / `git diff --stat`, stage the files that belong to this
@@ -207,8 +207,10 @@ dependency on `branch-management`; every script/agent used here lives in
       in hand.
       - If `commits` is non-empty, push it: `git push origin "$branch"` (no
         `--force` — `pr-fixer` never rewrites history, only adds commits).
-      - For each `resolutions` entry with `"resolution": "skipped"`, reply on
-        the CodeRabbit thread with its `reason` and resolve it, using its
+      - For each `resolutions` entry with `"resolution": "skipped"` **and a
+        non-empty `id`** (CI-failure-derived resolutions arrive without one —
+        there is no CodeRabbit thread to resolve for those), reply on the
+        CodeRabbit thread with its `reason` and resolve it, using its
         `id` (equals the original finding's `thread_id`):
         GitHub — GraphQL mutation
         `gh api graphql -f query='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}' -f id=<id>`;

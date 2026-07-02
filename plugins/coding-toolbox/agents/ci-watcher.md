@@ -120,7 +120,7 @@ Return ONLY this JSON as your final message:
 
 ```json
 {"ci": "green|red",
- "failures": [{"job": "name", "cause": "analysis", "log_excerpt": "lines"}],
+ "failures": [{"job": "name", "cause": "analysis", "log_excerpt": "lines (omitted for the synthetic ci-watch failures above)"}],
  "review_findings": [{"id": "same value as thread_id", "file": "path", "line": 0,
                       "severity": "critical|major|minor", "title": "...",
                       "description": "...", "recommendation": "...",
