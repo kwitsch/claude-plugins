@@ -59,7 +59,10 @@ the argument count itself):
    set -uo pipefail
 
    is_worktree=false
-   [ "$(git rev-parse --git-dir)" = "$(git rev-parse --git-common-dir)" ] || is_worktree=true
+   # Compare by device+inode (-ef), not string equality: from a subdirectory
+   # --git-dir is absolute while --git-common-dir is relative (e.g. ../../.git),
+   # so the same main-worktree dir would compare unequal as strings.
+   [ "$(git rev-parse --git-dir)" -ef "$(git rev-parse --git-common-dir)" ] || is_worktree=true
 
    detect_default() {
      git remote set-head origin --auto >/dev/null 2>&1 || true

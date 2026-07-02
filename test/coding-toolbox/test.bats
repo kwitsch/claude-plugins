@@ -193,6 +193,14 @@ interaction_gate_call() {
   assert_success
 }
 
+# Regression guard: the detection must compare by inode (-ef), never string
+# equality. From a subdirectory --git-dir is absolute and --git-common-dir is
+# relative, so a raw '=' wrongly flags the main worktree as a linked one.
+@test "fresh-branch worktree detection compares git-dir by inode, not string equality" {
+  run grep -F -- '-ef "$(git rev-parse --git-common-dir)"' "$PLUGIN/skills/fresh-branch/SKILL.md"
+  assert_success
+}
+
 @test "fresh-branch script carries the documented exit-code contract" {
   run grep -F 'Exit: 0 ok' "$PLUGIN/skills/fresh-branch/SKILL.md"
   assert_success
