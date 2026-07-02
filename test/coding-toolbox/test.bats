@@ -628,3 +628,32 @@ run_ci_watch() {
   assert_output --partial "failing test"
   assert_output --partial "AskUserQuestion"
 }
+
+@test "fresh-work SKILL.md exists with required frontmatter" {
+  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/skills/fresh-work/SKILL.md'"
+  assert_success
+  assert_output --partial "name: fresh-work"
+  assert_output --partial "argument-hint"
+  assert_output --partial "work_description"
+  assert_output --partial "AskUserQuestion"
+  assert_output --partial "Workflow"
+  assert_output --partial "TaskCreate"
+}
+
+@test "fresh-work references all four phase files and both sibling skills" {
+  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  assert_output --partial "references/designing.md"
+  assert_output --partial "references/planning.md"
+  assert_output --partial "references/implementing.md"
+  assert_output --partial "references/debugging.md"
+  assert_output --partial "coding-toolbox:fresh-branch"
+  assert_output --partial "coding-toolbox:fresh-pr"
+}
+
+@test "fresh-work keeps design docs out of the repository" {
+  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  assert_output --partial "mktemp"
+  assert_output --partial "Never commit them"
+}
