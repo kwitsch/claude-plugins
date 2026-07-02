@@ -158,9 +158,10 @@ the argument count itself):
    - `4` `no_remote` — `origin/HEAD` undetectable (no remote / offline). Report
      and stop; never guess a base.
    - `5` `git_op_failed` — fetch/checkout/pull/checkout-b failed. Report the git
-     error from stderr and stop. If the failure happened after a stash, the
-     stash-pop outcome is already on stderr — never re-run blindly, inspect
-     state first.
+     error from stderr and stop. In non-worktree mode: if the checkout of `$base`
+     succeeds but a later step fails, the tree is now on `$base` (not the
+     original branch). If the failure happened after a stash, the stash-pop
+     outcome is already on stderr — never re-run blindly, inspect state first.
    - `6` `name_exists` — non-worktree only; this check runs *before* any stash
      or branch switch, so nothing was touched. Ask the user via
      `AskUserQuestion` — options **Switch to existing branch** (`git checkout

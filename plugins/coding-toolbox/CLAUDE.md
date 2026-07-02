@@ -58,9 +58,7 @@ unconditionally around both paths, including the worktree-refresh-only path
 that creates no new branch (2026-07-02 decision, confirmed with the user) —
 never silently drops a stash on a pop conflict (exit `8`, reported). The
 non-worktree branch-name collision check runs *before* any stash or checkout so
-that path never has to unwind a stash from the wrong branch. See
-`docs/superpowers/specs/2026-07-02-coding-toolbox-fresh-branch-design.md` (local,
-gitignored) for the full parameter truth table.
+that path never has to unwind a stash from the wrong branch. See `skills/fresh-branch/SKILL.md`'s parameter table for the full worktree × arg-count truth table.
 
 ## Tests
 
