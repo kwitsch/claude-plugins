@@ -1,7 +1,7 @@
 ---
 name: fresh-branch
 description: Use to start a fresh work branch off an optional custom base, or — inside a linked git worktree — fetch and rebase the current branch onto its base in place instead of switching branches. Auto-stashes and restores uncommitted changes around the operation.
-argument-hint: "[branch-name] [base]"
+argument-hint: "[branch-name|base] [base]"
 allowed-tools: ["AskUserQuestion", "Bash(git:*)", "Bash(bash:*)"]
 ---
 
