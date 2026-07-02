@@ -495,3 +495,55 @@ run_ci_watch() {
   run grep -F "Never push" "$PLUGIN/agents/pr-fixer.md"
   assert_success
 }
+
+@test "fresh-pr SKILL.md exists and is non-empty" {
+  run test -s "$PLUGIN/skills/fresh-pr/SKILL.md"
+  assert_success
+}
+
+@test "fresh-pr frontmatter declares name and required allowed-tools" {
+  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/skills/fresh-pr/SKILL.md'"
+  assert_success
+  assert_output --partial "name: fresh-pr"
+  assert_output --partial "Agent"
+  assert_output --partial "AskUserQuestion"
+  assert_output --partial "TaskCreate"
+}
+
+@test "fresh-pr commits pending work before checking for anything to submit" {
+  run grep -F "Commit pending work" "$PLUGIN/skills/fresh-pr/SKILL.md"
+  assert_success
+}
+
+@test "fresh-pr rebases onto the base and force-with-leases only when rewritten" {
+  run grep -F 'git rebase "origin/$base"' "$PLUGIN/skills/fresh-pr/SKILL.md"
+  assert_success
+  run grep -F -- '--force-with-lease' "$PLUGIN/skills/fresh-pr/SKILL.md"
+  assert_success
+}
+
+@test "fresh-pr never uses gh pr edit, uses gh api PATCH instead" {
+  run grep -F "never \`gh pr edit\`" "$PLUGIN/skills/fresh-pr/SKILL.md"
+  assert_success
+  run grep -F "gh api -X PATCH" "$PLUGIN/skills/fresh-pr/SKILL.md"
+  assert_success
+}
+
+@test "fresh-pr handles a merged existing PR by stopping before the goal loop" {
+  run grep -F "already merged and **stop here**" "$PLUGIN/skills/fresh-pr/SKILL.md"
+  assert_success
+}
+
+@test "fresh-pr dispatches ci-watcher and pr-fixer with a Task* ledger gate" {
+  run grep -F "coding-toolbox:ci-watcher" "$PLUGIN/skills/fresh-pr/SKILL.md"
+  assert_success
+  run grep -F "coding-toolbox:pr-fixer" "$PLUGIN/skills/fresh-pr/SKILL.md"
+  assert_success
+  run grep -F "Subagent reconciliation gate" "$PLUGIN/skills/fresh-pr/SKILL.md"
+  assert_success
+}
+
+@test "fresh-pr goal loop is capped at 5 iterations" {
+  run grep -F "capped at 5 iterations" "$PLUGIN/skills/fresh-pr/SKILL.md"
+  assert_success
+}
