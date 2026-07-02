@@ -34,17 +34,22 @@ resolved absolute path to `bin/ci-watch.sh`, the fixed watch timeout (`1800`
 seconds), the absolute worktree path, and — on GitHub — the repository
 `owner`/`name`.
 
-**First action: `cd` to the provided worktree path via native Bash.** In
-bridge/linked-worktree sessions, Agent-tool subagents default their cwd to the
-primary repo root — `gh`/`glab` infer the repository from the working
-directory's `origin` remote, so without this `cd` they would query the wrong
-repository.
+**Run every cwd-dependent command from the worktree by chaining the path
+inline** — `cd "<worktree path>" && gh …` (likewise for `glab` and the
+`ci-watch.sh` invocations). A standalone `cd` does **not** persist to your next
+Bash call, and in bridge/linked-worktree sessions Agent-tool subagents default
+their cwd to the primary repo root — so a one-time `cd` first action would leave
+`gh`/`glab` (which infer the repository from the cwd's `origin` remote — and
+`ci-watch.sh` passes no `-R`) querying the wrong repository. Chaining is a no-op
+when the worktree path is already the repo root. The `gh api graphql` and
+`gh api repos/{owner}/{repo}/…` calls pass explicit owner/repo, so they are
+unaffected either way.
 
 Resolve identifiers from that reference yourself: `gh`/`glab` infer the
 repository from the working directory's `origin` remote. For failing GitHub
-runs, take the run id from `gh run list --branch <branch>`. In `glab` calls,
-`:id` is glab's own project placeholder (leave it literal), while the passed
-reference is the MR IID.
+runs, take the run id from `cd "<worktree path>" && gh run list --branch
+<branch>`. In `glab` calls, `:id` is glab's own project placeholder (leave it
+literal), while the passed reference is the MR IID.
 
 ## Tooling
 
@@ -53,8 +58,8 @@ Run all scripts and fetch commands via the Bash tool.
 ## Steps
 
 1. **Wait for the CI result — through the bundled watch script.**
-   - GitHub: `CI_WATCH_TIMEOUT=1800 bash <ci-watch.sh-path> github <nr>`
-   - GitLab: `CI_WATCH_TIMEOUT=1800 bash <ci-watch.sh-path> gitlab <branch>`
+   - GitHub: `cd "<worktree path>" && CI_WATCH_TIMEOUT=1800 bash <ci-watch.sh-path> github <nr>`
+   - GitLab: `cd "<worktree path>" && CI_WATCH_TIMEOUT=1800 bash <ci-watch.sh-path> gitlab <branch>`
    The script polls until every REAL check is done — CodeRabbit's own PR
    checks are excluded by name, so a CodeRabbit app that never reacts (not
    installed, rate-limited) can neither block the watch nor flip the result.
@@ -70,11 +75,11 @@ Run all scripts and fetch commands via the Bash tool.
    Run the watch on plain Bash: it is long-blocking with a guaranteed-small
    final output — run it directly, not through any other tooling.
 2. **On a non-synthetic failure (exit code 1), pull the evidence.**
-   - GitHub: ONE call — `gh run view <run-id> --log-failed` returns the logs
-     of every failed step; extract the relevant sections (job names, "error",
-     "FAIL").
-   - GitLab: one `glab ci trace <job>` per failing job (up to 4 at a time if
-     possible), collecting output per job.
+   - GitHub: ONE call — `cd "<worktree path>" && gh run view <run-id>
+     --log-failed` returns the logs of every failed step; extract the relevant
+     sections (job names, "error", "FAIL").
+   - GitLab: one `cd "<worktree path>" && glab ci trace <job>` per failing job
+     (up to 4 at a time if possible), collecting output per job.
    Distill every failing job into: job name, root cause (your analysis, one or
    two sentences), and a minimal log excerpt (the failing lines only — not the
    whole log).
@@ -96,7 +101,7 @@ Run all scripts and fetch commands via the Bash tool.
      `gh api repos/{owner}/{repo}/pulls/<nr>/comments` filtered to author
      `coderabbitai` — resolved comments may then reappear; `pr-fixer`'s
      verify-before-fixing absorbs such re-reports.
-   - GitLab: `glab api "projects/:id/merge_requests/<iid>/discussions"` —
+   - GitLab: `cd "<worktree path>" && glab api "projects/:id/merge_requests/<iid>/discussions"` —
      discussions carry a `resolved` flag; keep unresolved ones authored by
      `coderabbitai`.
    Normalize each into the findings shape below. No CodeRabbit app on the

@@ -198,8 +198,9 @@ dependency on `branch-management`; every script/agent used here lives in
       `${CLAUDE_PLUGIN_ROOT}` to a concrete absolute path via
       `echo "${CLAUDE_PLUGIN_ROOT}"` once, reuse it every iteration), the
       fixed timeout `1800`, and `worktree_path` (from precondition 1 — the
-      agent must `cd` there first so `gh`/`glab` resolve against the correct
-      `origin` remote, not the primary-repo root). On GitHub also resolve
+      agent chains `cd "<worktree_path>" &&` into each cwd-dependent `gh`/`glab`
+      command so they resolve against the correct `origin` remote, not the
+      primary-repo root). On GitHub also resolve
       `owner`/`name` once via `gh repo view --json owner,name` and pass them
       along. Track the dispatch via the ledger above; do not proceed until
       `{ci, failures, review_findings}` is in hand.

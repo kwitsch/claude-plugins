@@ -451,11 +451,12 @@ run_ci_watch() {
   assert_output --partial 'job": "ci-watch"'
 }
 
-@test "ci-watcher agent cds to the dispatched worktree path first" {
-  run grep -F "First action:" "$PLUGIN/agents/ci-watcher.md"
+@test "ci-watcher agent chains cd into each cwd-dependent gh/glab command (not a one-time cd)" {
+  run grep -F 'cd "<worktree path>" && gh' "$PLUGIN/agents/ci-watcher.md"
   assert_success
+  # regression guard: the one-time-cd phrasing must not creep back
   run grep -iF "worktree path via native bash" "$PLUGIN/agents/ci-watcher.md"
-  assert_success
+  assert_failure
 }
 
 @test "ci-watcher agent extracts CodeRabbit's AI-agent prompt into ai_prompt" {
