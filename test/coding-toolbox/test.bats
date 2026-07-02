@@ -289,6 +289,17 @@ run_ci_watch() {
   assert_output --partial "not installed"
 }
 
+@test "ci-watch: exit 64 when timeout is not installed" {
+  # gh present so the CLI check passes; timeout absent so its dependency
+  # check must fire before any poll (a missing timeout would otherwise spin
+  # to the deadline and exit 2, not surface the environment error).
+  make_stub gh 'printf "pass\tbuild\n"; exit 0'
+  rm -f "$MOCKBIN/timeout"
+  run_ci_watch github 5
+  assert_failure 64
+  assert_output --partial "timeout not installed"
+}
+
 @test "ci-watch: github green when all real checks pass" {
   make_stub gh 'printf "pass\tbuild\npass\ttest\n"; exit 0'
   run_ci_watch github 5
