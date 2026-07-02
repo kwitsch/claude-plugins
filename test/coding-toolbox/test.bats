@@ -426,3 +426,41 @@ run_ci_watch() {
   assert_success
   assert_output --partial "no pipeline"
 }
+
+@test "ci-watcher agent exists with the required frontmatter" {
+  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/agents/ci-watcher.md'"
+  assert_success
+  assert_output --partial "name: ci-watcher"
+  assert_output --partial "model: sonnet"
+  assert_output --partial "effort: low"
+  assert_output --partial "color: yellow"
+  assert_output --partial '"Bash"'
+}
+
+@test "ci-watcher agent is read-only (no Edit/Write in its tools)" {
+  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/agents/ci-watcher.md'"
+  assert_success
+  refute_output --partial '"Edit"'
+  refute_output --partial '"Write"'
+}
+
+@test "ci-watcher agent documents the ci-watch.sh exit-code mapping" {
+  run cat "$PLUGIN/agents/ci-watcher.md"
+  assert_success
+  assert_output --partial 'CI_WATCH_TIMEOUT=1800'
+  assert_output --partial 'job": "ci-watch"'
+}
+
+@test "ci-watcher agent cds to the dispatched worktree path first" {
+  run grep -F "First action:" "$PLUGIN/agents/ci-watcher.md"
+  assert_success
+  run grep -iF "worktree path via native bash" "$PLUGIN/agents/ci-watcher.md"
+  assert_success
+}
+
+@test "ci-watcher agent extracts CodeRabbit's AI-agent prompt into ai_prompt" {
+  run grep -F "Prompt for AI Agents" "$PLUGIN/agents/ci-watcher.md"
+  assert_success
+  run grep -F "ai_prompt" "$PLUGIN/agents/ci-watcher.md"
+  assert_success
+}
