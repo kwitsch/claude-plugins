@@ -798,3 +798,10 @@ make_fixtures() {
   run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
   assert_output --partial "non-UTF-8"
 }
+
+@test "fresh-work branch naming demands a concise English summary, never a verbatim slug" {
+  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  assert_output --partial "3–6 **English** words"
+  assert_output --partial "never slugify it verbatim"
+}
