@@ -54,9 +54,8 @@ Such files keep their executable bit (see the bin-executable rule) **and** get a
 bats test when their behavior is non-trivial (exit-code contract, edge cases).
 
 The canonical shape in this repo is an **executable `.mjs` invoked directly** as the
-hook/MCP `command` (`#!/usr/bin/env node` + `100755`) — node-only, no wrapper.
-cave-context does this. A plugin that
-genuinely needs bun-preferred runtime selection MAY instead keep a `bin/mjs-launch.sh`
+hook/MCP `command` (`#!/usr/bin/env node` + `100755`) — node-only, no wrapper. A
+plugin that genuinely needs bun-preferred runtime selection MAY instead keep a `bin/mjs-launch.sh`
 wrapper (bun-preferred, node fallback — invoked via `.mcp.json` `command` with the
 `server.mjs` path in `args`) as an **optional fallback**, but it is no longer the
 default and carries known edge-case issues (empty PATH segment, lingering signal

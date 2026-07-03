@@ -52,10 +52,11 @@ Why the limits (documented Claude Code behavior):
 > `SessionEnd` are mid/late-session and `full`; `UserPromptSubmit` is limited by
 > timeout/latency, not connectivity. Keep `ConfigChange` as a command hook for the
 > *fail-open-sensitive side-effect* reason, not a connectivity one. `PreCompact` is
-> no longer a must-stay-command-hook case: cave-context now runs it as an `mcp_tool`
-> hook (`hook_precompact`) mid-session, with the server reliably connected — the
-> delegated context-mode resume snapshot is **best-effort** and fails open if the
-> server is momentarily down at compact time, which is an accepted trade-off.
+> no longer a must-stay-command-hook case: it is `full` in the event matrix, so an
+> `mcp_tool` hook works mid-session with the server reliably connected. A
+> fail-open-sensitive `PreCompact` side-effect (e.g. a resume snapshot) failing
+> open when the server is momentarily down at compact time is then an accepted
+> trade-off, not an oversight.
 
 ## Plugin layout
 
@@ -280,6 +281,6 @@ function startServer() {
   are fine either way.
 - **Direct-`.mjs` is the default:** invoke the executable `.mjs`
   (`#!/usr/bin/env node` + `chmod +x` / `100755`) directly as the `command` — this is
-  the canonical shape. cave-context does this; the optional `bin/mjs-launch.sh` wrapper is only for plugins that need
+  the canonical shape. The optional `bin/mjs-launch.sh` wrapper is only for plugins that need
   bun-preferred runtime selection. Do not "restore" a wrapper for a plugin that
   intentionally invokes its `.mjs` directly.

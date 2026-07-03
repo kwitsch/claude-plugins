@@ -15,7 +15,7 @@ Contract-test script exit codes explicitly. Review scripts: missing CLI → 2, n
 
 ## Data files
 
-Larger case sets live in data files next to the suite (e.g. `cctools-edit/bash-guard-corpus.json`, 84 deny/allow cases). Do not inline large case sets in `.bats`.
+Larger case sets live in data files next to the suite (e.g. `coding-toolbox/encoding-guard-corpus.json`). Do not inline large case sets in `.bats`.
 
 ## Manifest assertions
 
