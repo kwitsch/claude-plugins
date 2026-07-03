@@ -753,3 +753,29 @@ make_fixtures() {
   assert_success
   [ -z "$output" ]
 }
+
+@test "encoding-guard Bash corpus: every deny/allow case classifies as expected" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  local dir="$BATS_TEST_TMPDIR/corpus"
+  mkdir -p "$dir"
+  printf 'T\344glich gr\374\337t der B\344r\n'  > "$dir/legacy.txt"
+  printf 'T\303\244glich gr\303\274\303\237t\n' > "$dir/utf8.txt"
+  local failures="" cmd expect json out
+  while IFS= read -r case_b64; do
+    cmd="$(printf '%s' "$case_b64" | base64 -d | jq -r '.cmd')"
+    expect="$(printf '%s' "$case_b64" | base64 -d | jq -r '.expect')"
+    json="$(jq -cn --arg c "$cmd" --arg d "$dir" '{tool_name:"Bash", tool_input:{command:$c}, cwd:$d}')"
+    out="$(printf '%s' "$json" | "$HOOKS/encoding-guard.mjs" 2>/dev/null)" \
+      || { failures+="[exit!=0] $cmd"$'\n'; continue; }
+    if [ "$expect" = "deny" ]; then
+      [[ "$out" == *'"permissionDecision":"deny"'* ]] \
+        || failures+="[expected deny, got allow] $cmd"$'\n'
+    else
+      [ -z "$out" ] || failures+="[expected allow, got: $out] $cmd"$'\n'
+    fi
+  done < <(jq -r '.[] | @base64' "$BATS_TEST_DIRNAME/encoding-guard-corpus.json")
+  if [ -n "$failures" ]; then
+    echo "$failures"
+    false
+  fi
+}

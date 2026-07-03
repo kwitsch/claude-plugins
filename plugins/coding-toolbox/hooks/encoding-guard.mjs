@@ -74,14 +74,227 @@ function collectOffenders(input, cwd) {
 }
 
 /**
- * Bash analysis lands in the follow-up task; until then Bash always passes
- * (fail open).
- * @param {string} _cmd
- * @param {string} _cwd
+ * Precision-biased Bash command analysis. Returns offenders only for clean
+ * literal path tokens that (a) are output-redirect targets, or (b) are
+ * arguments / input-redirect targets of a known content tool, and that
+ * classify as non-UTF-8 text. False negatives are acceptable; false
+ * positives are not — non-literal tokens (quotes, substitutions, variables,
+ * globs) are skipped and unknown tools pass (fail open).
+ * @param {string} cmd
+ * @param {string} cwd
  * @returns {Offender[]}
  */
-function analyzeBash(_cmd, _cwd) {
-  return [];
+function analyzeBash(cmd, cwd) {
+  const sanitized = blankNonLiterals(stripHeredocBodies(cmd))
+    .replace(/\d*>&\d*/g, " ") // fd duplication (2>&1) — never a file
+    .replace(/&>>/g, ">>")
+    .replace(/&>/g, ">")
+    .replace(/>\|/g, "> ")
+    .replace(/\|&/g, "|");
+  /** @type {Map<string, Offender>} */
+  const found = new Map();
+  for (const segment of sanitized.split(/\n|;|\|\||&&|\||&/)) {
+    const { cmdWord, args, outTargets, inTargets } = parseSegment(segment);
+    const candidates = [...outTargets];
+    if (cmdWord !== null && CONTENT_TOOLS.has(cmdWord)) {
+      candidates.push(...args, ...inTargets);
+    }
+    for (const tok of candidates) {
+      const abs = literalPath(tok, cwd);
+      if (abs === null || found.has(abs)) continue;
+      const c = classifyFile(abs);
+      if (!c.safe) found.set(abs, { path: abs, label: c.label, iconv: c.iconv });
+    }
+  }
+  return [...found.values()];
+}
+
+/**
+ * Remove heredoc body lines (they are data, not commands) while keeping the
+ * operator lines. Supports multiple heredocs queued on one line and `<<-`
+ * tab-stripped closing delimiters; quoted delimiters match their unquoted
+ * form. Here-strings (`<<<`) are not heredocs and are left alone.
+ * @param {string} text
+ * @returns {string}
+ */
+function stripHeredocBodies(text) {
+  /** @type {string[]} */
+  const kept = [];
+  /** @type {{delim: string, stripTabs: boolean}[]} */
+  const queue = [];
+  /** @type {{delim: string, stripTabs: boolean} | null} */
+  let body = null;
+  for (const line of text.split("\n")) {
+    if (body !== null) {
+      const probe = body.stripTabs ? line.replace(/^\t+/, "") : line;
+      if (probe === body.delim) body = queue.shift() ?? null;
+      continue; // body lines and the closing delimiter are dropped
+    }
+    kept.push(line);
+    const re = /(?<!<)<<(?!<)(-?)\s*(['"]?)([A-Za-z0-9_][A-Za-z0-9_-]*)\2/g;
+    let m;
+    while ((m = re.exec(line)) !== null) {
+      queue.push({ delim: m[3], stripTabs: m[1] === "-" });
+    }
+    body = queue.shift() ?? null;
+  }
+  return kept.join("\n");
+}
+
+/**
+ * Blank the contents of quotes, command/process substitutions, backslash
+ * escapes and comments with a sentinel: word boundaries survive, but any
+ * token that contained them is recognizably non-literal and gets skipped.
+ * @param {string} text
+ * @returns {string}
+ */
+function blankNonLiterals(text) {
+  let out = "";
+  let i = 0;
+  const n = text.length;
+  while (i < n) {
+    const c = text[i];
+    const c2 = i + 1 < n ? text[i + 1] : "";
+    if (c === "\\") { out += SENTINEL; i += 2; continue; }
+    if (c === "'") { out += SENTINEL; i = skipPast(text, i + 1, "'"); continue; }
+    if (c === "$" && c2 === "'") { out += SENTINEL; i = skipAnsiC(text, i + 2); continue; }
+    if (c === '"') { out += SENTINEL; i = skipDouble(text, i + 1); continue; }
+    if (c === "$" && c2 === "(") { out += SENTINEL; i = skipParens(text, i + 2); continue; }
+    if (c === "`") { out += SENTINEL; i = skipPast(text, i + 1, "`"); continue; }
+    if ((c === "<" || c === ">") && c2 === "(") { out += SENTINEL; i = skipParens(text, i + 2); continue; }
+    if (c === "#" && (out === "" || /[\s;|&(]/.test(out[out.length - 1]))) {
+      while (i < n && text[i] !== "\n") i++;
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
+/**
+ * @param {string} text
+ * @param {number} from
+ * @param {string} ch
+ * @returns {number} index just past the closing char (or end of string)
+ */
+function skipPast(text, from, ch) {
+  const idx = text.indexOf(ch, from);
+  return idx === -1 ? text.length : idx + 1;
+}
+
+/**
+ * Double-quote scanner honoring backslash escapes.
+ * @param {string} text
+ * @param {number} from
+ * @returns {number} index just past the closing quote (or end of string)
+ */
+function skipDouble(text, from) {
+  let i = from;
+  while (i < text.length) {
+    if (text[i] === "\\") { i += 2; continue; }
+    if (text[i] === '"') return i + 1;
+    i += 1;
+  }
+  return i;
+}
+
+/**
+ * ANSI-C $'…' scanner honoring backslash escapes.
+ * @param {string} text
+ * @param {number} from
+ * @returns {number} index just past the closing quote (or end of string)
+ */
+function skipAnsiC(text, from) {
+  let i = from;
+  while (i < text.length) {
+    if (text[i] === "\\") { i += 2; continue; }
+    if (text[i] === "'") return i + 1;
+    i += 1;
+  }
+  return i;
+}
+
+/**
+ * Paren scanner with nesting, for $(…), <(…), >(…).
+ * @param {string} text
+ * @param {number} from  index just past the opening paren
+ * @returns {number} index just past the matching close (or end of string)
+ */
+function skipParens(text, from) {
+  let depth = 1;
+  let i = from;
+  while (i < text.length && depth > 0) {
+    if (text[i] === "(") depth += 1;
+    else if (text[i] === ")") depth -= 1;
+    i += 1;
+  }
+  return i;
+}
+
+/** @typedef {{cmdWord: string | null, args: string[], outTargets: string[], inTargets: string[]}} ParsedSegment */
+
+/**
+ * Split one pipeline segment into command word (basename, env-assignment
+ * prefixes skipped), plain arguments, and redirect targets. Heredoc
+ * operators (`<<`) never produce a file target; fd-duplication targets
+ * (`>&2`) are dropped.
+ * @param {string} segment
+ * @returns {ParsedSegment}
+ */
+function parseSegment(segment) {
+  /** @type {string[]} */ const args = [];
+  /** @type {string[]} */ const outTargets = [];
+  /** @type {string[]} */ const inTargets = [];
+  /** @type {string | null} */ let cmdWord = null;
+  /** @type {"out" | "in" | "skip" | null} */ let pending = null;
+  for (const tok of segment.trim().split(/\s+/)) {
+    if (tok === "") continue;
+    if (pending === "out") { outTargets.push(tok); pending = null; continue; }
+    if (pending === "in") { inTargets.push(tok); pending = null; continue; }
+    if (pending === "skip") { pending = null; continue; }
+    const m = tok.match(/^(\d*)(<<|>>|>|<)(.*)$/);
+    if (m) {
+      const op = m[2];
+      const rest = m[3];
+      if (op === "<<") {
+        if (rest === "") pending = "skip"; // detached heredoc delimiter
+        continue;
+      }
+      if (rest === "") { pending = op === "<" ? "in" : "out"; continue; }
+      if (rest.startsWith("&")) continue; // fd duplication, not a file
+      (op === "<" ? inTargets : outTargets).push(rest);
+      continue;
+    }
+    if (cmdWord === null) {
+      if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tok)) continue; // env prefix
+      cmdWord = path.posix.basename(tok);
+      continue;
+    }
+    args.push(tok);
+  }
+  return { cmdWord, args, outTargets, inTargets };
+}
+
+/**
+ * Resolve a token to an absolute path IFF it is a clean literal path to an
+ * existing regular file. Sentinel residue, `$` variables, options and glob
+ * characters reject the token (fail open).
+ * @param {string} tok
+ * @param {string} cwd
+ * @returns {string | null}
+ */
+function literalPath(tok, cwd) {
+  if (tok === "" || tok.includes(SENTINEL) || tok.includes("$")) return null;
+  if (tok.startsWith("-")) return null; // option
+  if (/[*?[\]{}]/.test(tok)) return null; // glob — expansion unknown
+  const abs = resolvePath(tok, cwd);
+  try {
+    if (!fs.statSync(abs).isFile()) return null;
+  } catch {
+    return null;
+  }
+  return abs;
 }
 
 /**
