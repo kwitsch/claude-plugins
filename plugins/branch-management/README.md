@@ -2,8 +2,8 @@
 
 Branch lifecycle skills. `new-branch` starts work on a fresh branch cut from
 the updated default branch (inline); `new-pr` turns a finished branch into a
-reviewed, pushed PR/MR — using the bundled `/code-review` skill for iterative
-find-and-fix rounds — and watches it until green.
+reviewed, pushed PR/MR — dispatching the `claude-reviewer` + `review-fixer`
+agents for iterative find-and-fix rounds — and watches it until green.
 
 ## Install
 
@@ -17,14 +17,15 @@ find-and-fix rounds — and watches it until green.
 |---|---|
 | `configure-branch-management` | Interactive configurator for all plugin options. Detects project context, presents thematic question groups (review level, CI monitoring) with current values embedded, and writes only non-default values to the chosen settings scope. Requires `jq`. |
 | `new-branch` | Switches to the default branch, pulls, and creates `<type>/<slug>` inline (synchronous git script, no subagent). Inside a **linked worktree** (e.g. a bridge/remote session) it cannot switch to the default branch, so it keeps the current branch (exit 7) and runs an inline self-rebase script (fetch + rebase onto `origin/<default>`, aborts cleanly on conflict) — the slug becomes PR title context only, preserving the session branch the remote tracks. |
-| `new-pr` | Commits pending work, invokes the `review-branch` sub-skill for iterative `/code-review --fix` rounds, rebases the work branch onto `origin/<base>` when the base gained new commits (togglable via `rebase_before_pr`; stops on conflict), pushes (`--force-with-lease` in a linked worktree), opens the PR/MR via `gh`/`glab`, and loops `ci-monitor` → `review-fixer` until CI is green and no findings remain. In a bridge/remote worktree it opens the PR from the session branch as-is so the remote registers it as the session PR. CI watch and CodeRabbit comment handling can be toggled via plugin options (see [Configuration](#configuration)). |
-| `review-branch` | Standalone review sub-skill (runs inline, not forked): each round invokes the bundled `/code-review` skill with `"$review_level --fix $base"`, detects working-tree changes, runs auto-detected tests, commits specific changed files, and repeats until no changes (DONE) or the round cap is reached (BLOCKED). Configurable via `review_level` and `review_max_rounds`. Invoked by `new-pr`; also user-invocable to review without opening a PR. |
+| `new-pr` | Commits pending work, invokes the `review-branch` sub-skill for iterative claude-reviewer + review-fixer rounds, rebases the work branch onto `origin/<base>` when the base gained new commits (togglable via `rebase_before_pr`; stops on conflict), pushes (`--force-with-lease` in a linked worktree), opens the PR/MR via `gh`/`glab`, and loops `ci-monitor` → `review-fixer` until CI is green and no findings remain. In a bridge/remote worktree it opens the PR from the session branch as-is so the remote registers it as the session PR. CI watch and CodeRabbit comment handling can be toggled via plugin options (see [Configuration](#configuration)). |
+| `review-branch` | Standalone review sub-skill (runs inline, not forked): each round dispatches the `claude-reviewer` agent (effort = `review_level`) against the branch diff, then — if it returns findings — dispatches `review-fixer` to verify, apply justified fixes, and commit; repeats until a round returns no new findings (DONE) or the round cap is reached with findings still open (BLOCKED). Configurable via `review_level` and `review_max_rounds`. Invoked by `new-pr`; also user-invocable to review without opening a PR. |
 | `branch-management:clean-branches` | Fetch latest, prune merged upstream branches (gh/glab), delete local branches whose upstream is gone, list uncommitted files. |
 
 ## Agents
 
 | Agent | Model | Role |
 |---|---|---|
+| `claude-reviewer` | opus | read-only: reviews the branch diff against the base branch (correctness bugs first) and returns structured findings as JSON |
 | `review-fixer` | opus | verifies CI/CodeRabbit findings against the code, applies fixes, commits, resolves CodeRabbit threads |
 | `ci-monitor` | sonnet | read-only: watches CI via `bin/ci-watch.sh` (CodeRabbit checks excluded, bounded by `userConfig.ci_watch_timeout`, default 1800 s / 30 min), collects open CodeRabbit PR threads |
 
@@ -40,7 +41,7 @@ the native settings order: `.claude/settings.local.json` (local) >
 
 | Option | Default | Effect / Value |
 |---|---|---|
-| `review_level` | `"medium"` | Effort level for `/code-review`: `low` / `medium` / `high` / `xhigh` / `max` — passed to each review round |
+| `review_level` | `"medium"` | Effort level for the `claude-reviewer` agent: `low` / `medium` / `high` / `xhigh` / `max` — passed to each review round |
 | `ci_monitor` | `true` | `new-pr` ends after opening the PR/MR — no CI watch |
 | `ci_watch_timeout` | `1800` | positive whole-number seconds for the CI watch deadline (`new-pr` passes this to the watch script; invalid/missing values fall back to `1800`) |
 | `coderabbit_ci_comments` | `true` | the CI watch ignores CodeRabbit bot comments |
