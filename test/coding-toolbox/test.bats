@@ -601,7 +601,7 @@ run_ci_watch() {
   assert_output --partial "Scale to the task (your call, not a fixed step)"
   assert_output --partial "complexity heuristic"
   assert_output --partial "Workflow tool"
-  assert_output --partial "not a scheduled step"
+  assert_output --partial "Advisor consultation is your call too"
   assert_output --partial "self-review (below) always validates"
 }
 
@@ -624,7 +624,7 @@ run_ci_watch() {
   assert_output --partial "Scale to the task (your call, not a fixed step)"
   assert_output --partial "complexity heuristic"
   assert_output --partial "Workflow tool"
-  assert_output --partial "not a scheduled step"
+  assert_output --partial "Advisor consultation is your call too"
   assert_output --partial "self-review (below) always validates"
 }
 

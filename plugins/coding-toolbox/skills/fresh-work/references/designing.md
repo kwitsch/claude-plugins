@@ -23,11 +23,10 @@ can turn out complex once the code is in front of you:
   pattern), or a judge panel of independently fleshed-out approaches for
   step 4 (the tool's `Design` pattern).
 
-**Advisor consultation is your call too, not a scheduled step** (SKILL.md
-"Inline advisor protocol") — call it when you hit a genuine uncertainty you
-can't resolve from code/context, or the task turns out more complex than
-`$work_description` suggested; revise the doc from its feedback before
-returning to the orchestrator.
+**Advisor consultation is your call too** (SKILL.md "Inline advisor
+protocol") — call it when you hit a genuine uncertainty you can't resolve
+from code/context, or the task turns out more complex than
+`$work_description` suggested.
 
 ## Process
 

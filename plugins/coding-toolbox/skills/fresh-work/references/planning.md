@@ -25,10 +25,9 @@ one-line description implied:
   for drafting task groups in parallel (one agent per subsystem's tasks, then
   merge and re-check cross-task interfaces yourself).
 
-**Advisor consultation is your call too, not a scheduled step** (SKILL.md
-"Inline advisor protocol") — call it when you hit a genuine uncertainty, or
-the plan reveals the task is more complex than the design doc assumed; revise
-the plan from its feedback before returning to the orchestrator.
+**Advisor consultation is your call too** (SKILL.md "Inline advisor
+protocol") — call it when you hit a genuine uncertainty, or the plan reveals
+the task is more complex than the design doc assumed.
 
 ## Plan header (mandatory)
 
