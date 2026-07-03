@@ -15,7 +15,7 @@ mechanical gate for the Interaction axis. No userConfig.
   needed). No matcher → fires on startup, resume, and compact. Do NOT replace this with a
   `.mjs` handler on the premise that "args is dropped" — it is not (cc-reference,
   `claude-code-hooks-reference.md` "Exec vs shell form": *use exec form whenever
-  referencing a path placeholder*; the shipped cave-context plugin uses this exact hook).
+  referencing a path placeholder*).
   (`.claude/rules/hooks-mcp-server.md`, `.claude/rules/hooks-mcp-tool-event-matrix.md`)
 - **PreToolUse → `mcp_tool` hook: `server: "plugin:coding-toolbox:coding-toolbox-hooks"`,
   `tool: "golden_rules_reminder"`** (server registered in `.mcp.json` as
@@ -56,9 +56,9 @@ head sample: BOM sniff → strict UTF-8 validation (ASCII never mislabeled) →
 NUL-parity UTF-16 heuristic → legacy single-byte fallback; binary, empty and
 missing files are safe. Bash commands get a precision-biased literal-token
 analysis (heredoc-body strip, quote/substitution blanking, per-segment
-content-tool deny-set plus output-redirect targets) — same
-false-negatives-OK/false-positives-never contract as cctools-edit's guard,
-but self-contained (no cc-tools dependency; `cc-tools` invocations pass). Deny
+content-tool deny-set plus output-redirect targets) with a
+false-negatives-OK/false-positives-never contract, self-contained (no
+cc-tools dependency; `cc-tools` invocations pass). Deny
 is PreToolUse JSON (`permissionDecision: "deny"`) naming the encoding + an
 iconv hint; every internal error exits 0 silently (fail open).
 

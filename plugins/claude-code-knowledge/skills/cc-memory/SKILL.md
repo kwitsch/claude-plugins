@@ -2,8 +2,8 @@
 name: cc-memory
 description: Audit and improve a project's memory files (every CLAUDE.md and .claude/rules/*.md) against the curated cc-reference memory rules — discover every CLAUDE.md and .claude/rules file, grade each, report quality, then interactively apply the improvements you select. Use when the user asks to check, audit, improve, grade, or maintain CLAUDE.md / .claude/rules / project-memory files.
 argument-hint: [optional repo path]
-allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, AskUserQuestion, Skill, mcp__plugin_cave-context_cave-context__*, ToolSearch
-# review-skip(F1): unscoped Bash/Edit/Write is required — discovery runs against an arbitrary repo path and fixes Edit/Write arbitrary CLAUDE.md files; Skill is required to invoke cave-context:cave-compress on a selected CLAUDE.md; allowed-tools only pre-approves, never restricts.
+allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, AskUserQuestion, mcp__plugin_context-mode_context-mode__*, ToolSearch
+# review-skip(F1): unscoped Bash/Edit/Write is required — discovery runs against an arbitrary repo path and fixes Edit/Write arbitrary CLAUDE.md files; allowed-tools only pre-approves, never restricts.
 ---
 
 # cc-memory — audit & improve CLAUDE.md memory grounded in cc-reference
@@ -26,36 +26,20 @@ writer.**
 > free-text prompts may be asked inline, but prefer `AskUserQuestion` whenever the
 > choices can be enumerated.
 
-## cave-context routing (optional acceleration)
+## context-mode routing (optional acceleration)
 
-If the cave-context MCP tools are available, route heavy work through them so large
+If the context-mode MCP tools are available, route heavy work through them so large
 output stays out of context — leaner, faster turns. Fall back to native tools when
-absent; never block on cave-context.
+absent; never block on context-mode.
 
 - **Read-only / output-heavy shell** (no filesystem or git writes) → run via
   `ctx_execute` (one command) or `ctx_batch_execute` (several), printing only the
   answer. Load the tools once with
-  `ToolSearch(query: "select:mcp__plugin_cave-context_cave-context__ctx_execute,mcp__plugin_cave-context_cave-context__ctx_batch_execute")`
+  `ToolSearch(query: "select:mcp__plugin_context-mode_context-mode__ctx_execute,mcp__plugin_context-mode_context-mode__ctx_batch_execute")`
   (retry the bare names `select:ctx_execute,ctx_batch_execute`); if neither
   resolves, run the command via Bash.
 - **State-mutating shell** (writes files, `git` commits/pushes, edits settings) →
   always native Bash; the ctx sandbox discards filesystem and git writes.
-
-## 0. Preconditions — detect cave-compress (depth 0, model-side)
-
-Before anything else, decide whether the compression behavior is active. **If
-`cave-context:cave-compress` appears in your available skills, set
-`COMPRESS_AVAILABLE = true`; otherwise `COMPRESS_AVAILABLE = false`.** This is a
-model-side check against your available-skills listing (the same way other
-orchestrators check for an optional sibling skill) — deliberately NOT a
-load-time dynamic-context block, because this skill's discovery must stay runtime
-Bash and a skill cannot reliably enumerate available skills from a shell. The
-cave-compress skill is only visible here at depth 0, never inside the read-only
-`cc-reviewer` subagent.
-
-When `COMPRESS_AVAILABLE` is false, skip every compression substep below (no
-heuristic in §4b, no compression option in §5, no `cave-compress` call in §6) —
-silently, with no mention to the user.
 
 ## 1. Resolve the scope
 
@@ -153,66 +137,39 @@ For each file, a block with:
 - **Issues** — the findings (one line each: severity · rule · issue).
 - **Recommended actions** — fixable `suggested_fix` items, plus manual to-dos
   (leanness/split recommendations with their candidate target path / `paths:`
-  glob), plus — when `COMPRESS_AVAILABLE` — the compression offer from §4b.
+  glob).
 
 If an agent returns non-JSON or errors, note that file as failed and continue
 with the others.
 
-## 4b. Compression check (only when `COMPRESS_AVAILABLE`)
-
-Skip this entire section when `COMPRESS_AVAILABLE` is false.
-
-For each discovered `CLAUDE.md`, `Read` the file and apply a **lightweight
-prose-density heuristic** to decide whether it is *likely not yet compressed*.
-Language-neutral signals of uncompressed prose: multi-clause full sentences,
-auxiliary verbs (`should`, `would`, `can be`), filler phrasing, and explanatory
-paragraphs. When uncertain, **bias toward offering compression** — false
-positives are cheap: `cave-compress` self-reports "already terse — no changes"
-if the guess was wrong.
-
-For each file judged likely-uncompressed, add a **"Compress with cave-compress"**
-actionable task to that file's Recommended actions (§4).
-
-**Precedence note:** if a file also has a leanness/split to-do, recommend running
-compression FIRST and re-evaluating length afterward — compression may bring the
-file under the 200-line target and make the split unnecessary. (This is a
-*recommendation* ordering, distinct from the *execution* ordering in §6.)
-
 ## 5. Gate via AskUserQuestion
 
 Present each file's **selectable actions** — its fixable findings (`uncovered: false`
-with a non-null `suggested_fix`) plus, when §4b offered one, its `compress <file>`
-action — for selection via `AskUserQuestion`, the same way `cc-review` does.
-`AskUserQuestion` hard caps: at most **4 tabs** per call, each tab **2–4 options**.
+with a non-null `suggested_fix`) — for selection via `AskUserQuestion`, the same way
+`cc-review` does. `AskUserQuestion` hard caps: at most **4 tabs** per call, each tab
+**2–4 options**.
 
 Chunking is **tab-driven** (a tab maps to one file, so a file never splits across
 tabs ambiguously):
 
-- For each file, split its severity-sorted **selectable actions** (fixable findings
-  plus its `compress <file>` action, if §4b offered one) into groups of ≤4. Each
-  group becomes one **tab** (≤4 options), `multiSelect: true`. A file with more than
-  4 selectable actions therefore contributes several tabs; a file whose ONLY
-  selectable action is the compress action still gets its own tab.
+- For each file, split its severity-sorted **selectable actions** into groups of
+  ≤4. Each group becomes one **tab** (≤4 options), `multiSelect: true`. A file
+  with more than 4 selectable actions therefore contributes several tabs.
 - Pack up to **4 tabs per `AskUserQuestion` call**. When there are more than 4
   tabs total (more than 4 files, or files that exceed 4 actions), issue successive
   calls of ≤4 tabs each until every file's every selectable action has been shown.
-  Order the tabs high→med→low by their group's top severity (a compress-only tab
-  sorts lowest).
+  Order the tabs high→med→low by their group's top severity.
 - Each option label must begin with the finding `id` so a selection maps back to
-  its finding record. (Compress actions are the exception — they have no finding
-  `id`, so their label begins with `compress <file>`, which §6 keys off.)
-- If a tab would have only one action (a lone compress action, or a single
-  finding), add an explicit `"Skip this group"` option so the tab has ≥2 options.
+  its finding record.
+- If a tab would have only one action (a single finding), add an explicit
+  `"Skip this group"` option so the tab has ≥2 options.
 
 Findings with `uncovered: true` are shown as informational notes (never selectable
 for auto-apply — they require manual judgment because cc-reference does not cover
 them).
 
-**Two selectable action kinds.** Each `AskUserQuestion` option is either:
-1. **apply a `suggested_fix`** (existing behavior — `uncovered: false` finding
-   with a non-null `suggested_fix`), or
-2. **compress `<file>` with cave-compress** (only when `COMPRESS_AVAILABLE`, one
-   option per likely-uncompressed file from §4b).
+Each `AskUserQuestion` option applies a `suggested_fix` — an `uncovered: false`
+finding with a non-null `suggested_fix`.
 
 Leanness/split to-dos are **report-only** and never selectable here — not because
 they are uncovered (they are `uncovered: false` and count toward the grade) but
@@ -221,26 +178,14 @@ manual-to-do finding). `uncovered: true` findings remain informational notes.
 
 ## 6. Apply selected actions
 
-Apply in this strict order:
-
-1. **Content fixes FIRST.** For each selected finding (all `uncovered: false`
-   with a non-null `suggested_fix`), apply its `suggested_fix`:
-   `{ "old_string", "new_string" }` → an `Edit` call; `{ "full_content" }` → a
-   `Write` call. Apply nothing the user did not select.
-2. **Compressions LAST.** For each selected "compress `<file>`" action, invoke
-   the `cave-context:cave-compress` skill (Skill tool) on that file.
-
-Ordering rationale: `cave-compress` is a **lossy in-place rewrite** that would
-invalidate the `old_string` anchors of any not-yet-applied fix, so all content
-fixes must land before any compression runs. `cave-compress` runs **its own**
-recoverability + scope gates (a `CLAUDE.md` is auto-allowed by its `**/CLAUDE.md`
-glob); cc-memory does **not** auto-commit — if the just-applied edits are
-uncommitted, the user may pass cave-compress's recoverability prompt.
+For each selected finding (all `uncovered: false` with a non-null
+`suggested_fix`), apply its `suggested_fix`: `{ "old_string", "new_string" }` →
+an `Edit` call; `{ "full_content" }` → a `Write` call. Apply nothing the user did
+not select. cc-memory does **not** auto-commit.
 
 ## 7. Report
 
 Summarize per file: grade, which findings were applied, which were skipped, which
 are manual to-dos (`suggested_fix: null` — including leanness/scope-split
-recommendations with their candidate target), the compression outcome when one
-was run (`compressed` / `already terse` / `skipped`), which findings are uncovered,
-and any file whose reviewer failed.
+recommendations with their candidate target), which findings are uncovered, and
+any file whose reviewer failed.

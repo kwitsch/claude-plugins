@@ -1,8 +1,0 @@
-{
-  "name": "cctools-edit",
-  "version": "1.2.0",
-  "description": "Installs the cc-tools binary for the host OS and routes Read/Write/Edit/MultiEdit through it so file encodings (Latin-1/Windows-1252/UTF-8) are preserved instead of corrupted.",
-  "author": {
-    "name": "Kwitsch"
-  }
-}

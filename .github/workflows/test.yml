@@ -19,12 +19,9 @@ jobs:
         plugin:
           - no-co-authored
           - git-sign-key
-          - cctools-edit
           - branch-management
           - superpowers-automation
           - claude-code-knowledge
-          - cave-context
-          - init
           - coding-toolbox
     steps:
       - name: Checkout

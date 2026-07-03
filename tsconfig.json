@@ -14,7 +14,6 @@
     "types/**/*.d.ts"
   ],
   "exclude": [
-    "node_modules",
-    "plugins/cave-context/bin/context-mode/**"
+    "node_modules"
   ]
 }
