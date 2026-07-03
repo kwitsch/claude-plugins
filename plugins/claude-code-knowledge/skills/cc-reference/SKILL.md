@@ -30,6 +30,7 @@ Files live in the `references/` subfolder of this skill:
 - `${CLAUDE_SKILL_DIR}/references/claude-code-commands-reference.md` — authoring **slash commands** (`.claude/commands`, frontmatter, `$ARGUMENTS`, dynamic context, namespacing)
 - `${CLAUDE_SKILL_DIR}/references/claude-code-mcp-reference.md` — **MCP** integration (`.mcp.json`, transports, scopes, auth, tool naming, managed restrictions)
 - `${CLAUDE_SKILL_DIR}/references/claude-code-plugins-reference.md` — **plugins** (`plugin.json`/`marketplace.json`, layout, path variables, components, CLI)
+- `${CLAUDE_SKILL_DIR}/references/claude-code-plugins-lsp-reference.md` — **LSP servers** (`.lsp.json`/`lspServers` scopes, server entry schema, official LSP plugins)
 - `${CLAUDE_SKILL_DIR}/references/claude-code-memory-reference.md` — **memory** (`CLAUDE.md` locations/precedence, `@imports`, auto-memory)
 - `${CLAUDE_SKILL_DIR}/references/claude-code-settings-reference.md` — **settings/config** (`settings.json`, env vars, permissions & modes, model config, output styles, statusline, sandboxing)
 - `${CLAUDE_SKILL_DIR}/references/skill-folder-structure.md` — **skill folder layout** (skill dir structure + the `references/` subfolder convention; static, not doc-refreshed)
@@ -67,7 +68,8 @@ Map key → file on disk: `skills-reference` → `claude-code-skills-reference.m
 `hook-handler-selection.md`; `mcp-tool-hooks-reference` →
 `claude-code-mcp-tool-hooks-reference.md`; `commands-reference` →
 `claude-code-commands-reference.md`; `mcp-reference` → `claude-code-mcp-reference.md`;
-`plugins-reference` → `claude-code-plugins-reference.md`; `memory-reference` →
+`plugins-reference` → `claude-code-plugins-reference.md`; `plugins-lsp-reference` →
+`claude-code-plugins-lsp-reference.md`; `memory-reference` →
 `claude-code-memory-reference.md`; `settings-reference` →
 `claude-code-settings-reference.md`; `skill-folder-structure` →
 `skill-folder-structure.md`. Hook questions usually need **both** hooks files
@@ -227,8 +229,18 @@ Marketplace
 Plugin dependencies
 Plugin hints
 Plugin CLI
-LSP servers                            # schema, project-root scope (undocumented), example
+LSP servers                            # one-line pointer — full schema in claude-code-plugins-lsp-reference.md
+Monitors                               # monitors.json schema, background log/file watchers
 Version notes
+```
+
+### claude-code-plugins-lsp-reference.md
+```
+What LSP servers provide
+Scopes                                 # plugin-scoped vs project-scoped (undocumented)
+Server entry schema
+Example (project-root .lsp.json)
+Official LSP plugins
 ```
 
 ### claude-code-memory-reference.md

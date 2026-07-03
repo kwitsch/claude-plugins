@@ -1,7 +1,7 @@
 # Claude Code — Hook Handler Selection
 
 <!-- AGENT-FACING REFERENCE. Not prose. Optimize for lookup + decision, not readability. -->
-<!-- Source: code.claude.com/docs/en/hooks. Verified 2026-06-21. Re-verify against docs if version differs. -->
+<!-- Source: code.claude.com/docs/en/hooks + code.claude.com/docs/en/hooks-guide. Verified 2026-07-03. Re-verify against docs if version differs. -->
 <!-- Scope: choosing the `type` of a hook handler. Not about when hooks vs CLAUDE.md vs skills. -->
 
 ## Handler types
@@ -48,7 +48,7 @@
 | `prompt` | model call | model latency | event-dependent | own decision | 30 s | no |
 | `agent` | subagent | model + tool latency | event-dependent | own decision | 60 s | no |
 
-`UserPromptSubmit` lowers command/http/mcp_tool default to 30 s. `MessageDisplay` lowers to 10 s.
+`UserPromptSubmit` lowers command/http/mcp_tool default to 30 s. `MessageDisplay` lowers to 10 s. `SessionEnd` lowers to 1.5 s (budget auto-raises to the highest per-hook `timeout` configured, cap 60 s; plugin-hook timeouts don't raise it; override via env `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS`, milliseconds).
 
 ## Handler fields (config, all types unless noted)
 
@@ -58,6 +58,7 @@
 | `asyncRewake` | `command` | `true` → runs in background AND wakes Claude on `exit 2` (implies `async`). The hook's stderr (or stdout if stderr empty) is shown to Claude as a system reminder — the path by which a long-running background failure reaches Claude. |
 | `once` | handler | `true` → runs once per session then is removed. ONLY honored for hooks declared in skill frontmatter; ignored in settings files and agent frontmatter. |
 | `statusMessage` | handler | custom spinner/status message shown while the hook runs. |
+| `continueOnBlock` | `prompt`/`agent` | `true` → on `ok:false`, feed `reason` back to Claude and continue the turn instead of stopping (implemented as `continue:true` on the resulting `decision:"block"`). Default `false`. No effect on `PostToolBatch`/`UserPromptSubmit`/`UserPromptExpansion`, which always end the turn on block. |
 
 ## mcp_tool handler shape
 

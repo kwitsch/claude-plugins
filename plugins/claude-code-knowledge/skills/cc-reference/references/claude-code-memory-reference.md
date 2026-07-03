@@ -1,7 +1,7 @@
 # Claude Code Memory — Authoring Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (How Claude remembers your project), verified 2026-06-20.
+> (How Claude remembers your project), verified 2026-07-03.
 > Apply when authoring or editing CLAUDE.md files or configuring auto memory.
 
 ## CLAUDE.md: what & when
@@ -96,6 +96,7 @@ Default path: `~/.claude/projects/<project>/memory/` where `<project>` is derive
 ```
 
 - `MEMORY.md` is the entry point; first **200 lines or 25 KB** (whichever comes first) load at session start.
+- This 200-line/25 KB limit applies **only to `MEMORY.md`**. CLAUDE.md files load in full regardless of length (shorter files still produce better adherence).
 - Topic files (e.g., `debugging.md`) are **not** loaded at startup; Claude reads them on demand.
 - Override storage path with `autoMemoryDirectory` in settings:
 
@@ -151,6 +152,7 @@ paths:
 - All API endpoints must include input validation
 ```
 
+- version >= 2.1.198: path matching also works when Claude reaches a file through a **symlinked path** to the project directory (e.g. a symlinked checkout).
 - Glob patterns in `paths`; brace expansion matches multiple extensions:
 
 | Pattern | Matches |
@@ -184,3 +186,4 @@ paths:
 | version >= X.Y | Note |
 |---|---|
 | version >= 2.1.59 | Auto memory feature available; verify with `claude --version` |
+| version >= 2.1.198 | Path-scoped `.claude/rules/` `paths` matching also works through a symlinked path to the project directory (e.g. a symlinked checkout) |

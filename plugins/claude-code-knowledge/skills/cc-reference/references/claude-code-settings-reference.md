@@ -9,7 +9,7 @@
 >   https://code.claude.com/docs/en/output-styles.md,
 >   https://code.claude.com/docs/en/statusline.md,
 >   https://code.claude.com/docs/en/sandboxing.md
-> verified: 2026-06-20
+> verified: 2026-07-03
 
 ## settings.json: locations & scope precedence
 
@@ -45,6 +45,7 @@ Scopes from highest to lowest priority (higher overrides lower for scalar keys; 
 | `permissions.additionalDirectories` | Extra paths Claude can read/write; grants file access only, not config discovery |
 | `permissions.disableBypassPermissionsMode` | `"disable"` prevents `bypassPermissions` mode |
 | `permissions.disableAutoMode` | `"disable"` prevents `auto` mode |
+| `permissions.skipDangerousModePermissionPrompt` | Boolean; skip the confirmation prompt before entering `bypassPermissions`. Ignored when set in project settings |
 | `enforceAvailableModels` | `version >= 2.1.175:` (managed/policy) when `true` + non-empty `availableModels`, also constrains the Default option to the allowlist |
 | `modelOverrides` | Map Anthropic model IDs → provider-specific IDs (Bedrock ARN, Vertex version, Foundry deployment) |
 | `effortLevel` | Persist effort: `"low"`/`"medium"`/`"high"`/`"xhigh"`. `max`/`ultracode` are session-only, not accepted here |
@@ -53,14 +54,14 @@ Scopes from highest to lowest priority (higher overrides lower for scalar keys; 
 | `cleanupPeriodDays` | Days to retain session files before auto-deletion; default 30, min 1, `0` rejected |
 | `spinnerTipsEnabled` | Boolean; show spinner tips |
 | `showThinkingSummaries` | Boolean; expose thinking summaries for expansion |
-| `maxSkillDescriptionChars` | `version >= 2.1.105:` per-skill cap on combined `description`+`when_to_use` text in the listing (default 1536) |
-| `skillListingBudgetFraction` | Fraction of model context used for skill listing |
+| `skillListingMaxDescChars` | `version >= 2.1.105:` per-skill cap on combined `description`+`when_to_use` text in the listing (default 1536). Renamed from `maxSkillDescriptionChars` |
+| `skillListingBudgetFraction` | `version >= 2.1.105:` fraction of model context reserved for skill listing (default `0.01`); least-used skills collapse to bare names past the budget |
 | `outputStyle` | Output-style name; see Output styles section |
 | `statusLine` | Status line config object; see Statusline section |
 | `subagentStatusLine` | Per-subagent row body config object; see Statusline section |
 | `sandbox` | Sandbox config object; see Sandboxed Bash tool section |
-| `enabledPlugins` | Array of plugin IDs to enable |
-| `extraKnownMarketplaces` | Array of additional marketplace URLs |
+| `enabledPlugins` | Map `"plugin-name@marketplace-name": true/false` (NOT an array); a plugin with no entry at any scope falls back to its `defaultEnabled` value |
+| `extraKnownMarketplaces` | Map of marketplace-name → `{source: {...}}` definitions to make available for the repo (NOT a URL array); team members are prompted to install on trust |
 | `hooks` | Lifecycle event hook config; see hooks reference |
 | `allowedHttpHookUrls` | Allowlist of URL patterns HTTP hooks may target (`*` wildcard); undefined = no restriction, `[]` = block all. Arrays merge across sources |
 | `httpHookAllowedEnvVars` | Allowlist of env var names HTTP hooks may interpolate into headers; effective set is intersection per hook. Arrays merge across sources |
@@ -86,19 +87,19 @@ Scopes from highest to lowest priority (higher overrides lower for scalar keys; 
 | `CLAUDECODE` | Set to `1` in all Claude-Code-spawned subprocesses (Bash/PowerShell/tmux/hook/statusline/stdio-MCP); IDE terminals also set it |
 | `CLAUDE_CODE_CHILD_SESSION` | `version >= 2.1.172:` `1` in Bash/PowerShell/Monitor/hook/statusline subprocesses; NOT stdio-MCP; nested interactive sessions excluded from `--resume` unless `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1` |
 | `CLAUDE_CODE_DISABLE_1M_CONTEXT` | `1` removes 1M context variants from model picker |
-| `CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING` | `1` reverts Opus/Sonnet 4.6 to fixed thinking budget (`MAX_THINKING_TOKENS`). `version >= 2.1.111:` no effect on Fable 5 or Opus 4.7+ (always adaptive) |
+| `CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING` | `1` reverts Opus/Sonnet 4.6 to fixed thinking budget (`MAX_THINKING_TOKENS`). `version >= 2.1.111:` no effect on Fable 5, Sonnet 5, or Opus 4.7+ (always adaptive) |
 | `CLAUDE_CODE_DISABLE_ADVISOR_TOOL` | `version >= 2.1.98:` `1` disables `/advisor`, `--advisor`, and `advisorModel` |
 | `CLAUDE_CODE_DISABLE_AUTO_MEMORY` | `1` disables auto memory; `0` forces it on |
 | `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS` | `1` removes bundled skills/workflows (built-ins like `/init` hidden from model); `0` does not override the setting |
 | `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS` | `1` removes built-in commit/PR instructions + git-status snapshot; overrides `includeGitInstructions` |
 | `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD` | `1` loads CLAUDE.md/`.claude/rules/*.md`/CLAUDE.local.md from `--add-dir` directories |
-| `CLAUDE_CODE_MAX_CONTEXT_TOKENS` | Override the context-window size Claude Code assumes for the active model; only takes effect when `DISABLE_COMPACT` is also set |
+| `CLAUDE_CODE_MAX_CONTEXT_TOKENS` | Override the context-window size Claude Code assumes for the active model. `version >= 2.1.193:` applied directly for model names Claude Code doesn't recognize; for recognized Claude models only takes effect when `DISABLE_COMPACT` is also set |
 | `CLAUDE_CODE_AUTO_COMPACT_WINDOW` | Context capacity (tokens) used for auto-compaction calc; capped at model window; decouples threshold from statusline `used_percentage` |
 | `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` | Percentage (1-100) of the compaction window at which proactive auto-compaction triggers; can only lower the threshold |
 | `CLAUDE_PROJECT_DIR` | Project directory; exported to hook/plugin processes |
 | `CLAUDE_PLUGIN_ROOT` | Plugin root directory; exported to hook/plugin processes |
 | `CLAUDE_PLUGIN_DATA` | Plugin data directory; exported to hook/plugin processes |
-| `MAX_THINKING_TOKENS` | Max thinking tokens; `0` disables thinking (except Fable 5); on fixed-budget models overrides the budget, on adaptive models sets a ceiling |
+| `MAX_THINKING_TOKENS` | Max thinking tokens; `0` disables thinking on the Anthropic API (except Fable 5, always adaptive); a nonzero value sets the fixed budget on fixed-budget models but is IGNORED on adaptive-reasoning models unless `CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING` also turns off adaptive reasoning |
 | `DISABLE_AUTOUPDATER` | `1` disables automatic update checks |
 
 ## Permissions
@@ -154,6 +155,7 @@ mcp__*                        # deny/ask: every MCP tool; NOT valid in allow rul
 | `additionalDirectories` | Extra readable/writable paths (file access only) | `["/mnt/data"]` |
 | `disableBypassPermissionsMode` | `"disable"` blocks `bypassPermissions` | `"disable"` |
 | `disableAutoMode` | `"disable"` blocks `auto` mode | `"disable"` |
+| `skipDangerousModePermissionPrompt` | Skip the confirmation prompt before entering `bypassPermissions`; ignored in project settings | `true` |
 
 ## Permission modes
 
@@ -165,8 +167,8 @@ Set via `permissions.defaultMode` in settings, `--permission-mode` CLI flag, or 
 | `acceptEdits` | Edit automatically | Auto-accepts file edits + filesystem Bash (`mkdir`, `touch`, `rm`, `rmdir`, `mv`, `cp`, `sed`; PowerShell `Set-Content`/`Add-Content`/`Clear-Content`/`Remove-Item`) for paths in working dir / `additionalDirectories` |
 | `plan` | Plan mode | Read-only: Claude reads files and runs read-only shell commands; does not edit source files. Enter via Shift+Tab or `/plan` prefix |
 | `auto` | Auto mode | `version >= 2.1.83:` auto-approves with a server-side safety classifier; research preview. Explicit `ask` rules still prompt |
-| `dontAsk` | — | Auto-denies tools unless matched by `permissions.allow` (or read-only Bash); explicit `ask` rules are denied, not prompted |
-| `bypassPermissions` | Bypass permissions | Skips prompts; `version >= 2.1.126:` includes protected-path writes (earlier versions prompted). Explicit `ask` rules + filesystem-root/home removals still prompt |
+| `dontAsk` | — | Auto-denies tools unless matched by `permissions.allow` (or read-only Bash); explicit `ask` rules are denied, not prompted. `version >= 2.1.199:` an MCP tool with `_meta["anthropic/requiresUserInteraction"]` is also denied here even if an allow rule matches |
+| `bypassPermissions` | Bypass permissions | Skips prompts; `version >= 2.1.126:` includes protected-path writes (earlier versions prompted). Explicit `ask` rules + filesystem-root/home removals still prompt. `version >= 2.1.199:` an MCP tool with `_meta["anthropic/requiresUserInteraction"]` still prompts |
 
 ### Protected-path behavior per mode
 
@@ -177,9 +179,11 @@ Set via `permissions.defaultMode` in settings, `--permission-mode` CLI flag, or 
 | `dontAsk` | Denied |
 | `bypassPermissions` | Allowed |
 
+Protected directories: `.git`, `.config/git`, `.vscode`, `.idea`, `.husky`, `.cargo`, `.devcontainer`, `.yarn`, `.mvn`, `.claude` (except `.claude/worktrees`). `permissions.allow` rules in settings do NOT pre-approve these writes; the check runs before allow rules are evaluated.
+
 - `bypassPermissions`: only use in isolated environments (containers/VMs); refuses to start as root/sudo on Linux/macOS unless in a recognized sandbox. Admins block it via `permissions.disableBypassPermissionsMode: "disable"`. Enter only by starting with `--permission-mode bypassPermissions` / `--dangerously-skip-permissions`.
 - `dontAsk` / `bypassPermissions`: Claude Code on the web ignores these as `defaultMode` from project/local settings. `defaultMode: "auto"` is also ignored from project/local settings (`version >= 2.1.142:`) — set in user/managed settings instead.
-- `auto` mode mechanics: classifier checks each non-trivial action; drops broad code-exec allow rules (`Bash(*)`, wildcarded interpreters, `Agent` allows) on entry, restores on exit. Pauses to prompting after 3 consecutive or 20 total blocks (not configurable). Subagent task descriptions are pre-checked `version >= 2.1.178:`.
+- `auto` mode mechanics: classifier checks each non-trivial action; drops broad code-exec allow rules (`Bash(*)`, wildcarded interpreters, `Agent` allows) on entry, restores on exit. Pauses to prompting after 3 consecutive or 20 total blocks (not configurable). Subagent task descriptions are pre-checked `version >= 2.1.178:`. `version >= 2.1.199:` an MCP tool with `_meta["anthropic/requiresUserInteraction"]` skips the classifier and always prompts directly instead.
 - `--resume` restores the permission mode that was active at defer-time; exceptions: `plan` and `bypassPermissions` are never carried over.
 
 ## Model configuration
@@ -188,7 +192,7 @@ Set via `permissions.defaultMode` in settings, `--permission-mode` CLI flag, or 
 
 | Alias | Resolves to |
 |---|---|
-| `default` | Clears any model override → recommended model for account type (not itself an alias) |
+| `default` | Clears any model override → recommended model for account type, or the org default model when an admin has set one (not itself an alias) |
 | `best` | Fable 5 where the org has access, else latest Opus |
 | `opus` | Latest Opus default for the configured provider |
 | `sonnet` | Latest Sonnet default |
@@ -225,6 +229,7 @@ Set via `permissions.defaultMode` in settings, `--permission-mode` CLI flag, or 
 - `availableModels` set only in user/project/local: arrays merge + dedup.
 - `availableModels` (or `enforceAvailableModels`) set in managed/policy: replaces the merged result entirely; lower scopes cannot widen. `version >= 2.1.175:` this is the only way to enforce a strict allowlist (earlier versions merged the managed list).
 - `modelOverrides` maps Anthropic IDs → provider IDs; allowlist still matches the Anthropic ID, not the override value.
+- Within the effective list, an entry naming a specific model in a family (a version prefix or full ID) disables that family's wildcard entry: `["sonnet", "claude-sonnet-4-5"]` allows only Sonnet 4.5, not every Sonnet model.
 - All other model arrays follow the standard concatenate-and-deduplicate rule.
 
 ## Output styles
@@ -317,12 +322,14 @@ Same object shape (`type`/`command`); renders a custom row body per subagent in 
 | `context_window.used_percentage`, `.remaining_percentage` | Context usage/remaining 0–100 (may be `null` early) |
 | `context_window.context_window_size` | Max window (200000, or 1000000 for extended context) |
 | `context_window.current_usage` | Per-component token counts; `null` before first call and after `/compact` |
+| `context_window.total_input_tokens`, `.total_output_tokens` | Token counts currently in the context window from the latest API response. `version >= 2.1.132:` current usage, not cumulative session totals (earlier versions were cumulative) |
+| `exceeds_200k_tokens` | Whether the latest response's total tokens (input+cache+output) exceed 200k — a fixed threshold regardless of the model's actual window size |
 | `cost.total_cost_usd`, `.total_duration_ms`, `.total_api_duration_ms` | Session cost / wall-clock / API-wait |
 | `cost.total_lines_added`, `.total_lines_removed` | Lines changed |
-| `effort.level` | `low`/`medium`/`high`/`xhigh`/`max` (absent if model has no effort) |
+| `effort.level` | `low`/`medium`/`high`/`xhigh`/`max` (absent if model has no effort); ultracode is not a distinct level and reports as `xhigh` |
 | `thinking.enabled` | Extended thinking on for the session |
 | `rate_limits.five_hour`/`.seven_day` (`.used_percentage`, `.resets_at`) | Pro/Max only, after first API response; may be independently absent |
-| `session_id`, `session_name`, `transcript_path`, `version` | Session id, custom name, transcript path, CC version |
+| `session_id`, `session_name`, `prompt_id`, `transcript_path`, `version` | Session id, custom name, `version >= 2.1.196:` UUID of the prompt being processed (absent until first input), transcript path, CC version |
 | `output_style.name`, `vim.mode`, `agent.name` | Current style, vim mode, `--agent` name |
 | `pr.number`, `pr.url`, `pr.review_state` | Open PR for branch (`review_state`: `approved`/`pending`/`changes_requested`/`draft`); absent once merged/closed |
 | `worktree.*` (`name`/`path`/`branch`/`original_cwd`/`original_branch`) | `--worktree` sessions only |
@@ -363,6 +370,10 @@ OS-level filesystem and network isolation for Bash commands. Platform: macOS, Li
 | `network.allowUnixSockets` | Unix socket paths accessible from within the sandbox | `[]` |
 | `network.allowLocalBinding` | Allow binding to localhost ports | `false` |
 | `network.httpProxyPort` / `network.socksProxyPort` | Route sandbox traffic through a custom proxy (TLS inspection / corporate proxy) | — |
+| `network.tlsTerminate` | `version >= 2.1.199:` experimental — terminate TLS inside the sandbox proxy so it can read HTTPS contents; required for `credentials.envVars` `mask` mode. User/managed/`--settings` only | — |
+| `credentials.files` | `version >= 2.1.187:` credential files/dirs sandboxed commands can't read; entries `{path, mode:"deny"}` (deny is the only file mode); merges across scopes | `[]` |
+| `credentials.envVars` | `version >= 2.1.187:` env vars to protect; entries `{name, mode}`. `deny` unsets the var. `version >= 2.1.199:` `mode:"mask"` substitutes a per-session sentinel inside the sandbox (needs `network.tlsTerminate`); `mask` honored only from user/managed/`--settings`, not project | `[]` |
+| `credentials.envVars[].injectHosts` | `version >= 2.1.199:` hosts where the proxy substitutes a `mask` entry's real value; each must also be covered by `network.allowedDomains`; unset = every `allowedDomains` host | — |
 | `enableWeakerNetworkIsolation` | Allow a MITM proxy + custom CA (e.g. for Go CLIs failing TLS under Seatbelt); weakens isolation | `false` |
 | `allowAppleEvents` | macOS: allow Apple Events (`open`, `osascript`); honored from user/managed/CLI only (NOT project); removes code-exec isolation | `false` |
 | `enableWeakerNestedSandbox` | Linux only: enable sandbox inside Docker without privileged namespaces; weakens security | `false` |
@@ -388,9 +399,10 @@ Paths in `filesystem.*` use standard conventions (NOT the `//` Read/Edit anchori
 | `version >= 2.1.83` | `auto` permission mode (research preview) |
 | `version >= 2.1.91` | standalone `/output-style` command removed (deprecated 2.1.73) |
 | `version >= 2.1.98` | `advisorModel` setting + `CLAUDE_CODE_DISABLE_ADVISOR_TOOL` |
-| `version >= 2.1.105` | `maxSkillDescriptionChars` setting |
-| `version >= 2.1.111` | `CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING` no effect on Fable 5 / Opus 4.7+; `xhigh` effort capability |
+| `version >= 2.1.105` | `skillListingMaxDescChars` (formerly `maxSkillDescriptionChars`) + `skillListingBudgetFraction` |
+| `version >= 2.1.111` | `CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING` no effect on Fable 5 / Sonnet 5 / Opus 4.7+; `xhigh` effort capability |
 | `version >= 2.1.126` | `bypassPermissions` no longer prompts for protected-path writes |
+| `version >= 2.1.132` | statusline `context_window.total_input_tokens`/`.total_output_tokens` reflect current usage, not cumulative session totals |
 | `version >= 2.1.133` | `parentSettingsBehavior` setting (`merge`/`first-wins`) |
 | `version >= 2.1.142` | `defaultMode: "auto"` ignored from project/local settings |
 | `version >= 2.1.153` | statusline scripts read `COLUMNS`/`LINES` env |
@@ -398,3 +410,7 @@ Paths in `filesystem.*` use standard conventions (NOT the `//` Read/Edit anchori
 | `version >= 2.1.172` | `CLAUDE_CODE_CHILD_SESSION=1` set in Bash/PowerShell/Monitor/hook/statusline subprocesses |
 | `version >= 2.1.175` | `availableModels`/`enforceAvailableModels` managed/policy value replaces lower-precedence entries entirely (no merge) |
 | `version >= 2.1.178` | output-style nested-dir collision: closest-to-cwd wins; auto-mode pre-checks subagent task descriptions |
+| `version >= 2.1.187` | sandbox `credentials.files` / `credentials.envVars` (deny mode) |
+| `version >= 2.1.193` | `CLAUDE_CODE_MAX_CONTEXT_TOKENS` applies directly to unrecognized (non-Claude) model names |
+| `version >= 2.1.196` | statusline `prompt_id` field |
+| `version >= 2.1.199` | MCP tool `_meta["anthropic/requiresUserInteraction"]` gates `auto`/`dontAsk`/`bypassPermissions`; sandbox `network.tlsTerminate` + `credentials.envVars` `mask` mode |
