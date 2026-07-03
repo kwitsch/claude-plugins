@@ -5,8 +5,32 @@ Produce the design doc for the described work and save it to the **spec temp pat
 
 This doc is Claude's own working memory for the plan and implementation phases,
 not prose written for a human to review line by line — write it dense and
-structured. The pipeline's human checkpoint is SKILL.md step 6 (Intent
-confirmation); the advisor pass (step 5) is what validates correctness here.
+structured. The pipeline's human checkpoint is SKILL.md step 5 (Intent
+confirmation); self-review (below) always validates this doc — the advisor,
+when this phase judges it warranted, is an additional layer on top.
+
+## Scale to the task (your call, not a fixed step)
+
+Judge complexity against SKILL.md's complexity heuristic, from
+`$work_description` and what step 1's exploration turns up — re-judge after
+exploring, not just from the one-line description; a task that reads simple
+can turn out complex once the code is in front of you:
+
+- **Simple** (the default) → do every step below yourself, inline, no
+  subagents.
+- **Complex** → use the Workflow tool where it earns its cost: parallel
+  readers across the touched subsystems for step 1 (the tool's `Understand`
+  pattern), or a judge panel of independently fleshed-out approaches for
+  step 4 (the tool's `Design` pattern). Invoking `fresh-work` already
+  satisfies the Workflow tool's opt-in requirement.
+
+**Advisor consultation is likewise your call, not a scheduled step.** Call it
+(protocol: SKILL.md "Inline advisor protocol") when you hit a genuine
+uncertainty you can't resolve from code/context, or the task turns out more
+complex than `$work_description` suggested. A well-scoped, low-ambiguity
+design can validly skip it — self-review, below, always runs regardless. If
+you do consult it, revise the doc from its feedback before returning to the
+orchestrator.
 
 ## Process
 
@@ -23,7 +47,7 @@ confirmation); the advisor pass (step 5) is what validates correctness here.
    others lost.
 5. **Write the doc**, sections scaled to their complexity:
    - **Keypoints** (3–6 bullets, one line each): the gist a reader needs before
-     anything else. SKILL.md step 6 presents this section verbatim for intent
+     anything else. SKILL.md step 5 presents this section verbatim for intent
      confirmation — it must stand alone without requiring the rest of the doc.
    - Goal (one paragraph) and Non-goals
    - Approach chosen + alternatives rejected (with reasons)
@@ -48,5 +72,5 @@ confirmation); the advisor pass (step 5) is what validates correctness here.
 - Ambiguity: every requirement has exactly one reading — if not, pick one and write
   it down.
 
-Fix findings inline, then return to the orchestrator (SKILL.md step 5, advisor
-pass). Do not start planning or implementation from here.
+Fix findings inline, then return to the orchestrator (SKILL.md step 5, Intent
+confirmation). Do not start planning or implementation from here.

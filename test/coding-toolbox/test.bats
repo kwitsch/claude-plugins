@@ -561,9 +561,9 @@ run_ci_watch() {
   assert_success
 }
 
-@test "plugin.json version bumped for fresh-work Workflow-args fix" {
+@test "plugin.json version bumped for fresh-work intent/review pipeline (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.9.1"
+  assert_output "0.9.0"
 }
 
 @test "plugin.json description mentions fresh-work" {
@@ -595,6 +595,16 @@ run_ci_watch() {
   assert_output --partial "Keypoints"
 }
 
+@test "fresh-work designing reference scales itself to the task instead of a fixed advisor step" {
+  run cat "$PLUGIN/skills/fresh-work/references/designing.md"
+  assert_success
+  assert_output --partial "Scale to the task (your call, not a fixed step)"
+  assert_output --partial "complexity heuristic"
+  assert_output --partial "Workflow tool"
+  assert_output --partial "not a scheduled step"
+  assert_output --partial "self-review, below, always runs"
+}
+
 @test "fresh-work references/planning.md exists and is non-empty" {
   run test -s "$PLUGIN/skills/fresh-work/references/planning.md"
   assert_success
@@ -606,6 +616,17 @@ run_ci_watch() {
   assert_output --partial "Global Constraints"
   assert_output --partial "plan temp path"
   refute_output --partial "Which approach"
+}
+
+@test "fresh-work planning reference scales itself to the task instead of a fixed advisor step" {
+  run cat "$PLUGIN/skills/fresh-work/references/planning.md"
+  assert_success
+  assert_output --partial "Scale to the task (your call, not a fixed step)"
+  assert_output --partial "complexity heuristic"
+  assert_output --partial "Workflow tool"
+  assert_output --partial "not a scheduled step"
+  assert_output --partial "self-review, below, always"
+  assert_output --partial "runs before implementation starts"
 }
 
 @test "fresh-work references/implementing.md exists and is non-empty" {
@@ -659,7 +680,7 @@ run_ci_watch() {
   refute_output --partial "AskUserQuestion"
 }
 
-@test "fresh-work has an intent-confirmation step between the spec and plan advisor passes" {
+@test "fresh-work has an intent-confirmation step between Design and Plan" {
   run cat "$PLUGIN/skills/fresh-work/SKILL.md"
   assert_success
   assert_output --partial "**Intent confirmation.**"
@@ -668,41 +689,51 @@ run_ci_watch() {
   # anchored to the line start so line numbers reflect each step's own match,
   # not grep's inherent ascending-line-number output order.
   local skill_md="$output"
-  local advisor_spec_line intent_line plan_line
-  advisor_spec_line=$(grep -n '^5\. \*\*Advisor pass (spec)\.\*\*' <<< "$skill_md" | cut -d: -f1)
-  intent_line=$(grep -n '^6\. \*\*Intent confirmation\.\*\*' <<< "$skill_md" | cut -d: -f1)
-  plan_line=$(grep -n '^7\. \*\*Plan\.\*\*' <<< "$skill_md" | cut -d: -f1)
-  [ -n "$advisor_spec_line" ] && [ -n "$intent_line" ] && [ -n "$plan_line" ]
-  [ "$advisor_spec_line" -lt "$intent_line" ]
+  local design_line intent_line plan_line
+  design_line=$(grep -n '^4\. \*\*Design\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  intent_line=$(grep -n '^5\. \*\*Intent confirmation\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  plan_line=$(grep -n '^6\. \*\*Plan\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  [ -n "$design_line" ] && [ -n "$intent_line" ] && [ -n "$plan_line" ]
+  [ "$design_line" -lt "$intent_line" ]
   [ "$intent_line" -lt "$plan_line" ]
+}
+
+@test "fresh-work no longer schedules fixed Advisor pass steps" {
+  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  refute_output --partial "**Advisor pass (spec).**"
+  refute_output --partial "**Advisor pass (plan).**"
+  assert_output --partial "## Complexity heuristic"
+  assert_output --partial "not a scheduled pipeline step"
 }
 
 @test "fresh-work classify table points refactor/feature at the renumbered design path" {
   run cat "$PLUGIN/skills/fresh-work/SKILL.md"
   assert_success
-  assert_output --partial "design path (steps 4–11 below)"
+  assert_output --partial "design path (steps 4–9 below)"
   assert_output --partial "debug path (steps 4–5 below)"
 }
 
-@test "fresh-work runs simplify then code-review max --fix between implement and PR" {
+@test "fresh-work runs simplify then code-review between implement and PR, effort scaled to complexity" {
   run cat "$PLUGIN/skills/fresh-work/SKILL.md"
   assert_success
   assert_output --partial "**Review.**"
   assert_output --partial "simplify"
   assert_output --partial "code-review"
-  assert_output --partial "max --fix"
+  assert_output --partial '`high`'
+  assert_output --partial '`max`'
   # Numbered prefixes are globally unique (fix path uses "5. **PR.**", not
-  # "11."), unlike the bare "**PR.**" text which also appears in the fix path.
+  # "9."), unlike the bare "**PR.**" text which also appears in the fix path.
   # Reuse $output from the `cat` above instead of rereading the file. Grep each
   # pattern separately and anchor to line start: `grep -n` always emits matches
   # in ascending line-number order regardless of alternation order, so a single
   # combined grep can never actually detect a reordering (a false pass); and an
-  # unanchored "9. **Implement.**" would also match inside "19. **Implement.**".
+  # unanchored "7. **Implement.**" would also match inside "17. **Implement.**".
   local skill_md="$output"
   local implement_line review_line pr_line
-  implement_line=$(grep -n '^9\. \*\*Implement\.\*\*' <<< "$skill_md" | cut -d: -f1)
-  review_line=$(grep -n '^10\. \*\*Review\.\*\*' <<< "$skill_md" | cut -d: -f1)
-  pr_line=$(grep -n '^11\. \*\*PR\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  implement_line=$(grep -n '^7\. \*\*Implement\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  review_line=$(grep -n '^8\. \*\*Review\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  pr_line=$(grep -n '^9\. \*\*PR\.\*\*' <<< "$skill_md" | cut -d: -f1)
   [ -n "$implement_line" ] && [ -n "$review_line" ] && [ -n "$pr_line" ]
   [ "$implement_line" -lt "$review_line" ]
   [ "$review_line" -lt "$pr_line" ]
@@ -718,7 +749,8 @@ run_ci_watch() {
 @test "fresh-work Review step commits each sub-pass separately, never bundled" {
   run cat "$PLUGIN/skills/fresh-work/SKILL.md"
   assert_success
-  assert_output --partial "one fix per commit, never bundled"
+  assert_output --partial "one fix per commit,"
+  assert_output --partial "never bundled"
 }
 
 @test "fresh-work references all four phase files and both sibling skills" {
