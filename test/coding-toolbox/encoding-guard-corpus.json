@@ -45,6 +45,8 @@
   { "cmd": "# cat legacy.txt", "expect": "allow" },
   { "cmd": "echo hi > brand-new.txt", "expect": "allow" },
   { "cmd": "cat <<EOF\nlegacy.txt\nEOF", "expect": "allow" },
+  { "cmd": "grep foo <<< legacy.txt", "expect": "allow" },
+  { "cmd": "grep foo <<<legacy.txt", "expect": "allow" },
   { "cmd": "sudo sed -i s/a/b/ legacy.txt", "expect": "allow" },
   { "cmd": "cat legacy.*", "expect": "allow" },
   { "cmd": "cat 2>&1", "expect": "allow" }

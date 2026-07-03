@@ -236,9 +236,9 @@ function skipParens(text, from) {
 
 /**
  * Split one pipeline segment into command word (basename, env-assignment
- * prefixes skipped), plain arguments, and redirect targets. Heredoc
- * operators (`<<`) never produce a file target; fd-duplication targets
- * (`>&2`) are dropped.
+ * prefixes skipped), plain arguments, and redirect targets. Heredoc (`<<`)
+ * and here-string (`<<<`) operators never produce a file target;
+ * fd-duplication targets (`>&2`) are dropped.
  * @param {string} segment
  * @returns {ParsedSegment}
  */
@@ -253,12 +253,15 @@ function parseSegment(segment) {
     if (pending === "out") { outTargets.push(tok); pending = null; continue; }
     if (pending === "in") { inTargets.push(tok); pending = null; continue; }
     if (pending === "skip") { pending = null; continue; }
-    const m = tok.match(/^(\d*)(<<|>>|>|<)(.*)$/);
+    const m = tok.match(/^(\d*)(<<<|<<|>>|>|<)(.*)$/);
     if (m) {
       const op = m[2];
       const rest = m[3];
-      if (op === "<<") {
-        if (rest === "") pending = "skip"; // detached heredoc delimiter
+      if (op === "<<" || op === "<<<") {
+        // heredoc delimiter (<<) or here-string operand (<<<) — never a file
+        // path. Attached operand (rest !== "") is data, dropped here; when
+        // detached (rest === "") the operand is the next token, also skipped.
+        if (rest === "") pending = "skip";
         continue;
       }
       if (rest === "") { pending = op === "<" ? "in" : "out"; continue; }
