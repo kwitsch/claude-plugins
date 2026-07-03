@@ -112,15 +112,20 @@ spawns nests beneath its step as `Step N.1…N.x`.
     `code-review` (Skill tool, args `max --fix`) over the same diff to find and
     apply correctness-bug and reuse/simplification/efficiency fixes at max
     effort. Both act on the full accumulated diff from step 9, not a single
-    task's commit. Leave the applied fixes uncommitted — step 11's `fresh-pr`
-    commits pending work as part of its own commit stage. A finding that would
-    reverse a design/plan decision (not a quality nit) → stop and surface it via
-    `AskUserQuestion` instead of letting the fix apply silently.
-11. **PR.** Invoke `coding-toolbox:fresh-pr` (Skill tool), surfacing any recorded
-    minor review findings from step 9 to its commit stage. Terminal step.
+    task's commit — this absorbs any minor findings step 9 carried forward
+    (this pass re-scans the same diff and fixes what's still relevant); nothing
+    is deliberately left for step 11. Leave the applied fixes uncommitted —
+    step 11's `fresh-pr` commits pending work as part of its own commit stage.
+    A finding that would reverse a design/plan decision (not a quality nit) →
+    stop and surface it via `AskUserQuestion` instead of letting the fix apply
+    silently.
+11. **PR.** Invoke `coding-toolbox:fresh-pr` (Skill tool). Terminal step.
 
 ## Steps — fix path
 
 4. **Debug.** Read `references/debugging.md`; root cause → failing test → fix →
-   verify, all committed on the work branch.
+   verify, all committed on the work branch. No separate Review step: Phase 4's
+   own verify (new test passes, suite green, symptom gone) covers a single
+   targeted fix; Review's whole-diff `simplify`/`code-review max` pass is scoped
+   to the design path's larger, multi-task diffs.
 5. **PR.** Invoke `coding-toolbox:fresh-pr` (Skill tool). Terminal step.

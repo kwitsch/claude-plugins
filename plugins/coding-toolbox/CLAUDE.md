@@ -103,7 +103,10 @@ four phase guides under `references/`, Read only when their phase starts):
 classify → branch (`fresh-branch`) → design → advisor → **intent confirmation**
 → plan → advisor → implement → **review** (`simplify` then `code-review max
 --fix`) → PR (`fresh-pr`); the fix path swaps design/plan/implement for
-`references/debugging.md`. Adapted from superpowers' brainstorming /
+`references/debugging.md` and skips Review — debugging.md's own verify step
+(new test passes, suite green, symptom gone) already covers a single targeted
+fix, where Review's whole-diff pass is scoped to the design path's larger,
+multi-task diffs. Adapted from superpowers' brainstorming /
 writing-plans / subagent-driven-development / systematic-debugging and
 superpowers-automation's new-work — with the full line-by-line human
 spec-review gate, execution-choice handoffs, and cross-plugin references
@@ -115,9 +118,8 @@ Keypoints section and asks `AskUserQuestion` whether to proceed — the
 pipeline's one deliberate human-facing checkpoint; **Review** (step 10) runs
 `simplify` then `code-review max --fix` (both built-in Claude Code skills, not
 marketplace plugins) over the full branch diff after Implement, applying fixes
-directly before PR. The advisor passes (steps 5 and 8) remain the correctness
-validation, not the intent-confirmation step. Design doc + plan are session
-temp files (scratchpad dir, `mktemp` fallback), never committed. Spec/plan
+directly before PR. Design doc + plan are session temp files (scratchpad dir,
+`mktemp` fallback), never committed. Spec/plan
 review happens via an inline advisor call (graceful self-review no-op when no
 advisor tool exists) — no clean-room fork. `AskUserQuestion` is deliberately
 absent from `SKILL.md`'s `allowed-tools` (it only pre-approves;

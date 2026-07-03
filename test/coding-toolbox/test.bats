@@ -643,11 +643,8 @@ run_ci_watch() {
   assert_output --partial "work_description"
   assert_output --partial "Workflow"
   assert_output --partial "TaskCreate"
-}
-
-@test "fresh-work allowed-tools no longer pre-approves AskUserQuestion" {
-  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/skills/fresh-work/SKILL.md'"
-  assert_success
+  # AskUserQuestion is deliberately no longer pre-approved here (still used in
+  # the skill body — allowed-tools only pre-approves, doesn't restrict).
   refute_output --partial "AskUserQuestion"
 }
 
@@ -674,9 +671,10 @@ run_ci_watch() {
   assert_output --partial "max --fix"
   # Numbered prefixes are globally unique (fix path uses "5. **PR.**", not
   # "11."), unlike the bare "**PR.**" text which also appears in the fix path.
-  run bash -c "grep -n '9\. \*\*Implement\.\*\*\|10\. \*\*Review\.\*\*\|11\. \*\*PR\.\*\*' '$PLUGIN/skills/fresh-work/SKILL.md' | cut -d: -f1"
-  assert_success
-  local -a lines=($output)
+  # Reuse $output from the `cat` above instead of rereading the file.
+  local skill_md="$output"
+  local -a lines
+  lines=($(grep -n '9\. \*\*Implement\.\*\*\|10\. \*\*Review\.\*\*\|11\. \*\*PR\.\*\*' <<< "$skill_md" | cut -d: -f1))
   [ "${#lines[@]}" -eq 3 ]
   [ "${lines[0]}" -lt "${lines[1]}" ]
   [ "${lines[1]}" -lt "${lines[2]}" ]
