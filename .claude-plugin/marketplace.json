@@ -40,21 +40,6 @@
       ]
     },
     {
-      "name": "cctools-edit",
-      "source": "./plugins/cctools-edit",
-      "description": "Installs the cc-tools binary for the host OS and routes Read/Write/Edit/MultiEdit through it so file encodings (Latin-1/Windows-1252/UTF-8) are preserved instead of corrupted.",
-      "author": {
-        "name": "Kwitsch"
-      },
-      "category": "files",
-      "tags": [
-        "files",
-        "hooks",
-        "encoding",
-        "cc-tools"
-      ]
-    },
-    {
       "name": "branch-management",
       "source": "./plugins/branch-management",
       "description": "Branch lifecycle skills. new-branch cuts a fresh branch inline; new-pr runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewers) backed by subagents, applies verified fixes between rounds, opens a PR/MR via gh or glab, and watches CI until green.",
@@ -100,38 +85,6 @@
         "agents",
         "skills",
         "hooks"
-      ]
-    },
-    {
-      "name": "cave-context",
-      "source": "./plugins/cave-context",
-      "description": "Unifies caveman + context-mode into one non-competing MCP server: proxies context-mode ctx_* tools and aggregates both plugins' hooks.",
-      "author": {
-        "name": "Kwitsch"
-      },
-      "category": "productivity",
-      "tags": [
-        "hooks",
-        "skills",
-        "caveman",
-        "context-mode",
-        "mcp"
-      ]
-    },
-    {
-      "name": "init",
-      "source": "./plugins/init",
-      "description": "Repo initialization skill collection — CLAUDE.md, .claude/.gitignore, codebase-memory index, and .lsp.json creation via idempotent per-concern skills and a repo-init orchestrator.",
-      "author": {
-        "name": "Kwitsch"
-      },
-      "category": "development",
-      "tags": [
-        "skills",
-        "init",
-        "setup",
-        "claude-md",
-        "lsp"
       ]
     },
     {
