@@ -41,6 +41,7 @@ declare class Buffer {
   static byteLength(str: string, encoding?: string): number;
   static alloc(size: number): Buffer;
   toString(encoding?: string): string;
+  subarray(start?: number, end?: number): Buffer;
   length: number;
   [index: number]: number;
 }

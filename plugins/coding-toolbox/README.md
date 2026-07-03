@@ -44,5 +44,12 @@ four axes — three sourced from external repos, one (Interaction) plugin-origin
   edits and shell commands, throttled to every 10th matching call.
 - A `Stop` hook mechanically blocks a turn that ends with a plain-text question to the
   user, telling Claude to redo it via `AskUserQuestion` instead.
+- **Encoding guard (PreToolUse):** before `Read`, `Edit`, `Write` and `Bash`
+  operations that read or modify file content, detects the target file's
+  encoding and denies the call when the file is not UTF-8 — naming the
+  detected encoding and a concrete `iconv` alternative. Precision-biased and
+  fail-open: quoted/substituted paths, unknown tools, binary and missing
+  files always pass; encoding-safe tools (`iconv`, `git`, `mv`, …) are never
+  blocked.
 
 No configuration; nothing to set up — enabling the plugin is enough.

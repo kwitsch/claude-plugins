@@ -73,9 +73,13 @@ spawns nests beneath its step as `Step N.1…N.x`.
    | **refactor** | restructure, rename, extract, move, clean up — no behavior change | `refactor/` | design path (steps 4–9 below) |
    | **feature** | new functionality or behavior (default when ambiguous) | `feature/` | design path (steps 4–9 below) |
 
-2. **Branch name.** Lowercase the description, collapse every non-alphanumeric run
-   to a single `-`, trim leading/trailing `-`, cap at ~50 characters, prefix from
-   step 1.
+2. **Branch name.** Summarize the work in 3–6 **English** words (translate a
+   non-English description — never slugify it verbatim), lowercase, collapse
+   every non-alphanumeric run to a single `-`, trim leading/trailing `-`, cap
+   at ~50 characters, prefix from step 1. Examples: feature "Add CSV export
+   to reports" → `feature/add-csv-export-to-reports`; feature "coding-toolbox
+   erweiterung: ein Hook der … encoding prüft …" →
+   `feature/encoding-guard-hook`.
 
 3. **Branch.** Invoke `coding-toolbox:fresh-branch` (Skill tool) with the branch
    name. `name_exists` → `AskUserQuestion` (switch to the existing branch / pick a
