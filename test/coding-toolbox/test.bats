@@ -561,9 +561,9 @@ run_ci_watch() {
   assert_success
 }
 
-@test "plugin.json version bumped for fresh-work intent gate" {
+@test "plugin.json version bumped for fresh-work Workflow-args fix" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.9.0"
+  assert_output "0.9.1"
 }
 
 @test "plugin.json description mentions fresh-work" {
@@ -620,6 +620,17 @@ run_ci_watch() {
   assert_output --partial "Agent engine"
   assert_output --partial "Subagent reconciliation gate"
   assert_output --partial "'critical'"
+}
+
+@test "fresh-work implementing reference inlines Workflow script values instead of using args" {
+  run cat "$PLUGIN/skills/fresh-work/references/implementing.md"
+  assert_success
+  assert_output --partial 'pass no `args` at all'
+  # The prose note quotes the observed error ('args.tasks') deliberately; refute
+  # only the buggy CODE forms (template interpolation / loop), not that mention.
+  refute_output --partial '${args.planPath}'
+  refute_output --partial 'for (const t of args.tasks)'
+  refute_output --partial '${args.constraints}'
 }
 
 @test "fresh-work references/debugging.md exists and is non-empty" {

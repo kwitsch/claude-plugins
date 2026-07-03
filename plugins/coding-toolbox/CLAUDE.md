@@ -135,7 +135,12 @@ re-check this list if a new call site is added. Implementation is
 "workflow-driven development": a deterministic per-task implement→review→fix
 loop, canonically as a Workflow-tool script (sequential `agent()` calls,
 structured reviewer verdicts), falling back to gate-tracked sequential Agent
-dispatches when Workflow is unavailable.
+dispatches when Workflow is unavailable. The Workflow-engine script inlines
+`planPath`/`constraints`/`tasks` as JS literals rather than passing them via
+the Workflow tool's `args` parameter (`references/implementing.md`,
+2026-07-03) — `args` was observed twice to arrive `undefined` inside the
+script even when supplied correctly, on both a fresh call and a
+`resumeFromRunId` retry.
 
 ## Tests
 
