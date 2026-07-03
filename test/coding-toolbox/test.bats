@@ -667,3 +667,89 @@ run_ci_watch() {
   run grep -F '| `fresh-work`' "$PLUGIN/README.md"
   assert_success
 }
+
+# ---------------------------------------------------------------------------
+# encoding-guard hook — pure-Node PreToolUse deny gate for non-UTF-8 files.
+# Fixtures are generated per test with printf byte escapes (hermetic).
+# ---------------------------------------------------------------------------
+
+# encoding_guard <tool_name> <file_path> — drive the hook with a file-tool
+# input; prints the hook's stdout.
+encoding_guard() {
+  jq -cn --arg t "$1" --arg f "$2" \
+    '{tool_name:$t, tool_input:{file_path:$f}, cwd:"/"}' \
+    | "$HOOKS/encoding-guard.mjs" 2>/dev/null
+}
+
+make_fixtures() {
+  FIX="$BATS_TEST_TMPDIR/fix"
+  mkdir -p "$FIX"
+  printf 'T\344glich gr\374\337t der B\344r\n'            > "$FIX/legacy.txt"
+  printf 'T\303\244glich gr\303\274\303\237t\n'           > "$FIX/utf8.txt"
+  printf 'plain ascii\n'                                  > "$FIX/ascii.txt"
+  printf '\357\273\277bom utf8\n'                         > "$FIX/utf8bom.txt"
+  printf '\377\376h\000i\000\n\000'                       > "$FIX/utf16le.txt"
+  printf 'h\000e\000l\000l\000o\000\n\000'                > "$FIX/utf16-nobom.txt"
+  printf '\211PNG\r\n\032\n\000\000\000\015IHDR'          > "$FIX/binary.png"
+  : > "$FIX/empty.txt"
+}
+
+@test "encoding-guard is executable" {
+  [ -x "$HOOKS/encoding-guard.mjs" ]
+}
+
+@test "encoding-guard allows UTF-8, ASCII, UTF-8-BOM, binary, empty and missing files" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  make_fixtures
+  for f in utf8.txt ascii.txt utf8bom.txt binary.png empty.txt missing.txt; do
+    run encoding_guard Read "$FIX/$f"
+    assert_success
+    [ -z "$output" ] || { echo "unexpected output for $f: $output"; false; }
+  done
+}
+
+@test "encoding-guard denies Read of a legacy single-byte file with an iconv hint" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  make_fixtures
+  run encoding_guard Read "$FIX/legacy.txt"
+  assert_success
+  assert_output --partial '"permissionDecision":"deny"'
+  assert_output --partial 'ISO-8859-1/Windows-1252'
+  assert_output --partial 'iconv -f WINDOWS-1252 -t UTF-8'
+}
+
+@test "encoding-guard denies Edit and Write of a legacy file, allows Write to a new path" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  make_fixtures
+  run encoding_guard Edit "$FIX/legacy.txt"
+  assert_success
+  assert_output --partial '"permissionDecision":"deny"'
+  run encoding_guard Write "$FIX/legacy.txt"
+  assert_success
+  assert_output --partial '"permissionDecision":"deny"'
+  run encoding_guard Write "$FIX/brand-new-file.txt"
+  assert_success
+  [ -z "$output" ]
+}
+
+@test "encoding-guard names UTF-16 with and without BOM" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  make_fixtures
+  run encoding_guard Read "$FIX/utf16le.txt"
+  assert_success
+  assert_output --partial 'UTF-16LE'
+  run encoding_guard Read "$FIX/utf16-nobom.txt"
+  assert_success
+  assert_output --partial 'UTF-16LE (no BOM)'
+}
+
+@test "encoding-guard fails open on garbage stdin and unknown tools" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  make_fixtures
+  run bash -c "printf 'not json at all' | '$HOOKS/encoding-guard.mjs' 2>/dev/null"
+  assert_success
+  [ -z "$output" ]
+  run encoding_guard Glob "$FIX/legacy.txt"
+  assert_success
+  [ -z "$output" ]
+}
