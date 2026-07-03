@@ -1,7 +1,7 @@
 # Claude Code MCP — Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (MCP overview, MCP quickstart, Managed MCP), verified 2026-06-20.
+> (MCP overview, MCP quickstart, Managed MCP), verified 2026-07-03.
 > Apply when configuring, authoring, or troubleshooting MCP servers in Claude Code.
 
 ## What MCP is / when to use
@@ -145,8 +145,10 @@ When the same server appears in more than one source, Claude Code uses the highe
 - Helper must write a JSON object of string key/value pairs to stdout.
 - Runs in a shell with a 10-second timeout; no output caching — runs fresh on each connection (session start and reconnect). Script owns any token reuse.
 - Dynamic headers override static `headers` with the same name.
-- Claude Code sets `CLAUDE_CODE_MCP_SERVER_NAME` and `CLAUDE_CODE_MCP_SERVER_URL` in the helper's environment for multi-server scripts.
+- Claude Code sets `CLAUDE_CODE_MCP_SERVER_NAME` and `CLAUDE_CODE_MCP_SERVER_URL` in the helper's environment for multi-server scripts; plugin-provided servers also get `CLAUDE_PLUGIN_ROOT`.
 - Executes arbitrary shell. At project/local scope it runs only after you accept the workspace trust dialog.
+- A tool call returning 401/403 auto-reruns the helper, reconnects with fresh headers, and retries once; the server is flagged needing authentication in `/mcp` only if that retry also fails. version >= 2.1.193
+- For a plugin-provided server, the helper's working directory is the plugin root, so a relative `headersHelper` path resolves inside the plugin dir (not the session cwd). version >= 2.1.195
 
 ### Environment variable expansion in `.mcp.json`
 
@@ -184,6 +186,8 @@ Steps:
 4. Use "Clear authentication" in `/mcp` menu to revoke.
 
 - If the browser redirect fails after authenticating, paste the full callback URL into the URL prompt Claude Code shows.
+- `claude mcp login <name>` (see Management commands) also runs this flow from the shell. Rejected token refresh and server-needs-auth notices: see Version notes.
+- Non-interactive (`claude -p` / Agent SDK) with tool search on: an unauthorized server's tools are reported to Claude as unavailable-until-authorized rather than silently missing; authorize via `/mcp` or `claude mcp login <name>` from an interactive session first. version >= 2.1.196
 
 ### Discovery chain
 
@@ -264,6 +268,8 @@ claude mcp list          # List all configured servers (shows ⏸ Pending / ✗ 
 claude mcp get <name>    # Show details for one server
 claude mcp remove <name> # Remove a server
 claude mcp reset-project-choices  # Clear project-scope approval decisions
+claude mcp login <name>  # Run a configured server's OAuth flow from the shell. version >= 2.1.186
+claude mcp logout <name> # Clear stored OAuth credentials for a server
 ```
 
 ### `/mcp` slash command
@@ -293,6 +299,9 @@ claude mcp reset-project-choices  # Clear project-scope approval decisions
 
 - Project-scoped servers from `.mcp.json` require one-time user approval before loading.
 - Approved/rejected state stored per project; reset with `claude mcp reset-project-choices`.
+- `claude mcp list`/`claude mcp get` read `.mcp.json` approvals only from settings NOT checked into the repo until the workspace-trust dialog is accepted. A freshly cloned repo can't self-approve: a committed `enableAllProjectMcpServers` or `enabledMcpjsonServers` in project `.claude/settings.json` is ignored in an untrusted folder — the server stays `⏸ Pending approval`. version >= 2.1.196
+- Approvals still apply in an untrusted folder from: user `~/.claude/settings.json`, managed settings, `--settings`-passed files, and `.claude/settings.local.json` (only if git doesn't track it).
+- A `disabledMcpjsonServers` entry in any settings file always rejects the server, trusted or not.
 
 ### Permission rules
 
@@ -316,6 +325,7 @@ mcp__github__*
 
 - Mid-session: HTTP/SSE servers that drop reconnect with exponential backoff — up to 5 attempts, 1s initial delay, doubling. Marked failed after; retry from `/mcp`. Stdio not auto-reconnected.
 - Startup: HTTP/SSE initial connection retried up to 3× on transient errors (5xx, refused, timeout). Auth/not-found errors are NOT retried. version >= 2.1.121
+- Post-connection capability discovery also retries transient errors; a stalled remote tool call aborts on an idle timer — see `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` in Timeouts (env) and Version notes.
 
 ## Tool search
 
@@ -349,6 +359,7 @@ mcp__github__*
 |---|---|
 | `MCP_TIMEOUT` | Server startup timeout in ms (default 30s) |
 | `MCP_TOOL_TIMEOUT` | Default per-tool-call timeout; per-server `timeout` field overrides it. Default ~28h when unset |
+| `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` | Idle window (ms) before aborting a remote (HTTP/SSE/WS/connector) tool call with no response/progress; default 5 min, `0` disables. Not applied to stdio. version >= 2.1.187 |
 
 - Per-server `timeout` is a hard wall-clock limit per call; progress notifications do not extend it. Values < 1000 are ignored → fall through to `MCP_TOOL_TIMEOUT`. version >= 2.1.162: sub-1000 ignored (previously floored to 1s). HTTP/SSE first-byte budget has a 60s minimum.
 
@@ -398,8 +409,9 @@ Deploy this file to give the system exclusive control over which servers load. U
 | Windows | `C:\Program Files\ClaudeCode\managed-mcp.json` |
 
 - `claude mcp add` fails with `Cannot add MCP server: enterprise MCP configuration is active and has exclusive control over MCP servers`.
+- `claude mcp add` on a denylisted server fails with `Cannot add MCP server "<name>": server is explicitly blocked by enterprise policy`; on a server outside the allowlist: `Cannot add MCP server "<name>": not allowed by enterprise policy`.
 - `claude mcp list` shows only servers from this file.
-- Deploy empty `{ "mcpServers": {} }` to disable MCP entirely (users see none; previously-configured servers stop loading silently).
+- Deploy empty `{ "mcpServers": {} }` to disable MCP entirely; a server a new policy blocks (including this case) silently disappears from `/mcp`/`claude mcp list` — no warning shown.
 - Do not store credentials in `env` blocks — readable by any user; use `${VAR}` expansion, OAuth, or `headersHelper` instead.
 - Plugin-servers-only pattern (no managed-mcp.json): `strictPluginOnlyCustomization` with `mcp` in its list — servers may come only from plugins; users cannot add their own.
 
@@ -479,3 +491,9 @@ Set in managed settings (e.g., `managed-settings.json`):
 | 2.1.161 | Unused claude.ai connectors collapse behind `Show unused connectors` row |
 | 2.1.162 | Per-server `timeout` < 1000 now ignored (was floored to 1s); Anthropic-hosted connectors (M365/Gmail/Calendar) direct local-OAuth to claude.ai Settings → Connectors |
 | 2.1.182 | `serverName` in `deniedMcpServers` accepts any non-empty string |
+| 2.1.186 | `claude mcp login <name>` / `claude mcp logout <name>` CLI OAuth commands |
+| 2.1.187 | Remote MCP tool calls idle >5min abort via `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` |
+| 2.1.191 | Post-connection capability discovery (`tools/list`/`prompts/list`/`resources/list`) retries transient errors up to 3×; `claude mcp login` auto-detects no local browser and supports `--no-browser` |
+| 2.1.193 | `headersHelper` auto-retries once on 401/403 with fresh headers; startup notice when a configured server needs authentication |
+| 2.1.195 | `headersHelper` cwd = plugin root for plugin-provided servers; rejected token refresh shows a `/mcp` Re-authenticate notice |
+| 2.1.196 | Non-interactive (`claude -p`/Agent SDK) runs report an unauthorized server's tools as unavailable-until-authorized; `claude mcp list`/`get` restrict `.mcp.json` approval reads to untrusted-folder-safe settings sources |

@@ -2,7 +2,7 @@
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
 > (Plugins, Plugins reference, Plugin marketplaces, Plugin dependencies, Plugin hints),
-> verified 2026-06-20.
+> verified 2026-07-03.
 > Apply when creating, reviewing, or distributing a Claude Code plugin.
 > Hook events/schema, agent frontmatter, MCP server config, and settings keys are owned by
 > sibling refs (claude-code-hooks-reference.md, -agents-, -mcp-, -settings-); kept pointer-level here.
@@ -217,6 +217,7 @@ Reserved marketplace names (Anthropic official; cannot be used by third parties)
 | `$schema` | string | JSON Schema URL for editor validation; ignored at load time |
 | `metadata.pluginRoot` | string | Base dir prepended to relative plugin source paths (e.g. `"./plugins"` lets you write `"source": "formatter"` for `"./plugins/formatter"`) |
 | `allowCrossMarketplaceDependenciesOn` | array | Other marketplace names plugins in this marketplace may depend on (root marketplace's allowlist only is consulted) |
+| `renames` | object | version >= 2.1.193. Map a former plugin `name` → its current name, or `null` if removed; lets existing users auto-migrate instead of hitting `plugin-not-found`. Append-only (never edit a prior entry, add a new one); chains are followed; `claude plugin validate .` rejects cycles or chains that don't terminate at `null`/a listed name. Rename notice rewrites `enabledPlugins`/`pluginConfigs` keys once; renamed remote-source (`github`/`npm`) plugins need one `/plugin install` to fetch under the new name (`plugin-cache-miss` until then). Managed/policy-scoped entries can't self-rewrite — notice recurs until an admin updates them. |
 
 `description` and `version` are also accepted under `metadata` for backward compatibility.
 
@@ -231,6 +232,7 @@ An entry may carry ANY field from the [plugin.json schema](#standard-metadata-fi
 | `category` | string | No | Single category string |
 | `tags` | array | No | Short keyword strings |
 | `strict` | boolean | No | Default `true`. `true` = `plugin.json` is authority, marketplace entry SUPPLEMENTS (both merged). `false` = marketplace entry is the WHOLE definition; if `plugin.json` also declares components → conflict, plugin fails to load (lets a marketplace operator restructure raw files). |
+| `relevance` | object | No | version >= 2.1.152. Signals telling Claude Code when to suggest this plugin to users; effective only for marketplaces an admin allowlists in managed settings. |
 
 Do NOT add `version` to marketplace entries when `plugin.json` already carries it — `plugin.json` wins silently and a stale value can mask the marketplace value. (Repo convention: keep version in `plugin.json` only.)
 
@@ -255,6 +257,9 @@ claude plugin validate .        # validates marketplace.json: schema, dup names,
 claude plugin validate ./plugins/my-plugin   # validates a plugin: plugin.json + skill/agent/command/hook files
 ```
 
+- For each entry whose `source` is a local path, `validate .` also validates that plugin's own `plugin.json` and warns on a `version` mismatch; problems are prefixed `plugins[N] plugin.json →`.
+- version >= 2.1.196: the per-entry pass additionally covers entries whose `source` is `.`, runs when `marketplace.json` sits outside a `.claude-plugin/` dir (resolving against that file's own directory), and reports each entry's problems even when another part of the file has schema errors. Earlier versions skip marketplace-root plugins and only descend from `.claude-plugin/marketplace.json`.
+
 ## Plugin dependencies
 
 A plugin can depend on other plugins. Declare in `plugin.json` `dependencies` array:
@@ -278,8 +283,9 @@ A plugin can depend on other plugins. Declare in `plugin.json` `dependencies` ar
 - version >= 2.1.110 required for dependency version constraints.
 - Version ranges use Node `semver` syntax: `^`, `~`, `-` (hyphen), comparator ranges.
 - Pre-release versions excluded unless range opts in with a pre-release suffix (e.g. `^2.0.0-0`).
-- Resolution: against git tags `{plugin-name}--v{version}` (version matches that commit's `plugin.json`). Create with `claude plugin tag --push` (validates contents, checks plugin.json/marketplace-entry version agree, requires clean tree, refuses if tag exists; `--dry-run`, `--force`). Resolved tag's semver is recorded separately from `plugin.json`. For `npm` sources, constraint does NOT control fetched version (tag-resolution is git-only) but is checked at load → `dependency-version-unsatisfied` if violated.
-- Multiple constraints on one dependency: ranges intersected, resolved to highest version satisfying all. Unsatisfiable combos → `range-conflict` (install of the conflicting plugin fails; others stay).
+- Resolution: against git tags `{plugin-name}--v{version}` (version matches that commit's `plugin.json`). Create with `claude plugin tag --push` (validates contents, checks plugin.json/marketplace-entry version agree, requires clean tree, refuses if tag exists; `--dry-run`, `--force`). Resolved tag's semver is recorded separately from `plugin.json`; the tag-resolved cache dir name includes a 12-char commit-SHA suffix, so force-moving a tag to a new commit gets a fresh cache dir instead of reusing stale content. For `npm` sources, constraint does NOT control fetched version (tag-resolution is git-only) but is checked at load → `dependency-version-unsatisfied` if violated. version >= 2.1.196: a marketplace added as a local folder path resolves tags the same way when the folder is a git repo; earlier versions (or a non-git folder) install from the folder's current contents instead.
+- Multiple constraints on one dependency: ranges intersected, resolved to highest version satisfying all. Unsatisfiable combos → `range-conflict` (install of the conflicting plugin fails; others stay). Auto-update fetches a constrained dependency at the highest tag satisfying every installed plugin's range; if none satisfies all, the update is skipped and surfaces in `/doctor` + the `/plugin` Errors tab, naming the constraining plugin. Uninstalling the last plugin that constrains a dependency releases the hold — it resumes tracking its marketplace entry on the next update.
+- Missing dependency recovery: `/reload-plugins` and background auto-update reinstall a missing dependency automatically if its marketplace is already configured; re-running `claude plugin install <dependent>`, or adding the marketplace with `claude plugin marketplace add`, also resolves it. A dependency from a marketplace you have not added stays unresolved.
 - Cross-marketplace: `{ "name": …, "marketplace": "other-mp" }` requires `other-mp` in the **root** marketplace's `allowCrossMarketplaceDependenciesOn` (trust does not chain); else `cross-marketplace` error. User can install the dep manually first to satisfy it.
 - `enable`/`disable` cascade (version >= 2.1.143): enabling enables deps transitively at the same scope (writes explicit `true`, overriding the dep's own `defaultEnabled: false`); disabling fails if another enabled plugin depends on the target (error gives a chained disable command). Earlier versions enable/disable only the named plugin → `dependency-unsatisfied` on next load.
 - Orphan cleanup: auto-installed deps stay after their dependents are uninstalled; `claude plugin prune` (version >= 2.1.121) removes deps no installed plugin requires (`--dry-run`, `-y`, `--scope`), or `claude plugin uninstall <plugin> --prune`. Plugins you installed directly are never pruned.
@@ -392,7 +398,7 @@ Non-interactive plugin management commands.
 | `plugin tag` | `claude plugin tag [--push] [--dry-run] [-f]` | Create `{name}--v{version}` release tag from inside the plugin dir. |
 | `plugin search` | `claude plugin search <query>` | Search available plugins across configured marketplaces. |
 | `plugin validate` | `claude plugin validate <path> [--strict]` | Validate marketplace or plugin JSON; `--strict` = warnings as errors. |
-| `plugin marketplace add` | `claude plugin marketplace add <source> [--scope scope] [--sparse <paths…>]` | `<source>` = `owner/repo[@ref]`, git URL (`#ref`), remote `marketplace.json` URL, or local path. `--sparse` limits checkout (monorepos). |
+| `plugin marketplace add` | `claude plugin marketplace add <source> [--scope scope] [--sparse <paths…>]` | `<source>` = `owner/repo[@ref]`, git URL (`#ref`), remote `marketplace.json` URL, or local path. `--sparse` limits checkout (monorepos). A URL must include its scheme; version >= 2.1.196 rejects a bare host (e.g. `gitlab.example.com/team/plugins`) as invalid `owner/repo` shorthand instead of misreading it as a GitHub path (which failed at clone time on earlier versions). |
 | `plugin marketplace remove` | `claude plugin marketplace remove <name> [--scope scope]` | `<name>` is the marketplace `name`, not the add-source. Without `--scope` removes from all scopes; removing last scope uninstalls its plugins. Alias `rm`. Fails for seed-managed (read-only). |
 | `plugin marketplace update` | `claude plugin marketplace update [name]` | Refresh from sources; seed-managed entries skipped. |
 | `plugin marketplace list` | `claude plugin marketplace list [--json]` | List configured marketplaces. |
@@ -409,7 +415,7 @@ Non-interactive plugin management commands.
 ### Session flags
 
 - `claude --plugin-dir <path>` — load a plugin dir for this session only (no install). Accepts a `.zip` archive (version >= 2.1.128). When same-named as an installed plugin, the local copy wins for the session (except managed force-enable/disable). Repeat the flag for multiple.
-- `claude --plugin-url <url>` — fetch + load a plugin `.zip` from URL for this session only. Repeat the flag, or pass space-separated URLs as one quoted arg.
+- `claude --plugin-url <url>` — fetch + load a plugin `.zip` from URL for this session only. Repeat the flag, or pass space-separated URLs as one quoted arg. A fetch failure or invalid archive surfaces as a plugin load error; the session still starts, without that plugin.
 - `/reload-plugins` reloads plugins, skills, agents, hooks, plugin MCP + LSP servers without restart.
 
 ### Env vars
@@ -433,56 +439,25 @@ Non-interactive plugin management commands.
 
 ## LSP servers
 
-LSP server configurations supply code-intelligence (completions, diagnostics, hover) to Claude Code's editor integration.
+Component that supplies code-intelligence (completions, diagnostics, hover) to Claude Code's editor integration via `.lsp.json` / `lspServers`. Full schema (required/optional fields, scopes, example, official LSP plugins): see `references/claude-code-plugins-lsp-reference.md`.
 
-### Scopes
+## Monitors
 
-| Scope | File location | Notes |
+Background monitors watch logs/files/commands and deliver each stdout line to Claude as a notification; Claude Code starts each automatically when the plugin is active (`experimental.monitors`; version >= 2.1.105 — see [Version notes](#version-notes)). Same mechanism as the Monitor tool and shares its constraints: run only in interactive CLI sessions, unsandboxed at hook-level trust, skipped on hosts where the Monitor tool is unavailable.
+
+### monitors.json schema
+
+Array of entries; declare inline via `experimental.monitors` (array) or load from a non-default path (relative path string).
+
+| Field | Required | Description |
 |---|---|---|
-| Plugin-scoped | `<plugin-root>/.lsp.json` | Auto-discovered; override via `lspServers` in `plugin.json` |
-| Project-scoped | `<project-root>/.lsp.json` | Loaded for all sessions in that project; **not documented in official docs** (observed behavior); same format as plugin-scoped |
+| `name` | Yes | Identifier unique within the plugin; prevents duplicate processes on plugin reload or repeat skill invocation |
+| `command` | Yes | Shell command run as a persistent background process in the session working dir |
+| `description` | Yes | Short summary; shown in the task panel and notification summaries |
+| `when` | No | `"always"` (default) — starts at session start and on plugin reload. `"on-skill-invoke:<skill-name>"` — starts the first time the named skill in this plugin is dispatched |
 
-Project-scoped `.lsp.json` is analogous to project-scoped `.mcp.json` — it requires per-user trust before loading.
-
-### Server entry schema
-
-Top-level keys are arbitrary server identifiers. Each value is a server config object:
-
-| Field | Type | Description |
-|---|---|---|
-| `command` | string | Executable name or path; resolved via `PATH`; `${CLAUDE_PLUGIN_ROOT}` interpolated in plugin context |
-| `args` | array | Argument array; when present triggers exec-form resolution (no shell expansion) |
-| `extensionToLanguage` | object | Maps file extensions (e.g. `".ts"`) to LSP language IDs (e.g. `"typescript"`) |
-| `startupTimeout` | number (ms) | How long to wait for the server to become ready; omit to use default |
-
-`${CLAUDE_PLUGIN_ROOT}` is interpolated in `command` and `args` within plugin context only; project-root `.lsp.json` has no path variable substitution.
-
-### Example (project-root `.lsp.json`)
-
-```json
-{
-  "vtsls": {
-    "command": "npx",
-    "args": ["-y", "@vtsls/language-server@0.3.0", "--stdio"],
-    "extensionToLanguage": {
-      ".js": "javascript",
-      ".mjs": "javascript",
-      ".ts": "typescript",
-      ".tsx": "typescriptreact"
-    },
-    "startupTimeout": 60000
-  },
-  "bashls": {
-    "command": "npx",
-    "args": ["-y", "bash-language-server@5.6.0", "start"],
-    "extensionToLanguage": {
-      ".sh": "shellscript",
-      ".bash": "shellscript"
-    },
-    "startupTimeout": 60000
-  }
-}
-```
+- `command` supports the same substitutions as MCP/LSP configs: `${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_DATA}`, `${CLAUDE_PROJECT_DIR}`, `${user_config.*}`, any `${ENV_VAR}`. Prefix with `cd "${CLAUDE_PLUGIN_ROOT}" && ` for a script that must run from the plugin's own dir.
+- Disabling a plugin mid-session does not stop monitors already running; they stop when the session ends.
 
 ## Version notes
 
@@ -493,8 +468,11 @@ Top-level keys are arbitrary server identifiers. Each value is a server config o
 - version >= 2.1.140: ignored-folder flagged in `/doctor` when both default folder + manifest key exist.
 - version >= 2.1.142: single-`SKILL.md`-at-root plugin auto-loads as one skill.
 - version >= 2.1.143: `displayName` recognized; enable/disable dependency cascade.
+- version >= 2.1.152: marketplace plugin-entry `relevance` field.
 - version >= 2.1.154: `defaultEnabled`.
 - version >= 2.1.172: `CLAUDE_CODE_CHILD_SESSION` + the `<claude-code-hint />` tag.
+- version >= 2.1.193: marketplace `renames` field (former-name → current-name/`null` migration map).
+- version >= 2.1.196: local-folder git marketplaces resolve dependency tags; `plugin marketplace add` rejects schemeless-host sources; marketplace `validate` per-entry pass covers root-`.`-source entries and non-`.claude-plugin`-nested `marketplace.json`.
 - Version lives ONLY in `.claude-plugin/plugin.json` (repo convention). Resolution order: plugin.json → marketplace entry → git SHA → `unknown` (npm/non-git).
 - Omitting `version`: git commit SHA used; updates on every new commit. Setting it: updates only on version change; bump every release.
 - Orphaned plugin version directories cleaned up automatically ~7 days after update/uninstall.

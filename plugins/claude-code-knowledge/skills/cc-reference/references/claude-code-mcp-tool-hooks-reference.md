@@ -1,6 +1,6 @@
 # Claude Code mcp_tool hooks reference
 
-<!-- verified 2026-06-21 · CURATED: doc-derived + hard-won gotchas. The server-name
+<!-- verified 2026-07-03 · CURATED: doc-derived + hard-won gotchas. The server-name
      namespacing rule below is NOT reliably in the official docs — preserve it on any
      refresh; never regenerate this file wholesale. -->
 

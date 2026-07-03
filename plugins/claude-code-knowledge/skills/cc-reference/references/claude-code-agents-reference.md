@@ -1,7 +1,7 @@
 # Claude Code Subagents / Agents — Authoring Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (Claude Code "Create custom subagents"), verified 2026-06-21.
+> (Claude Code "Create custom subagents"; Agent SDK "Subagents in the SDK"), verified 2026-07-03.
 > Apply when authoring, reviewing, or refactoring a subagent definition (`.claude/agents/*.md`).
 
 ## What a subagent is / when to choose it
@@ -19,19 +19,21 @@
 - **Fork** when: a side task needs the full current context (no re-explaining) — see Forks.
 - **`/btw`** for a quick question about existing context (no tools, answer discarded).
 - **Agent teams** (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`) for sustained parallelism / cross-session messaging beyond one context window.
+- **Workflow tool** (TypeScript Agent SDK ≥ v0.3.149) when orchestrating dozens-to-hundreds of agents from a script outside the conversation context, instead of turn-by-turn subagent delegation.
 
 ## Built-in subagents
 
 | Agent | Model | Tools | Purpose |
 |---|---|---|---|
-| Explore | Haiku | read-only (no Write/Edit) | fast file discovery / code search. Specifies thoroughness: quick / medium / very thorough. |
+| Explore | inherit | read-only (no Write/Edit) | fast file discovery / code search. Specifies thoroughness: quick / medium / very thorough. |
 | Plan | inherit | read-only | research during plan mode before presenting a plan |
 | general-purpose | inherit | all | complex multi-step exploration + modification |
 | statusline-setup | Sonnet | — | auto, on `/statusline` |
 | claude-code-guide | Haiku | — | auto, on questions about Claude Code features |
 
+- version >= 2.1.198: Explore inherits the main conversation's model instead of always running on Haiku; on the Claude API the inherited model is capped at Opus (a session on a higher tier runs Explore on Opus; Sonnet/Haiku sessions keep Explore on that same model). On other providers (Amazon Bedrock, Google Cloud's Agent Platform, Microsoft Foundry, Claude Platform on AWS), Explore inherits the main model directly, uncapped. A user/project subagent literally named `Explore` overrides the built-in and keeps its own `model` field — set `model: haiku` there to keep exploration cheap.
 - Explore + Plan **skip CLAUDE.md and git status** (kept small). All other built-in + custom agents load both.
-- Block a built-in: `permissions.deny: ["Agent(Explore)"]`. Block all delegation: deny the `Agent` tool. Headless/SDK: `CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS=1`.
+- Block a built-in: `permissions.deny: ["Agent(Explore)"]`. Block all delegation: deny the `Agent` tool. version >= 2.1.198: `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS=1` removes only the built-in Explore/Plan subagents (Claude reads/explores directly instead). Headless/SDK: `CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS=1`.
 
 ## Scope & precedence
 
@@ -43,11 +45,12 @@
 | `~/.claude/agents/` | all your projects | 4 |
 | plugin `agents/` dir | where plugin enabled | 5 (lowest) |
 
-- Identity comes only from the `name` field, not the path. Scanned recursively → organize in subfolders (`agents/review/`). Keep `name` unique across the tree (silent dedup on clash within a scope).
+- Identity comes only from the `name` field, not the path. Scanned recursively → organize in subfolders (`agents/review/`). Keep `name` unique across the tree (silent dedup on clash within a scope). version >= 2.1.196: `/doctor` reports same-scope duplicate agent names and shows which definition is active.
 - Plugin subfolders DO scope the identifier: `agents/review/security.md` in `my-plugin` → `my-plugin:review:security`.
 - Project agents discovered by walking up from cwd to repo root. version >= 2.1.178: when nested project `.claude/agents/` dirs define the same `name`, the definition closest to cwd wins.
 - `--add-dir` dirs ARE scanned: a `.claude/agents/` inside an added dir loads alongside project agents. To share across projects without `--add-dir`, use `~/.claude/agents/` or a plugin.
-- Edits on disk need a session restart; agents created via `/agents` apply immediately.
+- File watcher auto-loads `~/.claude/agents/` and `.claude/agents/` edits within seconds — no restart needed for edits to an existing file, or new files in an already-watched dir. Restart still required when: it's the first agent file in a brand-new `agents/` dir (watcher only covers dirs that existed at session start), or the session started with `--disable-slash-commands` (doesn't watch these dirs at all).
+- version >= 2.1.198: `/agents` no longer opens an interactive wizard — it prints a reminder to ask Claude or edit `.claude/agents/` directly (frontmatter fields/locations unchanged). version <= 2.1.197: `/agents` opens a wizard with a Running tab (live subagents) and a Library tab (create/edit/delete).
 
 ## Frontmatter reference
 
@@ -66,7 +69,7 @@ Required: `name`, `description`. Body = system prompt (subagent gets ONLY this +
 | `mcpServers` | inline defs or name refs; scope MCP to this agent. Ignored for plugin agents. |
 | `hooks` | lifecycle hooks scoped to this agent. Ignored for plugin agents. |
 | `memory` | `user|project|local` → persistent cross-session memory dir. |
-| `background` | `true` → always run as background task. Default false. |
+| `background` | `true` forces background run; omitted → Claude decides (v2.1.198+: background by default, foreground only when the result is needed immediately; earlier: chosen per-task). No effect when `CLAUDE_CODE_FORK_SUBAGENT=1` (fork mode always backgrounds). |
 | `effort` | `low|medium|high|xhigh|max`; overrides session. Model-dependent. |
 | `isolation` | `worktree` → run in a temp git worktree (isolated repo copy; auto-cleaned if no changes; branches from default branch). |
 | `color` | `red|blue|green|yellow|purple|orange|pink|cyan` for UI. |
@@ -89,6 +92,10 @@ actionable feedback on quality, security, and best practices.
 ## Model resolution order
 
 1. `CLAUDE_CODE_SUBAGENT_MODEL` env var → 2. per-invocation `model` param → 3. definition `model` frontmatter → 4. main conversation model.
+
+- version >= 2.1.196: `CLAUDE_CODE_SUBAGENT_MODEL=inherit` is treated as unset — resolution falls through to the per-invocation param then frontmatter. Earlier versions: `inherit` forced the main conversation's model and skipped both of those sources.
+- Each resolved value (env var, per-invocation param, frontmatter) is checked against org `availableModels`; a value resolving to an excluded model is skipped and the subagent runs on the main conversation's model instead.
+- version >= 2.1.198: subagent inherits the main conversation's extended-thinking setting (on stays on, off stays off) — no per-subagent thinking config. Earlier versions: subagents always ran with extended thinking disabled regardless of the main conversation's setting.
 
 ## Tool & capability control
 
@@ -156,6 +163,7 @@ skills:
 
 - **In frontmatter** (run only while this agent active; cleaned up on finish): all hook events. Common: `PreToolUse`, `PostToolUse`, `Stop` (auto-converted to `SubagentStop` when run as a subagent). Fire both when spawned as subagent and when run as main via `--agent`.
 - **In `settings.json`** (main-session reactions): `SubagentStart` / `SubagentStop`, matched by agent-type name.
+- Matcher value = agent's frontmatter `name` (project/user) or plugin-scoped id (`my-plugin:db-agent`). A scoped name contains `:` so it's evaluated as an unanchored regex — anchor with `^...$` to match only that agent. version >= 2.1.195: a plain hyphenated matcher (e.g. `db-agent`) matches exactly; earlier versions treat it as an unanchored regex too (also fires on `prod-db-agent`) — anchor as `^db-agent$` there.
 
 ## Delegation & explicit invocation
 
@@ -167,8 +175,17 @@ skills:
 ## Foreground vs background
 
 - **Foreground:** blocks main; permission prompts pass through to you.
-- **Background:** concurrent; runs with already-granted permissions and **auto-denies** anything that would prompt; clarifying-question tool calls fail but the agent continues. If it failed on missing perms, re-run in foreground.
+- **Background:** concurrent. version >= 2.1.186: a permission prompt surfaces in the main session naming the asking subagent — approve to let it continue, or Esc to deny just that call without stopping the subagent. Earlier versions: auto-denied anything that would prompt.
+- version >= 2.1.198: subagents run in the background by default; Claude runs foreground only when it needs the result before continuing. Earlier versions: Claude chose fg/bg per task. Either way, background subagents still surface every permission prompt in the main session — the default change is WHERE a subagent runs, not what it may do.
+- Omitting the Agent tool's `run_in_background` param now launches background (v2.1.198+); Claude sets it `false` when it needs the result immediately. Frontmatter `background: true` forces background regardless of what Claude requests.
 - Claude picks fg/bg by task; you can say "run in the background" or press **Ctrl+B**. Disable all bg: `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`.
+
+## API errors in subagents (≥ v2.1.199)
+
+- A subagent run that ends on an API error (rate limit, repeated server error) reports the failure to Claude instead of returning the error text as if it were the subagent's result.
+- **Foreground:** if the subagent already produced output before being cut off, the Agent tool returns that partial output with a note that it didn't finish; otherwise the tool call fails with `Agent terminated early due to an API error` plus detail.
+- **Background:** the subagent is marked failed; the message Claude receives names the API error and includes the subagent's last output.
+- Once the API error clears, ask Claude to retry or resume the subagent.
 
 ## Common patterns
 
@@ -180,13 +197,15 @@ skills:
 
 - A subagent can spawn its own subagents (delegated task splits into parallel subtasks; intermediate output never reaches main).
 - Depth = subagent levels below main, counted regardless of foreground/background. A subagent at **depth 5** gets no Agent tool and cannot spawn further. Limit is fixed, not configurable.
+- version >= 2.1.187: a background subagent's depth is fixed when first spawned; resuming it later (even from a shallower context) does not change that depth or unlock levels the limit already blocked.
 - Prevent spawning: omit `Agent` from `tools` or add to `disallowedTools`. A fork cannot spawn another fork (but can spawn named types, counting toward depth).
 
 ## Forks (≥ v2.1.117; `/fork` default ≥ v2.1.161)
 
 - A fork inherits the ENTIRE conversation (system prompt, tools, model, history) — drops input isolation; its own tool calls stay out of main; only final result returns. First request reuses the parent's prompt cache → cheaper than a fresh subagent for same-context tasks.
 - Use when a named subagent would need too much background, or to try several approaches from the same start.
-- `CLAUDE_CODE_FORK_SUBAGENT=1` enables (works interactive/headless/SDK); `=0` disables everywhere. When on: Claude forks only by requesting the `fork` subagent type explicitly (per-spawn opt-in); untyped spawns still use `general-purpose` and named subagents (e.g. Explore) spawn as before. Every fork spawn runs in background (`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` keeps synchronous).
+- `CLAUDE_CODE_FORK_SUBAGENT=1` enables (works interactive/headless/SDK); `=0` disables everywhere (including any server-side staged rollout). When on: Claude forks only by requesting the `fork` subagent type explicitly (per-spawn opt-in); untyped spawns still use `general-purpose` and named subagents (e.g. Explore) spawn as before. Every subagent spawn — fork or named — runs in background while fork mode is on (`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` keeps synchronous); frontmatter `background` has no effect in this mode since fork mode removes the Agent tool's `run_in_background` param.
+- Claude can pass `isolation: worktree` when spawning a fork so its file edits land in a separate git worktree instead of your checkout.
 - Manual: `/fork <directive>`. Panel keys: ↑/↓ move, Enter open+steer, x dismiss/stop, Esc back to prompt.
 
 | | Fork | Named subagent |
@@ -194,7 +213,7 @@ skills:
 | Context | full history | fresh + passed prompt |
 | Sys prompt/tools | same as main | from definition |
 | Model | same as main | from `model` |
-| Permissions | prompt in terminal | auto-denied if background |
+| Permissions | prompt in terminal | surfaces in main session when backgrounded (v2.1.186+) |
 | Prompt cache | shared with main | separate |
 
 ## What loads at a subagent's startup (non-fork)
@@ -207,7 +226,9 @@ skills:
 
 - Each invocation = new instance with fresh context. To continue, ask Claude to resume → retains full history (tool calls, results, reasoning).
 - Explore/Plan are one-shot (no agent ID, not resumable) — use `general-purpose`/custom to continue.
-- Resume uses `SendMessage` (agent ID as `to`) — only when agent teams enabled (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`). A stopped agent receiving `SendMessage` auto-resumes in background.
+- Resume uses `SendMessage` (agent ID or name as `to`). `SendMessage` does NOT require agent teams to be enabled — only structured team-protocol messages (`shutdown_request`, `plan_approval_response`) do. A stopped agent receiving `SendMessage` auto-resumes in background.
+- version >= 2.1.199: `SendMessage` verifies a name still refers to the agent reached earlier in the conversation; if a newer agent has since taken that name (e.g. a re-spawned background agent), the send is refused — the error names the current holder so Claude can retarget — rather than misdelivering. To reach the earlier agent while it's still running, address it by its spawn-result agent ID. Check is scoped to the conversation and resets on `/clear`.
+- version >= 2.1.198: a subagent treats messages from the agent that launched it as normal task direction, including mid-task course corrections, and acts on them within its own permission settings. No message from any agent — regardless of sender — counts as your approval for a pending permission prompt, or can change a subagent's permission settings, `CLAUDE.md`, or configuration; only the permission system or your own messages grant approval.
 - Transcripts: `~/.claude/projects/{project}/{sessionId}/subagents/agent-{agentId}.jsonl`; survive main compaction; persist within session; cleaned per `cleanupPeriodDays` (default 30). Subagents auto-compact with same logic; `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` applies.
 - Auto-compaction marker in the transcript: a `type: system` event with `subtype: compact_boundary`, `compactMetadata.trigger: "auto"`, and `compactMetadata.preTokens` (token count before compaction).
 
@@ -229,3 +250,6 @@ Or `claude --disallowedTools "Agent(Explore)"`.
 ## Version notes
 
 - v2.1.63 Task→Agent rename (alias kept) · v2.1.117 forks · v2.1.153 MCP restrictions cover subagent frontmatter · v2.1.161 `/fork` default-on · v2.1.172 nested subagents · v2.1.178 nearest-cwd wins for duplicate `name` in nested project dirs.
+- v2.1.186 background subagent permission prompts surface in main session (no more auto-deny) · v2.1.187 background subagent depth fixed at spawn, resume doesn't raise it · v2.1.195 hyphenated `SubagentStart`/`SubagentStop` matcher matches exactly (was unanchored regex) · v2.1.196 `CLAUDE_CODE_SUBAGENT_MODEL=inherit` ≡ unset; `/doctor` reports duplicate agent names.
+- v2.1.198 Explore inherits main model instead of always Haiku (capped Opus on Claude API); subagents run in background by default; subagents inherit main conversation's extended-thinking setting; `/agents` wizard removed (prints reminder instead); `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS=1` added.
+- v2.1.199 API errors reported as subagent failures (not returned as fake results); `SendMessage` refuses delivery to a name reused by a newer agent.
