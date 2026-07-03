@@ -8,7 +8,7 @@ description: >-
   finish by opening a PR/MR via fresh-pr. No dependencies outside coding-toolbox.
 argument-hint: "[work-description]"
 arguments: work_description
-allowed-tools: ["Skill", "Read", "Write", "Edit", "Grep", "Glob", "Bash", "Agent", "Workflow", "AskUserQuestion", "ToolSearch", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TaskStop"]
+allowed-tools: ["Skill", "Read", "Write", "Edit", "Grep", "Glob", "Bash", "Agent", "Workflow", "ToolSearch", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TaskStop"]
 ---
 
 # fresh-work
@@ -41,7 +41,7 @@ The design doc and the plan are **session temp files**, never repository files:
 
 ## Inline advisor protocol
 
-Runs after the design doc (step 5) and after the plan (step 7); also consult the
+Runs after the design doc (step 5) and after the plan (step 8); also consult the
 advisor on genuinely hard design decisions in any phase.
 
 1. Probe once per session for an advisor tool (`ToolSearch`, query `advisor`);
@@ -60,7 +60,7 @@ Track progress with the Task tools, never TodoWrite. Load them once
 (`ToolSearch(query: "select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop")`,
 deferred; resolve at depth 0). Up front create only `Step 1: Classify the work`;
 after step 1 create the remaining steps for the chosen path (feature/refactor:
-steps 2–9; fix: steps 2–5). Keep exactly one task `in_progress`. Work a phase
+steps 2–11; fix: steps 2–5). Keep exactly one task `in_progress`. Work a phase
 spawns nests beneath its step as `Step N.1…N.x`.
 
 ## Steps — both paths
@@ -70,8 +70,8 @@ spawns nests beneath its step as `Step N.1…N.x`.
    | Type | Signals | Branch prefix | Pipeline |
    |---|---|---|---|
    | **fix** | bug, regression, error, crash, failing test, incorrect behavior | `fix/` | debug path (steps 4–5 below) |
-   | **refactor** | restructure, rename, extract, move, clean up — no behavior change | `refactor/` | design path (steps 4–9 below) |
-   | **feature** | new functionality or behavior (default when ambiguous) | `feature/` | design path (steps 4–9 below) |
+   | **refactor** | restructure, rename, extract, move, clean up — no behavior change | `refactor/` | design path (steps 4–11 below) |
+   | **feature** | new functionality or behavior (default when ambiguous) | `feature/` | design path (steps 4–11 below) |
 
 2. **Branch name.** Summarize the work in 3–6 **English** words (translate a
    non-English description — never slugify it verbatim), lowercase, collapse
@@ -79,7 +79,8 @@ spawns nests beneath its step as `Step N.1…N.x`.
    at ~50 characters, prefix from step 1. Examples: feature "Add CSV export
    to reports" → `feature/add-csv-export-to-reports`; feature "coding-toolbox
    erweiterung: ein Hook der … encoding prüft …" →
-   `feature/encoding-guard-hook`.
+   `feature/encoding-guard-hook`. State the derived name to the user (plain
+   output, not a question) before step 3.
 
 3. **Branch.** Invoke `coding-toolbox:fresh-branch` (Skill tool) with the branch
    name. `name_exists` → `AskUserQuestion` (switch to the existing branch / pick a
@@ -91,15 +92,32 @@ spawns nests beneath its step as `Step N.1…N.x`.
 4. **Design.** Read `references/designing.md`; produce the design doc at the spec
    temp path.
 5. **Advisor pass (spec).** Inline advisor protocol on the design doc.
-6. **Plan.** Read `references/planning.md`; produce the plan at the plan temp path
+6. **Intent confirmation.** Present the design doc's Keypoints section verbatim to
+   the user, then ask via `AskUserQuestion`: does this match their intent, proceed
+   to planning? Options: **Yes — proceed** / **No — needs changes** (specific
+   corrections arrive via "Other"). "No" → revise the design doc to address the
+   feedback (repeat step 5's advisor pass first only if the revision changes scope
+   or approach), then re-ask this step. "Yes" → continue to step 7. This is the
+   pipeline's one human-facing checkpoint on the design — the advisor passes
+   (steps 5 and 8) are the correctness validation, not this step.
+7. **Plan.** Read `references/planning.md`; produce the plan at the plan temp path
    from the revised design doc.
-7. **Advisor pass (plan).** Inline advisor protocol on the plan. **Hard gate: this
+8. **Advisor pass (plan).** Inline advisor protocol on the plan. **Hard gate: this
    pass completes before any implementation starts** — no nudge, hook, or plan
    header overrides it.
-8. **Implement.** Read `references/implementing.md`; run the workflow-driven
+9. **Implement.** Read `references/implementing.md`; run the workflow-driven
    implementation over the plan's tasks.
-9. **PR.** Invoke `coding-toolbox:fresh-pr` (Skill tool), surfacing any recorded
-   minor review findings to its commit stage. Terminal step.
+10. **Review.** Invoke `simplify` (Skill tool) over the branch diff to apply
+    reuse/simplification/efficiency/altitude cleanups directly. Then invoke
+    `code-review` (Skill tool, args `max --fix`) over the same diff to find and
+    apply correctness-bug and reuse/simplification/efficiency fixes at max
+    effort. Both act on the full accumulated diff from step 9, not a single
+    task's commit. Leave the applied fixes uncommitted — step 11's `fresh-pr`
+    commits pending work as part of its own commit stage. A finding that would
+    reverse a design/plan decision (not a quality nit) → stop and surface it via
+    `AskUserQuestion` instead of letting the fix apply silently.
+11. **PR.** Invoke `coding-toolbox:fresh-pr` (Skill tool), surfacing any recorded
+    minor review findings from step 9 to its commit stage. Terminal step.
 
 ## Steps — fix path
 

@@ -3,6 +3,11 @@
 Produce the design doc for the described work and save it to the **spec temp path**
 (SKILL.md "Session temp docs"). This phase writes nothing into the repository.
 
+This doc is Claude's own working memory for the plan and implementation phases,
+not prose written for a human to review line by line — write it dense and
+structured. The pipeline's human checkpoint is SKILL.md step 6 (Intent
+confirmation); the advisor pass (step 5) is what validates correctness here.
+
 ## Process
 
 1. **Explore context first.** Relevant files, docs, recent commits, existing
@@ -17,6 +22,9 @@ Produce the design doc for the described work and save it to the **spec temp pat
 4. **Approaches.** Work out 2–3 approaches with trade-offs. Pick one; record why the
    others lost.
 5. **Write the doc**, sections scaled to their complexity:
+   - **Keypoints** (3–6 bullets, one line each): the gist a reader needs before
+     anything else. SKILL.md step 6 presents this section verbatim for intent
+     confirmation — it must stand alone without requiring the rest of the doc.
    - Goal (one paragraph) and Non-goals
    - Approach chosen + alternatives rejected (with reasons)
    - Detailed design: architecture, components, data flow, interfaces

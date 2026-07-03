@@ -100,19 +100,35 @@ open / reopen-then-update if closed / report-and-stop if merged) has no
 
 Self-contained end-to-end pipeline orchestrator (`skills/fresh-work/SKILL.md` +
 four phase guides under `references/`, Read only when their phase starts):
-classify → branch (`fresh-branch`) → design → plan → implement → PR (`fresh-pr`);
-the fix path swaps design/plan/implement for `references/debugging.md`. Adapted
-from superpowers' brainstorming / writing-plans / subagent-driven-development /
-systematic-debugging and superpowers-automation's new-work — with all user-review
-gates, execution-choice handoffs, and cross-plugin references removed (the bats
-self-containment tripwire greps the skill dir for `superpowers|branch-management`;
-lineage is recorded only here). Design doc + plan are session temp files
-(scratchpad dir, `mktemp` fallback), never committed. Spec/plan review happens via
-an inline advisor call (graceful self-review no-op when no advisor tool exists) —
-no clean-room fork. Implementation is "workflow-driven development": a
-deterministic per-task implement→review→fix loop, canonically as a Workflow-tool
-script (sequential `agent()` calls, structured reviewer verdicts), falling back to
-gate-tracked sequential Agent dispatches when Workflow is unavailable.
+classify → branch (`fresh-branch`) → design → advisor → **intent confirmation**
+→ plan → advisor → implement → **review** (`simplify` then `code-review max
+--fix`) → PR (`fresh-pr`); the fix path swaps design/plan/implement for
+`references/debugging.md`. Adapted from superpowers' brainstorming /
+writing-plans / subagent-driven-development / systematic-debugging and
+superpowers-automation's new-work — with the full line-by-line human
+spec-review gate, execution-choice handoffs, and cross-plugin references
+removed (the bats self-containment tripwire greps the skill dir for
+`superpowers|branch-management`; lineage is recorded only here). Two narrower
+steps were reintroduced later (2026-07-03), distinct from what was removed:
+**Intent confirmation** (SKILL.md step 6) shows the design doc's mandatory
+Keypoints section and asks `AskUserQuestion` whether to proceed — the
+pipeline's one deliberate human-facing checkpoint; **Review** (step 10) runs
+`simplify` then `code-review max --fix` (both built-in Claude Code skills, not
+marketplace plugins) over the full branch diff after Implement, applying fixes
+directly before PR. The advisor passes (steps 5 and 8) remain the correctness
+validation, not the intent-confirmation step. Design doc + plan are session
+temp files (scratchpad dir, `mktemp` fallback), never committed. Spec/plan
+review happens via an inline advisor call (graceful self-review no-op when no
+advisor tool exists) — no clean-room fork. `AskUserQuestion` is deliberately
+absent from `SKILL.md`'s `allowed-tools` (it only pre-approves;
+`.claude/rules/skill-md-authoring.md` — it does NOT restrict the tool) — its
+few remaining call sites (missing work description, branch-name collision, a
+design open-point clarification, the intent gate) are meant to stay deliberate,
+not blanket-approved; do not "fix" this by re-adding it. Implementation is
+"workflow-driven development": a deterministic per-task implement→review→fix
+loop, canonically as a Workflow-tool script (sequential `agent()` calls,
+structured reviewer verdicts), falling back to gate-tracked sequential Agent
+dispatches when Workflow is unavailable.
 
 ## Tests
 
@@ -125,6 +141,8 @@ and allows through otherwise. Coverage now also includes: a ported `ci-watch.sh`
 bats suite (hermetic, stubbed `gh`/`glab`), structural assertions for
 `fresh-pr/SKILL.md` and the `ci-watcher`/`pr-fixer` agent frontmatter, and the
 version-bump manifest assertion. Structural assertions for
-`fresh-work` (frontmatter, four phase references, self-containment tripwire,
-temp-doc convention) are included.
+`fresh-work` (frontmatter minus `AskUserQuestion` plus a tripwire pinning that,
+four phase references, the Intent-confirmation step and its Keypoints
+dependency, the Review step's `simplify`/`code-review max --fix` ordering,
+self-containment tripwire, temp-doc convention) are included.
 Run: `BATS_LIB_PATH=/usr/lib/bats bats test/coding-toolbox/`

@@ -3,6 +3,12 @@
 Turn the revised design doc into an implementation plan and save it to the **plan temp path**
 (SKILL.md "Session temp docs"). Nothing is written into the repository.
 
+Like the design doc, this plan is Claude's own execution memory for the
+implementer/reviewer/fixer workers, never a human — keep it dense, exact, and
+complete rather than polished. The human checkpoint already happened at Intent
+confirmation (SKILL.md step 6); this file only needs to satisfy the advisor pass
+(step 8) and the implementers.
+
 Write for an implementer who is skilled but has **zero context** for this codebase
 and questionable taste: exact file paths, complete code in every step, exact
 commands with expected output. Each implementer sees only their own task.
@@ -13,7 +19,7 @@ commands with expected output. Each implementer sees only their own task.
 # [Feature Name] Implementation Plan
 
 > **For agentic workers:** executed task-by-task by fresh-work's workflow-driven
-> implementation phase (SKILL.md step 8). Steps use checkbox (`- [ ]`) syntax.
+> implementation phase (SKILL.md step 9). Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** [one sentence]
 **Architecture:** [2–3 sentences]
@@ -72,6 +78,6 @@ showing how, references to names defined in no task.
 3. **Name/type consistency:** identifiers used in later tasks match their defining
    task exactly.
 
-Fix inline, then return to the orchestrator (SKILL.md step 7, advisor pass). Do not
+Fix inline, then return to the orchestrator (SKILL.md step 8, advisor pass). Do not
 pick an execution mode and do not start implementing — the engine is fixed by
 `references/implementing.md`.

@@ -561,9 +561,9 @@ run_ci_watch() {
   assert_success
 }
 
-@test "plugin.json version bumped for encoding-guard" {
+@test "plugin.json version bumped for fresh-work intent gate" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.8.0"
+  assert_output "0.9.0"
 }
 
 @test "plugin.json description mentions fresh-work" {
@@ -592,6 +592,7 @@ run_ci_watch() {
   assert_output --partial "genuinely changes the design"
   assert_output --partial "AskUserQuestion"
   assert_output --partial "spec temp path"
+  assert_output --partial "Keypoints"
 }
 
 @test "fresh-work references/planning.md exists and is non-empty" {
@@ -640,9 +641,45 @@ run_ci_watch() {
   assert_output --partial "name: fresh-work"
   assert_output --partial "argument-hint"
   assert_output --partial "work_description"
-  assert_output --partial "AskUserQuestion"
   assert_output --partial "Workflow"
   assert_output --partial "TaskCreate"
+}
+
+@test "fresh-work allowed-tools no longer pre-approves AskUserQuestion" {
+  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/skills/fresh-work/SKILL.md'"
+  assert_success
+  refute_output --partial "AskUserQuestion"
+}
+
+@test "fresh-work has an intent-confirmation step between the spec and plan advisor passes" {
+  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  assert_output --partial "**Intent confirmation.**"
+  assert_output --partial "Keypoints"
+}
+
+@test "fresh-work classify table points refactor/feature at the renumbered design path" {
+  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  assert_output --partial "design path (steps 4–11 below)"
+  assert_output --partial "debug path (steps 4–5 below)"
+}
+
+@test "fresh-work runs simplify then code-review max --fix between implement and PR" {
+  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  assert_output --partial "**Review.**"
+  assert_output --partial "simplify"
+  assert_output --partial "code-review"
+  assert_output --partial "max --fix"
+  # Numbered prefixes are globally unique (fix path uses "5. **PR.**", not
+  # "11."), unlike the bare "**PR.**" text which also appears in the fix path.
+  run bash -c "grep -n '9\. \*\*Implement\.\*\*\|10\. \*\*Review\.\*\*\|11\. \*\*PR\.\*\*' '$PLUGIN/skills/fresh-work/SKILL.md' | cut -d: -f1"
+  assert_success
+  local -a lines=($output)
+  [ "${#lines[@]}" -eq 3 ]
+  [ "${lines[0]}" -lt "${lines[1]}" ]
+  [ "${lines[1]}" -lt "${lines[2]}" ]
 }
 
 @test "fresh-work references all four phase files and both sibling skills" {
