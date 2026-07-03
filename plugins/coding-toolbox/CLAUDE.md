@@ -117,11 +117,13 @@ steps were reintroduced later (2026-07-03), distinct from what was removed:
 Keypoints section and asks `AskUserQuestion` whether to proceed — the
 pipeline's one deliberate human-facing checkpoint; **Review** (step 10) runs
 `simplify` then `code-review max --fix` (both built-in Claude Code skills, not
-marketplace plugins) over the full branch diff after Implement, applying fixes
-directly before PR. Design doc + plan are session temp files (scratchpad dir,
-`mktemp` fallback), never committed. Spec/plan
-review happens via an inline advisor call (graceful self-review no-op when no
-advisor tool exists) — no clean-room fork. `AskUserQuestion` is deliberately
+marketplace plugins) over the full branch diff after Implement, each
+committing its own fixes immediately (repo convention: one fix per commit,
+never bundled or left pending for `fresh-pr` to pick up) before PR. Design doc
++ plan are session temp files (scratchpad dir, `mktemp` fallback), never
+committed. Spec/plan review happens via an inline advisor call (graceful
+self-review no-op when no advisor tool exists) — no clean-room fork.
+`AskUserQuestion` is deliberately
 absent from `SKILL.md`'s `allowed-tools` (it only pre-approves;
 `.claude/rules/skill-md-authoring.md` — it does NOT restrict the tool) — its
 few remaining call sites (missing work description, branch-name collision, a

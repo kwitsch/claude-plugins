@@ -108,17 +108,21 @@ spawns nests beneath its step as `Step N.1…N.x`.
 9. **Implement.** Read `references/implementing.md`; run the workflow-driven
    implementation over the plan's tasks.
 10. **Review.** Invoke `simplify` (Skill tool) over the branch diff to apply
-    reuse/simplification/efficiency/altitude cleanups directly. Then invoke
-    `code-review` (Skill tool, args `max --fix`) over the same diff to find and
-    apply correctness-bug and reuse/simplification/efficiency fixes at max
-    effort. Both act on the full accumulated diff from step 9, not a single
-    task's commit — this absorbs any minor findings step 9 carried forward
-    (this pass re-scans the same diff and fixes what's still relevant); nothing
-    is deliberately left for step 11. Leave the applied fixes uncommitted —
-    step 11's `fresh-pr` commits pending work as part of its own commit stage.
-    A finding that would reverse a design/plan decision (not a quality nit) →
-    stop and surface it via `AskUserQuestion` instead of letting the fix apply
-    silently.
+    reuse/simplification/efficiency/altitude cleanups directly, then commit its
+    fixes as one commit (repo conventions) before continuing — never leave them
+    uncommitted for a later step to pick up. Then invoke `code-review` (Skill
+    tool, args `max --fix`) over the resulting diff to find and apply
+    correctness-bug and reuse/simplification/efficiency fixes at max effort,
+    and commit those as a separate commit. Each sub-pass gets its own commit
+    (repo convention: one fix per commit, never bundled) so the two categories
+    of change stay distinguishable in history, and so `code-review`'s own diff
+    gathering sees `simplify`'s fixes as committed history rather than stray
+    working-tree state. Both act on the full accumulated diff from step 9, not
+    a single task's commit — this absorbs any minor findings step 9 carried
+    forward (this pass re-scans the same diff and fixes what's still relevant);
+    nothing is deliberately left for step 11. A finding that would reverse a
+    design/plan decision (not a quality nit) → stop and surface it via
+    `AskUserQuestion` instead of letting the fix apply silently.
 11. **PR.** Invoke `coding-toolbox:fresh-pr` (Skill tool). Terminal step.
 
 ## Steps — fix path
