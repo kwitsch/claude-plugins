@@ -12,7 +12,7 @@
 |---|---|
 | `fresh-branch` | Refresh the current branch onto its default base with no arguments (in any context), or cut a new branch off an optional custom base outside a worktree, or refresh onto an explicit base inside a linked git worktree. Auto-stashes/pops uncommitted changes around the operation. |
 | `fresh-pr` | Commit pending work, rebase onto an updated base, push, and open or refresh a PR/MR (GitHub and GitLab) — then drive it to CI-green (and, if CodeRabbit participates, all review threads resolved) via bundled `ci-watcher`/`pr-fixer` agents. No dependency on `branch-management`. |
-| `fresh-work` | Run one unit of work end-to-end from a one-line description: classify (fix/refactor/feature), branch via `fresh-branch`, design + plan as session temp files with inline advisor review, implement task-by-task via workflow-driven development (Workflow tool, Agent fallback); fix path: systematic debugging instead, finish via `fresh-pr`. Fully self-contained. |
+| `fresh-work` | Run one unit of work end-to-end from a one-line description: classify (fix/refactor/feature), branch via `fresh-branch`, design + plan as session temp files with inline advisor review, an `AskUserQuestion` intent-confirmation checkpoint between them, implement task-by-task via workflow-driven development (Workflow tool, Agent fallback), a `simplify`-then-`code-review max --fix` review pass before PR; fix path: systematic debugging instead, finish via `fresh-pr`. Fully self-contained. |
 
 ## Agents
 

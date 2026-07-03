@@ -653,6 +653,17 @@ run_ci_watch() {
   assert_success
   assert_output --partial "**Intent confirmation.**"
   assert_output --partial "Keypoints"
+  # Position check, not just presence: each pattern is grepped separately and
+  # anchored to the line start so line numbers reflect each step's own match,
+  # not grep's inherent ascending-line-number output order.
+  local skill_md="$output"
+  local advisor_spec_line intent_line plan_line
+  advisor_spec_line=$(grep -n '^5\. \*\*Advisor pass (spec)\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  intent_line=$(grep -n '^6\. \*\*Intent confirmation\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  plan_line=$(grep -n '^7\. \*\*Plan\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  [ -n "$advisor_spec_line" ] && [ -n "$intent_line" ] && [ -n "$plan_line" ]
+  [ "$advisor_spec_line" -lt "$intent_line" ]
+  [ "$intent_line" -lt "$plan_line" ]
 }
 
 @test "fresh-work classify table points refactor/feature at the renumbered design path" {
@@ -671,13 +682,32 @@ run_ci_watch() {
   assert_output --partial "max --fix"
   # Numbered prefixes are globally unique (fix path uses "5. **PR.**", not
   # "11."), unlike the bare "**PR.**" text which also appears in the fix path.
-  # Reuse $output from the `cat` above instead of rereading the file.
+  # Reuse $output from the `cat` above instead of rereading the file. Grep each
+  # pattern separately and anchor to line start: `grep -n` always emits matches
+  # in ascending line-number order regardless of alternation order, so a single
+  # combined grep can never actually detect a reordering (a false pass); and an
+  # unanchored "9. **Implement.**" would also match inside "19. **Implement.**".
   local skill_md="$output"
-  local -a lines
-  lines=($(grep -n '9\. \*\*Implement\.\*\*\|10\. \*\*Review\.\*\*\|11\. \*\*PR\.\*\*' <<< "$skill_md" | cut -d: -f1))
-  [ "${#lines[@]}" -eq 3 ]
-  [ "${lines[0]}" -lt "${lines[1]}" ]
-  [ "${lines[1]}" -lt "${lines[2]}" ]
+  local implement_line review_line pr_line
+  implement_line=$(grep -n '^9\. \*\*Implement\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  review_line=$(grep -n '^10\. \*\*Review\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  pr_line=$(grep -n '^11\. \*\*PR\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  [ -n "$implement_line" ] && [ -n "$review_line" ] && [ -n "$pr_line" ]
+  [ "$implement_line" -lt "$review_line" ]
+  [ "$review_line" -lt "$pr_line" ]
+}
+
+@test "fresh-work step 2 states the derived branch name to the user before branching" {
+  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  assert_output --partial "State the derived name to the user (plain"
+  assert_output --partial "output, not a question) before step 3."
+}
+
+@test "fresh-work Review step commits each sub-pass separately, never bundled" {
+  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  assert_output --partial "one fix per commit, never bundled"
 }
 
 @test "fresh-work references all four phase files and both sibling skills" {

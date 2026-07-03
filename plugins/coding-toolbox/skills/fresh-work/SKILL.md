@@ -95,11 +95,14 @@ spawns nests beneath its step as `Step N.1…N.x`.
 6. **Intent confirmation.** Present the design doc's Keypoints section verbatim to
    the user, then ask via `AskUserQuestion`: does this match their intent, proceed
    to planning? Options: **Yes — proceed** / **No — needs changes** (specific
-   corrections arrive via "Other"). "No" → revise the design doc to address the
-   feedback (repeat step 5's advisor pass first only if the revision changes scope
-   or approach), then re-ask this step. "Yes" → continue to step 7. This is the
-   pipeline's one human-facing checkpoint on the design — the advisor passes
-   (steps 5 and 8) are the correctness validation, not this step.
+   corrections arrive via "Other"). "No" picked without "Other" detail → ask one
+   clarifying `AskUserQuestion` round for what should change before touching the
+   design doc; never guess at a revision. Once feedback is in hand → revise the
+   design doc to address it (repeat step 5's advisor pass first only if the
+   revision changes scope or approach), then re-ask this step. "Yes" → continue
+   to step 7. This is the pipeline's one human-facing checkpoint on the design —
+   the advisor passes (steps 5 and 8) are the correctness validation, not this
+   step.
 7. **Plan.** Read `references/planning.md`; produce the plan at the plan temp path
    from the revised design doc.
 8. **Advisor pass (plan).** Inline advisor protocol on the plan. **Hard gate: this
@@ -108,22 +111,26 @@ spawns nests beneath its step as `Step N.1…N.x`.
 9. **Implement.** Read `references/implementing.md`; run the workflow-driven
    implementation over the plan's tasks.
 10. **Review.** Invoke `simplify` (Skill tool) over the branch diff to apply
-    reuse/simplification/efficiency/altitude cleanups directly, then commit its
-    fixes as one commit (repo conventions) before continuing — never leave them
-    uncommitted for a later step to pick up. Then invoke `code-review` (Skill
-    tool, args `max --fix`) over the resulting diff to find and apply
-    correctness-bug and reuse/simplification/efficiency fixes at max effort,
-    and commit those as a separate commit. Each sub-pass gets its own commit
-    (repo convention: one fix per commit, never bundled) so the two categories
-    of change stay distinguishable in history, and so `code-review`'s own diff
-    gathering sees `simplify`'s fixes as committed history rather than stray
-    working-tree state. Both act on the full accumulated diff from step 9, not
-    a single task's commit — this absorbs any minor findings step 9 carried
-    forward (this pass re-scans the same diff and fixes what's still relevant);
-    nothing is deliberately left for step 11. A finding that would reverse a
+    reuse/simplification/efficiency/altitude cleanups directly, then — only if
+    it changed anything (check `git status --porcelain`; nothing staged means
+    nothing to commit) — commit those fixes as one commit (repo conventions).
+    Then invoke `code-review` (Skill tool, args `max --fix`) over the resulting
+    diff to find and apply correctness-bug and reuse/simplification/efficiency
+    fixes at max effort, and — same guard — commit those as a separate commit
+    if it changed anything. Each sub-pass that produces changes gets its own
+    commit (repo convention: one fix per commit, never bundled) so the two
+    categories of change stay distinguishable in history, and so
+    `code-review`'s own diff gathering sees `simplify`'s fixes as committed
+    history rather than stray working-tree state. Both act on the full
+    accumulated diff from step 9, not a single task's commit. This step does
+    not consume step 9's minor-findings list — it runs its own independent
+    scan and has no input mechanism for that plan-specific ledger content;
+    carry the list forward unchanged to step 11. A finding that would reverse a
     design/plan decision (not a quality nit) → stop and surface it via
     `AskUserQuestion` instead of letting the fix apply silently.
-11. **PR.** Invoke `coding-toolbox:fresh-pr` (Skill tool). Terminal step.
+11. **PR.** Invoke `coding-toolbox:fresh-pr` (Skill tool), surfacing any
+    recorded minor review findings carried from step 9 to its commit stage.
+    Terminal step.
 
 ## Steps — fix path
 

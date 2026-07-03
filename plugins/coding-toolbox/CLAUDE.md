@@ -126,9 +126,12 @@ self-review no-op when no advisor tool exists) — no clean-room fork.
 `AskUserQuestion` is deliberately
 absent from `SKILL.md`'s `allowed-tools` (it only pre-approves;
 `.claude/rules/skill-md-authoring.md` — it does NOT restrict the tool) — its
-few remaining call sites (missing work description, branch-name collision, a
-design open-point clarification, the intent gate) are meant to stay deliberate,
-not blanket-approved; do not "fix" this by re-adding it. Implementation is
+remaining call sites (missing work description, branch-name collision, a design
+open-point clarification, the intent gate, the Review step's design-reversal
+escalation, the advisor protocol's own decision-conflict escalation at steps
+5/8, and the fix path's 3-or-more-attempts escalation) are meant to stay
+deliberate, not blanket-approved; do not "fix" this by re-adding it, and
+re-check this list if a new call site is added. Implementation is
 "workflow-driven development": a deterministic per-task implement→review→fix
 loop, canonically as a Workflow-tool script (sequential `agent()` calls,
 structured reviewer verdicts), falling back to gate-tracked sequential Agent
@@ -145,8 +148,8 @@ and allows through otherwise. Coverage now also includes: a ported `ci-watch.sh`
 bats suite (hermetic, stubbed `gh`/`glab`), structural assertions for
 `fresh-pr/SKILL.md` and the `ci-watcher`/`pr-fixer` agent frontmatter, and the
 version-bump manifest assertion. Structural assertions for
-`fresh-work` (frontmatter minus `AskUserQuestion` plus a tripwire pinning that,
-four phase references, the Intent-confirmation step and its Keypoints
+`fresh-work` (frontmatter minus `AskUserQuestion` plus a tripwire pinning that
+absence, four phase references, the Intent-confirmation step and its Keypoints
 dependency, the Review step's `simplify`/`code-review max --fix` ordering,
 self-containment tripwire, temp-doc convention) are included.
 Run: `BATS_LIB_PATH=/usr/lib/bats bats test/coding-toolbox/`

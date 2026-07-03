@@ -158,6 +158,7 @@ dispatch at a time; judge completion by the returned content, never by elapsed t
 
 ## Exit
 
-All tasks `done` → return to the orchestrator (SKILL.md step 10, Review) carrying
-the minor-findings list. Any task failed → report it and stop; do not open a PR
-on a half-implemented plan.
+All tasks `done` → return to the orchestrator (SKILL.md step 10, Review), which
+does not consume the minor-findings list — carry it forward unchanged to step 11
+(PR) for presentation. Any task failed → report it and stop; do not open a PR on
+a half-implemented plan.
