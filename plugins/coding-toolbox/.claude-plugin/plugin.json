@@ -1,7 +1,7 @@
 {
   "name": "coding-toolbox",
-  "version": "0.6.0",
-  "description": "Injects golden behavior rules (Interaction/Language/Behavior/Mentality) at session start, reminds before consequential tool calls, mechanically enforces the Interaction axis on Stop, and provides fresh-branch and fresh-pr skills for self-contained git branch and PR/MR lifecycle management.",
+  "version": "0.7.0",
+  "description": "Injects golden behavior rules (Interaction/Language/Behavior/Mentality) at session start, reminds before consequential tool calls, mechanically enforces the Interaction axis on Stop, and provides fresh-branch, fresh-pr and fresh-work skills for self-contained git branch, PR/MR and end-to-end work pipeline management.",
   "author": {
     "name": "Kwitsch"
   }

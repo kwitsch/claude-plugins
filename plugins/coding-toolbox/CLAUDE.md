@@ -81,6 +81,24 @@ silently fail on this repo's Projects-classic board — or `glab mr update` if
 open / reopen-then-update if closed / report-and-stop if merged) has no
 `branch-management:new-pr` equivalent.
 
+## Skill design (`fresh-work`)
+
+Self-contained end-to-end pipeline orchestrator (`skills/fresh-work/SKILL.md` +
+four phase guides under `references/`, Read only when their phase starts):
+classify → branch (`fresh-branch`) → design → plan → implement → PR (`fresh-pr`);
+the fix path swaps design/plan/implement for `references/debugging.md`. Adapted
+from superpowers' brainstorming / writing-plans / subagent-driven-development /
+systematic-debugging and superpowers-automation's new-work — with all user-review
+gates, execution-choice handoffs, and cross-plugin references removed (the bats
+self-containment tripwire greps the skill dir for `superpowers|branch-management`;
+lineage is recorded only here). Design doc + plan are session temp files
+(scratchpad dir, `mktemp` fallback), never committed. Spec/plan review happens via
+an inline advisor call (graceful self-review no-op when no advisor tool exists) —
+no clean-room fork. Implementation is "workflow-driven development": a
+deterministic per-task implement→review→fix loop, canonically as a Workflow-tool
+script (sequential `agent()` calls, structured reviewer verdicts), falling back to
+gate-tracked sequential Agent dispatches when Workflow is unavailable.
+
 ## Tests
 
 `test/coding-toolbox/test.bats` — manifest/registration invariants, content coverage,
@@ -91,5 +109,7 @@ returns the reminder), and one proving the Stop gate blocks on a bare trailing `
 and allows through otherwise. Coverage now also includes: a ported `ci-watch.sh`
 bats suite (hermetic, stubbed `gh`/`glab`), structural assertions for
 `fresh-pr/SKILL.md` and the `ci-watcher`/`pr-fixer` agent frontmatter, and the
-version-bump manifest assertion.
+version-bump manifest assertion. Structural assertions for
+`fresh-work` (frontmatter, four phase references, self-containment tripwire,
+temp-doc convention) are included.
 Run: `BATS_LIB_PATH=/usr/lib/bats bats test/coding-toolbox/`

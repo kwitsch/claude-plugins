@@ -561,12 +561,109 @@ run_ci_watch() {
   assert_success
 }
 
-@test "plugin.json version bumped for fresh-pr" {
+@test "plugin.json version bumped for fresh-work" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.6.0"
+  assert_output "0.7.0"
+}
+
+@test "plugin.json description mentions fresh-work" {
+  run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
+  assert_output --partial "fresh-work"
 }
 
 @test "plugin README lists fresh-pr in the Skills section" {
   run grep -F '| `fresh-pr`' "$PLUGIN/README.md"
+  assert_success
+}
+
+@test "fresh-work skill dir is self-contained (no cross-plugin references)" {
+  run bash -c "grep -riE 'superpowers|branch-management' '$PLUGIN/skills/fresh-work/'"
+  assert_failure 1
+}
+
+@test "fresh-work references/designing.md exists and is non-empty" {
+  run test -s "$PLUGIN/skills/fresh-work/references/designing.md"
+  assert_success
+}
+
+@test "fresh-work designing reference gates user questions and keeps output out of the repo" {
+  run cat "$PLUGIN/skills/fresh-work/references/designing.md"
+  assert_success
+  assert_output --partial "genuinely changes the design"
+  assert_output --partial "AskUserQuestion"
+  assert_output --partial "spec temp path"
+}
+
+@test "fresh-work references/planning.md exists and is non-empty" {
+  run test -s "$PLUGIN/skills/fresh-work/references/planning.md"
+  assert_success
+}
+
+@test "fresh-work planning reference keeps global constraints and drops the execution-choice handoff" {
+  run cat "$PLUGIN/skills/fresh-work/references/planning.md"
+  assert_success
+  assert_output --partial "Global Constraints"
+  assert_output --partial "plan temp path"
+  refute_output --partial "Which approach"
+}
+
+@test "fresh-work references/implementing.md exists and is non-empty" {
+  run test -s "$PLUGIN/skills/fresh-work/references/implementing.md"
+  assert_success
+}
+
+@test "fresh-work implementing reference probes Workflow, falls back to Agent, and gates dispatches" {
+  run cat "$PLUGIN/skills/fresh-work/references/implementing.md"
+  assert_success
+  assert_output --partial "select:Workflow"
+  assert_output --partial "Agent engine"
+  assert_output --partial "Subagent reconciliation gate"
+  assert_output --partial "'critical'"
+}
+
+@test "fresh-work references/debugging.md exists and is non-empty" {
+  run test -s "$PLUGIN/skills/fresh-work/references/debugging.md"
+  assert_success
+}
+
+@test "fresh-work debugging reference demands root cause and a failing test before any fix" {
+  run cat "$PLUGIN/skills/fresh-work/references/debugging.md"
+  assert_success
+  assert_output --partial "root cause"
+  assert_output --partial "failing test"
+  assert_output --partial "AskUserQuestion"
+}
+
+@test "fresh-work SKILL.md exists with required frontmatter" {
+  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/skills/fresh-work/SKILL.md'"
+  assert_success
+  assert_output --partial "name: fresh-work"
+  assert_output --partial "argument-hint"
+  assert_output --partial "work_description"
+  assert_output --partial "AskUserQuestion"
+  assert_output --partial "Workflow"
+  assert_output --partial "TaskCreate"
+}
+
+@test "fresh-work references all four phase files and both sibling skills" {
+  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  assert_output --partial "references/designing.md"
+  assert_output --partial "references/planning.md"
+  assert_output --partial "references/implementing.md"
+  assert_output --partial "references/debugging.md"
+  assert_output --partial "coding-toolbox:fresh-branch"
+  assert_output --partial "coding-toolbox:fresh-pr"
+}
+
+@test "fresh-work keeps design docs out of the repository" {
+  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  assert_output --partial "mktemp"
+  assert_output --partial "Never commit them"
+}
+
+@test "plugin README lists fresh-work in the Skills section" {
+  run grep -F '| `fresh-work`' "$PLUGIN/README.md"
   assert_success
 }
