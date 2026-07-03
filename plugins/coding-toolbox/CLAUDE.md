@@ -15,7 +15,7 @@ mechanical gate for the Interaction axis. No userConfig.
   needed). No matcher → fires on startup, resume, and compact. Do NOT replace this with a
   `.mjs` handler on the premise that "args is dropped" — it is not (cc-reference,
   `claude-code-hooks-reference.md` "Exec vs shell form": *use exec form whenever
-  referencing a path placeholder*; the shipped cave-context plugin uses this exact hook).
+  referencing a path placeholder*).
   (`.claude/rules/hooks-mcp-server.md`, `.claude/rules/hooks-mcp-tool-event-matrix.md`)
 - **PreToolUse → `mcp_tool` hook: `server: "plugin:coding-toolbox:coding-toolbox-hooks"`,
   `tool: "golden_rules_reminder"`** (server registered in `.mcp.json` as

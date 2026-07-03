@@ -561,9 +561,9 @@ run_ci_watch() {
   assert_success
 }
 
-@test "plugin.json version bumped for fresh-work intent/review pipeline (this unreleased branch)" {
+@test "plugin.json version bumped for context-mode routing repoint (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.9.0"
+  assert_output "0.9.1"
 }
 
 @test "plugin.json description mentions fresh-work" {
