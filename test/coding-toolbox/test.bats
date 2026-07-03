@@ -561,9 +561,9 @@ run_ci_watch() {
   assert_success
 }
 
-@test "plugin.json version bumped for fresh-work" {
+@test "plugin.json version bumped for encoding-guard" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.7.0"
+  assert_output "0.8.0"
 }
 
 @test "plugin.json description mentions fresh-work" {
@@ -778,4 +778,23 @@ make_fixtures() {
     echo "$failures"
     false
   fi
+}
+
+@test "encoding-guard PreToolUse hook wired as a direct .mjs command hook" {
+  run jq -e '.hooks.PreToolUse[1]
+    | .matcher == "Read|Edit|Write|Bash"
+      and (.hooks[0].type == "command")
+      and (.hooks[0].command == "${CLAUDE_PLUGIN_ROOT}/hooks/encoding-guard.mjs")
+      and (.hooks[0] | has("args") | not)' "$HOOKS/hooks.json"
+  assert_success
+}
+
+@test "golden-rules PreToolUse entry is untouched by the encoding-guard wiring" {
+  run jq -e '.hooks.PreToolUse | length == 2 and (.[0].hooks[0].tool == "golden_rules_reminder")' "$HOOKS/hooks.json"
+  assert_success
+}
+
+@test "plugin.json description mentions the encoding guard" {
+  run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
+  assert_output --partial "non-UTF-8"
 }

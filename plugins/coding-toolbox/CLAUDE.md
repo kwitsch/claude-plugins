@@ -47,6 +47,21 @@ mechanical gate for the Interaction axis. No userConfig.
   input and 8-consecutive-block cap already bound the worst case. Stateless — do not
   add a counter here, unlike the PreToolUse tool.
 
+The second `PreToolUse` entry (`hooks/encoding-guard.mjs`, matcher
+`Read|Edit|Write|Bash`) is a hard deny gate and therefore a **command hook**,
+not an `mcp_tool` — the event matrix forbids `mcp_tool` for hard gates (a
+down server silently fails open). Zero-dep executable Node script invoked
+directly (shebang + git mode `100755`). Detection is pure Node over a 64 KiB
+head sample: BOM sniff → strict UTF-8 validation (ASCII never mislabeled) →
+NUL-parity UTF-16 heuristic → legacy single-byte fallback; binary, empty and
+missing files are safe. Bash commands get a precision-biased literal-token
+analysis (heredoc-body strip, quote/substitution blanking, per-segment
+content-tool deny-set plus output-redirect targets) — same
+false-negatives-OK/false-positives-never contract as cctools-edit's guard,
+but self-contained (no cc-tools dependency; `cc-tools` invocations pass). Deny
+is PreToolUse JSON (`permissionDecision: "deny"`) naming the encoding + an
+iconv hint; every internal error exits 0 silently (fail open).
+
 ## Skill design (`fresh-branch`)
 
 Single inline synchronous bash script (no MCP server, no subagent — same idiom
