@@ -602,7 +602,7 @@ run_ci_watch() {
   assert_output --partial "complexity heuristic"
   assert_output --partial "Workflow tool"
   assert_output --partial "not a scheduled step"
-  assert_output --partial "self-review, below, always runs"
+  assert_output --partial "self-review (below) always validates"
 }
 
 @test "fresh-work references/planning.md exists and is non-empty" {
@@ -625,8 +625,7 @@ run_ci_watch() {
   assert_output --partial "complexity heuristic"
   assert_output --partial "Workflow tool"
   assert_output --partial "not a scheduled step"
-  assert_output --partial "self-review, below, always"
-  assert_output --partial "runs before implementation starts"
+  assert_output --partial "self-review (below) always validates"
 }
 
 @test "fresh-work references/implementing.md exists and is non-empty" {
@@ -652,6 +651,11 @@ run_ci_watch() {
   refute_output --partial '${args.planPath}'
   refute_output --partial 'for (const t of args.tasks)'
   refute_output --partial '${args.constraints}'
+}
+
+@test "fresh-work references/reviewing.md exists and is non-empty" {
+  run test -s "$PLUGIN/skills/fresh-work/references/reviewing.md"
+  assert_success
 }
 
 @test "fresh-work references/debugging.md exists and is non-empty" {
@@ -686,8 +690,12 @@ run_ci_watch() {
   assert_output --partial "**Intent confirmation.**"
   assert_output --partial "Keypoints"
   # Position check, not just presence: each pattern is grepped separately and
-  # anchored to the line start so line numbers reflect each step's own match,
-  # not grep's inherent ascending-line-number output order.
+  # anchored to the line start so line numbers reflect each step's own match —
+  # `grep -n` on a single combined pattern always emits matches in ascending
+  # line-number order regardless of alternation order, so it can never detect
+  # a reordering (a false pass), and an unanchored "N. **X.**" would also match
+  # inside a two-digit renumbering (e.g. "9." matching inside "19."). Same
+  # rationale applies to the Implement/Review/PR check further below.
   local skill_md="$output"
   local design_line intent_line plan_line
   design_line=$(grep -n '^4\. \*\*Design\.\*\*' <<< "$skill_md" | cut -d: -f1)
@@ -714,21 +722,13 @@ run_ci_watch() {
   assert_output --partial "debug path (steps 4–5 below)"
 }
 
-@test "fresh-work runs simplify then code-review between implement and PR, effort scaled to complexity" {
+@test "fresh-work Review step sits between Implement and PR, reading reviewing.md" {
   run cat "$PLUGIN/skills/fresh-work/SKILL.md"
   assert_success
   assert_output --partial "**Review.**"
-  assert_output --partial "simplify"
-  assert_output --partial "code-review"
-  assert_output --partial '`high`'
-  assert_output --partial '`max`'
-  # Numbered prefixes are globally unique (fix path uses "5. **PR.**", not
-  # "9."), unlike the bare "**PR.**" text which also appears in the fix path.
-  # Reuse $output from the `cat` above instead of rereading the file. Grep each
-  # pattern separately and anchor to line start: `grep -n` always emits matches
-  # in ascending line-number order regardless of alternation order, so a single
-  # combined grep can never actually detect a reordering (a false pass); and an
-  # unanchored "7. **Implement.**" would also match inside "17. **Implement.**".
+  assert_output --partial "references/reviewing.md"
+  # See the Design/Intent/Plan ordering test above for why each pattern is
+  # grepped separately and anchored, instead of one combined pattern.
   local skill_md="$output"
   local implement_line review_line pr_line
   implement_line=$(grep -n '^7\. \*\*Implement\.\*\*' <<< "$skill_md" | cut -d: -f1)
@@ -739,6 +739,15 @@ run_ci_watch() {
   [ "$review_line" -lt "$pr_line" ]
 }
 
+@test "fresh-work reviewing reference runs simplify then code-review, effort scaled to complexity" {
+  run cat "$PLUGIN/skills/fresh-work/references/reviewing.md"
+  assert_success
+  assert_output --partial "simplify"
+  assert_output --partial "code-review"
+  assert_output --partial '`high`'
+  assert_output --partial '`max`'
+}
+
 @test "fresh-work step 2 states the derived branch name to the user before branching" {
   run cat "$PLUGIN/skills/fresh-work/SKILL.md"
   assert_success
@@ -747,18 +756,19 @@ run_ci_watch() {
 }
 
 @test "fresh-work Review step commits each sub-pass separately, never bundled" {
-  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+  run cat "$PLUGIN/skills/fresh-work/references/reviewing.md"
   assert_success
-  assert_output --partial "one fix per commit,"
-  assert_output --partial "never bundled"
+  assert_output --partial "one"
+  assert_output --partial "fix per commit, never bundled"
 }
 
-@test "fresh-work references all four phase files and both sibling skills" {
+@test "fresh-work references all five phase files and both sibling skills" {
   run cat "$PLUGIN/skills/fresh-work/SKILL.md"
   assert_success
   assert_output --partial "references/designing.md"
   assert_output --partial "references/planning.md"
   assert_output --partial "references/implementing.md"
+  assert_output --partial "references/reviewing.md"
   assert_output --partial "references/debugging.md"
   assert_output --partial "coding-toolbox:fresh-branch"
   assert_output --partial "coding-toolbox:fresh-pr"

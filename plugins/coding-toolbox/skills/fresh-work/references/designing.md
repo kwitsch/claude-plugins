@@ -21,16 +21,13 @@ can turn out complex once the code is in front of you:
 - **Complex** → use the Workflow tool where it earns its cost: parallel
   readers across the touched subsystems for step 1 (the tool's `Understand`
   pattern), or a judge panel of independently fleshed-out approaches for
-  step 4 (the tool's `Design` pattern). Invoking `fresh-work` already
-  satisfies the Workflow tool's opt-in requirement.
+  step 4 (the tool's `Design` pattern).
 
-**Advisor consultation is likewise your call, not a scheduled step.** Call it
-(protocol: SKILL.md "Inline advisor protocol") when you hit a genuine
-uncertainty you can't resolve from code/context, or the task turns out more
-complex than `$work_description` suggested. A well-scoped, low-ambiguity
-design can validly skip it — self-review, below, always runs regardless. If
-you do consult it, revise the doc from its feedback before returning to the
-orchestrator.
+**Advisor consultation is your call too, not a scheduled step** (SKILL.md
+"Inline advisor protocol") — call it when you hit a genuine uncertainty you
+can't resolve from code/context, or the task turns out more complex than
+`$work_description` suggested; revise the doc from its feedback before
+returning to the orchestrator.
 
 ## Process
 

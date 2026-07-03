@@ -23,15 +23,12 @@ one-line description implied:
 - **Simple** (the default) → draft the plan yourself, inline, no subagents.
 - **Complex** (many independent files/subsystems) → consider the Workflow tool
   for drafting task groups in parallel (one agent per subsystem's tasks, then
-  merge and re-check cross-task interfaces yourself). Invoking `fresh-work`
-  already satisfies the Workflow tool's opt-in requirement.
+  merge and re-check cross-task interfaces yourself).
 
-**Advisor consultation is likewise your call, not a scheduled step.** Call it
-(protocol: SKILL.md "Inline advisor protocol") when you hit a genuine
-uncertainty, or the plan reveals the task is more complex than the design doc
-assumed. A well-scoped plan can validly skip it — self-review, below, always
-runs before implementation starts regardless. If you do consult it, revise the
-plan from its feedback before returning to the orchestrator.
+**Advisor consultation is your call too, not a scheduled step** (SKILL.md
+"Inline advisor protocol") — call it when you hit a genuine uncertainty, or
+the plan reveals the task is more complex than the design doc assumed; revise
+the plan from its feedback before returning to the orchestrator.
 
 ## Plan header (mandatory)
 

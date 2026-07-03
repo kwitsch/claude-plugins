@@ -43,7 +43,9 @@ The design doc and the plan are **session temp files**, never repository files:
 
 Design, Plan, and Review each scale themselves against this (their own
 reference files say how) — re-judge after exploring or reading the diff, not
-just from `$work_description`:
+just from `$work_description`. Design and Plan additionally use it to decide
+whether the task earns Workflow-tool orchestration — invoking `fresh-work`
+already satisfies the Workflow tool's opt-in requirement for that use.
 
 - **Simple** (the default) — single file or tightly-scoped change, one clearly
   correct approach, no cross-subsystem impact.
@@ -122,29 +124,13 @@ spawns nests beneath its step as `Step N.1…N.x`.
    correctness validation, not this step.
 6. **Plan.** Read `references/planning.md`; produce the plan at the plan temp path
    from the revised design doc. Scales itself against the complexity heuristic,
-   same as Design; self-review always runs before implementation starts,
-   regardless of whether it consulted the advisor.
+   same as Design. **Self-review is the hard gate before implementation starts —
+   not skippable by any nudge, hook, or document header** — regardless of
+   whether Plan consulted the advisor.
 7. **Implement.** Read `references/implementing.md`; run the workflow-driven
    implementation over the plan's tasks.
-8. **Review.** Judge the accumulated diff against the complexity heuristic, then
-   invoke `simplify` (Skill tool) over it to apply
-   reuse/simplification/efficiency/altitude cleanups directly, then — only if
-   it changed anything (check `git status --porcelain`; nothing staged means
-   nothing to commit) — commit those fixes as one commit (repo conventions).
-   Then invoke `code-review` (Skill tool, args `<effort> --fix` — **`high`** for
-   Simple, **`max`** for Complex) over the resulting diff to find and apply
-   correctness-bug and reuse/simplification/efficiency fixes, and — same guard —
-   commit those as a separate commit if it changed anything. Each sub-pass that
-   produces changes gets its own commit (repo convention: one fix per commit,
-   never bundled) so the two categories of change stay distinguishable in
-   history, and so `code-review`'s own diff gathering sees `simplify`'s fixes as
-   committed history rather than stray working-tree state. Both act on the full
-   accumulated diff from step 7, not a single task's commit. This step does not
-   consume step 7's minor-findings list — it runs its own independent scan and
-   has no input mechanism for that plan-specific ledger content; carry the list
-   forward unchanged to step 9. A finding that would reverse a design/plan
-   decision (not a quality nit) → stop and surface it via `AskUserQuestion`
-   instead of letting the fix apply silently.
+8. **Review.** Read `references/reviewing.md`; judge the accumulated diff's
+   complexity, then run `simplify` and `code-review` over it before PR.
 9. **PR.** Invoke `coding-toolbox:fresh-pr` (Skill tool), surfacing any
    recorded minor review findings carried from step 7 to its commit stage.
    Terminal step.

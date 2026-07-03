@@ -99,11 +99,11 @@ open / reopen-then-update if closed / report-and-stop if merged) has no
 ## Skill design (`fresh-work`)
 
 Self-contained end-to-end pipeline orchestrator (`skills/fresh-work/SKILL.md` +
-four phase guides under `references/`, Read only when their phase starts):
+five phase guides under `references/`, Read only when their phase starts):
 classify → branch (`fresh-branch`) → design → **intent confirmation** → plan →
-implement → **review** (`simplify` then `code-review high/max --fix`, effort
-self-judged) → PR (`fresh-pr`); the fix path swaps design/plan/implement for
-`references/debugging.md` and skips Review — debugging.md's own verify step
+implement → **review** (`simplify`, `code-review`) → PR (`fresh-pr`); the fix
+path swaps design/plan/implement for `references/debugging.md` and skips
+Review — debugging.md's own verify step
 (new test passes, suite green, symptom gone) already covers a single targeted
 fix, where Review's whole-diff pass is scoped to the design path's larger,
 multi-task diffs. Adapted from superpowers' brainstorming /
@@ -115,13 +115,18 @@ removed (the bats self-containment tripwire greps the skill dir for
 steps were reintroduced later (2026-07-03), distinct from what was removed:
 **Intent confirmation** (SKILL.md step 5) shows the design doc's mandatory
 Keypoints section and asks `AskUserQuestion` whether to proceed — the
-pipeline's one deliberate human-facing checkpoint; **Review** (step 8) runs
-`simplify` then `code-review --fix` (both built-in Claude Code skills, not
-marketplace plugins) over the full branch diff after Implement, each
+pipeline's one deliberate human-facing checkpoint; **Review** (step 8,
+`references/reviewing.md`) runs `simplify` then `code-review --fix` (both
+built-in Claude Code skills, not marketplace plugins) over the full branch
+diff after Implement, each
 committing its own fixes immediately (repo convention: one fix per commit,
 never bundled or left pending for `fresh-pr` to pick up) before PR — `high`
 effort for a Simple diff, `max` for Complex, per SKILL.md's complexity
-heuristic. Design doc + plan are session temp files (scratchpad dir, `mktemp`
+heuristic (explicit user choice — `code-review`'s own high/max tiers trade
+confidence for coverage, not diff size, so this scales the wrong axis for a
+Simple diff on paper; accepted because CI and PR review downstream are the
+backstop for an over-eager auto-fix, not a call `reviewing.md` should make
+instead). Design doc + plan are session temp files (scratchpad dir, `mktemp`
 fallback), never committed. Design and Plan (2026-07-03) each self-review
 **always**; consulting the advisor is their own on-demand judgment call (a
 genuine uncertainty, or the task turning out more complex than expected) —
@@ -157,7 +162,7 @@ bats suite (hermetic, stubbed `gh`/`glab`), structural assertions for
 `fresh-pr/SKILL.md` and the `ci-watcher`/`pr-fixer` agent frontmatter, and the
 version-bump manifest assertion. Structural assertions for
 `fresh-work` (frontmatter minus `AskUserQuestion` plus a tripwire pinning that
-absence, four phase references, the Intent-confirmation step and its Keypoints
+absence, five phase references, the Intent-confirmation step and its Keypoints
 dependency, the Review step's `simplify`/`code-review` ordering and
 high/max effort choice, self-containment tripwire, temp-doc convention) are
 included.
