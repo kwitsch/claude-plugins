@@ -99,20 +99,56 @@ open / reopen-then-update if closed / report-and-stop if merged) has no
 ## Skill design (`fresh-work`)
 
 Self-contained end-to-end pipeline orchestrator (`skills/fresh-work/SKILL.md` +
-four phase guides under `references/`, Read only when their phase starts):
-classify → branch (`fresh-branch`) → design → plan → implement → PR (`fresh-pr`);
-the fix path swaps design/plan/implement for `references/debugging.md`. Adapted
-from superpowers' brainstorming / writing-plans / subagent-driven-development /
-systematic-debugging and superpowers-automation's new-work — with all user-review
-gates, execution-choice handoffs, and cross-plugin references removed (the bats
-self-containment tripwire greps the skill dir for `superpowers|branch-management`;
-lineage is recorded only here). Design doc + plan are session temp files
-(scratchpad dir, `mktemp` fallback), never committed. Spec/plan review happens via
-an inline advisor call (graceful self-review no-op when no advisor tool exists) —
-no clean-room fork. Implementation is "workflow-driven development": a
-deterministic per-task implement→review→fix loop, canonically as a Workflow-tool
-script (sequential `agent()` calls, structured reviewer verdicts), falling back to
-gate-tracked sequential Agent dispatches when Workflow is unavailable.
+five phase guides under `references/`, Read only when their phase starts):
+classify → branch (`fresh-branch`) → design → **intent confirmation** → plan →
+implement → **review** (`simplify`, `code-review`) → PR (`fresh-pr`); the fix
+path swaps design/plan/implement for `references/debugging.md` and skips
+Review — debugging.md's own verify step
+(new test passes, suite green, symptom gone) already covers a single targeted
+fix, where Review's whole-diff pass is scoped to the design path's larger,
+multi-task diffs. Adapted from superpowers' brainstorming /
+writing-plans / subagent-driven-development / systematic-debugging and
+superpowers-automation's new-work — with the full line-by-line human
+spec-review gate, execution-choice handoffs, and cross-plugin references
+removed (the bats self-containment tripwire greps the skill dir for
+`superpowers|branch-management`; lineage is recorded only here). Two narrower
+steps were reintroduced later (2026-07-03), distinct from what was removed:
+**Intent confirmation** (SKILL.md step 5) shows the design doc's mandatory
+Keypoints section and asks `AskUserQuestion` whether to proceed — the
+pipeline's one deliberate human-facing checkpoint; **Review** (step 8,
+`references/reviewing.md`) runs `simplify` then `code-review --fix` (both
+built-in Claude Code skills, not marketplace plugins) over the full branch
+diff after Implement, each
+committing its own fixes immediately (repo convention: one fix per commit,
+never bundled or left pending for `fresh-pr` to pick up) before PR — `high`
+effort for a Simple diff, `max` for Complex, per SKILL.md's complexity
+heuristic (explicit user choice — `code-review`'s own high/max tiers trade
+confidence for coverage, not diff size, so this scales the wrong axis for a
+Simple diff on paper; accepted because CI and PR review downstream are the
+backstop for an over-eager auto-fix, not a call `reviewing.md` should make
+instead). Design doc + plan are session temp files (scratchpad dir, `mktemp`
+fallback), never committed. Design and Plan (2026-07-03) each self-review
+**always**; consulting the advisor is their own on-demand judgment call (a
+genuine uncertainty, or the task turning out more complex than expected) —
+no longer a fixed pipeline step, no clean-room fork.
+`AskUserQuestion` is deliberately
+absent from `SKILL.md`'s `allowed-tools` (it only pre-approves;
+`.claude/rules/skill-md-authoring.md` — it does NOT restrict the tool) — its
+remaining call sites (missing work description, branch-name collision, a design
+open-point clarification, the intent gate, the Review step's design-reversal
+escalation, the advisor protocol's own decision-conflict escalation whenever
+Design or Plan consults it, and the fix path's 3-or-more-attempts escalation)
+are meant to stay deliberate, not blanket-approved; do not "fix" this by
+re-adding it, and re-check this list if a new call site is added. Implementation is
+"workflow-driven development": a deterministic per-task implement→review→fix
+loop, canonically as a Workflow-tool script (sequential `agent()` calls,
+structured reviewer verdicts), falling back to gate-tracked sequential Agent
+dispatches when Workflow is unavailable. The Workflow-engine script inlines
+`planPath`/`constraints`/`tasks` as JS literals rather than passing them via
+the Workflow tool's `args` parameter (`references/implementing.md`,
+2026-07-03) — `args` was observed twice to arrive `undefined` inside the
+script even when supplied correctly, on both a fresh call and a
+`resumeFromRunId` retry.
 
 ## Tests
 
@@ -125,6 +161,9 @@ and allows through otherwise. Coverage now also includes: a ported `ci-watch.sh`
 bats suite (hermetic, stubbed `gh`/`glab`), structural assertions for
 `fresh-pr/SKILL.md` and the `ci-watcher`/`pr-fixer` agent frontmatter, and the
 version-bump manifest assertion. Structural assertions for
-`fresh-work` (frontmatter, four phase references, self-containment tripwire,
-temp-doc convention) are included.
+`fresh-work` (frontmatter minus `AskUserQuestion` plus a tripwire pinning that
+absence, five phase references, the Intent-confirmation step and its Keypoints
+dependency, the Review step's `simplify`/`code-review` ordering and
+high/max effort choice, self-containment tripwire, temp-doc convention) are
+included.
 Run: `BATS_LIB_PATH=/usr/lib/bats bats test/coding-toolbox/`

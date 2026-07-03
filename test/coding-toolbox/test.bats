@@ -561,9 +561,9 @@ run_ci_watch() {
   assert_success
 }
 
-@test "plugin.json version bumped for encoding-guard" {
+@test "plugin.json version bumped for fresh-work intent/review pipeline (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.8.0"
+  assert_output "0.9.0"
 }
 
 @test "plugin.json description mentions fresh-work" {
@@ -592,6 +592,17 @@ run_ci_watch() {
   assert_output --partial "genuinely changes the design"
   assert_output --partial "AskUserQuestion"
   assert_output --partial "spec temp path"
+  assert_output --partial "Keypoints"
+}
+
+@test "fresh-work designing reference scales itself to the task instead of a fixed advisor step" {
+  run cat "$PLUGIN/skills/fresh-work/references/designing.md"
+  assert_success
+  assert_output --partial "Scale to the task (your call, not a fixed step)"
+  assert_output --partial "complexity heuristic"
+  assert_output --partial "Workflow tool"
+  assert_output --partial "Advisor consultation is your call too"
+  assert_output --partial "self-review (below) always validates"
 }
 
 @test "fresh-work references/planning.md exists and is non-empty" {
@@ -607,6 +618,16 @@ run_ci_watch() {
   refute_output --partial "Which approach"
 }
 
+@test "fresh-work planning reference scales itself to the task instead of a fixed advisor step" {
+  run cat "$PLUGIN/skills/fresh-work/references/planning.md"
+  assert_success
+  assert_output --partial "Scale to the task (your call, not a fixed step)"
+  assert_output --partial "complexity heuristic"
+  assert_output --partial "Workflow tool"
+  assert_output --partial "Advisor consultation is your call too"
+  assert_output --partial "self-review (below) always validates"
+}
+
 @test "fresh-work references/implementing.md exists and is non-empty" {
   run test -s "$PLUGIN/skills/fresh-work/references/implementing.md"
   assert_success
@@ -619,6 +640,22 @@ run_ci_watch() {
   assert_output --partial "Agent engine"
   assert_output --partial "Subagent reconciliation gate"
   assert_output --partial "'critical'"
+}
+
+@test "fresh-work implementing reference inlines Workflow script values instead of using args" {
+  run cat "$PLUGIN/skills/fresh-work/references/implementing.md"
+  assert_success
+  assert_output --partial 'pass no `args` at all'
+  # The prose note quotes the observed error ('args.tasks') deliberately; refute
+  # only the buggy CODE forms (template interpolation / loop), not that mention.
+  refute_output --partial '${args.planPath}'
+  refute_output --partial 'for (const t of args.tasks)'
+  refute_output --partial '${args.constraints}'
+}
+
+@test "fresh-work references/reviewing.md exists and is non-empty" {
+  run test -s "$PLUGIN/skills/fresh-work/references/reviewing.md"
+  assert_success
 }
 
 @test "fresh-work references/debugging.md exists and is non-empty" {
@@ -640,17 +677,98 @@ run_ci_watch() {
   assert_output --partial "name: fresh-work"
   assert_output --partial "argument-hint"
   assert_output --partial "work_description"
-  assert_output --partial "AskUserQuestion"
   assert_output --partial "Workflow"
   assert_output --partial "TaskCreate"
+  # AskUserQuestion is deliberately no longer pre-approved here (still used in
+  # the skill body — allowed-tools only pre-approves, doesn't restrict).
+  refute_output --partial "AskUserQuestion"
 }
 
-@test "fresh-work references all four phase files and both sibling skills" {
+@test "fresh-work has an intent-confirmation step between Design and Plan" {
+  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  assert_output --partial "**Intent confirmation.**"
+  assert_output --partial "Keypoints"
+  # Position check, not just presence: each pattern is grepped separately and
+  # anchored to the line start so line numbers reflect each step's own match —
+  # `grep -n` on a single combined pattern always emits matches in ascending
+  # line-number order regardless of alternation order, so it can never detect
+  # a reordering (a false pass), and an unanchored "N. **X.**" would also match
+  # inside a two-digit renumbering (e.g. "9." matching inside "19."). Same
+  # rationale applies to the Implement/Review/PR check further below.
+  local skill_md="$output"
+  local design_line intent_line plan_line
+  design_line=$(grep -n '^4\. \*\*Design\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  intent_line=$(grep -n '^5\. \*\*Intent confirmation\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  plan_line=$(grep -n '^6\. \*\*Plan\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  [ -n "$design_line" ] && [ -n "$intent_line" ] && [ -n "$plan_line" ]
+  [ "$design_line" -lt "$intent_line" ]
+  [ "$intent_line" -lt "$plan_line" ]
+}
+
+@test "fresh-work no longer schedules fixed Advisor pass steps" {
+  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  refute_output --partial "**Advisor pass (spec).**"
+  refute_output --partial "**Advisor pass (plan).**"
+  assert_output --partial "## Complexity heuristic"
+  assert_output --partial "not a scheduled pipeline step"
+}
+
+@test "fresh-work classify table points refactor/feature at the renumbered design path" {
+  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  assert_output --partial "design path (steps 4–9 below)"
+  assert_output --partial "debug path (steps 4–5 below)"
+}
+
+@test "fresh-work Review step sits between Implement and PR, reading reviewing.md" {
+  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  assert_output --partial "**Review.**"
+  assert_output --partial "references/reviewing.md"
+  # See the Design/Intent/Plan ordering test above for why each pattern is
+  # grepped separately and anchored, instead of one combined pattern.
+  local skill_md="$output"
+  local implement_line review_line pr_line
+  implement_line=$(grep -n '^7\. \*\*Implement\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  review_line=$(grep -n '^8\. \*\*Review\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  pr_line=$(grep -n '^9\. \*\*PR\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  [ -n "$implement_line" ] && [ -n "$review_line" ] && [ -n "$pr_line" ]
+  [ "$implement_line" -lt "$review_line" ]
+  [ "$review_line" -lt "$pr_line" ]
+}
+
+@test "fresh-work reviewing reference runs simplify then code-review, effort scaled to complexity" {
+  run cat "$PLUGIN/skills/fresh-work/references/reviewing.md"
+  assert_success
+  assert_output --partial "simplify"
+  assert_output --partial "code-review"
+  assert_output --partial '`high`'
+  assert_output --partial '`max`'
+}
+
+@test "fresh-work step 2 states the derived branch name to the user before branching" {
+  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  assert_output --partial "State the derived name to the user (plain"
+  assert_output --partial "output, not a question) before step 3."
+}
+
+@test "fresh-work Review step commits each sub-pass separately, never bundled" {
+  run cat "$PLUGIN/skills/fresh-work/references/reviewing.md"
+  assert_success
+  assert_output --partial "one"
+  assert_output --partial "fix per commit, never bundled"
+}
+
+@test "fresh-work references all five phase files and both sibling skills" {
   run cat "$PLUGIN/skills/fresh-work/SKILL.md"
   assert_success
   assert_output --partial "references/designing.md"
   assert_output --partial "references/planning.md"
   assert_output --partial "references/implementing.md"
+  assert_output --partial "references/reviewing.md"
   assert_output --partial "references/debugging.md"
   assert_output --partial "coding-toolbox:fresh-branch"
   assert_output --partial "coding-toolbox:fresh-pr"

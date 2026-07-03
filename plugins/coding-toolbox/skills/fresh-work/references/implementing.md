@@ -33,8 +33,20 @@ Probe once: `ToolSearch(query: "select:Workflow")`.
 
 ## Workflow engine
 
-Invoke the Workflow tool with `args = {planPath, tasks, constraints}` and this
-script (adapt only the three prompt templates if the plan demands extra context):
+**Do not pass `planPath`/`tasks`/`constraints` via the Workflow tool's `args`
+parameter.** Observed twice in the same session: `args` came back `undefined`
+inside the script (`Error: undefined is not an object (evaluating
+'args.tasks')`, thrown before any `agent()` call ran) — once on a plain
+`{script, args}` call, once again on a `{scriptPath, resumeFromRunId, args}`
+retry with `args` re-supplied — even though both calls passed `args` as an
+actual JSON object per the tool's documented contract. Root cause unconfirmed
+(tool-side), but the failure is silent and total: the loop never starts, and
+nothing distinguishes it from a script bug without reading the error. Instead,
+**inline the three values as JS literals directly in the script text** you
+send (build the string with your own template literal before calling the
+tool) and pass no `args` at all — this is the only invocation shape confirmed
+to work. Adapt the three prompt templates too if the plan demands extra
+context.
 
 ```js
 export const meta = {
@@ -42,7 +54,10 @@ export const meta = {
   description: 'Implement plan tasks sequentially with per-task review',
   phases: [{ title: 'Implement' }],
 }
-// args: { planPath: string, constraints: string, tasks: [{ id: string, title: string }] }
+// Inlined by the caller — NOT sourced from `args` (see note above):
+const planPath = /* absolute plan temp path, as a JS string literal */
+const constraints = /* the plan's Global Constraints section, as a JS string literal */
+const tasks = /* the plan's [{id, title}] task list, as a JS array literal */
 const VERDICT = {
   type: 'object',
   required: ['approved', 'findings'],
@@ -63,8 +78,8 @@ const VERDICT = {
   },
 }
 const implementerPrompt = (t) => `You are the implementer for exactly one plan task.
-Plan file: ${args.planPath} — Read it; execute ONLY task ${t.id} (${t.title}).
-Global constraints (binding): ${args.constraints}
+Plan file: ${planPath} — Read it; execute ONLY task ${t.id} (${t.title}).
+Global constraints (binding): ${constraints}
 Work test-first: write the task's failing test, watch it fail, implement minimally,
 watch it pass, run the task's verification commands. Commit the task as ONE commit
 following the repo's commit conventions (no co-author trailers, no generated-with
@@ -72,20 +87,20 @@ footers). Touch nothing outside the task's scope.
 Return: STATUS: done|blocked, the commit hash, test evidence (commands + output),
 and any deviation from the plan.`
 const reviewerPrompt = (t, implReport) => `You are a read-only reviewer for one plan task.
-Plan file: ${args.planPath} — Read it; review ONLY task ${t.id} (${t.title}).
+Plan file: ${planPath} — Read it; review ONLY task ${t.id} (${t.title}).
 Implementer report: ${implReport}
 Diff the task's commit(s) against their parent. Check spec compliance against the
 task text and these global constraints, then correctness:
-${args.constraints}
+${constraints}
 Do not re-run tests the implementer already ran — their report carries the evidence.
 Return your verdict through the structured output schema.`
 const fixerPrompt = (t, findings) => `You are the fixer for one reviewed plan task.
-Plan file: ${args.planPath}, task ${t.id} (${t.title}).
+Plan file: ${planPath}, task ${t.id} (${t.title}).
 Apply exactly these findings — nothing else — then commit (repo conventions, no
 co-author trailers): ${JSON.stringify(findings)}
 Return: STATUS: done|blocked, commit hash, what changed.`
 const results = []
-for (const t of args.tasks) {
+for (const t of tasks) {
   let impl = await agent(implementerPrompt(t), { label: `task:${t.id}`, phase: 'Implement' })
   if (impl === null) impl = await agent(implementerPrompt(t), { label: `task:${t.id}:retry`, phase: 'Implement' })
   if (impl === null) {
@@ -120,8 +135,10 @@ use — probe it once with `ToolSearch(query: "select:Workflow")` and inspect it
 description): plain JavaScript (no TypeScript syntax); `agent(prompt, {label, phase,
 schema})` returns the worker's text, or the schema-validated object when `schema` is
 passed, or `null` when the worker dies; `Date.now()`, `Math.random()`, and argless
-`new Date()` may not be available inside scripts — pass timestamps and ids in via
-`args` instead.
+`new Date()` may not be available inside scripts — inline any needed timestamp or id
+as a literal in the script text (computed before you build the string), same as
+`planPath`/`constraints`/`tasks` above — not via `args` (see the Workflow engine
+note on why `args` is unreliable here).
 
 After the workflow returns, read the results: any `status: 'failed'` entry → stop
 and surface it; otherwise carry the collected `minor` findings forward to the PR
@@ -158,6 +175,7 @@ dispatch at a time; judge completion by the returned content, never by elapsed t
 
 ## Exit
 
-All tasks `done` → return to the orchestrator (SKILL.md step 9, PR) carrying the
-minor-findings list. Any task failed → report it and stop; do not open a PR on a
-half-implemented plan.
+All tasks `done` → return to the orchestrator (SKILL.md step 8, Review), which
+does not consume the minor-findings list — carry it forward unchanged to step 9
+(PR) for presentation. Any task failed → report it and stop; do not open a PR on
+a half-implemented plan.
