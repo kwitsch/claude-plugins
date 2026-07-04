@@ -660,6 +660,29 @@ run_ci_watch() {
   refute_output --partial '${args.constraints}'
 }
 
+@test "fresh-work implementing reference computes wave-parallel scheduling from Files/Interfaces" {
+  run cat "$PLUGIN/skills/fresh-work/references/implementing.md"
+  assert_success
+  assert_output --partial "Parallelism analysis"
+  assert_output --partial "wave[i]"
+  assert_output --partial "conservative"
+}
+
+@test "fresh-work implementing reference isolates wave-parallel implementers and merges back" {
+  run cat "$PLUGIN/skills/fresh-work/references/implementing.md"
+  assert_success
+  assert_output --partial "isolation: 'worktree'"
+  assert_output --partial "git merge --no-ff"
+  assert_output --partial "hard stop"
+}
+
+@test "fresh-work implementing reference keeps wave size 1 identical to today's flow" {
+  run cat "$PLUGIN/skills/fresh-work/references/implementing.md"
+  assert_success
+  assert_output --partial "wave size 1"
+  assert_output --partial "unchanged"
+}
+
 @test "fresh-work references/reviewing.md exists and is non-empty" {
   run test -s "$PLUGIN/skills/fresh-work/references/reviewing.md"
   assert_success
