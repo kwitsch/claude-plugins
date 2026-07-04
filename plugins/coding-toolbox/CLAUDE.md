@@ -139,16 +139,28 @@ open-point clarification, the intent gate, the Review step's design-reversal
 escalation, the advisor protocol's own decision-conflict escalation whenever
 Design or Plan consults it, and the fix path's 3-or-more-attempts escalation)
 are meant to stay deliberate, not blanket-approved; do not "fix" this by
-re-adding it, and re-check this list if a new call site is added. Implementation is
-"workflow-driven development": a deterministic per-task implement→review→fix
-loop, canonically as a Workflow-tool script (sequential `agent()` calls,
-structured reviewer verdicts), falling back to gate-tracked sequential Agent
-dispatches when Workflow is unavailable. The Workflow-engine script inlines
-`planPath`/`constraints`/`tasks` as JS literals rather than passing them via
-the Workflow tool's `args` parameter (`references/implementing.md`,
-2026-07-03) — `args` was observed twice to arrive `undefined` inside the
-script even when supplied correctly, on both a fresh call and a
-`resumeFromRunId` retry.
+re-adding it, and re-check this list if a new call site is added.
+Implementation is "workflow-driven development": a deterministic per-task
+implement→review→fix loop, grouped into dependency waves computed from each
+task's declared `Files`/`Interfaces` (`references/implementing.md`'s
+Parallelism analysis, 2026-07-05) — a wave of size 1 (the common case) is
+byte-for-byte the original sequential flow; a wave with 2+ independent
+tasks dispatches concurrently (Workflow-tool `parallel()`, or a batched
+multi-block Agent-tool message in the fallback engine), each implementer
+isolated in its own git worktree (same-tree concurrent self-commits would
+silently corrupt commit boundaries through the shared git index — disjoint
+files alone do not make that safe) and self-reporting its branch/worktree
+path via structured output, followed by a `git merge --no-ff` merge-back of
+every approved task before the next wave starts; a merge conflict is a hard
+stop, never auto-resolved, since it can only mean the wave analysis missed
+a real dependency. `SKILL.md`'s Task-list integration section separately
+requires a one-line step-start announcement before each top-level step (and
+each Implement wave) begins, so a long-running pipeline is never silent.
+The Workflow-engine script inlines `planPath`/`constraints`/`tasks` and
+`waves` as JS literals rather than passing them via the Workflow tool's
+`args` parameter (`references/implementing.md`, 2026-07-03) — `args` was
+observed twice to arrive `undefined` inside the script even when supplied
+correctly, on both a fresh call and a `resumeFromRunId` retry.
 
 ## Tests
 
