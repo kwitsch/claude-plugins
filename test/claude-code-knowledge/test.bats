@@ -942,3 +942,33 @@ MDEOF
   run grep -iE 'scratchpad|mktemp' "$PLUGIN/skills/cc-compress/SKILL.md"
   [ "$status" -eq 0 ]
 }
+
+# --- cc-compress doc/manifest sync ---
+
+@test "plugin.json version was bumped for cc-compress (minor, new skill)" {
+  run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
+  [ "$output" != "1.6.1" ]
+}
+
+@test "plugin.json description mentions cc-compress" {
+  run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"cc-compress"* ]]
+}
+
+@test "claude-code-knowledge CLAUDE.md boundary rule lists cc-compress" {
+  run grep -F 'cc-compress' "$PLUGIN/CLAUDE.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "claude-code-knowledge README lists cc-compress in the Skills table" {
+  run grep -F '`cc-compress`' "$PLUGIN/README.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "root README plugin row mentions cc-compress" {
+  run grep -F 'claude-code-knowledge](plugins/claude-code-knowledge/README.md)' "$REPO_ROOT/README.md"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"cc-compress"* ]]
+}

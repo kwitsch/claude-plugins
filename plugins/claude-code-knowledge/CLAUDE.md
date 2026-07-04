@@ -7,6 +7,7 @@ The plugin ships these components:
 - `skills/cc-review/` — the inline review orchestrator (dispatches `cc-reviewer`, gates fixes through AskUserQuestion).
 - `skills/cc-author/` — the inline authoring orchestrator (dispatches `cc-author-planner`, writes the returned files, gates the optional `cc-review` hand-off).
 - `skills/cc-memory/` — the inline project-memory audit-&-improve orchestrator (discovers every CLAUDE.md + `.claude/rules/*.md` file by default, reuses `cc-reviewer` with `component_type: memory`, grades them in a claude-md-improver-style report, surfaces leanness/scope-split recommendations, and gates fixes).
+- `skills/cc-compress/` — compresses a markdown memory/instruction file into caveman-style prose in place to cut future load tokens, backing up the original to session-temp storage for rollback. Adaptation of upstream `caveman-compress` (JuliusBrussee/caveman); the compression call itself runs via a zero-dep `scripts/compress.mjs` shelling out to `claude --print --model sonnet`, never in-context.
 - `agents/claude-code-expert.md` — the read-only Q&A expert (reroute target).
 - `agents/cc-reviewer.md` — the read-only parameterized review worker dispatched by `cc-review`.
 - `agents/cc-author-planner.md` — the read-only authoring planner dispatched by `cc-author`; composes component content strictly from `cc-reference` and returns JSON, never writes.
