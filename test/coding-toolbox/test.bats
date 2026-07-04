@@ -628,6 +628,13 @@ run_ci_watch() {
   assert_output --partial "self-review (below) always validates"
 }
 
+@test "fresh-work planning reference marks Files/Interfaces as load-bearing for scheduling" {
+  run cat "$PLUGIN/skills/fresh-work/references/planning.md"
+  assert_success
+  assert_output --partial "load-bearing"
+  assert_output --partial "conservatively serialized"
+}
+
 @test "fresh-work references/implementing.md exists and is non-empty" {
   run test -s "$PLUGIN/skills/fresh-work/references/implementing.md"
   assert_success
