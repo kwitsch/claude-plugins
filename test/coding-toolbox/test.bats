@@ -683,12 +683,26 @@ run_ci_watch() {
   assert_output --partial "unchanged"
 }
 
+@test "fresh-work implementing reference computes waves as real code, not a hand-derived literal" {
+  run cat "$PLUGIN/skills/fresh-work/references/implementing.md"
+  assert_success
+  assert_output --partial "function computeWaves(tasks)"
+  assert_output --partial "const waves = computeWaves(tasks)"
+}
+
+@test "fresh-work implementing reference runs Agent-engine merge-back via Bash, not a merger dispatch" {
+  run cat "$PLUGIN/skills/fresh-work/references/implementing.md"
+  assert_success
+  assert_output --partial "orchestrator's own Bash"
+  assert_output --partial "rather than dispatching a separate merger"
+}
+
 @test "subagent-tracking fresh-work row reflects wave-parallel dispatch, not pure sequential" {
   RULE="$BATS_TEST_DIRNAME/../../.claude/rules/subagent-tracking.md"
   run grep 'coding-toolbox:fresh-work' "$RULE"
   assert_success
   assert_output --partial "wave-parallel"
-  assert_output --partial "merger dispatch"
+  assert_output --partial "orchestrator's own Bash"
 }
 
 @test "fresh-work references/reviewing.md exists and is non-empty" {

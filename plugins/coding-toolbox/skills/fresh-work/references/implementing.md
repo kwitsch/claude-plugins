@@ -40,6 +40,16 @@ violates it is already broken before this analysis runs. When in doubt
 (unparseable or ambiguous `Files`/`Interfaces`), always take the conservative
 branch — serialize, never guess a task is independent.
 
+This is a mechanical algorithm, not a judgment call, so it is never
+hand-computed and pasted in: the Workflow engine runs it as real code
+(`computeWaves(tasks)` in the script below) over the already-structured
+`tasks`; the Agent-engine fallback (no script execution available) replicates
+the identical steps by hand, since parsing the plan into structured
+`tasks` already requires reading its prose there too. The one genuine
+judgment call — deciding a `Files`/`Interfaces` entry is too incomplete or
+ambiguous to trust — stays where it belongs, at parse time, not inside the
+leveling arithmetic itself.
+
 **Wave of size 1** (the common case for tightly-coupled plans) is exactly
 today's flow: one worker, no isolation, direct commit to the shared branch —
 unchanged from before this analysis existed. **Wave of size ≥2** takes the
@@ -86,17 +96,23 @@ concurrently across the wave, plus two additions:
    would mint a third, unrelated worktree) but instructed to operate at the
    implementer's reported `worktreePath`/`branch` so the fix commit lands on
    the same isolated branch. Re-review as usual.
-4. **Merge-back (once per wave, after every task in it resolves).** One
-   non-isolated agent call per wave, given the ordered `{taskId, branch,
-   worktreePath}` list for every task that reached `approved`, runs in
-   task-id order: `git merge --no-ff <branch>`, then cleans up in the only
-   order git allows — `git worktree remove <worktreePath>` **first**, then
-   `git branch -d <branch>` (git refuses to delete a branch still checked
-   out in a worktree). Disjoint files by construction ⇒ no conflict is
-   expected. **A reported conflict is a hard stop** — it means the
-   parallelism analysis missed a real dependency; surface the task ids,
-   branches, and conflicting paths, and do not proceed to the next wave or
-   attempt to resolve it.
+4. **Merge-back (once per wave, after every task in it resolves).** Given the
+   ordered `{taskId, branch, worktreePath}` list for every task that reached
+   `approved`, runs in task-id order: `git merge --no-ff <branch>`, then
+   cleans up in the only order git allows — `git worktree remove
+   <worktreePath>` **first**, then `git branch -d <branch>` (git refuses to
+   delete a branch still checked out in a worktree). Disjoint files by
+   construction ⇒ no *textual* conflict is expected. **A reported conflict
+   is a hard stop** — it means the parallelism analysis missed a real
+   dependency; surface the task ids, branches, and conflicting paths, and do
+   not proceed to the next wave or attempt to resolve it. Scope note: a clean
+   merge only proves no two tasks edited the same lines — it cannot catch a
+   task whose `Consumes` silently mismatches what its dependency actually
+   `Produces` (a semantic contract error, not a text conflict). SKILL.md step
+   8's Review (`simplify` + `code-review --fix` over the full post-merge
+   branch diff) is the actual backstop for that case; this merge-back step
+   alone does not guarantee the wave analysis was semantically correct, only
+   that it was textually non-overlapping.
 5. **Partial-wave failure.** A task that fails (implementer `null` twice, or
    still failing after one fixer round) does not discard its wave siblings:
    still merge every other task in the wave that reached `approved`, then
@@ -126,7 +142,9 @@ nothing distinguishes it from a script bug without reading the error. Instead,
 **inline the values as JS literals directly in the script text** you send
 (build the string with your own template literal before calling the tool) and
 pass no `args` at all — this is the only invocation shape confirmed to work.
-Adapt the prompt templates too if the plan demands extra context.
+Adapt the prompt templates too if the plan demands extra context. `waves` is
+**not** part of this inlining — it is computed inside the script by
+`computeWaves(tasks)`, a plain function, not a value the caller hand-derives.
 
 The script has no filesystem or Node.js API access (per the Workflow tool's
 documented constraints), so the merge-back step also runs as an `agent()`
@@ -142,7 +160,42 @@ export const meta = {
 const planPath = /* absolute plan temp path, as a JS string literal */
 const constraints = /* the plan's Global Constraints section, as a JS string literal */
 const tasks = /* the plan's [{id, title, files, consumes, produces}] list, as a JS array literal */
-const waves = /* array of arrays of task ids, computed by the Parallelism analysis above, as a JS array literal — e.g. [[1], [2, 3], [4]] */
+
+function computeWaves(tasks) {
+  const waveOf = {}
+  const filesOf = {}
+  const producesOf = {}
+  const waves = []
+  for (const t of tasks) {
+    filesOf[t.id] = new Set(t.files || [])
+    producesOf[t.id] = new Set(t.produces || [])
+  }
+  for (const t of tasks) {
+    const consumes = new Set(t.consumes || [])
+    let ambiguous = !t.files || !t.files.length || t.consumes == null || t.produces == null
+    const deps = new Set()
+    for (const other of tasks) {
+      if (other.id >= t.id) continue // backward-only invariant: only strictly earlier tasks
+      let edge = false
+      for (const f of filesOf[other.id]) if (filesOf[t.id].has(f)) edge = true
+      for (const c of consumes) if (producesOf[other.id].has(c)) edge = true
+      if (edge) deps.add(other.id)
+    }
+    for (const c of consumes) {
+      const matched = tasks.some((other) => other.id < t.id && producesOf[other.id].has(c))
+      if (!matched) ambiguous = true // Consumes names nothing any earlier task Produces
+    }
+    if (ambiguous) for (const other of tasks) if (other.id < t.id) deps.add(other.id)
+    let w = 1
+    for (const d of deps) w = Math.max(w, waveOf[d] + 1)
+    waveOf[t.id] = w
+    waves[w - 1] = waves[w - 1] || []
+    waves[w - 1].push(t.id)
+  }
+  return waves
+}
+const waves = computeWaves(tasks)
+
 const VERDICT = {
   type: 'object',
   required: ['approved', 'findings'],
@@ -192,23 +245,19 @@ const MERGE_RESULT = {
     },
   },
 }
-const implementerPrompt = (t) => `You are the implementer for exactly one plan task.
-Plan file: ${planPath} — Read it; execute ONLY task ${t.id} (${t.title}).
+const implementerBody = (t) => `Plan file: ${planPath} — Read it; execute ONLY task ${t.id} (${t.title}).
 Global constraints (binding): ${constraints}
 Work test-first: write the task's failing test, watch it fail, implement minimally,
 watch it pass, run the task's verification commands. Commit the task as ONE commit
 following the repo's commit conventions (no co-author trailers, no generated-with
-footers). Touch nothing outside the task's scope.
+footers). Touch nothing outside the task's scope.`
+const implementerPrompt = (t) => `You are the implementer for exactly one plan task.
+${implementerBody(t)}
 Return: STATUS: done|blocked, the commit hash, test evidence (commands + output),
 and any deviation from the plan.`
 const isolatedImplementerPrompt = (t) => `You are the implementer for exactly one plan task,
 running in your own isolated git worktree.
-Plan file: ${planPath} — Read it; execute ONLY task ${t.id} (${t.title}).
-Global constraints (binding): ${constraints}
-Work test-first: write the task's failing test, watch it fail, implement minimally,
-watch it pass, run the task's verification commands. Commit the task as ONE commit
-following the repo's commit conventions (no co-author trailers, no generated-with
-footers). Touch nothing outside the task's scope.
+${implementerBody(t)}
 Before returning, run \`git branch --show-current\` and \`git rev-parse --show-toplevel\`
 and report their exact output. Return your result through the structured output schema.`
 const reviewerPrompt = (t, implReport) => `You are a read-only reviewer for one plan task.
@@ -222,18 +271,12 @@ correctness:
 ${constraints}
 Do not re-run tests the implementer already ran — their report carries the evidence.
 Return your verdict through the structured output schema.`
-const fixerPrompt = (t, findings) => `You are the fixer for one reviewed plan task.
+const fixerPrompt = (t, findings, worktreeNote = '') => `You are the fixer for one reviewed plan task.${worktreeNote}
 Plan file: ${planPath}, task ${t.id} (${t.title}).
 Apply exactly these findings — nothing else — then commit (repo conventions, no
 co-author trailers): ${JSON.stringify(findings)}
 Return: STATUS: done|blocked, commit hash, what changed.`
-const isolatedFixerPrompt = (t, findings, worktreePath, branch) => `You are the fixer for one
-reviewed plan task, on branch ${branch} at ${worktreePath} (an isolated worktree —
-run your commands there, do not create a new one).
-Plan file: ${planPath}, task ${t.id} (${t.title}).
-Apply exactly these findings — nothing else — then commit (repo conventions, no
-co-author trailers): ${JSON.stringify(findings)}
-Return: STATUS: done|blocked, commit hash, what changed.`
+const isolatedFixerNote = (worktreePath, branch) => ` You are on branch ${branch} at ${worktreePath} — an isolated worktree; run your commands there, do not create a new one.`
 const mergerPrompt = (approved) => `Merge these approved task branches into the current
 branch, in this exact order, one at a time: ${JSON.stringify(approved)} (each entry
 is {id, branch, worktreePath}).
@@ -250,9 +293,7 @@ attempted (tasks after a conflict are simply omitted, not marked).`
 
 async function runTask(t, isolated) {
   const implPrompt = isolated ? isolatedImplementerPrompt(t) : implementerPrompt(t)
-  const implOpts = isolated
-    ? { label: `task:${t.id}`, phase: 'Implement', isolation: 'worktree', schema: IMPL_RESULT }
-    : { label: `task:${t.id}`, phase: 'Implement' }
+  const implOpts = { label: `task:${t.id}`, phase: 'Implement', ...(isolated && { isolation: 'worktree', schema: IMPL_RESULT }) }
   let impl = await agent(implPrompt, implOpts)
   if (impl === null) impl = await agent(implPrompt, { ...implOpts, label: `task:${t.id}:retry` })
   if (impl === null) return { id: t.id, status: 'failed', reason: 'implementer returned null twice' }
@@ -262,7 +303,7 @@ async function runTask(t, isolated) {
   if (review && !review.approved) {
     const blocking = review.findings.filter((f) => f.severity !== 'minor')
     if (blocking.length) {
-      const fixPrompt = isolated ? isolatedFixerPrompt(t, blocking, impl.worktreePath, impl.branch) : fixerPrompt(t, blocking)
+      const fixPrompt = isolated ? fixerPrompt(t, blocking, isolatedFixerNote(impl.worktreePath, impl.branch)) : fixerPrompt(t, blocking)
       const fixResult = await agent(fixPrompt, { label: `fix:${t.id}`, phase: 'Implement' })
       const reReviewReport = isolated
         ? `Post-fix re-review. Branch: ${impl.branch}. Original report: ${implReportText}. Fix report: ${fixResult}`
@@ -286,10 +327,11 @@ async function runTask(t, isolated) {
 }
 
 const results = []
-outer: for (const wave of waves) {
+for (const wave of waves) {
   const waveTasks = wave.map((id) => tasks.find((t) => t.id === id))
   const isolated = waveTasks.length > 1
   const waveResults = await parallel(waveTasks.map((t) => () => runTask(t, isolated)))
+  results.push(...waveResults)
   let mergeFailed = false
   if (isolated) {
     const approved = waveResults.filter((r) => r && r.status === 'done').map((r) => ({ id: r.id, branch: r.branch, worktreePath: r.worktreePath }))
@@ -297,18 +339,12 @@ outer: for (const wave of waves) {
       const mergeReport = await agent(mergerPrompt(approved), { label: 'merge:wave', phase: 'Implement', schema: MERGE_RESULT })
       const conflicts = ((mergeReport && mergeReport.results) || []).filter((r) => r.status === 'conflict')
       if (conflicts.length) {
-        results.push(...waveResults, { id: 'merge', status: 'failed', reason: JSON.stringify(conflicts) })
+        results.push({ id: 'merge', status: 'failed', reason: JSON.stringify(conflicts) })
         mergeFailed = true
-      } else {
-        results.push(...waveResults)
       }
-    } else {
-      results.push(...waveResults)
     }
-  } else {
-    results.push(...waveResults)
   }
-  if (mergeFailed || waveResults.some((r) => !r || r.status === 'failed')) break outer
+  if (mergeFailed || waveResults.some((r) => !r || r.status === 'failed')) break
 }
 return results
 ```
@@ -320,8 +356,9 @@ schema, isolation})` returns the worker's text, or the schema-validated object w
 `schema` is passed, or `null` when the worker dies; `Date.now()`, `Math.random()`, and
 argless `new Date()` may not be available inside scripts — inline any needed
 timestamp or id as a literal in the script text (computed before you build the
-string), same as `planPath`/`constraints`/`tasks`/`waves` above — not via `args` (see
-the Workflow engine note on why `args` is unreliable here).
+string), same as `planPath`/`constraints`/`tasks` above (`waves` is derived inside
+the script, not inlined) — not via `args` (see the Workflow engine note on why
+`args` is unreliable here).
 
 After the workflow returns, read the results: any `status: 'failed'` entry → stop
 and surface it; otherwise carry the collected `minor` findings forward to the PR
@@ -332,11 +369,31 @@ step.
 Run the identical per-task loop yourself, dispatching each worker via the Agent tool
 with the same prompts (substitute the placeholders by hand), computing waves per the
 Parallelism analysis above. Wave size 1: strictly one dispatch at a time, judge
-completion by the returned content, never by elapsed time. Wave size ≥2: dispatch
-that wave's implementers together in a single message (multiple Agent tool-use
-blocks, each with `isolation: 'worktree'`) — the documented pattern for running
-agents in parallel — then reconcile all of them before dispatching any reviewer;
-reviewer/fixer/merger stay one dispatch at a time even within a wave.
+completion by the returned content, never by elapsed time. Wave size ≥2:
+
+- **Implement.** Dispatch that wave's implementers together in a single message
+  (multiple Agent tool-use blocks, each with `isolation: 'worktree'`) — the
+  documented pattern for running agents in parallel.
+- **Review.** Once every implementer in the batch is reconciled, dispatch that
+  wave's reviewers together the same way — one message, multiple blocks. A
+  review is read-only (`git show <commitHash>` needs no isolation and no
+  checkout), so nothing about it requires the one-at-a-time discipline a
+  self-committing implementer needs; serializing reviews would only add
+  wall-clock time for no safety benefit.
+- **Fix.** Batch the fixer dispatches for whichever tasks in the wave have
+  blocking findings, one message, multiple blocks — each fixer already
+  targets its own pre-existing isolated worktree, so concurrent fixers are as
+  safe as concurrent implementers. Re-review each fixed task, batched the
+  same way.
+- **Merge-back.** Run this via the orchestrator's own Bash — you already hold
+  `Bash` directly (`SKILL.md`'s `allowed-tools`) — run the merge-back's
+  `git merge --no-ff <branch>` /
+  `git worktree remove <worktreePath>` / `git branch -d <branch>` sequence
+  yourself, in task-id order, rather than dispatching a separate merger
+  subagent for it (that indirection exists only because the Workflow
+  engine's sandboxed script has no Bash of its own). A non-zero `git merge`
+  exit is a conflict: run `git merge --abort` and treat it as the same hard
+  stop described above.
 
 > **Subagent reconciliation gate.** Track every async dispatch so you never advance
 > on a partial batch and never miss a finish. Load the ledger tools once (deferred;
@@ -347,16 +404,15 @@ reviewer/fixer/merger stay one dispatch at a time even within a wave.
 > fail to load, use the prose-count fallback below — TaskStop loading alone is not
 > sufficient to activate the ledger path.
 > 1. On dispatch, `TaskCreate` one entry per worker actually dispatched
->    (`subject` = implementer/reviewer/fixer/merger + task id,
->    `metadata.dispatch_id` = its Agent `task_id`), then `TaskUpdate` it to
->    `in_progress` — one entry per task when dispatching a whole wave of
->    implementers together.
+>    (`subject` = implementer/reviewer/fixer + task id, `metadata.dispatch_id`
+>    = its Agent `task_id`), then `TaskUpdate` it to `in_progress` — one entry
+>    per task when dispatching a whole wave's batch together.
 > 2. On each `<task-notification>`, match by `dispatch_id`, record the worker's
 >    structured result, `TaskUpdate` → `completed` (soft-fail returns are terminal).
-> 3. **Gate:** before dispatching any task's reviewer, before dispatching any fixer,
->    before dispatching the wave's merger, and before starting the next wave,
->    `TaskList`; if any entry in the current wave's batch is still
->    `pending`/`in_progress`, do NOT advance — wait for the remaining
+> 3. **Gate:** before dispatching a wave's reviewers, before dispatching a
+>    wave's fixers, before running that wave's merge-back, and before
+>    starting the next wave, `TaskList`; if any entry in the current batch is
+>    still `pending`/`in_progress`, do NOT advance — wait for the remaining
 >    `<task-notification>`(s).
 > 4. Escape hatch only: if, when next awake, a still-`in_progress` entry is judged
 >    genuinely stuck, `TaskStop` its `dispatch_id`, mark it terminal, record a

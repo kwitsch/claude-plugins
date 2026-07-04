@@ -156,11 +156,14 @@ stop, never auto-resolved, since it can only mean the wave analysis missed
 a real dependency. `SKILL.md`'s Task-list integration section separately
 requires a one-line step-start announcement before each top-level step (and
 each Implement wave) begins, so a long-running pipeline is never silent.
-The Workflow-engine script inlines `planPath`/`constraints`/`tasks` and
-`waves` as JS literals rather than passing them via the Workflow tool's
-`args` parameter (`references/implementing.md`, 2026-07-03) — `args` was
-observed twice to arrive `undefined` inside the script even when supplied
-correctly, on both a fresh call and a `resumeFromRunId` retry.
+The Workflow-engine script inlines `planPath`/`constraints`/`tasks` as JS
+literals rather than passing them via the Workflow tool's `args` parameter
+(`references/implementing.md`, 2026-07-03) — `args` was observed twice to
+arrive `undefined` inside the script even when supplied correctly, on both a
+fresh call and a `resumeFromRunId` retry. `waves` is not part of that
+inlining — it's derived inside the script by a plain `computeWaves(tasks)`
+function (2026-07-05 simplify pass), so the wave-leveling arithmetic is never
+hand-computed by the model and pasted in as a literal.
 
 ## Tests
 
