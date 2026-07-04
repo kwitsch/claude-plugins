@@ -173,7 +173,11 @@ Return ONLY the fixed compressed file. No explanation.
 
 // ---------- Validation ----------
 
-const URL_REGEX = /https?:\/\/[^\s)]+/g;
+// Trailing-punctuation lookbehind: a URL immediately followed by sentence
+// punctuation (a period, comma, closing quote/bracket, ...) must not capture
+// that punctuation as part of the URL — otherwise a harmless change in
+// surrounding sentence structure looks like a URL mismatch.
+const URL_REGEX = /https?:\/\/[^\s)]+(?<![.,;:!?)"'\]])/g;
 const FENCE_OPEN_REGEX = /^(\s{0,3})(`{3,}|~{3,})(.*)$/;
 const HEADING_REGEX = /^(#{1,6})\s+(.*)/gm;
 const BULLET_REGEX = /^\s*[-*+]\s+/gm;
@@ -248,12 +252,17 @@ function countBullets(text) {
 }
 
 /**
+ * Strips fenced blocks using the already-nesting-aware `codeBlocks` list
+ * (from extractCodeBlocks) rather than re-matching fences with a simpler
+ * regex — a naive `` ^```[\s\S]*?^``` `` stops at the first inner fence line
+ * inside a 4+-backtick outer fence, leaking its content into inline-code scanning.
  * @param {string} text
+ * @param {string[]} codeBlocks
  * @returns {string[]}
  */
-function extractInlineCodes(text) {
-  let stripped = text.replace(/^```[\s\S]*?^```/gm, '');
-  stripped = stripped.replace(/^~~~[\s\S]*?^~~~/gm, '');
+function extractInlineCodes(text, codeBlocks) {
+  let stripped = text;
+  for (const block of codeBlocks) stripped = stripped.split(block).join('');
   return [...stripped.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
 }
 
@@ -315,8 +324,8 @@ function validate(origText, compText) {
     warnings.push(`Bullet count changed too much: ${b1} -> ${b2}`);
   }
 
-  const ic1 = extractInlineCodes(origText);
-  const ic2 = extractInlineCodes(compText);
+  const ic1 = extractInlineCodes(origText, c1);
+  const ic2 = extractInlineCodes(compText, c2);
   const count1 = new Map();
   for (const c of ic1) count1.set(c, (count1.get(c) || 0) + 1);
   const count2 = new Map();
@@ -475,7 +484,23 @@ function compressFile(filepath, backupRoot) {
     : compressed;
 
   mkdirSync(dirname(backupPath), { recursive: true });
-  writeFileSync(backupPath, originalText);
+  // Exclusive create (O_EXCL via 'wx'), not a plain write: closes the gap
+  // between the early existsSync check (line ~397, before the claude round
+  // trip) and this write — two concurrent runs on the same file would
+  // otherwise both pass that check and the second write would silently
+  // clobber the first run's backup.
+  try {
+    writeFileSync(backupPath, originalText, { flag: 'wx' });
+  } catch (err) {
+    const e = /** @type {any} */ (err);
+    if (e.code === 'EEXIST') {
+      console.log(`Backup file already exists: ${backupPath}`);
+      console.log('Another compression of this file may be running concurrently.');
+      console.log('Aborting to prevent data loss.');
+      return 1;
+    }
+    throw err;
+  }
   const backupReadback = readFileSync(backupPath, 'utf8');
   if (backupReadback !== originalText) {
     console.log(`Backup write verification failed: ${backupPath}`);

@@ -1,6 +1,6 @@
 ---
 name: cc-compress
-description: Compress a markdown memory/instruction file (CLAUDE.md, todos, preferences) into dense caveman-style prose, cutting the token cost of loading it on every future session. Preserves code blocks, inline code, URLs, file paths, commands, headings, and YAML frontmatter exactly. Backs up the original to session-temp storage for rollback before overwriting the source in place. Use when the user asks to compress, shrink, or reduce tokens in a markdown memory or instructions file.
+description: Compress a markdown memory/instruction file (CLAUDE.md, todos, preferences) into dense caveman-style prose, cutting the token cost of loading it on every future session. Hard-enforces (retries, then fails rather than write a bad result) exact preservation of code blocks, inline code, URLs, heading count, and YAML frontmatter; flags (non-blocking) drift in file paths, heading wording, and bullet count. Backs up the original to session-temp storage for rollback before overwriting the source in place. Use when the user asks to compress, shrink, or reduce tokens in a markdown memory or instructions file.
 argument-hint: [filepath]
 allowed-tools: Bash, AskUserQuestion
 ---
