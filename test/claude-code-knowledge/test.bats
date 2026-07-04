@@ -621,3 +621,285 @@ EOF
   run env -i HOME="$BATS_TEST_TMPDIR/nohome" PATH="/usr/bin:/bin" bash "$PLUGIN/bin/mjs-launch.sh"
   [ "$status" -eq 64 ]
 }
+
+# --- cc-compress script (scripts/compress.mjs) ---
+# Hermetic: stubs `claude` as an isolated-PATH Node executable. No network.
+
+compress_script() {
+  printf '%s' "$PLUGIN/skills/cc-compress/scripts/compress.mjs"
+}
+
+# A stub `claude` that validates it was called with `--print --model sonnet`,
+# then echoes back everything after the last "TEXT:\n" marker in the prompt
+# plus a trailing HTML-comment marker — a trivial, structure-preserving
+# "compression" that satisfies every validator (headings/code-blocks/URLs/
+# paths/bullets/inline-code all unchanged) while still differing from the
+# input, so the compress_file() identical-output guard doesn't fire.
+install_passthrough_claude_stub() {
+  STUB_DIR="$BATS_TEST_TMPDIR/stub_passthrough"
+  mkdir -p "$STUB_DIR"
+  cat > "$STUB_DIR/claude" <<'STUBEOF'
+#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (!args.includes('--print') || !args.includes('--model') || !args.includes('sonnet')) {
+  console.error('bad args: ' + args.join(' '));
+  process.exit(9);
+}
+let input = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (d) => { input += d; });
+process.stdin.on('end', () => {
+  const marker = 'TEXT:\n';
+  const idx = input.lastIndexOf(marker);
+  const body = idx === -1 ? input : input.slice(idx + marker.length);
+  process.stdout.write(body + '\n\n<!-- compressed -->');
+});
+STUBEOF
+  chmod +x "$STUB_DIR/claude"
+}
+
+# A stub `claude` that returns a fixed BROKEN output (drops a code block) on
+# its first invocation and a fixed FIXED output on every invocation after,
+# tracked via a counter file — simulates the initial-compress-then-fix retry
+# path deterministically. Outputs are written to separate files (not
+# interpolated into the generated .mjs source) so arbitrary multi-line content
+# — including backticks — never needs shell-to-JS string escaping.
+install_retry_claude_stub() {
+  # $1 = broken output, $2 = fixed output, $3 = counter file path
+  STUB_DIR="$BATS_TEST_TMPDIR/stub_retry"
+  mkdir -p "$STUB_DIR"
+  printf '%s' "$1" > "$STUB_DIR/output1.md"
+  printf '%s' "$2" > "$STUB_DIR/output2.md"
+  cat > "$STUB_DIR/claude" <<STUBEOF
+#!/usr/bin/env node
+// Extensionless file run via the shebang defaults to CommonJS — use require(),
+// not import, or this is a SyntaxError on Node <22.7.
+const { readFileSync, writeFileSync, existsSync } = require('node:fs');
+const args = process.argv.slice(2);
+if (!args.includes('--print') || !args.includes('--model') || !args.includes('sonnet')) {
+  console.error('bad args: ' + args.join(' '));
+  process.exit(9);
+}
+process.stdin.resume();
+process.stdin.on('end', () => {
+  const counterFile = '$3';
+  const stubDir = '$STUB_DIR';
+  let n = existsSync(counterFile) ? parseInt(readFileSync(counterFile, 'utf8'), 10) : 0;
+  n += 1;
+  writeFileSync(counterFile, String(n));
+  const outFile = n === 1 ? stubDir + '/output1.md' : stubDir + '/output2.md';
+  process.stdout.write(readFileSync(outFile, 'utf8'));
+});
+STUBEOF
+  chmod +x "$STUB_DIR/claude"
+}
+
+@test "compress.mjs exists, is executable, passes node --check" {
+  local s; s="$(compress_script)"
+  [ -x "$s" ]
+  run node --check "$s"
+  [ "$status" -eq 0 ]
+}
+
+@test "compress.mjs: no args prints usage and exits 1" {
+  run node "$(compress_script)"
+  [ "$status" -eq 1 ]
+  echo "$output" | grep -qi usage
+}
+
+@test "compress.mjs: one arg prints usage and exits 1" {
+  run node "$(compress_script)" "$BATS_TEST_TMPDIR/x.md"
+  [ "$status" -eq 1 ]
+}
+
+@test "compress.mjs: non-.md target is skipped with exit 0, no backup written" {
+  local src="$BATS_TEST_TMPDIR/notes.txt"
+  echo "hello" > "$src"
+  local backup_root="$BATS_TEST_TMPDIR/backups_skip"
+  run node "$(compress_script)" "$src" "$backup_root"
+  [ "$status" -eq 0 ]
+  [ ! -d "$backup_root" ]
+}
+
+@test "compress.mjs: sensitive filename is refused without spawning claude" {
+  STUB_DIR="$BATS_TEST_TMPDIR/stub_should_not_run"
+  mkdir -p "$STUB_DIR"
+  local marker="$BATS_TEST_TMPDIR/claude_was_invoked"
+  printf '#!/usr/bin/env bash\ntouch %q; exit 99\n' "$marker" > "$STUB_DIR/claude"
+  chmod +x "$STUB_DIR/claude"
+  local src="$BATS_TEST_TMPDIR/secrets.md"
+  printf 'some content that is long enough to pass the empty check\n' > "$src"
+  local backup_root="$BATS_TEST_TMPDIR/backups_sensitive"
+  run env PATH="$STUB_DIR:$PATH" node "$(compress_script)" "$src" "$backup_root"
+  [ "$status" -eq 1 ]
+  echo "$output" | grep -qi sensitive
+  grep -q "some content that is long enough" "$src"
+  [ ! -f "$marker" ]
+}
+
+@test "compress.mjs: claude missing from PATH leaves source untouched with a clear error" {
+  local src="$BATS_TEST_TMPDIR/plain.md"
+  printf '# Title\n\nSome prose sentence long enough to compress.\n' > "$src"
+  cp "$src" "$BATS_TEST_TMPDIR/plain.md.orig"
+  local backup_root="$BATS_TEST_TMPDIR/backups_noclaude"
+  # Isolate PATH to a dir containing ONLY a symlink to the real `node` binary
+  # — guarantees `claude` is unresolvable regardless of whether this machine
+  # happens to install node and claude in the same or different bin dirs.
+  local isolated="$BATS_TEST_TMPDIR/node_only_bin"
+  mkdir -p "$isolated"
+  ln -s "$(command -v node)" "$isolated/node"
+  run env PATH="$isolated" node "$(compress_script)" "$src" "$backup_root"
+  [ "$status" -eq 1 ]
+  diff "$src" "$BATS_TEST_TMPDIR/plain.md.orig"
+}
+
+@test "compress.mjs: successful compression writes compressed file + backup" {
+  install_passthrough_claude_stub
+  mkdir -p "$BATS_TEST_TMPDIR/proj"
+  local src="$BATS_TEST_TMPDIR/proj/notes.md"
+  printf '# Title\n\nThis is a long enough sentence to compress.\n' > "$src"
+  local backup_root="$BATS_TEST_TMPDIR/backups_ok"
+  run env PATH="$STUB_DIR:$PATH" node "$(compress_script)" "$src" "$backup_root"
+  [ "$status" -eq 0 ]
+  grep -q '<!-- compressed -->' "$src"
+  grep -q '# Title' "$src"
+  local backup="$backup_root/proj/notes.original.md"
+  [ -f "$backup" ]
+  grep -q 'This is a long enough sentence to compress.' "$backup"
+}
+
+@test "compress.mjs: existing backup aborts to prevent data loss" {
+  install_passthrough_claude_stub
+  mkdir -p "$BATS_TEST_TMPDIR/proj2"
+  local src="$BATS_TEST_TMPDIR/proj2/notes.md"
+  printf '# Title\n\nThis is a long enough sentence to compress.\n' > "$src"
+  local backup_root="$BATS_TEST_TMPDIR/backups_exists"
+  mkdir -p "$backup_root/proj2"
+  echo "pre-existing backup" > "$backup_root/proj2/notes.original.md"
+  run env PATH="$STUB_DIR:$PATH" node "$(compress_script)" "$src" "$backup_root"
+  [ "$status" -eq 1 ]
+  echo "$output" | grep -qi "already exists"
+  grep -q '# Title' "$src"
+}
+
+@test "compress.mjs: YAML frontmatter round-trips verbatim" {
+  install_passthrough_claude_stub
+  mkdir -p "$BATS_TEST_TMPDIR/proj3"
+  local src="$BATS_TEST_TMPDIR/proj3/notes.md"
+  cat > "$src" <<'MDEOF'
+---
+name: test
+type: memory
+---
+# Title
+
+This is a long enough sentence to compress.
+MDEOF
+  local backup_root="$BATS_TEST_TMPDIR/backups_fm"
+  run env PATH="$STUB_DIR:$PATH" node "$(compress_script)" "$src" "$backup_root"
+  [ "$status" -eq 0 ]
+  run head -n4 "$src"
+  [ "$output" = "$(printf -- '---\nname: test\ntype: memory\n---')" ]
+}
+
+@test "compress.mjs: nested fenced code block survives validation" {
+  install_passthrough_claude_stub
+  mkdir -p "$BATS_TEST_TMPDIR/proj4"
+  local src="$BATS_TEST_TMPDIR/proj4/notes.md"
+  cat > "$src" <<'MDEOF'
+# Title
+
+````text
+some outer content
+```inner marker```
+more outer
+````
+
+A sentence long enough to compress here.
+MDEOF
+  local backup_root="$BATS_TEST_TMPDIR/backups_nest"
+  run env PATH="$STUB_DIR:$PATH" node "$(compress_script)" "$src" "$backup_root"
+  [ "$status" -eq 0 ]
+  grep -q '````text' "$src"
+  grep -q 'inner marker' "$src"
+}
+
+@test "compress.mjs: multiple URLs preserved" {
+  install_passthrough_claude_stub
+  mkdir -p "$BATS_TEST_TMPDIR/proj5"
+  local src="$BATS_TEST_TMPDIR/proj5/notes.md"
+  printf '# Title\n\nSee https://example.com/a and https://example.com/b for a long enough sentence.\n' > "$src"
+  local backup_root="$BATS_TEST_TMPDIR/backups_urls"
+  run env PATH="$STUB_DIR:$PATH" node "$(compress_script)" "$src" "$backup_root"
+  [ "$status" -eq 0 ]
+  grep -q 'https://example.com/a' "$src"
+  grep -q 'https://example.com/b' "$src"
+}
+
+@test "compress.mjs: retries with a targeted fix and succeeds on retry 2" {
+  local counter="$BATS_TEST_TMPDIR/retry_counter_ok"
+  install_retry_claude_stub \
+    $'# Title\n\nBroken compression, code block dropped.' \
+    $'# Title\n\n```bash\necho hi\n```\n\nFixed compression.' \
+    "$counter"
+  mkdir -p "$BATS_TEST_TMPDIR/proj6"
+  local src="$BATS_TEST_TMPDIR/proj6/notes.md"
+  cat > "$src" <<'MDEOF'
+# Title
+
+```bash
+echo hi
+```
+
+A sentence long enough to compress here.
+MDEOF
+  local backup_root="$BATS_TEST_TMPDIR/backups_retry_ok"
+  run env PATH="$STUB_DIR:$PATH" node "$(compress_script)" "$src" "$backup_root"
+  [ "$status" -eq 0 ]
+  grep -q 'Fixed compression' "$src"
+  [ "$(cat "$counter")" = "2" ]
+}
+
+@test "compress.mjs: retries when a URL is dropped, succeeds after the fix" {
+  # Covers the URL validator's rejection path specifically (the other retry
+  # tests exercise the code-block validator) — different failure mode, same
+  # retry-then-succeed mechanics.
+  local counter="$BATS_TEST_TMPDIR/retry_counter_url"
+  install_retry_claude_stub \
+    $'# Title\n\nSee docs for a sentence long enough to compress.' \
+    $'# Title\n\nSee https://example.com/docs for a fixed sentence.' \
+    "$counter"
+  mkdir -p "$BATS_TEST_TMPDIR/proj8"
+  local src="$BATS_TEST_TMPDIR/proj8/notes.md"
+  printf '# Title\n\nSee https://example.com/docs for a sentence long enough to compress here.\n' > "$src"
+  local backup_root="$BATS_TEST_TMPDIR/backups_retry_url"
+  run env PATH="$STUB_DIR:$PATH" node "$(compress_script)" "$src" "$backup_root"
+  [ "$status" -eq 0 ]
+  grep -q 'https://example.com/docs' "$src"
+  [ "$(cat "$counter")" = "2" ]
+}
+
+@test "compress.mjs: exhausts retries, restores original, removes backup" {
+  local counter="$BATS_TEST_TMPDIR/retry_counter_fail"
+  install_retry_claude_stub \
+    $'# Title\n\nBroken compression, code block dropped.' \
+    $'# Title\n\nStill broken, code block still dropped.' \
+    "$counter"
+  mkdir -p "$BATS_TEST_TMPDIR/proj7"
+  local src="$BATS_TEST_TMPDIR/proj7/notes.md"
+  cat > "$src" <<'MDEOF'
+# Title
+
+```bash
+echo hi
+```
+
+A sentence long enough to compress here.
+MDEOF
+  cp "$src" "$BATS_TEST_TMPDIR/proj7/notes.md.orig"
+  local backup_root="$BATS_TEST_TMPDIR/backups_retry_fail"
+  run env PATH="$STUB_DIR:$PATH" node "$(compress_script)" "$src" "$backup_root"
+  [ "$status" -eq 2 ]
+  diff "$src" "$BATS_TEST_TMPDIR/proj7/notes.md.orig"
+  [ ! -f "$backup_root/proj7/notes.original.md" ]
+}
