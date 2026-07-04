@@ -903,3 +903,42 @@ MDEOF
   diff "$src" "$BATS_TEST_TMPDIR/proj7/notes.md.orig"
   [ ! -f "$backup_root/proj7/notes.original.md" ]
 }
+
+# --- cc-compress orchestrator skill ---
+
+@test "cc-compress SKILL.md exists" {
+  [ -f "$PLUGIN/skills/cc-compress/SKILL.md" ]
+}
+
+@test "cc-compress SKILL.md has name, description, argument-hint frontmatter" {
+  local f="$PLUGIN/skills/cc-compress/SKILL.md"
+  run grep -E '^name:[[:space:]]*cc-compress' "$f"; [ "$status" -eq 0 ]
+  run grep -E '^description:' "$f";                  [ "$status" -eq 0 ]
+  run grep -E '^argument-hint:' "$f";                 [ "$status" -eq 0 ]
+}
+
+@test "cc-compress is model-invocable (no disable-model-invocation)" {
+  run grep -E '^disable-model-invocation:[[:space:]]*true' "$PLUGIN/skills/cc-compress/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "cc-compress has no load-time !-injection trigger" {
+  run grep -nE '!`' "$PLUGIN/skills/cc-compress/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "cc-compress references its bundled script via CLAUDE_SKILL_DIR" {
+  run grep -F '${CLAUDE_SKILL_DIR}/scripts/compress.mjs' "$PLUGIN/skills/cc-compress/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-compress gates non-recoverable targets through AskUserQuestion" {
+  local f="$PLUGIN/skills/cc-compress/SKILL.md"
+  run grep -F 'AskUserQuestion' "$f"; [ "$status" -eq 0 ]
+  run grep -iF 'git' "$f";            [ "$status" -eq 0 ]
+}
+
+@test "cc-compress documents the session-temp backup resolution" {
+  run grep -iE 'scratchpad|mktemp' "$PLUGIN/skills/cc-compress/SKILL.md"
+  [ "$status" -eq 0 ]
+}
