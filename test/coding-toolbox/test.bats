@@ -755,6 +755,14 @@ run_ci_watch() {
   assert_output --partial "output, not a question) before step 3."
 }
 
+@test "fresh-work Task-list integration requires a one-line step-start announcement" {
+  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  assert_output --partial "Step-start reporting."
+  assert_output --partial "Starting step 4: Design."
+  assert_output --partial "never a question"
+}
+
 @test "fresh-work Review step commits each sub-pass separately, never bundled" {
   run cat "$PLUGIN/skills/fresh-work/references/reviewing.md"
   assert_success

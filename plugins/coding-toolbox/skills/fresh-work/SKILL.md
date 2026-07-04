@@ -81,6 +81,16 @@ after step 1 create the remaining steps for the chosen path (feature/refactor:
 steps 2–9; fix: steps 2–5). Keep exactly one task `in_progress`. Work a phase
 spawns nests beneath its step as `Step N.1…N.x`.
 
+**Step-start reporting.** Each time a step task moves to `in_progress`, state
+one short line to the user naming it before starting its work — plain output,
+never a question — e.g.:
+
+> Starting step 4: Design.
+
+Applies to the numbered steps above and to any nested `Step N.1…N.x` a phase
+spawns (e.g. Implement's per-wave dispatch, `references/implementing.md`),
+kept to one line each.
+
 ## Steps — both paths
 
 1. **Classify.** From `$work_description`:
