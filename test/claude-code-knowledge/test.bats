@@ -11,12 +11,13 @@ setup() {
   MARKET="$REPO_ROOT/.claude-plugin/marketplace.json"
   MAINT="$REPO_ROOT/.claude/skills/update-cc-references/SKILL.md"
 
-  # Isolated PATH for the cc-compress script tests: `node` (to run compress.mjs)
-  # and `bash`/`cat` (make_stub's `#!/usr/bin/env bash` stubs need both to
-  # actually run their shebang and body). No `claude` unless a test adds one.
+  # Isolated PATH for the cc-compress script tests: `node` (to run compress.mjs),
+  # `bash`/`cat` (make_stub's `#!/usr/bin/env bash` stubs need both to actually
+  # run their shebang and body), `git` (compress.mjs's own recoverability
+  # check). No `claude` unless a test adds one.
   MOCKBIN="$BATS_TEST_TMPDIR/bin"
   mkdir -p "$MOCKBIN"
-  for t in node bash cat; do
+  for t in node bash cat git; do
     src="$(command -v "$t")" && [ -n "$src" ] && ln -s "$src" "$MOCKBIN/$t"
   done
 
@@ -762,7 +763,7 @@ install_retry_claude_stub() {
   printf '# Title\n\nSome prose sentence long enough to compress.\n' > "$src"
   cp "$src" "$BATS_TEST_TMPDIR/plain.md.orig"
   local backup_root="$BATS_TEST_TMPDIR/backups_noclaude"
-  run_compress "$src" "$backup_root"
+  run_compress "$src" "$backup_root" --confirmed
   [ "$status" -eq 1 ]
   diff "$src" "$BATS_TEST_TMPDIR/plain.md.orig"
 }
@@ -773,7 +774,7 @@ install_retry_claude_stub() {
   local src="$BATS_TEST_TMPDIR/proj/notes.md"
   printf '# Title\n\nThis is a long enough sentence to compress.\n' > "$src"
   local backup_root="$BATS_TEST_TMPDIR/backups_ok"
-  run_compress "$src" "$backup_root"
+  run_compress "$src" "$backup_root" --confirmed
   [ "$status" -eq 0 ]
   grep -q '<!-- compressed -->' "$src"
   grep -q '# Title' "$src"
@@ -791,7 +792,7 @@ install_retry_claude_stub() {
   local hashdir; hashdir="$(backup_hash_dir "$BATS_TEST_TMPDIR/proj2")"
   mkdir -p "$backup_root/$hashdir"
   echo "pre-existing backup" > "$backup_root/$hashdir/notes.original.md"
-  run_compress "$src" "$backup_root"
+  run_compress "$src" "$backup_root" --confirmed
   [ "$status" -eq 1 ]
   echo "$output" | grep -qi "already exists"
   grep -q '# Title' "$src"
@@ -811,7 +812,7 @@ type: memory
 This is a long enough sentence to compress.
 MDEOF
   local backup_root="$BATS_TEST_TMPDIR/backups_fm"
-  run_compress "$src" "$backup_root"
+  run_compress "$src" "$backup_root" --confirmed
   [ "$status" -eq 0 ]
   run head -n4 "$src"
   [ "$output" = "$(printf -- '---\nname: test\ntype: memory\n---')" ]
@@ -833,7 +834,7 @@ more outer
 A sentence long enough to compress here.
 MDEOF
   local backup_root="$BATS_TEST_TMPDIR/backups_nest"
-  run_compress "$src" "$backup_root"
+  run_compress "$src" "$backup_root" --confirmed
   [ "$status" -eq 0 ]
   grep -q '````text' "$src"
   grep -q 'inner marker' "$src"
@@ -845,7 +846,7 @@ MDEOF
   local src="$BATS_TEST_TMPDIR/proj5/notes.md"
   printf '# Title\n\nSee https://example.com/a and https://example.com/b for a long enough sentence.\n' > "$src"
   local backup_root="$BATS_TEST_TMPDIR/backups_urls"
-  run_compress "$src" "$backup_root"
+  run_compress "$src" "$backup_root" --confirmed
   [ "$status" -eq 0 ]
   grep -q 'https://example.com/a' "$src"
   grep -q 'https://example.com/b' "$src"
@@ -857,7 +858,7 @@ MDEOF
   local src="$BATS_TEST_TMPDIR/proj9/notes.md"
   printf '# Title\n\nThis is a long enough sentence to compress.\n' > "$src"
   local backup_root="$BATS_TEST_TMPDIR/backups_nl"
-  run_compress "$src" "$backup_root"
+  run_compress "$src" "$backup_root" --confirmed
   [ "$status" -eq 0 ]
   [ -z "$(tail -c1 "$src" | tr -d '\n')" ]
 }
@@ -880,7 +881,7 @@ echo hi
 A sentence long enough to compress here.
 MDEOF
   local backup_root="$BATS_TEST_TMPDIR/backups_retry_ok"
-  run_compress "$src" "$backup_root"
+  run_compress "$src" "$backup_root" --confirmed
   [ "$status" -eq 0 ]
   grep -q 'Fixed compression' "$src"
   [ "$(cat "$counter")" = "2" ]
@@ -899,7 +900,7 @@ MDEOF
   local src="$BATS_TEST_TMPDIR/proj8/notes.md"
   printf '# Title\n\nSee https://example.com/docs for a sentence long enough to compress here.\n' > "$src"
   local backup_root="$BATS_TEST_TMPDIR/backups_retry_url"
-  run_compress "$src" "$backup_root"
+  run_compress "$src" "$backup_root" --confirmed
   [ "$status" -eq 0 ]
   grep -q 'https://example.com/docs' "$src"
   [ "$(cat "$counter")" = "2" ]
@@ -924,10 +925,53 @@ A sentence long enough to compress here.
 MDEOF
   cp "$src" "$BATS_TEST_TMPDIR/proj7/notes.md.orig"
   local backup_root="$BATS_TEST_TMPDIR/backups_retry_fail"
-  run_compress "$src" "$backup_root"
+  run_compress "$src" "$backup_root" --confirmed
   [ "$status" -eq 2 ]
   diff "$src" "$BATS_TEST_TMPDIR/proj7/notes.md.orig"
   [ -z "$(find_backup "$backup_root" 'notes.original.md')" ]
+}
+
+@test "compress.mjs: exit 3 when target is untracked, nothing touched" {
+  mkdir -p "$BATS_TEST_TMPDIR/proj10"
+  (cd "$BATS_TEST_TMPDIR/proj10" && git init -q)
+  local src="$BATS_TEST_TMPDIR/proj10/notes.md"
+  printf '# Title\n\nSome prose sentence long enough to compress.\n' > "$src"
+  cp "$src" "$src.orig"
+  local backup_root="$BATS_TEST_TMPDIR/backups_untracked"
+  run_compress "$src" "$backup_root"
+  [ "$status" -eq 3 ]
+  echo "$output" | grep -qi "not git-recoverable"
+  diff "$src" "$src.orig"
+  [ -z "$(find_backup "$backup_root" 'notes.original.md')" ]
+}
+
+@test "compress.mjs: --confirmed bypasses the git-recoverability gate" {
+  install_passthrough_claude_stub
+  mkdir -p "$BATS_TEST_TMPDIR/proj11"
+  (cd "$BATS_TEST_TMPDIR/proj11" && git init -q)
+  local src="$BATS_TEST_TMPDIR/proj11/notes.md"
+  printf '# Title\n\nThis is a long enough sentence to compress.\n' > "$src"
+  local backup_root="$BATS_TEST_TMPDIR/backups_bypass"
+  run_compress "$src" "$backup_root" --confirmed
+  [ "$status" -eq 0 ]
+}
+
+@test "compress.mjs: git-tracked-and-clean target skips the recoverability gate" {
+  install_passthrough_claude_stub
+  mkdir -p "$BATS_TEST_TMPDIR/proj12"
+  local src="$BATS_TEST_TMPDIR/proj12/notes.md"
+  printf '# Title\n\nThis is a long enough sentence to compress.\n' > "$src"
+  (
+    cd "$BATS_TEST_TMPDIR/proj12"
+    git init -q
+    git config user.email test@example.com
+    git config user.name test
+    git add notes.md
+    git commit -q -m init
+  )
+  local backup_root="$BATS_TEST_TMPDIR/backups_tracked"
+  run_compress "$src" "$backup_root"
+  [ "$status" -eq 0 ]
 }
 
 # --- cc-compress orchestrator skill ---

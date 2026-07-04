@@ -22,45 +22,44 @@ Take the filepath from `$ARGUMENTS`. If none was given, ask via
 `AskUserQuestion` (illustrative examples: `CLAUDE.md`, a todo file, a
 preferences doc; free text arrives via "Other"). Resolve it to an absolute path.
 
-## 2. Recoverability gate
-
-Run, from the target file's directory:
-
-```bash
-git ls-files --error-unmatch -- "<file>" && git status --porcelain -- "<file>"
-```
-
-- **Tracked and clean** (first command succeeds, second prints nothing) → git
-  itself is a second rollback path (`git checkout -- <file>`). Proceed.
-- **Untracked, or dirty** → the session-temp backup (step 3) is the *only*
-  rollback path. Ask via `AskUserQuestion`: proceed anyway, or cancel.
-
-## 3. Resolve the backup root (once per session)
+## 2. Resolve the backup root (once per session)
 
 Prefer the session scratchpad directory from your system prompt when one is
 provided. Otherwise run `mktemp -d -t cc-compress-XXXXXX` once and reuse that
 same directory for every `cc-compress` call in this session. Never place the
 backup next to the source file.
 
-## 4. Run the script
+## 3. Run the script
 
 ```bash
 node ${CLAUDE_SKILL_DIR}/scripts/compress.mjs "<absolute-filepath>" "<backup-root>"
 ```
 
-Exit codes: `0` = success or clean skip (not a markdown file); `1` = usage
-error, refusal (sensitive filename, empty file, existing backup), or I/O
-failure; `2` = compression failed validation after retries. Validation and
-retries happen entirely on in-memory text — the source file is written at most
-once, only after a valid result exists, so every non-zero exit leaves it
-byte-for-byte untouched (there is nothing to restore).
+The script itself checks git recoverability (tracked-and-clean means
+`git checkout -- <file>` is a second rollback path alongside the session-temp
+backup) before touching anything.
 
-## 5. Report
+Exit codes: `0` = success or clean skip (not a markdown file); `1` = usage
+error, refusal (sensitive filename, empty file, existing/concurrent backup), or
+I/O failure; `2` = compression failed validation after retries; `3` = the
+target is untracked or has uncommitted changes, so the session-temp backup
+would be the *only* rollback path — nothing was touched yet.
+
+**On exit 3:** ask via `AskUserQuestion` whether to proceed anyway (session-temp
+backup only) or cancel. If the user says proceed, re-run the exact same command
+with `--confirmed` appended. Any other exit code needs no confirmation step.
+
+Validation and retries happen entirely on in-memory text — the source file is
+written at most once, only after a valid result exists, so every non-zero exit
+(besides a resolved exit 3) leaves it byte-for-byte untouched.
+
+## 4. Report
 
 - **Success:** state the compressed file path and the printed backup path
   plainly — the backup is the rollback source (copy its content back over the
   compressed file to undo). Mention it lives in session-temp storage, so it may
   not survive past this session.
 - **Skip (not markdown):** say so; nothing changed.
+- **Cancelled at the exit-3 gate:** say so; nothing changed.
 - **Failure:** relay the script's printed reason. The original file was never
   touched — never left half-compressed.

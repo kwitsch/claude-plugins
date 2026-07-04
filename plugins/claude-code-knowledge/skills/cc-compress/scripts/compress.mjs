@@ -78,6 +78,32 @@ function shouldCompress(filepath) {
   return extname(filepath).toLowerCase() === '.md';
 }
 
+// ---------- Git recoverability ----------
+// git-tracked + clean means `git checkout -- <file>` is a second rollback
+// path alongside the session-temp backup; untracked or dirty means the
+// session-temp backup is the ONLY rollback path, which the caller should
+// confirm with the user before proceeding (see the --confirmed flag).
+
+/**
+ * @param {string} filepath
+ * @returns {boolean}
+ */
+function isGitRecoverable(filepath) {
+  const dir = dirname(filepath);
+  try {
+    execFileSync('git', ['-C', dir, 'ls-files', '--error-unmatch', '--', filepath], { stdio: 'ignore' });
+  } catch {
+    return false; // untracked, or not inside a git repo at all
+  }
+  let status;
+  try {
+    status = execFileSync('git', ['-C', dir, 'status', '--porcelain', '--', filepath], { encoding: 'utf8' });
+  } catch {
+    return false;
+  }
+  return /** @type {string} */ (status).trim() === '';
+}
+
 // ---------- Backup path ----------
 // Mirrors the parent directory name PLUS a short hash of its full resolved
 // path under the backup root. A bare parent-dir-name mirror collides for two
@@ -351,9 +377,10 @@ function validate(origText, compText) {
 /**
  * @param {string} filepath
  * @param {string} backupRoot
+ * @param {boolean} confirmed
  * @returns {number} process exit code
  */
-function compressFile(filepath, backupRoot) {
+function compressFile(filepath, backupRoot, confirmed) {
   filepath = resolve(filepath);
 
   /** @type {any} */
@@ -384,6 +411,12 @@ function compressFile(filepath, backupRoot) {
   if (!shouldCompress(filepath)) {
     console.log('Skipping: not a markdown file');
     return 0;
+  }
+  if (!confirmed && !isGitRecoverable(filepath)) {
+    console.log(`Not git-recoverable: ${filepath} is untracked or has uncommitted changes.`);
+    console.log('The session-temp backup would be the only rollback path if compression proceeds.');
+    console.log('Re-run with --confirmed to proceed anyway.');
+    return 3;
   }
 
   console.log(`Processing: ${filepath}`);
@@ -517,13 +550,15 @@ function compressFile(filepath, backupRoot) {
 // ---------- CLI ----------
 
 function main() {
-  const [, , filepath, backupRoot] = process.argv;
+  const args = process.argv.slice(2);
+  const confirmed = args.includes('--confirmed');
+  const [filepath, backupRoot] = args.filter((a) => a !== '--confirmed');
   if (!filepath || !backupRoot) {
-    console.log('Usage: compress.mjs <filepath> <backup-root-dir>');
+    console.log('Usage: compress.mjs <filepath> <backup-root-dir> [--confirmed]');
     process.exit(1);
   }
   try {
-    process.exit(compressFile(filepath, backupRoot));
+    process.exit(compressFile(filepath, backupRoot, confirmed));
   } catch (err) {
     const e = /** @type {any} */ (err);
     console.log(`Error: ${e.message}`);
