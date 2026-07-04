@@ -561,9 +561,9 @@ run_ci_watch() {
   assert_success
 }
 
-@test "plugin.json version bumped for context-mode routing repoint (this unreleased branch)" {
+@test "plugin.json version bumped for wave-parallel implement + step reporting (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.9.1"
+  assert_output "0.10.0"
 }
 
 @test "plugin.json description mentions fresh-work" {
