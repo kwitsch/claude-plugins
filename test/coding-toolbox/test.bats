@@ -683,6 +683,14 @@ run_ci_watch() {
   assert_output --partial "unchanged"
 }
 
+@test "subagent-tracking fresh-work row reflects wave-parallel dispatch, not pure sequential" {
+  RULE="$BATS_TEST_DIRNAME/../../.claude/rules/subagent-tracking.md"
+  run grep 'coding-toolbox:fresh-work' "$RULE"
+  assert_success
+  assert_output --partial "wave-parallel"
+  assert_output --partial "merger dispatch"
+}
+
 @test "fresh-work references/reviewing.md exists and is non-empty" {
   run test -s "$PLUGIN/skills/fresh-work/references/reviewing.md"
   assert_success
