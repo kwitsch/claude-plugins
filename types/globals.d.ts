@@ -4,6 +4,7 @@
 
 declare var process: {
   env: Record<string, string | undefined>;
+  argv: string[];
   stdin: {
     on(event: "data", listener: (chunk: Buffer) => void): any;
     on(event: "end", listener: () => void): any;

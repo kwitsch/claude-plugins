@@ -50,8 +50,10 @@ node ${CLAUDE_SKILL_DIR}/scripts/compress.mjs "<absolute-filepath>" "<backup-roo
 
 Exit codes: `0` = success or clean skip (not a markdown file); `1` = usage
 error, refusal (sensitive filename, empty file, existing backup), or I/O
-failure — original untouched; `2` = compression failed validation after
-retries — original automatically restored.
+failure; `2` = compression failed validation after retries. Validation and
+retries happen entirely on in-memory text — the source file is written at most
+once, only after a valid result exists, so every non-zero exit leaves it
+byte-for-byte untouched (there is nothing to restore).
 
 ## 5. Report
 
@@ -60,5 +62,5 @@ retries — original automatically restored.
   compressed file to undo). Mention it lives in session-temp storage, so it may
   not survive past this session.
 - **Skip (not markdown):** say so; nothing changed.
-- **Failure:** relay the script's printed reason. The original file is
-  untouched or was automatically restored — never left half-compressed.
+- **Failure:** relay the script's printed reason. The original file was never
+  touched — never left half-compressed.
