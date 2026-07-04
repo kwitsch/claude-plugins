@@ -16,6 +16,7 @@ Lookup skill plus harness-optimized reference files for authoring and configurin
 | `cc-review` | Audits a Claude Code component (plugin/skill/agent/hook/command/MCP/memory/settings) against the `cc-reference` rules via the read-only `cc-reviewer` agent, then interactively applies the recommendations you select. |
 | `cc-author` | Creates a new Claude Code component (skill/agent/hook/command/MCP/plugin/CLAUDE.md/settings) grounded strictly in the `cc-reference` rules via the read-only `cc-author-planner` agent, writes it, and optionally hands it to `cc-review`. |
 | `cc-memory` | Discovers every CLAUDE.md and `.claude/rules/*.md` file in the project (default: whole repo), audits each against the `cc-reference` memory rules (reusing the `cc-reviewer` agent), grades them in a claude-md-improver-style quality report, recommends leanness/scope-splits (subfolder `CLAUDE.md` or `.claude/rules/` with `paths:`); then interactively applies the improvements you pick. |
+| `cc-compress` | Compresses a markdown memory/instruction file (e.g. `CLAUDE.md`) into dense caveman-style prose in place, cutting the token cost of loading it every session. Backs up the original to session-temp storage for rollback. Adaptation of upstream `caveman-compress`. |
 
 ## Agents
 
