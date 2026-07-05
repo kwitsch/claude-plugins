@@ -1042,3 +1042,35 @@ MDEOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"cc-compress"* ]]
 }
+
+# --- context-mode removal ---
+
+@test "claude-code-expert agent has no context-mode reference" {
+  run grep -c "context-mode" "$PLUGIN/agents/claude-code-expert.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "cc-author-planner agent has no context-mode reference" {
+  run grep -c "context-mode" "$PLUGIN/agents/cc-author-planner.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "cc-reviewer agent has no context-mode reference" {
+  run grep -c "context-mode" "$PLUGIN/agents/cc-reviewer.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "cc-reference skill has no context-mode reference" {
+  run grep -c "context-mode" "$PLUGIN/skills/cc-reference/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "cc-review skill has no context-mode reference" {
+  run grep -c "context-mode" "$PLUGIN/skills/cc-review/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "cc-memory skill has no context-mode reference" {
+  run grep -c "context-mode" "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -ne 0 ]
+}

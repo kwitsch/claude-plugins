@@ -56,7 +56,6 @@
   "permissions": {
     "allow": [
       "AskUserQuestion",
-      "mcp__plugin_context-mode_context-mode__*",
       "mcp__codebase-memory-mcp__*"
     ]
   },

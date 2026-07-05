@@ -2,24 +2,12 @@
 name: cc-reference
 description: Answers questions about authoring and configuring Claude Code — Skills, subagents, hooks, slash commands, MCP servers, plugins, CLAUDE.md memory, and settings/permissions (frontmatter fields, lifecycle, invocation, dynamic context, forks, hook events/matchers/exit-codes, handler-type choice, .mcp.json/transports, plugin.json/marketplace, settings.json/env vars/permission modes) by retrieving only the relevant section from the bundled reference files, falling back to the live official docs via WebFetch when the bundled files don't cover the question. Use when the user asks how a Claude Code authoring or configuration feature works, or invokes /cc-reference with a question.
 argument-hint: [your question]
-allowed-tools: Read, Grep, WebFetch, WebSearch, mcp__plugin_context-mode_context-mode__ctx_fetch_and_index, mcp__plugin_context-mode_context-mode__ctx_search, ToolSearch
+allowed-tools: Read, Grep, WebFetch, WebSearch
 ---
 
 # Claude Code reference lookup
 
 Answer `$ARGUMENTS` from the bundled reference files. Retrieve only the matching section(s) — do NOT read whole files into context.
-
-## context-mode routing (optional acceleration)
-
-If the context-mode MCP tools are available, fetch internet content through them so
-raw page bytes stay out of context — leaner, faster turns. Fall back to WebFetch
-when absent; never block on context-mode.
-
-- **Fetching information from the internet** → `ctx_fetch_and_index(url, source)`
-  then `ctx_search(queries)`, keeping only the matched sections. Load the tool once
-  with `ToolSearch(query: "select:mcp__plugin_context-mode_context-mode__ctx_fetch_and_index")`
-  (retry the bare name `select:ctx_fetch_and_index`); if it does not resolve, use
-  WebFetch.
 
 Files live in the `references/` subfolder of this skill:
 - `${CLAUDE_SKILL_DIR}/references/claude-code-skills-reference.md` — authoring **Skills**
