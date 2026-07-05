@@ -36,7 +36,7 @@ and read the enclosing context of changed functions the same way.
 
 Only run read-only commands (`git diff`, `git show`, `git log`, file
 reads) — never `git add`/`commit`/`push`/`checkout`/`fetch` and nothing
-that mutates the work tree, neither in the ctx shell nor in Bash.
+that mutates the work tree.
 
 <!-- Keep the findings shape, severity enum and `tool` field aligned with
      the codex/copilot/coderabbit reviewer agents' result contracts. -->
