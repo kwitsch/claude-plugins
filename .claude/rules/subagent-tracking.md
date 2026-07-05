@@ -79,4 +79,4 @@ subagent-scoped probe.
 | new-pr | ci-monitor; review-fixer (each sequential) | review-fixer dispatch; the push | medium |
 | review-branch | claude-reviewer (per round); review-fixer (per round, when findings remain) | decide step; next-round dispatch | medium |
 | coding-toolbox:fresh-pr | ci-watcher; pr-fixer (each sequential, per goal-loop iteration) | pr-fixer dispatch; next-iteration dispatch | medium |
-| coding-toolbox:fresh-work | implementer; reviewer; fixer (sequential per plan task, Agent engine; the Workflow engine gates internally) | reviewer dispatch; fixer dispatch; next-task dispatch | medium |
+| coding-toolbox:fresh-work | implementer; reviewer; fixer (wave-parallel per `references/implementing.md`'s Parallelism analysis — Agent engine batches a wave's implementers, then its reviewers, then its fixers, each in one message; size-1 waves stay one at a time; merge-back runs via the orchestrator's own Bash, not a dispatch; the Workflow engine gates internally) | reviewer-batch dispatch; fixer-batch dispatch; that wave's merge-back; next-wave dispatch | medium |

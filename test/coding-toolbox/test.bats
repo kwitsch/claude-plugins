@@ -561,9 +561,9 @@ run_ci_watch() {
   assert_success
 }
 
-@test "plugin.json version bumped for context-mode routing repoint (this unreleased branch)" {
+@test "plugin.json version bumped for wave-parallel implement + step reporting (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.9.1"
+  assert_output "0.10.0"
 }
 
 @test "plugin.json description mentions fresh-work" {
@@ -628,6 +628,13 @@ run_ci_watch() {
   assert_output --partial "self-review (below) always validates"
 }
 
+@test "fresh-work planning reference marks Files/Interfaces as load-bearing for scheduling" {
+  run cat "$PLUGIN/skills/fresh-work/references/planning.md"
+  assert_success
+  assert_output --partial "load-bearing"
+  assert_output --partial "conservatively serialized"
+}
+
 @test "fresh-work references/implementing.md exists and is non-empty" {
   run test -s "$PLUGIN/skills/fresh-work/references/implementing.md"
   assert_success
@@ -651,6 +658,51 @@ run_ci_watch() {
   refute_output --partial '${args.planPath}'
   refute_output --partial 'for (const t of args.tasks)'
   refute_output --partial '${args.constraints}'
+}
+
+@test "fresh-work implementing reference computes wave-parallel scheduling from Files/Interfaces" {
+  run cat "$PLUGIN/skills/fresh-work/references/implementing.md"
+  assert_success
+  assert_output --partial "Parallelism analysis"
+  assert_output --partial "wave[i]"
+  assert_output --partial "conservative"
+}
+
+@test "fresh-work implementing reference isolates wave-parallel implementers and merges back" {
+  run cat "$PLUGIN/skills/fresh-work/references/implementing.md"
+  assert_success
+  assert_output --partial "isolation: 'worktree'"
+  assert_output --partial "git merge --no-ff"
+  assert_output --partial "hard stop"
+}
+
+@test "fresh-work implementing reference keeps wave size 1 identical to today's flow" {
+  run cat "$PLUGIN/skills/fresh-work/references/implementing.md"
+  assert_success
+  assert_output --partial "wave size 1"
+  assert_output --partial "unchanged"
+}
+
+@test "fresh-work implementing reference computes waves as real code, not a hand-derived literal" {
+  run cat "$PLUGIN/skills/fresh-work/references/implementing.md"
+  assert_success
+  assert_output --partial "function computeWaves(tasksIn)"
+  assert_output --partial "const waves = computeWaves(tasks)"
+}
+
+@test "fresh-work implementing reference runs Agent-engine merge-back via Bash, not a merger dispatch" {
+  run cat "$PLUGIN/skills/fresh-work/references/implementing.md"
+  assert_success
+  assert_output --partial "orchestrator's own Bash"
+  assert_output --partial "rather than dispatching a separate merger"
+}
+
+@test "subagent-tracking fresh-work row reflects wave-parallel dispatch, not pure sequential" {
+  RULE="$BATS_TEST_DIRNAME/../../.claude/rules/subagent-tracking.md"
+  run grep 'coding-toolbox:fresh-work' "$RULE"
+  assert_success
+  assert_output --partial "wave-parallel"
+  assert_output --partial "orchestrator's own Bash"
 }
 
 @test "fresh-work references/reviewing.md exists and is non-empty" {
@@ -753,6 +805,14 @@ run_ci_watch() {
   assert_success
   assert_output --partial "State the derived name to the user (plain"
   assert_output --partial "output, not a question) before step 3."
+}
+
+@test "fresh-work Task-list integration requires a one-line step-start announcement" {
+  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  assert_output --partial "Step-start reporting."
+  assert_output --partial "Starting step 4: Design."
+  assert_output --partial "never a question"
 }
 
 @test "fresh-work Review step commits each sub-pass separately, never bundled" {

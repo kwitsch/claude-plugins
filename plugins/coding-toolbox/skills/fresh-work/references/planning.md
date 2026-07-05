@@ -80,6 +80,16 @@ Every task ends with an independently verifiable deliverable and its own commit.
 - [ ] Step 5: Commit                   (exact git commands, repo conventions)
 ```
 
+## Files/Interfaces are load-bearing
+
+`references/implementing.md`'s wave-parallel dispatch reads a task's `Files`
+and `Interfaces` sections directly to decide which tasks can safely run
+concurrently — they are no longer documentation-only. An incomplete `Files`
+list, or a `Consumes` entry that doesn't name an exact earlier `Produces`
+value, forces that task to be conservatively serialized behind everything
+before it — never silently parallelized. Keep them exact for that reason,
+not only for reader clarity.
+
 ## No placeholders
 
 Plan failures — never write them: "TBD", "TODO", "implement later", "add
