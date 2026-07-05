@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "test:bats": "bats test/",
-    "test:unit": "node --test",
+    "test:unit": "node --test $(find .claude test -name '*.test.mjs' 2>/dev/null)",
     "typecheck": "tsc --noEmit",
     "lint": "eslint plugins test .claude/hooks",
     "format": "prettier --write \"**/*.{js,mjs}\""
