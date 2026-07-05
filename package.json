@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:bats": "bats -r test/",
+    "test:bats": "BATS_LIB_PATH=\"$PWD/node_modules\" bats -r test/",
     "test:unit": "node --test",
     "typecheck": "tsc --noEmit",
     "lint": "eslint plugins test .claude/hooks",
