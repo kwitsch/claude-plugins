@@ -16,7 +16,7 @@ Claude Code plugin marketplace.
 npm ci
 
 # run plugin bats suite
-BATS_LIB_PATH=node_modules npx bats test/<name>/
+BATS_LIB_PATH="$PWD/node_modules" npx bats test/<name>/
 
 # type-check .mjs files (plugins/, test/, .claude/hooks/)
 npm run typecheck
