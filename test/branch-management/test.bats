@@ -144,7 +144,7 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 
 @test "version: declared once — plugin.json only, marketplace entry carries none" {
   run jq -r '.version' "$REPO_ROOT/$PLUGIN_JSON_REL"
-  assert_output "5.0.2"
+  assert_output "5.0.3"
   run jq -e '.plugins[] | select(.name == "branch-management") | has("version") | not' \
     "$REPO_ROOT/.claude-plugin/marketplace.json"
   assert_success
@@ -662,6 +662,24 @@ RB_SKILL2="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-bran
   f="$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/claude-reviewer.md"
   [ -f "$f" ]
   grep -q '^name: claude-reviewer$' "$f"
+}
+
+@test "ci-monitor agent has no context-mode reference" {
+  run cat "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/ci-monitor.md"
+  assert_success
+  refute_output --partial "context-mode"
+}
+
+@test "review-fixer agent has no context-mode reference" {
+  run cat "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/review-fixer.md"
+  assert_success
+  refute_output --partial "context-mode"
+}
+
+@test "claude-reviewer agent has no context-mode reference" {
+  run cat "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/claude-reviewer.md"
+  assert_success
+  refute_output --partial "context-mode"
 }
 
 # --- new-branch (branch creation inlined — no subagent dispatch) ---

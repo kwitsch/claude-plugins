@@ -5,9 +5,23 @@ Orchestrator skills (`new-pr`, `review-branch`) dispatch subagents for review wo
 | Concern | Rule |
 |---|---|
 | **Models** | sonnet = ci-monitor; opus = review-fixer, claude-reviewer |
-| **Tools** | each agent declares least-privilege allowlist; both context-mode MCP wildcard spellings (server name differs per install) |
+| **Tools** | each agent declares least-privilege allowlist |
 | **Colors** | unique per scope; same color OK across scopes (agents never co-run); white/default banned. Scope: review (review-fixer, ci-monitor, claude-reviewer) |
 | **Skills** | declare `allowed-tools` pre-approvals + `argument-hint`; no `model:` key |
+
+`ci-monitor`/`review-fixer`/`claude-reviewer`'s optional context-mode
+acceleration was removed 2026-07-05 (continuing the repo-wide phase-out
+started in `coding-toolbox`, PR #112). `rtk` was evaluated per command:
+`ci-monitor`'s named commands (`gh run view --log-failed`, `gh run list`,
+`gh pr checks` via `bin/ci-watch.sh`) matched coding-toolbox's already-tested
+ones exactly — no measurable benefit; `glab`'s `ci trace`/`api` paths remain
+unverified (no `glab` in the dev environment); `review-fixer` has no
+concrete commands to evaluate. `claude-reviewer`'s `git diff
+"origin/<base>"...HEAD` showed real compaction (28%+ smaller) but was
+rejected: the agent's job is correctness-bug-hunting where stripped context
+lines are a real risk, and the compaction is flag-fragile (adding `-U3` to
+the identical command made `rtk` fall back to raw output). None of the
+three agents carries an acceleration block today.
 
 ## Behavior
 - `skills/new-branch`: decides the branch name (explicit arg verbatim, or
