@@ -94,7 +94,14 @@ code-review-rounds step (not requested). Existing-PR handling (create if
 none / update title+body via `gh api PATCH` — never `gh pr edit`, known to
 silently fail on this repo's Projects-classic board — or `glab mr update` if
 open / reopen-then-update if closed / report-and-stop if merged) has no
-`branch-management:new-pr` equivalent.
+`branch-management:new-pr` equivalent. Both agents' optional context-mode acceleration was removed
+2026-07-05 (repo-wide context-mode phase-out, starting here); `rtk` was
+evaluated as a replacement and found to give no measurable benefit for any
+command either agent actually runs (`gh run view --log-failed`, `gh run
+list`, `gh pr checks` all came back byte-identical or only cosmetically
+reformatted when diffed raw-vs-`rtk`; `glab`'s `ci trace`/`api` paths are
+unverified — no `glab` in the dev environment) — so neither agent carries
+an acceleration block today.
 
 ## Skill design (`fresh-work`)
 

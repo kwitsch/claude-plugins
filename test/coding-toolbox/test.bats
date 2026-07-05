@@ -509,6 +509,18 @@ run_ci_watch() {
   assert_success
 }
 
+@test "ci-watcher agent has no context-mode reference" {
+  run cat "$PLUGIN/agents/ci-watcher.md"
+  assert_success
+  refute_output --partial "context-mode"
+}
+
+@test "pr-fixer agent has no context-mode reference" {
+  run cat "$PLUGIN/agents/pr-fixer.md"
+  assert_success
+  refute_output --partial "context-mode"
+}
+
 @test "fresh-pr SKILL.md exists and is non-empty" {
   run test -s "$PLUGIN/skills/fresh-pr/SKILL.md"
   assert_success
@@ -561,9 +573,9 @@ run_ci_watch() {
   assert_success
 }
 
-@test "plugin.json version bumped for wave-parallel implement + step reporting (this unreleased branch)" {
+@test "plugin.json version bumped for context-mode removal + rtk evaluation (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.10.0"
+  assert_output "0.10.1"
 }
 
 @test "plugin.json description mentions fresh-work" {
