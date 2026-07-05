@@ -112,9 +112,17 @@ concurrently across the wave, plus two additions:
    would mint a third, unrelated worktree) but instructed to operate at the
    implementer's reported `worktreePath`/`branch` so the fix commit lands on
    the same isolated branch. Re-review as usual.
-4. **Merge-back (once per wave, after every task in it resolves).** Given the
-   ordered `{taskId, branch, worktreePath}` list for every task that reached
-   `approved`, runs in task-id order: `git merge --no-ff <branch>`, then
+4. **Merge-back (once per wave, after every task in it resolves).** Dispatched
+   like the fixer, **without** `isolation` — its git commands are assumed to
+   run in the main work-branch checkout (the primary worktree, on
+   `branchName`), which is where a non-isolated `agent()` call runs by
+   default. That default is itself session-dependent: in a linked/bridge
+   worktree session, an Agent-tool subagent's default cwd is the *primary*
+   repo root, not the bridge worktree — verify this holds for the session
+   fresh-work is actually running in before trusting the merge-back's target,
+   rather than assuming it. Given the ordered `{taskId, branch, worktreePath}`
+   list for every task that reached `approved`, runs in task-id order:
+   `git merge --no-ff <branch>`, then
    cleans up in the only order git allows — `git worktree remove
    <worktreePath>` **first**, then `git branch -d <branch>` (git refuses to
    delete a branch still checked out in a worktree). Disjoint files by
@@ -258,8 +266,9 @@ const IMPL_RESULT = {
 }
 const MERGE_RESULT = {
   type: 'object',
-  required: ['results'],
+  required: ['results', 'worktreeRoot'],
   properties: {
+    worktreeRoot: { type: 'string' }, // self-reported `git rev-parse --show-toplevel`; surfaces a wrong-cwd merge loudly instead of silently
     results: {
       type: 'array',
       items: {
@@ -323,6 +332,9 @@ NOT treat it as a merge failure; the merge itself already succeeded.
 On a merge conflict: STOP immediately, run \`git merge --abort\`, record that task's
 id as a conflict with the conflicting paths, and do not continue to the remaining
 branches (leave their worktrees/branches in place for manual inspection).
+Before returning, also run \`git rev-parse --show-toplevel\` and report it — this
+should be ${branchName}'s own checkout, not a worktree; if it isn't, something
+dispatched you into the wrong place and the merge target is unreliable.
 Return your result through the structured output schema — one entry per task
 attempted (tasks after a conflict are simply omitted, not marked).`
 
@@ -383,6 +395,7 @@ for (let i = 0; i < waves.length; i++) {
         results.push({ id: 'merge', status: 'failed', reason: 'merger returned null twice' })
         mergeFailed = true
       } else {
+        log(`Wave ${i + 1} merge ran in: ${mergeReport.worktreeRoot}`) // surfaces a wrong-cwd merge loudly instead of silently
         const conflicts = (mergeReport.results || []).filter((r) => r.status === 'conflict')
         if (conflicts.length) {
           results.push({ id: 'merge', status: 'failed', reason: JSON.stringify(conflicts) })
