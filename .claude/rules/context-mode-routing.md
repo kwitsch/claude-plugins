@@ -6,6 +6,13 @@ paths:
 
 # Rule: context-mode routing for skills & agents
 
+**Does not apply to `plugins/coding-toolbox/**`** — that plugin evaluated `rtk`
+as a replacement accelerator, found no measurable benefit, and phased out
+context-mode entirely (2026-07-05, see `plugins/coding-toolbox/CLAUDE.md`)
+rather than adopting this pattern. Negative globs aren't supported in `paths:`
+frontmatter (see `.claude/rules/coderabbit-md-review.md`'s README exclusion
+for the same idiom), so this exclusion is prose-only.
+
 context-mode is an **optional** accelerator (an MCP server exposing `ctx_*`
 tools). Any skill or agent that runs **read-only / output-heavy** shell, or
 **fetches information from the internet**, SHOULD route that work through
