@@ -21,7 +21,7 @@ BATS_LIB_PATH="$PWD/node_modules" npx bats test/<name>/
 # type-check .mjs files (plugins/, test/, .claude/hooks/)
 npm run typecheck
 
-# JS unit tests (node:test — currently .claude/hooks/lint-format.test.mjs)
+# JS unit tests (node:test — currently test/claude-hooks/lint-format.test.mjs)
 npm run test:unit
 
 # lint (dev-time only, not CI-gated on pre-existing files)
