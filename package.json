@@ -3,11 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test:bats": "bats test/",
+    "test:bats": "bats -r test/",
     "test:unit": "node --test",
     "typecheck": "tsc --noEmit",
     "lint": "eslint plugins test .claude/hooks",
-    "format": "prettier --write \"**/*.{js,mjs}\""
+    "format": "prettier --write \"plugins/**/*.{js,mjs}\" \"test/**/*.{js,mjs}\" \".claude/hooks/**/*.{js,mjs}\""
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
