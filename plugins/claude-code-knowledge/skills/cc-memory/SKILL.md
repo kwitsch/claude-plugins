@@ -2,7 +2,7 @@
 name: cc-memory
 description: Audit and improve a project's memory files (every CLAUDE.md and .claude/rules/*.md) against the curated cc-reference memory rules — discover every CLAUDE.md and .claude/rules file, grade each, report quality, then interactively apply the improvements you select. Use when the user asks to check, audit, improve, grade, or maintain CLAUDE.md / .claude/rules / project-memory files.
 argument-hint: [optional repo path]
-allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, AskUserQuestion, mcp__plugin_context-mode_context-mode__*, ToolSearch
+allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, AskUserQuestion
 # review-skip(F1): unscoped Bash/Edit/Write is required — discovery runs against an arbitrary repo path and fixes Edit/Write arbitrary CLAUDE.md files; allowed-tools only pre-approves, never restricts.
 ---
 
@@ -25,21 +25,6 @@ writer.**
 > input" prompt, whereas `AskUserQuestion` raises a notification. Open-ended,
 > free-text prompts may be asked inline, but prefer `AskUserQuestion` whenever the
 > choices can be enumerated.
-
-## context-mode routing (optional acceleration)
-
-If the context-mode MCP tools are available, route heavy work through them so large
-output stays out of context — leaner, faster turns. Fall back to native tools when
-absent; never block on context-mode.
-
-- **Read-only / output-heavy shell** (no filesystem or git writes) → run via
-  `ctx_execute` (one command) or `ctx_batch_execute` (several), printing only the
-  answer. Load the tools once with
-  `ToolSearch(query: "select:mcp__plugin_context-mode_context-mode__ctx_execute,mcp__plugin_context-mode_context-mode__ctx_batch_execute")`
-  (retry the bare names `select:ctx_execute,ctx_batch_execute`); if neither
-  resolves, run the command via Bash.
-- **State-mutating shell** (writes files, `git` commits/pushes, edits settings) →
-  always native Bash; the ctx sandbox discards filesystem and git writes.
 
 ## 1. Resolve the scope
 
