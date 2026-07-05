@@ -6,9 +6,12 @@ paths:
 
 # Rule: context-mode routing for skills & agents
 
-**Does not apply to `plugins/coding-toolbox/**`** — that plugin evaluated `rtk`
-as a replacement accelerator, found no measurable benefit, and phased out
-context-mode entirely (2026-07-05, see `plugins/coding-toolbox/CLAUDE.md`)
+**Does not apply to `plugins/coding-toolbox/**` or `plugins/branch-management/**`**
+— both plugins evaluated `rtk` as a replacement accelerator (no measurable
+benefit, plus for branch-management's `claude-reviewer` a real-but-rejected
+candidate — see its `CLAUDE.md`) and phased out context-mode entirely
+(coding-toolbox 2026-07-05, see `plugins/coding-toolbox/CLAUDE.md`;
+branch-management 2026-07-05, see `plugins/branch-management/CLAUDE.md`)
 rather than adopting this pattern. Negative globs aren't supported in `paths:`
 frontmatter (see `.claude/rules/coderabbit-md-review.md`'s README exclusion
 for the same idiom), so this exclusion is prose-only.
@@ -27,8 +30,8 @@ file's existing frontmatter style (JSON array vs bare comma list). The
 canonical minimum is `mcp__plugin_context-mode_context-mode__*` (or its
 two-tool fetch-only variant) — a file MAY additionally carry the bare
 `mcp__context-mode__*` spelling as a documented superset for a different
-install layout (see `plugins/branch-management/CLAUDE.md`'s "server name
-differs per install" note); that extra grant is not required by this rule.
+install layout (server name differs per install); that extra grant is not
+required by this rule.
 
 ## Which grant
 
