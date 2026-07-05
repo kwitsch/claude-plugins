@@ -19,6 +19,38 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/lint-format.mjs\"",
+            "if": "Write(*.js)"
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/lint-format.mjs\"",
+            "if": "Write(*.mjs)"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/lint-format.mjs\"",
+            "if": "Edit(*.js)"
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/lint-format.mjs\"",
+            "if": "Edit(*.mjs)"
+          }
+        ]
+      }
     ]
   },
   "permissions": {

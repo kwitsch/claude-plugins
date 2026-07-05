@@ -27,18 +27,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install bats
-        run: |
-          sudo apt-get update -qq || true
-          sudo apt-get install -y bats
-          sudo mkdir -p /usr/lib/bats
-          sudo git clone --depth 1 https://github.com/bats-core/bats-support.git /usr/lib/bats/bats-support
-          sudo git clone --depth 1 https://github.com/bats-core/bats-assert.git /usr/lib/bats/bats-assert
+      - name: Install dependencies
+        run: npm ci
 
       - name: Run ${{ matrix.plugin }} test suite
         env:
-          BATS_LIB_PATH: /usr/lib/bats
-        run: bats "test/${{ matrix.plugin }}/"
+          BATS_LIB_PATH: ${{ github.workspace }}/node_modules
+        run: npx bats "test/${{ matrix.plugin }}/"
+
+  unit_and_typecheck:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: JS unit tests
+        run: npm run test:unit
 
   # Single stable check that aggregates the whole test matrix — use this as the
   # required status check (merge guard) in branch protection. It is green only
@@ -46,7 +58,7 @@ jobs:
   # when a leg fails, instead of being skipped.
   test-gate:
     name: Test gate
-    needs: [test]
+    needs: [test, unit_and_typecheck]
     if: always()
     runs-on: ubuntu-latest
     permissions:
@@ -54,8 +66,8 @@ jobs:
     steps:
       - name: Require all test matrix jobs to succeed
         run: |
-          if [ "${{ needs.test.result }}" != "success" ]; then
-            echo "Test matrix did not fully succeed (result: ${{ needs.test.result }})."
+          if [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.unit_and_typecheck.result }}" != "success" ]; then
+            echo "Test matrix did not fully succeed (test: ${{ needs.test.result }}, unit_and_typecheck: ${{ needs.unit_and_typecheck.result }})."
             exit 1
           fi
           echo "All test matrix jobs succeeded."

@@ -1,0 +1,22 @@
+{
+  "name": "claude-plugins-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:bats": "BATS_LIB_PATH=\"$PWD/node_modules\" bats -r test/",
+    "test:unit": "node --test",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint plugins test .claude/hooks",
+    "format": "prettier --write \"plugins/**/*.{js,mjs}\" \"test/**/*.{js,mjs}\" \".claude/hooks/**/*.{js,mjs}\""
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "bats": "^1.13.0",
+    "bats-assert": "^2.2.4",
+    "bats-support": "^0.3.0",
+    "eslint": "^10.6.0",
+    "globals": "^17.7.0",
+    "prettier": "^3.9.4",
+    "typescript": "^6.0.3"
+  }
+}
