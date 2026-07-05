@@ -10,16 +10,6 @@ export function shouldLint(filePath) {
   return /\.m?js$/.test(filePath);
 }
 
-/** @returns {boolean} */
-export function hasRtk() {
-  try {
-    execFileSync("bash", ["-c", "command -v rtk"], { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /** @param {string} lintOutput @returns {HookResult | null} */
 export function buildContext(lintOutput) {
   const trimmed = lintOutput.trim();
@@ -35,13 +25,15 @@ export function buildContext(lintOutput) {
 function main() {
   let filePath;
   try {
+    /** @type {ToolHookInput} */
     const input = JSON.parse(readFileSync(0, "utf8"));
-    filePath = input?.tool_input?.file_path ?? "";
+    const fp = input.tool_input ? input.tool_input.file_path : undefined;
+    filePath = typeof fp === "string" ? fp : "";
   } catch {
     return;
   }
 
-  if (!shouldLint(filePath) || !hasRtk()) return;
+  if (!shouldLint(filePath)) return;
 
   try {
     execFileSync("rtk", ["prettier", "--write", filePath], { stdio: "ignore" });
