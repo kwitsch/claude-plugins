@@ -10,6 +10,7 @@
     "format": "prettier --write \"**/*.{js,mjs}\""
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "bats": "^1.13.0",
     "bats-assert": "^2.2.4",
     "bats-support": "^0.3.0",
