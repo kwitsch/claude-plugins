@@ -686,7 +686,7 @@ run_ci_watch() {
 @test "fresh-work implementing reference computes waves as real code, not a hand-derived literal" {
   run cat "$PLUGIN/skills/fresh-work/references/implementing.md"
   assert_success
-  assert_output --partial "function computeWaves(tasks)"
+  assert_output --partial "function computeWaves(tasksIn)"
   assert_output --partial "const waves = computeWaves(tasks)"
 }
 

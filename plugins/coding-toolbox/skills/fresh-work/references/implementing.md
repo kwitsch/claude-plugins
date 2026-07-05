@@ -12,6 +12,12 @@ deterministic control flow. The loop's structure lives in an orchestration scrip
   `**Files:**` bullet paths (Create/Modify/Test all count), and its
   `**Interfaces:**` `Consumes`/`Produces` name lists.
 - `constraints` — the plan's `## Global Constraints` section, verbatim.
+- `branchName` — the current work branch (`git branch --show-current`),
+  captured once before Implement starts. Needed only for wave ≥2 dispatches:
+  `isolation: 'worktree'` always branches its fresh worktree from the repo's
+  **default** branch, not the caller's current HEAD — without this, a wave
+  after the first would start from a tree missing every earlier wave's
+  already-merged work.
 
 ## Parallelism analysis (before dispatch, deterministic — no agent call)
 
@@ -81,14 +87,24 @@ concurrently across the wave, plus two additions:
    tasks' files are: `git add`/`git commit` mutate the single shared
    `.git/index` and `HEAD`, so two concurrent implementers can interleave
    such that one task's commit silently absorbs another's staged file —
-   corruption with no error. The implementer's return becomes a
-   **structured** (schema) result — see `IMPL_RESULT` below — including
-   `branch` (`git branch --show-current`) and `worktreePath` (`git
-   rev-parse --show-toplevel`), self-reported from inside its own worktree.
-   Do not rely on a tool-level "path and branch returned in the result"
-   side-channel for this — that is documented for the top-level Agent
-   tool's own return value, not confirmed for the Workflow-script `agent()`
-   primitive; self-report works identically in both engines.
+   corruption with no error. **`isolation: 'worktree'` branches from the
+   repo's default branch, not `branchName`** — its very first instruction
+   must be `git reset --hard <branchName>` to bring the isolated worktree up
+   to date with the actual work (this is a `reset`, not a `checkout`, of
+   `branchName`: the isolated worktree's own throwaway branch moves to match
+   that commit; `branchName` itself stays checked out, untouched, in the
+   main worktree). Skipping this step means every wave after the first
+   starts from a tree missing every prior wave's merged commits — for wave
+   1 it's a no-op (nothing has been merged yet, so the default branch and
+   `branchName` are identical), but it is never safe to skip on the
+   assumption a task happens to be in wave 1. The implementer's return
+   becomes a **structured** (schema) result — see `IMPL_RESULT` below —
+   including `branch` (`git branch --show-current`) and `worktreePath`
+   (`git rev-parse --show-toplevel`), self-reported from inside its own
+   worktree. Do not rely on a tool-level "path and branch returned in the
+   result" side-channel for this — that is documented for the top-level
+   Agent tool's own return value, not confirmed for the Workflow-script
+   `agent()` primitive; self-report works identically in both engines.
 2. **Review.** Unchanged — no isolation, no path targeting: `git show
    <commitHash>` reads shared objects from any worktree, including the main
    checkout.
@@ -117,7 +133,14 @@ concurrently across the wave, plus two additions:
    still failing after one fixer round) does not discard its wave siblings:
    still merge every other task in the wave that reached `approved`, then
    report the failed task and stop the whole pipeline — do not open a PR on
-   a half-implemented plan.
+   a half-implemented plan. A task that fails after its implementer
+   succeeded (review/fix stage) reports its `branch`/`worktreePath` in the
+   failure too, so its abandoned worktree can be found for manual cleanup.
+   Known gap, accepted: if the implementer itself dies before ever
+   self-reporting `worktreePath` (`null` on both attempts), any worktree the
+   tool minted for that dead attempt has no recorded path and is orphaned —
+   there is no channel to recover it from, since the dead worker never
+   returned anything.
 
 ## Engine selection
 
@@ -159,15 +182,21 @@ export const meta = {
 // Inlined by the caller — NOT sourced from `args` (see note above):
 const planPath = /* absolute plan temp path, as a JS string literal */
 const constraints = /* the plan's Global Constraints section, as a JS string literal */
+const branchName = /* the current work branch (git branch --show-current), as a JS string literal */
 const tasks = /* the plan's [{id, title, files, consumes, produces}] list, as a JS array literal */
 
-function computeWaves(tasks) {
+function normalizeFile(entry) {
+  return entry.replace(/\s*\([^)]*\)\s*$/, '').trim() // drop a trailing "(lines N-M)" annotation — same file, different range still counts as an overlap
+}
+
+function computeWaves(tasksIn) {
+  const tasks = [...tasksIn].sort((a, b) => Number(a.id) - Number(b.id)) // dependencies only point to a numerically smaller id — process in that order so waveOf[d] is always already set
   const waveOf = {}
   const filesOf = {}
   const producesOf = {}
   const waves = []
   for (const t of tasks) {
-    filesOf[t.id] = new Set(t.files || [])
+    filesOf[t.id] = new Set((t.files || []).map(normalizeFile))
     producesOf[t.id] = new Set(t.produces || [])
   }
   for (const t of tasks) {
@@ -175,17 +204,17 @@ function computeWaves(tasks) {
     let ambiguous = !t.files || !t.files.length || t.consumes == null || t.produces == null
     const deps = new Set()
     for (const other of tasks) {
-      if (other.id >= t.id) continue // backward-only invariant: only strictly earlier tasks
+      if (Number(other.id) >= Number(t.id)) continue // backward-only invariant: only strictly earlier tasks
       let edge = false
       for (const f of filesOf[other.id]) if (filesOf[t.id].has(f)) edge = true
       for (const c of consumes) if (producesOf[other.id].has(c)) edge = true
       if (edge) deps.add(other.id)
     }
     for (const c of consumes) {
-      const matched = tasks.some((other) => other.id < t.id && producesOf[other.id].has(c))
+      const matched = tasks.some((other) => Number(other.id) < Number(t.id) && producesOf[other.id].has(c))
       if (!matched) ambiguous = true // Consumes names nothing any earlier task Produces
     }
-    if (ambiguous) for (const other of tasks) if (other.id < t.id) deps.add(other.id)
+    if (ambiguous) for (const other of tasks) if (Number(other.id) < Number(t.id)) deps.add(other.id)
     let w = 1
     for (const d of deps) w = Math.max(w, waveOf[d] + 1)
     waveOf[t.id] = w
@@ -217,7 +246,7 @@ const VERDICT = {
 }
 const IMPL_RESULT = {
   type: 'object',
-  required: ['status', 'commitHash', 'branch', 'worktreePath'],
+  required: ['status', 'commitHash', 'branch', 'worktreePath', 'testEvidence', 'deviations'],
   properties: {
     status: { enum: ['done', 'blocked'] },
     commitHash: { type: 'string' },
@@ -257,9 +286,15 @@ Return: STATUS: done|blocked, the commit hash, test evidence (commands + output)
 and any deviation from the plan.`
 const isolatedImplementerPrompt = (t) => `You are the implementer for exactly one plan task,
 running in your own isolated git worktree.
+FIRST, before anything else: run \`git reset --hard ${branchName}\`. Your worktree was
+branched from the repo's default branch, not ${branchName} — this step is required to
+bring it up to date with the actual work; skipping it means you'd be working from a
+stale/wrong base.
 ${implementerBody(t)}
-Before returning, run \`git branch --show-current\` and \`git rev-parse --show-toplevel\`
-and report their exact output. Return your result through the structured output schema.`
+Before returning, run \`git branch --show-current\`, \`git rev-parse --show-toplevel\`,
+and \`git rev-parse HEAD\` (your commit hash) and report their exact output, along with
+test evidence (commands + output) and any deviation from the plan. Return your result
+through the structured output schema.`
 const reviewerPrompt = (t, implReport) => `You are a read-only reviewer for one plan task.
 Plan file: ${planPath} — Read it; review ONLY task ${t.id} (${t.title}).
 Implementer report: ${implReport}
@@ -276,7 +311,7 @@ Plan file: ${planPath}, task ${t.id} (${t.title}).
 Apply exactly these findings — nothing else — then commit (repo conventions, no
 co-author trailers): ${JSON.stringify(findings)}
 Return: STATUS: done|blocked, commit hash, what changed.`
-const isolatedFixerNote = (worktreePath, branch) => ` You are on branch ${branch} at ${worktreePath} — an isolated worktree; run your commands there, do not create a new one.`
+const isolatedFixerNote = (worktreePath, branch) => ` You are on branch ${branch} at ${worktreePath} — an isolated worktree; run your commands there, do not create a new one. A standalone \`cd\` does NOT persist to your next Bash call — chain \`cd "${worktreePath}" && ...\` into every single command (git and otherwise), or every command after the first silently runs in your default checkout instead.`
 const mergerPrompt = (approved) => `Merge these approved task branches into the current
 branch, in this exact order, one at a time: ${JSON.stringify(approved)} (each entry
 is {id, branch, worktreePath}).
@@ -297,6 +332,9 @@ async function runTask(t, isolated) {
   let impl = await agent(implPrompt, implOpts)
   if (impl === null) impl = await agent(implPrompt, { ...implOpts, label: `task:${t.id}:retry` })
   if (impl === null) return { id: t.id, status: 'failed', reason: 'implementer returned null twice' }
+  if (isolated && impl.status === 'blocked') {
+    return { id: t.id, status: 'failed', reason: 'implementer reported blocked', branch: impl.branch, worktreePath: impl.worktreePath }
+  }
   const implReportText = isolated ? JSON.stringify(impl) : impl
   let review = await agent(reviewerPrompt(t, implReportText), { label: `review:${t.id}`, phase: 'Implement', schema: VERDICT })
   if (review === null) review = await agent(reviewerPrompt(t, implReportText), { label: `review:${t.id}:retry`, phase: 'Implement', schema: VERDICT })
@@ -306,7 +344,7 @@ async function runTask(t, isolated) {
       const fixPrompt = isolated ? fixerPrompt(t, blocking, isolatedFixerNote(impl.worktreePath, impl.branch)) : fixerPrompt(t, blocking)
       const fixResult = await agent(fixPrompt, { label: `fix:${t.id}`, phase: 'Implement' })
       const reReviewReport = isolated
-        ? `Post-fix re-review. Branch: ${impl.branch}. Original report: ${implReportText}. Fix report: ${fixResult}`
+        ? `Post-fix re-review. Branch: ${impl.branch} — the fix commit is the LATEST commit on that branch (run \`git log ${impl.branch} -1\`); diff that, not just the original commit. Original report: ${implReportText}. Fix report: ${fixResult}`
         : 'Post-fix re-review; diff the fix commit too.'
       review = await agent(reviewerPrompt(t, reReviewReport), {
         label: `re-review:${t.id}`,
@@ -316,7 +354,7 @@ async function runTask(t, isolated) {
     }
   }
   const blockingLeft = !review || (!review.approved && review.findings.some((f) => f.severity !== 'minor'))
-  if (blockingLeft) return { id: t.id, status: 'failed', review }
+  if (blockingLeft) return { id: t.id, status: 'failed', review, branch: isolated ? impl.branch : null, worktreePath: isolated ? impl.worktreePath : null }
   return {
     id: t.id,
     status: 'done',
@@ -327,20 +365,29 @@ async function runTask(t, isolated) {
 }
 
 const results = []
-for (const wave of waves) {
+for (let i = 0; i < waves.length; i++) {
+  const wave = waves[i]
   const waveTasks = wave.map((id) => tasks.find((t) => t.id === id))
   const isolated = waveTasks.length > 1
-  const waveResults = await parallel(waveTasks.map((t) => () => runTask(t, isolated)))
+  log(`Wave ${i + 1}/${waves.length}: dispatching ${waveTasks.length} task(s)${isolated ? ' in parallel' : ''} (ids ${wave.join(', ')})`)
+  // wave size 1 stays a single direct call — no parallel(), byte-for-byte the original sequential path
+  const waveResults = isolated ? await parallel(waveTasks.map((t) => () => runTask(t, isolated))) : [await runTask(waveTasks[0], false)]
   results.push(...waveResults)
   let mergeFailed = false
   if (isolated) {
     const approved = waveResults.filter((r) => r && r.status === 'done').map((r) => ({ id: r.id, branch: r.branch, worktreePath: r.worktreePath }))
     if (approved.length) {
-      const mergeReport = await agent(mergerPrompt(approved), { label: 'merge:wave', phase: 'Implement', schema: MERGE_RESULT })
-      const conflicts = ((mergeReport && mergeReport.results) || []).filter((r) => r.status === 'conflict')
-      if (conflicts.length) {
-        results.push({ id: 'merge', status: 'failed', reason: JSON.stringify(conflicts) })
+      let mergeReport = await agent(mergerPrompt(approved), { label: 'merge:wave', phase: 'Implement', schema: MERGE_RESULT })
+      if (mergeReport === null) mergeReport = await agent(mergerPrompt(approved), { label: 'merge:wave:retry', phase: 'Implement', schema: MERGE_RESULT })
+      if (mergeReport === null) {
+        results.push({ id: 'merge', status: 'failed', reason: 'merger returned null twice' })
         mergeFailed = true
+      } else {
+        const conflicts = (mergeReport.results || []).filter((r) => r.status === 'conflict')
+        if (conflicts.length) {
+          results.push({ id: 'merge', status: 'failed', reason: JSON.stringify(conflicts) })
+          mergeFailed = true
+        }
       }
     }
   }
@@ -353,12 +400,16 @@ Script-environment facts (cross-check against the live Workflow tool schema befo
 use — probe it once with `ToolSearch(query: "select:Workflow")` and inspect its
 description): plain JavaScript (no TypeScript syntax); `agent(prompt, {label, phase,
 schema, isolation})` returns the worker's text, or the schema-validated object when
-`schema` is passed, or `null` when the worker dies; `Date.now()`, `Math.random()`, and
-argless `new Date()` may not be available inside scripts — inline any needed
-timestamp or id as a literal in the script text (computed before you build the
-string), same as `planPath`/`constraints`/`tasks` above (`waves` is derived inside
-the script, not inlined) — not via `args` (see the Workflow engine note on why
-`args` is unreliable here).
+`schema` is passed, or `null` when the worker dies; `parallel(thunks)` takes an array
+of **not-yet-invoked** zero-arg functions (`() => promise`, not already-started
+promises) and awaits all of them, per the tool's own documented signature —
+`waveTasks.map((t) => () => runTask(t, isolated))` matches this exactly; `log(message)`
+emits a one-line progress note to the user, used above for the per-wave announcement;
+`Date.now()`, `Math.random()`, and argless `new Date()` may not be available inside
+scripts — inline any needed timestamp or id as a literal in the script text (computed
+before you build the string), same as `planPath`/`constraints`/`branchName`/`tasks`
+above (`waves` is derived inside the script, not inlined) — not via `args` (see the
+Workflow engine note on why `args` is unreliable here).
 
 After the workflow returns, read the results: any `status: 'failed'` entry → stop
 and surface it; otherwise carry the collected `minor` findings forward to the PR
@@ -367,13 +418,21 @@ step.
 ## Agent engine (fallback)
 
 Run the identical per-task loop yourself, dispatching each worker via the Agent tool
-with the same prompts (substitute the placeholders by hand), computing waves per the
-Parallelism analysis above. Wave size 1: strictly one dispatch at a time, judge
-completion by the returned content, never by elapsed time. Wave size ≥2:
+with the same prompts (substitute the placeholders by hand — including `branchName`,
+captured once via `git branch --show-current` before Implement starts), computing
+waves per the Parallelism analysis above. Wave size 1: strictly one dispatch at a
+time, judge completion by the returned content, never by elapsed time. Wave size ≥2
+gates at wave-batch granularity rather than per-task (a fast task's review waits for
+its slowest wave-mate's implementer) — simpler than a fully per-task-granular
+dispatch and still an improvement over serializing every dispatch, but not literally
+identical wall-clock behavior to the Workflow engine's per-task `parallel()` pipeline:
 
 - **Implement.** Dispatch that wave's implementers together in a single message
   (multiple Agent tool-use blocks, each with `isolation: 'worktree'`) — the
-  documented pattern for running agents in parallel.
+  documented pattern for running agents in parallel. Each implementer's prompt
+  must include the `git reset --hard <branchName>` first-instruction from the
+  Per-task-loop section above — `isolation: 'worktree'` branches from the repo's
+  default branch here too, not from this session's current branch.
 - **Review.** Once every implementer in the batch is reconciled, dispatch that
   wave's reviewers together the same way — one message, multiple blocks. A
   review is read-only (`git show <commitHash>` needs no isolation and no
