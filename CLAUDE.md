@@ -8,7 +8,7 @@ Claude Code plugin marketplace.
 - `test/<name>/test.bats` — per-plugin bats suite (top-level); conventions in `.claude/rules/test-conventions.md`.
 - `.claude/rules/` — path-scoped rules loaded by Claude Code when editing matching files (versioning, userConfig, hooks, skills, agents, README sync, test conventions, coderabbit review).
 - `.claude/hooks/` — repo-level (non-plugin) Claude Code hooks, wired via `.claude/settings.json` (as opposed to `plugins/*/hooks/`, which only apply when that plugin is enabled).
-- `.github/workflows/ci.yml` validates manifests; `test.yml` runs bats suites; `tag-on-version-bump.yml` tags plugins whose plugin.json version has no tag yet.
+- `.github/workflows/ci.yml` validates manifests; `test.yml` runs bats suites plus a `unit_and_typecheck` job (`npm run typecheck` + `npm run test:unit`); `tag-on-version-bump.yml` tags plugins whose plugin.json version has no tag yet.
 
 ## Testing
 ```bash
