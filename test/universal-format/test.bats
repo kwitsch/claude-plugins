@@ -122,3 +122,158 @@ setup() {
   run grep -E "^## Hooks" "$PLUGIN/README.md"
   assert_failure
 }
+
+# --- behavioral: format_file core --------------------------------------------
+
+# make_stub <name> <body-line>... — drop an executable bash stub into MOCKBIN.
+make_stub() {
+  local name="$1"; shift
+  { printf '#!/usr/bin/env bash\n'; printf '%s\n' "$@"; } > "$MOCKBIN/$name"
+  chmod +x "$MOCKBIN/$name"
+}
+
+# A recording+rewriting stub: appends "<name> <argv>" to $RECORD and overwrites the
+# target file (always the last arg) so the server's content-diff sees a change.
+rec_stub() {
+  make_stub "$1" \
+    'printf "%s %s\n" "'"$1"'" "$*" >> "$RECORD"' \
+    'for last; do :; done' \
+    'printf "reformatted-by-'"$1"'\n" > "$last"'
+}
+
+# format_file_call <file_path> <cwd> — one initialize + one tools/call over stdio on a
+# fresh server process, on the isolated PATH. Echoes the tools/call structuredContent.
+format_file_call() {
+  local fp="$1" cwd="$2"
+  {
+    printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n'
+    printf '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"format_file","arguments":%s}}\n' \
+      "$(jq -cn --arg f "$fp" --arg c "$cwd" '{hook_event_name:"PostToolUse", tool_name:"Write", tool_input:{file_path:$f}, tool_response:{success:true}, cwd:$c}')"
+  } | env PATH="$MOCKBIN" HOME="$HOME" RECORD="$RECORD" node "$SERVER" 2>/dev/null \
+    | jq -c 'select(.id == 2) | .result.structuredContent'
+}
+
+@test "formats a shell file: shfmt runs, file changes, additionalContext returned" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'echo  hi\n' > "$cwd/a.sh"
+  rec_stub shfmt
+  run format_file_call "$cwd/a.sh" "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.hookEventName == "PostToolUse" and (.hookSpecificOutput.additionalContext | test("shfmt reformatted a.sh"))'
+  run grep -F "shfmt " "$RECORD"
+  assert_success
+  run cat "$cwd/a.sh"
+  assert_output --partial "reformatted-by-shfmt"
+}
+
+@test "no formatter on PATH -> file untouched, {} result" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'echo  hi\n' > "$cwd/a.sh"
+  run format_file_call "$cwd/a.sh" "$cwd"       # no shfmt stub created
+  assert_success
+  [ "$output" = "{}" ]
+  run cat "$cwd/a.sh"
+  assert_output "echo  hi"
+}
+
+@test "non-target extension (.md) -> formatter never invoked" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '# hi\n' > "$cwd/a.md"
+  rec_stub shfmt
+  run format_file_call "$cwd/a.md" "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+  [ ! -s "$RECORD" ]
+}
+
+@test "path outside cwd -> formatter never invoked" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  local out="$BATS_TEST_TMPDIR/outside"; mkdir -p "$out"
+  printf 'echo x\n' > "$out/a.sh"
+  rec_stub shfmt
+  run format_file_call "$out/a.sh" "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+  [ ! -s "$RECORD" ]
+}
+
+@test "node_modules path -> formatter never invoked" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd/node_modules/x"
+  printf 'echo x\n' > "$cwd/node_modules/x/a.sh"
+  rec_stub shfmt
+  run format_file_call "$cwd/node_modules/x/a.sh" "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+  [ ! -s "$RECORD" ]
+}
+
+@test "auto_format=false in user settings -> formatter never invoked" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'echo  hi\n' > "$cwd/a.sh"
+  rec_stub shfmt
+  printf '{"pluginConfigs":{"universal-format@kwitsch-plugins":{"options":{"auto_format":false}}}}\n' > "$HOME/.claude/settings.json"
+  run format_file_call "$cwd/a.sh" "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+  [ ! -s "$RECORD" ]
+}
+
+@test "go fallback chain: gofmt used when only gofmt present; goimports wins when both present" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'package main\n' > "$cwd/a.go"
+  RECORD="$BATS_TEST_TMPDIR/rec1"; : > "$RECORD"
+  rec_stub gofmt
+  run format_file_call "$cwd/a.go" "$cwd"
+  assert_success
+  run grep -F "gofmt " "$RECORD"
+  assert_success
+  # now both present -> goimports (first in chain) wins
+  RECORD="$BATS_TEST_TMPDIR/rec2"; : > "$RECORD"
+  printf 'package main\n' > "$cwd/a.go"
+  rec_stub goimports
+  run format_file_call "$cwd/a.go" "$cwd"
+  assert_success
+  run grep -F "goimports " "$RECORD"
+  assert_success
+  run grep -F "gofmt " "$RECORD"
+  assert_failure
+}
+
+@test "formatter exits 1 WITHOUT changing file -> {} (no crash)" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'echo  hi\n' > "$cwd/a.sh"
+  make_stub shfmt 'printf "%s %s\n" shfmt "$*" >> "$RECORD"' 'exit 1'   # no file change
+  run format_file_call "$cwd/a.sh" "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+}
+
+@test "formatter exits 1 AFTER changing file (ktlint case) -> additionalContext still returned" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'fun main(){}\n' > "$cwd/a.kt"
+  make_stub ktlint \
+    'printf "%s %s\n" ktlint "$*" >> "$RECORD"' \
+    'for last; do :; done' \
+    'printf "reformatted\n" > "$last"' \
+    'exit 1'
+  run format_file_call "$cwd/a.kt" "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("ktlint reformatted a.kt")'
+}
