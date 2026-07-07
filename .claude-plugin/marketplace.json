@@ -101,6 +101,21 @@
         "guidelines",
         "context"
       ]
+    },
+    {
+      "name": "universal-format",
+      "source": "./plugins/universal-format",
+      "description": "Silently auto-formats just-written Shell/Java/Kotlin/JS-TS/Python/Go files after Write/Edit via each language's standard formatter (no-op when absent), honoring .editorconfig and tool-native configs.",
+      "author": {
+        "name": "Kwitsch"
+      },
+      "category": "productivity",
+      "tags": [
+        "hooks",
+        "formatting",
+        "editorconfig",
+        "mcp"
+      ]
     }
   ]
 }
