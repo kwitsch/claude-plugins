@@ -347,3 +347,19 @@ format_file_call() {
   run grep -F -- "--line-length 88" "$RECORD"
   assert_success
 }
+
+@test "jsts: biome.json native config beats .editorconfig -> biome runs bare (no mapped flags)" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'let x=1\n' > "$cwd/a.js"
+  printf '{}\n' > "$cwd/biome.json"
+  printf 'root = true\n[*]\nindent_style = space\nindent_size = 2\n' > "$cwd/.editorconfig"
+  rec_stub biome
+  run format_file_call "$cwd/a.js" "$cwd"
+  assert_success
+  run grep -F -- "--indent-style" "$RECORD"
+  assert_failure
+  run grep -F "biome " "$RECORD"
+  assert_success
+}

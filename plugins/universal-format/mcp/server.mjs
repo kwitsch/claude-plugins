@@ -69,7 +69,6 @@ export const REGISTRY = {
       {
         name: "google-java-format",
         strategy: "mapped",
-        nativeConfig: [],
         base: ["--replace"],
       },
       {
@@ -195,21 +194,24 @@ function isAutoFormatEnabled(cwd) {
 // else resolve .editorconfig for this file and map/skip via buildInvocation.
 /** @param {FormatTool} tool @param {string} file @param {string} cwd @returns {{argv: string[]} | {skip: true}} */
 function resolveInvocation(tool, file, cwd) {
-  if (tool.strategy !== "mapped") return { argv: tool.base.slice() };
-  const fileDir = path.dirname(file);
-  if (findNativeConfig(fileDir, cwd, tool.nativeConfig ?? []))
-    return { argv: tool.base.slice() };
-  const ec = resolveEditorconfig(file, cwd);
-  return buildInvocation(tool, {
-    hasNativeConfig: false,
-    editorconfig: ec.found ? ec.props : null,
-  });
+  if (tool.strategy !== "mapped") return buildInvocation(tool);
+  const hasNativeConfig = findNativeConfig(
+    path.dirname(file),
+    cwd,
+    tool.nativeConfig ?? [],
+  );
+  let editorconfig = null;
+  if (!hasNativeConfig) {
+    const ec = resolveEditorconfig(file, cwd);
+    if (ec.found) editorconfig = ec.props;
+  }
+  return buildInvocation(tool, { hasNativeConfig, editorconfig });
 }
 
 // ---- .editorconfig resolver + registry flag mapping (pure, unit-tested) ----
 
 /**
- * @typedef {{ indent_style?: string, indent_size?: number|string, tab_width?: number, max_line_length?: number, end_of_line?: string }} EditorConfigProps
+ * @typedef {{ indent_style?: string, indent_size?: number|string, max_line_length?: number, end_of_line?: string }} EditorConfigProps
  */
 
 // Build the argv-tail for a mapped tool given whether a tool-native config governs the
@@ -449,10 +451,6 @@ function normalizeProps(raw) {
       if (Number.isFinite(n)) out.indent_size = n;
     }
   }
-  if (raw.tab_width !== undefined) {
-    const n = Number(raw.tab_width);
-    if (Number.isFinite(n)) out.tab_width = n;
-  }
   if (raw.max_line_length !== undefined) {
     const v = raw.max_line_length.toLowerCase();
     if (v !== "off") {
@@ -489,10 +487,11 @@ function formatFileHandler(args) {
     const lang = EXT_MAP[path.extname(resolved).toLowerCase()];
     if (!lang) return {};
     if (!existsSync(resolved)) return {};
-    if (!isAutoFormatEnabled(cwd)) return {};
 
+    // Cached O(1) PATH probe before the uncached settings-file reads.
     const tool = REGISTRY[lang].chain.find((t) => onPath(t.name));
     if (!tool) return {};
+    if (!isAutoFormatEnabled(cwd)) return {};
 
     const inv = resolveInvocation(tool, resolved, cwd);
     if ("skip" in inv) return {};

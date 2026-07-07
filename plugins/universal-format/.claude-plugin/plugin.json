@@ -10,7 +10,7 @@
       "type": "boolean",
       "default": true,
       "title": "Auto-format on Write/Edit",
-      "description": "Silently format just-written files with the language's standard formatter when it is installed (shfmt, google-java-format/clang-format, ktlint/ktfmt, prettier/biome, ruff/black, goimports/gofmt)."
+      "description": "Silently format just-written files with each language's standard formatter when it is installed; see the plugin description for the full tool list."
     }
   }
 }

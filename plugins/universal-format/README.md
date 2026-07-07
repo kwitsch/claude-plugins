@@ -39,6 +39,6 @@ Configure via `/plugin` → installed → **universal-format** → Configure opt
 
 - `shfmt`, `ktlint`, `prettier` read `.editorconfig` natively (run flag-free).
 - `ktfmt` is always passed `--enable-editorconfig`.
-- For `google-java-format`, `clang-format`, `ruff`, `black`, and `biome`, a minimal built-in resolver maps core `.editorconfig` properties (`indent_style`, `indent_size`, `tab_width`, `max_line_length`, `end_of_line`) to CLI flags — **only** when no tool-native config governs the file. This mapping is intentionally partial (documented properties only).
+- For `google-java-format`, `clang-format`, `ruff`, `black`, and `biome`, a minimal built-in resolver maps core `.editorconfig` properties (`indent_style`, `indent_size`, `max_line_length`, `end_of_line`) to CLI flags — **only** when no tool-native config governs the file. This mapping is intentionally partial (documented properties only).
 - **Hard conflicts are skipped, not violated:** if `.editorconfig` declares a style a fixed-style tool cannot produce (`indent_style = tab` for `google-java-format`/`black`; `google-java-format` is also fixed at 100 columns and 2/4-space indent), the file is left untouched rather than reformatted against its own config.
 - Go's style is fixed by design (tabs); a conforming `[*.go] indent_style = tab` is honored by construction.
