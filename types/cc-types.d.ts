@@ -31,6 +31,17 @@ interface StopHookInput extends HookCommonInput {
   session_crons: unknown[];
 }
 
+interface ToolResponse {
+  success?: boolean;
+  filePath?: string;
+  [k: string]: unknown;
+}
+
+interface PostToolUseHookInput extends ToolHookInput {
+  /** Present only on PostToolUse; the executed tool's result. */
+  tool_response?: ToolResponse;
+}
+
 interface HookSpecificOutput {
   hookEventName: string;
   additionalContext?: string;

@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "universal-format-hooks": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"
+    }
+  }
+}

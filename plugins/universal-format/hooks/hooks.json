@@ -1,0 +1,18 @@
+{
+  "description": "PostToolUse Write|Edit -> format_file: silently formats the just-written file with the language's standard formatter.",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "plugin:universal-format:universal-format-hooks",
+            "tool": "format_file",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}
