@@ -573,9 +573,9 @@ run_ci_watch() {
   assert_success
 }
 
-@test "plugin.json version bumped for context-mode removal + rtk evaluation (this unreleased branch)" {
+@test "plugin.json version bumped for fresh-work intent-confirmation hardening (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.10.1"
+  assert_output "0.10.2"
 }
 
 @test "plugin.json description mentions fresh-work" {
@@ -768,6 +768,27 @@ run_ci_watch() {
   [ -n "$design_line" ] && [ -n "$intent_line" ] && [ -n "$plan_line" ]
   [ "$design_line" -lt "$intent_line" ]
   [ "$intent_line" -lt "$plan_line" ]
+}
+
+# Regression guard: a prior run asked the Intent-confirmation AskUserQuestion
+# without ever showing the design summary first. Pins the hardened wording
+# that forces the Keypoints re-read + plain-text output as its own step,
+# distinct from the generic step-start announcement, before the tool call.
+@test "fresh-work Intent confirmation forces the Keypoints output as its own message before AskUserQuestion" {
+  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  assert_output --partial 'Before calling `AskUserQuestion` for this step:'
+  assert_output --partial "Read the design doc's Keypoints section fresh from the spec temp path."
+  assert_output --partial "does not satisfy this"
+  assert_output --partial 'Only then call `AskUserQuestion`'
+}
+
+@test "fresh-work Step-start reporting note clarifies it never substitutes for a step's own output" {
+  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  assert_output --partial "Starting step 4: Design."
+  assert_output --partial "never a question"
+  assert_output --partial "never substitutes for a step's own"
 }
 
 @test "fresh-work no longer schedules fixed Advisor pass steps" {

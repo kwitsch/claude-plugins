@@ -122,7 +122,12 @@ removed (the bats self-containment tripwire greps the skill dir for
 steps were reintroduced later (2026-07-03), distinct from what was removed:
 **Intent confirmation** (SKILL.md step 5) shows the design doc's mandatory
 Keypoints section and asks `AskUserQuestion` whether to proceed — the
-pipeline's one deliberate human-facing checkpoint; **Review** (step 8,
+pipeline's one deliberate human-facing checkpoint (hardened 2026-07-07: the
+Keypoints output is now a mandatory numbered pre-step — read fresh from the
+spec temp path, emitted as its own plain-text message before the
+`AskUserQuestion` call — made explicitly distinct from the generic Task-list
+step-start announcement, after a regression where the confirmation question
+was asked without the design summary ever being shown); **Review** (step 8,
 `references/reviewing.md`) runs `simplify` then `code-review --fix` (both
 built-in Claude Code skills, not marketplace plugins) over the full branch
 diff after Implement, each

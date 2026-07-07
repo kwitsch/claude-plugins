@@ -89,7 +89,9 @@ never a question — e.g.:
 
 Applies to the numbered steps above and to any nested `Step N.1…N.x` a phase
 spawns (e.g. Implement's per-wave dispatch, `references/implementing.md`),
-kept to one line each.
+kept to one line each. This announcement never substitutes for a step's own
+required output — e.g. step 5's Keypoints presentation below is a separate,
+mandatory message, not satisfied by this line.
 
 ## Steps — both paths
 
@@ -121,17 +123,25 @@ kept to one line each.
    temp path. Scales itself against the complexity heuristic — plain authoring
    or Workflow-tool orchestration, advisor consultation or not — per its own
    reference; self-review always runs regardless.
-5. **Intent confirmation.** Present the design doc's Keypoints section verbatim to
-   the user, then ask via `AskUserQuestion`: does this match their intent, proceed
-   to planning? Options: **Yes — proceed** / **No — needs changes** (specific
-   corrections arrive via "Other"). "No" picked without "Other" detail → ask one
-   clarifying `AskUserQuestion` round for what should change before touching the
-   design doc; never guess at a revision. Once feedback is in hand → revise the
-   design doc to address it (re-consult the advisor first only if the revision
-   changes scope or approach), then re-ask this step. "Yes" → continue to step 6.
-   This is the pipeline's one human-facing checkpoint on the design — Design's
-   self-review (and advisor consultation, when it judged one warranted) is the
-   correctness validation, not this step.
+5. **Intent confirmation.** Before calling `AskUserQuestion` for this step:
+   1. Read the design doc's Keypoints section fresh from the spec temp path.
+   2. Output it verbatim as your own plain-text message. The user has never
+      seen the temp file, and the step-start announcement ("Starting step 5:
+      Intent confirmation.") does not satisfy this — it is a bare
+      announcement, not the summary.
+   3. Only then call `AskUserQuestion`: does this match their intent, proceed
+      to planning? Options: **Yes — proceed** / **No — needs changes**
+      (specific corrections arrive via "Other").
+
+   "No" picked without "Other" detail → ask one clarifying `AskUserQuestion`
+   round for what should change before touching the design doc; never guess at
+   a revision. Once feedback is in hand → revise the design doc to address it
+   (re-consult the advisor first only if the revision changes scope or
+   approach), then re-ask this step from item 1 (re-output the revised
+   Keypoints, unabridged). "Yes" → continue to step 6. This is the pipeline's
+   one human-facing checkpoint on the design — Design's self-review (and
+   advisor consultation, when it judged one warranted) is the correctness
+   validation, not this step.
 6. **Plan.** Read `references/planning.md`; produce the plan at the plan temp path
    from the revised design doc. Scales itself against the complexity heuristic,
    same as Design. **Self-review is the hard gate before implementation starts —
