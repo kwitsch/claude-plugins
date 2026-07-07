@@ -10,7 +10,7 @@ Silently auto-formats just-written source files after Write/Edit using each lang
 
 ## What it does
 
-A PostToolUse `Write|Edit` hook (an `mcp_tool` backed by a self-contained plugin-local MCP server) reformats the file Claude just wrote, in place, for seven languages. The formatter runs only when its CLI is on `PATH`; a missing formatter, any formatter failure, an unsupported extension, a file outside the project, or a file under `node_modules/`/`vendor/`/`.git/` is a **silent no-op** — the hook never blocks or degrades the session. When (and only when) formatting actually changed the file, the hook returns a one-line note telling Claude to re-read the file before further string-based edits (so subsequent `Edit` calls don't fail on stale `old_string`).
+A PostToolUse `Write|Edit` hook (an `mcp_tool` backed by a self-contained plugin-local MCP server) reformats the file Claude just wrote, in place, for six languages. The formatter runs only when its CLI is on `PATH`; a missing formatter, any formatter failure, an unsupported extension, a file outside the project, or a file under `node_modules/`/`vendor/`/`.git/` is a **silent no-op** — the hook never blocks or degrades the session. When (and only when) formatting actually changed the file, the hook returns a one-line note telling Claude to re-read the file before further string-based edits (so subsequent `Edit` calls don't fail on stale `old_string`).
 
 Per-language opt-out is simply not installing that formatter. The whole plugin can be disabled with the `auto_format` toggle.
 

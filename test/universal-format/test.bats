@@ -321,6 +321,24 @@ format_file_call() {
   [ ! -s "$RECORD" ]
 }
 
+@test "java .editorconfig indent_style=tab -> google-java-format skips, clang-format fallback runs" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'class A {}\n' > "$cwd/A.java"
+  printf 'root = true\n[*]\nindent_style = tab\n' > "$cwd/.editorconfig"
+  rec_stub google-java-format
+  rec_stub clang-format
+  run format_file_call "$cwd/A.java" "$cwd"
+  assert_success
+  local result="$output"
+  run grep -F "google-java-format " "$RECORD"
+  assert_failure
+  run grep -F "clang-format " "$RECORD"
+  assert_success
+  echo "$result" | jq -e '.hookSpecificOutput.additionalContext | test("clang-format reformatted A.java")'
+}
+
 @test "python: pyproject [tool.ruff] beats .editorconfig -> ruff runs bare (no --line-length)" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"

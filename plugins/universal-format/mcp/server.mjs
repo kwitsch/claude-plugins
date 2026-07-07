@@ -6,10 +6,12 @@
 //
 // format_file flow (every failure path returns {} silently — fail open):
 //   guard tool_response.success !== false -> ext in registry -> path inside cwd and not
-//   under node_modules/vendor/.git -> file exists -> auto_format not literal false ->
-//   first formatter of the language chain on PATH (probes cached) -> resolveInvocation
-//   -> spawnSync (cwd = project cwd, 30s timeout, stdio ignored) -> before/after content
-//   diff (NEVER exit codes) -> changed: additionalContext one-liner; unchanged: {}.
+//   under node_modules/vendor/.git -> file exists -> some chain tool on PATH (probes
+//   cached) -> auto_format not literal false -> selectFormatter walks the chain in
+//   order, skipping a tool that's absent or hits a hard style conflict, and falls
+//   through to the next -> spawnSync (cwd = project cwd, 30s timeout, stdio ignored)
+//   -> before/after content diff (NEVER exit codes) -> changed: additionalContext
+//   one-liner; unchanged or no chain tool can run: {}.
 import process from "node:process";
 import readline from "node:readline";
 import { spawnSync } from "node:child_process";
@@ -206,6 +208,21 @@ function resolveInvocation(tool, file, cwd) {
     if (ec.found) editorconfig = ec.props;
   }
   return buildInvocation(tool, { hasNativeConfig, editorconfig });
+}
+
+// Try each formatter in the language's chain, in order: skip a tool that isn't on
+// PATH, or whose resolveInvocation reports a hard style conflict (skip:true), and
+// fall through to the next chain entry rather than aborting. Returns the first
+// {tool, argv} that can actually run, or null if none of them can.
+/** @param {FormatTool[]} chain @param {string} file @param {string} cwd @returns {{tool: FormatTool, argv: string[]} | null} */
+function selectFormatter(chain, file, cwd) {
+  for (const tool of chain) {
+    if (!onPath(tool.name)) continue;
+    const inv = resolveInvocation(tool, file, cwd);
+    if ("skip" in inv) continue;
+    return { tool, argv: inv.argv };
+  }
+  return null;
 }
 
 // ---- .editorconfig resolver + registry flag mapping (pure, unit-tested) ----
@@ -489,16 +506,17 @@ function formatFileHandler(args) {
     if (!existsSync(resolved)) return {};
 
     // Cached O(1) PATH probe before the uncached settings-file reads.
-    const tool = REGISTRY[lang].chain.find((t) => onPath(t.name));
-    if (!tool) return {};
+    const candidate = REGISTRY[lang].chain.find((t) => onPath(t.name));
+    if (!candidate) return {};
     if (!isAutoFormatEnabled(cwd)) return {};
 
-    const inv = resolveInvocation(tool, resolved, cwd);
-    if ("skip" in inv) return {};
+    const selection = selectFormatter(REGISTRY[lang].chain, resolved, cwd);
+    if (!selection) return {};
+    const { tool, argv } = selection;
 
     const before = readFileSync(resolved);
     try {
-      spawnSync(tool.name, [...inv.argv, resolved], {
+      spawnSync(tool.name, [...argv, resolved], {
         cwd,
         timeout: SPAWN_TIMEOUT_MS,
         stdio: "ignore",
