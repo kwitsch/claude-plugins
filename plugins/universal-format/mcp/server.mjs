@@ -190,13 +190,278 @@ function isAutoFormatEnabled(cwd) {
   return true;
 }
 
-// Determine the formatter invocation. TASK-2 FORM: always bare (native/fixed and
-// bare-mapped are identical here). Task 3 replaces this body with the .editorconfig
-// mapping + hard-conflict skip; the handler below is written once and never touched.
-/** @param {FormatTool} tool @param {string} _file @param {string} _cwd @returns {{argv: string[]} | {skip: true}} */
-// eslint-disable-next-line no-unused-vars -- file/cwd are the Task 3 .editorconfig seam
-function resolveInvocation(tool, _file, _cwd) {
-  return { argv: tool.base.slice() };
+// Determine the formatter invocation for a resolved tool.
+// native/fixed -> bare. mapped -> if a tool-native config governs the file, bare;
+// else resolve .editorconfig for this file and map/skip via buildInvocation.
+/** @param {FormatTool} tool @param {string} file @param {string} cwd @returns {{argv: string[]} | {skip: true}} */
+function resolveInvocation(tool, file, cwd) {
+  if (tool.strategy !== "mapped") return { argv: tool.base.slice() };
+  const fileDir = path.dirname(file);
+  if (findNativeConfig(fileDir, cwd, tool.nativeConfig ?? []))
+    return { argv: tool.base.slice() };
+  const ec = resolveEditorconfig(file, cwd);
+  return buildInvocation(tool, {
+    hasNativeConfig: false,
+    editorconfig: ec.found ? ec.props : null,
+  });
+}
+
+// ---- .editorconfig resolver + registry flag mapping (pure, unit-tested) ----
+
+/**
+ * @typedef {{ indent_style?: string, indent_size?: number|string, tab_width?: number, max_line_length?: number, end_of_line?: string }} EditorConfigProps
+ */
+
+// Build the argv-tail for a mapped tool given whether a tool-native config governs the
+// file and the resolved .editorconfig props (null = no .editorconfig found). Returns
+// {argv} to run, or {skip:true} for a hard style conflict the tool cannot honor.
+/** @param {FormatTool} tool @param {{hasNativeConfig?: boolean, editorconfig?: EditorConfigProps|null}} [opts] @returns {{argv: string[]} | {skip: true}} */
+export function buildInvocation(tool, opts = {}) {
+  const { hasNativeConfig = false, editorconfig = null } = opts;
+  if (tool.strategy !== "mapped") return { argv: tool.base.slice() };
+  if (hasNativeConfig || !editorconfig) return { argv: tool.base.slice() };
+  const mapper = MAPPERS[tool.name];
+  return mapper ? mapper(tool.base, editorconfig) : { argv: tool.base.slice() };
+}
+
+// Per-tool .editorconfig -> CLI-flag mappers. Only reached when the tool is "mapped",
+// no tool-native config governs, and an .editorconfig was found for the file.
+/** @type {Record<string, (base: string[], ec: EditorConfigProps) => {argv: string[]} | {skip: true}>} */
+const MAPPERS = {
+  "google-java-format"(base, ec) {
+    // gjf is fixed at spaces-only, 100-col, 2/4-space indent. Skip on any conflict.
+    if (ec.indent_style === "tab") return { skip: true };
+    if (ec.indent_size === "tab") return { skip: true };
+    if (
+      typeof ec.indent_size === "number" &&
+      ec.indent_size !== 2 &&
+      ec.indent_size !== 4
+    )
+      return { skip: true };
+    if (typeof ec.max_line_length === "number" && ec.max_line_length < 100)
+      return { skip: true };
+    return { argv: ec.indent_size === 4 ? ["--aosp", ...base] : base.slice() };
+  },
+  "clang-format"(base, ec) {
+    // No tool-native config: construct an explicit Google-based style from .editorconfig.
+    const parts = ["BasedOnStyle: Google"];
+    if (typeof ec.indent_size === "number")
+      parts.push(`IndentWidth: ${ec.indent_size}`);
+    if (ec.indent_style)
+      parts.push(
+        `UseTab: ${ec.indent_style === "tab" ? "ForIndentation" : "Never"}`,
+      );
+    if (typeof ec.max_line_length === "number")
+      parts.push(`ColumnLimit: ${ec.max_line_length}`);
+    return { argv: ["-i", `--style={${parts.join(", ")}}`] };
+  },
+  biome(base, ec) {
+    const argv = base.slice();
+    if (ec.indent_style) argv.push(`--indent-style=${ec.indent_style}`);
+    if (typeof ec.indent_size === "number")
+      argv.push(`--indent-width=${ec.indent_size}`);
+    if (ec.end_of_line) argv.push(`--line-ending=${ec.end_of_line}`);
+    if (typeof ec.max_line_length === "number")
+      argv.push(`--line-width=${ec.max_line_length}`);
+    return { argv };
+  },
+  ruff(base, ec) {
+    const argv = base.slice();
+    if (typeof ec.max_line_length === "number")
+      argv.push("--line-length", String(ec.max_line_length));
+    if (ec.indent_style)
+      argv.push("--config", `format.indent-style='${ec.indent_style}'`);
+    if (typeof ec.indent_size === "number")
+      argv.push("--config", `format.indent-width=${ec.indent_size}`);
+    return { argv };
+  },
+  black(base, ec) {
+    if (ec.indent_style === "tab") return { skip: true }; // black is hard-fixed 4-space; tabs rejected
+    const argv = base.slice();
+    if (typeof ec.max_line_length === "number")
+      argv.push("--line-length", String(ec.max_line_length));
+    return { argv };
+  },
+};
+
+// Walk from the file's dir up to cwd (inclusive); return true if a tool-native config
+// governs the file. Entry: a filename (existence) or {file, section} — file must exist
+// AND contain a `[section]` or `[section.*]` TOML header.
+/** @param {string} fileDir @param {string} cwd @param {Array<string | {file: string, section: string}>} entries @returns {boolean} */
+export function findNativeConfig(fileDir, cwd, entries) {
+  let dir = fileDir;
+  for (;;) {
+    for (const entry of entries) {
+      if (typeof entry === "string") {
+        if (existsSync(path.join(dir, entry))) return true;
+      } else {
+        const p = path.join(dir, entry.file);
+        if (existsSync(p)) {
+          let text = "";
+          try {
+            text = readFileSync(p, "utf8");
+          } catch {
+            /* unreadable config file -> treat as absent */
+          }
+          const escaped = entry.section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const re = new RegExp("^\\s*\\[" + escaped + "(\\.[^\\]]*)?\\]", "m");
+          if (re.test(text)) return true;
+        }
+      }
+    }
+    if (dir === cwd) break;
+    const parent = path.dirname(dir);
+    if (parent === dir) break; // filesystem root safety
+    dir = parent;
+  }
+  return false;
+}
+
+// Resolve .editorconfig props for a file by walking dir->cwd (inclusive), stopping after
+// a file with root=true. Sections applied farthest-first, later-section-wins, so nearer
+// files and later matching sections override. Returns {found, props}.
+/** @param {string} file @param {string} cwd @returns {{found: boolean, props: EditorConfigProps}} */
+export function resolveEditorconfig(file, cwd) {
+  const basename = path.basename(file);
+  /** @type {Array<{root: boolean, sections: Array<{glob: string, props: Record<string,string>}>}>} */
+  const parsed = []; // nearest-first as we ascend
+  let dir = path.dirname(file);
+  for (;;) {
+    const p = path.join(dir, ".editorconfig");
+    if (existsSync(p)) {
+      let text = "";
+      try {
+        text = readFileSync(p, "utf8");
+      } catch {
+        /* unreadable .editorconfig -> treat as absent */
+      }
+      const pf = parseEditorconfig(text);
+      parsed.push(pf);
+      if (pf.root) break; // stop climbing at root=true
+    }
+    if (dir === cwd) break;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  if (parsed.length === 0) return { found: false, props: {} };
+  /** @type {Record<string, string>} */
+  const raw = {};
+  for (const pf of parsed.slice().reverse()) {
+    // farthest-first so nearer wins
+    for (const section of pf.sections) {
+      if (matchGlob(section.glob, basename)) Object.assign(raw, section.props);
+    }
+  }
+  return { found: true, props: normalizeProps(raw) };
+}
+
+// Parse .editorconfig INI text into { root, sections:[{glob, props}] }. Comments (# / ;)
+// and blanks ignored. Keys before the first [section] contribute root=true only.
+/** @param {string} text @returns {{root: boolean, sections: Array<{glob: string, props: Record<string,string>}>}} */
+export function parseEditorconfig(text) {
+  let root = false;
+  /** @type {Array<{glob: string, props: Record<string,string>}>} */
+  const sections = [];
+  /** @type {{glob: string, props: Record<string,string>} | null} */
+  let current = null;
+  for (const line of String(text).split(/\r?\n/)) {
+    const s = line.trim();
+    if (!s || s.startsWith("#") || s.startsWith(";")) continue;
+    const sec = s.match(/^\[(.*)\]$/);
+    if (sec) {
+      current = { glob: sec[1].trim(), props: {} };
+      sections.push(current);
+      continue;
+    }
+    const eq = s.indexOf("=");
+    if (eq === -1) continue;
+    const key = s.slice(0, eq).trim().toLowerCase();
+    const value = s.slice(eq + 1).trim();
+    if (!current) {
+      if (key === "root") root = value.toLowerCase() === "true";
+      continue;
+    }
+    current.props[key] = value;
+  }
+  return { root, sections };
+}
+
+// Match an editorconfig section glob against a file basename, supporting only the
+// separatorless subset *, *.ext, *.{a,b}, **.ext. Any unsupported form (path separator,
+// charset [], negation !, brace range {n..m}) -> false (fail toward "no mapping").
+/** @param {string} glob @param {string} basename @returns {boolean} */
+export function matchGlob(glob, basename) {
+  const re = globToRegExp(glob);
+  return re ? re.test(basename) : false;
+}
+
+/** @param {string} glob @returns {RegExp | null} */
+function globToRegExp(glob) {
+  if (
+    glob.includes("/") ||
+    glob.includes("[") ||
+    glob.includes("]") ||
+    glob.includes("!")
+  )
+    return null;
+  if (/\{[^}]*\.\.[^}]*\}/.test(glob)) return null; // brace range {1..9}
+  let re = "";
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i];
+    if (c === "*") {
+      if (glob[i + 1] === "*") {
+        re += ".*";
+        i++;
+      } else {
+        re += "[^/]*";
+      }
+    } else if (c === "?") {
+      re += ".";
+    } else if (c === "{") {
+      const end = glob.indexOf("}", i);
+      if (end === -1) return null;
+      const parts = glob
+        .slice(i + 1, end)
+        .split(",")
+        .map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+      re += "(?:" + parts.join("|") + ")";
+      i = end;
+    } else {
+      re += c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+  }
+  return new RegExp("^" + re + "$");
+}
+
+// Normalize raw string props to typed EditorConfigProps (lowercased styles; finite
+// numbers only — a non-numeric/invalid value is dropped rather than emitted as NaN).
+/** @param {Record<string, string>} raw @returns {EditorConfigProps} */
+function normalizeProps(raw) {
+  /** @type {EditorConfigProps} */
+  const out = {};
+  if (raw.indent_style) out.indent_style = raw.indent_style.toLowerCase();
+  if (raw.indent_size !== undefined) {
+    const v = raw.indent_size.toLowerCase();
+    if (v === "tab") out.indent_size = "tab";
+    else {
+      const n = Number(v);
+      if (Number.isFinite(n)) out.indent_size = n;
+    }
+  }
+  if (raw.tab_width !== undefined) {
+    const n = Number(raw.tab_width);
+    if (Number.isFinite(n)) out.tab_width = n;
+  }
+  if (raw.max_line_length !== undefined) {
+    const v = raw.max_line_length.toLowerCase();
+    if (v !== "off") {
+      const n = Number(v);
+      if (Number.isFinite(n)) out.max_line_length = n;
+    }
+  }
+  if (raw.end_of_line) out.end_of_line = raw.end_of_line.toLowerCase();
+  return out;
 }
 
 // The format_file tool handler. Returns {} on every guard failure / error (fail open).
