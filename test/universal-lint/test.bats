@@ -15,7 +15,7 @@ setup() {
   # Isolated PATH: only system tools symlinked in; linter stubs added per test.
   MOCKBIN="$BATS_TEST_TMPDIR/bin"
   mkdir -p "$MOCKBIN"
-  for t in bash env node jq cat rm mkdir mktemp dirname head grep; do
+  for t in bash node; do
     src="$(command -v "$t" 2>/dev/null)" && [ -n "$src" ] && ln -s "$src" "$MOCKBIN/$t"
   done
 

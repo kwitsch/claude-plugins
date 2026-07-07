@@ -268,18 +268,13 @@ function lintFileHandler(args) {
     if (!isAutoLintEnabled(cwd)) return {};
 
     const argv = buildArgv(tool, resolved, cwd);
-    let result;
-    try {
-      result = spawnSync(tool.name, argv, {
-        cwd,
-        timeout: SPAWN_TIMEOUT_MS,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-    } catch {
-      return {};
-    }
-    if (!result || result.error || result.signal) return {};
+    const result = spawnSync(tool.name, argv, {
+      cwd,
+      timeout: SPAWN_TIMEOUT_MS,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    if (result.error || result.signal) return {};
 
     const target = tool.targetsDir
       ? path.relative(cwd, path.dirname(resolved)) || "."
