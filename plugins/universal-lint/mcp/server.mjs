@@ -32,6 +32,7 @@ const SERVER_INFO = { name: SERVER_NAME, version: "0.1.0" };
 const DEFAULT_PROTOCOL = "2025-11-25"; // only used if client omits protocolVersion
 const SPAWN_TIMEOUT_MS = 30000; // inner linter timeout; hook-level timeout:60 is the backstop
 const MAX_CONTEXT_CHARS = 4000; // cap on the additionalContext findings text
+const MAX_BUFFER_BYTES = 10 * 1024 * 1024; // spawnSync's 1MB default truncates a noisy linter's output as ENOBUFS
 
 /**
  * @typedef {{ name: string, args: string[], targetsDir?: boolean, classify?: "output", needsCheckstyleConfig?: boolean }} LintTool
@@ -273,6 +274,7 @@ function lintFileHandler(args) {
       timeout: SPAWN_TIMEOUT_MS,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: MAX_BUFFER_BYTES,
     });
     if (result.error || result.signal) return {};
 
