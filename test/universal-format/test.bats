@@ -421,3 +421,18 @@ format_file_call() {
   assert_success
   [ "$output" = "{}" ]
 }
+
+@test "jsts: biome on PATH, prettier absent, npx present -> biome wins (native beats npx-only)" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'let x=1\n' > "$cwd/a.js"
+  rec_stub biome
+  rec_stub npx   # present but must not be used -- biome is genuinely installed
+  run format_file_call "$cwd/a.js" "$cwd"
+  assert_success
+  run grep -E "^biome " "$RECORD"
+  assert_success
+  run grep -F "npx" "$RECORD"
+  assert_failure
+}

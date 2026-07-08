@@ -30,6 +30,7 @@ const SERVER_NAME = "universal-format-hooks"; // keep aligned with the .mcp.json
 const SERVER_INFO = { name: SERVER_NAME, version: "0.1.0" };
 const DEFAULT_PROTOCOL = "2025-11-25"; // only used if client omits protocolVersion
 const SPAWN_TIMEOUT_MS = 30000; // inner formatter timeout; hook-level timeout:60 is the backstop
+const NPX_SPAWN_TIMEOUT_MS = 55000; // cold npx install can exceed SPAWN_TIMEOUT_MS; stay under the hook's 60s ceiling
 
 /**
  * @typedef {{ name: string, strategy: string, base: string[], nativeConfig?: Array<string | {file: string, section: string}>, npmSpec?: string }} FormatTool
@@ -226,10 +227,22 @@ function resolveInvocation(tool, file, cwd) {
 // PATH, or whose resolveInvocation reports a hard style conflict (skip:true), and
 // fall through to the next chain entry rather than aborting. Returns the first
 // {tool, argv} that can actually run, or null if none of them can.
+// Two passes, not one: a chain tool actually on PATH always wins over any other
+// chain tool that's merely npx-reachable, regardless of chain order. Without this,
+// giving npmSpec to more than one entry (e.g. prettier before biome) would let the
+// earlier entry's npx fallback shadow a later entry that's genuinely installed --
+// npx ships with node, so it's essentially always "available."
 /** @param {FormatTool[]} chain @param {string} file @param {string} cwd @returns {{tool: FormatTool, argv: string[]} | null} */
 function selectFormatter(chain, file, cwd) {
   for (const tool of chain) {
-    if (!isToolAvailable(tool, onPath(tool.name), onPath("npx"))) continue;
+    if (!onPath(tool.name)) continue;
+    const inv = resolveInvocation(tool, file, cwd);
+    if ("skip" in inv) continue;
+    return { tool, argv: inv.argv };
+  }
+  if (!onPath("npx")) return null;
+  for (const tool of chain) {
+    if (!tool.npmSpec) continue;
     const inv = resolveInvocation(tool, file, cwd);
     if ("skip" in inv) continue;
     return { tool, argv: inv.argv };
@@ -529,18 +542,21 @@ function formatFileHandler(args) {
     const { tool, argv } = selection;
 
     // isToolAvailable() already guaranteed npmSpec is set when tool.name isn't on PATH.
-    const [cmd, cmdArgv] = onPath(tool.name)
-      ? [tool.name, [...argv, resolved]]
+    // npx gets its own, more generous timeout: a cold `npx --yes <pkg>` install can
+    // exceed the local-binary budget on a slow network or fresh CI runner.
+    const [cmd, cmdArgv, timeout] = onPath(tool.name)
+      ? [tool.name, [...argv, resolved], SPAWN_TIMEOUT_MS]
       : [
           "npx",
           ["--yes", /** @type {string} */ (tool.npmSpec), ...argv, resolved],
+          NPX_SPAWN_TIMEOUT_MS,
         ];
 
     const before = readFileSync(resolved);
     try {
       spawnSync(cmd, cmdArgv, {
         cwd,
-        timeout: SPAWN_TIMEOUT_MS,
+        timeout,
         stdio: "ignore",
       });
     } catch {

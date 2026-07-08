@@ -31,6 +31,7 @@ const SERVER_NAME = "universal-lint-hooks"; // keep aligned with the .mcp.json k
 const SERVER_INFO = { name: SERVER_NAME, version: "0.1.0" };
 const DEFAULT_PROTOCOL = "2025-11-25"; // only used if client omits protocolVersion
 const SPAWN_TIMEOUT_MS = 30000; // inner linter timeout; hook-level timeout:60 is the backstop
+const NPX_SPAWN_TIMEOUT_MS = 55000; // cold npx install can exceed SPAWN_TIMEOUT_MS; stay under the hook's 60s ceiling
 const MAX_CONTEXT_CHARS = 4000; // cap on the additionalContext findings text
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024; // spawnSync's 1MB default truncates a noisy linter's output as ENOBUFS
 
@@ -150,36 +151,41 @@ const rtkPrefixCache = new Map();
 // Probe rtk once per tool name: does rtk have a filtered equivalent for this tool
 // + its static registry args? A placeholder final token avoids argv-splitting
 // hazards from a real file path containing spaces (rtk rewrite echoes back a
-// plain string, not a shell-quoted one).
+// plain string, not a shell-quoted one). A transient probe failure (rtk itself
+// missing/erroring, or the probe timing out under load) is deliberately NOT
+// cached -- only a clean completion (supported or genuinely unsupported) is,
+// so a one-time hiccup doesn't permanently disable rtk for a tool it actually
+// supports for the rest of the server's lifetime.
 /** @param {LintTool} tool @returns {string[] | null} */
 function getRtkPrefix(tool) {
   const cached = rtkPrefixCache.get(tool.name);
   if (cached !== undefined) return cached;
-  let prefix = null;
-  try {
-    const probe = spawnSync(
-      "rtk",
-      ["rewrite", tool.name, ...tool.args, "__RTK_PROBE__"],
-      { timeout: RTK_PROBE_TIMEOUT_MS, encoding: "utf8" },
-    );
-    prefix = parseRtkPrefix(probe.stdout);
-  } catch {
-    /* probe failure -> no rtk support for this tool */
-  }
+  const probe = spawnSync(
+    "rtk",
+    ["rewrite", tool.name, ...tool.args, "__RTK_PROBE__"],
+    { timeout: RTK_PROBE_TIMEOUT_MS, encoding: "utf8" },
+  );
+  if (probe.error || probe.signal) return null;
+  const prefix = parseRtkPrefix(probe.stdout);
   rtkPrefixCache.set(tool.name, prefix);
   return prefix;
 }
 
-// Run the resolved lint tool: npx (when absent from PATH but npm-distributed),
-// else rtk-wrapped (when both the tool and rtk are on PATH and rtk supports it --
-// falling back to the direct call below if the rtk-wrapped run itself errors or
-// is killed), else the tool directly. argv.slice(tool.args.length) strips the
-// static [name, ...args] prefix that rtkPrefix already reproduces, leaving only
-// the real target (file or directory) to append after it.
+// Run the resolved lint tool: npx (when absent from PATH but npm-distributed --
+// given its own, more generous timeout since a cold `npx --yes <pkg>` install can
+// exceed the local-binary budget), else rtk-wrapped (when both the tool and rtk
+// are on PATH and rtk supports it -- falling back to the direct call below if the
+// rtk-wrapped run itself errors or is killed), else the tool directly.
+// argv.slice(tool.args.length) strips the static [name, ...args] prefix that
+// rtkPrefix already reproduces, leaving only the real target (file or directory)
+// to append after it.
 /** @param {LintTool} tool @param {string[]} argv @param {any} spawnOpts @returns {any} */
 function runLintTool(tool, argv, spawnOpts) {
   if (tool.npmSpec && !onPath(tool.name)) {
-    return spawnSync("npx", ["--yes", tool.npmSpec, ...argv], spawnOpts);
+    return spawnSync("npx", ["--yes", tool.npmSpec, ...argv], {
+      ...spawnOpts,
+      timeout: NPX_SPAWN_TIMEOUT_MS,
+    });
   }
   if (onPath("rtk")) {
     const rtkPrefix = getRtkPrefix(tool);
