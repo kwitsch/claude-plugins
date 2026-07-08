@@ -12,7 +12,6 @@
   "include": [
     "plugins/**/*.mjs",
     "test/**/*.mjs",
-    ".claude/hooks/**/*.mjs",
     "types/**/*.d.ts"
   ],
   "exclude": [
