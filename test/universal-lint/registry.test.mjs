@@ -10,6 +10,7 @@ import {
   classifyExit,
   classifyCheckstyleOutput,
   truncate,
+  isToolAvailable,
 } from "../../plugins/universal-lint/mcp/server.mjs";
 
 const shellcheck = REGISTRY.shell.chain[0];
@@ -166,4 +167,51 @@ test("truncate: caps at MAX_CONTEXT_CHARS and marks truncation", () => {
   const out = truncate(long);
   assert.ok(out.length < long.length);
   assert.ok(out.endsWith("… (truncated)"));
+});
+
+test("REGISTRY: only eslint carries npmSpec", () => {
+  assert.equal(REGISTRY.jsts.chain[0].npmSpec, "eslint");
+  for (const lang of ["shell", "java", "kotlin", "python", "go"]) {
+    for (const tool of REGISTRY[lang].chain) {
+      assert.equal(tool.npmSpec, undefined);
+    }
+  }
+});
+
+test("isToolAvailable: true when the tool itself is on PATH", () => {
+  assert.equal(
+    isToolAvailable({ name: "shellcheck", args: [] }, true, false),
+    true,
+  );
+  assert.equal(
+    isToolAvailable(
+      { name: "eslint", args: [], npmSpec: "eslint" },
+      true,
+      false,
+    ),
+    true,
+  );
+});
+
+test("isToolAvailable: true via npx only when npmSpec is set and npx is on PATH", () => {
+  assert.equal(
+    isToolAvailable(
+      { name: "eslint", args: [], npmSpec: "eslint" },
+      false,
+      true,
+    ),
+    true,
+  );
+  assert.equal(
+    isToolAvailable(
+      { name: "eslint", args: [], npmSpec: "eslint" },
+      false,
+      false,
+    ),
+    false,
+  );
+  assert.equal(
+    isToolAvailable({ name: "shellcheck", args: [] }, false, true),
+    false,
+  );
 });
