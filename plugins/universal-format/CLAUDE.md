@@ -12,6 +12,20 @@ Guards, each failing to `{}` silently: `tool_response.success !== false` → ext
 
 Config strategy per tool: `shfmt`/`ktlint`/`prettier` native (run bare, flag-free — shfmt loses ALL EditorConfig handling if given any parser/printer flag); `ktfmt` always `--enable-editorconfig`; `goimports`/`gofmt` fixed style; `google-java-format`/`clang-format`/`ruff`/`black`/`biome` mapped — nearest tool-native config upward → run bare, else `.editorconfig` → mapped flags (hard conflict → skip). `goimports` preferred over `gofmt` (fixes imports); `gofumpt` deliberately excluded (churn on non-opted-in projects).
 
+`prettier` and `biome` additionally fall back to `npx --yes <package> ...`
+when absent from `PATH` (verified-official npm packages: `prettier`,
+`@biomejs/biome`; `npx` itself is assumed present since the plugin's own MCP
+server already requires node/npm — no separate onboarding step). No other
+chain tool gets an npx fallback: `npm view` shows their same-named npm
+packages are either non-existent, unrelated projects (name collisions), or
+unofficial/unverifiable wrappers with no repo and near-zero downloads —
+adding a fallback for those would silently run the wrong or unvetted code.
+This also extends the existing first-available-wins chain order to npx: a
+project with only `biome.json` (no prettier config, neither on `PATH`) still
+gets `npx prettier` when npx is present, matching the pre-existing
+PATH-only rule that `prettier` already wins over `biome` whenever both are
+equally available.
+
 One `userConfig` toggle `auto_format` (default true, fail-open — only literal `false` disables; formatting modifies existing files but creates none, so the fail-closed exception does not apply).
 
 ## Tests

@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   buildInvocation,
+  isToolAvailable,
   REGISTRY,
 } from "../../plugins/universal-format/mcp/server.mjs";
 
@@ -147,4 +148,38 @@ test("clang-format: native config -> bare (fallback ignored when .clang-format p
     }),
     { argv: ["-i", "--style=file", "--fallback-style=Google"] },
   );
+});
+
+test("REGISTRY: only prettier/biome carry npmSpec, with the exact npm package names", () => {
+  assert.equal(REGISTRY.jsts.chain[0].npmSpec, "prettier");
+  assert.equal(REGISTRY.jsts.chain[1].npmSpec, "@biomejs/biome");
+  for (const lang of ["shell", "java", "kotlin", "python", "go"]) {
+    for (const tool of REGISTRY[lang].chain) {
+      assert.equal(tool.npmSpec, undefined);
+    }
+  }
+});
+
+test("isToolAvailable: true when the tool itself is on PATH", () => {
+  assert.equal(isToolAvailable({ name: "shfmt" }, true, false), true);
+  assert.equal(
+    isToolAvailable({ name: "prettier", npmSpec: "prettier" }, true, false),
+    true,
+  );
+});
+
+test("isToolAvailable: true via npx only when npmSpec is set and npx is on PATH", () => {
+  assert.equal(
+    isToolAvailable({ name: "prettier", npmSpec: "prettier" }, false, true),
+    true,
+  );
+  assert.equal(
+    isToolAvailable({ name: "prettier", npmSpec: "prettier" }, false, false),
+    false,
+  );
+  assert.equal(isToolAvailable({ name: "shfmt" }, false, true), false);
+});
+
+test("isToolAvailable: false when neither PATH nor npx-with-npmSpec applies", () => {
+  assert.equal(isToolAvailable({ name: "shfmt" }, false, false), false);
 });

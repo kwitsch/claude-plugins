@@ -1,7 +1,7 @@
 {
   "name": "universal-lint",
-  "version": "0.1.0",
-  "description": "Silently runs each language's standard linter (read-only — never autofixes) on just-written Shell, Java, Kotlin, JS/TS, Python and Go files after Write/Edit, surfacing any findings as additional context for Claude to fix (shellcheck, checkstyle, ktlint, eslint, ruff check, golangci-lint/go vet); no-op when the linter is absent.",
+  "version": "0.2.0",
+  "description": "Silently runs each language's standard linter (read-only — never autofixes) on just-written Shell, Java, Kotlin, JS/TS, Python and Go files after Write/Edit, surfacing any findings as additional context for Claude to fix (shellcheck, checkstyle, ktlint, eslint, ruff check, golangci-lint/go vet; eslint also falls back to npx; runs through rtk for more compact output when rtk is present); no-op when the linter is absent.",
   "author": {
     "name": "Kwitsch"
   },

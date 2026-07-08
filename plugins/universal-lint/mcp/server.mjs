@@ -31,11 +31,12 @@ const SERVER_NAME = "universal-lint-hooks"; // keep aligned with the .mcp.json k
 const SERVER_INFO = { name: SERVER_NAME, version: "0.1.0" };
 const DEFAULT_PROTOCOL = "2025-11-25"; // only used if client omits protocolVersion
 const SPAWN_TIMEOUT_MS = 30000; // inner linter timeout; hook-level timeout:60 is the backstop
+const NPX_SPAWN_TIMEOUT_MS = 55000; // cold npx install can exceed SPAWN_TIMEOUT_MS; stay under the hook's 60s ceiling
 const MAX_CONTEXT_CHARS = 4000; // cap on the additionalContext findings text
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024; // spawnSync's 1MB default truncates a noisy linter's output as ENOBUFS
 
 /**
- * @typedef {{ name: string, args: string[], targetsDir?: boolean, classify?: "output", needsCheckstyleConfig?: boolean }} LintTool
+ * @typedef {{ name: string, args: string[], targetsDir?: boolean, classify?: "output", needsCheckstyleConfig?: boolean, npmSpec?: string }} LintTool
  * @typedef {{ chain: LintTool[] }} LangEntry
  */
 
@@ -82,7 +83,7 @@ export const REGISTRY = {
     ],
   },
   kotlin: { chain: [{ name: "ktlint", args: [] }] },
-  jsts: { chain: [{ name: "eslint", args: [] }] },
+  jsts: { chain: [{ name: "eslint", args: [], npmSpec: "eslint" }] },
   python: { chain: [{ name: "ruff", args: ["check"] }] },
   go: {
     chain: [
@@ -112,6 +113,92 @@ function onPath(tool) {
   }
   probeCache.set(tool, found);
   return found;
+}
+
+// A tool is available directly on PATH, or indirectly via `npx <npmSpec>` when
+// the registry declares npmSpec (a verified-official npm package only -- see
+// the REGISTRY comments) and npx itself is on PATH. Booleans are passed in
+// rather than calling onPath() internally so this stays a pure, unit-testable
+// function.
+/** @param {LintTool} tool @param {boolean} toolOnPath @param {boolean} npxOnPath @returns {boolean} */
+export function isToolAvailable(tool, toolOnPath, npxOnPath) {
+  return toolOnPath || (!!tool.npmSpec && npxOnPath);
+}
+
+const RTK_PROBE_TIMEOUT_MS = 5000; // lightweight metadata probe, not a real lint run
+
+// Parse `rtk rewrite <tool> <args...> "__RTK_PROBE__"` stdout into the rtk verb
+// tokens to run instead of the bare tool (e.g. "rtk lint __RTK_PROBE__" -> ["lint"],
+// "rtk go vet __RTK_PROBE__" -> ["go", "vet"]), or null when rtk has no filtered
+// equivalent for this tool (checkstyle, ktlint currently answer empty). Keys off
+// the placeholder token position, not the exit code: rtk rewrite's own --help
+// claims exit 0/1 for supported/unsupported, but the observed behavior (0.43.0)
+// is 3/1 -- do not "fix" this to check `=== 0`.
+/** @param {string | undefined} stdout @returns {string[] | null} */
+export function parseRtkPrefix(stdout) {
+  const tokens = String(stdout ?? "")
+    .trim()
+    .split(/\s+/);
+  const probeIdx = tokens.indexOf("__RTK_PROBE__");
+  if (tokens[0] !== "rtk" || probeIdx < 2) return null;
+  return tokens.slice(1, probeIdx);
+}
+
+// rtk verb-prefix cache (server-lifetime): tool.name -> string[] (supported) | null.
+/** @type {Map<string, string[] | null>} */
+const rtkPrefixCache = new Map();
+
+// Probe rtk once per tool name: does rtk have a filtered equivalent for this tool
+// + its static registry args? A placeholder final token avoids argv-splitting
+// hazards from a real file path containing spaces (rtk rewrite echoes back a
+// plain string, not a shell-quoted one). A transient probe failure (rtk itself
+// missing/erroring, or the probe timing out under load) is deliberately NOT
+// cached -- only a clean completion (supported or genuinely unsupported) is,
+// so a one-time hiccup doesn't permanently disable rtk for a tool it actually
+// supports for the rest of the server's lifetime.
+/** @param {LintTool} tool @returns {string[] | null} */
+function getRtkPrefix(tool) {
+  const cached = rtkPrefixCache.get(tool.name);
+  if (cached !== undefined) return cached;
+  const probe = spawnSync(
+    "rtk",
+    ["rewrite", tool.name, ...tool.args, "__RTK_PROBE__"],
+    { timeout: RTK_PROBE_TIMEOUT_MS, encoding: "utf8" },
+  );
+  if (probe.error || probe.signal) return null;
+  const prefix = parseRtkPrefix(probe.stdout);
+  rtkPrefixCache.set(tool.name, prefix);
+  return prefix;
+}
+
+// Run the resolved lint tool: npx (when absent from PATH but npm-distributed --
+// given its own, more generous timeout since a cold `npx --yes <pkg>` install can
+// exceed the local-binary budget), else rtk-wrapped (when both the tool and rtk
+// are on PATH and rtk supports it -- falling back to the direct call below if the
+// rtk-wrapped run itself errors or is killed), else the tool directly.
+// argv.slice(tool.args.length) strips the static [name, ...args] prefix that
+// rtkPrefix already reproduces, leaving only the real target (file or directory)
+// to append after it.
+/** @param {LintTool} tool @param {string[]} argv @param {any} spawnOpts @returns {any} */
+function runLintTool(tool, argv, spawnOpts) {
+  if (tool.npmSpec && !onPath(tool.name)) {
+    return spawnSync("npx", ["--yes", tool.npmSpec, ...argv], {
+      ...spawnOpts,
+      timeout: NPX_SPAWN_TIMEOUT_MS,
+    });
+  }
+  if (onPath("rtk")) {
+    const rtkPrefix = getRtkPrefix(tool);
+    if (rtkPrefix) {
+      const rtkResult = spawnSync(
+        "rtk",
+        [...rtkPrefix, ...argv.slice(tool.args.length)],
+        spawnOpts,
+      );
+      if (!rtkResult.error && !rtkResult.signal) return rtkResult;
+    }
+  }
+  return spawnSync(tool.name, argv, spawnOpts);
 }
 
 // auto_lint toggle: ONLY literal false disables. Scope precedence local>project>user;
@@ -264,18 +351,21 @@ function lintFileHandler(args) {
     if (!existsSync(resolved)) return {};
 
     // Cached O(1) PATH probe before the uncached settings-file reads.
-    const tool = REGISTRY[lang].chain.find((t) => onPath(t.name));
+    const tool = REGISTRY[lang].chain.find((t) =>
+      isToolAvailable(t, onPath(t.name), onPath("npx")),
+    );
     if (!tool) return {};
     if (!isAutoLintEnabled(cwd)) return {};
 
     const argv = buildArgv(tool, resolved, cwd);
-    const result = spawnSync(tool.name, argv, {
+    const spawnOpts = {
       cwd,
       timeout: SPAWN_TIMEOUT_MS,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       maxBuffer: MAX_BUFFER_BYTES,
-    });
+    };
+    const result = runLintTool(tool, argv, spawnOpts);
     if (result.error || result.signal) return {};
 
     const target = tool.targetsDir

@@ -25,6 +25,11 @@ Per-language opt-out is simply not installing that linter. The whole plugin can 
 | Python | `.py` `.pyi` | `ruff check` | file |
 | Go | `.go` | `golangci-lint` → `go vet` | **package directory** — `go vet`/`golangci-lint` operate on packages, not standalone files; pointing them at a single file that references sibling-file symbols would otherwise fail with spurious "undefined" errors |
 
+`eslint` additionally runs via `npx` when not installed locally (official
+npm package). When a linter is on `PATH` and `rtk` is also on `PATH`,
+findings run through `rtk` for more token-efficient output — same pass/fail
+verdict either way.
+
 ## Configuration
 
 Configure via `/plugin` → installed → **universal-lint** → Configure options.
