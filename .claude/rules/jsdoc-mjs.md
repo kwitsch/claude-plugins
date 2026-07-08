@@ -1,7 +1,6 @@
 ---
 paths:
   - "plugins/**/*.mjs"
-  - ".claude/hooks/**/*.mjs"
 ---
 # Rule: JSDoc annotations in .mjs files
 

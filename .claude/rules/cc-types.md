@@ -2,7 +2,6 @@
 paths:
   - "plugins/**/*.mjs"
   - "test/**/*.mjs"
-  - ".claude/hooks/**/*.mjs"
   - "types/cc-types.d.ts"
 ---
 # Rule: Claude Code type definitions in types/cc-types.d.ts

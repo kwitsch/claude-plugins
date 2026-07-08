@@ -6,8 +6,8 @@
     "test:bats": "BATS_LIB_PATH=\"$PWD/node_modules\" bats -r test/",
     "test:unit": "node --test",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint plugins test .claude/hooks",
-    "format": "prettier --write \"plugins/**/*.{js,mjs}\" \"test/**/*.{js,mjs}\" \".claude/hooks/**/*.{js,mjs}\""
+    "lint": "eslint plugins test",
+    "format": "prettier --write \"plugins/**/*.{js,mjs}\" \"test/**/*.{js,mjs}\""
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
