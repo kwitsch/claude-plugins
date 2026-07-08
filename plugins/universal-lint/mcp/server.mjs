@@ -35,7 +35,7 @@ const MAX_CONTEXT_CHARS = 4000; // cap on the additionalContext findings text
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024; // spawnSync's 1MB default truncates a noisy linter's output as ENOBUFS
 
 /**
- * @typedef {{ name: string, args: string[], targetsDir?: boolean, classify?: "output", needsCheckstyleConfig?: boolean }} LintTool
+ * @typedef {{ name: string, args: string[], targetsDir?: boolean, classify?: "output", needsCheckstyleConfig?: boolean, npmSpec?: string }} LintTool
  * @typedef {{ chain: LintTool[] }} LangEntry
  */
 
@@ -82,7 +82,7 @@ export const REGISTRY = {
     ],
   },
   kotlin: { chain: [{ name: "ktlint", args: [] }] },
-  jsts: { chain: [{ name: "eslint", args: [] }] },
+  jsts: { chain: [{ name: "eslint", args: [], npmSpec: "eslint" }] },
   python: { chain: [{ name: "ruff", args: ["check"] }] },
   go: {
     chain: [
@@ -112,6 +112,16 @@ function onPath(tool) {
   }
   probeCache.set(tool, found);
   return found;
+}
+
+// A tool is available directly on PATH, or indirectly via `npx <npmSpec>` when
+// the registry declares npmSpec (a verified-official npm package only -- see
+// the REGISTRY comments) and npx itself is on PATH. Booleans are passed in
+// rather than calling onPath() internally so this stays a pure, unit-testable
+// function.
+/** @param {LintTool} tool @param {boolean} toolOnPath @param {boolean} npxOnPath @returns {boolean} */
+export function isToolAvailable(tool, toolOnPath, npxOnPath) {
+  return toolOnPath || (!!tool.npmSpec && npxOnPath);
 }
 
 // auto_lint toggle: ONLY literal false disables. Scope precedence local>project>user;
@@ -264,18 +274,24 @@ function lintFileHandler(args) {
     if (!existsSync(resolved)) return {};
 
     // Cached O(1) PATH probe before the uncached settings-file reads.
-    const tool = REGISTRY[lang].chain.find((t) => onPath(t.name));
+    const tool = REGISTRY[lang].chain.find((t) =>
+      isToolAvailable(t, onPath(t.name), onPath("npx")),
+    );
     if (!tool) return {};
     if (!isAutoLintEnabled(cwd)) return {};
 
     const argv = buildArgv(tool, resolved, cwd);
-    const result = spawnSync(tool.name, argv, {
+    const spawnOpts = {
       cwd,
       timeout: SPAWN_TIMEOUT_MS,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       maxBuffer: MAX_BUFFER_BYTES,
-    });
+    };
+    const npmSpec = onPath(tool.name) ? undefined : tool.npmSpec;
+    const result = npmSpec
+      ? spawnSync("npx", ["--yes", npmSpec, ...argv], spawnOpts)
+      : spawnSync(tool.name, argv, spawnOpts);
     if (result.error || result.signal) return {};
 
     const target = tool.targetsDir
