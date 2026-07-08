@@ -25,6 +25,10 @@ Per-language opt-out is simply not installing that formatter. The whole plugin c
 | Python | `.py` `.pyi` | `ruff` → `black` |
 | Go | `.go` | `goimports` → `gofmt` |
 
+`prettier` and `biome` additionally run via `npx` when not installed
+locally (both are official npm packages). No other formatter in this chain
+has an npx fallback — see `CLAUDE.md` for why.
+
 ## Configuration
 
 Configure via `/plugin` → installed → **universal-format** → Configure options.
