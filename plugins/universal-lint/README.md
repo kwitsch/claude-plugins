@@ -10,7 +10,7 @@ Silently runs each language's standard linter (read-only — never autofixes) on
 
 ## What it does
 
-A PostToolUse `Write|Edit` hook (an `mcp_tool` backed by a self-contained plugin-local MCP server) runs the just-written file's standard linter, check-only, for six languages. The linter runs only when its CLI is on `PATH`; a missing linter, any crash or misconfiguration, an unsupported extension, a file outside the project, or a file under `node_modules/`/`vendor/`/`.git/` is a **silent no-op** — the hook never blocks or degrades the session, and it never modifies the file (that's `universal-format`'s job, not this plugin's — this plugin never passes `--fix`/`--format`/`--write` to anything). When (and only when) the linter reports real findings, the hook returns them as context so Claude can fix them itself.
+A PostToolUse `Write|Edit` hook (an `mcp_tool` backed by a self-contained plugin-local MCP server) runs the just-written file's standard linter, check-only, for eight languages. The linter runs only when its CLI is on `PATH`; a missing linter, any crash or misconfiguration, an unsupported extension, a file outside the project, or a file under `node_modules/`/`vendor/`/`.git/` is a **silent no-op** — the hook never blocks or degrades the session, and it never modifies the file (that's `universal-format`'s job, not this plugin's — this plugin never passes `--fix`/`--format`/`--write` to anything). When (and only when) the linter reports real findings, the hook returns them as context so Claude can fix them itself.
 
 Per-language opt-out is simply not installing that linter. The whole plugin can be disabled with the `auto_lint` toggle.
 
