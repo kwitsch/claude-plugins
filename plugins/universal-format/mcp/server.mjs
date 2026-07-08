@@ -62,6 +62,27 @@ const EXT_MAP = {
   ".md": "markdown",
 };
 
+// Shared chain-entry descriptors: prettier/biome each serve multiple, unrelated
+// language chains (jsts/json/yaml/markdown) with byte-identical config, unlike
+// every other tool in this registry (each of which serves exactly one language).
+// buildInvocation() only ever reads these via .slice()/spread, never mutates in
+// place, so sharing the same object across chains is safe.
+/** @type {FormatTool} */
+const PRETTIER_NATIVE = {
+  name: "prettier",
+  strategy: "native",
+  base: ["--write", "--log-level", "silent"],
+  npmSpec: "prettier",
+};
+/** @type {FormatTool} */
+const BIOME_MAPPED = {
+  name: "biome",
+  strategy: "mapped",
+  nativeConfig: ["biome.json", "biome.jsonc"],
+  base: ["format", "--write", "--log-level=none"],
+  npmSpec: "@biomejs/biome",
+};
+
 // Formatter registry (research-verified). chain = first tool on PATH wins.
 // strategy "native"/"fixed" -> always run bare (base args); "mapped" -> .editorconfig
 // flag mapping applied only when no tool-native config governs (added in Task 3).
@@ -100,23 +121,7 @@ export const REGISTRY = {
       },
     ],
   },
-  jsts: {
-    chain: [
-      {
-        name: "prettier",
-        strategy: "native",
-        base: ["--write", "--log-level", "silent"],
-        npmSpec: "prettier",
-      },
-      {
-        name: "biome",
-        strategy: "mapped",
-        nativeConfig: ["biome.json", "biome.jsonc"],
-        base: ["format", "--write", "--log-level=none"],
-        npmSpec: "@biomejs/biome",
-      },
-    ],
-  },
+  jsts: { chain: [PRETTIER_NATIVE, BIOME_MAPPED] },
   python: {
     chain: [
       {
@@ -143,43 +148,9 @@ export const REGISTRY = {
       { name: "gofmt", strategy: "fixed", base: ["-w"] },
     ],
   },
-  json: {
-    chain: [
-      {
-        name: "prettier",
-        strategy: "native",
-        base: ["--write", "--log-level", "silent"],
-        npmSpec: "prettier",
-      },
-      {
-        name: "biome",
-        strategy: "mapped",
-        nativeConfig: ["biome.json", "biome.jsonc"],
-        base: ["format", "--write", "--log-level=none"],
-        npmSpec: "@biomejs/biome",
-      },
-    ],
-  },
-  yaml: {
-    chain: [
-      {
-        name: "prettier",
-        strategy: "native",
-        base: ["--write", "--log-level", "silent"],
-        npmSpec: "prettier",
-      },
-    ],
-  },
-  markdown: {
-    chain: [
-      {
-        name: "prettier",
-        strategy: "native",
-        base: ["--write", "--log-level", "silent"],
-        npmSpec: "prettier",
-      },
-    ],
-  },
+  json: { chain: [PRETTIER_NATIVE, BIOME_MAPPED] },
+  yaml: { chain: [PRETTIER_NATIVE] },
+  markdown: { chain: [PRETTIER_NATIVE] },
 };
 
 // PATH probe cache (server-lifetime): tool name -> boolean on PATH.
