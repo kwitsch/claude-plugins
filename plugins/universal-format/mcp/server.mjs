@@ -56,6 +56,31 @@ const EXT_MAP = {
   ".py": "python",
   ".pyi": "python",
   ".go": "go",
+  ".json": "json",
+  ".yaml": "yaml",
+  ".yml": "yaml",
+  ".md": "markdown",
+};
+
+// Shared chain-entry descriptors: prettier/biome each serve multiple, unrelated
+// language chains (jsts/json/yaml/markdown) with byte-identical config, unlike
+// every other tool in this registry (each of which serves exactly one language).
+// buildInvocation() only ever reads these via .slice()/spread, never mutates in
+// place, so sharing the same object across chains is safe.
+/** @type {FormatTool} */
+const PRETTIER_NATIVE = {
+  name: "prettier",
+  strategy: "native",
+  base: ["--write", "--log-level", "silent"],
+  npmSpec: "prettier",
+};
+/** @type {FormatTool} */
+const BIOME_MAPPED = {
+  name: "biome",
+  strategy: "mapped",
+  nativeConfig: ["biome.json", "biome.jsonc"],
+  base: ["format", "--write", "--log-level=none"],
+  npmSpec: "@biomejs/biome",
 };
 
 // Formatter registry (research-verified). chain = first tool on PATH wins.
@@ -96,23 +121,7 @@ export const REGISTRY = {
       },
     ],
   },
-  jsts: {
-    chain: [
-      {
-        name: "prettier",
-        strategy: "native",
-        base: ["--write", "--log-level", "silent"],
-        npmSpec: "prettier",
-      },
-      {
-        name: "biome",
-        strategy: "mapped",
-        nativeConfig: ["biome.json", "biome.jsonc"],
-        base: ["format", "--write", "--log-level=none"],
-        npmSpec: "@biomejs/biome",
-      },
-    ],
-  },
+  jsts: { chain: [PRETTIER_NATIVE, BIOME_MAPPED] },
   python: {
     chain: [
       {
@@ -139,6 +148,9 @@ export const REGISTRY = {
       { name: "gofmt", strategy: "fixed", base: ["-w"] },
     ],
   },
+  json: { chain: [PRETTIER_NATIVE, BIOME_MAPPED] },
+  yaml: { chain: [PRETTIER_NATIVE] },
+  markdown: { chain: [PRETTIER_NATIVE] },
 };
 
 // PATH probe cache (server-lifetime): tool name -> boolean on PATH.

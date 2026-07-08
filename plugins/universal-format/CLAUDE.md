@@ -1,6 +1,6 @@
 # CLAUDE.md — universal-format
 
-mcp-kind hooks plugin: a PostToolUse `Write|Edit` `mcp_tool` hook silently auto-formats the just-written file for Shell/Java/Kotlin/JS-TS/Python/Go via each language's standard formatter, backed by a self-contained zero-dep `mcp/server.mjs`.
+mcp-kind hooks plugin: a PostToolUse `Write|Edit` `mcp_tool` hook silently auto-formats the just-written file for Shell/Java/Kotlin/JS-TS/Python/Go/JSON/YAML/Markdown via each language's standard formatter, backed by a self-contained zero-dep `mcp/server.mjs`.
 
 ## Hook design (do not "fix" without reading this)
 
@@ -10,7 +10,7 @@ mcp-kind hooks plugin: a PostToolUse `Write|Edit` `mcp_tool` hook silently auto-
 
 Guards, each failing to `{}` silently: `tool_response.success !== false` → extension in the registry → resolved path inside `cwd` and not under `node_modules/`/`vendor/`/`.git/` → file exists → some chain tool on `PATH` (probes cached in-process for the server lifetime; cheap cached probe runs before the uncached settings reads) → `auto_format` not literal `false` (scopes local>project>user). Then: `selectFormatter` walks the language chain in order — a tool missing from `PATH` **or** hitting a hard style conflict (e.g. `.editorconfig` says tabs, `google-java-format` can't do tabs) is skipped, falling through to the next chain entry rather than aborting; only when no chain tool can run does the hook no-op. Invocation resolved per strategy → `spawnSync` (`cwd` = project cwd, 30 s timeout, stdio ignored) → before/after **content diff** decides success (NEVER exit codes: ktlint exits non-zero after a successful format). Changed → `hookSpecificOutput.additionalContext`; unchanged or any error/timeout → `{}`.
 
-Config strategy per tool: `shfmt`/`ktlint`/`prettier` native (run bare, flag-free — shfmt loses ALL EditorConfig handling if given any parser/printer flag); `ktfmt` always `--enable-editorconfig`; `goimports`/`gofmt` fixed style; `google-java-format`/`clang-format`/`ruff`/`black`/`biome` mapped — nearest tool-native config upward → run bare, else `.editorconfig` → mapped flags (hard conflict → skip). `goimports` preferred over `gofmt` (fixes imports); `gofumpt` deliberately excluded (churn on non-opted-in projects).
+Config strategy per tool: `shfmt`/`ktlint`/`prettier` native (run bare, flag-free — shfmt loses ALL EditorConfig handling if given any parser/printer flag); `ktfmt` always `--enable-editorconfig`; `goimports`/`gofmt` fixed style; `google-java-format`/`clang-format`/`ruff`/`black`/`biome` mapped — nearest tool-native config upward → run bare, else `.editorconfig` → mapped flags (hard conflict → skip). `goimports` preferred over `gofmt` (fixes imports); `gofumpt` deliberately excluded (churn on non-opted-in projects). JSON/YAML/Markdown reuse this machinery unchanged: `prettier` (native) covers all three; `biome` (mapped, identical flag mapping to its `jsts` entry) is JSON's second chain entry — Biome's own `.editorconfig` support is opt-in (`formatter.useEditorconfig` defaults `false`), which is exactly why it's `mapped` here, not `native`.
 
 `prettier` and `biome` additionally fall back to `npx --yes <package> ...`
 when absent from `PATH` (verified-official npm packages: `prettier`,

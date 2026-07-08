@@ -160,6 +160,47 @@ test("REGISTRY: only prettier/biome carry npmSpec, with the exact npm package na
   }
 });
 
+test("REGISTRY: json/yaml/markdown chains and npmSpecs", () => {
+  assert.deepEqual(
+    REGISTRY.json.chain.map((t) => t.name),
+    ["prettier", "biome"],
+  );
+  assert.equal(REGISTRY.json.chain[0].npmSpec, "prettier");
+  assert.equal(REGISTRY.json.chain[1].npmSpec, "@biomejs/biome");
+  assert.deepEqual(
+    REGISTRY.yaml.chain.map((t) => t.name),
+    ["prettier"],
+  );
+  assert.equal(REGISTRY.yaml.chain[0].npmSpec, "prettier");
+  assert.deepEqual(
+    REGISTRY.markdown.chain.map((t) => t.name),
+    ["prettier"],
+  );
+  assert.equal(REGISTRY.markdown.chain[0].npmSpec, "prettier");
+});
+
+test("json: biome chain entry is mapped (not native) -- editorconfig applies only when biome.json is absent", () => {
+  const biomeJson = REGISTRY.json.chain[1];
+  assert.equal(biomeJson.strategy, "mapped");
+  assert.deepEqual(
+    buildInvocation(biomeJson, {
+      editorconfig: { indent_style: "space", indent_size: 2 },
+    }),
+    {
+      argv: [
+        "format",
+        "--write",
+        "--log-level=none",
+        "--indent-style=space",
+        "--indent-width=2",
+      ],
+    },
+  );
+  assert.deepEqual(buildInvocation(biomeJson, { hasNativeConfig: true }), {
+    argv: ["format", "--write", "--log-level=none"],
+  });
+});
+
 test("isToolAvailable: true when the tool itself is on PATH", () => {
   assert.equal(isToolAvailable({ name: "shfmt" }, true, false), true);
   assert.equal(

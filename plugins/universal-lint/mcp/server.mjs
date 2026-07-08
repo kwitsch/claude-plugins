@@ -40,8 +40,10 @@ const MAX_BUFFER_BYTES = 10 * 1024 * 1024; // spawnSync's 1MB default truncates 
  * @typedef {{ chain: LintTool[] }} LangEntry
  */
 
-// Lowercased file extension (incl. leading dot) -> language key. Identical set to
-// the universal-format plugin's EXT_MAP (same six languages).
+// Lowercased file extension (incl. leading dot) -> language key. A subset of
+// the universal-format plugin's EXT_MAP: .json is deliberately excluded here
+// -- no exit-code-clean standalone JSON linter exists (see CLAUDE.md, "JSON:
+// not covered").
 /** @type {Record<string, string>} */
 const EXT_MAP = {
   ".sh": "shell",
@@ -60,6 +62,9 @@ const EXT_MAP = {
   ".py": "python",
   ".pyi": "python",
   ".go": "go",
+  ".yaml": "yaml",
+  ".yml": "yaml",
+  ".md": "markdown",
 };
 
 // Linter registry. chain = first tool on PATH wins. Every entry runs check-only --
@@ -89,6 +94,13 @@ export const REGISTRY = {
     chain: [
       { name: "golangci-lint", args: ["run"], targetsDir: true },
       { name: "go", args: ["vet"], targetsDir: true },
+    ],
+  },
+  yaml: { chain: [{ name: "yamllint", args: [] }] },
+  markdown: {
+    chain: [
+      { name: "markdownlint-cli2", args: [], npmSpec: "markdownlint-cli2" },
+      { name: "markdownlint", args: [], npmSpec: "markdownlint-cli" },
     ],
   },
 };
@@ -280,6 +292,9 @@ export function classifyExit(toolName, status) {
     case "eslint": // 0 clean, 1 issues, 2 config/internal error
     case "ruff": // 0 clean, 1 issues, 2 abnormal termination
     case "golangci-lint": // 0 clean, 1 issues, 2-7 warning-in-test/failure/timeout/no-go-files/no-config/error-logged
+    case "yamllint": // 0 clean, 1 issues (run without --strict, matching eslint's warnings-don't-count precedent), 255 config/IO crash (POSIX-truncated from sys.exit(-1))
+    case "markdownlint-cli2": // 0 clean, 1 issues, 2 tool problem/failure
+    case "markdownlint": // 0 clean, 1 issues, 2/3/4 tool-side failures (bad -o/-r/malformed config)
       if (status === 0) return "clean";
       if (status === 1) return "issues";
       return "skip";
@@ -324,6 +339,24 @@ export function truncate(text) {
   return collapsed.slice(0, MAX_CONTEXT_CHARS) + "\n… (truncated)";
 }
 
+// Two-pass tool selection, mirroring universal-format's selectFormatter: a chain
+// tool actually on PATH always wins over any other chain tool that's merely
+// npx-reachable, regardless of chain order. Without this, giving npmSpec to more
+// than one chain entry (e.g. markdownlint-cli2 before markdownlint) would let the
+// earlier entry's npx fallback shadow a later entry that's genuinely installed --
+// npx ships with node, so it's essentially always "available."
+/** @param {LintTool[]} chain @returns {LintTool | null} */
+function selectLintTool(chain) {
+  for (const tool of chain) {
+    if (onPath(tool.name)) return tool;
+  }
+  if (!onPath("npx")) return null;
+  for (const tool of chain) {
+    if (tool.npmSpec) return tool;
+  }
+  return null;
+}
+
 // The lint_file tool handler. Returns {} on every guard failure / clean / skip (fail open).
 /** @param {PostToolUseHookInput} args @returns {HookResult} */
 function lintFileHandler(args) {
@@ -351,11 +384,14 @@ function lintFileHandler(args) {
     if (!existsSync(resolved)) return {};
 
     // Cached O(1) PATH probe before the uncached settings-file reads.
-    const tool = REGISTRY[lang].chain.find((t) =>
+    const candidate = REGISTRY[lang].chain.find((t) =>
       isToolAvailable(t, onPath(t.name), onPath("npx")),
     );
-    if (!tool) return {};
+    if (!candidate) return {};
     if (!isAutoLintEnabled(cwd)) return {};
+
+    const tool = selectLintTool(REGISTRY[lang].chain);
+    if (!tool) return {};
 
     const argv = buildArgv(tool, resolved, cwd);
     const spawnOpts = {
