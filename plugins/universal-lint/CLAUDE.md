@@ -1,6 +1,6 @@
 # CLAUDE.md — universal-lint
 
-mcp-kind hooks plugin: a PostToolUse `Write|Edit` `mcp_tool` hook runs the just-written file's standard linter (check-only, never `--fix`/`--format`/`--write`) for Shell/Java/Kotlin/JS-TS/Python/Go, backed by a self-contained zero-dep `mcp/server.mjs`.
+mcp-kind hooks plugin: a PostToolUse `Write|Edit` `mcp_tool` hook runs the just-written file's standard linter (check-only, never `--fix`/`--format`/`--write`) for Shell/Java/Kotlin/JS-TS/Python/Go/YAML/Markdown, backed by a self-contained zero-dep `mcp/server.mjs`. JSON is deliberately excluded (see "JSON: not covered" below).
 
 ## Hook design (do not "fix" without reading this)
 
@@ -10,12 +10,20 @@ mcp-kind hooks plugin: a PostToolUse `Write|Edit` `mcp_tool` hook runs the just-
 
 Guards, each failing to `{}` silently: `tool_response.success !== false` → resolved path inside `cwd` and not under `node_modules/`/`vendor/`/`.git/` → extension in `EXT_MAP` → file exists → some chain tool on `PATH` (probes cached in-process for the server lifetime, checked before the uncached settings-file reads) → `auto_lint` not literal `false`. Then: the first chain tool on `PATH` wins — no per-file style-conflict skip exists here (a linter doesn't need to reproduce exact output the way a formatter does, so there's nothing to conflict with). `buildArgv` appends checkstyle's `-c <resolved config>` and points the two Go entries at the edited file's **directory** rather than the file itself (`go vet`/`golangci-lint` are package-scoped tools). `spawnSync` (cwd = project cwd, 30s timeout, `maxBuffer` 10MB — well above the 1MB default, since a noisy linter's combined output is the payload, not a byproduct — stdout+stderr captured **never ignored**, unlike the formatter sibling, because the findings text itself is the payload). Success is decided by **classification, not a content diff** (the file is never modified): `classifyExit` per tool's documented exit-code contract for five of the six tools; `checkstyle` is the one exception, classified by `classifyCheckstyleOutput` instead, because its exit code counts only `error`-severity violations and the bundled default ruleset (and many real projects) run at `warning` severity — exit-code classification would silently miss real findings there. Issues found → truncated (`MAX_CONTEXT_CHARS = 4000` chars) `additionalContext`; clean, skip (crash/misconfig), or no candidate tool → `{}`.
 
-`eslint` additionally falls back to `npx --yes eslint ...` when absent from
-`PATH` (verified official npm package; `npx` itself is assumed present since
-the plugin's own MCP server already requires node/npm). No other chain tool
-gets an npx fallback — see `universal-format`'s `CLAUDE.md` for the
-npm-provenance research; the same conclusions apply here (`ruff`,
-`golangci-lint`, `go`, `ktlint`, `checkstyle` have no safe npm equivalent).
+`eslint`, `markdownlint-cli2`, and `markdownlint` additionally fall back to
+`npx --yes <package> ...` when absent from `PATH` (all verified official npm
+packages; `npx` itself is assumed present since the plugin's own MCP server
+already requires node/npm). `yamllint` gets no npx fallback — it has no npm
+package at all (PyPI/pip only). No other chain tool gets an npx fallback —
+see `universal-format`'s `CLAUDE.md` for the npm-provenance research; the
+same conclusions apply here (`ruff`, `golangci-lint`, `go`, `ktlint`,
+`checkstyle` have no safe npm equivalent).
+
+`yamllint` (YAML) and `markdownlint-cli2`/`markdownlint` (Markdown) join the
+same 0-clean/1-issues/else-skip `classifyExit` contract as the five tools
+above. `yamllint` runs without `--strict`, so warnings-only findings don't
+surface — kept consistent with this plugin's existing `eslint` behavior
+(warnings don't affect its exit code either).
 
 When the resolved tool is on `PATH` **and** `rtk` is also on `PATH`, the tool
 runs through `rtk` instead of directly, for token-compacted findings text —
@@ -33,6 +41,18 @@ falls back to running the tool directly rather than failing open, so a
 broken `rtk` install can't silently disable linting.
 
 One `userConfig` toggle `auto_lint` (default true, fail-open — only literal `false` disables; linting never modifies or creates files, so the fail-closed exception does not apply).
+
+## JSON: not covered (do not "fix" without reading this)
+
+`.json` is intentionally absent from `EXT_MAP` — not a bug. No standalone,
+actively-maintained JSON linter has a clean exit-code contract: `jsonlint`
+(npm) has been dead since 2018; its actively-maintained successor
+`@prantlf/jsonlint` and `biome lint` both return the same exit code (1) for
+"invalid JSON" and "crashed/misconfigured," unlike every tool actually in
+this registry. Adding a checkstyle-style output-classifier for a tool whose
+own maintainers haven't decomposed this is unforced complexity.
+`universal-format` already rejects malformed JSON via its `prettier`/`biome`
+chain — format-only coverage is the honest answer for this file type.
 
 ## Tests
 

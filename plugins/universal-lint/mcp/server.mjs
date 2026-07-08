@@ -40,8 +40,10 @@ const MAX_BUFFER_BYTES = 10 * 1024 * 1024; // spawnSync's 1MB default truncates 
  * @typedef {{ chain: LintTool[] }} LangEntry
  */
 
-// Lowercased file extension (incl. leading dot) -> language key. Identical set to
-// the universal-format plugin's EXT_MAP (same six languages).
+// Lowercased file extension (incl. leading dot) -> language key. A subset of
+// the universal-format plugin's EXT_MAP: .json is deliberately excluded here
+// -- no exit-code-clean standalone JSON linter exists (see CLAUDE.md, "JSON:
+// not covered").
 /** @type {Record<string, string>} */
 const EXT_MAP = {
   ".sh": "shell",
@@ -60,6 +62,9 @@ const EXT_MAP = {
   ".py": "python",
   ".pyi": "python",
   ".go": "go",
+  ".yaml": "yaml",
+  ".yml": "yaml",
+  ".md": "markdown",
 };
 
 // Linter registry. chain = first tool on PATH wins. Every entry runs check-only --
@@ -89,6 +94,13 @@ export const REGISTRY = {
     chain: [
       { name: "golangci-lint", args: ["run"], targetsDir: true },
       { name: "go", args: ["vet"], targetsDir: true },
+    ],
+  },
+  yaml: { chain: [{ name: "yamllint", args: [] }] },
+  markdown: {
+    chain: [
+      { name: "markdownlint-cli2", args: [], npmSpec: "markdownlint-cli2" },
+      { name: "markdownlint", args: [], npmSpec: "markdownlint-cli" },
     ],
   },
 };
@@ -280,6 +292,9 @@ export function classifyExit(toolName, status) {
     case "eslint": // 0 clean, 1 issues, 2 config/internal error
     case "ruff": // 0 clean, 1 issues, 2 abnormal termination
     case "golangci-lint": // 0 clean, 1 issues, 2-7 warning-in-test/failure/timeout/no-go-files/no-config/error-logged
+    case "yamllint": // 0 clean, 1 issues (run without --strict, matching eslint's warnings-don't-count precedent), 255 config/IO crash (POSIX-truncated from sys.exit(-1))
+    case "markdownlint-cli2": // 0 clean, 1 issues, 2 tool problem/failure
+    case "markdownlint": // 0 clean, 1 issues, 2/3/4 tool-side failures (bad -o/-r/malformed config)
       if (status === 0) return "clean";
       if (status === 1) return "issues";
       return "skip";

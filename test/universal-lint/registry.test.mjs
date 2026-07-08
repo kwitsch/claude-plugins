@@ -105,13 +105,16 @@ test("resolveCheckstyleConfig: nothing found -> null", () => {
   assert.equal(resolveCheckstyleConfig(dir, dir), null);
 });
 
-test("classifyExit: shellcheck/ktlint/eslint/ruff/golangci-lint share the 0-clean/1-issues/else-skip contract", () => {
+test("classifyExit: shellcheck/ktlint/eslint/ruff/golangci-lint/yamllint/markdownlint-cli2/markdownlint share the 0-clean/1-issues/else-skip contract", () => {
   for (const name of [
     "shellcheck",
     "ktlint",
     "eslint",
     "ruff",
     "golangci-lint",
+    "yamllint",
+    "markdownlint-cli2",
+    "markdownlint",
   ]) {
     assert.equal(classifyExit(name, 0), "clean");
     assert.equal(classifyExit(name, 1), "issues");
@@ -170,13 +173,24 @@ test("truncate: caps at MAX_CONTEXT_CHARS and marks truncation", () => {
   assert.ok(out.endsWith("… (truncated)"));
 });
 
-test("REGISTRY: only eslint carries npmSpec", () => {
+test("REGISTRY: npmSpec carried by eslint (jsts) and both markdown tools; not by yaml/shell/java/kotlin/python/go", () => {
   assert.equal(REGISTRY.jsts.chain[0].npmSpec, "eslint");
-  for (const lang of ["shell", "java", "kotlin", "python", "go"]) {
+  assert.equal(REGISTRY.markdown.chain[0].npmSpec, "markdownlint-cli2");
+  assert.equal(REGISTRY.markdown.chain[1].npmSpec, "markdownlint-cli");
+  for (const lang of ["shell", "java", "kotlin", "python", "go", "yaml"]) {
     for (const tool of REGISTRY[lang].chain) {
       assert.equal(tool.npmSpec, undefined);
     }
   }
+});
+
+test("REGISTRY: chain of 1 for yaml (yamllint), chain of 2 for markdown (cli2 -> cli); no json entry", () => {
+  assert.equal(REGISTRY.yaml.chain.length, 1);
+  assert.equal(REGISTRY.yaml.chain[0].name, "yamllint");
+  assert.equal(REGISTRY.markdown.chain.length, 2);
+  assert.equal(REGISTRY.markdown.chain[0].name, "markdownlint-cli2");
+  assert.equal(REGISTRY.markdown.chain[1].name, "markdownlint");
+  assert.equal(REGISTRY.json, undefined);
 });
 
 test("isToolAvailable: true when the tool itself is on PATH", () => {

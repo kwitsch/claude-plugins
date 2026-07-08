@@ -194,14 +194,14 @@ lint_file_call() {
   [ "$output" = "{}" ]
 }
 
-@test "non-target extension (.md) -> linter never invoked" {
+@test "non-target extension (.txt) -> linter never invoked" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
-  printf '# hi\n' > "$cwd/a.md"
+  printf 'hi\n' > "$cwd/a.txt"
   OUT="issue"
   rec_stub shellcheck 1
-  run lint_file_call "$cwd/a.md" "$cwd"
+  run lint_file_call "$cwd/a.txt" "$cwd"
   assert_success
   [ "$output" = "{}" ]
   [ ! -s "$RECORD" ]
@@ -509,5 +509,89 @@ rtk_stub() {
   assert_success
   echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("SC2086")'
   run grep -E "^shellcheck " "$RECORD"
+  assert_success
+}
+
+@test "json extension -> linter never invoked (deliberately uncovered)" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '{"a":1}' > "$cwd/a.json"
+  OUT="issue"
+  rec_stub eslint 1
+  run lint_file_call "$cwd/a.json" "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+  [ ! -s "$RECORD" ]
+}
+
+@test "yamllint finds an issue: additionalContext returned" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'a:   1\n' > "$cwd/a.yaml"
+  OUT='a.yaml:1:4: [warning] too many spaces after colon (colons)'
+  rec_stub yamllint 1
+  run lint_file_call "$cwd/a.yaml" "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("colons")'
+  run grep -F "yamllint " "$RECORD"
+  assert_success
+}
+
+@test "yamllint clean (exit 0) -> {}" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'a: 1\n' > "$cwd/a.yaml"
+  OUT=""
+  rec_stub yamllint 0
+  run lint_file_call "$cwd/a.yaml" "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+}
+
+@test "markdown fallback: only markdownlint present -> used" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '# hi\n' > "$cwd/a.md"
+  OUT='a.md:1 MD041/first-line-heading'
+  rec_stub markdownlint 1
+  run lint_file_call "$cwd/a.md" "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("MD041")'
+  run grep -F "markdownlint " "$RECORD"
+  assert_success
+}
+
+@test "markdown fallback: markdownlint-cli2 present -> wins over markdownlint (chain order)" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '# hi\n' > "$cwd/a.md"
+  OUT='a.md:1 MD041/first-line-heading'
+  rec_stub markdownlint-cli2 1
+  rec_stub markdownlint 1   # never runs -- cli2 wins
+  run lint_file_call "$cwd/a.md" "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("MD041")'
+  run grep -F "markdownlint-cli2 " "$RECORD"
+  assert_success
+  run grep -E "^markdownlint " "$RECORD"
+  assert_failure
+}
+
+@test "markdownlint-cli2 absent but npx present -> npx --yes markdownlint-cli2 fallback runs" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '# hi\n' > "$cwd/a.md"
+  OUT='a.md:1 MD041/first-line-heading'
+  rec_stub npx 1
+  run lint_file_call "$cwd/a.md" "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("MD041")'
+  run grep -F "npx --yes markdownlint-cli2 $cwd/a.md" "$RECORD"
   assert_success
 }
