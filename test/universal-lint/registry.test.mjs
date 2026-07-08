@@ -1,0 +1,169 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import {
+  REGISTRY,
+  resolveCheckstyleConfig,
+  buildArgv,
+  classifyExit,
+  classifyCheckstyleOutput,
+  truncate,
+} from "../../plugins/universal-lint/mcp/server.mjs";
+
+const shellcheck = REGISTRY.shell.chain[0];
+const checkstyle = REGISTRY.java.chain[0];
+const ruff = REGISTRY.python.chain[0];
+const golangciLint = REGISTRY.go.chain[0];
+const goVet = REGISTRY.go.chain[1];
+
+test("REGISTRY: chain of 1 for five languages, chain of 2 for go", () => {
+  assert.equal(REGISTRY.shell.chain.length, 1);
+  assert.equal(REGISTRY.java.chain.length, 1);
+  assert.equal(REGISTRY.kotlin.chain.length, 1);
+  assert.equal(REGISTRY.jsts.chain.length, 1);
+  assert.equal(REGISTRY.python.chain.length, 1);
+  assert.equal(REGISTRY.go.chain.length, 2);
+  assert.equal(golangciLint.name, "golangci-lint");
+  assert.equal(goVet.name, "go");
+});
+
+test("no chain entry ever carries a --fix/--format/--write-equivalent flag", () => {
+  const banned = /^--?(fix|format|write|replace)$/i;
+  for (const lang of Object.values(REGISTRY)) {
+    for (const tool of lang.chain) {
+      assert.ok(
+        tool.args.every((a) => !banned.test(a)),
+        `${tool.name} args ${JSON.stringify(tool.args)} contain a fix/format flag`,
+      );
+    }
+  }
+});
+
+test("buildArgv: plain tool appends the resolved file last", () => {
+  assert.deepEqual(buildArgv(shellcheck, "/proj/a.sh", "/proj"), [
+    "/proj/a.sh",
+  ]);
+});
+
+test("buildArgv: ruff check keeps its subcommand before the file", () => {
+  assert.deepEqual(buildArgv(ruff, "/proj/a.py", "/proj"), [
+    "check",
+    "/proj/a.py",
+  ]);
+});
+
+test("buildArgv: go entries target the directory, not the file", () => {
+  assert.deepEqual(buildArgv(goVet, "/proj/pkg/a.go", "/proj"), [
+    "vet",
+    "/proj/pkg",
+  ]);
+  assert.deepEqual(buildArgv(golangciLint, "/proj/pkg/a.go", "/proj"), [
+    "run",
+    "/proj/pkg",
+  ]);
+});
+
+test("buildArgv: checkstyle injects -c <resolved config> before the file", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ul-cs-"));
+  assert.deepEqual(buildArgv(checkstyle, path.join(dir, "A.java"), dir), [
+    "-c",
+    "/google_checks.xml",
+    path.join(dir, "A.java"),
+  ]);
+});
+
+test("resolveCheckstyleConfig: finds checkstyle.xml walking up to cwd", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ul-cs-"));
+  writeFileSync(path.join(root, "checkstyle.xml"), '<module name="Checker"/>');
+  const sub = path.join(root, "src", "main");
+  mkdirSync(sub, { recursive: true });
+  assert.equal(
+    resolveCheckstyleConfig(sub, root),
+    path.join(root, "checkstyle.xml"),
+  );
+});
+
+test("resolveCheckstyleConfig: finds config/checkstyle/checkstyle.xml", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ul-cs-"));
+  mkdirSync(path.join(root, "config", "checkstyle"), { recursive: true });
+  writeFileSync(
+    path.join(root, "config", "checkstyle", "checkstyle.xml"),
+    '<module name="Checker"/>',
+  );
+  assert.equal(
+    resolveCheckstyleConfig(root, root),
+    path.join(root, "config", "checkstyle", "checkstyle.xml"),
+  );
+});
+
+test("resolveCheckstyleConfig: nothing found -> null", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ul-cs-"));
+  assert.equal(resolveCheckstyleConfig(dir, dir), null);
+});
+
+test("classifyExit: shellcheck/ktlint/eslint/ruff/golangci-lint share the 0-clean/1-issues/else-skip contract", () => {
+  for (const name of [
+    "shellcheck",
+    "ktlint",
+    "eslint",
+    "ruff",
+    "golangci-lint",
+  ]) {
+    assert.equal(classifyExit(name, 0), "clean");
+    assert.equal(classifyExit(name, 1), "issues");
+    assert.equal(classifyExit(name, 2), "skip");
+  }
+});
+
+test("classifyExit: go (go vet) is clean-vs-nonzero only, no skip bucket", () => {
+  assert.equal(classifyExit("go", 0), "clean");
+  assert.equal(classifyExit("go", 1), "issues");
+  assert.equal(classifyExit("go", 2), "issues");
+});
+
+test("classifyExit: null status (signal-killed) always skips, any tool", () => {
+  assert.equal(classifyExit("eslint", null), "skip");
+  assert.equal(classifyExit("go", null), "skip");
+});
+
+test("classifyExit: unknown tool name skips", () => {
+  assert.equal(classifyExit("mystery-tool", 0), "skip");
+});
+
+test("classifyCheckstyleOutput: boilerplate only -> clean", () => {
+  const r = classifyCheckstyleOutput("Starting audit...\nAudit done.\n");
+  assert.equal(r.status, "clean");
+  assert.equal(r.text, "");
+});
+
+test("classifyCheckstyleOutput: boilerplate + violation lines -> issues (exit-code-independent)", () => {
+  const r = classifyCheckstyleOutput(
+    "Starting audit...\n[WARN] /proj/A.java:3: Missing a Javadoc comment. [JavadocType]\nAudit done.\n",
+  );
+  assert.equal(r.status, "issues");
+  assert.match(r.text, /JavadocType/);
+});
+
+test("classifyCheckstyleOutput: no trailing 'Audit done.' -> skip (crash/misconfig)", () => {
+  const r = classifyCheckstyleOutput(
+    'Exception in thread "main" java.lang.RuntimeException\n',
+  );
+  assert.equal(r.status, "skip");
+});
+
+test("truncate: short text passes through unchanged (trimmed)", () => {
+  assert.equal(truncate("  hello\n"), "hello");
+});
+
+test("truncate: collapses 3+ blank lines to 1", () => {
+  assert.equal(truncate("a\n\n\n\nb"), "a\n\nb");
+});
+
+test("truncate: caps at MAX_CONTEXT_CHARS and marks truncation", () => {
+  const long = "x".repeat(5000);
+  const out = truncate(long);
+  assert.ok(out.length < long.length);
+  assert.ok(out.endsWith("… (truncated)"));
+});

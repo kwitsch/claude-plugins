@@ -24,6 +24,7 @@ jobs:
           - claude-code-knowledge
           - coding-toolbox
           - universal-format
+          - universal-lint
     steps:
       - name: Checkout
         uses: actions/checkout@v6

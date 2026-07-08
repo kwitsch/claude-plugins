@@ -116,6 +116,21 @@
         "editorconfig",
         "mcp"
       ]
+    },
+    {
+      "name": "universal-lint",
+      "source": "./plugins/universal-lint",
+      "description": "Silently runs each language's standard linter (read-only — never autofixes) on just-written Shell/Java/Kotlin/JS-TS/Python/Go files after Write/Edit, surfacing findings as context for Claude to fix (shellcheck, checkstyle, ktlint, eslint, ruff check, golangci-lint/go vet).",
+      "author": {
+        "name": "Kwitsch"
+      },
+      "category": "productivity",
+      "tags": [
+        "hooks",
+        "linting",
+        "quality",
+        "mcp"
+      ]
     }
   ]
 }
