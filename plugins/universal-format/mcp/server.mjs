@@ -528,11 +528,13 @@ function formatFileHandler(args) {
     if (!selection) return {};
     const { tool, argv } = selection;
 
-    const npmSpec = onPath(tool.name) ? undefined : tool.npmSpec;
-    const cmd = npmSpec ? "npx" : tool.name;
-    const cmdArgv = npmSpec
-      ? ["--yes", npmSpec, ...argv, resolved]
-      : [...argv, resolved];
+    // isToolAvailable() already guaranteed npmSpec is set when tool.name isn't on PATH.
+    const [cmd, cmdArgv] = onPath(tool.name)
+      ? [tool.name, [...argv, resolved]]
+      : [
+          "npx",
+          ["--yes", /** @type {string} */ (tool.npmSpec), ...argv, resolved],
+        ];
 
     const before = readFileSync(resolved);
     try {

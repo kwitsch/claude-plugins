@@ -170,6 +170,31 @@ function getRtkPrefix(tool) {
   return prefix;
 }
 
+// Run the resolved lint tool: npx (when absent from PATH but npm-distributed),
+// else rtk-wrapped (when both the tool and rtk are on PATH and rtk supports it --
+// falling back to the direct call below if the rtk-wrapped run itself errors or
+// is killed), else the tool directly. argv.slice(tool.args.length) strips the
+// static [name, ...args] prefix that rtkPrefix already reproduces, leaving only
+// the real target (file or directory) to append after it.
+/** @param {LintTool} tool @param {string[]} argv @param {any} spawnOpts @returns {any} */
+function runLintTool(tool, argv, spawnOpts) {
+  if (tool.npmSpec && !onPath(tool.name)) {
+    return spawnSync("npx", ["--yes", tool.npmSpec, ...argv], spawnOpts);
+  }
+  if (onPath("rtk")) {
+    const rtkPrefix = getRtkPrefix(tool);
+    if (rtkPrefix) {
+      const rtkResult = spawnSync(
+        "rtk",
+        [...rtkPrefix, ...argv.slice(tool.args.length)],
+        spawnOpts,
+      );
+      if (!rtkResult.error && !rtkResult.signal) return rtkResult;
+    }
+  }
+  return spawnSync(tool.name, argv, spawnOpts);
+}
+
 // auto_lint toggle: ONLY literal false disables. Scope precedence local>project>user;
 // the first scope that DEFINES the key wins; no definition anywhere -> enabled (fail open).
 /** @param {string} cwd @returns {boolean} */
@@ -334,22 +359,7 @@ function lintFileHandler(args) {
       stdio: ["ignore", "pipe", "pipe"],
       maxBuffer: MAX_BUFFER_BYTES,
     };
-    const npmSpec = onPath(tool.name) ? undefined : tool.npmSpec;
-    let result;
-    if (npmSpec) {
-      result = spawnSync("npx", ["--yes", npmSpec, ...argv], spawnOpts);
-    } else {
-      const rtkPrefix = onPath("rtk") ? getRtkPrefix(tool) : null;
-      if (rtkPrefix) {
-        const rtkResult = spawnSync(
-          "rtk",
-          [...rtkPrefix, ...argv.slice(tool.args.length)],
-          spawnOpts,
-        );
-        if (!rtkResult.error && !rtkResult.signal) result = rtkResult;
-      }
-      if (!result) result = spawnSync(tool.name, argv, spawnOpts);
-    }
+    const result = runLintTool(tool, argv, spawnOpts);
     if (result.error || result.signal) return {};
 
     const target = tool.targetsDir
