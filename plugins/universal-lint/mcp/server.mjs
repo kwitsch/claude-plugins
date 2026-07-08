@@ -339,6 +339,24 @@ export function truncate(text) {
   return collapsed.slice(0, MAX_CONTEXT_CHARS) + "\n… (truncated)";
 }
 
+// Two-pass tool selection, mirroring universal-format's selectFormatter: a chain
+// tool actually on PATH always wins over any other chain tool that's merely
+// npx-reachable, regardless of chain order. Without this, giving npmSpec to more
+// than one chain entry (e.g. markdownlint-cli2 before markdownlint) would let the
+// earlier entry's npx fallback shadow a later entry that's genuinely installed --
+// npx ships with node, so it's essentially always "available."
+/** @param {LintTool[]} chain @returns {LintTool | null} */
+function selectLintTool(chain) {
+  for (const tool of chain) {
+    if (onPath(tool.name)) return tool;
+  }
+  if (!onPath("npx")) return null;
+  for (const tool of chain) {
+    if (tool.npmSpec) return tool;
+  }
+  return null;
+}
+
 // The lint_file tool handler. Returns {} on every guard failure / clean / skip (fail open).
 /** @param {PostToolUseHookInput} args @returns {HookResult} */
 function lintFileHandler(args) {
@@ -366,11 +384,14 @@ function lintFileHandler(args) {
     if (!existsSync(resolved)) return {};
 
     // Cached O(1) PATH probe before the uncached settings-file reads.
-    const tool = REGISTRY[lang].chain.find((t) =>
+    const candidate = REGISTRY[lang].chain.find((t) =>
       isToolAvailable(t, onPath(t.name), onPath("npx")),
     );
-    if (!tool) return {};
+    if (!candidate) return {};
     if (!isAutoLintEnabled(cwd)) return {};
+
+    const tool = selectLintTool(REGISTRY[lang].chain);
+    if (!tool) return {};
 
     const argv = buildArgv(tool, resolved, cwd);
     const spawnOpts = {
