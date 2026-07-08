@@ -32,7 +32,7 @@ const DEFAULT_PROTOCOL = "2025-11-25"; // only used if client omits protocolVers
 const SPAWN_TIMEOUT_MS = 30000; // inner formatter timeout; hook-level timeout:60 is the backstop
 
 /**
- * @typedef {{ name: string, strategy: string, base: string[], nativeConfig?: Array<string | {file: string, section: string}> }} FormatTool
+ * @typedef {{ name: string, strategy: string, base: string[], nativeConfig?: Array<string | {file: string, section: string}>, npmSpec?: string }} FormatTool
  * @typedef {{ chain: FormatTool[] }} LangEntry
  */
 
@@ -101,12 +101,14 @@ export const REGISTRY = {
         name: "prettier",
         strategy: "native",
         base: ["--write", "--log-level", "silent"],
+        npmSpec: "prettier",
       },
       {
         name: "biome",
         strategy: "mapped",
         nativeConfig: ["biome.json", "biome.jsonc"],
         base: ["format", "--write", "--log-level=none"],
+        npmSpec: "@biomejs/biome",
       },
     ],
   },
@@ -158,6 +160,16 @@ function onPath(tool) {
   }
   probeCache.set(tool, found);
   return found;
+}
+
+// A tool is available directly on PATH, or indirectly via `npx <npmSpec>` when
+// the registry declares npmSpec (a verified-official npm package only -- see
+// the REGISTRY comments) and npx itself is on PATH. Booleans are passed in
+// rather than calling onPath() internally so this stays a pure, unit-testable
+// function.
+/** @param {Pick<FormatTool, "name" | "npmSpec">} tool @param {boolean} toolOnPath @param {boolean} npxOnPath @returns {boolean} */
+export function isToolAvailable(tool, toolOnPath, npxOnPath) {
+  return toolOnPath || (!!tool.npmSpec && npxOnPath);
 }
 
 // auto_format toggle: ONLY literal false disables. Scope precedence local>project>user;
@@ -217,7 +229,7 @@ function resolveInvocation(tool, file, cwd) {
 /** @param {FormatTool[]} chain @param {string} file @param {string} cwd @returns {{tool: FormatTool, argv: string[]} | null} */
 function selectFormatter(chain, file, cwd) {
   for (const tool of chain) {
-    if (!onPath(tool.name)) continue;
+    if (!isToolAvailable(tool, onPath(tool.name), onPath("npx"))) continue;
     const inv = resolveInvocation(tool, file, cwd);
     if ("skip" in inv) continue;
     return { tool, argv: inv.argv };
@@ -506,7 +518,9 @@ function formatFileHandler(args) {
     if (!existsSync(resolved)) return {};
 
     // Cached O(1) PATH probe before the uncached settings-file reads.
-    const candidate = REGISTRY[lang].chain.find((t) => onPath(t.name));
+    const candidate = REGISTRY[lang].chain.find((t) =>
+      isToolAvailable(t, onPath(t.name), onPath("npx")),
+    );
     if (!candidate) return {};
     if (!isAutoFormatEnabled(cwd)) return {};
 
@@ -514,9 +528,15 @@ function formatFileHandler(args) {
     if (!selection) return {};
     const { tool, argv } = selection;
 
+    const npmSpec = onPath(tool.name) ? undefined : tool.npmSpec;
+    const cmd = npmSpec ? "npx" : tool.name;
+    const cmdArgv = npmSpec
+      ? ["--yes", npmSpec, ...argv, resolved]
+      : [...argv, resolved];
+
     const before = readFileSync(resolved);
     try {
-      spawnSync(tool.name, [...argv, resolved], {
+      spawnSync(cmd, cmdArgv, {
         cwd,
         timeout: SPAWN_TIMEOUT_MS,
         stdio: "ignore",

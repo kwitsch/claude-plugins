@@ -1,7 +1,7 @@
 {
   "name": "universal-format",
-  "version": "0.1.0",
-  "description": "Silently auto-formats just-written Shell, Java, Kotlin, JS/TS, Python and Go files after Write/Edit using each language's standard formatter when installed (shfmt, google-java-format/clang-format, ktlint/ktfmt, prettier/biome, ruff/black, goimports/gofmt); honors .editorconfig and tool-native configs; no-op when the formatter is absent.",
+  "version": "0.2.0",
+  "description": "Silently auto-formats just-written Shell, Java, Kotlin, JS/TS, Python and Go files after Write/Edit using each language's standard formatter when installed (shfmt, google-java-format/clang-format, ktlint/ktfmt, prettier/biome, ruff/black, goimports/gofmt; prettier/biome also fall back to npx); honors .editorconfig and tool-native configs; no-op when no formatter is available.",
   "author": {
     "name": "Kwitsch"
   },
