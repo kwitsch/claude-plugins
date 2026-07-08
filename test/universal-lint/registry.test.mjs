@@ -11,6 +11,7 @@ import {
   classifyCheckstyleOutput,
   truncate,
   isToolAvailable,
+  parseRtkPrefix,
 } from "../../plugins/universal-lint/mcp/server.mjs";
 
 const shellcheck = REGISTRY.shell.chain[0];
@@ -214,4 +215,29 @@ test("isToolAvailable: true via npx only when npmSpec is set and npx is on PATH"
     isToolAvailable({ name: "shellcheck", args: [] }, false, true),
     false,
   );
+});
+
+test("parseRtkPrefix: extracts a single-token verb (eslint -> lint)", () => {
+  assert.deepEqual(parseRtkPrefix("rtk lint __RTK_PROBE__\n"), ["lint"]);
+});
+
+test("parseRtkPrefix: extracts a multi-token verb (go vet)", () => {
+  assert.deepEqual(parseRtkPrefix("rtk go vet __RTK_PROBE__"), ["go", "vet"]);
+});
+
+test("parseRtkPrefix: same-name verb (ruff check)", () => {
+  assert.deepEqual(parseRtkPrefix("rtk ruff check __RTK_PROBE__"), [
+    "ruff",
+    "check",
+  ]);
+});
+
+test("parseRtkPrefix: empty stdout (no rtk equivalent, e.g. checkstyle/ktlint) -> null", () => {
+  assert.equal(parseRtkPrefix(""), null);
+  assert.equal(parseRtkPrefix("\n"), null);
+});
+
+test("parseRtkPrefix: unexpected output -> null", () => {
+  assert.equal(parseRtkPrefix("something unexpected"), null);
+  assert.equal(parseRtkPrefix("rtk __RTK_PROBE__"), null); // empty prefix
 });

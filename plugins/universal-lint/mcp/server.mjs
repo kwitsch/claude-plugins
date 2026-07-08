@@ -124,6 +124,52 @@ export function isToolAvailable(tool, toolOnPath, npxOnPath) {
   return toolOnPath || (!!tool.npmSpec && npxOnPath);
 }
 
+const RTK_PROBE_TIMEOUT_MS = 5000; // lightweight metadata probe, not a real lint run
+
+// Parse `rtk rewrite <tool> <args...> "__RTK_PROBE__"` stdout into the rtk verb
+// tokens to run instead of the bare tool (e.g. "rtk lint __RTK_PROBE__" -> ["lint"],
+// "rtk go vet __RTK_PROBE__" -> ["go", "vet"]), or null when rtk has no filtered
+// equivalent for this tool (checkstyle, ktlint currently answer empty). Keys off
+// the placeholder token position, not the exit code: rtk rewrite's own --help
+// claims exit 0/1 for supported/unsupported, but the observed behavior (0.43.0)
+// is 3/1 -- do not "fix" this to check `=== 0`.
+/** @param {string | undefined} stdout @returns {string[] | null} */
+export function parseRtkPrefix(stdout) {
+  const tokens = String(stdout ?? "")
+    .trim()
+    .split(/\s+/);
+  const probeIdx = tokens.indexOf("__RTK_PROBE__");
+  if (tokens[0] !== "rtk" || probeIdx < 2) return null;
+  return tokens.slice(1, probeIdx);
+}
+
+// rtk verb-prefix cache (server-lifetime): tool.name -> string[] (supported) | null.
+/** @type {Map<string, string[] | null>} */
+const rtkPrefixCache = new Map();
+
+// Probe rtk once per tool name: does rtk have a filtered equivalent for this tool
+// + its static registry args? A placeholder final token avoids argv-splitting
+// hazards from a real file path containing spaces (rtk rewrite echoes back a
+// plain string, not a shell-quoted one).
+/** @param {LintTool} tool @returns {string[] | null} */
+function getRtkPrefix(tool) {
+  const cached = rtkPrefixCache.get(tool.name);
+  if (cached !== undefined) return cached;
+  let prefix = null;
+  try {
+    const probe = spawnSync(
+      "rtk",
+      ["rewrite", tool.name, ...tool.args, "__RTK_PROBE__"],
+      { timeout: RTK_PROBE_TIMEOUT_MS, encoding: "utf8" },
+    );
+    prefix = parseRtkPrefix(probe.stdout);
+  } catch {
+    /* probe failure -> no rtk support for this tool */
+  }
+  rtkPrefixCache.set(tool.name, prefix);
+  return prefix;
+}
+
 // auto_lint toggle: ONLY literal false disables. Scope precedence local>project>user;
 // the first scope that DEFINES the key wins; no definition anywhere -> enabled (fail open).
 /** @param {string} cwd @returns {boolean} */
@@ -289,9 +335,21 @@ function lintFileHandler(args) {
       maxBuffer: MAX_BUFFER_BYTES,
     };
     const npmSpec = onPath(tool.name) ? undefined : tool.npmSpec;
-    const result = npmSpec
-      ? spawnSync("npx", ["--yes", npmSpec, ...argv], spawnOpts)
-      : spawnSync(tool.name, argv, spawnOpts);
+    let result;
+    if (npmSpec) {
+      result = spawnSync("npx", ["--yes", npmSpec, ...argv], spawnOpts);
+    } else {
+      const rtkPrefix = onPath("rtk") ? getRtkPrefix(tool) : null;
+      if (rtkPrefix) {
+        const rtkResult = spawnSync(
+          "rtk",
+          [...rtkPrefix, ...argv.slice(tool.args.length)],
+          spawnOpts,
+        );
+        if (!rtkResult.error && !rtkResult.signal) result = rtkResult;
+      }
+      if (!result) result = spawnSync(tool.name, argv, spawnOpts);
+    }
     if (result.error || result.signal) return {};
 
     const target = tool.targetsDir
