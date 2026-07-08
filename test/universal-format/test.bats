@@ -180,13 +180,13 @@ format_file_call() {
   assert_output "echo  hi"
 }
 
-@test "non-target extension (.md) -> formatter never invoked" {
+@test "non-target extension (.txt) -> formatter never invoked" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
-  printf '# hi\n' > "$cwd/a.md"
+  printf 'hi\n' > "$cwd/a.txt"
   rec_stub shfmt
-  run format_file_call "$cwd/a.md" "$cwd"
+  run format_file_call "$cwd/a.txt" "$cwd"
   assert_success
   [ "$output" = "{}" ]
   [ ! -s "$RECORD" ]
@@ -435,4 +435,66 @@ format_file_call() {
   assert_success
   run grep -F "npx" "$RECORD"
   assert_failure
+}
+
+@test "formats a json file: prettier runs" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '{"a":1}' > "$cwd/a.json"
+  rec_stub prettier
+  run format_file_call "$cwd/a.json" "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("prettier reformatted a.json")'
+  run grep -E "^prettier " "$RECORD"
+  assert_success
+}
+
+@test "json: biome.json present, prettier absent -> biome runs bare" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '{"a":1}' > "$cwd/a.json"
+  printf '{}\n' > "$cwd/biome.json"
+  printf 'root = true\n[*]\nindent_style = space\nindent_size = 2\n' > "$cwd/.editorconfig"
+  rec_stub biome
+  run format_file_call "$cwd/a.json" "$cwd"
+  assert_success
+  run grep -F -- "--indent-style" "$RECORD"
+  assert_failure
+  run grep -F "biome " "$RECORD"
+  assert_success
+}
+
+@test "formats a yaml file: prettier runs" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'a: 1\n' > "$cwd/a.yaml"
+  rec_stub prettier
+  run format_file_call "$cwd/a.yaml" "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("prettier reformatted a.yaml")'
+}
+
+@test "formats a yml file: prettier runs (.yml extension)" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'a: 1\n' > "$cwd/a.yml"
+  rec_stub prettier
+  run format_file_call "$cwd/a.yml" "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("prettier reformatted a.yml")'
+}
+
+@test "formats a markdown file: prettier runs" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '# hi\n' > "$cwd/a.md"
+  rec_stub prettier
+  run format_file_call "$cwd/a.md" "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("prettier reformatted a.md")'
 }

@@ -24,10 +24,14 @@ Per-language opt-out is simply not installing that formatter. The whole plugin c
 | JS/TS | `.js` `.jsx` `.mjs` `.cjs` `.ts` `.tsx` `.mts` `.cts` | `prettier` → `biome` |
 | Python | `.py` `.pyi` | `ruff` → `black` |
 | Go | `.go` | `goimports` → `gofmt` |
+| JSON | `.json` | `prettier` → `biome` |
+| YAML | `.yaml` `.yml` | `prettier` |
+| Markdown | `.md` | `prettier` |
 
 `prettier` and `biome` additionally run via `npx` when not installed
-locally (both are official npm packages). No other formatter in this chain
-has an npx fallback — see `CLAUDE.md` for why.
+locally (both are official npm packages) — this also covers their
+JSON/YAML/Markdown chain entries. No other formatter in this chain has an
+npx fallback — see `CLAUDE.md` for why.
 
 ## Configuration
 

@@ -56,6 +56,10 @@ const EXT_MAP = {
   ".py": "python",
   ".pyi": "python",
   ".go": "go",
+  ".json": "json",
+  ".yaml": "yaml",
+  ".yml": "yaml",
+  ".md": "markdown",
 };
 
 // Formatter registry (research-verified). chain = first tool on PATH wins.
@@ -137,6 +141,43 @@ export const REGISTRY = {
     chain: [
       { name: "goimports", strategy: "fixed", base: ["-w"] },
       { name: "gofmt", strategy: "fixed", base: ["-w"] },
+    ],
+  },
+  json: {
+    chain: [
+      {
+        name: "prettier",
+        strategy: "native",
+        base: ["--write", "--log-level", "silent"],
+        npmSpec: "prettier",
+      },
+      {
+        name: "biome",
+        strategy: "mapped",
+        nativeConfig: ["biome.json", "biome.jsonc"],
+        base: ["format", "--write", "--log-level=none"],
+        npmSpec: "@biomejs/biome",
+      },
+    ],
+  },
+  yaml: {
+    chain: [
+      {
+        name: "prettier",
+        strategy: "native",
+        base: ["--write", "--log-level", "silent"],
+        npmSpec: "prettier",
+      },
+    ],
+  },
+  markdown: {
+    chain: [
+      {
+        name: "prettier",
+        strategy: "native",
+        base: ["--write", "--log-level", "silent"],
+        npmSpec: "prettier",
+      },
     ],
   },
 };
