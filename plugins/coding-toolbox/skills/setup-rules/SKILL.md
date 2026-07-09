@@ -30,6 +30,7 @@ if that redundancy is acceptable.
 
 ## Step 1 — Detect
 
+<!-- coderabbit-skip: `ls`/`command -v` here run inside a dynamic-context `!` block — load-time preprocessing executed before Claude sees the content, not a Claude tool call, so `allowed-tools` has no bearing on it (cc-reference claude-code-skills-reference.md, "Dynamic context injection": "runs the shell command BEFORE Claude sees content ... preprocessing, not a Claude action"). Only the runtime Bash calls in Step 4 are model-issued tool calls, and those are covered. -->
 ```!
 echo "Installed: $(ls .claude/rules/coding-toolbox-*.md 2>/dev/null || echo '(none)')"
 echo "rtk: $(command -v rtk >/dev/null 2>&1 && echo present || echo absent)"

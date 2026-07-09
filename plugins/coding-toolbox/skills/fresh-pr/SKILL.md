@@ -22,6 +22,7 @@ dependency on `branch-management`; every script/agent used here lives in
 
 ## Git context
 
+<!-- coderabbit-skip: `git`/`pwd` here run inside a dynamic-context `!` block — load-time preprocessing executed before Claude sees the content, not a Claude tool call, so `allowed-tools` has no bearing on it (cc-reference claude-code-skills-reference.md, "Dynamic context injection": "runs the shell command BEFORE Claude sees content ... preprocessing, not a Claude action"). -->
 !`git fetch origin >/dev/null 2>&1; git remote set-head origin --auto >/dev/null 2>&1; wt=no; [ "$(git rev-parse --git-dir 2>/dev/null)" -ef "$(git rev-parse --git-common-dir 2>/dev/null)" ] || wt=yes; printf "current_branch: %s\ndetected_base: %s\nlinked_worktree: %s\nworktree_path: %s\n" "$(git branch --show-current)" "$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p')" "$wt" "$(pwd)"`
 
 ## Preconditions
