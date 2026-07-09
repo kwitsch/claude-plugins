@@ -26,8 +26,10 @@ make_encrypted_key() { rm -f "$KEY_FILE" "$KEY_FILE.pub"; ssh-keygen -q -t ed255
 # default) — so a bundled/bare -E is stripped before delegating to rg
 # (its regex syntax is already ERE-equivalent for every pattern used in
 # this file); grep gets its original arguments completely untouched.
-# --include-zero makes `rg -c` print 0 on no match like `grep -c` does
-# (bare `rg -c` prints nothing on 0 matches) — harmless no-op otherwise.
+# Note: bare `rg -c` prints nothing on 0 matches where `grep -c` prints `0`
+# (both exit 1) -- no call site here checks that text (only $status or a
+# nonzero count), so this divergence is accepted rather than papered over
+# with --include-zero, which errors on ripgrep < 12.0.0.
 rg_or_grep() {
   if command -v rg >/dev/null 2>&1; then
     local args=() a stripped seen_dashdash=false
@@ -46,7 +48,7 @@ rg_or_grep() {
         *) args+=("$a") ;;
       esac
     done
-    command rg --include-zero "${args[@]}"
+    command rg "${args[@]}"
   else
     command grep "$@"
   fi

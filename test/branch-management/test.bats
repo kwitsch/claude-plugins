@@ -18,9 +18,13 @@ setup() {
   SCRIPTS="$REPO_ROOT/plugins/branch-management/bin"
 
   # Isolated PATH: required system tools only, stubs are added per test.
+  # `rg` is NOT required (the loop below only symlinks tools actually present
+  # on the host, so its absence is a silent no-op) -- but forwarding it when
+  # present lets ci-watch.sh's own rg_or_grep() take its rg-preferred branch
+  # under this suite too, instead of only ever exercising the grep fallback.
   MOCKBIN="$BATS_TEST_TMPDIR/bin"
   mkdir -p "$MOCKBIN"
-  for t in bash env grep timeout sleep mktemp cat rm mkdir awk; do
+  for t in bash env grep rg timeout sleep mktemp cat rm mkdir awk; do
     src="$(command -v "$t")" && [ -n "$src" ] && ln -s "$src" "$MOCKBIN/$t"
   done
 
@@ -35,8 +39,10 @@ setup() {
 # default) — so a bundled/bare -E is stripped before delegating to rg
 # (its regex syntax is already ERE-equivalent for every pattern used in
 # this file); grep gets its original arguments completely untouched.
-# --include-zero makes `rg -c` print 0 on no match like `grep -c` does
-# (bare `rg -c` prints nothing on 0 matches) — harmless no-op otherwise.
+# Note: bare `rg -c` prints nothing on 0 matches where `grep -c` prints `0`
+# (both exit 1) -- no call site here checks that text (only $status or a
+# nonzero count), so this divergence is accepted rather than papered over
+# with --include-zero, which errors on ripgrep < 12.0.0.
 rg_or_grep() {
   if command -v rg >/dev/null 2>&1; then
     local args=() a stripped seen_dashdash=false
@@ -55,7 +61,7 @@ rg_or_grep() {
         *) args+=("$a") ;;
       esac
     done
-    command rg --include-zero "${args[@]}"
+    command rg "${args[@]}"
   else
     command grep "$@"
   fi
@@ -191,7 +197,7 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
   local have_rg=false
   command -v rg >/dev/null 2>&1 && have_rg=true
   if [ "$have_rg" = true ]; then
-    run rg -n --no-ignore --hidden "review-settings" "$REPO_ROOT/plugins/branch-management"
+    run rg -n --no-ignore --hidden -a "review-settings" "$REPO_ROOT/plugins/branch-management"
   else
     run grep -rn "review-settings" "$REPO_ROOT/plugins/branch-management"
   fi
@@ -199,7 +205,7 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
   # The README's v3 breaking-change note is the one allowed mention of the
   # old settings file; everywhere else it must be gone.
   if [ "$have_rg" = true ]; then
-    run rg -n --no-ignore --hidden --glob '!README.md' "branch-management.local.md" \
+    run rg -n --no-ignore --hidden -a --glob '!README.md' "branch-management.local.md" \
       "$REPO_ROOT/plugins/branch-management"
   else
     run grep -rn --exclude=README.md "branch-management.local.md" \
