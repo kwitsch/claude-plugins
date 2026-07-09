@@ -39,9 +39,14 @@ setup() {
 # (bare `rg -c` prints nothing on 0 matches) — harmless no-op otherwise.
 rg_or_grep() {
   if command -v rg >/dev/null 2>&1; then
-    local args=() a stripped
+    local args=() a stripped seen_dashdash=false
     for a in "$@"; do
+      if [ "$seen_dashdash" = true ]; then
+        args+=("$a")
+        continue
+      fi
       case "$a" in
+        --) seen_dashdash=true; args+=("$a") ;;
         -[A-Za-z]*)
           stripped="${a//E/}"
           [ "$stripped" = "-" ] && continue
@@ -183,7 +188,9 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 }
 
 @test "userConfig: no references to the removed settings implementation remain" {
-  if command -v rg >/dev/null 2>&1; then
+  local have_rg=false
+  command -v rg >/dev/null 2>&1 && have_rg=true
+  if [ "$have_rg" = true ]; then
     run rg -n --no-ignore --hidden "review-settings" "$REPO_ROOT/plugins/branch-management"
   else
     run grep -rn "review-settings" "$REPO_ROOT/plugins/branch-management"
@@ -191,7 +198,7 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
   assert_failure 1
   # The README's v3 breaking-change note is the one allowed mention of the
   # old settings file; everywhere else it must be gone.
-  if command -v rg >/dev/null 2>&1; then
+  if [ "$have_rg" = true ]; then
     run rg -n --no-ignore --hidden --glob '!README.md' "branch-management.local.md" \
       "$REPO_ROOT/plugins/branch-management"
   else

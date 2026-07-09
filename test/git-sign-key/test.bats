@@ -30,9 +30,14 @@ make_encrypted_key() { rm -f "$KEY_FILE" "$KEY_FILE.pub"; ssh-keygen -q -t ed255
 # (bare `rg -c` prints nothing on 0 matches) — harmless no-op otherwise.
 rg_or_grep() {
   if command -v rg >/dev/null 2>&1; then
-    local args=() a stripped
+    local args=() a stripped seen_dashdash=false
     for a in "$@"; do
+      if [ "$seen_dashdash" = true ]; then
+        args+=("$a")
+        continue
+      fi
       case "$a" in
+        --) seen_dashdash=true; args+=("$a") ;;
         -[A-Za-z]*)
           stripped="${a//E/}"
           [ "$stripped" = "-" ] && continue
