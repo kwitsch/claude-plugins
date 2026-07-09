@@ -9,18 +9,18 @@ full golden-rules document lives, unwired, at `skills/setup-rules/references/gol
 
 ## Hook design (do not "fix" without reading this)
 
-- **Stop → `mcp_tool` hook (no matcher — `Stop` ignores it): `tool: "interaction_gate"`**
-  (2026-07-01 addition, closing a gap where a turn ended with a plain-text question
-  instead of going through `AskUserQuestion`). Uses the documented `last_assistant_message` Stop-hook
-  input field — Claude's final response text, given directly, no transcript parsing
-  needed. Heuristic: strip fenced code blocks, take the last non-empty line; if it ends
-  in `?`, return `{"decision":"block","reason":"…"}` (from `HookResult`, already typed)
-  telling Claude to redo it via `AskUserQuestion`; otherwise `{}` (allow the stop). This
-  is deliberately a blunt heuristic — it will occasionally flag a rhetorical trailing
-  "?" as a false positive — traded for simplicity and for matching axis 1's own "no
-  exceptions" wording. No extra loop-guard needed: the platform's `stop_hook_active`
-  input and 8-consecutive-block cap already bound the worst case. Stateless — do not
-  add a counter here.
+**Stop → `mcp_tool` hook (no matcher — `Stop` ignores it): `tool: "interaction_gate"`**
+(2026-07-01 addition, closing a gap where a turn ended with a plain-text question
+instead of going through `AskUserQuestion`). Uses the documented `last_assistant_message` Stop-hook
+input field — Claude's final response text, given directly, no transcript parsing
+needed. Heuristic: strip fenced code blocks, take the last non-empty line; if it ends
+in `?`, return `{"decision":"block","reason":"…"}` (from `HookResult`, already typed)
+telling Claude to redo it via `AskUserQuestion`; otherwise `{}` (allow the stop). This
+is deliberately a blunt heuristic — it will occasionally flag a rhetorical trailing
+"?" as a false positive — traded for simplicity and for matching axis 1's own "no
+exceptions" wording. No extra loop-guard needed: the platform's `stop_hook_active`
+input and 8-consecutive-block cap already bound the worst case. Stateless — do not
+add a counter here.
 
 The `PreToolUse` entry (`hooks/encoding-guard.mjs`, matcher
 `Read|Edit|Write|Bash`) is a hard deny gate and therefore a **command hook**,
