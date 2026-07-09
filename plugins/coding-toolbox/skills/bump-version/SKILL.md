@@ -50,7 +50,7 @@ invocation into a redirection instead of a clean, catchable usage error. The
 whole block (heredoc write + run + cleanup) is one Bash tool call.
 
 ```bash
-BUMP="$(mktemp)"
+BUMP="/tmp/bump-version.$$"
 cat > "$BUMP" <<'BUMPVERSION_EOF'
 #!/usr/bin/env bash
 # bump-version: detect a project's version file (package.json > composer.json >

@@ -238,6 +238,47 @@ files in the working tree, unlike `fresh-branch`/`fresh-pr`/`fresh-work`;
 composability with those is preserved by keeping this skill's blast radius
 to file edits only.
 
+## Skill design (`setup-rules`)
+
+User-only (`disable-model-invocation: true`, same precedent as
+`branch-management:clean-branches` — a side-effecting project-config
+wizard, not named `configure-*` but carrying the flag anyway) wizard
+that installs/refreshes/removes two always-on
+`.claude/rules/coding-toolbox-*.md` files: a byte-exact `cp` of this
+plugin's own `hooks/SessionStart.md` (never re-typed, avoiding
+transcription drift) and a generated tool-routing table naming
+whichever of `rtk`/`bun`/`rg`/`codebase-memory-mcp` are on `PATH`.
+Detection (both installed-file glob and tool `PATH` presence) runs via
+one load-time fenced `` ```! `` dynamic-context block (one shell
+invocation for all six facts, not six separate `!` injections), not a
+bundled script — per `script-authoring.md`'s "inject before query" the
+facts are static before the first question, so they're computed once
+at load time. Asks one `AskUserQuestion` call per run, but as **two
+independent single-select questions** (one per artifact) rather than
+a single `multiSelect` question — reusing
+`branch-management:configure-branch-management`'s established
+per-toggle idiom (current value in the header, e.g. `"Golden-rules
+rule [currently: installed]"`, the answer sets the new value
+directly). This was a deliberate revision during Review: the original
+draft used one `multiSelect` question with action-framed rows
+(Install/Remove/Refresh) plus a permanent "no changes" escape option
+and cross-row precedence rules, invented specifically because
+`AskUserQuestion` has no pre-selected-option field — two independent
+review passes (reuse, altitude) flagged that as reinventing machinery
+the sibling skill's per-toggle single-select pattern already provides
+for free, since a single-select forces one explicit answer with no
+ambiguous/unanswered state, so no escape option or precedence rule is
+needed at all. The tool-routing question is asked only when it has
+something to say (already installed, or at least one tool detected);
+answering "Yes" always (re)writes fresh content, covering both install
+and refresh with one action. File mutations go through `Bash` (`cp`,
+`rm`, a quoted `cat <<'EOF'` heredoc) rather than the `Write`/`Edit`
+tools, mirroring `configure-branch-management`'s `jq`/`mv`/`printf`-only
+file writes. Neither managed file carries a `paths:` frontmatter key —
+confirmed against the memory-reference cc-reference doc that a
+`.claude/rules/*.md` file without `paths` loads unconditionally, same
+priority as `.claude/CLAUDE.md`.
+
 ## Tests
 
 `test/coding-toolbox/test.bats` — manifest/registration invariants, content coverage,

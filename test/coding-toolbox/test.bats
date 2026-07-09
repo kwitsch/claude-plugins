@@ -612,9 +612,9 @@ run_ci_watch() {
   assert_success
 }
 
-@test "plugin.json version bumped for bump-version skill (this unreleased branch)" {
+@test "plugin.json version bumped for setup-rules skill (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.11.1"
+  assert_output "0.12.0"
 }
 
 @test "plugin.json description mentions fresh-work" {
@@ -694,6 +694,66 @@ run_ci_watch() {
 @test "plugin.json description mentions bump-version" {
   run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
   assert_output --partial "bump-version"
+}
+
+@test "setup-rules SKILL.md exists and is non-empty" {
+  run test -s "$PLUGIN/skills/setup-rules/SKILL.md"
+  assert_success
+}
+
+@test "setup-rules frontmatter declares name, disable-model-invocation, and required allowed-tools" {
+  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/skills/setup-rules/SKILL.md'"
+  assert_success
+  assert_output --partial "name: setup-rules"
+  assert_output --partial "disable-model-invocation: true"
+  assert_output --partial "AskUserQuestion"
+  assert_output --partial 'Bash(cp:*)'
+}
+
+@test "setup-rules detects installed rules via the coding-toolbox-*.md glob" {
+  run rg_or_grep -F 'coding-toolbox-*.md' "$PLUGIN/skills/setup-rules/SKILL.md"
+  assert_success
+}
+
+@test "setup-rules detects all four tools via command -v" {
+  run rg_or_grep -c -e 'command -v rtk' -e 'command -v bun' -e 'command -v rg' -e 'command -v codebase-memory-mcp' "$PLUGIN/skills/setup-rules/SKILL.md"
+  assert_success
+  assert_output "4"
+}
+
+@test "setup-rules copies SessionStart.md byte-exact for the golden-rules rule" {
+  run rg_or_grep -F 'cp "<plugin root resolved in Step 1>/hooks/SessionStart.md"' "$PLUGIN/skills/setup-rules/SKILL.md"
+  assert_success
+}
+
+@test "setup-rules asks one single-select question per rule with a currently-installed header, not a multiSelect toggle" {
+  run cat "$PLUGIN/skills/setup-rules/SKILL.md"
+  assert_success
+  assert_output --partial 'multiSelect: false'
+  assert_output --partial '[currently: <installed|not installed>]'
+  refute_output --partial 'multiSelect: true'
+}
+
+@test "setup-rules documents the disableSkillShellExecution guard" {
+  run rg_or_grep -F '[shell command execution disabled by policy]' "$PLUGIN/skills/setup-rules/SKILL.md"
+  assert_success
+}
+
+@test "setup-rules never overwrites the tools rule with an empty table when nothing is detected" {
+  run rg_or_grep -F 'but `detected` is **empty**' "$PLUGIN/skills/setup-rules/SKILL.md"
+  assert_success
+  run rg_or_grep -F 'make **no change**' "$PLUGIN/skills/setup-rules/SKILL.md"
+  assert_success
+}
+
+@test "setup-rules warns about SessionStart-hook golden-rules duplication" {
+  run rg_or_grep -F 'installing the rule copy too means it appears twice' "$PLUGIN/skills/setup-rules/SKILL.md"
+  assert_success
+}
+
+@test "plugin README lists setup-rules in the Skills section" {
+  run rg_or_grep -F '| `setup-rules`' "$PLUGIN/README.md"
+  assert_success
 }
 
 @test "plugin README lists fresh-pr in the Skills section" {
