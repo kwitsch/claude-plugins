@@ -556,9 +556,9 @@ run_ci_watch() {
   assert_success
 }
 
-@test "plugin.json version bumped for setup-rules skill (this unreleased branch)" {
+@test "plugin.json version bumped for SessionStart-hook/golden_rules_reminder removal (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.12.0"
+  assert_output "0.13.0"
 }
 
 @test "plugin.json description mentions fresh-work" {

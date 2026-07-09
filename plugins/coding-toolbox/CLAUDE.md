@@ -1,39 +1,14 @@
 # CLAUDE.md — coding-toolbox
 
-Plugin that injects and enforces "golden behavior rules" via three hooks. `SessionStart`
-content is baked in (`hooks/SessionStart.md`) with no runtime state. `PreToolUse` and
-`Stop` are backed by one self-contained MCP server (`mcp/server.mjs`): `PreToolUse`
-carries a session-lifetime call counter throttling the reminder; `Stop` is a stateless
-mechanical gate for the Interaction axis. No userConfig.
+Plugin that mechanically enforces "golden behavior rules" via two hooks: a `PreToolUse`
+command hook (`encoding-guard.mjs`) and a `Stop` `mcp_tool` hook (`interaction_gate`),
+the latter backed by a self-contained, now-stateless MCP server (`mcp/server.mjs`). The
+full golden-rules document lives, unwired, at `skills/setup-rules/references/golden-rules.md`
+(moved from `hooks/SessionStart.md` when the `SessionStart` hook was removed);
+`setup-rules` is the only way to get it into a project, opt-in. No userConfig.
 
 ## Hook design (do not "fix" without reading this)
 
-- **SessionStart → `command` hook: `cat` + `args:["${CLAUDE_PLUGIN_ROOT}/hooks/SessionStart.md"]`.**
-  SessionStart fires *before* the MCP server connects, so an `mcp_tool` hook would fail
-  open. `args` present → exec form: `cat` is spawned with the path as its argument and
-  writes the file to stdout; plain stdout reaches Claude at SessionStart (no JSON wrapper
-  needed). No matcher → fires on startup, resume, and compact. Do NOT replace this with a
-  `.mjs` handler on the premise that "args is dropped" — it is not (cc-reference,
-  `claude-code-hooks-reference.md` "Exec vs shell form": *use exec form whenever
-  referencing a path placeholder*).
-  (`.claude/rules/hooks-mcp-server.md`, `.claude/rules/hooks-mcp-tool-event-matrix.md`)
-- **PreToolUse → `mcp_tool` hook: `server: "plugin:coding-toolbox:coding-toolbox-hooks"`,
-  `tool: "golden_rules_reminder"`** (server registered in `.mcp.json` as
-  `coding-toolbox-hooks`; the hook's `server` field must use the runtime-namespaced
-  `plugin:coding-toolbox:coding-toolbox-hooks` form, not the bare `.mcp.json` key — see
-  `.claude/rules/hooks-mcp-server.md`). Matcher `Edit|Write|NotebookEdit|Bash` —
-  deliberately **excludes** `Task`/`Agent`: the reminder must not fire before subagent
-  dispatch (2026-07-01 decision), so those names were dropped from the matcher entirely
-  rather than special-cased in the handler — the hook never fires for that tool, no
-  MCP round-trip spent. `mcp/server.mjs` keeps a module-level `callCount` for the
-  process lifetime (the server stays connected for the whole session) and returns
-  `additionalContext` with the reminder text only on every 10th matched call
-  (`callCount % 10 === 0`); every other call returns `{}` (no opinion, fail-open
-  no-op — consistent with `mcp_tool`'s soft-block-only semantics). This throttling is
-  exactly the kind of per-call dynamic state a static `cat`'d JSON file cannot express,
-  which is why this hook — unlike SessionStart — now uses `mcp_tool`: do not revert it
-  to a `command` hook over a static file, that would drop both the throttle and the
-  tool exclusion.
 - **Stop → `mcp_tool` hook (no matcher — `Stop` ignores it): `tool: "interaction_gate"`**
   (2026-07-01 addition, closing a gap where a turn ended with a plain-text question
   instead of going through `AskUserQuestion`). Uses the documented `last_assistant_message` Stop-hook
@@ -45,9 +20,9 @@ mechanical gate for the Interaction axis. No userConfig.
   "?" as a false positive — traded for simplicity and for matching axis 1's own "no
   exceptions" wording. No extra loop-guard needed: the platform's `stop_hook_active`
   input and 8-consecutive-block cap already bound the worst case. Stateless — do not
-  add a counter here, unlike the PreToolUse tool.
+  add a counter here.
 
-The second `PreToolUse` entry (`hooks/encoding-guard.mjs`, matcher
+The `PreToolUse` entry (`hooks/encoding-guard.mjs`, matcher
 `Read|Edit|Write|Bash`) is a hard deny gate and therefore a **command hook**,
 not an `mcp_tool` — the event matrix forbids `mcp_tool` for hard gates (a
 down server silently fails open). Zero-dep executable Node script invoked
@@ -244,8 +219,8 @@ User-only (`disable-model-invocation: true`, same precedent as
 `branch-management:clean-branches` — a side-effecting project-config
 wizard, not named `configure-*` but carrying the flag anyway) wizard
 that installs/refreshes/removes two always-on
-`.claude/rules/coding-toolbox-*.md` files: a byte-exact `cp` of this
-plugin's own `hooks/SessionStart.md` (never re-typed, avoiding
+`.claude/rules/coding-toolbox-*.md` files: a byte-exact `cp` of the
+skill's own `references/golden-rules.md` (never re-typed, avoiding
 transcription drift) and a generated tool-routing table naming
 whichever of `rtk`/`bun`/`rg`/`codebase-memory-mcp` are on `PATH`.
 Detection (both installed-file glob and tool `PATH` presence) runs via
@@ -281,11 +256,10 @@ priority as `.claude/CLAUDE.md`.
 
 ## Tests
 
-`test/coding-toolbox/test.bats` — manifest/registration invariants, content coverage,
-hook wiring (SessionStart command, PreToolUse `mcp_tool`, Stop `mcp_tool`), the
-SessionStart end-to-end command test, an end-to-end JSON-RPC driver against
-`mcp/server.mjs` proving the PreToolUse throttle (calls 1–9 return `{}`, call 10
-returns the reminder), and one proving the Stop gate blocks on a bare trailing `?`
+`test/coding-toolbox/test.bats` — manifest/registration invariants, content coverage
+for the relocated `golden-rules.md`, hook wiring (PreToolUse `command`, Stop
+`mcp_tool`), an end-to-end JSON-RPC driver against `mcp/server.mjs` proving the Stop
+gate blocks on a bare trailing `?`
 and allows through otherwise. Coverage now also includes: a ported `ci-watch.sh`
 bats suite (hermetic, stubbed `gh`/`glab`), structural assertions for
 `fresh-pr/SKILL.md` and the `ci-watcher`/`pr-fixer` agent frontmatter, and the
