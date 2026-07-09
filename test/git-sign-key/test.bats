@@ -19,7 +19,35 @@ make_key() { printf 'dummy-private-key\n' > "$KEY_FILE"; chmod 600 "$KEY_FILE"; 
 no_key()   { rm -f "$KEY_FILE"; }
 make_real_key()      { rm -f "$KEY_FILE" "$KEY_FILE.pub"; ssh-keygen -q -t ed25519 -N '' -C test -f "$KEY_FILE"; }
 make_encrypted_key() { rm -f "$KEY_FILE" "$KEY_FILE.pub"; ssh-keygen -q -t ed25519 -N 'secret-pw' -C test -f "$KEY_FILE"; }
-count_partial() { grep -o "$1" <<<"$2" | wc -l | tr -d ' '; }
+
+# Prefer ripgrep; fall back to grep if rg isn't installed. rg's -E means
+# --encoding=ARG and -r means --replace=ARG (both take a value, neither is
+# grep's meaning), and rg has no recursive flag (recursion is its
+# default) — so a bundled/bare -E is stripped before delegating to rg
+# (its regex syntax is already ERE-equivalent for every pattern used in
+# this file); grep gets its original arguments completely untouched.
+# --include-zero makes `rg -c` print 0 on no match like `grep -c` does
+# (bare `rg -c` prints nothing on 0 matches) — harmless no-op otherwise.
+rg_or_grep() {
+  if command -v rg >/dev/null 2>&1; then
+    local args=() a stripped
+    for a in "$@"; do
+      case "$a" in
+        -[A-Za-z]*)
+          stripped="${a//E/}"
+          [ "$stripped" = "-" ] && continue
+          args+=("$stripped")
+          ;;
+        *) args+=("$a") ;;
+      esac
+    done
+    command rg --include-zero "${args[@]}"
+  else
+    command grep "$@"
+  fi
+}
+
+count_partial() { rg_or_grep -o "$1" <<<"$2" | wc -l | tr -d ' '; }
 
 # Build a PreToolUse payload from a command (+ optional description).
 make_input() {
@@ -119,7 +147,7 @@ rewrite() { bash "$SIGN_HOOK" <<<"$1" | jq -r '.hookSpecificOutput.updatedInput.
   make_key
   run rewrite "$(make_input 'git commit -m "fix the git commit flow"')"
   assert_success
-  count="$(grep -o "user.signingkey=" <<<"$output" | wc -l | tr -d ' ')"
+  count="$(rg_or_grep -o "user.signingkey=" <<<"$output" | wc -l | tr -d ' ')"
   assert_equal "$count" "1"
   assert_output --partial 'fix the git commit flow'
 }
