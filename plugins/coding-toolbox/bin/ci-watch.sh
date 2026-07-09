@@ -46,6 +46,40 @@ missing=0   # strictly consecutive "no checks / no pipeline" answers
 # One bounded CLI call: stdout = data, stderr lands in $errf; never throws.
 poll() { timeout -k 10 60 "$@" 2>"$errf" || true; }
 
+# Prefer ripgrep; fall back to grep if rg isn't installed. rg's -E means
+# --encoding=ARG and -r means --replace=ARG (both take a value, neither is
+# grep's meaning), and rg has no recursive flag (recursion is its
+# default) — so a bundled/bare -E is stripped before delegating to rg
+# (its regex syntax is already ERE-equivalent for every pattern used in
+# this file); grep gets its original arguments completely untouched.
+# Note: bare `rg -c` prints nothing on 0 matches where `grep -c` prints `0`
+# (both exit 1) -- no call site here checks that text (only $status or a
+# nonzero count), so this divergence is accepted rather than papered over
+# with --include-zero, which errors on ripgrep < 12.0.0.
+rg_or_grep() {
+  if command -v rg >/dev/null 2>&1; then
+    local args=() a stripped seen_dashdash=false
+    for a in "$@"; do
+      if [ "$seen_dashdash" = true ]; then
+        args+=("$a")
+        continue
+      fi
+      case "$a" in
+        --) seen_dashdash=true; args+=("$a") ;;
+        -[A-Za-z]*)
+          stripped="${a//E/}"
+          [ "$stripped" = "-" ] && continue
+          args+=("$stripped")
+          ;;
+        *) args+=("$a") ;;
+      esac
+    done
+    command rg "${args[@]}"
+  else
+    command grep "$@"
+  fi
+}
+
 while :; do
   if [ "$platform" = github ]; then
     # rc 1 (a check failed) and rc 8 (pending) still print valid data —
@@ -55,11 +89,11 @@ while :; do
     err=$(cat "$errf")
     if [ -n "$out" ]; then
       missing=0
-      real=$(grep -ivE $'\t.*coderabbit' <<<"$out" || true)  # match the NAME field
-      if ! grep -q '^pending' <<<"$real"; then               # all real checks done
+      real=$(rg_or_grep -ivE $'\t.*coderabbit' <<<"$out" || true)  # match the NAME field
+      if ! rg_or_grep -q '^pending' <<<"$real"; then               # all real checks done
         printf '%s\n' "$out"
-        if grep -Eq '^(fail|cancel)' <<<"$real"; then exit 1; fi
-        if grep -iE $'\t.*coderabbit' <<<"$out" | grep -Evq '^pass'; then
+        if rg_or_grep -Eq '^(fail|cancel)' <<<"$real"; then exit 1; fi
+        if rg_or_grep -iE $'\t.*coderabbit' <<<"$out" | rg_or_grep -Evq '^pass'; then
           echo "note: ignored non-passing coderabbit check(s)"
         fi
         exit 0
@@ -77,7 +111,7 @@ while :; do
   else
     out=$(poll glab ci get -b "$ref" --output json)
     err=$(cat "$errf")
-    if [ -z "$out" ] && grep -qi "unknown flag" <<<"$err"; then
+    if [ -z "$out" ] && rg_or_grep -qi "unknown flag" <<<"$err"; then
       out=$(poll glab ci get -b "$ref")                      # old glab: text output
       err=$(cat "$errf")
     fi

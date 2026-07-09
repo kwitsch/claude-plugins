@@ -26,6 +26,41 @@ setup() {
   mkdir -p "$HOME"
 }
 
+# Prefer ripgrep; fall back to grep if rg isn't installed. rg's -E means
+# --encoding=ARG and -r means --replace=ARG (both take a value, neither is
+# grep's meaning), and rg has no recursive flag (recursion is its
+# default) — so a bundled/bare -E is stripped before delegating to rg
+# (its regex syntax is already ERE-equivalent for every pattern used in
+# this file); grep gets its original arguments completely untouched.
+# Note: bare `rg -c` prints nothing on 0 matches where `grep -c` prints `0`
+# (both exit 1) -- no call site here checks that text (only $status or a
+# nonzero count), so this divergence is accepted rather than papered over
+# with --include-zero, which errors on ripgrep < 12.0.0.
+rg_or_grep() {
+  if command -v rg >/dev/null 2>&1; then
+    local args=() a stripped seen_dashdash=false
+    for a in "$@"; do
+      if [ "$seen_dashdash" = true ]; then
+        args+=("$a")
+        continue
+      fi
+      case "$a" in
+        --) seen_dashdash=true; args+=("$a") ;;
+        -[A-Za-z]*)
+          stripped="${a//E/}"
+          [ "$stripped" = "-" ] && continue
+          args+=("$stripped")
+          ;;
+        *) args+=("$a") ;;
+      esac
+    done
+    command rg "${args[@]}"
+  else
+    command grep "$@"
+  fi
+}
+export -f rg_or_grep
+
 # make_stub <name> <body-line>... — drop an executable bash stub into MOCKBIN.
 make_stub() {
   local name="$1"; shift
@@ -69,28 +104,28 @@ make_stub() {
 }
 
 @test "cc-reference SKILL.md has name and description frontmatter" {
-  run grep -E '^name:[[:space:]]*cc-reference' "$SKILL/SKILL.md"
+  run rg_or_grep -E '^name:[[:space:]]*cc-reference' "$SKILL/SKILL.md"
   [ "$status" -eq 0 ]
-  run grep -E '^description:' "$SKILL/SKILL.md"
+  run rg_or_grep -E '^description:' "$SKILL/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
 @test "cc-reference SKILL.md allowed-tools includes Read, Grep, and WebFetch fallback" {
-  run grep -E '^allowed-tools:.*Read' "$SKILL/SKILL.md"
+  run rg_or_grep -E '^allowed-tools:.*Read' "$SKILL/SKILL.md"
   [ "$status" -eq 0 ]
-  run grep -E '^allowed-tools:.*Grep' "$SKILL/SKILL.md"
+  run rg_or_grep -E '^allowed-tools:.*Grep' "$SKILL/SKILL.md"
   [ "$status" -eq 0 ]
-  run grep -E '^allowed-tools:.*WebFetch' "$SKILL/SKILL.md"
+  run rg_or_grep -E '^allowed-tools:.*WebFetch' "$SKILL/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
 @test "cc-reference SKILL.md documents a live-doc fallback" {
-  run grep -iE 'Live-doc|WebFetch' "$SKILL/SKILL.md"
+  run rg_or_grep -iE 'Live-doc|WebFetch' "$SKILL/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
 @test "cc-reference SKILL.md is model-invocable (no disable-model-invocation)" {
-  run grep -E '^disable-model-invocation:[[:space:]]*true' "$SKILL/SKILL.md"
+  run rg_or_grep -E '^disable-model-invocation:[[:space:]]*true' "$SKILL/SKILL.md"
   [ "$status" -ne 0 ]
 }
 
@@ -114,7 +149,7 @@ make_stub() {
            claude-code-commands-reference.md claude-code-mcp-reference.md \
            claude-code-plugins-reference.md claude-code-memory-reference.md \
            claude-code-settings-reference.md; do
-    run grep -cE '^## ' "$REFS/$f"
+    run rg_or_grep -cE '^## ' "$REFS/$f"
     [ "$status" -eq 0 ]
     [ "$output" -ge 1 ]
   done
@@ -127,7 +162,7 @@ make_stub() {
            claude-code-commands-reference.md claude-code-mcp-reference.md \
            claude-code-plugins-reference.md claude-code-memory-reference.md \
            claude-code-settings-reference.md; do
-    run grep -iE 'verified' "$REFS/$f"
+    run rg_or_grep -iE 'verified' "$REFS/$f"
     [ "$status" -eq 0 ]
   done
 }
@@ -139,7 +174,7 @@ make_stub() {
            claude-code-commands-reference.md claude-code-mcp-reference.md \
            claude-code-plugins-reference.md claude-code-memory-reference.md \
            claude-code-settings-reference.md; do
-    run grep -F "$f" "$SKILL/SKILL.md"
+    run rg_or_grep -F "$f" "$SKILL/SKILL.md"
     [ "$status" -eq 0 ]
   done
 }
@@ -149,38 +184,38 @@ make_stub() {
   # injection trigger — it RUNS at skill load. SKILL.md must never contain it
   # (it would execute, e.g. `cmd: command not found`). Such examples belong only
   # in the reference files, which are Read on demand and never preprocessed.
-  run grep -nE '!`' "$SKILL/SKILL.md"
+  run rg_or_grep -nE '!`' "$SKILL/SKILL.md"
   [ "$status" -ne 0 ]
 }
 
 @test "reference files live in the references/ subfolder, not the skill root" {
   [ -d "$REFS" ]
   # only SKILL.md may sit at the skill root; every other *.md lives under references/
-  run bash -c 'ls "$1"/*.md 2>/dev/null | grep -v "/SKILL.md$" || true' _ "$SKILL"
+  run bash -c 'ls "$1"/*.md 2>/dev/null | rg_or_grep -v "/SKILL.md$" || true' _ "$SKILL"
   [ -z "$output" ]
 }
 
 @test "SKILL.md points reference paths at the references/ subfolder" {
-  run grep -E '\$\{CLAUDE_SKILL_DIR\}/references/claude-code-skills-reference.md' "$SKILL/SKILL.md"
+  run rg_or_grep -E '\$\{CLAUDE_SKILL_DIR\}/references/claude-code-skills-reference.md' "$SKILL/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
 @test "mcp-tool-hooks reference documents the plugin server-name namespacing gotcha" {
   [ -s "$REFS/claude-code-mcp-tool-hooks-reference.md" ]
-  run grep -F 'plugin:<plugin-name>:<server-key>' "$REFS/claude-code-mcp-tool-hooks-reference.md"
+  run rg_or_grep -F 'plugin:<plugin-name>:<server-key>' "$REFS/claude-code-mcp-tool-hooks-reference.md"
   [ "$status" -eq 0 ]
-  run grep -iE 'not connected' "$REFS/claude-code-mcp-tool-hooks-reference.md"
+  run rg_or_grep -iE 'not connected' "$REFS/claude-code-mcp-tool-hooks-reference.md"
   [ "$status" -eq 0 ]
 }
 
 @test "skill-folder-structure convention file exists and documents the references/ rule" {
   [ -s "$REFS/skill-folder-structure.md" ]
-  run grep -cE '^## ' "$REFS/skill-folder-structure.md"
+  run rg_or_grep -cE '^## ' "$REFS/skill-folder-structure.md"
   [ "$status" -eq 0 ]
   [ "$output" -ge 1 ]
-  run grep -F 'references/' "$REFS/skill-folder-structure.md"
+  run rg_or_grep -F 'references/' "$REFS/skill-folder-structure.md"
   [ "$status" -eq 0 ]
-  run grep -F "skill-folder-structure.md" "$SKILL/SKILL.md"
+  run rg_or_grep -F "skill-folder-structure.md" "$SKILL/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
@@ -191,35 +226,35 @@ make_stub() {
 }
 
 @test "update-cc-references is user-only (disable-model-invocation: true)" {
-  run grep -E '^disable-model-invocation:[[:space:]]*true' "$MAINT"
+  run rg_or_grep -E '^disable-model-invocation:[[:space:]]*true' "$MAINT"
   [ "$status" -eq 0 ]
 }
 
 @test "update-cc-references allowed-tools include fetch + edit + release tools" {
   for tool in WebFetch Read Edit Write Glob Bash Skill; do
-    run grep -E "^allowed-tools:.*$tool" "$MAINT"
+    run rg_or_grep -E "^allowed-tools:.*$tool" "$MAINT"
     [ "$status" -eq 0 ]
   done
 }
 
 @test "update-cc-references covers the new targets and files" {
-  run grep -E '^argument-hint:' "$MAINT"
+  run rg_or_grep -E '^argument-hint:' "$MAINT"
   [ "$status" -eq 0 ]
   for tok in commands mcp plugins memory settings; do
-    printf '%s\n' "$output" | grep -q "$tok"
+    printf '%s\n' "$output" | rg_or_grep -q "$tok"
   done
   for f in claude-code-commands-reference.md claude-code-mcp-reference.md \
            claude-code-plugins-reference.md claude-code-memory-reference.md \
            claude-code-settings-reference.md; do
-    run grep -F "$f" "$MAINT"
+    run rg_or_grep -F "$f" "$MAINT"
     [ "$status" -eq 0 ]
   done
 }
 
 @test "update-cc-references release does a patch bump and stamps the ingestion date" {
-  run grep -iE 'Patch version bump' "$MAINT"
+  run rg_or_grep -iE 'Patch version bump' "$MAINT"
   [ "$status" -eq 0 ]
-  run grep -F 'CC docs read:' "$MAINT"
+  run rg_or_grep -F 'CC docs read:' "$MAINT"
   [ "$status" -eq 0 ]
 }
 
@@ -236,62 +271,62 @@ make_stub() {
 }
 
 @test "claude-code-expert agent has name and description" {
-  run grep -E '^name:[[:space:]]*claude-code-expert' "$PLUGIN/agents/claude-code-expert.md"
+  run rg_or_grep -E '^name:[[:space:]]*claude-code-expert' "$PLUGIN/agents/claude-code-expert.md"
   [ "$status" -eq 0 ]
-  run grep -E '^description:' "$PLUGIN/agents/claude-code-expert.md"
+  run rg_or_grep -E '^description:' "$PLUGIN/agents/claude-code-expert.md"
   [ "$status" -eq 0 ]
 }
 
 @test "claude-code-expert declares a model and cc-reference tools (Skill, Read, Grep)" {
-  run grep -E '^model:' "$PLUGIN/agents/claude-code-expert.md"
+  run rg_or_grep -E '^model:' "$PLUGIN/agents/claude-code-expert.md"
   [ "$status" -eq 0 ]
-  run grep -E '^tools:.*Skill' "$PLUGIN/agents/claude-code-expert.md"
+  run rg_or_grep -E '^tools:.*Skill' "$PLUGIN/agents/claude-code-expert.md"
   [ "$status" -eq 0 ]
-  run grep -E '^tools:.*Read' "$PLUGIN/agents/claude-code-expert.md"
+  run rg_or_grep -E '^tools:.*Read' "$PLUGIN/agents/claude-code-expert.md"
   [ "$status" -eq 0 ]
-  run grep -E '^tools:.*Grep' "$PLUGIN/agents/claude-code-expert.md"
+  run rg_or_grep -E '^tools:.*Grep' "$PLUGIN/agents/claude-code-expert.md"
   [ "$status" -eq 0 ]
 }
 
 @test "claude-code-expert has no write or Bash tools" {
-  run grep -E '^tools:.*(Write|Edit|NotebookEdit|Bash)' "$PLUGIN/agents/claude-code-expert.md"
+  run rg_or_grep -E '^tools:.*(Write|Edit|NotebookEdit|Bash)' "$PLUGIN/agents/claude-code-expert.md"
   [ "$status" -ne 0 ]
 }
 
 # --- cc-reviewer agent (parameterized read-only reviewer) ---
 
 @test "cc-reviewer agent has name and description" {
-  run grep -E '^name:[[:space:]]*cc-reviewer' "$PLUGIN/agents/cc-reviewer.md"
+  run rg_or_grep -E '^name:[[:space:]]*cc-reviewer' "$PLUGIN/agents/cc-reviewer.md"
   [ "$status" -eq 0 ]
-  run grep -E '^description:' "$PLUGIN/agents/cc-reviewer.md"
+  run rg_or_grep -E '^description:' "$PLUGIN/agents/cc-reviewer.md"
   [ "$status" -eq 0 ]
 }
 
 @test "cc-reviewer declares model haiku and cc-reference tools (Skill, Read, Grep, Glob)" {
-  run grep -E '^model:[[:space:]]*haiku' "$PLUGIN/agents/cc-reviewer.md"
+  run rg_or_grep -E '^model:[[:space:]]*haiku' "$PLUGIN/agents/cc-reviewer.md"
   [ "$status" -eq 0 ]
   for tool in Skill Read Grep Glob; do
-    run grep -E "^tools:.*$tool" "$PLUGIN/agents/cc-reviewer.md"
+    run rg_or_grep -E "^tools:.*$tool" "$PLUGIN/agents/cc-reviewer.md"
     [ "$status" -eq 0 ]
   done
 }
 
 @test "cc-reviewer has no write or Bash tools" {
-  run grep -E '^tools:.*(Write|Edit|NotebookEdit|Bash)' "$PLUGIN/agents/cc-reviewer.md"
+  run rg_or_grep -E '^tools:.*(Write|Edit|NotebookEdit|Bash)' "$PLUGIN/agents/cc-reviewer.md"
   [ "$status" -ne 0 ]
 }
 
 @test "cc-reviewer is cc-reference-only and never answers from training memory" {
-  run grep -F 'cc-reference' "$PLUGIN/agents/cc-reviewer.md"
+  run rg_or_grep -F 'cc-reference' "$PLUGIN/agents/cc-reviewer.md"
   [ "$status" -eq 0 ]
-  run grep -iE 'never.*training memory|not.*training memory' "$PLUGIN/agents/cc-reviewer.md"
+  run rg_or_grep -iE 'never.*training memory|not.*training memory' "$PLUGIN/agents/cc-reviewer.md"
   [ "$status" -eq 0 ]
 }
 
 @test "cc-reviewer documents the structured findings output contract" {
-  run grep -iE 'suggested_fix' "$PLUGIN/agents/cc-reviewer.md"
+  run rg_or_grep -iE 'suggested_fix' "$PLUGIN/agents/cc-reviewer.md"
   [ "$status" -eq 0 ]
-  run grep -iE 'severity' "$PLUGIN/agents/cc-reviewer.md"
+  run rg_or_grep -iE 'severity' "$PLUGIN/agents/cc-reviewer.md"
   [ "$status" -eq 0 ]
 }
 
@@ -375,68 +410,68 @@ reroute_call() {
 }
 
 @test "cc-review SKILL.md has name and argument-hint frontmatter" {
-  run grep -E '^name:[[:space:]]*cc-review' "$PLUGIN/skills/cc-review/SKILL.md"
+  run rg_or_grep -E '^name:[[:space:]]*cc-review' "$PLUGIN/skills/cc-review/SKILL.md"
   [ "$status" -eq 0 ]
-  run grep -E '^argument-hint:' "$PLUGIN/skills/cc-review/SKILL.md"
+  run rg_or_grep -E '^argument-hint:' "$PLUGIN/skills/cc-review/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
 @test "cc-review runs inline (NOT context: fork — needs Agent + Edit/Write)" {
-  run grep -E '^context:[[:space:]]*fork' "$PLUGIN/skills/cc-review/SKILL.md"
+  run rg_or_grep -E '^context:[[:space:]]*fork' "$PLUGIN/skills/cc-review/SKILL.md"
   [ "$status" -ne 0 ]
 }
 
 @test "cc-review dispatches the cc-reviewer agent" {
-  run grep -F 'cc-reviewer' "$PLUGIN/skills/cc-review/SKILL.md"
+  run rg_or_grep -F 'cc-reviewer' "$PLUGIN/skills/cc-review/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
 @test "cc-review gates application through AskUserQuestion" {
-  run grep -F 'AskUserQuestion' "$PLUGIN/skills/cc-review/SKILL.md"
+  run rg_or_grep -F 'AskUserQuestion' "$PLUGIN/skills/cc-review/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
 @test "cc-review detection is runtime Bash, not a load-time !-injection" {
   # The skill must not carry a `!`+backtick dynamic-context trigger (would run at
   # load, before the target is resolved). Detection is a model-run bash block.
-  run grep -nE '!`' "$PLUGIN/skills/cc-review/SKILL.md"
+  run rg_or_grep -nE '!`' "$PLUGIN/skills/cc-review/SKILL.md"
   [ "$status" -ne 0 ]
 }
 
 # --- cc-author-planner agent (read-only authoring planner) ---
 
 @test "cc-author-planner agent has name and description" {
-  run grep -E '^name:[[:space:]]*cc-author-planner' "$PLUGIN/agents/cc-author-planner.md"
+  run rg_or_grep -E '^name:[[:space:]]*cc-author-planner' "$PLUGIN/agents/cc-author-planner.md"
   [ "$status" -eq 0 ]
-  run grep -E '^description:' "$PLUGIN/agents/cc-author-planner.md"
+  run rg_or_grep -E '^description:' "$PLUGIN/agents/cc-author-planner.md"
   [ "$status" -eq 0 ]
 }
 
 @test "cc-author-planner declares model haiku and cc-reference tools (Skill, Read, Grep)" {
-  run grep -E '^model:[[:space:]]*haiku' "$PLUGIN/agents/cc-author-planner.md"
+  run rg_or_grep -E '^model:[[:space:]]*haiku' "$PLUGIN/agents/cc-author-planner.md"
   [ "$status" -eq 0 ]
   for tool in Skill Read Grep; do
-    run grep -E "^tools:.*$tool" "$PLUGIN/agents/cc-author-planner.md"
+    run rg_or_grep -E "^tools:.*$tool" "$PLUGIN/agents/cc-author-planner.md"
     [ "$status" -eq 0 ]
   done
 }
 
 @test "cc-author-planner has no write or Bash tools" {
-  run grep -E '^tools:.*(Write|Edit|NotebookEdit|Bash)' "$PLUGIN/agents/cc-author-planner.md"
+  run rg_or_grep -E '^tools:.*(Write|Edit|NotebookEdit|Bash)' "$PLUGIN/agents/cc-author-planner.md"
   [ "$status" -ne 0 ]
 }
 
 @test "cc-author-planner is cc-reference-only and never invents from training memory" {
-  run grep -F 'cc-reference' "$PLUGIN/agents/cc-author-planner.md"
+  run rg_or_grep -F 'cc-reference' "$PLUGIN/agents/cc-author-planner.md"
   [ "$status" -eq 0 ]
-  run grep -iE 'never.*training memory|not.*training memory' "$PLUGIN/agents/cc-author-planner.md"
+  run rg_or_grep -iE 'never.*training memory|not.*training memory' "$PLUGIN/agents/cc-author-planner.md"
   [ "$status" -eq 0 ]
 }
 
 @test "cc-author-planner documents the structured output contract (files + uncovered)" {
-  run grep -F 'full_content' "$PLUGIN/agents/cc-author-planner.md"
+  run rg_or_grep -F 'full_content' "$PLUGIN/agents/cc-author-planner.md"
   [ "$status" -eq 0 ]
-  run grep -F 'uncovered' "$PLUGIN/agents/cc-author-planner.md"
+  run rg_or_grep -F 'uncovered' "$PLUGIN/agents/cc-author-planner.md"
   [ "$status" -eq 0 ]
 }
 
@@ -447,48 +482,48 @@ reroute_call() {
 }
 
 @test "cc-author SKILL.md has name and argument-hint frontmatter" {
-  run grep -E '^name:[[:space:]]*cc-author' "$PLUGIN/skills/cc-author/SKILL.md"
+  run rg_or_grep -E '^name:[[:space:]]*cc-author' "$PLUGIN/skills/cc-author/SKILL.md"
   [ "$status" -eq 0 ]
-  run grep -E '^argument-hint:' "$PLUGIN/skills/cc-author/SKILL.md"
+  run rg_or_grep -E '^argument-hint:' "$PLUGIN/skills/cc-author/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
 @test "cc-author runs inline (NOT context: fork — needs Agent + Write)" {
-  run grep -E '^context:[[:space:]]*fork' "$PLUGIN/skills/cc-author/SKILL.md"
+  run rg_or_grep -E '^context:[[:space:]]*fork' "$PLUGIN/skills/cc-author/SKILL.md"
   [ "$status" -ne 0 ]
 }
 
 @test "cc-author allowed-tools include Agent, Write, AskUserQuestion" {
   for tool in Agent Write AskUserQuestion; do
-    run grep -E "^allowed-tools:.*$tool" "$PLUGIN/skills/cc-author/SKILL.md"
+    run rg_or_grep -E "^allowed-tools:.*$tool" "$PLUGIN/skills/cc-author/SKILL.md"
     [ "$status" -eq 0 ]
   done
 }
 
 @test "cc-author dispatches the cc-author-planner agent" {
-  run grep -F 'cc-author-planner' "$PLUGIN/skills/cc-author/SKILL.md"
+  run rg_or_grep -F 'cc-author-planner' "$PLUGIN/skills/cc-author/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
 @test "cc-author surfaces uncovered points and gates via AskUserQuestion" {
-  run grep -F 'uncovered' "$PLUGIN/skills/cc-author/SKILL.md"
+  run rg_or_grep -F 'uncovered' "$PLUGIN/skills/cc-author/SKILL.md"
   [ "$status" -eq 0 ]
-  run grep -F 'AskUserQuestion' "$PLUGIN/skills/cc-author/SKILL.md"
+  run rg_or_grep -F 'AskUserQuestion' "$PLUGIN/skills/cc-author/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
 @test "cc-author is model-invocable (no disable-model-invocation)" {
-  run grep -E '^disable-model-invocation:[[:space:]]*true' "$PLUGIN/skills/cc-author/SKILL.md"
+  run rg_or_grep -E '^disable-model-invocation:[[:space:]]*true' "$PLUGIN/skills/cc-author/SKILL.md"
   [ "$status" -ne 0 ]
 }
 
 @test "cc-author has no load-time !-injection trigger" {
-  run grep -nE '!`' "$PLUGIN/skills/cc-author/SKILL.md"
+  run rg_or_grep -nE '!`' "$PLUGIN/skills/cc-author/SKILL.md"
   [ "$status" -ne 0 ]
 }
 
 @test "cc-author is cc-reference-grounded" {
-  run grep -F 'cc-reference' "$PLUGIN/skills/cc-author/SKILL.md"
+  run rg_or_grep -F 'cc-reference' "$PLUGIN/skills/cc-author/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
@@ -499,65 +534,65 @@ reroute_call() {
 }
 
 @test "cc-memory SKILL.md has name and argument-hint frontmatter" {
-  run grep -E '^name:[[:space:]]*cc-memory' "$PLUGIN/skills/cc-memory/SKILL.md"
+  run rg_or_grep -E '^name:[[:space:]]*cc-memory' "$PLUGIN/skills/cc-memory/SKILL.md"
   [ "$status" -eq 0 ]
-  run grep -E '^argument-hint:' "$PLUGIN/skills/cc-memory/SKILL.md"
+  run rg_or_grep -E '^argument-hint:' "$PLUGIN/skills/cc-memory/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
 @test "cc-memory runs inline (NOT context: fork)" {
-  run grep -E '^context:[[:space:]]*fork' "$PLUGIN/skills/cc-memory/SKILL.md"
+  run rg_or_grep -E '^context:[[:space:]]*fork' "$PLUGIN/skills/cc-memory/SKILL.md"
   [ "$status" -ne 0 ]
 }
 
 @test "cc-memory reuses cc-reviewer with component_type memory" {
-  run grep -F 'cc-reviewer' "$PLUGIN/skills/cc-memory/SKILL.md"
+  run rg_or_grep -F 'cc-reviewer' "$PLUGIN/skills/cc-memory/SKILL.md"
   [ "$status" -eq 0 ]
-  run grep -E 'component_type:[[:space:]]*memory' "$PLUGIN/skills/cc-memory/SKILL.md"
+  run rg_or_grep -E 'component_type:[[:space:]]*memory' "$PLUGIN/skills/cc-memory/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
 @test "cc-memory gates application through AskUserQuestion" {
-  run grep -F 'AskUserQuestion' "$PLUGIN/skills/cc-memory/SKILL.md"
+  run rg_or_grep -F 'AskUserQuestion' "$PLUGIN/skills/cc-memory/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
 @test "cc-memory discovery is runtime Bash, not load-time !-injection" {
-  run grep -nE '!`' "$PLUGIN/skills/cc-memory/SKILL.md"
+  run rg_or_grep -nE '!`' "$PLUGIN/skills/cc-memory/SKILL.md"
   [ "$status" -ne 0 ]
 }
 
 @test "cc-memory is model-invocable (no disable-model-invocation)" {
-  run grep -E '^disable-model-invocation:[[:space:]]*true' "$PLUGIN/skills/cc-memory/SKILL.md"
+  run rg_or_grep -E '^disable-model-invocation:[[:space:]]*true' "$PLUGIN/skills/cc-memory/SKILL.md"
   [ "$status" -ne 0 ]
 }
 
 @test "cc-memory is cc-reference-grounded" {
-  run grep -F 'cc-reference' "$PLUGIN/skills/cc-memory/SKILL.md"
+  run rg_or_grep -F 'cc-reference' "$PLUGIN/skills/cc-memory/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
 @test "cc-memory dispatch prompt asks reviewer for leanness/split findings" {
   local f="$PLUGIN/skills/cc-memory/SKILL.md"
-  run grep -F 'leanness' "$f";            [ "$status" -eq 0 ]
-  run grep -F 'splittab' "$f";            [ "$status" -eq 0 ]
-  run grep -F '.claude/rules/' "$f";      [ "$status" -eq 0 ]
-  run grep -E '\bpaths:' "$f";            [ "$status" -eq 0 ]
-  run grep -F 'uncovered: false' "$f";    [ "$status" -eq 0 ]
-  run grep -iF 'never `high`' "$f";       [ "$status" -eq 0 ]
+  run rg_or_grep -F 'leanness' "$f";            [ "$status" -eq 0 ]
+  run rg_or_grep -F 'splittab' "$f";            [ "$status" -eq 0 ]
+  run rg_or_grep -F '.claude/rules/' "$f";      [ "$status" -eq 0 ]
+  run rg_or_grep -E '\bpaths:' "$f";            [ "$status" -eq 0 ]
+  run rg_or_grep -F 'uncovered: false' "$f";    [ "$status" -eq 0 ]
+  run rg_or_grep -iF 'never `high`' "$f";       [ "$status" -eq 0 ]
 }
 
 @test "cc-memory report has claude-md-improver-style summary + per-file blocks" {
   local f="$PLUGIN/skills/cc-memory/SKILL.md"
-  run grep -F '### Summary' "$f";                  [ "$status" -eq 0 ]
-  run grep -F 'Recommended actions' "$f";          [ "$status" -eq 0 ]
-  run grep -iF 'files needing update' "$f";        [ "$status" -eq 0 ]
+  run rg_or_grep -F '### Summary' "$f";                  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'Recommended actions' "$f";          [ "$status" -eq 0 ]
+  run rg_or_grep -iF 'files needing update' "$f";        [ "$status" -eq 0 ]
 }
 
 @test "cc-memory default scope discovers CLAUDE.md and .claude/rules files" {
   local f="$PLUGIN/skills/cc-memory/SKILL.md"
-  run grep -F "name CLAUDE.md -o -path '*/.claude/rules/*.md'" "$f"; [ "$status" -eq 0 ]
-  run grep -F '.claude/rules/*.md' "$f";                            [ "$status" -eq 0 ]
+  run rg_or_grep -F "name CLAUDE.md -o -path '*/.claude/rules/*.md'" "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -F '.claude/rules/*.md' "$f";                            [ "$status" -eq 0 ]
 }
 
 @test "plugin.json description mentions the authoring capability" {
@@ -571,37 +606,37 @@ reroute_call() {
 @test "cc-reference-validator agent exists and is read-only" {
   agent="$REPO_ROOT/.claude/agents/cc-reference-validator.md"
   [ -f "$agent" ]
-  grep -Eq "^name: cc-reference-validator$" "$agent"
-  grep -Eq "^tools:.*WebFetch" "$agent"
-  grep -Eq "^tools:.*Read" "$agent"
-  ! grep -Eq "^tools:.*(Write|Edit)" "$agent"
+  rg_or_grep -Eq "^name: cc-reference-validator$" "$agent"
+  rg_or_grep -Eq "^tools:.*WebFetch" "$agent"
+  rg_or_grep -Eq "^tools:.*Read" "$agent"
+  ! rg_or_grep -Eq "^tools:.*(Write|Edit)" "$agent"
 }
 
 @test "cc-reference-validator encodes the adversarial verdict discipline" {
   agent="$REPO_ROOT/.claude/agents/cc-reference-validator.md"
-  grep -qi "verbatim" "$agent"
-  grep -q "CONFIRMED" "$agent"
-  grep -q "REJECTED" "$agent"
-  grep -q "UNVERIFIABLE" "$agent"
+  rg_or_grep -qi "verbatim" "$agent"
+  rg_or_grep -q "CONFIRMED" "$agent"
+  rg_or_grep -q "REJECTED" "$agent"
+  rg_or_grep -q "UNVERIFIABLE" "$agent"
 }
 
 @test "cc-reference-validator consults the advisor on difficult decisions when one is available" {
   agent="$REPO_ROOT/.claude/agents/cc-reference-validator.md"
-  grep -qi "advisor" "$agent"
-  grep -qi "available" "$agent"
+  rg_or_grep -qi "advisor" "$agent"
+  rg_or_grep -qi "available" "$agent"
 }
 
 # --- update-cc-references contradiction-validation gate ---
 
 @test "update-cc-references skill has the contradiction-validation gate" {
-  grep -qi "Contradiction-validation gate" "$MAINT"
-  grep -q "cc-reference-validator" "$MAINT"
-  grep -qi "git diff HEAD" "$MAINT"
-  grep -q "UNVERIFIABLE" "$MAINT"
+  rg_or_grep -qi "Contradiction-validation gate" "$MAINT"
+  rg_or_grep -q "cc-reference-validator" "$MAINT"
+  rg_or_grep -qi "git diff HEAD" "$MAINT"
+  rg_or_grep -q "UNVERIFIABLE" "$MAINT"
 }
 
 @test "update-cc-references Release is gated on the contradiction gate" {
-  grep -qi "zero unconfirmed contradictions" "$MAINT"
+  rg_or_grep -qi "zero unconfirmed contradictions" "$MAINT"
 }
 
 # --- mjs-launch.sh wrapper ---
@@ -621,7 +656,7 @@ EOF
   chmod +x "$tmp/.bun/bin/bun"
   run env -i HOME="$tmp" PATH="/usr/bin:/bin" bash "$PLUGIN/bin/mjs-launch.sh" /x/server.mjs --flag
   [ "$status" -eq 0 ]
-  echo "$output" | grep -q "BUN_RAN /x/server.mjs --flag"
+  echo "$output" | rg_or_grep -q "BUN_RAN /x/server.mjs --flag"
 }
 
 @test "mjs-launch.sh falls back to node when bun is absent" {
@@ -630,7 +665,7 @@ EOF
   printf 'process.stdout.write(process.versions.bun ? "RUNTIME_BUN" : "RUNTIME_NODE");\n' > "$script"
   run env -i HOME="$BATS_TEST_TMPDIR/nohome" PATH="$nodedir:/usr/bin:/bin" bash "$PLUGIN/bin/mjs-launch.sh" "$script"
   [ "$status" -eq 0 ]
-  echo "$output" | grep -q "RUNTIME_NODE"
+  echo "$output" | rg_or_grep -q "RUNTIME_NODE"
 }
 
 @test "mjs-launch.sh exits 1 when neither bun nor node is available" {
@@ -726,7 +761,7 @@ install_retry_claude_stub() {
 @test "compress.mjs: no args prints usage and exits 1" {
   run_compress
   [ "$status" -eq 1 ]
-  echo "$output" | grep -qi usage
+  echo "$output" | rg_or_grep -qi usage
 }
 
 @test "compress.mjs: one arg prints usage and exits 1" {
@@ -753,8 +788,8 @@ install_retry_claude_stub() {
   local backup_root="$BATS_TEST_TMPDIR/backups_sensitive"
   run_compress "$src" "$backup_root"
   [ "$status" -eq 1 ]
-  echo "$output" | grep -qi sensitive
-  grep -q "some content that is long enough" "$src"
+  echo "$output" | rg_or_grep -qi sensitive
+  rg_or_grep -q "some content that is long enough" "$src"
 }
 
 @test "compress.mjs: claude missing from PATH leaves source untouched with a clear error" {
@@ -776,11 +811,11 @@ install_retry_claude_stub() {
   local backup_root="$BATS_TEST_TMPDIR/backups_ok"
   run_compress "$src" "$backup_root" --confirmed
   [ "$status" -eq 0 ]
-  grep -q '<!-- compressed -->' "$src"
-  grep -q '# Title' "$src"
+  rg_or_grep -q '<!-- compressed -->' "$src"
+  rg_or_grep -q '# Title' "$src"
   local backup; backup="$(find_backup "$backup_root" 'notes.original.md')"
   [ -n "$backup" ]
-  grep -q 'This is a long enough sentence to compress.' "$backup"
+  rg_or_grep -q 'This is a long enough sentence to compress.' "$backup"
 }
 
 @test "compress.mjs: existing backup aborts to prevent data loss" {
@@ -794,8 +829,8 @@ install_retry_claude_stub() {
   echo "pre-existing backup" > "$backup_root/$hashdir/notes.original.md"
   run_compress "$src" "$backup_root" --confirmed
   [ "$status" -eq 1 ]
-  echo "$output" | grep -qi "already exists"
-  grep -q '# Title' "$src"
+  echo "$output" | rg_or_grep -qi "already exists"
+  rg_or_grep -q '# Title' "$src"
 }
 
 @test "compress.mjs: YAML frontmatter round-trips verbatim" {
@@ -836,8 +871,8 @@ MDEOF
   local backup_root="$BATS_TEST_TMPDIR/backups_nest"
   run_compress "$src" "$backup_root" --confirmed
   [ "$status" -eq 0 ]
-  grep -q '````text' "$src"
-  grep -q 'inner marker' "$src"
+  rg_or_grep -q '````text' "$src"
+  rg_or_grep -q 'inner marker' "$src"
 }
 
 @test "compress.mjs: multiple URLs preserved" {
@@ -848,8 +883,8 @@ MDEOF
   local backup_root="$BATS_TEST_TMPDIR/backups_urls"
   run_compress "$src" "$backup_root" --confirmed
   [ "$status" -eq 0 ]
-  grep -q 'https://example.com/a' "$src"
-  grep -q 'https://example.com/b' "$src"
+  rg_or_grep -q 'https://example.com/a' "$src"
+  rg_or_grep -q 'https://example.com/b' "$src"
 }
 
 @test "compress.mjs: preserves a trailing newline the original had" {
@@ -883,7 +918,7 @@ MDEOF
   local backup_root="$BATS_TEST_TMPDIR/backups_retry_ok"
   run_compress "$src" "$backup_root" --confirmed
   [ "$status" -eq 0 ]
-  grep -q 'Fixed compression' "$src"
+  rg_or_grep -q 'Fixed compression' "$src"
   [ "$(cat "$counter")" = "2" ]
 }
 
@@ -902,7 +937,7 @@ MDEOF
   local backup_root="$BATS_TEST_TMPDIR/backups_retry_url"
   run_compress "$src" "$backup_root" --confirmed
   [ "$status" -eq 0 ]
-  grep -q 'https://example.com/docs' "$src"
+  rg_or_grep -q 'https://example.com/docs' "$src"
   [ "$(cat "$counter")" = "2" ]
 }
 
@@ -940,7 +975,7 @@ MDEOF
   local backup_root="$BATS_TEST_TMPDIR/backups_untracked"
   run_compress "$src" "$backup_root"
   [ "$status" -eq 3 ]
-  echo "$output" | grep -qi "not git-recoverable"
+  echo "$output" | rg_or_grep -qi "not git-recoverable"
   diff "$src" "$src.orig"
   [ -z "$(find_backup "$backup_root" 'notes.original.md')" ]
 }
@@ -982,34 +1017,34 @@ MDEOF
 
 @test "cc-compress SKILL.md has name, description, argument-hint frontmatter" {
   local f="$PLUGIN/skills/cc-compress/SKILL.md"
-  run grep -E '^name:[[:space:]]*cc-compress' "$f"; [ "$status" -eq 0 ]
-  run grep -E '^description:' "$f";                  [ "$status" -eq 0 ]
-  run grep -E '^argument-hint:' "$f";                 [ "$status" -eq 0 ]
+  run rg_or_grep -E '^name:[[:space:]]*cc-compress' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -E '^description:' "$f";                  [ "$status" -eq 0 ]
+  run rg_or_grep -E '^argument-hint:' "$f";                 [ "$status" -eq 0 ]
 }
 
 @test "cc-compress is model-invocable (no disable-model-invocation)" {
-  run grep -E '^disable-model-invocation:[[:space:]]*true' "$PLUGIN/skills/cc-compress/SKILL.md"
+  run rg_or_grep -E '^disable-model-invocation:[[:space:]]*true' "$PLUGIN/skills/cc-compress/SKILL.md"
   [ "$status" -ne 0 ]
 }
 
 @test "cc-compress has no load-time !-injection trigger" {
-  run grep -nE '!`' "$PLUGIN/skills/cc-compress/SKILL.md"
+  run rg_or_grep -nE '!`' "$PLUGIN/skills/cc-compress/SKILL.md"
   [ "$status" -ne 0 ]
 }
 
 @test "cc-compress references its bundled script via CLAUDE_SKILL_DIR" {
-  run grep -F '${CLAUDE_SKILL_DIR}/scripts/compress.mjs' "$PLUGIN/skills/cc-compress/SKILL.md"
+  run rg_or_grep -F '${CLAUDE_SKILL_DIR}/scripts/compress.mjs' "$PLUGIN/skills/cc-compress/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
 @test "cc-compress gates non-recoverable targets through AskUserQuestion" {
   local f="$PLUGIN/skills/cc-compress/SKILL.md"
-  run grep -F 'AskUserQuestion' "$f"; [ "$status" -eq 0 ]
-  run grep -iF 'git' "$f";            [ "$status" -eq 0 ]
+  run rg_or_grep -F 'AskUserQuestion' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -iF 'git' "$f";            [ "$status" -eq 0 ]
 }
 
 @test "cc-compress documents the session-temp backup resolution" {
-  run grep -iE 'scratchpad|mktemp' "$PLUGIN/skills/cc-compress/SKILL.md"
+  run rg_or_grep -iE 'scratchpad|mktemp' "$PLUGIN/skills/cc-compress/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
@@ -1028,17 +1063,17 @@ MDEOF
 }
 
 @test "claude-code-knowledge CLAUDE.md boundary rule lists cc-compress" {
-  run grep -F 'cc-compress' "$PLUGIN/CLAUDE.md"
+  run rg_or_grep -F 'cc-compress' "$PLUGIN/CLAUDE.md"
   [ "$status" -eq 0 ]
 }
 
 @test "claude-code-knowledge README lists cc-compress in the Skills table" {
-  run grep -F '`cc-compress`' "$PLUGIN/README.md"
+  run rg_or_grep -F '`cc-compress`' "$PLUGIN/README.md"
   [ "$status" -eq 0 ]
 }
 
 @test "root README plugin row mentions cc-compress" {
-  run grep -F 'claude-code-knowledge](plugins/claude-code-knowledge/README.md)' "$REPO_ROOT/README.md"
+  run rg_or_grep -F 'claude-code-knowledge](plugins/claude-code-knowledge/README.md)' "$REPO_ROOT/README.md"
   [ "$status" -eq 0 ]
   [[ "$output" == *"cc-compress"* ]]
 }
@@ -1047,36 +1082,36 @@ MDEOF
 
 @test "claude-code-expert agent has no context-mode reference" {
   [ -f "$PLUGIN/agents/claude-code-expert.md" ]
-  run grep -c "context-mode" "$PLUGIN/agents/claude-code-expert.md"
+  run rg_or_grep -c "context-mode" "$PLUGIN/agents/claude-code-expert.md"
   [ "$status" -eq 1 ]
 }
 
 @test "cc-author-planner agent has no context-mode reference" {
   [ -f "$PLUGIN/agents/cc-author-planner.md" ]
-  run grep -c "context-mode" "$PLUGIN/agents/cc-author-planner.md"
+  run rg_or_grep -c "context-mode" "$PLUGIN/agents/cc-author-planner.md"
   [ "$status" -eq 1 ]
 }
 
 @test "cc-reviewer agent has no context-mode reference" {
   [ -f "$PLUGIN/agents/cc-reviewer.md" ]
-  run grep -c "context-mode" "$PLUGIN/agents/cc-reviewer.md"
+  run rg_or_grep -c "context-mode" "$PLUGIN/agents/cc-reviewer.md"
   [ "$status" -eq 1 ]
 }
 
 @test "cc-reference skill has no context-mode reference" {
   [ -f "$PLUGIN/skills/cc-reference/SKILL.md" ]
-  run grep -c "context-mode" "$PLUGIN/skills/cc-reference/SKILL.md"
+  run rg_or_grep -c "context-mode" "$PLUGIN/skills/cc-reference/SKILL.md"
   [ "$status" -eq 1 ]
 }
 
 @test "cc-review skill has no context-mode reference" {
   [ -f "$PLUGIN/skills/cc-review/SKILL.md" ]
-  run grep -c "context-mode" "$PLUGIN/skills/cc-review/SKILL.md"
+  run rg_or_grep -c "context-mode" "$PLUGIN/skills/cc-review/SKILL.md"
   [ "$status" -eq 1 ]
 }
 
 @test "cc-memory skill has no context-mode reference" {
   [ -f "$PLUGIN/skills/cc-memory/SKILL.md" ]
-  run grep -c "context-mode" "$PLUGIN/skills/cc-memory/SKILL.md"
+  run rg_or_grep -c "context-mode" "$PLUGIN/skills/cc-memory/SKILL.md"
   [ "$status" -eq 1 ]
 }
