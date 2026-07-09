@@ -84,6 +84,33 @@ bump_semver() {
   echo "$major.$minor.$patch"
 }
 
+# Prefer ripgrep; fall back to grep if rg isn't installed. rg's -E means
+# --encoding=ARG and -r means --replace=ARG (both take a value, neither is
+# grep's meaning), and rg has no recursive flag (recursion is its
+# default) — so a bundled/bare -E is stripped before delegating to rg
+# (its regex syntax is already ERE-equivalent for every pattern used in
+# this file); grep gets its original arguments completely untouched.
+# --include-zero makes `rg -c` print 0 on no match like `grep -c` does
+# (bare `rg -c` prints nothing on 0 matches) — harmless no-op otherwise.
+rg_or_grep() {
+  if command -v rg >/dev/null 2>&1; then
+    local args=() a stripped
+    for a in "$@"; do
+      case "$a" in
+        -[A-Za-z]*)
+          stripped="${a//E/}"
+          [ "$stripped" = "-" ] && continue
+          args+=("$stripped")
+          ;;
+        *) args+=("$a") ;;
+      esac
+    done
+    command rg --include-zero "${args[@]}"
+  else
+    command grep "$@"
+  fi
+}
+
 file=""
 old=""
 new=""
@@ -129,8 +156,8 @@ detect_json() {
     END { if (best_line != "" && tie_count == 1) print best_line }
   ' "$f")"
   [ -n "$line_no" ] || { echo "no top-level \"version\" field found in $f" >&2; exit 4; }
-  match="$(sed -n "${line_no}p" "$f" | grep -o -E '"version"[[:space:]]*:[[:space:]]*"[^"]*"')"
-  old="$(printf '%s' "$match" | grep -o -E '"[^"]*"$' | tr -d '"')"
+  match="$(sed -n "${line_no}p" "$f" | rg_or_grep -o -E '"version"[[:space:]]*:[[:space:]]*"[^"]*"')"
+  old="$(printf '%s' "$match" | rg_or_grep -o -E '"[^"]*"$' | tr -d '"')"
   require_bare_semver
   file="$f"
   version_line="$line_no"
@@ -141,11 +168,11 @@ detect_pom() {
   local f="pom.xml"
   [ -f "$f" ] || return 1
   local start=1 parent_end
-  parent_end="$(grep -n '</parent>' "$f" | head -n1 | cut -d: -f1)"
+  parent_end="$(rg_or_grep -n '</parent>' "$f" | head -n1 | cut -d: -f1)"
   [ -n "$parent_end" ] && start=$((parent_end + 1))
   version_line="$(awk -v start="$start" 'NR>=start && match($0, /<version>[0-9]+\.[0-9]+\.[0-9]+<\/version>/) {print NR; exit}' "$f")"
   [ -n "$version_line" ] || { echo "no project <version> tag found in $f" >&2; exit 4; }
-  old="$(sed -n "${version_line}p" "$f" | grep -o -E '<version>[0-9]+\.[0-9]+\.[0-9]+</version>' | sed -E 's#</?version>##g')"
+  old="$(sed -n "${version_line}p" "$f" | rg_or_grep -o -E '<version>[0-9]+\.[0-9]+\.[0-9]+</version>' | sed -E 's#</?version>##g')"
   require_bare_semver
   file="$f"
   return 0
