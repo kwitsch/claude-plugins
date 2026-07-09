@@ -29,6 +29,33 @@ run_hook() {
   printf '{"tool_input":{"file_path":"%s"}}' "$1" | "$HOOK"
 }
 
+# Prefer ripgrep; fall back to grep if rg isn't installed. rg's -E means
+# --encoding=ARG and -r means --replace=ARG (both take a value, neither is
+# grep's meaning), and rg has no recursive flag (recursion is its
+# default) — so a bundled/bare -E is stripped before delegating to rg
+# (its regex syntax is already ERE-equivalent for every pattern used in
+# this file); grep gets its original arguments completely untouched.
+# --include-zero makes `rg -c` print 0 on no match like `grep -c` does
+# (bare `rg -c` prints nothing on 0 matches) — harmless no-op otherwise.
+rg_or_grep() {
+  if command -v rg >/dev/null 2>&1; then
+    local args=() a stripped
+    for a in "$@"; do
+      case "$a" in
+        -[A-Za-z]*)
+          stripped="${a//E/}"
+          [ "$stripped" = "-" ] && continue
+          args+=("$stripped")
+          ;;
+        *) args+=("$a") ;;
+      esac
+    done
+    command rg --include-zero "${args[@]}"
+  else
+    command grep "$@"
+  fi
+}
+
 @test "plans hook: instructs subagent-driven-development with path when hook_plans=true" {
   write_settings true
   run run_hook "docs/superpowers/plans/2026-06-10-foo.md"
@@ -130,38 +157,38 @@ run_hook() {
   local f="$REPO_ROOT/plugins/superpowers-automation/skills/file-advisor-improver/SKILL.md"
   run test -f "$f"
   assert_success
-  run grep -q "context: fork" "$f"
+  run rg_or_grep -q "context: fork" "$f"
   assert_success
-  run grep -q "model: claude-sonnet-4-6" "$f"
+  run rg_or_grep -q "model: claude-sonnet-4-6" "$f"
   assert_success
-  run grep -q "arguments: file_path" "$f"
+  run rg_or_grep -q "arguments: file_path" "$f"
   assert_success
   # unlocked: no disable-model-invocation
-  run grep -q "disable-model-invocation" "$f"
+  run rg_or_grep -q "disable-model-invocation" "$f"
   assert_failure
 }
 
 @test "file-advisor-improver skill grants Edit and Write" {
   local f="$REPO_ROOT/plugins/superpowers-automation/skills/file-advisor-improver/SKILL.md"
-  run grep -Eq 'allowed-tools:.*Edit' "$f"
+  run rg_or_grep -Eq 'allowed-tools:.*Edit' "$f"
   assert_success
-  run grep -Eq 'allowed-tools:.*Write' "$f"
+  run rg_or_grep -Eq 'allowed-tools:.*Write' "$f"
   assert_success
 }
 
 @test "file-advisor-improver skill defines the file-gate and advisor-gate warnings" {
   local f="$REPO_ROOT/plugins/superpowers-automation/skills/file-advisor-improver/SKILL.md"
-  run grep -q "WARNING: file-advisor-improver: no readable file to review — skipped" "$f"
+  run rg_or_grep -q "WARNING: file-advisor-improver: no readable file to review — skipped" "$f"
   assert_success
-  run grep -q "WARNING: file-advisor-improver: advisor tool unavailable — skipped" "$f"
+  run rg_or_grep -q "WARNING: file-advisor-improver: advisor tool unavailable — skipped" "$f"
   assert_success
 }
 
 @test "file-advisor-improver skill signals on-disk change for re-read" {
   local f="$REPO_ROOT/plugins/superpowers-automation/skills/file-advisor-improver/SKILL.md"
-  run grep -q "FILE UPDATED ON DISK:" "$f"
+  run rg_or_grep -q "FILE UPDATED ON DISK:" "$f"
   assert_success
-  run grep -q "re-read before further edits" "$f"
+  run rg_or_grep -q "re-read before further edits" "$f"
   assert_success
 }
 
@@ -169,62 +196,62 @@ run_hook() {
   local f="$REPO_ROOT/plugins/superpowers-automation/skills/new-work/SKILL.md"
   run test -f "$f"
   assert_success
-  run grep -q "name: new-work" "$f"
+  run rg_or_grep -q "name: new-work" "$f"
   assert_success
-  run grep -q "argument-hint:" "$f"
+  run rg_or_grep -q "argument-hint:" "$f"
   assert_success
 }
 
 @test "new-work skill is model+user invocable and not forked" {
   local f="$REPO_ROOT/plugins/superpowers-automation/skills/new-work/SKILL.md"
-  run grep -q "disable-model-invocation" "$f"
+  run rg_or_grep -q "disable-model-invocation" "$f"
   assert_failure
-  run grep -q "context: fork" "$f"
+  run rg_or_grep -q "context: fork" "$f"
   assert_failure
 }
 
 @test "new-work skill names the pipeline sub-skills and branch step" {
   local f="$REPO_ROOT/plugins/superpowers-automation/skills/new-work/SKILL.md"
-  run grep -q "superpowers:brainstorming" "$f"
+  run rg_or_grep -q "superpowers:brainstorming" "$f"
   assert_success
-  run grep -q "superpowers:systematic-debugging" "$f"
+  run rg_or_grep -q "superpowers:systematic-debugging" "$f"
   assert_success
-  run grep -q "superpowers-automation:file-advisor-improver" "$f"
+  run rg_or_grep -q "superpowers-automation:file-advisor-improver" "$f"
   assert_success
-  run grep -q "superpowers:writing-plans" "$f"
+  run rg_or_grep -q "superpowers:writing-plans" "$f"
   assert_success
-  run grep -q "superpowers:subagent-driven-development" "$f"
+  run rg_or_grep -q "superpowers:subagent-driven-development" "$f"
   assert_success
-  run grep -q "branch-management:new-branch" "$f"
+  run rg_or_grep -q "branch-management:new-branch" "$f"
   assert_success
 }
 
 @test "new-work skill classifies work into feature/fix/refactor branch prefixes" {
   local f="$REPO_ROOT/plugins/superpowers-automation/skills/new-work/SKILL.md"
-  run grep -q "feature/" "$f"
+  run rg_or_grep -q "feature/" "$f"
   assert_success
-  run grep -q "fix/" "$f"
+  run rg_or_grep -q "fix/" "$f"
   assert_success
-  run grep -q "refactor/" "$f"
+  run rg_or_grep -q "refactor/" "$f"
   assert_success
 }
 
 @test "new-work skill documents step-numbered task-list integration" {
   local f="$REPO_ROOT/plugins/superpowers-automation/skills/new-work/SKILL.md"
-  run grep -q "Task-list integration" "$f"
+  run rg_or_grep -q "Task-list integration" "$f"
   assert_success
-  run grep -qE "Step N\.1" "$f"
+  run rg_or_grep -qE "Step N\.1" "$f"
   assert_success
 }
 
 @test "new-work skill mandates per-step task tracking via Task tools (TaskCreate/TaskUpdate)" {
   local f="$REPO_ROOT/plugins/superpowers-automation/skills/new-work/SKILL.md"
-  run grep -q "TaskCreate" "$f"
+  run rg_or_grep -q "TaskCreate" "$f"
   assert_success
-  run grep -q "TaskUpdate" "$f"
+  run rg_or_grep -q "TaskUpdate" "$f"
   assert_success
-  run grep -q "in_progress" "$f"
+  run rg_or_grep -q "in_progress" "$f"
   assert_success
-  run grep -q "completed" "$f"
+  run rg_or_grep -q "completed" "$f"
   assert_success
 }
