@@ -177,6 +177,67 @@ inlining — it's derived inside the script by a plain `computeWaves(tasks)`
 function (2026-07-05 simplify pass), so the wave-leveling arithmetic is never
 hand-computed by the model and pasted in as a literal.
 
+## Skill design (`bump-version`)
+
+Same inline-script idiom as `fresh-branch`/`fresh-pr`/`fresh-work`: a single
+embedded bash script run via the Bash tool, no bundled `.sh`, no MCP server,
+no subagent, model maps its exit code — with one deliberate invocation
+difference: it is run via a quoted-heredoc-to-temp-file
+(`cat > "$BUMP" <<'BUMPVERSION_EOF' ... BUMPVERSION_EOF; bash "$BUMP" <arg>`),
+never `bash -c '<script>' _ <arg>`. The script's `awk`/`trap`/`sed` lines
+contain single-quoted regions (and a comment with a literal apostrophe)
+that break an outer `bash -c '...'` wrapper — confirmed during planning by
+literally attempting it (fails with a syntax error before the first real
+line). A quoted heredoc delimiter preserves every character verbatim, no
+per-region quote conversion needed, so this isn't a style choice —
+`fresh-branch`'s simpler script gets away with `bash -c '...'` only because
+its inner single-quoted regions happen to be trivially convertible;
+bump-version's aren't, so it uses the safer form. Detects exactly one
+version file per
+invocation, cwd only, by fixed precedence (`package.json` →
+`composer.json` → `pom.xml` → `VERSION`) — mirrors a `version.sh`-style
+helper's file-check order (its env-var-based checks and its
+documented-but-never-implemented `gradle.properties` check are both
+deliberately not mirrored — the latter is a docstring/code mismatch in the
+reference script; this skill follows the working code, not the
+aspirational comment). Bumps the named segment and zeros every segment to
+its right; only bare `MAJOR.MINOR.PATCH` is supported (leading zeros like
+`09` are rejected too — invalid per the semver spec, and would otherwise hit
+bash's octal-literal arithmetic and silently corrupt the version), a
+prerelease/build suffix is a hard error. Version extraction never depends on
+`jq`/`xidel` — a targeted regex captures the value, and both detection and
+write-back address the **specific line number** the match was found on
+(never a whole-file first-match search) so a same-shaped `"version"` field
+nested inside e.g. `overrides`/`resolutions` is never confused with the
+project's own; for JSON files the top-level field is picked as whichever
+`"version"` match has the shallowest line indentation (a nested field is
+always indented more in a normally-formatted file), with a single match
+always winning outright — a CodeRabbit review on this branch's PR (#121)
+confirmed a file with NO indentation at all (still multi-line, just
+unindented) ties every match at indentation 0, and the original
+first-tie-wins logic silently picked whichever came first in the file,
+which could be the wrong (nested) one; fixed by treating 2+ matches tied at
+the shallowest indentation as ambiguous and failing loudly via
+`require_bare_semver`/the no-match check instead of guessing. Best-effort
+still: a file where indentation doesn't reflect nesting is exactly the case
+this can't disambiguate — the fix is "don't guess," not "handle it." `pom.xml`
+support is explicit best-effort:
+it skips past a leading `<parent>…</parent>` block before searching for the
+first `<version>` tag, so a parent POM's version is never mistaken for the
+project's own — still a regex heuristic, not real XML parsing, confirmed
+with the user during design as an accepted trade-off over adding an
+XML-parser dependency. Lock-file sync is intentionally asymmetric and
+documented as such in the skill body: `npm i --package-lock-only` genuinely
+rewrites the bumped version into `package-lock.json`, but `composer update
+--lock` does **not** propagate anything — `composer.lock` carries no
+root-project version field, that command only refreshes the lock's
+content-hash to silence composer's drift warning — kept anyway (user
+confirmed at the design intent-confirmation gate) but never presented as
+equivalent to the npm case. No git operations — this skill only edits
+files in the working tree, unlike `fresh-branch`/`fresh-pr`/`fresh-work`;
+composability with those is preserved by keeping this skill's blast radius
+to file edits only.
+
 ## Tests
 
 `test/coding-toolbox/test.bats` — manifest/registration invariants, content coverage,

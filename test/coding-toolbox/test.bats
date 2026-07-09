@@ -573,14 +573,88 @@ run_ci_watch() {
   assert_success
 }
 
-@test "plugin.json version bumped for fresh-work intent-confirmation hardening (this unreleased branch)" {
+@test "plugin.json version bumped for bump-version skill (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.10.2"
+  assert_output "0.11.0"
 }
 
 @test "plugin.json description mentions fresh-work" {
   run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
   assert_output --partial "fresh-work"
+}
+
+@test "bump-version SKILL.md exists and is non-empty" {
+  run test -s "$PLUGIN/skills/bump-version/SKILL.md"
+  assert_success
+}
+
+@test "bump-version frontmatter declares name and argument-hint" {
+  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/skills/bump-version/SKILL.md'"
+  assert_success
+  assert_output --partial "name: bump-version"
+  assert_output --partial 'argument-hint: "<major|minor|patch>"'
+}
+
+@test "bump-version detects version files in package.json > composer.json > pom.xml > VERSION order" {
+  run grep -F 'detect_json "package.json"' "$PLUGIN/skills/bump-version/SKILL.md"
+  assert_success
+  run grep -F 'detect_json "composer.json"' "$PLUGIN/skills/bump-version/SKILL.md"
+  assert_success
+  run grep -F 'detect_pom' "$PLUGIN/skills/bump-version/SKILL.md"
+  assert_success
+  run grep -F 'detect_version_file' "$PLUGIN/skills/bump-version/SKILL.md"
+  assert_success
+}
+
+@test "bump-version pom.xml detection skips a leading parent block" {
+  run grep -F '</parent>' "$PLUGIN/skills/bump-version/SKILL.md"
+  assert_success
+}
+
+@test "bump-version syncs package-lock.json via npm i --package-lock-only" {
+  run grep -F 'npm i --package-lock-only' "$PLUGIN/skills/bump-version/SKILL.md"
+  assert_success
+}
+
+@test "bump-version composer sync is documented as content-hash-only, not version propagation" {
+  run grep -F 'composer update --lock' "$PLUGIN/skills/bump-version/SKILL.md"
+  assert_success
+  run grep -F 'no root-version field' "$PLUGIN/skills/bump-version/SKILL.md"
+  assert_success
+}
+
+@test "bump-version carries the documented exit-code contract" {
+  run grep -F 'Exit: 0 ok' "$PLUGIN/skills/bump-version/SKILL.md"
+  assert_success
+}
+
+# Regression guard: the script's awk/trap/sed lines contain single-quoted
+# regions that break if pasted inside an outer bash -c '...' wrapper
+# (confirmed during planning: it fails with a syntax error before the first
+# real line). Invocation must stay heredoc-to-file.
+@test "bump-version invokes via a quoted heredoc, not an outer bash -c wrapper" {
+  run grep -F "<<'BUMPVERSION_EOF'" "$PLUGIN/skills/bump-version/SKILL.md"
+  assert_success
+}
+
+# Regression guard: an unquoted-tag heredoc (<<'TAG') only terminates on a
+# line that is EXACTLY the tag -- even one leading space (e.g. from being
+# nested under a numbered list item) leaves it unterminated and swallows
+# everything after it. Caught during planning by literally running the
+# nested form and watching it hang on "unexpected EOF".
+@test "bump-version heredoc terminator is column-0 (unindented)" {
+  run grep -qx 'BUMPVERSION_EOF' "$PLUGIN/skills/bump-version/SKILL.md"
+  assert_success
+}
+
+@test "plugin README lists bump-version in a Skills section" {
+  run grep -F '| `bump-version`' "$PLUGIN/README.md"
+  assert_success
+}
+
+@test "plugin.json description mentions bump-version" {
+  run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
+  assert_output --partial "bump-version"
 }
 
 @test "plugin README lists fresh-pr in the Skills section" {
