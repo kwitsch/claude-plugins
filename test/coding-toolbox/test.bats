@@ -23,6 +23,34 @@ setup() {
   mkdir -p "$HOME"
 }
 
+# Prefer ripgrep; fall back to grep if rg isn't installed. rg's -E means
+# --encoding=ARG and -r means --replace=ARG (both take a value, neither is
+# grep's meaning), and rg has no recursive flag (recursion is its
+# default) — so a bundled/bare -E is stripped before delegating to rg
+# (its regex syntax is already ERE-equivalent for every pattern used in
+# this file); grep gets its original arguments completely untouched.
+# --include-zero makes `rg -c` print 0 on no match like `grep -c` does
+# (bare `rg -c` prints nothing on 0 matches) — harmless no-op otherwise.
+rg_or_grep() {
+  if command -v rg >/dev/null 2>&1; then
+    local args=() a stripped
+    for a in "$@"; do
+      case "$a" in
+        -[A-Za-z]*)
+          stripped="${a//E/}"
+          [ "$stripped" = "-" ] && continue
+          args+=("$stripped")
+          ;;
+        *) args+=("$a") ;;
+      esac
+    done
+    command rg --include-zero "${args[@]}"
+  else
+    command grep "$@"
+  fi
+}
+export -f rg_or_grep
+
 @test "plugin.json is valid JSON with name/version/description" {
   run jq -e '.name == "coding-toolbox" and (.version | type == "string") and (.description | length > 0)' "$PLUGIN/.claude-plugin/plugin.json"
   assert_success
@@ -39,12 +67,12 @@ setup() {
 }
 
 @test "plugin has a root README table row" {
-  run grep -F "[coding-toolbox](plugins/coding-toolbox/README.md)" "$REPO_ROOT/README.md"
+  run rg_or_grep -F "[coding-toolbox](plugins/coding-toolbox/README.md)" "$REPO_ROOT/README.md"
   assert_success
 }
 
 @test "plugin is in the test.yml matrix" {
-  run grep -E "^\s*-\s*coding-toolbox\s*$" "$REPO_ROOT/.github/workflows/test.yml"
+  run rg_or_grep -E "^\s*-\s*coding-toolbox\s*$" "$REPO_ROOT/.github/workflows/test.yml"
   assert_success
 }
 
@@ -144,7 +172,7 @@ golden_rules_calls() {
   run golden_rules_calls 10
   assert_success
   mapfile -t lines <<< "$output"
-  echo "${lines[9]}" | jq -r '.hookSpecificOutput.additionalContext' | grep -q "AskUserQuestion"
+  echo "${lines[9]}" | jq -r '.hookSpecificOutput.additionalContext' | rg_or_grep -q "AskUserQuestion"
 }
 
 # Drive the interaction_gate MCP tool with one last_assistant_message. Echoes the
@@ -173,18 +201,18 @@ interaction_gate_call() {
 }
 
 @test "plugin README first ## heading is Install" {
-  run bash -c "grep -m1 '^## ' '$PLUGIN/README.md'"
+  run bash -c "rg_or_grep -m1 '^## ' '$PLUGIN/README.md'"
   assert_success
   assert_output "## Install"
 }
 
 @test "plugin README contains the install command" {
-  run grep -F "/plugin install coding-toolbox@kwitsch-plugins" "$PLUGIN/README.md"
+  run rg_or_grep -F "/plugin install coding-toolbox@kwitsch-plugins" "$PLUGIN/README.md"
   assert_success
 }
 
 @test "plugin README has no ## Hooks section" {
-  run grep -E "^## Hooks" "$PLUGIN/README.md"
+  run rg_or_grep -E "^## Hooks" "$PLUGIN/README.md"
   assert_failure
 }
 
@@ -202,7 +230,7 @@ interaction_gate_call() {
 }
 
 @test "fresh-branch script detects linked worktree via git-dir comparison" {
-  run grep -F 'git rev-parse --git-dir' "$PLUGIN/skills/fresh-branch/SKILL.md"
+  run rg_or_grep -F 'git rev-parse --git-dir' "$PLUGIN/skills/fresh-branch/SKILL.md"
   assert_success
 }
 
@@ -210,39 +238,39 @@ interaction_gate_call() {
 # equality. From a subdirectory --git-dir is absolute and --git-common-dir is
 # relative, so a raw '=' wrongly flags the main worktree as a linked one.
 @test "fresh-branch worktree detection compares git-dir by inode, not string equality" {
-  run grep -F -- '-ef "$(git rev-parse --git-common-dir)"' "$PLUGIN/skills/fresh-branch/SKILL.md"
+  run rg_or_grep -F -- '-ef "$(git rev-parse --git-common-dir)"' "$PLUGIN/skills/fresh-branch/SKILL.md"
   assert_success
 }
 
 @test "fresh-branch script carries the documented exit-code contract" {
-  run grep -F 'Exit: 0 ok' "$PLUGIN/skills/fresh-branch/SKILL.md"
+  run rg_or_grep -F 'Exit: 0 ok' "$PLUGIN/skills/fresh-branch/SKILL.md"
   assert_success
 }
 
 @test "fresh-branch script auto-stashes and pops uncommitted changes" {
-  run grep -F 'git stash push -u' "$PLUGIN/skills/fresh-branch/SKILL.md"
+  run rg_or_grep -F 'git stash push -u' "$PLUGIN/skills/fresh-branch/SKILL.md"
   assert_success
-  run grep -F 'git stash pop' "$PLUGIN/skills/fresh-branch/SKILL.md"
+  run rg_or_grep -F 'git stash pop' "$PLUGIN/skills/fresh-branch/SKILL.md"
   assert_success
 }
 
 @test "fresh-branch worktree path rebases instead of switching branches" {
-  run grep -F 'git rebase "origin/$base"' "$PLUGIN/skills/fresh-branch/SKILL.md"
+  run rg_or_grep -F 'git rebase "origin/$base"' "$PLUGIN/skills/fresh-branch/SKILL.md"
   assert_success
 }
 
 @test "fresh-branch checks branch-name collision before touching the tree" {
-  run grep -F 'refs/heads/$branch' "$PLUGIN/skills/fresh-branch/SKILL.md"
+  run rg_or_grep -F 'refs/heads/$branch' "$PLUGIN/skills/fresh-branch/SKILL.md"
   assert_success
 }
 
 @test "plugin README lists fresh-branch in a Skills section" {
-  run grep -F '| `fresh-branch`' "$PLUGIN/README.md"
+  run rg_or_grep -F '| `fresh-branch`' "$PLUGIN/README.md"
   assert_success
 }
 
 @test "fresh-branch treats zero args as a universal refresh, not a non-worktree usage error" {
-  run grep -F 'if [ "$#" -eq 0 ]; then' "$PLUGIN/skills/fresh-branch/SKILL.md"
+  run rg_or_grep -F 'if [ "$#" -eq 0 ]; then' "$PLUGIN/skills/fresh-branch/SKILL.md"
   assert_success
 }
 
@@ -463,17 +491,17 @@ run_ci_watch() {
 }
 
 @test "ci-watcher agent chains cd into each cwd-dependent gh/glab command (not a one-time cd)" {
-  run grep -F 'cd "<worktree path>" && gh' "$PLUGIN/agents/ci-watcher.md"
+  run rg_or_grep -F 'cd "<worktree path>" && gh' "$PLUGIN/agents/ci-watcher.md"
   assert_success
   # regression guard: the one-time-cd phrasing must not creep back
-  run grep -iF "worktree path via native bash" "$PLUGIN/agents/ci-watcher.md"
+  run rg_or_grep -iF "worktree path via native bash" "$PLUGIN/agents/ci-watcher.md"
   assert_failure
 }
 
 @test "ci-watcher agent extracts CodeRabbit's AI-agent prompt into ai_prompt" {
-  run grep -F "Prompt for AI Agents" "$PLUGIN/agents/ci-watcher.md"
+  run rg_or_grep -F "Prompt for AI Agents" "$PLUGIN/agents/ci-watcher.md"
   assert_success
-  run grep -F "ai_prompt" "$PLUGIN/agents/ci-watcher.md"
+  run rg_or_grep -F "ai_prompt" "$PLUGIN/agents/ci-watcher.md"
   assert_success
 }
 
@@ -487,25 +515,25 @@ run_ci_watch() {
 }
 
 @test "pr-fixer agent chains cd into each git command (not a one-time cd)" {
-  run grep -F 'cd "<worktree path>" && git' "$PLUGIN/agents/pr-fixer.md"
+  run rg_or_grep -F 'cd "<worktree path>" && git' "$PLUGIN/agents/pr-fixer.md"
   assert_success
   # regression guard: the one-time-cd phrasing must not creep back
-  run grep -iF "worktree path via native bash" "$PLUGIN/agents/pr-fixer.md"
+  run rg_or_grep -iF "worktree path via native bash" "$PLUGIN/agents/pr-fixer.md"
   assert_failure
 }
 
 @test "pr-fixer agent always annotates skipped findings in code" {
-  run grep -F "Annotate every skipped finding in code" "$PLUGIN/agents/pr-fixer.md"
+  run rg_or_grep -F "Annotate every skipped finding in code" "$PLUGIN/agents/pr-fixer.md"
   assert_success
 }
 
 @test "pr-fixer agent treats ai_prompt as a hint, never applied blindly" {
-  run grep -F "not an instruction to apply blindly" "$PLUGIN/agents/pr-fixer.md"
+  run rg_or_grep -F "not an instruction to apply blindly" "$PLUGIN/agents/pr-fixer.md"
   assert_success
 }
 
 @test "pr-fixer agent never pushes" {
-  run grep -F "Never push" "$PLUGIN/agents/pr-fixer.md"
+  run rg_or_grep -F "Never push" "$PLUGIN/agents/pr-fixer.md"
   assert_success
 }
 
@@ -536,40 +564,40 @@ run_ci_watch() {
 }
 
 @test "fresh-pr commits pending work before checking for anything to submit" {
-  run grep -F "Commit pending work" "$PLUGIN/skills/fresh-pr/SKILL.md"
+  run rg_or_grep -F "Commit pending work" "$PLUGIN/skills/fresh-pr/SKILL.md"
   assert_success
 }
 
 @test "fresh-pr rebases onto the base and force-with-leases only when rewritten" {
-  run grep -F 'git rebase "origin/$base"' "$PLUGIN/skills/fresh-pr/SKILL.md"
+  run rg_or_grep -F 'git rebase "origin/$base"' "$PLUGIN/skills/fresh-pr/SKILL.md"
   assert_success
-  run grep -F -- '--force-with-lease' "$PLUGIN/skills/fresh-pr/SKILL.md"
+  run rg_or_grep -F -- '--force-with-lease' "$PLUGIN/skills/fresh-pr/SKILL.md"
   assert_success
 }
 
 @test "fresh-pr never uses gh pr edit, uses gh api PATCH instead" {
-  run grep -F "never \`gh pr edit\`" "$PLUGIN/skills/fresh-pr/SKILL.md"
+  run rg_or_grep -F "never \`gh pr edit\`" "$PLUGIN/skills/fresh-pr/SKILL.md"
   assert_success
-  run grep -F "gh api -X PATCH" "$PLUGIN/skills/fresh-pr/SKILL.md"
+  run rg_or_grep -F "gh api -X PATCH" "$PLUGIN/skills/fresh-pr/SKILL.md"
   assert_success
 }
 
 @test "fresh-pr handles a merged existing PR by stopping before the goal loop" {
-  run grep -F "already merged and **stop here**" "$PLUGIN/skills/fresh-pr/SKILL.md"
+  run rg_or_grep -F "already merged and **stop here**" "$PLUGIN/skills/fresh-pr/SKILL.md"
   assert_success
 }
 
 @test "fresh-pr dispatches ci-watcher and pr-fixer with a Task* ledger gate" {
-  run grep -F "coding-toolbox:ci-watcher" "$PLUGIN/skills/fresh-pr/SKILL.md"
+  run rg_or_grep -F "coding-toolbox:ci-watcher" "$PLUGIN/skills/fresh-pr/SKILL.md"
   assert_success
-  run grep -F "coding-toolbox:pr-fixer" "$PLUGIN/skills/fresh-pr/SKILL.md"
+  run rg_or_grep -F "coding-toolbox:pr-fixer" "$PLUGIN/skills/fresh-pr/SKILL.md"
   assert_success
-  run grep -F "Subagent reconciliation gate" "$PLUGIN/skills/fresh-pr/SKILL.md"
+  run rg_or_grep -F "Subagent reconciliation gate" "$PLUGIN/skills/fresh-pr/SKILL.md"
   assert_success
 }
 
 @test "fresh-pr goal loop is capped at 5 iterations" {
-  run grep -F "capped at 5 iterations" "$PLUGIN/skills/fresh-pr/SKILL.md"
+  run rg_or_grep -F "capped at 5 iterations" "$PLUGIN/skills/fresh-pr/SKILL.md"
   assert_success
 }
 
@@ -596,35 +624,35 @@ run_ci_watch() {
 }
 
 @test "bump-version detects version files in package.json > composer.json > pom.xml > VERSION order" {
-  run grep -F 'detect_json "package.json"' "$PLUGIN/skills/bump-version/SKILL.md"
+  run rg_or_grep -F 'detect_json "package.json"' "$PLUGIN/skills/bump-version/SKILL.md"
   assert_success
-  run grep -F 'detect_json "composer.json"' "$PLUGIN/skills/bump-version/SKILL.md"
+  run rg_or_grep -F 'detect_json "composer.json"' "$PLUGIN/skills/bump-version/SKILL.md"
   assert_success
-  run grep -F 'detect_pom' "$PLUGIN/skills/bump-version/SKILL.md"
+  run rg_or_grep -F 'detect_pom' "$PLUGIN/skills/bump-version/SKILL.md"
   assert_success
-  run grep -F 'detect_version_file' "$PLUGIN/skills/bump-version/SKILL.md"
+  run rg_or_grep -F 'detect_version_file' "$PLUGIN/skills/bump-version/SKILL.md"
   assert_success
 }
 
 @test "bump-version pom.xml detection skips a leading parent block" {
-  run grep -F '</parent>' "$PLUGIN/skills/bump-version/SKILL.md"
+  run rg_or_grep -F '</parent>' "$PLUGIN/skills/bump-version/SKILL.md"
   assert_success
 }
 
 @test "bump-version syncs package-lock.json via npm i --package-lock-only" {
-  run grep -F 'npm i --package-lock-only' "$PLUGIN/skills/bump-version/SKILL.md"
+  run rg_or_grep -F 'npm i --package-lock-only' "$PLUGIN/skills/bump-version/SKILL.md"
   assert_success
 }
 
 @test "bump-version composer sync is documented as content-hash-only, not version propagation" {
-  run grep -F 'composer update --lock' "$PLUGIN/skills/bump-version/SKILL.md"
+  run rg_or_grep -F 'composer update --lock' "$PLUGIN/skills/bump-version/SKILL.md"
   assert_success
-  run grep -F 'no root-version field' "$PLUGIN/skills/bump-version/SKILL.md"
+  run rg_or_grep -F 'no root-version field' "$PLUGIN/skills/bump-version/SKILL.md"
   assert_success
 }
 
 @test "bump-version carries the documented exit-code contract" {
-  run grep -F 'Exit: 0 ok' "$PLUGIN/skills/bump-version/SKILL.md"
+  run rg_or_grep -F 'Exit: 0 ok' "$PLUGIN/skills/bump-version/SKILL.md"
   assert_success
 }
 
@@ -633,7 +661,7 @@ run_ci_watch() {
 # (confirmed during planning: it fails with a syntax error before the first
 # real line). Invocation must stay heredoc-to-file.
 @test "bump-version invokes via a quoted heredoc, not an outer bash -c wrapper" {
-  run grep -F "<<'BUMPVERSION_EOF'" "$PLUGIN/skills/bump-version/SKILL.md"
+  run rg_or_grep -F "<<'BUMPVERSION_EOF'" "$PLUGIN/skills/bump-version/SKILL.md"
   assert_success
 }
 
@@ -643,12 +671,12 @@ run_ci_watch() {
 # everything after it. Caught during planning by literally running the
 # nested form and watching it hang on "unexpected EOF".
 @test "bump-version heredoc terminator is column-0 (unindented)" {
-  run grep -qx 'BUMPVERSION_EOF' "$PLUGIN/skills/bump-version/SKILL.md"
+  run rg_or_grep -qx 'BUMPVERSION_EOF' "$PLUGIN/skills/bump-version/SKILL.md"
   assert_success
 }
 
 @test "plugin README lists bump-version in a Skills section" {
-  run grep -F '| `bump-version`' "$PLUGIN/README.md"
+  run rg_or_grep -F '| `bump-version`' "$PLUGIN/README.md"
   assert_success
 }
 
@@ -658,12 +686,18 @@ run_ci_watch() {
 }
 
 @test "plugin README lists fresh-pr in the Skills section" {
-  run grep -F '| `fresh-pr`' "$PLUGIN/README.md"
+  run rg_or_grep -F '| `fresh-pr`' "$PLUGIN/README.md"
   assert_success
 }
 
 @test "fresh-work skill dir is self-contained (no cross-plugin references)" {
-  run bash -c "grep -riE 'superpowers|branch-management' '$PLUGIN/skills/fresh-work/'"
+  run bash -c "
+    if command -v rg >/dev/null 2>&1; then
+      rg -i --no-ignore --hidden 'superpowers|branch-management' '$PLUGIN/skills/fresh-work/'
+    else
+      grep -riE 'superpowers|branch-management' '$PLUGIN/skills/fresh-work/'
+    fi
+  "
   assert_failure 1
 }
 
@@ -785,7 +819,7 @@ run_ci_watch() {
 
 @test "subagent-tracking fresh-work row reflects wave-parallel dispatch, not pure sequential" {
   RULE="$BATS_TEST_DIRNAME/../../.claude/rules/subagent-tracking.md"
-  run grep 'coding-toolbox:fresh-work' "$RULE"
+  run rg_or_grep 'coding-toolbox:fresh-work' "$RULE"
   assert_success
   assert_output --partial "wave-parallel"
   assert_output --partial "orchestrator's own Bash"
@@ -836,9 +870,9 @@ run_ci_watch() {
   # rationale applies to the Implement/Review/PR check further below.
   local skill_md="$output"
   local design_line intent_line plan_line
-  design_line=$(grep -n '^4\. \*\*Design\.\*\*' <<< "$skill_md" | cut -d: -f1)
-  intent_line=$(grep -n '^5\. \*\*Intent confirmation\.\*\*' <<< "$skill_md" | cut -d: -f1)
-  plan_line=$(grep -n '^6\. \*\*Plan\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  design_line=$(rg_or_grep -n '^4\. \*\*Design\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  intent_line=$(rg_or_grep -n '^5\. \*\*Intent confirmation\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  plan_line=$(rg_or_grep -n '^6\. \*\*Plan\.\*\*' <<< "$skill_md" | cut -d: -f1)
   [ -n "$design_line" ] && [ -n "$intent_line" ] && [ -n "$plan_line" ]
   [ "$design_line" -lt "$intent_line" ]
   [ "$intent_line" -lt "$plan_line" ]
@@ -890,9 +924,9 @@ run_ci_watch() {
   # grepped separately and anchored, instead of one combined pattern.
   local skill_md="$output"
   local implement_line review_line pr_line
-  implement_line=$(grep -n '^7\. \*\*Implement\.\*\*' <<< "$skill_md" | cut -d: -f1)
-  review_line=$(grep -n '^8\. \*\*Review\.\*\*' <<< "$skill_md" | cut -d: -f1)
-  pr_line=$(grep -n '^9\. \*\*PR\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  implement_line=$(rg_or_grep -n '^7\. \*\*Implement\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  review_line=$(rg_or_grep -n '^8\. \*\*Review\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  pr_line=$(rg_or_grep -n '^9\. \*\*PR\.\*\*' <<< "$skill_md" | cut -d: -f1)
   [ -n "$implement_line" ] && [ -n "$review_line" ] && [ -n "$pr_line" ]
   [ "$implement_line" -lt "$review_line" ]
   [ "$review_line" -lt "$pr_line" ]
@@ -949,7 +983,7 @@ run_ci_watch() {
 }
 
 @test "plugin README lists fresh-work in the Skills section" {
-  run grep -F '| `fresh-work`' "$PLUGIN/README.md"
+  run rg_or_grep -F '| `fresh-work`' "$PLUGIN/README.md"
   assert_success
 }
 
