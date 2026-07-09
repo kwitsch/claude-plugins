@@ -735,7 +735,8 @@ run_ci_watch() {
 }
 
 @test "setup-rules documents the disableSkillShellExecution guard" {
-  run bash -c "tr '\n' ' ' < '$PLUGIN/skills/setup-rules/SKILL.md' | grep -F '[shell command execution disabled by policy]'"
+  # tr-join first: the placeholder phrase wraps across two lines in the source file.
+  run bash -c "tr '\n' ' ' < '$PLUGIN/skills/setup-rules/SKILL.md' | rg_or_grep -F '[shell command execution disabled by policy]'"
   assert_success
 }
 
