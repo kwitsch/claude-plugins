@@ -24,6 +24,34 @@ setup() {
   mkdir -p "$HOME/.claude"
 }
 
+# Prefer ripgrep; fall back to grep if rg isn't installed. rg's -E means
+# --encoding=ARG and -r means --replace=ARG (both take a value, neither is
+# grep's meaning), and rg has no recursive flag (recursion is its
+# default) — so a bundled/bare -E is stripped before delegating to rg
+# (its regex syntax is already ERE-equivalent for every pattern used in
+# this file); grep gets its original arguments completely untouched.
+# --include-zero makes `rg -c` print 0 on no match like `grep -c` does
+# (bare `rg -c` prints nothing on 0 matches) — harmless no-op otherwise.
+rg_or_grep() {
+  if command -v rg >/dev/null 2>&1; then
+    local args=() a stripped
+    for a in "$@"; do
+      case "$a" in
+        -[A-Za-z]*)
+          stripped="${a//E/}"
+          [ "$stripped" = "-" ] && continue
+          args+=("$stripped")
+          ;;
+        *) args+=("$a") ;;
+      esac
+    done
+    command rg --include-zero "${args[@]}"
+  else
+    command grep "$@"
+  fi
+}
+export -f rg_or_grep
+
 # --- scaffold invariants ---------------------------------------------------
 
 @test "plugin.json is valid JSON with name/version/userConfig.auto_format" {
@@ -39,12 +67,12 @@ setup() {
 }
 
 @test "plugin has a root README table row" {
-  run grep -F "[universal-format](plugins/universal-format/README.md)" "$REPO_ROOT/README.md"
+  run rg_or_grep -F "[universal-format](plugins/universal-format/README.md)" "$REPO_ROOT/README.md"
   assert_success
 }
 
 @test "plugin is in the test.yml matrix" {
-  run grep -E "^\s*-\s*universal-format\s*$" "$REPO_ROOT/.github/workflows/test.yml"
+  run rg_or_grep -E "^\s*-\s*universal-format\s*$" "$REPO_ROOT/.github/workflows/test.yml"
   assert_success
 }
 
@@ -108,18 +136,18 @@ setup() {
 }
 
 @test "plugin README first ## heading is Install" {
-  run bash -c "grep -m1 '^## ' '$PLUGIN/README.md'"
+  run bash -c "rg_or_grep -m1 '^## ' '$PLUGIN/README.md'"
   assert_success
   assert_output "## Install"
 }
 
 @test "plugin README contains the install command" {
-  run grep -F "/plugin install universal-format@kwitsch-plugins" "$PLUGIN/README.md"
+  run rg_or_grep -F "/plugin install universal-format@kwitsch-plugins" "$PLUGIN/README.md"
   assert_success
 }
 
 @test "plugin README has no ## Hooks section" {
-  run grep -E "^## Hooks" "$PLUGIN/README.md"
+  run rg_or_grep -E "^## Hooks" "$PLUGIN/README.md"
   assert_failure
 }
 
@@ -162,7 +190,7 @@ format_file_call() {
   run format_file_call "$cwd/a.sh" "$cwd"
   assert_success
   echo "$output" | jq -e '.hookSpecificOutput.hookEventName == "PostToolUse" and (.hookSpecificOutput.additionalContext | test("shfmt reformatted a.sh"))'
-  run grep -F "shfmt " "$RECORD"
+  run rg_or_grep -F "shfmt " "$RECORD"
   assert_success
   run cat "$cwd/a.sh"
   assert_output --partial "reformatted-by-shfmt"
@@ -238,7 +266,7 @@ format_file_call() {
   rec_stub gofmt
   run format_file_call "$cwd/a.go" "$cwd"
   assert_success
-  run grep -F "gofmt " "$RECORD"
+  run rg_or_grep -F "gofmt " "$RECORD"
   assert_success
   # now both present -> goimports (first in chain) wins
   RECORD="$BATS_TEST_TMPDIR/rec2"; : > "$RECORD"
@@ -246,9 +274,9 @@ format_file_call() {
   rec_stub goimports
   run format_file_call "$cwd/a.go" "$cwd"
   assert_success
-  run grep -F "goimports " "$RECORD"
+  run rg_or_grep -F "goimports " "$RECORD"
   assert_success
-  run grep -F "gofmt " "$RECORD"
+  run rg_or_grep -F "gofmt " "$RECORD"
   assert_failure
 }
 
@@ -289,7 +317,7 @@ format_file_call() {
   rec_stub google-java-format
   run format_file_call "$cwd/A.java" "$cwd"
   assert_success
-  run grep -F -- "--aosp" "$RECORD"
+  run rg_or_grep -F -- "--aosp" "$RECORD"
   assert_success
 }
 
@@ -302,9 +330,9 @@ format_file_call() {
   rec_stub google-java-format
   run format_file_call "$cwd/A.java" "$cwd"
   assert_success
-  run grep -F -- "--aosp" "$RECORD"
+  run rg_or_grep -F -- "--aosp" "$RECORD"
   assert_failure
-  run grep -F -- "--replace" "$RECORD"
+  run rg_or_grep -F -- "--replace" "$RECORD"
   assert_success
 }
 
@@ -332,9 +360,9 @@ format_file_call() {
   run format_file_call "$cwd/A.java" "$cwd"
   assert_success
   local result="$output"
-  run grep -F "google-java-format " "$RECORD"
+  run rg_or_grep -F "google-java-format " "$RECORD"
   assert_failure
-  run grep -F "clang-format " "$RECORD"
+  run rg_or_grep -F "clang-format " "$RECORD"
   assert_success
   echo "$result" | jq -e '.hookSpecificOutput.additionalContext | test("clang-format reformatted A.java")'
 }
@@ -349,7 +377,7 @@ format_file_call() {
   rec_stub ruff
   run format_file_call "$cwd/a.py" "$cwd"
   assert_success
-  run grep -F -- "--line-length" "$RECORD"
+  run rg_or_grep -F -- "--line-length" "$RECORD"
   assert_failure
 }
 
@@ -362,7 +390,7 @@ format_file_call() {
   rec_stub ruff
   run format_file_call "$cwd/a.py" "$cwd"
   assert_success
-  run grep -F -- "--line-length 88" "$RECORD"
+  run rg_or_grep -F -- "--line-length 88" "$RECORD"
   assert_success
 }
 
@@ -376,9 +404,9 @@ format_file_call() {
   rec_stub biome
   run format_file_call "$cwd/a.js" "$cwd"
   assert_success
-  run grep -F -- "--indent-style" "$RECORD"
+  run rg_or_grep -F -- "--indent-style" "$RECORD"
   assert_failure
-  run grep -F "biome " "$RECORD"
+  run rg_or_grep -F "biome " "$RECORD"
   assert_success
 }
 
@@ -391,7 +419,7 @@ format_file_call() {
   run format_file_call "$cwd/a.js" "$cwd"
   assert_success
   echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("prettier reformatted a.js")'
-  run grep -F "npx --yes prettier" "$RECORD"
+  run rg_or_grep -F "npx --yes prettier" "$RECORD"
   assert_success
   run cat "$cwd/a.js"
   assert_output --partial "reformatted-by-npx"
@@ -406,9 +434,9 @@ format_file_call() {
   rec_stub npx   # present but must not be used
   run format_file_call "$cwd/a.js" "$cwd"
   assert_success
-  run grep -E "^prettier " "$RECORD"
+  run rg_or_grep -E "^prettier " "$RECORD"
   assert_success
-  run grep -F "npx" "$RECORD"
+  run rg_or_grep -F "npx" "$RECORD"
   assert_failure
 }
 
@@ -431,9 +459,9 @@ format_file_call() {
   rec_stub npx   # present but must not be used -- biome is genuinely installed
   run format_file_call "$cwd/a.js" "$cwd"
   assert_success
-  run grep -E "^biome " "$RECORD"
+  run rg_or_grep -E "^biome " "$RECORD"
   assert_success
-  run grep -F "npx" "$RECORD"
+  run rg_or_grep -F "npx" "$RECORD"
   assert_failure
 }
 
@@ -446,7 +474,7 @@ format_file_call() {
   run format_file_call "$cwd/a.json" "$cwd"
   assert_success
   echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("prettier reformatted a.json")'
-  run grep -E "^prettier " "$RECORD"
+  run rg_or_grep -E "^prettier " "$RECORD"
   assert_success
 }
 
@@ -460,9 +488,9 @@ format_file_call() {
   rec_stub biome
   run format_file_call "$cwd/a.json" "$cwd"
   assert_success
-  run grep -F -- "--indent-style" "$RECORD"
+  run rg_or_grep -F -- "--indent-style" "$RECORD"
   assert_failure
-  run grep -F "biome " "$RECORD"
+  run rg_or_grep -F "biome " "$RECORD"
   assert_success
 }
 
