@@ -603,7 +603,7 @@ run_ci_watch() {
 
 @test "plugin.json version bumped for bump-version skill (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.11.0"
+  assert_output "0.11.1"
 }
 
 @test "plugin.json description mentions fresh-work" {
