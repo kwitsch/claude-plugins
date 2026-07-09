@@ -24,6 +24,34 @@ setup() {
   mkdir -p "$HOME/.claude"
 }
 
+# Prefer ripgrep; fall back to grep if rg isn't installed. rg's -E means
+# --encoding=ARG and -r means --replace=ARG (both take a value, neither is
+# grep's meaning), and rg has no recursive flag (recursion is its
+# default) — so a bundled/bare -E is stripped before delegating to rg
+# (its regex syntax is already ERE-equivalent for every pattern used in
+# this file); grep gets its original arguments completely untouched.
+# --include-zero makes `rg -c` print 0 on no match like `grep -c` does
+# (bare `rg -c` prints nothing on 0 matches) — harmless no-op otherwise.
+rg_or_grep() {
+  if command -v rg >/dev/null 2>&1; then
+    local args=() a stripped
+    for a in "$@"; do
+      case "$a" in
+        -[A-Za-z]*)
+          stripped="${a//E/}"
+          [ "$stripped" = "-" ] && continue
+          args+=("$stripped")
+          ;;
+        *) args+=("$a") ;;
+      esac
+    done
+    command rg --include-zero "${args[@]}"
+  else
+    command grep "$@"
+  fi
+}
+export -f rg_or_grep
+
 # --- scaffold invariants ---------------------------------------------------
 
 @test "plugin.json is valid JSON with name/version/userConfig.auto_lint" {
@@ -39,12 +67,12 @@ setup() {
 }
 
 @test "plugin has a root README table row" {
-  run grep -F "[universal-lint](plugins/universal-lint/README.md)" "$REPO_ROOT/README.md"
+  run rg_or_grep -F "[universal-lint](plugins/universal-lint/README.md)" "$REPO_ROOT/README.md"
   assert_success
 }
 
 @test "plugin is in the test.yml matrix" {
-  run grep -E "^\s*-\s*universal-lint\s*$" "$REPO_ROOT/.github/workflows/test.yml"
+  run rg_or_grep -E "^\s*-\s*universal-lint\s*$" "$REPO_ROOT/.github/workflows/test.yml"
   assert_success
 }
 
@@ -108,18 +136,18 @@ setup() {
 }
 
 @test "plugin README first ## heading is Install" {
-  run bash -c "grep -m1 '^## ' '$PLUGIN/README.md'"
+  run bash -c "rg_or_grep -m1 '^## ' '$PLUGIN/README.md'"
   assert_success
   assert_output "## Install"
 }
 
 @test "plugin README contains the install command" {
-  run grep -F "/plugin install universal-lint@kwitsch-plugins" "$PLUGIN/README.md"
+  run rg_or_grep -F "/plugin install universal-lint@kwitsch-plugins" "$PLUGIN/README.md"
   assert_success
 }
 
 @test "plugin README has no ## Hooks section" {
-  run grep -E "^## Hooks" "$PLUGIN/README.md"
+  run rg_or_grep -E "^## Hooks" "$PLUGIN/README.md"
   assert_failure
 }
 
@@ -166,7 +194,7 @@ lint_file_call() {
   run lint_file_call "$cwd/a.sh" "$cwd"
   assert_success
   echo "$output" | jq -e '.hookSpecificOutput.hookEventName == "PostToolUse" and (.hookSpecificOutput.additionalContext | test("SC2086"))'
-  run grep -F "shellcheck " "$RECORD"
+  run rg_or_grep -F "shellcheck " "$RECORD"
   assert_success
   run cat "$cwd/a.sh"
   assert_output "echo \$1"   # linter never modifies the file
@@ -281,7 +309,7 @@ lint_file_call() {
   rec_stub ruff 1
   run lint_file_call "$cwd/a.py" "$cwd"
   assert_success
-  run grep -F "ruff check" "$RECORD"
+  run rg_or_grep -F "ruff check" "$RECORD"
   assert_success
 }
 
@@ -314,7 +342,7 @@ lint_file_call() {
   rec_stub go 1
   run lint_file_call "$cwd/pkg/a.go" "$cwd"
   assert_success
-  run grep -F "go vet $cwd/pkg" "$RECORD"   # directory, not the file
+  run rg_or_grep -F "go vet $cwd/pkg" "$RECORD"   # directory, not the file
   assert_success
 }
 
@@ -328,9 +356,9 @@ lint_file_call() {
   rec_stub go 1   # never runs (golangci-lint wins) -- shares $OUT harmlessly
   run lint_file_call "$cwd/pkg/a.go" "$cwd"
   assert_success
-  run grep -F "golangci-lint run $cwd/pkg" "$RECORD"
+  run rg_or_grep -F "golangci-lint run $cwd/pkg" "$RECORD"
   assert_success
-  run grep -F "go vet" "$RECORD"
+  run rg_or_grep -F "go vet" "$RECORD"
   assert_failure
 }
 
@@ -382,7 +410,7 @@ lint_file_call() {
   rec_stub checkstyle 0
   run lint_file_call "$cwd/A.java" "$cwd"
   assert_success
-  run grep -F -- "-c $cwd/checkstyle.xml" "$RECORD"
+  run rg_or_grep -F -- "-c $cwd/checkstyle.xml" "$RECORD"
   assert_success
 }
 
@@ -395,7 +423,7 @@ lint_file_call() {
   rec_stub checkstyle 0
   run lint_file_call "$cwd/A.java" "$cwd"
   assert_success
-  run grep -F -- "-c /google_checks.xml" "$RECORD"
+  run rg_or_grep -F -- "-c /google_checks.xml" "$RECORD"
   assert_success
 }
 
@@ -425,7 +453,7 @@ lint_file_call() {
   run lint_file_call "$cwd/a.js" "$cwd"
   assert_success
   echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("no-unused-vars")'
-  run grep -F "npx --yes eslint $cwd/a.js" "$RECORD"
+  run rg_or_grep -F "npx --yes eslint $cwd/a.js" "$RECORD"
   assert_success
 }
 
@@ -440,9 +468,9 @@ lint_file_call() {
   run lint_file_call "$cwd/a.js" "$cwd"
   assert_success
   [ "$output" = "{}" ]
-  run grep -E "^eslint " "$RECORD"
+  run rg_or_grep -E "^eslint " "$RECORD"
   assert_success
-  run grep -F "npx" "$RECORD"
+  run rg_or_grep -F "npx" "$RECORD"
   assert_failure
 }
 
@@ -471,9 +499,9 @@ rtk_stub() {
   run lint_file_call "$cwd/a.sh" "$cwd"
   assert_success
   echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("SC2086")'
-  run grep -F "rtk shellcheck $cwd/a.sh" "$RECORD"
+  run rg_or_grep -F "rtk shellcheck $cwd/a.sh" "$RECORD"
   assert_success
-  run grep -E "^shellcheck " "$RECORD"
+  run rg_or_grep -E "^shellcheck " "$RECORD"
   assert_failure
 }
 
@@ -491,7 +519,7 @@ rtk_stub() {
   run lint_file_call "$cwd/A.java" "$cwd"
   assert_success
   [ "$output" = "{}" ]
-  run grep -E "^checkstyle " "$RECORD"
+  run rg_or_grep -E "^checkstyle " "$RECORD"
   assert_success
 }
 
@@ -508,7 +536,7 @@ rtk_stub() {
   run lint_file_call "$cwd/a.sh" "$cwd"
   assert_success
   echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("SC2086")'
-  run grep -E "^shellcheck " "$RECORD"
+  run rg_or_grep -E "^shellcheck " "$RECORD"
   assert_success
 }
 
@@ -535,7 +563,7 @@ rtk_stub() {
   run lint_file_call "$cwd/a.yaml" "$cwd"
   assert_success
   echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("colons")'
-  run grep -F "yamllint " "$RECORD"
+  run rg_or_grep -F "yamllint " "$RECORD"
   assert_success
 }
 
@@ -561,7 +589,7 @@ rtk_stub() {
   run lint_file_call "$cwd/a.md" "$cwd"
   assert_success
   echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("MD041")'
-  run grep -F "markdownlint " "$RECORD"
+  run rg_or_grep -F "markdownlint " "$RECORD"
   assert_success
 }
 
@@ -576,9 +604,9 @@ rtk_stub() {
   run lint_file_call "$cwd/a.md" "$cwd"
   assert_success
   echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("MD041")'
-  run grep -F "markdownlint-cli2 " "$RECORD"
+  run rg_or_grep -F "markdownlint-cli2 " "$RECORD"
   assert_success
-  run grep -E "^markdownlint " "$RECORD"
+  run rg_or_grep -E "^markdownlint " "$RECORD"
   assert_failure
 }
 
@@ -593,9 +621,9 @@ rtk_stub() {
   run lint_file_call "$cwd/a.md" "$cwd"
   assert_success
   echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("MD041")'
-  run grep -E "^markdownlint " "$RECORD"
+  run rg_or_grep -E "^markdownlint " "$RECORD"
   assert_success
-  run grep -F "npx" "$RECORD"
+  run rg_or_grep -F "npx" "$RECORD"
   assert_failure
 }
 
@@ -609,6 +637,6 @@ rtk_stub() {
   run lint_file_call "$cwd/a.md" "$cwd"
   assert_success
   echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("MD041")'
-  run grep -F "npx --yes markdownlint-cli2 $cwd/a.md" "$RECORD"
+  run rg_or_grep -F "npx --yes markdownlint-cli2 $cwd/a.md" "$RECORD"
   assert_success
 }
