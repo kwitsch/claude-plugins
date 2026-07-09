@@ -2,7 +2,7 @@
 name: bump-version
 description: Use to bump a project's semantic version (major, minor, or patch) in its detected version file — package.json, composer.json, pom.xml, or a plain VERSION file — and sync the matching lock file (npm/composer) when present.
 argument-hint: "<major|minor|patch>"
-allowed-tools: ["Bash(bash:*)"]
+allowed-tools: ["Bash(bash:*)", "Bash(mktemp:*)", "Bash(cat:*)", "Bash(rm -f *)"]
 ---
 
 # Bump a project's version
@@ -85,16 +85,18 @@ sed_escape_pattern() {
   printf '%s' "$1" | sed -e 's/[.[\*^$\/]/\\&/g'
 }
 
-# Escapes a literal string for use as a sed replacement (& and \ and the delimiter).
-sed_escape_replacement() {
-  printf '%s' "$1" | sed -e 's/[\/&\\]/\\&/g'
-}
-
 file=""
 old=""
 new=""
 kind=""
 pom_line=""
+
+# Shared by detect_json/detect_pom/detect_version_file: they set $f/$old as
+# locals before calling this, and bash's dynamic scoping means this callee
+# sees those exact locals without needing them passed explicitly.
+require_bare_semver() {
+  is_bare_semver "$old" || { echo "bump-version only supports bare MAJOR.MINOR.PATCH; $f has \"$old\"" >&2; exit 4; }
+}
 
 detect_json() {
   local f="$1"
@@ -103,7 +105,7 @@ detect_json() {
   match="$(grep -o -E '"version"[[:space:]]*:[[:space:]]*"[^"]*"' "$f" | head -n1)"
   [ -n "$match" ] || { echo "no \"version\" field found in $f" >&2; exit 4; }
   old="$(printf '%s' "$match" | grep -o -E '"[^"]*"$' | tr -d '"')"
-  is_bare_semver "$old" || { echo "bump-version only supports bare MAJOR.MINOR.PATCH; $f has \"$old\"" >&2; exit 4; }
+  require_bare_semver
   file="$f"
   return 0
 }
@@ -117,7 +119,7 @@ detect_pom() {
   pom_line="$(awk -v start="$start" 'NR>=start && match($0, /<version>[0-9]+\.[0-9]+\.[0-9]+<\/version>/) {print NR; exit}' "$f")"
   [ -n "$pom_line" ] || { echo "no project <version> tag found in $f" >&2; exit 4; }
   old="$(sed -n "${pom_line}p" "$f" | grep -o -E '<version>[0-9]+\.[0-9]+\.[0-9]+</version>' | sed -E 's#</?version>##g')"
-  is_bare_semver "$old" || { echo "bump-version only supports bare MAJOR.MINOR.PATCH; $f has \"$old\"" >&2; exit 4; }
+  require_bare_semver
   file="$f"
   return 0
 }
@@ -126,7 +128,7 @@ detect_version_file() {
   local f="VERSION"
   [ -f "$f" ] || return 1
   old="$(head -n1 "$f")"
-  is_bare_semver "$old" || { echo "bump-version only supports bare MAJOR.MINOR.PATCH; $f has \"$old\"" >&2; exit 4; }
+  require_bare_semver
   file="$f"
   return 0
 }
@@ -147,58 +149,44 @@ fi
 new="$(bump_semver "$old" "$part")"
 
 write_json() {
-  local esc_old esc_new
+  local esc_old
   esc_old="$(sed_escape_pattern "$old")"
-  esc_new="$(sed_escape_replacement "$new")"
-  sed -i "0,/\"version\"[[:space:]]*:[[:space:]]*\"$esc_old\"/s//\"version\": \"$esc_new\"/" "$file"
+  sed -i "0,/\"version\"[[:space:]]*:[[:space:]]*\"$esc_old\"/s//\"version\": \"$new\"/" "$file"
 }
 
 write_pom() {
-  local esc_new
-  esc_new="$(sed_escape_replacement "$new")"
-  sed -i "${pom_line}s/<version>[0-9.]*<\/version>/<version>${esc_new}<\/version>/" "$file"
+  sed -i "${pom_line}s/<version>[0-9.]*<\/version>/<version>${new}<\/version>/" "$file"
 }
 
 write_plain() {
-  local esc_new
-  esc_new="$(sed_escape_replacement "$new")"
-  sed -i "1s/.*/${esc_new}/" "$file"
+  sed -i "1s/.*/${new}/" "$file"
 }
 
 case "$kind" in
   npm|composer) write_json ;;
   maven) write_pom ;;
   plain) write_plain ;;
-esac
-write_status=$?
-[ "$write_status" -eq 0 ] || { echo "failed to write $file" >&2; exit 5; }
+esac || { echo "failed to write $file" >&2; exit 5; }
 
 sync_status="no_lockfile"
 sync_log="$(mktemp)"
 trap 'rm -f "$sync_log"' EXIT
 
+sync_lock() {
+  local lockfile="$1"
+  shift
+  [ -f "$lockfile" ] || return 0
+  if "$@" >"$sync_log" 2>&1; then
+    sync_status="synced"
+  else
+    sync_status="failed"
+  fi
+}
+
 case "$kind" in
-  npm)
-    if [ -f package-lock.json ]; then
-      if npm i --package-lock-only >"$sync_log" 2>&1; then
-        sync_status="synced"
-      else
-        sync_status="failed"
-      fi
-    fi
-    ;;
-  composer)
-    if [ -f composer.lock ]; then
-      if composer update --lock >"$sync_log" 2>&1; then
-        sync_status="synced"
-      else
-        sync_status="failed"
-      fi
-    fi
-    ;;
-  maven|plain)
-    sync_status="no_convention"
-    ;;
+  npm) sync_lock package-lock.json npm i --package-lock-only ;;
+  composer) sync_lock composer.lock composer update --lock ;;
+  maven|plain) sync_status="no_convention" ;;
 esac
 
 printf 'file: %s\nold: %s\nnew: %s\nsync: %s\n' "$file" "$old" "$new" "$sync_status"
