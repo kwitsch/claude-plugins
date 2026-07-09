@@ -1,27 +1,6 @@
 {
   "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "cat",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/SessionStart.md"]
-          }
-        ]
-      }
-    ],
     "PreToolUse": [
-      {
-        "matcher": "Edit|Write|NotebookEdit|Bash",
-        "hooks": [
-          {
-            "type": "mcp_tool",
-            "server": "plugin:coding-toolbox:coding-toolbox-hooks",
-            "tool": "golden_rules_reminder"
-          }
-        ]
-      },
       {
         "matcher": "Read|Edit|Write|Bash",
         "hooks": [

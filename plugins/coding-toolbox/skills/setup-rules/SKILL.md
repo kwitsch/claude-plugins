@@ -12,17 +12,14 @@ Installs, refreshes, or removes two always-on (no `paths:` key — such rule
 files load unconditionally) project rule files:
 
 - `.claude/rules/coding-toolbox-rules.md` — a byte-exact copy of this
-  plugin's own `hooks/SessionStart.md` golden-rules content.
+  skill's own `references/golden-rules.md` content.
 - `.claude/rules/coding-toolbox-tools.md` — a tool-routing table naming
   whichever of `rtk`/`bun`/`rg`/`codebase-memory-mcp` are on this machine's
   `PATH`.
 
-Note: if the coding-toolbox plugin is enabled for this session, its own
-`SessionStart` hook already injects the same golden-rules content every
-session — installing the rule copy too means it appears twice. This is
-useful when you want the rules to persist even without the plugin enabled
-(e.g. for teammates who don't have it installed); otherwise only install it
-if that redundancy is acceptable.
+Note: the coding-toolbox plugin does not inject these rules automatically —
+this skill is the only way to get them into a project (also useful for
+teammates who don't have the plugin installed).
 
 > **Ask the user via `AskUserQuestion`.** Present the Step 3 question(s)
 > through the `AskUserQuestion` tool — never plain prose waiting for a typed
@@ -89,7 +86,7 @@ options:
 - Question 1 answered "Yes":
   ```bash
   mkdir -p .claude/rules
-  cp "<plugin root resolved in Step 1>/hooks/SessionStart.md" .claude/rules/coding-toolbox-rules.md
+  cp "<plugin root resolved in Step 1>/skills/setup-rules/references/golden-rules.md" .claude/rules/coding-toolbox-rules.md
   ```
 - Question 1 answered "No":
   ```bash

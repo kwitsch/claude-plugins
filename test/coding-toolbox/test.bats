@@ -87,13 +87,13 @@ export -f rg_or_grep
   assert_success
 }
 
-@test "SessionStart.md exists and is non-empty" {
-  run test -s "$HOOKS/SessionStart.md"
+@test "golden-rules.md exists and is non-empty" {
+  run test -s "$PLUGIN/skills/setup-rules/references/golden-rules.md"
   assert_success
 }
 
-@test "SessionStart.md covers all four axes and cites all three sourced axes" {
-  run cat "$HOOKS/SessionStart.md"
+@test "golden-rules.md covers all four axes and cites all three sourced axes" {
+  run cat "$PLUGIN/skills/setup-rules/references/golden-rules.md"
   assert_success
   assert_output --partial "Interaction"
   assert_output --partial "AskUserQuestion"
@@ -105,34 +105,14 @@ export -f rg_or_grep
   assert_output --partial "ponytail-lite"
 }
 
-@test "SessionStart.md forbids ending a turn with a bare '?'" {
-  run cat "$HOOKS/SessionStart.md"
+@test "golden-rules.md forbids ending a turn with a bare '?'" {
+  run cat "$PLUGIN/skills/setup-rules/references/golden-rules.md"
   assert_success
   assert_output --partial 'bare "?"'
 }
 
 @test "hooks.json is valid JSON" {
   run jq empty "$HOOKS/hooks.json"
-  assert_success
-}
-
-@test "SessionStart hook cats SessionStart.md via a command hook (exec form)" {
-  run jq -e '.hooks.SessionStart[0].hooks[0] | .type == "command" and .command == "cat" and (.args[0] | endswith("/hooks/SessionStart.md"))' "$HOOKS/hooks.json"
-  assert_success
-}
-
-# Runtime/end-to-end test: run the wired SessionStart command+args and confirm it
-# emits the rules (catches a wrong args path; proves cat+args does not read stdin).
-@test "SessionStart hook command emits Golden Rules to stdout (end-to-end)" {
-  cmd="$(jq -r '.hooks.SessionStart[0].hooks[0].command' "$HOOKS/hooks.json")"
-  arg="$(jq -r '.hooks.SessionStart[0].hooks[0].args[0]' "$HOOKS/hooks.json" | sed "s#\${CLAUDE_PLUGIN_ROOT}#$PLUGIN#")"
-  run "$cmd" "$arg"
-  assert_success
-  assert_output --partial "Golden Rules"
-}
-
-@test "PreToolUse hook is matcher-scoped (no Agent/Task) and wired to the mcp_tool" {
-  run jq -e '.hooks.PreToolUse[0] | .matcher == "Edit|Write|NotebookEdit|Bash" and (.hooks[0].type == "mcp_tool") and (.hooks[0].server == "plugin:coding-toolbox:coding-toolbox-hooks") and (.hooks[0].tool == "golden_rules_reminder")' "$HOOKS/hooks.json"
   assert_success
 }
 
@@ -148,42 +128,6 @@ export -f rg_or_grep
 
 @test "mcp/server.mjs is executable (repo rule)" {
   [ -x "$PLUGIN/mcp/server.mjs" ]
-}
-
-# Drive the reminder MCP server: initialize + $1 sequential tools/call requests on
-# ONE server process (the throttle counter is in-process, session-lifetime state).
-# Echoes one structuredContent JSON per call, in order.
-golden_rules_calls() {
-  local n="$1"
-  {
-    printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n'
-    for i in $(seq 1 "$n"); do
-      printf '{"jsonrpc":"2.0","id":%d,"method":"tools/call","params":{"name":"golden_rules_reminder","arguments":{"hook_event_name":"PreToolUse","tool_name":"Bash"}}}\n' "$((i + 1))"
-    done
-  } | node "$PLUGIN/mcp/server.mjs" 2>/dev/null \
-    | jq -c 'select(.id > 1) | .result.structuredContent'
-}
-
-# Anti-flip tripwire (end-to-end): calls 1-9 are silent ({}), call 10 emits the
-# additionalContext reminder — proves the throttle, not just the wiring.
-@test "server throttles the reminder to every 10th matched call" {
-  if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
-  run golden_rules_calls 10
-  assert_success
-  mapfile -t lines <<< "$output"
-  [ "${#lines[@]}" -eq 10 ]
-  for i in $(seq 0 8); do
-    [ "${lines[$i]}" = "{}" ]
-  done
-  echo "${lines[9]}" | jq -e '.hookSpecificOutput.hookEventName == "PreToolUse" and (.hookSpecificOutput.additionalContext | length > 0)'
-}
-
-@test "throttled reminder mentions AskUserQuestion" {
-  if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
-  run golden_rules_calls 10
-  assert_success
-  mapfile -t lines <<< "$output"
-  echo "${lines[9]}" | jq -r '.hookSpecificOutput.additionalContext' | rg_or_grep -q "AskUserQuestion"
 }
 
 # Drive the interaction_gate MCP tool with one last_assistant_message. Echoes the
@@ -721,8 +665,8 @@ run_ci_watch() {
   assert_output "4"
 }
 
-@test "setup-rules copies SessionStart.md byte-exact for the golden-rules rule" {
-  run rg_or_grep -F 'cp "<plugin root resolved in Step 1>/hooks/SessionStart.md"' "$PLUGIN/skills/setup-rules/SKILL.md"
+@test "setup-rules copies golden-rules.md byte-exact for the golden-rules rule" {
+  run rg_or_grep -F 'cp "<plugin root resolved in Step 1>/skills/setup-rules/references/golden-rules.md"' "$PLUGIN/skills/setup-rules/SKILL.md"
   assert_success
 }
 
@@ -746,8 +690,8 @@ run_ci_watch() {
   assert_success
 }
 
-@test "setup-rules warns about SessionStart-hook golden-rules duplication" {
-  run rg_or_grep -F 'installing the rule copy too means it appears twice' "$PLUGIN/skills/setup-rules/SKILL.md"
+@test "setup-rules documents that it is the only way to get golden rules injected" {
+  run rg_or_grep -F 'this skill is the only way to get them into a project' "$PLUGIN/skills/setup-rules/SKILL.md"
   assert_success
 }
 
@@ -1171,7 +1115,7 @@ make_fixtures() {
 }
 
 @test "encoding-guard PreToolUse hook wired as a direct .mjs command hook" {
-  run jq -e '.hooks.PreToolUse[1]
+  run jq -e '.hooks.PreToolUse[0]
     | .matcher == "Read|Edit|Write|Bash"
       and (.hooks[0].type == "command")
       and (.hooks[0].command == "${CLAUDE_PLUGIN_ROOT}/hooks/encoding-guard.mjs")
@@ -1179,8 +1123,8 @@ make_fixtures() {
   assert_success
 }
 
-@test "golden-rules PreToolUse entry is untouched by the encoding-guard wiring" {
-  run jq -e '.hooks.PreToolUse | length == 2 and (.[0].hooks[0].tool == "golden_rules_reminder")' "$HOOKS/hooks.json"
+@test "PreToolUse has exactly one hook entry (golden-rules reminder removed)" {
+  run jq -e '.hooks.PreToolUse | length == 1' "$HOOKS/hooks.json"
   assert_success
 }
 
