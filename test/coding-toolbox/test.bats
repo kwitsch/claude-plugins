@@ -739,6 +739,18 @@ run_ci_watch() {
   assert_success
 }
 
+@test "setup-rules never overwrites the tools rule with an empty table when nothing is detected" {
+  run rg_or_grep -F 'but `detected` is **empty**' "$PLUGIN/skills/setup-rules/SKILL.md"
+  assert_success
+  run rg_or_grep -F 'make **no change**' "$PLUGIN/skills/setup-rules/SKILL.md"
+  assert_success
+}
+
+@test "setup-rules warns about SessionStart-hook golden-rules duplication" {
+  run rg_or_grep -F 'installing the rule copy too means it appears twice' "$PLUGIN/skills/setup-rules/SKILL.md"
+  assert_success
+}
+
 @test "plugin README lists setup-rules in the Skills section" {
   run rg_or_grep -F '| `setup-rules`' "$PLUGIN/README.md"
   assert_success

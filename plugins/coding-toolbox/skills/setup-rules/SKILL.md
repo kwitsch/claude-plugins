@@ -17,6 +17,13 @@ files load unconditionally) project rule files:
   whichever of `rtk`/`bun`/`rg`/`codebase-memory-mcp` are on this machine's
   `PATH`.
 
+Note: if the coding-toolbox plugin is enabled for this session, its own
+`SessionStart` hook already injects the same golden-rules content every
+session — installing the rule copy too means it appears twice. This is
+useful when you want the rules to persist even without the plugin enabled
+(e.g. for teammates who don't have it installed); otherwise only install it
+if that redundancy is acceptable.
+
 > **Ask the user via `AskUserQuestion`.** Present the Step 3 question(s)
 > through the `AskUserQuestion` tool — never plain prose waiting for a typed
 > reply.
@@ -71,7 +78,7 @@ header:   "Tool-routing rule [currently: <installed|not installed>]"
 multiSelect: false
 options:
   - label: "Yes"
-    description: "Write/refresh .claude/rules/coding-toolbox-tools.md now from current detection (detected: <comma list of detected, or "none">)."
+    description: "Write/refresh .claude/rules/coding-toolbox-tools.md now from current detection (detected: <comma list of detected, or "none — existing file left untouched if none detected">)."
   - label: "No"
     description: "Make sure it's not installed — removes it if currently present."
 ```
@@ -87,7 +94,7 @@ options:
   ```bash
   rm -f .claude/rules/coding-toolbox-rules.md
   ```
-- Question 2 (if asked) answered "Yes":
+- Question 2 (if asked) answered "Yes", and `detected` is **non-empty**:
   ```bash
   mkdir -p .claude/rules
   cat > .claude/rules/coding-toolbox-tools.md <<'EOF'
@@ -109,6 +116,12 @@ options:
   | bun | `| JS/TS runtime & package management | \`bun\` | faster install/run than node/npm |` |
   | ripgrep | `| Text search | \`rg\` (ripgrep) | faster, respects .gitignore |` |
   | codebase-memory | `| Code structure exploration (callers, call chains, architecture) | \`codebase-memory-mcp\` tools | graph-backed, avoids grepping the whole tree |` |
+- Question 2 answered "Yes", but `detected` is **empty** (only reachable when
+  `tools_installed` was already true — Question 2 is otherwise skipped when
+  both are false): make **no change**. Do not overwrite an existing,
+  populated table with an empty one just because nothing is detected in this
+  run; note in Step 5 that nothing was detected so the existing file was
+  left as-is.
 - Question 2 answered "No":
   ```bash
   rm -f .claude/rules/coding-toolbox-tools.md
