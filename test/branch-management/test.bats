@@ -29,6 +29,33 @@ setup() {
   mkdir -p "$HOME"
 }
 
+# Prefer ripgrep; fall back to grep if rg isn't installed. rg's -E means
+# --encoding=ARG and -r means --replace=ARG (both take a value, neither is
+# grep's meaning), and rg has no recursive flag (recursion is its
+# default) — so a bundled/bare -E is stripped before delegating to rg
+# (its regex syntax is already ERE-equivalent for every pattern used in
+# this file); grep gets its original arguments completely untouched.
+# --include-zero makes `rg -c` print 0 on no match like `grep -c` does
+# (bare `rg -c` prints nothing on 0 matches) — harmless no-op otherwise.
+rg_or_grep() {
+  if command -v rg >/dev/null 2>&1; then
+    local args=() a stripped
+    for a in "$@"; do
+      case "$a" in
+        -[A-Za-z]*)
+          stripped="${a//E/}"
+          [ "$stripped" = "-" ] && continue
+          args+=("$stripped")
+          ;;
+        *) args+=("$a") ;;
+      esac
+    done
+    command rg --include-zero "${args[@]}"
+  else
+    command grep "$@"
+  fi
+}
+
 # make_stub <name> <body-line>... — drop an executable stub into MOCKBIN.
 make_stub() {
   local name="$1"; shift
@@ -156,12 +183,21 @@ PLUGIN_JSON_REL="plugins/branch-management/.claude-plugin/plugin.json"
 }
 
 @test "userConfig: no references to the removed settings implementation remain" {
-  run grep -rn "review-settings" "$REPO_ROOT/plugins/branch-management"
+  if command -v rg >/dev/null 2>&1; then
+    run rg -n --no-ignore --hidden "review-settings" "$REPO_ROOT/plugins/branch-management"
+  else
+    run grep -rn "review-settings" "$REPO_ROOT/plugins/branch-management"
+  fi
   assert_failure 1
   # The README's v3 breaking-change note is the one allowed mention of the
   # old settings file; everywhere else it must be gone.
-  run grep -rn --exclude=README.md "branch-management.local.md" \
-    "$REPO_ROOT/plugins/branch-management"
+  if command -v rg >/dev/null 2>&1; then
+    run rg -n --no-ignore --hidden --glob '!README.md' "branch-management.local.md" \
+      "$REPO_ROOT/plugins/branch-management"
+  else
+    run grep -rn --exclude=README.md "branch-management.local.md" \
+      "$REPO_ROOT/plugins/branch-management"
+  fi
   assert_failure 1
 }
 
@@ -341,7 +377,7 @@ run_ci_watch() {
 # --- effort: low assertions ---
 
 @test "ci-monitor has effort: low" {
-  grep -q '^effort: low' \
+  rg_or_grep -q '^effort: low' \
     "$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/ci-monitor.md"
 }
 
@@ -352,13 +388,13 @@ run_ci_watch() {
 }
 
 @test "review-branch runs inline (NOT context: fork — a forked skill is a subagent and cannot dispatch the reviewers)" {
-  run grep '^context: fork' \
+  run rg_or_grep '^context: fork' \
     "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-branch/SKILL.md"
   assert_failure
 }
 
 @test "review-branch does not pin a model (runs inline)" {
-  run grep '^model:' \
+  run rg_or_grep '^model:' \
     "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-branch/SKILL.md"
   assert_failure
 }
@@ -372,29 +408,29 @@ CONFIGURE_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/confi
 }
 
 @test "configure-branch-management has name: configure-branch-management" {
-  grep -q '^name: configure-branch-management' "$CONFIGURE_SKILL"
+  rg_or_grep -q '^name: configure-branch-management' "$CONFIGURE_SKILL"
 }
 
 @test "configure-branch-management allowed-tools includes AskUserQuestion" {
-  grep -q 'AskUserQuestion' "$CONFIGURE_SKILL"
+  rg_or_grep -q 'AskUserQuestion' "$CONFIGURE_SKILL"
 }
 
 @test "configure-branch-management allowed-tools includes Bash(jq:*)" {
-  grep -q 'Bash(jq:\*)' "$CONFIGURE_SKILL"
+  rg_or_grep -qF 'Bash(jq:*)' "$CONFIGURE_SKILL"
 }
 
 @test "configure-branch-management is not a sub-skill (no context: fork)" {
-  run grep '^context: fork' "$CONFIGURE_SKILL"
+  run rg_or_grep '^context: fork' "$CONFIGURE_SKILL"
   assert_failure
 }
 
 @test "configure-branch-management does not pin a model" {
-  run grep '^model:' "$CONFIGURE_SKILL"
+  run rg_or_grep '^model:' "$CONFIGURE_SKILL"
   assert_failure
 }
 
 @test "configure-branch-management has argument-hint frontmatter" {
-  grep -q '^argument-hint:' "$CONFIGURE_SKILL"
+  rg_or_grep -q '^argument-hint:' "$CONFIGURE_SKILL"
 }
 
 # --- clean-branches skill (runs inline — not a forked subagent) ---
@@ -405,17 +441,17 @@ CLEAN_BRANCHES_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/
 }
 
 @test "clean-branches runs inline (NOT context: fork)" {
-  run grep '^context: fork' "$CLEAN_BRANCHES_SKILL"
+  run rg_or_grep '^context: fork' "$CLEAN_BRANCHES_SKILL"
   assert_failure
 }
 
 @test "clean-branches does not pin a model (runs inline)" {
-  run grep '^model:' "$CLEAN_BRANCHES_SKILL"
+  run rg_or_grep '^model:' "$CLEAN_BRANCHES_SKILL"
   assert_failure
 }
 
 @test "clean-branches stays user-only (disable-model-invocation: true)" {
-  grep -q '^disable-model-invocation: true' "$CLEAN_BRANCHES_SKILL"
+  rg_or_grep -q '^disable-model-invocation: true' "$CLEAN_BRANCHES_SKILL"
 }
 
 # ── Helpers for clean-branches.sh ──────────────────────────────────────────
@@ -630,11 +666,11 @@ run_clean_script() {
 @test "subagent-tracking rule exists, carries the canonical block + inoculation note" {
   RULE="$REPO_ROOT/.claude/rules/subagent-tracking.md"
   [ -f "$RULE" ]
-  run grep -qi 'Subagent reconciliation gate' "$RULE"
+  run rg_or_grep -qi 'Subagent reconciliation gate' "$RULE"
   assert_success
-  run grep -qi 'inoculation' "$RULE"
+  run rg_or_grep -qi 'inoculation' "$RULE"
   assert_success
-  run grep -q 'select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop' "$RULE"
+  run rg_or_grep -q 'select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop' "$RULE"
   assert_success
 }
 
@@ -642,26 +678,26 @@ run_clean_script() {
 RB_SKILL2="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/review-branch/SKILL.md"
 
 @test "review-branch allowed-tools includes Agent (dispatches claude-reviewer and review-fixer)" {
-  line=$(grep '^allowed-tools:' "$RB_SKILL2")
-  echo "$line" | grep -q '"Agent"'
+  line=$(rg_or_grep '^allowed-tools:' "$RB_SKILL2")
+  echo "$line" | rg_or_grep -q '"Agent"'
 }
 
 @test "review-branch allowed-tools includes Task* ledger tools (async dispatch tracking)" {
-  line=$(grep '^allowed-tools:' "$RB_SKILL2")
+  line=$(rg_or_grep '^allowed-tools:' "$RB_SKILL2")
   for t in TaskCreate TaskUpdate TaskList TaskGet TaskStop ToolSearch; do
-    echo "$line" | grep -q "$t" || { echo "missing $t in review-branch allowed-tools"; return 1; }
+    echo "$line" | rg_or_grep -q "$t" || { echo "missing $t in review-branch allowed-tools"; return 1; }
   done
 }
 
 @test "review-branch allowed-tools excludes Skill (no sub-skill invocation)" {
-  line=$(grep '^allowed-tools:' "$RB_SKILL2")
-  ! echo "$line" | grep -qw '"Skill"'
+  line=$(rg_or_grep '^allowed-tools:' "$RB_SKILL2")
+  ! echo "$line" | rg_or_grep -qw '"Skill"'
 }
 
 @test "claude-reviewer agent file exists and declares name: claude-reviewer" {
   f="$BATS_TEST_DIRNAME/../../plugins/branch-management/agents/claude-reviewer.md"
   [ -f "$f" ]
-  grep -q '^name: claude-reviewer$' "$f"
+  rg_or_grep -q '^name: claude-reviewer$' "$f"
 }
 
 @test "ci-monitor agent has no context-mode reference" {
@@ -690,29 +726,29 @@ NB_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-branch/S
 }
 
 @test "new-branch does not dispatch the branch-agent subagent" {
-  grep -q '^allowed-tools:' "$NB_SKILL"   # load-bearing: file + frontmatter present
-  run grep -q 'branch-management:branch-agent' "$NB_SKILL"
+  rg_or_grep -q '^allowed-tools:' "$NB_SKILL"   # load-bearing: file + frontmatter present
+  run rg_or_grep -q 'branch-management:branch-agent' "$NB_SKILL"
   assert_failure
 }
 
 @test "new-branch allowed-tools excludes Agent and the Task* ledger (no async dispatch)" {
-  line=$(grep '^allowed-tools:' "$NB_SKILL")
+  line=$(rg_or_grep '^allowed-tools:' "$NB_SKILL")
   [ -n "$line" ] || { echo "allowed-tools line missing in new-branch SKILL.md"; return 1; }
   for t in Agent TaskCreate TaskUpdate TaskList TaskGet TaskStop; do
-    echo "$line" | grep -q "$t" && { echo "unexpected $t in new-branch allowed-tools"; return 1; }
+    echo "$line" | rg_or_grep -q "$t" && { echo "unexpected $t in new-branch allowed-tools"; return 1; }
   done
   return 0
 }
 
 @test "new-branch allowed-tools includes Bash(bash:*) (runs the inline git script)" {
-  line=$(grep '^allowed-tools:' "$NB_SKILL")
-  echo "$line" | grep -qF 'Bash(bash:*)' || { echo "missing Bash(bash:*) in new-branch allowed-tools"; return 1; }
+  line=$(rg_or_grep '^allowed-tools:' "$NB_SKILL")
+  echo "$line" | rg_or_grep -qF 'Bash(bash:*)' || { echo "missing Bash(bash:*) in new-branch allowed-tools"; return 1; }
 }
 
 @test "new-branch cuts the branch with an inline git script (synchronous)" {
-  grep -q 'set -uo pipefail' "$NB_SKILL"
-  grep -q 'git checkout -b' "$NB_SKILL"
-  grep -q 'exit 6' "$NB_SKILL"
+  rg_or_grep -q 'set -uo pipefail' "$NB_SKILL"
+  rg_or_grep -q 'git checkout -b' "$NB_SKILL"
+  rg_or_grep -q 'exit 6' "$NB_SKILL"
 }
 
 @test "init-branch skill is removed" {
@@ -720,27 +756,27 @@ NB_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-branch/S
 }
 
 @test "new-branch allowed-tools does NOT include Skill (no sub-skill invoked)" {
-  line=$(grep -m1 'allowed-tools' "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-branch/SKILL.md")
-  ! echo "$line" | grep -qw 'Skill'
+  line=$(rg_or_grep -m1 'allowed-tools' "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-branch/SKILL.md")
+  ! echo "$line" | rg_or_grep -qw 'Skill'
 }
 
 @test "new-branch carries the inline worktree self-rebase" {
-  grep -q 'REBASE_RESULT=' "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-branch/SKILL.md"
+  rg_or_grep -q 'REBASE_RESULT=' "$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-branch/SKILL.md"
 }
 
 # --- new-pr subagent tracking ---
 NPR_SKILL="$BATS_TEST_DIRNAME/../../plugins/branch-management/skills/new-pr/SKILL.md"
 
 @test "new-pr allowed-tools includes the Task* ledger tools and ToolSearch" {
-  line=$(grep '^allowed-tools:' "$NPR_SKILL")
+  line=$(rg_or_grep '^allowed-tools:' "$NPR_SKILL")
   for t in TaskCreate TaskUpdate TaskList TaskGet TaskStop ToolSearch; do
-    echo "$line" | grep -q "$t" || { echo "missing $t in new-pr allowed-tools"; return 1; }
+    echo "$line" | rg_or_grep -q "$t" || { echo "missing $t in new-pr allowed-tools"; return 1; }
   done
 }
 
 @test "new-pr carries the subagent reconciliation gate" {
-  run grep -q 'select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop' "$NPR_SKILL"
+  run rg_or_grep -q 'select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop' "$NPR_SKILL"
   assert_success
-  run grep -qi 'Subagent reconciliation gate' "$NPR_SKILL"
+  run rg_or_grep -qi 'Subagent reconciliation gate' "$NPR_SKILL"
   assert_success
 }
