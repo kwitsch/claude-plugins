@@ -612,9 +612,9 @@ run_ci_watch() {
   assert_success
 }
 
-@test "plugin.json version bumped for bump-version skill (this unreleased branch)" {
+@test "plugin.json version bumped for setup-rules skill (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.11.1"
+  assert_output "0.12.0"
 }
 
 @test "plugin.json description mentions fresh-work" {
@@ -694,6 +694,54 @@ run_ci_watch() {
 @test "plugin.json description mentions bump-version" {
   run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
   assert_output --partial "bump-version"
+}
+
+@test "setup-rules SKILL.md exists and is non-empty" {
+  run test -s "$PLUGIN/skills/setup-rules/SKILL.md"
+  assert_success
+}
+
+@test "setup-rules frontmatter declares name, disable-model-invocation, and required allowed-tools" {
+  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/skills/setup-rules/SKILL.md'"
+  assert_success
+  assert_output --partial "name: setup-rules"
+  assert_output --partial "disable-model-invocation: true"
+  assert_output --partial "AskUserQuestion"
+  assert_output --partial 'Bash(cp:*)'
+}
+
+@test "setup-rules detects installed rules via the coding-toolbox-*.md glob" {
+  run rg_or_grep -F 'coding-toolbox-*.md' "$PLUGIN/skills/setup-rules/SKILL.md"
+  assert_success
+}
+
+@test "setup-rules detects all four tools via command -v" {
+  for tool in rtk bun rg codebase-memory-mcp; do
+    run rg_or_grep -F "command -v $tool" "$PLUGIN/skills/setup-rules/SKILL.md"
+    assert_success
+  done
+}
+
+@test "setup-rules copies SessionStart.md byte-exact for the golden-rules rule" {
+  run rg_or_grep -F 'cp "<plugin root' "$PLUGIN/skills/setup-rules/SKILL.md"
+  assert_success
+  run rg_or_grep -F 'hooks/SessionStart.md' "$PLUGIN/skills/setup-rules/SKILL.md"
+  assert_success
+}
+
+@test "setup-rules AskUserQuestion always offers a No-changes no-op row" {
+  run rg_or_grep -F "No changes — leave everything as is" "$PLUGIN/skills/setup-rules/SKILL.md"
+  assert_success
+}
+
+@test "setup-rules documents the disableSkillShellExecution guard" {
+  run bash -c "tr '\n' ' ' < '$PLUGIN/skills/setup-rules/SKILL.md' | grep -F '[shell command execution disabled by policy]'"
+  assert_success
+}
+
+@test "plugin README lists setup-rules in the Skills section" {
+  run rg_or_grep -F '| `setup-rules`' "$PLUGIN/README.md"
+  assert_success
 }
 
 @test "plugin README lists fresh-pr in the Skills section" {
