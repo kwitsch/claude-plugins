@@ -716,27 +716,26 @@ run_ci_watch() {
 }
 
 @test "setup-rules detects all four tools via command -v" {
-  for tool in rtk bun rg codebase-memory-mcp; do
-    run rg_or_grep -F "command -v $tool" "$PLUGIN/skills/setup-rules/SKILL.md"
-    assert_success
-  done
+  run rg_or_grep -c -e 'command -v rtk' -e 'command -v bun' -e 'command -v rg' -e 'command -v codebase-memory-mcp' "$PLUGIN/skills/setup-rules/SKILL.md"
+  assert_success
+  assert_output "4"
 }
 
 @test "setup-rules copies SessionStart.md byte-exact for the golden-rules rule" {
-  run rg_or_grep -F 'cp "<plugin root' "$PLUGIN/skills/setup-rules/SKILL.md"
-  assert_success
-  run rg_or_grep -F 'hooks/SessionStart.md' "$PLUGIN/skills/setup-rules/SKILL.md"
+  run rg_or_grep -F 'cp "<plugin root resolved in Step 1>/hooks/SessionStart.md"' "$PLUGIN/skills/setup-rules/SKILL.md"
   assert_success
 }
 
-@test "setup-rules AskUserQuestion always offers a No-changes no-op row" {
-  run rg_or_grep -F "No changes — leave everything as is" "$PLUGIN/skills/setup-rules/SKILL.md"
+@test "setup-rules asks one single-select question per rule with a currently-installed header, not a multiSelect toggle" {
+  run cat "$PLUGIN/skills/setup-rules/SKILL.md"
   assert_success
+  assert_output --partial 'multiSelect: false'
+  assert_output --partial '[currently: <installed|not installed>]'
+  refute_output --partial 'multiSelect: true'
 }
 
 @test "setup-rules documents the disableSkillShellExecution guard" {
-  # tr-join first: the placeholder phrase wraps across two lines in the source file.
-  run bash -c "tr '\n' ' ' < '$PLUGIN/skills/setup-rules/SKILL.md' | rg_or_grep -F '[shell command execution disabled by policy]'"
+  run rg_or_grep -F '[shell command execution disabled by policy]' "$PLUGIN/skills/setup-rules/SKILL.md"
   assert_success
 }
 

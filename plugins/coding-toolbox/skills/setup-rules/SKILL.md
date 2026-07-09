@@ -17,24 +17,22 @@ files load unconditionally) project rule files:
   whichever of `rtk`/`bun`/`rg`/`codebase-memory-mcp` are on this machine's
   `PATH`.
 
-> **Ask the user via `AskUserQuestion`.** Present the Step 4 question through
-> the `AskUserQuestion` tool — never plain prose waiting for a typed reply.
+> **Ask the user via `AskUserQuestion`.** Present the Step 3 question(s)
+> through the `AskUserQuestion` tool — never plain prose waiting for a typed
+> reply.
 
 ## Step 1 — Detect
 
-```
-Installed: !`ls .claude/rules/coding-toolbox-*.md 2>/dev/null || echo "(none)"`
-rtk: !`command -v rtk >/dev/null 2>&1 && echo present || echo absent`
-bun: !`command -v bun >/dev/null 2>&1 && echo present || echo absent`
-ripgrep: !`command -v rg >/dev/null 2>&1 && echo present || echo absent`
-codebase-memory: !`command -v codebase-memory-mcp >/dev/null 2>&1 && echo present || echo absent`
-Plugin root: !`echo "$CLAUDE_PLUGIN_ROOT"`
+```!
+echo "Installed: $(ls .claude/rules/coding-toolbox-*.md 2>/dev/null || echo '(none)')"
+echo "rtk: $(command -v rtk >/dev/null 2>&1 && echo present || echo absent)"
+echo "bun: $(command -v bun >/dev/null 2>&1 && echo present || echo absent)"
+echo "ripgrep: $(command -v rg >/dev/null 2>&1 && echo present || echo absent)"
+echo "codebase-memory: $(command -v codebase-memory-mcp >/dev/null 2>&1 && echo present || echo absent)"
+echo "Plugin root: $CLAUDE_PLUGIN_ROOT"
 ```
 
-If any line above is literally `[shell command execution disabled by
-policy]`, stop and tell the user: "Shell execution is disabled for skills
-(`disableSkillShellExecution`) — setup-rules can't detect or install
-safely." Do not guess install state; end here.
+If the block above rendered as literally `[shell command execution disabled by policy]`, stop and tell the user: shell execution is disabled for skills (`disableSkillShellExecution`) — setup-rules can't detect or install safely. Do not guess install state; end here.
 
 ## Step 2 — Derive state
 
@@ -43,62 +41,53 @@ safely." Do not guess install state; end here.
 - `detected` = the subset of `rtk`, `bun`, `ripgrep`, `codebase-memory`
   marked `present` above
 
-## Step 3 — Report detected state
+## Step 3 — Ask
 
-Print one plain status line (not a question), e.g.:
+One `AskUserQuestion` call, one single-select (`multiSelect: false`) question
+per artifact — mirroring `configure-branch-management`'s pattern: current
+value in the header, the answer sets the new value directly. A single-select
+always forces one explicit answer, so there is no end-state-toggle ambiguity
+and no need for a "no changes" escape option or any cross-question
+precedence rule.
 
+Question 1 (always asked):
 ```
-Detected: golden-rules rule <installed|not installed>; tool-routing rule
-<installed|not installed>. Tools on this machine: <comma-separated list, or "none">.
-```
-
-## Step 4 — Ask
-
-Build the multiSelect from only the rows whose condition holds, in this
-fixed order, always ending with the last row:
-
-```
-AskUserQuestion:
-  question: "Which coding-toolbox project rules should be installed/removed?"
-  header:   "Setup rules"
-  multiSelect: true
-  options:
-    - [if !rules_installed] label: "Install golden-rules project rule"
-      description: "Copies this plugin's golden-rules content to .claude/rules/coding-toolbox-rules.md (always active)."
-    - [if rules_installed] label: "Remove golden-rules project rule (currently installed)"
-      description: "Deletes .claude/rules/coding-toolbox-rules.md."
-    - [if !tools_installed and detected is non-empty] label: "Install tool-routing rule (detected: <comma list of detected>)"
-      description: "Writes .claude/rules/coding-toolbox-tools.md with a routing row per detected tool."
-    - [if tools_installed] label: "Refresh tool-routing rule (re-detect rtk/bun/rg/codebase-memory)"
-      description: "Rewrites .claude/rules/coding-toolbox-tools.md from the current detection above."
-    - [if tools_installed] label: "Remove tool-routing rule (currently installed)"
-      description: "Deletes .claude/rules/coding-toolbox-tools.md."
-    - label: "No changes — leave everything as is"
-      description: "Make no changes, regardless of what else is selected."
+question: "Should the golden-rules project rule be installed?"
+header:   "Golden-rules rule [currently: <installed|not installed>]"
+multiSelect: false
+options:
+  - label: "Yes"
+    description: "Copy this plugin's golden-rules content to .claude/rules/coding-toolbox-rules.md (always active); overwrites if already present."
+  - label: "No"
+    description: "Make sure it's not installed — removes it if currently present."
 ```
 
-The final "No changes" row is always present, so the question always has at
-least 2 options (the golden-rules row alone contributes exactly one of its
-two variants unconditionally).
+Question 2 — include **only if** `tools_installed` is true, or `detected` is
+non-empty (otherwise there is nothing meaningful to install and no existing
+file to offer removing, so omit this question entirely):
+```
+question: "Should the tool-routing project rule be installed?"
+header:   "Tool-routing rule [currently: <installed|not installed>]"
+multiSelect: false
+options:
+  - label: "Yes"
+    description: "Write/refresh .claude/rules/coding-toolbox-tools.md now from current detection (detected: <comma list of detected, or "none">)."
+  - label: "No"
+    description: "Make sure it's not installed — removes it if currently present."
+```
 
-## Step 5 — Apply
+## Step 4 — Apply
 
-Precedence: if "No changes" is among the selections (alone or with others),
-do nothing and go to Step 6 reporting "no changes made".
-
-Otherwise, for each selected option:
-
-- **Install golden-rules project rule:**
+- Question 1 answered "Yes":
   ```bash
   mkdir -p .claude/rules
   cp "<plugin root resolved in Step 1>/hooks/SessionStart.md" .claude/rules/coding-toolbox-rules.md
   ```
-- **Remove golden-rules project rule:**
+- Question 1 answered "No":
   ```bash
   rm -f .claude/rules/coding-toolbox-rules.md
   ```
-- **Install/Refresh tool-routing rule** (skip this if "Remove tool-routing
-  rule" is also selected — remove wins):
+- Question 2 (if asked) answered "Yes":
   ```bash
   mkdir -p .claude/rules
   cat > .claude/rules/coding-toolbox-tools.md <<'EOF'
@@ -120,11 +109,12 @@ Otherwise, for each selected option:
   | bun | `| JS/TS runtime & package management | \`bun\` | faster install/run than node/npm |` |
   | ripgrep | `| Text search | \`rg\` (ripgrep) | faster, respects .gitignore |` |
   | codebase-memory | `| Code structure exploration (callers, call chains, architecture) | \`codebase-memory-mcp\` tools | graph-backed, avoids grepping the whole tree |` |
-- **Remove tool-routing rule:**
+- Question 2 answered "No":
   ```bash
   rm -f .claude/rules/coding-toolbox-tools.md
   ```
+- Question 2 not asked (nothing installed, nothing detected): no action for the tools file.
 
-## Step 6 — Report
+## Step 5 — Report
 
 State plainly which files were created, refreshed, removed, or left alone.
