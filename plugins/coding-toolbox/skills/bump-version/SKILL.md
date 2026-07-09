@@ -42,8 +42,12 @@ caller's argument. The closing `BUMPVERSION_EOF` line below **must stay at
 column 0, with no leading whitespace** — an unquoted-tag heredoc (`<<'TAG'`)
 only terminates on a line that is exactly the tag; even one leading space
 leaves the heredoc unterminated and swallows everything after it. Replace
-`<major|minor|patch>` with the literal argument the caller gave; the whole
-block (heredoc write + run + cleanup) is one Bash tool call.
+`PART` (the placeholder on the `bash "$BUMP" PART` line below) with the
+literal `major`/`minor`/`patch` argument the caller gave — not a bracketed
+`<...>` placeholder: those characters are shell redirection/pipe
+metacharacters, so an imperfect substitution would silently turn the
+invocation into a redirection instead of a clean, catchable usage error. The
+whole block (heredoc write + run + cleanup) is one Bash tool call.
 
 ```bash
 BUMP="$(mktemp)"
@@ -66,7 +70,7 @@ case "$part" in
 esac
 
 is_bare_semver() {
-  [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+  [[ "$1" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
 }
 
 bump_semver() {
@@ -80,16 +84,11 @@ bump_semver() {
   echo "$major.$minor.$patch"
 }
 
-# Escapes a literal string for use inside a sed BRE pattern.
-sed_escape_pattern() {
-  printf '%s' "$1" | sed -e 's/[.[\*^$\/]/\\&/g'
-}
-
 file=""
 old=""
 new=""
 kind=""
-pom_line=""
+version_line=""
 
 # Shared by detect_json/detect_pom/detect_version_file: they set $f/$old as
 # locals before calling this, and bash's dynamic scoping means this callee
@@ -101,12 +100,34 @@ require_bare_semver() {
 detect_json() {
   local f="$1"
   [ -f "$f" ] || return 1
-  local match
-  match="$(grep -o -E '"version"[[:space:]]*:[[:space:]]*"[^"]*"' "$f" | head -n1)"
-  [ -n "$match" ] || { echo "no \"version\" field found in $f" >&2; exit 4; }
+  local line_no match
+  # A nested "version" (e.g. inside an "overrides"/"resolutions" block) is
+  # always indented more than the top-level one in a normally-formatted
+  # file, so picking the shallowest-indented match reliably finds the real
+  # project version. Ties (including the common single-match case) keep the
+  # first one seen. Best-effort: this only works when indentation reflects
+  # nesting depth -- a file where it doesn't (minified, or hand-written
+  # without indentation) can't be disambiguated this way and is handled by
+  # require_bare_semver failing loudly rather than silently picking the
+  # wrong field.
+  line_no="$(awk '
+    {
+      line = $0
+      match(line, /^[[:space:]]*/)
+      indent = RLENGTH
+      if (match(line, /"version"[[:space:]]*:[[:space:]]*"[^"]*"/) && (best_line == "" || indent < best_indent)) {
+        best_indent = indent
+        best_line = NR
+      }
+    }
+    END { if (best_line != "") print best_line }
+  ' "$f")"
+  [ -n "$line_no" ] || { echo "no top-level \"version\" field found in $f" >&2; exit 4; }
+  match="$(sed -n "${line_no}p" "$f" | grep -o -E '"version"[[:space:]]*:[[:space:]]*"[^"]*"')"
   old="$(printf '%s' "$match" | grep -o -E '"[^"]*"$' | tr -d '"')"
   require_bare_semver
   file="$f"
+  version_line="$line_no"
   return 0
 }
 
@@ -116,9 +137,9 @@ detect_pom() {
   local start=1 parent_end
   parent_end="$(grep -n '</parent>' "$f" | head -n1 | cut -d: -f1)"
   [ -n "$parent_end" ] && start=$((parent_end + 1))
-  pom_line="$(awk -v start="$start" 'NR>=start && match($0, /<version>[0-9]+\.[0-9]+\.[0-9]+<\/version>/) {print NR; exit}' "$f")"
-  [ -n "$pom_line" ] || { echo "no project <version> tag found in $f" >&2; exit 4; }
-  old="$(sed -n "${pom_line}p" "$f" | grep -o -E '<version>[0-9]+\.[0-9]+\.[0-9]+</version>' | sed -E 's#</?version>##g')"
+  version_line="$(awk -v start="$start" 'NR>=start && match($0, /<version>[0-9]+\.[0-9]+\.[0-9]+<\/version>/) {print NR; exit}' "$f")"
+  [ -n "$version_line" ] || { echo "no project <version> tag found in $f" >&2; exit 4; }
+  old="$(sed -n "${version_line}p" "$f" | grep -o -E '<version>[0-9]+\.[0-9]+\.[0-9]+</version>' | sed -E 's#</?version>##g')"
   require_bare_semver
   file="$f"
   return 0
@@ -149,13 +170,11 @@ fi
 new="$(bump_semver "$old" "$part")"
 
 write_json() {
-  local esc_old
-  esc_old="$(sed_escape_pattern "$old")"
-  sed -i "0,/\"version\"[[:space:]]*:[[:space:]]*\"$esc_old\"/s//\"version\": \"$new\"/" "$file"
+  sed -i "${version_line}s/\"version\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"version\": \"$new\"/" "$file"
 }
 
 write_pom() {
-  sed -i "${pom_line}s/<version>[0-9.]*<\/version>/<version>${new}<\/version>/" "$file"
+  sed -i "${version_line}s/<version>[0-9.]*<\/version>/<version>${new}<\/version>/" "$file"
 }
 
 write_plain() {
@@ -169,13 +188,13 @@ case "$kind" in
 esac || { echo "failed to write $file" >&2; exit 5; }
 
 sync_status="no_lockfile"
-sync_log="$(mktemp)"
-trap 'rm -f "$sync_log"' EXIT
 
 sync_lock() {
   local lockfile="$1"
   shift
   [ -f "$lockfile" ] || return 0
+  sync_log="$(mktemp)"
+  trap 'rm -f "$sync_log"' EXIT
   if "$@" >"$sync_log" 2>&1; then
     sync_status="synced"
   else
@@ -197,7 +216,7 @@ if [ "$sync_status" = "failed" ]; then
 fi
 exit 0
 BUMPVERSION_EOF
-bash "$BUMP" <major|minor|patch>
+bash "$BUMP" PART
 rc=$?
 rm -f "$BUMP"
 exit $rc
@@ -213,10 +232,14 @@ Map the exit code:
 - `3` `no_version_file` — none of `package.json`, `composer.json`,
   `pom.xml`, `VERSION` exist in the current directory. Report and stop.
 - `4` `unparseable_version` — a version file was found but its version
-  isn't bare `MAJOR.MINOR.PATCH` (e.g. a prerelease suffix), or (for
-  `pom.xml`) no project `<version>` tag could be located after skipping
-  any `<parent>` block. Report the stderr message (names the file and
-  the offending value) and stop; nothing was touched.
+  isn't bare `MAJOR.MINOR.PATCH` (e.g. a prerelease suffix, or a segment
+  with a leading zero like `09` — invalid per the semver spec, and would
+  otherwise hit bash's octal-literal arithmetic), or (for `package.json`/
+  `composer.json`) no **top-level** `"version"` field could be found (a
+  nested one inside e.g. an `overrides`/`resolutions` block doesn't count),
+  or (for `pom.xml`) no project `<version>` tag could be located after
+  skipping any `<parent>` block. Report the stderr message (names the file
+  and the offending value) and stop; nothing was touched.
 - `5` `write_failed` — the version file couldn't be written (permissions,
   read-only filesystem). Report stderr and stop.
 - `6` `sync_failed` — the version file was **already bumped and written

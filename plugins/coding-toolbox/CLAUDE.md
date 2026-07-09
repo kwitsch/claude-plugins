@@ -201,12 +201,21 @@ documented-but-never-implemented `gradle.properties` check are both
 deliberately not mirrored — the latter is a docstring/code mismatch in the
 reference script; this skill follows the working code, not the
 aspirational comment). Bumps the named segment and zeros every segment to
-its right; only bare `MAJOR.MINOR.PATCH` is supported, a prerelease/build
-suffix is a hard error. Version extraction never depends on `jq`/`xidel` —
-a targeted regex captures the exact `"version": "<value>"` snippet (or, for
-`VERSION`, the bare line-1 value), and the write-back replaces that exact
-matched snippet (`sed`'s `0,/re/` first-match idiom) so the edit never
-reformats the rest of the file. `pom.xml` support is explicit best-effort:
+its right; only bare `MAJOR.MINOR.PATCH` is supported (leading zeros like
+`09` are rejected too — invalid per the semver spec, and would otherwise hit
+bash's octal-literal arithmetic and silently corrupt the version), a
+prerelease/build suffix is a hard error. Version extraction never depends on
+`jq`/`xidel` — a targeted regex captures the value, and both detection and
+write-back address the **specific line number** the match was found on
+(never a whole-file first-match search) so a same-shaped `"version"` field
+nested inside e.g. `overrides`/`resolutions` is never confused with the
+project's own; for JSON files the top-level field is picked as whichever
+`"version"` match has the shallowest line indentation (a nested field is
+always indented more in a normally-formatted file — best-effort: a file
+where indentation doesn't reflect nesting, e.g. minified or hand-written
+without indentation, can't be disambiguated this way and fails loudly via
+`require_bare_semver` rather than silently picking the wrong field). `pom.xml`
+support is explicit best-effort:
 it skips past a leading `<parent>…</parent>` block before searching for the
 first `<version>` tag, so a parent POM's version is never mistaken for the
 project's own — still a regex heuristic, not real XML parsing, confirmed
