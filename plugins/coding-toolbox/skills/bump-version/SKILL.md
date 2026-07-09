@@ -104,23 +104,29 @@ detect_json() {
   # A nested "version" (e.g. inside an "overrides"/"resolutions" block) is
   # always indented more than the top-level one in a normally-formatted
   # file, so picking the shallowest-indented match reliably finds the real
-  # project version. Ties (including the common single-match case) keep the
-  # first one seen. Best-effort: this only works when indentation reflects
-  # nesting depth -- a file where it doesn't (minified, or hand-written
-  # without indentation) can't be disambiguated this way and is handled by
-  # require_bare_semver failing loudly rather than silently picking the
-  # wrong field.
+  # project version. A single match (the common case) always wins outright.
+  # Two or more matches TIED at the shallowest indentation are ambiguous --
+  # this happens when indentation doesn't reflect nesting (minified, or
+  # multi-line but hand-written without any indentation at all) -- and are
+  # deliberately treated as "not found" rather than guessing, so the failure
+  # is loud (require_bare_semver / the no-match check below) instead of a
+  # silent wrong-field bump.
   line_no="$(awk '
     {
       line = $0
       match(line, /^[[:space:]]*/)
       indent = RLENGTH
-      if (match(line, /"version"[[:space:]]*:[[:space:]]*"[^"]*"/) && (best_line == "" || indent < best_indent)) {
-        best_indent = indent
-        best_line = NR
+      if (match(line, /"version"[[:space:]]*:[[:space:]]*"[^"]*"/)) {
+        if (best_line == "" || indent < best_indent) {
+          best_indent = indent
+          best_line = NR
+          tie_count = 1
+        } else if (indent == best_indent) {
+          tie_count++
+        }
       }
     }
-    END { if (best_line != "") print best_line }
+    END { if (best_line != "" && tie_count == 1) print best_line }
   ' "$f")"
   [ -n "$line_no" ] || { echo "no top-level \"version\" field found in $f" >&2; exit 4; }
   match="$(sed -n "${line_no}p" "$f" | grep -o -E '"version"[[:space:]]*:[[:space:]]*"[^"]*"')"

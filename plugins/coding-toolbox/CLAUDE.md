@@ -211,10 +211,16 @@ write-back address the **specific line number** the match was found on
 nested inside e.g. `overrides`/`resolutions` is never confused with the
 project's own; for JSON files the top-level field is picked as whichever
 `"version"` match has the shallowest line indentation (a nested field is
-always indented more in a normally-formatted file — best-effort: a file
-where indentation doesn't reflect nesting, e.g. minified or hand-written
-without indentation, can't be disambiguated this way and fails loudly via
-`require_bare_semver` rather than silently picking the wrong field). `pom.xml`
+always indented more in a normally-formatted file), with a single match
+always winning outright — a CodeRabbit review on this branch's PR (#121)
+confirmed a file with NO indentation at all (still multi-line, just
+unindented) ties every match at indentation 0, and the original
+first-tie-wins logic silently picked whichever came first in the file,
+which could be the wrong (nested) one; fixed by treating 2+ matches tied at
+the shallowest indentation as ambiguous and failing loudly via
+`require_bare_semver`/the no-match check instead of guessing. Best-effort
+still: a file where indentation doesn't reflect nesting is exactly the case
+this can't disambiguate — the fix is "don't guess," not "handle it." `pom.xml`
 support is explicit best-effort:
 it skips past a leading `<parent>…</parent>` block before searching for the
 first `<version>` tag, so a parent POM's version is never mistaken for the
