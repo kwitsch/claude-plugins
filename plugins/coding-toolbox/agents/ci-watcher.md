@@ -16,7 +16,8 @@ structured report.
 Your dispatch prompt names the platform (`github`/`gitlab`), the PR/MR
 reference (PR number for GitHub, MR IID for GitLab), the branch name, the
 resolved absolute path to `bin/ci-watch.sh`, the fixed watch timeout (`1800`
-seconds), the absolute worktree path, and — on GitHub — the repository
+seconds), the absolute worktree path, the session scratchpad directory (or
+its `mktemp -d` fallback) absolute path, and — on GitHub — the repository
 `owner`/`name`.
 
 **Run every cwd-dependent command from the worktree by chaining the path
@@ -43,8 +44,12 @@ Run all scripts and fetch commands via the Bash tool.
 ## Steps
 
 1. **Wait for the CI result — through the bundled watch script.**
-   - GitHub: `cd "<worktree path>" && CI_WATCH_TIMEOUT=1800 bash <ci-watch.sh-path> github <nr>`
-   - GitLab: `cd "<worktree path>" && CI_WATCH_TIMEOUT=1800 bash <ci-watch.sh-path> gitlab <branch>`
+   - GitHub: `cd "<worktree path>" && CI_WATCH_TIMEOUT=1800 TMPDIR="<scratchpad path>" bash <ci-watch.sh-path> github <nr>`
+   - GitLab: `cd "<worktree path>" && CI_WATCH_TIMEOUT=1800 TMPDIR="<scratchpad path>" bash <ci-watch.sh-path> gitlab <branch>`
+   `TMPDIR` routes the script's own `mktemp` (used to capture stderr while
+   polling) into the session's scratch space instead of shared system
+   `/tmp` — `ci-watch.sh` itself needs no change, `mktemp` already prefers
+   `$TMPDIR` when set.
    The script polls until every REAL check is done — CodeRabbit's own PR
    checks are excluded by name, so a CodeRabbit app that never reacts (not
    installed, rate-limited) can neither block the watch nor flip the result.

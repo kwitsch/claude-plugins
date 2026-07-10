@@ -76,7 +76,12 @@ command either agent actually runs (`gh run view --log-failed`, `gh run
 list`, `gh pr checks` all came back byte-identical or only cosmetically
 reformatted when diffed raw-vs-`rtk`; `glab`'s `ci trace`/`api` paths are
 unverified — no `glab` in the dev environment) — so neither agent carries
-an acceleration block today.
+an acceleration block today. `ci-watcher`'s `bin/ci-watch.sh` invocation is
+now prefixed with `TMPDIR="<scratchpad path>"` (resolved once by
+`fresh-pr`, `mktemp -d` fallback when no scratchpad is available) so the
+script's own internal `mktemp` call lands in the session's scratch space
+rather than shared system `/tmp` — `ci-watch.sh` itself is unchanged,
+`mktemp` already prefers `$TMPDIR` when set.
 
 ## Skill design (`fresh-work`)
 
