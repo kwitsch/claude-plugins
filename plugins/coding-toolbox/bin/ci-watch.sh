@@ -17,7 +17,9 @@
 # wrapped in `timeout` so one hung CLI call cannot stall the loop;
 # transient API errors are retried until the deadline.
 #
-# Env: CI_WATCH_TIMEOUT (s, default 1800) · CI_WATCH_INTERVAL (s, default 30)
+# Env: CI_WATCH_TIMEOUT (s, default 1800) · CI_WATCH_INTERVAL (s, default 30) ·
+#      TMPDIR (honored by the stderr-capture `mktemp` below; callers set it to
+#      route that temp file into a session scratch dir instead of system /tmp)
 # Exit codes: 0 green (notes on stdout) · 1 red · 2 deadline reached
 #             without a conclusive real-CI result · 64 usage/environment
 #             error (bad arguments, CLI or `timeout` missing, CLI too old)
