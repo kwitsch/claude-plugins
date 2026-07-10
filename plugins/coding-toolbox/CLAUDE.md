@@ -230,7 +230,10 @@ User-only (`disable-model-invocation: true`, same precedent as
 `branch-management:clean-branches` — a side-effecting project-config
 wizard, not named `configure-*` but carrying the flag anyway) wizard
 that installs/refreshes/removes two always-on
-`.claude/rules/coding-toolbox-*.md` files: a byte-exact `cp` of the
+`~/.claude/rules/coding-toolbox-*.md` files (moved from project-scoped
+`.claude/rules/` 2026-07-10 — user-level rules apply to every project on
+this machine, confirmed against the memory-reference cc-reference doc):
+a byte-exact `cp` of the
 skill's own `references/golden-rules.md` (never re-typed, avoiding
 transcription drift) and a generated tool-routing table naming
 whichever of `rtk`/`bun`/`rg`/`codebase-memory-mcp` are on `PATH`.

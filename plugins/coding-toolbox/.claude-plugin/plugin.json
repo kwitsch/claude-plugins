@@ -1,7 +1,7 @@
 {
   "name": "coding-toolbox",
   "version": "0.13.0",
-  "description": "Mechanically enforces the Interaction axis on Stop, blocks content operations on non-UTF-8 files with an encoding hint, and provides fresh-branch, fresh-pr, fresh-work, bump-version and setup-rules skills — the latter installs the golden behavior rules doc (Interaction/Language/Behavior/Mentality) and a tool-routing table as opt-in project rules — for self-contained git branch, PR/MR, end-to-end work pipeline, semver version-bump and project-rules setup management.",
+  "description": "Mechanically enforces the Interaction axis on Stop, blocks content operations on non-UTF-8 files with an encoding hint, and provides fresh-branch, fresh-pr, fresh-work, bump-version and setup-rules skills — the latter installs the golden behavior rules doc (Interaction/Language/Behavior/Mentality) and a tool-routing table as opt-in user-level rules (every project on this machine) — for self-contained git branch, PR/MR, end-to-end work pipeline, semver version-bump and user-level rules setup management.",
   "author": {
     "name": "Kwitsch"
   }

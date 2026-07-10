@@ -691,8 +691,19 @@ run_ci_watch() {
 }
 
 @test "setup-rules documents that it is the only way to get golden rules injected" {
-  run rg_or_grep -F 'this skill is the only way to get them into a project' "$PLUGIN/skills/setup-rules/SKILL.md"
+  run rg_or_grep -F 'this skill is the only way to get them onto this machine' "$PLUGIN/skills/setup-rules/SKILL.md"
   assert_success
+}
+
+@test "setup-rules installs to the user-level rules directory, not project-level" {
+  run rg_or_grep -F '$HOME/.claude/rules' "$PLUGIN/skills/setup-rules/SKILL.md"
+  assert_success
+}
+
+@test "setup-rules apply commands target both managed files under the user-level directory" {
+  run rg_or_grep -c -F -e '$HOME/.claude/rules/coding-toolbox-rules.md' -e '$HOME/.claude/rules/coding-toolbox-tools.md' "$PLUGIN/skills/setup-rules/SKILL.md"
+  assert_success
+  [ "$output" -ge 4 ]
 }
 
 @test "plugin README lists setup-rules in the Skills section" {
