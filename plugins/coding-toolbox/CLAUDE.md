@@ -76,7 +76,14 @@ command either agent actually runs (`gh run view --log-failed`, `gh run
 list`, `gh pr checks` all came back byte-identical or only cosmetically
 reformatted when diffed raw-vs-`rtk`; `glab`'s `ci trace`/`api` paths are
 unverified — no `glab` in the dev environment) — so neither agent carries
-an acceleration block today.
+an acceleration block today. `ci-watcher`'s `bin/ci-watch.sh` invocation is
+now prefixed with `TMPDIR="<scratchpad path>"` (resolved once by
+`fresh-pr`, `mktemp -d` fallback when no scratchpad is available) so the
+script's own internal `mktemp` call lands in the session's scratch space
+rather than shared system `/tmp` — its `TMPDIR` behavior is unchanged,
+`mktemp` already prefers `$TMPDIR` when set (the script separately gained
+an explicit `mktemp`-failure guard, exit `64`, documented in
+`agents/ci-watcher.md`).
 
 ## Skill design (`fresh-work`)
 
@@ -211,7 +218,11 @@ confirmed at the design intent-confirmation gate) but never presented as
 equivalent to the npm case. No git operations — this skill only edits
 files in the working tree, unlike `fresh-branch`/`fresh-pr`/`fresh-work`;
 composability with those is preserved by keeping this skill's blast radius
-to file edits only.
+to file edits only. Both temp files this skill creates (`$BUMP`, and the
+lock-sync log inside it) are routed into the session scratchpad the same
+TMPDIR-propagation way as `fresh-pr`'s `ci-watcher` dispatch above — an
+`export TMPDIR=` line the caller substitutes before running the script,
+needing no change to the script itself.
 
 ## Skill design (`setup-rules`)
 

@@ -2,7 +2,7 @@
 name: fresh-pr
 description: Use when branch work should become a pull/merge request without a code-review-rounds step — commits pending work, rebases onto an updated base, pushes, opens or refreshes a PR/MR (GitHub and GitLab), then drives it to CI-green (and, if CodeRabbit participates, all its review threads resolved) via this plugin's own ci-watcher/pr-fixer agents. Self-contained — no dependency on branch-management.
 argument-hint: "[--base <branch>]"
-allowed-tools: ["Agent", "AskUserQuestion", "Bash(git:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(jq:*)", "Bash(bash:*)", "ToolSearch", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TaskStop"]
+allowed-tools: ["Agent", "AskUserQuestion", "Bash(git:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(jq:*)", "Bash(bash:*)", "Bash(mktemp:*)", "ToolSearch", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TaskStop"]
 ---
 
 # Push work and open/refresh a PR/MR, then drive it to CI-green
@@ -198,10 +198,18 @@ dependency on `branch-management`; every script/agent used here lives in
       resolved absolute path to `<plugin-root>/bin/ci-watch.sh` (resolve
       `${CLAUDE_PLUGIN_ROOT}` to a concrete absolute path via
       `echo "${CLAUDE_PLUGIN_ROOT}"` once, reuse it every iteration), the
-      fixed timeout `1800`, and `worktree_path` (from precondition 1 — the
+      fixed timeout `1800`, `worktree_path` (from precondition 1 — the
       agent chains `cd "<worktree_path>" &&` into each cwd-dependent `gh`/`glab`
       command so they resolve against the correct `origin` remote, not the
-      primary-repo root). On GitHub also resolve
+      primary-repo root), and the session scratchpad directory absolute
+      path — resolve it once from this skill's own system prompt (same
+      resolve-once-reuse-every-iteration treatment as `${CLAUDE_PLUGIN_ROOT}`
+      above); if none is available, run `mktemp -d -t fresh-pr-XXXXXX` once
+      instead — check its exit status before reusing the printed path; on
+      failure, report the error and stop before dispatching `ci-watcher`
+      rather than continuing with an empty/invalid path — and reuse that
+      directory for the rest of the run. On GitHub
+      also resolve
       `owner`/`name` once via `gh repo view --json owner,name --jq '{owner: .owner.login, name: .name}'`
       (`owner` comes back as an object, not a bare string — extract `.login`)
       and pass them along. Track the dispatch via the ledger above; do not proceed until

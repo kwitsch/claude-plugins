@@ -2,7 +2,7 @@
 name: bump-version
 description: Use to bump a project's semantic version (major, minor, or patch) in its detected version file — package.json, composer.json, pom.xml, or a plain VERSION file — and sync the matching lock file (npm/composer) when present.
 argument-hint: "<major|minor|patch>"
-allowed-tools: ["Bash(bash:*)", "Bash(mktemp:*)", "Bash(cat:*)", "Bash(rm -f *)"]
+allowed-tools: ["Bash(bash:*)", "Bash(mktemp:*)", "Bash(cat:*)", "Bash(rm -f *)", "Bash(export:*)"]
 ---
 
 # Bump a project's version
@@ -46,11 +46,21 @@ leaves the heredoc unterminated and swallows everything after it. Replace
 literal `major`/`minor`/`patch` argument the caller gave — not a bracketed
 `<...>` placeholder: those characters are shell redirection/pipe
 metacharacters, so an imperfect substitution would silently turn the
-invocation into a redirection instead of a clean, catchable usage error. The
-whole block (heredoc write + run + cleanup) is one Bash tool call.
+invocation into a redirection instead of a clean, catchable usage error. Also
+replace `SCRATCHPAD_DIR` (on the `export TMPDIR=` line below) with your
+session scratchpad directory's absolute path, taken from your own system
+prompt; if none is available, run `mktemp -d -t bump-version-XXXXXX` once
+first and use that directory's path instead — quote it, and never substitute
+a bracketed `<...>` placeholder literally (same caveat as `PART` above).
+This routes both temp files this script creates (`$BUMP`, and the lock-sync
+log created inside it) into the session's own scratch space rather than
+shared system `/tmp` — `mktemp` already prefers `$TMPDIR` when it is set, so
+the heredoc body below needs no change to pick this up. The whole block
+(heredoc write + run + cleanup) is one Bash tool call.
 
 ```bash
-BUMP="/tmp/bump-version.$$"
+export TMPDIR="SCRATCHPAD_DIR"
+BUMP="$(mktemp)" || { echo "mktemp failed — check TMPDIR (replace SCRATCHPAD_DIR with an existing, writable directory)" >&2; exit 1; }
 cat > "$BUMP" <<'BUMPVERSION_EOF'
 #!/usr/bin/env bash
 # bump-version: detect a project's version file (package.json > composer.json >
@@ -59,7 +69,8 @@ cat > "$BUMP" <<'BUMPVERSION_EOF'
 #
 # Usage: bump-version.sh <major|minor|patch>
 # Exit: 0 ok · 2 usage · 3 no_version_file · 4 unparseable_version ·
-#       5 write_failed · 6 sync_failed (version already written)
+#       5 write_failed · 6 sync_failed (version already written) ·
+#       7 sync_temp_failed (version already written)
 set -uo pipefail
 
 part="${1:-}"
@@ -233,7 +244,7 @@ sync_lock() {
   local lockfile="$1"
   shift
   [ -f "$lockfile" ] || return 0
-  sync_log="$(mktemp)"
+  sync_log="$(mktemp)" || { sync_status="temp_failed"; return 0; }
   trap 'rm -f "$sync_log"' EXIT
   if "$@" >"$sync_log" 2>&1; then
     sync_status="synced"
@@ -249,6 +260,10 @@ case "$kind" in
 esac
 
 printf 'file: %s\nold: %s\nnew: %s\nsync: %s\n' "$file" "$old" "$new" "$sync_status"
+if [ "$sync_status" = "temp_failed" ]; then
+  echo "could not create a temp file to capture lock-sync output — check TMPDIR" >&2
+  exit 7
+fi
 if [ "$sync_status" = "failed" ]; then
   echo "sync command output:" >&2
   cat "$sync_log" >&2
@@ -266,6 +281,10 @@ Map the exit code:
 
 - `0` — success; report the printed `file:`/`old:`/`new:`/`sync:` lines
   (`sync:` is one of `synced`, `no_lockfile`, `no_convention`).
+- `1` `environment_error` — `mktemp` failed to create the working temp file
+  (bad/unwritable `TMPDIR`, i.e. an unsubstituted or stale `SCRATCHPAD_DIR`).
+  Report the stderr message and stop; nothing was touched — this happens
+  before the version file is ever read.
 - `2` `usage` — missing, extra, or unrecognized argument (must be exactly
   one of `major`, `minor`, `patch`). Report the stderr usage line and
   stop; nothing was touched.
@@ -287,6 +306,13 @@ Map the exit code:
   non-zero exit). Report both facts explicitly — version bumped, sync
   did not complete — and include the captured sync-command output
   printed to stderr; never say the operation fully failed.
+- `7` `sync_temp_failed` — the version file was **already bumped and
+  written successfully**, but the lock-sync step couldn't even run: the
+  second `mktemp` call (capturing the sync command's output) failed
+  (same bad/unwritable `TMPDIR` cause as exit `1`, just hit later, after
+  the write). Report both facts explicitly — version bumped, sync never
+  attempted — this is distinct from `6`: there is no captured
+  sync-command output to show, because the sync command itself never ran.
 
 Report: the bumped file, old → new version, and the lock-sync outcome
 from the script's printed lines.
