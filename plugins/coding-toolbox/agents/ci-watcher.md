@@ -16,9 +16,8 @@ structured report.
 Your dispatch prompt names the platform (`github`/`gitlab`), the PR/MR
 reference (PR number for GitHub, MR IID for GitLab), the branch name, the
 resolved absolute path to `bin/ci-watch.sh`, the fixed watch timeout (`1800`
-seconds), the absolute worktree path, the session scratchpad directory (or
-its `mktemp -d` fallback) absolute path, and — on GitHub — the repository
-`owner`/`name`.
+seconds), the absolute worktree path, the session scratchpad directory's
+absolute path, and — on GitHub — the repository `owner`/`name`.
 
 **Run every cwd-dependent command from the worktree by chaining the path
 inline** — `cd "<worktree path>" && gh …` (likewise for `glab` and the

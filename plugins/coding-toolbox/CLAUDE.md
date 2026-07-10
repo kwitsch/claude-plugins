@@ -217,10 +217,10 @@ equivalent to the npm case. No git operations — this skill only edits
 files in the working tree, unlike `fresh-branch`/`fresh-pr`/`fresh-work`;
 composability with those is preserved by keeping this skill's blast radius
 to file edits only. Both temp files this skill creates (`$BUMP`, and the
-lock-sync log inside it) are routed into the session scratchpad via an
-`export TMPDIR=` line the caller substitutes before running the script —
-`mktemp` already prefers `$TMPDIR` when set, so neither the outer script nor
-the heredoc body needed any other change.
+lock-sync log inside it) are routed into the session scratchpad the same
+TMPDIR-propagation way as `fresh-pr`'s `ci-watcher` dispatch above — an
+`export TMPDIR=` line the caller substitutes before running the script,
+needing no change to the script itself.
 
 ## Skill design (`setup-rules`)
 
