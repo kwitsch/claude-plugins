@@ -268,16 +268,30 @@ file writes. Neither managed file carries a `paths:` frontmatter key —
 confirmed against the memory-reference cc-reference doc that a
 `.claude/rules/*.md` file without `paths` loads unconditionally, same
 priority as `.claude/CLAUDE.md`. A verbatim `$ARGUMENTS` mode (Step 3a)
-parses a substring-based verb+target grammar (`install`/`update`/`refresh` vs
-`remove`/`uninstall`; `tools` vs `rules`/`golden`, else both) to resolve the
-same two yes/no answers Step 3b's `AskUserQuestion` produces, without asking —
-ambiguous or unrecognized input reports usage and stops rather than guessing
-or half-applying. This mode exists for a human typing e.g.
+parses a whole-word-equality verb+target grammar (`install`/`update`/`refresh`
+vs `remove`/`uninstall`/etc.; `tools` vs `rules`/`golden`, else both) to
+resolve the same two yes/no answers Step 3b's `AskUserQuestion` produces,
+without asking — exact-word matching, not a raw substring check, deliberately:
+a code-review pass on this branch caught that substring matching made
+`uninstall` self-collide with the `install` keyword it contains, and made the
+documented `routing` synonym never actually match `tool`; both are fixed by
+matching whole words against each list instead. A destructive (`remove`-family)
+verb with no explicit target word is also a hard usage-error rather than
+defaulting to "both", per the same review pass — silently deleting every
+managed file from one ambiguous word would be a real footgun a bare `install`
+defaulting to "both" is not. This mode exists for a human typing e.g.
 `/coding-toolbox:setup-rules update tools rule` directly (`disable-model-invocation`
 blocks the *model*, not the user) — it was **not**, in the end, the mechanism
 that lets `memory-enhancement:dream` refresh the tools rule; see
 `refresh-tools-rule` below for why that stayed a separate skill instead of
-loosening this one's invocation control.
+loosening this one's invocation control. Step 1 detection also flags a
+leftover project-level `.claude/rules/coding-toolbox-*.md` from before the
+user-level move (`stale_project_level`) — informational only, surfaced once in
+Step 5's report; this skill never reads, writes, or removes it, since
+migrating or deleting a prior install was an explicit non-goal, not an
+oversight (a real instance exists in this very repo's own `.claude/rules/`,
+kept as-is deliberately for this repo's own dogfooding, not a bug to fix
+here).
 
 ## Skill design (`refresh-tools-rule`)
 
@@ -299,12 +313,16 @@ non-destructive: it hard-gates on `~/.claude/rules/coding-toolbox-tools.md`
 **already existing** (Step 1 detection), and from there only ever rewrites
 that one file's content from current `PATH` detection — it never creates the
 file (so it can't be used to silently opt a machine into anything) and never
-removes it. Its four `command -v` detection lines and four candidate table
-rows are a deliberate, hand-maintained duplicate of `setup-rules`' own Step
-1/Step 4 tools-rule logic (same accepted-duplication idiom as the
-`ci-watch.sh` port between `branch-management` and this plugin) rather than
-a shared dependency — a bats sync-guard (`test/coding-toolbox/test.bats`)
-pins the two copies identical so drift is caught, not silent.
+removes it. Its four `command -v` detection lines stay inline (trivial,
+one-liners, not worth extracting), but the four candidate table rows are
+**not** duplicated inline — both this skill and `setup-rules`' own Step 4
+`Read` the same bundled `skills/setup-rules/references/tool-routing-rows.md`
+file for them, a single source of truth rather than two hand-maintained
+copies (a code-review pass on this branch replaced an earlier draft that did
+duplicate the rows behind a bats sync-guard test — extracting them removes
+the drift risk entirely instead of just detecting it after the fact, since
+both skills live in the same plugin and sharing a bundled reference file
+costs nothing here, unlike the genuinely cross-plugin `ci-watch.sh` port).
 `memory-enhancement:dream`'s optional Phase 5 is this skill's only caller so
 far, invoking it with no arguments (there is nothing to choose — the one
 action is always "refresh if installed, else no-op").
@@ -325,7 +343,8 @@ dependency, the Review step's `simplify`/`code-review` ordering and
 high/max effort choice, self-containment tripwire, temp-doc convention) are
 included. `refresh-tools-rule` gets structural assertions (exists,
 model-invocable frontmatter — i.e. no `disable-model-invocation` key — no
-`rm `/install-path command anywhere in the file, the existence-gate present)
-plus a sync-guard comparing its four detection lines and four table rows
-byte-for-byte against `setup-rules`' own copies.
+`rm `/install-path command anywhere in the file, the existence-gate present,
+its four `command -v` detection lines present) plus an assertion that both it
+and `setup-rules` reference the shared `tool-routing-rows.md` file rather than
+inlining the candidate-rows table themselves.
 Run: `BATS_LIB_PATH=/usr/lib/bats bats test/coding-toolbox/`

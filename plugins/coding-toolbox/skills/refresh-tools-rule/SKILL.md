@@ -1,7 +1,7 @@
 ---
 name: refresh-tools-rule
 description: Refresh coding-toolbox's user-level tool-routing rule (~/.claude/rules/coding-toolbox-tools.md) from currently-detected rtk/bun/ripgrep/codebase-memory-mcp, but ONLY if that file already exists. Never installs it. Model-invocable — safe for another skill (e.g. memory-enhancement's dream) to call autonomously, since it can only ever refresh an existing file's content, never create or remove one.
-allowed-tools: ["Bash(cat:*)"]
+allowed-tools: ["Read", "Bash(cat:*)"]
 ---
 
 # Refresh coding-toolbox's tool-routing rule
@@ -24,6 +24,7 @@ echo "rtk: $(command -v rtk >/dev/null 2>&1 && echo present || echo absent)"
 echo "bun: $(command -v bun >/dev/null 2>&1 && echo present || echo absent)"
 echo "ripgrep: $(command -v rg >/dev/null 2>&1 && echo present || echo absent)"
 echo "codebase-memory: $(command -v codebase-memory-mcp >/dev/null 2>&1 && echo present || echo absent)"
+echo "Plugin root: $CLAUDE_PLUGIN_ROOT"
 ```
 
 If the block above rendered as literally `[shell command execution disabled by policy]`, stop and report: shell execution is disabled for skills (`disableSkillShellExecution`) — this skill can't detect or refresh safely. Do not guess; end here.
@@ -41,19 +42,13 @@ If the block above rendered as literally `[shell command execution disabled by p
 
   | Task | Prefer | Why |
   |---|---|---|
-  <one line per detected tool, from the candidate rows below, in this order>
+  <one line per detected tool, from the candidate rows file below, in this order>
   EOF
   ```
-  Candidate rows — include only the ones detected, each as one line of the same
-  heredoc before its closing `EOF`, verbatim, in this order (identical to
-  `setup-rules`' own Step 4 rows — kept in sync by hand; a bats sync-guard
-  pins the match):
-  | Tool | Row |
-  |---|---|
-  | rtk | `| Shell commands (git, gh, npm, …) | \`rtk <cmd>\` | routes through the Rust Token Killer proxy — token savings on dev-op output |` |
-  | bun | `| JS/TS runtime & package management | \`bun\` | faster install/run than node/npm |` |
-  | ripgrep | `| Text search | \`rg\` (ripgrep) | faster, respects .gitignore |` |
-  | codebase-memory | `| Code structure exploration (callers, call chains, architecture) | \`codebase-memory-mcp\` tools | graph-backed, avoids grepping the whole tree |` |
+  Candidate rows — Read `<plugin root resolved in Step 1>/skills/setup-rules/references/tool-routing-rows.md`
+  for the exact rows to include (only those detected, verbatim, in that
+  file's order) — the same file `setup-rules` reads, single source of
+  truth, never inlined here.
 - `Installed:` line mentions it, but nothing is detected: make **no change** —
   never overwrite an existing, populated table with an empty one. Report that
   nothing was detected so the existing file was left as-is.

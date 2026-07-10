@@ -3,7 +3,7 @@ name: setup-rules
 description: Install, refresh, or remove coding-toolbox's user-level rules — a copy of the golden-rules content and a tool-routing table for rtk/bun/ripgrep/codebase-memory — as always-on ~/.claude/rules/coding-toolbox-*.md files, applying to every project on this machine. Accepts a verbatim argument (e.g. "update tools rule") to apply directly, skipping the interactive prompts.
 argument-hint: "[install|update|remove] [rules|tools|both]"
 disable-model-invocation: true
-allowed-tools: ["AskUserQuestion", "Bash(mkdir:*)", "Bash(cp:*)", "Bash(rm:*)", "Bash(cat:*)"]
+allowed-tools: ["AskUserQuestion", "Read", "Bash(mkdir:*)", "Bash(cp:*)", "Bash(rm:*)", "Bash(cat:*)"]
 ---
 
 # Set up coding-toolbox user-level rules
@@ -30,6 +30,7 @@ this skill is the only way to get them onto this machine.
 <!-- coderabbit-skip: `ls`/`command -v` here run inside a dynamic-context `!` block — load-time preprocessing executed before Claude sees the content, not a Claude tool call, so `allowed-tools` has no bearing on it (cc-reference claude-code-skills-reference.md, "Dynamic context injection": "runs the shell command BEFORE Claude sees content ... preprocessing, not a Claude action"). Only the runtime Bash calls in Step 4 are model-issued tool calls, and those are covered. -->
 ```!
 echo "Installed: $(ls $HOME/.claude/rules/coding-toolbox-*.md 2>/dev/null || echo '(none)')"
+echo "Stale project-level: $(ls .claude/rules/coding-toolbox-*.md 2>/dev/null || echo '(none)')"
 echo "rtk: $(command -v rtk >/dev/null 2>&1 && echo present || echo absent)"
 echo "bun: $(command -v bun >/dev/null 2>&1 && echo present || echo absent)"
 echo "ripgrep: $(command -v rg >/dev/null 2>&1 && echo present || echo absent)"
@@ -43,6 +44,10 @@ If the block above rendered as literally `[shell command execution disabled by p
 
 - `rules_installed` = the `Installed:` line contains `coding-toolbox-rules.md`
 - `tools_installed` = the `Installed:` line contains `coding-toolbox-tools.md`
+- `stale_project_level` = the `Stale project-level:` line is not `(none)` —
+  a leftover from before rules moved to the user level; this skill never
+  reads, writes, or removes these project-level files, only flags them in
+  Step 5 if present
 - `detected` = the subset of `rtk`, `bun`, `ripgrep`, `codebase-memory`
   marked `present` above
 
@@ -53,24 +58,34 @@ If the block above rendered as literally `[shell command execution disabled by p
 
 ### Step 3a — Parse verbatim arguments
 
-Lowercase `$ARGUMENTS`, then resolve in order:
+Lowercase `$ARGUMENTS` and split on whitespace into words, then resolve in
+order — every check below is **exact whole-word equality against a listed
+entry, never a raw substring check** (so e.g. `uninstall` never collides
+with `install`, and `routing` is its own listed entry, not something
+expected to contain `tool`):
 
-1. **Verb.** Contains tokens from both the Yes-list and No-list below →
-   usage-error branch (item 3), ambiguous — do not guess. Else: contains any
-   of `remove`, `uninstall`, `delete`, `disable`, `no` → `answer = No`. Else:
-   contains any of `install`, `add`, `enable`, `update`, `refresh`, `yes` →
-   `answer = Yes`. Else → usage-error branch.
-2. **Target.** Contains `tool` (covers `tool`, `tools`, `tool-routing`,
-   `routing`) → `target = tools` only. Else contains `golden` or `rule`
-   (covers `rule`, `rules`, `golden-rules`; only reached when no `tool`
-   substring matched, so "tools rule" resolves to `tools` alone) →
-   `target = rules` only. Else (contains `both`/`all`/`everything`, or no
-   target keyword at all — e.g. bare `update`) → `target = both`.
+1. **Verb.** A word equals one of the No-list (`remove`, `uninstall`,
+   `delete`, `disable`, `no`) AND a (possibly different) word equals one of
+   the Yes-list (`install`, `add`, `enable`, `update`, `refresh`, `yes`) →
+   usage-error branch (item 3), ambiguous — do not guess. Else: a word
+   equals a No-list entry → `answer = No`. Else: a word equals a Yes-list
+   entry → `answer = Yes`. Else → usage-error branch.
+2. **Target.** A word equals one of `tool`, `tools`, `tool-routing`,
+   `routing` → `target = tools` only. Else a word equals one of `golden`,
+   `golden-rules`, `rule`, `rules` → `target = rules` only. Else a word
+   equals one of `both`, `all`, `everything` → `target = both`. Else (no
+   target word present at all):
+   - `answer` is `Yes` → `target = both` — a safe default; installing or
+     refreshing with no stated scope reasonably means "everything".
+   - `answer` is `No` → usage-error branch instead. A destructive action
+     with no stated scope is **never** inferred as "both" — require an
+     explicit target (`rules`/`tools`/`both`) rather than silently removing
+     every managed file from one ambiguous word.
 3. **Usage-error branch.** State plainly (not a question — no trailing `?`):
    `Couldn't parse "<$ARGUMENTS>" — expected a verb (install/update/remove)
-   and optionally a target (rules/tools/both). Examples: "install",
-   "update tools rule", "remove golden-rules", "remove both".` Then stop —
-   no file writes, nothing asked.
+   and, for remove, an explicit target (rules/tools/both). Examples:
+   "install", "update tools rule", "remove rules", "remove both".` Then
+   stop — no file writes, nothing asked.
 4. Set the Question 1 (golden-rules) answer to `answer` when `target` is
    `rules` or `both`; leave it untouched otherwise. Set the Question 2
    (tools) answer to `answer` when `target` is `tools` or `both`; leave it
@@ -133,18 +148,13 @@ options:
 
   | Task | Prefer | Why |
   |---|---|---|
-  <one line per tool in `detected`, from the candidate rows below, in this order>
+  <one line per tool in `detected`, from the candidate rows file below, in this order>
   EOF
   ```
-  Candidate rows — include only the ones whose tool is in `detected`, each
-  as one line of the same heredoc before its closing `EOF`, verbatim, in
-  this order:
-  | Tool | Row |
-  |---|---|
-  | rtk | `| Shell commands (git, gh, npm, …) | \`rtk <cmd>\` | routes through the Rust Token Killer proxy — token savings on dev-op output |` |
-  | bun | `| JS/TS runtime & package management | \`bun\` | faster install/run than node/npm |` |
-  | ripgrep | `| Text search | \`rg\` (ripgrep) | faster, respects .gitignore |` |
-  | codebase-memory | `| Code structure exploration (callers, call chains, architecture) | \`codebase-memory-mcp\` tools | graph-backed, avoids grepping the whole tree |` |
+  Candidate rows — Read `<plugin root resolved in Step 1>/skills/setup-rules/references/tool-routing-rows.md`
+  for the exact rows to include (only those whose tool is in `detected`,
+  verbatim, in that file's order) — single source of truth, also read by
+  `refresh-tools-rule`, never inlined here.
 - Question 2 answered "Yes", but `detected` is **empty** (only reachable when
   `tools_installed` was already true — Question 2 is otherwise skipped when
   both are false): make **no change**. Do not overwrite an existing,
@@ -160,3 +170,7 @@ options:
 ## Step 5 — Report
 
 State plainly which files were created, refreshed, removed, or left alone.
+If `stale_project_level` is true, add one line: a project-level rule file
+from before the user-level move still exists at `.claude/rules/coding-toolbox-*.md`
+and still loads in this project alongside the user-level one — this skill
+never touches it automatically; remove it manually if it's no longer wanted.

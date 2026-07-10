@@ -738,21 +738,31 @@ run_ci_watch() {
   assert_success
 }
 
-@test "refresh-tools-rule's detection and table rows stay in sync with setup-rules' own copies" {
+@test "refresh-tools-rule detects all four tools via command -v" {
   run rg_or_grep -c -e 'command -v rtk' -e 'command -v bun' -e 'command -v rg' -e 'command -v codebase-memory-mcp' "$PLUGIN/skills/refresh-tools-rule/SKILL.md"
   assert_success
   assert_output "4"
-  for row in \
-    'Shell commands (git, gh, npm, …) | \`rtk <cmd>\` | routes through the Rust Token Killer proxy' \
-    'JS/TS runtime & package management | \`bun\` | faster install/run than node/npm' \
-    'Text search | \`rg\` (ripgrep) | faster, respects .gitignore' \
-    'Code structure exploration (callers, call chains, architecture) | \`codebase-memory-mcp\` tools'
-  do
-    run rg_or_grep -F "$row" "$PLUGIN/skills/setup-rules/SKILL.md"
-    assert_success
-    run rg_or_grep -F "$row" "$PLUGIN/skills/refresh-tools-rule/SKILL.md"
+}
+
+@test "tool-routing-rows.md reference file exists with all four candidate rows" {
+  local rows="$PLUGIN/skills/setup-rules/references/tool-routing-rows.md"
+  run test -s "$rows"
+  assert_success
+  for tool in rtk bun ripgrep codebase-memory; do
+    run rg_or_grep -F "| $tool |" "$rows"
     assert_success
   done
+}
+
+@test "setup-rules and refresh-tools-rule both read the shared tool-routing-rows.md, never inline the table" {
+  run rg_or_grep -F 'references/tool-routing-rows.md' "$PLUGIN/skills/setup-rules/SKILL.md"
+  assert_success
+  run rg_or_grep -F 'references/tool-routing-rows.md' "$PLUGIN/skills/refresh-tools-rule/SKILL.md"
+  assert_success
+  run rg_or_grep -F 'rtk <cmd>' "$PLUGIN/skills/setup-rules/SKILL.md"
+  assert_failure
+  run rg_or_grep -F 'rtk <cmd>' "$PLUGIN/skills/refresh-tools-rule/SKILL.md"
+  assert_failure
 }
 
 @test "plugin README lists refresh-tools-rule in the Skills section" {
