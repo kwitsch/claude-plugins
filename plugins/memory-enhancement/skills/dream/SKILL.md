@@ -43,23 +43,19 @@ pattern worth reflecting in memory.
 For each memory file that needs a change based on phase 1's read and phase
 2's signal — merge duplicate memories, drop stale or superseded entries,
 resolve contradictions preferring the most recent evidence (an unresolvable
-contradiction gets noted in the file itself rather than blocking or asking):
-
-Additionally, for any phase 2 signal that has no existing memory file to
-fold into — a correction, preference, or decision with no current home —
-author a new memory file for any signal with no existing memory home,
-following this session's own auto-memory system prompt's two-step save
-process (pick the fitting type — user/feedback/project/reference; write
+contradiction gets noted in the file itself rather than blocking or asking).
+This includes authoring a brand-new file for any phase 2 signal with no
+existing memory home — a correction, preference, or decision with no file
+to fold into — via this session's own auto-memory system prompt's two-step
+save process (pick the fitting type: user/feedback/project/reference; write
 frontmatter `name`/`description`/`metadata.type`; for feedback/project
-types structure the body with **Why:** and **How to apply:** lines). A new
-file has no pre-dream version, so skip step 1 below for it, but still run
-it through step 3 below (the `cc-compress` check) exactly as an existing
-file would, when that skill is available.
+types structure the body with **Why:** and **How to apply:** lines):
 
-1. Copy the pre-dream version to a sibling `<file>.bak` next to it (backup
-   "daneben", not session-temp — this is dream's own backup, separate from
-   `cc-compress`'s).
-2. Write the consolidated content.
+1. If the file already exists, copy the pre-dream version to a sibling
+   `<file>.bak` next to it (backup "daneben", not session-temp — this is
+   dream's own backup, separate from `cc-compress`'s). A brand-new file has
+   nothing to back up — skip this step for it.
+2. Write the consolidated (or newly-authored) content.
 3. If the file is anything **other than** `MEMORY.md`: check whether
    `claude-code-knowledge:cc-compress` is among this session's available
    skills (no hard dependency — `claude-code-knowledge` is an optional
