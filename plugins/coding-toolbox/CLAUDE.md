@@ -80,8 +80,10 @@ an acceleration block today. `ci-watcher`'s `bin/ci-watch.sh` invocation is
 now prefixed with `TMPDIR="<scratchpad path>"` (resolved once by
 `fresh-pr`, `mktemp -d` fallback when no scratchpad is available) so the
 script's own internal `mktemp` call lands in the session's scratch space
-rather than shared system `/tmp` — `ci-watch.sh` itself is unchanged,
-`mktemp` already prefers `$TMPDIR` when set.
+rather than shared system `/tmp` — its `TMPDIR` behavior is unchanged,
+`mktemp` already prefers `$TMPDIR` when set (the script separately gained
+an explicit `mktemp`-failure guard, exit `64`, documented in
+`agents/ci-watcher.md`).
 
 ## Skill design (`fresh-work`)
 
