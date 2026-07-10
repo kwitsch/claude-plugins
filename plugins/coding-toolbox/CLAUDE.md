@@ -5,7 +5,8 @@ command hook (`encoding-guard.mjs`) and a `Stop` `mcp_tool` hook (`interaction_g
 the latter backed by a self-contained, now-stateless MCP server (`mcp/server.mjs`). The
 full golden-rules document lives, unwired, at `skills/setup-rules/references/golden-rules.md`
 (moved from `hooks/SessionStart.md` when the `SessionStart` hook was removed);
-`setup-rules` is the only way to get it into a project, opt-in. No userConfig.
+`setup-rules` is the only way to get it onto a machine (user-level, every
+project you open there), opt-in. No userConfig.
 
 ## Hook design (do not "fix" without reading this)
 
@@ -230,7 +231,10 @@ User-only (`disable-model-invocation: true`, same precedent as
 `branch-management:clean-branches` — a side-effecting project-config
 wizard, not named `configure-*` but carrying the flag anyway) wizard
 that installs/refreshes/removes two always-on
-`.claude/rules/coding-toolbox-*.md` files: a byte-exact `cp` of the
+`~/.claude/rules/coding-toolbox-*.md` files (moved from project-scoped
+`.claude/rules/` 2026-07-10 — user-level rules apply to every project on
+this machine, confirmed against the memory-reference cc-reference doc):
+a byte-exact `cp` of the
 skill's own `references/golden-rules.md` (never re-typed, avoiding
 transcription drift) and a generated tool-routing table naming
 whichever of `rtk`/`bun`/`rg`/`codebase-memory-mcp` are on `PATH`.
@@ -263,7 +267,70 @@ tools, mirroring `configure-branch-management`'s `jq`/`mv`/`printf`-only
 file writes. Neither managed file carries a `paths:` frontmatter key —
 confirmed against the memory-reference cc-reference doc that a
 `.claude/rules/*.md` file without `paths` loads unconditionally, same
-priority as `.claude/CLAUDE.md`.
+priority as `.claude/CLAUDE.md`. A verbatim `$ARGUMENTS` mode (Step 3a)
+parses a whole-word-equality verb+target grammar (`install`/`update`/`refresh`
+vs `remove`/`uninstall`/etc.; `tools` vs `rules`/`golden`, else both) to
+resolve the same two yes/no answers Step 3b's `AskUserQuestion` produces,
+without asking — exact-word matching, not a raw substring check, deliberately:
+a code-review pass on this branch caught that substring matching made
+`uninstall` self-collide with the `install` keyword it contains, and made the
+documented `routing` synonym never actually match `tool`; both are fixed by
+matching whole words against each list instead. A destructive (`remove`-family)
+verb with no explicit target word is also a hard usage-error rather than
+defaulting to "both", per the same review pass — silently deleting every
+managed file from one ambiguous word would be a real footgun a bare `install`
+defaulting to "both" is not. This mode exists for a human typing e.g.
+`/coding-toolbox:setup-rules update tools rule` directly (`disable-model-invocation`
+blocks the *model*, not the user) — it was **not**, in the end, the mechanism
+that lets `memory-enhancement:dream` refresh the tools rule; see
+`refresh-tools-rule` below for why that stayed a separate skill instead of
+loosening this one's invocation control. Step 1 detection also flags a
+leftover project-level `.claude/rules/coding-toolbox-*.md` from before the
+user-level move (`stale_project_level`) — informational only, surfaced once in
+Step 5's report; this skill never reads, writes, or removes it, since
+migrating or deleting a prior install was an explicit non-goal, not an
+oversight (this very repo's own `.claude/rules/` carried exactly this leftover
+from before the move — removed manually in this same PR once the user-level
+copy took over, not by any automated migration this skill performs).
+
+## Skill design (`refresh-tools-rule`)
+
+2026-07-10: split out of the `setup-rules` design during `fresh-work`'s
+Review step. The original plan for `dream`'s tools-rule sync (see
+`memory-enhancement/CLAUDE.md`) was to drop `disable-model-invocation` from
+`setup-rules` itself so `dream` could call it directly with the verbatim mode
+above (`args: "update tools rule"`) — a genuine "single source of truth"
+option the user picked at the `fresh-work` intent-confirmation gate. An
+altitude review during the same pipeline's Review step flagged the real cost:
+that would open *every* verb this skill supports — including destructive
+`remove`/install on a machine-wide dotfile — to autonomous invocation by any
+model turn in any session, to serve one narrow, non-destructive internal
+caller. Re-surfaced to the user, who chose to split instead: `setup-rules`
+keeps `disable-model-invocation: true` (its install/remove verbs stay
+human-only), and this new skill carries no such flag — safe to be
+model-invocable specifically *because* its entire behavior is provably
+non-destructive: it hard-gates on `~/.claude/rules/coding-toolbox-tools.md`
+**already existing** (Step 1 detection), and from there only ever rewrites
+that one file's content from current `PATH` detection — it never creates the
+file (so it can't be used to silently opt a machine into anything) and never
+removes it. Its four `command -v` detection lines stay inline (trivial,
+one-liners, not worth extracting), but the four candidate table rows are
+**not** duplicated inline — both this skill and `setup-rules`' own Step 4
+`Read` the same bundled `skills/setup-rules/references/tool-routing-rows.md`
+file for them, a single source of truth for the rows specifically rather
+than two hand-maintained copies (a code-review pass on this branch replaced
+an earlier draft that did duplicate the rows behind a bats sync-guard test —
+extracting them removes the drift risk entirely instead of just detecting it
+after the fact, since both skills live in the same plugin and sharing a
+bundled reference file costs nothing here, unlike the genuinely cross-plugin
+`ci-watch.sh` port). The surrounding heredoc scaffolding (`# Tool routing`
+header, the `Detected on this machine…` line, the table's own `| Task |
+Prefer | Why |` header/divider) is still written out in both skills — small,
+stable, and not worth extracting; only the row content that actually changes
+when a tool is added or reworded lives in the one shared file.
+`memory-enhancement:dream`'s optional Phase 5 is this skill's only caller so
+far, invoking it with no arguments (there is nothing to choose — the one
+action is always "refresh if installed, else no-op").
 
 ## Tests
 
@@ -279,5 +346,10 @@ version-bump manifest assertion. Structural assertions for
 absence, five phase references, the Intent-confirmation step and its Keypoints
 dependency, the Review step's `simplify`/`code-review` ordering and
 high/max effort choice, self-containment tripwire, temp-doc convention) are
-included.
+included. `refresh-tools-rule` gets structural assertions (exists,
+model-invocable frontmatter — i.e. no `disable-model-invocation` key — no
+`rm`/install-path command anywhere in the file, the existence-gate present,
+its four `command -v` detection lines present) plus an assertion that both it
+and `setup-rules` reference the shared `tool-routing-rows.md` file rather than
+inlining the candidate-rows table themselves.
 Run: `BATS_LIB_PATH=/usr/lib/bats bats test/coding-toolbox/`

@@ -14,7 +14,8 @@
 | `fresh-pr` | Commit pending work, rebase onto an updated base, push, and open or refresh a PR/MR (GitHub and GitLab) — then drive it to CI-green (and, if CodeRabbit participates, all review threads resolved) via bundled `ci-watcher`/`pr-fixer` agents. No dependency on `branch-management`. |
 | `fresh-work` | Run one unit of work end-to-end from a one-line description: classify (fix/refactor/feature), branch via `fresh-branch`, design + plan as session temp files (always self-reviewed; consult an advisor on their own judgment call), an `AskUserQuestion` intent-confirmation checkpoint between them, implement task-by-task via workflow-driven development (Workflow tool, Agent fallback), a `simplify`-then-`code-review --fix` review pass (effort scaled to diff complexity) before PR; fix path: systematic debugging instead, finish via `fresh-pr`. Fully self-contained. |
 | `bump-version` | Bump a project's semantic version (major/minor/patch) in its detected version file (`package.json`, `composer.json`, `pom.xml`, or `VERSION`) and sync the matching lock file (`npm`/`composer`) when present. No git operations. |
-| `setup-rules` | Install, refresh, or remove coding-toolbox's project-level rules — a golden-rules copy and a tool-routing table for `rtk`/`bun`/`rg`/`codebase-memory-mcp` — as always-on `.claude/rules/coding-toolbox-*.md` files, via one `AskUserQuestion` call with a single-select question per rule showing its current install state. |
+| `setup-rules` | Install, refresh, or remove coding-toolbox's user-level rules — a golden-rules copy and a tool-routing table for `rtk`/`bun`/`rg`/`codebase-memory-mcp` — as always-on `~/.claude/rules/coding-toolbox-*.md` files (every project on this machine), via one `AskUserQuestion` call with a single-select question per rule showing its current install state, or non-interactively via a verbatim argument (e.g. `/coding-toolbox:setup-rules update tools rule`). User-only — not model-invocable. |
+| `refresh-tools-rule` | Refresh the tool-routing rule from current `PATH` detection, but only if it's already installed — never creates or removes it. Model-invocable (unlike `setup-rules`) precisely because it's non-destructive; `memory-enhancement`'s `dream` skill uses this to keep the rule current across sessions. |
 
 ## Agents
 
@@ -27,7 +28,7 @@
 
 Mechanically enforces the Interaction axis on every turn and blocks non-UTF-8 file
 operations — both automatic, zero-setup. The full "golden behavior rules" document
-(covering all four axes) is available as an opt-in project rule via the `setup-rules`
+(covering all four axes) is available as an opt-in user-level rule via the `setup-rules`
 skill, rather than injected automatically.
 
 The rules document is written in cavemem's compressed-English notation and combines
@@ -50,6 +51,6 @@ four axes — three sourced from external repos, one (Interaction) plugin-origin
   files always pass; encoding-safe tools (`iconv`, `git`, `mv`, …) are never
   blocked.
 
-The Stop gate and encoding guard need no setup. Run `/setup-rules` once per project to
-opt into the full golden-rules document and a tool-routing table as persistent
-`.claude/rules/*.md` files.
+The Stop gate and encoding guard need no setup. Run `/coding-toolbox:setup-rules` once per
+machine to opt into the full golden-rules document and a tool-routing table as persistent
+`~/.claude/rules/*.md` files, applying to every project you open here.

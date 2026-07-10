@@ -48,6 +48,24 @@ of Claude Code's native auto-memory feature (v2.1.59+).
   index (kept under 200 lines/25KB, written directly -- never passed through
   `cc-compress`, whose path-preservation regex doesn't protect its
   bare-filename links).
+- Optional Phase 5 (2026-07-10): if `coding-toolbox:refresh-tools-rule` is
+  available this session, dream invokes it with no arguments
+  (`Skill(coding-toolbox:refresh-tools-rule)`) to refresh
+  `~/.claude/rules/coding-toolbox-tools.md` -- no hard dependency
+  (`plugin.json` declares none, same reasoning as the `cc-compress`
+  integration), silent no-op when the skill is absent. That skill (not
+  `coding-toolbox:setup-rules`, which stays user-only) is the intentional
+  integration point: an earlier design had dream call `setup-rules` directly
+  once it became model-invocable, but an altitude review during
+  `coding-toolbox-plugins`' own `fresh-work` Review step flagged that
+  loosening `setup-rules`' invocation control to serve this one narrow,
+  non-destructive need would also expose its destructive install/remove
+  verbs to any session -- so a separate, provably non-destructive
+  `refresh-tools-rule` skill was split out instead (see
+  `coding-toolbox/CLAUDE.md`'s "Skill design (`refresh-tools-rule`)" for the
+  full rationale). Dream itself no longer checks whether the tools-rule file
+  exists -- that gate moved into `refresh-tools-rule`, which no-ops safely
+  either way.
 
 ## Tests
 
