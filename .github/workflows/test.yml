@@ -25,6 +25,7 @@ jobs:
           - coding-toolbox
           - universal-format
           - universal-lint
+          - memory-enhancement
     steps:
       - name: Checkout
         uses: actions/checkout@v6
