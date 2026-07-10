@@ -20,8 +20,9 @@ Stop/SessionStart hook pair that nudges the next session to run one.
 Say "dream" (or describe wanting to consolidate/clean up memory) and the
 `dream` skill runs four phases over `~/.claude/projects/<project>/memory/`:
 orient, gather signal from recent session transcripts, consolidate (merge
-duplicates, drop stale entries, resolve contradictions, back up each changed
-file alongside itself), and update the `MEMORY.md` index -- keeping it under
+duplicates, drop stale entries, resolve contradictions, author a new memory file
+for any signal with no existing memory home, back up each existing changed
+detail file alongside itself), and update the `MEMORY.md` index -- keeping it under
 its 200-line load cutoff. If `claude-code-knowledge` is enabled, touched
 detail files also get compressed caveman-style via its `cc-compress` skill --
 no hard dependency, silent no-op if that plugin isn't installed. If

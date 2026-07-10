@@ -1,6 +1,6 @@
 ---
 name: dream
-description: Consolidate this project's auto-memory files (~/.claude/projects/<project>/memory/) in four phases -- orient, gather signal from recent session transcripts, consolidate (merge duplicates, drop stale entries, resolve contradictions), update the MEMORY.md index. Optionally compresses touched detail files caveman-style via claude-code-knowledge's cc-compress when that plugin is enabled (silent no-op otherwise). Surgical -- only touches files that need a change. When coding-toolbox is installed and its tool-routing rule already exists, also refreshes that rule (silent no-op otherwise). Trigger on natural language such as "dream", "run a dream", "dream cycle", "consolidate my memory", "clean up my memory files" -- no slash command needed.
+description: Consolidate this project's auto-memory files (~/.claude/projects/<project>/memory/) in four phases -- orient, gather signal from recent session transcripts, consolidate (merge duplicates, drop stale entries, resolve contradictions, author a new memory file for any signal with no existing memory home), update the MEMORY.md index. Optionally compresses touched detail files caveman-style via claude-code-knowledge's cc-compress when that plugin is enabled (silent no-op otherwise). Surgical -- only touches files that need a change. When coding-toolbox is installed and its tool-routing rule already exists, also refreshes that rule (silent no-op otherwise). Trigger on natural language such as "dream", "run a dream", "dream cycle", "consolidate my memory", "clean up my memory files", "did I forget to save something as memory", "check for missed learnings" -- no slash command needed.
 allowed-tools: Read, Write, Edit, Bash, Skill, AskUserQuestion
 ---
 
@@ -43,12 +43,19 @@ pattern worth reflecting in memory.
 For each memory file that needs a change based on phase 1's read and phase
 2's signal — merge duplicate memories, drop stale or superseded entries,
 resolve contradictions preferring the most recent evidence (an unresolvable
-contradiction gets noted in the file itself rather than blocking or asking):
+contradiction gets noted in the file itself rather than blocking or asking).
+This includes authoring a brand-new file for any phase 2 signal with no
+existing memory home — a correction, preference, or decision with no file
+to fold into — via this session's own auto-memory system prompt's two-step
+save process (pick the fitting type: user/feedback/project/reference; write
+frontmatter `name`/`description`/`metadata.type`; for feedback/project
+types structure the body with **Why:** and **How to apply:** lines):
 
-1. Copy the pre-dream version to a sibling `<file>.bak` next to it (backup
-   "daneben", not session-temp — this is dream's own backup, separate from
-   `cc-compress`'s).
-2. Write the consolidated content.
+1. If the file already exists, copy the pre-dream version to a sibling
+   `<file>.bak` next to it (backup "daneben", not session-temp — this is
+   dream's own backup, separate from `cc-compress`'s). A brand-new file has
+   nothing to back up — skip this step for it.
+2. Write the consolidated (or newly-authored) content.
 3. If the file is anything **other than** `MEMORY.md`: check whether
    `claude-code-knowledge:cc-compress` is among this session's available
    skills (no hard dependency — `claude-code-knowledge` is an optional
@@ -107,7 +114,8 @@ itself never checks for the file's existence or installs it.
 
 ## Report
 
-One short summary: files merged/dropped/changed, files left untouched, files
-compressed vs. skipped (with why), the final `MEMORY.md` line count, and
-whether the coding-toolbox tools rule was refreshed, left untouched, or
-skipped (with why).
+One short summary: files merged/dropped/changed/created, files left
+untouched, files compressed vs. rolled back after a failed compression (with
+why — cc-compress simply being unavailable is not itself called out, per
+phase 3), the final `MEMORY.md` line count, and whether the coding-toolbox
+tools rule was refreshed, left untouched, or skipped (with why).
