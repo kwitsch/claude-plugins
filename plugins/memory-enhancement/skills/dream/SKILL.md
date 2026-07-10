@@ -13,13 +13,13 @@ byte-for-byte alone — this is not a rewrite-every-run pass.
 
 Locate the memory directory from this session's own auto-memory
 system-prompt block (the line stating "persistent, file-based memory system
-at `<path>`") — never recompute it from `cwd`. If that block is absent this
-session (auto-memory disabled, or an older Claude Code without the feature):
-check `autoMemoryEnabled`/`autoMemoryDirectory` across `.claude/settings.local.json`
-(project), `.claude/settings.json` (project), `~/.claude/settings.json` (user)
-in that precedence order; if still nothing, fall back to the documented
-default `~/.claude/projects/<project>/memory/`. If auto-memory is disabled
-entirely, report that and stop — nothing to dream about.
+at `<path>`") — never recompute it from `cwd`, and never read
+`.claude/settings*.json` or `~/.claude/settings.json` to search for it (those
+files can carry unrelated credentials/config that has no business in this
+skill's context). If that block is absent this session (auto-memory
+disabled, or an older Claude Code without the feature), report that
+auto-memory's location cannot be determined this way and stop — nothing to
+dream about.
 
 Read `MEMORY.md` and list every topic file in the memory directory.
 
@@ -54,19 +54,26 @@ contradiction gets noted in the file itself rather than blocking or asking):
    integration). **Not available → silent no-op**: keep the
    consolidated-but-uncompressed content as final, no note in the summary,
    no different from a cycle that never attempted compression. **Available →**
-   extract the file's reference set with `rg -o '\[\[[^]]+\]\]|\b[\w-]+\.md\b'
-   <file> | sort -u` (wikilinks plus bare-`.md` filenames — `cc-compress`'s
-   path-preservation check does not protect either, only slash-containing
-   paths and full URLs). Invoke `claude-code-knowledge:cc-compress` (Skill
-   tool) on it with `--confirmed` (memory files live outside any git repo, so
-   `cc-compress`'s own git-recoverability gate would otherwise ask every
-   time; this dream cycle's own step-1 backup already covers rollback). After
-   compressing, run the same `rg -o ... | sort -u` command against the
-   compressed result and `diff` the two sorted lists. Any difference (a
-   missing or altered entry) → discard the compressed result, keep the
-   consolidated-but-uncompressed version instead, and note *that* skip in the
-   session summary (this one is a real, file-specific finding — unlike
-   `cc-compress` simply being unavailable).
+   copy the just-written consolidated content to a second sibling backup,
+   `<file>.pre-compress.bak` (distinct from the pre-dream `.bak` — this is
+   the actual rollback point for a failed compression; restoring from the
+   pre-dream `.bak` instead would silently discard this cycle's
+   consolidation work). Extract the file's reference set with `rg -o
+   '\[\[[^]]+\]\]|\b[\w-]+\.md\b' <file> | sort -u` (wikilinks plus
+   bare-`.md` filenames — `cc-compress`'s path-preservation check does not
+   protect either, only slash-containing paths and full URLs). Invoke
+   `claude-code-knowledge:cc-compress` (Skill tool) on it with `--confirmed`
+   (memory files live outside any git repo, so `cc-compress`'s own
+   git-recoverability gate would otherwise ask every time; this dream
+   cycle's own backups already cover rollback). After compressing, run the
+   same `rg -o ... | sort -u` command against the compressed result and
+   `diff` the two sorted lists. Any difference (a missing or altered entry)
+   → restore the file from `<file>.pre-compress.bak` (not the pre-dream
+   `.bak`), and note *that* skip in the session summary (this one is a real,
+   file-specific finding — unlike `cc-compress` simply being unavailable).
+   Either way (compression accepted or rolled back), delete
+   `<file>.pre-compress.bak` once its job is done — only the pre-dream
+   `.bak` persists as the lasting rollback record.
 
 Files that need no change: leave alone entirely — do not open, backup, or
 touch them.
