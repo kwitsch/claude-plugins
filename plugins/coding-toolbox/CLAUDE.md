@@ -5,7 +5,8 @@ command hook (`encoding-guard.mjs`) and a `Stop` `mcp_tool` hook (`interaction_g
 the latter backed by a self-contained, now-stateless MCP server (`mcp/server.mjs`). The
 full golden-rules document lives, unwired, at `skills/setup-rules/references/golden-rules.md`
 (moved from `hooks/SessionStart.md` when the `SessionStart` hook was removed);
-`setup-rules` is the only way to get it into a project, opt-in. No userConfig.
+`setup-rules` is the only way to get it onto a machine (user-level, every
+project you open there), opt-in. No userConfig.
 
 ## Hook design (do not "fix" without reading this)
 
