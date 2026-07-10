@@ -39,7 +39,8 @@ All reference files live in the skill's `references/` subfolder
 | `hook-handler-selection.md` | Choosing the right hook-handler type: decision table mapping event + behavior to command hook vs. mcp_tool hook. |
 | `claude-code-mcp-tool-hooks-reference.md` | Backing a hook with an MCP-server tool (`mcp_tool`): fields, the `plugin:<plugin>:<key>` server-name namespacing gotcha, tool-text→decision output contract, fail-open, plugin server pattern. |
 | `claude-code-commands-reference.md` | Authoring custom slash commands: locations & precedence, frontmatter, arguments, dynamic context, namespacing; built-in commands. |
-| `claude-code-mcp-reference.md` | MCP integration: `.mcp.json`, transports, config scopes, auth, tool naming, managed restrictions. |
+| `claude-code-mcp-reference.md` | MCP integration: `.mcp.json`, transports, config scopes, auth, tool naming. |
+| `claude-code-mcp-managed-reference.md` | Managed/enterprise MCP: `managed-mcp.json` exclusive control, `allowedMcpServers`/`deniedMcpServers` allowlists & denylists, evaluation order. |
 | `claude-code-plugins-reference.md` | Plugin authoring: `plugin.json`/`marketplace.json` schema, layout, path variables, components, dependencies, CLI. |
 | `claude-code-memory-reference.md` | `CLAUDE.md` memory: locations & precedence, imports, auto-memory, what belongs. |
 | `claude-code-settings-reference.md` | Config surface: `settings.json` & scope precedence, env vars, permissions & modes, model config, output styles, statusline, sandboxing. |

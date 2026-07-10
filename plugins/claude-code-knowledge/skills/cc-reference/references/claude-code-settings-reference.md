@@ -9,7 +9,7 @@
 >   https://code.claude.com/docs/en/output-styles.md,
 >   https://code.claude.com/docs/en/statusline.md,
 >   https://code.claude.com/docs/en/sandboxing.md
-> verified: 2026-07-03
+> verified: 2026-07-10
 
 ## settings.json: locations & scope precedence
 
@@ -94,7 +94,8 @@ Scopes from highest to lowest priority (higher overrides lower for scalar keys; 
 | `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS` | `1` removes built-in commit/PR instructions + git-status snapshot; overrides `includeGitInstructions` |
 | `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD` | `1` loads CLAUDE.md/`.claude/rules/*.md`/CLAUDE.local.md from `--add-dir` directories |
 | `CLAUDE_CODE_MAX_CONTEXT_TOKENS` | Override the context-window size Claude Code assumes for the active model. `version >= 2.1.193:` applied directly for model names Claude Code doesn't recognize; for recognized Claude models only takes effect when `DISABLE_COMPACT` is also set |
-| `CLAUDE_CODE_AUTO_COMPACT_WINDOW` | Context capacity (tokens) used for auto-compaction calc; capped at model window; decouples threshold from statusline `used_percentage` |
+| `CLAUDE_CODE_AUTO_COMPACT_WINDOW` | Context capacity (tokens) used for auto-compaction calc; capped at model window; decouples threshold from statusline `used_percentage`. Sonnet 5 defaults to ~967K (its window is always 1M on the Anthropic API) |
+| `CLAUDE_CODE_ENABLE_AUTO_MODE` | `version >= 2.1.158:` `1` shows `auto` permission mode in the Shift+Tab cycle on Amazon Bedrock/Google Cloud Agent Platform/Microsoft Foundry/signed-in Claude apps gateway sessions (off by default there; on by default on the Anthropic API) |
 | `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` | Percentage (1-100) of the compaction window at which proactive auto-compaction triggers; can only lower the threshold |
 | `CLAUDE_PROJECT_DIR` | Project directory; exported to hook/plugin processes |
 | `CLAUDE_PLUGIN_ROOT` | Plugin root directory; exported to hook/plugin processes |
@@ -163,10 +164,10 @@ Set via `permissions.defaultMode` in settings, `--permission-mode` CLI flag, or 
 
 | Mode | UI label | Description |
 |---|---|---|
-| `default` | Ask before edits | Prompts for permission on first use of each tool |
+| `default` | `version >= 2.1.200:` Manual (CLI, VS Code, JetBrains); accepts `manual` as an alias wherever a mode value is typed. Earlier versions show no distinct label | Prompts for permission on first use of each tool |
 | `acceptEdits` | Edit automatically | Auto-accepts file edits + filesystem Bash (`mkdir`, `touch`, `rm`, `rmdir`, `mv`, `cp`, `sed`; PowerShell `Set-Content`/`Add-Content`/`Clear-Content`/`Remove-Item`) for paths in working dir / `additionalDirectories` |
-| `plan` | Plan mode | Read-only: Claude reads files and runs read-only shell commands; does not edit source files. Enter via Shift+Tab or `/plan` prefix |
-| `auto` | Auto mode | `version >= 2.1.83:` auto-approves with a server-side safety classifier; research preview. Explicit `ask` rules still prompt |
+| `plan` | Plan (CLI + VS Code) | Read-only: Claude reads files and runs read-only shell commands; does not edit source files. Enter via Shift+Tab or `/plan` prefix |
+| `auto` | Auto mode | `version >= 2.1.83:` auto-approves with a server-side safety classifier; research preview. Explicit `ask` rules still prompt. Requires Opus/Sonnet 4.6+ (Anthropic API) or Sonnet 5/Opus 4.7/4.8 (Bedrock/Agent Platform/Foundry/Claude apps gateway, also needs `CLAUDE_CODE_ENABLE_AUTO_MODE=1`, `version >= 2.1.158`) |
 | `dontAsk` | — | Auto-denies tools unless matched by `permissions.allow` (or read-only Bash); explicit `ask` rules are denied, not prompted. `version >= 2.1.199:` an MCP tool with `_meta["anthropic/requiresUserInteraction"]` is also denied here even if an allow rule matches |
 | `bypassPermissions` | Bypass permissions | Skips prompts; `version >= 2.1.126:` includes protected-path writes (earlier versions prompted). Explicit `ask` rules + filesystem-root/home removals still prompt. `version >= 2.1.199:` an MCP tool with `_meta["anthropic/requiresUserInteraction"]` still prompts |
 
@@ -184,6 +185,7 @@ Protected directories: `.git`, `.config/git`, `.vscode`, `.idea`, `.husky`, `.ca
 - `bypassPermissions`: only use in isolated environments (containers/VMs); refuses to start as root/sudo on Linux/macOS unless in a recognized sandbox. Admins block it via `permissions.disableBypassPermissionsMode: "disable"`. Enter only by starting with `--permission-mode bypassPermissions` / `--dangerously-skip-permissions`.
 - `dontAsk` / `bypassPermissions`: Claude Code on the web ignores these as `defaultMode` from project/local settings. `defaultMode: "auto"` is also ignored from project/local settings (`version >= 2.1.142:`) — set in user/managed settings instead.
 - `auto` mode mechanics: classifier checks each non-trivial action; drops broad code-exec allow rules (`Bash(*)`, wildcarded interpreters, `Agent` allows) on entry, restores on exit. Pauses to prompting after 3 consecutive or 20 total blocks (not configurable). Subagent task descriptions are pre-checked `version >= 2.1.178:`. `version >= 2.1.199:` an MCP tool with `_meta["anthropic/requiresUserInteraction"]` skips the classifier and always prompts directly instead.
+- The classifier's default blocked/allowed-by-default action lists have grown across releases (most recent added categories `version >= 2.1.205`, e.g. writes to session transcript files, unresolved-variable recursive deletes). Run `claude auto-mode defaults` for the live, authoritative list rather than relying on a fixed enumeration here.
 - `--resume` restores the permission mode that was active at defer-time; exceptions: `plan` and `bypassPermissions` are never carried over.
 
 ## Model configuration
@@ -198,7 +200,7 @@ Protected directories: `.git`, `.config/git`, `.vscode`, `.idea`, `.husky`, `.ca
 | `sonnet` | Latest Sonnet default |
 | `haiku` | Latest Haiku default (override via `ANTHROPIC_DEFAULT_HAIKU_MODEL`) |
 | `fable` | Claude Fable 5 (`version >= 2.1.170:` shown in picker); for hardest/longest tasks |
-| `opus[1m]` / `sonnet[1m]` | Opus/Sonnet with the 1M-token context window |
+| `opus[1m]` / `sonnet[1m]` | Opus/Sonnet with the 1M-token context window. `sonnet[1m]` is a no-op when `sonnet` already resolves to Sonnet 5 (native 1M window, `version >= 2.1.197`); behind an LLM gateway it still selects the 1M window for Sonnet 5 |
 | `opusplan` | Opus for plan-mode turns; switches to Sonnet for execution |
 
 - Aliases resolve to a built-in default model ID that may lag the newest release.
@@ -308,7 +310,7 @@ A customizable bar at the bottom of Claude Code's interface. Configured via `sta
 
 ### `subagentStatusLine`
 
-Same object shape (`type`/`command`); renders a custom row body per subagent in the agent panel. stdin = base hook fields + `columns` + a `tasks` array (each: `id`, `name`, `type`, `status`, `description`, `label`, `startTime`, `tokenCount`, `tokenSamples`, `cwd`). Emit one JSON line per overridden row: `{"id":"<task id>","content":"<row body>"}`; omit `id` to keep default; empty `content` hides the row. Plugins can ship a default in their `settings.json`.
+Same object shape (`type`/`command`); renders a custom row body per subagent in the agent panel. stdin = base hook fields + `columns` + a `tasks` array (each: `id`, `name`, `type`, `status`, `description`, `label`, `startTime`, `model`, `contextWindowSize`, `tokenCount`, `tokenSamples`, `cwd`). `model` (resolved model ID) and `contextWindowSize` (that model's window in tokens) require `version >= 2.1.205` and are omitted for a task whose model isn't resolved yet. Emit one JSON line per overridden row: `{"id":"<task id>","content":"<row body>"}`; omit `id` to keep default; empty `content` hides the row. Plugins can ship a default in their `settings.json`.
 
 ### Available data (stdin JSON fields, curated)
 
@@ -374,6 +376,7 @@ OS-level filesystem and network isolation for Bash commands. Platform: macOS, Li
 | `credentials.files` | `version >= 2.1.187:` credential files/dirs sandboxed commands can't read; entries `{path, mode:"deny"}` (deny is the only file mode); merges across scopes | `[]` |
 | `credentials.envVars` | `version >= 2.1.187:` env vars to protect; entries `{name, mode}`. `deny` unsets the var. `version >= 2.1.199:` `mode:"mask"` substitutes a per-session sentinel inside the sandbox (needs `network.tlsTerminate`); `mask` honored only from user/managed/`--settings`, not project | `[]` |
 | `credentials.envVars[].injectHosts` | `version >= 2.1.199:` hosts where the proxy substitutes a `mask` entry's real value; each must also be covered by `network.allowedDomains`; unset = every `allowedDomains` host | — |
+| `credentials.allowPlaintextInject` | Gates `mask`-mode substitution alongside `mask` entries and `network.tlsTerminate`; honored only from user/managed/`--settings` sources, ignored when set in a repo's `.claude/settings.json` or `.claude/settings.local.json` | — |
 | `enableWeakerNetworkIsolation` | Allow a MITM proxy + custom CA (e.g. for Go CLIs failing TLS under Seatbelt); weakens isolation | `false` |
 | `allowAppleEvents` | macOS: allow Apple Events (`open`, `osascript`); honored from user/managed/CLI only (NOT project); removes code-exec isolation | `false` |
 | `enableWeakerNestedSandbox` | Linux only: enable sandbox inside Docker without privileged namespaces; weakens security | `false` |
@@ -414,3 +417,5 @@ Paths in `filesystem.*` use standard conventions (NOT the `//` Read/Edit anchori
 | `version >= 2.1.193` | `CLAUDE_CODE_MAX_CONTEXT_TOKENS` applies directly to unrecognized (non-Claude) model names |
 | `version >= 2.1.196` | statusline `prompt_id` field |
 | `version >= 2.1.199` | MCP tool `_meta["anthropic/requiresUserInteraction"]` gates `auto`/`dontAsk`/`bypassPermissions`; sandbox `network.tlsTerminate` + `credentials.envVars` `mask` mode |
+| `version >= 2.1.200` | `default` permission mode labeled Manual (CLI/VS Code/JetBrains); accepts `manual` as an alias |
+| `version >= 2.1.205` | `subagentStatusLine` per-task `model` + `contextWindowSize` fields |

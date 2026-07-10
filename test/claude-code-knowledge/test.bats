@@ -136,6 +136,7 @@ make_stub() {
            claude-code-hooks-reference.md hook-handler-selection.md \
            claude-code-mcp-tool-hooks-reference.md \
            claude-code-commands-reference.md claude-code-mcp-reference.md \
+           claude-code-mcp-managed-reference.md \
            claude-code-plugins-reference.md claude-code-memory-reference.md \
            claude-code-settings-reference.md; do
     [ -s "$REFS/$f" ]
@@ -147,6 +148,7 @@ make_stub() {
            claude-code-hooks-reference.md hook-handler-selection.md \
            claude-code-mcp-tool-hooks-reference.md \
            claude-code-commands-reference.md claude-code-mcp-reference.md \
+           claude-code-mcp-managed-reference.md \
            claude-code-plugins-reference.md claude-code-memory-reference.md \
            claude-code-settings-reference.md; do
     run rg_or_grep -cE '^## ' "$REFS/$f"
@@ -160,6 +162,7 @@ make_stub() {
            claude-code-hooks-reference.md hook-handler-selection.md \
            claude-code-mcp-tool-hooks-reference.md \
            claude-code-commands-reference.md claude-code-mcp-reference.md \
+           claude-code-mcp-managed-reference.md \
            claude-code-plugins-reference.md claude-code-memory-reference.md \
            claude-code-settings-reference.md; do
     run rg_or_grep -iE 'verified' "$REFS/$f"
@@ -172,6 +175,7 @@ make_stub() {
            claude-code-hooks-reference.md hook-handler-selection.md \
            claude-code-mcp-tool-hooks-reference.md \
            claude-code-commands-reference.md claude-code-mcp-reference.md \
+           claude-code-mcp-managed-reference.md \
            claude-code-plugins-reference.md claude-code-memory-reference.md \
            claude-code-settings-reference.md; do
     run rg_or_grep -F "$f" "$SKILL/SKILL.md"
@@ -244,6 +248,7 @@ make_stub() {
     printf '%s\n' "$output" | rg_or_grep -q "$tok"
   done
   for f in claude-code-commands-reference.md claude-code-mcp-reference.md \
+           claude-code-mcp-managed-reference.md \
            claude-code-plugins-reference.md claude-code-memory-reference.md \
            claude-code-settings-reference.md; do
     run rg_or_grep -F "$f" "$MAINT"
