@@ -13,7 +13,7 @@ Stop/SessionStart hook pair that nudges the next session to run one.
 
 | Skill | What it does |
 |---|---|
-| `dream` | Consolidates this project's auto-memory files in four phases (orient, gather signal, consolidate, update the MEMORY.md index), optionally compressing touched detail files via `claude-code-knowledge`'s `cc-compress` when that plugin is enabled. |
+| `dream` | Consolidates this project's auto-memory files in four phases (orient, gather signal, consolidate, update the MEMORY.md index), optionally compressing touched detail files via `claude-code-knowledge`'s `cc-compress` when that plugin is enabled, and optionally refreshing coding-toolbox's user-level tool-routing rule when that plugin is installed and the rule already exists. |
 
 ## What it does
 
@@ -24,9 +24,12 @@ duplicates, drop stale entries, resolve contradictions, back up each changed
 file alongside itself), and update the `MEMORY.md` index -- keeping it under
 its 200-line load cutoff. If `claude-code-knowledge` is enabled, touched
 detail files also get compressed caveman-style via its `cc-compress` skill --
-no hard dependency, silent no-op if that plugin isn't installed. Only files
-that actually need a change are touched -- untouched memory files are left
-byte-for-byte alone.
+no hard dependency, silent no-op if that plugin isn't installed. If
+`coding-toolbox` is installed and its `~/.claude/rules/coding-toolbox-tools.md`
+tool-routing rule already exists, dream also refreshes it -- again no hard
+dependency, silent no-op otherwise, and dream never installs that file itself.
+Only files that actually need a change are touched -- untouched memory files
+are left byte-for-byte alone.
 
 A `Stop` hook flags a genuinely new next session (not a same-session
 `/clear`, `/compact`, or `--resume`) as dream-due; a `SessionStart` hook

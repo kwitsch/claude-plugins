@@ -1,13 +1,14 @@
 ---
 name: dream
-description: Consolidate this project's auto-memory files (~/.claude/projects/<project>/memory/) in four phases -- orient, gather signal from recent session transcripts, consolidate (merge duplicates, drop stale entries, resolve contradictions), update the MEMORY.md index. Optionally compresses touched detail files caveman-style via claude-code-knowledge's cc-compress when that plugin is enabled (silent no-op otherwise). Surgical -- only touches files that need a change. Trigger on natural language such as "dream", "run a dream", "dream cycle", "consolidate my memory", "clean up my memory files" -- no slash command needed.
+description: Consolidate this project's auto-memory files (~/.claude/projects/<project>/memory/) in four phases -- orient, gather signal from recent session transcripts, consolidate (merge duplicates, drop stale entries, resolve contradictions), update the MEMORY.md index. Optionally compresses touched detail files caveman-style via claude-code-knowledge's cc-compress when that plugin is enabled (silent no-op otherwise). Surgical -- only touches files that need a change. When coding-toolbox is installed and its tool-routing rule already exists, also refreshes that rule (silent no-op otherwise). Trigger on natural language such as "dream", "run a dream", "dream cycle", "consolidate my memory", "clean up my memory files" -- no slash command needed.
 allowed-tools: Read, Write, Edit, Bash, Skill, AskUserQuestion
 ---
 
 # dream — memory consolidation cycle
 
-Four phases, run in order. Surgical: a file that needs no change is left
-byte-for-byte alone — this is not a rewrite-every-run pass.
+Four required phases, run in order, plus one optional Phase 5. Surgical: a
+file that needs no change is left byte-for-byte alone — this is not a
+rewrite-every-run pass.
 
 ## Phase 1 — Orient
 
@@ -89,7 +90,27 @@ path separator, which is exactly the gap phase 3 step 3 works around for
 other files, and there is no backup-and-diff step protecting the index
 itself, so it must never risk a reworded filename.
 
+## Phase 5 — Sync coding-toolbox tools rule (optional)
+
+Gate (both required — no partial action):
+1. `coding-toolbox:setup-rules` is among this session's available skills (same
+   presence check as the `claude-code-knowledge:cc-compress` check in phase 3).
+2. `~/.claude/rules/coding-toolbox-tools.md` already exists — never install this
+   file on dream's own initiative, only refresh one the user already opted into
+   via `setup-rules`.
+
+Either condition false → silent no-op, nothing to report beyond the summary
+line below.
+
+Both true → `Skill(coding-toolbox:setup-rules, args: "update tools rule")` — one
+call, no follow-up question (setup-rules' own verbatim-argument mode resolves it
+non-interactively). setup-rules' existing guard against overwriting a populated
+table with an empty one applies unchanged, since this is the same Apply logic
+either invocation path uses.
+
 ## Report
 
 One short summary: files merged/dropped/changed, files left untouched, files
-compressed vs. skipped (with why), and the final `MEMORY.md` line count.
+compressed vs. skipped (with why), the final `MEMORY.md` line count, and
+whether the coding-toolbox tools rule was refreshed, left untouched, or
+skipped (with why).

@@ -48,6 +48,15 @@ of Claude Code's native auto-memory feature (v2.1.59+).
   index (kept under 200 lines/25KB, written directly -- never passed through
   `cc-compress`, whose path-preservation regex doesn't protect its
   bare-filename links).
+- Optional Phase 5 (2026-07-10): if `coding-toolbox:setup-rules` is available
+  this session and `~/.claude/rules/coding-toolbox-tools.md` already exists,
+  dream invokes it directly (`Skill(coding-toolbox:setup-rules, args: "update
+  tools rule")`) to refresh the detected-tool table -- no hard dependency
+  (`plugin.json` declares none, same reasoning as the `cc-compress`
+  integration), silent no-op when either condition is false. Deliberately a
+  direct `Skill`-tool call, not duplicated detect+rewrite logic, now that
+  `setup-rules` dropped `disable-model-invocation` and gained a verbatim-argument
+  mode specifically to make this callable non-interactively.
 
 ## Tests
 
