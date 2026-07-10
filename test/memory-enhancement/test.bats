@@ -33,8 +33,8 @@ setup() {
   assert_success
 }
 
-@test "SessionStart hook is scoped to startup|resume only (never clear/compact)" {
-  run jq -e '.hooks.SessionStart[0].matcher == "startup|resume"' "$HOOKS"
+@test "SessionStart hook is scoped to startup only (never resume/clear/compact)" {
+  run jq -e '.hooks.SessionStart[0].matcher == "startup"' "$HOOKS"
   assert_success
 }
 

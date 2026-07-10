@@ -18,12 +18,13 @@ of Claude Code's native auto-memory feature (v2.1.59+).
   takes the caller's own `import.meta.url` as a parameter so the entry-point
   check still targets the right file when shared). No `user_config` read
   here -- gating happens once, at SessionStart.
-- `hooks/check-dream-due.mjs` (`SessionStart`, command, **matcher
-  `startup|resume` only** -- deliberately excludes `clear`/`compact`: Stop
-  fires every turn, so a same-session `/clear`/`/compact` would otherwise
-  consume a flag set moments earlier and nudge mid-session instead of at a
-  genuinely new next session, contradicting the documented "flags the next
-  session" behavior): reads `auto_dream` via `${user_config.auto_dream}`
+- `hooks/check-dream-due.mjs` (`SessionStart`, command, **matcher `startup`
+  only** -- deliberately excludes `resume`/`clear`/`compact`: `resume`
+  continues the same session it was suspended from, and `Stop` fires every
+  turn, so any of those would otherwise consume a flag set moments earlier
+  and nudge mid-session instead of at a genuinely new next session,
+  contradicting the documented "flags the next session" behavior): reads
+  `auto_dream` via `${user_config.auto_dream}`
   interpolated into `argv[2]` (documented in the plugins reference: "Plugin
   hooks/commands additionally substitute `${user_config.*}`") -- fail-closed,
   only the literal string `"true"` enables (state-creating-toggle exception
