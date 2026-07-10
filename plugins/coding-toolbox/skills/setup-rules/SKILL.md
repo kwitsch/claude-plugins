@@ -54,23 +54,23 @@ If the block above rendered as literally `[shell command execution disabled by p
 
 Lowercase `$ARGUMENTS`, then resolve in order:
 
-1. **Ambiguity check.** Contains a token from *both* groups below → go to
-   the usage-error branch (item 4) without applying anything.
-2. **Verb.** Contains any of `remove`, `uninstall`, `delete`, `disable`, `no`
-   → `answer = No`. Else contains any of `install`, `add`, `enable`,
-   `update`, `refresh`, `yes` → `answer = Yes`. Else → usage-error branch.
-3. **Target.** Contains `tool` (covers `tool`, `tools`, `tool-routing`,
+1. **Verb.** Contains tokens from both the Yes-list and No-list below →
+   usage-error branch (item 3), ambiguous — do not guess. Else: contains any
+   of `remove`, `uninstall`, `delete`, `disable`, `no` → `answer = No`. Else:
+   contains any of `install`, `add`, `enable`, `update`, `refresh`, `yes` →
+   `answer = Yes`. Else → usage-error branch.
+2. **Target.** Contains `tool` (covers `tool`, `tools`, `tool-routing`,
    `routing`) → `target = tools` only. Else contains `golden` or `rule`
    (covers `rule`, `rules`, `golden-rules`; only reached when no `tool`
    substring matched, so "tools rule" resolves to `tools` alone) →
    `target = rules` only. Else (contains `both`/`all`/`everything`, or no
    target keyword at all — e.g. bare `update`) → `target = both`.
-4. **Usage-error branch.** State plainly (not a question — no trailing `?`):
+3. **Usage-error branch.** State plainly (not a question — no trailing `?`):
    `Couldn't parse "<$ARGUMENTS>" — expected a verb (install/update/remove)
    and optionally a target (rules/tools/both). Examples: "install",
-   "update tools rule", "remove rules rule", "remove both".` Then stop —
+   "update tools rule", "remove golden-rules", "remove both".` Then stop —
    no file writes, nothing asked.
-5. Set the Question 1 (golden-rules) answer to `answer` when `target` is
+4. Set the Question 1 (golden-rules) answer to `answer` when `target` is
    `rules` or `both`; leave it untouched otherwise. Set the Question 2
    (tools) answer to `answer` when `target` is `tools` or `both`; leave it
    untouched otherwise. Skip `AskUserQuestion` entirely — go straight to
@@ -87,12 +87,12 @@ precedence rule.
 
 Question 1 (always asked):
 ```
-question: "Should the golden-rules rule be installed? Applies to every project on this machine."
+question: "Should the golden-rules rule be installed?"
 header:   "Golden-rules rule (this machine) [currently: <installed|not installed>]"
 multiSelect: false
 options:
   - label: "Yes"
-    description: "Copy this plugin's golden-rules content to ~/.claude/rules/coding-toolbox-rules.md (always active, every project on this machine); overwrites if already present."
+    description: "Copy this plugin's golden-rules content to ~/.claude/rules/coding-toolbox-rules.md (always active); overwrites if already present."
   - label: "No"
     description: "Make sure it's not installed — removes it if currently present."
 ```
@@ -101,7 +101,7 @@ Question 2 — include **only if** `tools_installed` is true, or `detected` is
 non-empty (otherwise there is nothing meaningful to install and no existing
 file to offer removing, so omit this question entirely):
 ```
-question: "Should the tool-routing rule be installed? Applies to every project on this machine."
+question: "Should the tool-routing rule be installed?"
 header:   "Tool-routing rule (this machine) [currently: <installed|not installed>]"
 multiSelect: false
 options:

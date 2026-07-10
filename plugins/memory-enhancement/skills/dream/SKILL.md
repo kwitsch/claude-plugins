@@ -99,14 +99,12 @@ Gate (both required — no partial action):
    file on dream's own initiative, only refresh one the user already opted into
    via `setup-rules`.
 
-Either condition false → silent no-op, nothing to report beyond the summary
-line below.
+Either condition false → skip the `Skill` call; note which condition failed in
+the Report line below (a one-line note, not additional summary detail).
 
 Both true → `Skill(coding-toolbox:setup-rules, args: "update tools rule")` — one
 call, no follow-up question (setup-rules' own verbatim-argument mode resolves it
-non-interactively). setup-rules' existing guard against overwriting a populated
-table with an empty one applies unchanged, since this is the same Apply logic
-either invocation path uses.
+non-interactively).
 
 ## Report
 

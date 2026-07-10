@@ -645,27 +645,18 @@ run_ci_watch() {
   assert_success
 }
 
-@test "setup-rules frontmatter declares name and required allowed-tools" {
+@test "setup-rules frontmatter declares name, required allowed-tools, argument-hint, and is model-invocable" {
   run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/skills/setup-rules/SKILL.md'"
   assert_success
   assert_output --partial "name: setup-rules"
   assert_output --partial "AskUserQuestion"
   assert_output --partial 'Bash(cp:*)'
-}
-
-@test "setup-rules is model-invocable (disable-model-invocation deliberately absent)" {
-  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/skills/setup-rules/SKILL.md'"
-  assert_success
+  assert_output --partial 'argument-hint: "[install|update|remove]'
   refute_output --partial "disable-model-invocation"
 }
 
-@test "setup-rules declares a non-empty argument-hint for verbatim mode" {
-  run rg_or_grep -F 'argument-hint: "[install|update|remove]' "$PLUGIN/skills/setup-rules/SKILL.md"
-  assert_success
-}
-
 @test "setup-rules verbatim parser rejects ambiguous input without guessing" {
-  run rg_or_grep -F 'Ambiguity check' "$PLUGIN/skills/setup-rules/SKILL.md"
+  run rg_or_grep -F 'ambiguous' "$PLUGIN/skills/setup-rules/SKILL.md"
   assert_success
   run rg_or_grep -F 'usage-error branch' "$PLUGIN/skills/setup-rules/SKILL.md"
   assert_success
