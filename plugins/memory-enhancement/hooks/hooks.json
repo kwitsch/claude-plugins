@@ -1,3 +1,23 @@
 {
-  "hooks": {}
+  "description": "Stop refreshes a per-project dream-due flag; SessionStart consumes it (gated by auto_dream) and nudges a memory dream cycle.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/flag-dream-due.mjs" }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/check-dream-due.mjs",
+            "args": ["${user_config.auto_dream}"]
+          }
+        ]
+      }
+    ]
+  }
 }
