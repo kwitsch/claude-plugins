@@ -662,6 +662,13 @@ run_ci_watch() {
   assert_success
 }
 
+@test "setup-rules target parser rejects two distinct named targets, but still absorbs bare rule/rules after a tool word" {
+  run rg_or_grep -F 'target is named' "$PLUGIN/skills/setup-rules/SKILL.md"
+  assert_success
+  run rg_or_grep -F 'the `tool`-family word absorbs the bare "rule"' "$PLUGIN/skills/setup-rules/SKILL.md"
+  assert_success
+}
+
 @test "setup-rules detects installed rules via the coding-toolbox-*.md glob" {
   run rg_or_grep -F 'coding-toolbox-*.md' "$PLUGIN/skills/setup-rules/SKILL.md"
   assert_success
@@ -738,20 +745,34 @@ run_ci_watch() {
   assert_success
 }
 
+@test "refresh-tools-rule's write is symlink-safe and atomic (no bare cat> onto the managed path)" {
+  run rg_or_grep -F -- '-L "$target"' "$PLUGIN/skills/refresh-tools-rule/SKILL.md"
+  assert_success
+  run rg_or_grep -F 'mktemp' "$PLUGIN/skills/refresh-tools-rule/SKILL.md"
+  assert_success
+  run rg_or_grep -F 'mv -f "$tmp" "$target"' "$PLUGIN/skills/refresh-tools-rule/SKILL.md"
+  assert_success
+  run rg_or_grep -F 'cat > "$HOME/.claude/rules/coding-toolbox-tools.md"' "$PLUGIN/skills/refresh-tools-rule/SKILL.md"
+  assert_failure
+}
+
 @test "refresh-tools-rule detects all four tools via command -v" {
   run rg_or_grep -c -e 'command -v rtk' -e 'command -v bun' -e 'command -v rg' -e 'command -v codebase-memory-mcp' "$PLUGIN/skills/refresh-tools-rule/SKILL.md"
   assert_success
   assert_output "4"
 }
 
-@test "tool-routing-rows.md reference file exists with all four candidate rows" {
+@test "tool-routing-rows.md reference file exists with all four candidate rows, each in its own fenced block" {
   local rows="$PLUGIN/skills/setup-rules/references/tool-routing-rows.md"
   run test -s "$rows"
   assert_success
   for tool in rtk bun ripgrep codebase-memory; do
-    run rg_or_grep -F "| $tool |" "$rows"
+    run rg_or_grep -F "### $tool" "$rows"
     assert_success
   done
+  run rg_or_grep -c -F -e '### rtk' -e '### bun' -e '### ripgrep' -e '### codebase-memory' "$rows"
+  assert_success
+  assert_output "4"
 }
 
 @test "setup-rules and refresh-tools-rule both read the shared tool-routing-rows.md, never inline the table" {

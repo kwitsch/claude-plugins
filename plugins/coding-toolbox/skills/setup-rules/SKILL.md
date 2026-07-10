@@ -70,17 +70,30 @@ expected to contain `tool`):
    usage-error branch (item 3), ambiguous — do not guess. Else: a word
    equals a No-list entry → `answer = No`. Else: a word equals a Yes-list
    entry → `answer = Yes`. Else → usage-error branch.
-2. **Target.** A word equals one of `tool`, `tools`, `tool-routing`,
-   `routing` → `target = tools` only. Else a word equals one of `golden`,
-   `golden-rules`, `rule`, `rules` → `target = rules` only. Else a word
-   equals one of `both`, `all`, `everything` → `target = both`. Else (no
-   target word present at all):
-   - `answer` is `Yes` → `target = both` — a safe default; installing or
-     refreshing with no stated scope reasonably means "everything".
-   - `answer` is `No` → usage-error branch instead. A destructive action
-     with no stated scope is **never** inferred as "both" — require an
-     explicit target (`rules`/`tools`/`both`) rather than silently removing
-     every managed file from one ambiguous word.
+2. **Target.** Resolve which target(s) the words name — a bare `rule`/`rules`
+   is a *generic* word, not a standalone target claim, when a `tool`-family
+   word is also present (it's descriptive filler in a "tools rule" phrase,
+   not a second, competing target):
+   - `tool`/`tools`/`tool-routing`/`routing` present → **tools** is named.
+   - `golden`/`golden-rules` present, OR a bare `rule`/`rules` present with
+     **no** `tool`-family word anywhere in the input → **golden-rules** is
+     named (e.g. "remove rules" alone names golden-rules; "update tools
+     rule" does not — the `tool`-family word absorbs the bare "rule").
+   - `both`/`all`/`everything` present → **both** is named.
+   - **More than one *distinct* target is named** — tools and golden-rules
+     both named (e.g. `remove golden tool-routing`), or `both`/`all`/
+     `everything` named alongside either specific target (e.g. `remove both
+     tools`) — → usage-error branch, ambiguous. A command must name exactly
+     one scope, never two conflicting ones.
+   - **Exactly one target named** → `target` is that one (`tools`, `rules`,
+     or `both`).
+   - **No target named at all**:
+     - `answer` is `Yes` → `target = both` — a safe default; installing or
+       refreshing with no stated scope reasonably means "everything".
+     - `answer` is `No` → usage-error branch instead. A destructive action
+       with no stated scope is **never** inferred as "both" — require an
+       explicit target (`rules`/`tools`/`both`) rather than silently removing
+       every managed file from one ambiguous word.
 3. **Usage-error branch.** State plainly (not a question — no trailing `?`):
    `Couldn't parse "<$ARGUMENTS>" — expected a verb (install/update/remove)
    and, for remove, an explicit target (rules/tools/both). Examples:

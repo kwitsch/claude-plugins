@@ -1,7 +1,7 @@
 ---
 name: refresh-tools-rule
 description: Refresh coding-toolbox's user-level tool-routing rule (~/.claude/rules/coding-toolbox-tools.md) from currently-detected rtk/bun/ripgrep/codebase-memory-mcp, but ONLY if that file already exists. Never installs it. Model-invocable — safe for another skill (e.g. memory-enhancement's dream) to call autonomously, since it can only ever refresh an existing file's content, never create or remove one.
-allowed-tools: ["Read", "Bash(cat:*)"]
+allowed-tools: ["Read", "Bash(cat:*)", "Bash(mktemp:*)", "Bash(mv:*)"]
 ---
 
 # Refresh coding-toolbox's tool-routing rule
@@ -33,9 +33,20 @@ If the block above rendered as literally `[shell command execution disabled by p
 
 - `Installed:` line does **not** mention `coding-toolbox-tools.md` → stop, no-op.
   Report "not installed — nothing to refresh." Never create the file.
-- `Installed:` line **does** mention it, and at least one of `rtk`/`bun`/`ripgrep`/`codebase-memory` is `present`:
+- `Installed:` line **does** mention it, and at least one of `rtk`/`bun`/`ripgrep`/`codebase-memory` is `present`. Run this as **one** command — it
+  re-verifies the target is still an existing, non-symlink regular file
+  immediately before writing (closing the gap between Step 1's detection,
+  which ran at load time, and this apply step), and replaces its contents
+  atomically via write-to-a-same-directory-temp-file-then-`mv`. This never
+  creates the target if the recheck fails and never follows a symlink at that
+  path the way a plain `cat >` redirect would (a `mv` onto an existing path
+  replaces whatever is there — including a symlink itself — rather than
+  writing through it):
   ```bash
-  cat > "$HOME/.claude/rules/coding-toolbox-tools.md" <<'EOF'
+  target="$HOME/.claude/rules/coding-toolbox-tools.md"
+  if [ -f "$target" ] && [ ! -L "$target" ]; then
+    tmp="$(mktemp "$HOME/.claude/rules/.coding-toolbox-tools.md.XXXXXX")" || exit 1
+    cat > "$tmp" <<'EOF'
   # Tool routing
 
   Detected on this machine — prefer these over the generic default when available.
@@ -44,6 +55,10 @@ If the block above rendered as literally `[shell command execution disabled by p
   |---|---|---|
   <one line per detected tool, from the candidate rows file below, in this order>
   EOF
+    mv -f "$tmp" "$target"
+  else
+    echo "not installed (or not a plain file) — nothing to refresh"
+  fi
   ```
   Candidate rows — Read `<plugin root resolved in Step 1>/skills/setup-rules/references/tool-routing-rows.md`
   for the exact rows to include (only those detected, verbatim, in that

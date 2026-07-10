@@ -289,9 +289,9 @@ leftover project-level `.claude/rules/coding-toolbox-*.md` from before the
 user-level move (`stale_project_level`) — informational only, surfaced once in
 Step 5's report; this skill never reads, writes, or removes it, since
 migrating or deleting a prior install was an explicit non-goal, not an
-oversight (a real instance exists in this very repo's own `.claude/rules/`,
-kept as-is deliberately for this repo's own dogfooding, not a bug to fix
-here).
+oversight (this very repo's own `.claude/rules/` carried exactly this leftover
+from before the move — removed manually in this same PR once the user-level
+copy took over, not by any automated migration this skill performs).
 
 ## Skill design (`refresh-tools-rule`)
 
@@ -348,7 +348,7 @@ dependency, the Review step's `simplify`/`code-review` ordering and
 high/max effort choice, self-containment tripwire, temp-doc convention) are
 included. `refresh-tools-rule` gets structural assertions (exists,
 model-invocable frontmatter — i.e. no `disable-model-invocation` key — no
-`rm `/install-path command anywhere in the file, the existence-gate present,
+`rm`/install-path command anywhere in the file, the existence-gate present,
 its four `command -v` detection lines present) plus an assertion that both it
 and `setup-rules` reference the shared `tool-routing-rows.md` file rather than
 inlining the candidate-rows table themselves.
