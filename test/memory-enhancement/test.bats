@@ -13,8 +13,8 @@ setup() {
   mkdir -p "$CLAUDE_PLUGIN_DATA" "$CLAUDE_PROJECT_DIR"
 }
 
-@test "plugin.json declares the claude-code-knowledge dependency and auto_dream default true" {
-  run jq -e '.dependencies == ["claude-code-knowledge"] and .userConfig.auto_dream.default == true and .userConfig.auto_dream.type == "boolean"' "$PLUGIN/.claude-plugin/plugin.json"
+@test "plugin.json declares no hard dependency and auto_dream default true" {
+  run jq -e '(.dependencies == null) and .userConfig.auto_dream.default == true and .userConfig.auto_dream.type == "boolean"' "$PLUGIN/.claude-plugin/plugin.json"
   assert_success
 }
 

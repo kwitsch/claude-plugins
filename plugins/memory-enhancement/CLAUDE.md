@@ -38,8 +38,13 @@ of Claude Code's native auto-memory feature (v2.1.59+).
   the session's own auto-memory system-prompt block, never recomputed),
   gather signal (targeted `rg` over the most recent 8 main-session `*.jsonl`
   transcripts -- never a full read), consolidate (merge/drop/resolve, sibling
-  `.bak` backup before writing, then `Skill(claude-code-knowledge:cc-compress)
-  --confirmed` on every touched non-MEMORY.md file), update the MEMORY.md
+  `.bak` backup before writing, then — only if `claude-code-knowledge:cc-compress`
+  is among this session's available skills — `Skill(claude-code-knowledge:cc-compress)
+  --confirmed` on every touched non-MEMORY.md file; **no hard dependency** —
+  `plugin.json` deliberately declares none, since a hard dependency would
+  auto-cascade-install `claude-code-knowledge` and make the "else silent
+  no-op" branch nearly unreachable; unavailable → skip compression for that
+  run, no note in the summary), update the MEMORY.md
   index (kept under 200 lines/25KB, written directly -- never passed through
   `cc-compress`, whose path-preservation regex doesn't protect its
   bare-filename links).

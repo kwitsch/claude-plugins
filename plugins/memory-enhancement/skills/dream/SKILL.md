@@ -1,6 +1,6 @@
 ---
 name: dream
-description: Consolidate this project's auto-memory files (~/.claude/projects/<project>/memory/) in four phases -- orient, gather signal from recent session transcripts, consolidate (merge duplicates, drop stale entries, resolve contradictions), update the MEMORY.md index. Compresses touched detail files caveman-style. Surgical -- only touches files that need a change. Trigger on natural language such as "dream", "run a dream", "dream cycle", "consolidate my memory", "clean up my memory files" -- no slash command needed.
+description: Consolidate this project's auto-memory files (~/.claude/projects/<project>/memory/) in four phases -- orient, gather signal from recent session transcripts, consolidate (merge duplicates, drop stale entries, resolve contradictions), update the MEMORY.md index. Optionally compresses touched detail files caveman-style via claude-code-knowledge's cc-compress when that plugin is enabled (silent no-op otherwise). Surgical -- only touches files that need a change. Trigger on natural language such as "dream", "run a dream", "dream cycle", "consolidate my memory", "clean up my memory files" -- no slash command needed.
 allowed-tools: Read, Write, Edit, Bash, Skill, AskUserQuestion
 ---
 
@@ -48,19 +48,25 @@ contradiction gets noted in the file itself rather than blocking or asking):
    "daneben", not session-temp — this is dream's own backup, separate from
    `cc-compress`'s).
 2. Write the consolidated content.
-3. If the file is anything **other than** `MEMORY.md`: before compressing,
-   extract its reference set with `rg -o '\[\[[^]]+\]\]|\b[\w-]+\.md\b'
+3. If the file is anything **other than** `MEMORY.md`: check whether
+   `claude-code-knowledge:cc-compress` is among this session's available
+   skills (no hard dependency — `claude-code-knowledge` is an optional
+   integration). **Not available → silent no-op**: keep the
+   consolidated-but-uncompressed content as final, no note in the summary,
+   no different from a cycle that never attempted compression. **Available →**
+   extract the file's reference set with `rg -o '\[\[[^]]+\]\]|\b[\w-]+\.md\b'
    <file> | sort -u` (wikilinks plus bare-`.md` filenames — `cc-compress`'s
    path-preservation check does not protect either, only slash-containing
-   paths and full URLs). Then invoke `claude-code-knowledge:cc-compress`
-   (Skill tool) on it with `--confirmed` (memory files live outside any git
-   repo, so `cc-compress`'s own git-recoverability gate would otherwise ask
-   every time; this dream cycle's own step-1 backup already covers
-   rollback). After compressing, run the same `rg -o ... | sort -u` command
-   against the compressed result and `diff` the two sorted lists. Any
-   difference (a missing or altered entry) → discard the compressed result,
-   keep the consolidated-but-uncompressed version instead, and note the skip
-   in the session summary.
+   paths and full URLs). Invoke `claude-code-knowledge:cc-compress` (Skill
+   tool) on it with `--confirmed` (memory files live outside any git repo, so
+   `cc-compress`'s own git-recoverability gate would otherwise ask every
+   time; this dream cycle's own step-1 backup already covers rollback). After
+   compressing, run the same `rg -o ... | sort -u` command against the
+   compressed result and `diff` the two sorted lists. Any difference (a
+   missing or altered entry) → discard the compressed result, keep the
+   consolidated-but-uncompressed version instead, and note *that* skip in the
+   session summary (this one is a real, file-specific finding — unlike
+   `cc-compress` simply being unavailable).
 
 Files that need no change: leave alone entirely — do not open, backup, or
 touch them.
