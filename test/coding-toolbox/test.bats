@@ -556,9 +556,9 @@ run_ci_watch() {
   assert_success
 }
 
-@test "plugin.json version bumped for SessionStart-hook/golden_rules_reminder removal (this unreleased branch)" {
+@test "plugin.json version bumped for the user-level-rules/verbatim-mode/refresh-tools-rule work (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.13.0"
+  assert_output "0.14.0"
 }
 
 @test "plugin.json description mentions fresh-work" {
@@ -645,14 +645,14 @@ run_ci_watch() {
   assert_success
 }
 
-@test "setup-rules frontmatter declares name, required allowed-tools, argument-hint, and is model-invocable" {
+@test "setup-rules frontmatter declares name, disable-model-invocation, argument-hint, and required allowed-tools" {
   run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/skills/setup-rules/SKILL.md'"
   assert_success
   assert_output --partial "name: setup-rules"
+  assert_output --partial "disable-model-invocation: true"
   assert_output --partial "AskUserQuestion"
   assert_output --partial 'Bash(cp:*)'
   assert_output --partial 'argument-hint: "[install|update|remove]'
-  refute_output --partial "disable-model-invocation"
 }
 
 @test "setup-rules verbatim parser rejects ambiguous input without guessing" {
@@ -712,6 +712,52 @@ run_ci_watch() {
   run rg_or_grep -c -F -e '$HOME/.claude/rules/coding-toolbox-rules.md' -e '$HOME/.claude/rules/coding-toolbox-tools.md' "$PLUGIN/skills/setup-rules/SKILL.md"
   assert_success
   [ "$output" -ge 4 ]
+}
+
+@test "refresh-tools-rule SKILL.md exists and is non-empty" {
+  run test -s "$PLUGIN/skills/refresh-tools-rule/SKILL.md"
+  assert_success
+}
+
+@test "refresh-tools-rule is model-invocable (no disable-model-invocation key)" {
+  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/skills/refresh-tools-rule/SKILL.md'"
+  assert_success
+  assert_output --partial "name: refresh-tools-rule"
+  refute_output --partial "disable-model-invocation"
+}
+
+@test "refresh-tools-rule never installs or removes — no rm, no mkdir, no golden-rules cp" {
+  run rg_or_grep -c -F -e 'rm -f' -e 'rm ' -e 'mkdir' -e 'golden-rules.md' "$PLUGIN/skills/refresh-tools-rule/SKILL.md"
+  assert_failure
+}
+
+@test "refresh-tools-rule gates on the tools-rule file already existing before writing anything" {
+  run rg_or_grep -F 'does **not** mention' "$PLUGIN/skills/refresh-tools-rule/SKILL.md"
+  assert_success
+  run rg_or_grep -F 'Never create the file' "$PLUGIN/skills/refresh-tools-rule/SKILL.md"
+  assert_success
+}
+
+@test "refresh-tools-rule's detection and table rows stay in sync with setup-rules' own copies" {
+  run rg_or_grep -c -e 'command -v rtk' -e 'command -v bun' -e 'command -v rg' -e 'command -v codebase-memory-mcp' "$PLUGIN/skills/refresh-tools-rule/SKILL.md"
+  assert_success
+  assert_output "4"
+  for row in \
+    'Shell commands (git, gh, npm, …) | \`rtk <cmd>\` | routes through the Rust Token Killer proxy' \
+    'JS/TS runtime & package management | \`bun\` | faster install/run than node/npm' \
+    'Text search | \`rg\` (ripgrep) | faster, respects .gitignore' \
+    'Code structure exploration (callers, call chains, architecture) | \`codebase-memory-mcp\` tools'
+  do
+    run rg_or_grep -F "$row" "$PLUGIN/skills/setup-rules/SKILL.md"
+    assert_success
+    run rg_or_grep -F "$row" "$PLUGIN/skills/refresh-tools-rule/SKILL.md"
+    assert_success
+  done
+}
+
+@test "plugin README lists refresh-tools-rule in the Skills section" {
+  run rg_or_grep -F '| `refresh-tools-rule`' "$PLUGIN/README.md"
+  assert_success
 }
 
 @test "plugin README lists setup-rules in the Skills section" {

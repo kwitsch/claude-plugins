@@ -227,15 +227,12 @@ needing no change to the script itself.
 
 ## Skill design (`setup-rules`)
 
-Model-invocable (2026-07-10: dropped `disable-model-invocation` — was
-user-only, same precedent as `branch-management:clean-branches`,
-side-effecting project-config wizard — reversed by explicit user decision at
-a `fresh-work` intent-confirmation gate once the verbatim-argument mode below
-gave every caller, human or model, a fully deterministic non-interactive
-path, closing the ambiguity/half-applied-state gap that justified the
-original restriction) wizard that installs/refreshes/removes two always-on
+User-only (`disable-model-invocation: true`, same precedent as
+`branch-management:clean-branches` — a side-effecting project-config
+wizard, not named `configure-*` but carrying the flag anyway) wizard
+that installs/refreshes/removes two always-on
 `~/.claude/rules/coding-toolbox-*.md` files (moved from project-scoped
-`.claude/rules/` the same day — user-level rules apply to every project on
+`.claude/rules/` 2026-07-10 — user-level rules apply to every project on
 this machine, confirmed against the memory-reference cc-reference doc):
 a byte-exact `cp` of the
 skill's own `references/golden-rules.md` (never re-typed, avoiding
@@ -275,9 +272,42 @@ parses a substring-based verb+target grammar (`install`/`update`/`refresh` vs
 `remove`/`uninstall`; `tools` vs `rules`/`golden`, else both) to resolve the
 same two yes/no answers Step 3b's `AskUserQuestion` produces, without asking —
 ambiguous or unrecognized input reports usage and stops rather than guessing
-or half-applying. `memory-enhancement:dream` is this mode's first consumer
-(`update tools rule`), invoking this now-model-invocable skill directly via
-the `Skill` tool.
+or half-applying. This mode exists for a human typing e.g.
+`/coding-toolbox:setup-rules update tools rule` directly (`disable-model-invocation`
+blocks the *model*, not the user) — it was **not**, in the end, the mechanism
+that lets `memory-enhancement:dream` refresh the tools rule; see
+`refresh-tools-rule` below for why that stayed a separate skill instead of
+loosening this one's invocation control.
+
+## Skill design (`refresh-tools-rule`)
+
+2026-07-10: split out of the `setup-rules` design during `fresh-work`'s
+Review step. The original plan for `dream`'s tools-rule sync (see
+`memory-enhancement/CLAUDE.md`) was to drop `disable-model-invocation` from
+`setup-rules` itself so `dream` could call it directly with the verbatim mode
+above (`args: "update tools rule"`) — a genuine "single source of truth"
+option the user picked at the `fresh-work` intent-confirmation gate. An
+altitude review during the same pipeline's Review step flagged the real cost:
+that would open *every* verb this skill supports — including destructive
+`remove`/install on a machine-wide dotfile — to autonomous invocation by any
+model turn in any session, to serve one narrow, non-destructive internal
+caller. Re-surfaced to the user, who chose to split instead: `setup-rules`
+keeps `disable-model-invocation: true` (its install/remove verbs stay
+human-only), and this new skill carries no such flag — safe to be
+model-invocable specifically *because* its entire behavior is provably
+non-destructive: it hard-gates on `~/.claude/rules/coding-toolbox-tools.md`
+**already existing** (Step 1 detection), and from there only ever rewrites
+that one file's content from current `PATH` detection — it never creates the
+file (so it can't be used to silently opt a machine into anything) and never
+removes it. Its four `command -v` detection lines and four candidate table
+rows are a deliberate, hand-maintained duplicate of `setup-rules`' own Step
+1/Step 4 tools-rule logic (same accepted-duplication idiom as the
+`ci-watch.sh` port between `branch-management` and this plugin) rather than
+a shared dependency — a bats sync-guard (`test/coding-toolbox/test.bats`)
+pins the two copies identical so drift is caught, not silent.
+`memory-enhancement:dream`'s optional Phase 5 is this skill's only caller so
+far, invoking it with no arguments (there is nothing to choose — the one
+action is always "refresh if installed, else no-op").
 
 ## Tests
 
@@ -293,5 +323,9 @@ version-bump manifest assertion. Structural assertions for
 absence, five phase references, the Intent-confirmation step and its Keypoints
 dependency, the Review step's `simplify`/`code-review` ordering and
 high/max effort choice, self-containment tripwire, temp-doc convention) are
-included.
+included. `refresh-tools-rule` gets structural assertions (exists,
+model-invocable frontmatter — i.e. no `disable-model-invocation` key — no
+`rm `/install-path command anywhere in the file, the existence-gate present)
+plus a sync-guard comparing its four detection lines and four table rows
+byte-for-byte against `setup-rules`' own copies.
 Run: `BATS_LIB_PATH=/usr/lib/bats bats test/coding-toolbox/`

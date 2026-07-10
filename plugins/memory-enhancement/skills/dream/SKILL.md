@@ -92,19 +92,18 @@ itself, so it must never risk a reworded filename.
 
 ## Phase 5 — Sync coding-toolbox tools rule (optional)
 
-Gate (both required — no partial action):
-1. `coding-toolbox:setup-rules` is among this session's available skills (same
-   presence check as the `claude-code-knowledge:cc-compress` check in phase 3).
-2. `~/.claude/rules/coding-toolbox-tools.md` already exists — never install this
-   file on dream's own initiative, only refresh one the user already opted into
-   via `setup-rules`.
+Gate: `coding-toolbox:refresh-tools-rule` is among this session's available
+skills (same presence check as the `claude-code-knowledge:cc-compress` check
+in phase 3) — a narrow, non-destructive companion to `coding-toolbox:setup-rules`
+that only ever refreshes an *already-installed*
+`~/.claude/rules/coding-toolbox-tools.md`, never installs or removes it.
+Absent → skip; note that in the Report line below (a one-line note, not
+additional summary detail).
 
-Either condition false → skip the `Skill` call; note which condition failed in
-the Report line below (a one-line note, not additional summary detail).
-
-Both true → `Skill(coding-toolbox:setup-rules, args: "update tools rule")` — one
-call, no follow-up question (setup-rules' own verbatim-argument mode resolves it
-non-interactively).
+Available → `Skill(coding-toolbox:refresh-tools-rule)` — one call, no
+arguments (there is nothing to choose), no follow-up question. That skill's
+own internal gate handles "not installed yet" as a safe no-op, so dream
+itself never checks for the file's existence or installs it.
 
 ## Report
 
