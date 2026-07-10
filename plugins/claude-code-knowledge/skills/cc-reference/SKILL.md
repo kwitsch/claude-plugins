@@ -16,7 +16,8 @@ Files live in the `references/` subfolder of this skill:
 - `${CLAUDE_SKILL_DIR}/references/hook-handler-selection.md` — choosing a hook **handler `type`** (command/.sh/.mjs/binary vs http/mcp_tool/prompt/agent)
 - `${CLAUDE_SKILL_DIR}/references/claude-code-mcp-tool-hooks-reference.md` — **`mcp_tool` hooks** (server-name namespacing `plugin:<plugin>:<key>`, fields, tool-text→decision output, fail-open, plugin server pattern)
 - `${CLAUDE_SKILL_DIR}/references/claude-code-commands-reference.md` — authoring **slash commands** (`.claude/commands`, frontmatter, `$ARGUMENTS`, dynamic context, namespacing)
-- `${CLAUDE_SKILL_DIR}/references/claude-code-mcp-reference.md` — **MCP** integration (`.mcp.json`, transports, scopes, auth, tool naming, managed restrictions)
+- `${CLAUDE_SKILL_DIR}/references/claude-code-mcp-reference.md` — **MCP** integration (`.mcp.json`, transports, scopes, auth, tool naming)
+- `${CLAUDE_SKILL_DIR}/references/claude-code-mcp-managed-reference.md` — **managed/enterprise MCP** (`managed-mcp.json`, allowlists/denylists)
 - `${CLAUDE_SKILL_DIR}/references/claude-code-plugins-reference.md` — **plugins** (`plugin.json`/`marketplace.json`, layout, path variables, components, CLI)
 - `${CLAUDE_SKILL_DIR}/references/claude-code-plugins-lsp-reference.md` — **LSP servers** (`.lsp.json`/`lspServers` scopes, server entry schema, official LSP plugins)
 - `${CLAUDE_SKILL_DIR}/references/claude-code-memory-reference.md` — **memory** (`CLAUDE.md` locations/precedence, `@imports`, auto-memory)
@@ -56,6 +57,7 @@ Map key → file on disk: `skills-reference` → `claude-code-skills-reference.m
 `hook-handler-selection.md`; `mcp-tool-hooks-reference` →
 `claude-code-mcp-tool-hooks-reference.md`; `commands-reference` →
 `claude-code-commands-reference.md`; `mcp-reference` → `claude-code-mcp-reference.md`;
+`mcp-managed-reference` → `claude-code-mcp-managed-reference.md`;
 `plugins-reference` → `claude-code-plugins-reference.md`; `plugins-lsp-reference` →
 `claude-code-plugins-lsp-reference.md`; `memory-reference` →
 `claude-code-memory-reference.md`; `settings-reference` →
@@ -76,7 +78,9 @@ which handler `type`).
 
 **commands-reference** (`claude-code-commands-reference.md`) — custom slash commands: command vs skill, locations & precedence (`.claude/commands`, `~/.claude/commands`, plugin commands), frontmatter, `$ARGUMENTS`/`$1..$N`/named args, dynamic context (`!bash`, `@file`), namespacing & invocation, built-in commands.
 
-**mcp-reference** (`claude-code-mcp-reference.md`) — MCP integration: `.mcp.json`, config scopes & precedence, transports (stdio/http/sse/ws), server config schema, authentication, `claude mcp`/`/mcp`, tool naming & permissions (`mcp__server__tool`), managed/enterprise restrictions.
+**mcp-reference** (`claude-code-mcp-reference.md`) — MCP integration: `.mcp.json`, config scopes & precedence, transports (stdio/http/sse/ws), server config schema, authentication, `claude mcp`/`/mcp`, tool naming & permissions (`mcp__server__tool`).
+
+**mcp-managed-reference** (`claude-code-mcp-managed-reference.md`) — managed/enterprise MCP: `managed-mcp.json` exclusive control, `allowedMcpServers`/`deniedMcpServers` allowlists & denylists, evaluation order, URL wildcard matching, `allowManagedMcpServersOnly`, `allowAllClaudeAiMcps`.
 
 **plugins-reference** (`claude-code-plugins-reference.md`) — plugin authoring: structure/layout, `plugin.json` schema, `${CLAUDE_PLUGIN_ROOT}`/`${CLAUDE_PLUGIN_DATA}`, component auto-discovery, `marketplace.json`, dependencies, hints, plugin CLI.
 
@@ -202,7 +206,18 @@ Server config schema
 Authentication
 Adding & managing servers
 Tool naming & permissions
-Managed MCP / enterprise
+Cross-references (one level deep)     # pointer to claude-code-mcp-managed-reference.md
+Version notes
+```
+
+### claude-code-mcp-managed-reference.md
+```
+managed-mcp.json — exclusive control
+Allowlists and denylists
+Evaluation order
+URL wildcard matching rules
+allowManagedMcpServersOnly
+allowAllClaudeAiMcps
 Version notes
 ```
 

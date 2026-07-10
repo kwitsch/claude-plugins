@@ -1,14 +1,14 @@
 # Claude Code Memory — Authoring Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (How Claude remembers your project), verified 2026-07-03.
+> (How Claude remembers your project), verified 2026-07-10.
 > Apply when authoring or editing CLAUDE.md files or configuring auto memory.
 
 ## CLAUDE.md: what & when
 
 - CLAUDE.md = plain-text markdown file loaded into every session's context window at startup.
 - Use it to give Claude persistent instructions it would otherwise need re-explaining.
-- Add to it when: Claude repeats the same mistake, a convention must hold every session, or a setup step isn't discoverable from the codebase alone.
+- Add to it when: Claude repeats a mistake a second time; a code review catches something Claude should've known about the codebase; you retype a correction/clarification you already gave last session; or a new teammate would need the same context to be productive.
 - Do NOT use it as a scratchpad or project log; keep it to directives Claude must hold every session.
 - Run `/init` to generate a starting CLAUDE.md automatically; Claude analyzes the codebase and creates build commands, test instructions, and project conventions it discovers. If a CLAUDE.md already exists, `/init` suggests improvements rather than overwriting. `/init` also reads `AGENTS.md`, `.cursorrules`, `.devin/rules/`, `.windsurfrules` and incorporates relevant parts.
 - `CLAUDE_CODE_NEW_INIT=1`: enables interactive multi-phase `/init` — asks which artifacts to set up (CLAUDE.md/skills/hooks), explores via subagent, asks follow-ups, presents a reviewable proposal before writing.
@@ -20,9 +20,9 @@
 
 ### Write effective instructions
 
-- **Specificity**: concrete and verifiable: `"Use 2-space indentation"` not `"Format code properly"`.
+- **Specificity**: concrete and verifiable: `"Use 2-space indentation"` not `"Format code properly"`; `"Run npm test before committing"` not `"Test your changes"`; `"API handlers live in src/api/handlers/"` not `"Keep files organized"`.
 - **Structure**: markdown headers and bullets; organized sections are easier to follow than dense paragraphs.
-- **Consistency**: two contradictory rules → Claude may pick one arbitrarily; review periodically.
+- **Consistency**: two contradictory rules → Claude may pick one arbitrarily; review CLAUDE.md, nested CLAUDE.md files in subdirectories, and `.claude/rules/` periodically.
 - In monorepos, use `claudeMdExcludes` to skip CLAUDE.md files from other teams.
 
 ## Locations & precedence
@@ -43,7 +43,8 @@ Files load in the order below (broadest to most specific); a later entry wins on
 - `claudeMd` key in `managed-settings.json` injects CLAUDE.md content directly; honored only in managed/policy scope.
 - `claudeMdExcludes` skips files by path or glob (matched against absolute paths); configurable at **any** settings layer (user/project/local/managed); arrays merge across layers. Put it in `.claude/settings.local.json` to keep the exclusion local to your machine.
 - `--add-dir` directories do NOT load their CLAUDE.md by default. Set `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` to load `CLAUDE.md`, `.claude/CLAUDE.md`, `.claude/rules/*.md`, `CLAUDE.local.md` from them (`CLAUDE.local.md` skipped if `local` is excluded from `--setting-sources`).
-- Compaction: project-root CLAUDE.md **survives `/compact`** — re-read from disk and re-injected. Nested subdirectory CLAUDE.md files are NOT re-injected automatically; they reload next time Claude reads a file in that subdirectory.
+- Compaction: project-root CLAUDE.md **survives `/compact`** — re-read from disk and re-injected. Nested subdirectory CLAUDE.md files are NOT re-injected automatically; they reload next time Claude reads a file in that subdirectory. An instruction missing after compaction was either given only in conversation (never written to a file) or lives in a nested CLAUDE.md that hasn't reloaded yet — put conversation-only instructions into a CLAUDE.md to make them persist.
+- Debug: run `/memory` to confirm a CLAUDE.md/CLAUDE.local.md/rules file is actually loaded in the session — a file not listed there is invisible to Claude that session.
 
 ### User-level rules
 

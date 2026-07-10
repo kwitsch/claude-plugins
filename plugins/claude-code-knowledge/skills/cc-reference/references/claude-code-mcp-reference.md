@@ -1,7 +1,7 @@
 # Claude Code MCP — Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (MCP overview, MCP quickstart, Managed MCP), verified 2026-07-03.
+> (MCP overview, MCP quickstart, Managed MCP), verified 2026-07-10.
 > Apply when configuring, authoring, or troubleshooting MCP servers in Claude Code.
 
 ## What MCP is / when to use
@@ -63,6 +63,8 @@ When the same server appears in more than one source, Claude Code uses the highe
 | `alwaysLoad` | boolean | Exempt server's tools from tool-search deferral — load all upfront; see Tool search. version >= 2.1.121 |
 | `oauth` | object | OAuth config; see Authentication |
 
+- A JSON entry with `url` but no `type` is invalid (read as stdio, then skipped): `MCP server "<name>" has a "url" but no "type"; add "type": "http" (or "sse" / "ws")`. version >= 2.1.202 (earlier: generic `command: expected string, received undefined`).
+
 ### SSE (deprecated)
 
 ```json
@@ -93,7 +95,7 @@ When the same server appears in more than one source, Claude Code uses the highe
 | `env` | object | Key/value injected into server environment |
 | `type` | `"stdio"` | Optional; inferred when `command` present |
 
-- Claude Code sets `CLAUDE_PROJECT_DIR` in spawned server environment to project root. Server may also call MCP `roots/list` to get the launch directory.
+- Claude Code sets `CLAUDE_PROJECT_DIR` in spawned server environment to project root. Server may also call MCP `roots/list` — returns launch dir + every additional working dir granted via `--add-dir`/`/add-dir`/`additionalDirectories`; sends `notifications/roots/list_changed` on change. version >= 2.1.203 (earlier: launch dir only, no change notification).
 - In `project`/`user` scoped configs, use `${CLAUDE_PROJECT_DIR:-.}` (with default) because the var is set in the server env, not Claude's env.
 - Plugin-provided configs may use `${CLAUDE_PROJECT_DIR}` directly (no default needed). Plugin configs also expand `${CLAUDE_PLUGIN_ROOT}` (bundled files) and `${CLAUDE_PLUGIN_DATA}` (persistent state surviving plugin updates).
 
@@ -171,6 +173,10 @@ Expansion applies in: `command`, `args`, `env`, `url`, `headers`.
 }
 ```
 
+### Root-level schema combinators
+
+- Tool input schema with a top-level `anyOf`/`oneOf`/`allOf` (API rejects combinators at schema root, only nested inside `properties`) → Claude Code flattens it to one object and prepends a sentence to the tool description naming which params group together. `allOf`: each branch's `required` still enforced. `anyOf`/`oneOf`: `required` is described in text, not schema-enforced — server must still validate. version >= 2.1.195 (earlier, and on deployments without the rewrite e.g. offline: tool is skipped entirely, reason logged; other tools on the server stay available).
+
 ## Authentication
 
 ### OAuth 2.0 flow (HTTP servers)
@@ -206,7 +212,7 @@ Steps:
 | Restricted scopes | — | `oauth.scopes` | Space-separated scope string (RFC 6749 §3.3) |
 
 Scope rules:
-- `oauth.scopes` takes precedence over `authServerMetadataUrl` and `/.well-known`-discovered scopes. Unset → server determines scopes.
+- `oauth.scopes` takes precedence over `authServerMetadataUrl` and `/.well-known`-discovered scopes. Unset, version >= 2.1.196: requests only the scope named in the server's `WWW-Authenticate` header or protected-resource metadata, no `scope` param sent if neither provides one — no longer requests the full autodiscovered `scopes_supported` catalog (that caused `invalid_scope` on IdPs advertising admin-only/template scopes). A configured `authServerMetadataUrl`'s `scopes_supported` is still requested in full.
 - If the auth server advertises `offline_access`, it is appended so tokens refresh without re-sign-in.
 - A 403 `insufficient_scope` re-authenticates with the same pinned scopes; widen `oauth.scopes` if a tool needs more.
 
@@ -281,7 +287,7 @@ claude mcp logout <name> # Clear stored OAuth credentials for a server
 
 ### Reserved names
 
-- `workspace` is reserved; a server with that name is skipped at load with a warning.
+- Reserved (skipped at load with a warning; `claude mcp add` rejects the name outright): `workspace`, `claude-in-chrome`, `computer-use`, `Claude Preview`, `Claude Browser`. `Claude Preview`/`Claude Browser` both name the desktop app's preview-pane server. version >= 2.1.205: `Claude Browser` became reserved (earlier, a user-configured server could take that name).
 
 ## Tool naming & permissions
 
@@ -294,6 +300,7 @@ claude mcp logout <name> # Clear stored OAuth credentials for a server
 | MCP prompt as slash command | `/mcp__<servername>__<promptname>` |
 
 - Characters outside `A-Z a-z 0-9 _ -` in plugin or server names are replaced with `_`.
+- A plugin server's own registered name (distinct from its tool-name form above) is `plugin:<plugin-name>:<server-name>` — use this scoped form wherever a configured server name is expected, e.g. an `mcp_tool` hook's `server` field. A hook matcher against the bare server key (`mcp__database-tools__.*`) never fires for a plugin-bundled server — match the full `mcp__plugin_...` form instead.
 
 ### Approval
 
@@ -316,6 +323,10 @@ mcp__github__create_pr
 # Allow all tools from one server
 mcp__github__*
 ```
+
+### Force approval per tool
+
+- Server sets `_meta["anthropic/requiresUserInteraction"]: true` on a tool's `tools/list` entry → permission prompt shown on every call, even in `acceptEdits`/`auto`/`bypassPermissions` modes; no "don't ask again"; matching allow-rules don't skip it; `dontAsk` mode denies instead of prompting. Non-interactive `--permission-prompt-tool` allow results are converted to deny; Agent SDK `canUseTool` still receives the call. version >= 2.1.199
 
 ### Dynamic tool discovery
 
@@ -359,9 +370,10 @@ mcp__github__*
 |---|---|
 | `MCP_TIMEOUT` | Server startup timeout in ms (default 30s) |
 | `MCP_TOOL_TIMEOUT` | Default per-tool-call timeout; per-server `timeout` field overrides it. Default ~28h when unset |
-| `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` | Idle window (ms) before aborting a remote (HTTP/SSE/WS/connector) tool call with no response/progress; default 5 min, `0` disables. Not applied to stdio. version >= 2.1.187 |
+| `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` | Idle window (ms) before aborting a tool call with no response/progress; default 5 min (HTTP/SSE/WS/connector), 30 min (stdio — version >= 2.1.203, earlier exempt); `0` disables. Not applied to IDE servers or SDK in-process servers. version >= 2.1.187 |
 
 - Per-server `timeout` is a hard wall-clock limit per call; progress notifications do not extend it. Values < 1000 are ignored → fall through to `MCP_TOOL_TIMEOUT`. version >= 2.1.162: sub-1000 ignored (previously floored to 1s). HTTP/SSE first-byte budget has a 60s minimum.
+- A per-server `timeout` >= 1000 also floors the idle timeout — idle-abort never fires sooner than that value. version >= 2.1.203
 
 ## claude.ai connectors
 
@@ -381,105 +393,7 @@ mcp__github__*
 - `claude mcp add-from-claude-desktop` — import Claude Desktop servers (macOS/WSL).
 - `CLAUDE_CONFIG_DIR` env var relocates `.claude.json`.
 - OTEL: `OTEL_LOG_TOOL_DETAILS=1` includes MCP server/tool names in tool events (see `/en/monitoring-usage`).
-
-## Managed MCP / enterprise
-
-### `managed-mcp.json` — exclusive control
-
-Deploy this file to give the system exclusive control over which servers load. Users cannot add servers while this file is active.
-
-```json
-{
-  "mcpServers": {
-    "shared-tool": {
-      "type": "http",
-      "url": "https://internal.example.com/mcp"
-    }
-  }
-}
-```
-
-- When present, ONLY these servers load — including plugin-provided servers and (by default) claude.ai connectors are suppressed.
-- Standalone file; cannot be delivered via server-managed settings. Deploy via MDM/GPO/Intune/fleet tooling (any admin-priv write).
-
-| Platform | Path |
-|---|---|
-| macOS | `/Library/Application Support/ClaudeCode/managed-mcp.json` |
-| Linux/WSL | `/etc/claude-code/managed-mcp.json` |
-| Windows | `C:\Program Files\ClaudeCode\managed-mcp.json` |
-
-- `claude mcp add` fails with `Cannot add MCP server: enterprise MCP configuration is active and has exclusive control over MCP servers`.
-- `claude mcp add` on a denylisted server fails with `Cannot add MCP server "<name>": server is explicitly blocked by enterprise policy`; on a server outside the allowlist: `Cannot add MCP server "<name>": not allowed by enterprise policy`.
-- `claude mcp list` shows only servers from this file.
-- Deploy empty `{ "mcpServers": {} }` to disable MCP entirely; a server a new policy blocks (including this case) silently disappears from `/mcp`/`claude mcp list` — no warning shown.
-- Do not store credentials in `env` blocks — readable by any user; use `${VAR}` expansion, OAuth, or `headersHelper` instead.
-- Plugin-servers-only pattern (no managed-mcp.json): `strictPluginOnlyCustomization` with `mcp` in its list — servers may come only from plugins; users cannot add their own.
-
-### Allowlists and denylists
-
-Set in managed settings (e.g., `managed-settings.json`):
-
-```json
-{
-  "allowedMcpServers": [
-    { "serverUrl": "https://mcp.example.com/*" },
-    { "serverName": "github" },
-    { "serverCommand": ["npx", "-y", "approved-package"] }
-  ],
-  "deniedMcpServers": [
-    { "serverUrl": "https://staging.example.com/*" }
-  ],
-  "allowManagedMcpServersOnly": true
-}
-```
-
-| Field | Type | Matches |
-|---|---|---|
-| `serverUrl` | string (glob) | HTTP/SSE server URL; `*` wildcard anywhere |
-| `serverName` | string | User-assigned label; exact match, no wildcards. NOT a security control (user picks any name) |
-| `serverCommand` | string[] | Stdio command + args; exact match, every argument |
-
-`allowedMcpServers` unset vs empty:
-
-| Setting | Unset (default) | Empty `[]` | Populated |
-|---|---|---|---|
-| `allowedMcpServers` | All allowed | None allowed | Only matching allowed |
-| `deniedMcpServers` | None blocked | None blocked | Matching blocked |
-
-`serverName` validation differs by list:
-- `allowedMcpServers`: limited to letters/numbers/`-`/`_`. Use `serverUrl` to allowlist a claude.ai connector.
-- `deniedMcpServers`: accepts any non-empty string — block a claude.ai connector by display name, e.g. `{ "serverName": "claude.ai Slack" }`. version >= 2.1.182. Prefer `serverUrl` to be robust to renames / ` (N)` suffix collisions.
-
-### Evaluation order
-
-1. Merge lists from all settings sources (when `allowManagedMcpServersOnly: true`, only managed allowlist is kept; denylist always merges from all sources).
-2. Denylist check: any match → blocked; nothing overrides.
-3. Allowlist check: if `allowedMcpServers` not set anywhere → all remaining load. If set: remote (HTTP/SSE) must match a `serverUrl` entry (a `serverName` match counts only when no `serverUrl` entries exist); stdio must match a `serverCommand` entry (a `serverName` match counts only when no `serverCommand` entries exist).
-
-### URL wildcard matching rules
-
-| Pattern | Allows |
-|---|---|
-| `https://mcp.example.com/*` | All paths on that domain |
-| `https://mcp.example.com` | Also all paths on that domain (no path = any path) |
-| `https://*.example.com/*` | Any subdomain of example.com |
-| `http://localhost:*/*` | Any port on localhost |
-| `*://mcp.example.com/*` | Any scheme to that domain |
-
-- Hostname matching: case-insensitive, trailing FQDN dot ignored.
-- Path matching: case-sensitive.
-- Command matching: exact array comparison including every argument and order.
-
-### `allowManagedMcpServersOnly`
-
-- When `true`, only the managed allowlist applies; users cannot broaden it via `~/.claude/settings.json`.
-- Separate from `allowManagedPermissionRulesOnly` (controls permission rules, not MCP).
-
-### `allowAllClaudeAiMcps`
-
-- Set in managed settings to load claude.ai connectors alongside `managed-mcp.json` servers.
-- Allowlists and denylists still apply to those connectors. Affects only claude.ai connectors — plugin-provided servers stay suppressed.
-- Has no effect when placed in user or project settings; must come from admin-controlled tiers. version >= 2.1.149
+- Managed/enterprise MCP restrictions (`managed-mcp.json`, `allowedMcpServers`/`deniedMcpServers`, `allowManagedMcpServersOnly`, `allowAllClaudeAiMcps`): see `claude-code-mcp-managed-reference.md`.
 
 ## Version notes
 
@@ -487,13 +401,15 @@ Set in managed settings (e.g., `managed-settings.json`):
 |---|---|
 | 2.1.64 | `oauth.authServerMetadataUrl` field |
 | 2.1.121 | `alwaysLoad` field; HTTP/SSE initial connection retried up to 3× on transient errors (5xx, refused, timeout) before marking failed |
-| 2.1.149 | `allowAllClaudeAiMcps` setting |
 | 2.1.161 | Unused claude.ai connectors collapse behind `Show unused connectors` row |
 | 2.1.162 | Per-server `timeout` < 1000 now ignored (was floored to 1s); Anthropic-hosted connectors (M365/Gmail/Calendar) direct local-OAuth to claude.ai Settings → Connectors |
-| 2.1.182 | `serverName` in `deniedMcpServers` accepts any non-empty string |
 | 2.1.186 | `claude mcp login <name>` / `claude mcp logout <name>` CLI OAuth commands |
 | 2.1.187 | Remote MCP tool calls idle >5min abort via `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT` |
-| 2.1.191 | Post-connection capability discovery (`tools/list`/`prompts/list`/`resources/list`) retries transient errors up to 3×; `claude mcp login` auto-detects no local browser and supports `--no-browser` |
+| 2.1.191 | Post-connection capability discovery (`tools/list`/`prompts/list`/`resources/list`) retries transient errors up to 3×; `claude mcp login` auto-detects no local browser and supports `--no-browser`; HTTP 404 shows `MCP endpoint not found at <url>` in `/mcp` (was a generic `Error POSTing to endpoint`) |
 | 2.1.193 | `headersHelper` auto-retries once on 401/403 with fresh headers; startup notice when a configured server needs authentication |
-| 2.1.195 | `headersHelper` cwd = plugin root for plugin-provided servers; rejected token refresh shows a `/mcp` Re-authenticate notice |
-| 2.1.196 | Non-interactive (`claude -p`/Agent SDK) runs report an unauthorized server's tools as unavailable-until-authorized; `claude mcp list`/`get` restrict `.mcp.json` approval reads to untrusted-folder-safe settings sources |
+| 2.1.195 | `headersHelper` cwd = plugin root for plugin-provided servers; rejected token refresh shows a `/mcp` Re-authenticate notice; root-level `anyOf`/`oneOf`/`allOf` tool schemas are flattened instead of skipped |
+| 2.1.196 | Non-interactive (`claude -p`/Agent SDK) runs report an unauthorized server's tools as unavailable-until-authorized; `claude mcp list`/`get` restrict `.mcp.json` approval reads to untrusted-folder-safe settings sources; unset `oauth.scopes` now requests only the `WWW-Authenticate`/protected-resource scope, not the full autodiscovered catalog |
+| 2.1.199 | `_meta["anthropic/requiresUserInteraction"]` tool annotation forces a permission prompt on every call |
+| 2.1.202 | `url`-without-`type` config entries report a specific error naming the field (was a generic `command: expected string, received undefined`) |
+| 2.1.203 | Stdio servers get the 30-min idle timeout (previously exempt); a per-server `timeout` >= 1000 floors the idle timeout; `roots/list` includes granted additional working dirs + sends `notifications/roots/list_changed` |
+| 2.1.205 | `Claude Browser` name reserved; ToolSearch surfaces a failed server's connection error to Claude (previously silent); Claude Desktop import skips only invalid names and reports each, instead of aborting the whole import |

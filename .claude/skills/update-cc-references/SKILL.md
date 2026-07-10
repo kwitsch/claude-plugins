@@ -42,7 +42,10 @@ Always prefer the `.md` variant of a doc URL when it returns clean markdown; fal
 
 **`claude-code-mcp-reference.md`**
 - MCP integration (config, transports, scopes, auth, tool naming): `https://code.claude.com/docs/en/mcp`
-- Supporting — quickstart: `https://code.claude.com/docs/en/mcp-quickstart`; managed/enterprise: `https://code.claude.com/docs/en/managed-mcp`
+- Supporting — quickstart: `https://code.claude.com/docs/en/mcp-quickstart`
+
+**`claude-code-mcp-managed-reference.md`** (split from the mcp file — keep both in sync when `mcp` is the target)
+- Managed/enterprise MCP (`managed-mcp.json`, allowlists/denylists): `https://code.claude.com/docs/en/managed-mcp`
 
 **`claude-code-plugins-reference.md`**
 - Plugins (create, components): `https://code.claude.com/docs/en/plugins`
@@ -73,7 +76,7 @@ Update Progress:
 - [ ] 8. Contradiction-validation gate — classify diff, validate each contradiction via cc-reference-validator, revert unconfirmed, block release until clean
 ```
 
-**1. Resolve targets.** `skills` → skills file; `agents` → agents file; `hooks` → the hooks files (`claude-code-hooks-reference.md` + `hook-handler-selection.md` + `claude-code-mcp-tool-hooks-reference.md`, the latter two per their conservative rules — preserve curated gotchas, never regenerate wholesale); `commands` → `claude-code-commands-reference.md`; `mcp` → `claude-code-mcp-reference.md`; `plugins` → `claude-code-plugins-reference.md`; `memory` → `claude-code-memory-reference.md`; `settings` → `claude-code-settings-reference.md`; `all`/empty → everything. Locate files with `Glob` (`plugins/claude-code-knowledge/skills/cc-reference/references/*.md`); if absent, create them there. The canonical location is the `references/` subfolder `plugins/claude-code-knowledge/skills/cc-reference/references/` — update files there. (Note: `skill-folder-structure.md` in that folder is a static convention doc — NOT a maintained target; never refresh it from docs.)
+**1. Resolve targets.** `skills` → skills file; `agents` → agents file; `hooks` → the hooks files (`claude-code-hooks-reference.md` + `hook-handler-selection.md` + `claude-code-mcp-tool-hooks-reference.md`, the latter two per their conservative rules — preserve curated gotchas, never regenerate wholesale); `commands` → `claude-code-commands-reference.md`; `mcp` → `claude-code-mcp-reference.md` + `claude-code-mcp-managed-reference.md`; `plugins` → `claude-code-plugins-reference.md`; `memory` → `claude-code-memory-reference.md`; `settings` → `claude-code-settings-reference.md`; `all`/empty → everything. Locate files with `Glob` (`plugins/claude-code-knowledge/skills/cc-reference/references/*.md`); if absent, create them there. The canonical location is the `references/` subfolder `plugins/claude-code-knowledge/skills/cc-reference/references/` — update files there. (Note: `skill-folder-structure.md` in that folder is a static convention doc — NOT a maintained target; never refresh it from docs.)
 
 **2. Read current file(s).** Note the existing structure and the `verified` date in the header comment.
 

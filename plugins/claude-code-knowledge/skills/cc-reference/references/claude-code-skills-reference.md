@@ -1,7 +1,7 @@
 # Claude Code Skills — Authoring Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (Skill authoring best practices + Claude Code Skills + Agent Skills overview + Agent SDK skills), verified 2026-07-03.
+> (Skill authoring best practices + Claude Code Skills + Agent Skills overview + Agent SDK skills), verified 2026-07-10.
 > Apply when authoring, reviewing, or refactoring a `SKILL.md`.
 
 ## What a skill is / when to choose it
@@ -16,7 +16,7 @@
 
 ## Discovery & progressive disclosure (mechanics)
 
-1. Startup: `name`+`description` of every skill injected into context (an `<available_skills>` list).
+1. Startup: `name`+`description` of every skill injected into context (an `<available_skills>` list; ~100 tokens per skill).
 2. On match/invoke: full `SKILL.md` body enters context as one message.
 3. Bundled files: read only when referenced and needed → zero context cost until accessed.
 - Keep `SKILL.md` body **under 500 lines**. Split into separate files past that.
@@ -139,6 +139,7 @@ Note: the SDK ignores `allowed-tools`; it is CLI-only. In the SDK, control acces
 ## Skill content lifecycle
 
 - Invoked SKILL.md enters as one message and persists for the session; Claude does NOT re-read the file on later turns → write standing instructions, not one-time steps.
+- Re-invoking a skill whose rendered content is identical to what's already in context → Claude Code notes it's already loaded, no duplicate copy added. Content differs (args changed, or a dynamic-context command produced new output) → full content appended again. Pre-v2.1.202: every re-invocation appended a full duplicate copy regardless.
 - Auto-compaction: re-attaches most recent invocation of each skill, keeping first **5,000 tokens** each; combined re-attach budget **25,000 tokens**, filled newest-first → older skills may drop. If behavior fades post-compaction, re-invoke the skill.
 - If a skill "stops working", content is usually still present; strengthen `description`/instructions or enforce via hooks.
 
@@ -155,7 +156,7 @@ Note: the SDK ignores `allowed-tools`; it is CLI-only. In the SDK, control acces
 - `$ARGUMENTS` (full string; appended as `ARGUMENTS: …` if absent), `$ARGUMENTS[N]` / `$N` (0-based, shell-quoted), `$name` (from `arguments`).
 - `${CLAUDE_SESSION_ID}`, `${CLAUDE_EFFORT}` (`low|medium|high|xhigh|max`; ultracode reports `xhigh`), `${CLAUDE_SKILL_DIR}` (skill's own dir — use for bundled script paths so they resolve at any scope).
 - `${CLAUDE_PROJECT_DIR}` (project root; same value hooks/MCP servers receive as `CLAUDE_PROJECT_DIR`) — resolves in both the skill body and `allowed-tools` (e.g. `Bash(${CLAUDE_PROJECT_DIR}/scripts/lint.sh *)`). Requires v2.1.196+.
-- Escape literal `$1.00` as `\$1.00`.
+- Escape literal `$1.00` as `\$1.00` (single backslash directly before the token). A doubled backslash (`\\$1`) does NOT escape — both backslashes remain and `$1` still expands.
 - **Stacking:** typing several skills at the start of one message (e.g. `/code-review /fix-issue 123`) expands the first skill plus up to 5 more, passing the trailing text as `$ARGUMENTS` to each; expansion stops at the first token that isn't an inline user-invocable skill (a forked skill, or a token that could itself be a slash command like `/loop`) — that token and everything after become `$ARGUMENTS` for every expanded skill. Requires v2.1.199+ (pre-v2.1.199: only the first skill loads; the rest is literal argument text).
 
 ## context: fork (run in a subagent)
@@ -176,6 +177,7 @@ Note: the SDK ignores `allowed-tools`; it is CLI-only. In the SDK, control acces
 
 - Precedence on name clash: enterprise > personal > project. Plugin skills are `plugin:skill` namespaced (no clash). Skill beats same-named command.
 - Project skills load from `.claude/skills/` in cwd and every parent up to repo root; nested package skills (`packages/x/.claude/skills/`) load on demand (monorepo support).
+- Nested skill name clash (e.g. root `deploy` + `apps/web/.claude/skills/deploy/`): both stay available; the nested one gets a directory-qualified name (`apps/web:deploy`) whose description names its directory; Claude picks the variant matching the files it's working on. v2.1.203+: invoking the unqualified name still loads the root skill, but Claude Code appends the list of directory-qualified variants plus an instruction to also invoke any variant whose directory holds the files in play — so the nested variant still applies without typing the qualified name.
 - An enterprise/personal/project `<skill-name>` entry may be a symlink to a directory elsewhere on disk; Claude Code follows it and reads `SKILL.md` from the target, loading the skill once even if the same target is reachable from more than one location. Plugin skills handle symlinks differently.
 - A skill folder with a `.claude-plugin/plugin.json` loads as a plugin named `<name>@skills-dir` (can bundle agents/hooks/MCP). In a project `.claude/skills/`, requires accepting the workspace trust dialog first.
 - `--add-dir`/`/add-dir`: `.claude/skills/` IS loaded (exception); `permissions.additionalDirectories` setting does NOT load skills. Other config (agents/commands/output-styles) not loaded from added dirs.
@@ -188,7 +190,7 @@ Note: the SDK ignores `allowed-tools`; it is CLI-only. In the SDK, control acces
   - Deny `Skill` tool entirely; or allow/deny specific: `Skill(commit)`, `Skill(review-pr *)`, `Skill(deploy *)` (exact vs prefix).
   - A few built-in commands are also reachable via the `Skill` tool: `/init`, `/review`, `/security-review`. Others (e.g. `/compact`) are not.
   - `disable-model-invocation: true` removes a skill from Claude's context entirely (`user-invocable` only affects menu visibility).
-- `skillOverrides` (settings, written by `/skills`): per-skill `"on" | "name-only" | "user-invocable-only" | "off"`; absent = `"on"`. v2.1.199+: `"off"` also hides the skill from Remote Control and Agent SDK command listings, not just the terminal `/` menu; invoking a hidden skill by its full name still errors instead of running. Plugin skills managed via `/plugin`, not this.
+- `skillOverrides` (settings; `/skills` menu writes it — highlight a skill, `Space` cycles states, `Enter` saves to `.claude/settings.local.json`): per-skill `"on" | "name-only" | "user-invocable-only" | "off"`; absent = `"on"`. v2.1.199+: `"off"` also hides the skill from Remote Control and Agent SDK command listings, not just the terminal `/` menu; invoking a hidden skill by its full name still errors instead of running. Plugin skills managed via `/plugin`, not this.
 
 ## Evaluation & iterative development
 
@@ -217,6 +219,7 @@ Note: the SDK ignores `allowed-tools`; it is CLI-only. In the SDK, control acces
 ## Version / surface notes
 
 - Commands merged into skills; `.claude/commands/*.md` still work with same frontmatter.
-- Bundled skills ship in every session (prompt-based, invoked like any skill): `/code-review`, `/batch`, `/debug`, `/loop`, `/claude-api`, plus `/run`, `/verify`, `/run-skill-generator`. Disable the whole set via `disableBundledSkills` setting. A same-named user/project/plugin skill overrides a bundled one.
+- Bundled skills ship in every session (prompt-based, invoked like any skill): `/doctor`, `/code-review`, `/batch`, `/debug`, `/loop`, `/claude-api`, plus `/run`, `/verify`, `/run-skill-generator`. Disable the whole set via `disableBundledSkills` setting. A same-named user/project/plugin skill overrides a bundled one.
+- v2.1.205+: `/doctor` is the one exception to `disableBundledSkills` — stays typable when the setting is on. Hide it via `DISABLE_DOCTOR_COMMAND` env var or `skillOverrides: {"doctor": "off"}`. Before v2.1.205, `/doctor` was a built-in command, not a bundled skill.
 - `/run`, `/verify`, `/run-skill-generator` require Claude Code ≥ v2.1.145.
 - `allowed-tools` is CLI-only (SDK ignores it). Use skills only from trusted sources; a malicious skill can direct tool/code execution. Skills feature is not ZDR-eligible.

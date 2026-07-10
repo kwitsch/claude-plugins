@@ -2,7 +2,7 @@
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
 > (Plugins, Plugins reference, Plugin marketplaces, Plugin dependencies, Plugin hints),
-> verified 2026-07-03.
+> verified 2026-07-10.
 > Apply when creating, reviewing, or distributing a Claude Code plugin.
 > Hook events/schema, agent frontmatter, MCP server config, and settings keys are owned by
 > sibling refs (claude-code-hooks-reference.md, -agents-, -mcp-, -settings-); kept pointer-level here.
@@ -57,7 +57,7 @@ The manifest is optional (auto-discovery + dir-name fallback when absent). If pr
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | Yes | Unique identifier; kebab-case, no spaces. Used for component namespacing. |
+| `name` | string | Yes | Unique identifier; kebab-case, no spaces. Used for component namespacing. If a marketplace entry lists the plugin under a different `name`, the marketplace entry's name is authoritative for `enabledPlugins` keys and `/plugin`. |
 | `version` | string | No | Semver string (e.g. `1.2.0`). Omit to use git commit SHA as version. If set, users receive updates only when this field changes. |
 | `displayName` | string | No | Human-readable name shown in `/plugin` picker + UI. Falls back to `name`. May contain spaces/any casing; not used for namespacing or lookup. version >= 2.1.143. |
 | `description` | string | No | Brief plugin description |
@@ -82,7 +82,7 @@ Default component dirs are auto-discovered (see [Component auto-discovery](#comp
 | `mcpServers` | string \| array \| object | MCP config path(s) or inline config | own merge rules |
 | `lspServers` | string \| array \| object | LSP config path(s) or inline config | own merge rules |
 | `outputStyles` | string \| array | Output style files/dirs | REPLACES default `output-styles/` |
-| `experimental.themes` | string \| array | Color theme `.json` files/dirs (each `{ "name", "base": <preset, e.g. dark>, "overrides": {token:hex} }`); appear in `/theme` as `custom:<plugin>:<slug>`, read-only | REPLACES default `themes/` |
+| `experimental.themes` | string \| array | Color theme `.json` files/dirs (each `{ "name", "base": <preset, e.g. dark>, "overrides": {token:hex} }`); appear in `/theme` as `custom:<plugin>:<slug>`, read-only; `Ctrl+E` in `/theme` copies one into `~/.claude/themes/` for editing | REPLACES default `themes/` |
 | `experimental.monitors` | string \| array | Monitors config path | REPLACES default `monitors/monitors.json` |
 | `userConfig` | object | Values prompted at enable time; see [userConfig](#userconfig) | — |
 | `channels` | array | Message-injection channels bound to plugin MCP servers; each `{ "server": "<mcpKey>", "userConfig"?: {…} }` | — |
@@ -206,7 +206,7 @@ A marketplace is a `marketplace.json` catalog that lets users browse and install
 | `owner` | object | `{ "name": "…" }` required; `"email"` optional |
 | `plugins` | array | List of plugin entries |
 
-Reserved marketplace names (Anthropic official; cannot be used by third parties): `claude-code-marketplace`, `claude-code-plugins`, `claude-plugins-official`, `claude-plugins-community`, `claude-community`, `anthropic-marketplace`, `anthropic-plugins`, `agent-skills`, `anthropic-agent-skills`, `knowledge-work-plugins`, `life-sciences`, `claude-for-legal`, `claude-for-financial-services`, `financial-services-plugins`. Impersonating names (e.g. `official-claude-plugins`) also blocked.
+Reserved marketplace names (Anthropic official; cannot be used by third parties): `claude-code-marketplace`, `claude-code-plugins`, `claude-plugins-official`, `claude-plugins-community`, `claude-community`, `anthropic-marketplace`, `anthropic-plugins`, `agent-skills`, `anthropic-agent-skills`, `knowledge-work-plugins`, `life-sciences`, `claude-for-legal`, `claude-for-financial-services`, `financial-services-plugins`, `first-party-plugins`, `healthcare`. Impersonating names (e.g. `official-claude-plugins`) also blocked. Checked on every marketplace load, not only on add — version >= 2.1.205: a marketplace already registered under a name that later became reserved stops loading (`registered from an untrusted source`); remove + re-add under a different name (earlier versions kept it loading). Anthropic's own: `claude-plugins-official` (curated by Anthropic; auto-registered on first interactive launch, non-interactive scripts add it explicitly via `claude plugin marketplace add anthropics/claude-plugins-official`) and `claude-community` (public community catalog; add source `anthropics/claude-plugins-community`, install as `<plugin>@claude-community`).
 
 #### Optional top-level fields
 
@@ -287,7 +287,7 @@ A plugin can depend on other plugins. Declare in `plugin.json` `dependencies` ar
 - Multiple constraints on one dependency: ranges intersected, resolved to highest version satisfying all. Unsatisfiable combos → `range-conflict` (install of the conflicting plugin fails; others stay). Auto-update fetches a constrained dependency at the highest tag satisfying every installed plugin's range; if none satisfies all, the update is skipped and surfaces in `/doctor` + the `/plugin` Errors tab, naming the constraining plugin. Uninstalling the last plugin that constrains a dependency releases the hold — it resumes tracking its marketplace entry on the next update.
 - Missing dependency recovery: `/reload-plugins` and background auto-update reinstall a missing dependency automatically if its marketplace is already configured; re-running `claude plugin install <dependent>`, or adding the marketplace with `claude plugin marketplace add`, also resolves it. A dependency from a marketplace you have not added stays unresolved.
 - Cross-marketplace: `{ "name": …, "marketplace": "other-mp" }` requires `other-mp` in the **root** marketplace's `allowCrossMarketplaceDependenciesOn` (trust does not chain); else `cross-marketplace` error. User can install the dep manually first to satisfy it.
-- `enable`/`disable` cascade (version >= 2.1.143): enabling enables deps transitively at the same scope (writes explicit `true`, overriding the dep's own `defaultEnabled: false`); disabling fails if another enabled plugin depends on the target (error gives a chained disable command). Earlier versions enable/disable only the named plugin → `dependency-unsatisfied` on next load.
+- `enable`/`disable` cascade (version >= 2.1.143): enabling enables deps transitively at the same scope (writes explicit `true`, overriding the dep's own `defaultEnabled: false`); disabling fails if another enabled plugin depends on the target (error gives a chained disable command). Enable failure names the specific blocker: dependency not installed (prints the `claude plugin install` command), blocked by org policy, or force-disabled at a higher-precedence scope (enable it there, or pass `--scope`). Earlier versions enable/disable only the named plugin → `dependency-unsatisfied` on next load.
 - Orphan cleanup: auto-installed deps stay after their dependents are uninstalled; `claude plugin prune` (version >= 2.1.121) removes deps no installed plugin requires (`--dry-run`, `-y`, `--scope`), or `claude plugin uninstall <plugin> --prune`. Plugins you installed directly are never pruned.
 - Dependency errors (`dependency-unsatisfied`, `range-conflict`, `dependency-version-unsatisfied`, `no-matching-tag`) surface in `plugin list`, `/plugin`, `/doctor`; affected plugin is disabled until resolved. Read `errors` field via `claude plugin list --json`.
 
@@ -396,12 +396,11 @@ Non-interactive plugin management commands.
 | `plugin list` | `claude plugin list [--json] [--available]` | `--available` needs `--json`. `/plugin list` inline supports `--enabled`/`--disabled`; alias `ls`. |
 | `plugin details` | `claude plugin details <name>` | Component inventory + projected always-on/on-invoke token cost. |
 | `plugin tag` | `claude plugin tag [--push] [--dry-run] [-f]` | Create `{name}--v{version}` release tag from inside the plugin dir. |
-| `plugin search` | `claude plugin search <query>` | Search available plugins across configured marketplaces. |
 | `plugin validate` | `claude plugin validate <path> [--strict]` | Validate marketplace or plugin JSON; `--strict` = warnings as errors. |
 | `plugin marketplace add` | `claude plugin marketplace add <source> [--scope scope] [--sparse <paths…>]` | `<source>` = `owner/repo[@ref]`, git URL (`#ref`), remote `marketplace.json` URL, or local path. `--sparse` limits checkout (monorepos). A URL must include its scheme; version >= 2.1.196 rejects a bare host (e.g. `gitlab.example.com/team/plugins`) as invalid `owner/repo` shorthand instead of misreading it as a GitHub path (which failed at clone time on earlier versions). |
 | `plugin marketplace remove` | `claude plugin marketplace remove <name> [--scope scope]` | `<name>` is the marketplace `name`, not the add-source. Without `--scope` removes from all scopes; removing last scope uninstalls its plugins. Alias `rm`. Fails for seed-managed (read-only). |
 | `plugin marketplace update` | `claude plugin marketplace update [name]` | Refresh from sources; seed-managed entries skipped. |
-| `plugin marketplace list` | `claude plugin marketplace list [--json]` | List configured marketplaces. |
+| `plugin marketplace list` | `claude plugin marketplace list [--json]` | List configured marketplaces. `--json` entries include `name`, `source`, source-specific fields (`repo`/`url`/`path`), `ref` when pinned. |
 
 ### Scope values
 
@@ -434,7 +433,7 @@ Non-interactive plugin management commands.
 |---|---|
 | `enabledPlugins` | `{ "<plugin>@<marketplace>": true/false }` — explicit enable state per scope; precedence over `defaultEnabled`. |
 | `extraKnownMarketplaces` | Register marketplaces (prompts team on project trust). Does not by itself restrict. |
-| `strictKnownMarketplaces` | Managed-settings allowlist of addable marketplace sources. `undefined` = no limit; `[]` = lockdown; list of `{source…}` / `{hostPattern}` / `{pathPattern}` (regex) = allowed only. Checked before every add/install/update/auto-update. |
+| `strictKnownMarketplaces` | Managed-settings allowlist of addable marketplace sources. `undefined` = no limit; `[]` = lockdown; list of `{source…}` / `{hostPattern}` / `{pathPattern}` (regex) = allowed only. Checked before every add/install/update/auto-update. Exact match does not normalize URLs (trailing slash / `.git` suffix / `ssh://` vs `https://` count as different) — prefer `hostPattern` for hosts reachable via multiple URL forms. |
 | `blockedMarketplaces` | Managed-settings blocklist (same enforcement); blocks `{"source":"skills-dir"}` to disable `plugin init`. |
 
 ## LSP servers
@@ -473,6 +472,7 @@ Array of entries; declare inline via `experimental.monitors` (array) or load fro
 - version >= 2.1.172: `CLAUDE_CODE_CHILD_SESSION` + the `<claude-code-hint />` tag.
 - version >= 2.1.193: marketplace `renames` field (former-name → current-name/`null` migration map).
 - version >= 2.1.196: local-folder git marketplaces resolve dependency tags; `plugin marketplace add` rejects schemeless-host sources; marketplace `validate` per-entry pass covers root-`.`-source entries and non-`.claude-plugin`-nested `marketplace.json`.
+- version >= 2.1.205: reserved marketplace names re-checked on every marketplace load, not only on add; `first-party-plugins`/`healthcare` added to the reserved list.
 - Version lives ONLY in `.claude-plugin/plugin.json` (repo convention). Resolution order: plugin.json → marketplace entry → git SHA → `unknown` (npm/non-git).
 - Omitting `version`: git commit SHA used; updates on every new commit. Setting it: updates only on version change; bump every release.
 - Orphaned plugin version directories cleaned up automatically ~7 days after update/uninstall.

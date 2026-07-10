@@ -1,8 +1,9 @@
 # Claude Code mcp_tool hooks reference
 
-<!-- verified 2026-07-03 · CURATED: doc-derived + hard-won gotchas. The server-name
-     namespacing rule below is NOT reliably in the official docs — preserve it on any
-     refresh; never regenerate this file wholesale. -->
+<!-- verified 2026-07-10 · CURATED: doc-derived + hard-won gotchas. The server-name
+     namespacing rule below is now documented (code.claude.com/docs/en/hooks §MCP tool
+     hook fields; code.claude.com/docs/en/mcp §Plugin-provided MCP servers) — preserve
+     it on any refresh regardless; never regenerate this file wholesale. -->
 
 How to back a hook with an MCP-server tool (`type: "mcp_tool"`). For the general
 handler-type choice see `hook-handler-selection.md`; for hook mechanics see
@@ -91,5 +92,6 @@ plugins/<name>/
 ## Version notes
 
 - Server-name namespacing (`plugin:<plugin>:<server-key>`) confirmed via
-  `claude mcp list` on the running CLI; the bare-key form does not match a
-  plugin-bundled server.
+  `claude mcp list` on the running CLI, and via the official docs' MCP tool
+  hook fields table and Plugin-provided MCP servers section; the bare-key
+  form does not match a plugin-bundled server.
