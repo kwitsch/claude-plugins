@@ -205,7 +205,10 @@ dependency on `branch-management`; every script/agent used here lives in
       path — resolve it once from this skill's own system prompt (same
       resolve-once-reuse-every-iteration treatment as `${CLAUDE_PLUGIN_ROOT}`
       above); if none is available, run `mktemp -d -t fresh-pr-XXXXXX` once
-      instead and reuse that directory for the rest of the run. On GitHub
+      instead — check its exit status before reusing the printed path; on
+      failure, report the error and stop before dispatching `ci-watcher`
+      rather than continuing with an empty/invalid path — and reuse that
+      directory for the rest of the run. On GitHub
       also resolve
       `owner`/`name` once via `gh repo view --json owner,name --jq '{owner: .owner.login, name: .name}'`
       (`owner` comes back as an object, not a bare string — extract `.login`)
