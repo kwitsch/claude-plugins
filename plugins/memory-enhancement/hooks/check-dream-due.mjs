@@ -24,9 +24,11 @@ const NUDGE = "A memory dream cycle is due for this project. Run one now: "
   + "system-prompt block), gather signal (targeted grep over the most recent "
   + "main-session transcripts for corrections/preferences/decisions), "
   + "consolidate (merge duplicate memories, drop stale entries, resolve "
-  + "contradictions, back up each changed file alongside itself before "
-  + "writing), then update the MEMORY.md index (keep it under 200 lines / "
-  + "25KB). Only touch files that actually need a change.";
+  + "contradictions, author a new memory file for any signal with no "
+  + "existing memory home, back up each changed file alongside itself "
+  + "before writing, compress new/changed files via cc-compress when "
+  + "available), then update the MEMORY.md index (keep it under 200 lines "
+  + "/ 25KB). Only touch files that actually need a change.";
 
 /** @returns {void} */
 function main() {
