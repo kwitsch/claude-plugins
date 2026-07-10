@@ -27,7 +27,7 @@
 
 Mechanically enforces the Interaction axis on every turn and blocks non-UTF-8 file
 operations — both automatic, zero-setup. The full "golden behavior rules" document
-(covering all four axes) is available as an opt-in project rule via the `setup-rules`
+(covering all four axes) is available as an opt-in user-level rule via the `setup-rules`
 skill, rather than injected automatically.
 
 The rules document is written in cavemem's compressed-English notation and combines
