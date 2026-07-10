@@ -115,6 +115,7 @@ itself never checks for the file's existence or installs it.
 ## Report
 
 One short summary: files merged/dropped/changed/created, files left
-untouched, files compressed vs. skipped (with why), the final `MEMORY.md`
-line count, and whether the coding-toolbox tools rule was refreshed, left
-untouched, or skipped (with why).
+untouched, files compressed vs. rolled back after a failed compression (with
+why — cc-compress simply being unavailable is not itself called out, per
+phase 3), the final `MEMORY.md` line count, and whether the coding-toolbox
+tools rule was refreshed, left untouched, or skipped (with why).

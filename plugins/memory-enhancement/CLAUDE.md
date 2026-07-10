@@ -39,7 +39,8 @@ of Claude Code's native auto-memory feature (v2.1.59+).
   gather signal (targeted `rg` over the most recent 8 main-session `*.jsonl`
   transcripts -- never a full read), consolidate (merge/drop/resolve, author
   a new memory file for any signal with no existing memory home, sibling
-  `.bak` backup before writing, then — only if `claude-code-knowledge:cc-compress`
+  `.bak` backup before writing for each existing changed file (a
+  newly-authored file has nothing to back up), then — only if `claude-code-knowledge:cc-compress`
   is among this session's available skills — `Skill(claude-code-knowledge:cc-compress)
   --confirmed` on every touched non-MEMORY.md file; **no hard dependency** —
   `plugin.json` deliberately declares none, since a hard dependency would
