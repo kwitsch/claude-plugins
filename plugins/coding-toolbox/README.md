@@ -25,9 +25,10 @@
 
 ## What it does
 
-Injects a compact "golden behavior rules" contract into every Claude Code session,
-re-surfaces a short reminder before consequential tool calls, and mechanically enforces
-the Interaction axis, so the rules stay in context and are enforced.
+Mechanically enforces the Interaction axis on every turn and blocks non-UTF-8 file
+operations — both automatic, zero-setup. The full "golden behavior rules" document
+(covering all four axes) is available as an opt-in project rule via the `setup-rules`
+skill, rather than injected automatically.
 
 The rules document is written in cavemem's compressed-English notation and combines
 four axes — three sourced from external repos, one (Interaction) plugin-original:
@@ -39,11 +40,6 @@ four axes — three sourced from external repos, one (Interaction) plugin-origin
 | **Behavior** | [andrej-karpathy-skills `CLAUDE.md`](https://github.com/multica-ai/andrej-karpathy-skills/blob/main/CLAUDE.md) | think → simplify → surgical → verify |
 | **Mentality** | [ponytail-lite `AGENTS.md`](https://github.com/ilindaniel/ponytail-lite/blob/main/AGENTS.md) | lazy senior dev; YAGNI; prefer deletion |
 
-- A `SessionStart` hook injects the full rules document, now covering all four axes
-  (it re-fires on resume and after compaction, so the rules survive a compaction).
-- A `PreToolUse` hook (scoped to `Edit`, `Write`, `NotebookEdit`, `Bash` — not before
-  subagent dispatch) injects a one-line reminder covering all four axes before code
-  edits and shell commands, throttled to every 10th matching call.
 - A `Stop` hook mechanically blocks a turn that ends with a plain-text question to the
   user, telling Claude to redo it via `AskUserQuestion` instead.
 - **Encoding guard (PreToolUse):** before `Read`, `Edit`, `Write` and `Bash`
@@ -54,4 +50,6 @@ four axes — three sourced from external repos, one (Interaction) plugin-origin
   files always pass; encoding-safe tools (`iconv`, `git`, `mv`, …) are never
   blocked.
 
-No configuration; nothing to set up — enabling the plugin is enough.
+The Stop gate and encoding guard need no setup. Run `/setup-rules` once per project to
+opt into the full golden-rules document and a tool-routing table as persistent
+`.claude/rules/*.md` files.

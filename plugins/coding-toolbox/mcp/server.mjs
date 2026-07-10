@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 // Self-contained, zero-dependency MCP stdio server (Node built-ins only).
-// Backs the coding-toolbox PreToolUse golden-rules reminder: throttles the
-// reminder to every Nth matched tool call (Edit|Write|NotebookEdit|Bash) instead
-// of firing on every call. Invoked directly as the .mcp.json command.
+// Backs the coding-toolbox Stop-hook mechanical gate for the Interaction axis
+// (interaction_gate). Invoked directly as the .mcp.json command.
 // Transport: newline-delimited JSON-RPC 2.0. stdout = JSON-RPC only; logs → stderr.
 import process from "node:process";
 import readline from "node:readline";
@@ -10,31 +9,12 @@ import readline from "node:readline";
 const SERVER_NAME = "coding-toolbox-hooks"; // keep aligned with the .mcp.json key
 const SERVER_INFO = { name: SERVER_NAME, version: "0.1.0" };
 const DEFAULT_PROTOCOL = "2025-11-25"; // only used if client omits protocolVersion
-const THROTTLE_EVERY = 10;
-const REMINDER_TEXT =
-  "Golden rules are active for this session (full text injected at session start). Interaction: user questions go through AskUserQuestion — never plain-text ask-and-wait, not even a bare '?' offer. Language: compress — drop filler, preserve technical tokens. Behavior: think → simplify → surgical → verify. Mentality: lazy senior dev — YAGNI, reuse before building, prefer deletion, shortest working diff; never cut validation / security / tests.";
 
 // Matches a final non-empty line ending in "?" outside fenced code blocks —
 // the Interaction axis's "never a bare question to the user" anti-pattern.
 const BARE_QUESTION_RE = /\?\s*$/;
 
-let callCount = 0;
-
 startServer();
-
-// Throttled PreToolUse reminder: increments a session-lifetime counter and
-// only emits additionalContext on every THROTTLE_EVERYth matched call.
-/** @param {ToolHookInput} args @returns {HookResult} */
-function reminderHandler(args) {
-  callCount += 1;
-  if (callCount % THROTTLE_EVERY !== 0) return {}; // no opinion → default flow
-  return {
-    hookSpecificOutput: {
-      hookEventName: args?.hook_event_name ?? "PreToolUse",
-      additionalContext: REMINDER_TEXT,
-    },
-  };
-}
 
 // Stop mechanical gate for the Interaction axis: `last_assistant_message` is
 // the documented Stop-hook field carrying Claude's final response text, so no
@@ -58,13 +38,6 @@ function interactionGateHandler(args) {
 // Initialize the MCP stdio server: register tools, start the JSON-RPC readline loop.
 function startServer() {
   const TOOLS = [
-    {
-      name: "golden_rules_reminder",
-      description:
-        "PreToolUse golden-rules reminder, throttled to every 10th matched call (Edit|Write|NotebookEdit|Bash). Returns additionalContext on the 10th/20th/... call, {} otherwise.",
-      inputSchema: { type: "object", additionalProperties: true },
-      handler: reminderHandler,
-    },
     {
       name: "interaction_gate",
       description:
