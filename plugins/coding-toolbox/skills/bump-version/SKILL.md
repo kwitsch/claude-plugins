@@ -2,7 +2,7 @@
 name: bump-version
 description: Use to bump a project's semantic version (major, minor, or patch) in its detected version file — package.json, composer.json, pom.xml, or a plain VERSION file — and sync the matching lock file (npm/composer) when present.
 argument-hint: "<major|minor|patch>"
-allowed-tools: ["Bash(bash:*)", "Bash(mktemp:*)", "Bash(cat:*)", "Bash(rm -f *)"]
+allowed-tools: ["Bash(bash:*)", "Bash(mktemp:*)", "Bash(cat:*)", "Bash(rm -f *)", "Bash(export:*)"]
 ---
 
 # Bump a project's version
@@ -60,7 +60,7 @@ the heredoc body below needs no change to pick this up. The whole block
 
 ```bash
 export TMPDIR="SCRATCHPAD_DIR"
-BUMP="$(mktemp)"
+BUMP="$(mktemp)" || { echo "mktemp failed — check TMPDIR (replace SCRATCHPAD_DIR with an existing, writable directory)" >&2; exit 1; }
 cat > "$BUMP" <<'BUMPVERSION_EOF'
 #!/usr/bin/env bash
 # bump-version: detect a project's version file (package.json > composer.json >
@@ -276,6 +276,10 @@ Map the exit code:
 
 - `0` — success; report the printed `file:`/`old:`/`new:`/`sync:` lines
   (`sync:` is one of `synced`, `no_lockfile`, `no_convention`).
+- `1` `environment_error` — `mktemp` failed to create the working temp file
+  (bad/unwritable `TMPDIR`, i.e. an unsubstituted or stale `SCRATCHPAD_DIR`).
+  Report the stderr message and stop; nothing was touched — this happens
+  before the version file is ever read.
 - `2` `usage` — missing, extra, or unrecognized argument (must be exactly
   one of `major`, `minor`, `patch`). Report the stderr usage line and
   stop; nothing was touched.

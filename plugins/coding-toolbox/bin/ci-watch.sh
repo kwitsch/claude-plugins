@@ -19,10 +19,12 @@
 #
 # Env: CI_WATCH_TIMEOUT (s, default 1800) · CI_WATCH_INTERVAL (s, default 30) ·
 #      TMPDIR (honored by the stderr-capture `mktemp` below; callers set it to
-#      route that temp file into a session scratch dir instead of system /tmp)
+#      route that temp file into a session scratch dir instead of system /tmp —
+#      a bad/unwritable TMPDIR is itself an environment error, see exit 64)
 # Exit codes: 0 green (notes on stdout) · 1 red · 2 deadline reached
 #             without a conclusive real-CI result · 64 usage/environment
-#             error (bad arguments, CLI or `timeout` missing, CLI too old)
+#             error (bad arguments, CLI or `timeout` missing, CLI too old,
+#             mktemp failed — e.g. a bad/unwritable TMPDIR)
 set -euo pipefail
 
 # Print usage to stderr and exit 64; called on bad arg count or unknown platform.
@@ -41,7 +43,7 @@ command -v timeout >/dev/null 2>&1 || { echo "timeout not installed" >&2; exit 6
 
 deadline="${CI_WATCH_TIMEOUT:-1800}"
 interval="${CI_WATCH_INTERVAL:-30}"
-errf=$(mktemp)
+errf=$(mktemp) || { echo "mktemp failed (bad/unwritable TMPDIR?)" >&2; exit 64; }
 trap 'rm -f "$errf"' EXIT
 missing=0   # strictly consecutive "no checks / no pipeline" answers
 
