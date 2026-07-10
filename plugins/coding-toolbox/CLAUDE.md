@@ -227,12 +227,15 @@ needing no change to the script itself.
 
 ## Skill design (`setup-rules`)
 
-User-only (`disable-model-invocation: true`, same precedent as
-`branch-management:clean-branches` — a side-effecting project-config
-wizard, not named `configure-*` but carrying the flag anyway) wizard
-that installs/refreshes/removes two always-on
+Model-invocable (2026-07-10: dropped `disable-model-invocation` — was
+user-only, same precedent as `branch-management:clean-branches`,
+side-effecting project-config wizard — reversed by explicit user decision at
+a `fresh-work` intent-confirmation gate once the verbatim-argument mode below
+gave every caller, human or model, a fully deterministic non-interactive
+path, closing the ambiguity/half-applied-state gap that justified the
+original restriction) wizard that installs/refreshes/removes two always-on
 `~/.claude/rules/coding-toolbox-*.md` files (moved from project-scoped
-`.claude/rules/` 2026-07-10 — user-level rules apply to every project on
+`.claude/rules/` the same day — user-level rules apply to every project on
 this machine, confirmed against the memory-reference cc-reference doc):
 a byte-exact `cp` of the
 skill's own `references/golden-rules.md` (never re-typed, avoiding
@@ -267,7 +270,14 @@ tools, mirroring `configure-branch-management`'s `jq`/`mv`/`printf`-only
 file writes. Neither managed file carries a `paths:` frontmatter key —
 confirmed against the memory-reference cc-reference doc that a
 `.claude/rules/*.md` file without `paths` loads unconditionally, same
-priority as `.claude/CLAUDE.md`.
+priority as `.claude/CLAUDE.md`. A verbatim `$ARGUMENTS` mode (Step 3a)
+parses a substring-based verb+target grammar (`install`/`update`/`refresh` vs
+`remove`/`uninstall`; `tools` vs `rules`/`golden`, else both) to resolve the
+same two yes/no answers Step 3b's `AskUserQuestion` produces, without asking —
+ambiguous or unrecognized input reports usage and stops rather than guessing
+or half-applying. `memory-enhancement:dream` is this mode's first consumer
+(`update tools rule`), invoking this now-model-invocable skill directly via
+the `Skill` tool.
 
 ## Tests
 

@@ -1,8 +1,7 @@
 ---
 name: setup-rules
-description: Install, refresh, or remove coding-toolbox's user-level rules — a copy of the golden-rules content and a tool-routing table for rtk/bun/ripgrep/codebase-memory — as always-on ~/.claude/rules/coding-toolbox-*.md files, applying to every project on this machine.
-argument-hint: ""
-disable-model-invocation: true
+description: Install, refresh, or remove coding-toolbox's user-level rules — a copy of the golden-rules content and a tool-routing table for rtk/bun/ripgrep/codebase-memory — as always-on ~/.claude/rules/coding-toolbox-*.md files, applying to every project on this machine. Accepts a verbatim argument (e.g. "update tools rule") to apply directly, skipping the interactive prompts.
+argument-hint: "[install|update|remove] [rules|tools|both]"
 allowed-tools: ["AskUserQuestion", "Bash(mkdir:*)", "Bash(cp:*)", "Bash(rm:*)", "Bash(cat:*)"]
 ---
 
@@ -46,7 +45,38 @@ If the block above rendered as literally `[shell command execution disabled by p
 - `detected` = the subset of `rtk`, `bun`, `ripgrep`, `codebase-memory`
   marked `present` above
 
-## Step 3 — Ask
+## Step 3 — Resolve answers
+
+`$ARGUMENTS` non-empty → **Step 3a** (verbatim, skips asking). Empty → **Step 3b**
+(today's interactive `AskUserQuestion` flow, unchanged).
+
+### Step 3a — Parse verbatim arguments
+
+Lowercase `$ARGUMENTS`, then resolve in order:
+
+1. **Ambiguity check.** Contains a token from *both* groups below → go to
+   the usage-error branch (item 4) without applying anything.
+2. **Verb.** Contains any of `remove`, `uninstall`, `delete`, `disable`, `no`
+   → `answer = No`. Else contains any of `install`, `add`, `enable`,
+   `update`, `refresh`, `yes` → `answer = Yes`. Else → usage-error branch.
+3. **Target.** Contains `tool` (covers `tool`, `tools`, `tool-routing`,
+   `routing`) → `target = tools` only. Else contains `golden` or `rule`
+   (covers `rule`, `rules`, `golden-rules`; only reached when no `tool`
+   substring matched, so "tools rule" resolves to `tools` alone) →
+   `target = rules` only. Else (contains `both`/`all`/`everything`, or no
+   target keyword at all — e.g. bare `update`) → `target = both`.
+4. **Usage-error branch.** State plainly (not a question — no trailing `?`):
+   `Couldn't parse "<$ARGUMENTS>" — expected a verb (install/update/remove)
+   and optionally a target (rules/tools/both). Examples: "install",
+   "update tools rule", "remove rules rule", "remove both".` Then stop —
+   no file writes, nothing asked.
+5. Set the Question 1 (golden-rules) answer to `answer` when `target` is
+   `rules` or `both`; leave it untouched otherwise. Set the Question 2
+   (tools) answer to `answer` when `target` is `tools` or `both`; leave it
+   untouched otherwise. Skip `AskUserQuestion` entirely — go straight to
+   Step 4 Apply with these answers.
+
+### Step 3b — Ask (`$ARGUMENTS` empty)
 
 One `AskUserQuestion` call, one single-select (`multiSelect: false`) question
 per artifact — mirroring `configure-branch-management`'s pattern: current
