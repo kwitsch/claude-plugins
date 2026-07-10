@@ -46,11 +46,21 @@ leaves the heredoc unterminated and swallows everything after it. Replace
 literal `major`/`minor`/`patch` argument the caller gave — not a bracketed
 `<...>` placeholder: those characters are shell redirection/pipe
 metacharacters, so an imperfect substitution would silently turn the
-invocation into a redirection instead of a clean, catchable usage error. The
-whole block (heredoc write + run + cleanup) is one Bash tool call.
+invocation into a redirection instead of a clean, catchable usage error. Also
+replace `SCRATCHPAD_DIR` (on the `export TMPDIR=` line below) with your
+session scratchpad directory's absolute path, taken from your own system
+prompt; if none is available, run `mktemp -d -t bump-version-XXXXXX` once
+first and use that directory's path instead — quote it, and never substitute
+a bracketed `<...>` placeholder literally (same caveat as `PART` above).
+This routes both temp files this script creates (`$BUMP`, and the lock-sync
+log created inside it) into the session's own scratch space rather than
+shared system `/tmp` — `mktemp` already prefers `$TMPDIR` when it is set, so
+the heredoc body below needs no change to pick this up. The whole block
+(heredoc write + run + cleanup) is one Bash tool call.
 
 ```bash
-BUMP="/tmp/bump-version.$$"
+export TMPDIR="SCRATCHPAD_DIR"
+BUMP="$(mktemp)"
 cat > "$BUMP" <<'BUMPVERSION_EOF'
 #!/usr/bin/env bash
 # bump-version: detect a project's version file (package.json > composer.json >

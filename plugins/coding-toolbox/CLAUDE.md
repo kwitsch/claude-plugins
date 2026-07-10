@@ -211,7 +211,11 @@ confirmed at the design intent-confirmation gate) but never presented as
 equivalent to the npm case. No git operations — this skill only edits
 files in the working tree, unlike `fresh-branch`/`fresh-pr`/`fresh-work`;
 composability with those is preserved by keeping this skill's blast radius
-to file edits only.
+to file edits only. Both temp files this skill creates (`$BUMP`, and the
+lock-sync log inside it) are routed into the session scratchpad via an
+`export TMPDIR=` line the caller substitutes before running the script —
+`mktemp` already prefers `$TMPDIR` when set, so neither the outer script nor
+the heredoc body needed any other change.
 
 ## Skill design (`setup-rules`)
 
