@@ -317,12 +317,17 @@ removes it. Its four `command -v` detection lines stay inline (trivial,
 one-liners, not worth extracting), but the four candidate table rows are
 **not** duplicated inline — both this skill and `setup-rules`' own Step 4
 `Read` the same bundled `skills/setup-rules/references/tool-routing-rows.md`
-file for them, a single source of truth rather than two hand-maintained
-copies (a code-review pass on this branch replaced an earlier draft that did
-duplicate the rows behind a bats sync-guard test — extracting them removes
-the drift risk entirely instead of just detecting it after the fact, since
-both skills live in the same plugin and sharing a bundled reference file
-costs nothing here, unlike the genuinely cross-plugin `ci-watch.sh` port).
+file for them, a single source of truth for the rows specifically rather
+than two hand-maintained copies (a code-review pass on this branch replaced
+an earlier draft that did duplicate the rows behind a bats sync-guard test —
+extracting them removes the drift risk entirely instead of just detecting it
+after the fact, since both skills live in the same plugin and sharing a
+bundled reference file costs nothing here, unlike the genuinely cross-plugin
+`ci-watch.sh` port). The surrounding heredoc scaffolding (`# Tool routing`
+header, the `Detected on this machine…` line, the table's own `| Task |
+Prefer | Why |` header/divider) is still written out in both skills — small,
+stable, and not worth extracting; only the row content that actually changes
+when a tool is added or reworded lives in the one shared file.
 `memory-enhancement:dream`'s optional Phase 5 is this skill's only caller so
 far, invoking it with no arguments (there is nothing to choose — the one
 action is always "refresh if installed, else no-op").
