@@ -26,6 +26,8 @@ its 200-line load cutoff. Touched detail files get compressed caveman-style
 via `claude-code-knowledge`'s `cc-compress`. Only files that actually need a
 change are touched -- untouched memory files are left byte-for-byte alone.
 
-A `Stop` hook flags the next session as dream-due; a `SessionStart` hook
-consumes that flag and nudges Claude to run a cycle, gated by the
-`auto_dream` toggle (default `true` -- set `false` to keep the flag silent).
+A `Stop` hook flags a genuinely new next session (not a same-session `/clear`
+or `/compact`) as dream-due; a `SessionStart` hook consumes that flag and
+nudges Claude to run a cycle, gated by the `auto_dream` toggle. `auto_dream`
+is fail-closed -- only an explicit `true` enables the nudge, so confirm the
+toggle once (e.g. via `/config`) after installing if it never seems to fire.

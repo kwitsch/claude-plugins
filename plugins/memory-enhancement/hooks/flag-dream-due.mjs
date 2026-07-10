@@ -13,7 +13,16 @@ import { fileURLToPath } from "node:url";
 
 /** @param {string} projectDir @returns {string} */
 export function flagPathFor(projectDir) {
-  const hash = createHash("sha256").update(path.resolve(projectDir)).digest("hex").slice(0, 8);
+  // realpath, not a plain resolve: two symlink variants of the same project
+  // dir (e.g. a worktree, or a symlinked tmp/home component) must hash to
+  // the same flag path. Falls back to resolve() if the dir doesn't exist yet.
+  let resolved;
+  try {
+    resolved = fs.realpathSync(projectDir);
+  } catch {
+    resolved = path.resolve(projectDir);
+  }
+  const hash = createHash("sha256").update(resolved).digest("hex").slice(0, 8);
   const dataDir = process.env.CLAUDE_PLUGIN_DATA || ".";
   return path.resolve(dataDir, `dream-due-${hash}.flag`);
 }

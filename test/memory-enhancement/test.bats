@@ -33,6 +33,11 @@ setup() {
   assert_success
 }
 
+@test "SessionStart hook is scoped to startup|resume only (never clear/compact)" {
+  run jq -e '.hooks.SessionStart[0].matcher == "startup|resume"' "$HOOKS"
+  assert_success
+}
+
 @test "both hook files are executable with a node shebang" {
   [ -x "$STOP_HOOK" ]
   [ -x "$START_HOOK" ]
