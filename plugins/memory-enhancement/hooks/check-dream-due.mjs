@@ -8,17 +8,8 @@
 // natural-language nudge and clears the flag (consumed once, so /clear and
 // /compact don't re-fire it every time).
 import fs from "node:fs";
-import path from "node:path";
 import process from "node:process";
-import { createHash } from "node:crypto";
-import { fileURLToPath } from "node:url";
-
-/** @param {string} projectDir @returns {string} */
-export function flagPathFor(projectDir) {
-  const hash = createHash("sha256").update(path.resolve(projectDir)).digest("hex").slice(0, 8);
-  const dataDir = process.env.CLAUDE_PLUGIN_DATA || ".";
-  return path.resolve(dataDir, `dream-due-${hash}.flag`);
-}
+import { flagPathFor, isMainModule } from "./flag-dream-due.mjs";
 
 /** @param {string | undefined} value @returns {boolean} */
 export function isAutoDreamEnabled(value) {
@@ -34,24 +25,15 @@ const NUDGE = "A memory dream cycle is due for this project. Run one now: "
   + "writing), then update the MEMORY.md index (keep it under 200 lines / "
   + "25KB). Only touch files that actually need a change.";
 
-/** @returns {boolean} */
-function isMainModule() {
-  try {
-    return fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url));
-  } catch {
-    return false;
-  }
-}
-
 /** @returns {void} */
 function main() {
+  if (!isAutoDreamEnabled(process.argv[2])) {
+    process.exit(0);
+  }
   try {
     const raw = fs.readFileSync(0, "utf8");
     /** @type {HookCommonInput} */
     const event = JSON.parse(raw);
-    if (!isAutoDreamEnabled(process.argv[2])) {
-      process.exit(0);
-    }
     const projectDir = process.env.CLAUDE_PROJECT_DIR || event.cwd || process.cwd();
     const flagPath = flagPathFor(projectDir);
     if (!fs.existsSync(flagPath)) {
@@ -72,4 +54,4 @@ function main() {
   process.exit(0);
 }
 
-if (isMainModule()) main();
+if (isMainModule(import.meta.url)) main();

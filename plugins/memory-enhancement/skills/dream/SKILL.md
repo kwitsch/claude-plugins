@@ -49,17 +49,18 @@ contradiction gets noted in the file itself rather than blocking or asking):
    `cc-compress`'s).
 2. Write the consolidated content.
 3. If the file is anything **other than** `MEMORY.md`: before compressing,
-   note every `[[wikilink]]`-style cross-reference and bare-`.md` link
-   target in the file. Then invoke `claude-code-knowledge:cc-compress`
+   extract its reference set with `rg -o '\[\[[^]]+\]\]|\b[\w-]+\.md\b'
+   <file> | sort -u` (wikilinks plus bare-`.md` filenames — `cc-compress`'s
+   path-preservation check does not protect either, only slash-containing
+   paths and full URLs). Then invoke `claude-code-knowledge:cc-compress`
    (Skill tool) on it with `--confirmed` (memory files live outside any git
    repo, so `cc-compress`'s own git-recoverability gate would otherwise ask
    every time; this dream cycle's own step-1 backup already covers
-   rollback). After compressing, diff those noted references against the
-   compressed result — `cc-compress`'s path-preservation check does not
-   protect bare filenames or `[[...]]` tokens, only slash-containing paths
-   and full URLs. If any reference was reworded or dropped, discard the
-   compressed result and keep the consolidated-but-uncompressed version
-   instead; note the skip in the session summary.
+   rollback). After compressing, run the same `rg -o ... | sort -u` command
+   against the compressed result and `diff` the two sorted lists. Any
+   difference (a missing or altered entry) → discard the compressed result,
+   keep the consolidated-but-uncompressed version instead, and note the skip
+   in the session summary.
 
 Files that need no change: leave alone entirely — do not open, backup, or
 touch them.

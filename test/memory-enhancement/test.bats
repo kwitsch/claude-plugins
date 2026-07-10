@@ -49,20 +49,24 @@ setup() {
   assert_success
 }
 
+prime_flag() {
+  echo '{"session_id":"s1","cwd":"'"$CLAUDE_PROJECT_DIR"'","transcript_path":"x","permission_mode":"default","hook_event_name":"Stop","stop_hook_active":false,"last_assistant_message":"","background_tasks":[],"session_crons":[]}' | node "$STOP_HOOK"
+}
+
+run_start() {
+  echo '{"session_id":"s1","cwd":"'"$CLAUDE_PROJECT_DIR"'","transcript_path":"x","permission_mode":"default","hook_event_name":"SessionStart"}' | node "$START_HOOK" "$1"
+}
+
 @test "Stop hook creates the flag file from stdin JSON" {
-  run bash -c "echo '{\"session_id\":\"s1\",\"cwd\":\"$CLAUDE_PROJECT_DIR\",\"transcript_path\":\"x\",\"permission_mode\":\"default\",\"hook_event_name\":\"Stop\",\"stop_hook_active\":false,\"last_assistant_message\":\"\",\"background_tasks\":[],\"session_crons\":[]}' | node '$STOP_HOOK'"
+  run prime_flag
   assert_success
   run bash -c "ls '$CLAUDE_PLUGIN_DATA'/dream-due-*.flag"
   assert_success
 }
 
-prime_flag() {
-  echo '{"session_id":"s1","cwd":"'"$CLAUDE_PROJECT_DIR"'","transcript_path":"x","permission_mode":"default","hook_event_name":"Stop","stop_hook_active":false,"last_assistant_message":"","background_tasks":[],"session_crons":[]}' | node "$STOP_HOOK"
-}
-
 @test "SessionStart with auto_dream=true and a due flag emits the nudge and clears the flag" {
   prime_flag
-  run bash -c "echo '{\"session_id\":\"s1\",\"cwd\":\"$CLAUDE_PROJECT_DIR\",\"transcript_path\":\"x\",\"permission_mode\":\"default\",\"hook_event_name\":\"SessionStart\"}' | node '$START_HOOK' true"
+  run run_start true
   assert_success
   assert_output --partial '"additionalContext"'
   run bash -c "ls '$CLAUDE_PLUGIN_DATA'/dream-due-*.flag 2>/dev/null | wc -l"
@@ -71,7 +75,7 @@ prime_flag() {
 
 @test "SessionStart with auto_dream=false leaves an existing flag untouched and emits nothing" {
   prime_flag
-  run bash -c "echo '{\"session_id\":\"s1\",\"cwd\":\"$CLAUDE_PROJECT_DIR\",\"transcript_path\":\"x\",\"permission_mode\":\"default\",\"hook_event_name\":\"SessionStart\"}' | node '$START_HOOK' false"
+  run run_start false
   assert_success
   assert_output ""
   run bash -c "ls '$CLAUDE_PLUGIN_DATA'/dream-due-*.flag | wc -l"
@@ -79,7 +83,7 @@ prime_flag() {
 }
 
 @test "SessionStart with auto_dream=true and no flag emits nothing" {
-  run bash -c "echo '{\"session_id\":\"s1\",\"cwd\":\"$CLAUDE_PROJECT_DIR\",\"transcript_path\":\"x\",\"permission_mode\":\"default\",\"hook_event_name\":\"SessionStart\"}' | node '$START_HOOK' true"
+  run run_start true
   assert_success
   assert_output ""
 }
