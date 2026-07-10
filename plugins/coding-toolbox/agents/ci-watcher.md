@@ -43,12 +43,13 @@ Run all scripts and fetch commands via the Bash tool.
 ## Steps
 
 1. **Wait for the CI result — through the bundled watch script.**
-   - GitHub: `cd "<worktree path>" && CI_WATCH_TIMEOUT=1800 TMPDIR="<scratchpad path>" bash <ci-watch.sh-path> github <nr>`
-   - GitLab: `cd "<worktree path>" && CI_WATCH_TIMEOUT=1800 TMPDIR="<scratchpad path>" bash <ci-watch.sh-path> gitlab <branch>`
+   - GitHub: `cd "<worktree path>" && CI_WATCH_TIMEOUT=1800 TMPDIR="<scratchpad path>" bash "<ci-watch.sh-path>" github <nr>`
+   - GitLab: `cd "<worktree path>" && CI_WATCH_TIMEOUT=1800 TMPDIR="<scratchpad path>" bash "<ci-watch.sh-path>" gitlab <branch>`
    `TMPDIR` routes the script's own `mktemp` (used to capture stderr while
    polling) into the session's scratch space instead of shared system
-   `/tmp` — `ci-watch.sh` itself needs no change, `mktemp` already prefers
-   `$TMPDIR` when set.
+   `/tmp` — its `TMPDIR` behavior needs no change, `mktemp` already prefers
+   `$TMPDIR` when set (the script separately gained an explicit
+   `mktemp`-failure guard, exit `64`, mapped below).
    The script polls until every REAL check is done — CodeRabbit's own PR
    checks are excluded by name, so a CodeRabbit app that never reacts (not
    installed, rate-limited) can neither block the watch nor flip the result.
