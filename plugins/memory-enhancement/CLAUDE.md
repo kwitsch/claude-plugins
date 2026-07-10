@@ -26,16 +26,14 @@ of Claude Code's native auto-memory feature (v2.1.59+).
   contradicting the documented "flags the next session" behavior): reads
   `auto_dream` via `${user_config.auto_dream}`
   interpolated into `argv[2]` (documented in the plugins reference: "Plugin
-  hooks/commands additionally substitute `${user_config.*}`") -- fail-closed,
-  only the literal string `"true"` enables (state-creating-toggle exception
-  in `.claude/rules/plugin-userconfig.md`: this nudge triggers a cycle that
-  writes memory files). Checks this gate **before** reading stdin (skips the
-  parse entirely when disabled). If enabled and this project's flag file
-  exists, injects a natural-language `additionalContext` nudge and deletes
-  the flag (consumed once). Note: an unconfigured `auto_dream` does not
-  resolve to enabled despite `default: true` in the schema -- that default is
-  documentation/UI-only, not materialized by `${user_config.*}` interpolation
-  for an unset key; the user must explicitly set it once.
+  hooks/commands additionally substitute `${user_config.*}`") -- **fail-open**,
+  only the literal string `"false"` disables (the plugin-userconfig
+  state-creating-toggle exception does not apply here: this hook itself
+  creates no files, it only suggests a dream cycle via `additionalContext`;
+  same reasoning as `universal-format`'s `auto_format`). Checks this gate
+  **before** reading stdin (skips the parse entirely when disabled). If
+  enabled and this project's flag file exists, injects a natural-language
+  `additionalContext` nudge and deletes the flag (consumed once).
 - `skills/dream/SKILL.md`: four phases -- orient (read the memory path from
   the session's own auto-memory system-prompt block, never recomputed),
   gather signal (targeted `rg` over the most recent 8 main-session `*.jsonl`

@@ -87,6 +87,13 @@ run_start() {
   assert_output "1"
 }
 
+@test "SessionStart with auto_dream unset (fail-open) and a due flag emits the nudge" {
+  prime_flag
+  run run_start ""
+  assert_success
+  assert_output --partial '"additionalContext"'
+}
+
 @test "SessionStart with auto_dream=true and no flag emits nothing" {
   run run_start true
   assert_success

@@ -16,10 +16,10 @@ test("flagPathFor uses an 8-hex-char hash suffix", () => {
   assert.match(p, /dream-due-[0-9a-f]{8}\.flag$/);
 });
 
-test("isAutoDreamEnabled: only literal \"true\" enables", () => {
+test("isAutoDreamEnabled: fail-open, only literal \"false\" disables", () => {
   assert.equal(isAutoDreamEnabled("true"), true);
   assert.equal(isAutoDreamEnabled("false"), false);
-  assert.equal(isAutoDreamEnabled(""), false);
-  assert.equal(isAutoDreamEnabled(undefined), false);
-  assert.equal(isAutoDreamEnabled("${user_config.auto_dream}"), false);
+  assert.equal(isAutoDreamEnabled(""), true);
+  assert.equal(isAutoDreamEnabled(undefined), true);
+  assert.equal(isAutoDreamEnabled("${user_config.auto_dream}"), true);
 });

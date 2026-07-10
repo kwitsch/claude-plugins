@@ -2,18 +2,21 @@
 // SessionStart hook: the sole gate for the auto-dream nudge. Reads the
 // auto_dream userConfig value, interpolated by Claude Code into argv[2] (see
 // hooks-json-authoring: "Plugin hooks/commands additionally substitute
-// ${user_config.*}") -- fail-closed per plugin-userconfig's
-// state-creating-toggle exception: only the literal string "true" enables.
-// If enabled and this project's dream-due flag exists, injects a
-// natural-language nudge and clears the flag (consumed once, so /clear and
-// /compact don't re-fire it every time).
+// ${user_config.*}") -- fail-open: only the literal string "false" disables
+// (the hook itself creates no files/state, it only suggests one via
+// additionalContext; the plugin-userconfig fail-closed exception is for
+// toggles whose enabled state itself creates state, which this is not --
+// same reasoning as universal-format's auto_format). If enabled and this
+// project's dream-due flag exists, injects a natural-language nudge and
+// clears the flag (consumed once, so /clear and /compact don't re-fire it
+// every time).
 import fs from "node:fs";
 import process from "node:process";
 import { flagPathFor, isMainModule } from "./flag-dream-due.mjs";
 
 /** @param {string | undefined} value @returns {boolean} */
 export function isAutoDreamEnabled(value) {
-  return value === "true";
+  return value !== "false";
 }
 
 const NUDGE = "A memory dream cycle is due for this project. Run one now: "
