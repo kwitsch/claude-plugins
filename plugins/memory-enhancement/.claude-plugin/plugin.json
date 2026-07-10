@@ -1,8 +1,17 @@
 {
   "name": "memory-enhancement",
   "version": "0.1.0",
-  "description": "A dream skill that runs a natural-language-triggered, four-phase memory-consolidation cycle over this project's auto-memory files (orient, gather signal from recent session transcripts, consolidate merging duplicates/dropping stale entries/resolving contradictions, update the MEMORY.md index under its 200-line load cutoff), compressing touched detail files caveman-style via claude-code-knowledge's cc-compress; a Stop/SessionStart hook pair flags and nudges the next session to run one, gated by the auto_dream toggle (default true).",
+  "description": "A dream skill that runs a natural-language-triggered, four-phase memory-consolidation cycle over this project's auto-memory files (~/.claude/projects/<project>/memory/): orient, gather signal from recent session transcripts, consolidate (merge duplicates, drop stale entries, resolve contradictions, back up each changed file alongside itself before writing), and update the MEMORY.md index (kept under its 200-line/25KB load cutoff) -- compressing touched detail files caveman-style via claude-code-knowledge's cc-compress. A Stop hook flags the next session as dream-due; a SessionStart hook consumes that flag and nudges Claude to run one, gated by the auto_dream toggle (default true).",
   "author": {
     "name": "Kwitsch"
+  },
+  "dependencies": ["claude-code-knowledge"],
+  "userConfig": {
+    "auto_dream": {
+      "type": "boolean",
+      "title": "Auto-dream nudge",
+      "description": "Values: true = a SessionStart hook nudges Claude to run a memory dream cycle when the previous session's Stop hook flagged one as due; false = the flag is still written but never consumed/nudged. Fail-closed: only literal true enables (this triggers file-writing memory consolidation). Default: true.",
+      "default": true
+    }
   }
 }

@@ -1,6 +1,7 @@
 # memory-enhancement
 
-A dream skill that runs a natural-language-triggered, four-phase memory-consolidation cycle over this project's auto-memory files (orient, gather signal from recent session transcripts, consolidate merging duplicates/dropping stale entries/resolving contradictions, update the MEMORY.md index under its 200-line load cutoff), compressing touched detail files caveman-style via claude-code-knowledge's cc-compress; a Stop/SessionStart hook pair flags and nudges the next session to run one, gated by the auto_dream toggle (default true).
+A dream skill that consolidates this project's auto-memory files, plus a
+Stop/SessionStart hook pair that nudges the next session to run one.
 
 ## Install
 
@@ -8,6 +9,23 @@ A dream skill that runs a natural-language-triggered, four-phase memory-consolid
 /plugin install memory-enhancement@kwitsch-plugins
 ```
 
+## Skills
+
+| Skill | What it does |
+|---|---|
+| `dream` | Consolidates this project's auto-memory files in four phases (orient, gather signal, consolidate, update the MEMORY.md index), compressing touched detail files via `cc-compress`. |
+
 ## What it does
 
-<one short paragraph describing the plugin's behavior>
+Say "dream" (or describe wanting to consolidate/clean up memory) and the
+`dream` skill runs four phases over `~/.claude/projects/<project>/memory/`:
+orient, gather signal from recent session transcripts, consolidate (merge
+duplicates, drop stale entries, resolve contradictions, back up each changed
+file alongside itself), and update the `MEMORY.md` index -- keeping it under
+its 200-line load cutoff. Touched detail files get compressed caveman-style
+via `claude-code-knowledge`'s `cc-compress`. Only files that actually need a
+change are touched -- untouched memory files are left byte-for-byte alone.
+
+A `Stop` hook flags the next session as dream-due; a `SessionStart` hook
+consumes that flag and nudges Claude to run a cycle, gated by the
+`auto_dream` toggle (default `true` -- set `false` to keep the flag silent).
