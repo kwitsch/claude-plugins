@@ -1,6 +1,6 @@
 {
   "name": "coding-toolbox",
-  "version": "0.15.0",
+  "version": "0.15.1",
   "description": "Mechanically enforces the Interaction axis on Stop, blocks content operations on non-UTF-8 files with an encoding hint, and provides fresh-branch, fresh-pr, fresh-work, bump-version, setup-rules and refresh-tools-rule skills — setup-rules installs the golden behavior rules doc (Interaction/Language/Behavior/Mentality) and a tool-routing table as opt-in user-level rules (every project on this machine, also invocable non-interactively via a verbatim argument), refresh-tools-rule is its narrow, model-invocable, non-destructive companion for refreshing an already-installed tool-routing rule — for self-contained git branch, PR/MR, end-to-end work pipeline, semver version-bump and user-level rules setup management.",
   "author": {
     "name": "Kwitsch"

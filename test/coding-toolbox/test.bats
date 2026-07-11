@@ -250,7 +250,7 @@ make_stub() {
 # test-friendly timing (no sleep between polls, 2 s overall deadline).
 run_ci_watch() {
   run env -i PATH="$MOCKBIN" HOME="$HOME" STATE_DIR="$BATS_TEST_TMPDIR" \
-    CI_WATCH_INTERVAL=0 CI_WATCH_TIMEOUT=2 \
+    CI_WATCH_INTERVAL=0 CI_WATCH_TIMEOUT=2 CI_WATCH_CODERABBIT_TIMEOUT=2 \
     bash "$SCRIPTS/ci-watch.sh" "$@"
 }
 
@@ -373,6 +373,34 @@ run_ci_watch() {
   assert_output --partial "too old"
 }
 
+@test "ci-watch: --coderabbit-check exits 0 once the coderabbit check concludes" {
+  make_stub gh 'f="$STATE_DIR/gh-calls"; n=$(cat "$f" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$f"' \
+    'if [ "$n" -lt 2 ]; then printf "pass\tbuild\npending\tCodeRabbit\n"; exit 8; else printf "pass\tbuild\npass\tCodeRabbit\n"; exit 0; fi'
+  run_ci_watch github 5 --coderabbit-check
+  assert_success
+  assert_output --partial "CodeRabbit"
+}
+
+@test "ci-watch: --coderabbit-check exits 2 when the coderabbit check stays pending (deadline)" {
+  make_stub gh 'printf "pass\tbuild\npending\tCodeRabbit\n"; exit 8'
+  run_ci_watch github 5 --coderabbit-check
+  assert_failure 2
+  assert_output --partial "coderabbit check still pending"
+}
+
+@test "ci-watch: --coderabbit-check exits 0 with a note when no coderabbit check ever appears" {
+  make_stub gh 'printf "pass\tbuild\npass\ttest\n"; exit 0'
+  run_ci_watch github 5 --coderabbit-check
+  assert_success
+  assert_output --partial "no coderabbit check found"
+}
+
+@test "ci-watch: --coderabbit-check is rejected for gitlab" {
+  run_ci_watch gitlab 5 --coderabbit-check
+  assert_failure 64
+  assert_output --partial "only supported for github"
+}
+
 @test "ci-watch: gitlab green on pipeline success (json output)" {
   make_stub glab 'printf "{\"id\": 7, \"status\": \"success\"}\n"; exit 0'
   run_ci_watch gitlab feature-branch
@@ -458,6 +486,15 @@ run_ci_watch() {
   assert_success
   run rg_or_grep -F "ai_prompt" "$PLUGIN/agents/ci-watcher.md"
   assert_success
+}
+
+@test "ci-watcher agent gates CodeRabbit feedback on the check's own conclusion, not a blind poll count" {
+  run cat "$PLUGIN/agents/ci-watcher.md"
+  assert_success
+  assert_output --partial -- "--coderabbit-check"
+  assert_output --partial "CI_WATCH_CODERABBIT_TIMEOUT=600"
+  # regression guard: the old blind-poll-count heuristic must not creep back
+  refute_output --partial "stop early on the first poll"
 }
 
 @test "pr-fixer agent exists with the required frontmatter" {
@@ -556,9 +593,9 @@ run_ci_watch() {
   assert_success
 }
 
-@test "plugin.json version bumped for the fresh-work combined-review-workflow consolidation (this unreleased branch)" {
+@test "plugin.json version bumped for the ci-watcher CodeRabbit-readiness fix (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.15.0"
+  assert_output "0.15.1"
 }
 
 @test "plugin.json description mentions fresh-work" {

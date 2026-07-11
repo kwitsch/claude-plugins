@@ -86,6 +86,35 @@ rather than shared system `/tmp` — its `TMPDIR` behavior is unchanged,
 an explicit `mktemp`-failure guard, exit `64`, documented in
 `agents/ci-watcher.md`).
 
+**CodeRabbit-readiness false-green (fixed 2026-07-11).** `ci-watcher`'s step 3
+used to decide "CodeRabbit is done posting review feedback" from a blind,
+LLM-judged grace period ("at most 3 polls over ~3 minutes, stop early on the
+first poll that finds comments"). This is the same instance of the
+false-green pattern documented for `branch-management`'s `ci-monitor`
+(originally PR #86, re-observed on this plugin's own `ci-watcher` on PR #129
+and again on PR #130 in the same session, both times only caught because the
+orchestrating session independently re-verified via `gh pr checks` + a
+background poll of the CodeRabbit check + a GraphQL unresolved-thread count —
+a workaround, not a fix). Root cause: the poll-count heuristic never looked
+at the one signal that actually answers the question — CodeRabbit's own
+GitHub check conclusion (deliberately excluded from step 1's real-CI verdict,
+so it can't be reused there for a different purpose without a dedicated
+query). Fixed at the source: `bin/ci-watch.sh` gained a second query mode,
+`--coderabbit-check` (github only; usage-errors for gitlab, which has no
+per-check concept for CodeRabbit — it posts only as MR discussions there),
+reusing the same poll/timeout/rg_or_grep machinery to wait for that
+excluded check's OWN bucket to leave `pending` — bounded by its own
+`CI_WATCH_CODERABBIT_TIMEOUT` (default 600s), separate from the main
+`CI_WATCH_TIMEOUT` (1800s) since it answers a different, generally
+faster-resolving question. `ci-watcher.md` step 3 now calls this before its
+(now single, non-looping) thread fetch; every exit code (concluded, not
+found after 3 confirmations, or bounded-timeout-while-still-pending) proceeds
+to the fetch regardless — the call only changes what gets noted in the
+report, never whether CodeRabbit feedback is looked for. `branch-management`
+carries the same latent heuristic in its independent `ci-monitor.md` copy,
+deliberately left unfixed here (out of scope — no dependency between the two
+plugins; port the same fix there separately if it recurs on that plugin).
+
 ## Skill design (`fresh-work`)
 
 Self-contained end-to-end pipeline orchestrator (`skills/fresh-work/SKILL.md` +
