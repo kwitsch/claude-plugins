@@ -205,7 +205,15 @@ arrive `undefined` inside the script even when supplied correctly, on both a
 fresh call and a `resumeFromRunId` retry. `waves` is not part of that
 inlining — it's derived inside the script by a plain `computeWaves(tasks)`
 function (2026-07-05 simplify pass), so the wave-leveling arithmetic is never
-hand-computed by the model and pasted in as a literal.
+hand-computed by the model and pasted in as a literal. `tasks`
+itself is sourced (2026-07-11) from the plan's mandatory `## Machine-readable tasks`
+JSON block, authored by the Plan phase in the same pass that writes the prose tasks
+(`references/planning.md`), so the orchestrator no longer re-parses its own plan
+prose into the structured task list — the one genuine robustness gain a full
+Plan+Implement workflow merge was reached for, captured without merging the phases
+(the merge was analysed and rejected: it would regress the highest-leverage step by
+pinning Plan to a zero-context Sonnet agent for ~zero determinism gain, since
+Implement is already a Workflow).
 
 ## Skill design (`bump-version`)
 

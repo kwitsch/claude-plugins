@@ -595,7 +595,7 @@ run_ci_watch() {
 
 @test "plugin.json version bumped for the ci-watcher CodeRabbit-readiness fix (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.15.1"
+  assert_output "0.15.2"
 }
 
 @test "plugin.json description mentions fresh-work" {
@@ -901,6 +901,22 @@ run_ci_watch() {
   assert_success
   assert_output --partial "load-bearing"
   assert_output --partial "conservatively serialized"
+}
+
+@test "fresh-work planning reference mandates a machine-readable tasks block" {
+  run cat "$PLUGIN/skills/fresh-work/references/planning.md"
+  assert_success
+  assert_output --partial "## Machine-readable tasks"
+  assert_output --partial "single source"
+  assert_output --partial "never re-parsed"
+}
+
+@test "fresh-work implementing reference consumes the machine-readable tasks block" {
+  run cat "$PLUGIN/skills/fresh-work/references/implementing.md"
+  assert_success
+  assert_output --partial "## Machine-readable tasks"
+  assert_output --partial "authored by the Plan phase"
+  refute_output --partial "task list parsed as"
 }
 
 @test "fresh-work references/implementing.md exists and is non-empty" {
