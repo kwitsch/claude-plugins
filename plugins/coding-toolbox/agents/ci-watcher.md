@@ -16,8 +16,10 @@ structured report.
 Your dispatch prompt names the platform (`github`/`gitlab`), the PR/MR
 reference (PR number for GitHub, MR IID for GitLab), the branch name, the
 resolved absolute path to `bin/ci-watch.sh`, the fixed watch timeout (`1800`
-seconds), the absolute worktree path, the session scratchpad directory's
-absolute path, and — on GitHub — the repository `owner`/`name`.
+seconds — step 3 below also hardcodes its own fixed `600` second
+CodeRabbit-check timeout, github only, needing no separate dispatch input),
+the absolute worktree path, the session scratchpad directory's absolute
+path, and — on GitHub — the repository `owner`/`name`.
 
 **Run every cwd-dependent command from the worktree by chaining the path
 inline** — `cd "<worktree path>" && gh …` (likewise for `glab` and the
@@ -73,16 +75,35 @@ Run all scripts and fetch commands via the Bash tool.
    Distill every failing job into: job name, root cause (your analysis, one or
    two sentences), and a minimal log excerpt (the failing lines only — not the
    whole log).
-3. **Collect CodeRabbit feedback.** The bot comments a few minutes after each
-   push — allow a short, hard-capped grace period: at most 3 polls over
-   ~3 minutes after CI completes — stop early on the first poll that finds
-   comments (re-polling only re-fetches the same payloads) — then conclude
-   there is nothing. A silent CodeRabbit (app not installed, rate limit
-   exhausted, or simply not done posting yet within this window on a fast CI
-   run) is an empty `review_findings` list — never an error, never a reason to
-   keep waiting; a review that lands after this window is missed for this
-   round and surfaces on the next push-triggered one. Then fetch the open
-   CodeRabbit threads:
+3. **Wait for CodeRabbit's own check to conclude, then collect its feedback
+   — through the same bundled script's second query mode.** CodeRabbit posts
+   as its own GitHub check (excluded from step 1's real-CI verdict on
+   purpose — a silent CodeRabbit must never block CI); this step waits for
+   THAT check specifically and deterministically, instead of guessing
+   readiness from comment timing (a previous "3 polls over ~3 minutes"
+   heuristic here recurringly concluded too early — see the plugin's
+   CLAUDE.md for the incident history):
+   - GitHub only: `cd "<worktree path>" && CI_WATCH_CODERABBIT_TIMEOUT=600 TMPDIR="<scratchpad path>" bash "<ci-watch.sh-path>" github <nr> --coderabbit-check`
+   - GitLab: no equivalent check exists to gate on (CodeRabbit posts only as
+     MR discussions there) — skip this call; the fetch below is your only
+     signal.
+   Map its exit code (informational only — every outcome below proceeds to
+   the thread fetch; the exit code only decides what you note in the
+   report, never whether you fetch):
+   - `0` → the check concluded, or no coderabbit-named check was ever found
+     (3 consecutive confirmations) — CodeRabbit is done, or not
+     installed/reacting on this repo.
+   - `2` → still `pending` after 600 s — proceed to the fetch anyway, but
+     note in the report that this round's review may be incomplete; a
+     review that finishes after this window is missed for this round and
+     surfaces on the next push-triggered one (same acceptance as before).
+   - `64` → environment error (e.g. `gh` too old, `timeout`/`mktemp`
+     missing) — proceed to the fetch anyway; this call is a best-effort
+     gate, never a hard dependency, and never changes the `ci` field step 1
+     already decided.
+   A silent CodeRabbit (app not installed, rate limit exhausted) is an
+   empty `review_findings` list — never an error. Then fetch the open
+   CodeRabbit threads ONCE:
    - GitHub: resolution state lives on review threads and is only available
      via GraphQL — query the PR's `reviewThreads` with `isResolved` and keep
      unresolved threads whose comments are authored by `coderabbitai`:

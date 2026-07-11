@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
-# ci-watch.sh <github|gitlab> <pr-number|branch> — poll one CI round to
-# completion and reflect ONLY the real CI result: checks whose NAME
-# contains "coderabbit" (case-insensitive) are excluded, so a CodeRabbit
-# app that never reacts (not installed, rate-limited) can neither block
-# the watch nor flip the result.
+# ci-watch.sh <github|gitlab> <pr-number|branch> [--coderabbit-check] — poll
+# one CI round to completion and reflect ONLY the real CI result: checks
+# whose NAME contains "coderabbit" (case-insensitive) are excluded, so a
+# CodeRabbit app that never reacts (not installed, rate-limited) can
+# neither block the watch nor flip the result.
+#
+# `--coderabbit-check` (github only) is a second, distinct query mode: it
+# waits for that excluded coderabbit-named check's OWN conclusion instead
+# — a deterministic replacement for guessing "is CodeRabbit done posting
+# review comments yet" from a fixed, blind poll count (recurring
+# false-green in coding-toolbox `ci-watcher`, which used to give up on
+# that guess too early — see the plugin's CLAUDE.md).
 #
 # GitHub: polls `gh pr checks --json`. gh exits non-zero for
 # failing (1) and still-pending (8) rounds while emitting valid data, so
@@ -17,20 +24,32 @@
 # wrapped in `timeout` so one hung CLI call cannot stall the loop;
 # transient API errors are retried until the deadline.
 #
-# Env: CI_WATCH_TIMEOUT (s, default 1800) · CI_WATCH_INTERVAL (s, default 30) ·
+# Env: CI_WATCH_TIMEOUT (s, default 1800, watch mode) ·
+#      CI_WATCH_CODERABBIT_TIMEOUT (s, default 600, --coderabbit-check mode) ·
+#      CI_WATCH_INTERVAL (s, default 30) ·
 #      TMPDIR (honored by the stderr-capture `mktemp` below; callers set it to
 #      route that temp file into a session scratch dir instead of system /tmp —
 #      a bad/unwritable TMPDIR is itself an environment error, see exit 64)
-# Exit codes: 0 green (notes on stdout) · 1 red · 2 deadline reached
-#             without a conclusive real-CI result · 64 usage/environment
-#             error (bad arguments, CLI or `timeout` missing, CLI too old,
-#             mktemp failed — e.g. a bad/unwritable TMPDIR)
+# Exit codes:
+#   watch mode (default):  0 green (notes on stdout) · 1 red · 2 deadline
+#                           reached without a conclusive real-CI result
+#   --coderabbit-check:    0 the coderabbit check concluded, or none was
+#                           ever found (3 consecutive confirmations) ·
+#                           2 deadline reached while still pending
+#   both modes:             64 usage/environment error (bad arguments, CLI
+#                           or `timeout` missing, CLI too old, mktemp
+#                           failed — e.g. a bad/unwritable TMPDIR)
 set -euo pipefail
 
 # Print usage to stderr and exit 64; called on bad arg count or unknown platform.
-usage() { echo "usage: ci-watch.sh <github|gitlab> <pr-number|branch>" >&2; exit 64; }
-[ $# -eq 2 ] || usage
-platform="$1" ref="$2"
+usage() { echo "usage: ci-watch.sh <github|gitlab> <pr-number|branch> [--coderabbit-check]" >&2; exit 64; }
+[ $# -eq 2 ] || [ $# -eq 3 ] || usage
+platform="$1" ref="$2" mode="watch"
+if [ -n "${3:-}" ]; then
+  [ "$3" = "--coderabbit-check" ] || usage
+  [ "$platform" = github ] || { echo "--coderabbit-check is only supported for github" >&2; exit 64; }
+  mode="coderabbit"
+fi
 case "$platform" in
   github) cli=gh ;;
   gitlab) cli=glab ;;
@@ -42,10 +61,11 @@ command -v "$cli" >/dev/null 2>&1 || { echo "$cli not installed" >&2; exit 64; }
 command -v timeout >/dev/null 2>&1 || { echo "timeout not installed" >&2; exit 64; }
 
 deadline="${CI_WATCH_TIMEOUT:-1800}"
+[ "$mode" = coderabbit ] && deadline="${CI_WATCH_CODERABBIT_TIMEOUT:-600}"
 interval="${CI_WATCH_INTERVAL:-30}"
 errf=$(mktemp) || { echo "mktemp failed (bad/unwritable TMPDIR?)" >&2; exit 64; }
 trap 'rm -f "$errf"' EXIT
-missing=0   # strictly consecutive "no checks / no pipeline" answers
+missing=0   # strictly consecutive "no checks / no pipeline / no coderabbit check" answers
 
 # One bounded CLI call: stdout = data, stderr lands in $errf; never throws.
 poll() { timeout -k 10 60 "$@" 2>"$errf" || true; }
@@ -85,7 +105,32 @@ rg_or_grep() {
 }
 
 while :; do
-  if [ "$platform" = github ]; then
+  if [ "$mode" = coderabbit ]; then
+    # Same gh call as the watch-mode github branch below, but evaluated
+    # against ONLY the coderabbit-named subset — the opposite question:
+    # not "are the real checks done" but "has CodeRabbit's own check
+    # concluded" (or never showed up at all).
+    out=$(poll gh pr checks "$ref" --json name,bucket --jq '.[] | .bucket + "\t" + .name')
+    err=$(cat "$errf")
+    if [ -n "$out" ]; then
+      cr=$(rg_or_grep -iE $'\t.*coderabbit' <<<"$out" || true)
+      if [ -z "$cr" ]; then
+        missing=$((missing+1))
+        if [ "$missing" -ge 3 ]; then echo "note: no coderabbit check found"; exit 0; fi
+      elif rg_or_grep -q '^pending' <<<"$cr"; then
+        missing=0                # a real coderabbit check exists; keep waiting on it specifically
+      else
+        printf '%s\n' "$cr"
+        exit 0
+      fi
+    else
+      case "${err,,}" in
+        *"unknown flag"*)
+          echo "gh too old: pr checks --json unsupported" >&2; exit 64 ;;
+        *) : ;;                  # transient: retry
+      esac
+    fi
+  elif [ "$platform" = github ]; then
     # rc 1 (a check failed) and rc 8 (pending) still print valid data —
     # poll() discards the rc, the content below decides.
     out=$(poll gh pr checks "$ref" --json name,bucket \
@@ -148,6 +193,9 @@ while :; do
     fi
   fi
   if [ "$SECONDS" -ge "$deadline" ]; then
+    if [ "$mode" = coderabbit ]; then
+      echo "timeout: coderabbit check still pending"; exit 2
+    fi
     echo "timeout: no conclusive CI result before the deadline"; exit 2
   fi
   sleep "$interval"
