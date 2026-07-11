@@ -180,9 +180,6 @@ pass no `args` at all — this is the only invocation shape confirmed to work.
 Adapt the prompt templates too if the plan demands extra context. `waves` is
 **not** part of this inlining — it is computed inside the script by
 `computeWaves(tasks)`, a plain function, not a value the caller hand-derives.
-`tasks` in turn is the plan's `## Machine-readable tasks` JSON block copied in
-verbatim (the Plan phase authors it, `references/planning.md`) — not a re-parse of
-the prose task sections by the orchestrator.
 
 The script has no filesystem or Node.js API access (per the Workflow tool's
 documented constraints), so the merge-back step also runs as an `agent()`
