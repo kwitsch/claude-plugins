@@ -199,9 +199,10 @@ const canonFile = raw => {
   for (const sf of scope.files) {
     if ((p === sf || p.endsWith("/" + sf)) && sf.length > best.length) best = sf
   }
-  return best || p
+  return best
 }
-const ingest = (cs, cap, kind) => cs.slice(0, cap).map(c => ({ ...c, file: canonFile(c.file), kind }))
+const ingest = (cs, cap, kind) =>
+  cs.slice(0, cap).map(c => ({ ...c, file: canonFile(c.file), kind })).filter(c => c.file)
 const loc = c => c.file + (c.line != null ? ":" + c.line : "")
 const inBounds = (i, n) => Number.isInteger(i) && i >= 0 && i < n
 
