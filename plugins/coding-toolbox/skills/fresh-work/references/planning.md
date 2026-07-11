@@ -101,7 +101,7 @@ task, in plan (dependency) order:
 
 ```json
 [
-  { "id": "1", "title": "Component name", "files": ["exact/path.ext"], "consumes": [], "produces": ["ExactName"] }
+  { "id": 1, "title": "Component name", "files": ["exact/path.ext"], "consumes": [], "produces": ["ExactName"] }
 ]
 ```
 
