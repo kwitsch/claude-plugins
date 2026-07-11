@@ -133,7 +133,7 @@ concurrently across the wave, plus two additions:
    merge only proves no two tasks edited the same lines — it cannot catch a
    task whose `Consumes` silently mismatches what its dependency actually
    `Produces` (a semantic contract error, not a text conflict). SKILL.md step
-   8's Review (`simplify` + `code-review --fix` over the full post-merge
+   8's Review (the combined review workflow over the full post-merge
    branch diff) is the actual backstop for that case; this merge-back step
    alone does not guarantee the wave analysis was semantically correct, only
    that it was textually non-overlapping.

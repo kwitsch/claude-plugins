@@ -556,9 +556,9 @@ run_ci_watch() {
   assert_success
 }
 
-@test "plugin.json version bumped for the user-level-rules/verbatim-mode/refresh-tools-rule work (this unreleased branch)" {
+@test "plugin.json version bumped for the fresh-work combined-review-workflow consolidation (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.14.0"
+  assert_output "0.15.0"
 }
 
 @test "plugin.json description mentions fresh-work" {
@@ -1043,13 +1043,19 @@ run_ci_watch() {
   [ "$review_line" -lt "$pr_line" ]
 }
 
-@test "fresh-work reviewing reference runs simplify then code-review, effort scaled to complexity" {
+@test "fresh-work reviewing reference runs the combined review workflow, effort scaled to complexity" {
   run cat "$PLUGIN/skills/fresh-work/references/reviewing.md"
   assert_success
-  assert_output --partial "simplify"
-  assert_output --partial "code-review"
+  assert_output --partial "fresh-work-review"
+  assert_output --partial "cleanup:"
+  assert_output --partial "reversesDecision"
+  assert_output --partial "const MODEL = 'sonnet'"
+  assert_output --partial "model: MODEL"
   assert_output --partial '`high`'
   assert_output --partial '`max`'
+  # the former two built-in skills are no longer invoked via the Skill tool
+  refute_output --partial "Invoke \`simplify\`"
+  refute_output --partial "Invoke \`code-review\`"
 }
 
 @test "fresh-work step 2 states the derived branch name to the user before branching" {

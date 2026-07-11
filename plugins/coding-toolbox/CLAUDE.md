@@ -91,7 +91,7 @@ an explicit `mktemp`-failure guard, exit `64`, documented in
 Self-contained end-to-end pipeline orchestrator (`skills/fresh-work/SKILL.md` +
 five phase guides under `references/`, Read only when their phase starts):
 classify → branch (`fresh-branch`) → design → **intent confirmation** → plan →
-implement → **review** (`simplify`, `code-review`) → PR (`fresh-pr`); the fix
+implement → **review** (combined review workflow) → PR (`fresh-pr`); the fix
 path swaps design/plan/implement for `references/debugging.md` and skips
 Review — debugging.md's own verify step
 (new test passes, suite green, symptom gone) already covers a single targeted
@@ -111,17 +111,35 @@ spec temp path, emitted as its own plain-text message before the
 `AskUserQuestion` call — made explicitly distinct from the generic Task-list
 step-start announcement, after a regression where the confirmation question
 was asked without the design summary ever being shown); **Review** (step 8,
-`references/reviewing.md`) runs `simplify` then `code-review --fix` (both
-built-in Claude Code skills, not marketplace plugins) over the full branch
-diff after Implement, each
-committing its own fixes immediately (repo convention: one fix per commit,
-never bundled or left pending for `fresh-pr` to pick up) before PR — `high`
-effort for a Simple diff, `max` for Complex, per SKILL.md's complexity
-heuristic (explicit user choice — `code-review`'s own high/max tiers trade
-confidence for coverage, not diff size, so this scales the wrong axis for a
-Simple diff on paper; accepted because CI and PR review downstream are the
-backstop for an over-eager auto-fix, not a call `reviewing.md` should make
-instead). Design doc + plan are session temp files (scratchpad dir, `mktemp`
+`references/reviewing.md`) runs ONE combined read-only review workflow over
+the full branch diff after Implement — 2026-07-11, replacing the former
+`simplify`-then-`code-review --fix` built-in-skill pair after observing both
+live: `code-review`'s cleanup finder carries all four `simplify` lenses
+verbatim, so the pair did the cleanup work twice, the first time entirely
+unverified (an earlier analysis had rejected exactly this consolidation over
+altitude coverage + redundancy; the explicit user decision to merge
+compensates both, as noted below). Structure: correctness angles (3 at
+`high` effort for a Simple diff, 5 plus a gap-hunt sweep at `max` for
+Complex, per SKILL.md's complexity heuristic) plus one finder PER cleanup
+lens (reuse/simplification/efficiency/altitude/CLAUDE.md-conventions —
+per-lens granularity deliberately kept from `simplify`, unlike the built-in's
+single merged cleanup finder), every candidate location-group verified
+(CONFIRMED/PLAUSIBLE/REFUTED — cleanup findings are now verified before
+apply, which `simplify` never did), a synthesizer that flags
+`reversesDecision` findings against the plan/spec temp docs; all workflow
+agents are pinned `model: 'sonnet'`. The orchestrator then escalates flagged
+findings via `AskUserQuestion`, applies the rest inline (keeping `simplify`'s
+skip rule), and commits correctness and cleanup fixes as two separate
+commits — a deliberate override of the repo's usual "one fix per commit,
+never bundled" convention, at category granularity, never left pending
+for `fresh-pr` to pick up. Prompt texts
+(correctness angles A–E, cleanup lenses, verdict ladder) are vendored
+verbatim from the built-in `/code-review` workflow and `/simplify` skill —
+lineage recorded only here, same precedent as the `ci-watch.sh` port; the
+Agent-engine fallback batches finders then verifiers under the
+subagent-reconciliation gate. Deliberately given up: the second independent
+cleanup pass over already-fixed code; downstream CI + PR review stay the
+backstop for an over-eager auto-fix. Design doc + plan are session temp files (scratchpad dir, `mktemp`
 fallback), never committed. Design and Plan (2026-07-03) each self-review
 **always**; consulting the advisor is their own on-demand judgment call (a
 genuine uncertainty, or the task turning out more complex than expected) —
@@ -344,7 +362,8 @@ bats suite (hermetic, stubbed `gh`/`glab`), structural assertions for
 version-bump manifest assertion. Structural assertions for
 `fresh-work` (frontmatter minus `AskUserQuestion` plus a tripwire pinning that
 absence, five phase references, the Intent-confirmation step and its Keypoints
-dependency, the Review step's `simplify`/`code-review` ordering and
+dependency, the Review step's combined-workflow structure (per-lens cleanup
+finders, sonnet model pin, `reversesDecision` escalation, category commits) and
 high/max effort choice, self-containment tripwire, temp-doc convention) are
 included. `refresh-tools-rule` gets structural assertions (exists,
 model-invocable frontmatter — i.e. no `disable-model-invocation` key — no

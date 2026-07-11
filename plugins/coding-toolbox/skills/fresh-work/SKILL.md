@@ -150,7 +150,9 @@ mandatory message, not satisfied by this line.
 7. **Implement.** Read `references/implementing.md`; run the workflow-driven
    implementation over the plan's tasks.
 8. **Review.** Read `references/reviewing.md`; judge the accumulated diff's
-   complexity, then run `simplify` and `code-review` over it before PR.
+   complexity, then run its combined review workflow (correctness angles +
+   per-lens cleanup finders, verified findings, orchestrator-applied fixes)
+   over it before PR.
 9. **PR.** Invoke `coding-toolbox:fresh-pr` (Skill tool), surfacing any
    recorded minor review findings carried from step 7 to its commit stage.
    Terminal step.
@@ -160,6 +162,6 @@ mandatory message, not satisfied by this line.
 4. **Debug.** Read `references/debugging.md`; root cause → failing test → fix →
    verify, all committed on the work branch. No separate Review step: Phase 4's
    own verify (new test passes, suite green, symptom gone) covers a single
-   targeted fix; Review's whole-diff `simplify`/`code-review` pass is scoped to
+   targeted fix; Review's whole-diff combined review pass is scoped to
    the design path's larger, multi-task diffs.
 5. **PR.** Invoke `coding-toolbox:fresh-pr` (Skill tool). Terminal step.
