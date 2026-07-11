@@ -82,13 +82,14 @@ Every task ends with an independently verifiable deliverable and its own commit.
 
 ## Files/Interfaces are load-bearing
 
-`references/implementing.md`'s wave-parallel dispatch reads a task's `Files`
-and `Interfaces` sections directly to decide which tasks can safely run
-concurrently — they are no longer documentation-only. An incomplete `Files`
-list, or a `Consumes` entry that doesn't name an exact earlier `Produces`
-value, forces that task to be conservatively serialized behind everything
-before it — never silently parallelized. Keep them exact for that reason,
-not only for reader clarity.
+`references/implementing.md`'s wave-parallel dispatch schedules tasks from each
+one's `Files` and `Interfaces` — carried verbatim into the `## Machine-readable
+tasks` block below, which is what implementing.md actually consumes — to decide
+which tasks can safely run concurrently; they are no longer documentation-only. An
+incomplete `Files` list, or a `Consumes` entry that doesn't name an exact earlier
+`Produces` value, forces that task to be conservatively serialized behind everything
+before it — never silently parallelized. Keep them exact — and keep the JSON block
+faithful to them — for that reason, not only for reader clarity.
 
 ## Machine-readable tasks (mandatory)
 
@@ -128,8 +129,9 @@ showing how, references to names defined in no task.
 3. **Name/type consistency:** identifiers used in later tasks match their defining
    task exactly.
 4. **Machine-readable block:** the `## Machine-readable tasks` block is present,
-   valid JSON, one entry per prose task, with `files`/`consumes`/`produces` matching
-   each task's `**Files:**`/`**Interfaces:**` sections exactly.
+   valid JSON, one entry per prose task, every `id` numeric and unique, with
+   `files`/`consumes`/`produces` matching each task's `**Files:**`/`**Interfaces:**`
+   sections exactly.
 
 Fix inline, then return to the orchestrator (SKILL.md step 7, Implement). Do not
 pick an execution mode and do not start implementing — the engine is fixed by
