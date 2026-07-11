@@ -130,8 +130,9 @@ apply, which `simplify` never did), a synthesizer that flags
 agents are pinned `model: 'sonnet'`. The orchestrator then escalates flagged
 findings via `AskUserQuestion`, applies the rest inline (keeping `simplify`'s
 skip rule), and commits correctness and cleanup fixes as two separate
-commits (repo convention: one fix per commit, never bundled or left pending
-for `fresh-pr` to pick up — now at category granularity). Prompt texts
+commits — a deliberate override of the repo's usual "one fix per commit,
+never bundled" convention, at category granularity, never left pending
+for `fresh-pr` to pick up. Prompt texts
 (correctness angles A–E, cleanup lenses, verdict ladder) are vendored
 verbatim from the built-in `/code-review` workflow and `/simplify` skill —
 lineage recorded only here, same precedent as the `ci-watch.sh` port; the

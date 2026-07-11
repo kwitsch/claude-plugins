@@ -371,11 +371,12 @@ return {
    Keep the skip rule: a fix that would change intended behavior, require
    changes well outside the reviewed diff, or that you judge a false positive
    → skip it and note the skip in the report, rather than arguing with it.
-3. **Commit by category** — repo convention: one fix per commit, never bundled —
-   applied here at category granularity so the two kinds of change
-   stay distinguishable in history: all correctness fixes as one commit, all
-   cleanup fixes as its own separate commit, each only if `git status
-   --porcelain` shows changes for it (never force an empty commit).
+3. **Commit by category** — this step deliberately overrides the repo's usual
+   "one fix per commit, never bundled" convention with category granularity,
+   so the two kinds of change stay distinguishable in history: all
+   correctness fixes as one commit, all cleanup fixes as its own separate
+   commit, each only if `git status --porcelain` shows changes for it (never
+   force an empty commit).
 4. **Report** one short line: findings applied / skipped / escalated, and the
    two commit hashes (or that the diff was already clean).
 
