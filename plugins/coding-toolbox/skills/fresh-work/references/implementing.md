@@ -7,10 +7,12 @@ deterministic control flow. The loop's structure lives in an orchestration scrip
 ## Inputs
 
 - `planPath` — absolute plan temp path.
-- `tasks` — the plan's task list parsed as
-  `[{id, title, files, consumes, produces}]`: task number + heading, its
-  `**Files:**` bullet paths (Create/Modify/Test all count), and its
-  `**Interfaces:**` `Consumes`/`Produces` name lists.
+- `tasks` — read **verbatim** from the plan's `## Machine-readable tasks` JSON
+  block, the `[{id, title, files, consumes, produces}]` list authored by the Plan phase
+  (`references/planning.md`) in the same pass that wrote the prose tasks —
+  **not re-parsed** from the prose task headings here. Each object's `files` are its
+  `**Files:**` paths (Create/Modify/Test all count) and its `consumes`/`produces`
+  are its `**Interfaces:**` name lists, already extracted at authoring time.
 - `constraints` — the plan's `## Global Constraints` section, verbatim.
 - `branchName` — the current work branch (`git branch --show-current`),
   captured once before Implement starts. Needed only for wave ≥2 dispatches:
@@ -48,13 +50,15 @@ branch — serialize, never guess a task is independent.
 
 This is a mechanical algorithm, not a judgment call, so it is never
 hand-computed and pasted in: the Workflow engine runs it as real code
-(`computeWaves(tasks)` in the script below) over the already-structured
-`tasks`; the Agent-engine fallback (no script execution available) replicates
-the identical steps by hand, since parsing the plan into structured
-`tasks` already requires reading its prose there too. The one genuine
-judgment call — deciding a `Files`/`Interfaces` entry is too incomplete or
-ambiguous to trust — stays where it belongs, at parse time, not inside the
-leveling arithmetic itself.
+(`computeWaves(tasks)` in the script below) over the `tasks` list read straight
+from the plan's `## Machine-readable tasks` block; the Agent-engine fallback (no
+script execution available) replicates the identical steps by hand over that same
+block (read, not re-parsed from prose). The one genuine judgment call — deciding a
+`Files`/`Interfaces` entry is too incomplete or ambiguous to trust — was already
+made at authoring time (the Plan phase, `references/planning.md`), not inside the
+leveling arithmetic itself; computeWaves' conservative branch still serializes any
+task whose block entry has empty/absent `files` or a `consumes` naming nothing an
+earlier task `produces`, exactly as before.
 
 **Wave of size 1** (the common case for tightly-coupled plans) is exactly
 today's flow: one worker, no isolation, direct commit to the shared branch —
@@ -191,7 +195,7 @@ export const meta = {
 const planPath = /* absolute plan temp path, as a JS string literal */
 const constraints = /* the plan's Global Constraints section, as a JS string literal */
 const branchName = /* the current work branch (git branch --show-current), as a JS string literal */
-const tasks = /* the plan's [{id, title, files, consumes, produces}] list, as a JS array literal */
+const tasks = /* the plan's `## Machine-readable tasks` JSON block, verbatim, as a JS array literal */
 
 function normalizeFile(entry) {
   return entry.replace(/\s*\([^)]*\)\s*$/, '').trim() // drop a trailing "(lines N-M)" annotation — same file, different range still counts as an overlap
