@@ -1,8 +1,9 @@
 # CLAUDE.md — memory-enhancement
 
-One skill (`dream`) plus a Stop/SessionStart command-hook pair that
-auto-nudges it, replicating an "auto-dream" style consolidation cycle on top
-of Claude Code's native auto-memory feature (v2.1.59+).
+Two skills (`dream`, `self-improvement`) plus a Stop/SessionStart
+command-hook pair that auto-nudges `dream`, replicating an "auto-dream"
+style consolidation cycle on top of Claude Code's native auto-memory
+feature (v2.1.59+).
 
 ## Behavior
 
@@ -68,6 +69,19 @@ of Claude Code's native auto-memory feature (v2.1.59+).
   full rationale). Dream itself no longer checks whether the tools-rule file
   exists -- that gate moved into `refresh-tools-rule`, which no-ops safely
   either way.
+- `skills/self-improvement/SKILL.md`: on-demand retro skill, runs inline
+  (no `context: fork` -- an isolated subagent has no session history to
+  reflect on). Three steps: reflect on this session's own tool
+  calls/reasoning against a fixed efficiency-retro prompt; report a
+  concrete-bullet summary to the user (always, regardless of whether
+  anything is saved); save durable, generalizable lessons as
+  `feedback`-type memory via the auto-memory two-step save process,
+  gated by a hard dedup check against `MEMORY.md` and its own running
+  memory file (`feedback_self_improvement_efficiency.md`) so repeated
+  runs don't accumulate near-duplicate entries. No hooks, no `userConfig`
+  toggle -- unlike `dream`'s auto-nudge, this is a plain on-demand skill,
+  consistent with this repo's precedent that on-demand skills aren't
+  toggle-gated.
 
 ## Tests
 
