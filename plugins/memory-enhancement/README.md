@@ -1,7 +1,9 @@
 # memory-enhancement
 
-A dream skill that consolidates this project's auto-memory files, plus a
-Stop/SessionStart hook pair that nudges the next session to run one.
+A dream skill that consolidates this project's auto-memory files, a
+self-improvement skill that reflects on a session's own efficiency, plus a
+Stop/SessionStart hook pair that nudges the next session to run a dream
+cycle.
 
 ## Install
 
@@ -14,6 +16,7 @@ Stop/SessionStart hook pair that nudges the next session to run one.
 | Skill | What it does |
 |---|---|
 | `dream` | Consolidates this project's auto-memory files in four phases (orient, gather signal, consolidate, update the MEMORY.md index), optionally compressing touched detail files via `claude-code-knowledge`'s `cc-compress` when that plugin is enabled, and optionally refreshing coding-toolbox's user-level tool-routing rule when that plugin is installed and the rule already exists. |
+| `self-improvement` | Reflects on the current session's own tool calls and reasoning to find concrete ways the task could have been solved faster or more efficiently, reports a summary to the user, and saves durable, deduped lessons as feedback memory. |
 
 ## What it does
 
