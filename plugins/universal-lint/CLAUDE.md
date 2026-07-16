@@ -5,6 +5,7 @@ mcp-kind hooks plugin: a PostToolUse `Write|Edit` `mcp_tool` hook runs the just-
 ## Hook design (do not "fix" without reading this)
 
 - **PostToolUse `Write|Edit` → `mcp_tool`: `server: "plugin:universal-lint:universal-lint-hooks"`, `tool: "lint_file"`, `timeout: 60`.** The server is registered in `.mcp.json` as the bare key `universal-lint-hooks`; the hook's `server` field MUST use the runtime-namespaced `plugin:universal-lint:universal-lint-hooks` form (a plugin's own server connects under `plugin:<plugin>:<key>`; the bare key resolves to "not connected"). Synchronous (no `async`). No `statusMessage` (silent). mcp-kind is mandated by the repo decision tree: PostToolUse is non-blocking, mid-session, fail-open.
+- **`.mcp.json` invokes `bin/mjs-launch.sh` (not `mcp/server.mjs` directly), with `mcp/server.mjs` as its `args`.** The optional bun-preferred wrapper documented in `.claude/rules/hooks-mcp-server.md` — prefers `bun`, falls back to `node`, errors (exit 1) if neither is on `PATH`. Adopted here for two reasons: it is the natural place to fix the `PATH` non-interactive MCP-server spawns inherit (see below), and it lets this plugin's zero-dep server run under `bun` when available with no code change. The wrapper's own `PATH` line deviates from that rule's canonical template (which prepends `~/.local/bin`/`~/.bun/bin` ahead of the inherited `PATH`): here they are **appended** instead, so a stale/older binary in those user dirs can never shadow a canonical system-installed tool of the same name — decided during this plugin's own rtk/PATH review after a correctness finding on the prepend order; `${PATH:+${PATH}:}` avoids a leading empty `PATH` segment when `PATH` is unset/empty (an empty segment resolves to cwd in `PATH` lookups). `universal-format` carries an identical wrapper for the same reason.
 
 ## Runtime behavior (`lint_file`)
 
@@ -36,27 +37,40 @@ name) rather than hardcoded, since rtk gains/loses per-tool filters across
 releases; `checkstyle` and `ktlint` currently have none and always run
 directly. The probe keys off non-empty stdout, not the exact exit code
 (`rtk rewrite --help` claims 0/1 for supported/unsupported; observed
-behavior on 0.43.0 is 3/1). A spawn error or signal on the `rtk` call itself
-falls back to running the tool directly rather than failing open, so a
-broken `rtk` install can't silently disable linting.
+behavior on 0.43.0 is 3/1).
+
+Both the direct-`PATH` rtk attempt and the npx-fallback rtk attempt below
+share one helper, `tryRtk(argv, spawnOpts)`: a spawn error or signal is
+always a failure (falls back to the un-accelerated call, so a broken `rtk`
+install can't silently disable linting), and — since a real lint tool
+legitimately exits non-zero when it finds issues (`rtk` passing that
+through is the success case, not a failure) — a **clean** non-zero exit is
+only treated as an `rtk`-internal failure when `stdout` is empty/
+whitespace-only. Real findings text always makes `stdout` non-empty, so this
+heuristic never misclassifies a genuine lint failure while still catching
+the case an untrusted exit-code-only check would miss: `rtk` itself failing
+(misconfigured, can't reach its backend/`npx`) with a clean non-zero exit
+and no findings text, which would otherwise be shown to the user as if it
+were a real lint finding.
 
 The `npx --yes <pkg>` fallback (taken when the tool itself is absent from
-`PATH` but npm-distributed) is now also rtk-routed: `runLintTool` tries
-`rtk npx --yes <npmSpec> <argv>` first when `rtk` is on `PATH`, falling
-back to the bare `npx --yes …` call on any rtk spawn error/signal — same
-fallback-safety contract as the direct branch above. Verified empirically
-for both npx-fallback tools in the registry: `eslint` compacts (exit code
-preserved); `markdownlint-cli2` is an unfiltered, byte-identical
-passthrough (`rtk`'s specialized-filter list covers `eslint`/`tsc`/`prisma`,
-not markdownlint) — safe either way since a passthrough changes nothing.
-
-Both the direct-`PATH` and `npx`-fallback tool-finding above, plus the
-`rtk` probe itself, run against a `PATH` this server prepends with
-`~/.local/bin` and `~/.bun/bin` at module load (mirroring the documented
-`bin/mjs-launch.sh` wrapper's own prepend) — defensive hardening for
-non-interactive MCP-server spawns that may inherit a stripped-down `PATH`
-lacking those directories; not a fix for an observed failure on any
-currently-tested environment.
+`PATH` but npm-distributed) is now also rtk-routed through the same
+`tryRtk` helper: `runLintTool` tries `rtk npx --yes <npmSpec> <argv>` first
+when `rtk` is on `PATH`. Verified empirically for both npx-fallback tools
+in the registry: `eslint` compacts (exit code preserved); `markdownlint-cli2`
+is an unfiltered, byte-identical passthrough (`rtk`'s specialized-filter
+list covers `eslint`/`tsc`/`prisma`, not markdownlint) — safe either way
+since a passthrough changes nothing. This rtk attempt is bounded by
+`RTK_NPX_ATTEMPT_TIMEOUT_MS` (5s), not the full `NPX_SPAWN_TIMEOUT_MS`
+(55s) the bare npx fallback still gets: reusing the full budget for both
+the rtk attempt and its fallback would let worst-case sequential wall time
+(~110s) exceed the `PostToolUse` hook's own 60s ceiling — a correctness bug
+caught during review. A stalled/slow `rtk` now simply gets skipped in favor
+of the guaranteed-correct bare `npx` call, which still gets its full
+legitimate cold-install budget; worst case (5s + 55s = 60s) matches the
+margin the direct-tool branch above already runs at (its own rtk attempt
+and fallback both share `SPAWN_TIMEOUT_MS` = 30s, pre-existing and
+unchanged by this review).
 
 One `userConfig` toggle `auto_lint` (default true, fail-open — only literal `false` disables; linting never modifies or creates files, so the fail-closed exception does not apply).
 
@@ -74,7 +88,7 @@ chain — format-only coverage is the honest answer for this file type.
 
 ## Tests
 
-`test/universal-lint/test.bats` (hermetic: stub linters on an isolated PATH recording argv, temp `$HOME` for toggle tests) + `test/universal-lint/registry.test.mjs` (`node:test` unit tests for `classifyExit`, `classifyCheckstyleOutput`, `resolveCheckstyleConfig`, `buildArgv`, `truncate`). Run:
+`test/universal-lint/test.bats` (hermetic: stub linters on an isolated PATH recording argv, temp `$HOME` for toggle tests; also covers `bin/mjs-launch.sh`'s bun/node selection, PATH-append order, and error handling in isolation) + `test/universal-lint/registry.test.mjs` (`node:test` unit tests for `classifyExit`, `classifyCheckstyleOutput`, `resolveCheckstyleConfig`, `buildArgv`, `truncate`). Run:
 ```bash
 BATS_LIB_PATH="$PWD/node_modules" npx bats test/universal-lint/
 npm run test:unit
