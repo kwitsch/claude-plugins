@@ -693,9 +693,9 @@ assert_success
   assert_success
 }
 
-@test "plugin.json version bumped for the ci-watcher rtk-detection fix (this unreleased branch)" {
+@test "plugin.json version bumped for the bun-preferred mcp/server.mjs wrapper fix (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.15.3"
+  assert_output "0.15.4"
 }
 
 @test "plugin.json description mentions fresh-work" {
