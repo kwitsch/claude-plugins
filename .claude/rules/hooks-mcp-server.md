@@ -275,8 +275,9 @@ function startServer() {
 - **Optional bun wrapper:** if a plugin uses the optional `bin/mjs-launch.sh`, the
   wrapper (not `server.mjs`) is what Claude Code exec's and must be `chmod +x`; it
   prepends `~/.local/bin` and `~/.bun/bin` to PATH (uses `${HOME}`, never `~`, and
-  avoids empty PATH segments), then `exec bun "$@"` if bun is found, `exec node "$@"`
-  otherwise. It is not the default — see the caveats above.
+  avoids empty PATH segments — but universal-lint/universal-format append these two
+  instead, see the wrapper section above), then `exec bun "$@"` if bun is found,
+  `exec node "$@"` otherwise. It is not the default — see the caveats above.
 - **Debug logging:** the per-`tools/call` stderr log is gated behind
   `MCP_HOOK_DEBUG` so production hooks stay quiet; set it to confirm the contract.
 - **Native Windows:** a `#!/usr/bin/env node` server shebang resolves on native
