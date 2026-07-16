@@ -131,13 +131,14 @@ This wrapper is an **optional fallback** for a plugin that genuinely needs
 bun-preferred runtime selection; the canonical shape is the direct-`.mjs` `command`
 shown above. It carries known edge-case issues (empty PATH segment, lingering signal
 forwarder); prefer the direct-`.mjs` form. No LSP plugin ships one anymore;
-`claude-code-knowledge` uses it, as do `universal-lint` and `universal-format`
-(their own PATH line deviates from the template below — appending
-`~/.local/bin`/`~/.bun/bin` instead of prepending them, per a correctness
-finding on their own rtk/PATH review; see either plugin's CLAUDE.md) — copy
-the template below if you need it. Prefers bun; falls back to node; errors if
-neither is available. All messages go to stderr (stdout is the MCP stdio
-channel).
+`claude-code-knowledge` uses it, as do `universal-lint`, `universal-format`,
+and `coding-toolbox` (their own PATH line deviates from the template below —
+appending `~/.local/bin`/`~/.bun/bin` instead of prepending them, per a
+correctness finding on `universal-lint`/`universal-format`'s own rtk/PATH
+review; `coding-toolbox` copied the same hardened form for parity when it
+gained its own wrapper — see each plugin's CLAUDE.md) — copy the template
+below if you need it. Prefers bun; falls back to node; errors if neither is
+available. All messages go to stderr (stdout is the MCP stdio channel).
 
 ```bash
 #!/usr/bin/env bash
