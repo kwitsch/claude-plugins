@@ -27,6 +27,16 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+// Non-interactive MCP-server spawns often lack ~/.local/bin and ~/.bun/bin on
+// PATH (see .claude/rules/hooks-mcp-server.md's bin/mjs-launch.sh note) --
+// prepend them once so onPath()/probes below can find tools installed there,
+// even though this plugin invokes server.mjs directly, with no wrapper.
+process.env.PATH = [
+  path.join(homedir(), ".local", "bin"),
+  path.join(homedir(), ".bun", "bin"),
+  ...(process.env.PATH || "").split(path.delimiter),
+].join(path.delimiter);
+
 const SERVER_NAME = "universal-lint-hooks"; // keep aligned with the .mcp.json key
 const SERVER_INFO = { name: SERVER_NAME, version: "0.1.0" };
 const DEFAULT_PROTOCOL = "2025-11-25"; // only used if client omits protocolVersion
@@ -194,6 +204,14 @@ function getRtkPrefix(tool) {
 /** @param {LintTool} tool @param {string[]} argv @param {any} spawnOpts @returns {any} */
 function runLintTool(tool, argv, spawnOpts) {
   if (tool.npmSpec && !onPath(tool.name)) {
+    if (onPath("rtk")) {
+      const rtkResult = spawnSync(
+        "rtk",
+        ["npx", "--yes", tool.npmSpec, ...argv],
+        { ...spawnOpts, timeout: NPX_SPAWN_TIMEOUT_MS },
+      );
+      if (!rtkResult.error && !rtkResult.signal) return rtkResult;
+    }
     return spawnSync("npx", ["--yes", tool.npmSpec, ...argv], {
       ...spawnOpts,
       timeout: NPX_SPAWN_TIMEOUT_MS,
