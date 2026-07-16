@@ -11,6 +11,7 @@ setup() {
   MCP_JSON="$PLUGIN/.mcp.json"
   HOOKS="$PLUGIN/hooks/hooks.json"
   SERVER="$PLUGIN/mcp/server.mjs"
+  WRAPPER="$PLUGIN/bin/mjs-launch.sh"
 
   # Isolated PATH: only system tools symlinked in; formatter stubs added per test.
   MOCKBIN="$BATS_TEST_TMPDIR/bin"
@@ -83,8 +84,10 @@ export -f rg_or_grep
   assert_success
 }
 
-@test ".mcp.json is valid JSON and registers universal-format-hooks -> mcp/server.mjs" {
-  run jq -e '.mcpServers["universal-format-hooks"].command | endswith("mcp/server.mjs")' "$MCP_JSON"
+@test ".mcp.json is valid JSON and registers universal-format-hooks -> bin/mjs-launch.sh mcp/server.mjs" {
+  run jq -e '.mcpServers["universal-format-hooks"].command | endswith("bin/mjs-launch.sh")' "$MCP_JSON"
+  assert_success
+  run jq -e '.mcpServers["universal-format-hooks"].args == ["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"]' "$MCP_JSON"
   assert_success
 }
 
@@ -137,6 +140,92 @@ export -f rg_or_grep
       "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}" \
       "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}" \
       | node "'"$SERVER"'"
+  '
+  assert_success
+  assert_output --partial '"format_file"'
+}
+
+# --- bin/mjs-launch.sh (runtime launcher: PATH fix + bun/node selection) ----
+
+@test "bin/mjs-launch.sh is executable (repo rule)" {
+  [ -x "$WRAPPER" ]
+}
+
+@test "bin/mjs-launch.sh has a bash shebang and passes bash -n" {
+  run head -n1 "$WRAPPER"
+  assert_output '#!/usr/bin/env bash'
+  run bash -n "$WRAPPER"
+  assert_success
+}
+
+@test "bin/mjs-launch.sh errors on missing argument (exit 64)" {
+  run "$WRAPPER"
+  assert_failure 64
+  assert_output --partial "missing argument"
+}
+
+@test "bin/mjs-launch.sh errors when neither bun nor node is on PATH" {
+  local fakebin="$BATS_TEST_TMPDIR/fakebin-none"
+  mkdir -p "$fakebin"
+  for t in bash env; do
+    src="$(command -v "$t" 2>/dev/null)" && ln -s "$src" "$fakebin/$t"
+  done
+  run env -i PATH="$fakebin" HOME="$HOME" "$WRAPPER" /some/script.mjs
+  assert_failure 1
+  assert_output --partial "neither bun nor node is available"
+}
+
+@test "bin/mjs-launch.sh falls back to node when bun is absent" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  local fakebin="$BATS_TEST_TMPDIR/fakebin-node"
+  mkdir -p "$fakebin"
+  for t in bash env node; do
+    src="$(command -v "$t" 2>/dev/null)" && ln -s "$src" "$fakebin/$t"
+  done
+  run env -i PATH="$fakebin" HOME="$HOME" "$WRAPPER" --version
+  assert_success
+}
+
+@test "bin/mjs-launch.sh prefers bun over node when both are on PATH" {
+  command -v bun >/dev/null 2>&1 || skip "bun not installed"
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  local fakebin="$BATS_TEST_TMPDIR/fakebin-both"
+  mkdir -p "$fakebin"
+  for t in bash env node bun; do
+    src="$(command -v "$t" 2>/dev/null)" && ln -s "$src" "$fakebin/$t"
+  done
+  local probe="$BATS_TEST_TMPDIR/which-runtime.mjs"
+  printf 'console.log(typeof Bun !== "undefined" ? "bun" : "node")\n' > "$probe"
+  run env -i PATH="$fakebin" HOME="$HOME" "$WRAPPER" "$probe"
+  assert_success
+  assert_output "bun"
+}
+
+@test "bin/mjs-launch.sh appends ~/.local/bin after the inherited PATH, so a system-PATH tool wins over a same-named one there" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  local fakebin="$BATS_TEST_TMPDIR/fakebin-syspath"
+  mkdir -p "$fakebin" "$HOME/.local/bin"
+  for t in bash env node; do
+    src="$(command -v "$t" 2>/dev/null)" && ln -s "$src" "$fakebin/$t"
+  done
+  printf '#!/usr/bin/env bash\necho system-path-tool\n' > "$fakebin/dupe-tool"
+  chmod +x "$fakebin/dupe-tool"
+  printf '#!/usr/bin/env bash\necho stale-local-bin-tool\n' > "$HOME/.local/bin/dupe-tool"
+  chmod +x "$HOME/.local/bin/dupe-tool"
+  local probe="$BATS_TEST_TMPDIR/which-tool.mjs"
+  printf 'import { execSync } from "node:child_process";\nconsole.log(execSync("command -v dupe-tool").toString().trim());\n' > "$probe"
+  run env -i PATH="$fakebin" HOME="$HOME" "$WRAPPER" "$probe"
+  assert_success
+  assert_output "$fakebin/dupe-tool"
+}
+
+@test "bin/mjs-launch.sh launches server.mjs correctly (format_file listed over stdio)" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  run bash -c '
+    printf "%s\n%s\n" \
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}" \
+      "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}" \
+      | "'"$WRAPPER"'" "'"$SERVER"'"
   '
   assert_success
   assert_output --partial '"format_file"'
@@ -213,26 +302,6 @@ format_file_call() {
   [ "$output" = "{}" ]
   run cat "$cwd/a.sh"
   assert_output "echo  hi"
-}
-
-@test "PATH hardening: a formatter installed only under \$HOME/.local/bin is still found" {
-  command -v node >/dev/null 2>&1 || skip "node not installed"
-  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
-  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
-  printf 'echo  hi\n' > "$cwd/a.sh"
-  mkdir -p "$HOME/.local/bin"
-  {
-    printf '#!/usr/bin/env bash\n'
-    printf '%s\n' 'printf "%s %s\n" "shfmt" "$*" >> "$RECORD"'
-    printf '%s\n' 'for last; do :; done'
-    printf '%s\n' 'printf "reformatted-by-shfmt\n" > "$last"'
-  } > "$HOME/.local/bin/shfmt"
-  chmod +x "$HOME/.local/bin/shfmt"
-  run format_file_call "$cwd/a.sh" "$cwd"
-  assert_success
-  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("shfmt reformatted a.sh")'
-  run cat "$cwd/a.sh"
-  assert_output --partial "reformatted-by-shfmt"
 }
 
 @test "non-target extension (.txt) -> formatter never invoked" {
