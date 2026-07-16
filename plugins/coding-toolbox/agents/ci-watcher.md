@@ -19,7 +19,8 @@ resolved absolute path to `bin/ci-watch.sh`, the fixed watch timeout (`1800`
 seconds — step 3 below also hardcodes its own fixed `600` second
 CodeRabbit-check timeout, github only, needing no separate dispatch input),
 the absolute worktree path, the session scratchpad directory's absolute
-path, and — on GitHub — the repository `owner`/`name`.
+path, — on GitHub — the repository `owner`/`name`, and whether `rtk` is
+available (`rtk_available: yes/no`).
 
 **Run every cwd-dependent command from the worktree by chaining the path
 inline** — `cd "<worktree path>" && gh …` (likewise for `glab` and the
@@ -35,8 +36,17 @@ unaffected either way.
 Resolve identifiers from that reference yourself: `gh`/`glab` infer the
 repository from the working directory's `origin` remote. For failing GitHub
 runs, take the run id from `cd "<worktree path>" && gh run list --branch
-<branch>`. In `glab` calls, `:id` is glab's own project placeholder (leave it
-literal), while the passed reference is the MR IID.
+<branch>` — prefixed with `rtk` when `rtk_available` is `yes`
+(`cd "<worktree path>" && rtk gh run list --branch <branch>`), unchanged
+otherwise (verified: preserves run ids and pass/fail status while cutting
+output size ~65–81%). If the `rtk`-prefixed call itself errors (non-zero
+exit from `rtk` before it even reaches `gh`, e.g. a stale/broken local
+`rtk` install despite `rtk_available: yes`), retry once without the `rtk`
+prefix rather than failing the step — the detection in `fresh-pr` and the
+actual call happen in different environments/processes, so a same-machine
+mismatch, while unlikely, isn't impossible. In `glab` calls, `:id` is
+glab's own project placeholder (leave it literal), while the passed
+reference is the MR IID.
 
 ## Tooling
 

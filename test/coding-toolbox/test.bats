@@ -481,6 +481,18 @@ run_ci_watch() {
   assert_failure
 }
 
+@test "fresh-pr git-context block detects rtk availability" {
+run rg_or_grep -F "rtk_available" "$PLUGIN/skills/fresh-pr/SKILL.md"
+assert_success
+}
+
+@test "ci-watcher agent documents and conditionally uses rtk_available for gh run list" {
+run rg_or_grep -F "rtk_available" "$PLUGIN/agents/ci-watcher.md"
+assert_success
+run rg_or_grep -F "rtk gh run list --branch" "$PLUGIN/agents/ci-watcher.md"
+assert_success
+}
+
 @test "ci-watcher agent extracts CodeRabbit's AI-agent prompt into ai_prompt" {
   run rg_or_grep -F "Prompt for AI Agents" "$PLUGIN/agents/ci-watcher.md"
   assert_success

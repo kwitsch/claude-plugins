@@ -72,12 +72,22 @@ silently fail on this repo's Projects-classic board — or `glab mr update` if
 open / reopen-then-update if closed / report-and-stop if merged) has no
 `branch-management:new-pr` equivalent. Both agents' optional context-mode acceleration was removed
 2026-07-05 (repo-wide context-mode phase-out, starting here); `rtk` was
-evaluated as a replacement and found to give no measurable benefit for any
-command either agent actually runs (`gh run view --log-failed`, `gh run
-list`, `gh pr checks` all came back byte-identical or only cosmetically
-reformatted when diffed raw-vs-`rtk`; `glab`'s `ci trace`/`api` paths are
-unverified — no `glab` in the dev environment) — so neither agent carries
-an acceleration block today. `ci-watcher`'s `bin/ci-watch.sh` invocation is
+evaluated as a replacement and found to give no measurable
+benefit for most commands either agent runs (`gh run view --log-failed`,
+`gh pr checks`, `gh api …` all came back byte-identical or only
+cosmetically reformatted when diffed raw-vs-`rtk`; `glab`'s `ci
+trace`/`api` paths remain unverified — no `glab` in the dev environment)
+— **correction, 2026-07-16**: `ci-watcher`'s own bare `gh run list
+--branch <branch>` call (used to find a failing run's id; distinct from
+`ci-watch.sh`'s `--json`/`--jq` poll queries, which stay byte-identical
+under `rtk`) does measurably benefit — 65–81% size reduction across
+several real repos, run ids and pass/fail status both preserved — the
+2026-07-05 test of this exact command was evidently stale (rtk version
+drift since). `fresh-pr` now detects `rtk` once (`rtk_available` in its
+git-context block, alongside `current_branch`/`detected_base`/etc.) and
+passes it to `ci-watcher`, which prefixes only this one call with `rtk`
+when available; the other command classes above remain unaccelerated.
+`ci-watcher`'s `bin/ci-watch.sh` invocation is
 now prefixed with `TMPDIR="<scratchpad path>"` (resolved once by
 `fresh-pr`, `mktemp -d` fallback when no scratchpad is available) so the
 script's own internal `mktemp` call lands in the session's scratch space
@@ -166,7 +176,16 @@ for `fresh-pr` to pick up. Prompt texts
 verbatim from the built-in `/code-review` workflow and `/simplify` skill —
 lineage recorded only here, same precedent as the `ci-watch.sh` port; the
 Agent-engine fallback batches finders then verifiers under the
-subagent-reconciliation gate. Deliberately given up: the second independent
+subagent-reconciliation gate. Reviewing's Scope-phase `DIFF_CMD` (the exact
+`git diff <base>...HEAD` every finder re-runs) was evaluated for an rtk
+prefix (2026-07-16) and rejected: `rtk git diff` silently truncates large
+hunks past a threshold (reproduced on this repo's own commit `cb93fbb`,
+dropping 341 real added lines behind a truncation placeholder) — the same
+risk that already rules out rtk for a reviewer's `git show`; `DIFF_CMD` is
+therefore left unprefixed, so whether a run gets rtk-compaction stays
+contingent on the operator's own environment (a personal `rtk hook claude`
+PreToolUse hook gives it for free on some machines, not by design of this
+plugin). Deliberately given up: the second independent
 cleanup pass over already-fixed code; downstream CI + PR review stay the
 backstop for an over-eager auto-fix. Design doc + plan are session temp files (scratchpad dir, `mktemp`
 fallback), never committed. Design and Plan (2026-07-03) each self-review
