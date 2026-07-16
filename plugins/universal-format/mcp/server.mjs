@@ -26,6 +26,16 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+// Non-interactive MCP-server spawns often lack ~/.local/bin and ~/.bun/bin on
+// PATH (see .claude/rules/hooks-mcp-server.md's bin/mjs-launch.sh note) --
+// prepend them once so onPath()/probes below can find tools installed there,
+// even though this plugin invokes server.mjs directly, with no wrapper.
+process.env.PATH = [
+  path.join(homedir(), ".local", "bin"),
+  path.join(homedir(), ".bun", "bin"),
+  ...(process.env.PATH || "").split(path.delimiter),
+].join(path.delimiter);
+
 const SERVER_NAME = "universal-format-hooks"; // keep aligned with the .mcp.json key
 const SERVER_INFO = { name: SERVER_NAME, version: "0.1.0" };
 const DEFAULT_PROTOCOL = "2025-11-25"; // only used if client omits protocolVersion

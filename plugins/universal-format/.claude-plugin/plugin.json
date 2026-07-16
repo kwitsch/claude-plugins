@@ -1,6 +1,6 @@
 {
   "name": "universal-format",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Silently auto-formats just-written Shell, Java, Kotlin, JS/TS, Python, Go, JSON, YAML and Markdown files after Write/Edit using each language's standard formatter when installed (shfmt, google-java-format/clang-format, ktlint/ktfmt, prettier/biome, ruff/black, goimports/gofmt; prettier also covers JSON/YAML/Markdown, biome also covers JSON; prettier/biome also fall back to npx); honors .editorconfig and tool-native configs; no-op when no formatter is available.",
   "author": {
     "name": "Kwitsch"

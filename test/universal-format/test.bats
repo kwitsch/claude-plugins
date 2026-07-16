@@ -215,6 +215,26 @@ format_file_call() {
   assert_output "echo  hi"
 }
 
+@test "PATH hardening: a formatter installed only under \$HOME/.local/bin is still found" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'echo  hi\n' > "$cwd/a.sh"
+  mkdir -p "$HOME/.local/bin"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf '%s\n' 'printf "%s %s\n" "shfmt" "$*" >> "$RECORD"'
+    printf '%s\n' 'for last; do :; done'
+    printf '%s\n' 'printf "reformatted-by-shfmt\n" > "$last"'
+  } > "$HOME/.local/bin/shfmt"
+  chmod +x "$HOME/.local/bin/shfmt"
+  run format_file_call "$cwd/a.sh" "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("shfmt reformatted a.sh")'
+  run cat "$cwd/a.sh"
+  assert_output --partial "reformatted-by-shfmt"
+}
+
 @test "non-target extension (.txt) -> formatter never invoked" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"

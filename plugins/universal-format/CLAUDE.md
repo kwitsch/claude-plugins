@@ -26,6 +26,12 @@ gets `npx prettier` when npx is present, matching the pre-existing
 PATH-only rule that `prettier` already wins over `biome` whenever both are
 equally available.
 
+`onPath()`'s `PATH` is prepended with `~/.local/bin` and `~/.bun/bin` at
+module load (mirroring the documented `bin/mjs-launch.sh` wrapper's own
+prepend) — defensive hardening for non-interactive MCP-server spawns that
+may inherit a stripped-down `PATH` lacking those directories; not a fix for
+an observed failure on any currently-tested environment.
+
 One `userConfig` toggle `auto_format` (default true, fail-open — only literal `false` disables; formatting modifies existing files but creates none, so the fail-closed exception does not apply).
 
 ## Tests
