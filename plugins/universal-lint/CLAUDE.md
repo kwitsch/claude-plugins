@@ -40,6 +40,24 @@ behavior on 0.43.0 is 3/1). A spawn error or signal on the `rtk` call itself
 falls back to running the tool directly rather than failing open, so a
 broken `rtk` install can't silently disable linting.
 
+The `npx --yes <pkg>` fallback (taken when the tool itself is absent from
+`PATH` but npm-distributed) is now also rtk-routed: `runLintTool` tries
+`rtk npx --yes <npmSpec> <argv>` first when `rtk` is on `PATH`, falling
+back to the bare `npx --yes …` call on any rtk spawn error/signal — same
+fallback-safety contract as the direct branch above. Verified empirically
+for both npx-fallback tools in the registry: `eslint` compacts (exit code
+preserved); `markdownlint-cli2` is an unfiltered, byte-identical
+passthrough (`rtk`'s specialized-filter list covers `eslint`/`tsc`/`prisma`,
+not markdownlint) — safe either way since a passthrough changes nothing.
+
+Both the direct-`PATH` and `npx`-fallback tool-finding above, plus the
+`rtk` probe itself, run against a `PATH` this server prepends with
+`~/.local/bin` and `~/.bun/bin` at module load (mirroring the documented
+`bin/mjs-launch.sh` wrapper's own prepend) — defensive hardening for
+non-interactive MCP-server spawns that may inherit a stripped-down `PATH`
+lacking those directories; not a fix for an observed failure on any
+currently-tested environment.
+
 One `userConfig` toggle `auto_lint` (default true, fail-open — only literal `false` disables; linting never modifies or creates files, so the fail-closed exception does not apply).
 
 ## JSON: not covered (do not "fix" without reading this)

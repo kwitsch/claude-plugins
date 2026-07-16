@@ -547,6 +547,65 @@ rtk_stub() {
   assert_success
 }
 
+@test "rtk: npx-fallback tool routes through rtk when rtk is on PATH" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'let x = 1\n' > "$cwd/a.js"
+  OUT='a.js: 1:1  error  x is assigned a value but never used  no-unused-vars'
+  make_stub rtk \
+    'printf "%s %s\n" "rtk" "$*" >> "$RECORD"' \
+    'printf '\''%s\n'\'' "$OUT"' \
+    'exit 1'
+  # npx must be present on PATH (isToolAvailable/selectLintTool require it for
+  # eslint's npmSpec candidacy) but must never actually run once rtk succeeds.
+  make_stub npx \
+    'printf "%s %s\n" "npx" "$*" >> "$RECORD"' \
+    'echo "npx should not run when rtk succeeds" >&2' \
+    'exit 1'
+  run lint_file_call "$cwd/a.js" "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("no-unused-vars")'
+  run rg_or_grep -F "rtk npx --yes eslint $cwd/a.js" "$RECORD"
+  assert_success
+  run rg_or_grep -E "^npx " "$RECORD"
+  assert_failure
+}
+
+@test "rtk: npx-fallback falls back to bare npx when the rtk call errors" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'let x = 1\n' > "$cwd/a.js"
+  OUT='a.js: 1:1  error  x is assigned a value but never used  no-unused-vars'
+  make_stub rtk 'kill -KILL $$'
+  rec_stub npx 1
+  run lint_file_call "$cwd/a.js" "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("no-unused-vars")'
+  run rg_or_grep -F "npx --yes eslint $cwd/a.js" "$RECORD"
+  assert_success
+}
+
+@test "PATH hardening: a tool installed only under \$HOME/.local/bin is still found" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'echo $1\n' > "$cwd/a.sh"
+  OUT='a.sh:1:6: note: Double quote to prevent globbing. [SC2086]'
+  mkdir -p "$HOME/.local/bin"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf '%s\n' 'printf "%s %s\n" "shellcheck" "$*" >> "$RECORD"'
+    printf '%s\n' 'printf '\''%s\n'\'' "$OUT"'
+    printf '%s\n' 'exit 1'
+  } > "$HOME/.local/bin/shellcheck"
+  chmod +x "$HOME/.local/bin/shellcheck"
+  run lint_file_call "$cwd/a.sh" "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("SC2086")'
+}
+
 @test "json extension -> linter never invoked (deliberately uncovered)" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
