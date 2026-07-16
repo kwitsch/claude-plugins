@@ -36,8 +36,8 @@ unaffected either way.
 Resolve identifiers from that reference yourself: `gh`/`glab` infer the
 repository from the working directory's `origin` remote. For failing GitHub
 runs, take the run id from `cd "<worktree path>" && gh run list --branch
-<branch>` — prefixed with `rtk` when `rtk_available` is `yes`
-(`cd "<worktree path>" && rtk gh run list --branch <branch>`), unchanged
+"<branch>"` — prefixed with `rtk` when `rtk_available` is `yes`
+(`cd "<worktree path>" && rtk gh run list --branch "<branch>"`), unchanged
 otherwise (verified: preserves run ids and pass/fail status while cutting
 output size ~65–81%). If the `rtk`-prefixed call itself errors (non-zero
 exit from `rtk` before it even reaches `gh`, e.g. a stale/broken local
@@ -56,7 +56,7 @@ Run all scripts and fetch commands via the Bash tool.
 
 1. **Wait for the CI result — through the bundled watch script.**
    - GitHub: `cd "<worktree path>" && CI_WATCH_TIMEOUT=1800 TMPDIR="<scratchpad path>" bash "<ci-watch.sh-path>" github <nr>`
-   - GitLab: `cd "<worktree path>" && CI_WATCH_TIMEOUT=1800 TMPDIR="<scratchpad path>" bash "<ci-watch.sh-path>" gitlab <branch>`
+   - GitLab: `cd "<worktree path>" && CI_WATCH_TIMEOUT=1800 TMPDIR="<scratchpad path>" bash "<ci-watch.sh-path>" gitlab "<branch>"`
    `TMPDIR` routes the script's own `mktemp` (used to capture stderr while
    polling) into the session's scratch space instead of shared system
    `/tmp` — its `TMPDIR` behavior needs no change, `mktemp` already prefers
