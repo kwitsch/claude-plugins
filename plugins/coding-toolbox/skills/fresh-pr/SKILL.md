@@ -23,7 +23,7 @@ dependency on `branch-management`; every script/agent used here lives in
 ## Git context
 
 <!-- coderabbit-skip: `git`/`pwd` here run inside a dynamic-context `!` block — load-time preprocessing executed before Claude sees the content, not a Claude tool call, so `allowed-tools` has no bearing on it (cc-reference claude-code-skills-reference.md, "Dynamic context injection": "runs the shell command BEFORE Claude sees content ... preprocessing, not a Claude action"). -->
-!`git fetch origin >/dev/null 2>&1; git remote set-head origin --auto >/dev/null 2>&1; wt=no; [ "$(git rev-parse --git-dir 2>/dev/null)" -ef "$(git rev-parse --git-common-dir 2>/dev/null)" ] || wt=yes; printf "current_branch: %s\ndetected_base: %s\nlinked_worktree: %s\nworktree_path: %s\n" "$(git branch --show-current)" "$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p')" "$wt" "$(pwd)"`
+!`git fetch origin >/dev/null 2>&1; git remote set-head origin --auto >/dev/null 2>&1; wt=no; [ "$(git rev-parse --git-dir 2>/dev/null)" -ef "$(git rev-parse --git-common-dir 2>/dev/null)" ] || wt=yes; printf "current_branch: %s\ndetected_base: %s\nlinked_worktree: %s\nworktree_path: %s\nrtk_available: %s\n" "$(git branch --show-current)" "$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p')" "$wt" "$(pwd)" "$(command -v rtk >/dev/null 2>&1 && echo yes || echo no)"`
 
 ## Preconditions
 
@@ -212,7 +212,8 @@ dependency on `branch-management`; every script/agent used here lives in
       also resolve
       `owner`/`name` once via `gh repo view --json owner,name --jq '{owner: .owner.login, name: .name}'`
       (`owner` comes back as an object, not a bare string — extract `.login`)
-      and pass them along. Track the dispatch via the ledger above; do not proceed until
+      and pass them along. Also pass `rtk_available` (from the git-context
+      block above). Track the dispatch via the ledger above; do not proceed until
       `{ci, failures, review_findings}` is in hand.
    2. **If `ci` is `green` and `review_findings` is empty:** the goal is met —
       exit the loop.
