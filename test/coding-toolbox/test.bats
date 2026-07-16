@@ -605,9 +605,9 @@ assert_success
   assert_success
 }
 
-@test "plugin.json version bumped for the ci-watcher CodeRabbit-readiness fix (this unreleased branch)" {
+@test "plugin.json version bumped for the ci-watcher rtk-detection fix (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.15.2"
+  assert_output "0.15.3"
 }
 
 @test "plugin.json description mentions fresh-work" {
