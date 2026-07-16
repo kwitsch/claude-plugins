@@ -151,6 +151,9 @@ export -f rg_or_grep
   assert_output --partial "missing argument"
 }
 
+# The `env -i ... HOME="$HOME" ...` idiom below (through the ~/.local/bin test) is safe:
+# setup() already redirects HOME to "$BATS_TEST_TMPDIR/home", so it's never the host home
+# and the ~/.local/bin writes stay isolated -- CodeRabbit PRRT_kwDOSsj0xM6RhOov false positive.
 @test "bin/mjs-launch.sh errors when neither bun nor node is on PATH" {
   local fakebin="$BATS_TEST_TMPDIR/fakebin-none"
   mkdir -p "$fakebin"
