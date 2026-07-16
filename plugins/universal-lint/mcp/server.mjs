@@ -200,25 +200,31 @@ function tryRtk(argv, spawnOpts) {
   return result;
 }
 
-// Run the resolved lint tool: npx (when absent from PATH but npm-distributed --
-// given its own, more generous timeout since a cold `npx --yes <pkg>` install can
-// exceed the local-binary budget), else rtk-wrapped (when both the tool and rtk
-// are on PATH and rtk supports it -- falling back to the direct call below if the
-// rtk-wrapped run itself errors, is killed, or fails per tryRtk), else the tool
-// directly. argv.slice(tool.args.length) strips the static [name, ...args]
-// prefix that rtkPrefix already reproduces, leaving only the real target (file
-// or directory) to append after it. The npx branch's rtk attempt is bounded by
-// the shorter RTK_NPX_ATTEMPT_TIMEOUT_MS, not NPX_SPAWN_TIMEOUT_MS -- see that
-// constant's comment for why reusing the full budget here would double it.
+// Run the resolved lint tool: rtk's own discovered verb first (e.g. `rtk lint`
+// for eslint -- rtk resolves the underlying binary itself, via npx internally,
+// when it's absent from PATH; see CLAUDE.md for the empirical proof that wrapping
+// `npx --yes <pkg>` with rtk instead does NOT get rtk's compaction, since the
+// `--yes`/`-y` flag defeats rtk's own package-name detection), else npx directly
+// (when absent from PATH but npm-distributed -- its own, more generous timeout
+// since a cold `npx --yes <pkg>` install can exceed the local-binary budget),
+// else the tool directly. argv.slice(tool.args.length) strips the static
+// [name, ...args] prefix that rtkPrefix already reproduces, leaving only the
+// real target (file or directory) to append after it. The npm-fallback rtk
+// attempt is bounded by the shorter RTK_NPX_ATTEMPT_TIMEOUT_MS, not
+// NPX_SPAWN_TIMEOUT_MS -- see that constant's comment for why reusing the full
+// budget here would double it.
 /** @param {LintTool} tool @param {string[]} argv @param {any} spawnOpts @returns {any} */
 function runLintTool(tool, argv, spawnOpts) {
   if (tool.npmSpec && !onPath(tool.name)) {
     if (onPath("rtk")) {
-      const rtkResult = tryRtk(
-        ["npx", "--yes", tool.npmSpec, ...argv],
-        { ...spawnOpts, timeout: RTK_NPX_ATTEMPT_TIMEOUT_MS },
-      );
-      if (rtkResult) return rtkResult;
+      const rtkPrefix = getRtkPrefix(tool);
+      if (rtkPrefix) {
+        const rtkResult = tryRtk(
+          [...rtkPrefix, ...argv.slice(tool.args.length)],
+          { ...spawnOpts, timeout: RTK_NPX_ATTEMPT_TIMEOUT_MS },
+        );
+        if (rtkResult) return rtkResult;
+      }
     }
     return spawnSync("npx", ["--yes", tool.npmSpec, ...argv], {
       ...spawnOpts,

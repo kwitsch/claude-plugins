@@ -53,24 +53,37 @@ the case an untrusted exit-code-only check would miss: `rtk` itself failing
 and no findings text, which would otherwise be shown to the user as if it
 were a real lint finding.
 
-The `npx --yes <pkg>` fallback (taken when the tool itself is absent from
-`PATH` but npm-distributed) is now also rtk-routed through the same
-`tryRtk` helper: `runLintTool` tries `rtk npx --yes <npmSpec> <argv>` first
-when `rtk` is on `PATH`. Verified empirically for both npx-fallback tools
-in the registry: `eslint` compacts (exit code preserved); `markdownlint-cli2`
-is an unfiltered, byte-identical passthrough (`rtk`'s specialized-filter
-list covers `eslint`/`tsc`/`prisma`, not markdownlint) — safe either way
-since a passthrough changes nothing. This rtk attempt is bounded by
-`RTK_NPX_ATTEMPT_TIMEOUT_MS` (5s), not the full `NPX_SPAWN_TIMEOUT_MS`
-(55s) the bare npx fallback still gets: reusing the full budget for both
-the rtk attempt and its fallback would let worst-case sequential wall time
-(~110s) exceed the `PostToolUse` hook's own 60s ceiling — a correctness bug
-caught during review. A stalled/slow `rtk` now simply gets skipped in favor
-of the guaranteed-correct bare `npx` call, which still gets its full
-legitimate cold-install budget; worst case (5s + 55s = 60s) matches the
-margin the direct-tool branch above already runs at (its own rtk attempt
-and fallback both share `SPAWN_TIMEOUT_MS` = 30s, pre-existing and
-unchanged by this review).
+The npm-fallback path (taken when the tool itself is absent from `PATH` but
+npm-distributed) tries `rtk`'s own discovered verb first — the exact same
+`getRtkPrefix`/`tryRtk` mechanism as the on-`PATH` branch above, e.g.
+`rtk lint <argv>` for `eslint` — **not** a raw `rtk npx --yes <npmSpec>
+<argv>` wrap. This matters: empirically, wrapping `npx --yes <pkg>` with
+`rtk` does **not** get `rtk`'s compaction — the `--yes`/`-y` flag defeats
+`rtk`'s own package-name detection in its npx intelligent-routing, so
+`rtk npx --yes eslint <args>` produces byte-identical, unfiltered output to
+bare `npx --yes eslint <args>`. Calling `rtk`'s dedicated verb directly
+(`rtk lint <args>`, no npx involved in the argv at all) does compact, and
+works even when `eslint` itself is absent from `PATH` — `rtk` resolves it
+internally (verified: `rtk lint --version` succeeds and matches `npx eslint
+--version`'s own resolved version, with `eslint` absent from `PATH`).
+`markdownlint`'s own verb (`rtk markdownlint <argv>`) is a generic,
+unfiltered passthrough that requires the literal `markdownlint` binary on
+`PATH` — it does not npx-resolve like `eslint`'s `lint` verb does — so a
+missing binary makes this attempt fail (empty stdout, non-zero exit),
+`tryRtk` correctly recognizes that as an `rtk`-internal failure, and the
+code falls through to the bare `npx --yes <npmSpec> <argv>` fallback below.
+`markdownlint-cli2` has no `rtk` verb at all (`rtk rewrite markdownlint-cli2
+...` exits 1, unsupported) and always falls straight through. This rtk
+attempt is bounded by `RTK_NPX_ATTEMPT_TIMEOUT_MS` (5s), not the full
+`NPX_SPAWN_TIMEOUT_MS` (55s) the bare npx fallback still gets: reusing the
+full budget for both the rtk attempt and its fallback would let worst-case
+sequential wall time (~110s) exceed the `PostToolUse` hook's own 60s
+ceiling — a correctness bug caught during review. A stalled/slow `rtk` now
+simply gets skipped in favor of the guaranteed-correct bare `npx` call,
+which still gets its full legitimate cold-install budget; worst case
+(5s + 55s = 60s) matches the margin the direct-tool branch above already
+runs at (its own rtk attempt and fallback both share `SPAWN_TIMEOUT_MS` =
+30s, pre-existing and unchanged by this review).
 
 One `userConfig` toggle `auto_lint` (default true, fail-open — only literal `false` disables; linting never modifies or creates files, so the fail-closed exception does not apply).
 

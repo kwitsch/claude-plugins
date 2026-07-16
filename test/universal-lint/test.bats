@@ -655,16 +655,13 @@ rtk_stub() {
   assert_success
 }
 
-@test "rtk: npx-fallback tool routes through rtk when rtk is on PATH" {
+@test "rtk: npx-fallback tool routes through rtk's own discovered verb, not a raw npx wrap" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
   printf 'let x = 1\n' > "$cwd/a.js"
-  OUT='a.js: 1:1  error  x is assigned a value but never used  no-unused-vars'
-  make_stub rtk \
-    'printf "%s %s\n" "rtk" "$*" >> "$RECORD"' \
-    'printf '\''%s\n'\'' "$OUT"' \
-    'exit 1'
+  OUT='ESLint: 1 errors, 0 warnings in 1 files'
+  rtk_stub lint 1
   # npx must be present on PATH (isToolAvailable/selectLintTool require it for
   # eslint's npmSpec candidacy) but must never actually run once rtk succeeds.
   make_stub npx \
@@ -673,10 +670,10 @@ rtk_stub() {
     'exit 1'
   run lint_file_call "$cwd/a.js" "$cwd"
   assert_success
-  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("no-unused-vars")'
-  run rg_or_grep -F "rtk npx --yes eslint $cwd/a.js" "$RECORD"
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("ESLint")'
+  run rg_or_grep -F "rtk lint $cwd/a.js" "$RECORD"
   assert_success
-  run rg_or_grep -E "^npx " "$RECORD"
+  run rg_or_grep -F "npx" "$RECORD"
   assert_failure
 }
 
@@ -687,6 +684,24 @@ rtk_stub() {
   printf 'let x = 1\n' > "$cwd/a.js"
   OUT='a.js: 1:1  error  x is assigned a value but never used  no-unused-vars'
   make_stub rtk 'kill -KILL $$'
+  rec_stub npx 1
+  run lint_file_call "$cwd/a.js" "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("no-unused-vars")'
+  run rg_or_grep -F "npx --yes eslint $cwd/a.js" "$RECORD"
+  assert_success
+}
+
+@test "rtk: npx-fallback tool's discovered verb invocation fails (real binary missing) -> falls back to bare npx" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'let x = 1\n' > "$cwd/a.js"
+  OUT='a.js: 1:1  error  x is assigned a value but never used  no-unused-vars'
+  make_stub rtk \
+    'if [ "$1" = "rewrite" ]; then printf "rtk lint __RTK_PROBE__\n"; exit 3; fi' \
+    'echo "[rtk: No such file or directory (os error 2)]" >&2' \
+    'exit 127'
   rec_stub npx 1
   run lint_file_call "$cwd/a.js" "$cwd"
   assert_success
