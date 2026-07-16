@@ -32,6 +32,7 @@ const SERVER_INFO = { name: SERVER_NAME, version: "0.1.0" };
 const DEFAULT_PROTOCOL = "2025-11-25"; // only used if client omits protocolVersion
 const SPAWN_TIMEOUT_MS = 30000; // inner linter timeout; hook-level timeout:60 is the backstop
 const NPX_SPAWN_TIMEOUT_MS = 55000; // cold npx install can exceed SPAWN_TIMEOUT_MS; stay under the hook's 60s ceiling
+const RTK_NPX_ATTEMPT_TIMEOUT_MS = 5000; // bounds the rtk-wrapped npx attempt so a stalled rtk can't consume the bare-npx fallback's cold-install budget too -- worst-case sequential total (this + NPX_SPAWN_TIMEOUT_MS) stays at the hook's 60s ceiling, the same margin the direct-tool branch below already runs at
 const MAX_CONTEXT_CHARS = 4000; // cap on the additionalContext findings text
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024; // spawnSync's 1MB default truncates a noisy linter's output as ENOBUFS
 
@@ -183,17 +184,42 @@ function getRtkPrefix(tool) {
   return prefix;
 }
 
+// Runs argv through rtk; returns the spawnSync result when it counts as a real
+// answer, or null to signal "fall back to the un-accelerated call." A spawn
+// error or signal is always a failure. A clean non-zero exit is only trusted
+// when stdout carries real content (the wrapped tool's own findings text) --
+// an rtk-internal failure (misconfigured, can't reach npx, etc.) typically
+// exits non-zero with empty/whitespace-only stdout, and would otherwise be
+// misclassified as a real lint finding (its own stderr/error text shown to
+// the user as if it were lint output).
+/** @param {string[]} argv @param {any} spawnOpts @returns {any} */
+function tryRtk(argv, spawnOpts) {
+  const result = spawnSync("rtk", argv, spawnOpts);
+  if (result.error || result.signal) return null;
+  if (result.status !== 0 && !String(result.stdout || "").trim()) return null;
+  return result;
+}
+
 // Run the resolved lint tool: npx (when absent from PATH but npm-distributed --
 // given its own, more generous timeout since a cold `npx --yes <pkg>` install can
 // exceed the local-binary budget), else rtk-wrapped (when both the tool and rtk
 // are on PATH and rtk supports it -- falling back to the direct call below if the
-// rtk-wrapped run itself errors or is killed), else the tool directly.
-// argv.slice(tool.args.length) strips the static [name, ...args] prefix that
-// rtkPrefix already reproduces, leaving only the real target (file or directory)
-// to append after it.
+// rtk-wrapped run itself errors, is killed, or fails per tryRtk), else the tool
+// directly. argv.slice(tool.args.length) strips the static [name, ...args]
+// prefix that rtkPrefix already reproduces, leaving only the real target (file
+// or directory) to append after it. The npx branch's rtk attempt is bounded by
+// the shorter RTK_NPX_ATTEMPT_TIMEOUT_MS, not NPX_SPAWN_TIMEOUT_MS -- see that
+// constant's comment for why reusing the full budget here would double it.
 /** @param {LintTool} tool @param {string[]} argv @param {any} spawnOpts @returns {any} */
 function runLintTool(tool, argv, spawnOpts) {
   if (tool.npmSpec && !onPath(tool.name)) {
+    if (onPath("rtk")) {
+      const rtkResult = tryRtk(
+        ["npx", "--yes", tool.npmSpec, ...argv],
+        { ...spawnOpts, timeout: RTK_NPX_ATTEMPT_TIMEOUT_MS },
+      );
+      if (rtkResult) return rtkResult;
+    }
     return spawnSync("npx", ["--yes", tool.npmSpec, ...argv], {
       ...spawnOpts,
       timeout: NPX_SPAWN_TIMEOUT_MS,
@@ -202,12 +228,8 @@ function runLintTool(tool, argv, spawnOpts) {
   if (onPath("rtk")) {
     const rtkPrefix = getRtkPrefix(tool);
     if (rtkPrefix) {
-      const rtkResult = spawnSync(
-        "rtk",
-        [...rtkPrefix, ...argv.slice(tool.args.length)],
-        spawnOpts,
-      );
-      if (!rtkResult.error && !rtkResult.signal) return rtkResult;
+      const rtkResult = tryRtk([...rtkPrefix, ...argv.slice(tool.args.length)], spawnOpts);
+      if (rtkResult) return rtkResult;
     }
   }
   return spawnSync(tool.name, argv, spawnOpts);

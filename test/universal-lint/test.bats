@@ -11,6 +11,7 @@ setup() {
   MCP_JSON="$PLUGIN/.mcp.json"
   HOOKS="$PLUGIN/hooks/hooks.json"
   SERVER="$PLUGIN/mcp/server.mjs"
+  WRAPPER="$PLUGIN/bin/mjs-launch.sh"
 
   # Isolated PATH: only system tools symlinked in; linter stubs added per test.
   MOCKBIN="$BATS_TEST_TMPDIR/bin"
@@ -83,8 +84,10 @@ export -f rg_or_grep
   assert_success
 }
 
-@test ".mcp.json is valid JSON and registers universal-lint-hooks -> mcp/server.mjs" {
-  run jq -e '.mcpServers["universal-lint-hooks"].command | endswith("mcp/server.mjs")' "$MCP_JSON"
+@test ".mcp.json is valid JSON and registers universal-lint-hooks -> bin/mjs-launch.sh mcp/server.mjs" {
+  run jq -e '.mcpServers["universal-lint-hooks"].command | endswith("bin/mjs-launch.sh")' "$MCP_JSON"
+  assert_success
+  run jq -e '.mcpServers["universal-lint-hooks"].args == ["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"]' "$MCP_JSON"
   assert_success
 }
 
@@ -137,6 +140,92 @@ export -f rg_or_grep
       "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}" \
       "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}" \
       | node "'"$SERVER"'"
+  '
+  assert_success
+  assert_output --partial '"lint_file"'
+}
+
+# --- bin/mjs-launch.sh (runtime launcher: PATH fix + bun/node selection) ----
+
+@test "bin/mjs-launch.sh is executable (repo rule)" {
+  [ -x "$WRAPPER" ]
+}
+
+@test "bin/mjs-launch.sh has a bash shebang and passes bash -n" {
+  run head -n1 "$WRAPPER"
+  assert_output '#!/usr/bin/env bash'
+  run bash -n "$WRAPPER"
+  assert_success
+}
+
+@test "bin/mjs-launch.sh errors on missing argument (exit 64)" {
+  run "$WRAPPER"
+  assert_failure 64
+  assert_output --partial "missing argument"
+}
+
+@test "bin/mjs-launch.sh errors when neither bun nor node is on PATH" {
+  local fakebin="$BATS_TEST_TMPDIR/fakebin-none"
+  mkdir -p "$fakebin"
+  for t in bash env; do
+    src="$(command -v "$t" 2>/dev/null)" && ln -s "$src" "$fakebin/$t"
+  done
+  run env -i PATH="$fakebin" HOME="$HOME" "$WRAPPER" /some/script.mjs
+  assert_failure 1
+  assert_output --partial "neither bun nor node is available"
+}
+
+@test "bin/mjs-launch.sh falls back to node when bun is absent" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  local fakebin="$BATS_TEST_TMPDIR/fakebin-node"
+  mkdir -p "$fakebin"
+  for t in bash env node; do
+    src="$(command -v "$t" 2>/dev/null)" && ln -s "$src" "$fakebin/$t"
+  done
+  run env -i PATH="$fakebin" HOME="$HOME" "$WRAPPER" --version
+  assert_success
+}
+
+@test "bin/mjs-launch.sh prefers bun over node when both are on PATH" {
+  command -v bun >/dev/null 2>&1 || skip "bun not installed"
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  local fakebin="$BATS_TEST_TMPDIR/fakebin-both"
+  mkdir -p "$fakebin"
+  for t in bash env node bun; do
+    src="$(command -v "$t" 2>/dev/null)" && ln -s "$src" "$fakebin/$t"
+  done
+  local probe="$BATS_TEST_TMPDIR/which-runtime.mjs"
+  printf 'console.log(typeof Bun !== "undefined" ? "bun" : "node")\n' > "$probe"
+  run env -i PATH="$fakebin" HOME="$HOME" "$WRAPPER" "$probe"
+  assert_success
+  assert_output "bun"
+}
+
+@test "bin/mjs-launch.sh appends ~/.local/bin after the inherited PATH, so a system-PATH tool wins over a same-named one there" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  local fakebin="$BATS_TEST_TMPDIR/fakebin-syspath"
+  mkdir -p "$fakebin" "$HOME/.local/bin"
+  for t in bash env node; do
+    src="$(command -v "$t" 2>/dev/null)" && ln -s "$src" "$fakebin/$t"
+  done
+  printf '#!/usr/bin/env bash\necho system-path-tool\n' > "$fakebin/dupe-tool"
+  chmod +x "$fakebin/dupe-tool"
+  printf '#!/usr/bin/env bash\necho stale-local-bin-tool\n' > "$HOME/.local/bin/dupe-tool"
+  chmod +x "$HOME/.local/bin/dupe-tool"
+  local probe="$BATS_TEST_TMPDIR/which-tool.mjs"
+  printf 'import { execSync } from "node:child_process";\nconsole.log(execSync("command -v dupe-tool").toString().trim());\n' > "$probe"
+  run env -i PATH="$fakebin" HOME="$HOME" "$WRAPPER" "$probe"
+  assert_success
+  assert_output "$fakebin/dupe-tool"
+}
+
+@test "bin/mjs-launch.sh launches server.mjs correctly (lint_file listed over stdio)" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  run bash -c '
+    printf "%s\n%s\n" \
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}" \
+      "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}" \
+      | "'"$WRAPPER"'" "'"$SERVER"'"
   '
   assert_success
   assert_output --partial '"lint_file"'
@@ -544,6 +633,65 @@ rtk_stub() {
   assert_success
   echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("SC2086")'
   run rg_or_grep -E "^shellcheck " "$RECORD"
+  assert_success
+}
+
+@test "rtk: a clean non-zero exit with empty stdout (rtk-internal failure) falls back to direct invocation, not misreported as a finding" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'echo $1\n' > "$cwd/a.sh"
+  OUT='a.sh:1:6: note: Double quote to prevent globbing. [SC2086]'
+  rec_stub shellcheck 1
+  make_stub rtk \
+    'if [ "$1" = "rewrite" ]; then printf "rtk shellcheck __RTK_PROBE__\n"; exit 3; fi' \
+    'echo "rtk: internal error, could not reach backend" >&2' \
+    'exit 2'
+  run lint_file_call "$cwd/a.sh" "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("SC2086")'
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("internal error") | not'
+  run rg_or_grep -E "^shellcheck " "$RECORD"
+  assert_success
+}
+
+@test "rtk: npx-fallback tool routes through rtk when rtk is on PATH" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'let x = 1\n' > "$cwd/a.js"
+  OUT='a.js: 1:1  error  x is assigned a value but never used  no-unused-vars'
+  make_stub rtk \
+    'printf "%s %s\n" "rtk" "$*" >> "$RECORD"' \
+    'printf '\''%s\n'\'' "$OUT"' \
+    'exit 1'
+  # npx must be present on PATH (isToolAvailable/selectLintTool require it for
+  # eslint's npmSpec candidacy) but must never actually run once rtk succeeds.
+  make_stub npx \
+    'printf "%s %s\n" "npx" "$*" >> "$RECORD"' \
+    'echo "npx should not run when rtk succeeds" >&2' \
+    'exit 1'
+  run lint_file_call "$cwd/a.js" "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("no-unused-vars")'
+  run rg_or_grep -F "rtk npx --yes eslint $cwd/a.js" "$RECORD"
+  assert_success
+  run rg_or_grep -E "^npx " "$RECORD"
+  assert_failure
+}
+
+@test "rtk: npx-fallback falls back to bare npx when the rtk call errors" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'let x = 1\n' > "$cwd/a.js"
+  OUT='a.js: 1:1  error  x is assigned a value but never used  no-unused-vars'
+  make_stub rtk 'kill -KILL $$'
+  rec_stub npx 1
+  run lint_file_call "$cwd/a.js" "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("no-unused-vars")'
+  run rg_or_grep -F "npx --yes eslint $cwd/a.js" "$RECORD"
   assert_success
 }
 

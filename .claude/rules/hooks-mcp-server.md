@@ -130,10 +130,14 @@ to MCP-server spawning.
 This wrapper is an **optional fallback** for a plugin that genuinely needs
 bun-preferred runtime selection; the canonical shape is the direct-`.mjs` `command`
 shown above. It carries known edge-case issues (empty PATH segment, lingering signal
-forwarder); prefer the direct-`.mjs` form. No LSP plugin ships one anymore; only
-`claude-code-knowledge` still uses it — copy the template below if you need it.
-Prefers bun; falls back to node; errors if neither is available. All messages go to
-stderr (stdout is the MCP stdio channel).
+forwarder); prefer the direct-`.mjs` form. No LSP plugin ships one anymore;
+`claude-code-knowledge` uses it, as do `universal-lint` and `universal-format`
+(their own PATH line deviates from the template below — appending
+`~/.local/bin`/`~/.bun/bin` instead of prepending them, per a correctness
+finding on their own rtk/PATH review; see either plugin's CLAUDE.md) — copy
+the template below if you need it. Prefers bun; falls back to node; errors if
+neither is available. All messages go to stderr (stdout is the MCP stdio
+channel).
 
 ```bash
 #!/usr/bin/env bash
@@ -271,8 +275,9 @@ function startServer() {
 - **Optional bun wrapper:** if a plugin uses the optional `bin/mjs-launch.sh`, the
   wrapper (not `server.mjs`) is what Claude Code exec's and must be `chmod +x`; it
   prepends `~/.local/bin` and `~/.bun/bin` to PATH (uses `${HOME}`, never `~`, and
-  avoids empty PATH segments), then `exec bun "$@"` if bun is found, `exec node "$@"`
-  otherwise. It is not the default — see the caveats above.
+  avoids empty PATH segments — but universal-lint/universal-format append these two
+  instead, see the wrapper section above), then `exec bun "$@"` if bun is found,
+  `exec node "$@"` otherwise. It is not the default — see the caveats above.
 - **Debug logging:** the per-`tools/call` stderr log is gated behind
   `MCP_HOOK_DEBUG` so production hooks stay quiet; set it to confirm the contract.
 - **Native Windows:** a `#!/usr/bin/env node` server shebang resolves on native

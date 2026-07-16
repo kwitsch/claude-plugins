@@ -5,6 +5,7 @@ mcp-kind hooks plugin: a PostToolUse `Write|Edit` `mcp_tool` hook silently auto-
 ## Hook design (do not "fix" without reading this)
 
 - **PostToolUse `Write|Edit` → `mcp_tool`: `server: "plugin:universal-format:universal-format-hooks"`, `tool: "format_file"`, `timeout: 60`.** The server is registered in `.mcp.json` as the bare key `universal-format-hooks`; the hook's `server` field MUST use the runtime-namespaced `plugin:universal-format:universal-format-hooks` form (a plugin's own server connects under `plugin:<plugin>:<key>`; the bare key resolves to "not connected"). Synchronous (no `async`) — the reformat must land before Claude's next tool call touches the file. No `statusMessage` (silent). mcp-kind is mandated by the repo decision tree: PostToolUse is non-blocking, mid-session, fail-open — exactly the `mcp_tool` case; a command hook would re-spawn node and re-probe PATH per event, whereas the long-lived server caches PATH probes.
+- **`.mcp.json` invokes `bin/mjs-launch.sh` (not `mcp/server.mjs` directly), with `mcp/server.mjs` as its `args`.** The optional bun-preferred wrapper documented in `.claude/rules/hooks-mcp-server.md` — prefers `bun`, falls back to `node`, errors (exit 1) if neither is on `PATH`. Adopted here (mirroring `universal-lint`'s identical wrapper) for two reasons: it is the natural place to fix the `PATH` non-interactive MCP-server spawns inherit (see below), and it lets this zero-dep server run under `bun` when available with no code change. The wrapper's own `PATH` line deviates from that rule's canonical template (which prepends `~/.local/bin`/`~/.bun/bin` ahead of the inherited `PATH`): here they are **appended** instead, so a stale/older binary in those user dirs can never shadow a canonical system-installed tool of the same name — decided during `universal-lint`'s rtk/PATH review (this plugin's own PATH-prepend carried the identical risk, fixed the same way for consistency between the two sibling plugins); `${PATH:+${PATH}:}` avoids a leading empty `PATH` segment when `PATH` is unset/empty (an empty segment resolves to cwd in `PATH` lookups).
 
 ## Runtime behavior (`format_file`)
 
@@ -30,7 +31,7 @@ One `userConfig` toggle `auto_format` (default true, fail-open — only literal 
 
 ## Tests
 
-`test/universal-format/test.bats` (hermetic: stub formatters on an isolated PATH recording argv, temp `$HOME` for toggle tests) + `test/universal-format/*.test.mjs` (`node:test` unit tests for the `.editorconfig` resolver and registry flag mapping). Run:
+`test/universal-format/test.bats` (hermetic: stub formatters on an isolated PATH recording argv, temp `$HOME` for toggle tests; also covers `bin/mjs-launch.sh`'s bun/node selection, PATH-append order, and error handling in isolation) + `test/universal-format/*.test.mjs` (`node:test` unit tests for the `.editorconfig` resolver and registry flag mapping). Run:
 ```bash
 BATS_LIB_PATH="$PWD/node_modules" npx bats test/universal-format/
 npm run test:unit
