@@ -23,6 +23,22 @@ exceptions" wording. No extra loop-guard needed: the platform's `stop_hook_activ
 input and 8-consecutive-block cap already bound the worst case. Stateless — do not
 add a counter here.
 
+**`.mcp.json` invokes `bin/mjs-launch.sh` (not `mcp/server.mjs` directly), with
+`mcp/server.mjs` as its `args`** (2026-07-16 fix — the un-migrated original
+scaffold had invoked `mcp/server.mjs` directly, node-only, the only one of this
+repo's four self-contained MCP servers never given the bun-preferred wrapper
+`universal-lint`/`universal-format`/`claude-code-knowledge` already carry).
+Unlike those three siblings, `interaction_gate` spawns no external tool at
+all, so their stated rationale ("the natural place to fix PATH for the
+non-interactive MCP-spawn's external tool lookups") does not transfer here —
+this wrapper exists purely so the zero-dep server itself can run under `bun`
+when available, for runtime parity with the rest of the repo. The wrapper is
+still a byte-for-byte copy of `universal-lint`'s hardened form (PATH
+**appended**, not prepended — same rationale as that plugin's own CLAUDE.md)
+since its bun-discovery role is identical even though its tool-discovery role
+is not. `server.mjs` itself is unchanged — no inline re-exec shim, the
+wrapper is the sole runtime selector.
+
 The `PreToolUse` entry (`hooks/encoding-guard.mjs`, matcher
 `Read|Edit|Write|Bash`) is a hard deny gate and therefore a **command hook**,
 not an `mcp_tool` — the event matrix forbids `mcp_tool` for hard gates (a
@@ -426,5 +442,9 @@ model-invocable frontmatter — i.e. no `disable-model-invocation` key — no
 `rm`/install-path command anywhere in the file, the existence-gate present,
 its four `command -v` detection lines present) plus an assertion that both it
 and `setup-rules` reference the shared `tool-routing-rows.md` file rather than
-inlining the candidate-rows table themselves.
+inlining the candidate-rows table themselves. `bin/mjs-launch.sh` gets the
+same structural + runtime-selection coverage as its `universal-lint`
+counterpart (executable, bash shebang, missing-arg exit 64, neither/node/bun
+PATH-selection cases, PATH-append order, and an end-to-end launch of
+`mcp/server.mjs` through the wrapper).
 Run: `BATS_LIB_PATH=/usr/lib/bats bats test/coding-toolbox/`
