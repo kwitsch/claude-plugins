@@ -8,7 +8,9 @@ the latter backed by a self-contained, now-stateless MCP server (`mcp/server.mjs
 full golden-rules document lives, unwired, at `skills/setup-rules/references/golden-rules.md`
 (moved from `hooks/SessionStart.md` when the `SessionStart` hook was removed);
 `setup-rules` is the only way to get it onto a machine (user-level, every
-project you open there), opt-in. No userConfig.
+project you open there), opt-in. The plugin's only `userConfig` entry is
+`npm_ci_on_worktree` (fail-open, default `true`) gating the `npm-ci-on-worktree`
+hook below — the Stop gate and encoding guard have no toggle of their own.
 
 ## Hook design (do not "fix" without reading this)
 
@@ -132,6 +134,21 @@ not guarded: a guard would contradict `npm ci`'s own contract, and the user
 asked for the simple, literal version — this is a deliberate consequence,
 not a silent one; do not "fix" it with a running-process check without
 re-confirming with the user first.
+
+**The hook trusts the `PostToolUse` event's `cwd` field as-is, with no
+cross-check against `EnterWorktree`'s own reported path.** A 2026-07-24
+Review pass flagged this as a speculative (not confirmed) risk: if
+`EnterWorktree` ever fires in a context where `cwd` tracking itself is wrong
+(this repo's own memory documents a _different_, already-verified-absent
+case — a linked/bridge session's Agent-tool subagents defaulting to the
+primary repo root — but the platform could in principle have other,
+undiscovered cases), `npm ci` would run — and wipe `node_modules` — in the
+wrong directory. No practical mitigation exists without parsing
+`EnterWorktree`'s free-text result (rejected during design as more fragile
+than trusting `cwd`, see this file's design-doc citation above) or adding a
+path-shape sanity check that would break the documented "switch into an
+arbitrary existing worktree via `path`" case. Accepted as an unaddressed,
+documented risk rather than defended against speculatively.
 
 ## Skill design (`fresh-branch`)
 

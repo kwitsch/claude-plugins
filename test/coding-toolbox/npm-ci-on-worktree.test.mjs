@@ -48,3 +48,28 @@ test("npmCiOnWorktreeHandler: npm killed by its own timeout is silent, not misre
     process.env.PATH = origPath;
   }
 });
+
+test("npmCiOnWorktreeHandler: a non-ENOENT spawn error (EACCES) is not misreported as npm missing", () => {
+  const projDir = mkdtempSync(path.join(tmpdir(), "npm-ci-eacces-"));
+  writeFileSync(path.join(projDir, "package-lock.json"), "");
+
+  const binDir = mkdtempSync(path.join(tmpdir(), "npm-ci-noexec-"));
+  const npmStub = path.join(binDir, "npm");
+  writeFileSync(npmStub, "#!/usr/bin/env bash\necho should never run\n");
+  chmodSync(npmStub, 0o644); // present on PATH but not executable -- EACCES, not ENOENT
+
+  const origPath = process.env.PATH;
+  // Replace PATH entirely (not prepend) -- with the real npm still reachable
+  // further down PATH, the OS's PATH search silently skips a non-executable
+  // match and falls through to it, defeating the point of this test.
+  process.env.PATH = binDir;
+  try {
+    const result = npmCiOnWorktreeHandler({ cwd: projDir });
+    const message = result?.hookSpecificOutput?.additionalContext ?? "";
+    assert.doesNotMatch(message, /npm not found on PATH/);
+    assert.match(message, /npm ci` failed/);
+    assert.match(message, /EACCES/);
+  } finally {
+    process.env.PATH = origPath;
+  }
+});

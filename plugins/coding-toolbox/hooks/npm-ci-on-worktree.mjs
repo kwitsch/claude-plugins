@@ -34,8 +34,9 @@ export function truncate(text) {
 }
 
 // The npm-ci-on-worktree handler. Returns {} on every guard failure / no
-// lockfile / clean / killed run (fail open); only a real npm-ci failure or a
-// missing-npm PATH gap returns additionalContext. timeoutMs defaults to
+// lockfile / clean run / our own timeout (fail open); every other outcome
+// (npm missing, npm ci failed for any reason including maxBuffer overflow or
+// an unexpected signal) returns additionalContext. timeoutMs defaults to
 // NPM_CI_TIMEOUT_MS; only overridden by tests, to exercise the killed-by-
 // timeout branch deterministically without a real 280s wait.
 /** @param {PostToolUseHookInput} args @param {number} [timeoutMs] @returns {HookResult} */
@@ -52,11 +53,14 @@ export function npmCiOnWorktreeHandler(args, timeoutMs = NPM_CI_TIMEOUT_MS) {
       maxBuffer: 10 * 1024 * 1024,
     });
 
-    // Check signal BEFORE error: spawnSync sets BOTH result.error (ETIMEDOUT)
-    // and result.signal (SIGTERM) when the process is killed by `timeout` --
-    // checking error first would misreport a timeout as "npm not found".
-    if (result.signal) return {}; // killed (e.g. our own timeout) -- silently dropped
-    if (result.error) {
+    // spawnSync sets BOTH result.error and result.signal on a kill (timeout OR
+    // maxBuffer overflow) -- only our own intentional 280s timeout (ETIMEDOUT)
+    // stays silent. Every other spawn error (ENOENT, EACCES, ENOBUFS from a
+    // pathologically verbose failure, ...) and every other signal are real,
+    // reportable outcomes -- narrower than a blanket "any signal is silent",
+    // which previously also swallowed genuine npm-ci failures.
+    if (result.error?.code === "ETIMEDOUT") return {}; // our own timeout kill -- accepted silent per design
+    if (result.error?.code === "ENOENT") {
       return {
         hookSpecificOutput: {
           hookEventName: "PostToolUse",
@@ -64,12 +68,19 @@ export function npmCiOnWorktreeHandler(args, timeoutMs = NPM_CI_TIMEOUT_MS) {
         },
       };
     }
-    if (result.status === 0) return {}; // silent on success
+    if (result.status === 0 && !result.error && !result.signal) return {}; // silent on success
 
+    // Everything else: a real, reportable npm-ci failure -- nonzero exit, an
+    // unexpected spawn error (EACCES, ENOBUFS, ...), or an unexpected signal.
+    const reason = result.error
+      ? `spawn error ${result.error.code ?? result.error.message}`
+      : result.signal
+        ? `killed by signal ${result.signal}`
+        : `exit code ${result.status}`;
     return {
       hookSpecificOutput: {
         hookEventName: "PostToolUse",
-        additionalContext: `npm-ci-on-worktree: \`npm ci\` failed in ${cwd}:\n${truncate(
+        additionalContext: `npm-ci-on-worktree: \`npm ci\` failed in ${cwd} (${reason}):\n${truncate(
           `${result.stdout ?? ""}\n${result.stderr ?? ""}`,
         )}`,
       },
