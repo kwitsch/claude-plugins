@@ -1,12 +1,12 @@
-# Planning (fresh-work phase)
+# Planning (feature-development phase)
 
 Turn the revised design doc into an implementation plan and save it to the **plan temp path**
-(SKILL.md "Session temp docs"). Nothing is written into the repository.
+(this skill's own "Session temp docs" section). Nothing is written into the repository.
 
 Like the design doc, this plan is Claude's own execution memory for the
 implementer/reviewer/fixer workers, never a human — keep it dense, exact, and
 complete rather than polished. The human checkpoint already happened at Intent
-confirmation (SKILL.md step 5); self-review (below) always validates this file —
+confirmation (this skill's own step 2); self-review (below) always validates this file —
 the advisor, when this phase judges it warranted, is an additional layer on
 top — before it goes to the implementers.
 
@@ -16,7 +16,7 @@ commands with expected output. Each implementer sees only their own task.
 
 ## Scale to the task (your call, not a fixed step)
 
-Judge complexity against SKILL.md's complexity heuristic — re-judge from the
+Judge complexity against this skill's own complexity heuristic — re-judge from the
 revised design doc, which may show more or less complexity than the original
 one-line description implied:
 
@@ -25,8 +25,8 @@ one-line description implied:
   for drafting task groups in parallel (one agent per subsystem's tasks, then
   merge and re-check cross-task interfaces yourself).
 
-**Advisor consultation is your call too** (SKILL.md "Inline advisor
-protocol") — call it when you hit a genuine uncertainty, or the plan reveals
+**Advisor consultation is your call too** (this skill's own "Inline advisor
+protocol" section) — call it when you hit a genuine uncertainty, or the plan reveals
 the task is more complex than the design doc assumed.
 
 ## Plan header (mandatory)
@@ -34,8 +34,8 @@ the task is more complex than the design doc assumed.
 ```markdown
 # [Feature Name] Implementation Plan
 
-> **For agentic workers:** executed task-by-task by fresh-work's workflow-driven
-> implementation phase (SKILL.md step 7). Steps use checkbox (`- [ ]`) syntax.
+> **For agentic workers:** executed task-by-task by feature-development's workflow-driven
+> implementation phase (this skill's own step 4). Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** [one sentence]
 **Architecture:** [2–3 sentences]
@@ -133,6 +133,6 @@ showing how, references to names defined in no task.
    `files`/`consumes`/`produces` matching each task's `**Files:**`/`**Interfaces:**`
    sections exactly.
 
-Fix inline, then return to the orchestrator (SKILL.md step 7, Implement). Do not
+Fix inline, then return to this skill's own step 4, Implement. Do not
 pick an execution mode and do not start implementing — the engine is fixed by
 `references/implementing.md`.
