@@ -254,6 +254,25 @@ function runLintTool(tool, argv, spawnOpts) {
   return spawnSync(tool.name, argv, spawnOpts);
 }
 
+// Walk from `fileDir` up to `cwd` (inclusive), calling `checkDir(dir)` at each
+// level; returns the first non-null result, or null if none found. Shared
+// walk/termination logic for resolveCheckstyleConfig and resolveTsconfig --
+// only what differs (a fixed set of candidate filenames vs. one file with
+// content validation) stays in each caller.
+/** @param {string} fileDir @param {string} cwd @param {(dir: string) => string | null} checkDir @returns {string | null} */
+function walkUpToCwd(fileDir, cwd, checkDir) {
+  let dir = fileDir;
+  for (;;) {
+    const found = checkDir(dir);
+    if (found) return found;
+    if (dir === cwd) break;
+    const parent = path.dirname(dir);
+    if (parent === dir) break; // filesystem root safety
+    dir = parent;
+  }
+  return null;
+}
+
 // Walk from the file's dir up to cwd (inclusive); return the first existing
 // checkstyle config path, or null. Existence-only (no section parsing needed --
 // unlike a formatter, a linter doesn't need to reproduce exact style output, so
@@ -265,18 +284,13 @@ export function resolveCheckstyleConfig(fileDir, cwd) {
     ".checkstyle.xml",
     path.join("config", "checkstyle", "checkstyle.xml"),
   ];
-  let dir = fileDir;
-  for (;;) {
+  return walkUpToCwd(fileDir, cwd, (dir) => {
     for (const rel of candidates) {
       const p = path.join(dir, rel);
       if (existsSync(p)) return p;
     }
-    if (dir === cwd) break;
-    const parent = path.dirname(dir);
-    if (parent === dir) break; // filesystem root safety
-    dir = parent;
-  }
-  return null;
+    return null;
+  });
 }
 
 // Walk from the edited file's dir up to cwd (inclusive); return the first
@@ -284,27 +298,20 @@ export function resolveCheckstyleConfig(fileDir, cwd) {
 // or null. An unreadable tsconfig.json (permission-denied, or a directory
 // literally named tsconfig.json) is treated as absent -- the walk keeps
 // climbing past it rather than stopping there, so a genuinely valid tsconfig
-// further up is still found. Mirrors resolveCheckstyleConfig's walk shape.
+// further up is still found.
 /** @param {string} fileDir @param {string} cwd @returns {string | null} */
 export function resolveTsconfig(fileDir, cwd) {
-  let dir = fileDir;
-  for (;;) {
+  return walkUpToCwd(fileDir, cwd, (dir) => {
     const p = path.join(dir, "tsconfig.json");
-    if (existsSync(p)) {
-      let text;
-      try {
-        text = readFileSync(p, "utf8");
-      } catch {
-        text = null; // unreadable -- treat as absent, keep climbing
-      }
-      if (text !== null && !looksLikeSolutionStyleTsconfig(text)) return p;
+    if (!existsSync(p)) return null;
+    let text;
+    try {
+      text = readFileSync(p, "utf8");
+    } catch {
+      return null; // unreadable -- treat as absent, keep climbing
     }
-    if (dir === cwd) break;
-    const parent = path.dirname(dir);
-    if (parent === dir) break; // filesystem root safety
-    dir = parent;
-  }
-  return null;
+    return !looksLikeSolutionStyleTsconfig(text) ? p : null;
+  });
 }
 
 // Strip // line comments and /* */ block comments from JSONC text, respecting
@@ -511,27 +518,32 @@ function selectLintTool(chain) {
   return null;
 }
 
-// Run the language's chain-selected tool (existing chain/runLintTool
-// machinery, unchanged behavior) and return its finding, or null on any
-// guard failure / clean / skip verdict.
-/** @param {LangEntry} lang @param {string} resolved @param {string} cwd @param {string} rel @returns {{tool: string, target: string, text: string} | null} */
-function runChainLint(lang, resolved, cwd, rel) {
-  const candidate = lang.chain.find((t) =>
-    isToolAvailable(t, onPath(t.name), onPath("npx")),
-  );
-  if (!candidate) return null;
-
-  const tool = selectLintTool(lang.chain);
-  if (!tool) return null;
-
-  const argv = buildArgv(tool, resolved, cwd);
-  const spawnOpts = {
+// Shared spawnSync options builder -- only `timeout` differs between the
+// chain-tool run (SPAWN_TIMEOUT_MS) and the tsc run (TSC_SPAWN_TIMEOUT_MS).
+/** @param {string} cwd @param {number} timeout @returns {any} */
+function buildSpawnOpts(cwd, timeout) {
+  return {
     cwd,
-    timeout: SPAWN_TIMEOUT_MS,
+    timeout,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: MAX_BUFFER_BYTES,
   };
+}
+
+// Run the language's chain-selected tool (existing chain/runLintTool
+// machinery, unchanged behavior) and return its finding, or null on any
+// guard failure / clean / skip verdict. selectLintTool's own null path
+// already covers "nothing on PATH and nothing npx-eligible" -- no separate
+// pre-check needed (an earlier `isToolAvailable`-based short-circuit here was
+// logically redundant with it and has been removed).
+/** @param {LangEntry} lang @param {string} resolved @param {string} cwd @param {string} rel @returns {{tool: string, target: string, text: string} | null} */
+function runChainLint(lang, resolved, cwd, rel) {
+  const tool = selectLintTool(lang.chain);
+  if (!tool) return null;
+
+  const argv = buildArgv(tool, resolved, cwd);
+  const spawnOpts = buildSpawnOpts(cwd, SPAWN_TIMEOUT_MS);
   const result = runLintTool(tool, argv, spawnOpts);
   if (result.error || result.signal) return null;
 
@@ -555,10 +567,12 @@ function runChainLint(lang, resolved, cwd, rel) {
 // Run tsc against the whole project governed by the nearest tsconfig.json
 // (tsc has no single-file mode with project context -- confirmed: "When
 // input files are specified on the command line, tsconfig.json files are
-// ignored"). Returns a finding only on a real "issues" verdict; every other
-// outcome (no tsconfig, no tsc binary, clean, crashed/invalid-project run)
-// returns null -- same silent-skip philosophy as the rest of this file.
-/** @param {string} resolved @param {string} cwd @returns {{text: string, target: string} | null} */
+// ignored"). Returns a finding (same {tool, target, text} shape as
+// runChainLint, so callers can treat both uniformly) only on a real "issues"
+// verdict; every other outcome (no tsconfig, no tsc binary, clean,
+// crashed/invalid-project run) returns null -- same silent-skip philosophy
+// as the rest of this file.
+/** @param {string} resolved @param {string} cwd @returns {{tool: string, target: string, text: string} | null} */
 function runTypeCheck(resolved, cwd) {
   const tsconfigPath = resolveTsconfig(path.dirname(resolved), cwd);
   if (!tsconfigPath) return null;
@@ -572,13 +586,7 @@ function runTypeCheck(resolved, cwd) {
 
   const staticArgs = ["--noEmit", "--incremental"];
   const dynamicTail = ["--tsBuildInfoFile", cachePath, "-p", tsconfigPath];
-  const spawnOpts = {
-    cwd,
-    timeout: TSC_SPAWN_TIMEOUT_MS,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    maxBuffer: MAX_BUFFER_BYTES,
-  };
+  const spawnOpts = buildSpawnOpts(cwd, TSC_SPAWN_TIMEOUT_MS);
 
   let result;
   if (onPath("tsc")) {
@@ -602,8 +610,9 @@ function runTypeCheck(resolved, cwd) {
   if (classifyExit("tsc", result.status) !== "issues") return null;
 
   return {
-    text: `${result.stdout ?? ""}\n${result.stderr ?? ""}`,
+    tool: "tsc",
     target: path.relative(cwd, path.dirname(tsconfigPath)) || ".",
+    text: `${result.stdout ?? ""}\n${result.stderr ?? ""}`,
   };
 }
 
@@ -643,12 +652,7 @@ function lintFileHandler(args) {
     }
     if (typeCheckEligible) {
       const tsResult = runTypeCheck(resolved, cwd);
-      if (tsResult)
-        findings.push({
-          tool: "tsc",
-          target: tsResult.target,
-          text: tsResult.text,
-        });
+      if (tsResult) findings.push(tsResult);
     }
     if (findings.length === 0) return {};
 
