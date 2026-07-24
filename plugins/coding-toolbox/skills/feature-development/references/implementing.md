@@ -67,7 +67,7 @@ isolated path below.
 
 Announce each wave to the user before dispatching it, one line, e.g. "Wave
 2/3: dispatching 3 tasks in parallel (ids 4, 5, 6)." — same principle as
-SKILL.md's step-start reporting, applied one level in.
+this skill's own step-start reporting, applied one level in.
 
 ## Per-task loop — wave size 1 (identical in both engines, unchanged)
 
@@ -123,7 +123,7 @@ concurrently across the wave, plus two additions:
    default. That default is itself session-dependent: in a linked/bridge
    worktree session, an Agent-tool subagent's default cwd is the *primary*
    repo root, not the bridge worktree — verify this holds for the session
-   fresh-work is actually running in before trusting the merge-back's target,
+   this skill is actually running in before trusting the merge-back's target,
    rather than assuming it. Given the ordered `{taskId, branch, worktreePath}`
    list for every task that reached `approved`, runs in task-id order:
    `git merge --no-ff <branch>`, then
@@ -136,8 +136,8 @@ concurrently across the wave, plus two additions:
    not proceed to the next wave or attempt to resolve it. Scope note: a clean
    merge only proves no two tasks edited the same lines — it cannot catch a
    task whose `Consumes` silently mismatches what its dependency actually
-   `Produces` (a semantic contract error, not a text conflict). SKILL.md step
-   8's Review (the combined review workflow over the full post-merge
+   `Produces` (a semantic contract error, not a text conflict). This skill's own
+   step 5 (Review, the combined review workflow over the full post-merge
    branch diff) is the actual backstop for that case; this merge-back step
    alone does not guarantee the wave analysis was semantically correct, only
    that it was textually non-overlapping.
@@ -187,7 +187,7 @@ call (the merger's own Bash), never as inline script code.
 
 ```js
 export const meta = {
-  name: 'fresh-work-implement',
+  name: 'feature-development-implement',
   description: 'Implement plan tasks wave-parallel with per-task review',
   phases: [{ title: 'Implement' }],
 }
@@ -462,7 +462,7 @@ identical wall-clock behavior to the Workflow engine's per-task `parallel()` pip
   safe as concurrent implementers. Re-review each fixed task, batched the
   same way.
 - **Merge-back.** Run this via the orchestrator's own Bash — you already hold
-  `Bash` directly (`SKILL.md`'s `allowed-tools`) — run the merge-back's
+  `Bash` directly (this skill's own `allowed-tools`) — run the merge-back's
   `git merge --no-ff <branch>` /
   `git worktree remove <worktreePath>` / `git branch -d <branch>` sequence
   yourself, in task-id order, rather than dispatching a separate merger
@@ -498,7 +498,7 @@ identical wall-clock behavior to the Workflow engine's per-task `parallel()` pip
 
 ## Exit
 
-All tasks `done` → return to the orchestrator (SKILL.md step 8, Review), which
-does not consume the minor-findings list — carry it forward unchanged to step 9
-(PR) for presentation. Any task failed, or a wave's merge-back conflicted → report
+All tasks `done` → return to this skill's own step 5, Review, which does not
+consume the minor-findings list — carry it forward unchanged to `fresh-work`'s
+PR step (invoked after this skill returns) for presentation. Any task failed, or a wave's merge-back conflicted → report
 it and stop; do not open a PR on a half-implemented plan.

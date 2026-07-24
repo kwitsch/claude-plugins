@@ -1,4 +1,4 @@
-# Reviewing (fresh-work phase)
+# Reviewing (feature-development phase)
 
 Run the branch's whole-diff quality/correctness pass after Implement, before PR.
 One combined review workflow replaces the former `simplify` + `code-review --fix`
@@ -6,13 +6,13 @@ built-in-skill pair: correctness angles and per-lens cleanup finders run once
 over the accumulated diff, every candidate is independently verified, and the
 orchestrator applies the surviving fixes afterward. Prompt texts (correctness
 angles A–E, the five cleanup lenses, verdict ladder) are vendored verbatim from
-the built-in `/code-review` workflow and `/simplify` skill. Nothing here
-consumes step 7's minor-findings list — carry it forward unchanged to the PR
-step (SKILL.md).
+the built-in `/code-review` workflow and `/simplify` skill. Nothing here consumes this skill's own step 4 (Implement)'s minor-findings
+list — carry it forward unchanged to `fresh-work`'s PR step (invoked after
+this skill returns).
 
 ## Process
 
-1. **Judge complexity** against SKILL.md's complexity heuristic — re-read the
+1. **Judge complexity** against this skill's own complexity heuristic — re-read the
    accumulated diff itself, not just the plan's own complexity guess; a plan
    that looked Simple can still produce a Complex diff once every task is in.
    Simple → `high`, Complex → `max`. (`high`/`max` scale finder count, sweep,
@@ -48,7 +48,7 @@ pin; override only on explicit user request).
 
 ```js
 export const meta = {
-  name: 'fresh-work-review',
+  name: 'feature-development-review',
   description: 'Combined quality+correctness review over the accumulated branch diff',
   phases: [
     { title: 'Scope', detail: 'changed files, summary, conventions', model: 'sonnet' },
@@ -421,7 +421,7 @@ agent `model: sonnet`):
 
 ## Exit
 
-Return to the orchestrator's PR step, carrying step 7's minor-findings list
-forward unchanged — this phase does not consume it; it runs its own
-independent scan and has no input mechanism for that plan-specific ledger
-content.
+Return to `fresh-work`'s PR step (invoked after this skill returns),
+carrying this skill's own step 4 (Implement)'s minor-findings list forward
+unchanged — this phase does not consume it; it runs its own independent scan
+and has no input mechanism for that plan-specific ledger content.
