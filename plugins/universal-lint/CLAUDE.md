@@ -132,12 +132,13 @@ where that's realistic, unlike comments.
 
 To keep repeat full-project checks fast, the run adds `--incremental
 --tsBuildInfoFile <cache path>`, where the cache path lives under
-`${CLAUDE_PLUGIN_DATA}` (persistent, exported to hook processes — never
-inside the project tree, so this plugin's "never writes into the repo"
-property holds), named by hashing the tsconfig's realpath
-(`tsBuildInfoPathFor`, mirroring `memory-enhancement`'s `flagPathFor`
-hash-suffix idiom). Verified empirically against this repo's own
-`tsconfig.json`: a cold run took 0.70s, the cached rerun 0.29s.
+`${CLAUDE_PLUGIN_DATA}` (persistent, exported to hook processes — falls
+back to the OS temp dir, never `.`/cwd, on the unset case, so this plugin's
+"never writes into the repo" property holds either way), named by hashing
+the tsconfig's realpath (`tsBuildInfoPathFor`, mirroring
+`memory-enhancement`'s `flagPathFor` hash-suffix idiom). Verified
+empirically against this repo's own `tsconfig.json`: a cold run took 0.70s,
+the cached rerun 0.29s.
 
 `classifyExit`'s `"tsc"` case shares stylelint's 0-clean/2-issues/else-skip
 contract — verified **empirically** (tsc v6.0.3), not from documentation: a
