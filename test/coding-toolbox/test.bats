@@ -246,6 +246,163 @@ interaction_gate_call() {
   [ "$output" = "{}" ]
 }
 
+@test "PostToolUse hook is wired to worktree_refresh for the EnterWorktree matcher" {
+  # Position-independent: npm-ci-on-worktree and worktree_refresh share the same
+  # matcher's hooks array (npm-ci-on-worktree first) — match by content, not index.
+  run jq -e '.hooks.PostToolUse[0] | .matcher == "EnterWorktree"
+    and any(.hooks[]; .type == "mcp_tool" and .server == "plugin:coding-toolbox:coding-toolbox-hooks" and .tool == "worktree_refresh")' "$HOOKS/hooks.json"
+  assert_success
+}
+
+@test "worktree_refresh tool is listed by the MCP server" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  run bash -c '
+    { printf "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}\n"
+      printf "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}\n"
+    } | node "'"$PLUGIN"'/mcp/server.mjs" 2>/dev/null
+  '
+  assert_output --partial '"worktree_refresh"'
+}
+
+# Drive the worktree_refresh MCP tool with a JSON arguments blob. Echoes the
+# tools/call structuredContent JSON (same pattern as interaction_gate_call).
+worktree_refresh_call() {
+  local args_json="$1"
+  {
+    printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n'
+    printf '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"worktree_refresh","arguments":%s}}\n' "$args_json"
+  } | node "$PLUGIN/mcp/server.mjs" 2>/dev/null \
+    | jq -c 'select(.id == 2) | .result.structuredContent'
+}
+
+# Build a hermetic git fixture: a bare "origin", a "checkout" clone on the
+# default branch (main), and a linked "worktree" already checked out at the
+# same tip. Echoes "<origin> <checkout> <worktree>" (space-separated paths).
+setup_worktree_fixture() {
+  local base
+  base="$(mktemp -d "$BATS_TEST_TMPDIR/git-fixture-XXXXXX")"
+  local origin="$base/origin.git" checkout="$base/checkout" wt="$base/wt"
+
+  git init --bare -q "$origin"
+  git init -q -b main "$checkout"
+  git -C "$checkout" config user.email test@example.com
+  git -C "$checkout" config user.name test
+  echo "hello" > "$checkout/file.txt"
+  git -C "$checkout" add file.txt
+  git -C "$checkout" commit -q -m initial
+  git -C "$checkout" remote add origin "$origin"
+  git -C "$checkout" push -q origin main
+  git -C "$checkout" remote set-head origin -a >/dev/null 2>&1 \
+    || git -C "$checkout" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+
+  git -C "$checkout" worktree add -q -b wt-branch "$wt" main
+
+  printf '%s %s %s\n' "$origin" "$checkout" "$wt"
+}
+
+# Commit one more change on $2 (the "checkout" clone) and push it to $1 (the
+# bare "origin"), simulating "upstream moved on after the worktree was made".
+advance_upstream() {
+  local origin="$1" checkout="$2"
+  echo "more" >> "$checkout/file.txt"
+  git -C "$checkout" commit -q -am "upstream advance"
+  git -C "$checkout" push -q origin main
+}
+
+@test "worktree_refresh fetches and rebases a new worktree onto origin's default branch" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  read -r ORIGIN CHECKOUT WT < <(setup_worktree_fixture)
+  advance_upstream "$ORIGIN" "$CHECKOUT"
+
+  local args
+  args="$(jq -cn --arg cwd "$WT" '{cwd: $cwd, tool_name: "EnterWorktree", tool_input: {name: "x"}, tool_response: {worktreePath: $cwd}}')"
+  run worktree_refresh_call "$args"
+  assert_success
+  assert_output "{}"
+
+  run git -C "$WT" log -1 --format=%s
+  assert_output "upstream advance"
+}
+
+@test "worktree_refresh no-ops when CODING_TOOLBOX_WORKTREE_REFRESH=false, even for an otherwise-successful refresh" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  read -r ORIGIN CHECKOUT WT < <(setup_worktree_fixture)
+  advance_upstream "$ORIGIN" "$CHECKOUT"
+
+  local args
+  args="$(jq -cn --arg cwd "$WT" '{cwd: $cwd, tool_name: "EnterWorktree", tool_input: {name: "x"}, tool_response: {worktreePath: $cwd}}')"
+  CODING_TOOLBOX_WORKTREE_REFRESH=false run worktree_refresh_call "$args"
+  assert_success
+  assert_output "{}"
+
+  # proves the toggle short-circuited BEFORE any git call, not that fetch+rebase
+  # happened to no-op: the upstream commit is genuinely absent from the worktree.
+  run git -C "$WT" log -1 --format=%s
+  refute_output "upstream advance"
+}
+
+@test "worktree_refresh: fail-open on an unset/placeholder env still runs the refresh" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  read -r ORIGIN CHECKOUT WT < <(setup_worktree_fixture)
+  advance_upstream "$ORIGIN" "$CHECKOUT"
+
+  local args
+  args="$(jq -cn --arg cwd "$WT" '{cwd: $cwd, tool_name: "EnterWorktree", tool_input: {name: "x"}, tool_response: {worktreePath: $cwd}}')"
+  # An un-interpolated placeholder (an old Claude Code build that can't resolve
+  # ${user_config.*} in an MCP server's env) is not the literal "false" — fail-open.
+  CODING_TOOLBOX_WORKTREE_REFRESH='${user_config.worktree_refresh}' run worktree_refresh_call "$args"
+  assert_success
+  assert_output "{}"
+
+  run git -C "$WT" log -1 --format=%s
+  assert_output "upstream advance"
+}
+
+@test "worktree_refresh skips when tool_input carries path (switch, not create)" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  read -r ORIGIN CHECKOUT WT < <(setup_worktree_fixture)
+  git -C "$WT" remote set-url origin /nonexistent/path
+
+  local args
+  args="$(jq -cn --arg cwd "$WT" '{cwd: $cwd, tool_name: "EnterWorktree", tool_input: {path: $cwd}, tool_response: {worktreePath: $cwd}}')"
+  run worktree_refresh_call "$args"
+  assert_success
+  assert_output "{}"
+}
+
+@test "worktree_refresh skips when cwd/worktreePath is not a linked worktree" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  read -r ORIGIN CHECKOUT WT < <(setup_worktree_fixture)
+  git -C "$CHECKOUT" remote set-url origin /nonexistent/path
+
+  local args
+  args="$(jq -cn --arg cwd "$CHECKOUT" '{cwd: $cwd, tool_name: "EnterWorktree", tool_input: {name: "x"}, tool_response: {worktreePath: $cwd}}')"
+  run worktree_refresh_call "$args"
+  assert_success
+  assert_output "{}"
+}
+
+@test "worktree_refresh aborts and reports a rebase conflict" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  read -r ORIGIN CHECKOUT WT < <(setup_worktree_fixture)
+  printf 'worktree change\n' > "$WT/file.txt"
+  git -C "$WT" commit -q -am "worktree-local edit"
+  printf 'upstream change\n' > "$CHECKOUT/file.txt"
+  git -C "$CHECKOUT" commit -q -am "upstream conflicting edit"
+  git -C "$CHECKOUT" push -q origin main
+
+  local args
+  args="$(jq -cn --arg cwd "$WT" '{cwd: $cwd, tool_name: "EnterWorktree", tool_input: {name: "x"}, tool_response: {worktreePath: $cwd}}')"
+  run worktree_refresh_call "$args"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("conflicted and was aborted")'
+
+  local gitdir
+  gitdir="$(git -C "$WT" rev-parse --git-dir)"
+  [ ! -d "$gitdir/rebase-merge" ]
+  [ ! -d "$gitdir/rebase-apply" ]
+}
+
 @test "plugin README first ## heading is Install" {
   run bash -c "rg_or_grep -m1 '^## ' '$PLUGIN/README.md'"
   assert_success
@@ -696,9 +853,9 @@ assert_success
   assert_success
 }
 
-@test "plugin.json version bumped for the npm-ci-on-worktree hook (this unreleased branch)" {
+@test "plugin.json version bumped for the npm-ci-on-worktree and worktree_refresh hooks (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.17.0"
+  assert_output "0.18.0"
 }
 
 @test "plugin.json description mentions fresh-work and its sibling skills" {
@@ -1656,6 +1813,25 @@ EOF
 @test "plugin.json description mentions the npm-ci-on-worktree hook" {
   run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
   assert_output --partial "npm_ci_on_worktree"
+}
+
+@test "plugin.json declares worktree_refresh userConfig: boolean, default true, fail-open" {
+  run jq -e '.userConfig.worktree_refresh
+    | .type == "boolean"
+      and .default == true
+      and (.title | length > 0)
+      and (.description | length > 0)' "$PLUGIN/.claude-plugin/plugin.json"
+  assert_success
+}
+
+@test "plugin.json description mentions the worktree_refresh hook" {
+  run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
+  assert_output --partial "worktree_refresh"
+}
+
+@test ".mcp.json wires worktree_refresh's userConfig toggle via env, not hooks.json input" {
+  run jq -e '.mcpServers["coding-toolbox-hooks"].env.CODING_TOOLBOX_WORKTREE_REFRESH == "${user_config.worktree_refresh}"' "$PLUGIN/.mcp.json"
+  assert_success
 }
 
 @test "fresh-work branch naming demands a concise English summary, never a verbatim slug" {
