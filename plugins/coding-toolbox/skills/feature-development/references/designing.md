@@ -1,17 +1,17 @@
-# Designing (fresh-work phase)
+# Designing (feature-development phase)
 
 Produce the design doc for the described work and save it to the **spec temp path**
-(SKILL.md "Session temp docs"). This phase writes nothing into the repository.
+(this skill's own "Session temp docs" section). This phase writes nothing into the repository.
 
 This doc is Claude's own working memory for the plan and implementation phases,
 not prose written for a human to review line by line — write it dense and
-structured. The pipeline's human checkpoint is SKILL.md step 5 (Intent
+structured. The pipeline's human checkpoint is this skill's own step 2 (Intent
 confirmation); self-review (below) always validates this doc — the advisor,
 when this phase judges it warranted, is an additional layer on top.
 
 ## Scale to the task (your call, not a fixed step)
 
-Judge complexity against SKILL.md's complexity heuristic, from
+Judge complexity against this skill's own complexity heuristic, from
 `$work_description` and what step 1's exploration turns up — re-judge after
 exploring, not just from the one-line description; a task that reads simple
 can turn out complex once the code is in front of you:
@@ -23,8 +23,8 @@ can turn out complex once the code is in front of you:
   pattern), or a judge panel of independently fleshed-out approaches for
   step 4 (the tool's `Design` pattern).
 
-**Advisor consultation is your call too** (SKILL.md "Inline advisor
-protocol") — call it when you hit a genuine uncertainty you can't resolve
+**Advisor consultation is your call too** (this skill's own "Inline advisor
+protocol" section) — call it when you hit a genuine uncertainty you can't resolve
 from code/context, or the task turns out more complex than
 `$work_description` suggested.
 
@@ -43,7 +43,7 @@ from code/context, or the task turns out more complex than
    others lost.
 5. **Write the doc**, sections scaled to their complexity:
    - **Keypoints** (3–6 bullets, one line each): the gist a reader needs before
-     anything else. SKILL.md step 5 presents this section verbatim for intent
+     anything else. This skill's own step 2 presents this section verbatim for intent
      confirmation — it must stand alone without requiring the rest of the doc.
    - Goal (one paragraph) and Non-goals
    - Approach chosen + alternatives rejected (with reasons)
@@ -68,5 +68,5 @@ from code/context, or the task turns out more complex than
 - Ambiguity: every requirement has exactly one reading — if not, pick one and write
   it down.
 
-Fix findings inline, then return to the orchestrator (SKILL.md step 5, Intent
-confirmation). Do not start planning or implementation from here.
+Fix findings inline, then return to this skill's own step 2, Intent
+confirmation. Do not start planning or implementation from here.

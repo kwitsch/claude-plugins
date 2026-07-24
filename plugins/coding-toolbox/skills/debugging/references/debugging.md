@@ -1,4 +1,4 @@
-# Debugging (fresh-work fix path)
+# Debugging
 
 Iron law: **no fixes before the root cause is understood.** Symptom patches breed
 regressions; every fix flows through the four phases below, on the work branch.
@@ -43,6 +43,7 @@ change, confirmed → Phase 4, refuted → next hypothesis with the new informat
 ## Exit
 
 Fix verified (failing test green, suite green) and committed following the repo's
-commit conventions → return to the orchestrator's PR step. Nothing to fix after all
-(not reproducible, external cause): document the evidence and report — do not
-invent a change.
+commit conventions → return to the caller (`fresh-work`) — do not open a PR;
+that is `fresh-work`'s job, run after this skill returns. Nothing to fix after
+all (not reproducible, external cause): document the evidence and report — do
+not invent a change.
