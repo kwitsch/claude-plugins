@@ -696,14 +696,17 @@ assert_success
   assert_success
 }
 
-@test "plugin.json version bumped for the bun-preferred mcp/server.mjs wrapper fix (this unreleased branch)" {
+@test "plugin.json version bumped for the fresh-work skill split (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.15.4"
+  assert_output "0.16.0"
 }
 
-@test "plugin.json description mentions fresh-work" {
+@test "plugin.json description mentions fresh-work and its three new sibling skills" {
   run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
   assert_output --partial "fresh-work"
+  assert_output --partial "feature-development"
+  assert_output --partial "debugging"
+  assert_output --partial "refactoring"
 }
 
 @test "bump-version SKILL.md exists and is non-empty" {
@@ -952,13 +955,181 @@ assert_success
   assert_failure 1
 }
 
-@test "fresh-work references/designing.md exists and is non-empty" {
-  run test -s "$PLUGIN/skills/fresh-work/references/designing.md"
+@test "fresh-work SKILL.md exists with required frontmatter" {
+  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/skills/fresh-work/SKILL.md'"
+  assert_success
+  assert_output --partial "name: fresh-work"
+  assert_output --partial "argument-hint"
+  assert_output --partial "work_description"
+  assert_output --partial '"Skill"'
+  assert_output --partial "ToolSearch"
+  assert_output --partial "TaskCreate"
+  refute_output --partial '"Agent"'
+  refute_output --partial '"Workflow"'
+  # AskUserQuestion is deliberately no longer pre-approved here (still used in
+  # the skill body — allowed-tools only pre-approves, doesn't restrict).
+  refute_output --partial "AskUserQuestion"
+}
+
+@test "fresh-work classify table names all three sibling skills" {
+  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  assert_output --partial "coding-toolbox:debugging"
+  assert_output --partial "coding-toolbox:refactoring"
+  assert_output --partial "coding-toolbox:feature-development"
+}
+
+@test "fresh-work steps run classify, branch name, branch, dispatch, PR in order" {
+  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  # Position check, not just presence: each pattern is grepped separately and
+  # anchored to the line start so line numbers reflect each step's own match —
+  # `grep -n` on a single combined pattern always emits matches in ascending
+  # line-number order regardless of alternation order, so it can never detect
+  # a reordering (a false pass), and an unanchored "N. **X.**" would also match
+  # inside a two-digit renumbering. Same rationale applies to the
+  # feature-development ordering test further below.
+  local skill_md="$output"
+  local classify_line branch_name_line branch_line dispatch_line pr_line
+  classify_line=$(rg_or_grep -n '^1\. \*\*Classify\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  branch_name_line=$(rg_or_grep -n '^2\. \*\*Branch name\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  branch_line=$(rg_or_grep -n '^3\. \*\*Branch\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  dispatch_line=$(rg_or_grep -n '^4\. \*\*Dispatch\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  pr_line=$(rg_or_grep -n '^5\. \*\*PR\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  [ -n "$classify_line" ] && [ -n "$branch_name_line" ] && [ -n "$branch_line" ] && [ -n "$dispatch_line" ] && [ -n "$pr_line" ]
+  [ "$classify_line" -lt "$branch_name_line" ]
+  [ "$branch_name_line" -lt "$branch_line" ]
+  [ "$branch_line" -lt "$dispatch_line" ]
+  [ "$dispatch_line" -lt "$pr_line" ]
+}
+
+@test "fresh-work step 2 states the derived branch name to the user before branching" {
+  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  assert_output --partial "State the derived name to the user (plain"
+  assert_output --partial "output, not a question) before step 3."
+}
+
+@test "plugin README lists fresh-work in the Skills section" {
+  run rg_or_grep -F '| `fresh-work`' "$PLUGIN/README.md"
   assert_success
 }
 
-@test "fresh-work designing reference gates user questions and keeps output out of the repo" {
-  run cat "$PLUGIN/skills/fresh-work/references/designing.md"
+@test "plugin README lists feature-development in the Skills section" {
+  run rg_or_grep -F '| `feature-development`' "$PLUGIN/README.md"
+  assert_success
+}
+
+@test "plugin README lists debugging in the Skills section" {
+  run rg_or_grep -F '| `debugging`' "$PLUGIN/README.md"
+  assert_success
+}
+
+@test "plugin README lists refactoring in the Skills section" {
+  run rg_or_grep -F '| `refactoring`' "$PLUGIN/README.md"
+  assert_success
+}
+
+@test "feature-development SKILL.md exists and is non-empty" {
+  run test -s "$PLUGIN/skills/feature-development/SKILL.md"
+  assert_success
+}
+
+@test "feature-development frontmatter declares name and required allowed-tools" {
+  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/skills/feature-development/SKILL.md'"
+  assert_success
+  assert_output --partial "name: feature-development"
+  assert_output --partial "work_description"
+  assert_output --partial '"Agent"'
+  assert_output --partial '"Workflow"'
+  assert_output --partial "TaskCreate"
+  refute_output --partial '"Skill"'
+  refute_output --partial "AskUserQuestion"
+}
+
+@test "feature-development skill dir is self-contained (no cross-plugin references)" {
+  run bash -c "
+    if command -v rg >/dev/null 2>&1; then
+      rg -i --no-ignore --hidden -a 'superpowers|branch-management' '$PLUGIN/skills/feature-development/'
+    else
+      grep -riE 'superpowers|branch-management' '$PLUGIN/skills/feature-development/'
+    fi
+  "
+  assert_failure 1
+}
+
+@test "feature-development keeps design docs out of the repository" {
+  run cat "$PLUGIN/skills/feature-development/SKILL.md"
+  assert_success
+  assert_output --partial "mktemp"
+  assert_output --partial "Never commit them"
+}
+
+@test "feature-development documents a complexity heuristic instead of a fixed advisor step" {
+  run cat "$PLUGIN/skills/feature-development/SKILL.md"
+  assert_success
+  assert_output --partial "## Complexity heuristic"
+  assert_output --partial "Workflow tool"
+}
+
+@test "feature-development runs the advisor on demand, not as a scheduled pipeline step" {
+  run cat "$PLUGIN/skills/feature-development/SKILL.md"
+  assert_success
+  assert_output --partial "## Inline advisor protocol"
+  assert_output --partial "not a scheduled pipeline step"
+}
+
+@test "feature-development Step-start reporting note clarifies it never substitutes for a step's own output" {
+  run cat "$PLUGIN/skills/feature-development/SKILL.md"
+  assert_success
+  assert_output --partial "Starting step 1: Design."
+  assert_output --partial "never a question"
+  assert_output --partial "never substitutes for a step's own"
+}
+
+@test "feature-development runs Design, Intent confirmation, Plan, Implement, Review in order" {
+  run cat "$PLUGIN/skills/feature-development/SKILL.md"
+  assert_success
+  assert_output --partial "**Intent confirmation.**"
+  assert_output --partial "Keypoints"
+  assert_output --partial "**Review.**"
+  assert_output --partial "references/reviewing.md"
+  # Position check, not just presence — see the fresh-work ordering test
+  # above for why each pattern is grepped separately and anchored.
+  local skill_md="$output"
+  local design_line intent_line plan_line implement_line review_line
+  design_line=$(rg_or_grep -n '^1\. \*\*Design\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  intent_line=$(rg_or_grep -n '^2\. \*\*Intent confirmation\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  plan_line=$(rg_or_grep -n '^3\. \*\*Plan\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  implement_line=$(rg_or_grep -n '^4\. \*\*Implement\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  review_line=$(rg_or_grep -n '^5\. \*\*Review\.\*\*' <<< "$skill_md" | cut -d: -f1)
+  [ -n "$design_line" ] && [ -n "$intent_line" ] && [ -n "$plan_line" ] && [ -n "$implement_line" ] && [ -n "$review_line" ]
+  [ "$design_line" -lt "$intent_line" ]
+  [ "$intent_line" -lt "$plan_line" ]
+  [ "$plan_line" -lt "$implement_line" ]
+  [ "$implement_line" -lt "$review_line" ]
+}
+
+# Regression guard: a prior run asked the Intent-confirmation AskUserQuestion
+# without ever showing the design summary first. Pins the hardened wording
+# that forces the Keypoints re-read + plain-text output as its own step,
+# distinct from the generic step-start announcement, before the tool call.
+@test "feature-development Intent confirmation forces the Keypoints output as its own message before AskUserQuestion" {
+  run cat "$PLUGIN/skills/feature-development/SKILL.md"
+  assert_success
+  assert_output --partial 'Before calling `AskUserQuestion` for this step:'
+  assert_output --partial "Read the design doc's Keypoints section fresh from the spec temp path."
+  assert_output --partial "does not satisfy this"
+  assert_output --partial 'Only then call `AskUserQuestion`'
+}
+
+@test "feature-development references/designing.md exists and is non-empty" {
+  run test -s "$PLUGIN/skills/feature-development/references/designing.md"
+  assert_success
+}
+
+@test "feature-development designing reference gates user questions and keeps output out of the repo" {
+  run cat "$PLUGIN/skills/feature-development/references/designing.md"
   assert_success
   assert_output --partial "genuinely changes the design"
   assert_output --partial "AskUserQuestion"
@@ -966,8 +1137,8 @@ assert_success
   assert_output --partial "Keypoints"
 }
 
-@test "fresh-work designing reference scales itself to the task instead of a fixed advisor step" {
-  run cat "$PLUGIN/skills/fresh-work/references/designing.md"
+@test "feature-development designing reference scales itself to the task instead of a fixed advisor step" {
+  run cat "$PLUGIN/skills/feature-development/references/designing.md"
   assert_success
   assert_output --partial "Scale to the task (your call, not a fixed step)"
   assert_output --partial "complexity heuristic"
@@ -976,21 +1147,21 @@ assert_success
   assert_output --partial "self-review (below) always validates"
 }
 
-@test "fresh-work references/planning.md exists and is non-empty" {
-  run test -s "$PLUGIN/skills/fresh-work/references/planning.md"
+@test "feature-development references/planning.md exists and is non-empty" {
+  run test -s "$PLUGIN/skills/feature-development/references/planning.md"
   assert_success
 }
 
-@test "fresh-work planning reference keeps global constraints and drops the execution-choice handoff" {
-  run cat "$PLUGIN/skills/fresh-work/references/planning.md"
+@test "feature-development planning reference keeps global constraints and drops the execution-choice handoff" {
+  run cat "$PLUGIN/skills/feature-development/references/planning.md"
   assert_success
   assert_output --partial "Global Constraints"
   assert_output --partial "plan temp path"
   refute_output --partial "Which approach"
 }
 
-@test "fresh-work planning reference scales itself to the task instead of a fixed advisor step" {
-  run cat "$PLUGIN/skills/fresh-work/references/planning.md"
+@test "feature-development planning reference scales itself to the task instead of a fixed advisor step" {
+  run cat "$PLUGIN/skills/feature-development/references/planning.md"
   assert_success
   assert_output --partial "Scale to the task (your call, not a fixed step)"
   assert_output --partial "complexity heuristic"
@@ -999,36 +1170,36 @@ assert_success
   assert_output --partial "self-review (below) always validates"
 }
 
-@test "fresh-work planning reference marks Files/Interfaces as load-bearing for scheduling" {
-  run cat "$PLUGIN/skills/fresh-work/references/planning.md"
+@test "feature-development planning reference marks Files/Interfaces as load-bearing for scheduling" {
+  run cat "$PLUGIN/skills/feature-development/references/planning.md"
   assert_success
   assert_output --partial "load-bearing"
   assert_output --partial "conservatively serialized"
 }
 
-@test "fresh-work planning reference mandates a machine-readable tasks block" {
-  run cat "$PLUGIN/skills/fresh-work/references/planning.md"
+@test "feature-development planning reference mandates a machine-readable tasks block" {
+  run cat "$PLUGIN/skills/feature-development/references/planning.md"
   assert_success
   assert_output --partial "## Machine-readable tasks"
   assert_output --partial "single source"
   assert_output --partial "never re-parsed"
 }
 
-@test "fresh-work implementing reference consumes the machine-readable tasks block" {
-  run cat "$PLUGIN/skills/fresh-work/references/implementing.md"
+@test "feature-development implementing reference consumes the machine-readable tasks block" {
+  run cat "$PLUGIN/skills/feature-development/references/implementing.md"
   assert_success
   assert_output --partial "## Machine-readable tasks"
   assert_output --partial "authored by the Plan phase"
   refute_output --partial "task list parsed as"
 }
 
-@test "fresh-work references/implementing.md exists and is non-empty" {
-  run test -s "$PLUGIN/skills/fresh-work/references/implementing.md"
+@test "feature-development references/implementing.md exists and is non-empty" {
+  run test -s "$PLUGIN/skills/feature-development/references/implementing.md"
   assert_success
 }
 
-@test "fresh-work implementing reference probes Workflow, falls back to Agent, and gates dispatches" {
-  run cat "$PLUGIN/skills/fresh-work/references/implementing.md"
+@test "feature-development implementing reference probes Workflow, falls back to Agent, and gates dispatches" {
+  run cat "$PLUGIN/skills/feature-development/references/implementing.md"
   assert_success
   assert_output --partial "select:Workflow"
   assert_output --partial "Agent engine"
@@ -1036,8 +1207,8 @@ assert_success
   assert_output --partial "'critical'"
 }
 
-@test "fresh-work implementing reference inlines Workflow script values instead of using args" {
-  run cat "$PLUGIN/skills/fresh-work/references/implementing.md"
+@test "feature-development implementing reference inlines Workflow script values instead of using args" {
+  run cat "$PLUGIN/skills/feature-development/references/implementing.md"
   assert_success
   assert_output --partial 'pass no `args` at all'
   # The prose note quotes the observed error ('args.tasks') deliberately; refute
@@ -1047,162 +1218,60 @@ assert_success
   refute_output --partial '${args.constraints}'
 }
 
-@test "fresh-work implementing reference computes wave-parallel scheduling from Files/Interfaces" {
-  run cat "$PLUGIN/skills/fresh-work/references/implementing.md"
+@test "feature-development implementing reference computes wave-parallel scheduling from Files/Interfaces" {
+  run cat "$PLUGIN/skills/feature-development/references/implementing.md"
   assert_success
   assert_output --partial "Parallelism analysis"
   assert_output --partial "wave[i]"
   assert_output --partial "conservative"
 }
 
-@test "fresh-work implementing reference isolates wave-parallel implementers and merges back" {
-  run cat "$PLUGIN/skills/fresh-work/references/implementing.md"
+@test "feature-development implementing reference isolates wave-parallel implementers and merges back" {
+  run cat "$PLUGIN/skills/feature-development/references/implementing.md"
   assert_success
   assert_output --partial "isolation: 'worktree'"
   assert_output --partial "git merge --no-ff"
   assert_output --partial "hard stop"
 }
 
-@test "fresh-work implementing reference keeps wave size 1 identical to today's flow" {
-  run cat "$PLUGIN/skills/fresh-work/references/implementing.md"
+@test "feature-development implementing reference keeps wave size 1 identical to today's flow" {
+  run cat "$PLUGIN/skills/feature-development/references/implementing.md"
   assert_success
   assert_output --partial "wave size 1"
   assert_output --partial "unchanged"
 }
 
-@test "fresh-work implementing reference computes waves as real code, not a hand-derived literal" {
-  run cat "$PLUGIN/skills/fresh-work/references/implementing.md"
+@test "feature-development implementing reference computes waves as real code, not a hand-derived literal" {
+  run cat "$PLUGIN/skills/feature-development/references/implementing.md"
   assert_success
   assert_output --partial "function computeWaves(tasksIn)"
   assert_output --partial "const waves = computeWaves(tasks)"
 }
 
-@test "fresh-work implementing reference runs Agent-engine merge-back via Bash, not a merger dispatch" {
-  run cat "$PLUGIN/skills/fresh-work/references/implementing.md"
+@test "feature-development implementing reference runs Agent-engine merge-back via Bash, not a merger dispatch" {
+  run cat "$PLUGIN/skills/feature-development/references/implementing.md"
   assert_success
   assert_output --partial "orchestrator's own Bash"
   assert_output --partial "rather than dispatching a separate merger"
 }
 
-@test "subagent-tracking fresh-work row reflects wave-parallel dispatch, not pure sequential" {
+@test "subagent-tracking feature-development row reflects wave-parallel dispatch, not pure sequential" {
   RULE="$BATS_TEST_DIRNAME/../../.claude/rules/subagent-tracking.md"
-  run rg_or_grep 'coding-toolbox:fresh-work' "$RULE"
+  run rg_or_grep 'coding-toolbox:feature-development' "$RULE"
   assert_success
   assert_output --partial "wave-parallel"
   assert_output --partial "orchestrator's own Bash"
 }
 
-@test "fresh-work references/reviewing.md exists and is non-empty" {
-  run test -s "$PLUGIN/skills/fresh-work/references/reviewing.md"
+@test "feature-development references/reviewing.md exists and is non-empty" {
+  run test -s "$PLUGIN/skills/feature-development/references/reviewing.md"
   assert_success
 }
 
-@test "fresh-work references/debugging.md exists and is non-empty" {
-  run test -s "$PLUGIN/skills/fresh-work/references/debugging.md"
+@test "feature-development reviewing reference runs the combined review workflow, effort scaled to complexity" {
+  run cat "$PLUGIN/skills/feature-development/references/reviewing.md"
   assert_success
-}
-
-@test "fresh-work debugging reference demands root cause and a failing test before any fix" {
-  run cat "$PLUGIN/skills/fresh-work/references/debugging.md"
-  assert_success
-  assert_output --partial "root cause"
-  assert_output --partial "failing test"
-  assert_output --partial "AskUserQuestion"
-}
-
-@test "fresh-work SKILL.md exists with required frontmatter" {
-  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/skills/fresh-work/SKILL.md'"
-  assert_success
-  assert_output --partial "name: fresh-work"
-  assert_output --partial "argument-hint"
-  assert_output --partial "work_description"
-  assert_output --partial "Workflow"
-  assert_output --partial "TaskCreate"
-  # AskUserQuestion is deliberately no longer pre-approved here (still used in
-  # the skill body — allowed-tools only pre-approves, doesn't restrict).
-  refute_output --partial "AskUserQuestion"
-}
-
-@test "fresh-work has an intent-confirmation step between Design and Plan" {
-  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
-  assert_success
-  assert_output --partial "**Intent confirmation.**"
-  assert_output --partial "Keypoints"
-  # Position check, not just presence: each pattern is grepped separately and
-  # anchored to the line start so line numbers reflect each step's own match —
-  # `grep -n` on a single combined pattern always emits matches in ascending
-  # line-number order regardless of alternation order, so it can never detect
-  # a reordering (a false pass), and an unanchored "N. **X.**" would also match
-  # inside a two-digit renumbering (e.g. "9." matching inside "19."). Same
-  # rationale applies to the Implement/Review/PR check further below.
-  local skill_md="$output"
-  local design_line intent_line plan_line
-  design_line=$(rg_or_grep -n '^4\. \*\*Design\.\*\*' <<< "$skill_md" | cut -d: -f1)
-  intent_line=$(rg_or_grep -n '^5\. \*\*Intent confirmation\.\*\*' <<< "$skill_md" | cut -d: -f1)
-  plan_line=$(rg_or_grep -n '^6\. \*\*Plan\.\*\*' <<< "$skill_md" | cut -d: -f1)
-  [ -n "$design_line" ] && [ -n "$intent_line" ] && [ -n "$plan_line" ]
-  [ "$design_line" -lt "$intent_line" ]
-  [ "$intent_line" -lt "$plan_line" ]
-}
-
-# Regression guard: a prior run asked the Intent-confirmation AskUserQuestion
-# without ever showing the design summary first. Pins the hardened wording
-# that forces the Keypoints re-read + plain-text output as its own step,
-# distinct from the generic step-start announcement, before the tool call.
-@test "fresh-work Intent confirmation forces the Keypoints output as its own message before AskUserQuestion" {
-  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
-  assert_success
-  assert_output --partial 'Before calling `AskUserQuestion` for this step:'
-  assert_output --partial "Read the design doc's Keypoints section fresh from the spec temp path."
-  assert_output --partial "does not satisfy this"
-  assert_output --partial 'Only then call `AskUserQuestion`'
-}
-
-@test "fresh-work Step-start reporting note clarifies it never substitutes for a step's own output" {
-  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
-  assert_success
-  assert_output --partial "Starting step 4: Design."
-  assert_output --partial "never a question"
-  assert_output --partial "never substitutes for a step's own"
-}
-
-@test "fresh-work no longer schedules fixed Advisor pass steps" {
-  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
-  assert_success
-  refute_output --partial "**Advisor pass (spec).**"
-  refute_output --partial "**Advisor pass (plan).**"
-  assert_output --partial "## Complexity heuristic"
-  assert_output --partial "not a scheduled pipeline step"
-}
-
-@test "fresh-work classify table points refactor/feature at the renumbered design path" {
-  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
-  assert_success
-  assert_output --partial "design path (steps 4–9 below)"
-  assert_output --partial "debug path (steps 4–5 below)"
-}
-
-@test "fresh-work Review step sits between Implement and PR, reading reviewing.md" {
-  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
-  assert_success
-  assert_output --partial "**Review.**"
-  assert_output --partial "references/reviewing.md"
-  # See the Design/Intent/Plan ordering test above for why each pattern is
-  # grepped separately and anchored, instead of one combined pattern.
-  local skill_md="$output"
-  local implement_line review_line pr_line
-  implement_line=$(rg_or_grep -n '^7\. \*\*Implement\.\*\*' <<< "$skill_md" | cut -d: -f1)
-  review_line=$(rg_or_grep -n '^8\. \*\*Review\.\*\*' <<< "$skill_md" | cut -d: -f1)
-  pr_line=$(rg_or_grep -n '^9\. \*\*PR\.\*\*' <<< "$skill_md" | cut -d: -f1)
-  [ -n "$implement_line" ] && [ -n "$review_line" ] && [ -n "$pr_line" ]
-  [ "$implement_line" -lt "$review_line" ]
-  [ "$review_line" -lt "$pr_line" ]
-}
-
-@test "fresh-work reviewing reference runs the combined review workflow, effort scaled to complexity" {
-  run cat "$PLUGIN/skills/fresh-work/references/reviewing.md"
-  assert_success
-  assert_output --partial "fresh-work-review"
+  assert_output --partial "feature-development-review"
   assert_output --partial "cleanup:"
   assert_output --partial "reversesDecision"
   assert_output --partial "const MODEL = 'sonnet'"
@@ -1214,50 +1283,76 @@ assert_success
   refute_output --partial "Invoke \`code-review\`"
 }
 
-@test "fresh-work step 2 states the derived branch name to the user before branching" {
-  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
-  assert_success
-  assert_output --partial "State the derived name to the user (plain"
-  assert_output --partial "output, not a question) before step 3."
-}
-
-@test "fresh-work Task-list integration requires a one-line step-start announcement" {
-  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
-  assert_success
-  assert_output --partial "Step-start reporting."
-  assert_output --partial "Starting step 4: Design."
-  assert_output --partial "never a question"
-}
-
-@test "fresh-work Review step commits each sub-pass separately, never bundled" {
-  run cat "$PLUGIN/skills/fresh-work/references/reviewing.md"
+@test "feature-development Review step commits each sub-pass separately, never bundled" {
+  run cat "$PLUGIN/skills/feature-development/references/reviewing.md"
   assert_success
   assert_output --partial "one"
   assert_output --partial "fix per commit, never bundled"
 }
 
-@test "fresh-work references all five phase files and both sibling skills" {
-  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+@test "debugging SKILL.md exists and is non-empty" {
+  run test -s "$PLUGIN/skills/debugging/SKILL.md"
   assert_success
-  assert_output --partial "references/designing.md"
-  assert_output --partial "references/planning.md"
-  assert_output --partial "references/implementing.md"
-  assert_output --partial "references/reviewing.md"
-  assert_output --partial "references/debugging.md"
-  assert_output --partial "coding-toolbox:fresh-branch"
-  assert_output --partial "coding-toolbox:fresh-pr"
 }
 
-@test "fresh-work keeps design docs out of the repository" {
-  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+@test "debugging frontmatter declares name and required allowed-tools" {
+  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/skills/debugging/SKILL.md'"
   assert_success
-  assert_output --partial "mktemp"
-  assert_output --partial "Never commit them"
+  assert_output --partial "name: debugging"
+  assert_output --partial "work_description"
+  assert_output --partial '"Read"'
+  assert_output --partial '"Edit"'
+  assert_output --partial '"Write"'
+  assert_output --partial '"Grep"'
+  assert_output --partial '"Glob"'
+  assert_output --partial '"Bash"'
+  assert_output --partial '"ToolSearch"'
+  refute_output --partial '"Skill"'
+  refute_output --partial '"Agent"'
+  refute_output --partial '"Workflow"'
+  refute_output --partial "TaskCreate"
+  refute_output --partial "AskUserQuestion"
 }
 
-@test "plugin README lists fresh-work in the Skills section" {
-  run rg_or_grep -F '| `fresh-work`' "$PLUGIN/README.md"
+@test "debugging skill dir is self-contained (no cross-plugin references)" {
+  run bash -c "
+    if command -v rg >/dev/null 2>&1; then
+      rg -i --no-ignore --hidden -a 'superpowers|branch-management' '$PLUGIN/skills/debugging/'
+    else
+      grep -riE 'superpowers|branch-management' '$PLUGIN/skills/debugging/'
+    fi
+  "
+  assert_failure 1
+}
+
+@test "debugging references/debugging.md exists and is non-empty" {
+  run test -s "$PLUGIN/skills/debugging/references/debugging.md"
   assert_success
+}
+
+@test "debugging reference demands root cause and a failing test before any fix" {
+  run cat "$PLUGIN/skills/debugging/references/debugging.md"
+  assert_success
+  assert_output --partial "root cause"
+  assert_output --partial "failing test"
+  assert_output --partial "AskUserQuestion"
+  assert_output --partial "return to the caller"
+  refute_output --partial "return to the orchestrator's PR step"
+}
+
+@test "refactoring SKILL.md exists with required frontmatter" {
+  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/skills/refactoring/SKILL.md'"
+  assert_success
+  assert_output --partial "name: refactoring"
+  assert_output --partial "work_description"
+  assert_output --partial 'allowed-tools: ["Skill"]'
+}
+
+@test "refactoring delegates to feature-development via the Skill tool" {
+  run cat "$PLUGIN/skills/refactoring/SKILL.md"
+  assert_success
+  assert_output --partial "coding-toolbox:feature-development"
+  assert_output --partial "Skill tool"
 }
 
 # ---------------------------------------------------------------------------
