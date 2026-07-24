@@ -30,6 +30,18 @@ A `command` hook is required when **any** of these hold; otherwise prefer `mcp_t
 | The event is **latency-sensitive / high-frequency** — `UserPromptSubmit` (30 s timeout), `MessageDisplay` (10 s) | An MCP round-trip on every prompt / streamed line-batch is a latency + cost choice; the shorter timeout also bites. (A hook here that also does a must-run state-write falls under the fail-open-sensitive row too.) |
 | **Otherwise: non-blocking, mid-session context injection / observation** — `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Stop`, `SubagentStop`, … | **Prefer `mcp_tool`.** The server is reliably connected mid-session; you reuse a live runtime/deps instead of spawning a process per event. |
 
+**Exception — single-hook plugins.** A plugin backing **exactly one** hook may use a
+`command` hook instead of standing up an MCP server for it: the server's only real
+benefit (avoiding per-event process-spawn latency by staying warm) doesn't amortize
+over a single call site the way it does for a plugin with several hooks/tools. Mark
+the hook `async: true` when it is read-only / side-effect-free — this removes the
+server's latency argument entirely, since the agentic loop no longer waits on either
+a server round-trip or a per-event spawn. Leave it synchronous when it mutates state
+whose ordering relative to the next tool call matters (the async result only arrives
+on the *next* conversation turn — too late to prevent Claude from acting on stale
+state in between). `universal-lint` (async — read-only) and `universal-format`
+(synchronous — mutates the file) are this repo's two examples, decided 2026-07-24.
+
 Why the limits (documented Claude Code behavior):
 - `mcp_tool` requires an **already-connected** server; the hook never triggers a
   connection flow. Servers connect during/after startup, so only the *pre-connect*
@@ -131,14 +143,13 @@ This wrapper is an **optional fallback** for a plugin that genuinely needs
 bun-preferred runtime selection; the canonical shape is the direct-`.mjs` `command`
 shown above. It carries known edge-case issues (empty PATH segment, lingering signal
 forwarder); prefer the direct-`.mjs` form. No LSP plugin ships one anymore;
-`claude-code-knowledge` uses it, as do `universal-lint`, `universal-format`,
-and `coding-toolbox` (their own PATH line deviates from the template below —
-appending `~/.local/bin`/`~/.bun/bin` instead of prepending them, per a
-correctness finding on `universal-lint`/`universal-format`'s own rtk/PATH
-review; `coding-toolbox` copied the same hardened form for parity when it
-gained its own wrapper — see each plugin's CLAUDE.md) — copy the template
-below if you need it. Prefers bun; falls back to node; errors if neither is
-available. All messages go to stderr (stdout is the MCP stdio channel).
+`claude-code-knowledge` and `coding-toolbox` use it (their own PATH line deviates
+from the template below — appending `~/.local/bin`/`~/.bun/bin` instead of
+prepending them, per a correctness finding on `universal-lint`/`universal-format`'s
+own rtk/PATH review, before those two dropped their MCP servers entirely on
+2026-07-24 and now carry no wrapper at all — see each plugin's CLAUDE.md) — copy
+the template below if you need it. Prefers bun; falls back to node; errors if
+neither is available. All messages go to stderr (stdout is the MCP stdio channel).
 
 ```bash
 #!/usr/bin/env bash
@@ -276,8 +287,7 @@ function startServer() {
 - **Optional bun wrapper:** if a plugin uses the optional `bin/mjs-launch.sh`, the
   wrapper (not `server.mjs`) is what Claude Code exec's and must be `chmod +x`; it
   prepends `~/.local/bin` and `~/.bun/bin` to PATH (uses `${HOME}`, never `~`, and
-  avoids empty PATH segments — but universal-lint/universal-format append these two
-  instead, see the wrapper section above), then `exec bun "$@"` if bun is found,
+  avoids empty PATH segments), then `exec bun "$@"` if bun is found,
   `exec node "$@"` otherwise. It is not the default — see the caveats above.
 - **Debug logging:** the per-`tools/call` stderr log is gated behind
   `MCP_HOOK_DEBUG` so production hooks stay quiet; set it to confirm the contract.
