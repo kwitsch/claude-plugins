@@ -143,80 +143,105 @@ plugins; port the same fix there separately if it recurs on that plugin).
 
 ## Skill design (`fresh-work`)
 
-Self-contained end-to-end pipeline orchestrator (`skills/fresh-work/SKILL.md` +
-five phase guides under `references/`, Read only when their phase starts):
-classify → branch (`fresh-branch`) → design → **intent confirmation** → plan →
-implement → **review** (combined review workflow) → PR (`fresh-pr`); the fix
-path swaps design/plan/implement for `references/debugging.md` and skips
-Review — debugging.md's own verify step
-(new test passes, suite green, symptom gone) already covers a single targeted
-fix, where Review's whole-diff pass is scoped to the design path's larger,
-multi-task diffs. Adapted from superpowers' brainstorming /
-writing-plans / subagent-driven-development / systematic-debugging and
+Thin dispatcher (`skills/fresh-work/SKILL.md`, five steps: classify → branch
+name → branch (`fresh-branch`) → dispatch → PR (`fresh-pr`)) — a 2026-07-24
+split of what used to be a single ~9-step, five-reference-file pipeline.
+Design/Plan/Implement/Review (the former "design path", steps 4-9) now live
+in `feature-development`/`debugging`/`refactoring` below; `fresh-work` no
+longer performs any of that itself. Step 4 (Dispatch) is a single `Skill`
+invocation of whichever sibling skill step 1's classify table names —
+`coding-toolbox:debugging` (fix), `coding-toolbox:feature-development`
+(feature), or `coding-toolbox:refactoring` (refactor, itself a delegator to
+`feature-development` — see below). `fresh-pr` stays a `fresh-work`-only call
+site (not pushed into the new skills), unchanged from before this split — one
+place holds the "surface minor findings at the PR stage" glue. `allowed-tools`
+shrank to `Skill`/`ToolSearch`/the Task* set — every other tool (`Read`,
+`Bash`, `Agent`, `Workflow`, …) moved with the logic that used it.
+`AskUserQuestion` stays deliberately absent (same rationale as before the
+split — its remaining call sites here, the missing-description ask and the
+branch-name-collision ask, are meant to stay deliberate, not blanket-approved).
+
+## Skill design (`feature-development`)
+
+Split out of `fresh-work` 2026-07-24 (was its design-path pipeline, steps
+4-9) alongside `debugging` (the fix path) and `refactoring` (a thin delegator
+to this skill, sharing an identical pipeline with the `feature`
+classification — only the branch prefix differs, decided by `fresh-work`
+before either skill is invoked). Owns the pipeline: `skills/feature-development/SKILL.md`
++ four phase guides under `references/` (moved verbatim from `fresh-work`,
+Read only when their phase starts) run design → **intent confirmation** →
+plan → implement → **review** (combined review workflow). `fresh-work` still
+owns classify/branch/PR — this skill is invoked (Skill tool) once a branch
+already exists, and returns to `fresh-work` afterward without opening a PR
+itself; `debugging`'s own verify step (new test passes, suite green, symptom
+gone) covers a single targeted fix, where this skill's Review is scoped to
+the design path's larger, multi-task diffs. Adapted from superpowers'
+brainstorming / writing-plans / subagent-driven-development and
 superpowers-automation's new-work — with the full line-by-line human
 spec-review gate, execution-choice handoffs, and cross-plugin references
 removed (the bats self-containment tripwire greps the skill dir for
 `superpowers|branch-management`; lineage is recorded only here). Two narrower
-steps were reintroduced later (2026-07-03), distinct from what was removed:
-**Intent confirmation** (SKILL.md step 5) shows the design doc's mandatory
-Keypoints section and asks `AskUserQuestion` whether to proceed — the
-pipeline's one deliberate human-facing checkpoint (hardened 2026-07-07: the
-Keypoints output is now a mandatory numbered pre-step — read fresh from the
-spec temp path, emitted as its own plain-text message before the
-`AskUserQuestion` call — made explicitly distinct from the generic Task-list
-step-start announcement, after a regression where the confirmation question
-was asked without the design summary ever being shown); **Review** (step 8,
-`references/reviewing.md`) runs ONE combined read-only review workflow over
-the full branch diff after Implement — 2026-07-11, replacing the former
-`simplify`-then-`code-review --fix` built-in-skill pair after observing both
-live: `code-review`'s cleanup finder carries all four `simplify` lenses
-verbatim, so the pair did the cleanup work twice, the first time entirely
-unverified (an earlier analysis had rejected exactly this consolidation over
-altitude coverage + redundancy; the explicit user decision to merge
-compensates both, as noted below). Structure: correctness angles (3 at
-`high` effort for a Simple diff, 5 plus a gap-hunt sweep at `max` for
-Complex, per SKILL.md's complexity heuristic) plus one finder PER cleanup
-lens (reuse/simplification/efficiency/altitude/CLAUDE.md-conventions —
-per-lens granularity deliberately kept from `simplify`, unlike the built-in's
-single merged cleanup finder), every candidate location-group verified
+steps were reintroduced later (2026-07-03, into the original `fresh-work`),
+distinct from what was removed: **Intent confirmation** (this skill's own
+step 2) shows the design doc's mandatory Keypoints section and asks
+`AskUserQuestion` whether to proceed — the pipeline's one deliberate
+human-facing checkpoint (hardened 2026-07-07: the Keypoints output is now a
+mandatory numbered pre-step — read fresh from the spec temp path, emitted as
+its own plain-text message before the `AskUserQuestion` call — made
+explicitly distinct from the generic Task-list step-start announcement,
+after a regression where the confirmation question was asked without the
+design summary ever being shown); **Review** (step 5, `references/reviewing.md`)
+runs ONE combined read-only review workflow over the full branch diff after
+Implement — 2026-07-11, replacing the former `simplify`-then-`code-review
+--fix` built-in-skill pair after observing both live: `code-review`'s cleanup
+finder carries all four `simplify` lenses verbatim, so the pair did the
+cleanup work twice, the first time entirely unverified (an earlier analysis
+had rejected exactly this consolidation over altitude coverage + redundancy;
+the explicit user decision to merge compensates both, as noted below).
+Structure: correctness angles (3 at `high` effort for a Simple diff, 5 plus a
+gap-hunt sweep at `max` for Complex, per this skill's own complexity
+heuristic) plus one finder PER cleanup lens
+(reuse/simplification/efficiency/altitude/CLAUDE.md-conventions — per-lens
+granularity deliberately kept from `simplify`, unlike the built-in's single
+merged cleanup finder), every candidate location-group verified
 (CONFIRMED/PLAUSIBLE/REFUTED — cleanup findings are now verified before
 apply, which `simplify` never did), a synthesizer that flags
 `reversesDecision` findings against the plan/spec temp docs; all workflow
-agents are pinned `model: 'sonnet'`. The orchestrator then escalates flagged
+agents are pinned `model: 'sonnet'`. This skill then escalates flagged
 findings via `AskUserQuestion`, applies the rest inline (keeping `simplify`'s
 skip rule), and commits correctness and cleanup fixes as two separate
 commits — a deliberate override of the repo's usual "one fix per commit,
-never bundled" convention, at category granularity, never left pending
-for `fresh-pr` to pick up. Prompt texts
-(correctness angles A–E, cleanup lenses, verdict ladder) are vendored
-verbatim from the built-in `/code-review` workflow and `/simplify` skill —
-lineage recorded only here, same precedent as the `ci-watch.sh` port; the
-Agent-engine fallback batches finders then verifiers under the
-subagent-reconciliation gate. Reviewing's Scope-phase `DIFF_CMD` (the exact
-`git diff <base>...HEAD` every finder re-runs) was evaluated for an rtk
-prefix (2026-07-16) and rejected: `rtk git diff` silently truncates large
-hunks past a threshold (reproduced on this repo's own commit `cb93fbb`,
-dropping 341 real added lines behind a truncation placeholder) — the same
-risk that already rules out rtk for a reviewer's `git show`; `DIFF_CMD` is
-therefore left unprefixed, so whether a run gets rtk-compaction stays
-contingent on the operator's own environment (a personal `rtk hook claude`
-PreToolUse hook gives it for free on some machines, not by design of this
-plugin). Deliberately given up: the second independent
+never bundled" convention, at category granularity, never left pending for
+`fresh-pr` to pick up. Prompt texts (correctness angles A–E, cleanup lenses,
+verdict ladder) are vendored verbatim from the built-in `/code-review`
+workflow and `/simplify` skill — lineage recorded only here, same precedent
+as the `ci-watch.sh` port; the Agent-engine fallback batches finders then
+verifiers under the subagent-reconciliation gate. Reviewing's Scope-phase
+`DIFF_CMD` (the exact `git diff <base>...HEAD` every finder re-runs) was
+evaluated for an rtk prefix (2026-07-16) and rejected: `rtk git diff`
+silently truncates large hunks past a threshold (reproduced on this repo's
+own commit `cb93fbb`, dropping 341 real added lines behind a truncation
+placeholder) — the same risk that already rules out rtk for a reviewer's
+`git show`; `DIFF_CMD` is therefore left unprefixed, so whether a run gets
+rtk-compaction stays contingent on the operator's own environment (a personal
+`rtk hook claude` PreToolUse hook gives it for free on some machines, not by
+design of this plugin). Deliberately given up: the second independent
 cleanup pass over already-fixed code; downstream CI + PR review stay the
-backstop for an over-eager auto-fix. Design doc + plan are session temp files (scratchpad dir, `mktemp`
-fallback), never committed. Design and Plan (2026-07-03) each self-review
-**always**; consulting the advisor is their own on-demand judgment call (a
-genuine uncertainty, or the task turning out more complex than expected) —
-no longer a fixed pipeline step, no clean-room fork.
-`AskUserQuestion` is deliberately
-absent from `SKILL.md`'s `allowed-tools` (it only pre-approves;
-`.claude/rules/skill-md-authoring.md` — it does NOT restrict the tool) — its
-remaining call sites (missing work description, branch-name collision, a design
+backstop for an over-eager auto-fix. Design doc + plan are session temp files
+(scratchpad dir, `mktemp` fallback), never committed. Design and Plan
+(2026-07-03) each self-review **always**; consulting the advisor is their own
+on-demand judgment call (a genuine uncertainty, or the task turning out more
+complex than expected) — no longer a fixed pipeline step, no clean-room fork.
+`AskUserQuestion` is deliberately absent from this skill's own
+`allowed-tools` (it only pre-approves; `.claude/rules/skill-md-authoring.md`
+— it does NOT restrict the tool) — its remaining call sites (a design
 open-point clarification, the intent gate, the Review step's design-reversal
 escalation, the advisor protocol's own decision-conflict escalation whenever
-Design or Plan consults it, and the fix path's 3-or-more-attempts escalation)
-are meant to stay deliberate, not blanket-approved; do not "fix" this by
-re-adding it, and re-check this list if a new call site is added.
+Design or Plan consults it) are meant to stay deliberate, not
+blanket-approved; do not "fix" this by re-adding it, and re-check this list
+if a new call site is added (the missing-work-description/branch-name-collision
+asks and the fix path's 3-or-more-attempts escalation now belong to
+`fresh-work`/`debugging` respectively — see their own sections).
 Implementation is "workflow-driven development": a deterministic per-task
 implement→review→fix loop, grouped into dependency waves computed from each
 task's declared `Files`/`Interfaces` (`references/implementing.md`'s
@@ -230,7 +255,7 @@ files alone do not make that safe) and self-reporting its branch/worktree
 path via structured output, followed by a `git merge --no-ff` merge-back of
 every approved task before the next wave starts; a merge conflict is a hard
 stop, never auto-resolved, since it can only mean the wave analysis missed
-a real dependency. `SKILL.md`'s Task-list integration section separately
+a real dependency. This skill's own Task-list integration section separately
 requires a one-line step-start announcement before each top-level step (and
 each Implement wave) begins, so a long-running pipeline is never silent.
 The Workflow-engine script inlines `planPath`/`constraints`/`tasks` as JS
@@ -243,12 +268,45 @@ function (2026-07-05 simplify pass), so the wave-leveling arithmetic is never
 hand-computed by the model and pasted in as a literal. `tasks`
 itself is sourced (2026-07-11) from the plan's mandatory `## Machine-readable tasks`
 JSON block, authored by the Plan phase in the same pass that writes the prose tasks
-(`references/planning.md`), so the orchestrator no longer re-parses its own plan
+(`references/planning.md`), so this skill no longer re-parses its own plan
 prose into the structured task list — the one genuine robustness gain a full
 Plan+Implement workflow merge was reached for, captured without merging the phases
 (the merge was analysed and rejected: it would regress the highest-leverage step by
 pinning Plan to a zero-context Sonnet agent for ~zero determinism gain, since
 Implement is already a Workflow).
+
+## Skill design (`debugging`)
+
+Split out of `fresh-work` 2026-07-24 (was its fix path, steps 4-5).
+Single-step skill (`skills/debugging/SKILL.md` + `references/debugging.md`,
+moved verbatim — only its Exit section's wording changed, since PR is no
+longer this skill's own next step): root-cause investigation → pattern
+analysis → hypothesis/testing → failing-test-first implementation → verify,
+all on the branch `fresh-work` already cut, adapted (via the original
+`fresh-work`) from superpowers' `systematic-debugging` — lineage detail
+recorded in `feature-development`'s section above, not repeated here. No
+Task* ledger: a single linear methodology, not a multi-agent orchestrator
+with a dispatch batch to reconcile. `allowed-tools` carries no
+`Skill`/`Agent`/`Workflow`: this skill never opens the PR itself (that stays
+`fresh-work`'s job, invoked after this skill returns) and never dispatches
+subagents. `AskUserQuestion` stays absent from `allowed-tools` (its one call
+site — the 3-or-more-attempts escalation, architecture-in-question — stays
+deliberate, same rationale as `fresh-work`'s own absence).
+
+## Skill design (`refactoring`)
+
+Split out of `fresh-work` 2026-07-24. `refactor` and `feature`
+classifications have run an identical pipeline since `fresh-work` was first
+designed — only the branch prefix differs, and `fresh-work` resolves that
+before dispatching. Rather than duplicate `feature-development`'s ~700 lines
+of Design/Plan/Implement/Review logic across two skill directories, this
+skill is a deliberate one-step delegator
+(`Skill(coding-toolbox:feature-development, $work_description)`) — same
+shape as this plugin's own `setup-rules`/`refresh-tools-rule` split (two
+real commands, one recorded as a thin, explicitly-justified pass-through).
+`allowed-tools` is `["Skill"]` only; do not "simplify" this into a full copy
+of `feature-development`'s content — that would reintroduce the exact
+duplication this split was meant to avoid.
 
 ## Skill design (`bump-version`)
 
