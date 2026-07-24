@@ -1619,6 +1619,21 @@ EOF
   [ -z "$output" ]
 }
 
+@test "npm-ci-on-worktree: npm missing from PATH surfaces a one-line diagnostic" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  local fakebin="$BATS_TEST_TMPDIR/fakebin-no-npm"
+  mkdir -p "$fakebin"
+  for t in node env bash; do
+    src="$(command -v "$t" 2>/dev/null)" && ln -s "$src" "$fakebin/$t"
+  done
+  PROJ="$BATS_TEST_TMPDIR/proj6"; mkdir -p "$PROJ"; : > "$PROJ/package-lock.json"
+  local payload="$BATS_TEST_TMPDIR/payload.json"
+  jq -cn --arg cwd "$PROJ" '{tool_name:"EnterWorktree", tool_input:{}, cwd:$cwd}' > "$payload"
+  run env -i PATH="$fakebin" HOME="$HOME" bash -c "'$HOOKS/npm-ci-on-worktree.mjs' true < '$payload'"
+  assert_success
+  assert_output --partial "npm not found on PATH"
+}
+
 @test "npm-ci-on-worktree PostToolUse hook wired for EnterWorktree with async:true and userConfig arg" {
   run jq -e '.hooks.PostToolUse[0]
     | .matcher == "EnterWorktree"

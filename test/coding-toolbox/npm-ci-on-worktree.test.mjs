@@ -1,8 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, writeFileSync, chmodSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import {
   isNpmCiEnabled,
   truncate,
+  npmCiOnWorktreeHandler,
 } from "../../plugins/coding-toolbox/hooks/npm-ci-on-worktree.mjs";
 
 test('isNpmCiEnabled: fail-open, only literal "false" disables', () => {
@@ -22,4 +26,25 @@ test("truncate: caps long text at 4000 chars with a truncation marker", () => {
   const out = truncate(long);
   assert.ok(out.length < long.length);
   assert.match(out, /\(truncated\)$/);
+});
+
+test("npmCiOnWorktreeHandler: npm killed by its own timeout is silent, not misreported as missing", () => {
+  const projDir = mkdtempSync(path.join(tmpdir(), "npm-ci-timeout-"));
+  writeFileSync(path.join(projDir, "package-lock.json"), "");
+
+  const binDir = mkdtempSync(path.join(tmpdir(), "npm-ci-stubbin-"));
+  const npmStub = path.join(binDir, "npm");
+  writeFileSync(npmStub, "#!/usr/bin/env bash\nsleep 5\n");
+  chmodSync(npmStub, 0o755);
+
+  const origPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${origPath}`;
+  try {
+    // 100ms timeout, stub sleeps 5s -- spawnSync sets BOTH result.error and
+    // result.signal on this kill; the handler must check signal first.
+    const result = npmCiOnWorktreeHandler({ cwd: projDir }, 100);
+    assert.deepEqual(result, {});
+  } finally {
+    process.env.PATH = origPath;
+  }
 });

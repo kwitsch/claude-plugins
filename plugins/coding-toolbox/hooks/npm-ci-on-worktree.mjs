@@ -35,9 +35,11 @@ export function truncate(text) {
 
 // The npm-ci-on-worktree handler. Returns {} on every guard failure / no
 // lockfile / clean / killed run (fail open); only a real npm-ci failure or a
-// missing-npm PATH gap returns additionalContext.
-/** @param {PostToolUseHookInput} args @returns {HookResult} */
-export function npmCiOnWorktreeHandler(args) {
+// missing-npm PATH gap returns additionalContext. timeoutMs defaults to
+// NPM_CI_TIMEOUT_MS; only overridden by tests, to exercise the killed-by-
+// timeout branch deterministically without a real 280s wait.
+/** @param {PostToolUseHookInput} args @param {number} [timeoutMs] @returns {HookResult} */
+export function npmCiOnWorktreeHandler(args, timeoutMs = NPM_CI_TIMEOUT_MS) {
   try {
     const cwd = typeof args?.cwd === "string" ? args.cwd : "";
     if (!cwd) return {};
@@ -45,11 +47,15 @@ export function npmCiOnWorktreeHandler(args) {
 
     const result = spawnSync("npm", ["ci"], {
       cwd,
-      timeout: NPM_CI_TIMEOUT_MS,
+      timeout: timeoutMs,
       encoding: "utf8",
       maxBuffer: 10 * 1024 * 1024,
     });
 
+    // Check signal BEFORE error: spawnSync sets BOTH result.error (ETIMEDOUT)
+    // and result.signal (SIGTERM) when the process is killed by `timeout` --
+    // checking error first would misreport a timeout as "npm not found".
+    if (result.signal) return {}; // killed (e.g. our own timeout) -- silently dropped
     if (result.error) {
       return {
         hookSpecificOutput: {
@@ -58,7 +64,6 @@ export function npmCiOnWorktreeHandler(args) {
         },
       };
     }
-    if (result.signal) return {}; // killed (e.g. our own timeout) -- silently dropped
     if (result.status === 0) return {}; // silent on success
 
     return {
