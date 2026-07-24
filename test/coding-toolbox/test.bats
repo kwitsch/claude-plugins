@@ -1108,7 +1108,18 @@ assert_success
   assert_success
   assert_output --partial "Step 4.1"
   assert_output --partial "Step 4.5"
-  assert_output --partial "same shared ledger at"
+  assert_output --partial "stays \`in_progress\` throughout"
+}
+
+@test "feature-development and dispatch-shared.md define the caller-task lifecycle during nested dispatch" {
+  run cat "$PLUGIN/skills/feature-development/SKILL.md"
+  assert_success
+  assert_output --partial "Never mark the caller's"
+  run cat "$PLUGIN/skills/feature-development/references/dispatch-shared.md"
+  assert_success
+  assert_output --partial "scoped to this skill's own step list"
+  assert_output --partial "legitimately"
+  assert_output --partial "stays \`in_progress\` for the entire nested call"
 }
 
 @test "dispatch-shared.md reference file exists with the AskUserQuestion banner and Task-list core" {

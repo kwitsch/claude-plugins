@@ -176,9 +176,16 @@ bootstrap). Step 4's invoked skill nests its own steps under fresh-work's
 still-`in_progress` `Step 4` (`Step 4.1`…`Step 4.x`) rather than creating
 independent top-level `Step 1`.. entries — a same-day Review finding caught
 that the original split had `feature-development` starting its own
-unconditional `Step 1`, colliding with `fresh-work`'s own step numbering and
-leaving two tasks `in_progress` in the same shared ledger at once; see
-`feature-development`'s own section for the nesting rule.
+unconditional `Step 1`, colliding with `fresh-work`'s own step numbering by
+reusing the same labels. `Step 4` itself legitimately stays `in_progress` for
+the whole nested call (it represents "waiting on the callee", not an idle
+task) — a follow-up CodeRabbit finding on the PR caught that the fix as first
+written only addressed the naming collision, not the ledger-invariant
+question of what happens to the caller's own task while the callee runs; see
+`dispatch-shared.md`'s scoping rule (fixed the same day: "exactly one
+in_progress" is scoped to each skill's own step-list segment, not a global
+count over the shared physical ledger) and `feature-development`'s own
+section for the nesting rule.
 
 ## Skill design (`feature-development`)
 
@@ -204,8 +211,14 @@ Implement's own per-wave `Step N.1…N.x`), falling back to independent
 top-level `Step 1`…`Step 5` only when invoked standalone with no caller step
 `in_progress` — fixed the same day a same-session Review pass caught the
 original unconditional top-level numbering colliding with `fresh-work`'s own
-step numbers in the same shared Task ledger (two tasks `in_progress` at
-once, violating both skills' own "exactly one `in_progress`" rule). Adapted
+step numbers. `fresh-work`'s `Step 4` task is never suspended or completed
+early to make room for this — it legitimately stays `in_progress` for the
+whole nested call, since `references/dispatch-shared.md`'s "exactly one
+in_progress" rule is scoped to each skill's own step-list segment of the
+shared ledger, not a global count across it (a CodeRabbit finding on the PR
+caught that nesting the *numbering* alone, without stating this lifecycle
+explicitly, left the actual ledger-invariant question — what happens to the
+caller's task while the callee runs — unanswered). Adapted
 from superpowers'
 brainstorming / writing-plans / subagent-driven-development and
 superpowers-automation's new-work — with the full line-by-line human

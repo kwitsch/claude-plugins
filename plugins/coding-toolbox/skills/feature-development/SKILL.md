@@ -87,11 +87,17 @@ still `in_progress` (e.g. `fresh-work`'s `Step 4: Dispatch`), nest every step
 this skill creates under that task's number by appending `.1`, `.2`, … in
 order — `Step 4.1: Design` … `Step 4.5: Review` — instead of starting an
 independent top-level `Step 1`, which would collide with the caller's own
-step numbers and leave two tasks `in_progress` in the same shared ledger at
-once. If there is no such caller step (standalone invocation), use
-independent top-level `Step 1: Design` … `Step 5: Review` as normal. Up front
-create only the Design step in whichever form applies; after Design create
-the remaining steps the same way.
+step numbers by reusing the same labels for unrelated work. The caller's
+`Step 4` task itself **stays `in_progress` throughout** — per
+`references/dispatch-shared.md`'s scoping rule, that's expected (it
+represents "waiting on this skill"), not a second entry competing for the
+same "one in_progress" slot as this skill's own `Step 4.1`…`Step 4.5`, which
+belong to a separate segment of the shared ledger. Never mark the caller's
+`Step 4` `completed` before this skill actually returns. If there is no such
+caller step (standalone invocation), use independent top-level `Step 1:
+Design` … `Step 5: Review` as normal. Up front create only the Design step in
+whichever form applies; after Design create the remaining steps the same
+way.
 
 Implement's own per-wave nested dispatch (`Step N.1…N.x`,
 `references/implementing.md`) nests one level further under whichever number

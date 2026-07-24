@@ -26,12 +26,18 @@ options; the real description arrives via "Other" free text). Never guess.
 ## Task-list integration
 
 Read `<plugin root above>/skills/feature-development/references/dispatch-shared.md`
-for the shared `AskUserQuestion` banner and Task-list core (shared verbatim
-with `feature-development`, kept in one place). In addition, specific to this
-skill: up front create only `Step 1: Classify the work`; after step 1 create
-the remaining steps (`Step 2: Branch name` through `Step 5: PR`).
+for the shared `AskUserQuestion` banner, Task-list core, and step-start
+reporting convention. In addition, specific to this skill: up front create
+only `Step 1: Classify the work`; after step 1 create the remaining steps
+(`Step 2: Branch name` through `Step 5: PR`). Example step-start
+announcement, per that shared convention, when step 4 (Dispatch) actually
+becomes `in_progress` (never before step 1 has even started):
 
 > Starting step 4: Dispatch.
+
+`Step 4`'s task itself stays `in_progress` for the whole dispatched call —
+see `dispatch-shared.md`'s scoping rule and `feature-development`'s own
+Task-list section for why that's expected, not a ledger violation.
 
 ## Steps
 
