@@ -28,6 +28,19 @@ test("truncate: caps long text at 4000 chars with a truncation marker", () => {
   assert.match(out, /\(truncated\)$/);
 });
 
+/** @param {string} cwd @returns {PostToolUseHookInput} */
+function mockInput(cwd) {
+  return {
+    session_id: "test-session",
+    transcript_path: "/dev/null",
+    cwd,
+    permission_mode: "default",
+    hook_event_name: "PostToolUse",
+    tool_name: "EnterWorktree",
+    tool_input: {},
+  };
+}
+
 test("npmCiOnWorktreeHandler: npm killed by its own timeout is silent, not misreported as missing", () => {
   const projDir = mkdtempSync(path.join(tmpdir(), "npm-ci-timeout-"));
   writeFileSync(path.join(projDir, "package-lock.json"), "");
@@ -42,7 +55,7 @@ test("npmCiOnWorktreeHandler: npm killed by its own timeout is silent, not misre
   try {
     // 100ms timeout, stub sleeps 5s -- spawnSync sets BOTH result.error and
     // result.signal on this kill; the handler must check signal first.
-    const result = npmCiOnWorktreeHandler({ cwd: projDir }, 100);
+    const result = npmCiOnWorktreeHandler(mockInput(projDir), 100);
     assert.deepEqual(result, {});
   } finally {
     process.env.PATH = origPath;
@@ -64,7 +77,7 @@ test("npmCiOnWorktreeHandler: a non-ENOENT spawn error (EACCES) is not misreport
   // match and falls through to it, defeating the point of this test.
   process.env.PATH = binDir;
   try {
-    const result = npmCiOnWorktreeHandler({ cwd: projDir });
+    const result = npmCiOnWorktreeHandler(mockInput(projDir));
     const message = result?.hookSpecificOutput?.additionalContext ?? "";
     assert.doesNotMatch(message, /npm not found on PATH/);
     assert.match(message, /npm ci` failed/);
