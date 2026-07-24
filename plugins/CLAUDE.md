@@ -24,6 +24,7 @@ Each plugin: `.claude-plugin/plugin.json` (manifest: `version` plus metadata lik
 Pick by the decision tree (see `.claude/rules/hooks-mcp-server.md`) — a command hook
 is required only in the cases below; otherwise prefer `mcp_tool`. Confirm the event's
 row in `.claude/rules/hooks-mcp-tool-event-matrix.md` (`documented` rows only).
+(a plugin backing exactly one hook may use a command hook regardless — see that rule's single-hook exception)
 - **command hook** when **any** holds: the event fires **before the server connects**
   (`SessionStart`/`Setup`); it must be a **fail-closed hard gate** (needs exit 2 —
   `mcp_tool` fails open); it is a **fail-open-sensitive side-effect that must reliably
