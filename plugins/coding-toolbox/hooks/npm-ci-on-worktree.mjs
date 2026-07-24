@@ -33,6 +33,16 @@ export function truncate(text) {
     : t;
 }
 
+/** @param {string} message @returns {HookResult} */
+function ctx(message) {
+  return {
+    hookSpecificOutput: {
+      hookEventName: "PostToolUse",
+      additionalContext: message,
+    },
+  };
+}
+
 // The npm-ci-on-worktree handler. Returns {} on every guard failure / no
 // lockfile / clean run / our own timeout (fail open); every other outcome
 // (npm missing, npm ci failed for any reason including maxBuffer overflow or
@@ -61,30 +71,26 @@ export function npmCiOnWorktreeHandler(args, timeoutMs = NPM_CI_TIMEOUT_MS) {
     // which previously also swallowed genuine npm-ci failures.
     if (result.error?.code === "ETIMEDOUT") return {}; // our own timeout kill -- accepted silent per design
     if (result.error?.code === "ENOENT") {
-      return {
-        hookSpecificOutput: {
-          hookEventName: "PostToolUse",
-          additionalContext: `npm-ci-on-worktree: npm not found on PATH, skipped in ${cwd}`,
-        },
-      };
+      return ctx(
+        `npm-ci-on-worktree: npm not found on PATH, skipped in ${cwd}`,
+      );
     }
     if (result.status === 0 && !result.error && !result.signal) return {}; // silent on success
 
     // Everything else: a real, reportable npm-ci failure -- nonzero exit, an
     // unexpected spawn error (EACCES, ENOBUFS, ...), or an unexpected signal.
+    // Truncate each stream independently before joining -- avoids building a
+    // ~20MB intermediate string (up to 10MB maxBuffer on each of stdout and
+    // stderr) just to keep the first 4000 chars.
     const reason = result.error
       ? `spawn error ${result.error.code ?? result.error.message}`
       : result.signal
         ? `killed by signal ${result.signal}`
         : `exit code ${result.status}`;
-    return {
-      hookSpecificOutput: {
-        hookEventName: "PostToolUse",
-        additionalContext: `npm-ci-on-worktree: \`npm ci\` failed in ${cwd} (${reason}):\n${truncate(
-          `${result.stdout ?? ""}\n${result.stderr ?? ""}`,
-        )}`,
-      },
-    };
+    const output = `${truncate(result.stdout ?? "")}\n${truncate(result.stderr ?? "")}`;
+    return ctx(
+      `npm-ci-on-worktree: \`npm ci\` failed in ${cwd} (${reason}):\n${truncate(output)}`,
+    );
   } catch {
     return {};
   }
