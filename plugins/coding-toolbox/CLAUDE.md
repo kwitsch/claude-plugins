@@ -147,35 +147,66 @@ Thin dispatcher (`skills/fresh-work/SKILL.md`, five steps: classify → branch
 name → branch (`fresh-branch`) → dispatch → PR (`fresh-pr`)) — a 2026-07-24
 split of what used to be a single ~9-step, five-reference-file pipeline.
 Design/Plan/Implement/Review (the former "design path", steps 4-9) now live
-in `feature-development`/`debugging`/`refactoring` below; `fresh-work` no
-longer performs any of that itself. Step 4 (Dispatch) is a single `Skill`
-invocation of whichever sibling skill step 1's classify table names —
-`coding-toolbox:debugging` (fix), `coding-toolbox:feature-development`
-(feature), or `coding-toolbox:refactoring` (refactor, itself a delegator to
-`feature-development` — see below). `fresh-pr` stays a `fresh-work`-only call
-site (not pushed into the new skills), unchanged from before this split — one
-place holds the "surface minor findings at the PR stage" glue. `allowed-tools`
-shrank to `Skill`/`ToolSearch`/the Task* set — every other tool (`Read`,
-`Bash`, `Agent`, `Workflow`, …) moved with the logic that used it.
-`AskUserQuestion` stays deliberately absent (same rationale as before the
-split — its remaining call sites here, the missing-description ask and the
-branch-name-collision ask, are meant to stay deliberate, not blanket-approved).
+in `feature-development`/`debugging` below; `fresh-work` no longer performs
+any of that itself. Step 4 (Dispatch) is a single `Skill` invocation of
+whichever sibling skill step 1's classify table names — `coding-toolbox:debugging`
+(fix) or `coding-toolbox:feature-development` (feature and refactor both — the
+two share an identical pipeline, only the branch prefix differs). A
+same-session review pass caught, later the same day, that this split
+initially left `refactor` routed through a dedicated `refactoring` delegator
+skill; that skill was removed and both classifications now point straight at
+`feature-development` — no behavioral difference existed between the
+delegator and a direct call, so the extra hop was pure indirection. `fresh-pr`
+stays a `fresh-work`-only call site (not pushed into the new skills),
+unchanged from before this split — one place holds the "surface minor
+findings at the PR stage" glue. `allowed-tools` shrank to
+`Skill`/`Read`/`ToolSearch`/the Task* set (`Read` needed only to load the
+shared `references/dispatch-shared.md` below) — every other tool (`Bash`,
+`Agent`, `Workflow`, …) moved with the logic that used it. `AskUserQuestion`
+stays deliberately absent (same rationale as before the split — its
+remaining call sites here, the missing-description ask and the
+branch-name-collision ask, are meant to stay deliberate, not
+blanket-approved). Its `AskUserQuestion` banner and Task-list core are read
+from `feature-development/references/dispatch-shared.md` (a same-day Review
+finding: the two skills carried this scaffolding text duplicated verbatim;
+extracted into one shared file both Read, same precedent as
+`setup-rules`/`refresh-tools-rule`'s `tool-routing-rows.md`) — this skill's
+own Task-list section keeps only what's specific to it (its own step
+bootstrap). Step 4's invoked skill nests its own steps under fresh-work's
+still-`in_progress` `Step 4` (`Step 4.1`…`Step 4.x`) rather than creating
+independent top-level `Step 1`.. entries — a same-day Review finding caught
+that the original split had `feature-development` starting its own
+unconditional `Step 1`, colliding with `fresh-work`'s own step numbering and
+leaving two tasks `in_progress` in the same shared ledger at once; see
+`feature-development`'s own section for the nesting rule.
 
 ## Skill design (`feature-development`)
 
 Split out of `fresh-work` 2026-07-24 (was its design-path pipeline, steps
-4-9) alongside `debugging` (the fix path) and `refactoring` (a thin delegator
-to this skill, sharing an identical pipeline with the `feature`
-classification — only the branch prefix differs, decided by `fresh-work`
-before either skill is invoked). Owns the pipeline: `skills/feature-development/SKILL.md`
-+ four phase guides under `references/` (moved verbatim from `fresh-work`,
-Read only when their phase starts) run design → **intent confirmation** →
-plan → implement → **review** (combined review workflow). `fresh-work` still
-owns classify/branch/PR — this skill is invoked (Skill tool) once a branch
-already exists, and returns to `fresh-work` afterward without opening a PR
-itself; `debugging`'s own verify step (new test passes, suite green, symptom
-gone) covers a single targeted fix, where this skill's Review is scoped to
-the design path's larger, multi-task diffs. Adapted from superpowers'
+4-9) alongside `debugging` (the fix path). Owns both the `feature` and
+`refactor` classifications directly (the two share an identical pipeline —
+only the branch prefix differs, decided by `fresh-work` before this skill is
+invoked); a dedicated `refactoring` delegator skill existed briefly the same
+day and was removed once Review flagged it as pure indirection with no
+behavioral difference from a direct call — see `fresh-work`'s own section.
+Owns the pipeline: `skills/feature-development/SKILL.md` + four phase guides
+under `references/` (moved verbatim from `fresh-work`, Read only when their
+phase starts) run design → **intent confirmation** → plan → implement →
+**review** (combined review workflow). `fresh-work` still owns classify/branch/PR
+— this skill is invoked (Skill tool) once a branch already exists, and
+returns to `fresh-work` afterward without opening a PR itself; `debugging`'s
+own verify step (new test passes, suite green, symptom gone) covers a single
+targeted fix, where this skill's Review is scoped to the design path's
+larger, multi-task diffs. **Step numbering nests under a caller's active
+step** when invoked from `fresh-work` (`Step 4.1`…`Step 4.5` under
+`fresh-work`'s `Step 4: Dispatch`, recursing one further level for
+Implement's own per-wave `Step N.1…N.x`), falling back to independent
+top-level `Step 1`…`Step 5` only when invoked standalone with no caller step
+`in_progress` — fixed the same day a same-session Review pass caught the
+original unconditional top-level numbering colliding with `fresh-work`'s own
+step numbers in the same shared Task ledger (two tasks `in_progress` at
+once, violating both skills' own "exactly one `in_progress`" rule). Adapted
+from superpowers'
 brainstorming / writing-plans / subagent-driven-development and
 superpowers-automation's new-work — with the full line-by-line human
 spec-review gate, execution-choice handoffs, and cross-plugin references
@@ -293,24 +324,9 @@ subagents. `AskUserQuestion` stays absent from `allowed-tools` (its one call
 site — the 3-or-more-attempts escalation, architecture-in-question — stays
 deliberate, same rationale as `fresh-work`'s own absence).
 
-## Skill design (`refactoring`)
-
-Split out of `fresh-work` 2026-07-24. `refactor` and `feature`
-classifications have run an identical pipeline since `fresh-work` was first
-designed — only the branch prefix differs, and `fresh-work` resolves that
-before dispatching. Rather than duplicate `feature-development`'s ~700 lines
-of Design/Plan/Implement/Review logic across two skill directories, this
-skill is a deliberate one-step delegator
-(`Skill(coding-toolbox:feature-development, $work_description)`) — same
-shape as this plugin's own `setup-rules`/`refresh-tools-rule` split (two
-real commands, one recorded as a thin, explicitly-justified pass-through).
-`allowed-tools` is `["Skill"]` only; do not "simplify" this into a full copy
-of `feature-development`'s content — that would reintroduce the exact
-duplication this split was meant to avoid.
-
 ## Skill design (`bump-version`)
 
-Same inline-script idiom as `fresh-branch`/`fresh-pr`/`fresh-work`: a single
+Same inline-script idiom as `fresh-branch`/`fresh-pr`: a single
 embedded bash script run via the Bash tool, no bundled `.sh`, no MCP server,
 no subagent, model maps its exit code — with one deliberate invocation
 difference: it is run via a quoted-heredoc-to-temp-file
@@ -491,11 +507,17 @@ bats suite (hermetic, stubbed `gh`/`glab`), structural assertions for
 `fresh-pr/SKILL.md` and the `ci-watcher`/`pr-fixer` agent frontmatter, and the
 version-bump manifest assertion. Structural assertions for
 `fresh-work` (frontmatter minus `AskUserQuestion` plus a tripwire pinning that
-absence, five phase references, the Intent-confirmation step and its Keypoints
-dependency, the Review step's combined-workflow structure (per-lens cleanup
-finders, sonnet model pin, `reversesDecision` escalation, category commits) and
-high/max effort choice, self-containment tripwire, temp-doc convention) are
-included. `refresh-tools-rule` gets structural assertions (exists,
+absence, the classify table naming its sibling skills, step ordering
+Classify/Branch name/Branch/Dispatch/PR, self-containment tripwire) now cover
+only its own 5-step dispatcher shape (2026-07-24 split) — the design-path
+coverage that used to live here (five — now four — phase references, the
+Intent-confirmation step and its Keypoints dependency, the Review step's
+combined-workflow structure with per-lens cleanup finders/sonnet model
+pin/`reversesDecision` escalation/category commits, high/max effort choice,
+temp-doc convention) moved to `feature-development`'s own structural
+assertions, and `debugging` gets its own (frontmatter, root-cause/failing-test
+content, self-containment tripwire). `refresh-tools-rule` gets structural
+assertions (exists,
 model-invocable frontmatter — i.e. no `disable-model-invocation` key — no
 `rm`/install-path command anywhere in the file, the existence-gate present,
 its four `command -v` detection lines present) plus an assertion that both it

@@ -701,12 +701,11 @@ assert_success
   assert_output "0.16.0"
 }
 
-@test "plugin.json description mentions fresh-work and its three new sibling skills" {
+@test "plugin.json description mentions fresh-work and its sibling skills" {
   run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
   assert_output --partial "fresh-work"
   assert_output --partial "feature-development"
   assert_output --partial "debugging"
-  assert_output --partial "refactoring"
 }
 
 @test "bump-version SKILL.md exists and is non-empty" {
@@ -962,6 +961,7 @@ assert_success
   assert_output --partial "argument-hint"
   assert_output --partial "work_description"
   assert_output --partial '"Skill"'
+  assert_output --partial '"Read"'
   assert_output --partial "ToolSearch"
   assert_output --partial "TaskCreate"
   refute_output --partial '"Agent"'
@@ -971,12 +971,19 @@ assert_success
   refute_output --partial "AskUserQuestion"
 }
 
-@test "fresh-work classify table names all three sibling skills" {
+@test "fresh-work classify table names both sibling skills, refactor and feature both routed to feature-development" {
   run cat "$PLUGIN/skills/fresh-work/SKILL.md"
   assert_success
   assert_output --partial "coding-toolbox:debugging"
-  assert_output --partial "coding-toolbox:refactoring"
   assert_output --partial "coding-toolbox:feature-development"
+  refute_output --partial "coding-toolbox:refactoring"
+}
+
+@test "fresh-work step 3 and step 5 still invoke fresh-branch and fresh-pr by name" {
+  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  assert_output --partial "coding-toolbox:fresh-branch"
+  assert_output --partial "coding-toolbox:fresh-pr"
 }
 
 @test "fresh-work steps run classify, branch name, branch, dispatch, PR in order" {
@@ -1003,6 +1010,14 @@ assert_success
   [ "$dispatch_line" -lt "$pr_line" ]
 }
 
+@test "fresh-work attributes the minor-findings list to Implement, not Review" {
+  run cat "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  assert_output --partial "minor-findings list (produced"
+  assert_output --partial "own Implement step, passed through unchanged by Review"
+  refute_output --partial "from its own Review step"
+}
+
 @test "fresh-work step 2 states the derived branch name to the user before branching" {
   run cat "$PLUGIN/skills/fresh-work/SKILL.md"
   assert_success
@@ -1025,9 +1040,10 @@ assert_success
   assert_success
 }
 
-@test "plugin README lists refactoring in the Skills section" {
+@test "refactoring skill was removed (collapsed into feature-development)" {
+  [ ! -e "$PLUGIN/skills/refactoring" ]
   run rg_or_grep -F '| `refactoring`' "$PLUGIN/README.md"
-  assert_success
+  assert_failure
 }
 
 @test "feature-development SKILL.md exists and is non-empty" {
@@ -1083,8 +1099,33 @@ assert_success
   run cat "$PLUGIN/skills/feature-development/SKILL.md"
   assert_success
   assert_output --partial "Starting step 1: Design."
-  assert_output --partial "never a question"
-  assert_output --partial "never substitutes for a step's own"
+  assert_output --partial "announcement never"
+  assert_output --partial "substitutes for a step's own"
+}
+
+@test "feature-development documents step nesting under a caller's active step" {
+  run cat "$PLUGIN/skills/feature-development/SKILL.md"
+  assert_success
+  assert_output --partial "Step 4.1"
+  assert_output --partial "Step 4.5"
+  assert_output --partial "same shared ledger at"
+}
+
+@test "dispatch-shared.md reference file exists with the AskUserQuestion banner and Task-list core" {
+  local shared="$PLUGIN/skills/feature-development/references/dispatch-shared.md"
+  run test -s "$shared"
+  assert_success
+  run rg_or_grep -F "User decisions go through" "$shared"
+  assert_success
+  run rg_or_grep -F "never a question" "$shared"
+  assert_success
+}
+
+@test "fresh-work and feature-development both read the shared dispatch-shared.md, never inline it" {
+  run rg_or_grep -F 'references/dispatch-shared.md' "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  run rg_or_grep -F 'references/dispatch-shared.md' "$PLUGIN/skills/feature-development/SKILL.md"
+  assert_success
 }
 
 @test "feature-development runs Design, Intent confirmation, Plan, Implement, Review in order" {
@@ -1338,21 +1379,6 @@ assert_success
   assert_output --partial "AskUserQuestion"
   assert_output --partial "return to the caller"
   refute_output --partial "return to the orchestrator's PR step"
-}
-
-@test "refactoring SKILL.md exists with required frontmatter" {
-  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/skills/refactoring/SKILL.md'"
-  assert_success
-  assert_output --partial "name: refactoring"
-  assert_output --partial "work_description"
-  assert_output --partial 'allowed-tools: ["Skill"]'
-}
-
-@test "refactoring delegates to feature-development via the Skill tool" {
-  run cat "$PLUGIN/skills/refactoring/SKILL.md"
-  assert_success
-  assert_output --partial "coding-toolbox:feature-development"
-  assert_output --partial "Skill tool"
 }
 
 # ---------------------------------------------------------------------------

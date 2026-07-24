@@ -3,8 +3,8 @@ name: feature-development
 description: >-
   Runs fresh-work's design-path pipeline (Design, Intent confirmation, Plan,
   Implement, Review) for feature and refactor work. Invoked by fresh-work
-  after it classifies work as feature (directly) or refactor (via the
-  refactoring skill's delegation) and cuts the work branch — assumes a work
+  after it classifies work as feature or refactor (both dispatch here — the
+  two share an identical pipeline) and cuts the work branch — assumes a work
   branch is already checked out.
 argument-hint: "[work-description]"
 arguments: work_description
@@ -13,19 +13,21 @@ allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash", "Agent", "Workf
 
 # feature-development
 
-Runs fresh-work's design-path pipeline for `feature`-classified work, and —
-via `refactoring`'s delegation — for `refactor`-classified work too (the two
-share an identical pipeline; only the branch prefix differs, decided by
-`fresh-work` before this skill is invoked). Invoked by `fresh-work` after it
-classifies work and cuts the branch; assumes a work branch is already checked
-out. Runs inline because it invokes Workflow/sub-agents directly — do NOT
-fork it.
+Plugin root: !`echo "$CLAUDE_PLUGIN_ROOT"`
+
+Runs fresh-work's design-path pipeline for both `feature`- and
+`refactor`-classified work (the two share an identical pipeline; only the
+branch prefix differs, decided by `fresh-work` before this skill is
+invoked). Invoked by `fresh-work` after it classifies work and cuts the
+branch; assumes a work branch is already checked out. Runs inline because it
+invokes Workflow/sub-agents directly — do NOT fork it.
 
 `$work_description` is the work description, passed through unchanged from
 `fresh-work`.
 
-> **User decisions go through `AskUserQuestion`** — fixed-choice and open-ended
-> alike; never plain prose that waits for a typed reply.
+Read `<plugin root above>/skills/feature-development/references/dispatch-shared.md`
+for the shared `AskUserQuestion` banner and Task-list core (shared verbatim
+with `fresh-work`, kept in one place).
 
 ## Session temp docs
 
@@ -77,24 +79,34 @@ for it.
 
 ## Task-list integration
 
-Track progress with the Task tools, never TodoWrite. Load them once
-(`ToolSearch(query: "select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop")`,
-deferred; resolve at depth 0). Up front create only `Step 1: Design`; after
-Design create the remaining steps (`Step 2: Intent confirmation` through
-`Step 5: Review`). Keep exactly one task `in_progress`. Work a phase spawns
-nests beneath its step as `Step N.1…N.x`.
+See `references/dispatch-shared.md` (already read above) for the core
+Task-list rules. Specific to this skill:
 
-**Step-start reporting.** Each time a step task moves to `in_progress`, state
-one short line to the user naming it before starting its work — plain output,
-never a question — e.g.:
+**Step numbering.** If, when this skill starts, a caller skill's task is
+still `in_progress` (e.g. `fresh-work`'s `Step 4: Dispatch`), nest every step
+this skill creates under that task's number by appending `.1`, `.2`, … in
+order — `Step 4.1: Design` … `Step 4.5: Review` — instead of starting an
+independent top-level `Step 1`, which would collide with the caller's own
+step numbers and leave two tasks `in_progress` in the same shared ledger at
+once. If there is no such caller step (standalone invocation), use
+independent top-level `Step 1: Design` … `Step 5: Review` as normal. Up front
+create only the Design step in whichever form applies; after Design create
+the remaining steps the same way.
+
+Implement's own per-wave nested dispatch (`Step N.1…N.x`,
+`references/implementing.md`) nests one level further under whichever number
+this skill's own Implement step actually has — `Step 4.1…4.x` standalone, or
+e.g. `Step 4.4.1…4.4.x` when this skill itself is nested under caller step 4
+— same append-a-number rule, applied recursively.
+
+**Step-start reporting example:**
 
 > Starting step 1: Design.
 
-Applies to the numbered steps above and to any nested `Step N.1…N.x` a phase
-spawns (e.g. Implement's per-wave dispatch, `references/implementing.md`),
-kept to one line each. This announcement never substitutes for a step's own
-required output — e.g. step 2's Keypoints presentation below is a separate,
-mandatory message, not satisfied by this line.
+(or, nested: "Starting step 4.1: Design.") This announcement never
+substitutes for a step's own required output — e.g. step 2's Keypoints
+presentation below is a separate, mandatory message, not satisfied by this
+line.
 
 ## Steps
 
