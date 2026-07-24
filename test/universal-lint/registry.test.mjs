@@ -12,7 +12,7 @@ import {
   truncate,
   isToolAvailable,
   parseRtkPrefix,
-} from "../../plugins/universal-lint/mcp/server.mjs";
+} from "../../plugins/universal-lint/hooks/lint-file.mjs";
 
 const shellcheck = REGISTRY.shell.chain[0];
 const checkstyle = REGISTRY.java.chain[0];

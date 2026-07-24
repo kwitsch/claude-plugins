@@ -1,11 +1,11 @@
 {
-  "description": "PostToolUse Write|Edit -> lint_file: runs the just-written file's standard linter (check-only) and surfaces findings as context.",
+  "description": "PostToolUse Write|Edit -> lint-file.mjs: runs the just-written file's standard linter (check-only) and surfaces findings as context.",
   "hooks": {
     "PostToolUse": [
       {
         "matcher": "Write|Edit",
         "hooks": [
-          { "type": "mcp_tool", "server": "plugin:universal-lint:universal-lint-hooks", "tool": "lint_file", "timeout": 60 }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/lint-file.mjs", "timeout": 60, "async": true }
         ]
       }
     ]

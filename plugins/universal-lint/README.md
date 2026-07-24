@@ -10,9 +10,9 @@ Silently runs each language's standard linter (read-only — never autofixes) on
 
 ## What it does
 
-A PostToolUse `Write|Edit` hook (an `mcp_tool` backed by a self-contained plugin-local MCP server) runs the just-written file's standard linter, check-only, for eight languages. The linter runs only when its CLI is on `PATH`; a missing linter, any crash or misconfiguration, an unsupported extension, a file outside the project, or a file under `node_modules/`/`vendor/`/`.git/` is a **silent no-op** — the hook never blocks or degrades the session, and it never modifies the file (that's `universal-format`'s job, not this plugin's — this plugin never passes `--fix`/`--format`/`--write` to anything). When (and only when) the linter reports real findings, the hook returns them as context so Claude can fix them itself.
+An async PostToolUse `Write|Edit` command hook (no MCP server — the plugin has exactly one hook) runs the just-written file's standard linter, check-only, for eight languages. The linter runs only when its CLI is on `PATH`; a missing linter, any crash or misconfiguration, an unsupported extension, a file outside the project, or a file under `node_modules/`/`vendor/`/`.git/` is a **silent no-op** — the hook never blocks or degrades the session, and it never modifies the file (that's `universal-format`'s job, not this plugin's — this plugin never passes `--fix`/`--format`/`--write` to anything). When (and only when) the linter reports real findings, the hook returns them as context (delivered on the next turn, since the hook runs asynchronously) so Claude can fix them itself.
 
-Per-language opt-out is simply not installing that linter. The whole plugin can be disabled with the `auto_lint` toggle.
+This hook is always active once the plugin is installed — there is no toggle. Per-language opt-out is simply not installing that linter.
 
 ## Supported linters
 
@@ -32,14 +32,6 @@ when not installed locally (all official npm packages); `yamllint` has no
 npm distribution and is `PATH`-only. When a linter is on `PATH` and `rtk` is
 also on `PATH`, findings run through `rtk` for more token-efficient output —
 same pass/fail verdict either way.
-
-## Configuration
-
-Configure via `/plugin` → installed → **universal-lint** → Configure options.
-
-| Option | Default | Effect |
-|---|---|---|
-| `auto_lint` | `true` | Master on/off. Only a literal `false` disables auto-linting; any other value (or unset) leaves it on. |
 
 ## Java: checkstyle ruleset and detection
 
