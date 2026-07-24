@@ -31,3 +31,13 @@ If a plugin has a `configure-*` skill, that skill must cover every option in `us
 ## Legacy exception
 
 Two hook-only plugins predate this rule and declare no `userConfig` yet: `git-sign-key`, `no-co-authored`.
+
+## Deliberate no-toggle exception
+
+`universal-lint` and `universal-format` (2026-07-24) intentionally ship no
+`userConfig` — unlike the legacy exception above, this is not a stopgap expected
+to eventually gain a toggle. The hook IS the entire plugin (read-only linting /
+auto-formatting is its one behavior); disabling that behavior is equivalent to
+uninstalling the plugin, so no separate on/off switch is offered. Do not "fix"
+this by re-adding a toggle — both plugins' bats suites assert `userConfig`'s
+absence as a tripwire against exactly that.

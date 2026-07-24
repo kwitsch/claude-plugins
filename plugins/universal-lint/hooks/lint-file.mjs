@@ -1,20 +1,20 @@
 #!/usr/bin/env node
-// mcp/server.mjs — universal-lint plugin: PostToolUse Write|Edit lint-only checker.
-// Self-contained, zero-dependency MCP stdio server (Node built-ins only).
-// Invoked directly as the .mcp.json command (#!/usr/bin/env node; node-only, no wrapper).
-// Transport: newline-delimited JSON-RPC 2.0. stdout = JSON-RPC only; logs -> stderr.
+// hooks/lint-file.mjs — universal-lint plugin: PostToolUse Write|Edit lint-only checker.
+// Command hook, invoked directly per event (no MCP server). stdin = hook JSON
+// (PostToolUseHookInput), stdout = hook result JSON (hookSpecificOutput.additionalContext)
+// or nothing when there's no finding. async:true in hooks.json — safe because
+// linting never mutates the file; findings surface as context on the next turn.
 //
 // lint_file flow (every failure path returns {} silently -- fail open):
 //   guard tool_response.success !== false -> ext in registry -> path inside cwd and not
 //   under node_modules/vendor/.git -> file exists -> some chain tool on PATH (probes
-//   cached) -> auto_lint not literal false -> first chain tool on PATH wins (no
-//   per-file skip -- no style mapping exists for linters) -> spawnSync (cwd = project
-//   cwd, 30s timeout, stdout+stderr captured) -> classify (exit code for 5 tools;
-//   checkstyle by stripped-output, since its exit code counts only ERROR-severity
-//   violations and the bundled default ruleset runs at `warning`) -> issues found:
-//   truncated additionalContext; clean/skip/no candidate: {}.
+//   cached) -> first chain tool on PATH wins (no per-file skip -- no style mapping
+//   exists for linters) -> spawnSync (cwd = project cwd, 30s timeout, stdout+stderr
+//   captured) -> classify (exit code for 5 tools; checkstyle by stripped-output, since
+//   its exit code counts only ERROR-severity violations and the bundled default
+//   ruleset runs at `warning`) -> issues found: truncated additionalContext;
+//   clean/skip/no candidate: nothing printed.
 import process from "node:process";
-import readline from "node:readline";
 import { spawnSync } from "node:child_process";
 import {
   accessSync,
@@ -23,13 +23,9 @@ import {
   realpathSync,
   constants as fsConstants,
 } from "node:fs";
-import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const SERVER_NAME = "universal-lint-hooks"; // keep aligned with the .mcp.json key
-const SERVER_INFO = { name: SERVER_NAME, version: "0.1.0" };
-const DEFAULT_PROTOCOL = "2025-11-25"; // only used if client omits protocolVersion
 const SPAWN_TIMEOUT_MS = 30000; // inner linter timeout; hook-level timeout:60 is the backstop
 const NPX_SPAWN_TIMEOUT_MS = 55000; // cold npx install can exceed SPAWN_TIMEOUT_MS; stay under the hook's 60s ceiling
 const RTK_NPX_ATTEMPT_TIMEOUT_MS = 5000; // bounds the rtk-wrapped npx attempt so a stalled rtk can't consume the bare-npx fallback's cold-install budget too -- worst-case sequential total (this + NPX_SPAWN_TIMEOUT_MS) stays at the hook's 60s ceiling, the same margin the direct-tool branch below already runs at
@@ -241,34 +237,6 @@ function runLintTool(tool, argv, spawnOpts) {
   return spawnSync(tool.name, argv, spawnOpts);
 }
 
-// auto_lint toggle: ONLY literal false disables. Scope precedence local>project>user;
-// the first scope that DEFINES the key wins; no definition anywhere -> enabled (fail open).
-/** @param {string} cwd @returns {boolean} */
-function isAutoLintEnabled(cwd) {
-  const scopes = [
-    path.join(cwd, ".claude", "settings.local.json"),
-    path.join(cwd, ".claude", "settings.json"),
-    path.join(homedir(), ".claude", "settings.json"),
-  ];
-  for (const file of scopes) {
-    let json;
-    try {
-      json = JSON.parse(readFileSync(file, "utf8"));
-    } catch {
-      continue;
-    }
-    const configs = json?.pluginConfigs ?? {};
-    const key = Object.keys(configs).find((k) =>
-      k.startsWith("universal-lint@"),
-    );
-    const options = key ? configs[key]?.options : undefined;
-    if (options && Object.prototype.hasOwnProperty.call(options, "auto_lint")) {
-      return options.auto_lint !== false;
-    }
-  }
-  return true;
-}
-
 // Walk from the file's dir up to cwd (inclusive); return the first existing
 // checkstyle config path, or null. Existence-only (no section parsing needed --
 // unlike a formatter, a linter doesn't need to reproduce exact style output, so
@@ -416,7 +384,6 @@ function lintFileHandler(args) {
       isToolAvailable(t, onPath(t.name), onPath("npx")),
     );
     if (!candidate) return {};
-    if (!isAutoLintEnabled(cwd)) return {};
 
     const tool = selectLintTool(REGISTRY[lang].chain);
     if (!tool) return {};
@@ -470,97 +437,19 @@ function isMainModule() {
   }
 }
 
-function startServer() {
-  const TOOLS = [
-    {
-      name: "lint_file",
-      description:
-        "PostToolUse Write|Edit linter: runs the language's standard linter (check-only, never --fix) on the just-written file when installed. Returns additionalContext with the findings when issues are found, {} otherwise.",
-      inputSchema: { type: "object", additionalProperties: true },
-      handler: lintFileHandler,
-    },
-  ];
-  const findTool = (/** @type {any} */ name) =>
-    TOOLS.find((t) => t.name === name);
-  const send = (/** @type {any} */ msg) =>
-    process.stdout.write(JSON.stringify(msg) + "\n");
-  const ok = (/** @type {any} */ id, /** @type {any} */ result) =>
-    send({ jsonrpc: "2.0", id, result });
-  const fail = (
-    /** @type {any} */ id,
-    /** @type {any} */ code,
-    /** @type {any} */ message,
-  ) => send({ jsonrpc: "2.0", id, error: { code, message } });
-
-  const handle = (/** @type {any} */ msg) => {
-    const { id, method, params } = msg;
-    switch (method) {
-      case "initialize":
-        return ok(id, {
-          protocolVersion: params?.protocolVersion ?? DEFAULT_PROTOCOL,
-          capabilities: { tools: {} },
-          serverInfo: SERVER_INFO,
-        });
-      case "notifications/initialized":
-      case "notifications/cancelled":
-        return;
-      case "ping":
-        return ok(id, {});
-      case "tools/list":
-        return ok(id, {
-          tools: TOOLS.map(({ name, description, inputSchema }) => ({
-            name,
-            description,
-            inputSchema,
-          })),
-        });
-      case "tools/call": {
-        const tool = findTool(params?.name);
-        if (!tool) return fail(id, -32602, `unknown tool: ${params?.name}`);
-        if (process.env.MCP_HOOK_DEBUG) {
-          process.stderr.write(
-            `[${SERVER_NAME}] tools/call ${params?.name} args=${JSON.stringify(params?.arguments)}\n`,
-          );
-        }
-        let result;
-        try {
-          result = tool.handler(params?.arguments ?? {});
-        } catch (e) {
-          const err = /** @type {any} */ (e);
-          return fail(id, -32603, `tool error: ${err?.message ?? err}`);
-        }
-        return ok(id, {
-          content: [{ type: "text", text: JSON.stringify(result) }],
-          structuredContent: result,
-        });
-      }
-      default:
-        if (id === undefined) return;
-        return fail(id, -32601, `method not found: ${method}`);
+/** Read the hook's stdin JSON, run lintFileHandler, print the result JSON (or
+ * nothing) to stdout. Fails open on any error — no output, exit 0. */
+function main() {
+  try {
+    const raw = readFileSync(0, "utf8");
+    const input = JSON.parse(raw);
+    const result = lintFileHandler(input);
+    if (result && Object.keys(result).length > 0) {
+      process.stdout.write(JSON.stringify(result) + "\n");
     }
-  };
-
-  const rl = readline.createInterface({ input: process.stdin });
-  rl.on("line", (/** @type {any} */ line) => {
-    const trimmed = line.trim();
-    if (!trimmed) return;
-    let msg;
-    try {
-      msg = JSON.parse(trimmed);
-    } catch {
-      process.stderr.write(`[${SERVER_NAME}] non-JSON line ignored\n`);
-      return;
-    }
-    try {
-      handle(msg);
-    } catch (e) {
-      const err = /** @type {any} */ (e);
-      process.stderr.write(
-        `[${SERVER_NAME}] handler crash: ${err?.stack ?? err}\n`,
-      );
-    }
-  });
-  rl.on("close", () => process.exit(0));
+  } catch {
+    // fail open — no output, exit 0
+  }
 }
 
-if (isMainModule()) startServer();
+if (isMainModule()) main();

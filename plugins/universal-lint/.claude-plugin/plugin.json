@@ -1,16 +1,8 @@
 {
   "name": "universal-lint",
-  "version": "0.3.2",
-  "description": "Silently runs each language's standard linter (read-only — never autofixes) on just-written Shell, Java, Kotlin, JS/TS, Python, Go, YAML and Markdown files after Write/Edit, surfacing any findings as additional context for Claude to fix (shellcheck, checkstyle, ktlint, eslint, ruff check, golangci-lint/go vet, yamllint, markdownlint-cli2/markdownlint; eslint/markdownlint-cli2/markdownlint also fall back to npx; runs through rtk for more compact output when rtk is present); JSON is intentionally not covered (no exit-code-clean standalone JSON linter exists); no-op when the linter is absent.",
+  "version": "0.4.0",
+  "description": "Silently runs each language's standard linter (read-only — never autofixes) on just-written Shell, Java, Kotlin, JS/TS, Python, Go, YAML and Markdown files after Write/Edit, surfacing any findings as additional context for Claude to fix (shellcheck, checkstyle, ktlint, eslint, ruff check, golangci-lint/go vet, yamllint, markdownlint-cli2/markdownlint; eslint/markdownlint-cli2/markdownlint also fall back to npx; runs through rtk for more compact output when rtk is present); JSON is intentionally not covered (no exit-code-clean standalone JSON linter exists); no-op when the linter is absent. Always active once installed — no on/off toggle.",
   "author": {
     "name": "Kwitsch"
-  },
-  "userConfig": {
-    "auto_lint": {
-      "type": "boolean",
-      "default": true,
-      "title": "Auto-lint on Write/Edit",
-      "description": "Silently lint just-written files with each language's standard linter when installed, surfacing findings as context for Claude to fix; never auto-fixes. See the plugin description for the full tool list."
-    }
   }
 }

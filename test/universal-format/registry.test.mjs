@@ -4,7 +4,7 @@ import {
   buildInvocation,
   isToolAvailable,
   REGISTRY,
-} from "../../plugins/universal-format/mcp/server.mjs";
+} from "../../plugins/universal-format/hooks/format-file.mjs";
 
 const shfmt = REGISTRY.shell.chain[0];
 const gjf = REGISTRY.java.chain[0];
