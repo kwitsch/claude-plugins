@@ -7,7 +7,7 @@ import {
   parseEditorconfig,
   matchGlob,
   resolveEditorconfig,
-} from "../../plugins/universal-format/mcp/server.mjs";
+} from "../../plugins/universal-format/hooks/format-file.mjs";
 
 test("matchGlob supports *, *.ext, *.{a,b}, **.ext; rejects unsupported forms", () => {
   assert.equal(matchGlob("*", "Foo.java"), true);

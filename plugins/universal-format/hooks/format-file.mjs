@@ -1,19 +1,20 @@
 #!/usr/bin/env node
-// mcp/server.mjs — universal-format plugin: PostToolUse Write|Edit auto-formatter.
-// Self-contained, zero-dependency MCP stdio server (Node built-ins only).
-// Invoked directly as the .mcp.json command (#!/usr/bin/env node; node-only, no wrapper).
-// Transport: newline-delimited JSON-RPC 2.0. stdout = JSON-RPC only; logs -> stderr.
+// hooks/format-file.mjs — universal-format plugin: PostToolUse Write|Edit auto-formatter.
+// Command hook, invoked directly per event (no MCP server). stdin = hook JSON
+// (PostToolUseHookInput), stdout = hook result JSON (hookSpecificOutput.additionalContext)
+// or nothing when the file was unchanged. Synchronous (no async in hooks.json) —
+// the reformat must land, and Claude must see the notice, before the next tool call
+// touches the file.
 //
 // format_file flow (every failure path returns {} silently — fail open):
 //   guard tool_response.success !== false -> ext in registry -> path inside cwd and not
 //   under node_modules/vendor/.git -> file exists -> some chain tool on PATH (probes
-//   cached) -> auto_format not literal false -> selectFormatter walks the chain in
-//   order, skipping a tool that's absent or hits a hard style conflict, and falls
-//   through to the next -> spawnSync (cwd = project cwd, 30s timeout, stdio ignored)
-//   -> before/after content diff (NEVER exit codes) -> changed: additionalContext
-//   one-liner; unchanged or no chain tool can run: {}.
+//   cached) -> selectFormatter walks the chain in order, skipping a tool that's
+//   absent or hits a hard style conflict, and falls through to the next -> spawnSync
+//   (cwd = project cwd, 30s timeout, stdio ignored) -> before/after content diff
+//   (NEVER exit codes) -> changed: additionalContext one-liner; unchanged or no
+//   chain tool can run: nothing printed.
 import process from "node:process";
-import readline from "node:readline";
 import { spawnSync } from "node:child_process";
 import {
   accessSync,
@@ -22,13 +23,9 @@ import {
   realpathSync,
   constants as fsConstants,
 } from "node:fs";
-import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const SERVER_NAME = "universal-format-hooks"; // keep aligned with the .mcp.json key
-const SERVER_INFO = { name: SERVER_NAME, version: "0.1.0" };
-const DEFAULT_PROTOCOL = "2025-11-25"; // only used if client omits protocolVersion
 const SPAWN_TIMEOUT_MS = 30000; // inner formatter timeout; hook-level timeout:60 is the backstop
 const NPX_SPAWN_TIMEOUT_MS = 55000; // cold npx install can exceed SPAWN_TIMEOUT_MS; stay under the hook's 60s ceiling
 
@@ -153,7 +150,7 @@ export const REGISTRY = {
   markdown: { chain: [PRETTIER_NATIVE] },
 };
 
-// PATH probe cache (server-lifetime): tool name -> boolean on PATH.
+// PATH probe cache (process-lifetime): tool name -> boolean on PATH.
 /** @type {Map<string, boolean>} */
 const probeCache = new Map();
 /** @param {string} tool @returns {boolean} */
@@ -183,37 +180,6 @@ function onPath(tool) {
 /** @param {Pick<FormatTool, "name" | "npmSpec">} tool @param {boolean} toolOnPath @param {boolean} npxOnPath @returns {boolean} */
 export function isToolAvailable(tool, toolOnPath, npxOnPath) {
   return toolOnPath || (!!tool.npmSpec && npxOnPath);
-}
-
-// auto_format toggle: ONLY literal false disables. Scope precedence local>project>user;
-// the first scope that DEFINES the key wins; no definition anywhere -> enabled (fail open).
-/** @param {string} cwd @returns {boolean} */
-function isAutoFormatEnabled(cwd) {
-  const scopes = [
-    path.join(cwd, ".claude", "settings.local.json"),
-    path.join(cwd, ".claude", "settings.json"),
-    path.join(homedir(), ".claude", "settings.json"),
-  ];
-  for (const file of scopes) {
-    let json;
-    try {
-      json = JSON.parse(readFileSync(file, "utf8"));
-    } catch {
-      continue;
-    }
-    const configs = json?.pluginConfigs ?? {};
-    const key = Object.keys(configs).find((k) =>
-      k.startsWith("universal-format@"),
-    );
-    const options = key ? configs[key]?.options : undefined;
-    if (
-      options &&
-      Object.prototype.hasOwnProperty.call(options, "auto_format")
-    ) {
-      return options.auto_format !== false;
-    }
-  }
-  return true;
 }
 
 // Determine the formatter invocation for a resolved tool.
@@ -542,12 +508,11 @@ function formatFileHandler(args) {
     if (!lang) return {};
     if (!existsSync(resolved)) return {};
 
-    // Cached O(1) PATH probe before the uncached settings-file reads.
+    // Cached O(1) PATH probe short-circuits before selectFormatter's fuller walk.
     const candidate = REGISTRY[lang].chain.find((t) =>
       isToolAvailable(t, onPath(t.name), onPath("npx")),
     );
     if (!candidate) return {};
-    if (!isAutoFormatEnabled(cwd)) return {};
 
     const selection = selectFormatter(REGISTRY[lang].chain, resolved, cwd);
     if (!selection) return {};
@@ -601,97 +566,19 @@ function isMainModule() {
   }
 }
 
-function startServer() {
-  const TOOLS = [
-    {
-      name: "format_file",
-      description:
-        "PostToolUse Write|Edit auto-formatter: formats the just-written file with the language's standard formatter when installed. Returns additionalContext when the file changed, {} otherwise.",
-      inputSchema: { type: "object", additionalProperties: true },
-      handler: formatFileHandler,
-    },
-  ];
-  const findTool = (/** @type {any} */ name) =>
-    TOOLS.find((t) => t.name === name);
-  const send = (/** @type {any} */ msg) =>
-    process.stdout.write(JSON.stringify(msg) + "\n");
-  const ok = (/** @type {any} */ id, /** @type {any} */ result) =>
-    send({ jsonrpc: "2.0", id, result });
-  const fail = (
-    /** @type {any} */ id,
-    /** @type {any} */ code,
-    /** @type {any} */ message,
-  ) => send({ jsonrpc: "2.0", id, error: { code, message } });
-
-  const handle = (/** @type {any} */ msg) => {
-    const { id, method, params } = msg;
-    switch (method) {
-      case "initialize":
-        return ok(id, {
-          protocolVersion: params?.protocolVersion ?? DEFAULT_PROTOCOL,
-          capabilities: { tools: {} },
-          serverInfo: SERVER_INFO,
-        });
-      case "notifications/initialized":
-      case "notifications/cancelled":
-        return;
-      case "ping":
-        return ok(id, {});
-      case "tools/list":
-        return ok(id, {
-          tools: TOOLS.map(({ name, description, inputSchema }) => ({
-            name,
-            description,
-            inputSchema,
-          })),
-        });
-      case "tools/call": {
-        const tool = findTool(params?.name);
-        if (!tool) return fail(id, -32602, `unknown tool: ${params?.name}`);
-        if (process.env.MCP_HOOK_DEBUG) {
-          process.stderr.write(
-            `[${SERVER_NAME}] tools/call ${params?.name} args=${JSON.stringify(params?.arguments)}\n`,
-          );
-        }
-        let result;
-        try {
-          result = tool.handler(params?.arguments ?? {});
-        } catch (e) {
-          const err = /** @type {any} */ (e);
-          return fail(id, -32603, `tool error: ${err?.message ?? err}`);
-        }
-        return ok(id, {
-          content: [{ type: "text", text: JSON.stringify(result) }],
-          structuredContent: result,
-        });
-      }
-      default:
-        if (id === undefined) return;
-        return fail(id, -32601, `method not found: ${method}`);
+/** Read the hook's stdin JSON, run formatFileHandler, print the result JSON (or
+ * nothing) to stdout. Fails open on any error — no output, exit 0. */
+function main() {
+  try {
+    const raw = readFileSync(0, "utf8");
+    const input = JSON.parse(raw);
+    const result = formatFileHandler(input);
+    if (result && Object.keys(result).length > 0) {
+      process.stdout.write(JSON.stringify(result) + "\n");
     }
-  };
-
-  const rl = readline.createInterface({ input: process.stdin });
-  rl.on("line", (/** @type {any} */ line) => {
-    const trimmed = line.trim();
-    if (!trimmed) return;
-    let msg;
-    try {
-      msg = JSON.parse(trimmed);
-    } catch {
-      process.stderr.write(`[${SERVER_NAME}] non-JSON line ignored\n`);
-      return;
-    }
-    try {
-      handle(msg);
-    } catch (e) {
-      const err = /** @type {any} */ (e);
-      process.stderr.write(
-        `[${SERVER_NAME}] handler crash: ${err?.stack ?? err}\n`,
-      );
-    }
-  });
-  rl.on("close", () => process.exit(0));
+  } catch {
+    // fail open — no output, exit 0
+  }
 }
 
-if (isMainModule()) startServer();
+if (isMainModule()) main();

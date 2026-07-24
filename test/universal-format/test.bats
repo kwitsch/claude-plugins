@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-# Tests for the universal-format plugin (mcp-kind PostToolUse Write|Edit auto-formatter).
+# Tests for the universal-format plugin (command-hook PostToolUse Write|Edit auto-formatter).
 
 setup() {
   bats_require_minimum_version 1.5.0
@@ -8,10 +8,8 @@ setup() {
   bats_load_library bats-assert
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
   PLUGIN="$REPO_ROOT/plugins/universal-format"
-  MCP_JSON="$PLUGIN/.mcp.json"
   HOOKS="$PLUGIN/hooks/hooks.json"
-  SERVER="$PLUGIN/mcp/server.mjs"
-  WRAPPER="$PLUGIN/bin/mjs-launch.sh"
+  SERVER="$PLUGIN/hooks/format-file.mjs"
 
   # Isolated PATH: only system tools symlinked in; formatter stubs added per test.
   MOCKBIN="$BATS_TEST_TMPDIR/bin"
@@ -62,8 +60,8 @@ export -f rg_or_grep
 
 # --- scaffold invariants ---------------------------------------------------
 
-@test "plugin.json is valid JSON with name/version/userConfig.auto_format" {
-  run jq -e '.name == "universal-format" and (.version | type == "string") and (.userConfig.auto_format.type == "boolean") and (.userConfig.auto_format.default == true)' "$PLUGIN/.claude-plugin/plugin.json"
+@test "plugin.json is valid JSON with name/version and no userConfig (deliberate — see CLAUDE.md)" {
+  run jq -e '.name == "universal-format" and (.version | type == "string") and (has("userConfig") | not)' "$PLUGIN/.claude-plugin/plugin.json"
   assert_success
 }
 
@@ -84,151 +82,41 @@ export -f rg_or_grep
   assert_success
 }
 
-@test ".mcp.json is valid JSON and registers universal-format-hooks -> bin/mjs-launch.sh mcp/server.mjs" {
-  run jq -e '.mcpServers["universal-format-hooks"].command | endswith("bin/mjs-launch.sh")' "$MCP_JSON"
-  assert_success
-  run jq -e '.mcpServers["universal-format-hooks"].args == ["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"]' "$MCP_JSON"
-  assert_success
-}
-
 @test "hooks.json is valid JSON" {
   run jq empty "$HOOKS"
   assert_success
 }
 
-@test "PostToolUse hook is wired to the namespaced format_file mcp_tool with timeout 60" {
-  run jq -e '.hooks.PostToolUse[0] | .matcher == "Write|Edit" and (.hooks[0].type == "mcp_tool") and (.hooks[0].server == "plugin:universal-format:universal-format-hooks") and (.hooks[0].tool == "format_file") and (.hooks[0].timeout == 60)' "$HOOKS"
+@test "PostToolUse hook is wired to format-file.mjs as a synchronous command hook with timeout 60" {
+  run jq -e '.hooks.PostToolUse[0] | .matcher == "Write|Edit" and (.hooks[0].type == "command") and (.hooks[0].command | endswith("hooks/format-file.mjs")) and (.hooks[0].timeout == 60) and ((.hooks[0].async // false) == false)' "$HOOKS"
   assert_success
 }
 
-@test "every mcp_tool hook references a configured server (namespaced key)" {
-  run bash -c '
-    set -e
-    for s in $(jq -r "[.hooks[][].hooks[] | select(.type==\"mcp_tool\") | .server] | unique[]" "'"$HOOKS"'"); do
-      key="${s##*:}"   # strip plugin:<plugin>: namespace prefix -> bare .mcp.json key
-      jq -e --arg k "$key" ".mcpServers[\$k]" "'"$MCP_JSON"'" >/dev/null \
-        || { echo "server not configured: $s (key $key)" >&2; exit 1; }
-    done
-  '
-  assert_success
-}
-
-@test "every mcp_tool hook names a non-empty tool" {
-  run jq -e '[.hooks[][].hooks[] | select(.type=="mcp_tool")] | all(.tool | type=="string" and length>0)' "$HOOKS"
-  assert_success
-}
-
-@test "server.mjs is executable (repo rule)" {
+@test "format-file.mjs is executable (repo rule)" {
   [ -x "$SERVER" ]
 }
 
-@test "server.mjs has a node shebang" {
+@test "format-file.mjs has a node shebang" {
   run head -n1 "$SERVER"
   assert_output '#!/usr/bin/env node'
 }
 
-@test "server.mjs passes node --check" {
+@test "format-file.mjs passes node --check" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   run node --check "$SERVER"
   assert_success
 }
 
-@test "server lists format_file over stdio" {
+@test "format-file.mjs runs as a direct command hook: unsupported extension -> no stdout" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
+  local cwd="$BATS_TEST_TMPDIR/smoke"; mkdir -p "$cwd"
+  printf 'hi\n' > "$cwd/z.txt"
   run bash -c '
-    printf "%s\n%s\n" \
-      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}" \
-      "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}" \
+    jq -cn --arg f "z.txt" --arg c "'"$cwd"'" '"'"'{hook_event_name:"PostToolUse", tool_name:"Write", tool_input:{file_path:$f}, tool_response:{success:true}, cwd:$c}'"'"' \
       | node "'"$SERVER"'"
   '
   assert_success
-  assert_output --partial '"format_file"'
-}
-
-# --- bin/mjs-launch.sh (runtime launcher: PATH fix + bun/node selection) ----
-
-@test "bin/mjs-launch.sh is executable (repo rule)" {
-  [ -x "$WRAPPER" ]
-}
-
-@test "bin/mjs-launch.sh has a bash shebang and passes bash -n" {
-  run head -n1 "$WRAPPER"
-  assert_output '#!/usr/bin/env bash'
-  run bash -n "$WRAPPER"
-  assert_success
-}
-
-@test "bin/mjs-launch.sh errors on missing argument (exit 64)" {
-  run "$WRAPPER"
-  assert_failure 64
-  assert_output --partial "missing argument"
-}
-
-@test "bin/mjs-launch.sh errors when neither bun nor node is on PATH" {
-  local fakebin="$BATS_TEST_TMPDIR/fakebin-none"
-  mkdir -p "$fakebin"
-  for t in bash env; do
-    src="$(command -v "$t" 2>/dev/null)" && ln -s "$src" "$fakebin/$t"
-  done
-  run env -i PATH="$fakebin" HOME="$HOME" "$WRAPPER" /some/script.mjs
-  assert_failure 1
-  assert_output --partial "neither bun nor node is available"
-}
-
-@test "bin/mjs-launch.sh falls back to node when bun is absent" {
-  command -v node >/dev/null 2>&1 || skip "node not installed"
-  local fakebin="$BATS_TEST_TMPDIR/fakebin-node"
-  mkdir -p "$fakebin"
-  for t in bash env node; do
-    src="$(command -v "$t" 2>/dev/null)" && ln -s "$src" "$fakebin/$t"
-  done
-  run env -i PATH="$fakebin" HOME="$HOME" "$WRAPPER" --version
-  assert_success
-}
-
-@test "bin/mjs-launch.sh prefers bun over node when both are on PATH" {
-  command -v bun >/dev/null 2>&1 || skip "bun not installed"
-  command -v node >/dev/null 2>&1 || skip "node not installed"
-  local fakebin="$BATS_TEST_TMPDIR/fakebin-both"
-  mkdir -p "$fakebin"
-  for t in bash env node bun; do
-    src="$(command -v "$t" 2>/dev/null)" && ln -s "$src" "$fakebin/$t"
-  done
-  local probe="$BATS_TEST_TMPDIR/which-runtime.mjs"
-  printf 'console.log(typeof Bun !== "undefined" ? "bun" : "node")\n' > "$probe"
-  run env -i PATH="$fakebin" HOME="$HOME" "$WRAPPER" "$probe"
-  assert_success
-  assert_output "bun"
-}
-
-@test "bin/mjs-launch.sh appends ~/.local/bin after the inherited PATH, so a system-PATH tool wins over a same-named one there" {
-  command -v node >/dev/null 2>&1 || skip "node not installed"
-  local fakebin="$BATS_TEST_TMPDIR/fakebin-syspath"
-  mkdir -p "$fakebin" "$HOME/.local/bin"
-  for t in bash env node; do
-    src="$(command -v "$t" 2>/dev/null)" && ln -s "$src" "$fakebin/$t"
-  done
-  printf '#!/usr/bin/env bash\necho system-path-tool\n' > "$fakebin/dupe-tool"
-  chmod +x "$fakebin/dupe-tool"
-  printf '#!/usr/bin/env bash\necho stale-local-bin-tool\n' > "$HOME/.local/bin/dupe-tool"
-  chmod +x "$HOME/.local/bin/dupe-tool"
-  local probe="$BATS_TEST_TMPDIR/which-tool.mjs"
-  printf 'import { execSync } from "node:child_process";\nconsole.log(execSync("command -v dupe-tool").toString().trim());\n' > "$probe"
-  run env -i PATH="$fakebin" HOME="$HOME" "$WRAPPER" "$probe"
-  assert_success
-  assert_output "$fakebin/dupe-tool"
-}
-
-@test "bin/mjs-launch.sh launches server.mjs correctly (format_file listed over stdio)" {
-  command -v node >/dev/null 2>&1 || skip "node not installed"
-  run bash -c '
-    printf "%s\n%s\n" \
-      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}" \
-      "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}" \
-      | "'"$WRAPPER"'" "'"$SERVER"'"
-  '
-  assert_success
-  assert_output --partial '"format_file"'
+  [ -z "$output" ]
 }
 
 @test "plugin README first ## heading is Install" {
@@ -265,16 +153,16 @@ rec_stub() {
     'printf "reformatted-by-'"$1"'\n" > "$last"'
 }
 
-# format_file_call <file_path> <cwd> — one initialize + one tools/call over stdio on a
-# fresh server process, on the isolated PATH. Echoes the tools/call structuredContent.
+# format_file_call <file_path> <cwd> -- pipe one PostToolUse hook-JSON object into a
+# fresh format-file.mjs invocation, on the isolated PATH. Echoes stdout, or the
+# literal string "{}" when the script printed nothing (matches the old JSON-RPC
+# helper's contract, so `[ "$output" = "{}" ]` assertions keep working unchanged).
 format_file_call() {
   local fp="$1" cwd="$2"
-  {
-    printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n'
-    printf '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"format_file","arguments":%s}}\n' \
-      "$(jq -cn --arg f "$fp" --arg c "$cwd" '{hook_event_name:"PostToolUse", tool_name:"Write", tool_input:{file_path:$f}, tool_response:{success:true}, cwd:$c}')"
-  } | env PATH="$MOCKBIN" HOME="$HOME" RECORD="$RECORD" node "$SERVER" 2>/dev/null \
-    | jq -c 'select(.id == 2) | .result.structuredContent'
+  local out
+  out="$(jq -cn --arg f "$fp" --arg c "$cwd" '{hook_event_name:"PostToolUse", tool_name:"Write", tool_input:{file_path:$f}, tool_response:{success:true}, cwd:$c}' \
+    | env PATH="$MOCKBIN" HOME="$HOME" RECORD="$RECORD" node "$SERVER" 2>/dev/null)"
+  if [ -n "$out" ]; then printf '%s' "$out"; else printf '{}'; fi
 }
 
 @test "formats a shell file: shfmt runs, file changes, additionalContext returned" {
@@ -336,19 +224,6 @@ format_file_call() {
   printf 'echo x\n' > "$cwd/node_modules/x/a.sh"
   rec_stub shfmt
   run format_file_call "$cwd/node_modules/x/a.sh" "$cwd"
-  assert_success
-  [ "$output" = "{}" ]
-  [ ! -s "$RECORD" ]
-}
-
-@test "auto_format=false in user settings -> formatter never invoked" {
-  command -v node >/dev/null 2>&1 || skip "node not installed"
-  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
-  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
-  printf 'echo  hi\n' > "$cwd/a.sh"
-  rec_stub shfmt
-  printf '{"pluginConfigs":{"universal-format@kwitsch-plugins":{"options":{"auto_format":false}}}}\n' > "$HOME/.claude/settings.json"
-  run format_file_call "$cwd/a.sh" "$cwd"
   assert_success
   [ "$output" = "{}" ]
   [ ! -s "$RECORD" ]
