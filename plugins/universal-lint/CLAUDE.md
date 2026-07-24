@@ -1,6 +1,6 @@
 # CLAUDE.md — universal-lint
 
-Hooks-only plugin: a PostToolUse `Write|Edit` `command` hook runs the just-written file's standard linter (check-only, never `--fix`/`--format`/`--write`) for Shell/Java/Kotlin/JS-TS/Python/Go/YAML/Markdown, backed by a self-contained zero-dep `hooks/lint-file.mjs`. JSON is deliberately excluded (see "JSON: not covered" below). No `userConfig` — the hook is always active once the plugin is installed (see "No toggle" below).
+Hooks-only plugin: a PostToolUse `Write|Edit` `command` hook runs the just-written file's standard linter (check-only, never `--fix`/`--format`/`--write`) for Shell/Java/Kotlin/JS-TS/Python/Go/YAML/Markdown/SCSS, backed by a self-contained zero-dep `hooks/lint-file.mjs`. JSON is deliberately excluded (see "JSON: not covered" below). No `userConfig` — the hook is always active once the plugin is installed (see "No toggle" below).
 
 ## Hook design (do not "fix" without reading this)
 
@@ -24,6 +24,13 @@ package at all (PyPI/pip only). No other chain tool gets an npx fallback —
 see `universal-format`'s `CLAUDE.md` for the npm-provenance research; the
 same conclusions apply here (`ruff`, `golangci-lint`, `go`, `ktlint`,
 `checkstyle` have no safe npm equivalent).
+
+`stylelint` (SCSS) joins the eslint/markdownlint npx-fallback group (its
+npm package name matches its single bin, same safe shape as `eslint`) but
+does **not** share the other eight tools' 0-clean/1-issues/else-skip exit
+contract: `0` clean, `2` a real lint problem, everything else (`1` fatal
+error, `64` invalid CLI usage, `78` invalid config) `skip` — verified
+against stylelint's own CLI docs (stylelint.io/user-guide/usage/cli).
 
 `yamllint` (YAML) and `markdownlint-cli2`/`markdownlint` (Markdown) join the
 same 0-clean/1-issues/else-skip `classifyExit` contract as the five tools
@@ -105,6 +112,7 @@ chain — format-only coverage is the honest answer for this file type.
 ## Tests
 
 `test/universal-lint/test.bats` (hermetic: stub linters on an isolated PATH recording argv, piping a PostToolUse hook-JSON payload into a fresh `lint-file.mjs` invocation per test) + `test/universal-lint/registry.test.mjs` (`node:test` unit tests for `classifyExit`, `classifyCheckstyleOutput`, `resolveCheckstyleConfig`, `buildArgv`, `truncate`). Run:
+
 ```bash
 BATS_LIB_PATH="$PWD/node_modules" npx bats test/universal-lint/
 npm run test:unit

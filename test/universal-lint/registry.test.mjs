@@ -255,3 +255,17 @@ test("parseRtkPrefix: unexpected output -> null", () => {
   assert.equal(parseRtkPrefix("something unexpected"), null);
   assert.equal(parseRtkPrefix("rtk __RTK_PROBE__"), null); // empty prefix
 });
+
+test("REGISTRY: scss chain of 1 (stylelint), carries npmSpec", () => {
+  assert.equal(REGISTRY.scss.chain.length, 1);
+  assert.equal(REGISTRY.scss.chain[0].name, "stylelint");
+  assert.equal(REGISTRY.scss.chain[0].npmSpec, "stylelint");
+});
+
+test("classifyExit: stylelint is 0-clean/2-issues/else-skip (NOT the shared 0/1/else contract)", () => {
+  assert.equal(classifyExit("stylelint", 0), "clean");
+  assert.equal(classifyExit("stylelint", 1), "skip");
+  assert.equal(classifyExit("stylelint", 2), "issues");
+  assert.equal(classifyExit("stylelint", 64), "skip");
+  assert.equal(classifyExit("stylelint", 78), "skip");
+});

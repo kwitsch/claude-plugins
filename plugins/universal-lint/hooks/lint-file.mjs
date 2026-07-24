@@ -62,6 +62,7 @@ const EXT_MAP = {
   ".yaml": "yaml",
   ".yml": "yaml",
   ".md": "markdown",
+  ".scss": "scss",
 };
 
 // Linter registry. chain = first tool on PATH wins. Every entry runs check-only --
@@ -100,6 +101,7 @@ export const REGISTRY = {
       { name: "markdownlint", args: [], npmSpec: "markdownlint-cli" },
     ],
   },
+  scss: { chain: [{ name: "stylelint", args: [], npmSpec: "stylelint" }] },
 };
 
 // PATH probe cache (server-lifetime): tool name -> boolean on PATH.
@@ -230,7 +232,10 @@ function runLintTool(tool, argv, spawnOpts) {
   if (onPath("rtk")) {
     const rtkPrefix = getRtkPrefix(tool);
     if (rtkPrefix) {
-      const rtkResult = tryRtk([...rtkPrefix, ...argv.slice(tool.args.length)], spawnOpts);
+      const rtkResult = tryRtk(
+        [...rtkPrefix, ...argv.slice(tool.args.length)],
+        spawnOpts,
+      );
       if (rtkResult) return rtkResult;
     }
   }
@@ -297,6 +302,14 @@ export function classifyExit(toolName, status) {
     case "go": // go vet: 0 clean, non-zero = "problem reported OR erroneous invocation" (Go's
       // own docs don't separate the two); accepted -- see design doc Risks.
       return status === 0 ? "clean" : "issues";
+    case "stylelint":
+      // 0 clean, 2 lint problem, else crash/misconfig (1 fatal error, 64
+      // invalid usage, 78 invalid config) -- verified against
+      // stylelint.io/user-guide/usage/cli. Differs from the 0/1/else
+      // contract the other 7 tools share.
+      if (status === 0) return "clean";
+      if (status === 2) return "issues";
+      return "skip";
     default:
       return "skip";
   }
