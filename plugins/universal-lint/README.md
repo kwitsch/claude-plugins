@@ -10,28 +10,35 @@ Silently runs each language's standard linter (read-only — never autofixes) on
 
 ## What it does
 
-An async PostToolUse `Write|Edit` command hook (no MCP server — the plugin has exactly one hook) runs the just-written file's standard linter, check-only, for eight languages. The linter runs when its CLI is on `PATH` — or, for `eslint`/`markdownlint-cli2`/`markdownlint`, via the `npx` fallback (see below); an unavailable linter (no `PATH` CLI and no `npx` fallback), any crash or misconfiguration, an unsupported extension, a file outside the project, or a file under `node_modules/`/`vendor/`/`.git/` is a **silent no-op** — the hook never blocks or degrades the session, and it never modifies the file (that's `universal-format`'s job, not this plugin's — this plugin never passes `--fix`/`--format`/`--write` to anything). When (and only when) the linter reports real findings, the hook returns them as context (delivered on the next turn, since the hook runs asynchronously) so Claude can fix them itself.
+An async PostToolUse `Write|Edit` command hook (no MCP server — the plugin has exactly one hook) runs the just-written file's standard linter, check-only, for nine languages. The linter runs when its CLI is on `PATH` — or, for `eslint`/`markdownlint-cli2`/`markdownlint`/`stylelint`, via the `npx` fallback (see below); an unavailable linter (no `PATH` CLI and no `npx` fallback), any crash or misconfiguration, an unsupported extension, a file outside the project, or a file under `node_modules/`/`vendor/`/`.git/` is a **silent no-op** — the hook never blocks or degrades the session, and it never modifies the file (that's `universal-format`'s job, not this plugin's — this plugin never passes `--fix`/`--format`/`--write` to anything). When (and only when) the linter reports real findings, the hook returns them as context (delivered on the next turn, since the hook runs asynchronously) so Claude can fix them itself.
 
 This hook is always active once the plugin is installed — there is no toggle. Per-language opt-out is simply not installing that linter.
 
 ## Supported linters
 
-| Language | Extensions | Linter chain (first on `PATH` wins) | Scope |
-|---|---|---|---|
-| Shell | `.sh` `.bash` | `shellcheck` | file |
-| Java | `.java` | `checkstyle` | file |
-| Kotlin | `.kt` `.kts` | `ktlint` | file |
-| JS/TS | `.js` `.jsx` `.mjs` `.cjs` `.ts` `.tsx` `.mts` `.cts` | `eslint` | file |
-| Python | `.py` `.pyi` | `ruff check` | file |
-| Go | `.go` | `golangci-lint` → `go vet` | **package directory** — `go vet`/`golangci-lint` operate on packages, not standalone files; pointing them at a single file that references sibling-file symbols would otherwise fail with spurious "undefined" errors |
-| YAML | `.yaml` `.yml` | `yamllint` | file |
-| Markdown | `.md` | `markdownlint-cli2` → `markdownlint` | file |
+| Language              | Extensions                                            | Linter chain (first on `PATH` wins)                                                           | Scope                                                                                                                                                                                                                 |
+| --------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Shell                 | `.sh` `.bash`                                         | `shellcheck`                                                                                  | file                                                                                                                                                                                                                  |
+| Java                  | `.java`                                               | `checkstyle`                                                                                  | file                                                                                                                                                                                                                  |
+| Kotlin                | `.kt` `.kts`                                          | `ktlint`                                                                                      | file                                                                                                                                                                                                                  |
+| JS/TS                 | `.js` `.jsx` `.mjs` `.cjs` `.ts` `.tsx` `.mts` `.cts` | `eslint`                                                                                      | file                                                                                                                                                                                                                  |
+| Python                | `.py` `.pyi`                                          | `ruff check`                                                                                  | file                                                                                                                                                                                                                  |
+| Go                    | `.go`                                                 | `golangci-lint` → `go vet`                                                                    | **package directory** — `go vet`/`golangci-lint` operate on packages, not standalone files; pointing them at a single file that references sibling-file symbols would otherwise fail with spurious "undefined" errors |
+| YAML                  | `.yaml` `.yml`                                        | `yamllint`                                                                                    | file                                                                                                                                                                                                                  |
+| Markdown              | `.md`                                                 | `markdownlint-cli2` → `markdownlint`                                                          | file                                                                                                                                                                                                                  |
+| SCSS                  | `.scss`                                               | `stylelint`                                                                                   | file                                                                                                                                                                                                                  |
+| TypeScript type-check | `.ts` `.tsx` `.mts` `.cts`                            | `tsc --noEmit` (independent of the JS/TS `eslint` row above — both can fire on the same edit) | **whole project** — tsc has no single-file mode with project context; scoped by the nearest `tsconfig.json` (a solution-style tsconfig with only `references` is detected and skipped)                                |
 
-`eslint`, `markdownlint-cli2`, and `markdownlint` additionally run via `npx`
-when not installed locally (all official npm packages); `yamllint` has no
-npm distribution and is `PATH`-only. When a linter is on `PATH` and `rtk` is
-also on `PATH`, findings run through `rtk` for more token-efficient output —
-same pass/fail verdict either way.
+`eslint`, `markdownlint-cli2`, `markdownlint`, and `stylelint` additionally
+run via `npx` when not installed locally (all official npm packages);
+`yamllint` has no npm distribution and is `PATH`-only. When a linter is on
+`PATH` and `rtk` is also on `PATH`, findings run through `rtk` for more
+token-efficient output — same pass/fail verdict either way.
+
+`tsc` gets no `npx` fallback (see plugin `CLAUDE.md`) and is cached via
+`--incremental`/`--tsBuildInfoFile` under a persistent plugin data
+directory to keep repeat whole-project checks fast — see `CLAUDE.md`'s
+"TypeScript type-checking (`tsc`)" section for the full rationale.
 
 ## Java: checkstyle ruleset and detection
 

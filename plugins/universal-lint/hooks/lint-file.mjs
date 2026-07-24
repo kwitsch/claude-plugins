@@ -6,23 +6,28 @@
 // linting never mutates the file; findings surface as context on the next turn.
 //
 // lint_file flow (every failure path returns {} silently -- fail open):
-//   guard tool_response.success !== false -> ext in registry -> path inside cwd and not
-//   under node_modules/vendor/.git -> file exists -> some chain tool on PATH (probes
-//   cached) -> first chain tool on PATH wins (no per-file skip -- no style mapping
-//   exists for linters) -> spawnSync (cwd = project cwd, 30s timeout, stdout+stderr
-//   captured) -> classify (exit code for 5 tools; checkstyle by stripped-output, since
-//   its exit code counts only ERROR-severity violations and the bundled default
-//   ruleset runs at `warning`) -> issues found: truncated additionalContext;
-//   clean/skip/no candidate: nothing printed.
+//   guard tool_response.success !== false -> ext in registry or type-check-eligible ->
+//   path inside cwd and not under node_modules/vendor/.git -> file exists -> up to two
+//   INDEPENDENT checks run and their findings combine: (1) the language's chain tool
+//   (first on PATH wins; no per-file skip -- no style mapping exists for linters) ->
+//   spawnSync (cwd = project cwd, 30s timeout, stdout+stderr captured) -> classify
+//   (exit code for most tools; checkstyle by stripped-output, since its exit code
+//   counts only ERROR-severity violations and the bundled default ruleset runs at
+//   `warning`); (2) for .ts/.tsx/.mts/.cts only, a whole-project `tsc --noEmit` via
+//   the nearest tsconfig.json (see runTypeCheck). Any issues found: truncated,
+//   joined additionalContext; no finding from either check: nothing printed.
 import process from "node:process";
 import { spawnSync } from "node:child_process";
 import {
   accessSync,
   existsSync,
+  mkdirSync,
   readFileSync,
   realpathSync,
   constants as fsConstants,
 } from "node:fs";
+import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -31,6 +36,13 @@ const NPX_SPAWN_TIMEOUT_MS = 55000; // cold npx install can exceed SPAWN_TIMEOUT
 const RTK_NPX_ATTEMPT_TIMEOUT_MS = 5000; // bounds the rtk-wrapped npx attempt so a stalled rtk can't consume the bare-npx fallback's cold-install budget too -- worst-case sequential total (this + NPX_SPAWN_TIMEOUT_MS) stays at the hook's 60s ceiling, the same margin the direct-tool branch below already runs at
 const MAX_CONTEXT_CHARS = 4000; // cap on the additionalContext findings text
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024; // spawnSync's 1MB default truncates a noisy linter's output as ENOBUFS
+const TSC_SPAWN_TIMEOUT_MS = 45000; // full-project incremental type-check: slower
+// than a single-file/dir tool (SPAWN_TIMEOUT_MS) but not a cold registry install
+// (NPX_SPAWN_TIMEOUT_MS) -- kept its own, smaller budget so a stale async
+// finding (this hook is async:true) doesn't arrive too late to be useful.
+const TYPE_CHECK_EXTS = new Set([".ts", ".tsx", ".mts", ".cts"]); // tsc only
+// understands real TypeScript syntax -- .js/.jsx/.mjs/.cjs stay eslint-only
+// via the existing jsts chain.
 
 /**
  * @typedef {{ name: string, args: string[], targetsDir?: boolean, classify?: "output", needsCheckstyleConfig?: boolean, npmSpec?: string }} LintTool
@@ -62,6 +74,7 @@ const EXT_MAP = {
   ".yaml": "yaml",
   ".yml": "yaml",
   ".md": "markdown",
+  ".scss": "scss",
 };
 
 // Linter registry. chain = first tool on PATH wins. Every entry runs check-only --
@@ -100,6 +113,7 @@ export const REGISTRY = {
       { name: "markdownlint", args: [], npmSpec: "markdownlint-cli" },
     ],
   },
+  scss: { chain: [{ name: "stylelint", args: [], npmSpec: "stylelint" }] },
 };
 
 // PATH probe cache (server-lifetime): tool name -> boolean on PATH.
@@ -230,11 +244,33 @@ function runLintTool(tool, argv, spawnOpts) {
   if (onPath("rtk")) {
     const rtkPrefix = getRtkPrefix(tool);
     if (rtkPrefix) {
-      const rtkResult = tryRtk([...rtkPrefix, ...argv.slice(tool.args.length)], spawnOpts);
+      const rtkResult = tryRtk(
+        [...rtkPrefix, ...argv.slice(tool.args.length)],
+        spawnOpts,
+      );
       if (rtkResult) return rtkResult;
     }
   }
   return spawnSync(tool.name, argv, spawnOpts);
+}
+
+// Walk from `fileDir` up to `cwd` (inclusive), calling `checkDir(dir)` at each
+// level; returns the first non-null result, or null if none found. Shared
+// walk/termination logic for resolveCheckstyleConfig and resolveTsconfig --
+// only what differs (a fixed set of candidate filenames vs. one file with
+// content validation) stays in each caller.
+/** @param {string} fileDir @param {string} cwd @param {(dir: string) => string | null} checkDir @returns {string | null} */
+function walkUpToCwd(fileDir, cwd, checkDir) {
+  let dir = fileDir;
+  for (;;) {
+    const found = checkDir(dir);
+    if (found) return found;
+    if (dir === cwd) break;
+    const parent = path.dirname(dir);
+    if (parent === dir) break; // filesystem root safety
+    dir = parent;
+  }
+  return null;
 }
 
 // Walk from the file's dir up to cwd (inclusive); return the first existing
@@ -248,18 +284,132 @@ export function resolveCheckstyleConfig(fileDir, cwd) {
     ".checkstyle.xml",
     path.join("config", "checkstyle", "checkstyle.xml"),
   ];
-  let dir = fileDir;
-  for (;;) {
+  return walkUpToCwd(fileDir, cwd, (dir) => {
     for (const rel of candidates) {
       const p = path.join(dir, rel);
       if (existsSync(p)) return p;
     }
-    if (dir === cwd) break;
-    const parent = path.dirname(dir);
-    if (parent === dir) break; // filesystem root safety
-    dir = parent;
+    return null;
+  });
+}
+
+// Walk from the edited file's dir up to cwd (inclusive); return the first
+// tsconfig.json that isn't solution-style (see looksLikeSolutionStyleTsconfig),
+// or null. An unreadable tsconfig.json (permission-denied, or a directory
+// literally named tsconfig.json) is treated as absent -- the walk keeps
+// climbing past it rather than stopping there, so a genuinely valid tsconfig
+// further up is still found.
+/** @param {string} fileDir @param {string} cwd @returns {string | null} */
+export function resolveTsconfig(fileDir, cwd) {
+  return walkUpToCwd(fileDir, cwd, (dir) => {
+    const p = path.join(dir, "tsconfig.json");
+    if (!existsSync(p)) return null;
+    let text;
+    try {
+      text = readFileSync(p, "utf8");
+    } catch {
+      return null; // unreadable -- treat as absent, keep climbing
+    }
+    return !looksLikeSolutionStyleTsconfig(text) ? p : null;
+  });
+}
+
+// Strip // line comments and /* */ block comments from JSONC text, respecting
+// string literals (so a string containing "//" or "/*" isn't misread as a
+// comment start). tsconfig.json is JSONC -- real projects routinely put a
+// comment like "// see project references" or "/* references: ... */" next
+// to a key, which would otherwise false-positive-match the regex checks
+// below. Just enough parsing for that; not a full JSON/JSONC parser.
+/** @param {string} text @returns {string} */
+function stripJsonComments(text) {
+  let out = "";
+  let i = 0;
+  let inString = false;
+  while (i < text.length) {
+    const c = text[i];
+    if (inString) {
+      if (c === "\\") {
+        out += c + (text[i + 1] ?? "");
+        i += 2;
+        continue;
+      }
+      if (c === '"') inString = false;
+      out += c;
+      i++;
+      continue;
+    }
+    if (c === '"') {
+      inString = true;
+      out += c;
+      i++;
+      continue;
+    }
+    if (c === "/" && text[i + 1] === "/") {
+      while (i < text.length && text[i] !== "\n") i++;
+      continue;
+    }
+    if (c === "/" && text[i + 1] === "*") {
+      i += 2;
+      while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) i++;
+      i += 2; // skip past "*/"
+      out += " ";
+      continue;
+    }
+    out += c;
+    i++;
   }
-  return null;
+  return out;
+}
+
+// A "solution-style" tsconfig (`references` present, `include` absent, and
+// `files` either absent or an empty array) compiles and checks nothing under
+// plain `-p` -- confirmed empirically: `tsc --noEmit` against this shape
+// exits 0 even with a real type error in the referenced project.
+// `"files": []` is the TS handbook's own documented way to author a
+// solution-style config (it's how you disable direct compilation), so an
+// empty `files` array must NOT disqualify -- only a real `include`, or a
+// `files` array with at least one entry, means this config actually compiles
+// something itself. Existence/pattern-only regex over comment-stripped text,
+// not a full JSON/JSONC parse (tsconfig permits comments/trailing commas) --
+// unanchored (no line-start requirement) so it matches equally in compact
+// single-line and pretty-printed JSON. A string VALUE that happens to contain
+// the exact literal substring `"references":` (quote-colon included) would
+// still false-match -- accepted residual risk, since tsconfig.json's own
+// fixed schema has no free-text fields where that's a realistic occurrence,
+// unlike comments, which real projects write routinely.
+/** @param {string} text @returns {boolean} */
+export function looksLikeSolutionStyleTsconfig(text) {
+  const stripped = stripJsonComments(text);
+  const hasReferences = /"references"\s*:/.test(stripped);
+  if (!hasReferences) return false;
+  const hasInclude = /"include"\s*:/.test(stripped);
+  if (hasInclude) return false;
+  const filesMatch = stripped.match(/"files"\s*:\s*\[([^\]]*)\]/);
+  const hasNonEmptyFiles = !!filesMatch && filesMatch[1].trim() !== "";
+  return !hasNonEmptyFiles;
+}
+
+// Stable cache-file path for tsc's --tsBuildInfoFile, keyed by the resolved
+// tsconfig's realpath so repeat edits within the same project reuse one cache.
+// Lives under ${CLAUDE_PLUGIN_DATA} (persistent, survives plugin updates,
+// exported to hook processes) -- never inside the project tree, so this
+// plugin's "never writes into the repo" property holds even though tsc itself
+// writes a small bookkeeping file. Mirrors memory-enhancement's flagPathFor
+// hash-suffix idiom, but falls back to the OS temp dir, not ".", when the env
+// var is unset (should not happen in a real hook process, but "." resolves
+// against this function's caller's cwd -- the project root -- which would
+// silently violate the very invariant this comment claims).
+/** @param {string} tsconfigPath @returns {string} */
+export function tsBuildInfoPathFor(tsconfigPath) {
+  let resolved;
+  try {
+    resolved = realpathSync(tsconfigPath);
+  } catch {
+    resolved = path.resolve(tsconfigPath);
+  }
+  const hash = createHash("sha256").update(resolved).digest("hex").slice(0, 8);
+  const dataDir = process.env.CLAUDE_PLUGIN_DATA || tmpdir();
+  return path.resolve(dataDir, `tsc-buildinfo-${hash}.json`);
 }
 
 // Build the argv for a chain tool: fixed bare args, an optional -c <config> for
@@ -297,6 +447,21 @@ export function classifyExit(toolName, status) {
     case "go": // go vet: 0 clean, non-zero = "problem reported OR erroneous invocation" (Go's
       // own docs don't separate the two); accepted -- see design doc Risks.
       return status === 0 ? "clean" : "issues";
+    case "stylelint":
+    case "tsc":
+      // 0 clean, 2 real problem (stylelint: lint violation; tsc: type/syntax
+      // diagnostic), else crash/misconfig/invalid-project (skip). stylelint's
+      // contract verified against stylelint.io/user-guide/usage/cli. tsc's
+      // contract verified EMPIRICALLY (v6.0.3), not from docs: a real type or
+      // syntax error under --noEmit exits 2; an invalid project path
+      // (nonexistent tsconfig) exits 1 -- the OPPOSITE of the compiler's
+      // documented ExitStatus enum (Success=0,
+      // DiagnosticsPresent_OutputsSkipped=1, _OutputsGenerated=2). Trust the
+      // live behavior, not the enum -- re-verify if the installed tsc major
+      // version changes materially and findings stop surfacing.
+      if (status === 0) return "clean";
+      if (status === 2) return "issues";
+      return "skip";
     default:
       return "skip";
   }
@@ -353,6 +518,104 @@ function selectLintTool(chain) {
   return null;
 }
 
+// Shared spawnSync options builder -- only `timeout` differs between the
+// chain-tool run (SPAWN_TIMEOUT_MS) and the tsc run (TSC_SPAWN_TIMEOUT_MS).
+/** @param {string} cwd @param {number} timeout @returns {any} */
+function buildSpawnOpts(cwd, timeout) {
+  return {
+    cwd,
+    timeout,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    maxBuffer: MAX_BUFFER_BYTES,
+  };
+}
+
+// Run the language's chain-selected tool (existing chain/runLintTool
+// machinery, unchanged behavior) and return its finding, or null on any
+// guard failure / clean / skip verdict. selectLintTool's own null path
+// already covers "nothing on PATH and nothing npx-eligible" -- no separate
+// pre-check needed (an earlier `isToolAvailable`-based short-circuit here was
+// logically redundant with it and has been removed).
+/** @param {LangEntry} lang @param {string} resolved @param {string} cwd @param {string} rel @returns {{tool: string, target: string, text: string} | null} */
+function runChainLint(lang, resolved, cwd, rel) {
+  const tool = selectLintTool(lang.chain);
+  if (!tool) return null;
+
+  const argv = buildArgv(tool, resolved, cwd);
+  const spawnOpts = buildSpawnOpts(cwd, SPAWN_TIMEOUT_MS);
+  const result = runLintTool(tool, argv, spawnOpts);
+  if (result.error || result.signal) return null;
+
+  const target = tool.targetsDir
+    ? path.relative(cwd, path.dirname(resolved)) || "."
+    : rel;
+  let verdict, text;
+  if (tool.classify === "output") {
+    const out = classifyCheckstyleOutput(result.stdout);
+    verdict = out.status;
+    text = out.text;
+  } else {
+    verdict = classifyExit(tool.name, result.status);
+    text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  }
+  if (verdict !== "issues") return null;
+
+  return { tool: tool.name, target, text };
+}
+
+// Run tsc against the whole project governed by the nearest tsconfig.json
+// (tsc has no single-file mode with project context -- confirmed: "When
+// input files are specified on the command line, tsconfig.json files are
+// ignored"). Returns a finding (same {tool, target, text} shape as
+// runChainLint, so callers can treat both uniformly) only on a real "issues"
+// verdict; every other outcome (no tsconfig, no tsc binary, clean,
+// crashed/invalid-project run) returns null -- same silent-skip philosophy
+// as the rest of this file.
+/** @param {string} resolved @param {string} cwd @returns {{tool: string, target: string, text: string} | null} */
+function runTypeCheck(resolved, cwd) {
+  const tsconfigPath = resolveTsconfig(path.dirname(resolved), cwd);
+  if (!tsconfigPath) return null;
+
+  const cachePath = tsBuildInfoPathFor(tsconfigPath);
+  try {
+    mkdirSync(path.dirname(cachePath), { recursive: true });
+  } catch {
+    return null; // can't create the cache dir -- fail open, no cache-less fallback
+  }
+
+  const staticArgs = ["--noEmit", "--incremental"];
+  const dynamicTail = ["--tsBuildInfoFile", cachePath, "-p", tsconfigPath];
+  const spawnOpts = buildSpawnOpts(cwd, TSC_SPAWN_TIMEOUT_MS);
+
+  let result;
+  if (onPath("tsc")) {
+    // Reuses the shared chain-tool runner so tsc gets the same rtk-compaction
+    // attempt as every other tool, keyed off its static probe args.
+    result = runLintTool(
+      { name: "tsc", args: staticArgs },
+      [...staticArgs, ...dynamicTail],
+      spawnOpts,
+    );
+  } else {
+    // Most real TS projects only have `typescript` as a local devDependency
+    // (node_modules/.bin usually isn't on a hook's PATH) -- no npx fallback
+    // here (see CLAUDE.md: the two-bin `typescript` package makes the
+    // existing npx idiom's correctness unverified for this specific tool).
+    const localTsc = path.join(cwd, "node_modules", ".bin", "tsc");
+    if (!existsSync(localTsc)) return null;
+    result = spawnSync(localTsc, [...staticArgs, ...dynamicTail], spawnOpts);
+  }
+  if (result.error || result.signal) return null;
+  if (classifyExit("tsc", result.status) !== "issues") return null;
+
+  return {
+    tool: "tsc",
+    target: path.relative(cwd, path.dirname(tsconfigPath)) || ".",
+    text: `${result.stdout ?? ""}\n${result.stderr ?? ""}`,
+  };
+}
+
 // The lint_file tool handler. Returns {} on every guard failure / clean / skip (fail open).
 /** @param {PostToolUseHookInput} args @returns {HookResult} */
 function lintFileHandler(args) {
@@ -375,48 +638,38 @@ function lintFileHandler(args) {
     )
       return {};
 
-    const lang = EXT_MAP[path.extname(resolved).toLowerCase()];
-    if (!lang) return {};
+    const ext = path.extname(resolved).toLowerCase();
+    const lang = EXT_MAP[ext];
+    const typeCheckEligible = TYPE_CHECK_EXTS.has(ext);
+    if (!lang && !typeCheckEligible) return {};
     if (!existsSync(resolved)) return {};
 
-    // Cached O(1) PATH probe before the uncached settings-file reads.
-    const candidate = REGISTRY[lang].chain.find((t) =>
-      isToolAvailable(t, onPath(t.name), onPath("npx")),
-    );
-    if (!candidate) return {};
-
-    const tool = selectLintTool(REGISTRY[lang].chain);
-    if (!tool) return {};
-
-    const argv = buildArgv(tool, resolved, cwd);
-    const spawnOpts = {
-      cwd,
-      timeout: SPAWN_TIMEOUT_MS,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      maxBuffer: MAX_BUFFER_BYTES,
-    };
-    const result = runLintTool(tool, argv, spawnOpts);
-    if (result.error || result.signal) return {};
-
-    const target = tool.targetsDir
-      ? path.relative(cwd, path.dirname(resolved)) || "."
-      : rel;
-    let verdict, text;
-    if (tool.classify === "output") {
-      const out = classifyCheckstyleOutput(result.stdout);
-      verdict = out.status;
-      text = out.text;
-    } else {
-      verdict = classifyExit(tool.name, result.status);
-      text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+    /** @type {Array<{tool: string, target: string, text: string}>} */
+    const findings = [];
+    if (lang) {
+      const chainResult = runChainLint(REGISTRY[lang], resolved, cwd, rel);
+      if (chainResult) findings.push(chainResult);
     }
-    if (verdict !== "issues") return {};
+    if (typeCheckEligible) {
+      const tsResult = runTypeCheck(resolved, cwd);
+      if (tsResult) findings.push(tsResult);
+    }
+    if (findings.length === 0) return {};
 
+    // truncate() is applied per-finding first (so a single finding's own text
+    // is capped exactly as before this change), then AGAIN over the joined
+    // whole -- two per-finding-capped blocks can still together exceed
+    // MAX_CONTEXT_CHARS when both are near the cap; the outer pass restores a
+    // hard whole-message ceiling. Idempotent/no-op for the single-finding
+    // case (already <= MAX_CONTEXT_CHARS from its own inner truncate()), so
+    // single-finding output is unchanged from before this change.
+    const blocks = findings.map(
+      (f) => `${f.tool} found issues in ${f.target}:\n${truncate(f.text)}`,
+    );
     return {
       hookSpecificOutput: {
         hookEventName: "PostToolUse",
-        additionalContext: `universal-lint: ${tool.name} found issues in ${target}:\n${truncate(text)}`,
+        additionalContext: `universal-lint: ${truncate(blocks.join("\n\n"))}`,
       },
     };
   } catch {

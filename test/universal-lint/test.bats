@@ -87,8 +87,8 @@ export -f rg_or_grep
   assert_success
 }
 
-@test "PostToolUse hook is wired to lint-file.mjs as an async command hook with timeout 60" {
-  run jq -e '.hooks.PostToolUse[0] | .matcher == "Write|Edit" and (.hooks[0].type == "command") and (.hooks[0].command | endswith("hooks/lint-file.mjs")) and (.hooks[0].timeout == 60) and (.hooks[0].async == true)' "$HOOKS"
+@test "PostToolUse hook is wired to lint-file.mjs as an async command hook with timeout 90" {
+  run jq -e '.hooks.PostToolUse[0] | .matcher == "Write|Edit" and (.hooks[0].type == "command") and (.hooks[0].command | endswith("hooks/lint-file.mjs")) and (.hooks[0].timeout == 90) and (.hooks[0].async == true)' "$HOOKS"
   assert_success
 }
 
@@ -684,4 +684,232 @@ rtk_stub() {
   echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("MD041")'
   run rg_or_grep -F "npx --yes markdownlint-cli2 $cwd/a.md" "$RECORD"
   assert_success
+}
+
+# --- behavioral: stylelint (SCSS) --------------------------------------------
+
+@test "stylelint finds an issue (exit 2): additionalContext returned" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '.a{color:red}\n' > "$cwd/a.scss"
+  OUT='a.scss:1:1: Expected a trailing semicolon (declaration-block-trailing-semicolon)'
+  rec_stub stylelint 2
+  run lint_file_call "$cwd/a.scss" "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("trailing-semicolon")'
+  run rg_or_grep -F "stylelint " "$RECORD"
+  assert_success
+}
+
+@test "stylelint clean (exit 0) -> {}" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '.a{color:red;}\n' > "$cwd/a.scss"
+  OUT=""
+  rec_stub stylelint 0
+  run lint_file_call "$cwd/a.scss" "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+}
+
+@test "stylelint exit 1 (fatal error) -> {} (proves 0/2/else, not 0/1/else)" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '.a{color:red;}\n' > "$cwd/a.scss"
+  OUT='SyntaxError: Unexpected token'
+  rec_stub stylelint 1
+  run lint_file_call "$cwd/a.scss" "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+}
+
+@test "stylelint absent but npx present -> npx --yes stylelint fallback runs, issues surfaced" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '.a{color:red}\n' > "$cwd/a.scss"
+  OUT='a.scss:1:1: Expected a trailing semicolon (declaration-block-trailing-semicolon)'
+  rec_stub npx 2
+  run lint_file_call "$cwd/a.scss" "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("trailing-semicolon")'
+  run rg_or_grep -F "npx --yes stylelint $cwd/a.scss" "$RECORD"
+  assert_success
+}
+
+@test "stylelint present on PATH -> npx never invoked even if present" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '.a{color:red;}\n' > "$cwd/a.scss"
+  OUT="clean"
+  rec_stub stylelint 0
+  rec_stub npx 0
+  run lint_file_call "$cwd/a.scss" "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+  run rg_or_grep -E "^stylelint " "$RECORD"
+  assert_success
+  run rg_or_grep -F "npx" "$RECORD"
+  assert_failure
+}
+
+# --- behavioral: tsc (TypeScript type-check, independent of eslint) --------
+
+@test "tsc: nearest tsconfig.json found upward, invoked with -p <path>, issues surfaced with project-root target" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd/src"
+  printf '{"compilerOptions":{"noEmit":true},"include":["src/**/*.ts"]}' > "$cwd/tsconfig.json"
+  printf 'const x: number = 1;\n' > "$cwd/src/a.ts"
+  OUT='src/a.ts(1,1): error TS2322: tsc-finding-marker'
+  rec_stub tsc 2
+  run lint_file_call "$cwd/src/a.ts" "$cwd"
+  assert_success
+  local out="$output"
+  echo "$out" | jq -e '.hookSpecificOutput.additionalContext | test("tsc-finding-marker")'
+  run rg_or_grep -F -- "-p $cwd/tsconfig.json" "$RECORD"
+  assert_success
+  echo "$out" | jq -e '.hookSpecificOutput.additionalContext | test("found issues in \\.:")'
+}
+
+@test "tsc: no tsconfig.json anywhere -> {}, tsc stub never invoked" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'const x: number = 1;\n' > "$cwd/a.ts"
+  OUT="issue"
+  rec_stub tsc 2
+  run lint_file_call "$cwd/a.ts" "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+  [ ! -s "$RECORD" ]
+}
+
+@test "tsc: solution-style tsconfig.json (references only) -> {}, tsc stub never invoked (confirmed blind spot)" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '{"files":[],"references":[{"path":"./pkg"}]}' > "$cwd/tsconfig.json"
+  printf 'const x: number = 1;\n' > "$cwd/a.ts"
+  OUT="issue"
+  rec_stub tsc 2
+  run lint_file_call "$cwd/a.ts" "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+  [ ! -s "$RECORD" ]
+}
+
+@test "tsc clean (exit 0) -> {}" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '{"compilerOptions":{"noEmit":true},"include":["*.ts"]}' > "$cwd/tsconfig.json"
+  printf 'const x: number = 1;\n' > "$cwd/a.ts"
+  OUT=""
+  rec_stub tsc 0
+  run lint_file_call "$cwd/a.ts" "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+}
+
+@test "tsc exit 1 (invalid project) -> {} (proves 0/2/else, opposite of the doc-derived 0/1/else guess)" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '{"compilerOptions":{"noEmit":true},"include":["*.ts"]}' > "$cwd/tsconfig.json"
+  printf 'const x: number = 1;\n' > "$cwd/a.ts"
+  OUT='error TS5058: something is broken'
+  rec_stub tsc 1
+  run lint_file_call "$cwd/a.ts" "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+}
+
+@test "tsc: .js file next to a real tsconfig.json never triggers tsc (extension-gated, not lang-gated)" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '{"compilerOptions":{"noEmit":true,"allowJs":true},"include":["*.js"]}' > "$cwd/tsconfig.json"
+  printf 'let x = 1;\n' > "$cwd/a.js"
+  rec_stub tsc 2
+  rec_stub eslint 0
+  OUT=""
+  run lint_file_call "$cwd/a.js" "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+  run rg_or_grep -E "^tsc " "$RECORD"
+  assert_failure
+}
+
+@test "tsc: absent from PATH but present at node_modules/.bin/tsc -> that absolute path is invoked directly, no rtk attempt" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd/node_modules/.bin"
+  printf '{"compilerOptions":{"noEmit":true},"include":["*.ts"]}' > "$cwd/tsconfig.json"
+  printf 'const x: number = 1;\n' > "$cwd/a.ts"
+  cat > "$cwd/node_modules/.bin/tsc" <<'INNER'
+#!/usr/bin/env bash
+printf "%s %s\n" "localtsc" "$*" >> "$RECORD"
+echo "a.ts(1,1): error TS2322: local-tsc-marker"
+exit 2
+INNER
+  chmod +x "$cwd/node_modules/.bin/tsc"
+  make_stub rtk \
+    'printf "%s %s\n" "rtk" "$*" >> "$RECORD"' \
+    'exit 1'
+  run lint_file_call "$cwd/a.ts" "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("local-tsc-marker")'
+  run rg_or_grep -F "localtsc " "$RECORD"
+  assert_success
+  run rg_or_grep -F "rtk" "$RECORD"
+  assert_failure
+}
+
+@test "tsc: absent from PATH and no node_modules/.bin/tsc -> {}, no candidate" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '{"compilerOptions":{"noEmit":true},"include":["*.ts"]}' > "$cwd/tsconfig.json"
+  printf 'const x: number = 1;\n' > "$cwd/a.ts"
+  run lint_file_call "$cwd/a.ts" "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+}
+
+@test "combined: eslint (jsts chain) and tsc both report issues on the same .ts edit -> one additionalContext with both" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '{"compilerOptions":{"noEmit":true},"include":["*.ts"]}' > "$cwd/tsconfig.json"
+  printf 'let x: number = 1\n' > "$cwd/a.ts"
+  make_stub eslint 'echo "eslint-finding-marker"' 'exit 1'
+  make_stub tsc 'echo "tsc-finding-marker"' 'exit 2'
+  run lint_file_call "$cwd/a.ts" "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("eslint-finding-marker")'
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("tsc-finding-marker")'
+}
+
+@test "combined: outer truncate re-caps the WHOLE joined message even when both per-finding blocks are individually under MAX_CONTEXT_CHARS" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '{"compilerOptions":{"noEmit":true},"include":["*.ts"]}' > "$cwd/tsconfig.json"
+  printf 'let x: number = 1\n' > "$cwd/a.ts"
+  local big; big="$(printf 'x%.0s' $(seq 1 3000))"
+  make_stub eslint "echo \"$big\"" 'exit 1'
+  make_stub tsc "echo \"$big\"" 'exit 2'
+  run lint_file_call "$cwd/a.ts" "$cwd"
+  assert_success
+  # each block (~3000 chars) is individually under the 4000-char per-finding cap,
+  # but joined (~6000+) must still be re-capped by the outer truncate() pass
+  local len
+  len="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext | length')"
+  [ "$len" -lt 4200 ]
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("… \\(truncated\\)$")'
 }
