@@ -281,20 +281,23 @@ export function resolveCheckstyleConfig(fileDir, cwd) {
 
 // Walk from the edited file's dir up to cwd (inclusive); return the first
 // tsconfig.json that isn't solution-style (see looksLikeSolutionStyleTsconfig),
-// or null. Mirrors resolveCheckstyleConfig's walk shape.
+// or null. An unreadable tsconfig.json (permission-denied, or a directory
+// literally named tsconfig.json) is treated as absent -- the walk keeps
+// climbing past it rather than stopping there, so a genuinely valid tsconfig
+// further up is still found. Mirrors resolveCheckstyleConfig's walk shape.
 /** @param {string} fileDir @param {string} cwd @returns {string | null} */
 export function resolveTsconfig(fileDir, cwd) {
   let dir = fileDir;
   for (;;) {
     const p = path.join(dir, "tsconfig.json");
     if (existsSync(p)) {
-      let text = "";
+      let text;
       try {
         text = readFileSync(p, "utf8");
       } catch {
-        /* unreadable tsconfig.json -> treat as absent */
+        text = null; // unreadable -- treat as absent, keep climbing
       }
-      if (!looksLikeSolutionStyleTsconfig(text)) return p;
+      if (text !== null && !looksLikeSolutionStyleTsconfig(text)) return p;
     }
     if (dir === cwd) break;
     const parent = path.dirname(dir);
@@ -302,6 +305,53 @@ export function resolveTsconfig(fileDir, cwd) {
     dir = parent;
   }
   return null;
+}
+
+// Strip // line comments and /* */ block comments from JSONC text, respecting
+// string literals (so a string containing "//" or "/*" isn't misread as a
+// comment start). tsconfig.json is JSONC -- real projects routinely put a
+// comment like "// see project references" or "/* references: ... */" next
+// to a key, which would otherwise false-positive-match the regex checks
+// below. Just enough parsing for that; not a full JSON/JSONC parser.
+/** @param {string} text @returns {string} */
+function stripJsonComments(text) {
+  let out = "";
+  let i = 0;
+  let inString = false;
+  while (i < text.length) {
+    const c = text[i];
+    if (inString) {
+      if (c === "\\") {
+        out += c + (text[i + 1] ?? "");
+        i += 2;
+        continue;
+      }
+      if (c === '"') inString = false;
+      out += c;
+      i++;
+      continue;
+    }
+    if (c === '"') {
+      inString = true;
+      out += c;
+      i++;
+      continue;
+    }
+    if (c === "/" && text[i + 1] === "/") {
+      while (i < text.length && text[i] !== "\n") i++;
+      continue;
+    }
+    if (c === "/" && text[i + 1] === "*") {
+      i += 2;
+      while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) i++;
+      i += 2; // skip past "*/"
+      out += " ";
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return out;
 }
 
 // A "solution-style" tsconfig (`references` present, `include` absent, and
@@ -312,17 +362,22 @@ export function resolveTsconfig(fileDir, cwd) {
 // solution-style config (it's how you disable direct compilation), so an
 // empty `files` array must NOT disqualify -- only a real `include`, or a
 // `files` array with at least one entry, means this config actually compiles
-// something itself. Existence/pattern-only regex, not a full JSON/JSONC
-// parse (tsconfig permits comments/trailing commas) -- unanchored (no line-start
-// requirement) so it matches equally in compact single-line and pretty-printed
-// JSON.
+// something itself. Existence/pattern-only regex over comment-stripped text,
+// not a full JSON/JSONC parse (tsconfig permits comments/trailing commas) --
+// unanchored (no line-start requirement) so it matches equally in compact
+// single-line and pretty-printed JSON. A string VALUE that happens to contain
+// the exact literal substring `"references":` (quote-colon included) would
+// still false-match -- accepted residual risk, since tsconfig.json's own
+// fixed schema has no free-text fields where that's a realistic occurrence,
+// unlike comments, which real projects write routinely.
 /** @param {string} text @returns {boolean} */
 export function looksLikeSolutionStyleTsconfig(text) {
-  const hasReferences = /"references"\s*:/.test(text);
+  const stripped = stripJsonComments(text);
+  const hasReferences = /"references"\s*:/.test(stripped);
   if (!hasReferences) return false;
-  const hasInclude = /"include"\s*:/.test(text);
+  const hasInclude = /"include"\s*:/.test(stripped);
   if (hasInclude) return false;
-  const filesMatch = text.match(/"files"\s*:\s*\[([^\]]*)\]/);
+  const filesMatch = stripped.match(/"files"\s*:\s*\[([^\]]*)\]/);
   const hasNonEmptyFiles = !!filesMatch && filesMatch[1].trim() !== "";
   return !hasNonEmptyFiles;
 }
@@ -597,18 +652,20 @@ function lintFileHandler(args) {
     }
     if (findings.length === 0) return {};
 
-    // truncate() is applied per-finding (not to the joined whole) so a
-    // single finding renders byte-for-byte identically to before this
-    // change -- the combined message can exceed MAX_CONTEXT_CHARS overall
-    // only in the rare case both checks report near-max-length findings
-    // (accepted, see CLAUDE.md Risks).
+    // truncate() is applied per-finding first (so a single finding's own text
+    // is capped exactly as before this change), then AGAIN over the joined
+    // whole -- two per-finding-capped blocks can still together exceed
+    // MAX_CONTEXT_CHARS when both are near the cap; the outer pass restores a
+    // hard whole-message ceiling. Idempotent/no-op for the single-finding
+    // case (already <= MAX_CONTEXT_CHARS from its own inner truncate()), so
+    // single-finding output is unchanged from before this change.
     const blocks = findings.map(
       (f) => `${f.tool} found issues in ${f.target}:\n${truncate(f.text)}`,
     );
     return {
       hookSpecificOutput: {
         hookEventName: "PostToolUse",
-        additionalContext: `universal-lint: ${blocks.join("\n\n")}`,
+        additionalContext: `universal-lint: ${truncate(blocks.join("\n\n"))}`,
       },
     };
   } catch {

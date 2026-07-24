@@ -894,3 +894,22 @@ INNER
   echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("eslint-finding-marker")'
   echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("tsc-finding-marker")'
 }
+
+@test "combined: outer truncate re-caps the WHOLE joined message even when both per-finding blocks are individually under MAX_CONTEXT_CHARS" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '{"compilerOptions":{"noEmit":true},"include":["*.ts"]}' > "$cwd/tsconfig.json"
+  printf 'let x: number = 1\n' > "$cwd/a.ts"
+  local big; big="$(printf 'x%.0s' $(seq 1 3000))"
+  make_stub eslint "echo \"$big\"" 'exit 1'
+  make_stub tsc "echo \"$big\"" 'exit 2'
+  run lint_file_call "$cwd/a.ts" "$cwd"
+  assert_success
+  # each block (~3000 chars) is individually under the 4000-char per-finding cap,
+  # but joined (~6000+) must still be re-capped by the outer truncate() pass
+  local len
+  len="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext | length')"
+  [ "$len" -lt 4200 ]
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("… \\(truncated\\)$")'
+}

@@ -119,10 +119,16 @@ disqualify it) is explicitly detected and skipped
 (`looksLikeSolutionStyleTsconfig`) — confirmed empirically that such a
 tsconfig compiles/checks nothing and exits `0` even with a real type error
 in the referenced project, which would otherwise silently misreport
-"clean." The detection is an existence/pattern-only regex, not a full
-JSON/JSONC parse (tsconfig permits comments/trailing commas), and
-deliberately unanchored (no line-start requirement) so it matches equally in
-compact single-line and pretty-printed JSON.
+"clean." The detection is an existence/pattern-only regex over
+comment-stripped text (`stripJsonComments`), not a full JSON/JSONC parse —
+tsconfig permits `//` and `/* */` comments and trailing commas, and real
+projects routinely put a comment like `// see project references` next to a
+key, which would otherwise false-positive-match the same regex. Deliberately
+unanchored (no line-start requirement) so it matches equally in compact
+single-line and pretty-printed JSON. A string _value_ containing the exact
+literal substring `"references":` would still false-match — accepted
+residual risk, since tsconfig.json's fixed schema has no free-text fields
+where that's realistic, unlike comments.
 
 To keep repeat full-project checks fast, the run adds `--incremental
 --tsBuildInfoFile <cache path>`, where the cache path lives under
@@ -159,11 +165,21 @@ guaranteed to resolve `tsc` correctly.
 late to be useful, larger than `SPAWN_TIMEOUT_MS` (30s) since a
 full-project incremental check is slower than a single-file/directory
 tool. The hook's own `timeout` (`hooks.json`) is raised from 60 to 90 to
-fit the common case (chain-tool up to 30s + tsc's 45s = 75s, 15s margin);
-the rare compound-cold-path worst case (cold npx eslint 55s + cold tsc 45s
-= 100s) can still exceed it — accepted: the hook is killed, that turn's
-async finding is silently lost (fail-open, not wrong), and the next edit's
-tsc run hits a warm cache.
+fit the common case (chain-tool up to 30s + tsc's 45s = 75s, 15s margin).
+That "30s"/"45s" framing is optimistic, not a hard ceiling: both phases
+reuse `runLintTool`, whose on-`PATH` branch tries `rtk` first and, if that
+attempt itself times out, falls through to a second direct spawn of the
+same tool at the same timeout — so a tool `rtk` claims to support but is
+slow/hangs on can cost up to 2x its nominal budget (chain-tool up to 60s;
+tsc's own on-`PATH` run up to 90s), not just the documented cold-npx-install
+path. This is pre-existing `runLintTool` behavior (predates this plugin's
+`tsc`/`stylelint` additions, and applies to every chain tool, not something
+specific to them) — reworking it is out of this scope. Accepted: whenever
+the combined wall time exceeds the hook's 90s ceiling — the documented
+cold-npx case, or this rtk-doubling case, or both compounding — the hook is
+simply killed and that turn's async finding(s) are silently lost
+(fail-open, not wrong: no incorrect result is ever surfaced), and the next
+edit's tsc run hits a warm cache regardless.
 
 Two overlapping hook processes editing `.ts` files in the same project in
 quick succession hash to the same `--tsBuildInfoFile` path and could

@@ -321,6 +321,18 @@ test("resolveTsconfig: solution-style nearer file is skipped in favor of a real 
   assert.equal(resolveTsconfig(sub, root), path.join(root, "tsconfig.json"));
 });
 
+test("resolveTsconfig: unreadable tsconfig.json (a directory of that name -> EISDIR) is treated as absent, walk continues upward", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ul-ts-"));
+  writeFileSync(
+    path.join(root, "tsconfig.json"),
+    '{"compilerOptions":{},"include":["*.ts"]}',
+  );
+  const sub = path.join(root, "pkg");
+  // a directory named tsconfig.json: existsSync -> true, readFileSync -> EISDIR
+  mkdirSync(path.join(sub, "tsconfig.json"), { recursive: true });
+  assert.equal(resolveTsconfig(sub, root), path.join(root, "tsconfig.json"));
+});
+
 test("looksLikeSolutionStyleTsconfig: references with no files/include -> true", () => {
   assert.equal(
     looksLikeSolutionStyleTsconfig(
@@ -343,6 +355,42 @@ test("looksLikeSolutionStyleTsconfig: no references at all -> false", () => {
   assert.equal(
     looksLikeSolutionStyleTsconfig('{\n  "compilerOptions": {}\n}'),
     false,
+  );
+});
+
+test("looksLikeSolutionStyleTsconfig: a // comment mentioning the literal '\"references\":' text doesn't misclassify a normal default-discovery config (no include/files at all)", () => {
+  assert.equal(
+    looksLikeSolutionStyleTsconfig(
+      '{\n  // mentions "references": here for docs, not a real key\n  "compilerOptions": {}\n}',
+    ),
+    false,
+  );
+});
+
+test("looksLikeSolutionStyleTsconfig: a /* */ comment mentioning the literal '\"references\":' text doesn't misclassify a normal default-discovery config", () => {
+  assert.equal(
+    looksLikeSolutionStyleTsconfig(
+      '{\n  /* mentions "references": here for docs */\n  "compilerOptions": {}\n}',
+    ),
+    false,
+  );
+});
+
+test("looksLikeSolutionStyleTsconfig: a genuine solution-style config with an unrelated comment is still detected", () => {
+  assert.equal(
+    looksLikeSolutionStyleTsconfig(
+      '{\n  // solution file, compiles nothing directly\n  "files": [],\n  "references": [{"path": "./pkg"}]\n}',
+    ),
+    true,
+  );
+});
+
+test("looksLikeSolutionStyleTsconfig: a string value containing // is not misread as a comment start (files array entry survives stripping)", () => {
+  assert.equal(
+    looksLikeSolutionStyleTsconfig(
+      '{\n  "files": ["http://example/a.ts"],\n  "references": [{"path": "./pkg"}]\n}',
+    ),
+    false, // files has a real non-empty entry -> not solution-style
   );
 });
 
