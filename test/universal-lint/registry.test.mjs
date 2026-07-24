@@ -12,6 +12,9 @@ import {
   truncate,
   isToolAvailable,
   parseRtkPrefix,
+  resolveTsconfig,
+  looksLikeSolutionStyleTsconfig,
+  tsBuildInfoPathFor,
 } from "../../plugins/universal-lint/hooks/lint-file.mjs";
 
 const shellcheck = REGISTRY.shell.chain[0];
@@ -268,4 +271,121 @@ test("classifyExit: stylelint is 0-clean/2-issues/else-skip (NOT the shared 0/1/
   assert.equal(classifyExit("stylelint", 2), "issues");
   assert.equal(classifyExit("stylelint", 64), "skip");
   assert.equal(classifyExit("stylelint", 78), "skip");
+});
+
+test("classifyExit: tsc shares stylelint's 0-clean/2-issues/else-skip contract (empirically verified, NOT the ExitStatus-enum-derived 0/1/else)", () => {
+  assert.equal(classifyExit("tsc", 0), "clean");
+  assert.equal(classifyExit("tsc", 1), "skip");
+  assert.equal(classifyExit("tsc", 2), "issues");
+});
+
+test("resolveTsconfig: finds tsconfig.json walking up to cwd", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ul-ts-"));
+  writeFileSync(
+    path.join(root, "tsconfig.json"),
+    '{"compilerOptions":{},"include":["*.ts"]}',
+  );
+  const sub = path.join(root, "src");
+  mkdirSync(sub, { recursive: true });
+  assert.equal(resolveTsconfig(sub, root), path.join(root, "tsconfig.json"));
+});
+
+test("resolveTsconfig: nothing found -> null", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ul-ts-"));
+  assert.equal(resolveTsconfig(dir, dir), null);
+});
+
+test("resolveTsconfig: solution-style tsconfig (references, no files/include) is skipped, keeps walking, -> null when nothing else found", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ul-ts-"));
+  writeFileSync(
+    path.join(root, "tsconfig.json"),
+    '{"files":[],"references":[{"path":"./pkg"}]}',
+  );
+  const sub = path.join(root, "src");
+  mkdirSync(sub, { recursive: true });
+  assert.equal(resolveTsconfig(sub, root), null);
+});
+
+test("resolveTsconfig: solution-style nearer file is skipped in favor of a real one further up", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ul-ts-"));
+  writeFileSync(
+    path.join(root, "tsconfig.json"),
+    '{"compilerOptions":{},"include":["**/*.ts"]}',
+  );
+  const sub = path.join(root, "pkg");
+  mkdirSync(sub, { recursive: true });
+  writeFileSync(
+    path.join(sub, "tsconfig.json"),
+    '{"files":[],"references":[{"path":"./other"}]}',
+  );
+  assert.equal(resolveTsconfig(sub, root), path.join(root, "tsconfig.json"));
+});
+
+test("looksLikeSolutionStyleTsconfig: references with no files/include -> true", () => {
+  assert.equal(
+    looksLikeSolutionStyleTsconfig(
+      '{\n  "files": [],\n  "references": [{"path": "./pkg"}]\n}',
+    ),
+    true,
+  );
+});
+
+test("looksLikeSolutionStyleTsconfig: references alongside include -> false", () => {
+  assert.equal(
+    looksLikeSolutionStyleTsconfig(
+      '{\n  "include": ["src/**/*.ts"],\n  "references": [{"path": "./pkg"}]\n}',
+    ),
+    false,
+  );
+});
+
+test("looksLikeSolutionStyleTsconfig: no references at all -> false", () => {
+  assert.equal(
+    looksLikeSolutionStyleTsconfig('{\n  "compilerOptions": {}\n}'),
+    false,
+  );
+});
+
+test("tsBuildInfoPathFor: stable for the same tsconfig path, differs for a different one", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ul-ts-"));
+  const a = path.join(dir, "tsconfig.json");
+  writeFileSync(a, "{}");
+  const p1 = tsBuildInfoPathFor(a);
+  const p2 = tsBuildInfoPathFor(a);
+  assert.equal(p1, p2);
+  const otherDir = mkdtempSync(path.join(tmpdir(), "ul-ts-"));
+  const b = path.join(otherDir, "tsconfig.json");
+  writeFileSync(b, "{}");
+  assert.notEqual(p1, tsBuildInfoPathFor(b));
+});
+
+test("tsBuildInfoPathFor: respects CLAUDE_PLUGIN_DATA when set", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ul-ts-"));
+  const tsconfig = path.join(dir, "tsconfig.json");
+  writeFileSync(tsconfig, "{}");
+  const dataDir = mkdtempSync(path.join(tmpdir(), "ul-data-"));
+  const prev = process.env.CLAUDE_PLUGIN_DATA;
+  process.env.CLAUDE_PLUGIN_DATA = dataDir;
+  try {
+    const p = tsBuildInfoPathFor(tsconfig);
+    assert.ok(p.startsWith(dataDir));
+  } finally {
+    if (prev === undefined) delete process.env.CLAUDE_PLUGIN_DATA;
+    else process.env.CLAUDE_PLUGIN_DATA = prev;
+  }
+});
+
+test("tsBuildInfoPathFor: falls back to the OS temp dir (not cwd/'.') when CLAUDE_PLUGIN_DATA is unset -- never lands inside the project tree", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ul-ts-"));
+  const tsconfig = path.join(dir, "tsconfig.json");
+  writeFileSync(tsconfig, "{}");
+  const prev = process.env.CLAUDE_PLUGIN_DATA;
+  delete process.env.CLAUDE_PLUGIN_DATA;
+  try {
+    const p = tsBuildInfoPathFor(tsconfig);
+    assert.ok(!p.startsWith(dir), `expected outside ${dir}, got ${p}`);
+    assert.ok(p.startsWith(tmpdir()));
+  } finally {
+    if (prev !== undefined) process.env.CLAUDE_PLUGIN_DATA = prev;
+  }
 });

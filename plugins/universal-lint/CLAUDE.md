@@ -1,10 +1,10 @@
 # CLAUDE.md — universal-lint
 
-Hooks-only plugin: a PostToolUse `Write|Edit` `command` hook runs the just-written file's standard linter (check-only, never `--fix`/`--format`/`--write`) for Shell/Java/Kotlin/JS-TS/Python/Go/YAML/Markdown/SCSS, backed by a self-contained zero-dep `hooks/lint-file.mjs`. JSON is deliberately excluded (see "JSON: not covered" below). No `userConfig` — the hook is always active once the plugin is installed (see "No toggle" below).
+Hooks-only plugin: a PostToolUse `Write|Edit` `command` hook runs the just-written file's standard linter (check-only, never `--fix`/`--format`/`--write`) for Shell/Java/Kotlin/JS-TS/Python/Go/YAML/Markdown/SCSS, backed by a self-contained zero-dep `hooks/lint-file.mjs`. TypeScript files (`.ts`/`.tsx`/`.mts`/`.cts`) additionally get a whole-project `tsc --noEmit` type-check (see "TypeScript type-checking (`tsc`)" below). JSON is deliberately excluded (see "JSON: not covered" below). No `userConfig` — the hook is always active once the plugin is installed (see "No toggle" below).
 
 ## Hook design (do not "fix" without reading this)
 
-- **PostToolUse `Write|Edit` → `command`: `command: "${CLAUDE_PLUGIN_ROOT}/hooks/lint-file.mjs"`, `timeout: 60`, `async: true`.** Invoked directly (no `node` prefix — repo convention for `.mjs` command hooks) once per Write/Edit, no persistent process. No `statusMessage` (silent).
+- **PostToolUse `Write|Edit` → `command`: `command: "${CLAUDE_PLUGIN_ROOT}/hooks/lint-file.mjs"`, `timeout: 90`, `async: true`.** Invoked directly (no `node` prefix — repo convention for `.mjs` command hooks) once per Write/Edit, no persistent process. No `statusMessage` (silent). (Raised from 60 to 90 for `tsc` — see "TypeScript type-checking (`tsc`)" below.)
 - **Single-hook exception to the repo's `mcp_tool`-preferred default (see `.claude/rules/hooks-mcp-server.md`).** This plugin backs exactly one hook, so a persistent MCP stdio server (handshake, `tools/list`/`tools/call` framing) buys nothing a plain per-event script doesn't already give for free. `async: true` removes the one argument that would otherwise favor a server here (avoiding per-event process-spawn latency): the agentic loop doesn't wait for this hook either way. Safe specifically because linting never mutates the file — findings arriving as context one turn later (async's documented delivery timing) has no correctness cost. Compare `universal-format`, which stays synchronous for exactly the opposite reason.
 - **No `bin/mjs-launch.sh` wrapper, no `.mcp.json`.** Removed along with the MCP server (2026-07-24) — a direct `.mjs` command hook needs neither; this also means the script always runs under `node`, never `bun`, matching the repo's stated default for direct-invoked `.mjs` hooks.
 
@@ -96,6 +96,81 @@ which still gets its full legitimate cold-install budget; worst case
 (5s + 55s = 60s) matches the margin the direct-tool branch above already
 runs at (its own rtk attempt and fallback both share `SPAWN_TIMEOUT_MS` =
 30s, pre-existing and unchanged by this review).
+
+## TypeScript type-checking (`tsc`)
+
+`.ts`/`.tsx`/`.mts`/`.cts` files get a **second, independent** check beyond
+the existing `eslint` chain: a whole-project `tsc --noEmit` type-check. This
+is not a chain alternative (plain `.js`/`.jsx`/`.mjs`/`.cjs` never trigger
+it) — both `eslint` and `tsc` can report findings on the same edit, and both
+are surfaced together in one `additionalContext` (each finding's text is
+truncated independently at `MAX_CONTEXT_CHARS`, preserving the exact
+single-finding output format for every other language).
+
+tsc has no single-file mode with project context (confirmed: "When input
+files are specified on the command line, tsconfig.json files are ignored"),
+so the check necessarily runs the whole project via `-p <nearest
+tsconfig.json>`, found by walking up from the edited file to `cwd`
+(`resolveTsconfig`, same walk shape as `resolveCheckstyleConfig`). A
+**solution-style** tsconfig (`"references"` present, `"include"` absent, and
+`"files"` either absent or an empty array — `"files": []` is the TS
+handbook's own documented way to author one, so an empty array must not
+disqualify it) is explicitly detected and skipped
+(`looksLikeSolutionStyleTsconfig`) — confirmed empirically that such a
+tsconfig compiles/checks nothing and exits `0` even with a real type error
+in the referenced project, which would otherwise silently misreport
+"clean." The detection is an existence/pattern-only regex, not a full
+JSON/JSONC parse (tsconfig permits comments/trailing commas), and
+deliberately unanchored (no line-start requirement) so it matches equally in
+compact single-line and pretty-printed JSON.
+
+To keep repeat full-project checks fast, the run adds `--incremental
+--tsBuildInfoFile <cache path>`, where the cache path lives under
+`${CLAUDE_PLUGIN_DATA}` (persistent, exported to hook processes — never
+inside the project tree, so this plugin's "never writes into the repo"
+property holds), named by hashing the tsconfig's realpath
+(`tsBuildInfoPathFor`, mirroring `memory-enhancement`'s `flagPathFor`
+hash-suffix idiom). Verified empirically against this repo's own
+`tsconfig.json`: a cold run took 0.70s, the cached rerun 0.29s.
+
+`classifyExit`'s `"tsc"` case shares stylelint's 0-clean/2-issues/else-skip
+contract — verified **empirically** (tsc v6.0.3), not from documentation: a
+real type or syntax error under `--noEmit` exits `2`; an invalid project
+path (nonexistent tsconfig) exits `1` — the _opposite_ of what the
+compiler's documented `ExitStatus` enum (`Success=0`,
+`DiagnosticsPresent_OutputsSkipped=1`, `_OutputsGenerated=2`) suggested.
+Trust the live behavior, not the enum — re-verify if the installed `tsc`
+major version changes materially and findings stop surfacing.
+
+Discovery: `tsc` on `PATH` first (runs through the same `runLintTool`
+rtk-compaction attempt every other chain tool gets, keyed off the static
+probe args `--noEmit --incremental`), else `<cwd>/node_modules/.bin/tsc`
+(the common case — most projects only have `typescript` as a local
+devDependency) invoked directly with no rtk attempt (rtk's own tool
+database matches by well-known command name, not arbitrary absolute paths).
+**No `npx` fallback** — the `typescript` npm package ships two bins (`tsc`,
+`tsserver`) with neither matching the package name, so the existing
+`npx --yes <npmSpec> <argv>` single-positional idiom (verified correct only
+when package/bin name match or the package has exactly one bin) isn't
+guaranteed to resolve `tsc` correctly.
+
+`TSC_SPAWN_TIMEOUT_MS` (45s) is its own budget — smaller than
+`NPX_SPAWN_TIMEOUT_MS` (55s) so a stale async finding doesn't arrive too
+late to be useful, larger than `SPAWN_TIMEOUT_MS` (30s) since a
+full-project incremental check is slower than a single-file/directory
+tool. The hook's own `timeout` (`hooks.json`) is raised from 60 to 90 to
+fit the common case (chain-tool up to 30s + tsc's 45s = 75s, 15s margin);
+the rare compound-cold-path worst case (cold npx eslint 55s + cold tsc 45s
+= 100s) can still exceed it — accepted: the hook is killed, that turn's
+async finding is silently lost (fail-open, not wrong), and the next edit's
+tsc run hits a warm cache.
+
+Two overlapping hook processes editing `.ts` files in the same project in
+quick succession hash to the same `--tsBuildInfoFile` path and could
+interleave writes — accepted: the buildinfo is a performance cache, not a
+correctness input, so a corrupted file either makes tsc silently fall back
+to a full rebuild (self-healing) or exit non-`0`/`2` (falls into the "skip"
+bucket — a missed finding that turn, not a wrong one).
 
 ## JSON: not covered (do not "fix" without reading this)
 
