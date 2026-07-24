@@ -696,9 +696,9 @@ assert_success
   assert_success
 }
 
-@test "plugin.json version bumped for the fresh-work skill split (this unreleased branch)" {
+@test "plugin.json version bumped for the npm-ci-on-worktree hook (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.16.0"
+  assert_output "0.17.0"
 }
 
 @test "plugin.json description mentions fresh-work and its sibling skills" {
