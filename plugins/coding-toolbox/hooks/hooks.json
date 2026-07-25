@@ -10,6 +10,16 @@
             "statusMessage": "Checking file encoding"
           }
         ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "plugin:coding-toolbox:coding-toolbox-hooks",
+            "tool": "reroute_explore"
+          }
+        ]
       }
     ],
     "PostToolUse": [

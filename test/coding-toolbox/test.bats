@@ -1958,8 +1958,8 @@ make_fixtures() {
   assert_success
 }
 
-@test "PreToolUse has exactly one hook entry (golden-rules reminder removed)" {
-  run jq -e '.hooks.PreToolUse | length == 1' "$HOOKS/hooks.json"
+@test "PreToolUse has exactly two hook entries (encoding-guard + reroute_explore)" {
+  run jq -e '.hooks.PreToolUse | length == 2' "$HOOKS/hooks.json"
   assert_success
 }
 
@@ -2135,6 +2135,134 @@ EOF
 @test ".mcp.json wires worktree_refresh's userConfig toggle via env, not hooks.json input" {
   run jq -e '.mcpServers["coding-toolbox-hooks"].env.CODING_TOOLBOX_WORKTREE_REFRESH == "${user_config.worktree_refresh}"' "$PLUGIN/.mcp.json"
   assert_success
+}
+
+# --- reroute_explore (PreToolUse Agent|Task -> coding-toolbox:explore) -----
+
+@test "PreToolUse second entry wires Agent|Task to the reroute_explore mcp_tool" {
+  run jq -e '.hooks.PreToolUse[1]
+    | .matcher == "Agent|Task"
+      and (.hooks[0].type == "mcp_tool")
+      and (.hooks[0].server == "plugin:coding-toolbox:coding-toolbox-hooks")
+      and (.hooks[0].tool == "reroute_explore")' "$HOOKS/hooks.json"
+  assert_success
+}
+
+@test ".mcp.json wires explore_agent_reroute's userConfig toggle via env" {
+  run jq -e '.mcpServers["coding-toolbox-hooks"].env.CODING_TOOLBOX_EXPLORE_REROUTE == "${user_config.explore_agent_reroute}"' "$PLUGIN/.mcp.json"
+  assert_success
+}
+
+@test "plugin.json declares explore_agent_reroute userConfig: boolean, default true, fail-open" {
+  run jq -e '.userConfig.explore_agent_reroute
+    | .type == "boolean"
+      and .default == true
+      and (.title | length > 0)
+      and (.description | length > 0)' "$PLUGIN/.claude-plugin/plugin.json"
+  assert_success
+}
+
+@test "plugin.json description mentions the explore agent reroute" {
+  run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
+  assert_output --partial "explore_agent_reroute"
+}
+
+# reroute_explore_call <subagent_type> [tool_input_json] [env_value] -- drive
+# the reroute_explore MCP tool over JSON-RPC; prints the tools/call
+# structuredContent JSON. tool_input_json defaults to {} merged with
+# subagent_type; env_value defaults to empty string (enabled -- fail-open,
+# not the same as genuinely unset, see the dedicated unset-case test below).
+reroute_explore_call() {
+  local subagent_type="$1" env_value="${3:-}"
+  local extra="$2"
+  [ -z "$extra" ] && extra="{}"
+  local input
+  input="$(jq -c --arg st "$subagent_type" '. + {subagent_type: $st}' <<< "$extra")"
+  {
+    printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n'
+    printf '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"reroute_explore","arguments":{"hook_event_name":"PreToolUse","tool_input":%s}}}\n' "$input"
+  } | CODING_TOOLBOX_EXPLORE_REROUTE="$env_value" node "$PLUGIN/mcp/server.mjs" 2>/dev/null \
+    | jq -c 'select(.id == 2) | .result.structuredContent'
+}
+
+@test "reroute_explore rewrites subagent_type explore to coding-toolbox:explore" {
+  if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
+  run reroute_explore_call "explore"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.permissionDecision == "allow"
+    and .hookSpecificOutput.updatedInput.subagent_type == "coding-toolbox:explore"'
+}
+
+@test "reroute_explore is case-insensitive (Explore, EXPLORE)" {
+  if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
+  for variant in "Explore" "EXPLORE"; do
+    run reroute_explore_call "$variant"
+    assert_success
+    echo "$output" | jq -e '.hookSpecificOutput.updatedInput.subagent_type == "coding-toolbox:explore"'
+  done
+}
+
+@test "reroute_explore preserves other tool_input keys" {
+  if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
+  run reroute_explore_call "explore" '{"description":"quick search"}'
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.updatedInput.description == "quick search"
+    and .hookSpecificOutput.updatedInput.subagent_type == "coding-toolbox:explore"'
+}
+
+@test "reroute_explore no-ops for other subagent types" {
+  if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
+  run reroute_explore_call "general-purpose"
+  assert_success
+  [ "$output" = "{}" ]
+}
+
+@test "reroute_explore no-ops for a missing subagent_type" {
+  if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
+  run bash -c '
+    printf "%s\n%s\n" \
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}" \
+      "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"reroute_explore\",\"arguments\":{\"hook_event_name\":\"PreToolUse\",\"tool_input\":{}}}}" \
+    | node "'"$PLUGIN"'/mcp/server.mjs" 2>/dev/null \
+    | jq -c "select(.id == 2) | .result.structuredContent"
+  '
+  assert_success
+  [ "$output" = "{}" ]
+}
+
+@test "reroute_explore no-ops entirely when disabled via env" {
+  if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
+  run reroute_explore_call "explore" "{}" "false"
+  assert_success
+  [ "$output" = "{}" ]
+}
+
+@test "reroute_explore fail-open: rewrites when the env var is entirely unset (not just empty)" {
+  if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
+  run bash -c '
+    unset CODING_TOOLBOX_EXPLORE_REROUTE
+    printf "%s\n%s\n" \
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}" \
+      "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"reroute_explore\",\"arguments\":{\"hook_event_name\":\"PreToolUse\",\"tool_input\":{\"subagent_type\":\"explore\"}}}}" \
+    | node "'"$PLUGIN"'/mcp/server.mjs" 2>/dev/null \
+    | jq -c "select(.id == 2) | .result.structuredContent"
+  '
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.updatedInput.subagent_type == "coding-toolbox:explore"'
+}
+
+@test "tools/list includes reroute_explore alongside interaction_gate and worktree_refresh" {
+  if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
+  run bash -c '
+    printf "%s\n%s\n" \
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}" \
+      "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}" \
+    | node "'"$PLUGIN"'/mcp/server.mjs"
+  '
+  assert_success
+  assert_output --partial '"interaction_gate"'
+  assert_output --partial '"worktree_refresh"'
+  assert_output --partial '"reroute_explore"'
 }
 
 @test "fresh-work branch naming demands a concise English summary, never a verbatim slug" {

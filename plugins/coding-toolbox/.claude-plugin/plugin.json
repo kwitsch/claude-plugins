@@ -1,7 +1,7 @@
 {
   "name": "coding-toolbox",
   "version": "0.18.1",
-  "description": "Mechanically enforces the Interaction axis on Stop, blocks content operations on non-UTF-8 files with an encoding hint, runs an async npm ci when a package-lock.json project is entered via EnterWorktree (toggle: npm_ci_on_worktree), refreshes a newly-created worktree from its default branch on origin (toggle: worktree_refresh), and provides fresh-branch, fresh-pr, fresh-work, feature-development, debugging, bump-version, setup-rules and refresh-tools-rule skills — fresh-work classifies a unit of work and dispatches to debugging (fix path) or feature-development (design path, for both feature and refactor: design/plan/implement/review) before opening a PR via fresh-pr; setup-rules installs the golden behavior rules doc (Interaction/Language/Behavior/Mentality) and a tool-routing table as opt-in user-level rules (every project on this machine, also invocable non-interactively via a verbatim argument), refresh-tools-rule is its narrow, model-invocable, non-destructive companion for refreshing an already-installed tool-routing rule — for self-contained git branch, PR/MR, end-to-end work pipeline, semver version-bump and user-level rules setup management.",
+  "description": "Mechanically enforces the Interaction axis on Stop, blocks content operations on non-UTF-8 files with an encoding hint, runs an async npm ci when a package-lock.json project is entered via EnterWorktree (toggle: npm_ci_on_worktree), refreshes a newly-created worktree from its default branch on origin (toggle: worktree_refresh), and reroutes Explore dispatches to its own explore agent (toggle: explore_agent_reroute), and provides fresh-branch, fresh-pr, fresh-work, feature-development, debugging, bump-version, setup-rules and refresh-tools-rule skills — fresh-work classifies a unit of work and dispatches to debugging (fix path) or feature-development (design path, for both feature and refactor: design/plan/implement/review) before opening a PR via fresh-pr; setup-rules installs the golden behavior rules doc (Interaction/Language/Behavior/Mentality) and a tool-routing table as opt-in user-level rules (every project on this machine, also invocable non-interactively via a verbatim argument), refresh-tools-rule is its narrow, model-invocable, non-destructive companion for refreshing an already-installed tool-routing rule — for self-contained git branch, PR/MR, end-to-end work pipeline, semver version-bump and user-level rules setup management.",
   "author": {
     "name": "Kwitsch"
   },
@@ -16,6 +16,12 @@
       "type": "boolean",
       "title": "Worktree refresh on EnterWorktree",
       "description": "When EnterWorktree creates a new worktree (not when switching into an existing one), fetches and rebases it onto the repo's default branch on origin. Values: true (or unset) = enabled; false = disabled — the worktree_refresh hook no-ops immediately, no git commands run. Fail-open: only the literal value false disables it. Default: true.",
+      "default": true
+    },
+    "explore_agent_reroute": {
+      "type": "boolean",
+      "title": "Reroute Explore dispatches to this plugin's explore agent",
+      "description": "When a subagent dispatch's subagent_type normalizes to 'explore' (the built-in Explore subagent), rewrites it to coding-toolbox:explore -- a haiku-pinned, codebase-memory-mcp/rtk-prioritizing 1:1 replacement. Values: true (or unset) = enabled; false = disabled (dispatches to explore run un-rerouted, on the built-in). Fail-open: only the literal value false disables it. Default: true.",
       "default": true
     }
   }
