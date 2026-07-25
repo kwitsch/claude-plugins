@@ -210,8 +210,8 @@ to this toggle.
 `fresh-branch.sh` + colocated `fresh-branch.reference.md` per
 `.claude/rules/script-authoring.md`'s updated convention.
 
-Single inline synchronous bash script (no MCP server, no subagent — same idiom
-as `branch-management:new-branch`), self-detecting worktree state via `git
+Single synchronous bash script (now a standalone file, no MCP server, no
+subagent — same idiom as `branch-management:new-branch`), self-detecting worktree state via `git
 rev-parse --git-dir` vs `--git-common-dir`. Deliberately independent of
 `branch-management` — supports a custom base/upstream and a branch+base pair,
 which `new-branch` does not. Auto-stashes (`git stash push -u`) and pops
