@@ -235,10 +235,23 @@ make_stub() {
 }
 
 @test "update-cc-references allowed-tools include fetch + edit + release tools" {
-  for tool in WebFetch Read Edit Write Glob Bash Skill; do
+  for tool in Workflow Read Edit Write Glob Bash Skill; do
     run rg_or_grep -E "^allowed-tools:.*$tool" "$MAINT"
     [ "$status" -eq 0 ]
   done
+}
+
+@test "update-cc-references never falls back to WebFetch for content" {
+  run rg_or_grep -E "^allowed-tools:" "$MAINT"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"WebFetch"* ]]
+  run rg_or_grep -qi "curl" "$MAINT"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-reference-validator prefers a local doc path over WebFetch" {
+  agent="$REPO_ROOT/.claude/agents/cc-reference-validator.md"
+  rg_or_grep -qi "local file path" "$agent"
 }
 
 @test "update-cc-references covers the new targets and files" {
