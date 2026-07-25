@@ -3,7 +3,7 @@ name: update-cc-references
 description: Updates the harness-optimized Claude Code reference files (skills, agents, hooks, hook-handler-selection, commands, mcp, plugins, memory, settings) by re-fetching the official Anthropic docs and applying deltas — new/renamed/removed frontmatter fields, changed best practices, new hook events/handler fields, new MCP transports, plugin schema changes, new version gates, env vars, settings keys, and permission modes. Use when Anthropic ships Claude Code changes or the reference files look stale.
 argument-hint: [skills|agents|hooks|commands|mcp|plugins|memory|settings|all]
 disable-model-invocation: true
-allowed-tools: WebSearch, Read, Edit, Write, Glob, Bash, Skill, Agent, ToolSearch, Workflow, EnterWorktree
+allowed-tools: WebSearch, Read, Edit, Write, Glob, Grep, Bash, Skill, Agent, ToolSearch, Workflow, EnterWorktree
 ---
 
 # Update Claude Code reference files
@@ -83,11 +83,12 @@ invented ~30 non-existent settings.json keys; the same failure class as a prior 
    repo's `universal-format` PostToolUse hook matches only `Write|Edit` tool calls, so a Bash-fetched
    file is never touched by it — this is _why_ curl-fetching avoids reformatting churn on the raw docs,
    not a separate suppression mechanism).
-4. Validate: if the first line of the fetched file matches `<!DOCTYPE` or `<html`, the `.md` suffix
-   didn't resolve to clean markdown (some `docs.claude.com`/`code.claude.com` aliases redirect wrong
-   under `.md`). Retry once against the doc's corrected canonical path if known (see the SDK URLs
-   above, already fixed from a prior wrong path). Still contaminated → `WebSearch` the doc title, take
-   the canonical URL, curl that.
+4. Validate: if the first line of the fetched file case-insensitively matches `<!doctype` or `<html`,
+   the `.md` suffix didn't resolve to clean markdown (some `docs.claude.com`/`code.claude.com` aliases
+   redirect wrong under `.md`; modern static-site generators emit the doctype lowercase, so match
+   case-insensitively, not just the literal `<!DOCTYPE`). Retry once against the doc's corrected
+   canonical path if known (see the SDK URLs above, already fixed from a prior wrong path). Still
+   contaminated → `WebSearch` the doc title, take the canonical URL, curl that.
 5. A curl failure that can't be resolved this way is a hard stop: report which URL(s) failed to the
    user. Never fall back to `WebFetch`.
 
@@ -149,16 +150,35 @@ Runs entirely in the orchestrator's own context — no `Agent`/`Workflow` dispat
 
 ## Workflow mode (more than one target file)
 
+**Engine selection.** Probe once: `ToolSearch(query: "select:Workflow")`. Available → the `Workflow`
+engine below (this reference instructing the call is the documented opt-in for using it). Absent, or
+`Workflow` rejects the script (meta/API validation error) → do not fight API drift: fall back to
+running every target file through **Inline mode's own procedure, one at a time** (no parallelism, but
+identical correctness — Inline mode's logic has no dependency on the `Workflow` tool at all).
+
 Enter/confirm a shared worktree once up front — skip if the cwd is already a worktree (matching the
 standing background-job convention); if run interactively outside one, call `EnterWorktree` before any
 edit. All target files share this one worktree throughout — no per-file `isolation`, since target files
 are always disjoint (nothing to isolate against — this also matches the `Workflow` tool's own guidance
 to reserve `isolation:'worktree'` for genuine write conflicts).
 
-Invoke the `Workflow` tool with a script shaped like this (fill in `authorPrompt`/`classifyAndVerifyPrompt`/
-`revertPrompt` template functions from the Inline-mode procedure above — same delta checklist, same
-harness-style rules, same version-tell — just executed by dispatched agents instead of the orchestrator
-itself):
+**Resolve inputs before building the script** — the `Workflow` tool's `args` parameter is unreliable
+(this repo's own `implementing.md` records it coming back `undefined` inside the script on two separate
+observed occasions, even when passed correctly); inline every value as a JS literal in the script text
+instead, exactly as `implementing.md`/`reviewing.md` do for their own scripts:
+
+- `urls` — the deduped URL list for every resolved target's mapped docs (from Source-of-truth mapping).
+- `scratchDir` — the scratch dir path (Fetch mechanism above).
+- `targets` — `[{name, files, docs}, ...]` for every resolved target file, from target resolution.
+
+Build the script text with these baked in (`const urls = ${JSON.stringify(urls)}`, etc.) before calling
+`Workflow`. Fill in `authorPrompt`/`classifyAndVerifyPrompt`/`revertPrompt` from the Inline-mode
+procedure above — same delta checklist, same harness-style rules, same version-tell — just executed by
+dispatched agents instead of the orchestrator itself. `authorPrompt` must instruct the agent to compute
+and return `rawDiff` (`git diff HEAD -- <file>`, via its own `Bash` access) alongside its changelog, and
+`classifyAndVerifyPrompt` must pass that `rawDiff` straight through — the validator classifies from the
+diff itself, never from a pre-supplied label (same reasoning as Inline mode step 6-7: an authoring pass
+that mislabels its own contradicting hunk ADDITIVE must not let the gate silently pass it).
 
 ```js
 export const meta = {
@@ -170,20 +190,66 @@ export const meta = {
     { title: "Update" },
     { title: "Verify" },
     { title: "Revert" },
+    { title: "Report" },
   ],
+};
+
+// Inlined by the caller — NOT sourced from `args` (see note above):
+const urls = /* deduped URL array, as a JS literal */
+const scratchDir = /* scratch dir path, as a JS string literal */
+const targets = /* [{name, files, docs}, ...], as a JS array literal */
+
+const ManifestSchema = {
+  type: "object",
+  additionalProperties: { type: "string" },
+};
+const AuthorResultSchema = {
+  type: "object",
+  required: ["file", "rawDiff", "changelog"],
+  properties: {
+    file: { type: "string" },
+    rawDiff: { type: "string" },
+    changelog: { type: "string" },
+  },
+};
+// Matches cc-reference-validator's own documented Output contract: a bare
+// JSON array, one entry per CONTRADICTING hunk — not an object wrapping it.
+const VerdictBatchSchema = {
+  type: "array",
+  items: {
+    type: "object",
+    required: ["hunk", "verdict"],
+    properties: {
+      hunk: { type: "string" },
+      verdict: { enum: ["CONFIRMED", "REJECTED", "UNVERIFIABLE"] },
+      quote: { type: "string" },
+      docPath: { type: "string" },
+      confidence: { enum: ["high", "medium", "low"] },
+      notes: { type: "string" },
+    },
+  },
+};
+const RevertResultSchema = {
+  type: "object",
+  required: ["target", "reverted", "dateReverted"],
+  properties: {
+    target: { type: "string" },
+    reverted: { type: "array", items: { type: "string" } },
+    dateReverted: { type: "boolean" },
+  },
 };
 
 phase("Download");
 const docManifest = await agent(
   `curl these deduped URLs to local files under the given scratch dir (DOCTYPE-contamination check +
    retry + WebSearch-fallback rules from the skill's Fetch mechanism section). Return {url: localAbsolutePath}
-   for every URL: ${JSON.stringify(args.urls)}. Scratch dir: ${args.scratchDir}.`,
+   for every URL: ${JSON.stringify(urls)}. Scratch dir: ${scratchDir}.`,
   { schema: ManifestSchema },
 );
 
 phase("Update");
 const results = await pipeline(
-  args.targets, // [{name, files, docs}, ...] resolved by the orchestrator before this call
+  targets,
   (t) =>
     agent(authorPrompt(t, docManifest), {
       phase: "Update",
@@ -199,17 +265,29 @@ const results = await pipeline(
       agentType: "cc-reference-validator",
       schema: VerdictBatchSchema,
     }),
-  (verified, t) => {
-    const bad = verified.verdicts.filter((v) => v.verdict !== "CONFIRMED");
+  (verdicts, t, i) => {
+    // `verdicts` is the validator's bare array (VerdictBatchSchema), not an object — no `.verdicts`
+    // property to unwrap.
+    const bad = verdicts.filter((v) => v.verdict !== "CONFIRMED");
+    const lowConfidenceKept = verdicts.filter(
+      (v) => v.verdict === "CONFIRMED" && v.confidence === "low",
+    );
     if (!bad.length)
-      return { target: t.name, reverted: [], dateReverted: false };
+      return {
+        target: t.name,
+        reverted: [],
+        dateReverted: false,
+        lowConfidenceKept,
+      };
     // revertPrompt must also instruct: if `bad` covers every CONTRADICTING hunk and no ADDITIVE
     // hunk survives either, revert the `verified` date bump too (file nets to no real change) —
     // the Workflow-mode equivalent of Inline mode's step 8, which this path doesn't get for free.
-    return agent(revertPrompt(t, bad), {
+    // Pass authored.rawDiff through too — a hunk's bare quote/id alone can be ambiguous or
+    // paraphrased; the raw diff lets the revert agent locate the exact hunk unambiguously.
+    return agent(revertPrompt(t, bad, authored.rawDiff), {
       phase: "Revert",
       schema: RevertResultSchema,
-    });
+    }).then((r) => ({ ...r, lowConfidenceKept }));
   },
 );
 
@@ -225,10 +303,12 @@ return { results, docManifest };
   shared-worktree root; the doc manifest's absolute local paths) — this session's 8 parallel dispatches
   already proved this lands edits in the correct worktree.
 - After the `Workflow` call returns: aggregate `results` into the provenance report — `file · claim ·
-old → new · verdict · sourceUrl/quote · action (kept/reverted)` — list every reverted/blocked item
-  explicitly, never drop one silently. A thrown stage drops that one file to `null` (per the tool's own
-  semantics) — report it explicitly as "skipped: `<file>` (`<reason>`)," never silently absorbed into
-  "N files updated."
+old → new · verdict · docPath/quote · action (kept/reverted)` — list every reverted/blocked item
+  explicitly, never drop one silently. Also list every `lowConfidenceKept` entry explicitly (a
+  `confidence:"low"` CONFIRMED is kept, not reverted, but flagged for human attention in the report — a
+  producer field the gate must not silently ignore). A thrown stage drops that one file to `null` (per
+  the tool's own semantics) — report it explicitly as "skipped: `<file>` (`<reason>`)," never silently
+  absorbed into "N files updated."
 
 ## Notes
 

@@ -249,9 +249,11 @@ make_stub() {
   [ "$status" -eq 0 ]
 }
 
-@test "cc-reference-validator prefers a local doc path over WebFetch" {
+@test "cc-reference-validator is local-path-only, no WebFetch fallback" {
   agent="$REPO_ROOT/.claude/agents/cc-reference-validator.md"
   rg_or_grep -qi "local file path" "$agent"
+  ! rg_or_grep -Eq "^tools:.*WebFetch" "$agent"
+  ! rg_or_grep -qi "WebFetch" "$agent"
 }
 
 @test "update-cc-references covers the new targets and files" {
@@ -625,7 +627,6 @@ reroute_call() {
   agent="$REPO_ROOT/.claude/agents/cc-reference-validator.md"
   [ -f "$agent" ]
   rg_or_grep -Eq "^name: cc-reference-validator$" "$agent"
-  rg_or_grep -Eq "^tools:.*WebFetch" "$agent"
   rg_or_grep -Eq "^tools:.*Read" "$agent"
   ! rg_or_grep -Eq "^tools:.*(Write|Edit)" "$agent"
 }
