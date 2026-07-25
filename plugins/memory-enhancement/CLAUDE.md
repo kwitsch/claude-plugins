@@ -43,7 +43,7 @@ feature (v2.1.59+).
   `.bak` backup before writing for each existing changed file (a
   newly-authored file has nothing to back up), then — only if `claude-code-knowledge:cc-compress`
   is among this session's available skills — `Skill(claude-code-knowledge:cc-compress)
-  --confirmed` on every touched non-MEMORY.md file; **no hard dependency** —
+--confirmed` on every touched non-MEMORY.md file; **no hard dependency** —
   `plugin.json` deliberately declares none, since a hard dependency would
   auto-cascade-install `claude-code-knowledge` and make the "else silent
   no-op" branch nearly unreachable; unavailable → skip compression for that
@@ -51,7 +51,7 @@ feature (v2.1.59+).
   index (kept under 200 lines/25KB, written directly -- never passed through
   `cc-compress`, whose path-preservation regex doesn't protect its
   bare-filename links).
-- Optional Phase 5 (2026-07-10): if `coding-toolbox:refresh-tools-rule` is
+- Optional Phase 5: if `coding-toolbox:refresh-tools-rule` is
   available this session, dream invokes it with no arguments
   (`Skill(coding-toolbox:refresh-tools-rule)`) to refresh
   `~/.claude/rules/coding-toolbox-tools.md` -- no hard dependency
@@ -87,6 +87,7 @@ feature (v2.1.59+).
 
 `test/memory-enhancement/test.bats` (bats) + `test/memory-enhancement/hooks.test.mjs`
 (`node --test`). Run:
+
 ```bash
 BATS_LIB_PATH="$PWD/node_modules" npx bats test/memory-enhancement/
 npm run test:unit

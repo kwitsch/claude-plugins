@@ -4,9 +4,9 @@
 
 ## Hooks
 
-| userConfig key | Path pattern | Injected instruction |
-|---|---|---|
-| `hook_plans` | `(^\|\/)docs\/superpowers\/plans\/` | implement plan via `superpowers:subagent-driven-development` |
+| userConfig key | Path pattern                        | Injected instruction                                         |
+| -------------- | ----------------------------------- | ------------------------------------------------------------ |
+| `hook_plans`   | `(^\|\/)docs\/superpowers\/plans\/` | implement plan via `superpowers:subagent-driven-development` |
 
 Reads options from `~/.claude/settings.json` at `pluginConfigs["superpowers-automation@*"].options`. Supports absolute and relative `file_path` (pattern anchors with `(^|\/)`).
 
@@ -25,6 +25,7 @@ Forked skills have no conversation history, so `file-advisor-improver` takes the
 ## Tests
 
 `test/superpowers-automation/test.bats` — run with:
+
 ```bash
-BATS_LIB_PATH=/usr/lib/bats bats test/superpowers-automation/
+BATS_LIB_PATH="$PWD/node_modules" npx bats test/superpowers-automation/
 ```

@@ -3,6 +3,7 @@
 ## Boundary rule
 
 The plugin ships these components:
+
 - `skills/cc-reference/` — the lookup skill + bundled reference files.
 - `skills/cc-review/` — the inline review orchestrator (dispatches `cc-reviewer`, gates fixes through AskUserQuestion).
 - `skills/cc-author/` — the inline authoring orchestrator (dispatches `cc-author-planner`, writes the returned files, gates the optional `cc-review` hand-off).
@@ -42,7 +43,7 @@ Version lives ONLY in `.claude-plugin/plugin.json`. Rules:
 ## Tests
 
 ```bash
-BATS_LIB_PATH=/usr/lib/bats bats test/claude-code-knowledge/
+BATS_LIB_PATH="$PWD/node_modules" npx bats test/claude-code-knowledge/
 ```
 
 The suite is structural: it checks the plugin manifest, the cc-reference skill shape, the reference files under `references/` (incl. the `references/` layout convention + `skill-folder-structure.md`), the expert agent, the mcp_tool reroute server, and that the update-cc-references maintenance skill is present but user-only.
