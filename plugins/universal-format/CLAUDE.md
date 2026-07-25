@@ -4,13 +4,13 @@ Hooks-only plugin: a PostToolUse `Write|Edit` `command` hook silently auto-forma
 
 ## Hook design (do not "fix" without reading this)
 
-- **PostToolUse `Write|Edit` → `command`: `command: "${CLAUDE_PLUGIN_ROOT}/hooks/format-file.mjs"`, `timeout: 60`.** Invoked directly (no `node` prefix), no persistent process. **Deliberately no `async`** — the reformat must land, and Claude must see the "re-read before further edits" notice, before its next tool call touches the file; an async hook's output only arrives on the *next* conversation turn, by which point Claude could already have issued a stale `Edit` against the pre-reformat content. This is the one difference from its sibling `universal-lint`, which IS `async: true` (safe there because linting never mutates the file). No `statusMessage` (silent).
+- **PostToolUse `Write|Edit` → `command`: `command: "${CLAUDE_PLUGIN_ROOT}/hooks/format-file.mjs"`, `timeout: 60`.** Invoked directly (no `node` prefix), no persistent process. **Deliberately no `async`** — the reformat must land, and Claude must see the "re-read before further edits" notice, before its next tool call touches the file; an async hook's output only arrives on the _next_ conversation turn, by which point Claude could already have issued a stale `Edit` against the pre-reformat content. This is the one difference from its sibling `universal-lint`, which IS `async: true` (safe there because linting never mutates the file). No `statusMessage` (silent).
 - **Single-hook exception to the repo's `mcp_tool`-preferred default (see `.claude/rules/hooks-mcp-server.md`).** Same rationale as `universal-lint`: exactly one hook, so a persistent MCP stdio server buys nothing here. Unlike `universal-lint`, this plugin gains no extra latency argument from staying synchronous — it simply drops one moving part (the server) while keeping the same timing guarantee it always had.
-- **No `bin/mjs-launch.sh` wrapper, no `.mcp.json`.** Removed along with the MCP server (2026-07-24); the script always runs under `node` now, never `bun`.
+- **No `bin/mjs-launch.sh` wrapper, no `.mcp.json`.** The script runs directly under `node` (no persistent MCP server).
 
 ## No toggle (do not "fix" without reading this)
 
-This plugin declares no `userConfig` (2026-07-24, deliberate — see `.claude/rules/plugin-userconfig.md`'s exception list). Auto-formatting IS the entire plugin; disabling it is equivalent to uninstalling. Anyone who previously set `auto_format: false` will find that setting silently ignored going forward.
+This plugin declares no `userConfig` — see `.claude/rules/plugin-userconfig.md`'s exception list. Auto-formatting IS the entire plugin; disabling it is equivalent to uninstalling. Anyone who previously set `auto_format: false` will find that setting silently ignored going forward.
 
 ## Runtime behavior (`format_file`)
 
@@ -35,6 +35,7 @@ equally available.
 ## Tests
 
 `test/universal-format/test.bats` (hermetic: stub formatters on an isolated PATH recording argv) + `test/universal-format/*.test.mjs` (`node:test` unit tests for the `.editorconfig` resolver and registry flag mapping). Run:
+
 ```bash
 BATS_LIB_PATH="$PWD/node_modules" npx bats test/universal-format/
 npm run test:unit

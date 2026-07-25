@@ -636,4 +636,4 @@ same structural + runtime-selection coverage as its `universal-lint`
 counterpart (executable, bash shebang, missing-arg exit 64, neither/node/bun
 PATH-selection cases, PATH-append order, and an end-to-end launch of
 `mcp/server.mjs` through the wrapper).
-Run: `BATS_LIB_PATH=/usr/lib/bats bats test/coding-toolbox/`
+Run: `BATS_LIB_PATH="$PWD/node_modules" npx bats test/coding-toolbox/`

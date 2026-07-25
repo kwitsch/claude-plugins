@@ -16,18 +16,18 @@ This hook is always active once the plugin is installed — there is no toggle. 
 
 ## Supported linters
 
-| Language              | Extensions                                            | Linter chain (first on `PATH` wins)                                                           | Scope                                                                                                                                                                                                                 |
-| --------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Shell                 | `.sh` `.bash`                                         | `shellcheck`                                                                                  | file                                                                                                                                                                                                                  |
-| Java                  | `.java`                                               | `checkstyle`                                                                                  | file                                                                                                                                                                                                                  |
-| Kotlin                | `.kt` `.kts`                                          | `ktlint`                                                                                      | file                                                                                                                                                                                                                  |
-| JS/TS                 | `.js` `.jsx` `.mjs` `.cjs` `.ts` `.tsx` `.mts` `.cts` | `eslint`                                                                                      | file                                                                                                                                                                                                                  |
-| Python                | `.py` `.pyi`                                          | `ruff check`                                                                                  | file                                                                                                                                                                                                                  |
-| Go                    | `.go`                                                 | `golangci-lint` → `go vet`                                                                    | **package directory** — `go vet`/`golangci-lint` operate on packages, not standalone files; pointing them at a single file that references sibling-file symbols would otherwise fail with spurious "undefined" errors |
-| YAML                  | `.yaml` `.yml`                                        | `yamllint`                                                                                    | file                                                                                                                                                                                                                  |
-| Markdown              | `.md`                                                 | `markdownlint-cli2` → `markdownlint`                                                          | file                                                                                                                                                                                                                  |
-| SCSS                  | `.scss`                                               | `stylelint`                                                                                   | file                                                                                                                                                                                                                  |
-| TypeScript type-check | `.ts` `.tsx` `.mts` `.cts`                            | `tsc --noEmit` (independent of the JS/TS `eslint` row above — both can fire on the same edit) | **whole project** — tsc has no single-file mode with project context; scoped by the nearest `tsconfig.json` (a solution-style tsconfig with only `references` is detected and skipped)                                |
+| Language              | Extensions                                            | Linter chain (first on `PATH` wins)                           | Scope                                                                                              |
+| --------------------- | ----------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Shell                 | `.sh` `.bash`                                         | `shellcheck`                                                  | file                                                                                               |
+| Java                  | `.java`                                               | `checkstyle`                                                  | file                                                                                               |
+| Kotlin                | `.kt` `.kts`                                          | `ktlint`                                                      | file                                                                                               |
+| JS/TS                 | `.js` `.jsx` `.mjs` `.cjs` `.ts` `.tsx` `.mts` `.cts` | `eslint`                                                      | file                                                                                               |
+| Python                | `.py` `.pyi`                                          | `ruff check`                                                  | file                                                                                               |
+| Go                    | `.go`                                                 | `golangci-lint` → `go vet`                                    | **package directory** — file-level linting would spuriously flag sibling-file symbols as undefined |
+| YAML                  | `.yaml` `.yml`                                        | `yamllint`                                                    | file                                                                                               |
+| Markdown              | `.md`                                                 | `markdownlint-cli2` → `markdownlint`                          | file                                                                                               |
+| SCSS                  | `.scss`                                               | `stylelint`                                                   | file                                                                                               |
+| TypeScript type-check | `.ts` `.tsx` `.mts` `.cts`                            | `tsc --noEmit` (runs independently of the `eslint` row above) | **whole project** — scoped by the nearest `tsconfig.json`                                          |
 
 `eslint`, `markdownlint-cli2`, `markdownlint`, and `stylelint` additionally
 run via `npx` when not installed locally (all official npm packages);
@@ -35,10 +35,9 @@ run via `npx` when not installed locally (all official npm packages);
 `PATH` and `rtk` is also on `PATH`, findings run through `rtk` for more
 token-efficient output — same pass/fail verdict either way.
 
-`tsc` gets no `npx` fallback (see plugin `CLAUDE.md`) and is cached via
-`--incremental`/`--tsBuildInfoFile` under a persistent plugin data
-directory to keep repeat whole-project checks fast — see `CLAUDE.md`'s
-"TypeScript type-checking (`tsc`)" section for the full rationale.
+`tsc` gets no `npx` fallback and is cached via `--incremental`/
+`--tsBuildInfoFile` under a persistent plugin data directory to keep repeat
+whole-project checks fast.
 
 ## Java: checkstyle ruleset and detection
 
@@ -48,11 +47,9 @@ checkstyle's exit code only counts `error`-severity violations, and `google_chec
 
 ## JSON: not covered (why)
 
-No standalone, actively-maintained JSON linter with a clean exit-code
-contract exists: `jsonlint` (npm) has been unmaintained since 2018, and its
-actively-maintained successor `@prantlf/jsonlint` (like `biome lint`)
-conflates "invalid JSON" with "crashed/misconfigured" under the same exit
-code — unlike every other tool in this registry. `universal-format`'s
+No standalone, actively-maintained JSON linter has a clean exit-code
+contract: `jsonlint` (npm) is unmaintained, and its successor
+`@prantlf/jsonlint` (like `biome lint`) conflates "invalid JSON" with
+"crashed/misconfigured" under the same exit code. `universal-format`'s
 `prettier`/`biome` chain already rejects malformed JSON, so format-only
-coverage is the honest answer here rather than building a bespoke
-output-classifier for a tool whose own maintainers haven't decomposed this.
+coverage is the honest answer here.
