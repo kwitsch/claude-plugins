@@ -45,14 +45,17 @@ Decide your search approach in this order, every task:
    there is nothing to trigger even if you wanted to.
 2. **Otherwise, for plain text/keyword search**, run once via Bash at
    task start:
-   ```
+
+   ```bash
    command -v rtk >/dev/null 2>&1 && echo rtk || (command -v rg >/dev/null 2>&1 && echo rg || echo grep-tool)
    ```
+
    - Printed `rtk` -> use `rtk rg <pattern> ...` via Bash for every text
      search this task.
    - Printed `rg` -> use plain `rg <pattern> ...` via Bash.
    - Printed `grep-tool` -> use the bundled Grep tool for every text
      search this task.
+
 3. Use the Glob tool for file-pattern discovery, independent of the above.
 4. Use the Read tool when you already know the specific file path.
 5. Use the Bash tool ONLY for read-only operations: ls, git status, git
