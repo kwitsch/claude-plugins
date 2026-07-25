@@ -18,7 +18,7 @@ setup() {
   # under this suite too, instead of only ever exercising the grep fallback.
   MOCKBIN="$BATS_TEST_TMPDIR/bin"
   mkdir -p "$MOCKBIN"
-  for t in bash env grep rg sed tr head cut timeout sleep mktemp cat rm mkdir awk; do
+  for t in bash env grep rg sed git tr head cut timeout sleep mktemp cat rm mkdir awk; do
     src="$(command -v "$t")" && [ -n "$src" ] && ln -s "$src" "$MOCKBIN/$t"
   done
 
@@ -462,43 +462,23 @@ advance_upstream() {
   run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/skills/fresh-branch/SKILL.md'"
   assert_success
   assert_output --partial "name: fresh-branch"
-  assert_output --partial "AskUserQuestion"
-  assert_output --partial 'Bash(git:*)'
 }
 
-@test "fresh-branch script detects linked worktree via git-dir comparison" {
-  run rg_or_grep -F 'git rev-parse --git-dir' "$PLUGIN/skills/fresh-branch/SKILL.md"
+@test "fresh-branch SKILL.md points at its reference doc before invoking" {
+  run rg_or_grep -F 'fresh-branch.reference.md' "$PLUGIN/skills/fresh-branch/SKILL.md"
+  assert_success
+  run rg_or_grep -F '${CLAUDE_SKILL_DIR}/fresh-branch.sh' "$PLUGIN/skills/fresh-branch/SKILL.md"
   assert_success
 }
 
-# Regression guard: the detection must compare by inode (-ef), never string
-# equality. From a subdirectory --git-dir is absolute and --git-common-dir is
-# relative, so a raw '=' wrongly flags the main worktree as a linked one.
 @test "fresh-branch worktree detection compares git-dir by inode, not string equality" {
-  run rg_or_grep -F -- '-ef "$(git rev-parse --git-common-dir)"' "$PLUGIN/skills/fresh-branch/SKILL.md"
+  run rg_or_grep -F -- '-ef "$(git rev-parse --git-common-dir)"' "$PLUGIN/skills/fresh-branch/fresh-branch.sh"
   assert_success
 }
 
-@test "fresh-branch script carries the documented exit-code contract" {
-  run rg_or_grep -F 'Exit: 0 ok' "$PLUGIN/skills/fresh-branch/SKILL.md"
-  assert_success
-}
-
-@test "fresh-branch script auto-stashes and pops uncommitted changes" {
-  run rg_or_grep -F 'git stash push -u' "$PLUGIN/skills/fresh-branch/SKILL.md"
-  assert_success
-  run rg_or_grep -F 'git stash pop' "$PLUGIN/skills/fresh-branch/SKILL.md"
-  assert_success
-}
-
-@test "fresh-branch worktree path rebases instead of switching branches" {
-  run rg_or_grep -F 'git rebase "origin/$base"' "$PLUGIN/skills/fresh-branch/SKILL.md"
-  assert_success
-}
-
-@test "fresh-branch checks branch-name collision before touching the tree" {
-  run rg_or_grep -F 'refs/heads/$branch' "$PLUGIN/skills/fresh-branch/SKILL.md"
-  assert_success
+@test "fresh-branch SKILL.md no longer embeds the script" {
+  run rg_or_grep -F 'refresh_onto()' "$PLUGIN/skills/fresh-branch/SKILL.md"
+  assert_failure
 }
 
 @test "plugin README lists fresh-branch in a Skills section" {
@@ -506,9 +486,71 @@ advance_upstream() {
   assert_success
 }
 
-@test "fresh-branch treats zero args as a universal refresh, not a non-worktree usage error" {
-  run rg_or_grep -F 'if [ "$#" -eq 0 ]; then' "$PLUGIN/skills/fresh-branch/SKILL.md"
+# setup_git_fixture <dir> — bare "origin" repo + a work clone with an
+# initial commit on the default branch, HEAD detected via origin/HEAD.
+setup_git_fixture() {
+  local dir="$1"
+  git init --bare -q "$dir/origin.git"
+  git clone -q "$dir/origin.git" "$dir/work"
+  (
+    cd "$dir/work" || exit 1
+    git config user.email test@example.com
+    git config user.name Test
+    git commit -q --allow-empty -m init
+    git push -q -u origin HEAD:main
+    git remote set-head origin main
+  )
+}
+
+# See Task 2's note on why this path is built inside the wrapper, not
+# hoisted to a bare top-level variable ($PLUGIN isn't set until setup() runs).
+run_freshbranch() {
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$PLUGIN/skills/fresh-branch/fresh-branch.sh" "$@"
+}
+
+@test "fresh-branch.sh: zero args refreshes the current branch onto default" {
+  setup_git_fixture "$BATS_TEST_TMPDIR"
+  cd "$BATS_TEST_TMPDIR/work" || return 1
+  run_freshbranch
   assert_success
+  assert_output --partial "mode: refresh"
+}
+
+@test "fresh-branch.sh: non-worktree, one arg creates a new branch off default" {
+  setup_git_fixture "$BATS_TEST_TMPDIR"
+  cd "$BATS_TEST_TMPDIR/work" || return 1
+  run_freshbranch feature/x
+  assert_success
+  assert_output --partial "mode: create"
+  assert_output --partial "branch: feature/x"
+}
+
+@test "fresh-branch.sh: refuses a branch name that already exists locally" {
+  setup_git_fixture "$BATS_TEST_TMPDIR"
+  cd "$BATS_TEST_TMPDIR/work" || return 1
+  git branch feature/dup
+  run_freshbranch feature/dup
+  assert_failure 6
+}
+
+@test "fresh-branch.sh: no_remote when origin/HEAD is undetectable" {
+  git init -q "$BATS_TEST_TMPDIR/lone"
+  cd "$BATS_TEST_TMPDIR/lone" || return 1
+  git config user.email test@example.com
+  git config user.name Test
+  git commit -q --allow-empty -m init
+  run_freshbranch
+  assert_failure 4
+}
+
+@test "fresh-branch.sh: stashes and pops uncommitted changes around a refresh" {
+  setup_git_fixture "$BATS_TEST_TMPDIR"
+  cd "$BATS_TEST_TMPDIR/work" || return 1
+  echo dirty > file.txt
+  run_freshbranch
+  assert_success
+  run cat file.txt
+  assert_output "dirty"
 }
 
 #
