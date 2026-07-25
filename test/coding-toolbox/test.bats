@@ -2271,3 +2271,65 @@ reroute_explore_call() {
   assert_output --partial "3–6 **English** words"
   assert_output --partial "never slugify it verbatim"
 }
+
+# --- agents/explore.md ------------------------------------------------
+
+@test "explore agent exists with required frontmatter" {
+  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/agents/explore.md'"
+  assert_success
+  assert_output --partial "name: explore"
+  assert_output --partial "model: haiku"
+}
+
+@test "explore agent grants no Edit/Write/NotebookEdit/Agent tools" {
+  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/agents/explore.md'"
+  assert_success
+  refute_output --partial "Edit"
+  refute_output --partial "Write"
+  refute_output --partial "NotebookEdit"
+  refute_output --regexp '^tools:.*[^a-zA-Z]Agent([^a-zA-Z]|$)'
+}
+
+@test "explore agent grants Read, Glob, Grep, Bash" {
+  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/agents/explore.md'"
+  assert_success
+  assert_output --partial "Read"
+  assert_output --partial "Glob"
+  assert_output --partial "Grep"
+  assert_output --partial "Bash"
+}
+
+@test "explore agent grants the read-only codebase-memory-mcp tool subset" {
+  run cat "$PLUGIN/agents/explore.md"
+  assert_success
+  for t in search_graph trace_path get_code_snippet query_graph get_architecture search_code index_status get_graph_schema list_projects; do
+    assert_output --partial "mcp__codebase-memory-mcp__$t"
+  done
+}
+
+@test "explore agent never grants mutating codebase-memory-mcp tools" {
+  run cat "$PLUGIN/agents/explore.md"
+  assert_success
+  refute_output --partial "mcp__codebase-memory-mcp__index_repository"
+  refute_output --partial "mcp__codebase-memory-mcp__detect_changes"
+  refute_output --partial "mcp__codebase-memory-mcp__ingest_traces"
+  refute_output --partial "mcp__codebase-memory-mcp__manage_adr"
+  refute_output --partial "mcp__codebase-memory-mcp__delete_project"
+}
+
+@test "explore agent documents the rtk rg / rg / Grep search priority chain" {
+  run rg_or_grep -F "rtk rg" "$PLUGIN/agents/explore.md"
+  assert_success
+  run rg_or_grep -F "command -v rtk" "$PLUGIN/agents/explore.md"
+  assert_success
+}
+
+@test "explore agent carries the READ-ONLY MODE banner from the bundled prompt" {
+  run rg_or_grep -F "READ-ONLY MODE" "$PLUGIN/agents/explore.md"
+  assert_success
+}
+
+@test "explore agent documents it never auto-indexes an empty codebase-memory-mcp graph" {
+  run rg_or_grep -iF "do not index it yourself" "$PLUGIN/agents/explore.md"
+  assert_success
+}
