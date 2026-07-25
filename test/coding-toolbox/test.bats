@@ -382,6 +382,32 @@ advance_upstream() {
   assert_output "{}"
 }
 
+# Regression guard for the same abs-vs-relative hazard fresh-branch's detection hit
+# (commit 23328db): from a SUBdirectory, --git-dir comes back absolute while
+# --git-common-dir comes back relative to git's cwd. Resolving that relative value
+# against the node process's cwd instead of the target's makes a plain main checkout
+# look like a linked worktree — and then fetch+rebase runs in the user's checkout.
+@test "worktree_refresh resolves a relative --git-common-dir against the target cwd, not node's" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  read -r ORIGIN CHECKOUT WT < <(setup_worktree_fixture)
+  mkdir -p "$CHECKOUT/sub" "$WT/sub"
+  # advance origin/main from the worktree, so the checkout is genuinely behind:
+  # a wrongly-detected checkout would visibly move to this commit.
+  printf 'worktree change\n' > "$WT/file.txt"
+  git -C "$WT" commit -q -am "worktree advance"
+  git -C "$WT" push -q origin wt-branch:main
+
+  local args out
+  args="$(jq -cn --arg cwd "$CHECKOUT/sub" '{cwd: $cwd, tool_name: "EnterWorktree", tool_input: {name: "x"}, tool_response: {}}')"
+  # node's cwd is the worktree subdir, where "../.git" resolves to a real (but
+  # different) git dir — the false-positive case.
+  out="$(cd "$WT/sub" && worktree_refresh_call "$args")"
+  [ "$out" = "{}" ]
+
+  run git -C "$CHECKOUT" log -1 --format=%s
+  assert_output "initial"
+}
+
 @test "worktree_refresh aborts and reports a rebase conflict" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   read -r ORIGIN CHECKOUT WT < <(setup_worktree_fixture)

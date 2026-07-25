@@ -7,6 +7,7 @@ import process from "node:process";
 import readline from "node:readline";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import path from "node:path";
 
 const SERVER_NAME = "coding-toolbox-hooks"; // keep aligned with the .mcp.json key
 const SERVER_INFO = { name: SERVER_NAME, version: "0.1.0" };
@@ -61,14 +62,16 @@ function git(cwd, args) {
 // Same inode-safe comparison as fresh-branch's SKILL.md script (-ef, not string
 // equality — from inside a worktree --git-dir is absolute, --git-common-dir can be
 // relative, so a naive string compare false-negatives on the very case this exists
-// to detect).
+// to detect). A relative value is relative to the git process's cwd — i.e. `cwd`
+// here, NOT this server's own cwd, which is what realpathSync would resolve it
+// against — so resolve it explicitly first (a no-op on an absolute value).
 /** @param {string} cwd @returns {boolean} */
 function isLinkedWorktree(cwd) {
+  const resolve = (/** @type {string[]} */ args) =>
+    fs.realpathSync(path.resolve(cwd, git(cwd, args)));
   try {
-    const gitDir = fs.realpathSync(git(cwd, ["rev-parse", "--git-dir"]));
-    const commonDir = fs.realpathSync(
-      git(cwd, ["rev-parse", "--git-common-dir"]),
-    );
+    const gitDir = resolve(["rev-parse", "--git-dir"]);
+    const commonDir = resolve(["rev-parse", "--git-common-dir"]);
     return gitDir !== commonDir;
   } catch {
     return false;
