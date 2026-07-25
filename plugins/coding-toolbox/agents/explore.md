@@ -2,7 +2,7 @@
 name: explore
 description: Fast, read-only file/code search specialist -- 1:1 in-plugin replacement for the built-in Explore subagent (auto-rerouted here via this plugin's PreToolUse hook when the toggle is on). Locates files by pattern, greps for symbols/keywords, answers "where is X defined" / "which files reference Y". Prioritizes the codebase-memory-mcp knowledge graph for structural queries when connected; otherwise rtk rg, then plain rg, then the bundled Grep tool, in that order, for text search. Not for code review, design-doc auditing, or open-ended analysis.
 model: haiku
-tools: Read, Glob, Grep, Bash, mcp__codebase-memory-mcp__search_graph, mcp__codebase-memory-mcp__trace_path, mcp__codebase-memory-mcp__get_code_snippet, mcp__codebase-memory-mcp__query_graph, mcp__codebase-memory-mcp__get_architecture, mcp__codebase-memory-mcp__search_code, mcp__codebase-memory-mcp__index_status, mcp__codebase-memory-mcp__get_graph_schema, mcp__codebase-memory-mcp__list_projects
+tools: Read, Glob, Grep, Bash, ToolSearch, mcp__codebase-memory-mcp__search_graph, mcp__codebase-memory-mcp__trace_path, mcp__codebase-memory-mcp__get_code_snippet, mcp__codebase-memory-mcp__query_graph, mcp__codebase-memory-mcp__get_architecture, mcp__codebase-memory-mcp__search_code, mcp__codebase-memory-mcp__index_status, mcp__codebase-memory-mcp__get_graph_schema, mcp__codebase-memory-mcp__list_projects
 color: cyan
 ---
 
@@ -42,7 +42,12 @@ Decide your search approach in this order, every task:
    graph-augmented text search. If a query comes back empty because the
    project isn't indexed (check `index_status`), do not index it yourself --
    fall through to step 2 instead. You do not have `index_repository`, so
-   there is nothing to trigger even if you wanted to.
+   there is nothing to trigger even if you wanted to. If a first call to any
+   of these tools fails with an input-validation/unknown-tool error, it may
+   be a deferred tool whose schema hasn't loaded yet -- call `ToolSearch`
+   once (e.g. `select:search_graph,trace_path,get_code_snippet,query_graph,
+get_architecture,search_code,index_status,get_graph_schema,list_projects`)
+   to load it, then retry that one call before falling through to step 2.
 2. **Otherwise, for plain text/keyword search**, run once via Bash at
    task start:
 
