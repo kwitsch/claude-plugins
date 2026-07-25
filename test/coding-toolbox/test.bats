@@ -1053,7 +1053,7 @@ assert_success
 
 @test "plugin.json version bumped for the npm-ci-on-worktree and worktree_refresh hooks (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.18.1"
+  assert_output "0.18.2"
 }
 
 @test "plugin.json description mentions fresh-work and its sibling skills" {
@@ -1958,8 +1958,8 @@ make_fixtures() {
   assert_success
 }
 
-@test "PreToolUse has exactly one hook entry (golden-rules reminder removed)" {
-  run jq -e '.hooks.PreToolUse | length == 1' "$HOOKS/hooks.json"
+@test "PreToolUse has exactly two hook entries (encoding-guard + reroute_explore)" {
+  run jq -e '.hooks.PreToolUse | length == 2' "$HOOKS/hooks.json"
   assert_success
 }
 
@@ -1973,12 +1973,14 @@ make_fixtures() {
 # package-lock.json exists in the entered worktree's cwd.
 # ---------------------------------------------------------------------------
 
-# npm_ci_hook <enabled-arg> <cwd> -- drive the hook with a PostToolUse
-# EnterWorktree-shaped stdin payload; prints the hook's stdout.
+# npm_ci_hook <enabled-value> <cwd> -- drive the hook with a PostToolUse
+# EnterWorktree-shaped stdin payload via the CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE
+# env var (not argv -- matches how Claude Code actually exports userConfig values);
+# prints the hook's stdout.
 npm_ci_hook() {
   jq -cn --arg cwd "$2" \
     '{tool_name:"EnterWorktree", tool_input:{}, cwd:$cwd}' \
-    | "$HOOKS/npm-ci-on-worktree.mjs" "$1" 2>/dev/null
+    | CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE="$1" "$HOOKS/npm-ci-on-worktree.mjs" 2>/dev/null
 }
 
 # make_npm_stub <exit_code> <stdout_text> -- puts a fake `npm` on PATH that
@@ -2005,7 +2007,7 @@ EOF
   [ -x "$HOOKS/npm-ci-on-worktree.mjs" ]
 }
 
-@test "npm-ci-on-worktree: disabled (argv false) never invokes npm" {
+@test "npm-ci-on-worktree: disabled (env var false) never invokes npm" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   make_npm_stub 0 "ok"
   PROJ="$BATS_TEST_TMPDIR/proj1"; mkdir -p "$PROJ"; : > "$PROJ/package-lock.json"
@@ -2015,11 +2017,23 @@ EOF
   [ ! -f "$CALLLOG" ]
 }
 
-@test "npm-ci-on-worktree: fail-open on missing/placeholder arg still invokes npm" {
+@test "npm-ci-on-worktree: fail-open on unresolved placeholder env value still invokes npm" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   make_npm_stub 0 "ok"
   PROJ="$BATS_TEST_TMPDIR/proj2"; mkdir -p "$PROJ"; : > "$PROJ/package-lock.json"
   run npm_ci_hook '${user_config.npm_ci_on_worktree}' "$PROJ"
+  assert_success
+  [ -z "$output" ]
+  [ -f "$CALLLOG" ]
+  grep -q " ci\$" "$CALLLOG"
+}
+
+@test "npm-ci-on-worktree: fail-open when the env var is entirely unset still invokes npm" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  make_npm_stub 0 "ok"
+  PROJ="$BATS_TEST_TMPDIR/proj2b"; mkdir -p "$PROJ"; : > "$PROJ/package-lock.json"
+  run bash -c "jq -cn --arg cwd '$PROJ' '{tool_name:\"EnterWorktree\", tool_input:{}, cwd:\$cwd}' \
+    | env -u CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE '$HOOKS/npm-ci-on-worktree.mjs' 2>/dev/null"
   assert_success
   [ -z "$output" ]
   [ -f "$CALLLOG" ]
@@ -2059,7 +2073,7 @@ EOF
 
 @test "npm-ci-on-worktree fails open on garbage stdin" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
-  run bash -c "printf 'not json at all' | '$HOOKS/npm-ci-on-worktree.mjs' true 2>/dev/null"
+  run bash -c "printf 'not json at all' | CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE=true '$HOOKS/npm-ci-on-worktree.mjs' 2>/dev/null"
   assert_success
   [ -z "$output" ]
 }
@@ -2074,17 +2088,18 @@ EOF
   PROJ="$BATS_TEST_TMPDIR/proj6"; mkdir -p "$PROJ"; : > "$PROJ/package-lock.json"
   local payload="$BATS_TEST_TMPDIR/payload.json"
   jq -cn --arg cwd "$PROJ" '{tool_name:"EnterWorktree", tool_input:{}, cwd:$cwd}' > "$payload"
-  run env -i PATH="$fakebin" HOME="$HOME" bash -c "'$HOOKS/npm-ci-on-worktree.mjs' true < '$payload'"
+  run env -i PATH="$fakebin" HOME="$HOME" CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE=true \
+    bash -c "'$HOOKS/npm-ci-on-worktree.mjs' < '$payload'"
   assert_success
   assert_output --partial "npm not found on PATH"
 }
 
-@test "npm-ci-on-worktree PostToolUse hook wired for EnterWorktree with async:true and userConfig arg" {
+@test "npm-ci-on-worktree PostToolUse hook wired for EnterWorktree with async:true and no args (env-var toggle, not interpolated)" {
   run jq -e '.hooks.PostToolUse[0]
     | .matcher == "EnterWorktree"
       and (.hooks[0].type == "command")
       and (.hooks[0].command == "${CLAUDE_PLUGIN_ROOT}/hooks/npm-ci-on-worktree.mjs")
-      and (.hooks[0].args == ["${user_config.npm_ci_on_worktree}"])
+      and (.hooks[0] | has("args") | not)
       and (.hooks[0].async == true)' "$HOOKS/hooks.json"
   assert_success
 }
@@ -2122,9 +2137,207 @@ EOF
   assert_success
 }
 
+# --- reroute_explore (PreToolUse Agent|Task -> coding-toolbox:explore) -----
+
+@test "PreToolUse second entry wires Agent|Task to the reroute_explore mcp_tool" {
+  run jq -e '.hooks.PreToolUse[1]
+    | .matcher == "Agent|Task"
+      and (.hooks[0].type == "mcp_tool")
+      and (.hooks[0].server == "plugin:coding-toolbox:coding-toolbox-hooks")
+      and (.hooks[0].tool == "reroute_explore")' "$HOOKS/hooks.json"
+  assert_success
+}
+
+@test ".mcp.json wires explore_agent_reroute's userConfig toggle via env" {
+  run jq -e '.mcpServers["coding-toolbox-hooks"].env.CODING_TOOLBOX_EXPLORE_REROUTE == "${user_config.explore_agent_reroute}"' "$PLUGIN/.mcp.json"
+  assert_success
+}
+
+@test "plugin.json declares explore_agent_reroute userConfig: boolean, default true, fail-open" {
+  run jq -e '.userConfig.explore_agent_reroute
+    | .type == "boolean"
+      and .default == true
+      and (.title | length > 0)
+      and (.description | length > 0)' "$PLUGIN/.claude-plugin/plugin.json"
+  assert_success
+}
+
+@test "plugin.json description mentions the explore agent reroute" {
+  run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
+  assert_output --partial "explore_agent_reroute"
+}
+
+# reroute_explore_call <subagent_type> [tool_input_json] [env_value] -- drive
+# the reroute_explore MCP tool over JSON-RPC; prints the tools/call
+# structuredContent JSON. tool_input_json defaults to {} merged with
+# subagent_type; env_value defaults to empty string (enabled -- fail-open,
+# not the same as genuinely unset -- pass __UNSET__ to unset the env var
+# entirely). Pass __OMIT__ as subagent_type to leave tool_input without a
+# subagent_type key at all instead of merging one in.
+reroute_explore_call() {
+  local subagent_type="$1" env_value="${3:-}"
+  local extra="$2"
+  [ -z "$extra" ] && extra="{}"
+  local input
+  if [ "$subagent_type" = "__OMIT__" ]; then
+    input="$extra"
+  else
+    input="$(jq -c --arg st "$subagent_type" '. + {subagent_type: $st}' <<< "$extra")"
+  fi
+  local payload
+  payload="$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"reroute_explore","arguments":{"hook_event_name":"PreToolUse","tool_input":%s}}}\n' "$input")"
+  if [ "$env_value" = "__UNSET__" ]; then
+    printf '%s' "$payload" | env -u CODING_TOOLBOX_EXPLORE_REROUTE node "$PLUGIN/mcp/server.mjs" 2>/dev/null \
+      | jq -c 'select(.id == 2) | .result.structuredContent'
+  else
+    printf '%s' "$payload" | CODING_TOOLBOX_EXPLORE_REROUTE="$env_value" node "$PLUGIN/mcp/server.mjs" 2>/dev/null \
+      | jq -c 'select(.id == 2) | .result.structuredContent'
+  fi
+}
+
+@test "reroute_explore rewrites subagent_type explore to coding-toolbox:explore" {
+  if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
+  run reroute_explore_call "explore"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.permissionDecision == "allow"
+    and .hookSpecificOutput.updatedInput.subagent_type == "coding-toolbox:explore"'
+}
+
+@test "reroute_explore is case-insensitive (Explore, EXPLORE)" {
+  if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
+  for variant in "Explore" "EXPLORE"; do
+    run reroute_explore_call "$variant"
+    assert_success
+    echo "$output" | jq -e '.hookSpecificOutput.updatedInput.subagent_type == "coding-toolbox:explore"'
+  done
+}
+
+@test "reroute_explore preserves other tool_input keys" {
+  if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
+  run reroute_explore_call "explore" '{"description":"quick search"}'
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.updatedInput.description == "quick search"
+    and .hookSpecificOutput.updatedInput.subagent_type == "coding-toolbox:explore"'
+}
+
+@test "reroute_explore no-ops for other subagent types" {
+  if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
+  run reroute_explore_call "general-purpose"
+  assert_success
+  [ "$output" = "{}" ]
+}
+
+@test "reroute_explore no-ops for a missing subagent_type" {
+  if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
+  run reroute_explore_call "__OMIT__"
+  assert_success
+  [ "$output" = "{}" ]
+}
+
+@test "reroute_explore no-ops entirely when disabled via env" {
+  if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
+  run reroute_explore_call "explore" "{}" "false"
+  assert_success
+  [ "$output" = "{}" ]
+}
+
+@test "reroute_explore fail-open: rewrites when the env var is entirely unset (not just empty)" {
+  if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
+  run reroute_explore_call "explore" "{}" "__UNSET__"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.updatedInput.subagent_type == "coding-toolbox:explore"'
+}
+
+@test "tools/list includes reroute_explore alongside interaction_gate and worktree_refresh" {
+  if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
+  run bash -c '
+    printf "%s\n%s\n" \
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}" \
+      "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}" \
+    | node "'"$PLUGIN"'/mcp/server.mjs"
+  '
+  assert_success
+  assert_output --partial '"interaction_gate"'
+  assert_output --partial '"worktree_refresh"'
+  assert_output --partial '"reroute_explore"'
+}
+
 @test "fresh-work branch naming demands a concise English summary, never a verbatim slug" {
   run cat "$PLUGIN/skills/fresh-work/SKILL.md"
   assert_success
   assert_output --partial "3–6 **English** words"
   assert_output --partial "never slugify it verbatim"
+}
+
+# --- agents/explore.md ------------------------------------------------
+
+# explore_frontmatter -- print agents/explore.md's frontmatter block.
+explore_frontmatter() {
+  sed -n '/^---$/,/^---$/p' "$PLUGIN/agents/explore.md"
+}
+
+@test "explore agent exists with required frontmatter" {
+  run explore_frontmatter
+  assert_success
+  assert_output --partial "name: explore"
+  assert_output --partial "model: haiku"
+}
+
+@test "explore agent grants no Edit/Write/NotebookEdit/Agent tools" {
+  run explore_frontmatter
+  assert_success
+  refute_output --partial "Edit"
+  refute_output --partial "Write"
+  refute_output --partial "NotebookEdit"
+  refute_output --regexp '^tools:.*[^a-zA-Z]Agent([^a-zA-Z]|$)'
+}
+
+@test "explore agent grants Read, Glob, Grep, Bash, ToolSearch" {
+  run explore_frontmatter
+  assert_success
+  assert_output --partial "Read"
+  assert_output --partial "Glob"
+  assert_output --partial "Grep"
+  assert_output --partial "Bash"
+  assert_output --partial "ToolSearch"
+}
+
+@test "explore agent grants the read-only codebase-memory-mcp tool subset" {
+  run cat "$PLUGIN/agents/explore.md"
+  assert_success
+  for t in search_graph trace_path get_code_snippet query_graph get_architecture search_code index_status get_graph_schema list_projects; do
+    assert_output --partial "mcp__codebase-memory-mcp__$t"
+  done
+}
+
+@test "explore agent never grants mutating codebase-memory-mcp tools" {
+  run cat "$PLUGIN/agents/explore.md"
+  assert_success
+  refute_output --partial "mcp__codebase-memory-mcp__index_repository"
+  refute_output --partial "mcp__codebase-memory-mcp__detect_changes"
+  refute_output --partial "mcp__codebase-memory-mcp__ingest_traces"
+  refute_output --partial "mcp__codebase-memory-mcp__manage_adr"
+  refute_output --partial "mcp__codebase-memory-mcp__delete_project"
+}
+
+@test "explore agent documents the rtk rg / rg / Grep search priority chain" {
+  run rg_or_grep -F "rtk rg" "$PLUGIN/agents/explore.md"
+  assert_success
+  run rg_or_grep -F "command -v rtk" "$PLUGIN/agents/explore.md"
+  assert_success
+}
+
+@test "explore agent carries the READ-ONLY MODE banner from the bundled prompt" {
+  run rg_or_grep -F "READ-ONLY MODE" "$PLUGIN/agents/explore.md"
+  assert_success
+}
+
+@test "explore agent documents it never auto-indexes an empty codebase-memory-mcp graph" {
+  run rg_or_grep -iF "do not index it yourself" "$PLUGIN/agents/explore.md"
+  assert_success
+}
+
+@test "plugin README lists explore in the Agents table" {
+  run rg_or_grep -F '| `explore`' "$PLUGIN/README.md"
+  assert_success
 }

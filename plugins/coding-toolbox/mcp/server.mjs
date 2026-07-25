@@ -121,22 +121,70 @@ function firstLine(e) {
     .trim();
 }
 
-// Fail-open: only the literal string "false" disables — same convention as
-// npm-ci-on-worktree.mjs's isNpmCiEnabled, applied here to an env var instead
-// of argv. This hook is a long-lived MCP server process, not a per-event
-// command-hook spawn, so the userConfig value arrives once at server start via
-// .mcp.json's own `env` field (${user_config.*} substitution is documented to
-// work in "MCP ... server configs", not just hook commands/args — verified
-// NOT to work inside an mcp_tool hook's own `input` field in hooks.json, which
-// only substitutes hook-event data like ${tool_input.file_path}).
+// Fail-open: only the literal string "false" disables — shared by every
+// userConfig toggle this server reads from an env var (WORKTREE_REFRESH_ENABLED
+// and EXPLORE_REROUTE_ENABLED below; npm-ci-on-worktree.mjs's isNpmCiEnabled is
+// a separate process/file and keeps its own copy). This hook is a long-lived
+// MCP server process, not a per-event command-hook spawn, so each userConfig
+// value arrives once at server start via .mcp.json's own `env` field
+// (${user_config.*} substitution is documented to work in "MCP ... server
+// configs", not just hook commands/args — verified NOT to work inside an
+// mcp_tool hook's own `input` field in hooks.json, which only substitutes
+// hook-event data like ${tool_input.file_path}).
+/** @param {string | undefined} value @returns {boolean} */
+function isFailOpenToggleEnabled(value) {
+  return value !== "false";
+}
+
 /** @param {string | undefined} value @returns {boolean} */
 export function isWorktreeRefreshEnabled(value) {
-  return value !== "false";
+  return isFailOpenToggleEnabled(value);
 }
 
 const WORKTREE_REFRESH_ENABLED = isWorktreeRefreshEnabled(
   process.env.CODING_TOOLBOX_WORKTREE_REFRESH,
 );
+
+// Normalize a subagent_type: lowercase, collapse non-alphanumeric runs to
+// `-`, trim -- ported verbatim from claude-code-knowledge's own reroute
+// hook (mcp/server.mjs's reroute_guide), same normalization contract.
+/** @param {any} value @returns {string} */
+function normalize(value) {
+  return String(value == null ? "" : value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+const REROUTE_EXPLORE_TARGET = "coding-toolbox:explore";
+
+/** @param {string | undefined} value @returns {boolean} */
+export function isExploreRerouteEnabled(value) {
+  return isFailOpenToggleEnabled(value);
+}
+
+const EXPLORE_REROUTE_ENABLED = isExploreRerouteEnabled(
+  process.env.CODING_TOOLBOX_EXPLORE_REROUTE,
+);
+
+// PreToolUse(Agent|Task) reroute: when subagent_type normalizes to
+// "explore", rewrite it to coding-toolbox:explore via permissionDecision
+// allow + updatedInput. No-op otherwise (including when disabled).
+/** @param {ToolHookInput} args @returns {HookResult} */
+function rerouteExploreHandler(args) {
+  if (!EXPLORE_REROUTE_ENABLED) return {};
+  const toolInput = args?.tool_input ?? {};
+  if (normalize(toolInput.subagent_type) !== "explore") return {};
+  return {
+    hookSpecificOutput: {
+      hookEventName: args?.hook_event_name ?? "PreToolUse",
+      permissionDecision: "allow",
+      permissionDecisionReason:
+        "coding-toolbox: route Explore dispatches to this plugin's haiku-pinned, codebase-memory-mcp/rtk-prioritizing explore agent",
+      updatedInput: { ...toolInput, subagent_type: REROUTE_EXPLORE_TARGET },
+    },
+  };
+}
 
 /** @param {PostToolUseHookInput} args @returns {HookResult} */
 function worktreeRefreshHandler(args) {
@@ -207,6 +255,15 @@ function startServer() {
         "via additionalContext (never blocks) on fetch failure or an aborted rebase conflict.",
       inputSchema: { type: "object", additionalProperties: true },
       handler: worktreeRefreshHandler,
+    },
+    {
+      name: "reroute_explore",
+      description:
+        "PreToolUse(Agent|Task) reroute: when subagent_type normalizes to 'explore', rewrite it to " +
+        "coding-toolbox:explore via permissionDecision allow + updatedInput. No-op otherwise " +
+        "(including when disabled via CODING_TOOLBOX_EXPLORE_REROUTE=false).",
+      inputSchema: { type: "object", additionalProperties: true },
+      handler: rerouteExploreHandler,
     },
   ];
   const findTool = (/** @type {any} */ name) =>

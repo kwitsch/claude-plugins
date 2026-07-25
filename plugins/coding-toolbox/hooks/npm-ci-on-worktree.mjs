@@ -1,7 +1,25 @@
 #!/usr/bin/env node
 // hooks/npm-ci-on-worktree.mjs -- coding-toolbox plugin: PostToolUse EnterWorktree
 // hook. Command hook, invoked directly per event (no MCP server). stdin = hook JSON
-// (PostToolUseHookInput); argv[2] = interpolated ${user_config.npm_ci_on_worktree}.
+// (PostToolUseHookInput). The userConfig toggle is read from
+// CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE -- cc-reference's plugins doc claims Claude
+// Code exports every userConfig key to "plugin subprocesses" this way, but that is
+// UNVERIFIED for this specific command-hook subprocess type (live-checked on this
+// machine only for the plugin's own long-lived MCP server process, where NO
+// CLAUDE_PLUGIN_OPTION_* var was present at all -- so treat the claim as unconfirmed,
+// not fact). What IS confirmed live: pluginConfigs["coding-toolbox"] is null (never
+// explicitly configured via /plugin manage) on this machine, matching the observed
+// crash; and a ${user_config.npm_ci_on_worktree} placeholder in hooks.json's args
+// hard-errors ("Plugin option ... isn't set") in exactly that unconfigured state, even
+// though the schema declares a default -- so that placeholder had to go regardless.
+// Net effect if the env var never gets populated for this hook: isNpmCiEnabled(undefined)
+// resolves to the documented "unset = enabled" default (plugin-userconfig.md), which is
+// strictly no worse than today's fully-broken (crashing) state -- but an explicit
+// `false` configured by a user would then silently fail to reach this hook. That gap
+// is accepted and documented, not silently assumed away; verify AND fix properly
+// (e.g. by having this hook query the plugin's own MCP server, which reliably receives
+// ${user_config.*} via .mcp.json's `env` field per worktree_refresh's confirmed-working
+// precedent) if this toggle is ever observed not disabling the feature.
 // async:true in hooks.json -- the agent loop never waits for `npm ci` to finish.
 //
 // Every branch below exits 0; only a real `npm ci` failure or a missing-npm PATH
@@ -110,11 +128,13 @@ function isMainModule() {
   }
 }
 
-/** Read argv[2] (userConfig toggle) + the hook's stdin JSON, run the handler,
- * print the result JSON (or nothing) to stdout. Fails open on any error. */
+/** Read the userConfig toggle (CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE) + the hook's
+ * stdin JSON, run the handler, print the result JSON (or nothing) to stdout. Fails
+ * open on any error. */
 function main() {
   try {
-    if (!isNpmCiEnabled(process.argv[2])) return;
+    if (!isNpmCiEnabled(process.env.CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE))
+      return;
     const raw = readFileSync(0, "utf8");
     const input = JSON.parse(raw);
     const result = npmCiOnWorktreeHandler(input);

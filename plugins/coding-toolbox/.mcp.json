@@ -4,7 +4,8 @@
       "command": "${CLAUDE_PLUGIN_ROOT}/bin/mjs-launch.sh",
       "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"],
       "env": {
-        "CODING_TOOLBOX_WORKTREE_REFRESH": "${user_config.worktree_refresh}"
+        "CODING_TOOLBOX_WORKTREE_REFRESH": "${user_config.worktree_refresh}",
+        "CODING_TOOLBOX_EXPLORE_REROUTE": "${user_config.explore_agent_reroute}"
       }
     }
   }

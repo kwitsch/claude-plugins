@@ -1,9 +1,10 @@
 # CLAUDE.md — coding-toolbox
 
-Plugin that mechanically enforces "golden behavior rules" via four hooks: a `PreToolUse`
-command hook (`encoding-guard.mjs`), a `Stop` `mcp_tool` hook (`interaction_gate`) and a
-`PostToolUse` `mcp_tool` hook (`worktree_refresh`), both backed by a self-contained,
-now-stateless MCP server (`mcp/server.mjs`), and a `PostToolUse` command hook
+Plugin that mechanically enforces "golden behavior rules" via five hooks: a `PreToolUse`
+command hook (`encoding-guard.mjs`), a `PreToolUse` `mcp_tool` hook (`reroute_explore`),
+a `Stop` `mcp_tool` hook (`interaction_gate`) and a
+`PostToolUse` `mcp_tool` hook (`worktree_refresh`), all three `mcp_tool` hooks backed by
+a self-contained, now-stateless MCP server (`mcp/server.mjs`), and a `PostToolUse` command hook
 (`npm-ci-on-worktree.mjs`) that runs an async `npm ci` when `EnterWorktree` lands in a
 `package-lock.json` project — both `PostToolUse` hooks fire on the same `EnterWorktree`
 matcher, in the same `hooks.json` array. The
@@ -12,8 +13,9 @@ full golden-rules document lives, unwired, at `skills/setup-rules/references/gol
 `setup-rules` is the only way to get it onto a machine (user-level, every
 project you open there), opt-in. The plugin's `userConfig` entries are
 `npm_ci_on_worktree` (fail-open, default `true`) gating the `npm-ci-on-worktree`
-hook and `worktree_refresh` (fail-open, default `true`) gating the `worktree_refresh`
-hook below — the Stop gate and encoding guard have no toggle of their own.
+hook, `worktree_refresh` (fail-open, default `true`) gating the `worktree_refresh`
+hook, and `explore_agent_reroute` (fail-open, default `true`) gating the
+`reroute_explore` hook — the Stop gate and encoding guard have no toggle of their own.
 
 ## Hook design (do not "fix" without reading this)
 
@@ -64,8 +66,8 @@ iconv hint; every internal error exits 0 silently (fail open).
 ## Hook design (`npm-ci-on-worktree`, do not "fix" without reading this)
 
 **PostToolUse → `command`: `matcher: "EnterWorktree"`, `command:
-"${CLAUDE_PLUGIN_ROOT}/hooks/npm-ci-on-worktree.mjs"`, `args:
-["${user_config.npm_ci_on_worktree}"]`, `timeout: 300`, `async: true`.**
+"${CLAUDE_PLUGIN_ROOT}/hooks/npm-ci-on-worktree.mjs"`, `timeout: 300`, `async:
+true`.**
 Fires after every successful `EnterWorktree` call (creating a new worktree or
 switching into an existing one) — a fresh worktree's `node_modules` is
 gitignored, so this proactively starts installing it. Checks only
@@ -92,14 +94,44 @@ true` idiom as `universal-lint`'s `lint-file.mjs`, not a hand-rolled detached
 child process — `async: true` already gives fire-and-forget semantics for
 free.
 
-**`args` is deliberately exec-form (`["${user_config.npm_ci_on_worktree}"]`),
-not a shell string** — per `.claude/rules/hooks-json-authoring.md`: "Use exec
-form (`"args": []`) when referencing path variables" / user_config
-substitutions, same as `memory-enhancement`'s `check-dream-due.mjs`. If a
-future review pass proposes collapsing this into the `command` string, that
-is the same false schema claim this repo's own memory already documents
-recurring across review passes — refute it by this citation, don't
-re-litigate it.
+**Reads the toggle from `CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE`, not a
+`${user_config.npm_ci_on_worktree}` placeholder in `hooks.json`'s `args`
+(fixed 2026-07-25, drive-by).** The original design passed the value via
+exec-form `args: ["${user_config.npm_ci_on_worktree}"]`, read as `argv[2]`.
+Observed live: on a plugin that was never explicitly configured through
+`/plugin manage` (confirmed live: `pluginConfigs["coding-toolbox"]` is
+`null` in every settings.json scope on this machine, even though the
+schema declares `default: true`), current Claude Code hard-errors that
+interpolation ("Plugin option ... isn't set ... check that the plugin's
+userConfig schema declares ...") instead of leaving the raw placeholder or
+falling back to the schema default — a regression from the "an old build
+leaves the raw placeholder string" assumption the original fail-open design
+was built on (see the paragraph below). That placeholder had to go
+regardless of what replaces it. The cc-reference plugins doc separately
+_claims_ every `userConfig` value is also exported to plugin subprocesses
+as a `CLAUDE_PLUGIN_OPTION_<KEY>` env var, unconditionally — the hook now
+reads `process.env.CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE` on that basis
+and `args` was dropped from `hooks.json` entirely. **That claim is
+UNVERIFIED for this specific command-hook subprocess type** — live-checking
+every currently-running plugin MCP server process on this machine
+(`coding-toolbox`, `claude-code-knowledge`) found **zero**
+`CLAUDE_PLUGIN_OPTION_*` vars in any of their environs, so the claim is not
+corroborated here (that check was against the long-lived MCP server
+subprocess, not the transient per-event command-hook process this fix
+actually touches, so it neither confirms nor refutes the command-hook
+case). `isNpmCiEnabled`'s fail-open semantics (`value !== "false"`) are
+unchanged; if the env var is simply absent, `isNpmCiEnabled(undefined)`
+resolves to the documented "unset = enabled" default — strictly no worse
+than the prior fully-broken (crashing) state for the common unconfigured
+case, but a user who explicitly configures `false` would then silently
+fail to have it honored until this is verified or fixed properly (e.g. by
+having this hook query the plugin's own MCP server, which reliably gets
+`${user_config.*}` via `.mcp.json`'s `env` field — see `worktree_refresh`
+below, a confirmed-working precedent). Accepted, documented gap — not
+silently assumed away. `worktree_refresh` below still resolves its own
+toggle through `${user_config.worktree_refresh}` (via `.mcp.json`'s `env`,
+not `hooks.json` `args`) and was not re-verified against this same failure
+mode — out of scope for this drive-by fix.
 
 **Fail-open toggle (`npm_ci_on_worktree`, `default: true`) — a deliberate
 exception to `plugin-userconfig.md`'s state-creating-toggle recommendation.**
@@ -203,6 +235,96 @@ per-event argv (always current), a `worktree_refresh` toggle change only takes
 effect on the next server restart (session restart / plugin reconnect) — the
 same lag any `mcp_tool`-hook userConfig value would have, not a bug specific
 to this toggle.
+
+## Hook design (`reroute_explore`)
+
+**`PreToolUse` → `mcp_tool` hook, matcher `Agent|Task`: `tool:
+"reroute_explore"`** (this branch). Same mechanism as
+claude-code-knowledge's `claude-code-guide` → `claude-code-expert` reroute:
+when `tool_input.subagent_type` normalizes (lowercase, non-alphanumeric
+runs collapsed to `-`, trimmed) to `explore`, rewrites it to
+`coding-toolbox:explore` via `permissionDecision: "allow"` +
+`updatedInput`. No-op for any other `subagent_type`; fail-open if the
+server is unconnected (the built-in `Explore` just runs un-rerouted) or if
+`explore_agent_reroute` is `false`. Reuses the plugin's existing
+`coding-toolbox-hooks` MCP server rather than standing up a second one — a
+plugin with 2+ hooks/tools amortizes the warm-process benefit, per
+`.claude/rules/hooks-mcp-server.md`'s decision tree.
+
+**Toggle wired via `.mcp.json`'s `env` field** (`CODING_TOOLBOX_EXPLORE_REROUTE`,
+interpolating `${user_config.explore_agent_reroute}`), the same pattern as
+`worktree_refresh` — confirmed working live even for an unconfigured
+plugin (see `npm-ci-on-worktree`'s section above for the contrasting,
+confirmed-broken `hooks.json`-`args` interpolation path this deliberately
+avoids).
+
+**Known, accepted collision risk: the match is on the bare string `explore`
+alone, not a plugin-unique key.** Unlike `claude-code-guide` (a name unlikely
+to collide), a project's own `.claude/agents/explore.md` or another
+plugin's agent literally named `explore` would also be silently rewritten to
+`coding-toolbox:explore` — the caller's own agent never runs, with no error.
+This is the same shape of risk claude-code-knowledge's `reroute_guide`
+already carries un-mitigated for `claude-code-guide` (a same-repo review
+flagged it here specifically because `explore` is a much more common name to
+collide on); accepted as a precedented trade-off of the reroute mechanism
+itself, not fixed by adding an existence check for a competing `explore`
+agent — that would be new scope beyond what either reroute hook does today.
+A user who defines their own `explore` agent and hits this should disable
+`explore_agent_reroute`.
+
+**Known, accepted latency risk: `reroute_explore` now shares the same
+single-threaded server as `worktree_refresh`'s synchronous, `timeout:
+30_000`-bounded git calls.** Every `PreToolUse(Agent|Task)` dispatch —
+far more frequent than `EnterWorktree` — now queues behind any in-flight
+`fetch`/`rebase` on this server's one JSON-RPC handling thread. The same
+per-call timeout bound documented in `worktree_refresh`'s own section above
+already covers this: the bound is per call, not per fire, so a worst case
+still adds up to a multiple of it. Previously only `interaction_gate` (no
+git calls, unaffected) shared this server with `worktree_refresh`;
+`reroute_explore` is the first hot-path consumer to actually inherit the
+blocking risk. Accepted rather than split onto a second server (this
+plugin's established preference is one self-contained server per plugin,
+per `.claude/rules/hooks-mcp-server.md`'s decision tree).
+
+## Agent design (`explore`)
+
+`agents/explore.md` — a 1:1 port of the bundled `Explore` subagent's
+system prompt (fetched from `Piebald-AI/claude-code-system-prompts`,
+`agent-prompt-explore.md`), with its template's tool-name variables
+resolved and its single "use Grep" guideline replaced by a **Search tool
+priority** section: `codebase-memory-mcp` read-only tools first when
+connected (`search_graph`/`trace_path`/`get_code_snippet`/`query_graph`/
+`get_architecture`/`search_code`/`index_status`/`get_graph_schema`/
+`list_projects` — deliberately not the `mcp__codebase-memory-mcp__*`
+wildcard, which would also grant `index_repository`/`detect_changes`/
+`ingest_traces`/`manage_adr`/`delete_project`, all of which mutate
+external state the built-in Explore's read-only contract wouldn't permit),
+then `rtk rg`, then plain `rg`, then the bundled `Grep` tool — decided by
+a one-shot `command -v` probe the agent runs itself at task start (agents
+get no skill-style `!` dynamic-context injection, so this can't be
+precomputed the way `setup-rules`' tool-routing detection is). `ToolSearch`
+is also granted (added by Review): the exact-named `mcp__codebase-memory-mcp__*`
+tools may arrive as deferred tools needing a schema-loading `ToolSearch` call
+before their first real use — the same deferred-tool mechanism this
+session's own tool list already exhibits for MCP tools generally — so the
+agent's own prompt instructs it to call `ToolSearch` once and retry if a
+first call to one of them fails with an input-validation/unknown-tool
+error, before falling back to the rtk/rg/Grep chain. Model
+pinned to `haiku` regardless of the main session's model — a custom
+agent's own `model:` field is always authoritative; the "Explore inherits
+the main conversation's model" behavior (cc-reference, v2.1.198+) applies
+only to the actual built-in `Explore` identity or a literal user/project
+agent named exactly `Explore`, neither of which this plugin-scoped
+`coding-toolbox:explore` is.
+
+**Known, accepted gap in the "1:1" framing:** per cc-reference, `Explore`/
+`Plan` are the only agents that skip loading the full `CLAUDE.md` +
+`.claude/rules/` hierarchy and git status at startup, and no frontmatter
+field lets a custom agent replicate that skip — so `coding-toolbox:explore`
+loads this repo's entire memory hierarchy on every dispatch where the
+built-in loads none of it. Unfixable from the agent definition; accepted
+because "1:1" here means model/search-tool-priority parity, not literal
+startup-context parity.
 
 ## Skill design (`fresh-branch`)
 
@@ -668,7 +790,13 @@ action is always "refresh if installed, else no-op").
 for the relocated `golden-rules.md`, hook wiring (PreToolUse `command`, Stop
 `mcp_tool`), an end-to-end JSON-RPC driver against `mcp/server.mjs` proving the Stop
 gate blocks on a bare trailing `?`
-and allows through otherwise. Coverage now also includes: a ported `ci-watch.sh`
+and allows through otherwise. Also covers `reroute_explore`: `hooks.json`/`.mcp.json`/
+`plugin.json` wiring, a JSON-RPC driver proving case-insensitive `explore`→`coding-toolbox:explore`
+rewriting, `tool_input` key preservation, no-ops (other subagent types, missing
+`subagent_type`, toggle disabled), and `tools/list` listing all three server tools; plus
+structural assertions for `agents/explore.md` (frontmatter, no write/Agent tools, the
+read-only `codebase-memory-mcp` tool subset present and the mutating ones absent, the
+rtk/rg/Grep priority chain and READ-ONLY MODE banner, the no-auto-index note). Coverage now also includes: a ported `ci-watch.sh`
 bats suite (hermetic, stubbed `gh`/`glab`), structural assertions for
 `fresh-pr/SKILL.md` and the `ci-watcher`/`pr-fixer` agent frontmatter, and the
 version-bump manifest assertion. Structural assertions for
