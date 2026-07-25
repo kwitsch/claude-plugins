@@ -1013,7 +1013,7 @@ assert_success
 
 @test "plugin.json version bumped for the npm-ci-on-worktree and worktree_refresh hooks (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.18.0"
+  assert_output "0.18.1"
 }
 
 @test "plugin.json description mentions fresh-work and its sibling skills" {

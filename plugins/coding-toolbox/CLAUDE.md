@@ -206,6 +206,10 @@ to this toggle.
 
 ## Skill design (`fresh-branch`)
 
+2026-07-25: the embedded script extracted to a standalone
+`fresh-branch.sh` + colocated `fresh-branch.reference.md` per
+`.claude/rules/script-authoring.md`'s updated convention.
+
 Single inline synchronous bash script (no MCP server, no subagent — same idiom
 as `branch-management:new-branch`), self-detecting worktree state via `git
 rev-parse --git-dir` vs `--git-common-dir`. Deliberately independent of
@@ -260,7 +264,12 @@ script's own internal `mktemp` call lands in the session's scratch space
 rather than shared system `/tmp` — its `TMPDIR` behavior is unchanged,
 `mktemp` already prefers `$TMPDIR` when set (the script separately gained
 an explicit `mktemp`-failure guard, exit `64`, documented in
-`agents/ci-watcher.md`).
+`agents/ci-watcher.md`). 2026-07-25: the rebase script (previously embedded
+at step 5) is now a standalone `rebase.sh` + colocated `rebase.reference.md`,
+per `.claude/rules/script-authoring.md`'s updated convention; the
+git-context `!`-block (line 26) stays inline — extracting it is gated on
+verifying `${CLAUDE_SKILL_DIR}` substitution inside a `!`-injection block
+specifically, not yet proven in this repo.
 
 **CodeRabbit-readiness false-green (fixed 2026-07-11).** `ci-watcher`'s step 3
 used to decide "CodeRabbit is done posting review feedback" from a blind,
@@ -489,20 +498,14 @@ deliberate, same rationale as `fresh-work`'s own absence).
 
 ## Skill design (`bump-version`)
 
-Same inline-script idiom as `fresh-branch`/`fresh-pr`: a single
-embedded bash script run via the Bash tool, no bundled `.sh`, no MCP server,
-no subagent, model maps its exit code — with one deliberate invocation
-difference: it is run via a quoted-heredoc-to-temp-file
-(`cat > "$BUMP" <<'BUMPVERSION_EOF' ... BUMPVERSION_EOF; bash "$BUMP" <arg>`),
-never `bash -c '<script>' _ <arg>`. The script's `awk`/`trap`/`sed` lines
-contain single-quoted regions (and a comment with a literal apostrophe)
-that break an outer `bash -c '...'` wrapper — confirmed during planning by
-literally attempting it (fails with a syntax error before the first real
-line). A quoted heredoc delimiter preserves every character verbatim, no
-per-region quote conversion needed, so this isn't a style choice —
-`fresh-branch`'s simpler script gets away with `bash -c '...'` only because
-its inner single-quoted regions happen to be trivially convertible;
-bump-version's aren't, so it uses the safer form. Detects exactly one
+2026-07-25: `bump-version.sh` extracted to a standalone file +
+colocated `bump-version.reference.md` doc per
+`.claude/rules/script-authoring.md`'s updated convention — the
+heredoc-to-temp-file / `PART`/`SCRATCHPAD_DIR` placeholder-substitution
+workaround this section used to describe no longer applies, the file
+has real argv.
+
+`bump-version.sh` detects exactly one
 version file per
 invocation, cwd only, by fixed precedence (`package.json` →
 `composer.json` → `pom.xml` → `VERSION`) — mirrors a `version.sh`-style
@@ -546,11 +549,11 @@ confirmed at the design intent-confirmation gate) but never presented as
 equivalent to the npm case. No git operations — this skill only edits
 files in the working tree, unlike `fresh-branch`/`fresh-pr`/`fresh-work`;
 composability with those is preserved by keeping this skill's blast radius
-to file edits only. Both temp files this skill creates (`$BUMP`, and the
-lock-sync log inside it) are routed into the session scratchpad the same
-TMPDIR-propagation way as `fresh-pr`'s `ci-watcher` dispatch above — an
-`export TMPDIR=` line the caller substitutes before running the script,
-needing no change to the script itself.
+to file edits only. The one temp file the script itself creates (the
+lock-sync log, via its own internal `mktemp` call) is routed into the
+session scratchpad the same TMPDIR-propagation way as `fresh-pr`'s
+`ci-watcher` dispatch above — an `export TMPDIR=` line the caller sets
+before running the script, needing no change to the script itself.
 
 ## Skill design (`setup-rules`)
 
