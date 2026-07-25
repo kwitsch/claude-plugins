@@ -2,14 +2,7 @@
 name: bump-version
 description: Use to bump a project's semantic version (major, minor, or patch) in its detected version file — package.json, composer.json, pom.xml, or a plain VERSION file — and sync the matching lock file (npm/composer) when present.
 argument-hint: "<major|minor|patch>"
-allowed-tools:
-  [
-    "Bash(bash:*)",
-    "Bash(mktemp:*)",
-    "Bash(cat:*)",
-    "Bash(rm -f *)",
-    "Bash(export:*)",
-  ]
+allowed-tools: ["Bash(bash:*)", "Bash(mktemp:*)", "Bash(export:*)"]
 ---
 
 # Bump a project's version

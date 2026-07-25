@@ -4,20 +4,10 @@
 
 ## Parameters
 
-| #   | Name | Format                                                    | Required | Notes                                                         |
-| --- | ---- | --------------------------------------------------------- | -------- | ------------------------------------------------------------- |
-| 1   | arg1 | branch name (non-worktree) or base branch name (worktree) | no       | Meaning depends on worktree context — see table below.        |
-| 2   | arg2 | base branch name (non-worktree only)                      | no       | Only valid when arg1 is a new branch name outside a worktree. |
-
-Context × arg-count meaning (the script detects worktree state and
-validates the argument count for that context itself):
-
-| Context      | Args | Meaning                                                  |
-| ------------ | ---- | -------------------------------------------------------- |
-| any          | 0    | fetch+rebase current branch onto the repo default branch |
-| worktree     | 1    | fetch+rebase onto `$1` (explicit upstream/base)          |
-| non-worktree | 1    | create branch `$1` off the repo default branch           |
-| non-worktree | 2    | create branch `$1` off base `$2`                         |
+| #   | Name | Format                                                    | Required | Notes                                                                                       |
+| --- | ---- | --------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------- |
+| 1   | arg1 | branch name (non-worktree) or base branch name (worktree) | no       | Meaning depends on worktree context — see `SKILL.md`'s "Context × arg-count meaning" table. |
+| 2   | arg2 | base branch name (non-worktree only)                      | no       | Only valid when arg1 is a new branch name outside a worktree.                               |
 
 ## Exit codes
 

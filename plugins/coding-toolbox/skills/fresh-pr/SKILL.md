@@ -77,11 +77,11 @@ dependency on `branch-management`; every script/agent used here lives in
 
 ## Rebase and push
 
-5. **Rebase onto the latest base if it moved.** Read `rebase.reference.md`
-   for the exact parameter/outcome contract, then run
-   `bash ${CLAUDE_SKILL_DIR}/rebase.sh "$base"` via the Bash tool
-   (synchronous native Bash — git fetch + rebase are writes, never a
-   sandboxed shell tool).
+5. **Rebase onto the latest base if it moved.**
+   1. Read `rebase.reference.md` for the exact parameter/outcome contract.
+   2. Run `bash ${CLAUDE_SKILL_DIR}/rebase.sh "$base"` via the Bash tool
+      (synchronous native Bash — git fetch + rebase are writes, never a
+      sandboxed shell tool).
 
    Map the `REBASE_RESULT=` line per `rebase.reference.md`'s table:
    - `rebased` → history was rewritten; set a `rebased=yes` marker —

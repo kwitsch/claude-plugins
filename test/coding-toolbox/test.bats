@@ -1072,7 +1072,7 @@ assert_success
   run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/skills/bump-version/SKILL.md'"
   assert_success
   assert_output --partial "name: bump-version"
-  assert_output --partial "argument-hint:"
+  assert_output --partial 'argument-hint: "<major|minor|patch>"'
 }
 
 @test "bump-version SKILL.md points at its reference doc before invoking" {
