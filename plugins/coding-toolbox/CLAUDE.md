@@ -267,7 +267,7 @@ an explicit `mktemp`-failure guard, exit `64`, documented in
 `agents/ci-watcher.md`). 2026-07-25: the rebase script (previously embedded
 at step 5) is now a standalone `rebase.sh` + colocated `rebase.reference.md`,
 per `.claude/rules/script-authoring.md`'s updated convention; the
-git-context `!`-block (line 26) stays inline — extracting it is gated on
+git-context `!`-block (the `## Git context` section) stays inline — extracting it is gated on
 verifying `${CLAUDE_SKILL_DIR}` substitution inside a `!`-injection block
 specifically, not yet proven in this repo.
 

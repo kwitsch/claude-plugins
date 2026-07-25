@@ -57,8 +57,6 @@ still mismatch on unusual POM layouts.
 3. Map the exit code per `bump-version.reference.md`'s table:
    - `0` — report the printed `file:`/`old:`/`new:`/`sync:` lines
      (`sync:` is one of `synced`, `no_lockfile`, `no_convention`).
-   - `1` `environment_error` — report stderr and stop; nothing was
-     touched.
    - `6` `sync_failed` — the version file was **already bumped and
      written successfully**, but the lock-file sync command failed.
      Report both facts explicitly — version bumped, sync did not

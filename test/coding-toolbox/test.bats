@@ -462,6 +462,8 @@ advance_upstream() {
   run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/skills/fresh-branch/SKILL.md'"
   assert_success
   assert_output --partial "name: fresh-branch"
+  assert_output --partial "AskUserQuestion"
+  assert_output --partial "Bash(git:*)"
 }
 
 @test "fresh-branch SKILL.md points at its reference doc before invoking" {
@@ -551,6 +553,29 @@ run_freshbranch() {
   assert_success
   run cat file.txt
   assert_output "dirty"
+}
+
+@test "fresh-branch.sh: worktree context, one arg rebases onto the explicit base" {
+  setup_git_fixture "$BATS_TEST_TMPDIR"
+  cd "$BATS_TEST_TMPDIR/work" || return 1
+  git branch other-base
+  git push -q -u origin other-base
+  git worktree add -q "$BATS_TEST_TMPDIR/wt" -b wt-branch
+  cd "$BATS_TEST_TMPDIR/wt" || return 1
+  run_freshbranch other-base
+  assert_success
+  assert_output --partial "mode: refresh"
+  assert_output --partial "base: other-base"
+}
+
+@test "fresh-branch.sh: worktree context rejects more than one argument" {
+  setup_git_fixture "$BATS_TEST_TMPDIR"
+  cd "$BATS_TEST_TMPDIR/work" || return 1
+  git worktree add -q "$BATS_TEST_TMPDIR/wt" -b wt-branch2
+  cd "$BATS_TEST_TMPDIR/wt" || return 1
+  run_freshbranch main extra
+  assert_failure 2
+  assert_output --partial "worktree: at most 1 arg"
 }
 
 #
@@ -892,6 +917,21 @@ run_rebase() {
   assert_output --partial "REBASE_RESULT=skipped_dirty"
 }
 
+@test "rebase.sh: failed when the fetch fails" {
+  git init --bare -q "$BATS_TEST_TMPDIR/origin.git"
+  git clone -q "$BATS_TEST_TMPDIR/origin.git" "$BATS_TEST_TMPDIR/work"
+  cd "$BATS_TEST_TMPDIR/work" || return 1
+  git config user.email test@example.com
+  git config user.name Test
+  git commit -q --allow-empty -m init
+  git push -q -u origin HEAD:main
+  git remote set-url origin "$BATS_TEST_TMPDIR/does-not-exist.git"
+  run_rebase main
+  assert_success
+  assert_output --partial "REBASE_RESULT=failed"
+  assert_output --partial "DETAIL="
+}
+
 @test "ci-watcher agent documents and conditionally uses rtk_available for gh run list" {
 run rg_or_grep -F "rtk_available" "$PLUGIN/agents/ci-watcher.md"
 assert_success
@@ -1145,6 +1185,35 @@ EOF
   make_stub npm 'echo "boom" >&2; exit 1'
   run_bumpver patch
   assert_failure 6
+  assert_output --partial "new: 1.0.1"
+}
+
+@test "bump-version.sh: write_failed when the version file's directory is read-only" {
+  mkdir -p "$BATS_TEST_TMPDIR/ro"
+  cat > "$BATS_TEST_TMPDIR/ro/package.json" <<'EOF'
+{
+  "version": "1.0.0"
+}
+EOF
+  chmod 555 "$BATS_TEST_TMPDIR/ro"
+  cd "$BATS_TEST_TMPDIR/ro" || return 1
+  run_bumpver patch
+  chmod 755 "$BATS_TEST_TMPDIR/ro"
+  assert_failure 5
+}
+
+@test "bump-version.sh: sync_temp_failed when TMPDIR is invalid for the lock-sync mktemp" {
+  cd "$BATS_TEST_TMPDIR" || return 1
+  cat > package.json <<'EOF'
+{
+  "version": "1.0.0"
+}
+EOF
+  echo '{}' > package-lock.json
+  make_stub npm 'exit 0'
+  run env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR/does-not-exist" \
+    bash "$PLUGIN/skills/bump-version/bump-version.sh" patch
+  assert_failure 7
   assert_output --partial "new: 1.0.1"
 }
 

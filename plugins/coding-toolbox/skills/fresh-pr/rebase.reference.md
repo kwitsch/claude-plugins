@@ -10,9 +10,10 @@
 
 ## Exit codes
 
-Always exits `0` — the outcome is carried on the printed
-`REBASE_RESULT=` (and sometimes `DETAIL=`) stdout line(s), not the
-process exit code.
+`1` — usage error: `base` was empty/unset (bash's `${1:?usage: <base>}`
+prints a `usage: <base>` message to stderr). Otherwise always exits `0` —
+the outcome is carried on the printed `REBASE_RESULT=` (and sometimes
+`DETAIL=`) stdout line(s), not the process exit code.
 
 | `REBASE_RESULT=` | Meaning                                                                                                                              |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------ |

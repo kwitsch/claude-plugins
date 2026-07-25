@@ -45,6 +45,10 @@ only; "upstream" here means a base branch on `origin`, not a different git remot
    tool, passing through the caller's original arguments unchanged (0,
    1, or 2 positional args — whatever was given).
 3. Map the exit code per `fresh-branch.reference.md`'s table.
+   - `5` `git_op_failed` — non-worktree mode only: if `git checkout $base`
+     already succeeded before a later step failed, the tree is now on
+     `$base`, not the original branch — never re-run blindly, inspect
+     state first.
    - `6` `name_exists` — ask the user via `AskUserQuestion` — options
      **Switch to existing branch** (`git checkout <branch>`) / **Pick a
      different name** — then re-run step 2.

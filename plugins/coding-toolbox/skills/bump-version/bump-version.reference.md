@@ -16,13 +16,12 @@
 
 ## Exit codes
 
-| Code | Meaning             | Notes                                                                                                                    |
-| ---- | ------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| 0    | ok                  | success; prints `file:`/`old:`/`new:`/`sync:` lines                                                                      |
-| 1    | environment_error   | `mktemp` failed to create the working temp file (bad/unwritable `TMPDIR`) — happens before the version file is ever read |
-| 2    | usage               | missing, extra, or unrecognized argument (must be exactly one of `major`/`minor`/`patch`)                                |
-| 3    | no_version_file     | none of `package.json`, `composer.json`, `pom.xml`, `VERSION` exist in the current directory                             |
-| 4    | unparseable_version | version isn't bare `MAJOR.MINOR.PATCH`, or no top-level `"version"` field / project `<version>` tag found                |
-| 5    | write_failed        | version file couldn't be written (permissions, read-only filesystem)                                                     |
-| 6    | sync_failed         | version already bumped and written; lock-sync command failed (binary missing, non-zero exit) — sync output on stderr     |
-| 7    | sync_temp_failed    | version already bumped and written; lock-sync couldn't even run (its own `mktemp` call failed)                           |
+| Code | Meaning             | Notes                                                                                                                |
+| ---- | ------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| 0    | ok                  | success; prints `file:`/`old:`/`new:`/`sync:` lines                                                                  |
+| 2    | usage               | missing, extra, or unrecognized argument (must be exactly one of `major`/`minor`/`patch`)                            |
+| 3    | no_version_file     | none of `package.json`, `composer.json`, `pom.xml`, `VERSION` exist in the current directory                         |
+| 4    | unparseable_version | version isn't bare `MAJOR.MINOR.PATCH`, or no top-level `"version"` field / project `<version>` tag found            |
+| 5    | write_failed        | version file couldn't be written (permissions, read-only filesystem)                                                 |
+| 6    | sync_failed         | version already bumped and written; lock-sync command failed (binary missing, non-zero exit) — sync output on stderr |
+| 7    | sync_temp_failed    | version already bumped and written; lock-sync couldn't even run (its own `mktemp` call failed)                       |
