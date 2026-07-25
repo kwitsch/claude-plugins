@@ -43,12 +43,18 @@ function interactionGateHandler(args) {
   };
 }
 
+// Per-call wall-clock bound. This server handles stdin messages synchronously on
+// a single thread, so an unbounded git against a slow/unreachable remote would
+// block every later tool call too, not just this hook.
+const GIT_TIMEOUT_MS = 30_000;
+
 /** @param {string} cwd @param {string[]} args @returns {string} */
 function git(cwd, args) {
   return execFileSync("git", args, {
     cwd,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    timeout: GIT_TIMEOUT_MS,
   }).trim();
 }
 

@@ -177,6 +177,16 @@ or rebase conflict it reports via `hookSpecificOutput.additionalContext` (never
 worktree is never left mid-rebase. Synchronous, not `async: true`: it mutates the
 worktree's branch tip, and Claude must not act on the worktree before that settles.
 
+**Every `git` call carries a per-call `timeout: 30_000`** (2026-07-25, CodeRabbit
+finding on this PR). The server handles stdin messages synchronously on one thread,
+so an unbounded `git` against a slow or unreachable remote would block every later
+tool call on this server too, not just this hook. The bound is **per call, not per
+fire** — a worst-case fire (`remote set-head`, `remote show origin`, `fetch`,
+`rebase`) can still add up to a multiple of it — and a call killed by the timeout
+surfaces through the same fetch-failure / rebase-report path as any other git
+failure, never as a hang. `interaction_gate` calls no git at all, so the Stop gate
+is unaffected by this bound.
+
 **Fail-open toggle (`worktree_refresh`, `default: true`)** — same convention as
 `npm_ci_on_worktree` above: only the literal `"false"` disables. Read once at
 server-start from the `CODING_TOOLBOX_WORKTREE_REFRESH` environment variable
