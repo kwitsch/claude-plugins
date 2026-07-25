@@ -121,17 +121,24 @@ function firstLine(e) {
     .trim();
 }
 
-// Fail-open: only the literal string "false" disables — same convention as
-// npm-ci-on-worktree.mjs's isNpmCiEnabled, applied here to an env var instead
-// of argv. This hook is a long-lived MCP server process, not a per-event
-// command-hook spawn, so the userConfig value arrives once at server start via
-// .mcp.json's own `env` field (${user_config.*} substitution is documented to
-// work in "MCP ... server configs", not just hook commands/args — verified
-// NOT to work inside an mcp_tool hook's own `input` field in hooks.json, which
-// only substitutes hook-event data like ${tool_input.file_path}).
+// Fail-open: only the literal string "false" disables — shared by every
+// userConfig toggle this server reads from an env var (WORKTREE_REFRESH_ENABLED
+// and EXPLORE_REROUTE_ENABLED below; npm-ci-on-worktree.mjs's isNpmCiEnabled is
+// a separate process/file and keeps its own copy). This hook is a long-lived
+// MCP server process, not a per-event command-hook spawn, so each userConfig
+// value arrives once at server start via .mcp.json's own `env` field
+// (${user_config.*} substitution is documented to work in "MCP ... server
+// configs", not just hook commands/args — verified NOT to work inside an
+// mcp_tool hook's own `input` field in hooks.json, which only substitutes
+// hook-event data like ${tool_input.file_path}).
+/** @param {string | undefined} value @returns {boolean} */
+function isFailOpenToggleEnabled(value) {
+  return value !== "false";
+}
+
 /** @param {string | undefined} value @returns {boolean} */
 export function isWorktreeRefreshEnabled(value) {
-  return value !== "false";
+  return isFailOpenToggleEnabled(value);
 }
 
 const WORKTREE_REFRESH_ENABLED = isWorktreeRefreshEnabled(
@@ -151,11 +158,9 @@ function normalize(value) {
 
 const REROUTE_EXPLORE_TARGET = "coding-toolbox:explore";
 
-// Fail-open: only the literal string "false" disables -- same convention
-// as isWorktreeRefreshEnabled just above, applied to its own env var.
 /** @param {string | undefined} value @returns {boolean} */
 export function isExploreRerouteEnabled(value) {
-  return value !== "false";
+  return isFailOpenToggleEnabled(value);
 }
 
 const EXPLORE_REROUTE_ENABLED = isExploreRerouteEnabled(

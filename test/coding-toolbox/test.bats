@@ -2171,18 +2171,28 @@ EOF
 # the reroute_explore MCP tool over JSON-RPC; prints the tools/call
 # structuredContent JSON. tool_input_json defaults to {} merged with
 # subagent_type; env_value defaults to empty string (enabled -- fail-open,
-# not the same as genuinely unset, see the dedicated unset-case test below).
+# not the same as genuinely unset -- pass __UNSET__ to unset the env var
+# entirely). Pass __OMIT__ as subagent_type to leave tool_input without a
+# subagent_type key at all instead of merging one in.
 reroute_explore_call() {
   local subagent_type="$1" env_value="${3:-}"
   local extra="$2"
   [ -z "$extra" ] && extra="{}"
   local input
-  input="$(jq -c --arg st "$subagent_type" '. + {subagent_type: $st}' <<< "$extra")"
-  {
-    printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n'
-    printf '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"reroute_explore","arguments":{"hook_event_name":"PreToolUse","tool_input":%s}}}\n' "$input"
-  } | CODING_TOOLBOX_EXPLORE_REROUTE="$env_value" node "$PLUGIN/mcp/server.mjs" 2>/dev/null \
-    | jq -c 'select(.id == 2) | .result.structuredContent'
+  if [ "$subagent_type" = "__OMIT__" ]; then
+    input="$extra"
+  else
+    input="$(jq -c --arg st "$subagent_type" '. + {subagent_type: $st}' <<< "$extra")"
+  fi
+  local payload
+  payload="$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"reroute_explore","arguments":{"hook_event_name":"PreToolUse","tool_input":%s}}}\n' "$input")"
+  if [ "$env_value" = "__UNSET__" ]; then
+    printf '%s' "$payload" | env -u CODING_TOOLBOX_EXPLORE_REROUTE node "$PLUGIN/mcp/server.mjs" 2>/dev/null \
+      | jq -c 'select(.id == 2) | .result.structuredContent'
+  else
+    printf '%s' "$payload" | CODING_TOOLBOX_EXPLORE_REROUTE="$env_value" node "$PLUGIN/mcp/server.mjs" 2>/dev/null \
+      | jq -c 'select(.id == 2) | .result.structuredContent'
+  fi
 }
 
 @test "reroute_explore rewrites subagent_type explore to coding-toolbox:explore" {
@@ -2219,13 +2229,7 @@ reroute_explore_call() {
 
 @test "reroute_explore no-ops for a missing subagent_type" {
   if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
-  run bash -c '
-    printf "%s\n%s\n" \
-      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}" \
-      "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"reroute_explore\",\"arguments\":{\"hook_event_name\":\"PreToolUse\",\"tool_input\":{}}}}" \
-    | node "'"$PLUGIN"'/mcp/server.mjs" 2>/dev/null \
-    | jq -c "select(.id == 2) | .result.structuredContent"
-  '
+  run reroute_explore_call "__OMIT__"
   assert_success
   [ "$output" = "{}" ]
 }
@@ -2239,14 +2243,7 @@ reroute_explore_call() {
 
 @test "reroute_explore fail-open: rewrites when the env var is entirely unset (not just empty)" {
   if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
-  run bash -c '
-    unset CODING_TOOLBOX_EXPLORE_REROUTE
-    printf "%s\n%s\n" \
-      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}" \
-      "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"reroute_explore\",\"arguments\":{\"hook_event_name\":\"PreToolUse\",\"tool_input\":{\"subagent_type\":\"explore\"}}}}" \
-    | node "'"$PLUGIN"'/mcp/server.mjs" 2>/dev/null \
-    | jq -c "select(.id == 2) | .result.structuredContent"
-  '
+  run reroute_explore_call "explore" "{}" "__UNSET__"
   assert_success
   echo "$output" | jq -e '.hookSpecificOutput.updatedInput.subagent_type == "coding-toolbox:explore"'
 }
@@ -2274,15 +2271,20 @@ reroute_explore_call() {
 
 # --- agents/explore.md ------------------------------------------------
 
+# explore_frontmatter -- print agents/explore.md's frontmatter block.
+explore_frontmatter() {
+  sed -n '/^---$/,/^---$/p' "$PLUGIN/agents/explore.md"
+}
+
 @test "explore agent exists with required frontmatter" {
-  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/agents/explore.md'"
+  run explore_frontmatter
   assert_success
   assert_output --partial "name: explore"
   assert_output --partial "model: haiku"
 }
 
 @test "explore agent grants no Edit/Write/NotebookEdit/Agent tools" {
-  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/agents/explore.md'"
+  run explore_frontmatter
   assert_success
   refute_output --partial "Edit"
   refute_output --partial "Write"
@@ -2290,13 +2292,14 @@ reroute_explore_call() {
   refute_output --regexp '^tools:.*[^a-zA-Z]Agent([^a-zA-Z]|$)'
 }
 
-@test "explore agent grants Read, Glob, Grep, Bash" {
-  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/agents/explore.md'"
+@test "explore agent grants Read, Glob, Grep, Bash, ToolSearch" {
+  run explore_frontmatter
   assert_success
   assert_output --partial "Read"
   assert_output --partial "Glob"
   assert_output --partial "Grep"
   assert_output --partial "Bash"
+  assert_output --partial "ToolSearch"
 }
 
 @test "explore agent grants the read-only codebase-memory-mcp tool subset" {

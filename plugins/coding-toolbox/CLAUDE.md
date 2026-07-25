@@ -1,9 +1,10 @@
 # CLAUDE.md — coding-toolbox
 
-Plugin that mechanically enforces "golden behavior rules" via four hooks: a `PreToolUse`
-command hook (`encoding-guard.mjs`), a `Stop` `mcp_tool` hook (`interaction_gate`) and a
-`PostToolUse` `mcp_tool` hook (`worktree_refresh`), both backed by a self-contained,
-now-stateless MCP server (`mcp/server.mjs`), and a `PostToolUse` command hook
+Plugin that mechanically enforces "golden behavior rules" via five hooks: a `PreToolUse`
+command hook (`encoding-guard.mjs`), a `PreToolUse` `mcp_tool` hook (`reroute_explore`),
+a `Stop` `mcp_tool` hook (`interaction_gate`) and a
+`PostToolUse` `mcp_tool` hook (`worktree_refresh`), all three `mcp_tool` hooks backed by
+a self-contained, now-stateless MCP server (`mcp/server.mjs`), and a `PostToolUse` command hook
 (`npm-ci-on-worktree.mjs`) that runs an async `npm ci` when `EnterWorktree` lands in a
 `package-lock.json` project — both `PostToolUse` hooks fire on the same `EnterWorktree`
 matcher, in the same `hooks.json` array. The
@@ -12,8 +13,9 @@ full golden-rules document lives, unwired, at `skills/setup-rules/references/gol
 `setup-rules` is the only way to get it onto a machine (user-level, every
 project you open there), opt-in. The plugin's `userConfig` entries are
 `npm_ci_on_worktree` (fail-open, default `true`) gating the `npm-ci-on-worktree`
-hook and `worktree_refresh` (fail-open, default `true`) gating the `worktree_refresh`
-hook below — the Stop gate and encoding guard have no toggle of their own.
+hook, `worktree_refresh` (fail-open, default `true`) gating the `worktree_refresh`
+hook, and `explore_agent_reroute` (fail-open, default `true`) gating the
+`reroute_explore` hook — the Stop gate and encoding guard have no toggle of their own.
 
 ## Hook design (do not "fix" without reading this)
 
@@ -256,6 +258,34 @@ plugin (see `npm-ci-on-worktree`'s section above for the contrasting,
 confirmed-broken `hooks.json`-`args` interpolation path this deliberately
 avoids).
 
+**Known, accepted collision risk: the match is on the bare string `explore`
+alone, not a plugin-unique key.** Unlike `claude-code-guide` (a name unlikely
+to collide), a project's own `.claude/agents/explore.md` or another
+plugin's agent literally named `explore` would also be silently rewritten to
+`coding-toolbox:explore` — the caller's own agent never runs, with no error.
+This is the same shape of risk claude-code-knowledge's `reroute_guide`
+already carries un-mitigated for `claude-code-guide` (a same-repo review
+flagged it here specifically because `explore` is a much more common name to
+collide on); accepted as a precedented trade-off of the reroute mechanism
+itself, not fixed by adding an existence check for a competing `explore`
+agent — that would be new scope beyond what either reroute hook does today.
+A user who defines their own `explore` agent and hits this should disable
+`explore_agent_reroute`.
+
+**Known, accepted latency risk: `reroute_explore` now shares the same
+single-threaded server as `worktree_refresh`'s synchronous, `timeout:
+30_000`-bounded git calls.** Every `PreToolUse(Agent|Task)` dispatch —
+far more frequent than `EnterWorktree` — now queues behind any in-flight
+`fetch`/`rebase` on this server's one JSON-RPC handling thread. The same
+per-call timeout bound documented in `worktree_refresh`'s own section above
+already covers this: the bound is per call, not per fire, so a worst case
+still adds up to a multiple of it. Previously only `interaction_gate` (no
+git calls, unaffected) shared this server with `worktree_refresh`;
+`reroute_explore` is the first hot-path consumer to actually inherit the
+blocking risk. Accepted rather than split onto a second server (this
+plugin's established preference is one self-contained server per plugin,
+per `.claude/rules/hooks-mcp-server.md`'s decision tree).
+
 ## Agent design (`explore`)
 
 `agents/explore.md` — a 1:1 port of the bundled `Explore` subagent's
@@ -272,7 +302,14 @@ external state the built-in Explore's read-only contract wouldn't permit),
 then `rtk rg`, then plain `rg`, then the bundled `Grep` tool — decided by
 a one-shot `command -v` probe the agent runs itself at task start (agents
 get no skill-style `!` dynamic-context injection, so this can't be
-precomputed the way `setup-rules`' tool-routing detection is). Model
+precomputed the way `setup-rules`' tool-routing detection is). `ToolSearch`
+is also granted (added by Review): the exact-named `mcp__codebase-memory-mcp__*`
+tools may arrive as deferred tools needing a schema-loading `ToolSearch` call
+before their first real use — the same deferred-tool mechanism this
+session's own tool list already exhibits for MCP tools generally — so the
+agent's own prompt instructs it to call `ToolSearch` once and retry if a
+first call to one of them fails with an input-validation/unknown-tool
+error, before falling back to the rtk/rg/Grep chain. Model
 pinned to `haiku` regardless of the main session's model — a custom
 agent's own `model:` field is always authoritative; the "Explore inherits
 the main conversation's model" behavior (cc-reference, v2.1.198+) applies
@@ -753,7 +790,13 @@ action is always "refresh if installed, else no-op").
 for the relocated `golden-rules.md`, hook wiring (PreToolUse `command`, Stop
 `mcp_tool`), an end-to-end JSON-RPC driver against `mcp/server.mjs` proving the Stop
 gate blocks on a bare trailing `?`
-and allows through otherwise. Coverage now also includes: a ported `ci-watch.sh`
+and allows through otherwise. Also covers `reroute_explore`: `hooks.json`/`.mcp.json`/
+`plugin.json` wiring, a JSON-RPC driver proving case-insensitive `explore`→`coding-toolbox:explore`
+rewriting, `tool_input` key preservation, no-ops (other subagent types, missing
+`subagent_type`, toggle disabled), and `tools/list` listing all three server tools; plus
+structural assertions for `agents/explore.md` (frontmatter, no write/Agent tools, the
+read-only `codebase-memory-mcp` tool subset present and the mutating ones absent, the
+rtk/rg/Grep priority chain and READ-ONLY MODE banner, the no-auto-index note). Coverage now also includes: a ported `ci-watch.sh`
 bats suite (hermetic, stubbed `gh`/`glab`), structural assertions for
 `fresh-pr/SKILL.md` and the `ci-watcher`/`pr-fixer` agent frontmatter, and the
 version-bump manifest assertion. Structural assertions for
