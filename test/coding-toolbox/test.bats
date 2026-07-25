@@ -421,7 +421,10 @@ advance_upstream() {
   args="$(jq -cn --arg cwd "$WT" '{cwd: $cwd, tool_name: "EnterWorktree", tool_input: {name: "x"}, tool_response: {worktreePath: $cwd}}')"
   run worktree_refresh_call "$args"
   assert_success
-  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("conflicted and was aborted")'
+  # own wrapper text AND git's real diagnostic — execFileSync's e.message only
+  # carries the "Command failed: …" wrapper, the diagnostic lives in e.stderr.
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext
+    | test("conflicted and was aborted") and test("could not apply")'
 
   local gitdir
   gitdir="$(git -C "$WT" rev-parse --git-dir)"

@@ -107,10 +107,18 @@ function detectDefaultBranch(cwd) {
   return null;
 }
 
+// git's real diagnostic lands on the piped stderr; execFileSync's own e.message is
+// just the "Command failed: <cmd>" wrapper, so prefer stderr and keep the message
+// as the fallback (a timeout kill, for one, leaves stderr empty). Progress output
+// separates fields with a bare CR — collapse those so the result stays one line.
 /** @param {unknown} e @returns {string} */
 function firstLine(e) {
   const err = /** @type {any} */ (e);
-  return String(err?.message ?? err).split("\n")[0];
+  const stderr = String(err?.stderr ?? err?.stdio?.[2] ?? "");
+  const text = stderr.trim() ? stderr : String(err?.message ?? err);
+  return (text.split("\n").find((l) => l.trim()) ?? "")
+    .replace(/\r+/g, " ")
+    .trim();
 }
 
 // Fail-open: only the literal string "false" disables — same convention as
