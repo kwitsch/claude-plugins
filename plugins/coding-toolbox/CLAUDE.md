@@ -97,24 +97,39 @@ free.
 (fixed 2026-07-25, drive-by).** The original design passed the value via
 exec-form `args: ["${user_config.npm_ci_on_worktree}"]`, read as `argv[2]`.
 Observed live: on a plugin that was never explicitly configured through
-`/plugin manage` (no saved `pluginConfigs` entry, even though the schema
-declares `default: true`), current Claude Code hard-errors that
+`/plugin manage` (confirmed live: `pluginConfigs["coding-toolbox"]` is
+`null` in every settings.json scope on this machine, even though the
+schema declares `default: true`), current Claude Code hard-errors that
 interpolation ("Plugin option ... isn't set ... check that the plugin's
 userConfig schema declares ...") instead of leaving the raw placeholder or
 falling back to the schema default — a regression from the "an old build
 leaves the raw placeholder string" assumption the original fail-open design
-was built on (see the paragraph below). The cc-reference plugins doc
-separately documents that **every** `userConfig` value is also exported to
-plugin subprocesses as a `CLAUDE_PLUGIN_OPTION_<KEY>` env var, unconditionally
-— no template substitution involved, so no interpolation failure is
-possible. The hook now reads
-`process.env.CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE` directly and `args` was
-dropped from `hooks.json` entirely; `isNpmCiEnabled`'s fail-open semantics
-(`value !== "false"`) are unchanged, only the value's source moved.
-`worktree_refresh` below still resolves its own toggle through
-`${user_config.worktree_refresh}` (via `.mcp.json`'s `env`, not `hooks.json`
-`args`) and was not re-verified against this same failure mode — out of
-scope for this drive-by fix; port the same env-var fix there if it recurs.
+was built on (see the paragraph below). That placeholder had to go
+regardless of what replaces it. The cc-reference plugins doc separately
+_claims_ every `userConfig` value is also exported to plugin subprocesses
+as a `CLAUDE_PLUGIN_OPTION_<KEY>` env var, unconditionally — the hook now
+reads `process.env.CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE` on that basis
+and `args` was dropped from `hooks.json` entirely. **That claim is
+UNVERIFIED for this specific command-hook subprocess type** — live-checking
+every currently-running plugin MCP server process on this machine
+(`coding-toolbox`, `claude-code-knowledge`) found **zero**
+`CLAUDE_PLUGIN_OPTION_*` vars in any of their environs, so the claim is not
+corroborated here (that check was against the long-lived MCP server
+subprocess, not the transient per-event command-hook process this fix
+actually touches, so it neither confirms nor refutes the command-hook
+case). `isNpmCiEnabled`'s fail-open semantics (`value !== "false"`) are
+unchanged; if the env var is simply absent, `isNpmCiEnabled(undefined)`
+resolves to the documented "unset = enabled" default — strictly no worse
+than the prior fully-broken (crashing) state for the common unconfigured
+case, but a user who explicitly configures `false` would then silently
+fail to have it honored until this is verified or fixed properly (e.g. by
+having this hook query the plugin's own MCP server, which reliably gets
+`${user_config.*}` via `.mcp.json`'s `env` field — see `worktree_refresh`
+below, a confirmed-working precedent). Accepted, documented gap — not
+silently assumed away. `worktree_refresh` below still resolves its own
+toggle through `${user_config.worktree_refresh}` (via `.mcp.json`'s `env`,
+not `hooks.json` `args`) and was not re-verified against this same failure
+mode — out of scope for this drive-by fix.
 
 **Fail-open toggle (`npm_ci_on_worktree`, `default: true`) — a deliberate
 exception to `plugin-userconfig.md`'s state-creating-toggle recommendation.**
