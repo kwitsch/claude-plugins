@@ -247,10 +247,11 @@ interaction_gate_call() {
 }
 
 @test "PostToolUse hook is wired to worktree_refresh for the EnterWorktree matcher" {
-  # Position-independent: npm-ci-on-worktree and worktree_refresh share the same
-  # matcher's hooks array (npm-ci-on-worktree first) — match by content, not index.
-  run jq -e '.hooks.PostToolUse[0] | .matcher == "EnterWorktree"
-    and any(.hooks[]; .type == "mcp_tool" and .server == "plugin:coding-toolbox:coding-toolbox-hooks" and .tool == "worktree_refresh")' "$HOOKS/hooks.json"
+  # Position-independent in both dimensions: find the EnterWorktree matcher among all
+  # PostToolUse entries, then the mcp_tool handler inside its hooks array (which
+  # npm-ci-on-worktree shares) — match by content, never by index.
+  run jq -e 'any(.hooks.PostToolUse[]; .matcher == "EnterWorktree"
+    and any(.hooks[]; .type == "mcp_tool" and .server == "plugin:coding-toolbox:coding-toolbox-hooks" and .tool == "worktree_refresh"))' "$HOOKS/hooks.json"
   assert_success
 }
 
