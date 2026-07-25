@@ -260,9 +260,13 @@ interaction_gate_call() {
   run bash -c '
     { printf "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}\n"
       printf "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}\n"
-    } | node "'"$PLUGIN"'/mcp/server.mjs" 2>/dev/null
+    } | node "'"$PLUGIN"'/mcp/server.mjs" 2>/dev/null \
+      | jq -c "select(.id == 2) | [.result.tools[].name]"
   '
-  assert_output --partial '"worktree_refresh"'
+  assert_success
+  # the registered tool NAME, structurally — a substring match would also accept
+  # the string merely appearing inside some tool's description.
+  echo "$output" | jq -e 'any(.[]; . == "worktree_refresh")'
 }
 
 # Drive the worktree_refresh MCP tool with a JSON arguments blob. Echoes the
