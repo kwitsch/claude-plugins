@@ -23,8 +23,13 @@ Pin plugin.json invariants in tests. branch-management: assert exact sorted `use
 
 ## Inline scripts
 
-Inline scripts — skill/command `!` dynamic-context blocks and agent fenced bash —
-are **not** covered by bats. Their validation is the author's dev-time self-test
-(run it, confirm output), per the script-authoring rule. bats is reserved for
-standalone executables under `plugins/*/bin/`, hooks, and the manifest invariants
-above.
+Trivial inline scripts — skill/command `!` dynamic-context blocks and short
+agent fenced bash with no control flow — are **not** covered by bats. Their
+validation is the author's dev-time self-test (run it, confirm output), per
+the script-authoring rule.
+
+A script extracted to a standalone file (a skill/command's own
+`<script>.<ext>`/`scripts/<script>.<ext>`, or a plugin's `bin/` executable)
+gets bats coverage exactly like any other `bin/` executable — invoke the
+real file, assert output/exit codes/file mutations. Hermetic rules (stub
+CLIs on `PATH`, redirect `$HOME`/`TMPDIR`) apply identically.

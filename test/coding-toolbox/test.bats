@@ -18,7 +18,7 @@ setup() {
   # under this suite too, instead of only ever exercising the grep fallback.
   MOCKBIN="$BATS_TEST_TMPDIR/bin"
   mkdir -p "$MOCKBIN"
-  for t in bash env grep rg timeout sleep mktemp cat rm mkdir awk; do
+  for t in bash env grep rg sed git tr head cut timeout sleep mktemp cat rm mkdir awk; do
     src="$(command -v "$t")" && [ -n "$src" ] && ln -s "$src" "$MOCKBIN/$t"
   done
 
@@ -463,42 +463,24 @@ advance_upstream() {
   assert_success
   assert_output --partial "name: fresh-branch"
   assert_output --partial "AskUserQuestion"
-  assert_output --partial 'Bash(git:*)'
+  assert_output --partial "Bash(git:*)"
 }
 
-@test "fresh-branch script detects linked worktree via git-dir comparison" {
-  run rg_or_grep -F 'git rev-parse --git-dir' "$PLUGIN/skills/fresh-branch/SKILL.md"
+@test "fresh-branch SKILL.md points at its reference doc before invoking" {
+  run rg_or_grep -F 'fresh-branch.reference.md' "$PLUGIN/skills/fresh-branch/SKILL.md"
+  assert_success
+  run rg_or_grep -F '${CLAUDE_SKILL_DIR}/fresh-branch.sh' "$PLUGIN/skills/fresh-branch/SKILL.md"
   assert_success
 }
 
-# Regression guard: the detection must compare by inode (-ef), never string
-# equality. From a subdirectory --git-dir is absolute and --git-common-dir is
-# relative, so a raw '=' wrongly flags the main worktree as a linked one.
 @test "fresh-branch worktree detection compares git-dir by inode, not string equality" {
-  run rg_or_grep -F -- '-ef "$(git rev-parse --git-common-dir)"' "$PLUGIN/skills/fresh-branch/SKILL.md"
+  run rg_or_grep -F -- '-ef "$(git rev-parse --git-common-dir)"' "$PLUGIN/skills/fresh-branch/fresh-branch.sh"
   assert_success
 }
 
-@test "fresh-branch script carries the documented exit-code contract" {
-  run rg_or_grep -F 'Exit: 0 ok' "$PLUGIN/skills/fresh-branch/SKILL.md"
-  assert_success
-}
-
-@test "fresh-branch script auto-stashes and pops uncommitted changes" {
-  run rg_or_grep -F 'git stash push -u' "$PLUGIN/skills/fresh-branch/SKILL.md"
-  assert_success
-  run rg_or_grep -F 'git stash pop' "$PLUGIN/skills/fresh-branch/SKILL.md"
-  assert_success
-}
-
-@test "fresh-branch worktree path rebases instead of switching branches" {
-  run rg_or_grep -F 'git rebase "origin/$base"' "$PLUGIN/skills/fresh-branch/SKILL.md"
-  assert_success
-}
-
-@test "fresh-branch checks branch-name collision before touching the tree" {
-  run rg_or_grep -F 'refs/heads/$branch' "$PLUGIN/skills/fresh-branch/SKILL.md"
-  assert_success
+@test "fresh-branch SKILL.md no longer embeds the script" {
+  run rg_or_grep -F 'refresh_onto()' "$PLUGIN/skills/fresh-branch/SKILL.md"
+  assert_failure
 }
 
 @test "plugin README lists fresh-branch in a Skills section" {
@@ -506,9 +488,94 @@ advance_upstream() {
   assert_success
 }
 
-@test "fresh-branch treats zero args as a universal refresh, not a non-worktree usage error" {
-  run rg_or_grep -F 'if [ "$#" -eq 0 ]; then' "$PLUGIN/skills/fresh-branch/SKILL.md"
+# setup_git_fixture <dir> — bare "origin" repo + a work clone with an
+# initial commit on the default branch, HEAD detected via origin/HEAD.
+setup_git_fixture() {
+  local dir="$1"
+  git init --bare -q "$dir/origin.git"
+  git clone -q "$dir/origin.git" "$dir/work"
+  (
+    cd "$dir/work" || exit 1
+    git config user.email test@example.com
+    git config user.name Test
+    git commit -q --allow-empty -m init
+    git push -q -u origin HEAD:main
+    git remote set-head origin main
+  )
+}
+
+# See Task 2's note on why this path is built inside the wrapper, not
+# hoisted to a bare top-level variable ($PLUGIN isn't set until setup() runs).
+run_freshbranch() {
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$PLUGIN/skills/fresh-branch/fresh-branch.sh" "$@"
+}
+
+@test "fresh-branch.sh: zero args refreshes the current branch onto default" {
+  setup_git_fixture "$BATS_TEST_TMPDIR"
+  cd "$BATS_TEST_TMPDIR/work" || return 1
+  run_freshbranch
   assert_success
+  assert_output --partial "mode: refresh"
+}
+
+@test "fresh-branch.sh: non-worktree, one arg creates a new branch off default" {
+  setup_git_fixture "$BATS_TEST_TMPDIR"
+  cd "$BATS_TEST_TMPDIR/work" || return 1
+  run_freshbranch feature/x
+  assert_success
+  assert_output --partial "mode: create"
+  assert_output --partial "branch: feature/x"
+}
+
+@test "fresh-branch.sh: refuses a branch name that already exists locally" {
+  setup_git_fixture "$BATS_TEST_TMPDIR"
+  cd "$BATS_TEST_TMPDIR/work" || return 1
+  git branch feature/dup
+  run_freshbranch feature/dup
+  assert_failure 6
+}
+
+@test "fresh-branch.sh: no_remote when origin/HEAD is undetectable" {
+  git init -q "$BATS_TEST_TMPDIR/lone"
+  cd "$BATS_TEST_TMPDIR/lone" || return 1
+  git config user.email test@example.com
+  git config user.name Test
+  git commit -q --allow-empty -m init
+  run_freshbranch
+  assert_failure 4
+}
+
+@test "fresh-branch.sh: stashes and pops uncommitted changes around a refresh" {
+  setup_git_fixture "$BATS_TEST_TMPDIR"
+  cd "$BATS_TEST_TMPDIR/work" || return 1
+  echo dirty > file.txt
+  run_freshbranch
+  assert_success
+  run cat file.txt
+  assert_output "dirty"
+}
+
+@test "fresh-branch.sh: worktree context, one arg rebases onto the explicit base" {
+  setup_git_fixture "$BATS_TEST_TMPDIR"
+  cd "$BATS_TEST_TMPDIR/work" || return 1
+  git branch other-base
+  git push -q -u origin other-base
+  git worktree add -q "$BATS_TEST_TMPDIR/wt" -b wt-branch
+  cd "$BATS_TEST_TMPDIR/wt" || return 1
+  run_freshbranch other-base
+  assert_success
+  assert_output --partial "mode: refresh"
+  assert_output --partial "base: other-base"
+}
+
+@test "fresh-branch.sh: worktree context rejects more than one argument" {
+  setup_git_fixture "$BATS_TEST_TMPDIR"
+  cd "$BATS_TEST_TMPDIR/work" || return 1
+  git worktree add -q "$BATS_TEST_TMPDIR/wt" -b wt-branch2
+  cd "$BATS_TEST_TMPDIR/wt" || return 1
+  run_freshbranch main extra
+  assert_failure 2
+  assert_output --partial "worktree: at most 1 arg"
 }
 
 #
@@ -768,6 +835,103 @@ run rg_or_grep -F "rtk_available" "$PLUGIN/skills/fresh-pr/SKILL.md"
 assert_success
 }
 
+@test "fresh-pr SKILL.md points at rebase.reference.md before invoking rebase.sh" {
+  run rg_or_grep -F 'rebase.reference.md' "$PLUGIN/skills/fresh-pr/SKILL.md"
+  assert_success
+  run rg_or_grep -F '${CLAUDE_SKILL_DIR}/rebase.sh' "$PLUGIN/skills/fresh-pr/SKILL.md"
+  assert_success
+}
+
+@test "fresh-pr SKILL.md's git-context block is untouched (out of scope)" {
+  run rg_or_grep -F "rtk_available" "$PLUGIN/skills/fresh-pr/SKILL.md"
+  assert_success
+}
+
+@test "fresh-pr SKILL.md no longer embeds the rebase script" {
+  run rg_or_grep -F 'git merge-base --is-ancestor' "$PLUGIN/skills/fresh-pr/SKILL.md"
+  assert_failure
+}
+
+# See Task 2's note on why this path is built inside the wrapper, not
+# hoisted to a bare top-level variable ($PLUGIN isn't set until setup() runs).
+run_rebase() {
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$PLUGIN/skills/fresh-pr/rebase.sh" "$@"
+}
+
+@test "rebase.sh: usage error with no base argument" {
+  run_rebase
+  assert_failure
+  assert_output --partial "usage"
+}
+
+@test "rebase.sh: up_to_date when base has no new commits" {
+  git init --bare -q "$BATS_TEST_TMPDIR/origin.git"
+  git clone -q "$BATS_TEST_TMPDIR/origin.git" "$BATS_TEST_TMPDIR/work"
+  cd "$BATS_TEST_TMPDIR/work" || return 1
+  git config user.email test@example.com
+  git config user.name Test
+  git commit -q --allow-empty -m init
+  git push -q -u origin HEAD:main
+  run_rebase main
+  assert_success
+  assert_output --partial "REBASE_RESULT=up_to_date"
+}
+
+@test "rebase.sh: rebased when base has new commits" {
+  git init --bare -q "$BATS_TEST_TMPDIR/origin.git"
+  git clone -q "$BATS_TEST_TMPDIR/origin.git" "$BATS_TEST_TMPDIR/main-clone"
+  (
+    cd "$BATS_TEST_TMPDIR/main-clone" || exit 1
+    git config user.email test@example.com
+    git config user.name Test
+    git commit -q --allow-empty -m init
+    git push -q -u origin HEAD:main
+  )
+  git clone -q "$BATS_TEST_TMPDIR/origin.git" "$BATS_TEST_TMPDIR/work"
+  cd "$BATS_TEST_TMPDIR/work" || return 1
+  git config user.email test@example.com
+  git config user.name Test
+  git checkout -qb work origin/main
+  git commit -q --allow-empty -m "work commit"
+  (
+    cd "$BATS_TEST_TMPDIR/main-clone" || exit 1
+    git commit -q --allow-empty -m "new base commit"
+    git push -q origin HEAD:main
+  )
+  run_rebase main
+  assert_success
+  assert_output --partial "REBASE_RESULT=rebased"
+}
+
+@test "rebase.sh: skipped_dirty when the tree has uncommitted changes" {
+  git init --bare -q "$BATS_TEST_TMPDIR/origin.git"
+  git clone -q "$BATS_TEST_TMPDIR/origin.git" "$BATS_TEST_TMPDIR/work"
+  cd "$BATS_TEST_TMPDIR/work" || return 1
+  git config user.email test@example.com
+  git config user.name Test
+  git commit -q --allow-empty -m init
+  git push -q -u origin HEAD:main
+  echo dirty > file.txt
+  run_rebase main
+  assert_success
+  assert_output --partial "REBASE_RESULT=skipped_dirty"
+}
+
+@test "rebase.sh: failed when the fetch fails" {
+  git init --bare -q "$BATS_TEST_TMPDIR/origin.git"
+  git clone -q "$BATS_TEST_TMPDIR/origin.git" "$BATS_TEST_TMPDIR/work"
+  cd "$BATS_TEST_TMPDIR/work" || return 1
+  git config user.email test@example.com
+  git config user.name Test
+  git commit -q --allow-empty -m init
+  git push -q -u origin HEAD:main
+  git remote set-url origin "$BATS_TEST_TMPDIR/does-not-exist.git"
+  run_rebase main
+  assert_success
+  assert_output --partial "REBASE_RESULT=failed"
+  assert_output --partial "DETAIL="
+}
+
 @test "ci-watcher agent documents and conditionally uses rtk_available for gh run list" {
 run rg_or_grep -F "rtk_available" "$PLUGIN/agents/ci-watcher.md"
 assert_success
@@ -855,7 +1019,7 @@ assert_success
 }
 
 @test "fresh-pr rebases onto the base and force-with-leases only when rewritten" {
-  run rg_or_grep -F 'git rebase "origin/$base"' "$PLUGIN/skills/fresh-pr/SKILL.md"
+  run rg_or_grep -F 'git rebase "origin/$base"' "$PLUGIN/skills/fresh-pr/rebase.sh"
   assert_success
   run rg_or_grep -F -- '--force-with-lease' "$PLUGIN/skills/fresh-pr/SKILL.md"
   assert_success
@@ -889,7 +1053,7 @@ assert_success
 
 @test "plugin.json version bumped for the npm-ci-on-worktree and worktree_refresh hooks (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.18.0"
+  assert_output "0.18.1"
 }
 
 @test "plugin.json description mentions fresh-work and its sibling skills" {
@@ -911,56 +1075,146 @@ assert_success
   assert_output --partial 'argument-hint: "<major|minor|patch>"'
 }
 
-@test "bump-version detects version files in package.json > composer.json > pom.xml > VERSION order" {
+@test "bump-version SKILL.md points at its reference doc before invoking" {
+  run rg_or_grep -F 'bump-version.reference.md' "$PLUGIN/skills/bump-version/SKILL.md"
+  assert_success
+  run rg_or_grep -F '${CLAUDE_SKILL_DIR}/bump-version.sh' "$PLUGIN/skills/bump-version/SKILL.md"
+  assert_success
+}
+
+@test "bump-version SKILL.md no longer embeds the script or heredoc wrapper" {
+  run rg_or_grep -F 'BUMPVERSION_EOF' "$PLUGIN/skills/bump-version/SKILL.md"
+  assert_failure
   run rg_or_grep -F 'detect_json "package.json"' "$PLUGIN/skills/bump-version/SKILL.md"
+  assert_failure
+}
+
+# NOTE: do not hoist "$PLUGIN/skills/.../*.sh" into a bare top-level
+# variable assignment here — bare statements between @test blocks in a
+# .bats file execute once at file-source time, BEFORE setup() has ever run
+# for any test, so $PLUGIN (assigned inside setup()) would still be unset
+# at that point and the path would silently resolve wrong (a leading-slash
+# path with no error until something reads it). Build the path inside the
+# wrapper function itself instead — it's only ever called from within a
+# running @test, after that test's own setup() has already executed.
+run_bumpver() {
+  run env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" \
+    bash "$PLUGIN/skills/bump-version/bump-version.sh" "$@"
+}
+
+@test "bump-version.sh: usage error with no argument" {
+  run_bumpver
+  assert_failure 2
+  assert_output --partial "usage"
+}
+
+@test "bump-version.sh: usage error with an unrecognized part" {
+  run_bumpver bogus
+  assert_failure 2
+}
+
+@test "bump-version.sh: no supported version file found" {
+  cd "$BATS_TEST_TMPDIR" || return 1
+  run_bumpver patch
+  assert_failure 3
+  assert_output --partial "no supported version file"
+}
+
+@test "bump-version.sh: bumps package.json patch and syncs the lock file" {
+  cd "$BATS_TEST_TMPDIR" || return 1
+  cat > package.json <<'EOF'
+{
+  "name": "fixture",
+  "version": "1.2.3"
+}
+EOF
+  make_stub npm 'echo "npm $*" > npm-args; exit 0'
+  echo '{}' > package-lock.json
+  run_bumpver patch
   assert_success
-  run rg_or_grep -F 'detect_json "composer.json"' "$PLUGIN/skills/bump-version/SKILL.md"
-  assert_success
-  run rg_or_grep -F 'detect_pom' "$PLUGIN/skills/bump-version/SKILL.md"
-  assert_success
-  run rg_or_grep -F 'detect_version_file' "$PLUGIN/skills/bump-version/SKILL.md"
+  assert_output --partial "old: 1.2.3"
+  assert_output --partial "new: 1.2.4"
+  run rg_or_grep -F '"version": "1.2.4"' package.json
   assert_success
 }
 
-@test "bump-version pom.xml detection skips a leading parent block" {
-  run rg_or_grep -F '</parent>' "$PLUGIN/skills/bump-version/SKILL.md"
+@test "bump-version.sh: composer.json minor bump zeroes patch" {
+  cd "$BATS_TEST_TMPDIR" || return 1
+  cat > composer.json <<'EOF'
+{
+  "name": "fixture/fixture",
+  "version": "1.2.3"
+}
+EOF
+  run_bumpver minor
   assert_success
+  assert_output --partial "new: 1.3.0"
 }
 
-@test "bump-version syncs package-lock.json via npm i --package-lock-only" {
-  run rg_or_grep -F 'npm i --package-lock-only' "$PLUGIN/skills/bump-version/SKILL.md"
+@test "bump-version.sh: pom.xml skips a leading parent block" {
+  cd "$BATS_TEST_TMPDIR" || return 1
+  cat > pom.xml <<'EOF'
+<project>
+  <parent>
+    <version>9.9.9</version>
+  </parent>
+  <version>1.2.3</version>
+</project>
+EOF
+  run_bumpver major
   assert_success
+  assert_output --partial "old: 1.2.3"
+  assert_output --partial "new: 2.0.0"
 }
 
-@test "bump-version composer sync is documented as content-hash-only, not version propagation" {
-  run rg_or_grep -F 'composer update --lock' "$PLUGIN/skills/bump-version/SKILL.md"
-  assert_success
-  run rg_or_grep -F 'no root-version field' "$PLUGIN/skills/bump-version/SKILL.md"
-  assert_success
+@test "bump-version.sh: rejects a non-bare-semver VERSION file" {
+  cd "$BATS_TEST_TMPDIR" || return 1
+  echo "1.2.3-beta" > VERSION
+  run_bumpver patch
+  assert_failure 4
 }
 
-@test "bump-version carries the documented exit-code contract" {
-  run rg_or_grep -F 'Exit: 0 ok' "$PLUGIN/skills/bump-version/SKILL.md"
-  assert_success
+@test "bump-version.sh: sync_failed reports version bumped but sync did not complete" {
+  cd "$BATS_TEST_TMPDIR" || return 1
+  cat > package.json <<'EOF'
+{
+  "version": "1.0.0"
+}
+EOF
+  echo '{}' > package-lock.json
+  make_stub npm 'echo "boom" >&2; exit 1'
+  run_bumpver patch
+  assert_failure 6
+  assert_output --partial "new: 1.0.1"
 }
 
-# Regression guard: the script's awk/trap/sed lines contain single-quoted
-# regions that break if pasted inside an outer bash -c '...' wrapper
-# (confirmed during planning: it fails with a syntax error before the first
-# real line). Invocation must stay heredoc-to-file.
-@test "bump-version invokes via a quoted heredoc, not an outer bash -c wrapper" {
-  run rg_or_grep -F "<<'BUMPVERSION_EOF'" "$PLUGIN/skills/bump-version/SKILL.md"
-  assert_success
+@test "bump-version.sh: write_failed when the version file's directory is read-only" {
+  mkdir -p "$BATS_TEST_TMPDIR/ro"
+  cat > "$BATS_TEST_TMPDIR/ro/package.json" <<'EOF'
+{
+  "version": "1.0.0"
+}
+EOF
+  chmod 555 "$BATS_TEST_TMPDIR/ro"
+  cd "$BATS_TEST_TMPDIR/ro" || return 1
+  run_bumpver patch
+  chmod 755 "$BATS_TEST_TMPDIR/ro"
+  assert_failure 5
 }
 
-# Regression guard: an unquoted-tag heredoc (<<'TAG') only terminates on a
-# line that is EXACTLY the tag -- even one leading space (e.g. from being
-# nested under a numbered list item) leaves it unterminated and swallows
-# everything after it. Caught during planning by literally running the
-# nested form and watching it hang on "unexpected EOF".
-@test "bump-version heredoc terminator is column-0 (unindented)" {
-  run rg_or_grep -qx 'BUMPVERSION_EOF' "$PLUGIN/skills/bump-version/SKILL.md"
-  assert_success
+@test "bump-version.sh: sync_temp_failed when TMPDIR is invalid for the lock-sync mktemp" {
+  cd "$BATS_TEST_TMPDIR" || return 1
+  cat > package.json <<'EOF'
+{
+  "version": "1.0.0"
+}
+EOF
+  echo '{}' > package-lock.json
+  make_stub npm 'exit 0'
+  run env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR/does-not-exist" \
+    bash "$PLUGIN/skills/bump-version/bump-version.sh" patch
+  assert_failure 7
+  assert_output --partial "new: 1.0.1"
 }
 
 @test "plugin README lists bump-version in a Skills section" {
