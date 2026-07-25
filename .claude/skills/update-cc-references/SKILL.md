@@ -3,7 +3,7 @@ name: update-cc-references
 description: Updates the harness-optimized Claude Code reference files (skills, agents, hooks, hook-handler-selection, commands, mcp, plugins, memory, settings) by re-fetching the official Anthropic docs and applying deltas — new/renamed/removed frontmatter fields, changed best practices, new hook events/handler fields, new MCP transports, plugin schema changes, new version gates, env vars, settings keys, and permission modes. Use when Anthropic ships Claude Code changes or the reference files look stale.
 argument-hint: [skills|agents|hooks|commands|mcp|plugins|memory|settings|all]
 disable-model-invocation: true
-allowed-tools: WebFetch, WebSearch, Read, Edit, Write, Glob, Bash, Skill, Agent, ToolSearch, TaskCreate, TaskUpdate, TaskList, TaskGet, TaskStop
+allowed-tools: WebSearch, Read, Edit, Write, Glob, Bash, Skill, Agent, ToolSearch, Workflow, EnterWorktree
 ---
 
 # Update Claude Code reference files
@@ -14,159 +14,236 @@ Target selected by `$ARGUMENTS`: `skills`, `agents`, `hooks`, `commands`, `mcp`,
 
 ## Source-of-truth mapping
 
-Always prefer the `.md` variant of a doc URL when it returns clean markdown; fall back to the HTML page.
+Always prefer the `.md` variant of a doc URL (see Fetch mechanism below for validating it actually
+returned markdown, not an HTML fallback page).
 
 **`claude-code-skills-reference.md`**
+
 - Skill authoring best practices: `https://docs.claude.com/en/docs/agents-and-tools/agent-skills/best-practices`
 - Claude Code skills (frontmatter, lifecycle, invocation, fork, dynamic context, scopes, permissions): `https://code.claude.com/docs/en/skills`
 - Supporting — Agent Skills overview: `https://docs.claude.com/en/docs/agents-and-tools/agent-skills/overview`
-- Supporting — SDK skills (CLI-only `allowed-tools` caveat): `https://docs.claude.com/en/api/agent-sdk/skills`
+- Supporting — SDK skills (CLI-only `allowed-tools` caveat): `https://code.claude.com/docs/en/agent-sdk/skills`
 
 **`claude-code-agents-reference.md`**
+
 - Sub-agents (frontmatter, scopes, models, permissions, hooks, memory, nesting, forks, patterns): `https://code.claude.com/docs/en/sub-agents`
-- Supporting — SDK subagents: `https://docs.claude.com/en/api/agent-sdk/subagents`
+- Supporting — SDK subagents: `https://code.claude.com/docs/en/agent-sdk/subagents`
 
 **`claude-code-hooks-reference.md`** (mechanics)
+
 - Hooks reference (events, matchers, I/O, exit codes, decision control, handler fields, scopes): `https://code.claude.com/docs/en/hooks`
 - Supporting — Hooks guide (examples): `https://code.claude.com/docs/en/hooks-guide`
 
 **`claude-code-mcp-tool-hooks-reference.md`** (CURATED — update conservatively)
+
 - Source: `https://code.claude.com/docs/en/hooks` (mcp_tool hook fields) + `https://code.claude.com/docs/en/mcp`. This file mixes doc-mirrored fields with a hard-won gotcha: a plugin's own `mcp_tool` hook must reference the server as `plugin:<plugin>:<server-key>` (per `claude mcp list`), not the bare `.mcp.json` key. PRESERVE that namespacing rule and the output-contract section on any refresh; never regenerate wholesale.
 
 **`hook-handler-selection.md`** (CURATED decision aid — update conservatively)
+
 - Same source: `https://code.claude.com/docs/en/hooks`. This file is a hand-tuned decision table for choosing a handler `type`, not a 1:1 doc mirror. Only touch it when the docs change something it actually asserts: handler types, fail-open/closed semantics, per-call cost/latency/state characteristics, default timeouts, `mcp_tool`/command-form shape, exit-code/decision constraints. Preserve its rule ordering and quick-map structure. Never regenerate it wholesale.
 
 **`claude-code-commands-reference.md`**
+
 - Slash commands (custom `.claude/commands` authoring, frontmatter, arguments, dynamic context, namespacing): `https://code.claude.com/docs/en/slash-commands`
 - Commands reference (built-ins + bundled skills): `https://code.claude.com/docs/en/commands`
 
 **`claude-code-mcp-reference.md`**
+
 - MCP integration (config, transports, scopes, auth, tool naming): `https://code.claude.com/docs/en/mcp`
 - Supporting — quickstart: `https://code.claude.com/docs/en/mcp-quickstart`
 
 **`claude-code-mcp-managed-reference.md`** (split from the mcp file — keep both in sync when `mcp` is the target)
+
 - Managed/enterprise MCP (`managed-mcp.json`, allowlists/denylists): `https://code.claude.com/docs/en/managed-mcp`
 
 **`claude-code-plugins-reference.md`**
+
 - Plugins (create, components): `https://code.claude.com/docs/en/plugins`
 - Plugins reference (schemas, CLI, component specs): `https://code.claude.com/docs/en/plugins-reference`
 - Supporting — marketplaces: `https://code.claude.com/docs/en/plugin-marketplaces`; dependencies: `https://code.claude.com/docs/en/plugin-dependencies`; hints: `https://code.claude.com/docs/en/plugin-hints`
 
 **`claude-code-memory-reference.md`**
+
 - Memory (CLAUDE.md files, imports, auto-memory): `https://code.claude.com/docs/en/memory`
 
 **`claude-code-settings-reference.md`**
+
 - Settings: `https://code.claude.com/docs/en/settings`; env vars: `https://code.claude.com/docs/en/env-vars`; permissions: `https://code.claude.com/docs/en/permissions`; permission modes: `https://code.claude.com/docs/en/permission-modes`; model config: `https://code.claude.com/docs/en/model-config`; output styles: `https://code.claude.com/docs/en/output-styles`; statusline: `https://code.claude.com/docs/en/statusline`; sandboxed Bash: `https://code.claude.com/docs/en/sandboxing`
 
-If a URL 404s, run a `WebSearch` for the doc title (e.g. "Claude Code sub-agents docs") and fetch the canonical result before proceeding. Do not update a file from search snippets alone — fetch full pages.
+## Fetch mechanism (both modes)
 
-## Workflow
+Never `WebFetch` — its `.md` summarizer is known to fabricate content on these exact docs (a live run
+invented ~30 non-existent settings.json keys; the same failure class as a prior refresh's fake
+`v2.1.180` version gate). Fetch every URL yourself:
 
-Copy this checklist and track progress:
+1. Pick a scratch dir: `$CLAUDE_JOB_DIR/tmp/docs` if `$CLAUDE_JOB_DIR` is set (background job), else
+   `mktemp -d -t update-cc-references-XXXXXX`.
+2. De-duplicate the URL list across every doc shared by the resolved target(s).
+3. `curl -sL -o <scratch>/<name>.md <url>.md` per URL, via Bash — never `Write`/`Edit` for this (the
+   repo's `universal-format` PostToolUse hook matches only `Write|Edit` tool calls, so a Bash-fetched
+   file is never touched by it — this is _why_ curl-fetching avoids reformatting churn on the raw docs,
+   not a separate suppression mechanism).
+4. Validate: if the first line of the fetched file matches `<!DOCTYPE` or `<html`, the `.md` suffix
+   didn't resolve to clean markdown (some `docs.claude.com`/`code.claude.com` aliases redirect wrong
+   under `.md`). Retry once against the doc's corrected canonical path if known (see the SDK URLs
+   above, already fixed from a prior wrong path). Still contaminated → `WebSearch` the doc title, take
+   the canonical URL, curl that.
+5. A curl failure that can't be resolved this way is a hard stop: report which URL(s) failed to the
+   user. Never fall back to `WebFetch`.
 
-```text
-Update Progress:
-- [ ] 1. Resolve target file(s) from $ARGUMENTS
-- [ ] 2. Read the current reference file(s) on disk
-- [ ] 3. Fetch the mapped source docs (full pages)
-- [ ] 4. Diff doc vs file across the delta checklist
-- [ ] 5. Apply edits in the existing harness style
-- [ ] 6. Update the verified-date and version notes
-- [ ] 7. Verify against the post-update checks
-- [ ] 8. Contradiction-validation gate — classify diff, validate each contradiction via cc-reference-validator, revert unconfirmed, block release until clean
+## Resolve targets → decide execution mode
+
+`skills` → skills file; `agents` → agents file; `hooks` → the hooks files (`claude-code-hooks-reference.md`
+and `hook-handler-selection.md` and `claude-code-mcp-tool-hooks-reference.md`, the latter two per their
+conservative rules — preserve curated gotchas, never regenerate wholesale); `commands` →
+`claude-code-commands-reference.md`; `mcp` → `claude-code-mcp-reference.md` and `claude-code-mcp-managed-reference.md`;
+`plugins` → `claude-code-plugins-reference.md`; `memory` → `claude-code-memory-reference.md`; `settings`
+→ `claude-code-settings-reference.md`; `all`/empty → everything. Locate files with `Glob`
+(`plugins/claude-code-knowledge/skills/cc-reference/references/*.md`); if absent, create them there.
+(`skill-folder-structure.md` in that folder is a static convention doc — NOT a maintained target.)
+
+`len(resolved files) == 1` → **Inline mode** (below). `len(resolved files) > 1` → **Workflow mode**
+(below) — this includes `all` and any single trigger that already maps to more than one file (`hooks`,
+`mcp`).
+
+## Inline mode (exactly one target file)
+
+Runs entirely in the orchestrator's own context — no `Agent`/`Workflow` dispatch for the common case.
+
+1. Fetch that file's mapped docs (Fetch mechanism above).
+2. Read the current reference file; note its `verified` date.
+3. Diff against the delta checklist:
+   - **Frontmatter fields:** added, removed, renamed, or changed semantics.
+   - **Hook events & handler fields** (hooks target only): new/removed events, changed cadence, new
+     matcher fields, new handler types/fields, changed exit-2-per-event effects, new decision-control
+     fields, `hookSpecificOutput` changes.
+   - **Best-practice guidance:** changed thresholds, reworded rules, new anti-patterns/patterns.
+   - **Lifecycle / mechanics:** compaction budgets, context-loading rules, discovery/precedence changes.
+   - **Permissions & invocation:** new permission modes, `Skill(...)`/`Agent(...)` rule syntax,
+     `skillOverrides` states, delegation/`--agent` behavior.
+   - **Version gates:** any "requires vX.Y.Z"/"as of vX.Y.Z" note → Version notes section.
+   - **Env vars & settings:** new `CLAUDE_CODE_*` vars or settings keys.
+   - **Built-ins:** changes to built-in skills/agents.
+4. Apply edits: directives not prose, tables for field references, no marketing, forward slashes.
+   Body under 500 lines (split to a sibling file, one level deep, if it outgrows this). No
+   time-sensitive phrasing — use a Version notes line or a collapsed "Old patterns" block.
+5. Update the `verified` date to today; append/adjust Version notes.
+6. **Contradiction-validation gate** — classify every hunk in `git diff HEAD -- <file>`:
+   - ADDITIVE — new field/row/section overturning no prior claim.
+   - CONTRADICTING — modifies, removes, flips, or re-scopes an existing claim. On doubt, CONTRADICTING.
+   - Version tell: any `v?MAJOR.MINOR.PATCH` token ADDED in the diff that is absent from the fetched
+     local doc text is CONTRADICTING (unsourced), regardless of prose label.
+7. For each CONTRADICTING hunk: `Grep` the exact new-claim wording (key terms) against the local
+   curl'd doc(s). Found verbatim (or as a closed enumeration that positively excludes an old, now-removed
+   item — e.g. a JSON example listing the complete current field set — not mere silence) → CONFIRMED,
+   keep. Not found → revert that hunk to its predecessor text directly (already known from the hunk).
+   Escape hatch (rare — most hunks resolve by direct grep): a genuinely ambiguous hunk may get one
+   `Agent` dispatch (`cc-reference-validator`, given the local doc path) or one `advisor` call before
+   deciding — the validator returns `CONFIRMED`, `REJECTED`, or `UNVERIFIABLE` per hunk; only
+   `CONFIRMED` (with its quote) keeps the change, the other two revert it the same as a failed grep.
+8. If every hunk reverted leaves the file identical to its predecessor except the `verified` date bump,
+   revert that date bump too — this file did not actually change.
+9. Report a short changelog grouped by the delta-checklist categories. If nothing changed, say so and
+   leave the file (except `verified`) untouched.
+10. Release (below).
+
+## Workflow mode (more than one target file)
+
+Enter/confirm a shared worktree once up front — skip if the cwd is already a worktree (matching the
+standing background-job convention); if run interactively outside one, call `EnterWorktree` before any
+edit. All target files share this one worktree throughout — no per-file `isolation`, since target files
+are always disjoint (nothing to isolate against — this also matches the `Workflow` tool's own guidance
+to reserve `isolation:'worktree'` for genuine write conflicts).
+
+Invoke the `Workflow` tool with a script shaped like this (fill in `authorPrompt`/`classifyAndVerifyPrompt`/
+`revertPrompt` template functions from the Inline-mode procedure above — same delta checklist, same
+harness-style rules, same version-tell — just executed by dispatched agents instead of the orchestrator
+itself):
+
+```js
+export const meta = {
+  name: "update-cc-references-run",
+  description:
+    "Refresh N cc-reference files: download, per-file author+verify+revert",
+  phases: [
+    { title: "Download" },
+    { title: "Update" },
+    { title: "Verify" },
+    { title: "Revert" },
+  ],
+};
+
+phase("Download");
+const docManifest = await agent(
+  `curl these deduped URLs to local files under the given scratch dir (DOCTYPE-contamination check +
+   retry + WebSearch-fallback rules from the skill's Fetch mechanism section). Return {url: localAbsolutePath}
+   for every URL: ${JSON.stringify(args.urls)}. Scratch dir: ${args.scratchDir}.`,
+  { schema: ManifestSchema },
+);
+
+phase("Update");
+const results = await pipeline(
+  args.targets, // [{name, files, docs}, ...] resolved by the orchestrator before this call
+  (t) =>
+    agent(authorPrompt(t, docManifest), {
+      phase: "Update",
+      schema: AuthorResultSchema,
+    }),
+  // Stage 2 does NOT trust stage1's own hunk labels — it re-derives classification itself from
+  // authored.rawDiff (the `git diff HEAD -- <file>` text stage1 already computed and returned),
+  // the same discipline that actually worked confirming ~120 hunks this session (fresh agents
+  // classified independently rather than consuming the authoring agent's self-report).
+  (authored, t) =>
+    agent(classifyAndVerifyPrompt(authored.rawDiff, docManifest), {
+      phase: "Verify",
+      agentType: "cc-reference-validator",
+      schema: VerdictBatchSchema,
+    }),
+  (verified, t) => {
+    const bad = verified.verdicts.filter((v) => v.verdict !== "CONFIRMED");
+    if (!bad.length)
+      return { target: t.name, reverted: [], dateReverted: false };
+    // revertPrompt must also instruct: if `bad` covers every CONTRADICTING hunk and no ADDITIVE
+    // hunk survives either, revert the `verified` date bump too (file nets to no real change) —
+    // the Workflow-mode equivalent of Inline mode's step 8, which this path doesn't get for free.
+    return agent(revertPrompt(t, bad), {
+      phase: "Revert",
+      schema: RevertResultSchema,
+    });
+  },
+);
+
+phase("Report");
+return { results, docManifest };
 ```
 
-**1. Resolve targets.** `skills` → skills file; `agents` → agents file; `hooks` → the hooks files (`claude-code-hooks-reference.md` + `hook-handler-selection.md` + `claude-code-mcp-tool-hooks-reference.md`, the latter two per their conservative rules — preserve curated gotchas, never regenerate wholesale); `commands` → `claude-code-commands-reference.md`; `mcp` → `claude-code-mcp-reference.md` + `claude-code-mcp-managed-reference.md`; `plugins` → `claude-code-plugins-reference.md`; `memory` → `claude-code-memory-reference.md`; `settings` → `claude-code-settings-reference.md`; `all`/empty → everything. Locate files with `Glob` (`plugins/claude-code-knowledge/skills/cc-reference/references/*.md`); if absent, create them there. The canonical location is the `references/` subfolder `plugins/claude-code-knowledge/skills/cc-reference/references/` — update files there. (Note: `skill-folder-structure.md` in that folder is a static convention doc — NOT a maintained target; never refresh it from docs.)
-
-**2. Read current file(s).** Note the existing structure and the `verified` date in the header comment.
-
-**3. Fetch sources.** Fetch every mapped URL for the selected target(s). Read completely — do not preview with partial reads.
-
-**4. Diff against this delta checklist** (these are the things that actually change):
-- **Frontmatter fields:** added, removed, renamed, or changed semantics. Update the field tables AND any prose that references a field. (Skills file: CC frontmatter table + SDK caveat. Agents file: frontmatter table + model-resolution order.)
-- **Hook events & handler fields:** new/removed events, changed cadence, new matcher fields, new handler types or handler-field changes, changed exit-2-per-event effects, new decision-control fields, `hookSpecificOutput` changes. Update both the hooks-reference tables and, if the assertion changed, the selection file's comparison table / decision rules.
-- **Best-practice guidance:** changed thresholds (line/token budgets, char caps), reworded rules, new anti-patterns, new patterns.
-- **Lifecycle / mechanics:** compaction budgets, context-loading rules, discovery/precedence changes.
-- **Permissions & invocation:** new permission modes, `Skill(...)`/`Agent(...)` rule syntax, `skillOverrides` states, delegation/`--agent` behavior.
-- **Version gates:** any "requires vX.Y.Z" or "as of vX.Y.Z" note → update the Version notes section.
-- **Env vars & settings:** new `CLAUDE_CODE_*` vars or settings keys.
-- **Built-ins:** changes to built-in skills/agents (e.g. Explore/Plan behavior, bundled skills list).
-
-**5. Apply edits.** Preserve the harness style: directives not prose, tables for field references, no marketing, forward slashes. Keep the body under 500 lines; if a section outgrows it, split into a sibling file referenced one level deep. Do not introduce time-sensitive phrasing ("after August 2026…") — use a "Version notes" line or a collapsed "Old patterns" block instead.
-
-**6. Update metadata.** Set the header `verified` date to today. Append/adjust version gates in the Version notes section.
-
-**7. Verify (feedback loop — repeat until all pass):**
-- Every frontmatter field present in the fetched doc appears in the file's field table, with matching name and required/optional status.
-- No field in the file is absent from the docs (flag removed/renamed ones explicitly rather than silently dropping).
-- No time-sensitive wording was introduced.
-- Terminology stays consistent with the rest of the file (e.g. always "subagent", always "frontmatter").
-- Body still under 500 lines; references still one level deep.
-- Report a short changelog: what changed vs the previous version, grouped by the delta checklist categories. If nothing changed, say so and leave the file (except the verified date) untouched.
-
-**8. Contradiction-validation gate (MANDATORY — blocks Release).** The step-7 self-check is not
-enough: a refresh agent can overturn a correct prior claim with a wrong or fabricated one (a
-non-existent config field, an inverted env-var meaning, an unsourced version gate). Before Release,
-validate every change that contradicts the predecessor version.
-
-- **8a. Classify the diff.** For each refreshed file, run `git diff HEAD -- <file>` and label each hunk:
-  - ADDITIVE — a purely new field/row/section that overturns no prior claim → no extra validation.
-  - CONTRADICTING — modifies, removes, flips, or re-scopes an existing claim (changed table cell,
-    reworded *meaning*, deleted line, changed version gate / default / threshold).
-  - On doubt, label CONTRADICTING (a false positive costs one validation; a false negative ships an
-    error). Semantic-equivalent rewording is ADDITIVE.
-  - Version tell (run explicitly): extract every `v?MAJOR.MINOR.PATCH` token ADDED in the diff and
-    check each against the fetched source-doc text; any token absent from the docs is CONTRADICTING
-    (unsourced), regardless of the prose label.
-- **8b. Validate each contradiction individually.** For EACH contradicting hunk, dispatch one
-  `cc-reference-validator` subagent (read-only; one hunk per dispatch). Pass it the file path, the
-  predecessor claim, the new claim, and the file's source-doc URL(s). It returns
-  `{verdict, quote, sourceUrl, confidence, notes}`. Escalate to a 2-of-3 majority of fresh
-  `cc-reference-validator` dispatches ONLY when a single verdict is UNVERIFIABLE or `confidence:"low"`.
-  - **Reconciliation gate (per `.claude/rules/subagent-tracking.md`).** Agent dispatch is async:
-    each `cc-reference-validator` returns a `task_id` now and its verdict arrives later as a
-    `<task-notification>`. Load the ledger tools once (deferred; resolve at depth 0, where this skill
-    runs — a subagent-scoped probe falsely reports these absent, do NOT skip the ledger on that basis):
-    `ToolSearch(query: "select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop")` (retry bare names).
-    Only if the CRUD ledger tools (TaskCreate/TaskUpdate/TaskList) fail to load, use the prose count —
-    TaskStop loading alone is not sufficient to activate the ledger path. Track every dispatch
-    (including the 2-of-3 escalation batch) with the `Task*` ledger — `TaskCreate` one entry per
-    dispatch (`metadata.dispatch_id` = the Agent `task_id`), `TaskUpdate` → `completed` on each matching
-    notification. Do NOT advance to 8c resolution or Release until dispatched-count == result-count,
-    i.e. EVERY dispatched validator (initial + escalations) has returned a terminal verdict. Escape
-    hatch only: if a still-`in_progress` dispatch is judged genuinely stuck, `TaskStop` its
-    `dispatch_id`, mark it terminal (record a soft-failure), and proceed. If the CRUD ledger tools
-    fail to load, use a prose count: do not advance until that many structured verdicts are in hand.
-- **8c. Resolve + gate.**
-  - CONFIRMED (with quote) → keep the change.
-  - REJECTED → revert that hunk to the predecessor version; keep the rest of the file; re-run 8a/8b on
-    any cascading change.
-  - UNVERIFIABLE → revert that hunk to the predecessor version (cc-reference must mirror the docs;
-    silence is not evidence — repo augmentations live in `.claude/rules/`, not here).
-  - No majority (the 2-of-3 escalation batch returns three different verdicts, e.g.
-    CONFIRMED/REJECTED/UNVERIFIABLE one each) → apply the skeptical default: treat as UNVERIFIABLE and
-    revert that hunk to the predecessor version.
-  - If reverts leave a file with no real content change, drop it from the release and revert the
-    step-6 `verified`-date bump for that file (step 6 already freshened the date, so "do not bump" is
-    unreachable — the dropped file must be returned to its predecessor date so it reads as unchanged).
-  - Release is BLOCKED until the diff contains zero unconfirmed contradictions.
-- **8d. Provenance report.** Record every contradicting hunk for the PR body:
-  `file · claim · old → new · verdict · sourceUrl + verbatim quote · action (kept/reverted/escalated)`.
-  List reverted/blocked items explicitly — never drop them silently.
+- `agentType: 'cc-reference-validator'` composes with `schema` per the `Workflow` tool's documented
+  behavior.
+- Revert stage is a no-op (no dispatch) for any file with zero unconfirmed verdicts — the expected
+  common case (this session: 0/120 hunks needed reverting).
+- Dispatched agents receive absolute file paths (the reference file's path resolved against the known
+  shared-worktree root; the doc manifest's absolute local paths) — this session's 8 parallel dispatches
+  already proved this lands edits in the correct worktree.
+- After the `Workflow` call returns: aggregate `results` into the provenance report — `file · claim ·
+old → new · verdict · sourceUrl/quote · action (kept/reverted)` — list every reverted/blocked item
+  explicitly, never drop one silently. A thrown stage drops that one file to `null` (per the tool's own
+  semantics) — report it explicitly as "skipped: `<file>` (`<reason>`)," never silently absorbed into
+  "N files updated."
 
 ## Notes
 
 - The reference files are written in English to match Claude Code terminology; keep updates in English regardless of conversation language.
 
-## Release (after a successful update)
+## Release (after a successful update — either mode)
 
-This skill is run manually by the user. After the doc-update workflow finishes,
-drive a release ONLY if a reference file actually changed.
+This skill is run manually by the user. Drive a release ONLY if a reference file actually changed, and
+only once, after either mode (Inline or Workflow) fully completes.
 
-**Precondition: the step-8 contradiction-validation gate must report zero unconfirmed contradictions.**
-If any hunk was reverted in step 8c, re-run the change detection below against the post-revert tree.
+**Precondition: zero unconfirmed contradictions.** Every CONTRADICTING hunk must have resolved CONFIRMED
+or been reverted (Inline mode step 7-8 / Workflow mode's Verify+Revert stages) before proceeding.
 
 1. **Detect change:**
+
    ```bash
    git status --porcelain plugins/claude-code-knowledge/skills/cc-reference/
    ```
