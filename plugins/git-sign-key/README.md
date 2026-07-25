@@ -25,6 +25,7 @@ signing, instead of relying on the `ssh-agent`.
   [Alternative SSH agents](#alternative-ssh-agents-1password-secretive-) below.
   Every `git commit` in the command is rewritten (compound `a && b` commands and
   `git -C <path> commit` / `git --no-pager commit` included).
+
 - When `~/.claude/sign.key` does **not** exist, commands are left **completely
   untouched** (no signing config is injected).
 - A **SessionStart** hook warns you at the start of a session when the key file
@@ -119,11 +120,11 @@ setup signs them).
 ## Security notes
 
 - `~/.claude/sign.key` is an unencrypted private key — protect it with `chmod
-  600` and never commit it to a repository.
+600` and never commit it to a repository.
 - Anyone with read access to the file can sign commits as you. Use a dedicated
   key you can revoke independently from your auth keys.
 - While the key file exists, the PreToolUse hook returns `permissionDecision:
-  allow` for the commits it rewrites, so those `git commit` commands run
+allow` for the commits it rewrites, so those `git commit` commands run
   **without the usual Bash permission prompt**. This is required: Claude Code
   only applies a hook's rewritten command when the decision is `allow`. Remove
   the key file to restore the normal prompt.
@@ -135,22 +136,13 @@ setup signs them).
   `--no-gpg-sign` (or `-c commit.gpgsign=false` after it), which git honours over
   the injected config. Repos where you deliberately disabled signing are also
   overridden while the key file exists.
-- It detects `git commit` only at an **unquoted command position** (start of the
-  command or after a separator like `&&`, `;`, `|`, `(`, backtick). The scanner
-  tracks single/double-quote state, so it is a heuristic rather than a full shell
-  parser but is quote-aware:
-  - It signs **every** real commit in a compound command (`a && b`) and inside
-    `$(…)` / backtick command substitutions, and it leaves a `git commit` that
-    appears inside a quoted argument or commit message **untouched** — even when
-    that quoted text contains separators like `;` or `(` (e.g.
-    `git commit -m "fix; see (git commit) note"` signs once and keeps the message
-    byte-for-byte).
-  - Global options before the subcommand are handled for `-C <path>`, `-c k=v`
-    and `--long[=value]` (e.g. `git -C path commit`, `git --no-pager commit`).
-  - Not rewritten (they fall back to your normal git setup): shell **aliases**
-    like `gc`, options that take a *space-separated* value such as
-    `git --git-dir /path commit`, and a real commit nested inside a
-    double-quoted command substitution (`"$(… git commit …)"`).
+- It rewrites every real `git commit`, including compound commands (`a && b`)
+  and `$(…)`/backtick substitutions, while leaving a `git commit` that appears
+  inside a quoted argument or commit message untouched.
+- Not rewritten (they fall back to your normal git setup): shell **aliases**
+  like `gc`, options that take a _space-separated_ value such as
+  `git --git-dir /path commit`, and a real commit nested inside a
+  double-quoted command substitution (`"$(… git commit …)"`).
 - If another Bash `PreToolUse` hook also rewrites the command (Claude Code keeps
   the last writer's `updatedInput`), the two can conflict — install only one
   command-rewriting hook per tool.

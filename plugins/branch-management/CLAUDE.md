@@ -2,12 +2,12 @@
 
 Orchestrator skills (`new-pr`, `review-branch`) dispatch subagents for review work; `new-branch` cuts the branch inline (no subagent).
 
-| Concern | Rule |
-|---|---|
-| **Models** | sonnet = ci-monitor; opus = review-fixer, claude-reviewer |
-| **Tools** | each agent declares least-privilege allowlist |
+| Concern    | Rule                                                                                                                                                 |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Models** | sonnet = ci-monitor; opus = review-fixer, claude-reviewer                                                                                            |
+| **Tools**  | each agent declares least-privilege allowlist                                                                                                        |
 | **Colors** | unique per scope; same color OK across scopes (agents never co-run); white/default banned. Scope: review (review-fixer, ci-monitor, claude-reviewer) |
-| **Skills** | declare `allowed-tools` pre-approvals + `argument-hint`; no `model:` key |
+| **Skills** | declare `allowed-tools` pre-approvals + `argument-hint`; no `model:` key                                                                             |
 
 `ci-monitor`/`review-fixer`/`claude-reviewer`'s optional context-mode
 acceleration was removed 2026-07-05 (continuing the repo-wide phase-out
@@ -24,6 +24,7 @@ the identical command made `rtk` fall back to raw output). None of the
 three agents carries an acceleration block today.
 
 ## Behavior
+
 - `skills/new-branch`: decides the branch name (explicit arg verbatim, or
   `<type>/<slug>` slugged from a description), then cuts the branch inline via a
   single **synchronous** Bash script (clean-tree guard, `origin/HEAD` refresh,
@@ -74,7 +75,7 @@ three agents carries an acceleration block today.
   all revisions, `linked_worktree` detection, feature toggles from `userConfig`
   interpolated as `${user_config.KEY}` — fail-open, only literal `false`
   disables); mandatory commit; invokes `skills/review-branch` with `--base
-  "$base"` (stops before push on open findings); pre-submit base rebase (step 8,
+"$base"` (stops before push on open findings); pre-submit base rebase (step 8,
   gated by `rebase_before_pr`, fail-open): when `origin/$base` has commits not in
   HEAD, rebase the work branch onto it — synchronous native Bash, always exits 0
   with a `REBASE_RESULT=` line (`up_to_date`/`rebased`/`skipped_dirty`/`conflict`/
@@ -108,6 +109,7 @@ three agents carries an acceleration block today.
   cadence via `CI_WATCH_INTERVAL`.
 
 ## Conventions
+
 - Feature toggles follow repo-wide `userConfig` rule
   (`plugins/CLAUDE.md`). Wire new toggle: read as
   `${user_config.KEY}` in consuming skill, add to README
@@ -126,9 +128,11 @@ three agents carries an acceleration block today.
   authoritative baseline.
 
 ## Tests
+
 ```bash
-BATS_LIB_PATH=/usr/lib/bats bats test/branch-management/
+BATS_LIB_PATH="$PWD/node_modules" npx bats test/branch-management/
 ```
+
 `test/branch-management/test.bats` covers: `bin/clean-branches.sh`, `bin/ci-watch.sh`,
 and the plugin.json `userConfig` manifest (7 keys: 4 boolean + 1 string
 `review_level` + 2 numeric; sorted key list: `ci_monitor ci_watch_timeout
