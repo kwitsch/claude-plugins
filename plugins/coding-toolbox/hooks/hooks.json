@@ -12,6 +12,20 @@
         ]
       }
     ],
+    "PostToolUse": [
+      {
+        "matcher": "EnterWorktree",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/npm-ci-on-worktree.mjs",
+            "args": ["${user_config.npm_ci_on_worktree}"],
+            "timeout": 300,
+            "async": true
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

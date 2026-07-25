@@ -1,12 +1,16 @@
 # CLAUDE.md — coding-toolbox
 
-Plugin that mechanically enforces "golden behavior rules" via two hooks: a `PreToolUse`
-command hook (`encoding-guard.mjs`) and a `Stop` `mcp_tool` hook (`interaction_gate`),
-the latter backed by a self-contained, now-stateless MCP server (`mcp/server.mjs`). The
+Plugin that mechanically enforces "golden behavior rules" via three hooks: a `PreToolUse`
+command hook (`encoding-guard.mjs`), a `Stop` `mcp_tool` hook (`interaction_gate`),
+the latter backed by a self-contained, now-stateless MCP server (`mcp/server.mjs`), and a
+`PostToolUse` command hook (`npm-ci-on-worktree.mjs`) that runs an async `npm ci` when
+`EnterWorktree` lands in a `package-lock.json` project. The
 full golden-rules document lives, unwired, at `skills/setup-rules/references/golden-rules.md`
 (moved from `hooks/SessionStart.md` when the `SessionStart` hook was removed);
 `setup-rules` is the only way to get it onto a machine (user-level, every
-project you open there), opt-in. No userConfig.
+project you open there), opt-in. The plugin's only `userConfig` entry is
+`npm_ci_on_worktree` (fail-open, default `true`) gating the `npm-ci-on-worktree`
+hook below — the Stop gate and encoding guard have no toggle of their own.
 
 ## Hook design (do not "fix" without reading this)
 
@@ -54,6 +58,98 @@ cc-tools dependency; `cc-tools` invocations pass). Deny
 is PreToolUse JSON (`permissionDecision: "deny"`) naming the encoding + an
 iconv hint; every internal error exits 0 silently (fail open).
 
+## Hook design (`npm-ci-on-worktree`, do not "fix" without reading this)
+
+**PostToolUse → `command`: `matcher: "EnterWorktree"`, `command:
+"${CLAUDE_PLUGIN_ROOT}/hooks/npm-ci-on-worktree.mjs"`, `args:
+["${user_config.npm_ci_on_worktree}"]`, `timeout: 300`, `async: true`.**
+Fires after every successful `EnterWorktree` call (creating a new worktree or
+switching into an existing one) — a fresh worktree's `node_modules` is
+gitignored, so this proactively starts installing it. Checks only
+`<cwd>/package-lock.json` (the hook's `cwd` is the _live_ session working
+directory — confirmed against the official hooks doc during design: "Current
+working directory when the hook is invoked", a point-in-time snapshot that
+updates on `cd`/worktree-switch, not a fixed project root;
+`${CLAUDE_PROJECT_DIR}` is a distinct, separately-documented env var for
+that). If present, runs `npm ci` there via `spawnSync`. Silent on success and
+on every guard miss (disabled, no `cwd`, no lockfile, `npm` process killed by
+its own timeout) — the two exceptions are a real `npm ci` failure (truncated
+stdout+stderr as `additionalContext`) and `npm` missing entirely from `PATH`
+(a one-line note, so an nvm/volta shell that never sourced `npm` for however
+Claude Code was launched doesn't leave this feature invisibly dead forever).
+
+**Command, not `mcp_tool`, despite this plugin already running an MCP server
+for the Stop hook** (`.claude/rules/hooks-mcp-server.md`'s decision tree
+otherwise prefers reusing it for a plugin with 2+ hooks). `mcp_tool` has no
+`async` field (`hooks-mcp-tool-event-matrix.md`'s `mcp_tool`
+`GLOBAL_MECHANICS`: only `server`/`tool`/`input`) — a synchronous JSON-RPC
+round-trip would block the agent loop for the full `npm ci` duration,
+contradicting the user's explicit "async" request. Same `command` + `async:
+true` idiom as `universal-lint`'s `lint-file.mjs`, not a hand-rolled detached
+child process — `async: true` already gives fire-and-forget semantics for
+free.
+
+**`args` is deliberately exec-form (`["${user_config.npm_ci_on_worktree}"]`),
+not a shell string** — per `.claude/rules/hooks-json-authoring.md`: "Use exec
+form (`"args": []`) when referencing path variables" / user_config
+substitutions, same as `memory-enhancement`'s `check-dream-due.mjs`. If a
+future review pass proposes collapsing this into the `command` string, that
+is the same false schema claim this repo's own memory already documents
+recurring across review passes — refute it by this citation, don't
+re-litigate it.
+
+**Fail-open toggle (`npm_ci_on_worktree`, `default: true`) — a deliberate
+exception to `plugin-userconfig.md`'s state-creating-toggle recommendation.**
+That rule recommends fail-closed here specifically because `npm ci` creates
+external state (`node_modules`, network I/O) — the same shape as the rule's
+own "auto-creates a folder" example. The initial design draft was
+fail-closed for exactly that reason; the user explicitly asked for fail-open
+instead at this feature's intent-confirmation gate, accepting the trade-off
+(an old Claude Code build that can't resolve `${user_config.*}` placeholders
+leaves the raw placeholder string, which is not the literal `"false"` and so
+is treated as enabled — worst case is an unwanted background `npm ci`, not
+data loss). Do not "fix" this to fail-closed without re-confirming with the
+user first.
+
+**Async despite mutating state whose ordering could matter.**
+`.claude/rules/hooks-mcp-server.md`'s general guidance is to stay
+synchronous when a hook "mutates state whose ordering relative to the next
+tool call matters" — installing `node_modules` is exactly that (the agent
+could try `npm test` before install finishes). Going async anyway is the
+user's explicit, literal request ("async npm ci"), not an oversight.
+
+No monorepo/nested-workspace lockfile walk (root of the entered worktree
+only) and no concurrency guard against two overlapping `EnterWorktree` calls
+into the same directory (`npm ci` is safe to re-run — always a clean
+wipe+reinstall from the lockfile, so the worst case is wasted work, not
+corruption) — both matched to the user's literal ask, not oversights.
+
+**`npm ci` unconditionally deletes `node_modules` before reinstalling, and
+this hook fires on switching into an _existing_ worktree too**, not only on
+creation — re-entering a worktree while something in it is mid-run against
+that `node_modules` (e.g. this very repo's own
+`BATS_LIB_PATH="$PWD/node_modules"` bats invocation, or a live `tsc`/`npm
+test`) would have its dependency tree pulled out from under it. Accepted,
+not guarded: a guard would contradict `npm ci`'s own contract, and the user
+asked for the simple, literal version — this is a deliberate consequence,
+not a silent one; do not "fix" it with a running-process check without
+re-confirming with the user first.
+
+**The hook trusts the `PostToolUse` event's `cwd` field as-is, with no
+cross-check against `EnterWorktree`'s own reported path.** A 2026-07-24
+Review pass flagged this as a speculative (not confirmed) risk: if
+`EnterWorktree` ever fires in a context where `cwd` tracking itself is wrong
+(this repo's own memory documents a _different_, already-verified-absent
+case — a linked/bridge session's Agent-tool subagents defaulting to the
+primary repo root — but the platform could in principle have other,
+undiscovered cases), `npm ci` would run — and wipe `node_modules` — in the
+wrong directory. No practical mitigation exists without parsing
+`EnterWorktree`'s free-text result (rejected during design as more fragile
+than trusting `cwd`, see this file's design-doc citation above) or adding a
+path-shape sanity check that would break the documented "switch into an
+arbitrary existing worktree via `path`" case. Accepted as an unaddressed,
+documented risk rather than defended against speculatively.
+
 ## Skill design (`fresh-branch`)
 
 Single inline synchronous bash script (no MCP server, no subagent — same idiom
@@ -65,7 +161,7 @@ unconditionally around both paths, including the refresh-only path (now
 universal for zero-argument invocations, not just inside a worktree —
 2026-07-02, extended same day per user request) that creates no new branch —
 never silently drops a stash on a pop conflict (exit `8`, reported). The
-non-worktree branch-name collision check runs *before* any stash or checkout so
+non-worktree branch-name collision check runs _before_ any stash or checkout so
 that path never has to unwind a stash from the wrong branch. See `skills/fresh-branch/SKILL.md`'s parameter table for the full worktree × arg-count truth table.
 
 ## Skill design (`fresh-pr`)
@@ -216,7 +312,7 @@ early to make room for this — it legitimately stays `in_progress` for the
 whole nested call, since `references/dispatch-shared.md`'s "exactly one
 in_progress" rule is scoped to each skill's own step-list segment of the
 shared ledger, not a global count across it (a CodeRabbit finding on the PR
-caught that nesting the *numbering* alone, without stating this lifecycle
+caught that nesting the _numbering_ alone, without stating this lifecycle
 explicitly, left the actual ledger-invariant question — what happens to the
 caller's task while the callee runs — unanswered). Adapted
 from superpowers'
@@ -416,7 +512,7 @@ skill's own `references/golden-rules.md` (never re-typed, avoiding
 transcription drift) and a generated tool-routing table naming
 whichever of `rtk`/`bun`/`rg`/`codebase-memory-mcp` are on `PATH`.
 Detection (both installed-file glob and tool `PATH` presence) runs via
-one load-time fenced `` ```! `` dynamic-context block (one shell
+one load-time fenced ` ```! ` dynamic-context block (one shell
 invocation for all six facts, not six separate `!` injections), not a
 bundled script — per `script-authoring.md`'s "inject before query" the
 facts are static before the first question, so they're computed once
@@ -458,7 +554,7 @@ defaulting to "both", per the same review pass — silently deleting every
 managed file from one ambiguous word would be a real footgun a bare `install`
 defaulting to "both" is not. This mode exists for a human typing e.g.
 `/coding-toolbox:setup-rules update tools rule` directly (`disable-model-invocation`
-blocks the *model*, not the user) — it was **not**, in the end, the mechanism
+blocks the _model_, not the user) — it was **not**, in the end, the mechanism
 that lets `memory-enhancement:dream` refresh the tools rule; see
 `refresh-tools-rule` below for why that stayed a separate skill instead of
 loosening this one's invocation control. Step 1 detection also flags a
@@ -479,13 +575,13 @@ Review step. The original plan for `dream`'s tools-rule sync (see
 above (`args: "update tools rule"`) — a genuine "single source of truth"
 option the user picked at the `fresh-work` intent-confirmation gate. An
 altitude review during the same pipeline's Review step flagged the real cost:
-that would open *every* verb this skill supports — including destructive
+that would open _every_ verb this skill supports — including destructive
 `remove`/install on a machine-wide dotfile — to autonomous invocation by any
 model turn in any session, to serve one narrow, non-destructive internal
 caller. Re-surfaced to the user, who chose to split instead: `setup-rules`
 keeps `disable-model-invocation: true` (its install/remove verbs stay
 human-only), and this new skill carries no such flag — safe to be
-model-invocable specifically *because* its entire behavior is provably
+model-invocable specifically _because_ its entire behavior is provably
 non-destructive: it hard-gates on `~/.claude/rules/coding-toolbox-tools.md`
 **already existing** (Step 1 detection), and from there only ever rewrites
 that one file's content from current `PATH` detection — it never creates the
