@@ -1973,12 +1973,14 @@ make_fixtures() {
 # package-lock.json exists in the entered worktree's cwd.
 # ---------------------------------------------------------------------------
 
-# npm_ci_hook <enabled-arg> <cwd> -- drive the hook with a PostToolUse
-# EnterWorktree-shaped stdin payload; prints the hook's stdout.
+# npm_ci_hook <enabled-value> <cwd> -- drive the hook with a PostToolUse
+# EnterWorktree-shaped stdin payload via the CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE
+# env var (not argv -- matches how Claude Code actually exports userConfig values);
+# prints the hook's stdout.
 npm_ci_hook() {
   jq -cn --arg cwd "$2" \
     '{tool_name:"EnterWorktree", tool_input:{}, cwd:$cwd}' \
-    | "$HOOKS/npm-ci-on-worktree.mjs" "$1" 2>/dev/null
+    | CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE="$1" "$HOOKS/npm-ci-on-worktree.mjs" 2>/dev/null
 }
 
 # make_npm_stub <exit_code> <stdout_text> -- puts a fake `npm` on PATH that
@@ -2005,7 +2007,7 @@ EOF
   [ -x "$HOOKS/npm-ci-on-worktree.mjs" ]
 }
 
-@test "npm-ci-on-worktree: disabled (argv false) never invokes npm" {
+@test "npm-ci-on-worktree: disabled (env var false) never invokes npm" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   make_npm_stub 0 "ok"
   PROJ="$BATS_TEST_TMPDIR/proj1"; mkdir -p "$PROJ"; : > "$PROJ/package-lock.json"
@@ -2015,11 +2017,23 @@ EOF
   [ ! -f "$CALLLOG" ]
 }
 
-@test "npm-ci-on-worktree: fail-open on missing/placeholder arg still invokes npm" {
+@test "npm-ci-on-worktree: fail-open on unresolved placeholder env value still invokes npm" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   make_npm_stub 0 "ok"
   PROJ="$BATS_TEST_TMPDIR/proj2"; mkdir -p "$PROJ"; : > "$PROJ/package-lock.json"
   run npm_ci_hook '${user_config.npm_ci_on_worktree}' "$PROJ"
+  assert_success
+  [ -z "$output" ]
+  [ -f "$CALLLOG" ]
+  grep -q " ci\$" "$CALLLOG"
+}
+
+@test "npm-ci-on-worktree: fail-open when the env var is entirely unset still invokes npm" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  make_npm_stub 0 "ok"
+  PROJ="$BATS_TEST_TMPDIR/proj2b"; mkdir -p "$PROJ"; : > "$PROJ/package-lock.json"
+  run bash -c "jq -cn --arg cwd '$PROJ' '{tool_name:\"EnterWorktree\", tool_input:{}, cwd:\$cwd}' \
+    | env -u CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE '$HOOKS/npm-ci-on-worktree.mjs' 2>/dev/null"
   assert_success
   [ -z "$output" ]
   [ -f "$CALLLOG" ]
@@ -2059,7 +2073,7 @@ EOF
 
 @test "npm-ci-on-worktree fails open on garbage stdin" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
-  run bash -c "printf 'not json at all' | '$HOOKS/npm-ci-on-worktree.mjs' true 2>/dev/null"
+  run bash -c "printf 'not json at all' | CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE=true '$HOOKS/npm-ci-on-worktree.mjs' 2>/dev/null"
   assert_success
   [ -z "$output" ]
 }
@@ -2074,17 +2088,18 @@ EOF
   PROJ="$BATS_TEST_TMPDIR/proj6"; mkdir -p "$PROJ"; : > "$PROJ/package-lock.json"
   local payload="$BATS_TEST_TMPDIR/payload.json"
   jq -cn --arg cwd "$PROJ" '{tool_name:"EnterWorktree", tool_input:{}, cwd:$cwd}' > "$payload"
-  run env -i PATH="$fakebin" HOME="$HOME" bash -c "'$HOOKS/npm-ci-on-worktree.mjs' true < '$payload'"
+  run env -i PATH="$fakebin" HOME="$HOME" CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE=true \
+    bash -c "'$HOOKS/npm-ci-on-worktree.mjs' < '$payload'"
   assert_success
   assert_output --partial "npm not found on PATH"
 }
 
-@test "npm-ci-on-worktree PostToolUse hook wired for EnterWorktree with async:true and userConfig arg" {
+@test "npm-ci-on-worktree PostToolUse hook wired for EnterWorktree with async:true and no args (env-var toggle, not interpolated)" {
   run jq -e '.hooks.PostToolUse[0]
     | .matcher == "EnterWorktree"
       and (.hooks[0].type == "command")
       and (.hooks[0].command == "${CLAUDE_PLUGIN_ROOT}/hooks/npm-ci-on-worktree.mjs")
-      and (.hooks[0].args == ["${user_config.npm_ci_on_worktree}"])
+      and (.hooks[0] | has("args") | not)
       and (.hooks[0].async == true)' "$HOOKS/hooks.json"
   assert_success
 }

@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 // hooks/npm-ci-on-worktree.mjs -- coding-toolbox plugin: PostToolUse EnterWorktree
 // hook. Command hook, invoked directly per event (no MCP server). stdin = hook JSON
-// (PostToolUseHookInput); argv[2] = interpolated ${user_config.npm_ci_on_worktree}.
+// (PostToolUseHookInput); the userConfig toggle is read from
+// CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE, the env var Claude Code always exports to
+// plugin subprocesses for every userConfig key (cc-reference plugins doc) -- not via
+// a ${user_config.npm_ci_on_worktree} placeholder in hooks.json's args. That
+// interpolation hard-errors ("Plugin option ... isn't set") when the plugin has never
+// been explicitly configured via /plugin manage, even though the schema declares a
+// default; the env var is always exported regardless, so reading it directly avoids
+// the failure entirely.
 // async:true in hooks.json -- the agent loop never waits for `npm ci` to finish.
 //
 // Every branch below exits 0; only a real `npm ci` failure or a missing-npm PATH
@@ -110,11 +117,13 @@ function isMainModule() {
   }
 }
 
-/** Read argv[2] (userConfig toggle) + the hook's stdin JSON, run the handler,
- * print the result JSON (or nothing) to stdout. Fails open on any error. */
+/** Read the userConfig toggle (CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE) + the hook's
+ * stdin JSON, run the handler, print the result JSON (or nothing) to stdout. Fails
+ * open on any error. */
 function main() {
   try {
-    if (!isNpmCiEnabled(process.argv[2])) return;
+    if (!isNpmCiEnabled(process.env.CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE))
+      return;
     const raw = readFileSync(0, "utf8");
     const input = JSON.parse(raw);
     const result = npmCiOnWorktreeHandler(input);

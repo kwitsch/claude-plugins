@@ -64,8 +64,8 @@ iconv hint; every internal error exits 0 silently (fail open).
 ## Hook design (`npm-ci-on-worktree`, do not "fix" without reading this)
 
 **PostToolUse → `command`: `matcher: "EnterWorktree"`, `command:
-"${CLAUDE_PLUGIN_ROOT}/hooks/npm-ci-on-worktree.mjs"`, `args:
-["${user_config.npm_ci_on_worktree}"]`, `timeout: 300`, `async: true`.**
+"${CLAUDE_PLUGIN_ROOT}/hooks/npm-ci-on-worktree.mjs"`, `timeout: 300`, `async:
+true`.**
 Fires after every successful `EnterWorktree` call (creating a new worktree or
 switching into an existing one) — a fresh worktree's `node_modules` is
 gitignored, so this proactively starts installing it. Checks only
@@ -92,14 +92,29 @@ true` idiom as `universal-lint`'s `lint-file.mjs`, not a hand-rolled detached
 child process — `async: true` already gives fire-and-forget semantics for
 free.
 
-**`args` is deliberately exec-form (`["${user_config.npm_ci_on_worktree}"]`),
-not a shell string** — per `.claude/rules/hooks-json-authoring.md`: "Use exec
-form (`"args": []`) when referencing path variables" / user_config
-substitutions, same as `memory-enhancement`'s `check-dream-due.mjs`. If a
-future review pass proposes collapsing this into the `command` string, that
-is the same false schema claim this repo's own memory already documents
-recurring across review passes — refute it by this citation, don't
-re-litigate it.
+**Reads the toggle from `CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE`, not a
+`${user_config.npm_ci_on_worktree}` placeholder in `hooks.json`'s `args`
+(fixed 2026-07-25, drive-by).** The original design passed the value via
+exec-form `args: ["${user_config.npm_ci_on_worktree}"]`, read as `argv[2]`.
+Observed live: on a plugin that was never explicitly configured through
+`/plugin manage` (no saved `pluginConfigs` entry, even though the schema
+declares `default: true`), current Claude Code hard-errors that
+interpolation ("Plugin option ... isn't set ... check that the plugin's
+userConfig schema declares ...") instead of leaving the raw placeholder or
+falling back to the schema default — a regression from the "an old build
+leaves the raw placeholder string" assumption the original fail-open design
+was built on (see the paragraph below). The cc-reference plugins doc
+separately documents that **every** `userConfig` value is also exported to
+plugin subprocesses as a `CLAUDE_PLUGIN_OPTION_<KEY>` env var, unconditionally
+— no template substitution involved, so no interpolation failure is
+possible. The hook now reads
+`process.env.CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE` directly and `args` was
+dropped from `hooks.json` entirely; `isNpmCiEnabled`'s fail-open semantics
+(`value !== "false"`) are unchanged, only the value's source moved.
+`worktree_refresh` below still resolves its own toggle through
+`${user_config.worktree_refresh}` (via `.mcp.json`'s `env`, not `hooks.json`
+`args`) and was not re-verified against this same failure mode — out of
+scope for this drive-by fix; port the same env-var fix there if it recurs.
 
 **Fail-open toggle (`npm_ci_on_worktree`, `default: true`) — a deliberate
 exception to `plugin-userconfig.md`'s state-creating-toggle recommendation.**
