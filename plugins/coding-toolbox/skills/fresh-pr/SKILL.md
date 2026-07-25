@@ -2,7 +2,23 @@
 name: fresh-pr
 description: Use when branch work should become a pull/merge request without a code-review-rounds step — commits pending work, rebases onto an updated base, pushes, opens or refreshes a PR/MR (GitHub and GitLab), then drives it to CI-green (and, if CodeRabbit participates, all its review threads resolved) via this plugin's own ci-watcher/pr-fixer agents. Self-contained — no dependency on branch-management.
 argument-hint: "[--base <branch>]"
-allowed-tools: ["Agent", "AskUserQuestion", "Bash(git:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(jq:*)", "Bash(bash:*)", "Bash(mktemp:*)", "ToolSearch", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TaskStop"]
+allowed-tools:
+  [
+    "Agent",
+    "AskUserQuestion",
+    "Bash(git:*)",
+    "Bash(gh:*)",
+    "Bash(glab:*)",
+    "Bash(jq:*)",
+    "Bash(bash:*)",
+    "Bash(mktemp:*)",
+    "ToolSearch",
+    "TaskCreate",
+    "TaskUpdate",
+    "TaskList",
+    "TaskGet",
+    "TaskStop",
+  ]
 ---
 
 # Push work and open/refresh a PR/MR, then drive it to CI-green
@@ -23,6 +39,7 @@ dependency on `branch-management`; every script/agent used here lives in
 ## Git context
 
 <!-- coderabbit-skip: `git`/`pwd` here run inside a dynamic-context `!` block — load-time preprocessing executed before Claude sees the content, not a Claude tool call, so `allowed-tools` has no bearing on it (cc-reference claude-code-skills-reference.md, "Dynamic context injection": "runs the shell command BEFORE Claude sees content ... preprocessing, not a Claude action"). -->
+
 !`git fetch origin >/dev/null 2>&1; git remote set-head origin --auto >/dev/null 2>&1; wt=no; [ "$(git rev-parse --git-dir 2>/dev/null)" -ef "$(git rev-parse --git-common-dir 2>/dev/null)" ] || wt=yes; printf "current_branch: %s\ndetected_base: %s\nlinked_worktree: %s\nworktree_path: %s\nrtk_available: %s\n" "$(git branch --show-current)" "$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p')" "$wt" "$(pwd)" "$(command -v rtk >/dev/null 2>&1 && echo yes || echo no)"`
 
 ## Preconditions
@@ -53,51 +70,28 @@ dependency on `branch-management`; every script/agent used here lives in
    ```
 
 4. **Abort with a clear message if:**
-   - the current branch *is* `$base` (nothing to open a PR from), or
+   - the current branch _is_ `$base` (nothing to open a PR from), or
    - `git log "origin/$base"..HEAD --oneline` is empty (no commits to submit —
      step 2 already committed anything pending, so this means there is truly
      no work).
 
 ## Rebase and push
 
-5. **Rebase onto the latest base if it moved.** Synchronous native Bash (git
-   fetch + rebase are writes — never a sandboxed shell tool). Pass `$base` as
-   `$1`.
+5. **Rebase onto the latest base if it moved.** Read `rebase.reference.md`
+   for the exact parameter/outcome contract, then run
+   `bash ${CLAUDE_SKILL_DIR}/rebase.sh "$base"` via the Bash tool
+   (synchronous native Bash — git fetch + rebase are writes, never a
+   sandboxed shell tool).
 
-   ```bash
-   #!/usr/bin/env bash
-   # Rebase the work branch onto the latest origin/<base>. Run from the work
-   # tree. Always exits 0; outcome on the REBASE_RESULT= line.
-   set -uo pipefail
-   base="${1:?usage: <base>}"
-   if [ -n "$(git status --porcelain)" ]; then echo "REBASE_RESULT=skipped_dirty"; exit 0; fi
-   if ! out="$(git fetch origin "$base" 2>&1)"; then
-     echo "REBASE_RESULT=failed"; echo "DETAIL=fetch: $(printf '%s' "$out" | tail -2 | tr '\n' ' ' | cut -c1-200)"; exit 0
-   fi
-   if git merge-base --is-ancestor "origin/$base" HEAD; then
-     echo "REBASE_RESULT=up_to_date"; exit 0
-   fi
-   if git rebase "origin/$base" >/dev/null 2>&1; then
-     echo "REBASE_RESULT=rebased"
-   else
-     git rebase --abort >/dev/null 2>&1 || true
-     echo "REBASE_RESULT=conflict"
-   fi
-   exit 0
-   ```
-
-   Map the `REBASE_RESULT=` line:
-   - `up_to_date` → base has no new commits; nothing to do, continue.
-   - `rebased` → history was rewritten; set a `rebased=yes` marker — step 6's
-     push MUST then use `--force-with-lease`. Continue.
-   - `skipped_dirty` → uncommitted changes remain (shouldn't happen after
-     step 2); commit or stash them and re-run this step.
-   - `conflict` → the rebase hit conflicts and was aborted (branch unchanged).
-     **Stop here** — do not push or touch the PR/MR; hand the conflict to the
-     user to resolve manually.
-   - `failed` → fetch/setup failed (e.g. offline); report `DETAIL` as a soft
-     note and continue — the branch is still pushable, the PR just may sit
-     behind `$base`.
+   Map the `REBASE_RESULT=` line per `rebase.reference.md`'s table:
+   - `rebased` → history was rewritten; set a `rebased=yes` marker —
+     step 6's push MUST then use `--force-with-lease`. Continue.
+   - `conflict` → **Stop here** — do not push or touch the PR/MR; hand
+     the conflict to the user to resolve manually.
+   - `failed` → report `DETAIL` as a soft note and continue — the branch
+     is still pushable, the PR just may sit behind `$base`.
+   - `up_to_date` / `skipped_dirty` → continue (or, for `skipped_dirty`,
+     commit/stash first and re-run this step).
 
 6. **Push.**
    - `linked_worktree:` is `yes` OR step 5 reported `rebased=yes` →
@@ -115,7 +109,7 @@ dependency on `branch-management`; every script/agent used here lives in
    - GitLab (`gitlab.` or a self-managed GitLab host) → `glab`.
    - Neither anchor matches (custom-domain Enterprise/self-managed host): check
      `gh auth status --hostname <host>` and `glab auth status --hostname
-     <host>` — if exactly one knows the host, use that tool; otherwise ask the
+<host>` — if exactly one knows the host, use that tool; otherwise ask the
      user.
 
    If the required CLI is missing or unauthenticated, stop and give the user

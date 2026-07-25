@@ -810,6 +810,88 @@ run rg_or_grep -F "rtk_available" "$PLUGIN/skills/fresh-pr/SKILL.md"
 assert_success
 }
 
+@test "fresh-pr SKILL.md points at rebase.reference.md before invoking rebase.sh" {
+  run rg_or_grep -F 'rebase.reference.md' "$PLUGIN/skills/fresh-pr/SKILL.md"
+  assert_success
+  run rg_or_grep -F '${CLAUDE_SKILL_DIR}/rebase.sh' "$PLUGIN/skills/fresh-pr/SKILL.md"
+  assert_success
+}
+
+@test "fresh-pr SKILL.md's git-context block is untouched (out of scope)" {
+  run rg_or_grep -F "rtk_available" "$PLUGIN/skills/fresh-pr/SKILL.md"
+  assert_success
+}
+
+@test "fresh-pr SKILL.md no longer embeds the rebase script" {
+  run rg_or_grep -F 'git merge-base --is-ancestor' "$PLUGIN/skills/fresh-pr/SKILL.md"
+  assert_failure
+}
+
+# See Task 2's note on why this path is built inside the wrapper, not
+# hoisted to a bare top-level variable ($PLUGIN isn't set until setup() runs).
+run_rebase() {
+  run env -i PATH="$MOCKBIN" HOME="$HOME" bash "$PLUGIN/skills/fresh-pr/rebase.sh" "$@"
+}
+
+@test "rebase.sh: usage error with no base argument" {
+  run_rebase
+  assert_failure
+  assert_output --partial "usage"
+}
+
+@test "rebase.sh: up_to_date when base has no new commits" {
+  git init --bare -q "$BATS_TEST_TMPDIR/origin.git"
+  git clone -q "$BATS_TEST_TMPDIR/origin.git" "$BATS_TEST_TMPDIR/work"
+  cd "$BATS_TEST_TMPDIR/work" || return 1
+  git config user.email test@example.com
+  git config user.name Test
+  git commit -q --allow-empty -m init
+  git push -q -u origin HEAD:main
+  run_rebase main
+  assert_success
+  assert_output --partial "REBASE_RESULT=up_to_date"
+}
+
+@test "rebase.sh: rebased when base has new commits" {
+  git init --bare -q "$BATS_TEST_TMPDIR/origin.git"
+  git clone -q "$BATS_TEST_TMPDIR/origin.git" "$BATS_TEST_TMPDIR/main-clone"
+  (
+    cd "$BATS_TEST_TMPDIR/main-clone" || exit 1
+    git config user.email test@example.com
+    git config user.name Test
+    git commit -q --allow-empty -m init
+    git push -q -u origin HEAD:main
+  )
+  git clone -q "$BATS_TEST_TMPDIR/origin.git" "$BATS_TEST_TMPDIR/work"
+  cd "$BATS_TEST_TMPDIR/work" || return 1
+  git config user.email test@example.com
+  git config user.name Test
+  git checkout -qb work origin/main
+  git commit -q --allow-empty -m "work commit"
+  (
+    cd "$BATS_TEST_TMPDIR/main-clone" || exit 1
+    git commit -q --allow-empty -m "new base commit"
+    git push -q origin HEAD:main
+  )
+  run_rebase main
+  assert_success
+  assert_output --partial "REBASE_RESULT=rebased"
+}
+
+@test "rebase.sh: skipped_dirty when the tree has uncommitted changes" {
+  git init --bare -q "$BATS_TEST_TMPDIR/origin.git"
+  git clone -q "$BATS_TEST_TMPDIR/origin.git" "$BATS_TEST_TMPDIR/work"
+  cd "$BATS_TEST_TMPDIR/work" || return 1
+  git config user.email test@example.com
+  git config user.name Test
+  git commit -q --allow-empty -m init
+  git push -q -u origin HEAD:main
+  echo dirty > file.txt
+  run_rebase main
+  assert_success
+  assert_output --partial "REBASE_RESULT=skipped_dirty"
+}
+
 @test "ci-watcher agent documents and conditionally uses rtk_available for gh run list" {
 run rg_or_grep -F "rtk_available" "$PLUGIN/agents/ci-watcher.md"
 assert_success
@@ -897,7 +979,7 @@ assert_success
 }
 
 @test "fresh-pr rebases onto the base and force-with-leases only when rewritten" {
-  run rg_or_grep -F 'git rebase "origin/$base"' "$PLUGIN/skills/fresh-pr/SKILL.md"
+  run rg_or_grep -F 'git rebase "origin/$base"' "$PLUGIN/skills/fresh-pr/rebase.sh"
   assert_success
   run rg_or_grep -F -- '--force-with-lease' "$PLUGIN/skills/fresh-pr/SKILL.md"
   assert_success
