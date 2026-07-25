@@ -234,6 +234,61 @@ effect on the next server restart (session restart / plugin reconnect) — the
 same lag any `mcp_tool`-hook userConfig value would have, not a bug specific
 to this toggle.
 
+## Hook design (`reroute_explore`)
+
+**`PreToolUse` → `mcp_tool` hook, matcher `Agent|Task`: `tool:
+"reroute_explore"`** (this branch). Same mechanism as
+claude-code-knowledge's `claude-code-guide` → `claude-code-expert` reroute:
+when `tool_input.subagent_type` normalizes (lowercase, non-alphanumeric
+runs collapsed to `-`, trimmed) to `explore`, rewrites it to
+`coding-toolbox:explore` via `permissionDecision: "allow"` +
+`updatedInput`. No-op for any other `subagent_type`; fail-open if the
+server is unconnected (the built-in `Explore` just runs un-rerouted) or if
+`explore_agent_reroute` is `false`. Reuses the plugin's existing
+`coding-toolbox-hooks` MCP server rather than standing up a second one — a
+plugin with 2+ hooks/tools amortizes the warm-process benefit, per
+`.claude/rules/hooks-mcp-server.md`'s decision tree.
+
+**Toggle wired via `.mcp.json`'s `env` field** (`CODING_TOOLBOX_EXPLORE_REROUTE`,
+interpolating `${user_config.explore_agent_reroute}`), the same pattern as
+`worktree_refresh` — confirmed working live even for an unconfigured
+plugin (see `npm-ci-on-worktree`'s section above for the contrasting,
+confirmed-broken `hooks.json`-`args` interpolation path this deliberately
+avoids).
+
+## Agent design (`explore`)
+
+`agents/explore.md` — a 1:1 port of the bundled `Explore` subagent's
+system prompt (fetched from `Piebald-AI/claude-code-system-prompts`,
+`agent-prompt-explore.md`), with its template's tool-name variables
+resolved and its single "use Grep" guideline replaced by a **Search tool
+priority** section: `codebase-memory-mcp` read-only tools first when
+connected (`search_graph`/`trace_path`/`get_code_snippet`/`query_graph`/
+`get_architecture`/`search_code`/`index_status`/`get_graph_schema`/
+`list_projects` — deliberately not the `mcp__codebase-memory-mcp__*`
+wildcard, which would also grant `index_repository`/`detect_changes`/
+`ingest_traces`/`manage_adr`/`delete_project`, all of which mutate
+external state the built-in Explore's read-only contract wouldn't permit),
+then `rtk rg`, then plain `rg`, then the bundled `Grep` tool — decided by
+a one-shot `command -v` probe the agent runs itself at task start (agents
+get no skill-style `!` dynamic-context injection, so this can't be
+precomputed the way `setup-rules`' tool-routing detection is). Model
+pinned to `haiku` regardless of the main session's model — a custom
+agent's own `model:` field is always authoritative; the "Explore inherits
+the main conversation's model" behavior (cc-reference, v2.1.198+) applies
+only to the actual built-in `Explore` identity or a literal user/project
+agent named exactly `Explore`, neither of which this plugin-scoped
+`coding-toolbox:explore` is.
+
+**Known, accepted gap in the "1:1" framing:** per cc-reference, `Explore`/
+`Plan` are the only agents that skip loading the full `CLAUDE.md` +
+`.claude/rules/` hierarchy and git status at startup, and no frontmatter
+field lets a custom agent replicate that skip — so `coding-toolbox:explore`
+loads this repo's entire memory hierarchy on every dispatch where the
+built-in loads none of it. Unfixable from the agent definition; accepted
+because "1:1" here means model/search-tool-priority parity, not literal
+startup-context parity.
+
 ## Skill design (`fresh-branch`)
 
 2026-07-25: the embedded script extracted to a standalone

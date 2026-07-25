@@ -21,10 +21,11 @@
 
 ## Agents
 
-| Agent        | Model  | Role                                                                                                                                         |
-| ------------ | ------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ci-watcher` | sonnet | read-only: watches CI via `bin/ci-watch.sh`, collects open CodeRabbit PR threads (including any attached AI-agent fix prompt)                |
-| `pr-fixer`   | opus   | verifies CI/CodeRabbit findings against the code, applies justified fixes, commits (never pushes), always annotates skipped findings in code |
+| Agent        | Model  | Role                                                                                                                                                                                   |
+| ------------ | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ci-watcher` | sonnet | read-only: watches CI via `bin/ci-watch.sh`, collects open CodeRabbit PR threads (including any attached AI-agent fix prompt)                                                          |
+| `pr-fixer`   | opus   | verifies CI/CodeRabbit findings against the code, applies justified fixes, commits (never pushes), always annotates skipped findings in code                                           |
+| `explore`    | haiku  | read-only: fast file/code search, 1:1 reroute target for the built-in Explore subagent (toggle: `explore_agent_reroute`); prioritizes codebase-memory-mcp, then `rtk rg` / `rg` / Grep |
 
 ## What it does
 

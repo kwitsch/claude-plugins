@@ -1053,7 +1053,7 @@ assert_success
 
 @test "plugin.json version bumped for the npm-ci-on-worktree and worktree_refresh hooks (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.18.1"
+  assert_output "0.18.2"
 }
 
 @test "plugin.json description mentions fresh-work and its sibling skills" {
@@ -2331,5 +2331,10 @@ reroute_explore_call() {
 
 @test "explore agent documents it never auto-indexes an empty codebase-memory-mcp graph" {
   run rg_or_grep -iF "do not index it yourself" "$PLUGIN/agents/explore.md"
+  assert_success
+}
+
+@test "plugin README lists explore in the Agents table" {
+  run rg_or_grep -F '| `explore`' "$PLUGIN/README.md"
   assert_success
 }
