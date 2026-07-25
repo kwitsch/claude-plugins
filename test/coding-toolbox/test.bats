@@ -18,7 +18,7 @@ setup() {
   # under this suite too, instead of only ever exercising the grep fallback.
   MOCKBIN="$BATS_TEST_TMPDIR/bin"
   mkdir -p "$MOCKBIN"
-  for t in bash env grep rg timeout sleep mktemp cat rm mkdir awk; do
+  for t in bash env grep rg sed tr head cut timeout sleep mktemp cat rm mkdir awk; do
     src="$(command -v "$t")" && [ -n "$src" ] && ln -s "$src" "$MOCKBIN/$t"
   done
 
@@ -908,59 +908,120 @@ assert_success
   run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/skills/bump-version/SKILL.md'"
   assert_success
   assert_output --partial "name: bump-version"
-  assert_output --partial 'argument-hint: "<major|minor|patch>"'
+  assert_output --partial "argument-hint:"
 }
 
-@test "bump-version detects version files in package.json > composer.json > pom.xml > VERSION order" {
+@test "bump-version SKILL.md points at its reference doc before invoking" {
+  run rg_or_grep -F 'bump-version.reference.md' "$PLUGIN/skills/bump-version/SKILL.md"
+  assert_success
+  run rg_or_grep -F '${CLAUDE_SKILL_DIR}/bump-version.sh' "$PLUGIN/skills/bump-version/SKILL.md"
+  assert_success
+}
+
+@test "bump-version SKILL.md no longer embeds the script or heredoc wrapper" {
+  run rg_or_grep -F 'BUMPVERSION_EOF' "$PLUGIN/skills/bump-version/SKILL.md"
+  assert_failure
   run rg_or_grep -F 'detect_json "package.json"' "$PLUGIN/skills/bump-version/SKILL.md"
+  assert_failure
+}
+
+# NOTE: do not hoist "$PLUGIN/skills/.../*.sh" into a bare top-level
+# variable assignment here — bare statements between @test blocks in a
+# .bats file execute once at file-source time, BEFORE setup() has ever run
+# for any test, so $PLUGIN (assigned inside setup()) would still be unset
+# at that point and the path would silently resolve wrong (a leading-slash
+# path with no error until something reads it). Build the path inside the
+# wrapper function itself instead — it's only ever called from within a
+# running @test, after that test's own setup() has already executed.
+run_bumpver() {
+  run env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" \
+    bash "$PLUGIN/skills/bump-version/bump-version.sh" "$@"
+}
+
+@test "bump-version.sh: usage error with no argument" {
+  run_bumpver
+  assert_failure 2
+  assert_output --partial "usage"
+}
+
+@test "bump-version.sh: usage error with an unrecognized part" {
+  run_bumpver bogus
+  assert_failure 2
+}
+
+@test "bump-version.sh: no supported version file found" {
+  cd "$BATS_TEST_TMPDIR" || return 1
+  run_bumpver patch
+  assert_failure 3
+  assert_output --partial "no supported version file"
+}
+
+@test "bump-version.sh: bumps package.json patch and syncs the lock file" {
+  cd "$BATS_TEST_TMPDIR" || return 1
+  cat > package.json <<'EOF'
+{
+  "name": "fixture",
+  "version": "1.2.3"
+}
+EOF
+  make_stub npm 'echo "npm $*" > npm-args; exit 0'
+  echo '{}' > package-lock.json
+  run_bumpver patch
   assert_success
-  run rg_or_grep -F 'detect_json "composer.json"' "$PLUGIN/skills/bump-version/SKILL.md"
-  assert_success
-  run rg_or_grep -F 'detect_pom' "$PLUGIN/skills/bump-version/SKILL.md"
-  assert_success
-  run rg_or_grep -F 'detect_version_file' "$PLUGIN/skills/bump-version/SKILL.md"
+  assert_output --partial "old: 1.2.3"
+  assert_output --partial "new: 1.2.4"
+  run rg_or_grep -F '"version": "1.2.4"' package.json
   assert_success
 }
 
-@test "bump-version pom.xml detection skips a leading parent block" {
-  run rg_or_grep -F '</parent>' "$PLUGIN/skills/bump-version/SKILL.md"
+@test "bump-version.sh: composer.json minor bump zeroes patch" {
+  cd "$BATS_TEST_TMPDIR" || return 1
+  cat > composer.json <<'EOF'
+{
+  "name": "fixture/fixture",
+  "version": "1.2.3"
+}
+EOF
+  run_bumpver minor
   assert_success
+  assert_output --partial "new: 1.3.0"
 }
 
-@test "bump-version syncs package-lock.json via npm i --package-lock-only" {
-  run rg_or_grep -F 'npm i --package-lock-only' "$PLUGIN/skills/bump-version/SKILL.md"
+@test "bump-version.sh: pom.xml skips a leading parent block" {
+  cd "$BATS_TEST_TMPDIR" || return 1
+  cat > pom.xml <<'EOF'
+<project>
+  <parent>
+    <version>9.9.9</version>
+  </parent>
+  <version>1.2.3</version>
+</project>
+EOF
+  run_bumpver major
   assert_success
+  assert_output --partial "old: 1.2.3"
+  assert_output --partial "new: 2.0.0"
 }
 
-@test "bump-version composer sync is documented as content-hash-only, not version propagation" {
-  run rg_or_grep -F 'composer update --lock' "$PLUGIN/skills/bump-version/SKILL.md"
-  assert_success
-  run rg_or_grep -F 'no root-version field' "$PLUGIN/skills/bump-version/SKILL.md"
-  assert_success
+@test "bump-version.sh: rejects a non-bare-semver VERSION file" {
+  cd "$BATS_TEST_TMPDIR" || return 1
+  echo "1.2.3-beta" > VERSION
+  run_bumpver patch
+  assert_failure 4
 }
 
-@test "bump-version carries the documented exit-code contract" {
-  run rg_or_grep -F 'Exit: 0 ok' "$PLUGIN/skills/bump-version/SKILL.md"
-  assert_success
+@test "bump-version.sh: sync_failed reports version bumped but sync did not complete" {
+  cd "$BATS_TEST_TMPDIR" || return 1
+  cat > package.json <<'EOF'
+{
+  "version": "1.0.0"
 }
-
-# Regression guard: the script's awk/trap/sed lines contain single-quoted
-# regions that break if pasted inside an outer bash -c '...' wrapper
-# (confirmed during planning: it fails with a syntax error before the first
-# real line). Invocation must stay heredoc-to-file.
-@test "bump-version invokes via a quoted heredoc, not an outer bash -c wrapper" {
-  run rg_or_grep -F "<<'BUMPVERSION_EOF'" "$PLUGIN/skills/bump-version/SKILL.md"
-  assert_success
-}
-
-# Regression guard: an unquoted-tag heredoc (<<'TAG') only terminates on a
-# line that is EXACTLY the tag -- even one leading space (e.g. from being
-# nested under a numbered list item) leaves it unterminated and swallows
-# everything after it. Caught during planning by literally running the
-# nested form and watching it hang on "unexpected EOF".
-@test "bump-version heredoc terminator is column-0 (unindented)" {
-  run rg_or_grep -qx 'BUMPVERSION_EOF' "$PLUGIN/skills/bump-version/SKILL.md"
-  assert_success
+EOF
+  echo '{}' > package-lock.json
+  make_stub npm 'echo "boom" >&2; exit 1'
+  run_bumpver patch
+  assert_failure 6
+  assert_output --partial "new: 1.0.1"
 }
 
 @test "plugin README lists bump-version in a Skills section" {
