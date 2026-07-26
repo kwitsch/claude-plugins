@@ -229,8 +229,10 @@ assert_success
   run rg_or_grep -F '${CLAUDE_SKILL_DIR}/rebase.sh' "$PLUGIN/skills/fresh-pr/SKILL.md"
   assert_success
 }
-@test "fresh-pr SKILL.md's git-context block is untouched (out of scope)" {
-  run rg_or_grep -F "rtk_available" "$PLUGIN/skills/fresh-pr/SKILL.md"
+@test "fresh-pr SKILL.md's git-context block stays an inline !-injection (extraction gated)" {
+  run rg_or_grep -F 'printf "current_branch: %s' "$PLUGIN/skills/fresh-pr/SKILL.md"
+  assert_success
+  run rg_or_grep -F 'linked_worktree: %s' "$PLUGIN/skills/fresh-pr/SKILL.md"
   assert_success
 }
 @test "fresh-pr SKILL.md no longer embeds the rebase script" {
