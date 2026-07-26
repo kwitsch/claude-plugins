@@ -1,9 +1,9 @@
 # CLAUDE.md — coding-toolbox
 
-Plugin that mechanically enforces "golden behavior rules" via five hooks: a `PreToolUse`
-command hook (`encoding-guard.mjs`), a `PreToolUse` `mcp_tool` hook (`reroute_explore`),
+Plugin that mechanically enforces "golden behavior rules" via four hooks: a `PreToolUse`
+command hook (`encoding-guard.mjs`),
 a `Stop` `mcp_tool` hook (`interaction_gate`) and a
-`PostToolUse` `mcp_tool` hook (`worktree_refresh`), all three `mcp_tool` hooks backed by
+`PostToolUse` `mcp_tool` hook (`worktree_refresh`), both `mcp_tool` hooks backed by
 a self-contained, now-stateless MCP server (`mcp/server.mjs`), and a `PostToolUse` command hook
 (`npm-ci-on-worktree.mjs`) that runs an async `npm ci` when `EnterWorktree` lands in a
 `package-lock.json` project — both `PostToolUse` hooks fire on the same `EnterWorktree`
@@ -13,9 +13,8 @@ full golden-rules document lives, unwired, at `skills/setup-rules/references/gol
 `setup-rules` is the only way to get it onto a machine (user-level, every
 project you open there), opt-in. The plugin's `userConfig` entries are
 `npm_ci_on_worktree` (fail-open, default `true`) gating the `npm-ci-on-worktree`
-hook, `worktree_refresh` (fail-open, default `true`) gating the `worktree_refresh`
-hook, and `explore_agent_reroute` (fail-open, default `true`) gating the
-`reroute_explore` hook — the Stop gate and encoding guard have no toggle of their own.
+hook, and `worktree_refresh` (fail-open, default `true`) gating the `worktree_refresh`
+hook — the Stop gate and encoding guard have no toggle of their own.
 
 ## Hook design (do not "fix" without reading this)
 
@@ -235,96 +234,6 @@ per-event argv (always current), a `worktree_refresh` toggle change only takes
 effect on the next server restart (session restart / plugin reconnect) — the
 same lag any `mcp_tool`-hook userConfig value would have, not a bug specific
 to this toggle.
-
-## Hook design (`reroute_explore`)
-
-**`PreToolUse` → `mcp_tool` hook, matcher `Agent|Task`: `tool:
-"reroute_explore"`** (this branch). Same mechanism as
-claude-code-knowledge's `claude-code-guide` → `claude-code-expert` reroute:
-when `tool_input.subagent_type` normalizes (lowercase, non-alphanumeric
-runs collapsed to `-`, trimmed) to `explore`, rewrites it to
-`coding-toolbox:explore` via `permissionDecision: "allow"` +
-`updatedInput`. No-op for any other `subagent_type`; fail-open if the
-server is unconnected (the built-in `Explore` just runs un-rerouted) or if
-`explore_agent_reroute` is `false`. Reuses the plugin's existing
-`coding-toolbox-hooks` MCP server rather than standing up a second one — a
-plugin with 2+ hooks/tools amortizes the warm-process benefit, per
-`.claude/rules/hooks-mcp-server.md`'s decision tree.
-
-**Toggle wired via `.mcp.json`'s `env` field** (`CODING_TOOLBOX_EXPLORE_REROUTE`,
-interpolating `${user_config.explore_agent_reroute}`), the same pattern as
-`worktree_refresh` — confirmed working live even for an unconfigured
-plugin (see `npm-ci-on-worktree`'s section above for the contrasting,
-confirmed-broken `hooks.json`-`args` interpolation path this deliberately
-avoids).
-
-**Known, accepted collision risk: the match is on the bare string `explore`
-alone, not a plugin-unique key.** Unlike `claude-code-guide` (a name unlikely
-to collide), a project's own `.claude/agents/explore.md` or another
-plugin's agent literally named `explore` would also be silently rewritten to
-`coding-toolbox:explore` — the caller's own agent never runs, with no error.
-This is the same shape of risk claude-code-knowledge's `reroute_guide`
-already carries un-mitigated for `claude-code-guide` (a same-repo review
-flagged it here specifically because `explore` is a much more common name to
-collide on); accepted as a precedented trade-off of the reroute mechanism
-itself, not fixed by adding an existence check for a competing `explore`
-agent — that would be new scope beyond what either reroute hook does today.
-A user who defines their own `explore` agent and hits this should disable
-`explore_agent_reroute`.
-
-**Known, accepted latency risk: `reroute_explore` now shares the same
-single-threaded server as `worktree_refresh`'s synchronous, `timeout:
-30_000`-bounded git calls.** Every `PreToolUse(Agent|Task)` dispatch —
-far more frequent than `EnterWorktree` — now queues behind any in-flight
-`fetch`/`rebase` on this server's one JSON-RPC handling thread. The same
-per-call timeout bound documented in `worktree_refresh`'s own section above
-already covers this: the bound is per call, not per fire, so a worst case
-still adds up to a multiple of it. Previously only `interaction_gate` (no
-git calls, unaffected) shared this server with `worktree_refresh`;
-`reroute_explore` is the first hot-path consumer to actually inherit the
-blocking risk. Accepted rather than split onto a second server (this
-plugin's established preference is one self-contained server per plugin,
-per `.claude/rules/hooks-mcp-server.md`'s decision tree).
-
-## Agent design (`explore`)
-
-`agents/explore.md` — a 1:1 port of the bundled `Explore` subagent's
-system prompt (fetched from `Piebald-AI/claude-code-system-prompts`,
-`agent-prompt-explore.md`), with its template's tool-name variables
-resolved and its single "use Grep" guideline replaced by a **Search tool
-priority** section: `codebase-memory-mcp` read-only tools first when
-connected (`search_graph`/`trace_path`/`get_code_snippet`/`query_graph`/
-`get_architecture`/`search_code`/`index_status`/`get_graph_schema`/
-`list_projects` — deliberately not the `mcp__codebase-memory-mcp__*`
-wildcard, which would also grant `index_repository`/`detect_changes`/
-`ingest_traces`/`manage_adr`/`delete_project`, all of which mutate
-external state the built-in Explore's read-only contract wouldn't permit),
-then `rtk rg`, then plain `rg`, then the bundled `Grep` tool — decided by
-a one-shot `command -v` probe the agent runs itself at task start (agents
-get no skill-style `!` dynamic-context injection, so this can't be
-precomputed the way `setup-rules`' tool-routing detection is). `ToolSearch`
-is also granted (added by Review): the exact-named `mcp__codebase-memory-mcp__*`
-tools may arrive as deferred tools needing a schema-loading `ToolSearch` call
-before their first real use — the same deferred-tool mechanism this
-session's own tool list already exhibits for MCP tools generally — so the
-agent's own prompt instructs it to call `ToolSearch` once and retry if a
-first call to one of them fails with an input-validation/unknown-tool
-error, before falling back to the rtk/rg/Grep chain. Model
-pinned to `haiku` regardless of the main session's model — a custom
-agent's own `model:` field is always authoritative; the "Explore inherits
-the main conversation's model" behavior (cc-reference, v2.1.198+) applies
-only to the actual built-in `Explore` identity or a literal user/project
-agent named exactly `Explore`, neither of which this plugin-scoped
-`coding-toolbox:explore` is.
-
-**Known, accepted gap in the "1:1" framing:** per cc-reference, `Explore`/
-`Plan` are the only agents that skip loading the full `CLAUDE.md` +
-`.claude/rules/` hierarchy and git status at startup, and no frontmatter
-field lets a custom agent replicate that skip — so `coding-toolbox:explore`
-loads this repo's entire memory hierarchy on every dispatch where the
-built-in loads none of it. Unfixable from the agent definition; accepted
-because "1:1" here means model/search-tool-priority parity, not literal
-startup-context parity.
 
 ## Skill design (`fresh-branch`)
 
