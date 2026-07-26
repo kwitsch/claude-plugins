@@ -31,6 +31,8 @@ from code/context, or the task turns out more complex than
 
 ## Process
 
+<!-- coderabbit-skip: no setup-explore preflight needed — `explore` is a Claude Code *built-in* subagent (cc-reference claude-code-agents-reference.md, "Built-in subagents": Explore, read-only, present by default), so this dispatch resolves on a fresh install too; `setup-explore` only overrides it (haiku pin / codebase-memory variant). Residual: a machine that deliberately removed the built-in (`permissions.deny: ["Agent(Explore)"]`, `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS=1`) gets a self-explanatory Agent-tool error, not a silent block. -->
+
 1. **Explore context first, via the `explore` agent — never Grep/Glob/Read the
    codebase yourself inline for this step.** Dispatch it (Agent tool,
    `subagent_type: explore`) with the work description and ask for: relevant
