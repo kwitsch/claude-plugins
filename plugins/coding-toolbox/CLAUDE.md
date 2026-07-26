@@ -745,7 +745,35 @@ instead.
 
 ## Tests
 
-`test/coding-toolbox/test.bats` — manifest/registration invariants, content coverage
+`test/coding-toolbox/` — split into one `.bats` file per thematic group (one
+hook or skill each) instead of a single monolithic suite, once the latter grew
+past 2200 lines. `test_helper.bash` holds what's genuinely shared across
+groups — `common_setup` (isolated `$MOCKBIN`/`$HOME`, `$PLUGIN`/`$HOOKS`/`$SCRIPTS`),
+`rg_or_grep` (used almost everywhere), and `make_stub` (used by both
+`fresh-pr.bats`'s `ci-watch.sh` coverage and `bump-version.bats`) — every other
+helper function (`setup_worktree_fixture`, `run_freshbranch`, `run_rebase`,
+`encoding_guard`, `npm_ci_hook`, …) stayed local to the one file that uses it,
+not hoisted. Each `.bats` file starts with `load 'test_helper'` and its own
+`setup() { common_setup; }`. `bats test/coding-toolbox/` (below) already runs
+every `.bats` file in the directory — this is the same invocation CI uses
+(`.github/workflows/test.yml`'s `npx bats "test/${{ matrix.plugin }}/"` targets
+the directory, not a filename), so the split needed no CI change. Grouping:
+`manifest.bats` (plugin.json/marketplace/root-README/test.yml-matrix invariants
+plus generic README structure checks — content not owned by one skill/hook),
+`golden-rules.bats`, `mcp-server.bats` (shared `coding-toolbox-hooks` MCP server
+plumbing: `hooks.json`/`.mcp.json` validity, `mcp/server.mjs` + `bin/mjs-launch.sh`,
+the `tools/list` roll-up), `stop-hook.bats` (`interaction_gate`), `worktree-refresh.bats`,
+`encoding-guard.bats`, `npm-ci-on-worktree.bats`, `fresh-branch.bats`,
+`fresh-pr.bats` (also owns `ci-watch.sh` and the `ci-watcher`/`pr-fixer` agents —
+they're fresh-pr's own bundled components, not worth a further split), `fresh-work.bats`,
+`feature-development.bats`, `debugging.bats`, `bump-version.bats`, `setup-rules.bats`,
+`refresh-tools-rule.bats`, `setup-explore.bats`. A handful of assertions that were
+appended to the end of the original file long after their own skill/hook's main
+block (e.g. a `plugin.json description mentions X` check, or a `README lists X`
+check) moved to that skill/hook's own file rather than staying grouped by their
+original append order — thematic coherence over historical position.
+
+Content coverage, unchanged by the split: manifest/registration invariants, content coverage
 for the relocated `golden-rules.md`, hook wiring (PreToolUse `command`, Stop
 `mcp_tool`), an end-to-end JSON-RPC driver against `mcp/server.mjs` proving the Stop
 gate blocks on a bare trailing `?`
