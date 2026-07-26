@@ -36,12 +36,13 @@ If the block above rendered as literally `[shell command execution disabled by p
 Byte-exact `cp` of the chosen reference file — never re-typed, avoiding
 transcription drift. Writes via `mktemp` + `mv` in the target directory so
 the replace is atomic and never follows a symlink at that path the way a
-plain `cat >` redirect would:
+plain `cat >` redirect would. The `mv` is gated on the `cp` succeeding, so a
+failed copy never overwrites a working install with an empty temp file:
 
 ```bash
 mkdir -p "$HOME/.claude/agents"
 tmp="$(mktemp "$HOME/.claude/agents/.explore.md.XXXXXX")" || exit 1
-cp "<plugin root resolved in Step 1>/skills/setup-explore/references/<chosen file>" "$tmp"
+cp "<plugin root resolved in Step 1>/skills/setup-explore/references/<chosen file>" "$tmp" || exit 1
 mv -f "$tmp" "$HOME/.claude/agents/explore.md"
 ```
 
