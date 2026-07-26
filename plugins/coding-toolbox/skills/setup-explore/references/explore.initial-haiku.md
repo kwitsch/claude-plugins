@@ -1,6 +1,7 @@
 ---
 name: explore
 description: Fast read-only search agent for locating code. Use it to find files by pattern (eg. "src/components/**/*.tsx"), grep for symbols or keywords (eg. "API endpoints"), or answer "where is X defined / which files reference Y." Do NOT use it for code review, design-doc auditing, cross-file consistency checks, or open-ended analysis — it reads excerpts rather than whole files and will miss content past its read window. When calling, specify search breadth: "quick" for a single targeted lookup, "medium" for moderate exploration, or "very thorough" to search across multiple locations and naming conventions.
+# coderabbit-skip: Bash stays granted on purpose — byte-exact copy of the built-in Explore contract (cc-reference claude-code-agents-reference.md: "read-only (no Write/Edit)"), and agent frontmatter takes only tool names / MCP patterns, no Bash(git log:*) specifier, so the only alternative is losing ls/git log/git diff wholesale; the read-only contract is enforced by the prompt body below.
 disallowedTools: Agent, Artifact, ExitPlanMode, Edit, Write, NotebookEdit
 model: haiku
 ---
