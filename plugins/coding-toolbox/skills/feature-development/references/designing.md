@@ -16,12 +16,13 @@ Judge complexity against this skill's own complexity heuristic, from
 exploring, not just from the one-line description; a task that reads simple
 can turn out complex once the code is in front of you:
 
-- **Simple** (the default) → do every step below yourself, inline, no
-  subagents.
-- **Complex** → use the Workflow tool where it earns its cost: parallel
-  readers across the touched subsystems for step 1 (the tool's `Understand`
-  pattern), or a judge panel of independently fleshed-out approaches for
-  step 4 (the tool's `Design` pattern).
+- **Simple** (the default) → dispatch step 1 (Explore) to the `explore`
+  agent; do every other step yourself, inline, no other subagents.
+- **Complex** → dispatch several `explore` agents in parallel for step 1, one
+  per touched subsystem (Workflow tool's `Understand` pattern, or a batched
+  multi-block Agent-tool message in the fallback engine), or a judge panel of
+  independently fleshed-out approaches for step 4 (the tool's `Design`
+  pattern).
 
 **Advisor consultation is your call too** (this skill's own "Inline advisor
 protocol" section) — call it when you hit a genuine uncertainty you can't resolve
@@ -30,8 +31,14 @@ from code/context, or the task turns out more complex than
 
 ## Process
 
-1. **Explore context first.** Relevant files, docs, recent commits, existing
-   patterns. Understand the real flow end to end before designing.
+<!-- coderabbit-skip: no setup-explore preflight needed — `explore` is a Claude Code *built-in* subagent (cc-reference claude-code-agents-reference.md, "Built-in subagents": Explore, read-only, present by default), so this dispatch resolves on a fresh install too; `setup-explore` only overrides it (haiku pin / codebase-memory variant). Residual: a machine that deliberately removed the built-in (`permissions.deny: ["Agent(Explore)"]`, `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS=1`) gets a self-explanatory Agent-tool error, not a silent block. -->
+
+1. **Explore context first, via the `explore` agent — never Grep/Glob/Read the
+   codebase yourself inline for this step.** Dispatch it (Agent tool,
+   `subagent_type: explore`) with the work description and ask for: relevant
+   files, docs, recent commits, existing patterns — the real flow end to
+   end. Read its report before designing; dispatch again (narrower scope) if
+   its first pass leaves a gap.
 2. **Scope check.** If the request spans multiple independent subsystems, decompose:
    name the pieces, their relations, the build order — then design only the first
    piece. One design doc = one implementable unit.

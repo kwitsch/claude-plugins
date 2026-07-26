@@ -33,3 +33,17 @@ A script extracted to a standalone file (a skill/command's own
 gets bats coverage exactly like any other `bin/` executable — invoke the
 real file, assert output/exit codes/file mutations. Hermetic rules (stub
 CLIs on `PATH`, redirect `$HOME`/`TMPDIR`) apply identically.
+
+## Splitting a large suite
+
+`bats <dir>` (CI's own invocation) runs every `.bats` file in a directory, so a
+suite that outgrows one file (coding-toolbox's did, past ~2200 lines) can split
+into several — one per thematic group (a skill, a hook, an agent pair) — with
+no CI change. Put whatever setup/helpers are genuinely shared across 2+ groups
+(the common `setup()` body, a text-search wrapper like `rg_or_grep`, a stub
+factory used by two unrelated groups) into one `test_helper.bash`, loaded by
+every split file via `load 'test_helper'`; each file still declares its own
+`setup() { common_setup; }` (bats has no cross-file `setup()`). A helper used by
+only one group stays in that group's own file — don't hoist it "for
+consistency." See `plugins/coding-toolbox/CLAUDE.md`'s `## Tests` section for
+a worked example, including the grouping rationale.
