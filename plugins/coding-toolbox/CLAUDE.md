@@ -728,7 +728,10 @@ codebase-memory-mcp graph, falls back to Grep/Glob/Read) — chosen by one
 the same idiom `refresh-tools-rule` Step 1 already uses for the same tool.
 Byte-exact `cp` of the chosen file (never re-typed, same rationale as
 `setup-rules`' `golden-rules.md` copy), written via `mktemp` + `mv` in the
-target directory for an atomic, symlink-safe replace — the write half of
+target directory for an atomic, symlink-safe replace, with the `mv` gated on
+the `cp` succeeding (2026-07-26, CodeRabbit finding on this PR — an unguarded
+`mv` would replace a working install with the empty temp file) — the write
+half of
 `refresh-tools-rule`'s own hardening, minus its existence-gate: unlike that
 skill, this one both creates and refreshes the file, since choosing the
 right variant for the machine's current state is the entire point, not a
