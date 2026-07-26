@@ -509,6 +509,25 @@ Plan+Implement workflow merge was reached for, captured without merging the phas
 pinning Plan to a zero-context Sonnet agent for ~zero determinism gain, since
 Implement is already a Workflow).
 
+**Design and Plan dispatch codebase exploration to the `explore` agent, never
+inline Grep/Glob/Read** (fixed the same day `setup-explore` was added — the
+Simple-complexity default previously told both phases to explore "yourself,
+inline, no subagents," which meant this skill's own model, not a cheap
+haiku-pinned search specialist, did every raw Grep/Glob/Read call itself).
+`references/designing.md`'s step 1 now dispatches the `explore` agent (Agent
+tool, `subagent_type: explore`) even in the Simple case — only the remaining
+steps (writing the doc, etc.) stay inline; Complex work dispatches several in
+parallel, one per touched subsystem. `references/planning.md` has no explicit
+explore step of its own (it drafts from the already-explored design doc), but
+any fresh codebase fact Planning still needs — an exact signature, a file's
+current contents, an existing pattern — routes through the same `explore`
+dispatch under "File structure first," never a direct tool call. `Grep`/`Glob`
+stay in this skill's own `allowed-tools` regardless — Implement and Review
+still have legitimate inline uses for them (e.g. reviewing.md's finder-agent
+prompts instruct their own dispatched subagents to Grep, a different tool
+grant than this orchestrating skill's own calls) — only Design/Plan's own
+codebase-understanding step is restricted.
+
 ## Skill design (`debugging`)
 
 Split out of `fresh-work` 2026-07-24 (was its fix path, steps 4-5).

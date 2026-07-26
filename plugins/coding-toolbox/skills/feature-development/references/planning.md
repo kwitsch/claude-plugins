@@ -20,7 +20,9 @@ Judge complexity against this skill's own complexity heuristic — re-judge from
 revised design doc, which may show more or less complexity than the original
 one-line description implied:
 
-- **Simple** (the default) → draft the plan yourself, inline, no subagents.
+- **Simple** (the default) → draft the plan yourself, inline, no subagents —
+  except any fresh codebase lookup (see "File structure first" below), which
+  always goes through the `explore` agent.
 - **Complex** (many independent files/subsystems) → consider the Workflow tool
   for drafting task groups in parallel (one agent per subsystem's tasks, then
   merge and re-check cross-task interfaces yourself).
@@ -54,6 +56,12 @@ Before defining tasks, map which files are created/modified and each one's singl
 responsibility. Split by responsibility, not technical layer; follow existing repo
 patterns. This locks decomposition before task writing starts.
 
+The design doc should already cover most of this. Any codebase fact you still
+need to confirm or fill in — exact current file paths, existing signatures an
+`**Interfaces:**` entry must match, an established pattern to follow — goes
+through the `explore` agent (Agent tool, `subagent_type: explore`), never
+Grep/Glob/Read yourself inline.
+
 ## Task right-sizing
 
 A task is the smallest unit that carries its own test cycle and is worth a fresh
@@ -67,17 +75,19 @@ Every task ends with an independently verifiable deliverable and its own commit.
 ### Task N: [Component]
 
 **Files:**
+
 - Create/Modify/Test: exact paths (with line ranges for modifications)
 
 **Interfaces:**
+
 - Consumes: exact names/signatures from earlier tasks
 - Produces: exact names/signatures later tasks rely on
 
-- [ ] Step 1: Write the failing test   (code block with the actual test)
-- [ ] Step 2: Run it, verify it fails  (exact command + expected failure)
-- [ ] Step 3: Minimal implementation   (code block with the actual code)
-- [ ] Step 4: Run tests, verify pass   (exact command + expected output)
-- [ ] Step 5: Commit                   (exact git commands, repo conventions)
+- [ ] Step 1: Write the failing test (code block with the actual test)
+- [ ] Step 2: Run it, verify it fails (exact command + expected failure)
+- [ ] Step 3: Minimal implementation (code block with the actual code)
+- [ ] Step 4: Run tests, verify pass (exact command + expected output)
+- [ ] Step 5: Commit (exact git commands, repo conventions)
 ```
 
 ## Files/Interfaces are load-bearing
@@ -101,7 +111,13 @@ task, in plan (dependency) order:
 
 ```json
 [
-  { "id": 1, "title": "Component name", "files": ["exact/path.ext"], "consumes": [], "produces": ["ExactName"] }
+  {
+    "id": 1,
+    "title": "Component name",
+    "files": ["exact/path.ext"],
+    "consumes": [],
+    "produces": ["ExactName"]
+  }
 ]
 ```
 

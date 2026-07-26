@@ -1744,6 +1744,20 @@ EOF
   assert_output --partial "conservatively serialized"
 }
 
+@test "feature-development designing reference dispatches exploration to the explore agent, never inline" {
+  run cat "$PLUGIN/skills/feature-development/references/designing.md"
+  assert_success
+  assert_output --partial "subagent_type: explore"
+  assert_output --partial "never Grep/Glob/Read the"
+}
+
+@test "feature-development planning reference routes fresh codebase lookups through the explore agent" {
+  run cat "$PLUGIN/skills/feature-development/references/planning.md"
+  assert_success
+  assert_output --partial "subagent_type: explore"
+  assert_output --partial "Grep/Glob/Read yourself inline"
+}
+
 @test "feature-development planning reference mandates a machine-readable tasks block" {
   run cat "$PLUGIN/skills/feature-development/references/planning.md"
   assert_success
