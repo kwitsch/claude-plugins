@@ -693,19 +693,44 @@ when a tool is added or reworded lives in the one shared file.
 far, invoking it with no arguments (there is nothing to choose — the one
 action is always "refresh if installed, else no-op").
 
+## Skill design (`setup-explore`)
+
+Added the same day the plugin-level `explore` agent + `reroute_explore` hook
+(above) were removed — that hook's own "known, accepted collision risk"
+section had documented that a user-level `~/.claude/agents/explore.md` would
+be silently hijacked by the reroute; this skill installs exactly that file,
+so keeping both would have defeated the point. Installs
+`~/.claude/agents/explore.md` (user-level, applies to every project on this
+machine — same scope as `setup-rules`' managed files) from one of two
+bundled `references/` variants — `explore.initial-haiku.md` (plain, no MCP
+dependency) or `explore.codebase-memory.md` (prioritizes the
+codebase-memory-mcp graph, falls back to Grep/Glob/Read) — chosen by one
+`command -v codebase-memory-mcp` detection line in a load-time `!` block,
+the same idiom `refresh-tools-rule` Step 1 already uses for the same tool.
+Byte-exact `cp` of the chosen file (never re-typed, same rationale as
+`setup-rules`' `golden-rules.md` copy), written via `mktemp` + `mv` in the
+target directory for an atomic, symlink-safe replace — the write half of
+`refresh-tools-rule`'s own hardening, minus its existence-gate: unlike that
+skill, this one both creates and refreshes the file, since choosing the
+right variant for the machine's current state is the entire point, not a
+narrow refresh-only companion to a human-only installer.
+**`disable-model-invocation: true`** — unlike `refresh-tools-rule`, this
+skill unconditionally creates/overwrites the target on every run rather
+than only ever rewriting an already-existing file's content, so it carries
+the same real, if easily reversible, effect on every-project agent
+behavior that `setup-rules`' install verbs do; user-only for the same
+reason. No `AskUserQuestion`: the file to install is a deterministic
+function of one detection line, not a genuine choice between options, so
+there is nothing to ask — Step 4 reports what was installed and why
+instead.
+
 ## Tests
 
 `test/coding-toolbox/test.bats` — manifest/registration invariants, content coverage
 for the relocated `golden-rules.md`, hook wiring (PreToolUse `command`, Stop
 `mcp_tool`), an end-to-end JSON-RPC driver against `mcp/server.mjs` proving the Stop
 gate blocks on a bare trailing `?`
-and allows through otherwise. Also covers `reroute_explore`: `hooks.json`/`.mcp.json`/
-`plugin.json` wiring, a JSON-RPC driver proving case-insensitive `explore`→`coding-toolbox:explore`
-rewriting, `tool_input` key preservation, no-ops (other subagent types, missing
-`subagent_type`, toggle disabled), and `tools/list` listing all three server tools; plus
-structural assertions for `agents/explore.md` (frontmatter, no write/Agent tools, the
-read-only `codebase-memory-mcp` tool subset present and the mutating ones absent, the
-rtk/rg/Grep priority chain and READ-ONLY MODE banner, the no-auto-index note). Coverage now also includes: a ported `ci-watch.sh`
+and allows through otherwise. Coverage also includes: a ported `ci-watch.sh`
 bats suite (hermetic, stubbed `gh`/`glab`), structural assertions for
 `fresh-pr/SKILL.md` and the `ci-watcher`/`pr-fixer` agent frontmatter, and the
 version-bump manifest assertion. Structural assertions for
@@ -729,5 +754,10 @@ inlining the candidate-rows table themselves. `bin/mjs-launch.sh` gets the
 same structural + runtime-selection coverage as its `universal-lint`
 counterpart (executable, bash shebang, missing-arg exit 64, neither/node/bun
 PATH-selection cases, PATH-append order, and an end-to-end launch of
-`mcp/server.mjs` through the wrapper).
+`mcp/server.mjs` through the wrapper). `setup-explore` gets structural
+assertions (exists, `disable-model-invocation: true`, the `command -v
+codebase-memory-mcp` detection line present, both reference files present
+and named for their variant, the skill's apply step reads from
+`references/` rather than inlining either file's body, and both bundled
+reference files themselves carry `name: explore` frontmatter).
 Run: `BATS_LIB_PATH="$PWD/node_modules" npx bats test/coding-toolbox/`
