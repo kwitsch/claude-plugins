@@ -62,8 +62,9 @@ const EXT_MAP = {
 };
 
 // Shared chain-entry descriptors: prettier/biome each serve multiple, unrelated
-// language chains (jsts/json/yaml/markdown) with byte-identical config, unlike
-// every other tool in this registry (each of which serves exactly one language).
+// language chains (jsts/json/yaml/markdown/css/scss) with byte-identical config,
+// unlike every other tool in this registry (each of which serves exactly one
+// language).
 // buildInvocation() only ever reads these via .slice()/spread, never mutates in
 // place, so sharing the same object across chains is safe.
 /** @type {FormatTool} */

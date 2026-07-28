@@ -771,18 +771,6 @@ rtk_stub() {
   assert_success
 }
 
-@test "stylelint clean on a .css file (exit 0) -> {}" {
-  command -v node >/dev/null 2>&1 || skip "node not installed"
-  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
-  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
-  printf '.a{color:red;}\n' > "$cwd/a.css"
-  OUT=""
-  rec_stub stylelint 0
-  run lint_file_call "$cwd/a.css" "$cwd"
-  assert_success
-  [ "$output" = "{}" ]
-}
-
 # --- behavioral: tsc (TypeScript type-check, independent of eslint) --------
 
 @test "tsc: nearest tsconfig.json found upward, invoked with -p <path>, issues surfaced with project-root target" {

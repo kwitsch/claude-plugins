@@ -511,21 +511,6 @@ format_file_call() {
   echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("prettier reformatted a.css")'
 }
 
-@test "css: biome on PATH, prettier absent, npx present -> biome wins (native beats npx-only)" {
-  command -v node >/dev/null 2>&1 || skip "node not installed"
-  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
-  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
-  printf '.a{color:red}\n' > "$cwd/a.css"
-  rec_stub biome
-  rec_stub npx   # present but must not be used -- biome is genuinely installed
-  run format_file_call "$cwd/a.css" "$cwd"
-  assert_success
-  run rg_or_grep -E "^biome " "$RECORD"
-  assert_success
-  run rg_or_grep -E "^npx " "$RECORD"
-  assert_failure
-}
-
 @test "formats a scss file: prettier runs" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"

@@ -259,7 +259,7 @@ test("parseRtkPrefix: unexpected output -> null", () => {
   assert.equal(parseRtkPrefix("rtk __RTK_PROBE__"), null); // empty prefix
 });
 
-test("REGISTRY: css chain of 1 (stylelint), carries npmSpec, covers both .css and .scss", () => {
+test("REGISTRY: css chain of 1 (stylelint), carries npmSpec", () => {
   assert.equal(REGISTRY.css.chain.length, 1);
   assert.equal(REGISTRY.css.chain[0].name, "stylelint");
   assert.equal(REGISTRY.css.chain[0].npmSpec, "stylelint");
