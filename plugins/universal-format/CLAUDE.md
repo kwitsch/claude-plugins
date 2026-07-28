@@ -34,7 +34,15 @@ equally available.
 
 ## Tests
 
-`test/universal-format/test.bats` (hermetic: stub formatters on an isolated PATH recording argv) + `test/universal-format/*.test.mjs` (`node:test` unit tests for the `.editorconfig` resolver and registry flag mapping). Run:
+`test/universal-format/` — split into one `.bats` file per language/tool
+(`scaffold.bats`, `core.bats`, `go.bats`, `kotlin.bats`, `java.bats`,
+`python.bats`, `jsts.bats`, `json.bats`, `yaml.bats`, `markdown.bats`,
+`css.bats`), mirroring `test/coding-toolbox/`'s split. `test_helper.bash`
+holds what's shared across files (`common_setup`, `rg_or_grep`,
+`make_stub`, `rec_stub`, `format_file_call`). Hermetic: stub formatters on
+an isolated PATH recording argv. Plus `test/universal-format/*.test.mjs`
+(`node:test` unit tests for the `.editorconfig` resolver and registry flag
+mapping). Run:
 
 ```bash
 BATS_LIB_PATH="$PWD/node_modules" npx bats test/universal-format/
