@@ -54,6 +54,8 @@ const EXT_MAP = {
   ".pyi": "python",
   ".go": "go",
   ".json": "json",
+  ".css": "css",
+  ".scss": "scss",
   ".yaml": "yaml",
   ".yml": "yaml",
   ".md": "markdown",
@@ -146,6 +148,8 @@ export const REGISTRY = {
     ],
   },
   json: { chain: [PRETTIER_NATIVE, BIOME_MAPPED] },
+  css: { chain: [PRETTIER_NATIVE, BIOME_MAPPED] },
+  scss: { chain: [PRETTIER_NATIVE] },
   yaml: { chain: [PRETTIER_NATIVE] },
   markdown: { chain: [PRETTIER_NATIVE] },
 };
