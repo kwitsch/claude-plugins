@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-# Go fallback chain (gofmt -> goimports).
+# Go fallback chain (goimports -> gofmt).
 
 load 'test_helper'
 
