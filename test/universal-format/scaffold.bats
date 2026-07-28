@@ -83,33 +83,3 @@ setup() {
   assert_failure
 }
 
-# --- behavioral: format_file core --------------------------------------------
-
-# make_stub <name> <body-line>... — drop an executable bash stub into MOCKBIN.
-make_stub() {
-  local name="$1"; shift
-  { printf '#!/usr/bin/env bash\n'; printf '%s\n' "$@"; } > "$MOCKBIN/$name"
-  chmod +x "$MOCKBIN/$name"
-}
-
-# A recording+rewriting stub: appends "<name> <argv>" to $RECORD and overwrites the
-# target file (always the last arg) so the server's content-diff sees a change.
-rec_stub() {
-  make_stub "$1" \
-    'printf "%s %s\n" "'"$1"'" "$*" >> "$RECORD"' \
-    'for last; do :; done' \
-    'printf "reformatted-by-'"$1"'\n" > "$last"'
-}
-
-# format_file_call <file_path> <cwd> -- pipe one PostToolUse hook-JSON object into a
-# fresh format-file.mjs invocation, on the isolated PATH. Echoes stdout, or the
-# literal string "{}" when the script printed nothing (matches the old JSON-RPC
-# helper's contract, so `[ "$output" = "{}" ]` assertions keep working unchanged).
-format_file_call() {
-  local fp="$1" cwd="$2"
-  local out
-  out="$(jq -cn --arg f "$fp" --arg c "$cwd" '{hook_event_name:"PostToolUse", tool_name:"Write", tool_input:{file_path:$f}, tool_response:{success:true}, cwd:$c}' \
-    | env PATH="$MOCKBIN" HOME="$HOME" RECORD="$RECORD" node "$SERVER" 2>/dev/null)"
-  if [ -n "$out" ]; then printf '%s' "$out"; else printf '{}'; fi
-}
-

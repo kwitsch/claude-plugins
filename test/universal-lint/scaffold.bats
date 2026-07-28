@@ -83,37 +83,3 @@ setup() {
   assert_failure
 }
 
-# --- behavioral: lint_file core ----------------------------------------------
-
-# make_stub <name> <body-line>... -- drop an executable bash stub into MOCKBIN.
-make_stub() {
-  local name="$1"; shift
-  { printf '#!/usr/bin/env bash\n'; printf '%s\n' "$@"; } > "$MOCKBIN/$name"
-  chmod +x "$MOCKBIN/$name"
-}
-
-# A recording stub: appends "<name> <argv>" to $RECORD, prints $OUT (env-supplied
-# at call time by lint_file_call, read at stub-RUN-time, not baked in at
-# definition time) to stdout, never touches the target file (a linter never
-# modifies anything).
-rec_stub() {
-  local name="$1" exit_code="$2"
-  make_stub "$name" \
-    'printf "%s %s\n" "'"$name"'" "$*" >> "$RECORD"' \
-    'printf '\''%s\n'\'' "$OUT"' \
-    'exit '"$exit_code"
-}
-
-# lint_file_call <file_path> <cwd> -- pipe one PostToolUse hook-JSON object into a
-# fresh lint-file.mjs invocation, on the isolated PATH. Echoes stdout, or the
-# literal string "{}" when the script printed nothing (matches the handler's
-# own "no finding" contract, so `[ "$output" = "{}" ]` assertions keep working
-# unchanged from the old JSON-RPC-driven helper).
-lint_file_call() {
-  local fp="$1" cwd="$2"
-  local out
-  out="$(jq -cn --arg f "$fp" --arg c "$cwd" '{hook_event_name:"PostToolUse", tool_name:"Write", tool_input:{file_path:$f}, tool_response:{success:true}, cwd:$c}' \
-    | env PATH="$MOCKBIN" HOME="$HOME" RECORD="$RECORD" OUT="$OUT" node "$SERVER" 2>/dev/null)"
-  if [ -n "$out" ]; then printf '%s' "$out"; else printf '{}'; fi
-}
-
