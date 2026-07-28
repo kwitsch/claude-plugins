@@ -259,10 +259,10 @@ test("parseRtkPrefix: unexpected output -> null", () => {
   assert.equal(parseRtkPrefix("rtk __RTK_PROBE__"), null); // empty prefix
 });
 
-test("REGISTRY: scss chain of 1 (stylelint), carries npmSpec", () => {
-  assert.equal(REGISTRY.scss.chain.length, 1);
-  assert.equal(REGISTRY.scss.chain[0].name, "stylelint");
-  assert.equal(REGISTRY.scss.chain[0].npmSpec, "stylelint");
+test("REGISTRY: css chain of 1 (stylelint), carries npmSpec, covers both .css and .scss", () => {
+  assert.equal(REGISTRY.css.chain.length, 1);
+  assert.equal(REGISTRY.css.chain[0].name, "stylelint");
+  assert.equal(REGISTRY.css.chain[0].npmSpec, "stylelint");
 });
 
 test("classifyExit: stylelint is 0-clean/2-issues/else-skip (NOT the shared 0/1/else contract)", () => {

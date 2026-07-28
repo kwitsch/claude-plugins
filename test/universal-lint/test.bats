@@ -686,7 +686,7 @@ rtk_stub() {
   assert_success
 }
 
-# --- behavioral: stylelint (SCSS) --------------------------------------------
+# --- behavioral: stylelint (CSS/SCSS) ------------------------------------------
 
 @test "stylelint finds an issue (exit 2): additionalContext returned" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
@@ -755,6 +755,32 @@ rtk_stub() {
   assert_success
   run rg_or_grep -F "npx" "$RECORD"
   assert_failure
+}
+
+@test "stylelint finds an issue on a .css file (exit 2): additionalContext returned" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '.a{color:red}\n' > "$cwd/a.css"
+  OUT='a.css:1:1: Expected a trailing semicolon (declaration-block-trailing-semicolon)'
+  rec_stub stylelint 2
+  run lint_file_call "$cwd/a.css" "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("trailing-semicolon")'
+  run rg_or_grep -F "stylelint " "$RECORD"
+  assert_success
+}
+
+@test "stylelint clean on a .css file (exit 0) -> {}" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '.a{color:red;}\n' > "$cwd/a.css"
+  OUT=""
+  rec_stub stylelint 0
+  run lint_file_call "$cwd/a.css" "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
 }
 
 # --- behavioral: tsc (TypeScript type-check, independent of eslint) --------

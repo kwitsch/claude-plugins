@@ -26,7 +26,7 @@ This hook is always active once the plugin is installed — there is no toggle. 
 | Go                    | `.go`                                                 | `golangci-lint` → `go vet`                                    | **package directory** — file-level linting would spuriously flag sibling-file symbols as undefined |
 | YAML                  | `.yaml` `.yml`                                        | `yamllint`                                                    | file                                                                                               |
 | Markdown              | `.md`                                                 | `markdownlint-cli2` → `markdownlint`                          | file                                                                                               |
-| SCSS                  | `.scss`                                               | `stylelint`                                                   | file                                                                                               |
+| CSS/SCSS              | `.css` `.scss`                                        | `stylelint`                                                   | file                                                                                               |
 | TypeScript type-check | `.ts` `.tsx` `.mts` `.cts`                            | `tsc --noEmit` (runs independently of the `eslint` row above) | **whole project** — scoped by the nearest `tsconfig.json`                                          |
 
 `eslint`, `markdownlint-cli2`, `markdownlint`, and `stylelint` additionally

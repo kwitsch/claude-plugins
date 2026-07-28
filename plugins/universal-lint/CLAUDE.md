@@ -1,6 +1,6 @@
 # CLAUDE.md — universal-lint
 
-Hooks-only plugin: a PostToolUse `Write|Edit` `command` hook runs the just-written file's standard linter (check-only, never `--fix`/`--format`/`--write`) for Shell/Java/Kotlin/JS-TS/Python/Go/YAML/Markdown/SCSS, backed by a self-contained zero-dep `hooks/lint-file.mjs`. TypeScript files (`.ts`/`.tsx`/`.mts`/`.cts`) additionally get a whole-project `tsc --noEmit` type-check (see "TypeScript type-checking (`tsc`)" below). JSON is deliberately excluded (see "JSON: not covered" below). No `userConfig` — the hook is always active once the plugin is installed (see "No toggle" below).
+Hooks-only plugin: a PostToolUse `Write|Edit` `command` hook runs the just-written file's standard linter (check-only, never `--fix`/`--format`/`--write`) for Shell/Java/Kotlin/JS-TS/Python/Go/YAML/Markdown/CSS/SCSS, backed by a self-contained zero-dep `hooks/lint-file.mjs`. TypeScript files (`.ts`/`.tsx`/`.mts`/`.cts`) additionally get a whole-project `tsc --noEmit` type-check (see "TypeScript type-checking (`tsc`)" below). JSON is deliberately excluded (see "JSON: not covered" below). No `userConfig` — the hook is always active once the plugin is installed (see "No toggle" below).
 
 ## Hook design (do not "fix" without reading this)
 
@@ -25,7 +25,7 @@ see `universal-format`'s `CLAUDE.md` for the npm-provenance research; the
 same conclusions apply here (`ruff`, `golangci-lint`, `go`, `ktlint`,
 `checkstyle` have no safe npm equivalent).
 
-`stylelint` (SCSS) joins the eslint/markdownlint npx-fallback group (its
+`stylelint` (CSS/SCSS) joins the eslint/markdownlint npx-fallback group (its
 npm package name matches its single bin, same safe shape as `eslint`) but
 does **not** share the other eight tools' 0-clean/1-issues/else-skip exit
 contract: `0` clean, `2` a real lint problem, everything else (`1` fatal
