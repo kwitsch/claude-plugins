@@ -4,9 +4,7 @@
     "name": "Kwitsch",
     "email": "kwitsch@gmail.com"
   },
-  "allowCrossMarketplaceDependenciesOn": [
-    "claude-plugins-official"
-  ],
+  "allowCrossMarketplaceDependenciesOn": ["claude-plugins-official"],
   "description": "Claude Code plugin marketplace.",
   "version": "1.0.0",
   "plugins": [
@@ -18,11 +16,7 @@
         "name": "Kwitsch"
       },
       "category": "git",
-      "tags": [
-        "git",
-        "hooks",
-        "commit"
-      ]
+      "tags": ["git", "hooks", "commit"]
     },
     {
       "name": "git-sign-key",
@@ -32,44 +26,7 @@
         "name": "Kwitsch"
       },
       "category": "git",
-      "tags": [
-        "git",
-        "hooks",
-        "signing",
-        "ssh"
-      ]
-    },
-    {
-      "name": "branch-management",
-      "source": "./plugins/branch-management",
-      "description": "Branch lifecycle skills. new-branch cuts a fresh branch inline; new-pr runs iterative parallel review rounds (claude/codex/copilot/coderabbit reviewers) backed by subagents, applies verified fixes between rounds, opens a PR/MR via gh or glab, and watches CI until green.",
-      "author": {
-        "name": "Kwitsch"
-      },
-      "category": "git",
-      "tags": [
-        "git",
-        "skills",
-        "agents",
-        "branch",
-        "pr",
-        "review"
-      ]
-    },
-    {
-      "name": "superpowers-automation",
-      "source": "./plugins/superpowers-automation",
-      "description": "A new-work pipeline orchestrator that classifies a description as feature/fix/refactor and runs the matching flow (feature/refactor: branch -> brainstorm -> review -> plan -> review -> implement; fix: systematic-debugging), plus the file-advisor-improver reviser and an opt-in plan hook forcing Subagent-Driven implementation.",
-      "author": {
-        "name": "Kwitsch"
-      },
-      "category": "automation",
-      "tags": [
-        "hooks",
-        "superpowers",
-        "automation",
-        "workflow"
-      ]
+      "tags": ["git", "hooks", "signing", "ssh"]
     },
     {
       "name": "claude-code-knowledge",
@@ -79,13 +36,7 @@
         "name": "Kwitsch"
       },
       "category": "development",
-      "tags": [
-        "claude-code",
-        "authoring",
-        "agents",
-        "skills",
-        "hooks"
-      ]
+      "tags": ["claude-code", "authoring", "agents", "skills", "hooks"]
     },
     {
       "name": "coding-toolbox",
@@ -95,12 +46,7 @@
         "name": "Kwitsch"
       },
       "category": "productivity",
-      "tags": [
-        "hooks",
-        "behavior",
-        "guidelines",
-        "context"
-      ]
+      "tags": ["hooks", "behavior", "guidelines", "context"]
     },
     {
       "name": "universal-format",
@@ -110,12 +56,7 @@
         "name": "Kwitsch"
       },
       "category": "productivity",
-      "tags": [
-        "hooks",
-        "formatting",
-        "editorconfig",
-        "mcp"
-      ]
+      "tags": ["hooks", "formatting", "editorconfig", "mcp"]
     },
     {
       "name": "universal-lint",
@@ -125,12 +66,7 @@
         "name": "Kwitsch"
       },
       "category": "productivity",
-      "tags": [
-        "hooks",
-        "linting",
-        "quality",
-        "mcp"
-      ]
+      "tags": ["hooks", "linting", "quality", "mcp"]
     },
     {
       "name": "memory-enhancement",
@@ -140,11 +76,7 @@
         "name": "Kwitsch"
       },
       "category": "productivity",
-      "tags": [
-        "memory",
-        "skills",
-        "hooks"
-      ]
+      "tags": ["memory", "skills", "hooks"]
     }
   ]
 }
