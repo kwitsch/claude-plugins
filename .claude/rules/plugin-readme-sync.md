@@ -7,8 +7,8 @@ paths:
 
 ## Section structure
 
-Every `plugins/*/README.md` must list its components in dedicated tabular sections.
-Model: `plugins/branch-management/README.md`.
+Every `plugins/*/README.md` must list its components in dedicated tabular sections,
+per the templates below.
 
 **Hooks must NOT appear as a dedicated section.** Hook behavior is described via the Skills table, Configuration options table, or the plugin's general description — never as a standalone `## Hooks` section.
 
@@ -17,9 +17,9 @@ Model: `plugins/branch-management/README.md`.
 ```markdown
 ## Skills
 
-| Skill | What it does |
-|---|---|
-| `<name>` | description |
+| Skill    | What it does |
+| -------- | ------------ |
+| `<name>` | description  |
 ```
 
 **If a skill named `configure-*` exists, it must be the first row** in the Skills table.
@@ -29,20 +29,21 @@ Model: `plugins/branch-management/README.md`.
 ```markdown
 ## Agents
 
-| Agent | Model | Role |
-|---|---|---|
+| Agent    | Model             | Role        |
+| -------- | ----------------- | ----------- |
 | `<name>` | haiku/sonnet/opus | description |
 ```
 
 ### Configuration (if a `configure-*` skill exists)
 
 Include a `## Configuration` section with:
+
 1. How to invoke the configurator (`/configure-<name>`)
 2. **An options table** (if the plugin has `userConfig` entries):
 
 ```markdown
-| Option | Default | Effect / Value |
-|---|---|---|
+| Option  | Default     | Effect / Value              |
+| ------- | ----------- | --------------------------- |
 | `<key>` | `<default>` | what it does / valid values |
 ```
 
@@ -55,6 +56,7 @@ Derive option keys + defaults from the plugin's `.claude-plugin/plugin.json` `us
 When modifying any `plugins/*/README.md`, validate the corresponding row in the root `README.md` plugins table.
 
 **Table format:**
+
 ```
 | [<plugin-name>](plugins/<plugin-name>/README.md) | one-line description |
 ```

@@ -242,10 +242,9 @@ to this toggle.
 `.claude/rules/script-authoring.md`'s updated convention.
 
 Single synchronous bash script (now a standalone file, no MCP server, no
-subagent — same idiom as `branch-management:new-branch`), self-detecting worktree state via `git
-rev-parse --git-dir` vs `--git-common-dir`. Deliberately independent of
-`branch-management` — supports a custom base/upstream and a branch+base pair,
-which `new-branch` does not. Auto-stashes (`git stash push -u`) and pops
+subagent), self-detecting worktree state via `git
+rev-parse --git-dir` vs `--git-common-dir`. Supports a custom base/upstream
+and a branch+base pair. Auto-stashes (`git stash push -u`) and pops
 unconditionally around both paths, including the refresh-only path (now
 universal for zero-argument invocations, not just inside a worktree —
 2026-07-02, extended same day per user request) that creates no new branch —
@@ -263,15 +262,11 @@ polls `bin/ci-watch.sh`, collects open CodeRabbit threads plus any attached
 "Prompt for AI Agents" text) and `agents/pr-fixer.md` (applies justified
 fixes, commits, never pushes, always annotates skipped findings in code) —
 until CI is green and, only if CodeRabbit ever comments, its threads are
-resolved. Deliberately independent of `branch-management`: `bin/ci-watch.sh`
-is a near-verbatim port of `branch-management/bin/ci-watch.sh` (same exit
-contract), and the two agents port `branch-management`'s
-`ci-monitor`/`review-fixer` logic — no cross-plugin dependency, no
-code-review-rounds step (not requested). Existing-PR handling (create if
+resolved. No cross-plugin dependency, no code-review-rounds step (not
+requested). Existing-PR handling (create if
 none / update title+body via `gh api PATCH` — never `gh pr edit`, known to
 silently fail on this repo's Projects-classic board — or `glab mr update` if
-open / reopen-then-update if closed / report-and-stop if merged) has no
-`branch-management:new-pr` equivalent. Both agents' optional context-mode acceleration was removed
+open / reopen-then-update if closed / report-and-stop if merged). Both agents' optional context-mode acceleration was removed
 2026-07-05 (repo-wide context-mode phase-out, starting here); `rtk` was
 evaluated as a replacement and found to give no measurable
 benefit for most commands either agent runs (`gh run view --log-failed`,
@@ -305,13 +300,12 @@ specifically, not yet proven in this repo.
 **CodeRabbit-readiness false-green (fixed 2026-07-11).** `ci-watcher`'s step 3
 used to decide "CodeRabbit is done posting review feedback" from a blind,
 LLM-judged grace period ("at most 3 polls over ~3 minutes, stop early on the
-first poll that finds comments"). This is the same instance of the
-false-green pattern documented for `branch-management`'s `ci-monitor`
-(originally PR #86, re-observed on this plugin's own `ci-watcher` on PR #129
-and again on PR #130 in the same session, both times only caught because the
+first poll that finds comments"). This false-green pattern was observed on
+this plugin's own `ci-watcher` on PR #129 and again on PR #130 in the same
+session, both times only caught because the
 orchestrating session independently re-verified via `gh pr checks` + a
 background poll of the CodeRabbit check + a GraphQL unresolved-thread count —
-a workaround, not a fix). Root cause: the poll-count heuristic never looked
+a workaround, not a fix. Root cause: the poll-count heuristic never looked
 at the one signal that actually answers the question — CodeRabbit's own
 GitHub check conclusion (deliberately excluded from step 1's real-CI verdict,
 so it can't be reused there for a different purpose without a dedicated
@@ -326,10 +320,7 @@ faster-resolving question. `ci-watcher.md` step 3 now calls this before its
 (now single, non-looping) thread fetch; every exit code (concluded, not
 found after 3 confirmations, or bounded-timeout-while-still-pending) proceeds
 to the fetch regardless — the call only changes what gets noted in the
-report, never whether CodeRabbit feedback is looked for. `branch-management`
-carries the same latent heuristic in its independent `ci-monitor.md` copy,
-deliberately left unfixed here (out of scope — no dependency between the two
-plugins; port the same fix there separately if it recurs on that plugin).
+report, never whether CodeRabbit feedback is looked for.
 
 ## Skill design (`fresh-work`)
 
@@ -410,11 +401,10 @@ caught that nesting the _numbering_ alone, without stating this lifecycle
 explicitly, left the actual ledger-invariant question — what happens to the
 caller's task while the callee runs — unanswered). Adapted
 from superpowers'
-brainstorming / writing-plans / subagent-driven-development and
-superpowers-automation's new-work — with the full line-by-line human
-spec-review gate, execution-choice handoffs, and cross-plugin references
-removed (the bats self-containment tripwire greps the skill dir for
-`superpowers|branch-management`; lineage is recorded only here). Two narrower
+brainstorming / writing-plans / subagent-driven-development — with the full
+line-by-line human spec-review gate, execution-choice handoffs, and
+cross-plugin references removed (the bats self-containment tripwire greps
+the skill dir for `superpowers|branch-management`). Two narrower
 steps were reintroduced later (2026-07-03, into the original `fresh-work`),
 distinct from what was removed: **Intent confirmation** (this skill's own
 step 2) shows the design doc's mandatory Keypoints section and asks
@@ -607,10 +597,9 @@ before running the script, needing no change to the script itself.
 
 ## Skill design (`setup-rules`)
 
-User-only (`disable-model-invocation: true`, same precedent as
-`branch-management:clean-branches` — a side-effecting project-config
-wizard, not named `configure-*` but carrying the flag anyway) wizard
-that installs/refreshes/removes two always-on
+User-only (`disable-model-invocation: true` — a side-effecting
+project-config wizard, not named `configure-*` but carrying the flag
+anyway) wizard that installs/refreshes/removes two always-on
 `~/.claude/rules/coding-toolbox-*.md` files (moved from project-scoped
 `.claude/rules/` 2026-07-10 — user-level rules apply to every project on
 this machine, confirmed against the memory-reference cc-reference doc):
@@ -625,9 +614,8 @@ bundled script — per `script-authoring.md`'s "inject before query" the
 facts are static before the first question, so they're computed once
 at load time. Asks one `AskUserQuestion` call per run, but as **two
 independent single-select questions** (one per artifact) rather than
-a single `multiSelect` question — reusing
-`branch-management:configure-branch-management`'s established
-per-toggle idiom (current value in the header, e.g. `"Golden-rules
+a single `multiSelect` question — this skill's own per-toggle
+idiom (current value in the header, e.g. `"Golden-rules
 rule [currently: installed]"`, the answer sets the new value
 directly). This was a deliberate revision during Review: the original
 draft used one `multiSelect` question with action-framed rows
@@ -643,8 +631,7 @@ something to say (already installed, or at least one tool detected);
 answering "Yes" always (re)writes fresh content, covering both install
 and refresh with one action. File mutations go through `Bash` (`cp`,
 `rm`, a quoted `cat <<'EOF'` heredoc) rather than the `Write`/`Edit`
-tools, mirroring `configure-branch-management`'s `jq`/`mv`/`printf`-only
-file writes. Neither managed file carries a `paths:` frontmatter key —
+tools. Neither managed file carries a `paths:` frontmatter key —
 confirmed against the memory-reference cc-reference doc that a
 `.claude/rules/*.md` file without `paths` loads unconditionally, same
 priority as `.claude/CLAUDE.md`. A verbatim `$ARGUMENTS` mode (Step 3a)

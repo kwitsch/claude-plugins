@@ -3,7 +3,15 @@ name: setup-rules
 description: Install, refresh, or remove coding-toolbox's user-level rules — a copy of the golden-rules content and a tool-routing table for rtk/bun/ripgrep/codebase-memory — as always-on ~/.claude/rules/coding-toolbox-*.md files, applying to every project on this machine. Accepts a verbatim argument (e.g. "update tools rule") to apply directly, skipping the interactive prompts.
 argument-hint: "[install|update|remove] [rules|tools|both]"
 disable-model-invocation: true
-allowed-tools: ["AskUserQuestion", "Read", "Bash(mkdir:*)", "Bash(cp:*)", "Bash(rm:*)", "Bash(cat:*)"]
+allowed-tools:
+  [
+    "AskUserQuestion",
+    "Read",
+    "Bash(mkdir:*)",
+    "Bash(cp:*)",
+    "Bash(rm:*)",
+    "Bash(cat:*)",
+  ]
 ---
 
 # Set up coding-toolbox user-level rules
@@ -28,6 +36,7 @@ this skill is the only way to get them onto this machine.
 ## Step 1 — Detect
 
 <!-- coderabbit-skip: `ls`/`command -v` here run inside a dynamic-context `!` block — load-time preprocessing executed before Claude sees the content, not a Claude tool call, so `allowed-tools` has no bearing on it (cc-reference claude-code-skills-reference.md, "Dynamic context injection": "runs the shell command BEFORE Claude sees content ... preprocessing, not a Claude action"). Only the runtime Bash calls in Step 4 are model-issued tool calls, and those are covered. -->
+
 ```!
 echo "Installed: $(ls $HOME/.claude/rules/coding-toolbox-*.md 2>/dev/null || echo '(none)')"
 echo "Stale project-level: $(ls .claude/rules/coding-toolbox-*.md 2>/dev/null || echo '(none)')"
@@ -71,7 +80,7 @@ expected to contain `tool`):
    equals a No-list entry → `answer = No`. Else: a word equals a Yes-list
    entry → `answer = Yes`. Else → usage-error branch.
 2. **Target.** Resolve which target(s) the words name — a bare `rule`/`rules`
-   is a *generic* word, not a standalone target claim, when a `tool`-family
+   is a _generic_ word, not a standalone target claim, when a `tool`-family
    word is also present (it's descriptive filler in a "tools rule" phrase,
    not a second, competing target):
    - `tool`/`tools`/`tool-routing`/`routing` present → **tools** is named.
@@ -80,10 +89,10 @@ expected to contain `tool`):
      named (e.g. "remove rules" alone names golden-rules; "update tools
      rule" does not — the `tool`-family word absorbs the bare "rule").
    - `both`/`all`/`everything` present → **both** is named.
-   - **More than one *distinct* target is named** — tools and golden-rules
+   - **More than one _distinct_ target is named** — tools and golden-rules
      both named (e.g. `remove golden tool-routing`), or `both`/`all`/
      `everything` named alongside either specific target (e.g. `remove both
-     tools`) — → usage-error branch, ambiguous. A command must name exactly
+tools`) — → usage-error branch, ambiguous. A command must name exactly
      one scope, never two conflicting ones.
    - **Exactly one target named** → `target` is that one (`tools`, `rules`,
      or `both`).
@@ -96,8 +105,8 @@ expected to contain `tool`):
        every managed file from one ambiguous word.
 3. **Usage-error branch.** State plainly (not a question — no trailing `?`):
    `Couldn't parse "<$ARGUMENTS>" — expected a verb (install/update/remove)
-   and, for remove, an explicit target (rules/tools/both). Examples:
-   "install", "update tools rule", "remove rules", "remove both".` Then
+and, for remove, an explicit target (rules/tools/both). Examples:
+"install", "update tools rule", "remove rules", "remove both".` Then
    stop — no file writes, nothing asked.
 4. Set the Question 1 (golden-rules) answer to `answer` when `target` is
    `rules` or `both`; leave it untouched otherwise. Set the Question 2
@@ -108,13 +117,14 @@ expected to contain `tool`):
 ### Step 3b — Ask (`$ARGUMENTS` empty)
 
 One `AskUserQuestion` call, one single-select (`multiSelect: false`) question
-per artifact — mirroring `configure-branch-management`'s pattern: current
-value in the header, the answer sets the new value directly. A single-select
+per artifact: current value in the header, the answer sets the new value
+directly. A single-select
 always forces one explicit answer, so there is no end-state-toggle ambiguity
 and no need for a "no changes" escape option or any cross-question
 precedence rule.
 
 Question 1 (always asked):
+
 ```
 question: "Should the golden-rules rule be installed?"
 header:   "Golden-rules rule (this machine) [currently: <installed|not installed>]"
@@ -129,6 +139,7 @@ options:
 Question 2 — include **only if** `tools_installed` is true, or `detected` is
 non-empty (otherwise there is nothing meaningful to install and no existing
 file to offer removing, so omit this question entirely):
+
 ```
 question: "Should the tool-routing rule be installed?"
 header:   "Tool-routing rule (this machine) [currently: <installed|not installed>]"

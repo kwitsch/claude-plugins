@@ -1,6 +1,6 @@
 ---
 name: fresh-pr
-description: Use when branch work should become a pull/merge request without a code-review-rounds step — commits pending work, rebases onto an updated base, pushes, opens or refreshes a PR/MR (GitHub and GitLab), then drives it to CI-green (and, if CodeRabbit participates, all its review threads resolved) via this plugin's own ci-watcher/pr-fixer agents. Self-contained — no dependency on branch-management.
+description: Use when branch work should become a pull/merge request without a code-review-rounds step — commits pending work, rebases onto an updated base, pushes, opens or refreshes a PR/MR (GitHub and GitLab), then drives it to CI-green (and, if CodeRabbit participates, all its review threads resolved) via this plugin's own ci-watcher/pr-fixer agents. Self-contained — every script/agent used here lives in this plugin.
 argument-hint: "[--base <branch>]"
 allowed-tools:
   [
@@ -26,9 +26,8 @@ allowed-tools:
 Self-contained: commits pending work, rebases onto an updated base, pushes,
 opens or refreshes a PR/MR via `gh`/`glab`, then dispatches this plugin's own
 `ci-watcher` (read-only) and `pr-fixer` agents in a loop until CI is green
-and — only if CodeRabbit ever comments — its review threads are resolved. No
-dependency on `branch-management`; every script/agent used here lives in
-`coding-toolbox`.
+and — only if CodeRabbit ever comments — its review threads are resolved.
+Self-contained: every script/agent used here lives in `coding-toolbox`.
 
 > **Ask the user via `AskUserQuestion`.** When this skill needs a decision from
 > the user and the answers are a fixed / multiple-choice set, it MUST present the

@@ -1,22 +1,18 @@
 ---
 paths:
-  - "plugins/branch-management/skills/**"
   - "plugins/coding-toolbox/skills/**"
 ---
 
 # Rule: subagent completion-reconciliation tracking
 
-`new-pr` dispatches async subagents via the Agent tool (`ci-monitor`,
-`review-fixer` in the monitor loop). In this harness an Agent dispatch returns
+`coding-toolbox:fresh-pr` and `coding-toolbox:feature-development` dispatch async
+subagents via the Agent tool (`ci-watcher`/`pr-fixer`; wave-parallel
+implementer/reviewer/fixer). In this harness an Agent dispatch returns
 immediately with a `task_id`; completion arrives later as a
 `<task-notification>` that re-invokes the orchestrator. Each such skill MUST
 carry the canonical gate block below (inline — rules are not loaded at skill
 runtime, so the operative copy lives in the SKILL.md body) and list the Task*
 ledger tools + `ToolSearch` in `allowed-tools`.
-
-`review-branch` dispatches `claude-reviewer` and `review-fixer` via the Agent tool
-and requires the Task* ledger. The constraint below applies to both `new-pr` and
-`review-branch`.
 
 The invariant: a skill MUST NOT advance past its aggregation/decision/report step
 until every dispatched subagent in the batch is reconciled to a terminal state.
@@ -58,6 +54,7 @@ subagent-scoped probe.
 > (retry bare names). Only if the CRUD ledger tools (TaskCreate/TaskUpdate/TaskList)
 > fail to load, use the prose-count fallback below — TaskStop loading alone is not
 > sufficient to activate the ledger path.
+>
 > 1. On dispatch, `TaskCreate` one entry per subagent actually dispatched
 >    (`subject` = role, `metadata.dispatch_id` = its Agent `task_id`), then
 >    `TaskUpdate` it to `in_progress`.
@@ -69,14 +66,12 @@ subagent-scoped probe.
 > 4. Escape hatch only: if, when next awake, a still-`in_progress` entry is judged
 >    genuinely stuck, `TaskStop` its `dispatch_id`, mark it terminal, record a
 >    soft-failure, proceed. Never `TaskOutput` a dispatch_id (transcript overflow).
-> Prose-count fallback (CRUD ledger tools genuinely absent): track the dispatched
-> count explicitly; do not advance until that many structured results are in hand.
+>    Prose-count fallback (CRUD ledger tools genuinely absent): track the dispatched
+>    count explicitly; do not advance until that many structured results are in hand.
 
 ## Per-skill placement
 
-| Skill | Batch(es) | Gate before | Severity |
-|---|---|---|---|
-| new-pr | ci-monitor; review-fixer (each sequential) | review-fixer dispatch; the push | medium |
-| review-branch | claude-reviewer (per round); review-fixer (per round, when findings remain) | decide step; next-round dispatch | medium |
-| coding-toolbox:fresh-pr | ci-watcher; pr-fixer (each sequential, per goal-loop iteration) | pr-fixer dispatch; next-iteration dispatch | medium |
-| coding-toolbox:feature-development | implementer; reviewer; fixer (wave-parallel per `references/implementing.md`'s Parallelism analysis — Agent engine batches a wave's implementers, then its reviewers, then its fixers, each in one message; size-1 waves stay one at a time; merge-back runs via the orchestrator's own Bash, not a dispatch; the Workflow engine gates internally); review-phase finders then location-grouped verifiers (batched per `references/reviewing.md`'s Agent-engine fallback; the Workflow engine gates internally) | reviewer-batch dispatch; fixer-batch dispatch; that wave's merge-back; next-wave dispatch; the review verifier-batch dispatch; the review synthesis | medium |
+| Skill                              | Batch(es)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Gate before                                                                                                                                         | Severity |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| coding-toolbox:fresh-pr            | ci-watcher; pr-fixer (each sequential, per goal-loop iteration)                                                                                                                                                                                                                                                                                                                                                                                                                                                 | pr-fixer dispatch; next-iteration dispatch                                                                                                          | medium   |
+| coding-toolbox:feature-development | implementer; reviewer; fixer (wave-parallel per `references/implementing.md`'s Parallelism analysis — Agent engine batches a wave's implementers, then its reviewers, then its fixers, each in one message; size-1 waves stay one at a time; merge-back runs via the orchestrator's own Bash, not a dispatch; the Workflow engine gates internally); review-phase finders then location-grouped verifiers (batched per `references/reviewing.md`'s Agent-engine fallback; the Workflow engine gates internally) | reviewer-batch dispatch; fixer-batch dispatch; that wave's merge-back; next-wave dispatch; the review verifier-batch dispatch; the review synthesis | medium   |
