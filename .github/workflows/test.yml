@@ -19,8 +19,6 @@ jobs:
         plugin:
           - no-co-authored
           - git-sign-key
-          - branch-management
-          - superpowers-automation
           - claude-code-knowledge
           - coding-toolbox
           - universal-format

@@ -19,7 +19,7 @@ Larger case sets live in data files next to the suite (e.g. `coding-toolbox/enco
 
 ## Manifest assertions
 
-Pin plugin.json invariants in tests. branch-management: assert exact sorted `userConfig` key list and count — extend the assertion when adding a toggle. Version declared only in `plugin.json`, never in `marketplace.json`.
+Pin plugin.json invariants in tests: for a plugin with `userConfig`, assert the exact sorted key list and count — extend the assertion when adding a toggle. Version declared only in `plugin.json`, never in `marketplace.json`.
 
 ## Inline scripts
 

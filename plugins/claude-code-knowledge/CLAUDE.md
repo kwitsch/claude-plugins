@@ -55,8 +55,7 @@ The suite is structural: it checks the plugin manifest, the cc-reference skill s
 - Boundary: the only MCP server is this hook backend; there is no runtime doc cache. The agent reaches live docs only through cc-reference's WebFetch fallback.
 
 context-mode was removed from this plugin 2026-07-06, completing the
-repo-wide phase-out started in coding-toolbox (PR #112) and
-branch-management (PR #113). `rtk` does not apply here: the 4 fetch-variant
+repo-wide phase-out started in coding-toolbox (PR #112). `rtk` does not apply here: the 4 fetch-variant
 files (`claude-code-expert`, `cc-author-planner`, `cc-reviewer`,
 `cc-reference`) fall back to WebFetch, a different problem domain `rtk`
 (a shell-command proxy) has no role in; the 2 shell-variant skills
