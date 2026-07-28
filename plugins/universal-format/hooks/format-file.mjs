@@ -54,14 +54,17 @@ const EXT_MAP = {
   ".pyi": "python",
   ".go": "go",
   ".json": "json",
+  ".css": "css",
+  ".scss": "scss",
   ".yaml": "yaml",
   ".yml": "yaml",
   ".md": "markdown",
 };
 
 // Shared chain-entry descriptors: prettier/biome each serve multiple, unrelated
-// language chains (jsts/json/yaml/markdown) with byte-identical config, unlike
-// every other tool in this registry (each of which serves exactly one language).
+// language chains (jsts/json/yaml/markdown/css/scss) with byte-identical config,
+// unlike every other tool in this registry (each of which serves exactly one
+// language).
 // buildInvocation() only ever reads these via .slice()/spread, never mutates in
 // place, so sharing the same object across chains is safe.
 /** @type {FormatTool} */
@@ -146,6 +149,8 @@ export const REGISTRY = {
     ],
   },
   json: { chain: [PRETTIER_NATIVE, BIOME_MAPPED] },
+  css: { chain: [PRETTIER_NATIVE, BIOME_MAPPED] },
+  scss: { chain: [PRETTIER_NATIVE] },
   yaml: { chain: [PRETTIER_NATIVE] },
   markdown: { chain: [PRETTIER_NATIVE] },
 };

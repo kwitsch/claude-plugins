@@ -74,7 +74,8 @@ const EXT_MAP = {
   ".yaml": "yaml",
   ".yml": "yaml",
   ".md": "markdown",
-  ".scss": "scss",
+  ".css": "css",
+  ".scss": "css",
 };
 
 // Linter registry. chain = first tool on PATH wins. Every entry runs check-only --
@@ -113,7 +114,7 @@ export const REGISTRY = {
       { name: "markdownlint", args: [], npmSpec: "markdownlint-cli" },
     ],
   },
-  scss: { chain: [{ name: "stylelint", args: [], npmSpec: "stylelint" }] },
+  css: { chain: [{ name: "stylelint", args: [], npmSpec: "stylelint" }] },
 };
 
 // PATH probe cache (server-lifetime): tool name -> boolean on PATH.

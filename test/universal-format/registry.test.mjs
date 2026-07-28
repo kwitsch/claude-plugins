@@ -179,6 +179,20 @@ test("REGISTRY: json/yaml/markdown chains and npmSpecs", () => {
   assert.equal(REGISTRY.markdown.chain[0].npmSpec, "prettier");
 });
 
+test("REGISTRY: css/scss chains -- css is prettier+biome (like json), scss is prettier-only (biome excludes SCSS syntax)", () => {
+  assert.deepEqual(
+    REGISTRY.css.chain.map((t) => t.name),
+    ["prettier", "biome"],
+  );
+  assert.equal(REGISTRY.css.chain[0].npmSpec, "prettier");
+  assert.equal(REGISTRY.css.chain[1].npmSpec, "@biomejs/biome");
+  assert.deepEqual(
+    REGISTRY.scss.chain.map((t) => t.name),
+    ["prettier"],
+  );
+  assert.equal(REGISTRY.scss.chain[0].npmSpec, "prettier");
+});
+
 test("json: biome chain entry is mapped (not native) -- editorconfig applies only when biome.json is absent", () => {
   const biomeJson = REGISTRY.json.chain[1];
   assert.equal(biomeJson.strategy, "mapped");
