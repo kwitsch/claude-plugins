@@ -32,6 +32,19 @@ contract: `0` clean, `2` a real lint problem, everything else (`1` fatal
 error, `64` invalid CLI usage, `78` invalid config) `skip` — verified
 against stylelint's own CLI docs (stylelint.io/user-guide/usage/cli).
 
+Known, accepted limitation for `.scss` (pre-existing, not new to the `.css`
+addition — verified empirically 2026-07-28): `args: []` passes no
+`customSyntax`, so stylelint parses `.scss` with its default CSS-only parser.
+stylelint removed automatic by-extension syntax inferral in v14 — SCSS needs
+an explicit `customSyntax` (e.g. `postcss-scss`, typically pulled in via
+`stylelint-config-standard-scss`), which is not bundled with stylelint and
+not something this plugin can add without a new dependency the target
+project may not have. In a project with a stylelint config but no SCSS-aware
+`customSyntax`, ordinary SCSS constructs (`//` comments, `$variables`,
+`&`-nesting, `#{...}` interpolation) can surface as bogus `CssSyntaxError`
+"issues" rather than real style violations. `.css` files are unaffected —
+plain CSS parses correctly under the default parser.
+
 `yamllint` (YAML) and `markdownlint-cli2`/`markdownlint` (Markdown) join the
 same 0-clean/1-issues/else-skip `classifyExit` contract as the five tools
 above. `yamllint` runs without `--strict`, so warnings-only findings don't
