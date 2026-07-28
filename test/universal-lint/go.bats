@@ -36,6 +36,3 @@ setup() {
   run rg_or_grep -F "go vet" "$RECORD"
   assert_failure
 }
-
-# --- behavioral: checkstyle (output-classified, not exit-code) ---------------
-

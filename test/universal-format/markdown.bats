@@ -19,5 +19,3 @@ setup() {
   echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("prettier reformatted a.md")'
 }
 
-# --- behavioral: CSS/SCSS (prettier native; biome mapped, CSS only) --------
-

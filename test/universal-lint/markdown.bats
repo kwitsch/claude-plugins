@@ -69,6 +69,3 @@ setup() {
   run rg_or_grep -F "npx --yes markdownlint-cli2 $cwd/a.md" "$RECORD"
   assert_success
 }
-
-# --- behavioral: stylelint (CSS/SCSS) ------------------------------------------
-

@@ -23,5 +23,3 @@ setup() {
   echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("ktlint reformatted a.kt")'
 }
 
-# --- behavioral: .editorconfig mapping + tool-native-config precedence -------
-

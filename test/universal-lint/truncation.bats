@@ -19,6 +19,3 @@ setup() {
   assert_success
   echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("… \\(truncated\\)$")'
 }
-
-# --- behavioral: npx fallback (eslint) ---------------------------------------
-

@@ -70,6 +70,3 @@ setup() {
   run rg_or_grep -F -- "-c /google_checks.xml" "$RECORD"
   assert_success
 }
-
-# --- behavioral: truncation ---------------------------------------------------
-

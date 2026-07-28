@@ -39,17 +39,3 @@ setup() {
   assert_failure
 }
 
-# --- behavioral: rtk detection ------------------------------------------------
-
-# rtk_stub <verb> <exit_code> -- stub $MOCKBIN/rtk that answers BOTH shapes:
-#   rtk rewrite <tool> <args...> __RTK_PROBE__   -> echoes "rtk <verb> __RTK_PROBE__"
-#   rtk <verb> <args...>                         -> records argv, prints $OUT, exits <exit_code>
-rtk_stub() {
-  local verb="$1" exit_code="$2"
-  make_stub rtk \
-    'if [ "$1" = "rewrite" ]; then printf "rtk %s __RTK_PROBE__\n" "'"$verb"'"; exit 3; fi' \
-    'printf "%s %s\n" "rtk" "$*" >> "$RECORD"' \
-    'printf '\''%s\n'\'' "$OUT"' \
-    'exit '"$exit_code"
-}
-

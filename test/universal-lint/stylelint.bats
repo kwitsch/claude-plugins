@@ -90,6 +90,3 @@ setup() {
   run rg_or_grep -F "stylelint " "$RECORD"
   assert_success
 }
-
-# --- behavioral: tsc (TypeScript type-check, independent of eslint) --------
-
