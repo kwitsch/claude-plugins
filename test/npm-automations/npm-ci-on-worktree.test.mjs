@@ -53,6 +53,8 @@ test("npmCiOnWorktreeHandler: npm killed by its own timeout is silent, not misre
   const origPath = process.env.PATH;
   process.env.PATH = `${binDir}${path.delimiter}${origPath}`;
   try {
+    // 100ms timeout, stub sleeps 5s -- spawnSync sets BOTH result.error and
+    // result.signal on this kill; the handler must check signal first.
     const result = npmCiOnWorktreeHandler(mockInput(projDir), 100);
     assert.deepEqual(result, {});
   } finally {
@@ -67,9 +69,12 @@ test("npmCiOnWorktreeHandler: a non-ENOENT spawn error (EACCES) is not misreport
   const binDir = mkdtempSync(path.join(tmpdir(), "npm-ci-noexec-"));
   const npmStub = path.join(binDir, "npm");
   writeFileSync(npmStub, "#!/usr/bin/env bash\necho should never run\n");
-  chmodSync(npmStub, 0o644);
+  chmodSync(npmStub, 0o644); // present on PATH but not executable -- EACCES, not ENOENT
 
   const origPath = process.env.PATH;
+  // Replace PATH entirely (not prepend) -- with the real npm still reachable
+  // further down PATH, the OS's PATH search silently skips a non-executable
+  // match and falls through to it, defeating the point of this test.
   process.env.PATH = binDir;
   try {
     const result = npmCiOnWorktreeHandler(mockInput(projDir));

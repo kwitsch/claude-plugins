@@ -13,12 +13,21 @@ setup() {
 # package-lock.json exists in the entered worktree's cwd.
 # ---------------------------------------------------------------------------
 
+# npm_ci_hook <enabled-value> <cwd> -- drive the hook with a PostToolUse
+# EnterWorktree-shaped stdin payload via the CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE
+# env var (not argv -- matches how Claude Code actually exports userConfig values);
+# prints the hook's stdout.
 npm_ci_hook() {
   jq -cn --arg cwd "$2" \
     '{tool_name:"EnterWorktree", tool_input:{}, cwd:$cwd}' \
     | CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE="$1" "$HOOKS/npm-ci-on-worktree.mjs" 2>/dev/null
 }
 
+# make_npm_stub <exit_code> <stdout_text> -- puts a fake `npm` on PATH that
+# records "<cwd> <args...>" to $CALLLOG and exits with the given code/output.
+# NOTE: the heredoc body and its "EOF" terminator MUST start at column 0
+# (plain <<EOF matches the terminator literally, unlike <<-EOF which only
+# strips leading TABS, not spaces).
 make_npm_stub() {
   local exit_code="$1" stdout_text="$2"
   NPMDIR="$BATS_TEST_TMPDIR/npmbin"
