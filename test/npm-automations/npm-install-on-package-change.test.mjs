@@ -172,3 +172,31 @@ test("npmInstallOnPackageChangeHandler: version-only edit is a silent no-op", ()
   );
   assert.deepEqual(result, {});
 });
+
+test("npmInstallOnPackageChangeHandler: an exhausted budget still bounds npm", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "handler-deadline-"));
+  const pkgPath = path.join(dir, "package.json");
+  writeFileSync(pkgPath, '{"name":"x","dependencies":{"left-pad":"^2.0.0"}}');
+  // npm stub that sleeps, then fails. With the shared deadline already spent by the
+  // time the lock is held, npm must still get a positive timeout (1 ms -> killed ->
+  // ETIMEDOUT -> silent {}); passing the leftover 0 straight through would mean "no
+  // timeout at all" to spawnSync, letting the stub run to completion and report its
+  // failure as additionalContext.
+  const binDir = mkdtempSync(path.join(tmpdir(), "handler-npmstub-"));
+  writeFileSync(
+    path.join(binDir, "npm"),
+    "#!/usr/bin/env bash\nsleep 0.3\nexit 1\n",
+    { mode: 0o755 },
+  );
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${originalPath}`;
+  try {
+    const result = npmInstallOnPackageChangeHandler(
+      mockInput(pkgPath, "Write", { content: "{}" }),
+      0,
+    );
+    assert.deepEqual(result, {});
+  } finally {
+    process.env.PATH = originalPath;
+  }
+});

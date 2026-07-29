@@ -89,8 +89,12 @@ file in the OS temp dir, keyed by a hash of the target directory via `lockPathFo
 `git add -A` and never lingers in a tracked directory after a crash) before
 spawning npm; if already held, it busy-waits (bounded, synchronous — this process
 is already async from the harness's
-perspective, so blocking it costs nothing) up to the same timeout budget used for
-the `npm install` call itself, then proceeds once free. A lock older than
+perspective, so blocking it costs nothing), then proceeds once free. The lock wait
+and the `npm install` call share **one** budget, not one each: the handler computes
+a single deadline (`Date.now() + timeoutMs`) up front, hands `acquireLock` whatever
+remains, then hands npm whatever remains after that (floored at 1 ms — `spawnSync`
+reads `timeout: 0` as _no_ timeout) — two full budgets could together overrun
+`hooks.json`'s own 300 s timeout and get this process killed mid-install. A lock older than
 `LOCK_STALE_MS` (10 minutes) is treated as abandoned (e.g. a crashed prior process)
 and reclaimed. The lock is always released in a `finally` block, including on npm
 failure/timeout — a hard `SIGKILL` of this process is the one case that can leave a

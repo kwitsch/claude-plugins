@@ -165,6 +165,10 @@ export function npmInstallOnPackageChangeHandler(
   timeoutMs = NPM_INSTALL_TIMEOUT_MS,
 ) {
   try {
+    // One shared budget for both phases below (lock wait + npm install): giving each a
+    // full timeoutMs could together overrun hooks.json's own 300s timeout and get this
+    // process killed mid-install, leaving a stale lock behind.
+    const deadline = Date.now() + timeoutMs;
     const filePath =
       typeof args?.tool_input?.file_path === "string"
         ? args.tool_input.file_path
@@ -199,16 +203,22 @@ export function npmInstallOnPackageChangeHandler(
 
     const cwd = path.dirname(filePath);
     const lockPath = lockPathFor(cwd);
-    if (!acquireLock(lockPath, LOCK_STALE_MS, timeoutMs)) {
+    if (
+      !acquireLock(lockPath, LOCK_STALE_MS, Math.max(0, deadline - Date.now()))
+    ) {
       return ctx(
         `npm-install-on-package-change: gave up waiting on a concurrent install lock in ${cwd}`,
       );
     }
     try {
       const npmArgs = specs === null ? ["install"] : ["install", ...specs];
+      // Whatever the lock wait left over. Floor of 1, never 0: spawnSync treats
+      // timeout: 0 as "no timeout at all" (and rejects a negative value outright), so
+      // an already-exhausted budget must still bound npm -- it gets killed at once
+      // (ETIMEDOUT -> silent no-op below) rather than running unbounded.
       const result = spawnSync("npm", npmArgs, {
         cwd,
-        timeout: timeoutMs,
+        timeout: Math.max(1, deadline - Date.now()),
         encoding: "utf8",
         maxBuffer: 10 * 1024 * 1024,
       });
