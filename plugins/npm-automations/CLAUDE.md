@@ -45,6 +45,61 @@ the `PostToolUse` event's `cwd` field as-is, with no cross-check against
 `EnterWorktree`'s own reported path — an accepted, unaddressed risk carried
 over unchanged from the original design.
 
+## Hook design (`npm-install-on-package-change`)
+
+`PostToolUse` → `command`, matcher `Write|Edit`, `timeout: 300`, `async: true`.
+Dispatches on any file named `package.json` (checked via `tool_input.file_path`,
+the same in-code path-filtering idiom `universal-lint`'s `lint-file.mjs` uses,
+rather than the `hooks.json` `if` field).
+
+**Reconstructs the pre-edit file from the Edit tool's own `old_string`/
+`new_string`** (a plain string replace, no git dependency) rather than diffing
+against `git show HEAD:<path>` — a git-based diff breaks whenever the file has
+pending uncommitted changes stacked before this edit, which is ordinary mid-session
+state. Only trusted when `new_string` is unique in the post-edit content (single,
+unambiguous replace target) — this also safely degrades a `replace_all: true` edit
+(whose `new_string` then appears more than once) to the bare-install fallback
+instead of reconstructing a wrong "old" version. `Write` has no prior content in
+`tool_input` at all, so it always falls back too. There is no `MultiEdit` tool in
+the current toolset (verified empty on grep across this repo and this session's own
+tool/deferred-tool lists) — only `Edit` and `Write` are handled.
+
+**Runs `npm install` scoped to only the changed/added
+`dependencies`/`devDependencies`/`optionalDependencies` specs** — a version-only (or
+`scripts`/`description`/etc.) edit triggers no npm call at all, directly satisfying
+the "don't unnecessarily bump dependencies" ask. Verified experimentally (npm
+11.16.0, scratch repo): `npm install <name>@<range>` for a name already declared
+anywhere in `package.json` updates that entry **in place** — it does not move it
+into `dependencies`. Since every spec here is read back from the file's own
+_current_ state (already written to the correct section by the edit itself before
+this hook ever runs), a single flat `npm install <spec>...` call is safe; no
+per-field-grouped invocations are needed. `peerDependencies` is deliberately
+excluded (npm doesn't install these directly the same way); removed dependencies
+are not uninstalled (out of scope, matches "kleinstmöglichstes npm i" — smallest
+reasonable action, not a full reconciliation).
+
+**Filesystem lock serializes concurrent installs in the same directory.** Unlike
+the sibling `npm-ci-on-worktree` hook (fires at most once per `EnterWorktree`),
+`Write|Edit` can fire on the same `package.json` repeatedly in quick succession,
+and each firing is a fresh async OS process with no shared in-memory state — two
+overlapping `npm install` runs in one directory can race on `node_modules`/the
+lockfile. `acquireLock` takes an exclusive lock (atomic `open(..., "wx")` on a lock
+file in the OS temp dir, keyed by a hash of the target directory via `lockPathFor`
+— deliberately outside the project tree, so it's never visible to `git status`/
+`git add -A` and never lingers in a tracked directory after a crash) before
+spawning npm; if already held, it busy-waits (bounded, synchronous — this process
+is already async from the harness's
+perspective, so blocking it costs nothing) up to the same timeout budget used for
+the `npm install` call itself, then proceeds once free. A lock older than
+`LOCK_STALE_MS` (10 minutes) is treated as abandoned (e.g. a crashed prior process)
+and reclaimed. The lock is always released in a `finally` block, including on npm
+failure/timeout — a hard `SIGKILL` of this process is the one case that can leave a
+stale lock behind, bounded by `LOCK_STALE_MS` before a later edit reclaims it;
+accepted trade-off for correctness over latency.
+
+**Same fail-open toggle convention as the sibling hook** — `CLAUDE_PLUGIN_OPTION_
+NPM_INSTALL_ON_PACKAGE_CHANGE`, only the literal `"false"` disables.
+
 ## Tests
 
 `test/npm-automations/` — `test_helper.bash` holds `common_setup` (isolated

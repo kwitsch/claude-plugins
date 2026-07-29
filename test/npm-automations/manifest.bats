@@ -46,6 +46,6 @@ setup() {
   assert_output "1.0.0"
 }
 @test "userConfig has exactly the expected keys (extend when adding a toggle)" {
-  run jq -e '[.userConfig | keys_unsorted | sort[]] == ["npm_ci_on_worktree"]' "$PLUGIN/.claude-plugin/plugin.json"
+  run jq -e '[.userConfig | keys_unsorted | sort[]] == ["npm_ci_on_worktree", "npm_install_on_package_change"]' "$PLUGIN/.claude-plugin/plugin.json"
   assert_success
 }

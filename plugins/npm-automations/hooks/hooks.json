@@ -11,6 +11,17 @@
             "async": true
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/npm-install-on-package-change.mjs",
+            "timeout": 300,
+            "async": true
+          }
+        ]
       }
     ]
   }
