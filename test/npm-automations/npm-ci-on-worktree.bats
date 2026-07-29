@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-# npm-ci-on-worktree hook (PostToolUse EnterWorktree) — coding-toolbox plugin.
+# npm-ci-on-worktree hook (PostToolUse EnterWorktree) — npm-automations plugin.
 
 load 'test_helper'
 

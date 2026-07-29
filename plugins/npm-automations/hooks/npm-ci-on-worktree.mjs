@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// hooks/npm-ci-on-worktree.mjs -- coding-toolbox plugin: PostToolUse EnterWorktree
+// hooks/npm-ci-on-worktree.mjs -- npm-automations plugin: PostToolUse EnterWorktree
 // hook. Command hook, invoked directly per event (no MCP server). stdin = hook JSON
 // (PostToolUseHookInput). The userConfig toggle is read from
 // CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE -- cc-reference's plugins doc claims Claude

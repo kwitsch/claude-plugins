@@ -7,7 +7,7 @@ import {
   isNpmCiEnabled,
   truncate,
   npmCiOnWorktreeHandler,
-} from "../../plugins/coding-toolbox/hooks/npm-ci-on-worktree.mjs";
+} from "../../plugins/npm-automations/hooks/npm-ci-on-worktree.mjs";
 
 test('isNpmCiEnabled: fail-open, only literal "false" disables', () => {
   assert.equal(isNpmCiEnabled("true"), true);

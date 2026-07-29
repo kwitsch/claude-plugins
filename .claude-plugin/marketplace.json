@@ -77,6 +77,16 @@
       },
       "category": "productivity",
       "tags": ["memory", "skills", "hooks"]
+    },
+    {
+      "name": "npm-automations",
+      "source": "./plugins/npm-automations",
+      "description": "Runs an async npm ci when a package-lock.json project is entered via EnterWorktree (toggle: npm_ci_on_worktree) — moved out of coding-toolbox to centralize npm-lifecycle automation hooks.",
+      "author": {
+        "name": "Kwitsch"
+      },
+      "category": "productivity",
+      "tags": ["npm", "hooks", "automation"]
     }
   ]
 }
