@@ -1,20 +1,18 @@
 # CLAUDE.md — coding-toolbox
 
-Plugin that mechanically enforces "golden behavior rules" via four hooks: a `PreToolUse`
+Plugin that mechanically enforces "golden behavior rules" via three hooks: a `PreToolUse`
 command hook (`encoding-guard.mjs`),
 a `Stop` `mcp_tool` hook (`interaction_gate`) and a
 `PostToolUse` `mcp_tool` hook (`worktree_refresh`), both `mcp_tool` hooks backed by
-a self-contained, now-stateless MCP server (`mcp/server.mjs`), and a `PostToolUse` command hook
-(`npm-ci-on-worktree.mjs`) that runs an async `npm ci` when `EnterWorktree` lands in a
-`package-lock.json` project — both `PostToolUse` hooks fire on the same `EnterWorktree`
-matcher, in the same `hooks.json` array. The
+a self-contained, now-stateless MCP server (`mcp/server.mjs`). The
 full golden-rules document lives, unwired, at `skills/setup-rules/references/golden-rules.md`
 (moved from `hooks/SessionStart.md` when the `SessionStart` hook was removed);
 `setup-rules` is the only way to get it onto a machine (user-level, every
-project you open there), opt-in. The plugin's `userConfig` entries are
-`npm_ci_on_worktree` (fail-open, default `true`) gating the `npm-ci-on-worktree`
-hook, and `worktree_refresh` (fail-open, default `true`) gating the `worktree_refresh`
-hook — the Stop gate and encoding guard have no toggle of their own.
+project you open there), opt-in. The plugin's `userConfig` entry is
+`worktree_refresh` (fail-open, default `true`) gating the `worktree_refresh`
+hook — the Stop gate and encoding guard have no toggle of their own. (The
+`npm-ci-on-worktree` hook that used to live here moved to the `npm-automations`
+plugin.)
 
 ## Hook design (do not "fix" without reading this)
 
@@ -62,128 +60,6 @@ cc-tools dependency; `cc-tools` invocations pass). Deny
 is PreToolUse JSON (`permissionDecision: "deny"`) naming the encoding + an
 iconv hint; every internal error exits 0 silently (fail open).
 
-## Hook design (`npm-ci-on-worktree`, do not "fix" without reading this)
-
-**PostToolUse → `command`: `matcher: "EnterWorktree"`, `command:
-"${CLAUDE_PLUGIN_ROOT}/hooks/npm-ci-on-worktree.mjs"`, `timeout: 300`, `async:
-true`.**
-Fires after every successful `EnterWorktree` call (creating a new worktree or
-switching into an existing one) — a fresh worktree's `node_modules` is
-gitignored, so this proactively starts installing it. Checks only
-`<cwd>/package-lock.json` (the hook's `cwd` is the _live_ session working
-directory — confirmed against the official hooks doc during design: "Current
-working directory when the hook is invoked", a point-in-time snapshot that
-updates on `cd`/worktree-switch, not a fixed project root;
-`${CLAUDE_PROJECT_DIR}` is a distinct, separately-documented env var for
-that). If present, runs `npm ci` there via `spawnSync`. Silent on success and
-on every guard miss (disabled, no `cwd`, no lockfile, `npm` process killed by
-its own timeout) — the two exceptions are a real `npm ci` failure (truncated
-stdout+stderr as `additionalContext`) and `npm` missing entirely from `PATH`
-(a one-line note, so an nvm/volta shell that never sourced `npm` for however
-Claude Code was launched doesn't leave this feature invisibly dead forever).
-
-**Command, not `mcp_tool`, despite this plugin already running an MCP server
-for the Stop hook** (`.claude/rules/hooks-mcp-server.md`'s decision tree
-otherwise prefers reusing it for a plugin with 2+ hooks). `mcp_tool` has no
-`async` field (`hooks-mcp-tool-event-matrix.md`'s `mcp_tool`
-`GLOBAL_MECHANICS`: only `server`/`tool`/`input`) — a synchronous JSON-RPC
-round-trip would block the agent loop for the full `npm ci` duration,
-contradicting the user's explicit "async" request. Same `command` + `async:
-true` idiom as `universal-lint`'s `lint-file.mjs`, not a hand-rolled detached
-child process — `async: true` already gives fire-and-forget semantics for
-free.
-
-**Reads the toggle from `CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE`, not a
-`${user_config.npm_ci_on_worktree}` placeholder in `hooks.json`'s `args`
-(fixed 2026-07-25, drive-by).** The original design passed the value via
-exec-form `args: ["${user_config.npm_ci_on_worktree}"]`, read as `argv[2]`.
-Observed live: on a plugin that was never explicitly configured through
-`/plugin manage` (confirmed live: `pluginConfigs["coding-toolbox"]` is
-`null` in every settings.json scope on this machine, even though the
-schema declares `default: true`), current Claude Code hard-errors that
-interpolation ("Plugin option ... isn't set ... check that the plugin's
-userConfig schema declares ...") instead of leaving the raw placeholder or
-falling back to the schema default — a regression from the "an old build
-leaves the raw placeholder string" assumption the original fail-open design
-was built on (see the paragraph below). That placeholder had to go
-regardless of what replaces it. The cc-reference plugins doc separately
-_claims_ every `userConfig` value is also exported to plugin subprocesses
-as a `CLAUDE_PLUGIN_OPTION_<KEY>` env var, unconditionally — the hook now
-reads `process.env.CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE` on that basis
-and `args` was dropped from `hooks.json` entirely. **That claim is
-UNVERIFIED for this specific command-hook subprocess type** — live-checking
-every currently-running plugin MCP server process on this machine
-(`coding-toolbox`, `claude-code-knowledge`) found **zero**
-`CLAUDE_PLUGIN_OPTION_*` vars in any of their environs, so the claim is not
-corroborated here (that check was against the long-lived MCP server
-subprocess, not the transient per-event command-hook process this fix
-actually touches, so it neither confirms nor refutes the command-hook
-case). `isNpmCiEnabled`'s fail-open semantics (`value !== "false"`) are
-unchanged; if the env var is simply absent, `isNpmCiEnabled(undefined)`
-resolves to the documented "unset = enabled" default — strictly no worse
-than the prior fully-broken (crashing) state for the common unconfigured
-case, but a user who explicitly configures `false` would then silently
-fail to have it honored until this is verified or fixed properly (e.g. by
-having this hook query the plugin's own MCP server, which reliably gets
-`${user_config.*}` via `.mcp.json`'s `env` field — see `worktree_refresh`
-below, a confirmed-working precedent). Accepted, documented gap — not
-silently assumed away. `worktree_refresh` below still resolves its own
-toggle through `${user_config.worktree_refresh}` (via `.mcp.json`'s `env`,
-not `hooks.json` `args`) and was not re-verified against this same failure
-mode — out of scope for this drive-by fix.
-
-**Fail-open toggle (`npm_ci_on_worktree`, `default: true`) — a deliberate
-exception to `plugin-userconfig.md`'s state-creating-toggle recommendation.**
-That rule recommends fail-closed here specifically because `npm ci` creates
-external state (`node_modules`, network I/O) — the same shape as the rule's
-own "auto-creates a folder" example. The initial design draft was
-fail-closed for exactly that reason; the user explicitly asked for fail-open
-instead at this feature's intent-confirmation gate, accepting the trade-off
-(an old Claude Code build that can't resolve `${user_config.*}` placeholders
-leaves the raw placeholder string, which is not the literal `"false"` and so
-is treated as enabled — worst case is an unwanted background `npm ci`, not
-data loss). Do not "fix" this to fail-closed without re-confirming with the
-user first.
-
-**Async despite mutating state whose ordering could matter.**
-`.claude/rules/hooks-mcp-server.md`'s general guidance is to stay
-synchronous when a hook "mutates state whose ordering relative to the next
-tool call matters" — installing `node_modules` is exactly that (the agent
-could try `npm test` before install finishes). Going async anyway is the
-user's explicit, literal request ("async npm ci"), not an oversight.
-
-No monorepo/nested-workspace lockfile walk (root of the entered worktree
-only) and no concurrency guard against two overlapping `EnterWorktree` calls
-into the same directory (`npm ci` is safe to re-run — always a clean
-wipe+reinstall from the lockfile, so the worst case is wasted work, not
-corruption) — both matched to the user's literal ask, not oversights.
-
-**`npm ci` unconditionally deletes `node_modules` before reinstalling, and
-this hook fires on switching into an _existing_ worktree too**, not only on
-creation — re-entering a worktree while something in it is mid-run against
-that `node_modules` (e.g. this very repo's own
-`BATS_LIB_PATH="$PWD/node_modules"` bats invocation, or a live `tsc`/`npm
-test`) would have its dependency tree pulled out from under it. Accepted,
-not guarded: a guard would contradict `npm ci`'s own contract, and the user
-asked for the simple, literal version — this is a deliberate consequence,
-not a silent one; do not "fix" it with a running-process check without
-re-confirming with the user first.
-
-**The hook trusts the `PostToolUse` event's `cwd` field as-is, with no
-cross-check against `EnterWorktree`'s own reported path.** A 2026-07-24
-Review pass flagged this as a speculative (not confirmed) risk: if
-`EnterWorktree` ever fires in a context where `cwd` tracking itself is wrong
-(this repo's own memory documents a _different_, already-verified-absent
-case — a linked/bridge session's Agent-tool subagents defaulting to the
-primary repo root — but the platform could in principle have other,
-undiscovered cases), `npm ci` would run — and wipe `node_modules` — in the
-wrong directory. No practical mitigation exists without parsing
-`EnterWorktree`'s free-text result (rejected during design as more fragile
-than trusting `cwd`, see this file's design-doc citation above) or adding a
-path-shape sanity check that would break the documented "switch into an
-arbitrary existing worktree via `path`" case. Accepted as an unaddressed,
-documented risk rather than defended against speculatively.
-
 ## Hook design (`worktree_refresh`)
 
 **`PostToolUse` → `mcp_tool` hook, matcher `EnterWorktree`: `tool: "worktree_refresh"`**
@@ -218,20 +94,20 @@ surfaces through the same fetch-failure / rebase-report path as any other git
 failure, never as a hang. `interaction_gate` calls no git at all, so the Stop gate
 is unaffected by this bound.
 
-**Fail-open toggle (`worktree_refresh`, `default: true`)** — same convention as
-`npm_ci_on_worktree` above: only the literal `"false"` disables. Read once at
+**Fail-open toggle (`worktree_refresh`, `default: true`)** — the same fail-open
+convention this plugin uses throughout: only the literal `"false"` disables. Read once at
 server-start from the `CODING_TOOLBOX_WORKTREE_REFRESH` environment variable
 (`.mcp.json`'s own `env` field interpolates `${user_config.worktree_refresh}`
-into it) rather than argv, because this hook — unlike `npm-ci-on-worktree` —
-runs inside the long-lived `mcp/server.mjs` process, not a fresh per-event
+into it) rather than argv, because this hook runs inside the long-lived
+`mcp/server.mjs` process, not a fresh per-event
 command spawn; official docs confirm `${user_config.*}` substitution works in
 "MCP … server configs" (`.mcp.json`), not only in hook `command`/`args` —
 verified NOT to work inside an `mcp_tool` hook's own `input` field in
 `hooks.json` (that field only substitutes hook-event data like
 `${tool_input.file_path}`), which is why the config value is threaded through
-`.mcp.json`'s `env` instead. One real consequence: unlike `npm-ci-on-worktree`'s
-per-event argv (always current), a `worktree_refresh` toggle change only takes
-effect on the next server restart (session restart / plugin reconnect) — the
+`.mcp.json`'s `env` instead. One real consequence: a `worktree_refresh` toggle
+change only takes effect on the next server restart (session restart / plugin
+reconnect) — the
 same lag any `mcp_tool`-hook userConfig value would have, not a bug specific
 to this toggle.
 
@@ -742,7 +618,7 @@ groups — `common_setup` (isolated `$MOCKBIN`/`$HOME`, `$PLUGIN`/`$HOOKS`/`$SCR
 `rg_or_grep` (used almost everywhere), and `make_stub` (used by both
 `fresh-pr.bats`'s `ci-watch.sh` coverage and `bump-version.bats`) — every other
 helper function (`setup_worktree_fixture`, `run_freshbranch`, `run_rebase`,
-`encoding_guard`, `npm_ci_hook`, …) stayed local to the one file that uses it,
+`encoding_guard`, …) stayed local to the one file that uses it,
 not hoisted. Each `.bats` file starts with `load 'test_helper'` and its own
 `setup() { common_setup; }`. `bats test/coding-toolbox/` (below) already runs
 every `.bats` file in the directory — this is the same invocation CI uses
@@ -753,7 +629,7 @@ plus generic README structure checks — content not owned by one skill/hook),
 `golden-rules.bats`, `mcp-server.bats` (shared `coding-toolbox-hooks` MCP server
 plumbing: `hooks.json`/`.mcp.json` validity, `mcp/server.mjs` + `bin/mjs-launch.sh`,
 the `tools/list` roll-up), `stop-hook.bats` (`interaction_gate`), `worktree-refresh.bats`,
-`encoding-guard.bats`, `npm-ci-on-worktree.bats`, `fresh-branch.bats`,
+`encoding-guard.bats`, `fresh-branch.bats`,
 `fresh-pr.bats` (also owns `ci-watch.sh` and the `ci-watcher`/`pr-fixer` agents —
 they're fresh-pr's own bundled components, not worth a further split), `fresh-work.bats`,
 `feature-development.bats`, `debugging.bats`, `bump-version.bats`, `setup-rules.bats`,

@@ -53,15 +53,8 @@ four axes — three sourced from external repos, one (Interaction) plugin-origin
   fail-open: quoted/substituted paths, unknown tools, binary and missing
   files always pass; encoding-safe tools (`iconv`, `git`, `mv`, …) are never
   blocked.
-- **npm ci on worktree entry (PostToolUse):** after `EnterWorktree` creates
-  or switches into a worktree whose project has a `package-lock.json`, runs
-  `npm ci` there in the background (`async`, never blocks the agent). On by
-  default; toggle off via the `npm_ci_on_worktree` plugin setting. Silent on
-  success; a real `npm ci` failure or a missing `npm` on `PATH` surfaces as
-  context on the next turn.
 
-The Stop gate, encoding guard, and npm-ci-on-worktree hooks need no setup (the last is
-on by default; toggle it off via the `npm_ci_on_worktree` plugin setting). Run
+The Stop gate and encoding guard need no setup. Run
 `/coding-toolbox:setup-rules` once per machine to opt into the full golden-rules document
 and a tool-routing table as persistent `~/.claude/rules/*.md` files, applying to every
 project you open here.
