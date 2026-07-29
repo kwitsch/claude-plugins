@@ -1,0 +1,16 @@
+{
+  "name": "npm-automations",
+  "version": "1.0.0",
+  "description": "Runs an async npm ci when a package-lock.json project is entered via EnterWorktree (toggle: npm_ci_on_worktree) — moved out of coding-toolbox to centralize npm-lifecycle automation hooks.",
+  "author": {
+    "name": "Kwitsch"
+  },
+  "userConfig": {
+    "npm_ci_on_worktree": {
+      "type": "boolean",
+      "title": "Auto npm ci on worktree entry",
+      "description": "When entering a git worktree (EnterWorktree) whose project has a package-lock.json, runs npm ci there in the background. Values: true (or unset) = enabled; false = disabled. Fail-open: only the literal value false disables it. Default: true.",
+      "default": true
+    }
+  }
+}

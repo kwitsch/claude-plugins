@@ -19,6 +19,7 @@ A [Claude Code](https://docs.claude.com/en/docs/claude-code/plugins) plugin mark
 | [universal-format](plugins/universal-format/README.md)           | Auto-formats just-written Shell/Java/Kotlin/JS-TS/Python/Go/JSON/YAML/Markdown/CSS/SCSS files after Write/Edit using each language's standard formatter, honoring `.editorconfig` and tool-native configs.                                                                                    |
 | [universal-lint](plugins/universal-lint/README.md)               | Runs each language's standard linter (read-only) on just-written Shell/Java/Kotlin/JS-TS/Python/Go/YAML/Markdown/CSS/SCSS files after Write/Edit, surfacing findings for Claude to fix; TypeScript files also get a whole-project `tsc --noEmit` type-check.                                  |
 | [memory-enhancement](plugins/memory-enhancement/README.md)       | A dream skill that consolidates this project's auto-memory files in four phases, a self-improvement skill that reflects on session efficiency, and a Stop/SessionStart hook pair that nudges the next session to run a dream cycle.                                                           |
+| [npm-automations](plugins/npm-automations/README.md)             | Runs an async npm ci when a package-lock.json project is entered via EnterWorktree, and an async, dependency-scoped npm install whenever a package.json's dependencies actually change.                                                                                                       |
 
 ## Configure plugins
 
