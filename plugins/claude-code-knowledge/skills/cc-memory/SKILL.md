@@ -53,79 +53,52 @@ to this discovered set — the `find` is rooted at the scope and cannot reach a 
 outside it, so the explicit request must be honored here. If the resulting set is
 empty, tell the user and stop.
 
-## 3. Dispatch reviewers (parallel)
+## 3. Analyze files (Workflow)
 
-For each discovered path (both `CLAUDE.md` and `.claude/rules/*.md` files), dispatch
-the `cc-reviewer` agent (Agent tool, `subagent_type: claude-code-knowledge:cc-reviewer`)
-in a single message so they run concurrently. Both kinds are audited as
-`component_type: memory` — the cc-reference memory section covers CLAUDE.md *and*
-path-scoped `.claude/rules/` files. Each dispatch prompt must state:
+Read `${CLAUDE_SKILL_DIR}/analysis-workflow.md`, then run its Workflow
+script (or its Agent-tool fallback) to analyze every discovered path from
+§2. Inline the discovered file list and the scope note (from §1) as JS
+string/array literals directly in the script text — never via the
+Workflow tool's `args` parameter.
 
-```text
-component_type: memory
-target_paths: <path to one memory file — a CLAUDE.md or a .claude/rules/*.md file>
+This dispatches `cc-reviewer` (Agent tool via `agentType`,
+`component_type: memory`, one per discovered file, in parallel — the
+`Analyze` phase) then a single aggregation agent (the `Aggregate` phase)
+that computes each file's grade and the report text. Both phases run on
+`model: 'sonnet'` per this repo's standing Workflow-tool directive — a
+deliberate cost choice, not `cc-reviewer`'s own haiku pin (that pin is for
+its direct dispatch by `cc-review`, a different skill).
 
-In addition to the usual memory rule-compliance findings, also surface — against
-the cc-reference memory rules you already apply — these leanness/splittability
-findings:
-- LENGTH/LEANNESS: if the file exceeds the cc-reference ~200-line target, emit a
-  finding noting the length and that it should be trimmed.
-- SPLITTABILITY: if a section's content is scoped to ONE subdirectory, recommend
-  moving it to that subdirectory's CLAUDE.md (grounded in the cc-reference
-  locations table — subdir files load on-demand). If a section's content applies
-  to a FILE TYPE / EXTENSION across the tree, recommend moving it to
-  .claude/rules/ with a `paths:` glob, e.g. `paths: ["**/*.kt"]` (grounded in the
-  cc-reference "What belongs" table). Both targets are co-equal; choose by scope.
-  When the target IS itself a `.claude/rules/*.md` file, the move-into-`.claude/rules/`
-  branch does not apply (it is already a rule file) and the ~200-line LENGTH target is
-  advisory there rather than a cited rule — for a rule file, audit what genuinely fits
-  it (e.g. a well-formed `paths:` frontmatter glob, terseness) and skip the rest.
-
-For every leanness/splittability finding: set `uncovered: false` (cc-reference
-covers both the 200-line target and the .claude/rules/+paths: route),
-`suggested_fix: null` (new-file/multi-file coordination — recommend-only), and
-severity `low` (or at most `med` for an egregiously long file) — NEVER `high`.
-Include the candidate target path / `paths:` glob in the `recommendation` text.
-
-Return ONLY the JSON findings array per your output contract.
-```
+The script returns `{ perFile, aggregate: { summary, perFile } }`:
+`perFile` is the raw per-path findings (used by §5's gate below);
+`aggregate` is the graded, report-ready structure (used by §4 below). No
+file is silently dropped — the script backfills any path the aggregation
+agent's output omitted.
 
 ## 4. Grade and report
 
-Parse each agent's JSON findings array. For each file derive a quality grade from
-the **covered** findings only (those with `uncovered: false`). `uncovered: true`
-findings are gaps in cc-reference coverage — do not count them toward the grade
-(a presentation aid over the findings, NOT a second rule source):
-
-| Covered findings | Grade |
-|---|---|
-| none | A |
-| only `low` | B |
-| any `med`, no `high` | C |
-| one `high` | D |
-| multiple `high` | F |
-
-Leanness/splittability findings (§3) are `uncovered: false` and therefore **count
-toward this table** — capped at `med`, they can lower a grade to C but never to
-D/F on their own (faithful to claude-md-improver's Conciseness criterion).
+Render the workflow's returned `aggregate` — do not re-derive grades or
+re-parse findings; both are already computed.
 
 Emit a report **before making any change**, in claude-md-improver's shape:
 
 ### Summary
-- Files found: N
-- Grade distribution (or average): …
-- Files needing update: N (grade < A, or any fixable finding / actionable task)
+
+- Files found: `aggregate.summary.filesFound`
+- Grade distribution: `aggregate.summary.gradeDistribution`
+- Files needing update: `aggregate.summary.filesNeedingUpdate`
 
 ### Per-file assessment
-For each file, a block with:
-- **Path** and **Grade** (with covered finding counts by severity, uncovered count).
-- **Issues** — the findings (one line each: severity · rule · issue).
-- **Recommended actions** — fixable `suggested_fix` items, plus manual to-dos
-  (leanness/split recommendations with their candidate target path / `paths:`
-  glob).
 
-If an agent returns non-JSON or errors, note that file as failed and continue
-with the others.
+For each entry in `aggregate.perFile`, a block with:
+
+- **Path** and **Grade** (or "failed to analyze" when `failed: true`).
+- **Issues** — the `issues` array, one line each.
+- **Recommended actions** — the `recommendedActions` array (fixable
+  `suggested_fix` items, plus manual to-dos like leanness/split
+  recommendations with their candidate target).
+
+Any file with `failed: true` is noted as failed instead of graded.
 
 ## 5. Gate via AskUserQuestion
 

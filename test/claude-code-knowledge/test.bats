@@ -572,6 +572,11 @@ reroute_call() {
   [ "$status" -eq 0 ]
 }
 
+@test "cc-memory SKILL.md points at analysis-workflow.md" {
+  run rg_or_grep -F '${CLAUDE_SKILL_DIR}/analysis-workflow.md' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
 @test "cc-memory gates application through AskUserQuestion" {
   run rg_or_grep -F 'AskUserQuestion' "$PLUGIN/skills/cc-memory/SKILL.md"
   [ "$status" -eq 0 ]
