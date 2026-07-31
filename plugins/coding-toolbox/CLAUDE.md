@@ -657,6 +657,31 @@ function of one detection line, not a genuine choice between options, so
 there is nothing to ask — Step 4 reports what was installed and why
 instead.
 
+## Skill design (`dispatch-agent`)
+
+Two-step skill, no extracted script (`skills/dispatch-agent/SKILL.md` only): sync the current
+branch (`git fetch origin`, `git pull --ff-only` only if an upstream exists — a freshly-cut
+branch commonly has none, not an error), then dispatch a real, independent, worktree-isolated
+background Claude Code session (`claude --bg`, tracked via `claude agents`/`claude
+logs`/`claude attach`/`claude stop`) — not the in-session `Agent` tool, which the user
+explicitly rejected during design (it dispatches a subagent of the current conversation, not
+a separate session). The worktree is created by hand (`git worktree add -b <name>
+.claude/worktrees/<name> HEAD`), never via `claude --worktree`/`EnterWorktree`: both were
+smoke-tested and confirmed to base a new worktree off `origin/<default-branch>`, discarding
+the current branch/commit entirely — picking either would have silently dispatched work
+against the wrong base. Because git disallows checking out the same branch in two worktrees,
+the dispatched session lands on a **new branch** cut from the current one's tip, not a
+continuation of the same branch name — surfaced explicitly in the skill's own report, along
+with the fact that `claude rm <id>` releases the CLI's job-state tracking but does not remove
+a hand-created worktree (`git worktree remove` does). The prompt is written to a temp file
+and read back via `$(cat …)` rather than interpolated directly, so arbitrary prompt content
+can't break the command. `allowed-tools` carries `Bash(git:*)`/`Bash(claude:*)`/
+`AskUserQuestion` only — no `Agent`, no `Skill` (the zero-arg `fresh-branch` rebase is a
+different, more invasive operation than a plain sync and isn't reused here). Step 2's single
+compound Bash call (`mktemp`/`cat`/`rm` alongside the two allowed-prefixed commands) is never
+fully covered by the `Bash(git:*)`/`Bash(claude:*)` pre-approval — that's an accepted
+consequence of the narrow allowed-tools list, not a gap to "fix" by widening it.
+
 ## Tests
 
 `test/coding-toolbox/` — split into one `.bats` file per thematic group (one
