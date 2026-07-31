@@ -607,6 +607,25 @@ reroute_call() {
   run rg_or_grep -iF 'never `high`' "$f";       [ "$status" -eq 0 ]
 }
 
+@test "cc-memory report has claude-md-improver-style summary + per-file blocks" {
+  local f="$PLUGIN/skills/cc-memory/SKILL.md"
+  run rg_or_grep -F '### Summary' "$f";                  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'Recommended actions' "$f";          [ "$status" -eq 0 ]
+  run rg_or_grep -iF 'files needing update' "$f";        [ "$status" -eq 0 ]
+}
+
+@test "cc-memory default scope discovers CLAUDE.md and .claude/rules files" {
+  local f="$PLUGIN/skills/cc-memory/SKILL.md"
+  run rg_or_grep -F "name CLAUDE.md -o -path '*/.claude/rules/*.md'" "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -F '.claude/rules/*.md' "$f";                            [ "$status" -eq 0 ]
+}
+
+@test "plugin.json description mentions the authoring capability" {
+  run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"author"* ]]
+}
+
 # --- cc-memory analysis-workflow (Workflow refactor) ---
 
 @test "cc-memory analysis-workflow.md reference file exists and is non-empty" {
@@ -633,25 +652,6 @@ reroute_call() {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
   [ "$output" != "1.7.3" ]
-}
-
-@test "cc-memory report has claude-md-improver-style summary + per-file blocks" {
-  local f="$PLUGIN/skills/cc-memory/SKILL.md"
-  run rg_or_grep -F '### Summary' "$f";                  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'Recommended actions' "$f";          [ "$status" -eq 0 ]
-  run rg_or_grep -iF 'files needing update' "$f";        [ "$status" -eq 0 ]
-}
-
-@test "cc-memory default scope discovers CLAUDE.md and .claude/rules files" {
-  local f="$PLUGIN/skills/cc-memory/SKILL.md"
-  run rg_or_grep -F "name CLAUDE.md -o -path '*/.claude/rules/*.md'" "$f"; [ "$status" -eq 0 ]
-  run rg_or_grep -F '.claude/rules/*.md' "$f";                            [ "$status" -eq 0 ]
-}
-
-@test "plugin.json description mentions the authoring capability" {
-  run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"author"* ]]
 }
 
 # --- cc-reference-validator agent (read-only contradiction validator) ---
