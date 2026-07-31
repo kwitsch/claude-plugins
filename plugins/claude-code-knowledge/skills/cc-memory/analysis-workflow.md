@@ -61,16 +61,8 @@ const FINDINGS_SCHEMA = {
   properties: { findings: { type: "array", items: FINDING_ITEM_SCHEMA } },
 }
 const AGGREGATE_SCHEMA = {
-  type: "object", required: ["summary", "perFile"],
+  type: "object", required: ["perFile"],
   properties: {
-    summary: {
-      type: "object", required: ["filesFound", "gradeDistribution", "filesNeedingUpdate"],
-      properties: {
-        filesFound: { type: "number" },
-        gradeDistribution: { type: "string", description: "e.g. 'A:3 B:2 C:1'" },
-        filesNeedingUpdate: { type: "number" },
-      },
-    },
     perFile: {
       type: "array", items: {
         type: "object", required: ["path", "grade", "issues", "recommendedActions", "failed"],
@@ -90,8 +82,11 @@ const AGGREGATE_SCHEMA = {
 
 // ── Grade table, as code (used only to backfill a file the aggregation
 // agent's output omits — never overrides a file it DID report) ──
+function isCovered(f) {
+  return f.uncovered !== true
+}
 function computeCounts(findings) {
-  const covered = (findings || []).filter(f => f.uncovered !== true)
+  const covered = (findings || []).filter(isCovered)
   const counts = { high: 0, med: 0, low: 0 }
   for (const f of covered) if (counts[f.severity] !== undefined) counts[f.severity]++
   return counts
@@ -137,14 +132,15 @@ const FINDER_PROMPT = path =>
 
 const AGGREGATE_PROMPT = perFile => {
   const failedPaths = perFile.filter(p => p.failed).map(p => p.path)
-  const okBlock = perFile.filter(p => !p.failed).map(p =>
-    "### " + p.path + "\n" +
-    (p.findings.length === 0 ? "(no findings)\n" : p.findings.map(f =>
-      "- [" + f.id + "] " + f.severity + " · " + f.rule + " · " + f.issue +
-      " (uncovered: " + f.uncovered + ", suggested_fix: " + (f.suggested_fix ? "yes" : "null") + ")\n" +
-      "  recommendation: " + f.recommendation
-    ).join("\n"))
-  ).join("\n\n")
+  const okBlock = perFile.filter(p => !p.failed).map(p => {
+    const findings = p.findings || []
+    return "### " + p.path + "\n" +
+      (findings.length === 0 ? "(no findings)\n" : findings.map(f =>
+        "- [" + f.id + "] " + f.severity + " · " + f.rule + " · " + f.issue +
+        " (uncovered: " + f.uncovered + ", suggested_fix: " + (f.suggested_fix ? "yes" : "null") + ")\n" +
+        "  recommendation: " + f.recommendation
+      ).join("\n"))
+  }).join("\n\n")
   return "## Aggregate memory-file findings into a graded report\n\n" +
     "Scope: " + SCOPE_NOTE + ". " + perFile.length + " file(s) analyzed, " +
     failedPaths.length + " failed (" + (failedPaths.join(", ") || "none") + ").\n\n" +
@@ -159,16 +155,15 @@ const AGGREGATE_PROMPT = perFile => {
     "computed `grade`, `coveredCounts` (high/med/low counts among uncovered:false " +
     "findings), `uncoveredCount`, `issues` (one line each, `severity · rule · issue`, " +
     "covered findings only — skip uncovered ones here, they are informational), and " +
-    "`recommendedActions` (fixable findings' recommendation text plus any manual " +
-    "to-do — leanness/split recommendations with their candidate target — with " +
-    "`suggested_fix: null`). Set `failed: false`.\n" +
+    "`recommendedActions` (EVERY covered finding's recommendation text — both fixable " +
+    "ones and manual to-dos like leanness/split recommendations, which carry " +
+    "`suggested_fix: null`; do not filter by suggested_fix). Set `failed: false`.\n" +
     "For each failed path, return a `perFile` entry with `failed: true`, `grade: \"A\"` " +
     "(placeholder — the orchestrator does not grade a failed file), empty `issues`/" +
-    "`recommendedActions`.\n" +
-    "Then return `summary`: `filesFound` (" + perFile.length + "), `gradeDistribution` " +
-    "(e.g. \"A:3 B:2 C:1\", counting failed files separately as noted in prose), and " +
-    "`filesNeedingUpdate` (grade < A, or any fixable finding / actionable task, " +
-    "excluding failed files).\n\n" +
+    "`recommendedActions`.\n\n" +
+    "The orchestrator computes roll-up summary stats (files found, grade distribution, " +
+    "files needing update) itself from your per-file entries — do not return a " +
+    "`summary` field.\n\n" +
     "Structured output only."
 }
 
@@ -185,9 +180,14 @@ log('Analyzed ' + perFile.length + ' file(s), ' + perFile.filter(p => p.failed).
 
 // ── Phase 2: Aggregate ──
 phase('Aggregate')
-const aggregate = await agent(AGGREGATE_PROMPT(perFile), {
+let aggregate = await agent(AGGREGATE_PROMPT(perFile), {
   label: 'aggregate', schema: AGGREGATE_SCHEMA, model: 'sonnet',
 })
+if (aggregate === null) {
+  aggregate = await agent(AGGREGATE_PROMPT(perFile), {
+    label: 'aggregate:retry', schema: AGGREGATE_SCHEMA, model: 'sonnet',
+  })
+}
 
 // Backfill: no discovered file may be missing from aggregate.perFile.
 const reportedPaths = new Set((aggregate && aggregate.perFile ? aggregate.perFile : []).map(e => e.path))
@@ -200,24 +200,34 @@ for (const p of perFile) {
     // never reads `grade` for these entries, so the placeholder value is never shown.
     backfilled.push({ path: p.path, grade: "A", failed: true, issues: [], recommendedActions: [], coveredCounts: { high: 0, med: 0, low: 0 }, uncoveredCount: 0 })
   } else {
-    const counts = computeCounts(p.findings)
+    const findings = p.findings || []
+    const counts = computeCounts(findings)
+    const covered = findings.filter(isCovered)
     backfilled.push({
       path: p.path,
       grade: computeGrade(counts),
       failed: false,
-      issues: p.findings.filter(f => f.uncovered !== true).map(templateIssueLine),
-      recommendedActions: p.findings.filter(f => f.uncovered !== true && f.suggested_fix).map(f => f.recommendation),
+      issues: covered.map(templateIssueLine),
+      recommendedActions: covered.map(f => f.recommendation),
       coveredCounts: counts,
-      uncoveredCount: p.findings.filter(f => f.uncovered === true).length,
+      uncoveredCount: findings.length - covered.length,
     })
   }
 }
 if (backfilled.length > 0) log('Backfilled ' + backfilled.length + ' file(s) the aggregation agent omitted: ' + backfilled.map(b => b.path).join(', '))
 const finalPerFile = (aggregate && aggregate.perFile ? aggregate.perFile : []).concat(backfilled)
 
+// Summary is always computed here, deterministically, from the final (post-backfill)
+// per-file list — never trusted from the agent, which only authors per-file entries.
+const gradeCounts = {}
+for (const e of finalPerFile) if (!e.failed) gradeCounts[e.grade] = (gradeCounts[e.grade] || 0) + 1
+const gradeDistribution = Object.keys(gradeCounts).sort().map(g => g + ':' + gradeCounts[g]).join(' ') || 'none'
+const filesNeedingUpdate = finalPerFile.filter(e => !e.failed && (e.grade !== 'A' || (e.recommendedActions || []).length > 0)).length
+const summary = { filesFound: perFile.length, gradeDistribution, filesNeedingUpdate }
+
 return {
   perFile,
-  aggregate: { summary: aggregate ? aggregate.summary : null, perFile: finalPerFile },
+  aggregate: { summary, perFile: finalPerFile },
 }
 ```
 
@@ -228,7 +238,7 @@ today's proven direct-dispatch logic, unchanged:
 
 1. **Dispatch reviewers (parallel).** For each discovered path, dispatch
    the `cc-reviewer` agent (Agent tool, `subagent_type:
-   claude-code-knowledge:cc-reviewer`) in a single message so they run
+claude-code-knowledge:cc-reviewer`) in a single message so they run
    concurrently. Each dispatch prompt is `FINDER_PROMPT(path)` above, with
    its closing line replaced by: "Return ONLY the JSON findings array per
    your output contract."

@@ -2,7 +2,7 @@
 name: cc-memory
 description: Audit and improve a project's memory files (every CLAUDE.md and .claude/rules/*.md) against the curated cc-reference memory rules — discover every CLAUDE.md and .claude/rules file, grade each, report quality, then interactively apply the improvements you select. Use when the user asks to check, audit, improve, grade, or maintain CLAUDE.md / .claude/rules / project-memory files.
 argument-hint: [optional repo path]
-allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, AskUserQuestion
+allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, AskUserQuestion, Workflow, ToolSearch
 # review-skip(F1): unscoped Bash/Edit/Write is required — discovery runs against an arbitrary repo path and fixes Edit/Write arbitrary CLAUDE.md files; allowed-tools only pre-approves, never restricts.
 ---
 
@@ -92,7 +92,8 @@ Emit a report **before making any change**, in claude-md-improver's shape:
 
 For each entry in `aggregate.perFile`, a block with:
 
-- **Path** and **Grade** (or "failed to analyze" when `failed: true`).
+- **Path** and **Grade** (with `coveredCounts` by severity and
+  `uncoveredCount`, or "failed to analyze" when `failed: true`).
 - **Issues** — the `issues` array, one line each.
 - **Recommended actions** — the `recommendedActions` array (fixable
   `suggested_fix` items, plus manual to-dos like leanness/split
