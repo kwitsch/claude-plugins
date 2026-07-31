@@ -711,14 +711,21 @@ instead.
 
 ## Skill design (`dispatch-agent`)
 
-Two-step skill, no extracted script (`skills/dispatch-agent/SKILL.md` only): sync the current
-branch (`git fetch origin`, explicit exit check, then `git merge --ff-only @{u}` — not `git
-pull`, which would re-fetch the same refs a second time — only if an upstream exists; a
-freshly-cut branch commonly has none, not an error), then dispatch a real, independent,
-worktree-isolated background Claude Code session (`claude --worktree <name> --bg`, tracked via
-`claude agents`/`claude logs`/`claude attach`/`claude stop`/`claude rm`) — not the in-session
-`Agent` tool, which the user explicitly rejected during design (it dispatches a subagent of
-the current conversation, not a separate session).
+Single-step skill, no extracted script (`skills/dispatch-agent/SKILL.md` only): dispatch a
+real, independent, worktree-isolated background Claude Code session (`claude --worktree <name>
+--bg`, tracked via `claude agents`/`claude logs`/`claude attach`/`claude stop`/`claude rm`) —
+not the in-session `Agent` tool, which the user explicitly rejected during design (it
+dispatches a subagent of the current conversation, not a separate session).
+
+**Third design revision: dropped the pre-dispatch "sync the current branch" step entirely**
+(`git fetch origin` + `git merge --ff-only @{u}`, previously step 1). It never fed the dispatch
+— `claude --worktree` bases every new worktree off `origin/<default-branch>`, never the current
+branch, so the sync's only effect was a side benefit: keeping the _current_ session's branch
+from going stale. Asked directly whether to keep that side benefit or simplify to a single
+step, the user chose to remove it — this narrows the skill to exactly what dispatch requires,
+at the cost of that no-longer-automatic freshening (a plain `fresh-branch` covers it when
+wanted). `allowed-tools` lost its `Bash(git:*)` grant along with it — nothing left in this
+skill calls `git`.
 
 **Second design revision (post-ship, same PR): switched from a hand-created worktree back to
 the native `claude --worktree` flag, deliberately giving up "current branch as base."** The
@@ -734,8 +741,7 @@ explicit choice, not restoring one. Upside of the reversal: `claude --worktree` 
 new worktrees as siblings under the primary checkout (verified — no nesting issue even from
 inside another worktree), and a worktree it creates is tracked by the CLI's own job-state, so
 `claude rm <id>` now fully removes it (unlike a hand-created one, which needed a separate `git
-worktree remove`). Step 1's sync is now independent housekeeping only — the dispatched session
-in step 2 never uses that branch.
+worktree remove`).
 
 The prompt is embedded verbatim inside a quoted heredoc and read back via direct command
 substitution (`"$(cat <<'EOF' … EOF)"`, no intermediate temp file) — so arbitrary **prompt**
@@ -750,12 +756,12 @@ prompt (same convention as `fresh-work`'s own branch-naming step) with a `$(date
 suffix for uniqueness (CodeRabbit finding, PR #156: a bare `$(date +%s)` alone only resolves to
 the second, so two same-second dispatches of the same prompt would collide; `$RANDOM` closes
 that gap without adding retry logic) — a bare timestamp was also readable only by attaching to
-each session to read its prompt. `allowed-tools` carries `Bash(git:*)`/
-`Bash(claude:*)`/`AskUserQuestion` only — no `Agent`, no `Skill` (the zero-arg `fresh-branch`
-rebase is a different, more invasive operation than a plain sync and isn't reused here). The
-single-command Bash call in step 2 is never fully covered by the `Bash(git:*)`/`Bash(claude:*)`
-pre-approval — that's an accepted consequence of the narrow allowed-tools list, not a gap to
-"fix" by widening it.
+each session to read its prompt. `allowed-tools` carries `Bash(claude:*)`/`AskUserQuestion`
+only — no `Agent`, no `Skill`, no `Bash(git:*)` (dropped along with the sync step above,
+nothing left here calls `git`). The single-command Bash call in step 1 is never fully covered
+by the `Bash(claude:*)` pre-approval on its own (the compound script's leading `set -e`/`name=`
+lines aren't a `claude`-prefixed command) — that's an accepted consequence of the narrow
+allowed-tools list, not a gap to "fix" by widening it.
 
 **`--model`/`--effort`/`--permission-mode` on the dispatched session** (added post-ship, same
 PR, per user request): `$prompt` may optionally start with `--model=<model>` and/or
