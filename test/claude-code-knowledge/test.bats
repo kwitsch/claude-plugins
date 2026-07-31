@@ -648,6 +648,14 @@ reroute_call() {
   run rg_or_grep -F "schema: AGGREGATE_SCHEMA, model: 'sonnet'" "$f"; [ "$status" -eq 0 ]
 }
 
+@test "cc-memory analysis-workflow.md backfill keeps manual to-dos and computes summary in code" {
+  local f="$PLUGIN/skills/cc-memory/analysis-workflow.md"
+  run rg_or_grep -F 'recommendedActions: covered.map(f => f.recommendation)' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'const filesNeedingUpdate =' "$f";                            [ "$status" -eq 0 ]
+  run rg_or_grep -F 'const filesFailed =' "$f";                                   [ "$status" -eq 0 ]
+  run rg_or_grep -F "label: 'aggregate:retry'" "$f";                              [ "$status" -eq 0 ]
+}
+
 @test "plugin.json version was bumped for cc-memory Workflow refactor (patch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]

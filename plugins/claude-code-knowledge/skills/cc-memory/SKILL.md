@@ -85,8 +85,9 @@ Emit a report **before making any change**, in claude-md-improver's shape:
 ### Summary
 
 - Files found: `aggregate.summary.filesFound`
-- Grade distribution: `aggregate.summary.gradeDistribution`
-- Files needing update: `aggregate.summary.filesNeedingUpdate`
+- Files failed to analyze: `aggregate.summary.filesFailed`
+- Grade distribution: `aggregate.summary.gradeDistribution` (graded files only)
+- Files needing update: `aggregate.summary.filesNeedingUpdate` (graded files only)
 
 ### Per-file assessment
 

@@ -223,7 +223,8 @@ const gradeCounts = {}
 for (const e of finalPerFile) if (!e.failed) gradeCounts[e.grade] = (gradeCounts[e.grade] || 0) + 1
 const gradeDistribution = Object.keys(gradeCounts).sort().map(g => g + ':' + gradeCounts[g]).join(' ') || 'none'
 const filesNeedingUpdate = finalPerFile.filter(e => !e.failed && (e.grade !== 'A' || (e.recommendedActions || []).length > 0)).length
-const summary = { filesFound: perFile.length, gradeDistribution, filesNeedingUpdate }
+const filesFailed = finalPerFile.filter(e => e.failed).length
+const summary = { filesFound: perFile.length, filesFailed, gradeDistribution, filesNeedingUpdate }
 
 return {
   perFile,
@@ -247,6 +248,12 @@ claude-code-knowledge:cc-reviewer`) in a single message so they run
    (`uncovered: false`) using the grade table in `AGGREGATE_PROMPT`'s
    prose above (equivalently, `computeGrade`/`computeCounts` from this
    file). If an agent returns non-JSON or errors, note that file as
-   failed and continue with the others. Produce the same
-   `{ perFile, aggregate: { summary, perFile } }` shape `SKILL.md`'s step
-   4 expects, built by hand instead of returned by a `Workflow` run.
+   failed and continue with the others. Compute `summary` the same way
+   the Workflow script does (see its `gradeCounts`/`gradeDistribution`/
+   `filesNeedingUpdate`/`filesFailed` lines above): `filesFound` is the
+   total file count, `filesFailed` the count with `failed: true`,
+   `gradeDistribution` and `filesNeedingUpdate` derived only from the
+   non-failed files' grades — never from an agent's self-report. Produce
+   the same `{ perFile, aggregate: { summary, perFile } }` shape
+   `SKILL.md`'s step 4 expects, built by hand instead of returned by a
+   `Workflow` run.
