@@ -60,6 +60,27 @@ setup() {
   assert_success
 }
 
+@test "finish-pr re-fetches remove-source-branch state fresh, not the step 3 snapshot" {
+  run rg_or_grep -F "re-fetch the MR fresh first" "$PLUGIN/skills/finish-pr/SKILL.md"
+  assert_success
+  run rg_or_grep -F "Decide from this fresh read, not the step 3 capture" "$PLUGIN/skills/finish-pr/SKILL.md"
+  assert_success
+}
+
+@test "finish-pr prefers an opened GitLab MR before falling back to state=all" {
+  run rg_or_grep -F -- "state=opened" "$PLUGIN/skills/finish-pr/SKILL.md"
+  assert_success
+  run rg_or_grep -F "no further disambiguation" "$PLUGIN/skills/finish-pr/SKILL.md"
+  assert_success
+}
+
+@test "finish-pr verifies local HEAD matches the PR/MR's remote head before reconciling" {
+  run rg_or_grep -F "headRefOid" "$PLUGIN/skills/finish-pr/SKILL.md"
+  assert_success
+  run rg_or_grep -F "git rev-parse HEAD" "$PLUGIN/skills/finish-pr/SKILL.md"
+  assert_success
+}
+
 @test "finish-pr keeps origin/base current via git fetch in its git-context block" {
   run rg_or_grep -F "git fetch origin" "$PLUGIN/skills/finish-pr/SKILL.md"
   assert_success

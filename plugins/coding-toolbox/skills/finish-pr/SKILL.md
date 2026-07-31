@@ -47,14 +47,24 @@ execution disabled by policy]` — the `git fetch origin` above silently
 ## Find the PR/MR
 
 3. **Look up the PR/MR for `$branch`:**
-   - GitHub: `gh pr view "$branch" --json number,state,url,title,body,baseRefName,isDraft 2>/dev/null`
+   - GitHub: `gh pr view "$branch" --json number,state,url,title,body,baseRefName,isDraft,headRefOid 2>/dev/null`
      — empty output or a non-zero exit means none exists.
-   - GitLab: `glab api "projects/:id/merge_requests?source_branch=$branch&state=all" 2>/dev/null | jq -c '.[0] // empty'`
-     — empty output means none exists. When found, use `.iid` (per-project
-     IID, not the global `.id`) as `$number`; also capture `.web_url`,
-     `.state`, `.title`, `.description`, `.target_branch`,
-     `.should_remove_source_branch`, `.force_remove_source_branch`, and
-     `.draft` (fall back to `.work_in_progress` if `.draft` is absent).
+   - GitLab: first try the open-only query —
+     `glab api "projects/:id/merge_requests?source_branch=$branch&state=opened" 2>/dev/null | jq -c '.[0] // empty'`
+     (GitLab allows at most one open MR per source branch, so a hit here
+     needs no further disambiguation). Empty → fall back to
+     `glab api "projects/:id/merge_requests?source_branch=$branch&state=all" 2>/dev/null | jq -c '.[0] // empty'`
+     purely to tell "closed"/"merged" apart from "never existed" for step
+     4's report below — this fallback result is read-only and never
+     mutated by any later step, so an arbitrary pick among several
+     closed/merged entries is harmless. Either query empty → none exists.
+
+     When found (either query), use `.iid` (per-project IID, not the
+     global `.id`) as `$number`; also capture `.web_url`, `.state`,
+     `.title`, `.description`, `.target_branch`, `.sha` (the MR's current
+     head commit), `.should_remove_source_branch`,
+     `.force_remove_source_branch`, and `.draft` (fall back to
+     `.work_in_progress` if `.draft` is absent).
 
    **No PR/MR found (either platform) → abort:** "No PR/MR found for branch
    `$branch` — nothing to finish. Run `fresh-pr` first to open one."
@@ -80,7 +90,10 @@ execution disabled by policy]` — the `git fetch origin` above silently
 
 6. **Skip this step entirely on GitHub** — no per-PR equivalent exists
    (GitHub's "automatically delete head branches" is a repository
-   setting, out of scope). On GitLab:
+   setting, out of scope). On GitLab, re-fetch the MR fresh first — the
+   step 3 snapshot may already be stale if step 5's `--ready` call ran in
+   between: `glab api "projects/:id/merge_requests/$number" 2>/dev/null | jq -c '{should_remove_source_branch, force_remove_source_branch}'`.
+   Decide from this fresh read, not the step 3 capture:
    - `force_remove_source_branch` is `true` → the project already forces
      deletion regardless of the per-MR flag; note "already on (forced by
      project setting)" and skip the call below.
@@ -92,25 +105,34 @@ execution disabled by policy]` — the `git fetch origin` above silently
 
    **`--remove-source-branch` toggles the setting — it does not set it to
    a fixed value.** Only ever call it under the third bullet above (the
-   setting is currently off); calling it when it's already effectively on
-   would flip it back off.
+   setting is currently off, per the fresh read above); calling it when
+   it's already effectively on would flip it back off.
 
 ## Reconcile title & description
 
 7. Base = the found PR/MR's own `baseRefName` (GitHub) / `target_branch`
    (GitLab) — do not independently re-resolve it.
-   1. `git log "origin/$base"..HEAD` — what changed and why (the
+   1. **First confirm local `HEAD` actually matches the PR/MR's remote
+      head** — `git rev-parse HEAD` must equal the captured
+      `headRefOid` (GitHub) / `.sha` (GitLab). Unlike `fresh-pr`, this
+      skill never pushes, so nothing else guarantees the two agree.
+      Mismatch (unpushed local commits, or the remote moved
+      independently) → report that local `HEAD` doesn't match the PR/MR's
+      remote head and **skip the rest of this step** — push first
+      (`fresh-pr`, or a plain `git push`) before reconciling; never
+      reconcile from commits that aren't actually in the PR/MR.
+   2. `git log "origin/$base"..HEAD` — what changed and why (the
       git-context block's `git fetch origin` above keeps `origin/$base`
       current). Ref unresolvable or range empty → report that and **skip
       the rest of this step** — don't guess at a description from
       nothing.
-   2. Compare the current title/`body` (GitHub) or `description` (GitLab)
+   3. Compare the current title/`body` (GitHub) or `description` (GitLab)
       against that history. Already accurate and complete → leave it
       untouched, no update call.
-   3. Missing, stale, or wrong → write a corrected title/description:
+   4. Missing, stale, or wrong → write a corrected title/description:
       preserve any still-accurate existing content (links, testing notes,
       context), fix or add only what's wrong or missing.
-   4. Changed → apply, then verify:
+   5. Changed → apply, then verify:
       - GitHub: `gh api -X PATCH "repos/{owner}/{repo}/pulls/$number" -f title="<title>" -f body="<body>"`
         (never `gh pr edit` — known silent-fail on this repo's own
         Projects-classic board), then
