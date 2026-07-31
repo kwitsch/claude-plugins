@@ -10,5 +10,9 @@ export default [
       sourceType: "module",
       globals: globals.node,
     },
+    rules: {
+      // deprecated core rule (removal in 11.0.0), still valid to disable explicitly
+      "max-len": "off",
+    },
   },
 ];
