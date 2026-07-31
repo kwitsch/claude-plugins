@@ -51,10 +51,10 @@ execution disabled by policy]` — the `git fetch origin` above silently
      — empty output or a non-zero exit means none exists.
    - GitLab: `glab api "projects/:id/merge_requests?source_branch=$branch&state=all" 2>/dev/null | jq -c '.[0] // empty'`
      — empty output means none exists. When found, use `.iid` (per-project
-     IID, not the global `.id`) as `$number`; also capture `.state`,
-     `.title`, `.description`, `.target_branch`, `.should_remove_source_branch`,
-     `.force_remove_source_branch`, and `.draft` (fall back to
-     `.work_in_progress` if `.draft` is absent).
+     IID, not the global `.id`) as `$number`; also capture `.web_url`,
+     `.state`, `.title`, `.description`, `.target_branch`,
+     `.should_remove_source_branch`, `.force_remove_source_branch`, and
+     `.draft` (fall back to `.work_in_progress` if `.draft` is absent).
 
    **No PR/MR found (either platform) → abort:** "No PR/MR found for branch
    `$branch` — nothing to finish. Run `fresh-pr` first to open one."
