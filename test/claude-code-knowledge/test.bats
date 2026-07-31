@@ -572,6 +572,11 @@ reroute_call() {
   [ "$status" -eq 0 ]
 }
 
+@test "cc-memory SKILL.md points at analysis-workflow.md" {
+  run rg_or_grep -F '${CLAUDE_SKILL_DIR}/analysis-workflow.md' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
 @test "cc-memory gates application through AskUserQuestion" {
   run rg_or_grep -F 'AskUserQuestion' "$PLUGIN/skills/cc-memory/SKILL.md"
   [ "$status" -eq 0 ]
@@ -592,8 +597,8 @@ reroute_call() {
   [ "$status" -eq 0 ]
 }
 
-@test "cc-memory dispatch prompt asks reviewer for leanness/split findings" {
-  local f="$PLUGIN/skills/cc-memory/SKILL.md"
+@test "cc-memory analysis-workflow.md dispatch prompt asks reviewer for leanness/split findings" {
+  local f="$PLUGIN/skills/cc-memory/analysis-workflow.md"
   run rg_or_grep -F 'leanness' "$f";            [ "$status" -eq 0 ]
   run rg_or_grep -F 'splittab' "$f";            [ "$status" -eq 0 ]
   run rg_or_grep -F '.claude/rules/' "$f";      [ "$status" -eq 0 ]
@@ -619,6 +624,42 @@ reroute_call() {
   run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
   [[ "$output" == *"author"* ]]
+}
+
+# --- cc-memory analysis-workflow (Workflow refactor) ---
+
+@test "cc-memory analysis-workflow.md reference file exists and is non-empty" {
+  [ -s "$PLUGIN/skills/cc-memory/analysis-workflow.md" ]
+}
+
+@test "cc-memory analysis-workflow.md defines the Workflow script (Analyze + Aggregate phases, schemas, computeGrade backfill)" {
+  local f="$PLUGIN/skills/cc-memory/analysis-workflow.md"
+  run rg_or_grep -F "phase('Analyze')" "$f";     [ "$status" -eq 0 ]
+  run rg_or_grep -F "phase('Aggregate')" "$f";    [ "$status" -eq 0 ]
+  run rg_or_grep -F 'FINDINGS_SCHEMA' "$f";       [ "$status" -eq 0 ]
+  run rg_or_grep -F 'AGGREGATE_SCHEMA' "$f";      [ "$status" -eq 0 ]
+  run rg_or_grep -F 'computeGrade' "$f";          [ "$status" -eq 0 ]
+  run rg_or_grep -iF 'Agent-tool fallback' "$f";  [ "$status" -eq 0 ]
+}
+
+@test "cc-memory analysis-workflow.md pins both agent() call sites to sonnet" {
+  local f="$PLUGIN/skills/cc-memory/analysis-workflow.md"
+  run rg_or_grep -F "schema: FINDINGS_SCHEMA, model: 'sonnet'" "$f";  [ "$status" -eq 0 ]
+  run rg_or_grep -F "schema: AGGREGATE_SCHEMA, model: 'sonnet'" "$f"; [ "$status" -eq 0 ]
+}
+
+@test "cc-memory analysis-workflow.md backfill keeps manual to-dos and computes summary in code" {
+  local f="$PLUGIN/skills/cc-memory/analysis-workflow.md"
+  run rg_or_grep -F 'recommendedActions: covered.map(f => f.recommendation)' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'const filesNeedingUpdate =' "$f";                            [ "$status" -eq 0 ]
+  run rg_or_grep -F 'const filesFailed =' "$f";                                   [ "$status" -eq 0 ]
+  run rg_or_grep -F "label: 'aggregate:retry'" "$f";                              [ "$status" -eq 0 ]
+}
+
+@test "plugin.json version was bumped for cc-memory Workflow refactor (patch)" {
+  run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
+  [ "$output" != "1.7.3" ]
 }
 
 # --- cc-reference-validator agent (read-only contradiction validator) ---
