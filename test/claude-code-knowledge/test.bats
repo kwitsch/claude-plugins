@@ -629,6 +629,12 @@ reroute_call() {
   run rg_or_grep -F "schema: AGGREGATE_SCHEMA, model: 'sonnet'" "$f"; [ "$status" -eq 0 ]
 }
 
+@test "plugin.json version was bumped for cc-memory Workflow refactor (patch)" {
+  run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
+  [ "$output" != "1.7.3" ]
+}
+
 @test "cc-memory report has claude-md-improver-style summary + per-file blocks" {
   local f="$PLUGIN/skills/cc-memory/SKILL.md"
   run rg_or_grep -F '### Summary' "$f";                  [ "$status" -eq 0 ]
