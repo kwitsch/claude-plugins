@@ -660,27 +660,49 @@ instead.
 ## Skill design (`dispatch-agent`)
 
 Two-step skill, no extracted script (`skills/dispatch-agent/SKILL.md` only): sync the current
-branch (`git fetch origin`, `git pull --ff-only` only if an upstream exists — a freshly-cut
-branch commonly has none, not an error), then dispatch a real, independent, worktree-isolated
-background Claude Code session (`claude --bg`, tracked via `claude agents`/`claude
-logs`/`claude attach`/`claude stop`) — not the in-session `Agent` tool, which the user
-explicitly rejected during design (it dispatches a subagent of the current conversation, not
-a separate session). The worktree is created by hand (`git worktree add -b <name>
-.claude/worktrees/<name> HEAD`), never via `claude --worktree`/`EnterWorktree`: both were
-smoke-tested and confirmed to base a new worktree off `origin/<default-branch>`, discarding
-the current branch/commit entirely — picking either would have silently dispatched work
-against the wrong base. Because git disallows checking out the same branch in two worktrees,
-the dispatched session lands on a **new branch** cut from the current one's tip, not a
-continuation of the same branch name — surfaced explicitly in the skill's own report, along
-with the fact that `claude rm <id>` releases the CLI's job-state tracking but does not remove
-a hand-created worktree (`git worktree remove` does). The prompt is written to a temp file
-and read back via `$(cat …)` rather than interpolated directly, so arbitrary prompt content
-can't break the command. `allowed-tools` carries `Bash(git:*)`/`Bash(claude:*)`/
+branch (`git fetch origin`, explicit exit check, then `git merge --ff-only @{u}` — not `git
+pull`, which would re-fetch the same refs a second time — only if an upstream exists; a
+freshly-cut branch commonly has none, not an error), then dispatch a real, independent,
+worktree-isolated background Claude Code session (`claude --bg`, tracked via `claude
+agents`/`claude logs`/`claude attach`/`claude stop`) — not the in-session `Agent` tool, which
+the user explicitly rejected during design (it dispatches a subagent of the current
+conversation, not a separate session). Only committed state (HEAD) carries over — an
+uncommitted/staged working tree is silently invisible to `git worktree add`, so the skill body
+says so explicitly rather than leaving it as a surprise; reusing `fresh-branch.sh`'s
+stash-carry mechanism here was considered and rejected as disproportionate to this skill's
+otherwise two-step scope.
+
+The worktree is created by hand (`git worktree add -b <name> <path> HEAD`), never via `claude
+--worktree`/`EnterWorktree`: both were smoke-tested and confirmed to base a new worktree off
+`origin/<default-branch>`, discarding the current branch/commit entirely — picking either
+would have silently dispatched work against the wrong base. `<path>` anchors on the **primary
+checkout** (`realpath "$(git rev-parse --git-common-dir)/.."`, which always resolves to the
+shared `.git`'s parent regardless of which worktree invokes the skill), not the invoking
+worktree's own root — an explicit Review-stage correction: the first cut anchored on the
+invoking worktree itself (matching the CLI's own observed `--worktree` placement), but that
+nests a dispatched worktree inside whichever worktree happened to invoke the skill, entangling
+the two worktrees' removal order later; anchoring on the primary checkout keeps every
+dispatched worktree a sibling under it instead. `<name>` composes a 3-6-English-word slug of
+the prompt (same convention as `fresh-work`'s own branch-naming step) with a `$(date +%s)`
+suffix for uniqueness — also a Review-stage fix: the first cut used a bare timestamp, readable
+only by attaching to each session to read its prompt.
+
+Because git disallows checking out the same branch in two worktrees, the dispatched session
+lands on a **new branch** cut from the current one's tip, not a continuation of the same
+branch name — surfaced explicitly in the skill's own report, along with the fact that `claude
+rm <id>` releases the CLI's job-state tracking but does not remove a hand-created worktree
+(`git worktree remove` does). The prompt is embedded verbatim inside a quoted heredoc and read
+back via direct command substitution (`"$(cat <<'EOF' … EOF)"`, no intermediate temp file) —
+so arbitrary prompt content can't break the command, and there's nothing left on disk to leak
+if the dispatch fails after the heredoc is written (an earlier draft wrote the prompt to a
+`mktemp` file first; under `set -e` a failing `claude --bg` skipped the cleanup `rm -f`,
+leaking the prompt to disk on every failed dispatch — fixed by removing the intermediate file
+entirely rather than adding a `trap`). `allowed-tools` carries `Bash(git:*)`/`Bash(claude:*)`/
 `AskUserQuestion` only — no `Agent`, no `Skill` (the zero-arg `fresh-branch` rebase is a
 different, more invasive operation than a plain sync and isn't reused here). Step 2's single
-compound Bash call (`mktemp`/`cat`/`rm` alongside the two allowed-prefixed commands) is never
-fully covered by the `Bash(git:*)`/`Bash(claude:*)` pre-approval — that's an accepted
-consequence of the narrow allowed-tools list, not a gap to "fix" by widening it.
+compound Bash call is never fully covered by the `Bash(git:*)`/`Bash(claude:*)` pre-approval —
+that's an accepted consequence of the narrow allowed-tools list, not a gap to "fix" by
+widening it.
 
 ## Tests
 
@@ -706,7 +728,7 @@ the `tools/list` roll-up), `stop-hook.bats` (`interaction_gate`), `worktree-refr
 `fresh-pr.bats` (also owns `ci-watch.sh` and the `ci-watcher`/`pr-fixer` agents —
 they're fresh-pr's own bundled components, not worth a further split), `fresh-work.bats`,
 `feature-development.bats`, `debugging.bats`, `bump-version.bats`, `setup-rules.bats`,
-`refresh-tools-rule.bats`, `setup-explore.bats`. A handful of assertions that were
+`refresh-tools-rule.bats`, `setup-explore.bats`, `dispatch-agent.bats`. A handful of assertions that were
 appended to the end of the original file long after their own skill/hook's main
 block (e.g. a `plugin.json description mentions X` check, or a `README lists X`
 check) moved to that skill/hook's own file rather than staying grouped by their
@@ -745,5 +767,10 @@ assertions (exists, `disable-model-invocation: true`, the `command -v
 codebase-memory-mcp` detection line present, both reference files present
 and named for their variant, the skill's apply step reads from
 `references/` rather than inlining either file's body, and both bundled
-reference files themselves carry `name: explore` frontmatter).
+reference files themselves carry `name: explore` frontmatter). `dispatch-agent`
+gets structural assertions (exists, frontmatter naming `prompt` plus the required
+`Bash(git:*)`/`Bash(claude:*)`/`AskUserQuestion` `allowed-tools` entries, self-containment
+tripwire, body mentions of `claude --bg` and `git worktree add -b`) — no script-extraction
+coverage, since the skill's own git/CLI orchestration stays inline per
+`.claude/rules/script-authoring.md`'s trivial/substantial threshold.
 Run: `BATS_LIB_PATH="$PWD/node_modules" npx bats test/coding-toolbox/`
