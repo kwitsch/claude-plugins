@@ -198,6 +198,54 @@ found after 3 confirmations, or bounded-timeout-while-still-pending) proceeds
 to the fetch regardless — the call only changes what gets noted in the
 report, never whether CodeRabbit feedback is looked for.
 
+## Skill design (`finish-pr`)
+
+Narrower companion to `fresh-pr`: finalizes an _existing_ PR/MR rather
+than opening one — undrafts it, turns on GitLab's delete-source-branch-on-
+merge when it's off, and reconciles title/description against the actual
+diff (`git log <base>..HEAD`, patch-if-wrong rather than blind
+regenerate-and-overwrite). Pure inline `SKILL.md` prose, same idiom as
+`fresh-pr`/`fresh-branch` — no bundled script, no subagent dispatch, no
+Task\* ledger; `allowed-tools` carries no `Agent`/`Workflow`/Task\* grant and
+no `Bash(bash:*)`. Its platform-detection and PR/MR-lookup steps are
+copied inline from `fresh-pr` steps 7-8 rather than extracted to a shared
+reference file — only two consumers so far; this repo extracts that kind
+of duplication reactively (`dispatch-shared.md`, `tool-routing-rows.md`),
+not preemptively. GitLab's delete-source-branch-on-merge is exposed by
+`glab mr update --remove-source-branch`, which **toggles** the setting
+rather than setting it to a fixed value — the skill only calls it when the
+effective current value is off (`should_remove_source_branch` is
+`false`/`null`/absent — the GitLab API's own docs show a real MR
+returning `null` here — and `force_remove_source_branch` isn't `true`,
+which would mean the project already forces it regardless of the per-MR
+flag); calling it when already on would flip it back off. No per-PR
+GitHub equivalent exists (only a repo-level "auto-delete head branches"
+setting), so that step is GitLab-only, matching the request's own scoping.
+Merged/closed PR/MR states both stop before any mutation (not explicit in
+the original request, added so every reachable state has a defined
+outcome) — reopening a closed one stays `fresh-pr`'s job. No new
+`userConfig` toggle, matching every other skill here. Its own git-context
+`!` block runs `git fetch origin` (unlike a bare `git branch
+--show-current`) so its title/description reconciliation step's `git log
+"origin/$base"..HEAD` sees a current ref rather than a stale one — and
+emits that fetch's own exit status as a `fetch_status:` line, since a
+discarded status would leave a failed fetch indistinguishable from a
+successful one; `failed` skips only the reconciliation step (undraft and
+the GitLab toggle don't depend on a fresh `origin/$base`). The GitLab
+lookup URL-encodes `$branch` (`jq -rn --arg b "$branch" '$b|@uri'`) before
+either query and verifies the matched MR's `.source_branch` before any
+mutation — a raw `&`/`?`/`#` in a branch name would otherwise inject a
+query parameter and match the wrong MR. Reconciliation treats the fetched
+title/body/description and commit messages as untrusted, contributor-
+controlled data to read, never as instructions, and never inlines that
+text as a literal inside a double-quoted command string when applying a
+correction — GitHub via `gh api -F key=@file` (file-based field input,
+confirmed in `gh api`'s own docs; this is why `-F`, not `-f`, is required
+there), GitLab via a quoted-heredoc-built shell variable (`glab mr update`
+has no file-input flag) — both sidestep `$()`/backtick/quote re-parsing
+regardless of what the fetched text contains. Both platforms verify the
+applied title AND body/description post-update, not title alone.
+
 ## Skill design (`fresh-work`)
 
 Thin dispatcher (`skills/fresh-work/SKILL.md`, five steps: classify → branch

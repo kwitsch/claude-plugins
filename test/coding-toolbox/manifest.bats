@@ -41,7 +41,7 @@ setup() {
   run rg_or_grep -E "^## Hooks" "$PLUGIN/README.md"
   assert_failure
 }
-@test "plugin.json version bumped for the npm-ci-on-worktree removal (this unreleased branch)" {
+@test "plugin.json version bumped for the finish-pr skill (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.20.0"
+  assert_output "0.21.0"
 }
