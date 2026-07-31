@@ -6,7 +6,7 @@ description: >-
   `claude agents`) — cut from the repository's default branch on origin, not the current
   branch — handing it the prompt passed to this skill to execute unattended. Use to kick off
   an independent background task without staying in this session to babysit it.
-argument-hint: "[prompt-text]"
+argument-hint: "[--model=<model>] [--effort=<effort>] <prompt-text>"
 arguments: prompt
 allowed-tools: ["Bash(git:*)", "Bash(claude:*)", "AskUserQuestion"]
 ---
@@ -20,9 +20,12 @@ session starts from the repository's **default branch on origin**, not the curre
 `coding-toolbox/CLAUDE.md`'s "Skill design (`dispatch-agent`)" section), so this skill works
 with that instead of fighting it.
 
-`$prompt` is the instruction for the new background session, passed through unchanged. If
-empty, ask via `AskUserQuestion` (2-3 illustrative example prompts as options; the real one
-arrives via "Other") before doing anything else. Never guess.
+`$prompt` may optionally start with `--model=<model>` and/or `--effort=<effort>` (any order,
+whitespace-separated) — parse and strip these before anything else; default `model` to
+`sonnet` and `effort` to `xhigh` when either is not given. Whatever remains (trimmed) is the
+actual instruction for the new background session. If that's empty, ask via `AskUserQuestion`
+(2-3 illustrative example prompts as options; the real one arrives via "Other") before doing
+anything else. Never guess.
 
 ## Steps
 
@@ -43,28 +46,31 @@ arrives via "Other") before doing anything else. Never guess.
    failure stops here; do not continue to step 2 on a branch that didn't sync cleanly.
 
 2. **Dispatch the background session.** Derive a short (3-6 English words, lowercase,
-   non-alphanumeric runs collapsed to a single `-`) slug from `$prompt` yourself — same
-   convention as `fresh-work`'s own branch-naming step — and embed the actual prompt text
-   verbatim inside a quoted heredoc (never shell-expanded, whatever it's punctuated with), all
-   in one Bash call:
+   non-alphanumeric runs collapsed to a single `-`) slug from the actual prompt (after
+   stripping any `--model=`/`--effort=` prefix) yourself — same convention as `fresh-work`'s
+   own branch-naming step — and embed the actual prompt text verbatim inside a quoted
+   heredoc (never shell-expanded, whatever it's punctuated with), all in one Bash call:
 
    ```bash
    set -e
    name="dispatch-<3-6-word-english-slug-of-the-prompt>-$(date +%s)"
-   claude --worktree "$name" --bg "$(cat <<'DISPATCH_AGENT_PROMPT_EOF'
-   <the literal, verbatim prompt text goes here — the actual argument value, not the string
-   "$prompt" — substituted by you when you write this command, exactly as given>
+   claude --worktree "$name" --model "<model>" --effort "<effort>" --permission-mode auto --bg "$(cat <<'DISPATCH_AGENT_PROMPT_EOF'
+   <the literal, verbatim prompt text goes here — the actual instruction after stripping any
+   --model=/--effort= prefix, not the string "$prompt" — substituted by you when you write
+   this command, exactly as given>
    DISPATCH_AGENT_PROMPT_EOF
    )"
    ```
 
-   The `$(date +%s)` suffix guarantees uniqueness even if two dispatches summarize to the same
-   slug. No `--permission-mode` override — the default does not stall on tool-use approval for
-   background sessions (verified). On failure (name collision, `claude` binary missing,
-   launch failure), report the error as-is — never retry with `--force`.
+   Substitute `<model>`/`<effort>` with whatever was parsed above (or the `sonnet`/`xhigh`
+   defaults). `--permission-mode auto` is always set explicitly — the dispatched session must
+   never stall on interactive tool-use approval with nobody there to answer it. The
+   `$(date +%s)` suffix guarantees uniqueness even if two dispatches summarize to the same
+   slug. On failure (name collision, invalid `--model`/`--effort` value, `claude` binary
+   missing, launch failure), report the error as-is — never retry with `--force`.
 
 3. **Report.** Relay the CLI's own printed session id and management hints verbatim (`claude
 agents`, `claude attach <id>`, `claude logs <id>`, `claude stop <id>`, `claude rm <id>` —
-   this last one now fully removes the worktree too, since `claude --worktree` owns it).
-   State plainly: the dispatched session started from the repo's default branch on origin,
-   not the branch this session is on.
+   this last one now fully removes the worktree too, since `claude --worktree` owns it), plus
+   the model/effort actually used. State plainly: the dispatched session started from the
+   repo's default branch on origin, not the branch this session is on.

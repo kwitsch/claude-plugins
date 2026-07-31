@@ -44,3 +44,12 @@ setup() {
   assert_output --partial "claude --worktree"
   assert_output --partial "--bg"
 }
+@test "dispatch-agent supports --model/--effort overrides, defaults, and forces permission-mode auto" {
+  run cat "$PLUGIN/skills/dispatch-agent/SKILL.md"
+  assert_success
+  assert_output --partial "--model=<model>"
+  assert_output --partial "--effort=<effort>"
+  assert_output --partial "sonnet"
+  assert_output --partial "xhigh"
+  assert_output --partial "--permission-mode auto"
+}

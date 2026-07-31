@@ -701,6 +701,20 @@ single-command Bash call in step 2 is never fully covered by the `Bash(git:*)`/`
 pre-approval — that's an accepted consequence of the narrow allowed-tools list, not a gap to
 "fix" by widening it.
 
+**`--model`/`--effort`/`--permission-mode` on the dispatched session** (added post-ship, same
+PR, per user request): `$prompt` may optionally start with `--model=<model>` and/or
+`--effort=<effort>` (any order) — the skill parses and strips these itself before dispatch
+(there's no `arguments:` frontmatter mechanism for optional flags mixed into a single
+free-text arg; `arguments: prompt` still binds the whole raw input to `$prompt`), defaulting
+to `sonnet`/`xhigh` when either is omitted, and passes them straight through as `--model
+<model> --effort <effort>` on the `claude --worktree ... --bg` invocation — no validation
+against a fixed set; an invalid value surfaces as a normal launch failure, reported as-is,
+same as any other dispatch error. `--permission-mode auto` is **always** set explicitly,
+unconditionally — not left to whatever the CLI's own default happens to be for a `--bg`
+session, since the dispatched session has nobody present to answer an interactive approval
+prompt. Verified live (dispatch, check result, cleanup) with the default `sonnet`/`xhigh`
+pair.
+
 ## Tests
 
 `test/coding-toolbox/` — split into one `.bats` file per thematic group (one
