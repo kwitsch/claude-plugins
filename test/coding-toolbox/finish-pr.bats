@@ -86,10 +86,34 @@ setup() {
   assert_success
 }
 
+@test "finish-pr surfaces the git fetch exit status and gates reconciliation on it" {
+  run rg_or_grep -F "fetch_status: %s" "$PLUGIN/skills/finish-pr/SKILL.md"
+  assert_success
+  run rg_or_grep -F "fetch_status: failed" "$PLUGIN/skills/finish-pr/SKILL.md"
+  assert_success
+}
+
+@test "finish-pr URL-encodes the branch name for the GitLab MR lookups" {
+  run rg_or_grep -F '$b|@uri' "$PLUGIN/skills/finish-pr/SKILL.md"
+  assert_success
+  run rg_or_grep -F 'source_branch=$encoded_branch' "$PLUGIN/skills/finish-pr/SKILL.md"
+  assert_success
+  # tripwire: no raw, unencoded branch name left in either lookup query
+  run rg_or_grep -F 'source_branch=$branch' "$PLUGIN/skills/finish-pr/SKILL.md"
+  assert_failure
+}
+
 @test "finish-pr never uses gh pr edit, uses gh api PATCH instead" {
   run rg_or_grep -F "never \`gh pr edit\`" "$PLUGIN/skills/finish-pr/SKILL.md"
   assert_success
   run rg_or_grep -F "gh api -X PATCH" "$PLUGIN/skills/finish-pr/SKILL.md"
+  assert_success
+}
+
+@test "finish-pr verifies both title and body/description after an update" {
+  run rg_or_grep -F "{title, body}" "$PLUGIN/skills/finish-pr/SKILL.md"
+  assert_success
+  run rg_or_grep -F "{title, description}" "$PLUGIN/skills/finish-pr/SKILL.md"
   assert_success
 }
 

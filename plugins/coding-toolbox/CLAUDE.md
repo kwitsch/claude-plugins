@@ -206,7 +206,7 @@ merge when it's off, and reconciles title/description against the actual
 diff (`git log <base>..HEAD`, patch-if-wrong rather than blind
 regenerate-and-overwrite). Pure inline `SKILL.md` prose, same idiom as
 `fresh-pr`/`fresh-branch` — no bundled script, no subagent dispatch, no
-Task* ledger; `allowed-tools` carries no `Agent`/`Workflow`/Task* grant and
+Task\* ledger; `allowed-tools` carries no `Agent`/`Workflow`/Task\* grant and
 no `Bash(bash:*)`. Its platform-detection and PR/MR-lookup steps are
 copied inline from `fresh-pr` steps 7-8 rather than extracted to a shared
 reference file — only two consumers so far; this repo extracts that kind
@@ -227,7 +227,11 @@ outcome) — reopening a closed one stays `fresh-pr`'s job. No new
 `userConfig` toggle, matching every other skill here. Its own git-context
 `!` block runs `git fetch origin` (unlike a bare `git branch
 --show-current`) so its title/description reconciliation step's `git log
-"origin/$base"..HEAD` sees a current ref rather than a stale one.
+"origin/$base"..HEAD` sees a current ref rather than a stale one — and
+emits that fetch's own exit status as a `fetch_status:` line, since a
+discarded status would leave a failed fetch indistinguishable from a
+successful one; `failed` skips only the reconciliation step (undraft and
+the GitLab toggle don't depend on a fresh `origin/$base`).
 
 ## Skill design (`fresh-work`)
 

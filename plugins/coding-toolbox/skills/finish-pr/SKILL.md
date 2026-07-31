@@ -19,7 +19,7 @@ Never touches CI, reviews, or merges the PR/MR itself.
 
 ## Git context
 
-!`git fetch origin >/dev/null 2>&1; printf "current_branch: %s\n" "$(git branch --show-current)"`
+!`git fetch origin >/dev/null 2>&1 && fetch=ok || fetch=failed; printf "current_branch: %s\nfetch_status: %s\n" "$(git branch --show-current)" "$fetch"`
 
 ## Preconditions
 
@@ -49,11 +49,14 @@ execution disabled by policy]` — the `git fetch origin` above silently
 3. **Look up the PR/MR for `$branch`:**
    - GitHub: `gh pr view "$branch" --json number,state,url,title,body,baseRefName,isDraft,headRefOid 2>/dev/null`
      — empty output or a non-zero exit means none exists.
-   - GitLab: first try the open-only query —
-     `glab api "projects/:id/merge_requests?source_branch=$branch&state=opened" 2>/dev/null | jq -c '.[0] // empty'`
+   - GitLab: **URL-encode the branch name first** —
+     `encoded_branch=$(jq -rn --arg b "$branch" '$b|@uri')` — so a ref
+     containing `&`, `?` or `#` can't inject a query parameter of its own;
+     use it in both queries below. First try the open-only query —
+     `glab api "projects/:id/merge_requests?source_branch=$encoded_branch&state=opened" 2>/dev/null | jq -c '.[0] // empty'`
      (GitLab allows at most one open MR per source branch, so a hit here
      needs no further disambiguation). Empty → fall back to
-     `glab api "projects/:id/merge_requests?source_branch=$branch&state=all" 2>/dev/null | jq -c '.[0] // empty'`
+     `glab api "projects/:id/merge_requests?source_branch=$encoded_branch&state=all" 2>/dev/null | jq -c '.[0] // empty'`
      purely to tell "closed"/"merged" apart from "never existed" for step
      4's report below — this fallback result is read-only and never
      mutated by any later step, so an arbitrary pick among several
@@ -64,7 +67,11 @@ execution disabled by policy]` — the `git fetch origin` above silently
      `.title`, `.description`, `.target_branch`, `.sha` (the MR's current
      head commit), `.should_remove_source_branch`,
      `.force_remove_source_branch`, and `.draft` (fall back to
-     `.work_in_progress` if `.draft` is absent).
+     `.work_in_progress` if `.draft` is absent). Before any mutating step,
+     confirm the found MR's `.source_branch` is exactly `$branch` —
+     `@uri` encodes a `/` in a branch name as `%2F`, and a mis-encode
+     surfaces as a wrong or missing match rather than an error; mismatch →
+     report it and **stop** rather than mutate the wrong MR.
 
    **No PR/MR found (either platform) → abort:** "No PR/MR found for branch
    `$branch` — nothing to finish. Run `fresh-pr` first to open one."
@@ -121,24 +128,31 @@ execution disabled by policy]` — the `git fetch origin` above silently
       remote head and **skip the rest of this step** — push first
       (`fresh-pr`, or a plain `git push`) before reconciling; never
       reconcile from commits that aren't actually in the PR/MR.
-   2. `git log "origin/$base"..HEAD` — what changed and why (the
-      git-context block's `git fetch origin` above keeps `origin/$base`
-      current). Ref unresolvable or range empty → report that and **skip
-      the rest of this step** — don't guess at a description from
-      nothing.
-   3. Compare the current title/`body` (GitHub) or `description` (GitLab)
+   2. **Check `fetch_status:` from the git context first** — only
+      `fetch_status: ok` means the block's `git fetch origin` actually
+      kept `origin/$base` current. `fetch_status: failed` (or the line
+      missing) → report that the fetch failed and **skip the rest of this
+      step**; never reconcile against a possibly stale `origin/$base`.
+      Step 5's undraft and step 6's GitLab toggle don't depend on it and
+      stand.
+   3. `git log "origin/$base"..HEAD` — what changed and why. Ref
+      unresolvable or range empty → report that and **skip the rest of
+      this step** — don't guess at a description from nothing.
+   4. Compare the current title/`body` (GitHub) or `description` (GitLab)
       against that history. Already accurate and complete → leave it
       untouched, no update call.
-   4. Missing, stale, or wrong → write a corrected title/description:
+   5. Missing, stale, or wrong → write a corrected title/description:
       preserve any still-accurate existing content (links, testing notes,
       context), fix or add only what's wrong or missing.
-   5. Changed → apply, then verify:
+   6. Changed → apply, then verify:
       - GitHub: `gh api -X PATCH "repos/{owner}/{repo}/pulls/$number" -f title="<title>" -f body="<body>"`
         (never `gh pr edit` — known silent-fail on this repo's own
         Projects-classic board), then
-        `gh api "repos/{owner}/{repo}/pulls/$number" --jq '.title'` and
-        compare to `<title>`.
-      - GitLab: `glab mr update "$number" --title "<title>" --description "<body>"`.
+        `gh api "repos/{owner}/{repo}/pulls/$number" --jq '{title, body}'`
+        and confirm both fields match what was just written.
+      - GitLab: `glab mr update "$number" --title "<title>" --description "<body>"`,
+        then `glab api "projects/:id/merge_requests/$number" 2>/dev/null | jq -c '{title, description}'`
+        and confirm both fields match what was just written.
 
 ## Report
 
