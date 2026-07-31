@@ -1,7 +1,7 @@
 # Claude Code Memory — Authoring Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (How Claude remembers your project), verified 2026-07-25.
+> (How Claude remembers your project), verified 2026-07-31.
 > Apply when authoring or editing CLAUDE.md files or configuring auto memory.
 
 ## CLAUDE.md: what & when
@@ -18,6 +18,7 @@
 - CLAUDE.md content is delivered as a **user message after the system prompt**, not part of the system prompt — no guarantee of strict compliance, especially for vague/conflicting instructions.
 - For system-prompt-level instructions, use `--append-system-prompt` (must be passed every invocation; suited to scripts/automation, not interactive use).
 - Block-level HTML comments (`<!-- ... -->`) in CLAUDE.md are stripped before injection into context (use them for human-maintainer notes). Comments inside code blocks are preserved; the Read tool shows all comments.
+- `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`: prevents loading any CLAUDE.md memory files into context, including user, project, and auto-memory files.
 
 ### Write effective instructions
 
@@ -126,7 +127,7 @@ Value must be an absolute path or start with `~/`. Read from **any** settings sc
 }
 ```
 
-- Environment variable: `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`.
+- Environment variable: `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`. Set to `0` to force auto memory on even when `--bare` mode or `autoMemoryEnabled: false` would otherwise disable it.
 
 ## What belongs / what doesn't
 
