@@ -1,7 +1,7 @@
 # Claude Code — Hook Handler Selection
 
 <!-- AGENT-FACING REFERENCE. Not prose. Optimize for lookup + decision, not readability. -->
-<!-- Source: code.claude.com/docs/en/hooks + code.claude.com/docs/en/hooks-guide. Verified 2026-07-03. Re-verify against docs if version differs. -->
+<!-- Source: code.claude.com/docs/en/hooks + code.claude.com/docs/en/hooks-guide. Verified 2026-07-31. Re-verify against docs if version differs. -->
 <!-- Scope: choosing the `type` of a hook handler. Not about when hooks vs CLAUDE.md vs skills. -->
 
 ## Handler types
@@ -59,6 +59,7 @@
 | `once` | handler | `true` → runs once per session then is removed. ONLY honored for hooks declared in skill frontmatter; ignored in settings files and agent frontmatter. |
 | `statusMessage` | handler | custom spinner/status message shown while the hook runs. |
 | `continueOnBlock` | `prompt`/`agent` | `true` → on `ok:false`, feed `reason` back to Claude and continue the turn instead of stopping (implemented as `continue:true` on the resulting `decision:"block"`). Default `false`. No effect on `PostToolBatch`/`UserPromptSubmit`/`UserPromptExpansion`, which always end the turn on block. |
+| `shell` | `command` | `"bash"` or `"powershell"`. Default `"bash"`, or `"powershell"` on Windows when Git Bash isn't installed. Ignored when `args` is set (exec form spawns directly, no shell). |
 
 ## mcp_tool handler shape
 
