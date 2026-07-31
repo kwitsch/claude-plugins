@@ -38,9 +38,9 @@ setup() {
   "
   assert_failure 1
 }
-@test "dispatch-agent dispatches via claude --bg with a hand-created worktree" {
+@test "dispatch-agent dispatches via claude --worktree ... --bg" {
   run cat "$PLUGIN/skills/dispatch-agent/SKILL.md"
   assert_success
-  assert_output --partial "claude --bg"
-  assert_output --partial "git worktree add -b"
+  assert_output --partial "claude --worktree"
+  assert_output --partial "--bg"
 }

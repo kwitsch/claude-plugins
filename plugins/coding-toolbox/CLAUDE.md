@@ -663,46 +663,43 @@ Two-step skill, no extracted script (`skills/dispatch-agent/SKILL.md` only): syn
 branch (`git fetch origin`, explicit exit check, then `git merge --ff-only @{u}` — not `git
 pull`, which would re-fetch the same refs a second time — only if an upstream exists; a
 freshly-cut branch commonly has none, not an error), then dispatch a real, independent,
-worktree-isolated background Claude Code session (`claude --bg`, tracked via `claude
-agents`/`claude logs`/`claude attach`/`claude stop`) — not the in-session `Agent` tool, which
-the user explicitly rejected during design (it dispatches a subagent of the current
-conversation, not a separate session). Only committed state (HEAD) carries over — an
-uncommitted/staged working tree is silently invisible to `git worktree add`, so the skill body
-says so explicitly rather than leaving it as a surprise; reusing `fresh-branch.sh`'s
-stash-carry mechanism here was considered and rejected as disproportionate to this skill's
-otherwise two-step scope.
+worktree-isolated background Claude Code session (`claude --worktree <name> --bg`, tracked via
+`claude agents`/`claude logs`/`claude attach`/`claude stop`/`claude rm`) — not the in-session
+`Agent` tool, which the user explicitly rejected during design (it dispatches a subagent of
+the current conversation, not a separate session).
 
-The worktree is created by hand (`git worktree add -b <name> <path> HEAD`), never via `claude
---worktree`/`EnterWorktree`: both were smoke-tested and confirmed to base a new worktree off
-`origin/<default-branch>`, discarding the current branch/commit entirely — picking either
-would have silently dispatched work against the wrong base. `<path>` anchors on the **primary
-checkout** (`realpath "$(git rev-parse --git-common-dir)/.."`, which always resolves to the
-shared `.git`'s parent regardless of which worktree invokes the skill), not the invoking
-worktree's own root — an explicit Review-stage correction: the first cut anchored on the
-invoking worktree itself (matching the CLI's own observed `--worktree` placement), but that
-nests a dispatched worktree inside whichever worktree happened to invoke the skill, entangling
-the two worktrees' removal order later; anchoring on the primary checkout keeps every
-dispatched worktree a sibling under it instead. `<name>` composes a 3-6-English-word slug of
-the prompt (same convention as `fresh-work`'s own branch-naming step) with a `$(date +%s)`
-suffix for uniqueness — also a Review-stage fix: the first cut used a bare timestamp, readable
-only by attaching to each session to read its prompt.
+**Second design revision (post-ship, same PR): switched from a hand-created worktree back to
+the native `claude --worktree` flag, deliberately giving up "current branch as base."** The
+first cut (see git history on this file/PR for the superseded prose) rejected `--worktree`
+because it bases a new worktree off `origin/<default-branch>`, not the current branch — smoke-tested
+and confirmed — and hand-rolled `git worktree add -b <name> <path> HEAD` instead, anchored on
+the primary checkout (`realpath "$(git rev-parse --git-common-dir)/..")`) to avoid nesting.
+Asked directly whether to keep that base-branch-preserving hand-roll or simplify onto the
+native flag and accept `origin/<default-branch>` as the dispatched session's base, the user
+chose the latter. This is a **recorded decision reversal**, not a bug fix — a future editor
+re-introducing manual `git worktree add` "to fix the wrong base branch" would be undoing an
+explicit choice, not restoring one. Upside of the reversal: `claude --worktree` already places
+new worktrees as siblings under the primary checkout (verified — no nesting issue even from
+inside another worktree), and a worktree it creates is tracked by the CLI's own job-state, so
+`claude rm <id>` now fully removes it (unlike a hand-created one, which needed a separate `git
+worktree remove`). Step 1's sync is now independent housekeeping only — the dispatched session
+in step 2 never uses that branch.
 
-Because git disallows checking out the same branch in two worktrees, the dispatched session
-lands on a **new branch** cut from the current one's tip, not a continuation of the same
-branch name — surfaced explicitly in the skill's own report, along with the fact that `claude
-rm <id>` releases the CLI's job-state tracking but does not remove a hand-created worktree
-(`git worktree remove` does). The prompt is embedded verbatim inside a quoted heredoc and read
-back via direct command substitution (`"$(cat <<'EOF' … EOF)"`, no intermediate temp file) —
-so arbitrary prompt content can't break the command, and there's nothing left on disk to leak
-if the dispatch fails after the heredoc is written (an earlier draft wrote the prompt to a
-`mktemp` file first; under `set -e` a failing `claude --bg` skipped the cleanup `rm -f`,
-leaking the prompt to disk on every failed dispatch — fixed by removing the intermediate file
-entirely rather than adding a `trap`). `allowed-tools` carries `Bash(git:*)`/`Bash(claude:*)`/
-`AskUserQuestion` only — no `Agent`, no `Skill` (the zero-arg `fresh-branch` rebase is a
-different, more invasive operation than a plain sync and isn't reused here). Step 2's single
-compound Bash call is never fully covered by the `Bash(git:*)`/`Bash(claude:*)` pre-approval —
-that's an accepted consequence of the narrow allowed-tools list, not a gap to "fix" by
-widening it.
+The prompt is embedded verbatim inside a quoted heredoc and read back via direct command
+substitution (`"$(cat <<'EOF' … EOF)"`, no intermediate temp file) — so arbitrary prompt
+content can't break the command, and there's nothing left on disk to leak if the dispatch
+fails after the heredoc is written (an earlier draft wrote the prompt to a `mktemp` file
+first; under `set -e` a failing dispatch skipped the cleanup `rm -f`, leaking the prompt to
+disk on every failed dispatch — fixed by removing the intermediate file entirely rather than
+adding a `trap`). The worktree/session name still composes a 3-6-English-word slug of the
+prompt (same convention as `fresh-work`'s own branch-naming step) with a `$(date +%s)` suffix
+for uniqueness, unchanged by the `--worktree` switch — a bare timestamp was readable only by
+attaching to each session to read its prompt. `allowed-tools` carries `Bash(git:*)`/
+`Bash(claude:*)`/`AskUserQuestion` only — no `Agent`, no `Skill` (the zero-arg `fresh-branch`
+rebase is a different, more invasive operation than a plain sync and isn't reused here). The
+single-command Bash call in step 2 is never fully covered by the `Bash(git:*)`/`Bash(claude:*)`
+pre-approval — that's an accepted consequence of the narrow allowed-tools list, not a gap to
+"fix" by widening it.
 
 ## Tests
 
