@@ -53,3 +53,9 @@ setup() {
   assert_output --partial "xhigh"
   assert_output --partial "--permission-mode auto"
 }
+@test "dispatch-agent validates model/effort as safe bare tokens before shell substitution" {
+  run cat "$PLUGIN/skills/dispatch-agent/SKILL.md"
+  assert_success
+  assert_output --partial '^[A-Za-z0-9._-]+$'
+  assert_output --partial "RANDOM"
+}

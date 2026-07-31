@@ -686,15 +686,19 @@ worktree remove`). Step 1's sync is now independent housekeeping only — the di
 in step 2 never uses that branch.
 
 The prompt is embedded verbatim inside a quoted heredoc and read back via direct command
-substitution (`"$(cat <<'EOF' … EOF)"`, no intermediate temp file) — so arbitrary prompt
-content can't break the command, and there's nothing left on disk to leak if the dispatch
+substitution (`"$(cat <<'EOF' … EOF)"`, no intermediate temp file) — so arbitrary **prompt**
+content can't break the command (the heredoc's quoted delimiter is what buys this; it says
+nothing about other values substituted elsewhere in the same command — see the `--model`/
+`--effort` validation note below), and there's nothing left on disk to leak if the dispatch
 fails after the heredoc is written (an earlier draft wrote the prompt to a `mktemp` file
 first; under `set -e` a failing dispatch skipped the cleanup `rm -f`, leaking the prompt to
 disk on every failed dispatch — fixed by removing the intermediate file entirely rather than
 adding a `trap`). The worktree/session name still composes a 3-6-English-word slug of the
-prompt (same convention as `fresh-work`'s own branch-naming step) with a `$(date +%s)` suffix
-for uniqueness, unchanged by the `--worktree` switch — a bare timestamp was readable only by
-attaching to each session to read its prompt. `allowed-tools` carries `Bash(git:*)`/
+prompt (same convention as `fresh-work`'s own branch-naming step) with a `$(date +%s)-$RANDOM`
+suffix for uniqueness (CodeRabbit finding, PR #156: a bare `$(date +%s)` alone only resolves to
+the second, so two same-second dispatches of the same prompt would collide; `$RANDOM` closes
+that gap without adding retry logic) — a bare timestamp was also readable only by attaching to
+each session to read its prompt. `allowed-tools` carries `Bash(git:*)`/
 `Bash(claude:*)`/`AskUserQuestion` only — no `Agent`, no `Skill` (the zero-arg `fresh-branch`
 rebase is a different, more invasive operation than a plain sync and isn't reused here). The
 single-command Bash call in step 2 is never fully covered by the `Bash(git:*)`/`Bash(claude:*)`
@@ -706,10 +710,13 @@ PR, per user request): `$prompt` may optionally start with `--model=<model>` and
 `--effort=<effort>` (any order) — the skill parses and strips these itself before dispatch
 (there's no `arguments:` frontmatter mechanism for optional flags mixed into a single
 free-text arg; `arguments: prompt` still binds the whole raw input to `$prompt`), defaulting
-to `sonnet`/`xhigh` when either is omitted, and passes them straight through as `--model
-<model> --effort <effort>` on the `claude --worktree ... --bg` invocation — no validation
-against a fixed set; an invalid value surfaces as a normal launch failure, reported as-is,
-same as any other dispatch error. `--permission-mode auto` is **always** set explicitly,
+to `sonnet`/`xhigh` when either is omitted. **Both are validated against `^[A-Za-z0-9._-]+$`
+before being substituted into the command** (CodeRabbit finding, PR #156: unlike the prompt,
+which is protected by the heredoc, `--model`/`--effort` were being interpolated as bare
+double-quoted shell arguments — a value containing `$()`, backticks, or an embedded quote
+would have executed as shell, not been treated as inert text) — a value failing that check is
+reported before ever reaching the command line, not left to surface as a `claude` launch
+failure. `--permission-mode auto` is **always** set explicitly,
 unconditionally — not left to whatever the CLI's own default happens to be for a `--bg`
 session, since the dispatched session has nobody present to answer an interactive approval
 prompt. Verified live (dispatch, check result, cleanup) with the default `sonnet`/`xhigh`
@@ -781,7 +788,8 @@ and named for their variant, the skill's apply step reads from
 reference files themselves carry `name: explore` frontmatter). `dispatch-agent`
 gets structural assertions (exists, frontmatter naming `prompt` plus the required
 `Bash(git:*)`/`Bash(claude:*)`/`AskUserQuestion` `allowed-tools` entries, self-containment
-tripwire, body mentions of `claude --bg` and `git worktree add -b`) — no script-extraction
+tripwire, body mentions of `claude --worktree`/`--bg` and the `--model`/`--effort` defaults
+and `--permission-mode auto`) — no script-extraction
 coverage, since the skill's own git/CLI orchestration stays inline per
 `.claude/rules/script-authoring.md`'s trivial/substantial threshold.
 Run: `BATS_LIB_PATH="$PWD/node_modules" npx bats test/coding-toolbox/`

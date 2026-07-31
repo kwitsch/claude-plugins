@@ -48,13 +48,18 @@ anything else. Never guess.
 2. **Dispatch the background session.** Derive a short (3-6 English words, lowercase,
    non-alphanumeric runs collapsed to a single `-`) slug from the actual prompt (after
    stripping any `--model=`/`--effort=` prefix) yourself — same convention as `fresh-work`'s
-   own branch-naming step — and embed the actual prompt text verbatim inside a quoted
-   heredoc (never shell-expanded, whatever it's punctuated with), all in one Bash call:
+   own branch-naming step. Before building the command below, validate the resolved `model`
+   and `effort` values (whether parsed from `--model=`/`--effort=` or the `sonnet`/`xhigh`
+   defaults) match `^[A-Za-z0-9._-]+$` — safe bare tokens only, no quotes, `$()`, backticks,
+   or whitespace. Either one fails this check → stop and report; never substitute an
+   unvalidated value into the command below, and never strip/sanitize it yourself. Then embed
+   the actual prompt text verbatim inside a quoted heredoc (never shell-expanded, whatever
+   it's punctuated with), all in one Bash call:
 
    ```bash
    set -e
-   name="dispatch-<3-6-word-english-slug-of-the-prompt>-$(date +%s)"
-   claude --worktree "$name" --model "<model>" --effort "<effort>" --permission-mode auto --bg "$(cat <<'DISPATCH_AGENT_PROMPT_EOF'
+   name="dispatch-<3-6-word-english-slug-of-the-prompt>-$(date +%s)-$RANDOM"
+   claude --worktree "$name" --model "<validated-model>" --effort "<validated-effort>" --permission-mode auto --bg "$(cat <<'DISPATCH_AGENT_PROMPT_EOF'
    <the literal, verbatim prompt text goes here — the actual instruction after stripping any
    --model=/--effort= prefix, not the string "$prompt" — substituted by you when you write
    this command, exactly as given>
@@ -62,12 +67,15 @@ anything else. Never guess.
    )"
    ```
 
-   Substitute `<model>`/`<effort>` with whatever was parsed above (or the `sonnet`/`xhigh`
-   defaults). `--permission-mode auto` is always set explicitly — the dispatched session must
-   never stall on interactive tool-use approval with nobody there to answer it. The
-   `$(date +%s)` suffix guarantees uniqueness even if two dispatches summarize to the same
-   slug. On failure (name collision, invalid `--model`/`--effort` value, `claude` binary
-   missing, launch failure), report the error as-is — never retry with `--force`.
+   `<validated-model>`/`<validated-effort>` are the values that just passed the character-class
+   check above — safe to place directly inside double quotes since that check rules out any
+   shell metacharacter that could otherwise break out of them. `--permission-mode auto` is
+   always set explicitly — the dispatched session must never stall on interactive tool-use
+   approval with nobody there to answer it. `$(date +%s)-$RANDOM` combines a wall-clock
+   timestamp with bash's own random-number builtin so two same-second dispatches of the same
+   prompt still get distinct names. On failure (name collision, invalid `--model`/`--effort`
+   value, `claude` binary missing, launch failure), report the error as-is — never retry with
+   `--force`.
 
 3. **Report.** Relay the CLI's own printed session id and management hints verbatim (`claude
 agents`, `claude attach <id>`, `claude logs <id>`, `claude stop <id>`, `claude rm <id>` —
