@@ -131,9 +131,8 @@ options:
   ```bash
   rm -f "$HOME/.claude/rules/coding-toolbox-rules.md"
   ```
-- Question 1 `unset` (only reachable via Step 3a — Step 3b's Question 1 is
-  always asked, so this never happens there): no action for the golden-rules
-  file — leave it exactly as detected in Step 1.
+- Question 1 `unset` (Step 3a only): no action for the golden-rules file —
+  leave it as detected in Step 1.
 - Question 2 (if asked) answered "Yes", and `detected` is **non-empty**:
   ```bash
   mkdir -p "$HOME/.claude/rules"
@@ -161,8 +160,10 @@ options:
   ```bash
   rm -f "$HOME/.claude/rules/coding-toolbox-tools.md"
   ```
-- Question 2 not asked (nothing installed, nothing detected), or Step 3a
-  returned `tools: unset`: no action for the tools file.
+- Question 2 not asked (nothing installed, nothing detected): no action for
+  the tools file.
+- Question 2 (Step 3a only) `unset`: no action for the tools file — leave it
+  as detected in Step 1.
 
 ## Step 5 — Report
 

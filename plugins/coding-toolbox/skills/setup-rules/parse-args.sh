@@ -13,19 +13,14 @@ raw="${1:-}"
 usage_msg() {
   printf 'Couldn'"'"'t parse "%s" -- expected a verb (install/update/remove) and, for remove, an explicit target (rules/tools/both). Examples: "install", "update tools rule", "remove rules", "remove both".\n' "$raw" >&2
 }
-
-in_list() {
-  local needle="$1"; shift
-  local w
-  for w in "$@"; do [ "$needle" = "$w" ] && return 0; done
-  return 1
-}
+die() { usage_msg; exit "$1"; }
 
 # noglob during the split: this is a whitespace split on lowercased free
 # text, never a filename expansion, even if the text happens to contain a
-# glob metacharacter.
+# glob metacharacter. ${raw,,} lowercases in-shell -- no fork needed for it,
+# same idiom already used elsewhere in this plugin (bin/ci-watch.sh).
 set -f
-words=($(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]'))
+words=(${raw,,})
 set +f
 
 no_match=false
@@ -35,22 +30,24 @@ golden_named=false
 both_named=false
 bare_rule_present=false
 for w in "${words[@]:-}"; do
-  in_list "$w" remove uninstall delete disable no && no_match=true
-  in_list "$w" install add enable update refresh yes && yes_match=true
-  in_list "$w" tool tools tool-routing routing && tools_named=true
-  in_list "$w" golden golden-rules && golden_named=true
-  in_list "$w" rule rules && bare_rule_present=true
-  in_list "$w" both all everything && both_named=true
+  case "$w" in
+    remove|uninstall|delete|disable|no) no_match=true ;;
+    install|add|enable|update|refresh|yes) yes_match=true ;;
+    tool|tools|tool-routing|routing) tools_named=true ;;
+    golden|golden-rules) golden_named=true ;;
+    rule|rules) bare_rule_present=true ;;
+    both|all|everything) both_named=true ;;
+  esac
 done
 
 if [ "$no_match" = true ] && [ "$yes_match" = true ]; then
-  usage_msg; exit 3
+  die 3
 elif [ "$no_match" = true ]; then
   answer=no
 elif [ "$yes_match" = true ]; then
   answer=yes
 else
-  usage_msg; exit 2
+  die 2
 fi
 
 # A bare "rule"/"rules" is generic filler in a "tools rule" phrase, not a
@@ -61,10 +58,10 @@ if [ "$bare_rule_present" = true ] && [ "$tools_named" = false ]; then
 fi
 
 if [ "$tools_named" = true ] && [ "$golden_named" = true ]; then
-  usage_msg; exit 4
+  die 4
 fi
 if [ "$both_named" = true ] && { [ "$tools_named" = true ] || [ "$golden_named" = true ]; }; then
-  usage_msg; exit 4
+  die 4
 fi
 
 if [ "$both_named" = true ]; then
@@ -76,7 +73,7 @@ elif [ "$golden_named" = true ]; then
 elif [ "$answer" = yes ]; then
   target=both
 else
-  usage_msg; exit 5
+  die 5
 fi
 
 golden_rules=unset
