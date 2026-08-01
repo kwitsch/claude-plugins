@@ -18,7 +18,7 @@ common_setup() {
   # under this suite too, instead of only ever exercising the grep fallback.
   MOCKBIN="$BATS_TEST_TMPDIR/bin"
   mkdir -p "$MOCKBIN"
-  for t in bash env grep rg sed git tr head cut timeout sleep mktemp cat rm mkdir awk; do
+  for t in bash env grep rg sed git tr head cut timeout sleep mktemp cat rm mkdir awk jq; do
     src="$(command -v "$t")" && [ -n "$src" ] && ln -s "$src" "$MOCKBIN/$t"
   done
 
