@@ -776,11 +776,13 @@ export function isExcludedPath(rel) {
     )
   )
     return true;
-  const claudeIdx = segments.indexOf(".claude");
   if (
-    claudeIdx !== -1 &&
-    (segments[claudeIdx + 1] === "worktrees" ||
-      segments[claudeIdx + 1] === "agent-memory")
+    segments.some(
+      (s, i) =>
+        s === ".claude" &&
+        (segments[i + 1] === "worktrees" ||
+          segments[i + 1] === "agent-memory"),
+    )
   )
     return true;
   return segments[segments.length - 1].includes(".local.");

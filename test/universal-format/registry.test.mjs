@@ -371,6 +371,21 @@ test("isExcludedPath: other .claude/ subtrees (e.g. rules/agents/skills) stay co
   assert.equal(isExcludedPath(path.join(".claude", "settings.json")), false);
 });
 
+test("isExcludedPath: a later .claude segment matching worktrees/agent-memory is still excluded, even after an earlier non-matching .claude segment", () => {
+  assert.equal(
+    isExcludedPath(
+      path.join(".claude", "rules", ".claude", "worktrees", "foo", "a.sh"),
+    ),
+    true,
+  );
+  assert.equal(
+    isExcludedPath(
+      path.join(".claude", "skills", ".claude", "agent-memory", "a.md"),
+    ),
+    true,
+  );
+});
+
 test("isExcludedPath: *.local.* files excluded regardless of location", () => {
   assert.equal(
     isExcludedPath(path.join(".claude", "settings.local.json")),
