@@ -28,7 +28,9 @@ setup() {
   # Only lines strictly between the first and second '---' fence count as
   # frontmatter — a substring match over the first N lines can't tell a real
   # key from the same text appearing later in body prose.
-  run awk '/^---$/{n++; next} n==1' "$STYLE"
+  # The closing fence must exist too, else every body line would count as
+  # frontmatter and a file missing it would still pass.
+  run awk '/^---$/{n++; next} n==1{print} END{if (n < 2) exit 1}' "$STYLE"
   assert_success
   assert_output --partial 'name: kiwi-code-style'
   assert_output --partial 'keep-coding-instructions: true'
@@ -36,8 +38,11 @@ setup() {
 }
 
 @test "output style body starts with the contract heading" {
-  run head -n 20 "$STYLE"
-  assert_output --partial '# OUTPUT FORMAT — MANDATORY'
+  # The first non-empty line after the closing fence must BE the heading —
+  # 'appears somewhere near the top' would also pass a body that starts with
+  # something else.
+  run awk '/^---$/{n++; next} n >= 2 && NF {print; exit}' "$STYLE"
+  assert_output '# OUTPUT FORMAT — MANDATORY'
 }
 
 @test ".prettierignore exempts the output style file from reformatting" {
