@@ -62,6 +62,7 @@ available, do not block: apply the skeptical default (choose the weaker verdict)
 
 Your final message IS the return value: raw JSON only, no surrounding prose — an array with one entry
 per CONTRADICTING hunk you found (ADDITIVE hunks are not reported):
+<!-- markdownlint-disable-next-line MD033 -- angle-bracket placeholder tokens in this JSON example, not real HTML -->
 [{"hunk":"<short id/quote of the hunk you're verdicting>","verdict":"CONFIRMED|REJECTED|UNVERIFIABLE","quote":"<verbatim doc quote or empty>","docPath":"<local doc path used>","confidence":"high|medium|low","notes":"<one line>"}]
 
 A `confidence:"low"` CONFIRMED is still CONFIRMED, but flag it explicitly in `notes` — the dispatcher

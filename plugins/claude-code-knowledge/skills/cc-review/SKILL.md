@@ -116,6 +116,7 @@ splits across tabs ambiguously):
 ## 6. Apply selected findings
 
 For each selected finding (matched by `id`), apply its `suggested_fix`:
+
 - `{ "old_string", "new_string" }` → an `Edit` call on the finding's file.
 - `{ "full_content" }` → a `Write` call on the finding's file.
 - `null` → do not auto-apply; collect it as a manual to-do.

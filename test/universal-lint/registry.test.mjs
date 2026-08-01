@@ -50,36 +50,21 @@ test("no chain entry ever carries a --fix/--format/--write-equivalent flag", () 
 });
 
 test("buildArgv: plain tool appends the resolved file last", () => {
-  assert.deepEqual(buildArgv(shellcheck, "/proj/a.sh", "/proj"), [
-    "/proj/a.sh",
-  ]);
+  assert.deepEqual(buildArgv(shellcheck, "/proj/a.sh", "/proj"), ["/proj/a.sh"]);
 });
 
 test("buildArgv: ruff check keeps its subcommand before the file", () => {
-  assert.deepEqual(buildArgv(ruff, "/proj/a.py", "/proj"), [
-    "check",
-    "/proj/a.py",
-  ]);
+  assert.deepEqual(buildArgv(ruff, "/proj/a.py", "/proj"), ["check", "/proj/a.py"]);
 });
 
 test("buildArgv: go entries target the directory, not the file", () => {
-  assert.deepEqual(buildArgv(goVet, "/proj/pkg/a.go", "/proj"), [
-    "vet",
-    "/proj/pkg",
-  ]);
-  assert.deepEqual(buildArgv(golangciLint, "/proj/pkg/a.go", "/proj"), [
-    "run",
-    "/proj/pkg",
-  ]);
+  assert.deepEqual(buildArgv(goVet, "/proj/pkg/a.go", "/proj"), ["vet", "/proj/pkg"]);
+  assert.deepEqual(buildArgv(golangciLint, "/proj/pkg/a.go", "/proj"), ["run", "/proj/pkg"]);
 });
 
 test("buildArgv: checkstyle injects -c <resolved config> before the file", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "ul-cs-"));
-  assert.deepEqual(buildArgv(checkstyle, path.join(dir, "A.java"), dir), [
-    "-c",
-    "/google_checks.xml",
-    path.join(dir, "A.java"),
-  ]);
+  assert.deepEqual(buildArgv(checkstyle, path.join(dir, "A.java"), dir), ["-c", "/google_checks.xml", path.join(dir, "A.java")]);
 });
 
 test("resolveCheckstyleConfig: finds checkstyle.xml walking up to cwd", () => {
@@ -87,23 +72,14 @@ test("resolveCheckstyleConfig: finds checkstyle.xml walking up to cwd", () => {
   writeFileSync(path.join(root, "checkstyle.xml"), '<module name="Checker"/>');
   const sub = path.join(root, "src", "main");
   mkdirSync(sub, { recursive: true });
-  assert.equal(
-    resolveCheckstyleConfig(sub, root),
-    path.join(root, "checkstyle.xml"),
-  );
+  assert.equal(resolveCheckstyleConfig(sub, root), path.join(root, "checkstyle.xml"));
 });
 
 test("resolveCheckstyleConfig: finds config/checkstyle/checkstyle.xml", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ul-cs-"));
   mkdirSync(path.join(root, "config", "checkstyle"), { recursive: true });
-  writeFileSync(
-    path.join(root, "config", "checkstyle", "checkstyle.xml"),
-    '<module name="Checker"/>',
-  );
-  assert.equal(
-    resolveCheckstyleConfig(root, root),
-    path.join(root, "config", "checkstyle", "checkstyle.xml"),
-  );
+  writeFileSync(path.join(root, "config", "checkstyle", "checkstyle.xml"), '<module name="Checker"/>');
+  assert.equal(resolveCheckstyleConfig(root, root), path.join(root, "config", "checkstyle", "checkstyle.xml"));
 });
 
 test("resolveCheckstyleConfig: nothing found -> null", () => {
@@ -112,16 +88,7 @@ test("resolveCheckstyleConfig: nothing found -> null", () => {
 });
 
 test("classifyExit: shellcheck/ktlint/eslint/ruff/golangci-lint/yamllint/markdownlint-cli2/markdownlint share the 0-clean/1-issues/else-skip contract", () => {
-  for (const name of [
-    "shellcheck",
-    "ktlint",
-    "eslint",
-    "ruff",
-    "golangci-lint",
-    "yamllint",
-    "markdownlint-cli2",
-    "markdownlint",
-  ]) {
+  for (const name of ["shellcheck", "ktlint", "eslint", "ruff", "golangci-lint", "yamllint", "markdownlint-cli2", "markdownlint"]) {
     assert.equal(classifyExit(name, 0), "clean");
     assert.equal(classifyExit(name, 1), "issues");
     assert.equal(classifyExit(name, 2), "skip");
@@ -150,17 +117,13 @@ test("classifyCheckstyleOutput: boilerplate only -> clean", () => {
 });
 
 test("classifyCheckstyleOutput: boilerplate + violation lines -> issues (exit-code-independent)", () => {
-  const r = classifyCheckstyleOutput(
-    "Starting audit...\n[WARN] /proj/A.java:3: Missing a Javadoc comment. [JavadocType]\nAudit done.\n",
-  );
+  const r = classifyCheckstyleOutput("Starting audit...\n[WARN] /proj/A.java:3: Missing a Javadoc comment. [JavadocType]\nAudit done.\n");
   assert.equal(r.status, "issues");
   assert.match(r.text, /JavadocType/);
 });
 
 test("classifyCheckstyleOutput: no trailing 'Audit done.' -> skip (crash/misconfig)", () => {
-  const r = classifyCheckstyleOutput(
-    'Exception in thread "main" java.lang.RuntimeException\n',
-  );
+  const r = classifyCheckstyleOutput('Exception in thread "main" java.lang.RuntimeException\n');
   assert.equal(r.status, "skip");
 });
 
@@ -200,41 +163,14 @@ test("REGISTRY: chain of 1 for yaml (yamllint), chain of 2 for markdown (cli2 ->
 });
 
 test("isToolAvailable: true when the tool itself is on PATH", () => {
-  assert.equal(
-    isToolAvailable({ name: "shellcheck", args: [] }, true, false),
-    true,
-  );
-  assert.equal(
-    isToolAvailable(
-      { name: "eslint", args: [], npmSpec: "eslint" },
-      true,
-      false,
-    ),
-    true,
-  );
+  assert.equal(isToolAvailable({ name: "shellcheck", args: [] }, true, false), true);
+  assert.equal(isToolAvailable({ name: "eslint", args: [], npmSpec: "eslint" }, true, false), true);
 });
 
 test("isToolAvailable: true via npx only when npmSpec is set and npx is on PATH", () => {
-  assert.equal(
-    isToolAvailable(
-      { name: "eslint", args: [], npmSpec: "eslint" },
-      false,
-      true,
-    ),
-    true,
-  );
-  assert.equal(
-    isToolAvailable(
-      { name: "eslint", args: [], npmSpec: "eslint" },
-      false,
-      false,
-    ),
-    false,
-  );
-  assert.equal(
-    isToolAvailable({ name: "shellcheck", args: [] }, false, true),
-    false,
-  );
+  assert.equal(isToolAvailable({ name: "eslint", args: [], npmSpec: "eslint" }, false, true), true);
+  assert.equal(isToolAvailable({ name: "eslint", args: [], npmSpec: "eslint" }, false, false), false);
+  assert.equal(isToolAvailable({ name: "shellcheck", args: [] }, false, true), false);
 });
 
 test("parseRtkPrefix: extracts a single-token verb (eslint -> lint)", () => {
@@ -246,10 +182,7 @@ test("parseRtkPrefix: extracts a multi-token verb (go vet)", () => {
 });
 
 test("parseRtkPrefix: same-name verb (ruff check)", () => {
-  assert.deepEqual(parseRtkPrefix("rtk ruff check __RTK_PROBE__"), [
-    "ruff",
-    "check",
-  ]);
+  assert.deepEqual(parseRtkPrefix("rtk ruff check __RTK_PROBE__"), ["ruff", "check"]);
 });
 
 test("parseRtkPrefix: empty stdout (no rtk equivalent, e.g. checkstyle/ktlint) -> null", () => {
@@ -284,10 +217,7 @@ test("classifyExit: tsc shares stylelint's 0-clean/2-issues/else-skip contract (
 
 test("resolveTsconfig: finds tsconfig.json walking up to cwd", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ul-ts-"));
-  writeFileSync(
-    path.join(root, "tsconfig.json"),
-    '{"compilerOptions":{},"include":["*.ts"]}',
-  );
+  writeFileSync(path.join(root, "tsconfig.json"), '{"compilerOptions":{},"include":["*.ts"]}');
   const sub = path.join(root, "src");
   mkdirSync(sub, { recursive: true });
   assert.equal(resolveTsconfig(sub, root), path.join(root, "tsconfig.json"));
@@ -300,10 +230,7 @@ test("resolveTsconfig: nothing found -> null", () => {
 
 test("resolveTsconfig: solution-style tsconfig (references, no files/include) is skipped, keeps walking, -> null when nothing else found", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ul-ts-"));
-  writeFileSync(
-    path.join(root, "tsconfig.json"),
-    '{"files":[],"references":[{"path":"./pkg"}]}',
-  );
+  writeFileSync(path.join(root, "tsconfig.json"), '{"files":[],"references":[{"path":"./pkg"}]}');
   const sub = path.join(root, "src");
   mkdirSync(sub, { recursive: true });
   assert.equal(resolveTsconfig(sub, root), null);
@@ -311,25 +238,16 @@ test("resolveTsconfig: solution-style tsconfig (references, no files/include) is
 
 test("resolveTsconfig: solution-style nearer file is skipped in favor of a real one further up", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ul-ts-"));
-  writeFileSync(
-    path.join(root, "tsconfig.json"),
-    '{"compilerOptions":{},"include":["**/*.ts"]}',
-  );
+  writeFileSync(path.join(root, "tsconfig.json"), '{"compilerOptions":{},"include":["**/*.ts"]}');
   const sub = path.join(root, "pkg");
   mkdirSync(sub, { recursive: true });
-  writeFileSync(
-    path.join(sub, "tsconfig.json"),
-    '{"files":[],"references":[{"path":"./other"}]}',
-  );
+  writeFileSync(path.join(sub, "tsconfig.json"), '{"files":[],"references":[{"path":"./other"}]}');
   assert.equal(resolveTsconfig(sub, root), path.join(root, "tsconfig.json"));
 });
 
 test("resolveTsconfig: unreadable tsconfig.json (a directory of that name -> EISDIR) is treated as absent, walk continues upward", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ul-ts-"));
-  writeFileSync(
-    path.join(root, "tsconfig.json"),
-    '{"compilerOptions":{},"include":["*.ts"]}',
-  );
+  writeFileSync(path.join(root, "tsconfig.json"), '{"compilerOptions":{},"include":["*.ts"]}');
   const sub = path.join(root, "pkg");
   // a directory named tsconfig.json: existsSync -> true, readFileSync -> EISDIR
   mkdirSync(path.join(sub, "tsconfig.json"), { recursive: true });
@@ -337,62 +255,32 @@ test("resolveTsconfig: unreadable tsconfig.json (a directory of that name -> EIS
 });
 
 test("looksLikeSolutionStyleTsconfig: references with no files/include -> true", () => {
-  assert.equal(
-    looksLikeSolutionStyleTsconfig(
-      '{\n  "files": [],\n  "references": [{"path": "./pkg"}]\n}',
-    ),
-    true,
-  );
+  assert.equal(looksLikeSolutionStyleTsconfig('{\n  "files": [],\n  "references": [{"path": "./pkg"}]\n}'), true);
 });
 
 test("looksLikeSolutionStyleTsconfig: references alongside include -> false", () => {
-  assert.equal(
-    looksLikeSolutionStyleTsconfig(
-      '{\n  "include": ["src/**/*.ts"],\n  "references": [{"path": "./pkg"}]\n}',
-    ),
-    false,
-  );
+  assert.equal(looksLikeSolutionStyleTsconfig('{\n  "include": ["src/**/*.ts"],\n  "references": [{"path": "./pkg"}]\n}'), false);
 });
 
 test("looksLikeSolutionStyleTsconfig: no references at all -> false", () => {
-  assert.equal(
-    looksLikeSolutionStyleTsconfig('{\n  "compilerOptions": {}\n}'),
-    false,
-  );
+  assert.equal(looksLikeSolutionStyleTsconfig('{\n  "compilerOptions": {}\n}'), false);
 });
 
 test("looksLikeSolutionStyleTsconfig: a // comment mentioning the literal '\"references\":' text doesn't misclassify a normal default-discovery config (no include/files at all)", () => {
-  assert.equal(
-    looksLikeSolutionStyleTsconfig(
-      '{\n  // mentions "references": here for docs, not a real key\n  "compilerOptions": {}\n}',
-    ),
-    false,
-  );
+  assert.equal(looksLikeSolutionStyleTsconfig('{\n  // mentions "references": here for docs, not a real key\n  "compilerOptions": {}\n}'), false);
 });
 
 test("looksLikeSolutionStyleTsconfig: a /* */ comment mentioning the literal '\"references\":' text doesn't misclassify a normal default-discovery config", () => {
-  assert.equal(
-    looksLikeSolutionStyleTsconfig(
-      '{\n  /* mentions "references": here for docs */\n  "compilerOptions": {}\n}',
-    ),
-    false,
-  );
+  assert.equal(looksLikeSolutionStyleTsconfig('{\n  /* mentions "references": here for docs */\n  "compilerOptions": {}\n}'), false);
 });
 
 test("looksLikeSolutionStyleTsconfig: a genuine solution-style config with an unrelated comment is still detected", () => {
-  assert.equal(
-    looksLikeSolutionStyleTsconfig(
-      '{\n  // solution file, compiles nothing directly\n  "files": [],\n  "references": [{"path": "./pkg"}]\n}',
-    ),
-    true,
-  );
+  assert.equal(looksLikeSolutionStyleTsconfig('{\n  // solution file, compiles nothing directly\n  "files": [],\n  "references": [{"path": "./pkg"}]\n}'), true);
 });
 
 test("looksLikeSolutionStyleTsconfig: a string value containing // is not misread as a comment start (files array entry survives stripping)", () => {
   assert.equal(
-    looksLikeSolutionStyleTsconfig(
-      '{\n  "files": ["http://example/a.ts"],\n  "references": [{"path": "./pkg"}]\n}',
-    ),
+    looksLikeSolutionStyleTsconfig('{\n  "files": ["http://example/a.ts"],\n  "references": [{"path": "./pkg"}]\n}'),
     false, // files has a real non-empty entry -> not solution-style
   );
 });
@@ -504,20 +392,14 @@ test("hasProjectMarkdownlintConfig: nothing found -> false", () => {
 test("buildArgv: yamllint gets -d line-length-disable override when no project .yamllint exists", () => {
   const yamllint = REGISTRY.yaml.chain[0];
   const dir = mkdtempSync(path.join(tmpdir(), "ul-yl-"));
-  assert.deepEqual(buildArgv(yamllint, path.join(dir, "a.yaml"), dir), [
-    "-d",
-    "{extends: default, rules: {line-length: disable}}",
-    path.join(dir, "a.yaml"),
-  ]);
+  assert.deepEqual(buildArgv(yamllint, path.join(dir, "a.yaml"), dir), ["-d", "{extends: default, rules: {line-length: disable}}", path.join(dir, "a.yaml")]);
 });
 
 test("buildArgv: yamllint runs bare when a project .yamllint exists", () => {
   const yamllint = REGISTRY.yaml.chain[0];
   const dir = mkdtempSync(path.join(tmpdir(), "ul-yl-"));
   writeFileSync(path.join(dir, ".yamllint"), "extends: default\n");
-  assert.deepEqual(buildArgv(yamllint, path.join(dir, "a.yaml"), dir), [
-    path.join(dir, "a.yaml"),
-  ]);
+  assert.deepEqual(buildArgv(yamllint, path.join(dir, "a.yaml"), dir), [path.join(dir, "a.yaml")]);
 });
 
 test("buildArgv: markdownlint-cli2 gets --config <bundled MD013-off file> when no project config exists", () => {
@@ -533,9 +415,7 @@ test("buildArgv: markdownlint-cli2 runs bare when a project config exists", () =
   const markdownlintCli2 = REGISTRY.markdown.chain[0];
   const dir = mkdtempSync(path.join(tmpdir(), "ul-md-"));
   writeFileSync(path.join(dir, ".markdownlint.json"), "{}");
-  assert.deepEqual(buildArgv(markdownlintCli2, path.join(dir, "a.md"), dir), [
-    path.join(dir, "a.md"),
-  ]);
+  assert.deepEqual(buildArgv(markdownlintCli2, path.join(dir, "a.md"), dir), [path.join(dir, "a.md")]);
 });
 
 test("REGISTRY: php chain is phpstan -> psalm, neither carries npmSpec", () => {
@@ -566,14 +446,8 @@ test("isExcludedPath: node_modules/vendor/.git segments -> excluded", () => {
 });
 
 test("isExcludedPath: .claude/worktrees and .claude/agent-memory -> excluded", () => {
-  assert.equal(
-    isExcludedPath(path.join(".claude", "worktrees", "foo", "a.sh")),
-    true,
-  );
-  assert.equal(
-    isExcludedPath(path.join(".claude", "agent-memory", "a.md")),
-    true,
-  );
+  assert.equal(isExcludedPath(path.join(".claude", "worktrees", "foo", "a.sh")), true);
+  assert.equal(isExcludedPath(path.join(".claude", "agent-memory", "a.md")), true);
 });
 
 test("isExcludedPath: other .claude/ subtrees (e.g. rules/agents/skills) stay covered", () => {
@@ -582,25 +456,12 @@ test("isExcludedPath: other .claude/ subtrees (e.g. rules/agents/skills) stay co
 });
 
 test("isExcludedPath: a later .claude segment matching worktrees/agent-memory is still excluded, even after an earlier non-matching .claude segment", () => {
-  assert.equal(
-    isExcludedPath(
-      path.join(".claude", "rules", ".claude", "worktrees", "foo", "a.sh"),
-    ),
-    true,
-  );
-  assert.equal(
-    isExcludedPath(
-      path.join(".claude", "skills", ".claude", "agent-memory", "a.md"),
-    ),
-    true,
-  );
+  assert.equal(isExcludedPath(path.join(".claude", "rules", ".claude", "worktrees", "foo", "a.sh")), true);
+  assert.equal(isExcludedPath(path.join(".claude", "skills", ".claude", "agent-memory", "a.md")), true);
 });
 
 test("isExcludedPath: *.local.* files excluded regardless of location", () => {
-  assert.equal(
-    isExcludedPath(path.join(".claude", "settings.local.json")),
-    true,
-  );
+  assert.equal(isExcludedPath(path.join(".claude", "settings.local.json")), true);
   assert.equal(isExcludedPath("docker-compose.local.yml"), true);
   assert.equal(isExcludedPath("a.sh"), false);
 });

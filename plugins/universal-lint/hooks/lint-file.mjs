@@ -19,14 +19,7 @@
 //   joined additionalContext; no finding from either check: nothing printed.
 import process from "node:process";
 import { spawnSync } from "node:child_process";
-import {
-  accessSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  realpathSync,
-  constants as fsConstants,
-} from "node:fs";
+import { accessSync, existsSync, mkdirSync, readFileSync, realpathSync, constants as fsConstants } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir, homedir } from "node:os";
 import path from "node:path";
@@ -34,6 +27,7 @@ import { fileURLToPath } from "node:url";
 
 const SPAWN_TIMEOUT_MS = 30000; // inner linter timeout; hook-level timeout:60 is the backstop
 const NPX_SPAWN_TIMEOUT_MS = 55000; // cold npx install can exceed SPAWN_TIMEOUT_MS; stay under the hook's 60s ceiling
+// eslint-disable-next-line max-len -- long line is the literal explanatory comment
 const RTK_NPX_ATTEMPT_TIMEOUT_MS = 5000; // bounds the rtk-wrapped npx attempt so a stalled rtk can't consume the bare-npx fallback's cold-install budget too -- worst-case sequential total (this + NPX_SPAWN_TIMEOUT_MS) stays at the hook's 60s ceiling, the same margin the direct-tool branch below already runs at
 const MAX_CONTEXT_CHARS = 4000; // cap on the additionalContext findings text
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024; // spawnSync's 1MB default truncates a noisy linter's output as ENOBUFS
@@ -45,10 +39,12 @@ const TYPE_CHECK_EXTS = new Set([".ts", ".tsx", ".mts", ".cts"]); // tsc only
 // understands real TypeScript syntax -- .js/.jsx/.mjs/.cjs stay eslint-only
 // via the existing jsts chain.
 
+/* eslint-disable max-len -- long line is the literal JSDoc typedef */
 /**
  * @typedef {{ name: string, args: string[], targetsDir?: boolean, classify?: "output", needsCheckstyleConfig?: boolean, guardYamlLineLength?: boolean, guardMarkdownLineLength?: boolean, npmSpec?: string }} LintTool
  * @typedef {{ chain: LintTool[] }} LangEntry
  */
+/* eslint-enable max-len */
 
 // Lowercased file extension (incl. leading dot) -> language key. A subset of
 // the universal-format plugin's EXT_MAP: .json is deliberately excluded here
@@ -204,11 +200,7 @@ const rtkPrefixCache = new Map();
 function getRtkPrefix(tool) {
   const cached = rtkPrefixCache.get(tool.name);
   if (cached !== undefined) return cached;
-  const probe = spawnSync(
-    "rtk",
-    ["rewrite", tool.name, ...tool.args, "__RTK_PROBE__"],
-    { timeout: RTK_PROBE_TIMEOUT_MS, encoding: "utf8" },
-  );
+  const probe = spawnSync("rtk", ["rewrite", tool.name, ...tool.args, "__RTK_PROBE__"], { timeout: RTK_PROBE_TIMEOUT_MS, encoding: "utf8" });
   if (probe.error || probe.signal) return null;
   const prefix = parseRtkPrefix(probe.stdout);
   rtkPrefixCache.set(tool.name, prefix);
@@ -250,10 +242,7 @@ function runLintTool(tool, argv, spawnOpts) {
     if (onPath("rtk")) {
       const rtkPrefix = getRtkPrefix(tool);
       if (rtkPrefix) {
-        const rtkResult = tryRtk(
-          [...rtkPrefix, ...argv.slice(tool.args.length)],
-          { ...spawnOpts, timeout: RTK_NPX_ATTEMPT_TIMEOUT_MS },
-        );
+        const rtkResult = tryRtk([...rtkPrefix, ...argv.slice(tool.args.length)], { ...spawnOpts, timeout: RTK_NPX_ATTEMPT_TIMEOUT_MS });
         if (rtkResult) return rtkResult;
       }
     }
@@ -265,10 +254,7 @@ function runLintTool(tool, argv, spawnOpts) {
   if (onPath("rtk")) {
     const rtkPrefix = getRtkPrefix(tool);
     if (rtkPrefix) {
-      const rtkResult = tryRtk(
-        [...rtkPrefix, ...argv.slice(tool.args.length)],
-        spawnOpts,
-      );
+      const rtkResult = tryRtk([...rtkPrefix, ...argv.slice(tool.args.length)], spawnOpts);
       if (rtkResult) return rtkResult;
     }
   }
@@ -300,11 +286,7 @@ function walkUpToCwd(fileDir, cwd, checkDir) {
 // there is no "does this section apply to this file" question to answer).
 /** @param {string} fileDir @param {string} cwd @returns {string | null} */
 export function resolveCheckstyleConfig(fileDir, cwd) {
-  const candidates = [
-    "checkstyle.xml",
-    ".checkstyle.xml",
-    path.join("config", "checkstyle", "checkstyle.xml"),
-  ];
+  const candidates = ["checkstyle.xml", ".checkstyle.xml", path.join("config", "checkstyle", "checkstyle.xml")];
   return walkUpToCwd(fileDir, cwd, (dir) => {
     for (const rel of candidates) {
       const p = path.join(dir, rel);
@@ -435,11 +417,7 @@ export function tsBuildInfoPathFor(tsconfigPath) {
 
 // yamllint's own project-config filenames (yamllint/cli.py's
 // find_project_config_filepath, verified against yamllint 1.38.0).
-const YAMLLINT_CONFIG_FILENAMES = [
-  ".yamllint",
-  ".yamllint.yaml",
-  ".yamllint.yml",
-];
+const YAMLLINT_CONFIG_FILENAMES = [".yamllint", ".yamllint.yaml", ".yamllint.yml"];
 
 // Faithful port of yamllint's own find_project_config_filepath: starts at the
 // CLI's cwd -- which is always this hook's spawnSync `cwd` (the project root),
@@ -453,10 +431,7 @@ export function hasProjectYamllintConfig(cwd) {
   let dir = path.resolve(cwd);
   const home = path.resolve(homedir());
   for (;;) {
-    if (
-      YAMLLINT_CONFIG_FILENAMES.some((name) => existsSync(path.join(dir, name)))
-    )
-      return true;
+    if (YAMLLINT_CONFIG_FILENAMES.some((name) => existsSync(path.join(dir, name)))) return true;
     if (dir === home) return false;
     const parent = path.dirname(dir);
     if (parent === dir) return false; // filesystem root
@@ -472,8 +447,7 @@ export function hasProjectYamllintConfig(cwd) {
 // found nothing. Single-line flow-style YAML (not the equivalent multi-line
 // block form) so the whole value survives as one argv element through rtk's
 // rewrite unchanged.
-const YAMLLINT_NO_LINE_LENGTH_CONFIG_DATA =
-  "{extends: default, rules: {line-length: disable}}";
+const YAMLLINT_NO_LINE_LENGTH_CONFIG_DATA = "{extends: default, rules: {line-length: disable}}";
 
 // markdownlint-cli2's own documented config filenames (its --help's own
 // "Configuration via:" list, verified against markdownlint-cli2 0.23.2);
@@ -514,11 +488,7 @@ function walkToRoot(dir, checkDir) {
 // governs `fileDir` -- existence-only over MARKDOWNLINT_CONFIG_FILENAMES.
 /** @param {string} fileDir @returns {boolean} */
 export function hasProjectMarkdownlintConfig(fileDir) {
-  return walkToRoot(fileDir, (dir) =>
-    MARKDOWNLINT_CONFIG_FILENAMES.some((name) =>
-      existsSync(path.join(dir, name)),
-    ),
-  );
+  return walkToRoot(fileDir, (dir) => MARKDOWNLINT_CONFIG_FILENAMES.some((name) => existsSync(path.join(dir, name))));
 }
 
 // Bundled, constant config disabling only MD013 (line-length) -- both
@@ -526,10 +496,7 @@ export function hasProjectMarkdownlintConfig(fileDir) {
 // and config schema, so one file serves both chain entries. Shipped as a real
 // file next to this script (not written at runtime) so it's reviewable in
 // git and needs no mkdir/write-failure handling.
-const MARKDOWNLINT_NO_LINE_LENGTH_CONFIG_PATH = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "markdownlint-no-line-length.json",
-);
+const MARKDOWNLINT_NO_LINE_LENGTH_CONFIG_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "markdownlint-no-line-length.json");
 
 // Build the argv for a chain tool: fixed bare args, an optional -c <config> for
 // checkstyle or -d/--config line-length guards for yamllint/markdownlint, then
@@ -618,19 +585,15 @@ export function classifyCheckstyleOutput(stdout) {
   const lines = String(stdout ?? "").split(/\r?\n/);
   let lastIdx = lines.length - 1;
   while (lastIdx >= 0 && lines[lastIdx].trim() === "") lastIdx--;
-  if (lastIdx < 0 || lines[lastIdx].trim() !== "Audit done.")
-    return { status: "skip", text: "" };
+  if (lastIdx < 0 || lines[lastIdx].trim() !== "Audit done.") return { status: "skip", text: "" };
   let firstIdx = 0;
   while (firstIdx < lines.length && lines[firstIdx].trim() === "") firstIdx++;
-  const skipFirst =
-    firstIdx < lines.length && lines[firstIdx].trim() === "Starting audit...";
+  const skipFirst = firstIdx < lines.length && lines[firstIdx].trim() === "Starting audit...";
   const body = lines
     .slice(skipFirst ? firstIdx + 1 : firstIdx, lastIdx)
     .join("\n")
     .trim();
-  return body
-    ? { status: "issues", text: body }
-    : { status: "clean", text: "" };
+  return body ? { status: "issues", text: body } : { status: "clean", text: "" };
 }
 
 // Trim, collapse runs of 3+ blank lines to one, and cap at MAX_CONTEXT_CHARS.
@@ -688,9 +651,7 @@ function runChainLint(lang, resolved, cwd, rel) {
   const result = runLintTool(tool, argv, spawnOpts);
   if (result.error || result.signal) return null;
 
-  const target = tool.targetsDir
-    ? path.relative(cwd, path.dirname(resolved)) || "."
-    : rel;
+  const target = tool.targetsDir ? path.relative(cwd, path.dirname(resolved)) || "." : rel;
   let verdict, text;
   if (tool.classify === "output") {
     const out = classifyCheckstyleOutput(result.stdout);
@@ -733,11 +694,7 @@ function runTypeCheck(resolved, cwd) {
   if (onPath("tsc")) {
     // Reuses the shared chain-tool runner so tsc gets the same rtk-compaction
     // attempt as every other tool, keyed off its static probe args.
-    result = runLintTool(
-      { name: "tsc", args: staticArgs },
-      [...staticArgs, ...dynamicTail],
-      spawnOpts,
-    );
+    result = runLintTool({ name: "tsc", args: staticArgs }, [...staticArgs, ...dynamicTail], spawnOpts);
   } else {
     // Most real TS projects only have `typescript` as a local devDependency
     // (node_modules/.bin usually isn't on a hook's PATH) -- no npx fallback
@@ -770,21 +727,8 @@ function runTypeCheck(resolved, cwd) {
 /** @param {string} rel @returns {boolean} */
 export function isExcludedPath(rel) {
   const segments = rel.split(path.sep);
-  if (
-    segments.some(
-      (s) => s === "node_modules" || s === "vendor" || s === ".git",
-    )
-  )
-    return true;
-  if (
-    segments.some(
-      (s, i) =>
-        s === ".claude" &&
-        (segments[i + 1] === "worktrees" ||
-          segments[i + 1] === "agent-memory"),
-    )
-  )
-    return true;
+  if (segments.some((s) => s === "node_modules" || s === "vendor" || s === ".git")) return true;
+  if (segments.some((s, i) => s === ".claude" && (segments[i + 1] === "worktrees" || segments[i + 1] === "agent-memory"))) return true;
   return segments[segments.length - 1].includes(".local.");
 }
 
@@ -827,9 +771,7 @@ function lintFileHandler(args) {
     // hard whole-message ceiling. Idempotent/no-op for the single-finding
     // case (already <= MAX_CONTEXT_CHARS from its own inner truncate()), so
     // single-finding output is unchanged from before this change.
-    const blocks = findings.map(
-      (f) => `${f.tool} found issues in ${f.target}:\n${truncate(f.text)}`,
-    );
+    const blocks = findings.map((f) => `${f.tool} found issues in ${f.target}:\n${truncate(f.text)}`);
     return {
       hookSpecificOutput: {
         hookEventName: "PostToolUse",
@@ -845,10 +787,7 @@ function lintFileHandler(args) {
 // false when imported by a unit test -- so importing never starts the stdin loop.
 function isMainModule() {
   try {
-    return (
-      realpathSync(process.argv[1]) ===
-      realpathSync(fileURLToPath(import.meta.url))
-    );
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
   } catch {
     return false;
   }

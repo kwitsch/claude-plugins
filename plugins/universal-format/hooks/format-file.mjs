@@ -17,13 +17,7 @@
 //   chain tool can run: nothing printed.
 import process from "node:process";
 import { spawnSync } from "node:child_process";
-import {
-  accessSync,
-  existsSync,
-  readFileSync,
-  realpathSync,
-  constants as fsConstants,
-} from "node:fs";
+import { accessSync, existsSync, readFileSync, realpathSync, constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -141,16 +135,12 @@ function walkToRoot(dir, checkDir) {
 /** @param {string} fileDir @returns {boolean} */
 export function hasPrettierProjectConfig(fileDir) {
   return walkToRoot(fileDir, (dir) => {
-    if (
-      PRETTIER_CONFIG_FILENAMES.some((name) => existsSync(path.join(dir, name)))
-    )
-      return true;
+    if (PRETTIER_CONFIG_FILENAMES.some((name) => existsSync(path.join(dir, name)))) return true;
     const pkgPath = path.join(dir, "package.json");
     if (existsSync(pkgPath)) {
       try {
         const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
-        if (pkg && typeof pkg === "object" && Object.hasOwn(pkg, "prettier"))
-          return true;
+        if (pkg && typeof pkg === "object" && Object.hasOwn(pkg, "prettier")) return true;
       } catch {
         /* unreadable/invalid JSON -> treat as absent */
       }
@@ -183,8 +173,7 @@ const NO_LINE_LENGTH_PRINT_WIDTH = "99999";
 export function guardPrintWidthArgv(base, file, cwd) {
   if (hasPrettierProjectConfig(path.dirname(file))) return base.slice();
   const ec = resolveEditorconfig(file, cwd);
-  if (ec.found && typeof ec.props.max_line_length === "number")
-    return base.slice();
+  if (ec.found && typeof ec.props.max_line_length === "number") return base.slice();
   return [...base, "--print-width", NO_LINE_LENGTH_PRINT_WIDTH];
 }
 
@@ -241,11 +230,7 @@ export const REGISTRY = {
       {
         name: "ruff",
         strategy: "mapped",
-        nativeConfig: [
-          ".ruff.toml",
-          "ruff.toml",
-          { file: "pyproject.toml", section: "tool.ruff" },
-        ],
+        nativeConfig: [".ruff.toml", "ruff.toml", { file: "pyproject.toml", section: "tool.ruff" }],
         base: ["format", "--quiet"],
       },
       {
@@ -320,14 +305,9 @@ export function isToolAvailable(tool, toolOnPath, npxOnPath) {
 // this file and map/skip via buildInvocation.
 /** @param {FormatTool} tool @param {string} file @param {string} cwd @returns {{argv: string[]} | {skip: true}} */
 function resolveInvocation(tool, file, cwd) {
-  if (tool.guardPrintWidth)
-    return { argv: guardPrintWidthArgv(tool.base, file, cwd) };
+  if (tool.guardPrintWidth) return { argv: guardPrintWidthArgv(tool.base, file, cwd) };
   if (tool.strategy !== "mapped") return buildInvocation(tool);
-  const hasNativeConfig = findNativeConfig(
-    path.dirname(file),
-    cwd,
-    tool.nativeConfig ?? [],
-  );
+  const hasNativeConfig = findNativeConfig(path.dirname(file), cwd, tool.nativeConfig ?? []);
   let editorconfig = null;
   if (!hasNativeConfig) {
     const ec = resolveEditorconfig(file, cwd);
@@ -389,54 +369,37 @@ const MAPPERS = {
     // gjf is fixed at spaces-only, 100-col, 2/4-space indent. Skip on any conflict.
     if (ec.indent_style === "tab") return { skip: true };
     if (ec.indent_size === "tab") return { skip: true };
-    if (
-      typeof ec.indent_size === "number" &&
-      ec.indent_size !== 2 &&
-      ec.indent_size !== 4
-    )
-      return { skip: true };
-    if (typeof ec.max_line_length === "number" && ec.max_line_length < 100)
-      return { skip: true };
+    if (typeof ec.indent_size === "number" && ec.indent_size !== 2 && ec.indent_size !== 4) return { skip: true };
+    if (typeof ec.max_line_length === "number" && ec.max_line_length < 100) return { skip: true };
     return { argv: ec.indent_size === 4 ? ["--aosp", ...base] : base.slice() };
   },
   "clang-format"(base, ec) {
     // No tool-native config: construct an explicit Google-based style from .editorconfig.
     const parts = ["BasedOnStyle: Google"];
-    if (typeof ec.indent_size === "number")
-      parts.push(`IndentWidth: ${ec.indent_size}`);
-    if (ec.indent_style)
-      parts.push(
-        `UseTab: ${ec.indent_style === "tab" ? "ForIndentation" : "Never"}`,
-      );
-    if (typeof ec.max_line_length === "number")
-      parts.push(`ColumnLimit: ${ec.max_line_length}`);
+    if (typeof ec.indent_size === "number") parts.push(`IndentWidth: ${ec.indent_size}`);
+    if (ec.indent_style) parts.push(`UseTab: ${ec.indent_style === "tab" ? "ForIndentation" : "Never"}`);
+    if (typeof ec.max_line_length === "number") parts.push(`ColumnLimit: ${ec.max_line_length}`);
     return { argv: ["-i", `--style={${parts.join(", ")}}`] };
   },
   biome(base, ec) {
     const argv = base.slice();
     if (ec.indent_style) argv.push(`--indent-style=${ec.indent_style}`);
-    if (typeof ec.indent_size === "number")
-      argv.push(`--indent-width=${ec.indent_size}`);
+    if (typeof ec.indent_size === "number") argv.push(`--indent-width=${ec.indent_size}`);
     if (ec.end_of_line) argv.push(`--line-ending=${ec.end_of_line}`);
-    if (typeof ec.max_line_length === "number")
-      argv.push(`--line-width=${ec.max_line_length}`);
+    if (typeof ec.max_line_length === "number") argv.push(`--line-width=${ec.max_line_length}`);
     return { argv };
   },
   ruff(base, ec) {
     const argv = base.slice();
-    if (typeof ec.max_line_length === "number")
-      argv.push("--line-length", String(ec.max_line_length));
-    if (ec.indent_style)
-      argv.push("--config", `format.indent-style='${ec.indent_style}'`);
-    if (typeof ec.indent_size === "number")
-      argv.push("--config", `format.indent-width=${ec.indent_size}`);
+    if (typeof ec.max_line_length === "number") argv.push("--line-length", String(ec.max_line_length));
+    if (ec.indent_style) argv.push("--config", `format.indent-style='${ec.indent_style}'`);
+    if (typeof ec.indent_size === "number") argv.push("--config", `format.indent-width=${ec.indent_size}`);
     return { argv };
   },
   black(base, ec) {
     if (ec.indent_style === "tab") return { skip: true }; // black is hard-fixed 4-space; tabs rejected
     const argv = base.slice();
-    if (typeof ec.max_line_length === "number")
-      argv.push("--line-length", String(ec.max_line_length));
+    if (typeof ec.max_line_length === "number") argv.push("--line-length", String(ec.max_line_length));
     return { argv };
   },
 };
@@ -555,13 +518,7 @@ export function matchGlob(glob, basename) {
 
 /** @param {string} glob @returns {RegExp | null} */
 function globToRegExp(glob) {
-  if (
-    glob.includes("/") ||
-    glob.includes("[") ||
-    glob.includes("]") ||
-    glob.includes("!")
-  )
-    return null;
+  if (glob.includes("/") || glob.includes("[") || glob.includes("]") || glob.includes("!")) return null;
   if (/\{[^}]*\.\.[^}]*\}/.test(glob)) return null; // brace range {1..9}
   let re = "";
   for (let i = 0; i < glob.length; i++) {
@@ -630,21 +587,8 @@ function normalizeProps(raw) {
 /** @param {string} rel @returns {boolean} */
 export function isExcludedPath(rel) {
   const segments = rel.split(path.sep);
-  if (
-    segments.some(
-      (s) => s === "node_modules" || s === "vendor" || s === ".git",
-    )
-  )
-    return true;
-  if (
-    segments.some(
-      (s, i) =>
-        s === ".claude" &&
-        (segments[i + 1] === "worktrees" ||
-          segments[i + 1] === "agent-memory"),
-    )
-  )
-    return true;
+  if (segments.some((s) => s === "node_modules" || s === "vendor" || s === ".git")) return true;
+  if (segments.some((s, i) => s === ".claude" && (segments[i + 1] === "worktrees" || segments[i + 1] === "agent-memory"))) return true;
   return segments[segments.length - 1].includes(".local.");
 }
 
@@ -667,9 +611,7 @@ function formatFileHandler(args) {
     if (!existsSync(resolved)) return {};
 
     // Cached O(1) PATH probe short-circuits before selectFormatter's fuller walk.
-    const candidate = REGISTRY[lang].chain.find((t) =>
-      isToolAvailable(t, onPath(t.name), onPath("npx")),
-    );
+    const candidate = REGISTRY[lang].chain.find((t) => isToolAvailable(t, onPath(t.name), onPath("npx")));
     if (!candidate) return {};
 
     const selection = selectFormatter(REGISTRY[lang].chain, resolved, cwd);
@@ -681,11 +623,7 @@ function formatFileHandler(args) {
     // exceed the local-binary budget on a slow network or fresh CI runner.
     const [cmd, cmdArgv, timeout] = onPath(tool.name)
       ? [tool.name, [...argv, resolved], SPAWN_TIMEOUT_MS]
-      : [
-          "npx",
-          ["--yes", /** @type {string} */ (tool.npmSpec), ...argv, resolved],
-          NPX_SPAWN_TIMEOUT_MS,
-        ];
+      : ["npx", ["--yes", /** @type {string} */ (tool.npmSpec), ...argv, resolved], NPX_SPAWN_TIMEOUT_MS];
 
     const before = readFileSync(resolved);
     try {
@@ -703,6 +641,7 @@ function formatFileHandler(args) {
     return {
       hookSpecificOutput: {
         hookEventName: "PostToolUse",
+        // eslint-disable-next-line max-len -- long line is the literal message string
         additionalContext: `universal-format: ${tool.name} reformatted ${rel}; re-read it before further string-based edits. This reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules — do not revert or redo it by hand to shrink the diff.`,
       },
     };
@@ -715,10 +654,7 @@ function formatFileHandler(args) {
 // false when imported by a unit test — so importing never starts the stdin loop.
 function isMainModule() {
   try {
-    return (
-      realpathSync(process.argv[1]) ===
-      realpathSync(fileURLToPath(import.meta.url))
-    );
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
   } catch {
     return false;
   }

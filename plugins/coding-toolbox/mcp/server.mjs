@@ -27,10 +27,7 @@ startServer();
 // 8-consecutive-block cap) — no extra guard needed here.
 /** @param {StopHookInput} args @returns {HookResult} */
 function interactionGateHandler(args) {
-  const withoutFences = String(args?.last_assistant_message ?? "").replace(
-    /```[\s\S]*?```/g,
-    "",
-  );
+  const withoutFences = String(args?.last_assistant_message ?? "").replace(/```[\s\S]*?```/g, "");
   const lines = withoutFences
     .split("\n")
     .map((l) => l.trim())
@@ -67,8 +64,7 @@ function git(cwd, args) {
 // against — so resolve it explicitly first (a no-op on an absolute value).
 /** @param {string} cwd @returns {boolean} */
 function isLinkedWorktree(cwd) {
-  const resolve = (/** @type {string[]} */ args) =>
-    fs.realpathSync(path.resolve(cwd, git(cwd, args)));
+  const resolve = (/** @type {string[]} */ args) => fs.realpathSync(path.resolve(cwd, git(cwd, args)));
   try {
     const gitDir = resolve(["rev-parse", "--git-dir"]);
     const commonDir = resolve(["rev-parse", "--git-common-dir"]);
@@ -88,11 +84,7 @@ function detectDefaultBranch(cwd) {
     /* best effort */
   }
   try {
-    const ref = git(cwd, [
-      "symbolic-ref",
-      "--short",
-      "refs/remotes/origin/HEAD",
-    ]);
+    const ref = git(cwd, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
     if (ref) return ref.replace(/^origin\//, "");
   } catch {
     /* fall through */
@@ -116,9 +108,7 @@ function firstLine(e) {
   const err = /** @type {any} */ (e);
   const stderr = String(err?.stderr ?? err?.stdio?.[2] ?? "");
   const text = stderr.trim() ? stderr : String(err?.message ?? err);
-  return (text.split("\n").find((l) => l.trim()) ?? "")
-    .replace(/\r+/g, " ")
-    .trim();
+  return (text.split("\n").find((l) => l.trim()) ?? "").replace(/\r+/g, " ").trim();
 }
 
 // Fail-open: only the literal string "false" disables — this server's own
@@ -140,9 +130,7 @@ export function isWorktreeRefreshEnabled(value) {
   return isFailOpenToggleEnabled(value);
 }
 
-const WORKTREE_REFRESH_ENABLED = isWorktreeRefreshEnabled(
-  process.env.CODING_TOOLBOX_WORKTREE_REFRESH,
-);
+const WORKTREE_REFRESH_ENABLED = isWorktreeRefreshEnabled(process.env.CODING_TOOLBOX_WORKTREE_REFRESH);
 
 /** @param {PostToolUseHookInput} args @returns {HookResult} */
 function worktreeRefreshHandler(args) {
@@ -155,8 +143,7 @@ function worktreeRefreshHandler(args) {
   // live against a real EnterWorktree call — see the design doc) — prefer it
   // over cwd, which is present for every tool but not guaranteed to name the
   // worktree in every future call shape.
-  const cwd =
-    /** @type {any} */ (args?.tool_response)?.worktreePath ?? args?.cwd;
+  const cwd = /** @type {any} */ (args?.tool_response)?.worktreePath ?? args?.cwd;
   if (!cwd) return {};
 
   if (!isLinkedWorktree(cwd)) return {}; // defensive: not (yet) inside a linked worktree
@@ -186,6 +173,7 @@ function worktreeRefreshHandler(args) {
     return {
       hookSpecificOutput: {
         hookEventName: "PostToolUse",
+        // eslint-disable-next-line max-len -- long line is the literal message string
         additionalContext: `worktree-refresh: rebase onto origin/${base} conflicted and was aborted — the worktree was left as created (not refreshed). Run 'git rebase origin/${base}' manually in this worktree if you need the latest upstream changes. (${firstLine(e)})`,
       },
     };
@@ -200,6 +188,7 @@ function startServer() {
     {
       name: "interaction_gate",
       description:
+        // eslint-disable-next-line max-len -- long line is the literal description string
         "Stop mechanical gate for the Interaction axis: blocks (decision:block+reason) when last_assistant_message ends in a bare '?' outside code fences, telling Claude to redo it via AskUserQuestion. {} otherwise.",
       inputSchema: { type: "object", additionalProperties: true },
       handler: interactionGateHandler,
@@ -215,17 +204,10 @@ function startServer() {
       handler: worktreeRefreshHandler,
     },
   ];
-  const findTool = (/** @type {any} */ name) =>
-    TOOLS.find((t) => t.name === name);
-  const send = (/** @type {any} */ msg) =>
-    process.stdout.write(JSON.stringify(msg) + "\n");
-  const ok = (/** @type {any} */ id, /** @type {any} */ result) =>
-    send({ jsonrpc: "2.0", id, result });
-  const fail = (
-    /** @type {any} */ id,
-    /** @type {any} */ code,
-    /** @type {any} */ message,
-  ) => send({ jsonrpc: "2.0", id, error: { code, message } });
+  const findTool = (/** @type {any} */ name) => TOOLS.find((t) => t.name === name);
+  const send = (/** @type {any} */ msg) => process.stdout.write(JSON.stringify(msg) + "\n");
+  const ok = (/** @type {any} */ id, /** @type {any} */ result) => send({ jsonrpc: "2.0", id, result });
+  const fail = (/** @type {any} */ id, /** @type {any} */ code, /** @type {any} */ message) => send({ jsonrpc: "2.0", id, error: { code, message } });
 
   const handle = (/** @type {any} */ msg) => {
     const { id, method, params } = msg;
@@ -253,9 +235,7 @@ function startServer() {
         const tool = findTool(params?.name);
         if (!tool) return fail(id, -32602, `unknown tool: ${params?.name}`);
         if (process.env.MCP_HOOK_DEBUG) {
-          process.stderr.write(
-            `[${SERVER_NAME}] tools/call ${params?.name} args=${JSON.stringify(params?.arguments)}\n`,
-          );
+          process.stderr.write(`[${SERVER_NAME}] tools/call ${params?.name} args=${JSON.stringify(params?.arguments)}\n`);
         }
         let result;
         try {
@@ -290,9 +270,7 @@ function startServer() {
       handle(msg);
     } catch (e) {
       const err = /** @type {any} */ (e);
-      process.stderr.write(
-        `[${SERVER_NAME}] handler crash: ${err?.stack ?? err}\n`,
-      );
+      process.stderr.write(`[${SERVER_NAME}] handler crash: ${err?.stack ?? err}\n`);
     }
   });
   rl.on("close", () => process.exit(0));

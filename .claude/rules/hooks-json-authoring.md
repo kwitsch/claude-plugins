@@ -5,7 +5,7 @@ paths:
 
 # Rule: hooks.json authoring reference
 
-Sources: https://code.claude.com/docs/en/hooks · https://code.claude.com/docs/en/plugins
+Sources: <https://code.claude.com/docs/en/hooks> · <https://code.claude.com/docs/en/plugins>
 
 ## File structure
 
@@ -35,7 +35,7 @@ Sources: https://code.claude.com/docs/en/hooks · https://code.claude.com/docs/e
 ## Plugin path variables
 
 | Variable | Value |
-|---|---|
+| --- | --- |
 | `${CLAUDE_PLUGIN_ROOT}` | Plugin install directory — **changes on each plugin update**. Use for bundled scripts. |
 | `${CLAUDE_PLUGIN_DATA}` | Persistent data dir — survives plugin updates. Use for deps and runtime state. |
 | `${CLAUDE_PROJECT_DIR}` | Project's `.claude/` parent directory. |
@@ -45,7 +45,7 @@ Sources: https://code.claude.com/docs/en/hooks · https://code.claude.com/docs/e
 ## Hook command fields
 
 | Field | Required | Notes |
-|---|---|---|
+| --- | --- | --- |
 | `type` | yes | `command` `http` `mcp_tool` `prompt` `agent` |
 | `command` | yes | Executable or shell string |
 | `args` | no | Exec form when present (no shell). Omit for shell form (pipes, `&&`). |
@@ -90,7 +90,7 @@ is documented in the **hooks-mcp-server** rule.
 ## Events reference
 
 | Event | Matcher support | Can block | Notes |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `SessionStart` | `startup` `resume` `clear` `compact` | No | Load context; set `sessionTitle`; `reloadSkills: true` |
 | `PreToolUse` | tool name | **Yes** (exit 2) | Can allow/deny/modify tool input |
 | `PostToolUse` | tool name | No | Tool already ran; stderr shown to Claude |
@@ -186,7 +186,7 @@ Plain stdout also reaches Claude for SessionStart (no JSON wrapper needed for co
 ## Exit codes
 
 | Code | Meaning |
-|---|---|
+| --- | --- |
 | 0 | Success |
 | 2 | Block (for blockable events) |
 | other non-zero | Failure — stderr shown per event (see table above) |

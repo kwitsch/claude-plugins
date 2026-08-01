@@ -73,14 +73,18 @@ If the block above rendered as literally `[shell command execution disabled by p
    this entirely — no shell ever parses the argument text as syntax, only
    as file content — the same pattern this plugin's `finish-pr` already
    uses for other free-form text (`apply-pr-update.sh`'s title/body files):
+
    ```bash
    mktemp "${TMPDIR:-/tmp}/setup-rules-args.XXXXXX"
    ```
+
    Then use the `Write` tool to write `$ARGUMENTS`'s literal text (exact
    bytes, nothing added) to the path `mktemp` just printed, then:
+
    ```bash
    bash ${CLAUDE_SKILL_DIR}/parse-args.sh <path-from-mktemp>
    ```
+
 3. Exit `0` → take the printed `golden_rules:`/`tools:` values directly
    (each `yes`/`no`/`unset` — `unset` means "leave this answer untouched").
    Skip `AskUserQuestion` entirely — go straight to Step 4 Apply with these
@@ -133,17 +137,22 @@ options:
 ## Step 4 — Apply
 
 - Question 1 answered "Yes":
+
   ```bash
   mkdir -p "$HOME/.claude/rules"
   cp "<plugin root resolved in Step 1>/skills/setup-rules/references/golden-rules.md" "$HOME/.claude/rules/coding-toolbox-rules.md"
   ```
+
 - Question 1 answered "No":
+
   ```bash
   rm -f "$HOME/.claude/rules/coding-toolbox-rules.md"
   ```
+
 - Question 1 `unset` (Step 3a only): no action for the golden-rules file —
   leave it as detected in Step 1.
 - Question 2 (if asked) answered "Yes", and `detected` is **non-empty**:
+
   ```bash
   mkdir -p "$HOME/.claude/rules"
   cat > "$HOME/.claude/rules/coding-toolbox-tools.md" <<'EOF'
@@ -156,6 +165,7 @@ options:
   <one line per tool in `detected`, from the candidate rows file below, in this order>
   EOF
   ```
+
   Candidate rows — Read `<plugin root resolved in Step 1>/skills/setup-rules/references/tool-routing-rows.md`
   for the exact rows to include (only those whose tool is in `detected`,
   verbatim, in that file's order) — single source of truth, also read by
@@ -170,9 +180,11 @@ options:
   don't create a tools-rule file when nothing was actually detected; note
   in Step 5 that nothing was detected so no file was created.
 - Question 2 answered "No":
+
   ```bash
   rm -f "$HOME/.claude/rules/coding-toolbox-tools.md"
   ```
+
 - Question 2 not asked (nothing installed, nothing detected): no action for
   the tools file.
 - Question 2 (Step 3a only) `unset`: no action for the tools file — leave it

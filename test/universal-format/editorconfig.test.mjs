@@ -3,11 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import {
-  parseEditorconfig,
-  matchGlob,
-  resolveEditorconfig,
-} from "../../plugins/universal-format/hooks/format-file.mjs";
+import { parseEditorconfig, matchGlob, resolveEditorconfig } from "../../plugins/universal-format/hooks/format-file.mjs";
 
 test("matchGlob supports *, *.ext, *.{a,b}, **.ext; rejects unsupported forms", () => {
   assert.equal(matchGlob("*", "Foo.java"), true);
@@ -21,9 +17,7 @@ test("matchGlob supports *, *.ext, *.{a,b}, **.ext; rejects unsupported forms", 
 });
 
 test("parseEditorconfig reads root flag and sections in order", () => {
-  const pf = parseEditorconfig(
-    "root = true\n\n[*.java]\nindent_size = 4\n# comment\n[*]\nindent_style = space\n",
-  );
+  const pf = parseEditorconfig("root = true\n\n[*.java]\nindent_size = 4\n# comment\n[*]\nindent_style = space\n");
   assert.equal(pf.root, true);
   assert.equal(pf.sections.length, 2);
   assert.deepEqual(pf.sections[0], {
@@ -38,10 +32,7 @@ test("parseEditorconfig reads root flag and sections in order", () => {
 
 test("resolveEditorconfig: later matching section wins within a file", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "uf-ec-"));
-  writeFileSync(
-    path.join(dir, ".editorconfig"),
-    "root = true\n[*]\nindent_size = 2\n[*.java]\nindent_size = 4\n",
-  );
+  writeFileSync(path.join(dir, ".editorconfig"), "root = true\n[*]\nindent_size = 2\n[*.java]\nindent_size = 4\n");
   const r = resolveEditorconfig(path.join(dir, "Foo.java"), dir);
   assert.equal(r.found, true);
   assert.equal(r.props.indent_size, 4);
@@ -49,10 +40,7 @@ test("resolveEditorconfig: later matching section wins within a file", () => {
 
 test("resolveEditorconfig: nearer file overrides farther; stops climbing at root=true", () => {
   const root = mkdtempSync(path.join(tmpdir(), "uf-ec-"));
-  writeFileSync(
-    path.join(root, ".editorconfig"),
-    "root = true\n[*]\nindent_size = 2\nmax_line_length = 120\n",
-  );
+  writeFileSync(path.join(root, ".editorconfig"), "root = true\n[*]\nindent_size = 2\nmax_line_length = 120\n");
   const sub = path.join(root, "sub");
   mkdirSync(sub);
   writeFileSync(path.join(sub, ".editorconfig"), "[*]\nindent_size = 8\n");
@@ -70,10 +58,7 @@ test("resolveEditorconfig: nothing found -> {found:false}", () => {
 
 test("resolveEditorconfig: indent_style=tab surfaces for hard-conflict predicates", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "uf-ec-"));
-  writeFileSync(
-    path.join(dir, ".editorconfig"),
-    "root = true\n[*]\nindent_style = tab\n",
-  );
+  writeFileSync(path.join(dir, ".editorconfig"), "root = true\n[*]\nindent_style = tab\n");
   const r = resolveEditorconfig(path.join(dir, "Foo.java"), dir);
   assert.equal(r.props.indent_style, "tab");
 });

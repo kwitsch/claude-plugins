@@ -7,10 +7,10 @@
 // in-memory strings; the source file is written at most once, only after a
 // valid result exists — a crash mid-retry can never leave it half-compressed.
 
-import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync, unlinkSync, mkdirSync, statSync } from 'node:fs';
-import { basename, dirname, extname, resolve, sep } from 'node:path';
-import { createHash } from 'node:crypto';
+import { execFileSync } from "node:child_process";
+import { readFileSync, writeFileSync, existsSync, unlinkSync, mkdirSync, statSync } from "node:fs";
+import { basename, dirname, extname, resolve, sep } from "node:path";
+import { createHash } from "node:crypto";
 
 const MAX_RETRIES = 2; // 1 initial compress attempt + 1 targeted-fix retry
 const MAX_FILE_SIZE = 500_000; // 500KB
@@ -30,7 +30,7 @@ const OUTER_FENCE_REGEX = /^\s*(`{3,}|~{3,})[^\n]*\n(.*)\n\1\s*$/s;
 function splitFrontmatter(text) {
   const m = text.match(FRONTMATTER_REGEX);
   if (m) return { frontmatter: m[1], body: m[2] };
-  return { frontmatter: '', body: text };
+  return { frontmatter: "", body: text };
 }
 
 /**
@@ -48,11 +48,11 @@ function stripLlmWrapper(text) {
 // an ordinary-looking notes.md would not be caught.
 
 const SENSITIVE_BASENAME_REGEX = /^(\.env(\..+)?|\.netrc|id_(rsa|dsa|ecdsa|ed25519)(\.pub)?|authorized_keys|known_hosts|.*\.(pem|key|p12|pfx|crt|cer|jks|keystore|asc|gpg))$/i;
-const SENSITIVE_PATH_COMPONENTS = new Set(['.ssh', '.aws', '.gnupg', '.kube', '.docker']);
+const SENSITIVE_PATH_COMPONENTS = new Set([".ssh", ".aws", ".gnupg", ".kube", ".docker"]);
 // Substring tokens are checked against the separator-stripped basename, which
 // already subsumes whole-basename patterns like "credentials"/"secrets" —
 // keep those families here only, not duplicated in the regex above.
-const SENSITIVE_NAME_TOKENS = ['secret', 'credential', 'password', 'passwd', 'apikey', 'accesskey', 'token', 'privatekey'];
+const SENSITIVE_NAME_TOKENS = ["secret", "credential", "password", "passwd", "apikey", "accesskey", "token", "privatekey"];
 
 /**
  * @param {string} filepath
@@ -63,7 +63,7 @@ function isSensitivePath(filepath) {
   if (SENSITIVE_BASENAME_REGEX.test(name)) return true;
   const parts = filepath.split(sep).map((/** @type {string} */ p) => p.toLowerCase());
   if (parts.some((p) => SENSITIVE_PATH_COMPONENTS.has(p))) return true;
-  const lowered = name.toLowerCase().replace(/[_\-\s.]/g, '');
+  const lowered = name.toLowerCase().replace(/[_\-\s.]/g, "");
   return SENSITIVE_NAME_TOKENS.some((tok) => lowered.includes(tok));
 }
 
@@ -74,8 +74,8 @@ function isSensitivePath(filepath) {
  * @returns {boolean}
  */
 function shouldCompress(filepath) {
-  if (basename(filepath).toLowerCase().endsWith('.original.md')) return false;
-  return extname(filepath).toLowerCase() === '.md';
+  if (basename(filepath).toLowerCase().endsWith(".original.md")) return false;
+  return extname(filepath).toLowerCase() === ".md";
 }
 
 // ---------- Git recoverability ----------
@@ -91,17 +91,17 @@ function shouldCompress(filepath) {
 function isGitRecoverable(filepath) {
   const dir = dirname(filepath);
   try {
-    execFileSync('git', ['-C', dir, 'ls-files', '--error-unmatch', '--', filepath], { stdio: 'ignore' });
+    execFileSync("git", ["-C", dir, "ls-files", "--error-unmatch", "--", filepath], { stdio: "ignore" });
   } catch {
     return false; // untracked, or not inside a git repo at all
   }
   let status;
   try {
-    status = execFileSync('git', ['-C', dir, 'status', '--porcelain', '--', filepath], { encoding: 'utf8' });
+    status = execFileSync("git", ["-C", dir, "status", "--porcelain", "--", filepath], { encoding: "utf8" });
   } catch {
     return false;
   }
-  return /** @type {string} */ (status).trim() === '';
+  return /** @type {string} */ (status).trim() === "";
 }
 
 // ---------- Backup path ----------
@@ -119,7 +119,7 @@ function isGitRecoverable(filepath) {
 function backupPathFor(filepath, backupRoot) {
   const dir = dirname(filepath);
   const parentName = basename(dir);
-  const hash = createHash('sha256').update(dir).digest('hex').slice(0, 8);
+  const hash = createHash("sha256").update(dir).digest("hex").slice(0, 8);
   const stem = basename(filepath, extname(filepath));
   return resolve(backupRoot, `${parentName}-${hash}`, `${stem}.original.md`);
 }
@@ -131,9 +131,9 @@ function backupPathFor(filepath, backupRoot) {
  * @returns {string}
  */
 function callClaude(prompt) {
-  const result = execFileSync('claude', ['--print', '--model', 'sonnet'], {
+  const result = execFileSync("claude", ["--print", "--model", "sonnet"], {
     input: prompt,
-    encoding: 'utf8',
+    encoding: "utf8",
     maxBuffer: 10 * 1024 * 1024,
     timeout: CLAUDE_TIMEOUT_MS,
   });
@@ -145,6 +145,7 @@ function callClaude(prompt) {
  * @returns {string}
  */
 function buildCompressPrompt(original) {
+  /* eslint-disable max-len -- long line is part of the literal prompt string */
   return `Compress this markdown into caveman format.
 
 STRICT RULES:
@@ -160,6 +161,7 @@ Only compress natural language.
 TEXT:
 ${original}
 `;
+  /* eslint-enable max-len */
 }
 
 /**
@@ -169,7 +171,7 @@ ${original}
  * @returns {string}
  */
 function buildFixPrompt(original, compressed, errors) {
-  const errorsStr = errors.map((e) => `- ${e}`).join('\n');
+  const errorsStr = errors.map((e) => `- ${e}`).join("\n");
   return `You are fixing a caveman-compressed markdown file. Specific validation errors were found.
 
 CRITICAL RULES:
@@ -227,11 +229,14 @@ function extractHeadings(text) {
  */
 function extractCodeBlocks(text) {
   const blocks = [];
-  const lines = text.split('\n');
+  const lines = text.split("\n");
   let i = 0;
   while (i < lines.length) {
     const open = lines[i].match(FENCE_OPEN_REGEX);
-    if (!open) { i++; continue; }
+    if (!open) {
+      i++;
+      continue;
+    }
     const fenceChar = open[2][0];
     const fenceLen = open[2].length;
     const blockLines = [lines[i]];
@@ -239,7 +244,7 @@ function extractCodeBlocks(text) {
     let closed = false;
     while (i < lines.length) {
       const close = lines[i].match(FENCE_OPEN_REGEX);
-      if (close && close[2][0] === fenceChar && close[2].length >= fenceLen && close[3].trim() === '') {
+      if (close && close[2][0] === fenceChar && close[2].length >= fenceLen && close[3].trim() === "") {
         blockLines.push(lines[i]);
         closed = true;
         i++;
@@ -248,7 +253,7 @@ function extractCodeBlocks(text) {
       blockLines.push(lines[i]);
       i++;
     }
-    if (closed) blocks.push(blockLines.join('\n'));
+    if (closed) blocks.push(blockLines.join("\n"));
   }
   return blocks;
 }
@@ -288,7 +293,7 @@ function countBullets(text) {
  */
 function extractInlineCodes(text, codeBlocks) {
   let stripped = text;
-  for (const block of codeBlocks) stripped = stripped.split(block).join('');
+  for (const block of codeBlocks) stripped = stripped.split(block).join("");
   return [...stripped.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
 }
 
@@ -322,11 +327,11 @@ function validate(origText, compText) {
   const h1 = extractHeadings(origText);
   const h2 = extractHeadings(compText);
   if (h1.length !== h2.length) errors.push(`Heading count mismatch: ${h1.length} vs ${h2.length}`);
-  if (!headingsEqual(h1, h2)) warnings.push('Heading text/order changed');
+  if (!headingsEqual(h1, h2)) warnings.push("Heading text/order changed");
 
   const c1 = extractCodeBlocks(origText);
   const c2 = extractCodeBlocks(compText);
-  if (!arraysEqual(c1, c2)) errors.push('Code blocks not preserved exactly');
+  if (!arraysEqual(c1, c2)) errors.push("Code blocks not preserved exactly");
 
   const u1 = extractUrls(origText);
   const u2 = extractUrls(compText);
@@ -356,8 +361,7 @@ function validate(origText, compText) {
   for (const c of ic1) count1.set(c, (count1.get(c) || 0) + 1);
   const count2 = new Map();
   for (const c of ic2) count2.set(c, (count2.get(c) || 0) + 1);
-  const sameCounts = count1.size === count2.size
-    && [...count1.entries()].every(([code, n]) => count2.get(code) === n);
+  const sameCounts = count1.size === count2.size && [...count1.entries()].every(([code, n]) => count2.get(code) === n);
   if (!sameCounts) {
     const lost = [];
     for (const [code, count] of count1.entries()) {
@@ -402,35 +406,35 @@ function compressFile(filepath, backupRoot, confirmed) {
   if (isSensitivePath(filepath)) {
     console.log(
       `Refusing to compress ${filepath}: filename looks sensitive ` +
-      '(credentials, keys, secrets, or known private paths). ' +
-      'Compression sends file contents to the Anthropic API. ' +
-      'Rename the file if this is a false positive.'
+        "(credentials, keys, secrets, or known private paths). " +
+        "Compression sends file contents to the Anthropic API. " +
+        "Rename the file if this is a false positive.",
     );
     return 1;
   }
   if (!shouldCompress(filepath)) {
-    console.log('Skipping: not a markdown file');
+    console.log("Skipping: not a markdown file");
     return 0;
   }
   if (!confirmed && !isGitRecoverable(filepath)) {
     console.log(`Not git-recoverable: ${filepath} is untracked or has uncommitted changes.`);
-    console.log('The session-temp backup would be the only rollback path if compression proceeds.');
-    console.log('Re-run with --confirmed to proceed anyway.');
+    console.log("The session-temp backup would be the only rollback path if compression proceeds.");
+    console.log("Re-run with --confirmed to proceed anyway.");
     return 3;
   }
 
   console.log(`Processing: ${filepath}`);
-  const originalText = readFileSync(filepath, 'utf8');
+  const originalText = readFileSync(filepath, "utf8");
   if (!originalText.trim()) {
-    console.log('Refusing to compress: file is empty or whitespace-only.');
+    console.log("Refusing to compress: file is empty or whitespace-only.");
     return 1;
   }
 
   const backupPath = backupPathFor(filepath, backupRoot);
   if (existsSync(backupPath)) {
     console.log(`Backup file already exists: ${backupPath}`);
-    console.log('The original backup may contain important content.');
-    console.log('Aborting to prevent data loss. Remove or rename the backup file to proceed.');
+    console.log("The original backup may contain important content.");
+    console.log("Aborting to prevent data loss. Remove or rename the backup file to proceed.");
     return 1;
   }
 
@@ -439,18 +443,18 @@ function compressFile(filepath, backupRoot, confirmed) {
     console.log(`Detected YAML frontmatter (${frontmatter.length} chars) — preserving verbatim`);
   }
   if (!body.trim()) {
-    console.log('Refusing to compress: body is empty after frontmatter removal.');
+    console.log("Refusing to compress: body is empty after frontmatter removal.");
     return 1;
   }
 
-  console.log('Compressing with claude --print...');
+  console.log("Compressing with claude --print...");
   let compressedBody;
   try {
     compressedBody = callClaude(buildCompressPrompt(body));
   } catch (err) {
     const e = /** @type {any} */ (err);
-    if (e.code === 'ENOENT') {
-      console.log('claude CLI not found on PATH. Original file is untouched.');
+    if (e.code === "ENOENT") {
+      console.log("claude CLI not found on PATH. Original file is untouched.");
     } else {
       console.log(`claude --print failed: ${e.stderr || e.message}`);
     }
@@ -458,13 +462,13 @@ function compressFile(filepath, backupRoot, confirmed) {
   }
 
   if (!compressedBody || !compressedBody.trim()) {
-    console.log('Compression aborted: claude returned an empty response.');
-    console.log('Original file is untouched (no backup created).');
+    console.log("Compression aborted: claude returned an empty response.");
+    console.log("Original file is untouched (no backup created).");
     return 1;
   }
   if (compressedBody.trim() === body.trim()) {
-    console.log('Compression aborted: output is identical to input.');
-    console.log('Original file is untouched (no backup created).');
+    console.log("Compression aborted: output is identical to input.");
+    console.log("Original file is untouched (no backup created).");
     return 1;
   }
 
@@ -477,16 +481,16 @@ function compressFile(filepath, backupRoot, confirmed) {
   console.log(`Validation attempt ${attempt}`);
 
   while (!result.isValid && attempt < MAX_RETRIES) {
-    console.log('Validation failed:');
+    console.log("Validation failed:");
     for (const e of result.errors) console.log(`   - ${e}`);
-    console.log('Fixing with claude --print...');
+    console.log("Fixing with claude --print...");
     let fixed;
     try {
       fixed = callClaude(buildFixPrompt(originalText, compressed, result.errors));
     } catch (err) {
       const e = /** @type {any} */ (err);
       console.log(`claude --print failed during fix: ${e.stderr || e.message}`);
-      console.log('Original file is untouched (no backup created).');
+      console.log("Original file is untouched (no backup created).");
       return 2;
     }
     // Re-pin the ORIGINAL frontmatter: the fix prompt sends the full file
@@ -500,21 +504,19 @@ function compressFile(filepath, backupRoot, confirmed) {
   }
 
   if (!result.isValid) {
-    console.log('Validation failed:');
+    console.log("Validation failed:");
     for (const e of result.errors) console.log(`   - ${e}`);
-    console.log('Failed after retries — original untouched (no backup created)');
+    console.log("Failed after retries — original untouched (no backup created)");
     return 2;
   }
 
-  console.log('Validation passed');
+  console.log("Validation passed");
   if (result.warnings.length) {
-    console.log('Warnings (non-blocking):');
+    console.log("Warnings (non-blocking):");
     for (const w of result.warnings) console.log(`   - ${w}`);
   }
 
-  const finalContent = originalText.endsWith('\n') && !compressed.endsWith('\n')
-    ? compressed + '\n'
-    : compressed;
+  const finalContent = originalText.endsWith("\n") && !compressed.endsWith("\n") ? compressed + "\n" : compressed;
 
   mkdirSync(dirname(backupPath), { recursive: true });
   // Exclusive create (O_EXCL via 'wx'), not a plain write: closes the gap
@@ -523,22 +525,26 @@ function compressFile(filepath, backupRoot, confirmed) {
   // otherwise both pass that check and the second write would silently
   // clobber the first run's backup.
   try {
-    writeFileSync(backupPath, originalText, { flag: 'wx' });
+    writeFileSync(backupPath, originalText, { flag: "wx" });
   } catch (err) {
     const e = /** @type {any} */ (err);
-    if (e.code === 'EEXIST') {
+    if (e.code === "EEXIST") {
       console.log(`Backup file already exists: ${backupPath}`);
-      console.log('Another compression of this file may be running concurrently.');
-      console.log('Aborting to prevent data loss.');
+      console.log("Another compression of this file may be running concurrently.");
+      console.log("Aborting to prevent data loss.");
       return 1;
     }
     throw err;
   }
-  const backupReadback = readFileSync(backupPath, 'utf8');
+  const backupReadback = readFileSync(backupPath, "utf8");
   if (backupReadback !== originalText) {
     console.log(`Backup write verification failed: ${backupPath}`);
-    console.log('In-memory original differs from on-disk backup. Aborting before touching the input file.');
-    try { unlinkSync(backupPath); } catch { /* best-effort cleanup */ }
+    console.log("In-memory original differs from on-disk backup. Aborting before touching the input file.");
+    try {
+      unlinkSync(backupPath);
+    } catch {
+      /* best-effort cleanup */
+    }
     return 1;
   }
   writeFileSync(filepath, finalContent);
@@ -551,10 +557,10 @@ function compressFile(filepath, backupRoot, confirmed) {
 
 function main() {
   const args = process.argv.slice(2);
-  const confirmed = args.includes('--confirmed');
-  const [filepath, backupRoot] = args.filter((a) => a !== '--confirmed');
+  const confirmed = args.includes("--confirmed");
+  const [filepath, backupRoot] = args.filter((a) => a !== "--confirmed");
   if (!filepath || !backupRoot) {
-    console.log('Usage: compress.mjs <filepath> <backup-root-dir> [--confirmed]');
+    console.log("Usage: compress.mjs <filepath> <backup-root-dir> [--confirmed]");
     process.exit(1);
   }
   try {

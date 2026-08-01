@@ -13,7 +13,7 @@
 ## Scopes
 
 | Scope | File location | Notes |
-|---|---|---|
+| --- | --- | --- |
 | Plugin-scoped | `<plugin-root>/.lsp.json` | Auto-discovered; override via `lspServers` in `plugin.json` (string \| array \| object — path(s) or inline config) |
 | Project-scoped | `<project-root>/.lsp.json` | Loaded for all sessions in that project; **not documented in official docs** (observed behavior); same format as plugin-scoped |
 
@@ -26,14 +26,14 @@ Top-level keys are arbitrary server identifiers. Each value is a server config o
 ### Required fields
 
 | Field | Description |
-|---|---|
+| --- | --- |
 | `command` | The LSP binary to execute (must be in `PATH`); `${CLAUDE_PLUGIN_ROOT}` interpolated in plugin context |
 | `extensionToLanguage` | Maps file extensions (e.g. `.ts`) to LSP language identifiers (e.g. `typescript`) |
 
 ### Optional fields
 
 | Field | Description |
-|---|---|
+| --- | --- |
 | `args` | Command-line arguments for the LSP server |
 | `transport` | Communication transport: `stdio` (default) or `socket` |
 | `env` | Environment variables to set when starting the server |
@@ -78,7 +78,7 @@ Top-level keys are arbitrary server identifiers. Each value is a server config o
 Prefer installing these over authoring a custom `.lsp.json` when the language is covered.
 
 | Plugin | Language server | Install command |
-|---|---|---|
+| --- | --- | --- |
 | `pyright-lsp` | Pyright (Python) | `pip install pyright` or `npm install -g pyright` |
 | `typescript-lsp` | TypeScript Language Server | `npm install -g typescript-language-server typescript` |
 | `rust-analyzer-lsp` | rust-analyzer | see rust-analyzer's own installation docs |

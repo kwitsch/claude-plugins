@@ -35,21 +35,13 @@ test("countOccurrences: counts non-overlapping matches", () => {
 
 test("reconstructOld: Edit with a unique new_string reconstructs the old content", () => {
   const newContent = '{"version": "1.0.1"}';
-  const old = reconstructOld(
-    "Edit",
-    { old_string: '"version": "1.0.0"', new_string: '"version": "1.0.1"' },
-    newContent,
-  );
+  const old = reconstructOld("Edit", { old_string: '"version": "1.0.0"', new_string: '"version": "1.0.1"' }, newContent);
   assert.equal(old, '{"version": "1.0.0"}');
 });
 
 test("reconstructOld: Edit with a non-unique new_string returns null (ambiguous)", () => {
   const newContent = '{"a": "1", "b": "1"}';
-  const old = reconstructOld(
-    "Edit",
-    { old_string: "whatever", new_string: '"1"' },
-    newContent,
-  );
+  const old = reconstructOld("Edit", { old_string: "whatever", new_string: '"1"' }, newContent);
   assert.equal(old, null);
 });
 
@@ -183,18 +175,11 @@ test("npmInstallOnPackageChangeHandler: an exhausted budget still bounds npm", (
   // timeout at all" to spawnSync, letting the stub run to completion and report its
   // failure as additionalContext.
   const binDir = mkdtempSync(path.join(tmpdir(), "handler-npmstub-"));
-  writeFileSync(
-    path.join(binDir, "npm"),
-    "#!/usr/bin/env bash\nsleep 0.3\nexit 1\n",
-    { mode: 0o755 },
-  );
+  writeFileSync(path.join(binDir, "npm"), "#!/usr/bin/env bash\nsleep 0.3\nexit 1\n", { mode: 0o755 });
   const originalPath = process.env.PATH;
   process.env.PATH = `${binDir}${path.delimiter}${originalPath}`;
   try {
-    const result = npmInstallOnPackageChangeHandler(
-      mockInput(pkgPath, "Write", { content: "{}" }),
-      0,
-    );
+    const result = npmInstallOnPackageChangeHandler(mockInput(pkgPath, "Write", { content: "{}" }), 0);
     assert.deepEqual(result, {});
   } finally {
     process.env.PATH = originalPath;

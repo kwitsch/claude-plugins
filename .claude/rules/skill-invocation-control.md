@@ -24,7 +24,7 @@ Skills not named `configure-*` are operational skills that the model may invoke 
 ## Reference
 
 | Frontmatter | User invoke | Model auto-invoke |
-|---|---|---|
+| --- | --- | --- |
 | _(none)_ | ✓ | ✓ |
 | `disable-model-invocation: true` | ✓ | ✗ |
 | `user-invocable: false` | ✗ | ✓ |

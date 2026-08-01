@@ -13,7 +13,7 @@ handler-type choice see `hook-handler-selection.md`; for hook mechanics see
 ## When to use mcp_tool vs a command hook
 
 | Situation | Handler |
-|---|---|
+| --- | --- |
 | Non-blocking, mid-session (`PreToolUse`/`PostToolUse`/`Stop`/`SubagentStop`/…): inject context, observe, reuse a live runtime/deps | **`mcp_tool`** (preferred) |
 | Fires before the server connects (`SessionStart`, `Setup`) | command (`.mjs`) — server not up yet → `mcp_tool` fails open |
 | Fail-closed hard gate (must deny/abort, needs exit 2) | command — `mcp_tool` has no exit-2 path, fails open if server down |
@@ -30,7 +30,7 @@ a valid hook-decision JSON (see *Output contract*), never `isError`.
 ## Hook fields
 
 | Field | Required | Notes |
-|---|---|---|
+| --- | --- | --- |
 | `type` | yes | `"mcp_tool"` |
 | `server` | yes | Name of a **connected** server — see *Server name* below |
 | `tool` | yes | Tool to call on that server |

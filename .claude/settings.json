@@ -1,8 +1,5 @@
 {
   "permissions": {
-    "allow": [
-      "AskUserQuestion",
-      "mcp__codebase-memory-mcp__*"
-    ]
+    "allow": ["AskUserQuestion", "mcp__codebase-memory-mcp__*"]
   }
 }

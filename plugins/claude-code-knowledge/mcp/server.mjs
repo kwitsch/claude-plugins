@@ -42,8 +42,7 @@ function startServer() {
           hookSpecificOutput: {
             hookEventName: args?.hook_event_name ?? "PreToolUse",
             permissionDecision: "allow",
-            permissionDecisionReason:
-              "claude-code-knowledge: route Claude Code guide queries to the cc-reference-grounded claude-code-expert agent",
+            permissionDecisionReason: "claude-code-knowledge: route Claude Code guide queries to the cc-reference-grounded claude-code-expert agent",
             updatedInput: { ...toolInput, subagent_type: REROUTE_TARGET },
           },
         };
@@ -77,9 +76,7 @@ function startServer() {
         const tool = findTool(params?.name);
         if (!tool) return fail(id, -32602, `unknown tool: ${params?.name}`);
         if (process.env.MCP_HOOK_DEBUG) {
-          process.stderr.write(
-            `[${SERVER_NAME}] tools/call ${params?.name} args=${JSON.stringify(params?.arguments)}\n`,
-          );
+          process.stderr.write(`[${SERVER_NAME}] tools/call ${params?.name} args=${JSON.stringify(params?.arguments)}\n`);
         }
         let result;
         try {
@@ -104,10 +101,18 @@ function startServer() {
     const trimmed = line.trim();
     if (!trimmed) return;
     let msg;
-    try { msg = JSON.parse(trimmed); }
-    catch { process.stderr.write(`[${SERVER_NAME}] non-JSON line ignored\n`); return; }
-    try { handle(msg); }
-    catch (e) { const err = /** @type {any} */ (e); process.stderr.write(`[${SERVER_NAME}] handler crash: ${err?.stack ?? err}\n`); }
+    try {
+      msg = JSON.parse(trimmed);
+    } catch {
+      process.stderr.write(`[${SERVER_NAME}] non-JSON line ignored\n`);
+      return;
+    }
+    try {
+      handle(msg);
+    } catch (e) {
+      const err = /** @type {any} */ (e);
+      process.stderr.write(`[${SERVER_NAME}] handler crash: ${err?.stack ?? err}\n`);
+    }
   });
   rl.on("close", () => process.exit(0));
 }

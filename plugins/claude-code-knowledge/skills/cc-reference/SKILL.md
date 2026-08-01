@@ -10,6 +10,7 @@ allowed-tools: Read, Grep, WebFetch, WebSearch
 Answer `$ARGUMENTS` from the bundled reference files. Retrieve only the matching section(s) — do NOT read whole files into context.
 
 Files live in the `references/` subfolder of this skill:
+
 - `${CLAUDE_SKILL_DIR}/references/claude-code-skills-reference.md` — authoring **Skills**
 - `${CLAUDE_SKILL_DIR}/references/claude-code-agents-reference.md` — authoring **subagents / agents**
 - `${CLAUDE_SKILL_DIR}/references/claude-code-hooks-reference.md` — **hooks** mechanics (events, matchers, I/O, exit codes, decision control)
@@ -27,7 +28,7 @@ Files live in the `references/` subfolder of this skill:
 ## Retrieval procedure
 
 1. Pick the file from the question using the routing map below. If the topic appears in both (forks, preload-skills, `context: fork`), check both. Hook questions usually need **both** hooks files: `claude-code-hooks-reference.md` for mechanics, `hook-handler-selection.md` for "which `type` should I use".
-2. From the section index, pick the matching entry — it is an abbreviated navigation label, not a verbatim heading. `Grep -n` a distinctive substring of it (the leading words) to find the actual `## ` heading and its line number; real headings may carry version-gate or qualifier suffixes the index omits.
+2. From the section index, pick the matching entry — it is an abbreviated navigation label, not a verbatim heading. `Grep -n` a distinctive substring of it (the leading words) to find the actual `##` heading and its line number; real headings may carry version-gate or qualifier suffixes the index omits.
 3. `Read` that file starting at the heading line with a small limit (~30–70 lines) to capture just that section. Extend the range minimally only if the section is cut off.
 4. Answer concisely in the user's language, naming the section you used. Keep field names, frontmatter keys, env vars, and tool names exact. Give the key directives, not a verbatim dump.
 5. If nothing matches the index, `Grep -ni` the question's keywords across the reference files, then read the best-matching span.
@@ -92,9 +93,10 @@ which handler `type`).
 
 ## Section index
 
-Entries are abbreviated navigation labels, not verbatim `## ` headings — real headings may include version-gate or qualifier suffixes. Match by distinctive substring (see retrieval step 2).
+Entries are abbreviated navigation labels, not verbatim `##` headings — real headings may include version-gate or qualifier suffixes. Match by distinctive substring (see retrieval step 2).
 
 ### claude-code-skills-reference.md
+
 ```
 What a skill is / when to choose it
 Discovery & progressive disclosure (mechanics)
@@ -119,6 +121,7 @@ Version / surface notes
 ```
 
 ### claude-code-agents-reference.md
+
 ```
 What a subagent is / when to choose it     # incl. Decision matrix
 Built-in subagents
@@ -146,6 +149,7 @@ Version notes
 ```
 
 ### claude-code-hooks-reference.md
+
 ```
 Model: three nesting levels
 Hook locations / scope
@@ -164,6 +168,7 @@ Version gates
 ```
 
 ### hook-handler-selection.md
+
 ```
 Handler types
 Decision rules — evaluate top→bottom, first match wins
@@ -175,6 +180,7 @@ Quick map
 ```
 
 ### claude-code-mcp-tool-hooks-reference.md
+
 ```
 When to use mcp_tool vs a command hook
 Hook fields
@@ -185,6 +191,7 @@ Version notes
 ```
 
 ### claude-code-commands-reference.md
+
 ```
 What a slash command is / when vs a skill
 Locations & precedence
@@ -198,6 +205,7 @@ Version notes
 ```
 
 ### claude-code-mcp-reference.md
+
 ```
 What MCP is / when to use
 Config locations & scopes
@@ -211,6 +219,7 @@ Version notes
 ```
 
 ### claude-code-mcp-managed-reference.md
+
 ```
 managed-mcp.json — exclusive control
 Allowlists and denylists
@@ -222,6 +231,7 @@ Version notes
 ```
 
 ### claude-code-plugins-reference.md
+
 ```
 What a plugin is / components
 Plugin structure & layout
@@ -238,6 +248,7 @@ Version notes
 ```
 
 ### claude-code-plugins-lsp-reference.md
+
 ```
 What LSP servers provide
 Scopes                                 # plugin-scoped vs project-scoped (undocumented)
@@ -247,6 +258,7 @@ Official LSP plugins
 ```
 
 ### claude-code-memory-reference.md
+
 ```
 CLAUDE.md: what & when
 Locations & precedence
@@ -258,6 +270,7 @@ Version notes
 ```
 
 ### claude-code-settings-reference.md
+
 ```
 settings.json: locations & scope precedence
 Settings keys
@@ -272,6 +285,7 @@ Version notes
 ```
 
 ### skill-folder-structure.md
+
 ```
 Skill directory layout
 Convention: one supporting file vs many → references/

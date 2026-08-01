@@ -8,7 +8,7 @@ paths:
 
 # Rule: script authoring
 
-Source: https://code.claude.com/docs/en/skills#inject-dynamic-context
+Source: <https://code.claude.com/docs/en/skills#inject-dynamic-context>
 
 ## 1. Trivial vs substantial
 

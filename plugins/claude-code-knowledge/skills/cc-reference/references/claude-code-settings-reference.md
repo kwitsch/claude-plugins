@@ -1,14 +1,14 @@
 # Claude Code Settings — Authoring Reference
 
 > Harness-optimized knowledge file. Directives, not prose.
-> Sources: https://code.claude.com/docs/en/settings.md,
-> https://code.claude.com/docs/en/env-vars.md,
-> https://code.claude.com/docs/en/permissions.md,
-> https://code.claude.com/docs/en/permission-modes.md,
-> https://code.claude.com/docs/en/model-config.md,
-> https://code.claude.com/docs/en/output-styles.md,
-> https://code.claude.com/docs/en/statusline.md,
-> https://code.claude.com/docs/en/sandboxing.md
+> Sources: <https://code.claude.com/docs/en/settings.md>,
+> <https://code.claude.com/docs/en/env-vars.md>,
+> <https://code.claude.com/docs/en/permissions.md>,
+> <https://code.claude.com/docs/en/permission-modes.md>,
+> <https://code.claude.com/docs/en/model-config.md>,
+> <https://code.claude.com/docs/en/output-styles.md>,
+> <https://code.claude.com/docs/en/statusline.md>,
+> <https://code.claude.com/docs/en/sandboxing.md>
 > verified: 2026-07-25
 
 ## settings.json: locations & scope precedence
@@ -155,7 +155,9 @@ mcp__*                        # deny/ask: every MCP tool; NOT valid in allow rul
 
 ### Per-tool specifiers
 
-- `Bash(cmd arg)` / `PowerShell(...)`: command string as a glob, wildcard at any position; recognizes separators (`&&`, `||`, `;`, `|`, `|&`, `&`, newlines) and matches each subcommand independently. `:*` suffix == trailing ` *`, recognized ONLY at the end of a pattern (in `Bash(git:* push)` the colon is literal).
+- `Bash(cmd arg)` / `PowerShell(...)`: command string as a glob, wildcard at any position; recognizes separators (`&&`, `||`, `;`, `|`, `|&`, `&`, newlines) and matches each subcommand independently.
+  <!-- markdownlint-disable-next-line MD038 -- the code span deliberately shows a leading space before the asterisk: `:*` is equivalent to a trailing SPACE + `*`, not a bare `*` -->
+  `:*` suffix == trailing ` *`, recognized ONLY at the end of a pattern (in `Bash(git:* push)` the colon is literal).
   - Stripped wrappers: `timeout`, `time`, `nice`, `nohup`, `stdbuf`, the builtins `command`/`builtin`, zsh `noglob`, and bare `xargs` (only with no flags). NOT stripped: `command -v`, zsh `nocorrect`.
   - NOT stripped and therefore dangerous in a prefix rule: environment runners `direnv exec`, `devbox run`, `mise exec`, `npx`, `docker exec` — `Bash(devbox run *)` matches `devbox run rm -rf .`. Write one rule per inner command instead.
   - Always prompt, never auto-approved by a prefix rule: exec wrappers `watch`, `setsid`, `ionice`, `flock`, and `find` with `-exec`/`-delete`.

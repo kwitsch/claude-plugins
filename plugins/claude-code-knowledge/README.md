@@ -11,7 +11,7 @@ Lookup skill plus harness-optimized reference files for authoring and configurin
 ## Skills
 
 | Skill | What it does |
-|---|---|
+| --- | --- |
 | `cc-reference` | Looks up the relevant section from the bundled reference files and loads only that section into context, keeping token cost low. |
 | `cc-review` | Audits a Claude Code component (plugin/skill/agent/hook/command/MCP/memory/settings) against the `cc-reference` rules via the read-only `cc-reviewer` agent, then interactively applies the recommendations you select. |
 | `cc-author` | Creates a new Claude Code component (skill/agent/hook/command/MCP/plugin/CLAUDE.md/settings) grounded strictly in the `cc-reference` rules via the read-only `cc-author-planner` agent, writes it, and optionally hands it to `cc-review`. |
@@ -21,7 +21,7 @@ Lookup skill plus harness-optimized reference files for authoring and configurin
 ## Agents
 
 | Agent | Model | Role |
-|---|---|---|
+| --- | --- | --- |
 | `claude-code-expert` | haiku | Answers Claude Code authoring questions (skills, subagents, hooks) strictly via the `cc-reference` skill — read-only, never from training memory. A `PreToolUse` hook transparently reroutes the built-in `claude-code-guide` agent to it, so existing "ask the guide" flows get the curated answer. |
 | `cc-reviewer` | haiku | Read-only worker dispatched by the `cc-review` skill. Audits one component type in a target against the `cc-reference` rules and returns structured JSON findings — never writes. |
 | `cc-author-planner` | haiku | Read-only worker dispatched by the `cc-author` skill. Composes the new component's file content strictly from the `cc-reference` knowledge and returns it as JSON — never writes. |
@@ -32,7 +32,7 @@ All reference files live in the skill's `references/` subfolder
 (`skills/cc-reference/references/`).
 
 | File | Covers |
-|---|---|
+| --- | --- |
 | `claude-code-skills-reference.md` | Authoring Claude Code skills: frontmatter fields, trigger patterns, tool access, inline script conventions. |
 | `claude-code-agents-reference.md` | Authoring Claude Code subagents: manifest fields, tool lists, delegation patterns, model selection. |
 | `claude-code-hooks-reference.md` | Hook mechanics: event types, hook schemas, lifecycle, exit codes, input/output shapes. |

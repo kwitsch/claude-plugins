@@ -5,7 +5,7 @@ paths:
 
 # Rule: agent .md authoring reference
 
-Source: https://code.claude.com/docs/en/sub-agents
+Source: <https://code.claude.com/docs/en/sub-agents>
 
 ## File structure
 
@@ -24,7 +24,7 @@ NOT the full Claude Code system prompt. No conversation history.
 ## Frontmatter (complete reference)
 
 | Field | Required | Notes |
-|---|---|---|
+| --- | --- | --- |
 | `name` | **Yes** | Lowercase letters + hyphens. Hooks receive as `agent_type`. Filename does NOT have to match. |
 | `description` | **Yes** | When Claude should delegate to this agent. Write precisely — Claude auto-delegates based on this. |
 | `tools` | No | Allowlist of tools. Omit = inherits all parent tools. Use `skills` to preload skills, not `Skill` here. |

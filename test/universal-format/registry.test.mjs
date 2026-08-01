@@ -3,14 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import {
-  buildInvocation,
-  isToolAvailable,
-  isExcludedPath,
-  REGISTRY,
-  hasPrettierProjectConfig,
-  guardPrintWidthArgv,
-} from "../../plugins/universal-format/hooks/format-file.mjs";
+import { buildInvocation, isToolAvailable, isExcludedPath, REGISTRY, hasPrettierProjectConfig, guardPrintWidthArgv } from "../../plugins/universal-format/hooks/format-file.mjs";
 
 const shfmt = REGISTRY.shell.chain[0];
 const gjf = REGISTRY.java.chain[0];
@@ -20,10 +13,7 @@ const ruff = REGISTRY.python.chain[0];
 const black = REGISTRY.python.chain[1];
 
 test("native/fixed tools always run bare regardless of editorconfig", () => {
-  assert.deepEqual(
-    buildInvocation(shfmt, { editorconfig: { indent_style: "tab" } }),
-    { argv: ["-w"] },
-  );
+  assert.deepEqual(buildInvocation(shfmt, { editorconfig: { indent_style: "tab" } }), { argv: ["-w"] });
 });
 
 test("google-java-format: indent_size 4 -> --aosp", () => {
@@ -42,21 +32,12 @@ test("google-java-format: indent_size 2 or no editorconfig -> bare", () => {
 });
 
 test("google-java-format: hard conflicts skip (tab, odd indent, narrow columns)", () => {
-  assert.deepEqual(
-    buildInvocation(gjf, { editorconfig: { indent_style: "tab" } }),
-    { skip: true },
-  );
+  assert.deepEqual(buildInvocation(gjf, { editorconfig: { indent_style: "tab" } }), { skip: true });
   assert.deepEqual(buildInvocation(gjf, { editorconfig: { indent_size: 3 } }), {
     skip: true,
   });
-  assert.deepEqual(
-    buildInvocation(gjf, { editorconfig: { indent_size: "tab" } }),
-    { skip: true },
-  );
-  assert.deepEqual(
-    buildInvocation(gjf, { editorconfig: { max_line_length: 80 } }),
-    { skip: true },
-  );
+  assert.deepEqual(buildInvocation(gjf, { editorconfig: { indent_size: "tab" } }), { skip: true });
+  assert.deepEqual(buildInvocation(gjf, { editorconfig: { max_line_length: 80 } }), { skip: true });
 });
 
 test("google-java-format: native config beats editorconfig -> bare", () => {
@@ -70,14 +51,8 @@ test("google-java-format: native config beats editorconfig -> bare", () => {
 });
 
 test("black: tab indent skips; max_line_length maps", () => {
-  assert.deepEqual(
-    buildInvocation(black, { editorconfig: { indent_style: "tab" } }),
-    { skip: true },
-  );
-  assert.deepEqual(
-    buildInvocation(black, { editorconfig: { max_line_length: 100 } }),
-    { argv: ["--quiet", "--line-length", "100"] },
-  );
+  assert.deepEqual(buildInvocation(black, { editorconfig: { indent_style: "tab" } }), { skip: true });
+  assert.deepEqual(buildInvocation(black, { editorconfig: { max_line_length: 100 } }), { argv: ["--quiet", "--line-length", "100"] });
 });
 
 test("ruff: editorconfig maps line length + indent style/width", () => {
@@ -90,16 +65,7 @@ test("ruff: editorconfig maps line length + indent style/width", () => {
       },
     }),
     {
-      argv: [
-        "format",
-        "--quiet",
-        "--line-length",
-        "88",
-        "--config",
-        "format.indent-style='space'",
-        "--config",
-        "format.indent-width=4",
-      ],
+      argv: ["format", "--quiet", "--line-length", "88", "--config", "format.indent-style='space'", "--config", "format.indent-width=4"],
     },
   );
 });
@@ -115,15 +81,7 @@ test("biome: editorconfig maps indent + line ending + width", () => {
       },
     }),
     {
-      argv: [
-        "format",
-        "--write",
-        "--log-level=none",
-        "--indent-style=space",
-        "--indent-width=2",
-        "--line-ending=lf",
-        "--line-width=100",
-      ],
+      argv: ["format", "--write", "--log-level=none", "--indent-style=space", "--indent-width=2", "--line-ending=lf", "--line-width=100"],
     },
   );
 });
@@ -138,10 +96,7 @@ test("clang-format: editorconfig builds an explicit Google-based style", () => {
       },
     }),
     {
-      argv: [
-        "-i",
-        "--style={BasedOnStyle: Google, IndentWidth: 2, UseTab: Never, ColumnLimit: 100}",
-      ],
+      argv: ["-i", "--style={BasedOnStyle: Google, IndentWidth: 2, UseTab: Never, ColumnLimit: 100}"],
     },
   );
 });
@@ -207,13 +162,7 @@ test("json: biome chain entry is mapped (not native) -- editorconfig applies onl
       editorconfig: { indent_style: "space", indent_size: 2 },
     }),
     {
-      argv: [
-        "format",
-        "--write",
-        "--log-level=none",
-        "--indent-style=space",
-        "--indent-width=2",
-      ],
+      argv: ["format", "--write", "--log-level=none", "--indent-style=space", "--indent-width=2"],
     },
   );
   assert.deepEqual(buildInvocation(biomeJson, { hasNativeConfig: true }), {
@@ -223,21 +172,12 @@ test("json: biome chain entry is mapped (not native) -- editorconfig applies onl
 
 test("isToolAvailable: true when the tool itself is on PATH", () => {
   assert.equal(isToolAvailable({ name: "shfmt" }, true, false), true);
-  assert.equal(
-    isToolAvailable({ name: "prettier", npmSpec: "prettier" }, true, false),
-    true,
-  );
+  assert.equal(isToolAvailable({ name: "prettier", npmSpec: "prettier" }, true, false), true);
 });
 
 test("isToolAvailable: true via npx only when npmSpec is set and npx is on PATH", () => {
-  assert.equal(
-    isToolAvailable({ name: "prettier", npmSpec: "prettier" }, false, true),
-    true,
-  );
-  assert.equal(
-    isToolAvailable({ name: "prettier", npmSpec: "prettier" }, false, false),
-    false,
-  );
+  assert.equal(isToolAvailable({ name: "prettier", npmSpec: "prettier" }, false, true), true);
+  assert.equal(isToolAvailable({ name: "prettier", npmSpec: "prettier" }, false, false), false);
   assert.equal(isToolAvailable({ name: "shfmt" }, false, true), false);
 });
 
@@ -270,28 +210,19 @@ test("hasPrettierProjectConfig: finds prettier.config.mjs walking up from a nest
 
 test('hasPrettierProjectConfig: top-level "prettier" key in package.json counts', () => {
   const dir = mkdtempSync(path.join(tmpdir(), "uf-pc-"));
-  writeFileSync(
-    path.join(dir, "package.json"),
-    JSON.stringify({ name: "x", prettier: { printWidth: 100 } }),
-  );
+  writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "x", prettier: { printWidth: 100 } }));
   assert.equal(hasPrettierProjectConfig(dir), true);
 });
 
 test('hasPrettierProjectConfig: package.json WITHOUT a top-level "prettier" key does not count -- devDependencies listing prettier is not a config', () => {
   const dir = mkdtempSync(path.join(tmpdir(), "uf-pc-"));
-  writeFileSync(
-    path.join(dir, "package.json"),
-    JSON.stringify({ name: "x", devDependencies: { prettier: "^3.9.0" } }),
-  );
+  writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "x", devDependencies: { prettier: "^3.9.0" } }));
   assert.equal(hasPrettierProjectConfig(dir), false);
 });
 
 test('hasPrettierProjectConfig: top-level "prettier" key in package.yaml counts', () => {
   const dir = mkdtempSync(path.join(tmpdir(), "uf-pc-"));
-  writeFileSync(
-    path.join(dir, "package.yaml"),
-    "name: x\nprettier:\n  printWidth: 100\n",
-  );
+  writeFileSync(path.join(dir, "package.yaml"), "name: x\nprettier:\n  printWidth: 100\n");
   assert.equal(hasPrettierProjectConfig(dir), true);
 });
 
@@ -303,11 +234,7 @@ test("hasPrettierProjectConfig: nothing found -> false", () => {
 test("guardPrintWidthArgv: no prettier config, no .editorconfig -> --print-width appended", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "uf-pw-"));
   const file = path.join(dir, "a.yaml");
-  assert.deepEqual(guardPrintWidthArgv(["--write"], file, dir), [
-    "--write",
-    "--print-width",
-    "99999",
-  ]);
+  assert.deepEqual(guardPrintWidthArgv(["--write"], file, dir), ["--write", "--print-width", "99999"]);
 });
 
 test("guardPrintWidthArgv: prettier project config present -> bare, no override", () => {
@@ -319,26 +246,16 @@ test("guardPrintWidthArgv: prettier project config present -> bare, no override"
 
 test("guardPrintWidthArgv: .editorconfig sets max_line_length -> bare, prettier honors it natively", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "uf-pw-"));
-  writeFileSync(
-    path.join(dir, ".editorconfig"),
-    "root = true\n[*]\nmax_line_length = 100\n",
-  );
+  writeFileSync(path.join(dir, ".editorconfig"), "root = true\n[*]\nmax_line_length = 100\n");
   const file = path.join(dir, "a.json");
   assert.deepEqual(guardPrintWidthArgv(["--write"], file, dir), ["--write"]);
 });
 
 test("guardPrintWidthArgv: .editorconfig present but without max_line_length -> override still applies", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "uf-pw-"));
-  writeFileSync(
-    path.join(dir, ".editorconfig"),
-    "root = true\n[*]\nindent_size = 2\n",
-  );
+  writeFileSync(path.join(dir, ".editorconfig"), "root = true\n[*]\nindent_size = 2\n");
   const file = path.join(dir, "a.json");
-  assert.deepEqual(guardPrintWidthArgv(["--write"], file, dir), [
-    "--write",
-    "--print-width",
-    "99999",
-  ]);
+  assert.deepEqual(guardPrintWidthArgv(["--write"], file, dir), ["--write", "--print-width", "99999"]);
 });
 
 test("REGISTRY: php chain is php-cs-fixer only (chain of 1), native strategy, no npmSpec, caching disabled", () => {
@@ -356,14 +273,8 @@ test("isExcludedPath: node_modules/vendor/.git segments -> excluded", () => {
 });
 
 test("isExcludedPath: .claude/worktrees and .claude/agent-memory -> excluded", () => {
-  assert.equal(
-    isExcludedPath(path.join(".claude", "worktrees", "foo", "a.sh")),
-    true,
-  );
-  assert.equal(
-    isExcludedPath(path.join(".claude", "agent-memory", "a.md")),
-    true,
-  );
+  assert.equal(isExcludedPath(path.join(".claude", "worktrees", "foo", "a.sh")), true);
+  assert.equal(isExcludedPath(path.join(".claude", "agent-memory", "a.md")), true);
 });
 
 test("isExcludedPath: other .claude/ subtrees (e.g. rules/agents/skills) stay covered", () => {
@@ -372,25 +283,12 @@ test("isExcludedPath: other .claude/ subtrees (e.g. rules/agents/skills) stay co
 });
 
 test("isExcludedPath: a later .claude segment matching worktrees/agent-memory is still excluded, even after an earlier non-matching .claude segment", () => {
-  assert.equal(
-    isExcludedPath(
-      path.join(".claude", "rules", ".claude", "worktrees", "foo", "a.sh"),
-    ),
-    true,
-  );
-  assert.equal(
-    isExcludedPath(
-      path.join(".claude", "skills", ".claude", "agent-memory", "a.md"),
-    ),
-    true,
-  );
+  assert.equal(isExcludedPath(path.join(".claude", "rules", ".claude", "worktrees", "foo", "a.sh")), true);
+  assert.equal(isExcludedPath(path.join(".claude", "skills", ".claude", "agent-memory", "a.md")), true);
 });
 
 test("isExcludedPath: *.local.* files excluded regardless of location", () => {
-  assert.equal(
-    isExcludedPath(path.join(".claude", "settings.local.json")),
-    true,
-  );
+  assert.equal(isExcludedPath(path.join(".claude", "settings.local.json")), true);
   assert.equal(isExcludedPath("docker-compose.local.yml"), true);
   assert.equal(isExcludedPath("a.sh"), false);
 });

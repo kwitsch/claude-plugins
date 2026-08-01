@@ -30,7 +30,7 @@ material loaded on demand from the skill body.
 This plugin's layout rule for a skill's bundled reference/knowledge files:
 
 | Count | Location | Path from `SKILL.md` |
-|---|---|---|
+| --- | --- | --- |
 | **1** reference file | next to `SKILL.md` (skill root) | `${CLAUDE_SKILL_DIR}/<file>.md` |
 | **≥2** reference files | in a `references/` subfolder | `${CLAUDE_SKILL_DIR}/references/<file>.md` |
 
