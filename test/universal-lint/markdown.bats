@@ -66,6 +66,35 @@ setup() {
   run lint_file_call "$cwd/a.md" "$cwd"
   assert_success
   echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("MD041")'
-  run rg_or_grep -F "npx --yes markdownlint-cli2 $cwd/a.md" "$RECORD"
+  run rg_or_grep -F "npx --yes markdownlint-cli2 --config $PLUGIN/hooks/markdownlint-no-line-length.json $cwd/a.md" "$RECORD"
+  assert_success
+}
+
+@test "markdown: no project markdownlint config -> --config <bundled MD013-off file> in recorded argv" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '# hi\n' > "$cwd/a.md"
+  OUT=""
+  rec_stub markdownlint-cli2 0
+  run lint_file_call "$cwd/a.md" "$cwd"
+  assert_success
+  run rg_or_grep -F -- "--config $PLUGIN/hooks/markdownlint-no-line-length.json" "$RECORD"
+  assert_success
+}
+
+@test "markdown: project .markdownlint.json present -> no --config override, tool runs bare" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '# hi\n' > "$cwd/a.md"
+  printf '{}\n' > "$cwd/.markdownlint.json"
+  OUT=""
+  rec_stub markdownlint-cli2 0
+  run lint_file_call "$cwd/a.md" "$cwd"
+  assert_success
+  run rg_or_grep -F "markdownlint-no-line-length.json" "$RECORD"
+  assert_failure
+  run rg_or_grep -F "markdownlint-cli2 $cwd/a.md" "$RECORD"
   assert_success
 }

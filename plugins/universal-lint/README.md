@@ -45,6 +45,15 @@ whole-project checks fast.
 
 checkstyle's exit code only counts `error`-severity violations, and `google_checks.xml` (like many real projects' own configs) runs at `warning` severity by default — so its exit code alone can't tell you whether it found anything. Findings are detected from checkstyle's own output instead: it always prints `Starting audit...` first and `Audit done.` last, regardless of violation count; anything left after stripping those two lines is a real finding.
 
+## YAML/Markdown: max line length isn't enforced without a project config
+
+`yamllint` and `markdownlint`/`markdownlint-cli2` both flag lines over 80
+characters by default. When a project has no linter config of its own for
+that file type (no `.yamllint*`, no `.markdownlint*`), this hook disables just
+that one rule so it doesn't flag ordinary long lines the project never opted
+into limiting — every other check still runs normally. A project with its own
+config is never touched; its line-length choice always wins.
+
 ## JSON: not covered (why)
 
 No standalone, actively-maintained JSON linter has a clean exit-code

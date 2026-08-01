@@ -1,9 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import {
   buildInvocation,
   isToolAvailable,
   REGISTRY,
+  hasPrettierProjectConfig,
+  guardPrintWidthArgv,
 } from "../../plugins/universal-format/hooks/format-file.mjs";
 
 const shfmt = REGISTRY.shell.chain[0];
@@ -237,4 +242,100 @@ test("isToolAvailable: true via npx only when npmSpec is set and npx is on PATH"
 
 test("isToolAvailable: false when neither PATH nor npx-with-npmSpec applies", () => {
   assert.equal(isToolAvailable({ name: "shfmt" }, false, false), false);
+});
+
+test("REGISTRY: yaml/json prettier entries carry guardPrintWidth; css/scss/markdown do not", () => {
+  assert.equal(REGISTRY.yaml.chain[0].guardPrintWidth, true);
+  assert.equal(REGISTRY.json.chain[0].guardPrintWidth, true);
+  assert.equal(REGISTRY.json.chain[0].name, "prettier");
+  assert.equal(REGISTRY.css.chain[0].guardPrintWidth, undefined);
+  assert.equal(REGISTRY.scss.chain[0].guardPrintWidth, undefined);
+  assert.equal(REGISTRY.markdown.chain[0].guardPrintWidth, undefined);
+});
+
+test("hasPrettierProjectConfig: finds .prettierrc directly in the file's dir", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "uf-pc-"));
+  writeFileSync(path.join(dir, ".prettierrc"), "{}");
+  assert.equal(hasPrettierProjectConfig(dir), true);
+});
+
+test("hasPrettierProjectConfig: finds prettier.config.mjs walking up from a nested file dir", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "uf-pc-"));
+  writeFileSync(path.join(root, "prettier.config.mjs"), "export default {};");
+  const sub = path.join(root, "src", "deep");
+  mkdirSync(sub, { recursive: true });
+  assert.equal(hasPrettierProjectConfig(sub), true);
+});
+
+test('hasPrettierProjectConfig: top-level "prettier" key in package.json counts', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "uf-pc-"));
+  writeFileSync(
+    path.join(dir, "package.json"),
+    JSON.stringify({ name: "x", prettier: { printWidth: 100 } }),
+  );
+  assert.equal(hasPrettierProjectConfig(dir), true);
+});
+
+test('hasPrettierProjectConfig: package.json WITHOUT a top-level "prettier" key does not count -- devDependencies listing prettier is not a config', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "uf-pc-"));
+  writeFileSync(
+    path.join(dir, "package.json"),
+    JSON.stringify({ name: "x", devDependencies: { prettier: "^3.9.0" } }),
+  );
+  assert.equal(hasPrettierProjectConfig(dir), false);
+});
+
+test('hasPrettierProjectConfig: top-level "prettier" key in package.yaml counts', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "uf-pc-"));
+  writeFileSync(
+    path.join(dir, "package.yaml"),
+    "name: x\nprettier:\n  printWidth: 100\n",
+  );
+  assert.equal(hasPrettierProjectConfig(dir), true);
+});
+
+test("hasPrettierProjectConfig: nothing found -> false", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "uf-pc-"));
+  assert.equal(hasPrettierProjectConfig(dir), false);
+});
+
+test("guardPrintWidthArgv: no prettier config, no .editorconfig -> --print-width appended", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "uf-pw-"));
+  const file = path.join(dir, "a.yaml");
+  assert.deepEqual(guardPrintWidthArgv(["--write"], file, dir), [
+    "--write",
+    "--print-width",
+    "99999",
+  ]);
+});
+
+test("guardPrintWidthArgv: prettier project config present -> bare, no override", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "uf-pw-"));
+  writeFileSync(path.join(dir, ".prettierrc"), "{}");
+  const file = path.join(dir, "a.yaml");
+  assert.deepEqual(guardPrintWidthArgv(["--write"], file, dir), ["--write"]);
+});
+
+test("guardPrintWidthArgv: .editorconfig sets max_line_length -> bare, prettier honors it natively", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "uf-pw-"));
+  writeFileSync(
+    path.join(dir, ".editorconfig"),
+    "root = true\n[*]\nmax_line_length = 100\n",
+  );
+  const file = path.join(dir, "a.json");
+  assert.deepEqual(guardPrintWidthArgv(["--write"], file, dir), ["--write"]);
+});
+
+test("guardPrintWidthArgv: .editorconfig present but without max_line_length -> override still applies", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "uf-pw-"));
+  writeFileSync(
+    path.join(dir, ".editorconfig"),
+    "root = true\n[*]\nindent_size = 2\n",
+  );
+  const file = path.join(dir, "a.json");
+  assert.deepEqual(guardPrintWidthArgv(["--write"], file, dir), [
+    "--write",
+    "--print-width",
+    "99999",
+  ]);
 });

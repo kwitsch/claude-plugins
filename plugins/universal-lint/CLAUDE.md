@@ -202,6 +202,59 @@ correctness input, so a corrupted file either makes tsc silently fall back
 to a full rebuild (self-healing) or exit non-`0`/`2` (falls into the "skip"
 bucket — a missed finding that turn, not a wrong one).
 
+## YAML/Markdown line-length guard (do not "fix" without reading this)
+
+Both `yamllint` and `markdownlint`/`markdownlint-cli2` enable a max-line-length
+rule (`line-length`, `MD013`) in their own bundled defaults — verified
+empirically: `yamllint`'s is `error` level at 80 chars (NOT `warning`, despite
+this hook running without `--strict`), and `MD013` defaults to `error` at 80
+chars in both markdownlint tools. Left alone, this hook would flag ordinary
+long lines in every YAML/Markdown file that has no project-level linter
+config of its own — noise the project never asked for. `buildArgv` guards
+against this: when (and only when) no project-level config for that tool
+exists, it injects a flag that disables just that one rule, leaving every
+other check (real syntax errors, other style rules) untouched. A project that
+_does_ have its own `.yamllint`/`markdownlint` config is never touched — its
+own line-length choice (enabled, disabled, or a custom max) always wins.
+
+- **yamllint**: `hasProjectYamllintConfig(cwd)` is a faithful port of
+  yamllint's own `find_project_config_filepath` (`yamllint/cli.py`): it starts
+  at the CLI's `cwd` — always this hook's `spawnSync` `cwd` (the project
+  root), regardless of which file is being linted, since yamllint has no
+  per-file config resolution — and walks upward, stopping once the walked dir
+  IS the user's home directory (checked there too) or the filesystem root.
+  When nothing is found, `-d "{extends: default, rules: {line-length:
+disable}}"` is passed — single-line flow-style YAML, not the equivalent
+  multi-line block form, so the whole value survives as one argv element
+  through `rtk`'s rewrite unchanged. `-d` overrides yamllint's own
+  project-config **and** user-global-config search entirely, so it is only
+  ever reached when `hasProjectYamllintConfig` found nothing.
+- **markdownlint-cli2 / markdownlint**: `hasProjectMarkdownlintConfig(fileDir)`
+  checks, walking from the edited file's directory up to the filesystem root,
+  for any of the filenames markdownlint-cli2's own `--help` documents under
+  "Configuration via:" (`.markdownlint-cli2.jsonc/.yaml/.cjs/.mjs`,
+  `.markdownlint.jsonc/.json/.yaml/.yml/.cjs/.mjs`) — verified empirically that
+  cli2 does **not** also read a `markdownlint-cli2` key from `package.json`.
+  When nothing is found, `--config <path>` points both tools (same flag name,
+  same JSON schema) at a **bundled, constant** file next to this script,
+  `hooks/markdownlint-no-line-length.json` (`{"MD013": false}`) — shipped as a
+  real file, not written at runtime, so it's reviewable in git and needs no
+  mkdir/write-failure handling.
+- Both walkers are deliberately **unbounded past `cwd`**, not stopped there
+  like `resolveCheckstyleConfig`/`resolveTsconfig`: yamllint's own search
+  starts at `cwd` and climbs to `$HOME`/root regardless (verified against its
+  source), and markdownlint-cli2's per-file config resolution walks past its
+  base directory into that directory's own ancestors too (verified against
+  its source, `enumerateParents`). Bounding either walker at `cwd` would risk
+  misdetecting "absent" for a real config living above the project root (a
+  workspace/monorepo case) — the opposite of what this guard exists to
+  prevent.
+- Neither `yamllint` nor `markdownlint`/`markdownlint-cli2` reads
+  `.editorconfig` at all (unlike `universal-format`'s `prettier`, which does)
+  — there is no second "did the project configure this another way" check to
+  make here, unlike the analogous `printWidth` guard in `universal-format`'s
+  `CLAUDE.md`.
+
 ## JSON: not covered (do not "fix" without reading this)
 
 `.json` is intentionally absent from `EXT_MAP` — not a bug. No standalone,

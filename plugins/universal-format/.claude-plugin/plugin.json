@@ -1,7 +1,7 @@
 {
   "name": "universal-format",
-  "version": "0.5.0",
-  "description": "Silently auto-formats just-written Shell, Java, Kotlin, JS/TS, Python, Go, JSON, YAML, Markdown, CSS and SCSS files after Write/Edit using each language's standard formatter when installed (shfmt, google-java-format/clang-format, ktlint/ktfmt, prettier/biome, ruff/black, goimports/gofmt; prettier also covers JSON/YAML/Markdown/CSS/SCSS, biome also covers JSON and CSS (not SCSS); prettier/biome also fall back to npx); honors .editorconfig and tool-native configs; no-op when no formatter is available. Always active once installed — no on/off toggle.",
+  "version": "0.6.0",
+  "description": "Silently auto-formats just-written Shell, Java, Kotlin, JS/TS, Python, Go, JSON, YAML, Markdown, CSS and SCSS files after Write/Edit using each language's standard formatter when installed (shfmt, google-java-format/clang-format, ktlint/ktfmt, prettier/biome, ruff/black, goimports/gofmt; prettier also covers JSON/YAML/Markdown/CSS/SCSS, biome also covers JSON and CSS (not SCSS); prettier/biome also fall back to npx); honors .editorconfig and tool-native configs; prettier's default 80-column printWidth is skipped for JSON/YAML when the project has no line-length preference of its own; no-op when no formatter is available. Always active once installed — no on/off toggle.",
   "author": {
     "name": "Kwitsch"
   }
