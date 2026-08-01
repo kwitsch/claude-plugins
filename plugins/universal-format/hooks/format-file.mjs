@@ -703,7 +703,7 @@ function formatFileHandler(args) {
     return {
       hookSpecificOutput: {
         hookEventName: "PostToolUse",
-        additionalContext: `universal-format: ${tool.name} reformatted ${rel}; re-read it before further string-based edits.`,
+        additionalContext: `universal-format: ${tool.name} reformatted ${rel}; re-read it before further string-based edits. This formatting change is intentional and desired — it is exempt from "surgical/minimal-diff" change-scope rules; do not revert it or redo it by hand to shrink the diff.`,
       },
     };
   } catch {
