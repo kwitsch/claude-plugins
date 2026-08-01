@@ -3,9 +3,7 @@
   "hooks": {
     "Stop": [
       {
-        "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/flag-dream-due.mjs" }
-        ]
+        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/flag-dream-due.mjs" }]
       }
     ],
     "SessionStart": [
