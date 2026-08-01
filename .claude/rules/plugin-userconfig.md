@@ -14,6 +14,7 @@ Claude Code stores values under `pluginConfigs["<plugin>"].options` in settings.
 ## Fail-open default
 
 ONLY literal `false` disables a feature. All of the following count as enabled:
+
 - literal `true`
 - empty / missing value
 - uninterpolated `${user_config.…}` placeholder
@@ -39,5 +40,9 @@ Two hook-only plugins predate this rule and declare no `userConfig` yet: `git-si
 to eventually gain a toggle. The hook IS the entire plugin (read-only linting /
 auto-formatting is its one behavior); disabling that behavior is equivalent to
 uninstalling the plugin, so no separate on/off switch is offered. Do not "fix"
-this by re-adding a toggle — both plugins' bats suites assert `userConfig`'s
-absence as a tripwire against exactly that.
+this by re-adding a toggle — all three plugins' bats suites assert
+`userConfig`'s absence as a tripwire against exactly that.
+
+`kiwi-code-style` (2026-08-01) is the same case for a non-hook plugin: its one
+output style IS the entire plugin, so there's nothing to toggle independently
+of enabling/disabling the plugin itself.
