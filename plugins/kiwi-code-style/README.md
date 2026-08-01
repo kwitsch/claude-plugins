@@ -30,7 +30,7 @@ A `SessionStart` hook (`hooks/`) injects the
 [karpathy-ponytail](https://github.com/AbdullahHameedKhan/karpathy-ponytail-skills/blob/main/skills/karpathy-ponytail/SKILL.md)
 coding guidelines — think before coding, a 7-rung simplicity ladder, surgical
 changes, root-cause bug fixes, goal-driven execution — as `additionalContext`
-on every session start, `/clear`, and `/compact`. Reduced to a single, fixed
+on every session start, resume, `/clear`, and `/compact`. Reduced to a single, fixed
 `full` intensity (no lite/ultra variants, no runtime switch); kiwi-code-style
 governs response _form_, ponytail governs _behavior_, so when both apply, say
 the ponytail thing in kiwi's shape.
