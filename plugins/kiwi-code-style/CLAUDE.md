@@ -1,8 +1,10 @@
 # CLAUDE.md — kiwi-code-style
 
-Single-component plugin: `output-styles/kiwi-code-style.md`. No skills/agents/hooks.
+Two fixed, always-on components, no toggle between them: `output-styles/kiwi-code-style.md`
+(the response-format contract) and a `SessionStart` command hook (`hooks/`) that injects
+the karpathy-ponytail coding guidelines. No skills/agents.
 
-## Behavior
+## Output style
 
 `force-for-plugin: true` in the style's frontmatter makes Claude Code apply this
 style automatically whenever the plugin is enabled — this overrides the user's own
@@ -56,10 +58,82 @@ which `MD038`'s fix would corrupt. Any other CodeRabbit/markdownlint
 suggestion that would rewrite the actual contract content (not just
 cosmetic whitespace) must still be rejected.
 
+## SessionStart hook (`hooks/`)
+
+`hooks/inject-ponytail-guidelines.mjs` (`SessionStart`, command, **no matcher**
+— fires on `startup`/`resume`/`clear`/`compact` alike, unlike
+`memory-enhancement`'s `check-dream-due.mjs` which restricts to `startup`
+because it consumes a one-shot flag: this hook is stateless, and `/clear`/
+`/compact` wipe context exactly like a fresh session, so the guidelines must
+re-inject there too or they'd silently vanish mid-session). Reads
+`hooks/ponytail-guidelines.md` (resolved relative to its own file location,
+not via `${CLAUDE_PLUGIN_ROOT}` substitution) and emits it as
+`hookSpecificOutput.additionalContext`. Fail-open: a missing/unreadable
+bundle exits 0 with no stdout.
+
+`ponytail-guidelines.md` is bundled verbatim from the
+[karpathy-ponytail SKILL.md](https://github.com/AbdullahHameedKhan/karpathy-ponytail-skills/blob/main/skills/karpathy-ponytail/SKILL.md)
+(MIT), reduced to the `full` ladder — the source's frontmatter, "Intensity
+levels" table, and `/ponytail lite|full|ultra` switch line are all dropped
+(no runtime switch exists for a hook-injected instruction; "full" was already
+the default behavior described throughout the rest of the source's own
+prose). One further passage is deliberately removed, not just kept alongside
+a disclaimer: source §5's own competing plan-output template
+(`1. [Step] → verify: [check]` in a fenced block) directly conflicted with
+kiwi-code-style's own mandatory `Plan:` numbered-list format, so it's cut —
+kiwi already fully owns that space. Every other line is verbatim from the
+source.
+
+⚠️ Overlaps substantially with `coding-toolbox`'s own
+`~/.claude/rules/coding-toolbox-golden-rules.md` (installed by
+`coding-toolbox:setup-rules`, unconditionally loaded) — same upstream
+authors, same ladder/surgical/bug-fix/goal-driven content. A user running
+both gets it injected twice per session. Not de-duplicated here: the two
+plugins are independent and neither depends on the other being installed.
+
+**Precedence rule:** kiwi-code-style governs response **form** (how
+something is said — the emoji legend, bullet caps, the `Plan:` template);
+ponytail governs **behavior/content** (what to do — surface assumptions,
+climb the ladder, stay surgical, fix root causes). When both apply: say the
+ponytail thing, in kiwi's shape. Same kind of documented carve-out as the
+output style's own emission-rule item 8 above — two contracts, one
+documented tiebreak.
+
+The bundled file carries a top-of-file MIT-attribution HTML comment and 6
+`<!-- prettier-ignore -->` comments (guarding the 6 spots where Prettier
+would otherwise insert a blank line before a list — verified via
+`npx prettier --check`). No whole-file `.prettierignore` entry — same
+conclusion as the output style file above, reached the same way (a real
+dry-run showing the actual reformatting footprint is tiny and worth
+guarding with targeted markers instead of a blanket exemption), independently
+of the fact that the repo's `.prettierignore` file itself no longer exists.
+The hook strips all HTML comments (`stripHtmlComments()`) before injecting,
+so none of that repo-maintenance markup ever reaches the model's context.
+
+No `userConfig` for either component — see
+`.claude/rules/plugin-userconfig.md`'s kiwi-code-style exception: both are
+one fixed, all-or-nothing contract, install/enable the plugin or don't.
+
 ## Tests
 
-`test/kiwi-code-style/test.bats` (bats). Run:
-`BATS_LIB_PATH="$PWD/node_modules" npx bats test/kiwi-code-style/`. Guards the 3
-frontmatter keys (`name`, `keep-coding-instructions`, `force-for-plugin`), the
-contract heading, `plugin.json`'s no-`userConfig` invariant, and
-manifest/marketplace validity — no plugin logic to test beyond that.
+`test/kiwi-code-style/test.bats` (bats) + `test/kiwi-code-style/hooks.test.mjs`
+(`node --test`). Run:
+
+```bash
+BATS_LIB_PATH="$PWD/node_modules" npx bats test/kiwi-code-style/
+npm run test:unit
+npm run typecheck
+```
+
+bats guards: the 3 output-style frontmatter keys, the contract heading, the
+literal dash-space token survives formatting, the plugin-local
+`.markdownlint.json` (`extends` the root config, disables only `MD038`),
+`plugin.json`'s version/description/no-`userConfig` invariants, the
+`hooks.json` shape (no matcher), the hook script's executable bit in the
+git index (`100755`, read via `git ls-files --stage` since this runs before
+the commit exists), that it still emits guidelines when invoked via a
+symlink, and `ponytail-guidelines.md`'s structure (5 section headings,
+lite/ultra removed, the kiwi-conflicting plan example removed, MIT
+attribution present, `prettier --check` clean). `hooks.test.mjs` covers
+`stripHtmlComments`/`buildResult` directly, plus an integration check that
+the real bundled file strips clean.

@@ -9,7 +9,7 @@ setup() {
 }
 
 @test "plugin.json is valid and has required fields, no userConfig (deliberate — see CLAUDE.md)" {
-  run jq -e '.name == "kiwi-code-style" and (.version | type == "string") and (.description | length > 0) and (has("userConfig") | not)' "$PLUGIN/.claude-plugin/plugin.json"
+  run jq -e '.name == "kiwi-code-style" and (.version | type == "string") and (.description | length > 0) and (.description | contains("ponytail")) and (has("userConfig") | not)' "$PLUGIN/.claude-plugin/plugin.json"
   assert_success
 }
 
@@ -52,5 +52,67 @@ setup() {
 
 @test "the literal dash-space token survives formatting" {
   run grep -F '` — ` separator per line' "$STYLE"
+  assert_success
+}
+
+@test "hooks/hooks.json exists, points at the right script, and has no matcher" {
+  HOOKS="$PLUGIN/hooks/hooks.json"
+  [ -f "$HOOKS" ]
+  run jq -e '.hooks.SessionStart[0].hooks[0].command == "${CLAUDE_PLUGIN_ROOT}/hooks/inject-ponytail-guidelines.mjs"' "$HOOKS"
+  assert_success
+  run jq -e '.hooks.SessionStart[0].hooks[0].type == "command"' "$HOOKS"
+  assert_success
+  run jq -e '.hooks.SessionStart[0] | has("matcher") | not' "$HOOKS"
+  assert_success
+}
+
+@test "inject-ponytail-guidelines.mjs is executable in the git index (100755)" {
+  # Reads the INDEX (what `git update-index --chmod=+x` writes), not the
+  # committed tree -- this test runs before the task's own commit exists,
+  # so `git ls-tree HEAD` would false-fail here even once staged correctly.
+  run git -C "$REPO_ROOT" ls-files --stage -- plugins/kiwi-code-style/hooks/inject-ponytail-guidelines.mjs
+  assert_output --partial '100755'
+}
+
+@test "inject-ponytail-guidelines.mjs still emits guidelines when invoked via a symlink" {
+  ln -sf "$PLUGIN/hooks/inject-ponytail-guidelines.mjs" "$BATS_TEST_TMPDIR/link.mjs"
+  run node "$BATS_TEST_TMPDIR/link.mjs"
+  assert_success
+  assert_output --partial '"hookEventName":"SessionStart"'
+}
+
+@test "ponytail-guidelines.md exists" {
+  # The 5 section headings are asserted on this same real file by
+  # hooks.test.mjs ("bundled ponytail-guidelines.md strips clean and keeps
+  # all 5 sections") -- no need to duplicate that check in bats too.
+  [ -f "$PLUGIN/hooks/ponytail-guidelines.md" ]
+}
+
+@test "ponytail-guidelines.md has no lite/ultra intensity variability" {
+  GUIDE="$PLUGIN/hooks/ponytail-guidelines.md"
+  run grep -F 'argument-hint' "$GUIDE"; assert_failure
+  run grep -F 'Intensity levels:' "$GUIDE"; assert_failure
+  # -E, not -F: '|' must be alternation, so a reintroduced single-level
+  # command ('/ponytail lite') is rejected too, not just the exact 3-way
+  # switch line. Prose mentioning the "full" level without the command
+  # prefix (the MIT-attribution comment) stays allowed.
+  run grep -E '/ponytail[[:space:]]+(lite|full|ultra)' "$GUIDE"; assert_failure
+}
+
+@test "ponytail-guidelines.md has no kiwi-conflicting plan-format example" {
+  GUIDE="$PLUGIN/hooks/ponytail-guidelines.md"
+  run grep -F 'state a brief plan' "$GUIDE"; assert_failure
+  run grep -F '[Step] → verify: [check]' "$GUIDE"; assert_failure
+}
+
+@test "ponytail-guidelines.md carries MIT attribution and passes prettier --check" {
+  GUIDE="$PLUGIN/hooks/ponytail-guidelines.md"
+  run grep -F 'License: MIT' "$GUIDE"; assert_success
+  run npx prettier --check "$GUIDE"
+  assert_success
+}
+
+@test "plugin.json version bumped to 0.2.0 for the ponytail hook feature" {
+  run jq -e '.version == "0.2.0"' "$PLUGIN/.claude-plugin/plugin.json"
   assert_success
 }
