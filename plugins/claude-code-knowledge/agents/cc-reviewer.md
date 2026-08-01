@@ -58,6 +58,7 @@ Return a JSON array. Each finding is an object:
 `null` — never auto-apply an uncovered finding.
 
 `suggested_fix` rules:
+
 - For an in-place edit, provide `{ "old_string": ..., "new_string": ... }` where
   `old_string` is copied verbatim from the file and is unique within it.
 - For a whole-file rewrite, provide `{ "full_content": "<entire new file>" }`.

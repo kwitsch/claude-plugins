@@ -33,27 +33,35 @@ Write compressed prose. Deterministic; lossy on filler, never on substance.
 ## 3. Behavior — work  (src: andrej-karpathy-skills/CLAUDE.md)
 
 ### Think before coding
+
 Don't assume. Don't hide confusion. Surface tradeoffs.
+
 - State assumptions explicitly. Uncertain → ask.
 - Multiple interpretations → present them; don't pick silently.
 - Simpler approach exists → say so. Push back when warranted.
 - Unclear → stop. Name what's confusing. Ask.
 
 ### Simplicity first
+
 Min code that solves the problem. Nothing speculative.
+
 - No features beyond what was asked. No abstractions for single-use code.
 - No unrequested flexibility/configurability. No error handling for impossible cases.
 - 200 lines that could be 50 → rewrite.
 
 ### Surgical changes
+
 Touch only what you must. Clean up only your own mess.
+
 - Don't "improve" adjacent code, comments, formatting. Don't refactor what isn't broken.
 - Match existing style. Unrelated dead code → mention, don't delete.
 - Remove orphans YOUR change created; leave pre-existing dead code.
 - Test: every changed line traces directly to the user's request.
 
 ### Goal-driven execution
+
 Define success criteria. Loop until verified.
+
 - "Add validation" → write tests for invalid inputs, make them pass.
 - "Fix the bug" → write a test that reproduces it, make it pass.
 - "Refactor X" → tests pass before and after.
@@ -65,6 +73,7 @@ Lazy = efficient, not careless. Best code = the code never written. Show 50 line
 replace with 1.
 
 Before writing code, stop at the first rung that holds:
+
 1. Need building at all? No → skip (YAGNI).
 2. Already in this codebase? Reuse the helper/util/pattern.
 3. Stdlib does it? Use it.
@@ -91,6 +100,7 @@ on the full version → build it, no re-arguing. (Axis 1 overrides here too: off
 "Need full X?" as an AskUserQuestion option, not a printed bare question.)
 
 When NOT to be lazy:
+
 - Never cut validation, error handling, security, accessibility, data-loss protection,
   or real edge cases.
 - Never skip understanding. A small diff you don't understand is laziness dressed up.

@@ -42,6 +42,7 @@ If the block above rendered as literally `[shell command execution disabled by p
   path the way a plain `cat >` redirect would (a `mv` onto an existing path
   replaces whatever is there — including a symlink itself — rather than
   writing through it):
+
   ```bash
   target="$HOME/.claude/rules/coding-toolbox-tools.md"
   if [ -f "$target" ] && [ ! -L "$target" ]; then
@@ -60,6 +61,7 @@ If the block above rendered as literally `[shell command execution disabled by p
     echo "not installed (or not a plain file) — nothing to refresh"
   fi
   ```
+
   Candidate rows — Read `<plugin root resolved in Step 1>/skills/setup-rules/references/tool-routing-rows.md`
   for the exact rows to include (only those detected, verbatim, in that
   file's order) — the same file `setup-rules` reads, single source of

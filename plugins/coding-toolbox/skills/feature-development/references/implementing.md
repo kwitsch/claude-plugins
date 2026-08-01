@@ -157,6 +157,7 @@ concurrently across the wave, plus two additions:
 ## Engine selection
 
 Probe once: `ToolSearch(query: "select:Workflow")`.
+
 - **Available → Workflow engine (canonical).** This reference instructing the call
   is the documented opt-in for using it.
 - **Absent → Agent engine.**
@@ -479,6 +480,7 @@ identical wall-clock behavior to the Workflow engine's per-task `parallel()` pip
 > (retry bare names). Only if the CRUD ledger tools (TaskCreate/TaskUpdate/TaskList)
 > fail to load, use the prose-count fallback below — TaskStop loading alone is not
 > sufficient to activate the ledger path.
+>
 > 1. On dispatch, `TaskCreate` one entry per worker actually dispatched
 >    (`subject` = implementer/reviewer/fixer + task id, `metadata.dispatch_id`
 >    = its Agent `task_id`), then `TaskUpdate` it to `in_progress` — one entry

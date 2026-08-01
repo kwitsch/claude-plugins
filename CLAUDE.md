@@ -3,6 +3,7 @@
 Claude Code plugin marketplace.
 
 ## Layout
+
 - `.claude-plugin/marketplace.json` — marketplace manifest (root).
 - `plugins/<name>/` — one plugin each: `.claude-plugin/plugin.json` + components (`skills/`, `agents/`, `hooks/`, `bin/`, `commands/` legacy, …) + `README.md` + `CLAUDE.md`. Full list in `plugins/CLAUDE.md`.
 - `test/<name>/test.bats` — per-plugin bats suite (top-level); conventions in `.claude/rules/test-conventions.md`.
@@ -10,6 +11,7 @@ Claude Code plugin marketplace.
 - `.github/workflows/ci.yml` validates manifests; `test.yml` runs bats suites plus a `unit_and_typecheck` job (`npm run typecheck` + `npm run test:unit`); `tag-on-version-bump.yml` tags plugins whose plugin.json version has no tag yet.
 
 ## Testing
+
 ```bash
 # one-time setup
 npm ci
@@ -31,9 +33,11 @@ jq empty .claude-plugin/marketplace.json && \
   jq -e '.name and .owner and (.plugins | type == "array")' .claude-plugin/marketplace.json > /dev/null && \
   for d in plugins/*/; do [ -f "$d/.claude-plugin/plugin.json" ] && jq empty "$d/.claude-plugin/plugin.json"; done
 ```
+
 Conventions in `.claude/rules/test-conventions.md`.
 
 ## Conventions
+
 - Commit messages: never include `Co-Authored-By:` trailer or "Generated with [Claude Code]" footer.
 - New plugins: use `create-plugin` skill — scaffolds plugin, test, README, CLAUDE.md, `test.yml` matrix entry, registers in `marketplace.json`.
 - Plugin versions ONLY in `.claude-plugin/plugin.json` — no `version` in marketplace.json entries, no `metadata.pluginRoot`. See `.claude/rules/plugin-versioning.md`.

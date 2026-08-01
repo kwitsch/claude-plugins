@@ -44,7 +44,7 @@ Task-list section for why that's expected, not a ledger violation.
 1. **Classify.** From `$work_description`:
 
    | Type | Signals | Branch prefix | Skill |
-   |---|---|---|---|
+   | --- | --- | --- | --- |
    | **fix** | bug, regression, error, crash, failing test, incorrect behavior | `fix/` | `coding-toolbox:debugging` |
    | **refactor** | restructure, rename, extract, move, clean up — no behavior change | `refactor/` | `coding-toolbox:feature-development` |
    | **feature** | new functionality or behavior (default when ambiguous) | `feature/` | `coding-toolbox:feature-development` |

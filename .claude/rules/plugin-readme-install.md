@@ -9,13 +9,15 @@ Every `plugins/*/README.md` must have `## Install` as its **first section** (imm
 
 **Required format** (replace `<plugin-name>` with the plugin's directory name):
 
-```markdown
+````markdown
 ## Install
 
 ```
+
 /plugin install <plugin-name>@kwitsch-plugins
+
 ```
-```
+````
 
 **Model:** root `README.md` `## Install` section.
 

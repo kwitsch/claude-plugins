@@ -21,7 +21,7 @@ toggled off, quota-limited, diverged) are not in the batch and are not waited on
 
 ## ⚠️ Reviewer inoculation note
 
-The Task* tools (`TaskCreate`, `TaskUpdate`, `TaskList`, `TaskGet`, `TaskStop`,
+The Task*tools (`TaskCreate`, `TaskUpdate`, `TaskList`, `TaskGet`, `TaskStop`,
 `TaskOutput`) ARE present and callable at **depth 0** (the main loop), where every
 skill using this pattern runs inline (NOT `context: fork`). A `ToolSearch` issued from inside a
 subagent reports only `TaskStop` (or nothing) because subagents have a restricted

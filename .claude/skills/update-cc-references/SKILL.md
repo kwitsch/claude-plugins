@@ -327,6 +327,7 @@ or been reverted (Inline mode step 7-8 / Workflow mode's Verify+Revert stages) b
    ```bash
    git status --porcelain plugins/claude-code-knowledge/skills/cc-reference/
    ```
+
    - **No output** (nothing changed) → report "references already current",
      print the short changelog, and STOP. Make no commit, no version bump, no PR.
    - **Output present** → continue.
@@ -344,7 +345,7 @@ or been reverted (Inline mode step 7-8 / Workflow mode's Verify+Revert stages) b
    `... (CC docs read: YYYY-MM-DD)`.
    - **Idempotent:** if the description already ends with a `(CC docs read: …)`
      suffix, REPLACE its date in place — never stack a second suffix. Match/replace
-     the trailing ` (CC docs read: <date>)` token; keep the rest of the description
+     the trailing `(CC docs read: <date>)` token; keep the rest of the description
      unchanged.
    - Do not change the marketplace.json description here (it has no date suffix).
 

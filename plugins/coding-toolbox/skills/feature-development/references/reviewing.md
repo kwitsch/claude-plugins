@@ -405,6 +405,7 @@ agent `model: sonnet`):
 > `ToolSearch(query: "select:TaskCreate,TaskUpdate,TaskList,TaskGet,TaskStop")`
 > (retry bare names). Only if the CRUD ledger tools fail to load, use the
 > prose-count fallback below.
+>
 > 1. On dispatch, `TaskCreate` one entry per finder/verifier actually
 >    dispatched (`subject` = role + label, `metadata.dispatch_id` = its Agent
 >    `task_id`), then `TaskUpdate` it to `in_progress`.

@@ -5,7 +5,7 @@ paths:
 
 # Rule: SKILL.md authoring reference
 
-Source: https://code.claude.com/docs/en/skills
+Source: <https://code.claude.com/docs/en/skills>
 
 ## Frontmatter (complete reference)
 
@@ -73,6 +73,7 @@ git status --short
 ````
 
 Rules:
+
 - `!` must appear at line start or after whitespace — `` KEY=!`cmd` `` is NOT expanded.
 - Output is plain text; no second-pass expansion of further `` !`...` `` placeholders.
 - Disable repo-wide with `"disableSkillShellExecution": true` in settings.
@@ -80,7 +81,7 @@ Rules:
 ## Invocation control
 
 | Frontmatter | User invoke | Claude auto-invoke |
-|---|---|---|
+| --- | --- | --- |
 | _(none)_ | ✓ | ✓ |
 | `disable-model-invocation: true` | ✓ | ✗ |
 | `user-invocable: false` | ✗ | ✓ |

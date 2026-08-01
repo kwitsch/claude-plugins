@@ -20,6 +20,7 @@ allowed-tools:
     "TaskStop",
   ]
 ---
+<!-- markdownlint-disable MD029 -- this file's numbered steps are ONE continuous sequence deliberately split across many list blocks by intervening prose/code; step numbers are cross-referenced by their original value elsewhere in this file ("step 3 above", "step 8 below") and must not be renumbered per-block -->
 
 # Push work and open/refresh a PR/MR, then drive it to CI-green
 

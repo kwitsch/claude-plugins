@@ -89,7 +89,9 @@ Example (managed settings):
 `serverName` validation differs by list:
 
 - `allowedMcpServers`: limited to letters/numbers/`-`/`_`. Use `serverUrl` to allowlist a claude.ai connector.
-- `deniedMcpServers`: accepts any non-empty string — block a claude.ai connector by display name, e.g. `{ "serverName": "claude.ai Slack" }`. version >= 2.1.182. Prefer `serverUrl` to be robust to renames / ` (N)` suffix collisions.
+- `deniedMcpServers`: accepts any non-empty string — block a claude.ai connector by display name, e.g. `{ "serverName": "claude.ai Slack" }`. version >= 2.1.182. Prefer `serverUrl` to be robust to renames /
+  <!-- markdownlint-disable-next-line MD038 -- the code span deliberately shows the real UI suffix format: a SPACE before the parenthesis, e.g. "Slack (2)" -->
+  ` (N)` suffix collisions.
 
 ## Evaluation order
 

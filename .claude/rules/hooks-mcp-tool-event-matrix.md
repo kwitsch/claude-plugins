@@ -61,6 +61,7 @@ The canonical machine-readable record is the `events` array in the JSON block un
 
 KEY_INVARIANT: `mcp_tool` can express a decision ONLY via JSON it returns as text.
 It cannot emit exit code 2. Therefore:
+
 - Events whose block path is JSON (top-level `decision` or `hookSpecificOutput`) => `mcp_tool` can block => `full`.
 - Events whose ONLY granular block path is exit code 2 => `mcp_tool` cannot do the granular block; at best `{"continue": false}` (coarse, stops the whole turn/agent) => `limited`.
 
@@ -107,12 +108,14 @@ It cannot emit exit code 2. Therefore:
 ## DERIVED_LISTS
 
 ### LIST_1_FULL (problemlos)
+
 PreToolUse, PostToolUse, PostToolUseFailure, PostToolBatch, PermissionRequest,
 PermissionDenied, UserPromptExpansion, Stop, SubagentStop, ConfigChange, PreCompact,
 Elicitation, ElicitationResult, SubagentStart, Notification, PostCompact, SessionEnd,
 WorktreeRemove, InstructionsLoaded.
 
 ### LIST_2_LIMITED (mit Einschränkung => siehe `limitation` im CANONICAL_SPEC)
+
 SessionStart, Setup, UserPromptSubmit, MessageDisplay, CwdChanged, FileChanged,
 StopFailure, TaskCreated, TaskCompleted, TeammateIdle, WorktreeCreate.
 
@@ -156,6 +159,7 @@ StopFailure, TaskCreated, TaskCompleted, TeammateIdle, WorktreeCreate.
 ```
 
 ## AGENT_USAGE_NOTES
+
 - Treat `confidence: inferred|unverified` rows as hypotheses; verify with the harness
   (`mcp-tool-hook-harness`, scenarios `emit_continue_false` for task events,
   `emit_pretool_deny`/`emit_block`/`emit_context` for tool/turn events).

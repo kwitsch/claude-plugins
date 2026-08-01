@@ -8,7 +8,7 @@ paths:
 
 # Rule: MCP-server hooks (preferred for non-blocking mid-session hooks)
 
-Sources: https://code.claude.com/docs/en/hooks#mcp-tool-hook-fields ·
+Sources: <https://code.claude.com/docs/en/hooks#mcp-tool-hook-fields> ·
 per-event compatibility table: `.claude/rules/hooks-mcp-tool-event-matrix.md`
 
 For a **new** hook, prefer implementing it as a tool on a plugin-local MCP server
@@ -23,7 +23,7 @@ rows only).
 A `command` hook is required when **any** of these hold; otherwise prefer `mcp_tool`.
 
 | Use a **command** hook when… | Why |
-|---|---|
+| --- | --- |
 | The event fires **before the server connects** — `SessionStart`, `Setup` | `mcp_tool` needs an already-connected server; on first run it is not up yet, so the hook **fails open** (silent no-op). These are the *only* events with a connectivity problem. |
 | You need a **fail-closed hard gate** (must deny / abort) | `mcp_tool` has no exit-2 path and fails open on server-down — it can express only a *soft* JSON decision, never a guaranteed block. A guard that fails open is a silent security regression. |
 | The hook is a **fail-open-sensitive side-effect that must reliably fire** — e.g. a state-write that *other* command hooks read (`ConfigChange`) | A command hook spawns independently of server liveness; an `mcp_tool` hook would silently skip exactly when the side-effect matters most. |
@@ -43,6 +43,7 @@ state in between). `universal-lint` (async — read-only) and `universal-format`
 (synchronous — mutates the file) are this repo's two examples, decided 2026-07-24.
 
 Why the limits (documented Claude Code behavior):
+
 - `mcp_tool` requires an **already-connected** server; the hook never triggers a
   connection flow. Servers connect during/after startup, so only the *pre-connect*
   events (`SessionStart`, `Setup`) genuinely can't rely on it. Mid-session

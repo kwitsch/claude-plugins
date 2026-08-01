@@ -464,7 +464,7 @@ Array of entries; declare inline via `experimental.monitors` (array) or load fro
 | `description` | Yes      | Short summary; shown in the task panel and notification summaries                                                                                                          |
 | `when`        | No       | `"always"` (default) — starts at session start and on plugin reload. `"on-skill-invoke:<skill-name>"` — starts the first time the named skill in this plugin is dispatched |
 
-- `command` substitutes `${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_DATA}`, `${CLAUDE_PROJECT_DIR}`, any `${ENV_VAR}`. Prefix with `cd "${CLAUDE_PLUGIN_ROOT}" && ` for a script that must run from the plugin's own dir.
+- `command` substitutes `${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_DATA}`, `${CLAUDE_PROJECT_DIR}`, any `${ENV_VAR}`. Prefix with `cd "${CLAUDE_PLUGIN_ROOT}" &&` for a script that must run from the plugin's own dir.
 - version >= 2.1.207: `command` may NOT reference `${user_config.*}` — it runs through a shell, so the monitor is rejected with an error instead. Monitor processes also receive no `CLAUDE_PLUGIN_OPTION_<KEY>` env vars; have the script read the value from a config file it owns. Earlier versions substituted.
 - Disabling a plugin mid-session does not stop monitors already running; they stop when the session ends.
 

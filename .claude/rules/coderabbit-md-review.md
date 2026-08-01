@@ -13,6 +13,7 @@ Before applying any CodeRabbit annotation to a markdown file:
 1. **Check against Anthropic documentation** — if the suggestion conflicts with current Anthropic/Claude Code documentation (API fields, hook schemas, frontmatter keys, model IDs, tool names, behavior descriptions), do NOT apply it.
 
 2. **Contradicts Anthropic docs** → insert a justification comment directly above the affected line instead:
+
    ```markdown
    <!-- coderabbit-skip: <one-line reason why the suggestion contradicts Anthropic docs, with doc reference if possible> -->
    ```

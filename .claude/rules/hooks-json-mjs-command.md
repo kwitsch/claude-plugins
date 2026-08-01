@@ -8,11 +8,13 @@ paths:
 `.mjs` hook files are executable (see hooks-executable rule) and are invoked directly by Claude Code. Do NOT prefix them with `node`.
 
 **Correct:**
+
 ```json
 { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/my-hook.mjs" }
 ```
 
 **Wrong:**
+
 ```json
 { "type": "command", "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/my-hook.mjs" }
 ```

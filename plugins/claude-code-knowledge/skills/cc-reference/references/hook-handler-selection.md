@@ -39,7 +39,7 @@
 ## Type comparison
 
 | type | process per call | per-call latency | hard-block reliable? | error mode | default timeout | holds state across calls |
-|---|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- | --- |
 | `command` .sh | new shell | ~1–5 ms | YES (exit 2) | fail closed (own logic) | 600 s | no |
 | `command` binary | new process | ~1–10 ms | YES (exit 2) | fail closed | 600 s | no |
 | `command` .mjs | new node proc | ~20–30 ms empty, 100 ms+ w/ imports | YES (exit 2) | fail closed | 600 s | no |
@@ -53,7 +53,7 @@
 ## Handler fields (config, all types unless noted)
 
 | field | type | effect |
-|---|---|---|
+| --- | --- | --- |
 | `async` | `command` | `true` → runs in background, does NOT block. A backgrounded hook can't hard-block (exit 2 is not awaited inline). |
 | `asyncRewake` | `command` | `true` → runs in background AND wakes Claude on `exit 2` (implies `async`). The hook's stderr (or stdout if stderr empty) is shown to Claude as a system reminder — the path by which a long-running background failure reaches Claude. |
 | `once` | handler | `true` → runs once per session then is removed. ONLY honored for hooks declared in skill frontmatter; ignored in settings files and agent frontmatter. |
