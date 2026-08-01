@@ -1,6 +1,6 @@
 {
   "name": "npm-automations",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Runs an async npm ci when a package-lock.json project is entered via EnterWorktree (toggle: npm_ci_on_worktree), and an async, dependency-scoped npm install whenever a package.json's dependencies actually change (toggle: npm_install_on_package_change) — moved out of coding-toolbox to centralize npm-lifecycle automation hooks.",
   "author": {
     "name": "Kwitsch"
