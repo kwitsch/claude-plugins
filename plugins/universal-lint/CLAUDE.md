@@ -1,6 +1,6 @@
 # CLAUDE.md — universal-lint
 
-Hooks-only plugin: a PostToolUse `Write|Edit` `command` hook runs the just-written file's standard linter (check-only, never `--fix`/`--format`/`--write`) for Shell/Java/Kotlin/JS-TS/Python/Go/YAML/Markdown/CSS/SCSS, backed by a self-contained zero-dep `hooks/lint-file.mjs`. TypeScript files (`.ts`/`.tsx`/`.mts`/`.cts`) additionally get a whole-project `tsc --noEmit` type-check (see "TypeScript type-checking (`tsc`)" below). JSON is deliberately excluded (see "JSON: not covered" below). No `userConfig` — the hook is always active once the plugin is installed (see "No toggle" below).
+Hooks-only plugin: a PostToolUse `Write|Edit` `command` hook runs the just-written file's standard linter (check-only, never `--fix`/`--format`/`--write`) for Shell/Java/Kotlin/JS-TS/Python/Go/YAML/Markdown/CSS/SCSS/PHP, backed by a self-contained zero-dep `hooks/lint-file.mjs`. TypeScript files (`.ts`/`.tsx`/`.mts`/`.cts`) additionally get a whole-project `tsc --noEmit` type-check (see "TypeScript type-checking (`tsc`)" below). JSON is deliberately excluded (see "JSON: not covered" below). No `userConfig` — the hook is always active once the plugin is installed (see "No toggle" below).
 
 ## Hook design (do not "fix" without reading this)
 
@@ -255,6 +255,16 @@ disable}}"` is passed — single-line flow-style YAML, not the equivalent
   make here, unlike the analogous `printWidth` guard in `universal-format`'s
   `CLAUDE.md`.
 
+## PHP: phpstan/psalm and the vendor/bin gap
+
+`phpstan` (chain[0]) and `psalm` (chain[1]) are both file-scoped static analyzers -- real-bug-catching, not style-only (mirroring why `tsc` above exists independently of `eslint`'s style focus) -- and both PATH-only (Composer-distributed, no `npmSpec`).
+
+`phpstan`'s own docs only document exit code `0` = clean; every other code is not split cleanly between "real findings" and "phpstan itself failed" -- `classifyExit`'s `phpstan` case therefore accepts the same ambiguity already accepted for `go vet` above (any non-zero -> `issues`). Its default analysis level (0, used whenever the project has no `phpstan.neon`/`.dist`) only catches unknown classes/functions and wrong argument counts -- a `.php` file with no project phpstan config can go unreported even when genuinely flawed; this is real, not a bug, matching every other config-optional entry in this registry.
+
+`psalm` is used more precisely: its own docs fully document 0 clean / 1 problem running Psalm / 2 completed and found real issues, verified verbatim (psalm.dev/docs/running_psalm/command_line_usage). The missing-config case (no `psalm.xml` in the project) was confirmed directly from Psalm's own current source (`src/Psalm/Internal/CliUtils.php`): a normal invocation with no discoverable config prints "Could not locate a config XML file..." and calls `exit(1)` -- landing in this file's `skip` bucket, never `issues`, so a project without Psalm configured is silently skipped rather than surfacing Psalm's own missing-config error as a false finding.
+
+Known, accepted limitation (confirmed with the user at this feature's design stage): neither tool gets `vendor/bin/<tool>` discovery -- the PHP analogue of `tsc`'s own `node_modules/.bin/tsc` special case above. Most real PHP projects install these as local Composer dev-dependencies rather than globally on `PATH`, so this chain will silently no-op on a large fraction of real PHP repos until a global/PATH install is also present. A real gap, not solved now -- same restraint already shown by not generalizing `tsc`'s own special case to any other tool in this file.
+
 ## JSON: not covered (do not "fix" without reading this)
 
 `.json` is intentionally absent from `EXT_MAP` — not a bug. No standalone,
@@ -272,7 +282,7 @@ chain — format-only coverage is the honest answer for this file type.
 `test/universal-lint/` — split into one `.bats` file per language/tool
 (`scaffold.bats`, `core.bats`, `go.bats`, `checkstyle.bats`,
 `truncation.bats`, `npx-fallback.bats`, `rtk.bats`, `yaml.bats`,
-`markdown.bats`, `stylelint.bats`, `tsc.bats`), mirroring
+`markdown.bats`, `stylelint.bats`, `tsc.bats`, `php.bats`), mirroring
 `test/coding-toolbox/`'s split. `test_helper.bash` holds what's shared
 across files (`common_setup`, `rg_or_grep`, `make_stub`, `rec_stub`,
 `lint_file_call`); `rtk_stub` stays local to `rtk.bats`, the only file that

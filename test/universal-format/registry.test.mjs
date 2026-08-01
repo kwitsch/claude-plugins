@@ -339,3 +339,11 @@ test("guardPrintWidthArgv: .editorconfig present but without max_line_length -> 
     "99999",
   ]);
 });
+
+test("REGISTRY: php chain is php-cs-fixer only (chain of 1), native strategy, no npmSpec, caching disabled", () => {
+  assert.equal(REGISTRY.php.chain.length, 1);
+  assert.equal(REGISTRY.php.chain[0].name, "php-cs-fixer");
+  assert.equal(REGISTRY.php.chain[0].strategy, "native");
+  assert.equal(REGISTRY.php.chain[0].npmSpec, undefined);
+  assert.ok(REGISTRY.php.chain[0].base.includes("--using-cache=no"));
+});
