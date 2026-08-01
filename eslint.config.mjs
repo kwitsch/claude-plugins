@@ -11,8 +11,8 @@ export default [
       globals: globals.node,
     },
     rules: {
-      // deprecated core rule (removal in 11.0.0), still valid to disable explicitly
-      "max-len": "off",
+      // deprecated core rule (removal in 11.0.0), still valid to configure explicitly
+      "max-len": ["error", { code: 200 }],
     },
   },
 ];

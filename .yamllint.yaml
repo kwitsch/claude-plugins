@@ -1,6 +1,6 @@
 extends: default
 
 rules:
-  line-length: disable
+  line-length: { max: 200 }
   indentation:
     spaces: 2
