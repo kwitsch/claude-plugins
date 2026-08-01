@@ -536,3 +536,24 @@ test("buildArgv: markdownlint-cli2 runs bare when a project config exists", () =
     path.join(dir, "a.md"),
   ]);
 });
+
+test("REGISTRY: php chain is phpstan -> psalm, neither carries npmSpec", () => {
+  assert.equal(REGISTRY.php.chain.length, 2);
+  assert.equal(REGISTRY.php.chain[0].name, "phpstan");
+  assert.equal(REGISTRY.php.chain[0].npmSpec, undefined);
+  assert.equal(REGISTRY.php.chain[1].name, "psalm");
+  assert.equal(REGISTRY.php.chain[1].npmSpec, undefined);
+});
+
+test("classifyExit: phpstan is 0-clean/else-issues (accepted ambiguity, same as go)", () => {
+  assert.equal(classifyExit("phpstan", 0), "clean");
+  assert.equal(classifyExit("phpstan", 1), "issues");
+  assert.equal(classifyExit("phpstan", 2), "issues");
+});
+
+test("classifyExit: psalm is 0-clean/2-issues/else-skip (NOT the shared 0/1/else contract)", () => {
+  assert.equal(classifyExit("psalm", 0), "clean");
+  assert.equal(classifyExit("psalm", 1), "skip");
+  assert.equal(classifyExit("psalm", 2), "issues");
+  assert.equal(classifyExit("psalm", 3), "skip");
+});

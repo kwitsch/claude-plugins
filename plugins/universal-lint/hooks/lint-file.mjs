@@ -76,6 +76,7 @@ const EXT_MAP = {
   ".md": "markdown",
   ".css": "css",
   ".scss": "css",
+  ".php": "php",
 };
 
 // Linter registry. chain = first tool on PATH wins. Every entry runs check-only --
@@ -127,6 +128,12 @@ export const REGISTRY = {
     ],
   },
   css: { chain: [{ name: "stylelint", args: [], npmSpec: "stylelint" }] },
+  php: {
+    chain: [
+      { name: "phpstan", args: ["analyse"] },
+      { name: "psalm", args: [] },
+    ],
+  },
 };
 
 // PATH probe cache (server-lifetime): tool name -> boolean on PATH.
@@ -577,6 +584,21 @@ export function classifyExit(toolName, status) {
       // DiagnosticsPresent_OutputsSkipped=1, _OutputsGenerated=2). Trust the
       // live behavior, not the enum -- re-verify if the installed tsc major
       // version changes materially and findings stop surfacing.
+      if (status === 0) return "clean";
+      if (status === 2) return "issues";
+      return "skip";
+    case "phpstan":
+      // 0 clean (phpstan.org/user-guide/command-line-usage, quoted: "Exit code 0
+      // means there are no errors"). Other codes are not documented as a clean
+      // split between "real findings" and "phpstan itself failed" -- accepted,
+      // same ambiguity already accepted for `go` above.
+      return status === 0 ? "clean" : "issues";
+    case "psalm":
+      // 0 clean, 1 problem running psalm itself (crash/misconfig), 2 completed
+      // and found real issues -- verified verbatim against
+      // psalm.dev/docs/running_psalm/command_line_usage, and the missing-config
+      // path (exit 1, not 2) confirmed directly against Psalm's own source
+      // (src/Psalm/Internal/CliUtils.php).
       if (status === 0) return "clean";
       if (status === 2) return "issues";
       return "skip";
