@@ -18,23 +18,17 @@ conventions elsewhere. Any deviation from the current body below is a bug,
 not a style choice — apply the body's own content changes exactly as the
 user supplies them, never paraphrased.
 
-Two deliberate, user-authored revisions exist:
+This style carries two deliberate, user-authored behaviors beyond the base
+contract — don't revert either to a plainer form:
 
-- Commit `7243bde`: emission-rule item 8 (now superseded, see below) deferred
-  a bare 1-line `?` turn-ender to any stricter Interaction contract already
-  active (e.g. coding-toolbox's golden-rules Stop-hook gate).
-- 2026-08-01 (PR #165, follow-up commit): added the "Input & turn-end
-  protocol" section — this style now carries its own intrinsic
-  `AskUserQuestion`-first mandate (parallel remote-control/mobile sessions:
-  every input need and every completion must be explicitly signaled) rather
-  than only deferring to an external contract when one happens to be active.
-  Emission-rule item 8 was rewritten as item 9 to match: a bare plain-text
-  question is now a fallback for when `AskUserQuestion` options are
-  impossible, not a default with an external-contract escape hatch. Also
-  added: indented `    - <Key>: <value>` sub-bullets for ≥2 attributes of one
-  status line (a new hard rule + emission-rule item 2), and a fixed turn-end
-  contract (exactly one of: a pending `AskUserQuestion`, or a final
-  `Summary:` block — including a `🚫` blocker inside `Summary:` when stuck).
+- An intrinsic `AskUserQuestion`-first mandate (the "Input & turn-end
+  protocol" section) for any input need, with a bare plain-text question
+  only as a fallback when tappable options are impossible — not merely
+  deferring to whatever external Interaction contract happens to be active.
+- Indented `    - <Key>: <value>` sub-bullets for status lines with ≥2
+  attributes, instead of chaining them inline, plus a fixed turn-end
+  contract: exactly one of a pending `AskUserQuestion`, or a final
+  `Summary:` block (with a `🚫` blocker inside it when stuck).
 
 `markdownlint` flags this file's unlabeled example fences (`MD040`) — **by
 design**: those are intentional contract content, not lint debt; do not add
@@ -47,7 +41,8 @@ Prettier has no per-rule toggle for this (unlike markdownlint's `MD038`
 below) — it isn't rule-based, so the only lever for a specific line is a
 `<!-- prettier-ignore -->` comment (or a full `.prettierignore` re-exemption,
 rejected as too broad). One line needs it: the bullet demonstrating the
-` — ` separator token uses a code span, `` ` — ` ``, whose padding spaces
+separator token uses a code span containing a leading and trailing space
+around the em-dash (space, em-dash, space) — those padding spaces
 are semantically part of the documented token — prettier's inline-code-span
 printer trims exactly that kind of padding, which would silently change
 what the token looks like. A `<!-- prettier-ignore -->` immediately above
