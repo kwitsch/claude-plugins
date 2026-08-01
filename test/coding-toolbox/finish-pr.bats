@@ -17,12 +17,13 @@ setup() {
   assert_output --partial "AskUserQuestion"
   assert_output --partial 'Bash(gh:*)'
   assert_output --partial 'Bash(glab:*)'
+  # rebase.sh (fresh-pr's own) is invoked via bash for the freshness check
+  assert_output --partial "Bash(bash:*)"
   # tripwire: this skill dispatches nothing and takes no arguments
   refute_output --partial "Agent"
   refute_output --partial "Workflow"
   refute_output --partial "TaskCreate"
   refute_output --partial "argument-hint"
-  refute_output --partial "Bash(bash:*)"
 }
 
 @test "finish-pr aborts when no PR/MR exists for the branch" {
@@ -78,6 +79,51 @@ setup() {
   run rg_or_grep -F "headRefOid" "$PLUGIN/skills/finish-pr/SKILL.md"
   assert_success
   run rg_or_grep -F "git rev-parse HEAD" "$PLUGIN/skills/finish-pr/SKILL.md"
+  assert_success
+}
+
+@test "finish-pr reuses fresh-pr's rebase.sh via plugin_root, never a duplicated copy" {
+  run rg_or_grep -F "plugin_root: %s" "$PLUGIN/skills/finish-pr/SKILL.md"
+  assert_success
+  run rg_or_grep -F "skills/fresh-pr/rebase.sh" "$PLUGIN/skills/finish-pr/SKILL.md"
+  assert_success
+  run rg_or_grep -F "skills/fresh-pr/rebase.reference.md" "$PLUGIN/skills/finish-pr/SKILL.md"
+  assert_success
+  # tripwire: no colocated copy of the script inside finish-pr's own dir
+  run test -f "$PLUGIN/skills/finish-pr/rebase.sh"
+  assert_failure
+}
+
+@test "finish-pr maps every REBASE_RESULT outcome and force-pushes only after a rebase" {
+  for result in up_to_date rebased conflict failed skipped_dirty; do
+    run rg_or_grep -F "\`$result\`" "$PLUGIN/skills/finish-pr/SKILL.md"
+    assert_success
+  done
+  run rg_or_grep -F -- "--force-with-lease origin" "$PLUGIN/skills/finish-pr/SKILL.md"
+  assert_success
+  # tripwire: never a bare --force
+  run rg_or_grep -F -- "git push --force origin" "$PLUGIN/skills/finish-pr/SKILL.md"
+  assert_failure
+}
+
+@test "finish-pr gates the rebase step on local HEAD matching before touching the branch" {
+  run rg_or_grep -F "Confirm local \`HEAD\` matches the PR/MR's remote head first" "$PLUGIN/skills/finish-pr/SKILL.md"
+  assert_success
+  run rg_or_grep -F "clobber someone else's push" "$PLUGIN/skills/finish-pr/SKILL.md"
+  assert_success
+}
+
+@test "finish-pr treats a rebase conflict as report-and-continue, not a hard stop" {
+  run rg_or_grep -F "already ran \`git rebase --abort\`" "$PLUGIN/skills/finish-pr/SKILL.md"
+  assert_success
+  run rg_or_grep -F "continue to step 6" "$PLUGIN/skills/finish-pr/SKILL.md"
+  assert_success
+}
+
+@test "finish-pr never auto-stashes over a dirty tree to force a rebase through" {
+  run rg_or_grep -F "deliberately never auto-stashes or commits here" "$PLUGIN/skills/finish-pr/SKILL.md"
+  assert_success
+  run rg_or_grep -F "commit or stash, then re-run" "$PLUGIN/skills/finish-pr/SKILL.md"
   assert_success
 }
 
