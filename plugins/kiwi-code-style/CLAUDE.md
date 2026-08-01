@@ -95,11 +95,13 @@ documented tiebreak.
 The bundled file carries a top-of-file MIT-attribution HTML comment and 6
 `<!-- prettier-ignore -->` comments (guarding the 6 spots where Prettier
 would otherwise insert a blank line before a list — verified via
-`npx prettier --check`; no whole-file `.prettierignore` entry, unlike the
-output style file, since the real reformatting footprint here is tiny and
-localized). The hook strips all HTML comments (`stripHtmlComments()`) before
-injecting, so none of that repo-maintenance markup ever reaches the model's
-context.
+`npx prettier --check`). No whole-file `.prettierignore` entry — same
+conclusion as the output style file above, reached the same way (a real
+dry-run showing the actual reformatting footprint is tiny and worth
+guarding with targeted markers instead of a blanket exemption), independently
+of the fact that the repo's `.prettierignore` file itself no longer exists.
+The hook strips all HTML comments (`stripHtmlComments()`) before injecting,
+so none of that repo-maintenance markup ever reaches the model's context.
 
 No `userConfig` for either component — see
 `.claude/rules/plugin-userconfig.md`'s kiwi-code-style exception: both are
@@ -116,9 +118,10 @@ npm run test:unit
 npm run typecheck
 ```
 
-bats guards: the 3 output-style frontmatter keys, the contract heading,
+bats guards: the 3 output-style frontmatter keys, the contract heading, the
+literal dash-space token survives formatting, the plugin-local
+`.markdownlint.json` (`extends` the root config, disables only `MD038`),
 `plugin.json`'s version/description/no-`userConfig` invariants, the
-`.prettierignore` exemption line (output style file only), the
 `hooks.json` shape (no matcher), the hook script's executable bit in the
 git index (`100755`, read via `git ls-files --stage` since this runs before
 the commit exists), that it still emits guidelines when invoked via a
