@@ -171,7 +171,10 @@ at step 5) is now a standalone `rebase.sh` + colocated `rebase.reference.md`,
 per `.claude/rules/script-authoring.md`'s updated convention; the
 git-context `!`-block (the `## Git context` section) stays inline — extracting it is gated on
 verifying `${CLAUDE_SKILL_DIR}` substitution inside a `!`-injection block
-specifically, not yet proven in this repo.
+specifically, not yet proven in this repo. 2026-08-01: `finish-pr` became
+this script's second consumer (its own new rebase-freshness-check step) —
+see that skill's own CLAUDE.md section for why it stayed here rather than
+moving to the plugin's `bin/`.
 
 **CodeRabbit-readiness false-green (fixed 2026-07-11).** `ci-watcher`'s step 3
 used to decide "CodeRabbit is done posting review feedback" from a blind,
@@ -201,17 +204,66 @@ report, never whether CodeRabbit feedback is looked for.
 ## Skill design (`finish-pr`)
 
 Narrower companion to `fresh-pr`: finalizes an _existing_ PR/MR rather
-than opening one — undrafts it, turns on GitLab's delete-source-branch-on-
+than opening one — rebases it onto its base (force-pushing) when the base
+has moved ahead, undrafts it, turns on GitLab's delete-source-branch-on-
 merge when it's off, and reconciles title/description against the actual
 diff (`git log <base>..HEAD`, patch-if-wrong rather than blind
 regenerate-and-overwrite). Pure inline `SKILL.md` prose, same idiom as
-`fresh-pr`/`fresh-branch` — no bundled script, no subagent dispatch, no
-Task\* ledger; `allowed-tools` carries no `Agent`/`Workflow`/Task\* grant and
-no `Bash(bash:*)`. Its platform-detection and PR/MR-lookup steps are
-copied inline from `fresh-pr` steps 7-8 rather than extracted to a shared
-reference file — only two consumers so far; this repo extracts that kind
-of duplication reactively (`dispatch-shared.md`, `tool-routing-rows.md`),
-not preemptively. GitLab's delete-source-branch-on-merge is exposed by
+`fresh-pr`/`fresh-branch` — no subagent dispatch, no Task\* ledger;
+`allowed-tools` carries no `Agent`/`Workflow`/Task\* grant. Its
+platform-detection and PR/MR-lookup steps are copied inline from `fresh-pr`
+steps 7-8 rather than extracted to a shared reference file — only two
+consumers so far; this repo extracts that kind of duplication reactively
+(`dispatch-shared.md`, `tool-routing-rows.md`), not preemptively.
+
+**Rebase step (step 5), added 2026-08-01:** checks whether the PR/MR's base
+has moved ahead and, if so, rebases and force-pushes autonomously — the one
+behavior this skill performs that isn't purely read/toggle/PATCH. Reuses
+`fresh-pr`'s own `rebase.sh`/`rebase.reference.md` verbatim rather than
+duplicating the fetch/merge-base/rebase logic — this **is** the "shared
+verbatim by multiple callers" case `.claude/rules/script-authoring.md`'s
+`bin/` section names, but the script stays put in `fresh-pr/` rather than
+moving to the plugin's `bin/`: the two shared-reference precedents already
+in this plugin (`dispatch-shared.md` in `feature-development/references/`,
+`tool-routing-rows.md` in `setup-rules/references/`) both leave the shared
+file in its original owning skill's directory and have the second consumer
+reach in, rather than promoting it to a neutral location on acquiring a
+second caller — `bin/` would also make it a `$PATH`-facing executable
+project-wide for no reason here, and re-open the `core.fileMode` exec-bit
+question this file never had to answer while colocated in a skill
+directory (invoked via `bash`, not exec'd by name). `finish-pr`'s own
+git-context `!` block gained a third fact, `plugin_root:` (a plain
+`$CLAUDE_PLUGIN_ROOT` env-var read inside the load-time preprocessing
+block — the same mechanism `fresh-work`/`feature-development`/etc. already
+use for their own `Plugin root:` context lines — not the `${CLAUDE_SKILL_DIR}`
+pre-injection token, which resolves to the invoking skill's own directory
+and can't address a sibling skill's file), so the step can compose
+`<plugin_root>/skills/fresh-pr/rebase.sh` and `…/rebase.reference.md`
+without an unverified new substitution combination. Gated on local `HEAD`
+matching the PR/MR's captured `headRefOid`/`.sha` before ever touching the
+branch — the same guard the reconciliation step already needed, now load-
+bearing for a second reason: without it, an autonomous force-push could
+either publish local commits nobody asked this skill to push, or clobber a
+push that landed after step 3's snapshot. `REBASE_RESULT=conflict` aborts
+the rebase (via the script's own `git rebase --abort`) and is reported, not
+treated as a hard stop — undraft, the GitLab toggle, and reconciliation
+none depend on the branch having been rebased, so they proceed normally.
+`REBASE_RESULT=skipped_dirty` (uncommitted local changes present) is a
+deliberate no-op, not an inherited accident: `rebase.sh` itself refuses to
+run against a dirty tree, and `fresh-pr` never trips that guard because its
+own step 2 commits pending work before ever calling the script — `finish-pr`
+has no such step, and auto-stashing around an autonomous force-push is
+exactly the kind of thing that risks eating someone's in-progress work, so
+the skill reports the skip and tells the user to commit or stash and re-run
+rather than silently working around it. **This flips a previously-documented invariant:** the reconciliation
+step's own text used to assert "this skill never pushes"; it now pushes
+exactly once, only as the direct, autonomous consequence of its own
+rebase, via `--force-with-lease` (never a bare `--force`) — never as a
+side effect of any other step. After a `rebased` outcome the just-pushed
+local `HEAD` is treated as the new remote head for the reconciliation
+step's own HEAD-match check without a re-query (`git push` succeeding is
+proof enough), avoiding a second API round trip. GitLab's
+delete-source-branch-on-merge is exposed by
 `glab mr update --remove-source-branch`, which **toggles** the setting
 rather than setting it to a fixed value — the skill only calls it when the
 effective current value is off (`should_remove_source_branch` is

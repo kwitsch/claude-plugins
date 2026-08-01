@@ -1,17 +1,17 @@
 ---
 name: finish-pr
-description: Use to finalize an existing PR/MR for the current branch before merge — aborts if none exists, marks a draft PR/MR ready for review, enables GitLab's "delete source branch on merge" when the upstream is GitLab and it isn't already on, and reconciles the PR/MR's title and description against the actual diff.
-allowed-tools:
-  ["AskUserQuestion", "Bash(git:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(jq:*)"]
+description: Use to finalize an existing PR/MR for the current branch before merge — aborts if none exists, rebases it onto its base and force-pushes when the base has moved ahead, marks a draft PR/MR ready for review, enables GitLab's "delete source branch on merge" when the upstream is GitLab and it isn't already on, and reconciles the PR/MR's title and description against the actual diff.
+allowed-tools: ["AskUserQuestion", "Bash(git:*)", "Bash(bash:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(jq:*)"]
 ---
 
 # Finalize an existing PR/MR before merge
 
 Verifies a PR/MR already exists for the current branch (aborts if not —
 opening one is `fresh-pr`'s job), then brings it the rest of the way to
-merge-ready: undrafts it, turns on GitLab's delete-source-branch-on-merge
-if it's off, and reconciles its title/description against the actual diff.
-Never touches CI, reviews, or merges the PR/MR itself.
+merge-ready: rebases it onto its base (force-pushing) if the base has moved
+ahead, undrafts it, turns on GitLab's delete-source-branch-on-merge if it's
+off, and reconciles its title/description against the actual diff. Never
+touches CI, reviews, or merges the PR/MR itself.
 
 > **Ask the user via `AskUserQuestion`.** When this skill needs a decision
 > from the user, it MUST present the question through the `AskUserQuestion`
@@ -19,7 +19,7 @@ Never touches CI, reviews, or merges the PR/MR itself.
 
 ## Git context
 
-!`git fetch origin >/dev/null 2>&1 && fetch=ok || fetch=failed; printf "current_branch: %s\nfetch_status: %s\n" "$(git branch --show-current)" "$fetch"`
+!`git fetch origin >/dev/null 2>&1 && fetch=ok || fetch=failed; printf "current_branch: %s\nfetch_status: %s\nplugin_root: %s\n" "$(git branch --show-current)" "$fetch" "$CLAUDE_PLUGIN_ROOT"`
 
 ## Preconditions
 
@@ -84,9 +84,54 @@ execution disabled by policy]` — the `git fetch origin` above silently
      still land," **stop**.
    - GitHub `OPEN` / GitLab `opened` → continue to step 5.
 
+## Rebase onto the latest base if it moved
+
+5. Base = the found PR/MR's own `baseRefName` (GitHub) / `target_branch`
+   (GitLab) — do not independently re-resolve it; step 8 below reuses this
+   same value.
+   1. **Confirm local `HEAD` matches the PR/MR's remote head first** —
+      `git rev-parse HEAD` must equal the captured `headRefOid` (GitHub) /
+      `.sha` (GitLab). Mismatch (unpushed local commits, or the remote moved
+      independently) → **skip the rest of this step**, note why, and
+      continue to step 6 — rebasing and force-pushing from a `HEAD` that
+      isn't what the PR/MR actually reflects would either publish commits
+      nobody asked this skill to push, or clobber someone else's push.
+   2. Read `<plugin_root>/skills/fresh-pr/rebase.reference.md` (`plugin_root`
+      from the `plugin_root:` git-context fact above; the script itself is
+      `fresh-pr`'s own — reused here rather than duplicated, since it's
+      shared verbatim between the two skills) for the exact
+      parameter/outcome contract.
+   3. Run `bash <plugin_root>/skills/fresh-pr/rebase.sh "$base"` via the Bash
+      tool (synchronous native Bash — git fetch + rebase are writes, never a
+      sandboxed shell tool; the script fetches `$base` itself, so this step
+      doesn't depend on the git-context block's own `fetch_status:` — that
+      gate is step 8.2's concern, not this one's).
+   4. Map the `REBASE_RESULT=` line per that reference doc's table:
+      - `up_to_date` → nothing to do; note "already up to date with `$base`."
+      - `rebased` → history was rewritten; push it —
+        `git push --force-with-lease origin "$branch"`. Local `HEAD` was
+        just pushed, so it now **is** the PR/MR's remote head — treat it as
+        such for step 8.1's comparison below (no re-query needed). Note
+        "was behind `$base`, rebased and pushed."
+      - `conflict` → `rebase.sh` already ran `git rebase --abort` (the
+        branch is unchanged) — note the conflict and that it needs manual
+        resolution, then continue to step 6; nothing below depends on this
+        step having succeeded.
+      - `failed` → note the fetch `DETAIL` as a soft note and continue — the
+        PR/MR may just sit behind `$base`.
+      - `skipped_dirty` → uncommitted local changes are present. **This
+        skill deliberately never auto-stashes or commits here** — unlike
+        `fresh-pr`, which commits pending work as its own step 2 before
+        ever calling this same script, `finish-pr` has no such step, and
+        stashing around an autonomous force-push is exactly the kind of
+        thing that risks eating someone's in-progress work. Note "skipped:
+        uncommitted changes present — commit or stash, then re-run
+        `finish-pr`, if the base has moved and a rebase is wanted" and
+        continue.
+
 ## Undraft if needed
 
-5. `isDraft` (GitHub) / `draft` or `work_in_progress` (GitLab) is `true`:
+6. `isDraft` (GitHub) / `draft` or `work_in_progress` (GitLab) is `true`:
    - GitHub: `gh pr ready "$number"`
    - GitLab: `glab mr update "$number" --ready`
 
@@ -95,10 +140,10 @@ execution disabled by policy]` — the `git fetch origin` above silently
 
 ## GitLab: enable delete-source-branch-on-merge
 
-6. **Skip this step entirely on GitHub** — no per-PR equivalent exists
+7. **Skip this step entirely on GitHub** — no per-PR equivalent exists
    (GitHub's "automatically delete head branches" is a repository
    setting, out of scope). On GitLab, re-fetch the MR fresh first — the
-   step 3 snapshot may already be stale if step 5's `--ready` call ran in
+   step 3 snapshot may already be stale if step 6's `--ready` call ran in
    between: `glab api "projects/:id/merge_requests/$number" 2>/dev/null | jq -c '{should_remove_source_branch, force_remove_source_branch}'`.
    Decide from this fresh read, not the step 3 capture:
    - `force_remove_source_branch` is `true` → the project already forces
@@ -117,14 +162,17 @@ execution disabled by policy]` — the `git fetch origin` above silently
 
 ## Reconcile title & description
 
-7. Base = the found PR/MR's own `baseRefName` (GitHub) / `target_branch`
-   (GitLab) — do not independently re-resolve it.
+8. Base (`$base`) was captured in step 5 above — do not independently
+   re-resolve it.
    1. **First confirm local `HEAD` actually matches the PR/MR's remote
       head** — `git rev-parse HEAD` must equal the captured
-      `headRefOid` (GitHub) / `.sha` (GitLab). Unlike `fresh-pr`, this
-      skill never pushes, so nothing else guarantees the two agree.
-      Mismatch (unpushed local commits, or the remote moved
-      independently) → report that local `HEAD` doesn't match the PR/MR's
+      `headRefOid` (GitHub) / `.sha` (GitLab), **updated in step 5.4 above
+      if a rebase-and-push happened there** (in that case `HEAD` trivially
+      matches — it was just pushed). Unlike `fresh-pr`, this skill only
+      ever pushes as the direct result of step 5's own autonomous rebase,
+      so any other mismatch here (unpushed local commits, or the remote
+      moved independently since step 3) still needs catching.
+      Mismatch → report that local `HEAD` doesn't match the PR/MR's
       remote head and **skip the rest of this step** — push first
       (`fresh-pr`, or a plain `git push`) before reconciling; never
       reconcile from commits that aren't actually in the PR/MR.
@@ -133,7 +181,7 @@ execution disabled by policy]` — the `git fetch origin` above silently
       kept `origin/$base` current. `fetch_status: failed` (or the line
       missing) → report that the fetch failed and **skip the rest of this
       step**; never reconcile against a possibly stale `origin/$base`.
-      Step 5's undraft and step 6's GitLab toggle don't depend on it and
+      Step 6's undraft and step 7's GitLab toggle don't depend on it and
       stand.
    3. `git log "origin/$base"..HEAD` — what changed and why. Ref
       unresolvable or range empty → report that and **skip the rest of
@@ -185,6 +233,9 @@ execution disabled by policy]` — the `git fetch origin` above silently
 
 ## Report
 
-8. **Report:** the PR/MR URL; draft status before/after; GitLab
+9. **Report:** the PR/MR URL; the step-5 rebase outcome (already up to
+   date / rebased and pushed / conflict needing manual resolution / fetch
+   failed / skipped over uncommitted changes / skipped over a HEAD
+   mismatch); draft status before/after; GitLab
    delete-source-branch-on-merge status before/after (`n/a` on GitHub);
    whether title/description changed and why, or "already accurate."

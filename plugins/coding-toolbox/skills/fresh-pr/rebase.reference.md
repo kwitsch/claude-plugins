@@ -1,6 +1,11 @@
 # rebase — script reference
 
-**Invoke:** `bash ${CLAUDE_SKILL_DIR}/rebase.sh <base>`
+**Invoke:** `bash ${CLAUDE_SKILL_DIR}/rebase.sh <base>` from `fresh-pr` itself,
+or `bash <plugin_root>/skills/fresh-pr/rebase.sh <base>` from `finish-pr`
+(`${CLAUDE_SKILL_DIR}` resolves to the invoking skill's own directory, so a
+second consumer composes the path from its own `plugin_root` git-context
+fact instead). Shared verbatim between the two skills — no behavioral
+difference between the two invocation forms.
 
 ## Parameters
 
