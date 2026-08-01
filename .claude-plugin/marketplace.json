@@ -87,6 +87,16 @@
       },
       "category": "productivity",
       "tags": ["npm", "hooks", "automation"]
+    },
+    {
+      "name": "kiwi-code-style",
+      "source": "./plugins/kiwi-code-style",
+      "description": "Ships the kiwi-code-style output style: a machine-optimized, emoji-legend response format enforced whenever this plugin is enabled.",
+      "author": {
+        "name": "Kwitsch"
+      },
+      "category": "productivity",
+      "tags": ["output-style", "formatting", "communication"]
     }
   ]
 }
