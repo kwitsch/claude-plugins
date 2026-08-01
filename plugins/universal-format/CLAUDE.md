@@ -1,6 +1,6 @@
 # CLAUDE.md — universal-format
 
-Hooks-only plugin: a PostToolUse `Write|Edit` `command` hook silently auto-formats the just-written file for Shell/Java/Kotlin/JS-TS/Python/Go/JSON/YAML/Markdown/CSS/SCSS via each language's standard formatter, backed by a self-contained zero-dep `hooks/format-file.mjs`. No `userConfig` — the hook is always active once the plugin is installed (see "No toggle" below).
+Hooks-only plugin: a PostToolUse `Write|Edit` `command` hook silently auto-formats the just-written file for Shell/Java/Kotlin/JS-TS/Python/Go/JSON/YAML/Markdown/CSS/SCSS/PHP via each language's standard formatter, backed by a self-contained zero-dep `hooks/format-file.mjs`. No `userConfig` — the hook is always active once the plugin is installed (see "No toggle" below).
 
 ## Hook design (do not "fix" without reading this)
 
@@ -89,12 +89,14 @@ gets `npx prettier` when npx is present, matching the pre-existing
 PATH-only rule that `prettier` already wins over `biome` whenever both are
 equally available.
 
+`php` reuses this exact machinery with the simplest config strategy in this registry: both `php-cs-fixer` (chain[0]) and `phpcbf` (chain[1], PHP_CodeSniffer's fixer) are `native` (always bare) — no `.editorconfig` mapping, no `MAPPERS` entry. Each tool auto-discovers its own project config and falls back to a built-in PSR-12-equivalent default entirely on its own: `php-cs-fixer`'s own docs state that a bare `fix` with no `--config`/`--rules` already defaults to `@PSR12` when no `.php-cs-fixer.php`/`.dist.php` is found; PHP_CodeSniffer's own docs state the same PSR-12 default plus an upward-walking `phpcs.xml`/`.phpcs.xml`(`.dist`) discovery. Since format success here is always judged by content diff (never exit code), neither tool's exit-code contract matters. `phpcbf`'s realistic hit rate as a fallback leans on a global/system install (PHP_CodeSniffer is commonly distro-packaged, e.g. Debian/Ubuntu's `php-codesniffer` — unlike `php-cs-fixer`, which isn't) rather than the project-local `vendor/bin/` Composer install this plugin doesn't discover (known limitation, confirmed with the user at this feature's design stage): unlike `universal-lint`'s own `tsc` special case (`node_modules/.bin/tsc`), no `vendor/bin/<tool>` discovery exists for any tool in this file, PHP included — most real PHP projects install these as local Composer dev-dependencies rather than globally, so this chain will silently no-op on such projects until a global/PATH install is also present. Neither `php-cs-fixer` nor `phpcbf` gets an `npmSpec`: both are Composer-distributed, not npm-distributed.
+
 ## Tests
 
 `test/universal-format/` — split into one `.bats` file per language/tool
 (`scaffold.bats`, `core.bats`, `go.bats`, `kotlin.bats`, `java.bats`,
 `python.bats`, `jsts.bats`, `json.bats`, `yaml.bats`, `markdown.bats`,
-`css.bats`), mirroring `test/coding-toolbox/`'s split. `test_helper.bash`
+`css.bats`, `php.bats`), mirroring `test/coding-toolbox/`'s split. `test_helper.bash`
 holds what's shared across files (`common_setup`, `rg_or_grep`,
 `make_stub`, `rec_stub`, `format_file_call`). Hermetic: stub formatters on
 an isolated PATH recording argv. Plus `test/universal-format/*.test.mjs`

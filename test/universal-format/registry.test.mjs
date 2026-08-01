@@ -339,3 +339,13 @@ test("guardPrintWidthArgv: .editorconfig present but without max_line_length -> 
     "99999",
   ]);
 });
+
+test("REGISTRY: php chain is php-cs-fixer -> phpcbf, both native strategy, no npmSpec", () => {
+  assert.equal(REGISTRY.php.chain.length, 2);
+  assert.equal(REGISTRY.php.chain[0].name, "php-cs-fixer");
+  assert.equal(REGISTRY.php.chain[0].strategy, "native");
+  assert.equal(REGISTRY.php.chain[0].npmSpec, undefined);
+  assert.equal(REGISTRY.php.chain[1].name, "phpcbf");
+  assert.equal(REGISTRY.php.chain[1].strategy, "native");
+  assert.equal(REGISTRY.php.chain[1].npmSpec, undefined);
+});

@@ -59,6 +59,7 @@ const EXT_MAP = {
   ".yaml": "yaml",
   ".yml": "yaml",
   ".md": "markdown",
+  ".php": "php",
 };
 
 // Shared chain-entry descriptors: prettier/biome each serve multiple, unrelated
@@ -265,6 +266,12 @@ export const REGISTRY = {
   scss: { chain: [PRETTIER_NATIVE] },
   yaml: { chain: [PRETTIER_LINE_LENGTH_GUARDED] },
   markdown: { chain: [PRETTIER_NATIVE] },
+  php: {
+    chain: [
+      { name: "php-cs-fixer", strategy: "native", base: ["fix", "--quiet"] },
+      { name: "phpcbf", strategy: "native", base: [] },
+    ],
+  },
 };
 
 // PATH probe cache (process-lifetime): tool name -> boolean on PATH.
