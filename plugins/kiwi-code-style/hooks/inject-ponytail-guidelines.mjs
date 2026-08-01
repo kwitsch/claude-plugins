@@ -30,7 +30,10 @@ export function buildResult(guidelines) {
 function main() {
   try {
     const guidelines = fs.readFileSync(GUIDELINES_PATH, "utf8");
-    process.stdout.write(JSON.stringify(buildResult(guidelines)));
+    // fs.writeSync (not process.stdout.write) guarantees the full payload
+    // flushes before process.exit(0) below -- stdout.write is async when
+    // stdout is a pipe, so exit(0) right after it can truncate the JSON.
+    fs.writeSync(1, JSON.stringify(buildResult(guidelines)));
   } catch {
     // fail open: never block SessionStart on a missing/unreadable bundle
   }
