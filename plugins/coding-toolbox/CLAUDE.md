@@ -703,27 +703,59 @@ whole-word lookups, an ambiguity check per axis, a verb-conditioned default,
 a usage-error branch) and, unlike most of the plugin's other skills audited
 the same pass, not yet extracted. The prose itself moves out entirely — no
 duplicate copy stays behind — replaced by "Read `parse-args.reference.md`"
-then a single invocation step. The one design wrinkle this extraction had to
-solve, absent from every prior script extraction in this plugin: `$ARGUMENTS`
+then a single invocation step. `parse-args.sh` prints `golden_rules:`/`tools:`
+as lowercase `yes`/`no`/`unset` (matching this plugin's existing key-value
+stdout convention, e.g. `find-pr.sh`'s `draft: true`) rather than the
+`Yes`/`No` capitalization the old prose used for the `AskUserQuestion` option
+labels — those two are a different vocabulary (machine-readable script
+output vs. human-facing option text) and were never required to match case.
+Bats coverage (`test/coding-toolbox/setup-rules.bats`) invokes the real
+script across every case named in this section's own prose (ambiguous verb,
+ambiguous target, destructive-with-no-target, substring-collision
+regression, case-insensitivity) — replacing, not supplementing, the old
+presence-only greps for the prose phrases that moved out, plus a line-count
+bound on Step 3a's own section (tripwire against a future re-inlining using
+different wording than the exact old phrases).
+
+**Argument-passing design wrinkle, and a same-day correction.** `$ARGUMENTS`
 is a pre-injection text substitution (same mechanism as `${CLAUDE_SKILL_DIR}`,
 per `skill-md-authoring.md`), so by the time the invoking step is read, the
 placeholder has already been replaced with the user's literal, possibly
 adversarial text — passing it as a bare `"$ARGUMENTS"` shell argument would
-embed that text unescaped into a live Bash tool call. Solved by reusing
-`dispatch-agent`'s already-proven idiom instead of inventing a new one: embed
-the text inside a quoted heredoc (`$(cat <<'SETUP_RULES_ARGS_EOF' … EOF)`),
-whose quoted delimiter prevents any expansion of the body regardless of what
-it contains. `parse-args.sh` prints `golden_rules:`/`tools:` as lowercase
-`yes`/`no`/`unset` (matching this plugin's existing key-value stdout
-convention, e.g. `find-pr.sh`'s `draft: true`) rather than the `Yes`/`No`
-capitalization the old prose used for the `AskUserQuestion` option labels —
-those two are a different vocabulary (machine-readable script output vs.
-human-facing option text) and were never required to match case. Bats
-coverage (`test/coding-toolbox/setup-rules.bats`) invokes the real script
-across every case named in this section's own prose (ambiguous verb,
-ambiguous target, destructive-with-no-target, substring-collision
-regression, case-insensitivity) — replacing, not supplementing, the old
-presence-only greps for the prose phrases that moved out.
+embed that text unescaped into a live Bash tool call. The first draft solved
+this by reusing `dispatch-agent`'s heredoc-embedding idiom
+(`$(cat <<'SETUP_RULES_ARGS_EOF' … EOF)`); a same-day max-effort code-review
+pass over this branch's diff (5 correctness angles, independently verified)
+confirmed a real gap in that idiom neither this file nor `dispatch-agent`'s
+own design notes had previously named: a **fixed, predictable heredoc
+delimiter can itself be collided** — an argument-text line that exactly
+equals the delimiter terminates the heredoc early, and every subsequent line
+of the (adversarial) text is then parsed as ordinary shell input in the same
+Bash-tool invocation, not inert data. Fixed by dropping the heredoc
+entirely: Step 3a now writes `$ARGUMENTS`'s literal text to a fresh `mktemp`
+file via the `Write` tool, then invokes `parse-args.sh <path>` — the script's
+own contract changed from "verbatim text as `$1`" to "a file path as `$1`,
+read the text from it" (new exit `6` for a missing/unreadable path, distinct
+from `2`-`5`'s parse rejections, since a script-invocation failure and a
+usage error are different classes of stop and must not be reported as if
+each were the other). No shell ever parses the argument text as syntax this
+way, only as file content — the same pattern this plugin's `finish-pr`
+already uses for other free-form text (`apply-pr-update.sh`'s title/body
+files) — closing the class of bug entirely rather than picking a
+harder-to-guess delimiter. `dispatch-agent`'s own instance of the same
+fixed-delimiter idiom was **not** touched by this fix (out of scope for this
+branch); it remains a known, unaddressed sibling exposure. The same review
+pass also caught that the "simplify"-stage swap of `tr '[:upper:]'
+'[:lower:]'` for bash's `${raw,,}` (see below) introduced two real
+regressions — a Turkish/Azerbaijani-locale case-folding bug (`I` → dotless
+`ı`, not `i`, under `LC_CTYPE=tr_TR`) and a hard Bash-≥4 dependency (breaks
+under macOS's stock `/bin/bash` 3.2) — neither reproducible in this sandbox
+(only C-family locales installed, a single modern bash available) but both
+structurally real and traced to the same line; fixed together by reverting
+to `tr` with explicit `A-Z`/`a-z` byte ranges (portable to any POSIX shell,
+locale-independent — unlike the `[:upper:]`/`[:lower:]` POSIX classes the
+very first draft used, which are themselves locale-sensitive) rather than
+`[:upper:]`/`[:lower:]` or `${var,,}`.
 
 ## Skill design (`refresh-tools-rule`)
 

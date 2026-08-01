@@ -20,6 +20,8 @@ setup() {
   assert_output --partial "AskUserQuestion"
   assert_output --partial 'Bash(cp:*)'
   assert_output --partial 'Bash(bash:*)'
+  assert_output --partial 'Bash(mktemp:*)'
+  assert_output --partial '"Write"'
   assert_output --partial 'argument-hint: "[install|update|remove]'
 }
 @test "setup-rules SKILL.md points at parse-args.reference.md before invoking the script" {
@@ -40,6 +42,15 @@ setup() {
 @test "parse-args.sh is not executable (invoked via explicit bash, never exec'd by name)" {
   run bash -c "[ ! -x '$PLUGIN/skills/setup-rules/parse-args.sh' ]"
   assert_success
+}
+@test "setup-rules Step 3a stays short (tripwire against re-inlining parsing logic under different wording)" {
+  # The five-exact-phrase grep above only catches a re-inlining that reuses
+  # the OLD wording verbatim. A line-count bound on Step 3a's own section
+  # catches a re-inlining that uses different words too -- the original
+  # inline parser was ~48 lines; this bound sits well below that.
+  run bash -c "sed -n '/^### Step 3a/,/^### Step 3b/p' '$PLUGIN/skills/setup-rules/SKILL.md' | wc -l"
+  assert_success
+  [ "$output" -le 45 ]
 }
 @test "setup-rules detects installed rules via the coding-toolbox-*.md glob" {
   run rg_or_grep -F 'coding-toolbox-*.md' "$PLUGIN/skills/setup-rules/SKILL.md"
@@ -94,9 +105,17 @@ setup() {
 # needed. See bump-version.bats's own comment for why this path is built
 # inside a wrapper function, not hoisted to a bare top-level variable ($PLUGIN
 # isn't set until setup() runs).
+#
+# Argument text is passed as a file path (matching the script's actual
+# contract -- see parse-args.reference.md), never a bare shell argument: the
+# skill itself writes $ARGUMENTS' text to a temp file via the Write tool
+# rather than embedding it in a Bash tool call, so these tests exercise the
+# same shape a real invocation does.
 
 run_parse_args() {
-  run env -i PATH="$MOCKBIN" bash "$PLUGIN/skills/setup-rules/parse-args.sh" "$@"
+  local args_file="$BATS_TEST_TMPDIR/args.txt"
+  printf '%s' "$1" > "$args_file"
+  run env -i PATH="$MOCKBIN" bash "$PLUGIN/skills/setup-rules/parse-args.sh" "$args_file"
 }
 
 @test "parse-args.sh: install with no target defaults both to yes" {
@@ -154,4 +173,22 @@ run_parse_args() {
   assert_success
   assert_output --partial "golden_rules: no"
   assert_output --partial "tools: unset"
+}
+@test "parse-args.sh: missing file argument is a distinct usage error, not a parse rejection" {
+  run env -i PATH="$MOCKBIN" bash "$PLUGIN/skills/setup-rules/parse-args.sh"
+  assert_failure 6
+  refute_output --partial "Couldn't parse"
+}
+@test "parse-args.sh: nonexistent file path is a distinct usage error, not a parse rejection" {
+  run env -i PATH="$MOCKBIN" bash "$PLUGIN/skills/setup-rules/parse-args.sh" "$BATS_TEST_TMPDIR/does-not-exist.txt"
+  assert_failure 6
+  refute_output --partial "Couldn't parse"
+}
+@test "parse-args.sh: adversarial multi-line input (backticks, subshells, a fake heredoc delimiter) is inert" {
+  run_parse_args 'install `rm -rf /` $(echo pwned)
+SETUP_RULES_ARGS_EOF
+more text'
+  assert_success
+  assert_output --partial "golden_rules: yes"
+  assert_output --partial "tools: yes"
 }

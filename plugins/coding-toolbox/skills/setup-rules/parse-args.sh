@@ -1,14 +1,22 @@
 #!/usr/bin/env bash
-# Resolve setup-rules' verbatim $ARGUMENTS text into golden_rules/tools
-# yes/no/unset answers. Pure string processing -- no external CLI, no file
-# writes, never touches the filesystem outside its own stdout/stderr.
+# Resolve setup-rules' verbatim argument text -- read from a file, never a
+# raw shell argument or a heredoc (see parse-args.reference.md for why) --
+# into golden_rules/tools yes/no/unset answers. Pure string processing --
+# no external CLI, no file writes, touches the filesystem only to read the
+# one input file the caller wrote.
 #
-# Usage: parse-args.sh <verbatim-argument-text>
+# Usage: parse-args.sh <path-to-file-containing-verbatim-argument-text>
 # Exit: 0 ok - 2 no verb matched - 3 ambiguous verb - 4 ambiguous target -
-#       5 destructive verb named with no target named at all
+#       5 destructive verb named with no target named at all -
+#       6 usage (missing/unreadable input file)
 set -uo pipefail
 
-raw="${1:-}"
+args_file="${1:-}"
+if [ -z "$args_file" ] || [ ! -r "$args_file" ]; then
+  echo "usage: parse-args.sh <path-to-file-containing-verbatim-argument-text> -- missing or unreadable file" >&2
+  exit 6
+fi
+raw="$(cat "$args_file")"
 
 usage_msg() {
   printf 'Couldn'"'"'t parse "%s" -- expected a verb (install/update/remove) and, for remove, an explicit target (rules/tools/both). Examples: "install", "update tools rule", "remove rules", "remove both".\n' "$raw" >&2
@@ -17,10 +25,13 @@ die() { usage_msg; exit "$1"; }
 
 # noglob during the split: this is a whitespace split on lowercased free
 # text, never a filename expansion, even if the text happens to contain a
-# glob metacharacter. ${raw,,} lowercases in-shell -- no fork needed for it,
-# same idiom already used elsewhere in this plugin (bin/ci-watch.sh).
+# glob metacharacter. `tr 'A-Z' 'a-z'` uses explicit byte ranges, not the
+# locale-sensitive [:upper:]/[:lower:] POSIX classes (which fold ASCII `I`
+# to dotless-i under e.g. a Turkish/Azerbaijani locale) -- this never
+# mis-folds regardless of the caller's locale, and needs no bash version
+# newer than POSIX sh.
 set -f
-words=(${raw,,})
+words=($(printf '%s' "$raw" | tr 'A-Z' 'a-z'))
 set +f
 
 no_match=false

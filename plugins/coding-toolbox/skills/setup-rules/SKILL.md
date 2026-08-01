@@ -3,7 +3,7 @@ name: setup-rules
 description: Install, refresh, or remove coding-toolbox's user-level rules — a copy of the golden-rules content and a tool-routing table for rtk/bun/ripgrep/codebase-memory — as always-on ~/.claude/rules/coding-toolbox-*.md files, applying to every project on this machine. Accepts a verbatim argument (e.g. "update tools rule") to apply directly, skipping the interactive prompts.
 argument-hint: "[install|update|remove] [rules|tools|both]"
 disable-model-invocation: true
-allowed-tools: ["AskUserQuestion", "Read", "Bash(mkdir:*)", "Bash(cp:*)", "Bash(rm:*)", "Bash(cat:*)", "Bash(bash:*)"]
+allowed-tools: ["AskUserQuestion", "Read", "Write", "Bash(mkdir:*)", "Bash(cp:*)", "Bash(rm:*)", "Bash(cat:*)", "Bash(bash:*)", "Bash(mktemp:*)"]
 ---
 
 # Set up coding-toolbox user-level rules
@@ -61,27 +61,37 @@ If the block above rendered as literally `[shell command execution disabled by p
 
 1. Read `parse-args.reference.md` for the exact parameter/exit-code
    contract.
-2. Run the script, passing `$ARGUMENTS`'s literal text through a quoted
-   heredoc — never interpolated as a bare shell argument. `$ARGUMENTS` is a
-   pre-injection text substitution (same mechanism as `${CLAUDE_SKILL_DIR}`),
-   so by the time this line is read the placeholder has already been
-   replaced with the user's literal, possibly-adversarial text; the
-   heredoc's quoted delimiter is what makes embedding it safe regardless of
-   its content — the same idiom `dispatch-agent` uses for its own free-text
-   prompt:
+2. Write `$ARGUMENTS`'s literal text to a fresh temp file, then run the
+   script against that file's path — never embed the text directly into a
+   Bash tool call, whether as a bare argument or inside a heredoc.
+   `$ARGUMENTS` is a pre-injection text substitution, so by the time this
+   line is read the placeholder has already been replaced with the user's
+   literal, possibly-adversarial text; a heredoc's own delimiter can be
+   collided with adversarial input (a body line matching the delimiter
+   terminates it early, turning the rest of the text into ordinary shell
+   input in the same command). Writing the raw bytes to a file sidesteps
+   this entirely — no shell ever parses the argument text as syntax, only
+   as file content — the same pattern this plugin's `finish-pr` already
+   uses for other free-form text (`apply-pr-update.sh`'s title/body files):
    ```bash
-   bash ${CLAUDE_SKILL_DIR}/parse-args.sh "$(cat <<'SETUP_RULES_ARGS_EOF'
-   <the verbatim $ARGUMENTS text goes here, substituted by you when you write this command>
-   SETUP_RULES_ARGS_EOF
-   )"
+   mktemp "${TMPDIR:-/tmp}/setup-rules-args.XXXXXX"
+   ```
+   Then use the `Write` tool to write `$ARGUMENTS`'s literal text (exact
+   bytes, nothing added) to the path `mktemp` just printed, then:
+   ```bash
+   bash ${CLAUDE_SKILL_DIR}/parse-args.sh <path-from-mktemp>
    ```
 3. Exit `0` → take the printed `golden_rules:`/`tools:` values directly
    (each `yes`/`no`/`unset` — `unset` means "leave this answer untouched").
    Skip `AskUserQuestion` entirely — go straight to Step 4 Apply with these
    answers.
-   Non-zero exit (`2`/`3`/`4`/`5`) → relay the script's stderr message
-   verbatim (already phrased as a complete, non-question statement) and
-   **stop** — no file writes, nothing asked.
+   Exit `2`/`3`/`4`/`5` → relay the script's stderr message verbatim
+   (already phrased as a complete, non-question statement) and **stop** —
+   no file writes, nothing asked.
+   Any other exit code (`6`, or an un-enumerated shell-level failure — the
+   script missing, a permission error): this is `parse-args.sh` itself
+   failing, not a usage rejection of the input — report that plainly
+   (never relay it as if it were a parse/usage error) and **stop**.
 
 ### Step 3b — Ask (`$ARGUMENTS` empty)
 
@@ -150,12 +160,15 @@ options:
   for the exact rows to include (only those whose tool is in `detected`,
   verbatim, in that file's order) — single source of truth, also read by
   `refresh-tools-rule`, never inlined here.
-- Question 2 answered "Yes", but `detected` is **empty** (only reachable when
-  `tools_installed` was already true — Question 2 is otherwise skipped when
-  both are false): make **no change**. Do not overwrite an existing,
-  populated table with an empty one just because nothing is detected in this
-  run; note in Step 5 that nothing was detected so the existing file was
-  left as-is.
+- Question 2 answered "Yes", but `detected` is **empty**: make **no change**
+  in either case below. If `tools_installed` was already true (the only way
+  Step 3b reaches this — it skips Question 2 entirely when both are false):
+  don't overwrite an existing, populated table with an empty one; note in
+  Step 5 that nothing was detected so the existing file was left as-is. If
+  `tools_installed` was false (only reachable via Step 3a's untargeted
+  install/update, which defaults to `tools: yes` regardless of `detected`):
+  don't create a tools-rule file when nothing was actually detected; note
+  in Step 5 that nothing was detected so no file was created.
 - Question 2 answered "No":
   ```bash
   rm -f "$HOME/.claude/rules/coding-toolbox-tools.md"
