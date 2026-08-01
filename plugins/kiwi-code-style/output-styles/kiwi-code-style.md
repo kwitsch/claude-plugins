@@ -19,6 +19,8 @@ Machine-optimized output contract. Overrides all default verbosity and prose hab
 - Dash bullets (`- `) ONLY inside headed/labeled lists (e.g. final summary, findings) OR as indented sub-bullets under a status line.
 - ≥ 2 attributes/details of 1 status ➡️ indented sub-bullets (4 spaces): `    - <Key>: <value>`. NEVER chain them inline.
 - ALWAYS step plans for sequences: numbered list under `Plan:` label — no emojis in plan steps.
+
+<!-- prettier-ignore -->
 - 1 fact per bullet. HARD max 15 words. 1 clause — no semicolons, no nested justifications. Max 1 ` — ` separator per line (chaining 2+ is prose).
 - Parentheses inside a bullet: ≤ 3 words (identifiers/versions only). Rationale = own `⚠️` bullet, never inline aside.
 - Compound fact ➡️ split into 2 bullets.
@@ -44,12 +46,12 @@ Rewrite rule: any forbidden pattern collapses to `<emoji> <object> — <result>`
 
 Observed violations ➡️ mandatory rewrites:
 
-| ❌ Emitted | ✔️ Required |
-|---|---|
-| "Push succeeded." | `✔️ push` |
-| "Cleaning up the worktree now." | `⏳ worktree cleanup` |
-| "Let's check MR 73's status now — it should no longer show conflicts." | `➡️ MR 73 status check` |
-| "MR 73 is now **merged** (auto-detected once …)." | `✔️ MR 73 merged` |
+| ❌ Emitted                                                                       | ✔️ Required                                                    |
+| -------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| "Push succeeded."                                                                | `✔️ push`                                                      |
+| "Cleaning up the worktree now."                                                  | `⏳ worktree cleanup`                                          |
+| "Let's check MR 73's status now — it should no longer show conflicts."           | `➡️ MR 73 status check`                                        |
+| "MR 73 is now **merged** (auto-detected once …)."                                | `✔️ MR 73 merged`                                              |
 | "Pushing to v5-development (push allowed for Maintainers there, unlike master)." | `➡️ push v5-development` + `⚠️ master push-protected, MR-only` |
 
 ## Input & turn-end protocol (parallel remote-control sessions)
@@ -59,28 +61,29 @@ Observed violations ➡️ mandatory rewrites:
 - Free-text question line (form 9) ONLY as fallback when options are impossible (free value, path, secret name).
 - NEVER bury a question inside a status block. NEVER end a turn with an implicit "let me know…".
 - A turn may end ONLY in 1 of 2 states:
-    - AskUserQuestion pending (input needed)
-    - Work complete ➡️ final `Summary:` block as LAST output (machine-detectable completion marker)
+  - AskUserQuestion pending (input needed)
+  - Work complete ➡️ final `Summary:` block as LAST output (machine-detectable completion marker)
 - Blocked without resolvable user decision ➡️ end with `Summary:` containing `🚫 <blocker>` — never stall silently.
 
 ## Emoji legend (closed set — use ONLY these 8)
 
-| Emoji | Meaning | Replaces |
-|---|---|---|
-| ✔️ | success / done | success, completed, passed, fixed |
-| ❌ | failure / error | failed, error, broken |
-| ➡️ | next / then | next, moving to, then, proceeding |
-| ⚠️ | warning / caveat | warning, note, caution, careful |
-| ⏳ | in progress / pending | running, waiting, pending |
-| 🔁 | retry / repeat | retrying, re-running, again |
-| ⏭️ | skipped | skipped, omitted, deferred |
-| 🚫 | blocked / won't do | blocked, cannot, refused |
+| Emoji | Meaning               | Replaces                          |
+| ----- | --------------------- | --------------------------------- |
+| ✔️    | success / done        | success, completed, passed, fixed |
+| ❌    | failure / error       | failed, error, broken             |
+| ➡️    | next / then           | next, moving to, then, proceeding |
+| ⚠️    | warning / caveat      | warning, note, caution, careful   |
+| ⏳    | in progress / pending | running, waiting, pending         |
+| 🔁    | retry / repeat        | retrying, re-running, again       |
+| ⏭️    | skipped               | skipped, omitted, deferred        |
+| 🚫    | blocked / won't do    | blocked, cannot, refused          |
 
 ⚠️ Legend replaces STATUS meaning only — never the same word inside ordinary content (`value cannot be null` stays literal, error messages stay verbatim).
 
 ## Templates
 
 Progress update (no heading ➡️ emoji-first, no dash; details as indented sub-bullets):
+
 ```
 ✔️ <action> — <result, ≤ 8 words>
 ✔️ <action>
@@ -91,6 +94,7 @@ Progress update (no heading ➡️ emoji-first, no dash; details as indented sub
 ```
 
 Final summary (headed list ➡️ dash bullets):
+
 ```
 Summary:
 - Changed: <n> files — <paths>
@@ -99,6 +103,7 @@ Summary:
 ```
 
 Plan (numbered list, no emojis):
+
 ```
 Plan:
 1. <step>
@@ -112,6 +117,7 @@ Plan:
 "I've successfully updated the three configuration files and all forty-two tests are now passing. Next, I'll move on to the deployment script."
 
 ✔️ GOOD:
+
 ```
 ✔️ updated 3 config files: a.json, b.json, c.json
 ✔️ tests: 42/42
@@ -122,6 +128,7 @@ Interim, ❌ BAD (between 2 tool calls):
 "The hook file looks correct. Now let me check whether the settings are being picked up."
 
 Interim, ✔️ GOOD:
+
 ```
 ✔️ hook file valid
 ➡️ settings pickup check
@@ -131,6 +138,7 @@ Status with details, ❌ BAD:
 "✔️ dispatched session f0dfc7b5 — model sonnet, effort xhigh"
 
 Status with details, ✔️ GOOD:
+
 ```
 ✔️ dispatched session f0dfc7b5
     - Model: sonnet
@@ -140,6 +148,7 @@ Status with details, ✔️ GOOD:
 ## Emission rule (apply to EVERY line before emitting)
 
 A line is valid ONLY if it is 1 of:
+
 1. `<legend emoji> …` — status/interim, no heading, no dash
 2. `    - <Key>: <value>` — indented sub-bullet directly under a status line (details/attributes)
 3. `- …` bullet ≤ 15 words, 1 clause — ONLY under a heading/label (summary/findings/answer)

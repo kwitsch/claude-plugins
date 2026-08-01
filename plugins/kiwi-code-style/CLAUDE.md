@@ -42,16 +42,24 @@ language tags or otherwise rewrite them. `.prettierignore` no longer exempts
 this file from prettier (removed 2026-08-01, repo-wide 200-char line-length
 pass); prettier's own `proseWrap: "preserve"` default means it never rewraps
 prose, so formatting it is cosmetic only (table column padding, trailing
-blank lines) — verified by diffing before/after. The one exception found:
-prettier trims the padding spaces inside a code span used to show a literal
-`` ` — ` `` token, silently changing what the token looks like — restored
-by hand after formatting; watch for this on any future reformat. `MD038`
-(spaces inside code spans) is disabled for this plugin only via the sibling
-`.markdownlint.json` (`extends` the root config, overrides just this rule) —
-this file deliberately uses padded code spans like `` `- ` `` to show a
-literal dash-space bullet-prefix token, which `MD038`'s fix would corrupt.
-Any other CodeRabbit/markdownlint suggestion that would rewrite the actual
-contract content (not just cosmetic whitespace) must still be rejected.
+blank lines, nested-list indent width) — verified by diffing before/after.
+Prettier has no per-rule toggle for this (unlike markdownlint's `MD038`
+below) — it isn't rule-based, so the only lever for a specific line is a
+`<!-- prettier-ignore -->` comment (or a full `.prettierignore` re-exemption,
+rejected as too broad). One line needs it: the bullet demonstrating the
+` — ` separator token uses a code span, `` ` — ` ``, whose padding spaces
+are semantically part of the documented token — prettier's inline-code-span
+printer trims exactly that kind of padding, which would silently change
+what the token looks like. A `<!-- prettier-ignore -->` immediately above
+that bullet (2026-08-01) makes the file a stable fixed point under repeated
+prettier runs — verified empirically (`prettier --write` twice in a row
+produces zero further diff). `MD038` (spaces inside code spans) is disabled
+for this plugin only via the sibling `.markdownlint.json` (`extends` the
+root config, overrides just this rule) — this file deliberately uses padded
+code spans like `` `- ` `` to show a literal dash-space bullet-prefix token,
+which `MD038`'s fix would corrupt. Any other CodeRabbit/markdownlint
+suggestion that would rewrite the actual contract content (not just
+cosmetic whitespace) must still be rejected.
 
 ## Tests
 
