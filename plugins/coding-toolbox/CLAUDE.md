@@ -694,6 +694,37 @@ oversight (this very repo's own `.claude/rules/` carried exactly this leftover
 from before the move — removed manually in this same PR once the user-level
 copy took over, not by any automated migration this skill performs).
 
+**2026-08-01: Step 3a's verb+target parser extracted to `parse-args.sh` +
+colocated `parse-args.reference.md`** — a repo-wide audit of every
+coding-toolbox skill against `script-authoring.md`'s trivial/substantial line
+(prompted by the same pass that had already extracted `finish-pr`'s scripts)
+confirmed this prose was genuinely substantial (two independent multi-list
+whole-word lookups, an ambiguity check per axis, a verb-conditioned default,
+a usage-error branch) and, unlike most of the plugin's other skills audited
+the same pass, not yet extracted. The prose itself moves out entirely — no
+duplicate copy stays behind — replaced by "Read `parse-args.reference.md`"
+then a single invocation step. The one design wrinkle this extraction had to
+solve, absent from every prior script extraction in this plugin: `$ARGUMENTS`
+is a pre-injection text substitution (same mechanism as `${CLAUDE_SKILL_DIR}`,
+per `skill-md-authoring.md`), so by the time the invoking step is read, the
+placeholder has already been replaced with the user's literal, possibly
+adversarial text — passing it as a bare `"$ARGUMENTS"` shell argument would
+embed that text unescaped into a live Bash tool call. Solved by reusing
+`dispatch-agent`'s already-proven idiom instead of inventing a new one: embed
+the text inside a quoted heredoc (`$(cat <<'SETUP_RULES_ARGS_EOF' … EOF)`),
+whose quoted delimiter prevents any expansion of the body regardless of what
+it contains. `parse-args.sh` prints `golden_rules:`/`tools:` as lowercase
+`yes`/`no`/`unset` (matching this plugin's existing key-value stdout
+convention, e.g. `find-pr.sh`'s `draft: true`) rather than the `Yes`/`No`
+capitalization the old prose used for the `AskUserQuestion` option labels —
+those two are a different vocabulary (machine-readable script output vs.
+human-facing option text) and were never required to match case. Bats
+coverage (`test/coding-toolbox/setup-rules.bats`) invokes the real script
+across every case named in this section's own prose (ambiguous verb,
+ambiguous target, destructive-with-no-target, substring-collision
+regression, case-insensitivity) — replacing, not supplementing, the old
+presence-only greps for the prose phrases that moved out.
+
 ## Skill design (`refresh-tools-rule`)
 
 2026-07-10: split out of the `setup-rules` design during `fresh-work`'s
@@ -923,4 +954,12 @@ tripwire, body mentions of `claude --worktree`/`--bg` and the `--model`/`--effor
 and `--permission-mode auto`) — no script-extraction
 coverage, since the skill's own git/CLI orchestration stays inline per
 `.claude/rules/script-authoring.md`'s trivial/substantial threshold.
+`setup-rules`' extracted `parse-args.sh` gets hermetic exit-code/output
+coverage (pure string processing, no stubs needed — every verb/target
+ambiguity path, the destructive-no-target case, the `uninstall`/`install`
+substring-collision regression, case-insensitivity) plus structural
+assertions (reference doc present, `SKILL.md` reads it before invoking,
+`Bash(bash:*)` present, not executable, tripwire that the old inline
+verb/target prose no longer appears in `SKILL.md`) — replacing, not
+supplementing, the presence-only greps that used to cover this prose.
 Run: `BATS_LIB_PATH="$PWD/node_modules" npx bats test/coding-toolbox/`
