@@ -8,7 +8,8 @@
 //
 // format_file flow (every failure path returns {} silently — fail open):
 //   guard tool_response.success !== false -> ext in registry -> path inside cwd and not
-//   under node_modules/vendor/.git -> file exists -> some chain tool on PATH (probes
+//   excluded (node_modules/vendor/.git, .claude/worktrees, .claude/agent-memory,
+//   *.local.* -- see isExcludedPath) -> file exists -> some chain tool on PATH (probes
 //   cached) -> selectFormatter walks the chain in order, skipping a tool that's
 //   absent or hits a hard style conflict, and falls through to the next -> spawnSync
 //   (cwd = project cwd, 30s timeout, stdio ignored) -> before/after content diff
@@ -616,6 +617,35 @@ function normalizeProps(raw) {
   return out;
 }
 
+// True when `rel` (already resolved inside cwd) is dependency/VCS state
+// (node_modules/vendor/.git, unchanged) or Claude-Code-owned session/worktree
+// machinery that happens to sit inside cwd -- a nested git worktree
+// (.claude/worktrees/…) or an agent's local runtime scratch state
+// (.claude/agent-memory/…, both gitignored in this repo's own .claude/.gitignore)
+// is never real project content, so it's skipped the same way node_modules is.
+// This repo's own tracked .claude/rules|agents|skills stay covered -- only
+// these two specific subtrees are Claude-Code-internal, not `.claude/` as a
+// whole. `*.local.*` (personal local-override files, e.g. settings.local.json)
+// is skipped regardless of location, matching the same naming convention.
+/** @param {string} rel @returns {boolean} */
+export function isExcludedPath(rel) {
+  const segments = rel.split(path.sep);
+  if (
+    segments.some(
+      (s) => s === "node_modules" || s === "vendor" || s === ".git",
+    )
+  )
+    return true;
+  const claudeIdx = segments.indexOf(".claude");
+  if (
+    claudeIdx !== -1 &&
+    (segments[claudeIdx + 1] === "worktrees" ||
+      segments[claudeIdx + 1] === "agent-memory")
+  )
+    return true;
+  return segments[segments.length - 1].includes(".local.");
+}
+
 // The format_file tool handler. Returns {} on every guard failure / error (fail open).
 /** @param {PostToolUseHookInput} args @returns {HookResult} */
 function formatFileHandler(args) {
@@ -628,15 +658,7 @@ function formatFileHandler(args) {
     const resolved = path.resolve(cwd, fp);
     if (resolved !== cwd && !resolved.startsWith(cwd + path.sep)) return {};
     const rel = path.relative(cwd, resolved);
-    if (
-      rel
-        .split(path.sep)
-        .some(
-          (/** @type {string} */ s) =>
-            s === "node_modules" || s === "vendor" || s === ".git",
-        )
-    )
-      return {};
+    if (isExcludedPath(rel)) return {};
 
     const lang = EXT_MAP[path.extname(resolved).toLowerCase()];
     if (!lang) return {};

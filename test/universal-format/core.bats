@@ -72,6 +72,54 @@ setup() {
   [ ! -s "$RECORD" ]
 }
 
+@test ".claude/worktrees path -> formatter never invoked" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd/.claude/worktrees/foo"
+  printf 'echo x\n' > "$cwd/.claude/worktrees/foo/a.sh"
+  rec_stub shfmt
+  run format_file_call "$cwd/.claude/worktrees/foo/a.sh" "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+  [ ! -s "$RECORD" ]
+}
+
+@test ".claude/agent-memory path -> formatter never invoked" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd/.claude/agent-memory"
+  printf 'hi\n' > "$cwd/.claude/agent-memory/a.md"
+  rec_stub prettier
+  run format_file_call "$cwd/.claude/agent-memory/a.md" "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+  [ ! -s "$RECORD" ]
+}
+
+@test "*.local.* file -> formatter never invoked" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'echo  hi\n' > "$cwd/settings.local.sh"
+  rec_stub shfmt
+  run format_file_call "$cwd/settings.local.sh" "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+  [ ! -s "$RECORD" ]
+}
+
+@test ".claude/rules path (not worktrees/agent-memory) -> formatter still invoked" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd/.claude/rules"
+  printf 'echo  hi\n' > "$cwd/.claude/rules/a.sh"
+  rec_stub shfmt
+  run format_file_call "$cwd/.claude/rules/a.sh" "$cwd"
+  assert_success
+  run rg_or_grep -F "shfmt " "$RECORD"
+  assert_success
+}
+
 @test "formatter exits 1 WITHOUT changing file -> {} (no crash)" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"

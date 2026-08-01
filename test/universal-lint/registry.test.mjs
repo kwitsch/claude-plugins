@@ -11,6 +11,7 @@ import {
   classifyCheckstyleOutput,
   truncate,
   isToolAvailable,
+  isExcludedPath,
   parseRtkPrefix,
   resolveTsconfig,
   looksLikeSolutionStyleTsconfig,
@@ -556,4 +557,35 @@ test("classifyExit: psalm is 0-clean/2-issues/else-skip (NOT the shared 0/1/else
   assert.equal(classifyExit("psalm", 1), "skip");
   assert.equal(classifyExit("psalm", 2), "issues");
   assert.equal(classifyExit("psalm", 3), "skip");
+});
+
+test("isExcludedPath: node_modules/vendor/.git segments -> excluded", () => {
+  assert.equal(isExcludedPath(path.join("node_modules", "x", "a.sh")), true);
+  assert.equal(isExcludedPath(path.join("vendor", "a.php")), true);
+  assert.equal(isExcludedPath(path.join(".git", "hooks", "a.sh")), true);
+});
+
+test("isExcludedPath: .claude/worktrees and .claude/agent-memory -> excluded", () => {
+  assert.equal(
+    isExcludedPath(path.join(".claude", "worktrees", "foo", "a.sh")),
+    true,
+  );
+  assert.equal(
+    isExcludedPath(path.join(".claude", "agent-memory", "a.md")),
+    true,
+  );
+});
+
+test("isExcludedPath: other .claude/ subtrees (e.g. rules/agents/skills) stay covered", () => {
+  assert.equal(isExcludedPath(path.join(".claude", "rules", "a.md")), false);
+  assert.equal(isExcludedPath(path.join(".claude", "settings.json")), false);
+});
+
+test("isExcludedPath: *.local.* files excluded regardless of location", () => {
+  assert.equal(
+    isExcludedPath(path.join(".claude", "settings.local.json")),
+    true,
+  );
+  assert.equal(isExcludedPath("docker-compose.local.yml"), true);
+  assert.equal(isExcludedPath("a.sh"), false);
 });
