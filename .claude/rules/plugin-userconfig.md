@@ -45,4 +45,7 @@ this by re-adding a toggle — all three plugins' bats suites assert
 
 `kiwi-code-style` (2026-08-01) is the same case for a non-hook plugin: its one
 output style IS the entire plugin, so there's nothing to toggle independently
-of enabling/disabling the plugin itself.
+of enabling/disabling the plugin itself. A `SessionStart` hook was added later
+the same day injecting fixed behavioral guidelines (karpathy-ponytail, reduced
+to `full`) — still the same fixed, all-or-nothing contract, not a separate
+toggle-needing feature; no `userConfig` was added for it either.

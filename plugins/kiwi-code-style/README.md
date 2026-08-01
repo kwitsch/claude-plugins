@@ -1,7 +1,8 @@
 # kiwi-code-style
 
-Ships the kiwi-code-style output style: a machine-optimized, emoji-legend
-response format enforced whenever this plugin is enabled.
+Ships the kiwi-code-style output style and a SessionStart hook that injects
+the karpathy-ponytail coding guidelines — both enforced whenever this plugin
+is enabled.
 
 ## Install
 
@@ -25,10 +26,22 @@ lines with 2+ attributes, and an `AskUserQuestion`-first input protocol with a
 fixed turn-end contract (a pending question, or a final `Summary:` block). See
 `output-styles/kiwi-code-style.md` for the full contract.
 
+A `SessionStart` hook (`hooks/`) injects the
+[karpathy-ponytail](https://github.com/AbdullahHameedKhan/karpathy-ponytail-skills/blob/main/skills/karpathy-ponytail/SKILL.md)
+coding guidelines — think before coding, a 7-rung simplicity ladder, surgical
+changes, root-cause bug fixes, goal-driven execution — as `additionalContext`
+on every session start, `/clear`, and `/compact`. Reduced to a single, fixed
+`full` intensity (no lite/ultra variants, no runtime switch); kiwi-code-style
+governs response _form_, ponytail governs _behavior_, so when both apply, say
+the ponytail thing in kiwi's shape.
+
 ## Notes
 
-- No skills/agents/hooks — this plugin has exactly one component.
-- No `userConfig`: the style is the entire plugin; there's nothing to toggle
-  independently of enabling/disabling the plugin itself.
+- No skills/agents — this plugin has two fixed, always-on components: the
+  output style and the SessionStart hook.
+- No `userConfig`: both components are the entire plugin's fixed opinionated
+  contract; there's nothing to toggle independently of enabling/disabling the
+  plugin itself.
 - Style changes take effect after `/clear` or a new session (system prompt is
-  read once at session start) — same as any output style.
+  read once at session start) — same as any output style. The hook's
+  guidelines re-inject on `/clear`/`/compact` too, since both wipe context.

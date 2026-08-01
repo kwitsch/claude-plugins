@@ -110,3 +110,13 @@ setup() {
   run npx prettier --check "$GUIDE"
   assert_success
 }
+
+@test "plugin.json version bumped to 0.2.0 for the ponytail hook feature" {
+  run jq -e '.version == "0.2.0"' "$PLUGIN/.claude-plugin/plugin.json"
+  assert_success
+}
+
+@test "plugin.json description mentions the SessionStart ponytail hook" {
+  run jq -e '.description == "Ships the kiwi-code-style output style and a SessionStart hook that injects the karpathy-ponytail coding guidelines — both enforced whenever this plugin is enabled."' "$PLUGIN/.claude-plugin/plugin.json"
+  assert_success
+}
