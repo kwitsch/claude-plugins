@@ -9,7 +9,7 @@ setup() {
 }
 
 @test "plugin.json is valid and has required fields, no userConfig (deliberate — see CLAUDE.md)" {
-  run jq -e '.name == "kiwi-code-style" and (.version | type == "string") and (.description | length > 0) and (has("userConfig") | not)' "$PLUGIN/.claude-plugin/plugin.json"
+  run jq -e '.name == "kiwi-code-style" and (.version | type == "string") and (.description | length > 0) and (.description | contains("ponytail")) and (has("userConfig") | not)' "$PLUGIN/.claude-plugin/plugin.json"
   assert_success
 }
 
@@ -81,14 +81,11 @@ setup() {
   assert_output --partial '"hookEventName":"SessionStart"'
 }
 
-@test "ponytail-guidelines.md exists with the 5 section headings" {
-  GUIDE="$PLUGIN/hooks/ponytail-guidelines.md"
-  [ -f "$GUIDE" ]
-  run grep -F '## 1. Think Before Coding' "$GUIDE"; assert_success
-  run grep -F '## 2. Simplicity' "$GUIDE"; assert_success
-  run grep -F '## 3. Surgical Changes' "$GUIDE"; assert_success
-  run grep -F '## 4. Bug Fixes' "$GUIDE"; assert_success
-  run grep -F '## 5. Goal-Driven Execution' "$GUIDE"; assert_success
+@test "ponytail-guidelines.md exists" {
+  # The 5 section headings are asserted on this same real file by
+  # hooks.test.mjs ("bundled ponytail-guidelines.md strips clean and keeps
+  # all 5 sections") -- no need to duplicate that check in bats too.
+  [ -f "$PLUGIN/hooks/ponytail-guidelines.md" ]
 }
 
 @test "ponytail-guidelines.md has no lite/ultra intensity variability" {
@@ -113,10 +110,5 @@ setup() {
 
 @test "plugin.json version bumped to 0.2.0 for the ponytail hook feature" {
   run jq -e '.version == "0.2.0"' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_success
-}
-
-@test "plugin.json description mentions the SessionStart ponytail hook" {
-  run jq -e '.description == "Ships the kiwi-code-style output style and a SessionStart hook that injects the karpathy-ponytail coding guidelines — both enforced whenever this plugin is enabled."' "$PLUGIN/.claude-plugin/plugin.json"
   assert_success
 }

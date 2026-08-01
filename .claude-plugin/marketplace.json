@@ -91,7 +91,7 @@
     {
       "name": "kiwi-code-style",
       "source": "./plugins/kiwi-code-style",
-      "description": "Ships the kiwi-code-style output style: a machine-optimized, emoji-legend response format enforced whenever this plugin is enabled.",
+      "description": "Ships the kiwi-code-style output style and a SessionStart hook that injects the karpathy-ponytail coding guidelines — both enforced whenever this plugin is enabled.",
       "author": {
         "name": "Kwitsch"
       },

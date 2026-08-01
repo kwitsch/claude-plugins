@@ -84,6 +84,13 @@ kiwi-code-style's own mandatory `Plan:` numbered-list format, so it's cut —
 kiwi already fully owns that space. Every other line is verbatim from the
 source.
 
+⚠️ Overlaps substantially with `coding-toolbox`'s own
+`~/.claude/rules/coding-toolbox-golden-rules.md` (installed by
+`coding-toolbox:setup-rules`, unconditionally loaded) — same upstream
+authors, same ladder/surgical/bug-fix/goal-driven content. A user running
+both gets it injected twice per session. Not de-duplicated here: the two
+plugins are independent and neither depends on the other being installed.
+
 **Precedence rule:** kiwi-code-style governs response **form** (how
 something is said — the emoji legend, bullet caps, the `Plan:` template);
 ponytail governs **behavior/content** (what to do — surface assumptions,
