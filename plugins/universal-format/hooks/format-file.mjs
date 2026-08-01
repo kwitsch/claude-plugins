@@ -30,7 +30,7 @@ const SPAWN_TIMEOUT_MS = 30000; // inner formatter timeout; hook-level timeout:6
 const NPX_SPAWN_TIMEOUT_MS = 55000; // cold npx install can exceed SPAWN_TIMEOUT_MS; stay under the hook's 60s ceiling
 
 /**
- * @typedef {{ name: string, strategy: string, base: string[], nativeConfig?: Array<string | {file: string, section: string}>, npmSpec?: string }} FormatTool
+ * @typedef {{ name: string, strategy: string, base: string[], nativeConfig?: Array<string | {file: string, section: string}>, guardPrintWidth?: boolean, npmSpec?: string }} FormatTool
  * @typedef {{ chain: FormatTool[] }} LangEntry
  */
 
@@ -81,6 +81,118 @@ const BIOME_MAPPED = {
   nativeConfig: ["biome.json", "biome.jsonc"],
   base: ["format", "--write", "--log-level=none"],
   npmSpec: "@biomejs/biome",
+};
+
+// Prettier's own project-config search (verified against prettier 3.9.6's
+// bundled source: its CONFIG_FILES searcher has no stopDirectory -- the hook
+// that would supply one always returns undefined -- so it walks from the
+// file's own directory all the way to the filesystem root, never just up to
+// `cwd`). Any narrower search here would risk silently overriding a real
+// upstream config this plugin never saw -- exactly the failure the guard
+// below exists to avoid.
+const PRETTIER_CONFIG_FILENAMES = [
+  ".prettierrc",
+  ".prettierrc.json",
+  ".prettierrc.yml",
+  ".prettierrc.yaml",
+  ".prettierrc.json5",
+  ".prettierrc.js",
+  "prettier.config.js",
+  ".prettierrc.ts",
+  "prettier.config.ts",
+  ".prettierrc.mjs",
+  "prettier.config.mjs",
+  ".prettierrc.mts",
+  "prettier.config.mts",
+  ".prettierrc.cjs",
+  "prettier.config.cjs",
+  ".prettierrc.cts",
+  "prettier.config.cts",
+  ".prettierrc.toml",
+];
+
+// Walk from `dir` up to the filesystem root (inclusive), calling `checkDir` at
+// each level; true on the first hit. Unbounded -- unlike this file's other
+// walkers (findNativeConfig, resolveEditorconfig below), which stop at `cwd`
+// because their governing tools (ruff/black/biome/.editorconfig) only ever
+// look inside the project tree. Prettier's own search has no such bound (see
+// above), so bounding this one at `cwd` would misdetect "absent" for a real
+// config that lives above the project root (a workspace/monorepo case).
+/** @param {string} dir @param {(dir: string) => boolean} checkDir @returns {boolean} */
+function walkToRoot(dir, checkDir) {
+  for (;;) {
+    if (checkDir(dir)) return true;
+    const parent = path.dirname(dir);
+    if (parent === dir) return false;
+    dir = parent;
+  }
+}
+
+// True if a prettier project config governs `fileDir` -- one of prettier's own
+// dedicated config files, or a top-level "prettier" key in package.json /
+// package.yaml (prettier reads both natively -- loadConfigFromPackageJson /
+// loadConfigFromPackageYaml in its own source; package.yaml is pnpm's
+// package.json equivalent). package.yaml has no bundled YAML parser here, so
+// its "prettier" key is existence-checked via an anchored, top-level-only
+// regex -- same accepted residual-risk tradeoff as this file's other
+// regex-based heuristics (see resolveEditorconfig's neighbors).
+/** @param {string} fileDir @returns {boolean} */
+export function hasPrettierProjectConfig(fileDir) {
+  return walkToRoot(fileDir, (dir) => {
+    if (
+      PRETTIER_CONFIG_FILENAMES.some((name) => existsSync(path.join(dir, name)))
+    )
+      return true;
+    const pkgPath = path.join(dir, "package.json");
+    if (existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+        if (pkg && typeof pkg === "object" && Object.hasOwn(pkg, "prettier"))
+          return true;
+      } catch {
+        /* unreadable/invalid JSON -> treat as absent */
+      }
+    }
+    const pkgYamlPath = path.join(dir, "package.yaml");
+    if (existsSync(pkgYamlPath)) {
+      let text = "";
+      try {
+        text = readFileSync(pkgYamlPath, "utf8");
+      } catch {
+        /* unreadable -> treat as absent */
+      }
+      if (/^prettier\s*:/m.test(text)) return true;
+    }
+    return false;
+  });
+}
+
+// Large enough that none of prettier's line-wrapping decisions ever trigger --
+// effectively "no limit" -- without passing a literal Infinity (rejected by
+// prettier's own CLI argument parsing).
+const NO_LINE_LENGTH_PRINT_WIDTH = "99999";
+
+// yaml/json only (see REGISTRY): when no prettier project config governs the
+// file AND no .editorconfig max_line_length applies (prettier already honors
+// that natively when run bare -- verified empirically), force printWidth high
+// enough to disable prettier's own built-in 80-column default. A real
+// project-level choice, from either source, is always left alone.
+/** @param {string[]} base @param {string} file @param {string} cwd @returns {string[]} */
+export function guardPrintWidthArgv(base, file, cwd) {
+  if (hasPrettierProjectConfig(path.dirname(file))) return base.slice();
+  const ec = resolveEditorconfig(file, cwd);
+  if (ec.found && typeof ec.props.max_line_length === "number")
+    return base.slice();
+  return [...base, "--print-width", NO_LINE_LENGTH_PRINT_WIDTH];
+}
+
+/** @type {FormatTool} */
+const PRETTIER_LINE_LENGTH_GUARDED = {
+  name: "prettier",
+  strategy: "native",
+  guardPrintWidth: true,
+  base: ["--write", "--log-level", "silent"],
+  npmSpec: "prettier",
 };
 
 // Formatter registry (research-verified). chain = first tool on PATH wins.
@@ -148,10 +260,10 @@ export const REGISTRY = {
       { name: "gofmt", strategy: "fixed", base: ["-w"] },
     ],
   },
-  json: { chain: [PRETTIER_NATIVE, BIOME_MAPPED] },
+  json: { chain: [PRETTIER_LINE_LENGTH_GUARDED, BIOME_MAPPED] },
   css: { chain: [PRETTIER_NATIVE, BIOME_MAPPED] },
   scss: { chain: [PRETTIER_NATIVE] },
-  yaml: { chain: [PRETTIER_NATIVE] },
+  yaml: { chain: [PRETTIER_LINE_LENGTH_GUARDED] },
   markdown: { chain: [PRETTIER_NATIVE] },
 };
 
@@ -188,10 +300,17 @@ export function isToolAvailable(tool, toolOnPath, npxOnPath) {
 }
 
 // Determine the formatter invocation for a resolved tool.
-// native/fixed -> bare. mapped -> if a tool-native config governs the file, bare;
-// else resolve .editorconfig for this file and map/skip via buildInvocation.
+// guardPrintWidth (prettier's yaml/json entry only) -> its own independent
+// check, ahead of the strategy switch below: it inverts that switch's
+// "absent config -> run bare" default, so it can't reuse the mapped branch's
+// buildInvocation() (whose `!editorconfig` early return is exactly the
+// opposite of what this guard needs). native/fixed -> bare. mapped -> if a
+// tool-native config governs the file, bare; else resolve .editorconfig for
+// this file and map/skip via buildInvocation.
 /** @param {FormatTool} tool @param {string} file @param {string} cwd @returns {{argv: string[]} | {skip: true}} */
 function resolveInvocation(tool, file, cwd) {
+  if (tool.guardPrintWidth)
+    return { argv: guardPrintWidthArgv(tool.base, file, cwd) };
   if (tool.strategy !== "mapped") return buildInvocation(tool);
   const hasNativeConfig = findNativeConfig(
     path.dirname(file),

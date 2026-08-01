@@ -44,3 +44,14 @@ has an npx fallback — see `CLAUDE.md` for why.
 - For `google-java-format`, `clang-format`, `ruff`, `black`, and `biome`, a minimal built-in resolver maps core `.editorconfig` properties (`indent_style`, `indent_size`, `max_line_length`, `end_of_line`) to CLI flags — **only** when no tool-native config governs the file. This mapping is intentionally partial (documented properties only).
 - **Hard conflicts are skipped, not violated:** if `.editorconfig` declares a style a fixed-style tool cannot produce (`indent_style = tab` for `google-java-format`/`black`; `google-java-format` is also fixed at 100 columns and 2/4-space indent), the file is left untouched rather than reformatted against its own config.
 - Go's style is fixed by design (tabs); a conforming `[*.go] indent_style = tab` is honored by construction.
+
+## YAML/JSON: no line-length limit without a project config
+
+`prettier`'s own default `printWidth` (80) reflows long JSON/YAML arrays and
+flow mappings onto multiple lines even when the project never asked for an
+80-column limit. When formatting `.yaml`/`.yml`/`.json`, this hook now leaves
+`printWidth` unbounded unless the project set a real preference itself — a
+`.prettierrc`/`prettier.config.*`/`package.json` `"prettier"` key, or
+`.editorconfig`'s `max_line_length` (which `prettier` already honors
+natively). Markdown is unaffected: `prettier`'s default `proseWrap` already
+never rewraps prose, so there was nothing to fix there.
