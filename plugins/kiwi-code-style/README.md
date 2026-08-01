@@ -20,7 +20,9 @@ only response formatting/communication changes, not coding behavior.
 
 The style enforces: silence-by-default interim messages, a closed 8-emoji status
 legend, numbered plans with no emojis, dash-bulleted headed summaries, hard
-per-line word/clause caps, and digits-only numbers. See
+per-line word/clause caps, digits-only numbers, indented sub-bullets for status
+lines with 2+ attributes, and an `AskUserQuestion`-first input protocol with a
+fixed turn-end contract (a pending question, or a final `Summary:` block). See
 `output-styles/kiwi-code-style.md` for the full contract.
 
 ## Notes

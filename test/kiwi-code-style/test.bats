@@ -45,7 +45,12 @@ setup() {
   assert_output '# OUTPUT FORMAT — MANDATORY'
 }
 
-@test ".prettierignore exempts the output style file from reformatting" {
-  run grep -Fx 'plugins/kiwi-code-style/output-styles/kiwi-code-style.md' "$REPO_ROOT/.prettierignore"
+@test "plugin-local .markdownlint.json extends root config and disables only MD038" {
+  run jq -e '(keys == ["MD038", "extends"]) and .extends == "../../.markdownlint.json" and .MD038 == false' "$PLUGIN/.markdownlint.json"
+  assert_success
+}
+
+@test "the literal dash-space token survives formatting" {
+  run grep -F '` — ` separator per line' "$STYLE"
   assert_success
 }
