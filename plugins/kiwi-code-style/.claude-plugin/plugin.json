@@ -1,0 +1,8 @@
+{
+  "name": "kiwi-code-style",
+  "version": "0.1.0",
+  "description": "Ships the kiwi-code-style output style: a machine-optimized, emoji-legend response format enforced whenever this plugin is enabled.",
+  "author": {
+    "name": "Kwitsch"
+  }
+}
