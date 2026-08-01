@@ -86,6 +86,58 @@ setup() {
   [ ! -s "$RECORD" ]
 }
 
+@test ".claude/worktrees path -> linter never invoked" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd/.claude/worktrees/foo"
+  printf 'echo $1\n' > "$cwd/.claude/worktrees/foo/a.sh"
+  OUT="issue"
+  rec_stub shellcheck 1
+  run lint_file_call "$cwd/.claude/worktrees/foo/a.sh" "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+  [ ! -s "$RECORD" ]
+}
+
+@test ".claude/agent-memory path -> linter never invoked" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd/.claude/agent-memory"
+  printf 'a: 1\n' > "$cwd/.claude/agent-memory/a.yaml"
+  OUT="issue"
+  rec_stub yamllint 1
+  run lint_file_call "$cwd/.claude/agent-memory/a.yaml" "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+  [ ! -s "$RECORD" ]
+}
+
+@test "*.local.* file -> linter never invoked" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'echo $1\n' > "$cwd/settings.local.sh"
+  OUT="issue"
+  rec_stub shellcheck 1
+  run lint_file_call "$cwd/settings.local.sh" "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+  [ ! -s "$RECORD" ]
+}
+
+@test ".claude/rules path (not worktrees/agent-memory) -> linter still invoked" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd/.claude/rules"
+  printf 'echo $1\n' > "$cwd/.claude/rules/a.sh"
+  OUT="issue"
+  rec_stub shellcheck 1
+  run lint_file_call "$cwd/.claude/rules/a.sh" "$cwd"
+  assert_success
+  run rg_or_grep -F "shellcheck " "$RECORD"
+  assert_success
+}
+
 @test "eslint exit 2 (config/internal error) -> {} even though it printed text (skip, not issues)" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"

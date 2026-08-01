@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   buildInvocation,
   isToolAvailable,
+  isExcludedPath,
   REGISTRY,
   hasPrettierProjectConfig,
   guardPrintWidthArgv,
@@ -346,4 +347,50 @@ test("REGISTRY: php chain is php-cs-fixer only (chain of 1), native strategy, no
   assert.equal(REGISTRY.php.chain[0].strategy, "native");
   assert.equal(REGISTRY.php.chain[0].npmSpec, undefined);
   assert.ok(REGISTRY.php.chain[0].base.includes("--using-cache=no"));
+});
+
+test("isExcludedPath: node_modules/vendor/.git segments -> excluded", () => {
+  assert.equal(isExcludedPath(path.join("node_modules", "x", "a.sh")), true);
+  assert.equal(isExcludedPath(path.join("vendor", "a.php")), true);
+  assert.equal(isExcludedPath(path.join(".git", "hooks", "a.sh")), true);
+});
+
+test("isExcludedPath: .claude/worktrees and .claude/agent-memory -> excluded", () => {
+  assert.equal(
+    isExcludedPath(path.join(".claude", "worktrees", "foo", "a.sh")),
+    true,
+  );
+  assert.equal(
+    isExcludedPath(path.join(".claude", "agent-memory", "a.md")),
+    true,
+  );
+});
+
+test("isExcludedPath: other .claude/ subtrees (e.g. rules/agents/skills) stay covered", () => {
+  assert.equal(isExcludedPath(path.join(".claude", "rules", "a.md")), false);
+  assert.equal(isExcludedPath(path.join(".claude", "settings.json")), false);
+});
+
+test("isExcludedPath: a later .claude segment matching worktrees/agent-memory is still excluded, even after an earlier non-matching .claude segment", () => {
+  assert.equal(
+    isExcludedPath(
+      path.join(".claude", "rules", ".claude", "worktrees", "foo", "a.sh"),
+    ),
+    true,
+  );
+  assert.equal(
+    isExcludedPath(
+      path.join(".claude", "skills", ".claude", "agent-memory", "a.md"),
+    ),
+    true,
+  );
+});
+
+test("isExcludedPath: *.local.* files excluded regardless of location", () => {
+  assert.equal(
+    isExcludedPath(path.join(".claude", "settings.local.json")),
+    true,
+  );
+  assert.equal(isExcludedPath("docker-compose.local.yml"), true);
+  assert.equal(isExcludedPath("a.sh"), false);
 });
