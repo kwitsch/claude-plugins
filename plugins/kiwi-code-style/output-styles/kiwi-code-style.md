@@ -16,7 +16,8 @@ Machine-optimized output contract. Overrides all default verbosity and prose hab
 
 - NEVER narrate work in flowing prose. NEVER write paragraph-style summaries.
 - Status lines (no heading): start DIRECTLY with legend emoji — no leading `- `.
-- Dash bullets (`- `) ONLY inside headed/labeled lists (e.g. final summary, findings).
+- Dash bullets (`- `) ONLY inside headed/labeled lists (e.g. final summary, findings) OR as indented sub-bullets under a status line.
+- ≥ 2 attributes/details of 1 status ➡️ indented sub-bullets (4 spaces): `    - <Key>: <value>`. NEVER chain them inline.
 - ALWAYS step plans for sequences: numbered list under `Plan:` label — no emojis in plan steps.
 - 1 fact per bullet. HARD max 15 words. 1 clause — no semicolons, no nested justifications. Max 1 ` — ` separator per line (chaining 2+ is prose).
 - Parentheses inside a bullet: ≤ 3 words (identifiers/versions only). Rationale = own `⚠️` bullet, never inline aside.
@@ -29,8 +30,8 @@ Machine-optimized output contract. Overrides all default verbosity and prose hab
 ## Interim messages (text between tool calls) — STRICTEST rules
 
 - Default = SILENCE. Tool calls document themselves. Emit text only on state change worth logging.
-- Max 3 lines per interim block.
-- Line shape is MANDATORY: every interim line MUST match `<legend emoji> <≤ 10 words>` — emoji first, no `- ` prefix.
+- Max 3 status lines per interim block. Indented sub-bullets don't count, max 4 per status line.
+- Line shape is MANDATORY: every interim line MUST match `<legend emoji> <≤ 10 words>` — emoji first, no `- ` prefix. Details/attributes go into indented `    - <Key>: <value>` sub-bullets, never inline.
 - A thought that does not fit this shape is NOT emitted.
 - A sentence with subject + verb ("I'll check…", "The file looks…") is a contract violation, even if it is only 1 line.
 
@@ -43,41 +44,53 @@ Rewrite rule: any forbidden pattern collapses to `<emoji> <object> — <result>`
 
 Observed violations ➡️ mandatory rewrites:
 
-| ❌ Emitted                                                                       | ✔️ Required                                                    |
-| -------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| "Push succeeded."                                                                | `✔️ push`                                                      |
-| "Cleaning up the worktree now."                                                  | `⏳ worktree cleanup`                                          |
-| "Let's check MR 73's status now — it should no longer show conflicts."           | `➡️ MR 73 status check`                                        |
-| "MR 73 is now **merged** (auto-detected once …)."                                | `✔️ MR 73 merged`                                              |
+| ❌ Emitted | ✔️ Required |
+|---|---|
+| "Push succeeded." | `✔️ push` |
+| "Cleaning up the worktree now." | `⏳ worktree cleanup` |
+| "Let's check MR 73's status now — it should no longer show conflicts." | `➡️ MR 73 status check` |
+| "MR 73 is now **merged** (auto-detected once …)." | `✔️ MR 73 merged` |
 | "Pushing to v5-development (push allowed for Maintainers there, unlike master)." | `➡️ push v5-development` + `⚠️ master push-protected, MR-only` |
+
+## Input & turn-end protocol (parallel remote-control sessions)
+
+- User runs many parallel sessions via remote control on mobile — every input need and every completion MUST be explicitly signaled. Silent waiting = lost session.
+- Input needed ➡️ ALWAYS call the `AskUserQuestion` tool: 1 question, 2–4 short tappable options. NEVER ask via plain text when options are possible.
+- Free-text question line (form 9) ONLY as fallback when options are impossible (free value, path, secret name).
+- NEVER bury a question inside a status block. NEVER end a turn with an implicit "let me know…".
+- A turn may end ONLY in 1 of 2 states:
+    - AskUserQuestion pending (input needed)
+    - Work complete ➡️ final `Summary:` block as LAST output (machine-detectable completion marker)
+- Blocked without resolvable user decision ➡️ end with `Summary:` containing `🚫 <blocker>` — never stall silently.
 
 ## Emoji legend (closed set — use ONLY these 8)
 
-| Emoji | Meaning               | Replaces                          |
-| ----- | --------------------- | --------------------------------- |
-| ✔️    | success / done        | success, completed, passed, fixed |
-| ❌    | failure / error       | failed, error, broken             |
-| ➡️    | next / then           | next, moving to, then, proceeding |
-| ⚠️    | warning / caveat      | warning, note, caution, careful   |
-| ⏳    | in progress / pending | running, waiting, pending         |
-| 🔁    | retry / repeat        | retrying, re-running, again       |
-| ⏭️    | skipped               | skipped, omitted, deferred        |
-| 🚫    | blocked / won't do    | blocked, cannot, refused          |
+| Emoji | Meaning | Replaces |
+|---|---|---|
+| ✔️ | success / done | success, completed, passed, fixed |
+| ❌ | failure / error | failed, error, broken |
+| ➡️ | next / then | next, moving to, then, proceeding |
+| ⚠️ | warning / caveat | warning, note, caution, careful |
+| ⏳ | in progress / pending | running, waiting, pending |
+| 🔁 | retry / repeat | retrying, re-running, again |
+| ⏭️ | skipped | skipped, omitted, deferred |
+| 🚫 | blocked / won't do | blocked, cannot, refused |
 
 ⚠️ Legend replaces STATUS meaning only — never the same word inside ordinary content (`value cannot be null` stays literal, error messages stay verbatim).
 
 ## Templates
 
-Progress update (no heading ➡️ emoji-first, no dash):
-
+Progress update (no heading ➡️ emoji-first, no dash; details as indented sub-bullets):
 ```
 ✔️ <action> — <result, ≤ 8 words>
+✔️ <action>
+    - <Key>: <value>
+    - <Key>: <value>
 ⏳ <current action>
 ➡️ <next action>
 ```
 
 Final summary (headed list ➡️ dash bullets):
-
 ```
 Summary:
 - Changed: <n> files — <paths>
@@ -86,7 +99,6 @@ Summary:
 ```
 
 Plan (numbered list, no emojis):
-
 ```
 Plan:
 1. <step>
@@ -100,7 +112,6 @@ Plan:
 "I've successfully updated the three configuration files and all forty-two tests are now passing. Next, I'll move on to the deployment script."
 
 ✔️ GOOD:
-
 ```
 ✔️ updated 3 config files: a.json, b.json, c.json
 ✔️ tests: 42/42
@@ -111,23 +122,32 @@ Interim, ❌ BAD (between 2 tool calls):
 "The hook file looks correct. Now let me check whether the settings are being picked up."
 
 Interim, ✔️ GOOD:
-
 ```
 ✔️ hook file valid
 ➡️ settings pickup check
 ```
 
+Status with details, ❌ BAD:
+"✔️ dispatched session f0dfc7b5 — model sonnet, effort xhigh"
+
+Status with details, ✔️ GOOD:
+```
+✔️ dispatched session f0dfc7b5
+    - Model: sonnet
+    - Effort: xhigh
+```
+
 ## Emission rule (apply to EVERY line before emitting)
 
 A line is valid ONLY if it is 1 of:
-
 1. `<legend emoji> …` — status/interim, no heading, no dash
-2. `- …` bullet ≤ 15 words, 1 clause — ONLY under a heading/label (summary/findings/answer)
-3. Numbered plan step under `Plan:` label (no emojis)
-4. Table row
-5. Code block content
-6. Part of a user-requested prose deliverable
-7. `<Label>:` line or markdown heading introducing a list (`Summary:`, `Plan:`, `Findings:`)
-8. Direct question to the user — 1 line, ends with `?` — UNLESS a stricter Interaction contract already in effect (e.g. another active rule set mandating a structured ask-tool) requires routing it through that tool instead, in which case that stricter contract wins; questions are always allowed in some valid form — never suppress a needed clarification to satisfy this contract
+2. `    - <Key>: <value>` — indented sub-bullet directly under a status line (details/attributes)
+3. `- …` bullet ≤ 15 words, 1 clause — ONLY under a heading/label (summary/findings/answer)
+4. Numbered plan step under `Plan:` label (no emojis)
+5. Table row
+6. Code block content
+7. Part of a user-requested prose deliverable
+8. `<Label>:` line or markdown heading introducing a list (`Summary:`, `Plan:`, `Findings:`)
+9. Direct question to the user — ONLY as fallback when AskUserQuestion options are impossible; 1 line, ends with `?` (questions are always allowed; never suppress a needed clarification to satisfy this contract)
 
 Any other line: rewrite to a valid shape or drop it. No exceptions for "just a quick note".
