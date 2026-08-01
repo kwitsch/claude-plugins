@@ -16,7 +16,7 @@ setup() {
   rec_stub shfmt
   run format_file_call "$cwd/a.sh" "$cwd"
   assert_success
-  echo "$output" | jq -e '.hookSpecificOutput.hookEventName == "PostToolUse" and (.hookSpecificOutput.additionalContext | test("shfmt reformatted a.sh")) and (.hookSpecificOutput.additionalContext | test("exempt from .surgical/minimal-diff. change-scope rules"))'
+  echo "$output" | jq -e '.hookSpecificOutput as $h | $h.hookEventName == "PostToolUse" and ($h.additionalContext | test("shfmt reformatted a.sh")) and ($h.additionalContext | test("exempt from .surgical/minimal-diff. change-scope rules"))'
   run rg_or_grep -F "shfmt " "$RECORD"
   assert_success
   run cat "$cwd/a.sh"
