@@ -21,12 +21,41 @@ const SENTINEL = "\u0001"; // written as an escape: a literal control char is in
 // recode, git, mv, cp, rm, ls, cc-tools, ...) passes — unknown tools fail
 // open by contract.
 const CONTENT_TOOLS = new Set([
-  "cat", "head", "tail", "more", "less", "nl", "tac", "rev",
-  "grep", "egrep", "fgrep", "rg",
-  "sed", "awk", "gawk", "mawk", "nawk",
-  "cut", "tr", "sort", "uniq", "paste", "join", "comm", "column",
-  "fold", "fmt", "expand", "unexpand", "strings",
-  "diff", "patch", "tee", "dos2unix", "unix2dos",
+  "cat",
+  "head",
+  "tail",
+  "more",
+  "less",
+  "nl",
+  "tac",
+  "rev",
+  "grep",
+  "egrep",
+  "fgrep",
+  "rg",
+  "sed",
+  "awk",
+  "gawk",
+  "mawk",
+  "nawk",
+  "cut",
+  "tr",
+  "sort",
+  "uniq",
+  "paste",
+  "join",
+  "comm",
+  "column",
+  "fold",
+  "fmt",
+  "expand",
+  "unexpand",
+  "strings",
+  "diff",
+  "patch",
+  "tee",
+  "dos2unix",
+  "unix2dos",
 ]);
 
 main();
@@ -155,13 +184,41 @@ function blankNonLiterals(text) {
   while (i < n) {
     const c = text[i];
     const c2 = i + 1 < n ? text[i + 1] : "";
-    if (c === "\\") { out += SENTINEL; i += 2; continue; }
-    if (c === "'") { out += SENTINEL; i = skipPast(text, i + 1, "'"); continue; }
-    if (c === "$" && c2 === "'") { out += SENTINEL; i = skipAnsiC(text, i + 2); continue; }
-    if (c === '"') { out += SENTINEL; i = skipDouble(text, i + 1); continue; }
-    if (c === "$" && c2 === "(") { out += SENTINEL; i = skipParens(text, i + 2); continue; }
-    if (c === "`") { out += SENTINEL; i = skipPast(text, i + 1, "`"); continue; }
-    if ((c === "<" || c === ">") && c2 === "(") { out += SENTINEL; i = skipParens(text, i + 2); continue; }
+    if (c === "\\") {
+      out += SENTINEL;
+      i += 2;
+      continue;
+    }
+    if (c === "'") {
+      out += SENTINEL;
+      i = skipPast(text, i + 1, "'");
+      continue;
+    }
+    if (c === "$" && c2 === "'") {
+      out += SENTINEL;
+      i = skipAnsiC(text, i + 2);
+      continue;
+    }
+    if (c === '"') {
+      out += SENTINEL;
+      i = skipDouble(text, i + 1);
+      continue;
+    }
+    if (c === "$" && c2 === "(") {
+      out += SENTINEL;
+      i = skipParens(text, i + 2);
+      continue;
+    }
+    if (c === "`") {
+      out += SENTINEL;
+      i = skipPast(text, i + 1, "`");
+      continue;
+    }
+    if ((c === "<" || c === ">") && c2 === "(") {
+      out += SENTINEL;
+      i = skipParens(text, i + 2);
+      continue;
+    }
     if (c === "#" && (out === "" || /[\s;|&(]/.test(out[out.length - 1]))) {
       while (i < n && text[i] !== "\n") i++;
       continue;
@@ -192,7 +249,10 @@ function skipPast(text, from, ch) {
 function skipDouble(text, from) {
   let i = from;
   while (i < text.length) {
-    if (text[i] === "\\") { i += 2; continue; }
+    if (text[i] === "\\") {
+      i += 2;
+      continue;
+    }
     if (text[i] === '"') return i + 1;
     i += 1;
   }
@@ -208,7 +268,10 @@ function skipDouble(text, from) {
 function skipAnsiC(text, from) {
   let i = from;
   while (i < text.length) {
-    if (text[i] === "\\") { i += 2; continue; }
+    if (text[i] === "\\") {
+      i += 2;
+      continue;
+    }
     if (text[i] === "'") return i + 1;
     i += 1;
   }
@@ -250,9 +313,20 @@ function parseSegment(segment) {
   /** @type {"out" | "in" | "skip" | null} */ let pending = null;
   for (const tok of segment.trim().split(/\s+/)) {
     if (tok === "") continue;
-    if (pending === "out") { outTargets.push(tok); pending = null; continue; }
-    if (pending === "in") { inTargets.push(tok); pending = null; continue; }
-    if (pending === "skip") { pending = null; continue; }
+    if (pending === "out") {
+      outTargets.push(tok);
+      pending = null;
+      continue;
+    }
+    if (pending === "in") {
+      inTargets.push(tok);
+      pending = null;
+      continue;
+    }
+    if (pending === "skip") {
+      pending = null;
+      continue;
+    }
     const m = tok.match(/^(\d*)(<<<|<<|>>|>|<)(.*)$/);
     if (m) {
       const op = m[2];
@@ -264,7 +338,10 @@ function parseSegment(segment) {
         if (rest === "") pending = "skip";
         continue;
       }
-      if (rest === "") { pending = op === "<" ? "in" : "out"; continue; }
+      if (rest === "") {
+        pending = op === "<" ? "in" : "out";
+        continue;
+      }
       if (rest.startsWith("&")) continue; // fd duplication, not a file
       (op === "<" ? inTargets : outTargets).push(rest);
       continue;
@@ -336,7 +413,11 @@ function classifyFile(filePath) {
     return { safe: true };
   } finally {
     if (fd !== undefined) {
-      try { fs.closeSync(fd); } catch { /* ignore */ }
+      try {
+        fs.closeSync(fd);
+      } catch {
+        /* ignore */
+      }
     }
   }
 }
@@ -370,9 +451,7 @@ function classifyBuffer(buf, truncated) {
     // NUL-bearing binary data (images, archives) stays "binary" → safe.
     const evenRatio = evenNuls / nuls;
     if (nuls / buf.length >= 0.3 && (evenRatio >= 0.7 || evenRatio <= 0.3)) {
-      return evenRatio >= 0.7
-        ? unsafe("UTF-16BE (no BOM)", "UTF-16BE")
-        : unsafe("UTF-16LE (no BOM)", "UTF-16LE");
+      return evenRatio >= 0.7 ? unsafe("UTF-16BE (no BOM)", "UTF-16BE") : unsafe("UTF-16LE (no BOM)", "UTF-16LE");
     }
     return { safe: true };
   }

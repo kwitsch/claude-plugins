@@ -26,15 +26,7 @@
 // gap, or giving up on a contended lock prints anything.
 import process from "node:process";
 import { spawnSync } from "node:child_process";
-import {
-  existsSync,
-  readFileSync,
-  realpathSync,
-  openSync,
-  closeSync,
-  unlinkSync,
-  statSync,
-} from "node:fs";
+import { existsSync, readFileSync, realpathSync, openSync, closeSync, unlinkSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
@@ -63,9 +55,7 @@ export function isNpmInstallEnabled(value) {
 /** @param {string} text @returns {string} */
 export function truncate(text) {
   const t = text.trim();
-  return t.length > MAX_CONTEXT_CHARS
-    ? `${t.slice(0, MAX_CONTEXT_CHARS)}\n... (truncated)`
-    : t;
+  return t.length > MAX_CONTEXT_CHARS ? `${t.slice(0, MAX_CONTEXT_CHARS)}\n... (truncated)` : t;
 }
 
 /** @param {string} message @returns {HookResult} */
@@ -99,8 +89,7 @@ export function reconstructOld(toolName, toolInput, newContent) {
   if (toolName !== "Edit") return null;
   const oldString = toolInput?.old_string;
   const newString = toolInput?.new_string;
-  if (typeof oldString !== "string" || typeof newString !== "string")
-    return null;
+  if (typeof oldString !== "string" || typeof newString !== "string") return null;
   if (countOccurrences(newContent, newString) !== 1) return null;
   return newContent.replace(newString, oldString);
 }
@@ -160,19 +149,13 @@ export function releaseLock(lockPath) {
 }
 
 /** @param {PostToolUseHookInput} args @param {number} [timeoutMs] @returns {HookResult} */
-export function npmInstallOnPackageChangeHandler(
-  args,
-  timeoutMs = NPM_INSTALL_TIMEOUT_MS,
-) {
+export function npmInstallOnPackageChangeHandler(args, timeoutMs = NPM_INSTALL_TIMEOUT_MS) {
   try {
     // One shared budget for both phases below (lock wait + npm install): giving each a
     // full timeoutMs could together overrun hooks.json's own 300s timeout and get this
     // process killed mid-install, leaving a stale lock behind.
     const deadline = Date.now() + timeoutMs;
-    const filePath =
-      typeof args?.tool_input?.file_path === "string"
-        ? args.tool_input.file_path
-        : "";
+    const filePath = typeof args?.tool_input?.file_path === "string" ? args.tool_input.file_path : "";
     if (!filePath || path.basename(filePath) !== "package.json") return {};
     if (filePath.includes(`${path.sep}node_modules${path.sep}`)) return {};
     if (!existsSync(filePath)) return {};
@@ -185,11 +168,7 @@ export function npmInstallOnPackageChangeHandler(
       return {}; // invalid post-edit JSON -- fail open
     }
 
-    const oldContent = reconstructOld(
-      args.tool_name,
-      args.tool_input,
-      newContent,
-    );
+    const oldContent = reconstructOld(args.tool_name, args.tool_input, newContent);
     let specs = null; // null = full `npm install`; [] = nothing to do; [...] = targeted
     if (oldContent !== null) {
       try {
@@ -203,12 +182,8 @@ export function npmInstallOnPackageChangeHandler(
 
     const cwd = path.dirname(filePath);
     const lockPath = lockPathFor(cwd);
-    if (
-      !acquireLock(lockPath, LOCK_STALE_MS, Math.max(0, deadline - Date.now()))
-    ) {
-      return ctx(
-        `npm-install-on-package-change: gave up waiting on a concurrent install lock in ${cwd}`,
-      );
+    if (!acquireLock(lockPath, LOCK_STALE_MS, Math.max(0, deadline - Date.now()))) {
+      return ctx(`npm-install-on-package-change: gave up waiting on a concurrent install lock in ${cwd}`);
     }
     try {
       const npmArgs = specs === null ? ["install"] : ["install", ...specs];
@@ -225,21 +200,13 @@ export function npmInstallOnPackageChangeHandler(
 
       if (result.error?.code === "ETIMEDOUT") return {};
       if (result.error?.code === "ENOENT") {
-        return ctx(
-          `npm-install-on-package-change: npm not found on PATH, skipped in ${cwd}`,
-        );
+        return ctx(`npm-install-on-package-change: npm not found on PATH, skipped in ${cwd}`);
       }
       if (result.status === 0 && !result.error && !result.signal) return {};
 
-      const reason = result.error
-        ? `spawn error ${result.error.code ?? result.error.message}`
-        : result.signal
-          ? `killed by signal ${result.signal}`
-          : `exit code ${result.status}`;
+      const reason = result.error ? `spawn error ${result.error.code ?? result.error.message}` : result.signal ? `killed by signal ${result.signal}` : `exit code ${result.status}`;
       const output = `${truncate(result.stdout ?? "")}\n${truncate(result.stderr ?? "")}`;
-      return ctx(
-        `npm-install-on-package-change: \`npm install\` failed in ${cwd} (${reason}):\n${truncate(output)}`,
-      );
+      return ctx(`npm-install-on-package-change: \`npm install\` failed in ${cwd} (${reason}):\n${truncate(output)}`);
     } finally {
       releaseLock(lockPath);
     }
@@ -250,10 +217,7 @@ export function npmInstallOnPackageChangeHandler(
 
 function isMainModule() {
   try {
-    return (
-      realpathSync(process.argv[1]) ===
-      realpathSync(fileURLToPath(import.meta.url))
-    );
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
   } catch {
     return false;
   }
@@ -261,12 +225,7 @@ function isMainModule() {
 
 function main() {
   try {
-    if (
-      !isNpmInstallEnabled(
-        process.env.CLAUDE_PLUGIN_OPTION_NPM_INSTALL_ON_PACKAGE_CHANGE,
-      )
-    )
-      return;
+    if (!isNpmInstallEnabled(process.env.CLAUDE_PLUGIN_OPTION_NPM_INSTALL_ON_PACKAGE_CHANGE)) return;
     const raw = readFileSync(0, "utf8");
     const input = JSON.parse(raw);
     const result = npmInstallOnPackageChangeHandler(input);

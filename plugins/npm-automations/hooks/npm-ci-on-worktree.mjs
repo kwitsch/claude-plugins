@@ -46,9 +46,7 @@ export function isNpmCiEnabled(value) {
 /** @param {string} text @returns {string} */
 export function truncate(text) {
   const t = text.trim();
-  return t.length > MAX_CONTEXT_CHARS
-    ? `${t.slice(0, MAX_CONTEXT_CHARS)}\n... (truncated)`
-    : t;
+  return t.length > MAX_CONTEXT_CHARS ? `${t.slice(0, MAX_CONTEXT_CHARS)}\n... (truncated)` : t;
 }
 
 /** @param {string} message @returns {HookResult} */
@@ -89,9 +87,7 @@ export function npmCiOnWorktreeHandler(args, timeoutMs = NPM_CI_TIMEOUT_MS) {
     // which previously also swallowed genuine npm-ci failures.
     if (result.error?.code === "ETIMEDOUT") return {}; // our own timeout kill -- accepted silent per design
     if (result.error?.code === "ENOENT") {
-      return ctx(
-        `npm-ci-on-worktree: npm not found on PATH, skipped in ${cwd}`,
-      );
+      return ctx(`npm-ci-on-worktree: npm not found on PATH, skipped in ${cwd}`);
     }
     if (result.status === 0 && !result.error && !result.signal) return {}; // silent on success
 
@@ -100,15 +96,9 @@ export function npmCiOnWorktreeHandler(args, timeoutMs = NPM_CI_TIMEOUT_MS) {
     // Truncate each stream independently before joining -- avoids building a
     // ~20MB intermediate string (up to 10MB maxBuffer on each of stdout and
     // stderr) just to keep the first 4000 chars.
-    const reason = result.error
-      ? `spawn error ${result.error.code ?? result.error.message}`
-      : result.signal
-        ? `killed by signal ${result.signal}`
-        : `exit code ${result.status}`;
+    const reason = result.error ? `spawn error ${result.error.code ?? result.error.message}` : result.signal ? `killed by signal ${result.signal}` : `exit code ${result.status}`;
     const output = `${truncate(result.stdout ?? "")}\n${truncate(result.stderr ?? "")}`;
-    return ctx(
-      `npm-ci-on-worktree: \`npm ci\` failed in ${cwd} (${reason}):\n${truncate(output)}`,
-    );
+    return ctx(`npm-ci-on-worktree: \`npm ci\` failed in ${cwd} (${reason}):\n${truncate(output)}`);
   } catch {
     return {};
   }
@@ -119,10 +109,7 @@ export function npmCiOnWorktreeHandler(args, timeoutMs = NPM_CI_TIMEOUT_MS) {
 // the stdin loop.
 function isMainModule() {
   try {
-    return (
-      realpathSync(process.argv[1]) ===
-      realpathSync(fileURLToPath(import.meta.url))
-    );
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
   } catch {
     return false;
   }
@@ -133,8 +120,7 @@ function isMainModule() {
  * open on any error. */
 function main() {
   try {
-    if (!isNpmCiEnabled(process.env.CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE))
-      return;
+    if (!isNpmCiEnabled(process.env.CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE)) return;
     const raw = readFileSync(0, "utf8");
     const input = JSON.parse(raw);
     const result = npmCiOnWorktreeHandler(input);
