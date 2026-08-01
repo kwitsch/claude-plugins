@@ -27,7 +27,7 @@ import {
   constants as fsConstants,
 } from "node:fs";
 import { createHash } from "node:crypto";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -45,7 +45,7 @@ const TYPE_CHECK_EXTS = new Set([".ts", ".tsx", ".mts", ".cts"]); // tsc only
 // via the existing jsts chain.
 
 /**
- * @typedef {{ name: string, args: string[], targetsDir?: boolean, classify?: "output", needsCheckstyleConfig?: boolean, npmSpec?: string }} LintTool
+ * @typedef {{ name: string, args: string[], targetsDir?: boolean, classify?: "output", needsCheckstyleConfig?: boolean, guardYamlLineLength?: boolean, guardMarkdownLineLength?: boolean, npmSpec?: string }} LintTool
  * @typedef {{ chain: LintTool[] }} LangEntry
  */
 
@@ -107,11 +107,23 @@ export const REGISTRY = {
       { name: "go", args: ["vet"], targetsDir: true },
     ],
   },
-  yaml: { chain: [{ name: "yamllint", args: [] }] },
+  yaml: {
+    chain: [{ name: "yamllint", args: [], guardYamlLineLength: true }],
+  },
   markdown: {
     chain: [
-      { name: "markdownlint-cli2", args: [], npmSpec: "markdownlint-cli2" },
-      { name: "markdownlint", args: [], npmSpec: "markdownlint-cli" },
+      {
+        name: "markdownlint-cli2",
+        args: [],
+        npmSpec: "markdownlint-cli2",
+        guardMarkdownLineLength: true,
+      },
+      {
+        name: "markdownlint",
+        args: [],
+        npmSpec: "markdownlint-cli",
+        guardMarkdownLineLength: true,
+      },
     ],
   },
   css: { chain: [{ name: "stylelint", args: [], npmSpec: "stylelint" }] },
@@ -413,14 +425,119 @@ export function tsBuildInfoPathFor(tsconfigPath) {
   return path.resolve(dataDir, `tsc-buildinfo-${hash}.json`);
 }
 
+// yamllint's own project-config filenames (yamllint/cli.py's
+// find_project_config_filepath, verified against yamllint 1.38.0).
+const YAMLLINT_CONFIG_FILENAMES = [
+  ".yamllint",
+  ".yamllint.yaml",
+  ".yamllint.yml",
+];
+
+// Faithful port of yamllint's own find_project_config_filepath: starts at the
+// CLI's cwd -- which is always this hook's spawnSync `cwd` (the project root),
+// regardless of which file is being linted, since yamllint has no per-file
+// config resolution -- then walks upward, stopping once the walked dir IS the
+// user's home directory (checked there too, not skipped first) or the
+// filesystem root. A real project config anywhere on that path is always
+// respected; only its total absence triggers the line-length guard below.
+/** @param {string} cwd @returns {boolean} */
+export function hasProjectYamllintConfig(cwd) {
+  let dir = path.resolve(cwd);
+  const home = path.resolve(homedir());
+  for (;;) {
+    if (
+      YAMLLINT_CONFIG_FILENAMES.some((name) => existsSync(path.join(dir, name)))
+    )
+      return true;
+    if (dir === home) return false;
+    const parent = path.dirname(dir);
+    if (parent === dir) return false; // filesystem root
+    dir = parent;
+  }
+}
+
+// yamllint's line-length rule is "error" level in its own bundled default
+// ruleset (verified empirically against yamllint 1.38.0 -- NOT "warning", so
+// this hook's existing 0-clean/1-issues classifyExit contract already
+// surfaces it without --strict). -d overrides yamllint's own project-config
+// search entirely, so it is only ever passed when hasProjectYamllintConfig
+// found nothing. Single-line flow-style YAML (not the equivalent multi-line
+// block form) so the whole value survives as one argv element through rtk's
+// rewrite unchanged.
+const YAMLLINT_NO_LINE_LENGTH_CONFIG_DATA =
+  "{extends: default, rules: {line-length: disable}}";
+
+// markdownlint-cli2's own documented config filenames (its --help's own
+// "Configuration via:" list, verified against markdownlint-cli2 0.23.2);
+// markdownlint (classic) shares the legacy `.markdownlint.*` half of this
+// list. Verified empirically that cli2 does NOT also read a
+// "markdownlint-cli2" key from package.json.
+const MARKDOWNLINT_CONFIG_FILENAMES = [
+  ".markdownlint-cli2.jsonc",
+  ".markdownlint-cli2.yaml",
+  ".markdownlint-cli2.cjs",
+  ".markdownlint-cli2.mjs",
+  ".markdownlint.jsonc",
+  ".markdownlint.json",
+  ".markdownlint.yaml",
+  ".markdownlint.yml",
+  ".markdownlint.cjs",
+  ".markdownlint.mjs",
+];
+
+// Walk from `dir` up to the filesystem root (inclusive), calling `checkDir` at
+// each level; true on the first hit. Unbounded, unlike walkUpToCwd above:
+// markdownlint-cli2's own per-file config resolution walks past its base
+// directory up through that directory's own ancestors too (verified against
+// markdownlint-cli2's source, enumerateParents) -- bounding this at `cwd`
+// risks misdetecting "absent" for a real config living above the project
+// root (a workspace/monorepo case).
+/** @param {string} dir @param {(dir: string) => boolean} checkDir @returns {boolean} */
+function walkToRoot(dir, checkDir) {
+  for (;;) {
+    if (checkDir(dir)) return true;
+    const parent = path.dirname(dir);
+    if (parent === dir) return false;
+    dir = parent;
+  }
+}
+
+// True if a markdownlint-cli2 or markdownlint (classic) project config
+// governs `fileDir` -- existence-only over MARKDOWNLINT_CONFIG_FILENAMES.
+/** @param {string} fileDir @returns {boolean} */
+export function hasProjectMarkdownlintConfig(fileDir) {
+  return walkToRoot(fileDir, (dir) =>
+    MARKDOWNLINT_CONFIG_FILENAMES.some((name) =>
+      existsSync(path.join(dir, name)),
+    ),
+  );
+}
+
+// Bundled, constant config disabling only MD013 (line-length) -- both
+// markdownlint-cli2 and markdownlint (classic) accept the same --config flag
+// and config schema, so one file serves both chain entries. Shipped as a real
+// file next to this script (not written at runtime) so it's reviewable in
+// git and needs no mkdir/write-failure handling.
+const MARKDOWNLINT_NO_LINE_LENGTH_CONFIG_PATH = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "markdownlint-no-line-length.json",
+);
+
 // Build the argv for a chain tool: fixed bare args, an optional -c <config> for
-// checkstyle, then the target (the file, or its directory for targetsDir tools) last.
+// checkstyle or -d/--config line-length guards for yamllint/markdownlint, then
+// the target (the file, or its directory for targetsDir tools) last.
 /** @param {LintTool} tool @param {string} resolvedFile @param {string} cwd @returns {string[]} */
 export function buildArgv(tool, resolvedFile, cwd) {
   const dir = path.dirname(resolvedFile);
   const argv = tool.args.slice();
   if (tool.needsCheckstyleConfig) {
     argv.push("-c", resolveCheckstyleConfig(dir, cwd) ?? "/google_checks.xml");
+  }
+  if (tool.guardYamlLineLength && !hasProjectYamllintConfig(cwd)) {
+    argv.push("-d", YAMLLINT_NO_LINE_LENGTH_CONFIG_DATA);
+  }
+  if (tool.guardMarkdownLineLength && !hasProjectMarkdownlintConfig(dir)) {
+    argv.push("--config", MARKDOWNLINT_NO_LINE_LENGTH_CONFIG_PATH);
   }
   argv.push(tool.targetsDir ? dir : resolvedFile);
   return argv;

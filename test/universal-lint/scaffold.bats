@@ -49,6 +49,13 @@ setup() {
   assert_output '#!/usr/bin/env node'
 }
 
+@test "bundled markdownlint-no-line-length.json exists and disables only MD013" {
+  local cfg="$PLUGIN/hooks/markdownlint-no-line-length.json"
+  [ -f "$cfg" ]
+  run jq -e '. == {"MD013": false}' "$cfg"
+  assert_success
+}
+
 @test "lint-file.mjs passes node --check" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   run node --check "$SERVER"

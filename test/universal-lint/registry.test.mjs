@@ -15,6 +15,8 @@ import {
   resolveTsconfig,
   looksLikeSolutionStyleTsconfig,
   tsBuildInfoPathFor,
+  hasProjectYamllintConfig,
+  hasProjectMarkdownlintConfig,
 } from "../../plugins/universal-lint/hooks/lint-file.mjs";
 
 const shellcheck = REGISTRY.shell.chain[0];
@@ -436,4 +438,101 @@ test("tsBuildInfoPathFor: falls back to the OS temp dir (not cwd/'.') when CLAUD
   } finally {
     if (prev !== undefined) process.env.CLAUDE_PLUGIN_DATA = prev;
   }
+});
+
+test("REGISTRY: yaml/markdown chain entries carry their line-length guard flags", () => {
+  assert.equal(REGISTRY.yaml.chain[0].guardYamlLineLength, true);
+  assert.equal(REGISTRY.markdown.chain[0].guardMarkdownLineLength, true);
+  assert.equal(REGISTRY.markdown.chain[1].guardMarkdownLineLength, true);
+});
+
+test("hasProjectYamllintConfig: finds .yamllint directly in cwd", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ul-yl-"));
+  writeFileSync(path.join(dir, ".yamllint"), "extends: default\n");
+  assert.equal(hasProjectYamllintConfig(dir), true);
+});
+
+test("hasProjectYamllintConfig: finds .yamllint.yaml / .yamllint.yml variants", () => {
+  const dirA = mkdtempSync(path.join(tmpdir(), "ul-yl-"));
+  writeFileSync(path.join(dirA, ".yamllint.yaml"), "extends: default\n");
+  assert.equal(hasProjectYamllintConfig(dirA), true);
+  const dirB = mkdtempSync(path.join(tmpdir(), "ul-yl-"));
+  writeFileSync(path.join(dirB, ".yamllint.yml"), "extends: default\n");
+  assert.equal(hasProjectYamllintConfig(dirB), true);
+});
+
+test("hasProjectYamllintConfig: nothing found -> false", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ul-yl-"));
+  assert.equal(hasProjectYamllintConfig(dir), false);
+});
+
+test("hasProjectYamllintConfig: a config in the user's home directory is found (yamllint checks there too before stopping)", () => {
+  const fakeHome = mkdtempSync(path.join(tmpdir(), "ul-yl-home-"));
+  writeFileSync(path.join(fakeHome, ".yamllint"), "extends: default\n");
+  const sub = path.join(fakeHome, "proj");
+  mkdirSync(sub, { recursive: true });
+  const prevHome = process.env.HOME;
+  process.env.HOME = fakeHome;
+  try {
+    assert.equal(hasProjectYamllintConfig(sub), true);
+  } finally {
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
+  }
+});
+
+test("hasProjectMarkdownlintConfig: finds a markdownlint-cli2 config", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ul-md-"));
+  writeFileSync(path.join(dir, ".markdownlint-cli2.jsonc"), "{}");
+  assert.equal(hasProjectMarkdownlintConfig(dir), true);
+});
+
+test("hasProjectMarkdownlintConfig: finds a legacy .markdownlint.json walking up from a nested file dir", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ul-md-"));
+  writeFileSync(path.join(root, ".markdownlint.json"), "{}");
+  const sub = path.join(root, "docs");
+  mkdirSync(sub, { recursive: true });
+  assert.equal(hasProjectMarkdownlintConfig(sub), true);
+});
+
+test("hasProjectMarkdownlintConfig: nothing found -> false", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ul-md-"));
+  assert.equal(hasProjectMarkdownlintConfig(dir), false);
+});
+
+test("buildArgv: yamllint gets -d line-length-disable override when no project .yamllint exists", () => {
+  const yamllint = REGISTRY.yaml.chain[0];
+  const dir = mkdtempSync(path.join(tmpdir(), "ul-yl-"));
+  assert.deepEqual(buildArgv(yamllint, path.join(dir, "a.yaml"), dir), [
+    "-d",
+    "{extends: default, rules: {line-length: disable}}",
+    path.join(dir, "a.yaml"),
+  ]);
+});
+
+test("buildArgv: yamllint runs bare when a project .yamllint exists", () => {
+  const yamllint = REGISTRY.yaml.chain[0];
+  const dir = mkdtempSync(path.join(tmpdir(), "ul-yl-"));
+  writeFileSync(path.join(dir, ".yamllint"), "extends: default\n");
+  assert.deepEqual(buildArgv(yamllint, path.join(dir, "a.yaml"), dir), [
+    path.join(dir, "a.yaml"),
+  ]);
+});
+
+test("buildArgv: markdownlint-cli2 gets --config <bundled MD013-off file> when no project config exists", () => {
+  const markdownlintCli2 = REGISTRY.markdown.chain[0];
+  const dir = mkdtempSync(path.join(tmpdir(), "ul-md-"));
+  const argv = buildArgv(markdownlintCli2, path.join(dir, "a.md"), dir);
+  assert.equal(argv[0], "--config");
+  assert.ok(argv[1].endsWith("markdownlint-no-line-length.json"));
+  assert.equal(argv[2], path.join(dir, "a.md"));
+});
+
+test("buildArgv: markdownlint-cli2 runs bare when a project config exists", () => {
+  const markdownlintCli2 = REGISTRY.markdown.chain[0];
+  const dir = mkdtempSync(path.join(tmpdir(), "ul-md-"));
+  writeFileSync(path.join(dir, ".markdownlint.json"), "{}");
+  assert.deepEqual(buildArgv(markdownlintCli2, path.join(dir, "a.md"), dir), [
+    path.join(dir, "a.md"),
+  ]);
 });
