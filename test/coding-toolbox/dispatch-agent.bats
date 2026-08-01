@@ -21,11 +21,11 @@ setup() {
   assert_success
   assert_output --partial "name: dispatch-agent"
   assert_output --partial "arguments: prompt"
-  assert_output --partial '"Bash(git:*)"'
   assert_output --partial '"Bash(claude:*)"'
   assert_output --partial '"AskUserQuestion"'
   refute_output --partial '"Agent"'
   refute_output --partial '"Skill"'
+  refute_output --partial '"Bash(git:*)"'
   refute_output --partial "TaskCreate"
 }
 @test "dispatch-agent skill dir is self-contained (no cross-plugin references)" {
@@ -58,4 +58,10 @@ setup() {
   assert_success
   assert_output --partial '^[A-Za-z0-9._-]+$'
   assert_output --partial "RANDOM"
+}
+@test "dispatch-agent has no pre-dispatch current-branch sync step" {
+  run cat "$PLUGIN/skills/dispatch-agent/SKILL.md"
+  assert_success
+  refute_output --partial "git fetch origin"
+  refute_output --partial "merge --ff-only"
 }
