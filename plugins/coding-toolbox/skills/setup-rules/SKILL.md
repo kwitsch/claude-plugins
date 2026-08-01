@@ -3,15 +3,7 @@ name: setup-rules
 description: Install, refresh, or remove coding-toolbox's user-level rules — a copy of the golden-rules content and a tool-routing table for rtk/bun/ripgrep/codebase-memory — as always-on ~/.claude/rules/coding-toolbox-*.md files, applying to every project on this machine. Accepts a verbatim argument (e.g. "update tools rule") to apply directly, skipping the interactive prompts.
 argument-hint: "[install|update|remove] [rules|tools|both]"
 disable-model-invocation: true
-allowed-tools:
-  [
-    "AskUserQuestion",
-    "Read",
-    "Bash(mkdir:*)",
-    "Bash(cp:*)",
-    "Bash(rm:*)",
-    "Bash(cat:*)",
-  ]
+allowed-tools: ["AskUserQuestion", "Read", "Write", "Bash(mkdir:*)", "Bash(cp:*)", "Bash(rm:*)", "Bash(cat:*)", "Bash(bash:*)", "Bash(mktemp:*)"]
 ---
 
 # Set up coding-toolbox user-level rules
@@ -67,52 +59,39 @@ If the block above rendered as literally `[shell command execution disabled by p
 
 ### Step 3a — Parse verbatim arguments
 
-Lowercase `$ARGUMENTS` and split on whitespace into words, then resolve in
-order — every check below is **exact whole-word equality against a listed
-entry, never a raw substring check** (so e.g. `uninstall` never collides
-with `install`, and `routing` is its own listed entry, not something
-expected to contain `tool`):
-
-1. **Verb.** A word equals one of the No-list (`remove`, `uninstall`,
-   `delete`, `disable`, `no`) AND a (possibly different) word equals one of
-   the Yes-list (`install`, `add`, `enable`, `update`, `refresh`, `yes`) →
-   usage-error branch (item 3), ambiguous — do not guess. Else: a word
-   equals a No-list entry → `answer = No`. Else: a word equals a Yes-list
-   entry → `answer = Yes`. Else → usage-error branch.
-2. **Target.** Resolve which target(s) the words name — a bare `rule`/`rules`
-   is a _generic_ word, not a standalone target claim, when a `tool`-family
-   word is also present (it's descriptive filler in a "tools rule" phrase,
-   not a second, competing target):
-   - `tool`/`tools`/`tool-routing`/`routing` present → **tools** is named.
-   - `golden`/`golden-rules` present, OR a bare `rule`/`rules` present with
-     **no** `tool`-family word anywhere in the input → **golden-rules** is
-     named (e.g. "remove rules" alone names golden-rules; "update tools
-     rule" does not — the `tool`-family word absorbs the bare "rule").
-   - `both`/`all`/`everything` present → **both** is named.
-   - **More than one _distinct_ target is named** — tools and golden-rules
-     both named (e.g. `remove golden tool-routing`), or `both`/`all`/
-     `everything` named alongside either specific target (e.g. `remove both
-tools`) — → usage-error branch, ambiguous. A command must name exactly
-     one scope, never two conflicting ones.
-   - **Exactly one target named** → `target` is that one (`tools`, `rules`,
-     or `both`).
-   - **No target named at all**:
-     - `answer` is `Yes` → `target = both` — a safe default; installing or
-       refreshing with no stated scope reasonably means "everything".
-     - `answer` is `No` → usage-error branch instead. A destructive action
-       with no stated scope is **never** inferred as "both" — require an
-       explicit target (`rules`/`tools`/`both`) rather than silently removing
-       every managed file from one ambiguous word.
-3. **Usage-error branch.** State plainly (not a question — no trailing `?`):
-   `Couldn't parse "<$ARGUMENTS>" — expected a verb (install/update/remove)
-and, for remove, an explicit target (rules/tools/both). Examples:
-"install", "update tools rule", "remove rules", "remove both".` Then
-   stop — no file writes, nothing asked.
-4. Set the Question 1 (golden-rules) answer to `answer` when `target` is
-   `rules` or `both`; leave it untouched otherwise. Set the Question 2
-   (tools) answer to `answer` when `target` is `tools` or `both`; leave it
-   untouched otherwise. Skip `AskUserQuestion` entirely — go straight to
-   Step 4 Apply with these answers.
+1. Read `parse-args.reference.md` for the exact parameter/exit-code
+   contract.
+2. Write `$ARGUMENTS`'s literal text to a fresh temp file, then run the
+   script against that file's path — never embed the text directly into a
+   Bash tool call, whether as a bare argument or inside a heredoc.
+   `$ARGUMENTS` is a pre-injection text substitution, so by the time this
+   line is read the placeholder has already been replaced with the user's
+   literal, possibly-adversarial text; a heredoc's own delimiter can be
+   collided with adversarial input (a body line matching the delimiter
+   terminates it early, turning the rest of the text into ordinary shell
+   input in the same command). Writing the raw bytes to a file sidesteps
+   this entirely — no shell ever parses the argument text as syntax, only
+   as file content — the same pattern this plugin's `finish-pr` already
+   uses for other free-form text (`apply-pr-update.sh`'s title/body files):
+   ```bash
+   mktemp "${TMPDIR:-/tmp}/setup-rules-args.XXXXXX"
+   ```
+   Then use the `Write` tool to write `$ARGUMENTS`'s literal text (exact
+   bytes, nothing added) to the path `mktemp` just printed, then:
+   ```bash
+   bash ${CLAUDE_SKILL_DIR}/parse-args.sh <path-from-mktemp>
+   ```
+3. Exit `0` → take the printed `golden_rules:`/`tools:` values directly
+   (each `yes`/`no`/`unset` — `unset` means "leave this answer untouched").
+   Skip `AskUserQuestion` entirely — go straight to Step 4 Apply with these
+   answers.
+   Exit `2`/`3`/`4`/`5` → relay the script's stderr message verbatim
+   (already phrased as a complete, non-question statement) and **stop** —
+   no file writes, nothing asked.
+   Any other exit code (`6`, or an un-enumerated shell-level failure — the
+   script missing, a permission error): this is `parse-args.sh` itself
+   failing, not a usage rejection of the input — report that plainly
+   (never relay it as if it were a parse/usage error) and **stop**.
 
 ### Step 3b — Ask (`$ARGUMENTS` empty)
 
@@ -162,6 +141,8 @@ options:
   ```bash
   rm -f "$HOME/.claude/rules/coding-toolbox-rules.md"
   ```
+- Question 1 `unset` (Step 3a only): no action for the golden-rules file —
+  leave it as detected in Step 1.
 - Question 2 (if asked) answered "Yes", and `detected` is **non-empty**:
   ```bash
   mkdir -p "$HOME/.claude/rules"
@@ -179,17 +160,23 @@ options:
   for the exact rows to include (only those whose tool is in `detected`,
   verbatim, in that file's order) — single source of truth, also read by
   `refresh-tools-rule`, never inlined here.
-- Question 2 answered "Yes", but `detected` is **empty** (only reachable when
-  `tools_installed` was already true — Question 2 is otherwise skipped when
-  both are false): make **no change**. Do not overwrite an existing,
-  populated table with an empty one just because nothing is detected in this
-  run; note in Step 5 that nothing was detected so the existing file was
-  left as-is.
+- Question 2 answered "Yes", but `detected` is **empty**: make **no change**
+  in either case below. If `tools_installed` was already true (the only way
+  Step 3b reaches this — it skips Question 2 entirely when both are false):
+  don't overwrite an existing, populated table with an empty one; note in
+  Step 5 that nothing was detected so the existing file was left as-is. If
+  `tools_installed` was false (only reachable via Step 3a's untargeted
+  install/update, which defaults to `tools: yes` regardless of `detected`):
+  don't create a tools-rule file when nothing was actually detected; note
+  in Step 5 that nothing was detected so no file was created.
 - Question 2 answered "No":
   ```bash
   rm -f "$HOME/.claude/rules/coding-toolbox-tools.md"
   ```
-- Question 2 not asked (nothing installed, nothing detected): no action for the tools file.
+- Question 2 not asked (nothing installed, nothing detected): no action for
+  the tools file.
+- Question 2 (Step 3a only) `unset`: no action for the tools file — leave it
+  as detected in Step 1.
 
 ## Step 5 — Report
 
