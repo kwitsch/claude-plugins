@@ -25,6 +25,7 @@ jobs:
           - universal-lint
           - memory-enhancement
           - npm-automations
+          - kiwi-code-style
     steps:
       - name: Checkout
         uses: actions/checkout@v6
