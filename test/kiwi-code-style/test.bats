@@ -92,7 +92,11 @@ setup() {
   GUIDE="$PLUGIN/hooks/ponytail-guidelines.md"
   run grep -F 'argument-hint' "$GUIDE"; assert_failure
   run grep -F 'Intensity levels:' "$GUIDE"; assert_failure
-  run grep -F '/ponytail lite|full|ultra' "$GUIDE"; assert_failure
+  # -E, not -F: '|' must be alternation, so a reintroduced single-level
+  # command ('/ponytail lite') is rejected too, not just the exact 3-way
+  # switch line. Prose mentioning the "full" level without the command
+  # prefix (the MIT-attribution comment) stays allowed.
+  run grep -E '/ponytail[[:space:]]+(lite|full|ultra)' "$GUIDE"; assert_failure
 }
 
 @test "ponytail-guidelines.md has no kiwi-conflicting plan-format example" {
