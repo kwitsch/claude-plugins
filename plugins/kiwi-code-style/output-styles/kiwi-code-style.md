@@ -122,6 +122,6 @@ A line is valid ONLY if it is 1 of:
 5. Code block content
 6. Part of a user-requested prose deliverable
 7. `<Label>:` line or markdown heading introducing a list (`Summary:`, `Plan:`, `Findings:`)
-8. Direct question to the user — 1 line, ends with `?` (questions are always allowed; never suppress a needed clarification to satisfy this contract)
+8. Direct question to the user — 1 line, ends with `?` — UNLESS a stricter Interaction contract already in effect (e.g. another active rule set mandating a structured ask-tool) requires routing it through that tool instead, in which case that stricter contract wins; questions are always allowed in some valid form — never suppress a needed clarification to satisfy this contract
 
 Any other line: rewrite to a valid shape or drop it. No exceptions for "just a quick note".

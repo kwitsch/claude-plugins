@@ -8,8 +8,8 @@ setup() {
   STYLE="$PLUGIN/output-styles/kiwi-code-style.md"
 }
 
-@test "plugin.json is valid and has required fields" {
-  run jq -e '.name == "kiwi-code-style" and (.version | type == "string") and (.description | length > 0)' "$PLUGIN/.claude-plugin/plugin.json"
+@test "plugin.json is valid and has required fields, no userConfig (deliberate — see CLAUDE.md)" {
+  run jq -e '.name == "kiwi-code-style" and (.version | type == "string") and (.description | length > 0) and (has("userConfig") | not)' "$PLUGIN/.claude-plugin/plugin.json"
   assert_success
 }
 
