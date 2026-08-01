@@ -74,6 +74,13 @@ setup() {
   assert_output --partial '100755'
 }
 
+@test "inject-ponytail-guidelines.mjs still emits guidelines when invoked via a symlink" {
+  ln -sf "$PLUGIN/hooks/inject-ponytail-guidelines.mjs" "$BATS_TEST_TMPDIR/link.mjs"
+  run node "$BATS_TEST_TMPDIR/link.mjs"
+  assert_success
+  assert_output --partial '"hookEventName":"SessionStart"'
+}
+
 @test "ponytail-guidelines.md exists with the 5 section headings" {
   GUIDE="$PLUGIN/hooks/ponytail-guidelines.md"
   [ -f "$GUIDE" ]

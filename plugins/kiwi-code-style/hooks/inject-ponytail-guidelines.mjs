@@ -39,7 +39,12 @@ function main() {
 
 function isMainModule() {
   try {
-    return process.argv[1] === fileURLToPath(import.meta.url);
+    // realpath, not a plain string compare: invoking via a symlink to this
+    // file (a worktree, or a symlinked tmp/home component) would otherwise
+    // make process.argv[1] !== fileURLToPath(import.meta.url), so main()
+    // never runs and the fail-open design swallows it silently. Same fix as
+    // memory-enhancement's flag-dream-due.mjs isMainModule().
+    return fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url));
   } catch {
     return false;
   }
