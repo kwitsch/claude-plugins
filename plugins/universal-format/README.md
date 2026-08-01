@@ -29,7 +29,7 @@ This hook is always active once the plugin is installed — there is no toggle. 
 | Markdown | `.md`                                                 | `prettier`                             |
 | CSS      | `.css`                                                | `prettier` → `biome`                   |
 | SCSS     | `.scss`                                               | `prettier`                             |
-| PHP      | `.php`                                                | `php-cs-fixer` → `phpcbf`              |
+| PHP      | `.php`                                                | `php-cs-fixer`                         |
 
 `prettier` and `biome` additionally run via `npx` when not installed
 locally (both are official npm packages) — this also covers their

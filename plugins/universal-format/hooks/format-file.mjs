@@ -268,8 +268,11 @@ export const REGISTRY = {
   markdown: { chain: [PRETTIER_NATIVE] },
   php: {
     chain: [
-      { name: "php-cs-fixer", strategy: "native", base: ["fix", "--quiet"] },
-      { name: "phpcbf", strategy: "native", base: [] },
+      {
+        name: "php-cs-fixer",
+        strategy: "native",
+        base: ["fix", "--quiet", "--using-cache=no"],
+      },
     ],
   },
 };
