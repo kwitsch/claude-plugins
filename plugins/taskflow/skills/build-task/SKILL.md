@@ -105,8 +105,12 @@ Every pipeline file is session-only, never a repository file:
 1. **Branch.** `git status --porcelain` must be empty — stray state → stop
    and report. Determine `BASE_BRANCH` once: short name from
    `git symbolic-ref refs/remotes/origin/HEAD`, fallback `main`. If the
-   current branch IS the base branch, cut and switch to `feature/<slug>`;
-   capture `BRANCH_NAME` = `git branch --show-current`.
+   current branch IS the base branch, cut and switch to `feature/<slug>`.
+   Otherwise — including when resumed inside an existing worktree that
+   already has an open PR/MR for its branch — stay on the current branch, do
+   not cut a new one and do not switch elsewhere; the pipeline (and Ship's
+   create-or-update, step 4) continues on it and updates that PR/MR. Either
+   way, capture `BRANCH_NAME` = `git branch --show-current`.
 2. **Design.** Run the design workflow (invocation rules above) with args
    `{TASK: $task_description, DRAFT_PATH, SPEC_PATH, RESUME: false,
 USER_INPUT: ''}` (paths from the temp directory). Then by `status`:

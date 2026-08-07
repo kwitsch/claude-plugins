@@ -196,10 +196,24 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   done
 }
 
-@test "fix-applier detects a linked worktree via git-dir/git-common-dir, not --show-toplevel alone" {
-  run rg_or_grep -F -- '-ef' "$AGENTS_DIR/fix-applier.md"
+@test "fix-applier checks the current branch matches the work branch, not primary-vs-worktree" {
+  run rg_or_grep -F 'git branch' "$AGENTS_DIR/fix-applier.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'git-common-dir' "$AGENTS_DIR/fix-applier.md"
+  run rg_or_grep -F -- '--show-current' "$AGENTS_DIR/fix-applier.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -iF 'NOT a linked worktree' "$AGENTS_DIR/fix-applier.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "worktree-merger checks the current branch before merging, not primary-vs-worktree" {
+  run rg_or_grep -F 'Before merging anything' "$AGENTS_DIR/worktree-merger.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -iF 'not a worktree' "$AGENTS_DIR/worktree-merger.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "build-task SKILL.md stays on the current branch when resuming an existing worktree/PR" {
+  run rg_or_grep -iF 'existing worktree' "$SKILL/SKILL.md"
   [ "$status" -eq 0 ]
 }
 

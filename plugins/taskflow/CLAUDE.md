@@ -52,6 +52,26 @@ matters more than mirroring the request's language. This does not extend to
 the final human-facing report the orchestrator gives the user (`SKILL.md`
 step 5) or to reviewer finding text, neither of which are addressed here.
 
+## Resuming inside an existing worktree/PR
+
+`SKILL.md` step 1 only cuts a new `feature/<slug>` branch when the current
+branch IS the base branch; otherwise it stays on the current branch,
+including when build-task is invoked inside an already-checked-out worktree
+that has an open PR/MR for its branch — Ship's create-or-update (`shipper.md`,
+via `gh pr view <branch>`) then updates that PR/MR rather than opening a new
+one. `fix-applier.md` and `worktree-merger.md` correspondingly check "is the
+named work/merge-target branch checked out here" (`git branch
+--show-current`), never "is this the primary repo root, not a worktree" —
+the latter would incorrectly abort (fix-applier) or silently merge into the
+wrong branch (worktree-merger) in exactly this resumed-worktree case.
+Verified 2026-08-07: a non-isolated `agent()`/Agent-tool dispatch from a
+worktree-isolated session correctly resolves `pwd` and `git
+rev-parse --show-toplevel` to that worktree, not the primary repo root — so
+no explicit checkout-path threading is needed for this to work. (A prior,
+unrelated finding about _bridge_/remote-control sessions defaulting subagent
+cwd to the primary root does not apply to this dispatch path — don't conflate
+the two.)
+
 ## Tests
 
 ```bash

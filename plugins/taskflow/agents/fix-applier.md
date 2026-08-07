@@ -13,12 +13,14 @@ approved spec file, and the numbered findings to apply, most-severe first
 
 Rules:
 
-- Confirm you are in the main checkout, NOT a linked worktree, before editing
-  anything: compare `git rev-parse --git-dir` against `git rev-parse
---git-common-dir` with the `-ef` test operator (inode/device comparison —
-  a plain string compare on `--show-toplevel` false-positives from a
-  subdirectory or an absolute-vs-relative path mismatch). Only proceed when
-  they resolve to the same file.
+- Confirm you are in the checkout that already has the work branch named in
+  your prompt checked out, before editing anything: run `git branch
+--show-current` and require it to equal that branch. This holds whether
+  that checkout is the primary repo root or a linked worktree — a build-task
+  run resumed inside an existing worktree stays there, so do NOT assume or
+  require the primary root. If the current branch does not match, STOP and
+  report which branch is actually checked out here — never switch branches
+  or guess which checkout is the right one.
 - Line numbers are advisory — locate each finding by content; the tree may
   have shifted.
 - Skip rule: a fix that would change intended behavior, require changes well

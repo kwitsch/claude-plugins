@@ -885,7 +885,7 @@ if (applicable.length > 0) {
   const numbered = applicable.map((f, i) => ({ index: i, ...f }));
   const applier = await agent(
     "Fix-application run.\n" +
-      "Work branch (main checkout): " +
+      "Work branch: " +
       BRANCH_NAME +
       "\n" +
       "Approved spec (skip-rule reference): " +
