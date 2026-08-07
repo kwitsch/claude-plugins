@@ -55,7 +55,10 @@ Every pipeline file is session-only, never a repository file:
   branch is already checked out; otherwise kebab-case from
   `$task_description`, ≤40 chars (then also used to cut the branch, step 1).
 - **Files:** `draft-<slug>.md`, `spec-<slug>.md`, `plan-<slug>.md` — record
-  and hand the workflows **absolute paths**, never inlined content.
+  and hand the workflows **absolute paths**, never inlined content. Always
+  written in English by the designer/spec-writer/planner agents, regardless
+  of `$task_description`'s language — these files are read only by other
+  agents in the pipeline, never shown to the user directly.
 - **Never commit them.** Durable artifacts are the branch and its commits.
   State in commit/PR descriptions when design context matters.
 
@@ -106,7 +109,7 @@ Every pipeline file is session-only, never a repository file:
    capture `BRANCH_NAME` = `git branch --show-current`.
 2. **Design.** Run the design workflow (invocation rules above) with args
    `{TASK: $task_description, DRAFT_PATH, SPEC_PATH, RESUME: false,
-   USER_INPUT: ''}` (paths from the temp directory). Then by `status`:
+USER_INPUT: ''}` (paths from the temp directory). Then by `status`:
    - `user_input_required` → one `AskUserQuestion` call covering the returned
      `questions` (their `options` verbatim as choices; free text arrives via
      "Other"; use `whyItMatters` as the question context). Re-run the

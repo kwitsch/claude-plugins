@@ -381,7 +381,9 @@ draft at ${DRAFT_PATH} is approved and decision-complete (its Open-questions
 section is empty or fully resolved). Transform it into the final spec at
 ${SPEC_PATH} (create/overwrite).
 The spec is the single input a downstream planner turns into an implementation
-plan — dense, exact, complete, zero placeholders:
+plan — dense, exact, complete, zero placeholders. Write it ENTIRELY in
+English regardless of the draft's language (translate faithfully if needed)
+— this file is read only by other agents, never shown to the user directly:
 - Carry over EVERY decision, interface, constraint, and acceptance criterion
   from the draft — nothing dropped, nothing newly invented, no re-opened
   decisions ('USER DECISION' entries are immutable).

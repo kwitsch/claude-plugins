@@ -145,6 +145,18 @@ export -f rg_or_grep
   [ "$status" -eq 0 ]
 }
 
+@test "designer and planner agents require English output regardless of input language" {
+  run rg_or_grep -iF 'English' "$AGENTS_DIR/designer.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -iF 'English' "$AGENTS_DIR/planner.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "the inline spec-writer prompt requires English output regardless of the draft's language" {
+  run rg_or_grep -iF 'English' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
 # --- agents ---
 
 AGENT_NAMES="planner designer design-reviewer review-finder review-verifier worktree-merger fix-applier pr-author shipper ci-monitor ci-fixer"

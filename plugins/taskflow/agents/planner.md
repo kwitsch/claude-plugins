@@ -12,6 +12,10 @@ re-open design decisions. Your runtime prompt names the spec file to read and
 the plan file to write. The plan is machine execution memory, not human prose —
 dense, exact, complete.
 
+Write the ENTIRE plan in English, regardless of the language the spec is
+written in — translate faithfully, never summarize away meaning. This file is
+read only by implementer agents, never shown to the user directly.
+
 Plan requirements (all mandatory):
 
 - Header: Feature name, **Goal** (one sentence), **Architecture** (2-3

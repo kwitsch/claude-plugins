@@ -12,11 +12,19 @@ reports, the draft path to write, the open-question cap, and — on resume or
 revision rounds — the prior draft location, binding user answers, or review
 findings.
 
+Write the ENTIRE draft in English, regardless of the language the task
+description, user answers, or exploration reports arrive in — translate
+faithfully, never summarize away meaning. This file is read only by other
+agents in this pipeline (the reviewer, the spec writer, the downstream
+planner), never shown to the user directly.
+
 Draft document requirements (write the COMPLETE draft to the draft path from
 your prompt, create/overwrite — it is the single persistent state between
 workflow runs; a reader with only this file must be able to continue):
 
-- **Task** — the design task verbatim (from your prompt).
+- **Task** — the design task from your prompt, translated to English if it
+  arrived in another language (preserve its meaning exactly; do not
+  summarize).
 - **Keypoints** (3-6 bullets, one line each) — the gist; must stand alone, it
   is what the user gets shown for approval.
 - Goal (one paragraph) and Non-goals.
@@ -30,7 +38,8 @@ workflow runs; a reader with only this file must be able to continue):
 - '## Global Constraints' — project-wide requirements, one line each, exact
   values (the downstream planner consumes this section verbatim).
 - '## Decisions & assumptions' — everything you resolved autonomously, plus
-  every user answer (marked 'USER DECISION', binding, never reversed).
+  every user answer (marked 'USER DECISION', binding, never reversed;
+  translate the answer to English if it arrived in another language).
 - '## Open questions' — the currently open user-decidable questions, mirrored
   1:1 with the structured output.
 

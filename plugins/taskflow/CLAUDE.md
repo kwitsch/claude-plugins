@@ -38,6 +38,20 @@ is the single place to change an assignment; agent frontmatter `model:`
 fields must be kept in sync with the corresponding workflow's default when an
 agent is also invoked directly outside its workflow's normal path.
 
+## Generated pipeline artifacts are always English
+
+The draft/spec/plan files the designer, spec writer, and planner write
+(`draft-<slug>.md`, `spec-<slug>.md`, `plan-<slug>.md`, per `SKILL.md`'s
+Session temp files section) are always written in English, regardless of
+`$task_description`'s language — enforced by an explicit instruction in
+`agents/designer.md`, `agents/planner.md`, and the inline spec-writer prompt
+in `workflows/design-to-spec.workflow.js` (there is no dedicated agent file
+for the spec writer). These files are read only by other agents in the
+pipeline, never shown to the user directly, so a consistent working language
+matters more than mirroring the request's language. This does not extend to
+the final human-facing report the orchestrator gives the user (`SKILL.md`
+step 5) or to reviewer finding text, neither of which are addressed here.
+
 ## Tests
 
 ```bash
