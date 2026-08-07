@@ -8,7 +8,6 @@ import { buildInvocation, isToolAvailable, isExcludedPath, REGISTRY, hasPrettier
 const shfmt = REGISTRY.shell.chain[0];
 const gjf = REGISTRY.java.chain[0];
 const clang = REGISTRY.java.chain[1];
-const biome = REGISTRY.jsts.chain[1];
 const ruff = REGISTRY.python.chain[0];
 const black = REGISTRY.python.chain[1];
 
@@ -70,22 +69,6 @@ test("ruff: editorconfig maps line length + indent style/width", () => {
   );
 });
 
-test("biome: editorconfig maps indent + line ending + width", () => {
-  assert.deepEqual(
-    buildInvocation(biome, {
-      editorconfig: {
-        indent_style: "space",
-        indent_size: 2,
-        end_of_line: "lf",
-        max_line_length: 100,
-      },
-    }),
-    {
-      argv: ["format", "--write", "--log-level=none", "--indent-style=space", "--indent-width=2", "--line-ending=lf", "--line-width=100"],
-    },
-  );
-});
-
 test("clang-format: editorconfig builds an explicit Google-based style", () => {
   assert.deepEqual(
     buildInvocation(clang, {
@@ -111,9 +94,8 @@ test("clang-format: native config -> bare (fallback ignored when .clang-format p
   );
 });
 
-test("REGISTRY: only prettier/biome carry npmSpec, with the exact npm package names", () => {
+test("REGISTRY: only prettier carries npmSpec, with the exact npm package name", () => {
   assert.equal(REGISTRY.jsts.chain[0].npmSpec, "prettier");
-  assert.equal(REGISTRY.jsts.chain[1].npmSpec, "@biomejs/biome");
   for (const lang of ["shell", "java", "kotlin", "python", "go"]) {
     for (const tool of REGISTRY[lang].chain) {
       assert.equal(tool.npmSpec, undefined);
@@ -124,10 +106,9 @@ test("REGISTRY: only prettier/biome carry npmSpec, with the exact npm package na
 test("REGISTRY: json/yaml/markdown chains and npmSpecs", () => {
   assert.deepEqual(
     REGISTRY.json.chain.map((t) => t.name),
-    ["prettier", "biome"],
+    ["prettier"],
   );
   assert.equal(REGISTRY.json.chain[0].npmSpec, "prettier");
-  assert.equal(REGISTRY.json.chain[1].npmSpec, "@biomejs/biome");
   assert.deepEqual(
     REGISTRY.yaml.chain.map((t) => t.name),
     ["prettier"],
@@ -140,34 +121,17 @@ test("REGISTRY: json/yaml/markdown chains and npmSpecs", () => {
   assert.equal(REGISTRY.markdown.chain[0].npmSpec, "prettier");
 });
 
-test("REGISTRY: css/scss chains -- css is prettier+biome (like json), scss is prettier-only (biome excludes SCSS syntax)", () => {
+test("REGISTRY: css/scss chains are both prettier-only", () => {
   assert.deepEqual(
     REGISTRY.css.chain.map((t) => t.name),
-    ["prettier", "biome"],
+    ["prettier"],
   );
   assert.equal(REGISTRY.css.chain[0].npmSpec, "prettier");
-  assert.equal(REGISTRY.css.chain[1].npmSpec, "@biomejs/biome");
   assert.deepEqual(
     REGISTRY.scss.chain.map((t) => t.name),
     ["prettier"],
   );
   assert.equal(REGISTRY.scss.chain[0].npmSpec, "prettier");
-});
-
-test("json: biome chain entry is mapped (not native) -- editorconfig applies only when biome.json is absent", () => {
-  const biomeJson = REGISTRY.json.chain[1];
-  assert.equal(biomeJson.strategy, "mapped");
-  assert.deepEqual(
-    buildInvocation(biomeJson, {
-      editorconfig: { indent_style: "space", indent_size: 2 },
-    }),
-    {
-      argv: ["format", "--write", "--log-level=none", "--indent-style=space", "--indent-width=2"],
-    },
-  );
-  assert.deepEqual(buildInvocation(biomeJson, { hasNativeConfig: true }), {
-    argv: ["format", "--write", "--log-level=none"],
-  });
 });
 
 test("isToolAvailable: true when the tool itself is on PATH", () => {

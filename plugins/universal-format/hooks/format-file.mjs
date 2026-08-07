@@ -57,11 +57,10 @@ const EXT_MAP = {
   ".php": "php",
 };
 
-// Shared chain-entry descriptors: prettier/biome each serve multiple, unrelated
-// language chains (jsts/json/yaml/markdown/css/scss) with byte-identical config,
-// unlike every other tool in this registry (each of which serves exactly one
-// language).
-// buildInvocation() only ever reads these via .slice()/spread, never mutates in
+// Shared chain-entry descriptor: prettier serves multiple, unrelated language
+// chains (jsts/json/yaml/markdown/css/scss) with byte-identical config, unlike
+// every other tool in this registry (each of which serves exactly one language).
+// buildInvocation() only ever reads this via .slice()/spread, never mutates in
 // place, so sharing the same object across chains is safe.
 /** @type {FormatTool} */
 const PRETTIER_NATIVE = {
@@ -69,14 +68,6 @@ const PRETTIER_NATIVE = {
   strategy: "native",
   base: ["--write", "--log-level", "silent"],
   npmSpec: "prettier",
-};
-/** @type {FormatTool} */
-const BIOME_MAPPED = {
-  name: "biome",
-  strategy: "mapped",
-  nativeConfig: ["biome.json", "biome.jsonc"],
-  base: ["format", "--write", "--log-level=none"],
-  npmSpec: "@biomejs/biome",
 };
 
 // Prettier's own project-config search (verified against prettier 3.9.6's
@@ -110,7 +101,7 @@ const PRETTIER_CONFIG_FILENAMES = [
 // Walk from `dir` up to the filesystem root (inclusive), calling `checkDir` at
 // each level; true on the first hit. Unbounded -- unlike this file's other
 // walkers (findNativeConfig, resolveEditorconfig below), which stop at `cwd`
-// because their governing tools (ruff/black/biome/.editorconfig) only ever
+// because their governing tools (ruff/black/.editorconfig) only ever
 // look inside the project tree. Prettier's own search has no such bound (see
 // above), so bounding this one at `cwd` would misdetect "absent" for a real
 // config that lives above the project root (a workspace/monorepo case).
@@ -224,7 +215,7 @@ export const REGISTRY = {
       },
     ],
   },
-  jsts: { chain: [PRETTIER_NATIVE, BIOME_MAPPED] },
+  jsts: { chain: [PRETTIER_NATIVE] },
   python: {
     chain: [
       {
@@ -247,8 +238,8 @@ export const REGISTRY = {
       { name: "gofmt", strategy: "fixed", base: ["-w"] },
     ],
   },
-  json: { chain: [PRETTIER_LINE_LENGTH_GUARDED, BIOME_MAPPED] },
-  css: { chain: [PRETTIER_NATIVE, BIOME_MAPPED] },
+  json: { chain: [PRETTIER_LINE_LENGTH_GUARDED] },
+  css: { chain: [PRETTIER_NATIVE] },
   scss: { chain: [PRETTIER_NATIVE] },
   yaml: { chain: [PRETTIER_LINE_LENGTH_GUARDED] },
   markdown: { chain: [PRETTIER_NATIVE] },
@@ -322,9 +313,9 @@ function resolveInvocation(tool, file, cwd) {
 // {tool, argv} that can actually run, or null if none of them can.
 // Two passes, not one: a chain tool actually on PATH always wins over any other
 // chain tool that's merely npx-reachable, regardless of chain order. Without this,
-// giving npmSpec to more than one entry (e.g. prettier before biome) would let the
-// earlier entry's npx fallback shadow a later entry that's genuinely installed --
-// npx ships with node, so it's essentially always "available."
+// giving npmSpec to more than one entry would let an earlier entry's npx fallback
+// shadow a later entry that's genuinely installed -- npx ships with node, so it's
+// essentially always "available."
 /** @param {FormatTool[]} chain @param {string} file @param {string} cwd @returns {{tool: FormatTool, argv: string[]} | null} */
 function selectFormatter(chain, file, cwd) {
   for (const tool of chain) {
@@ -380,14 +371,6 @@ const MAPPERS = {
     if (ec.indent_style) parts.push(`UseTab: ${ec.indent_style === "tab" ? "ForIndentation" : "Never"}`);
     if (typeof ec.max_line_length === "number") parts.push(`ColumnLimit: ${ec.max_line_length}`);
     return { argv: ["-i", `--style={${parts.join(", ")}}`] };
-  },
-  biome(base, ec) {
-    const argv = base.slice();
-    if (ec.indent_style) argv.push(`--indent-style=${ec.indent_style}`);
-    if (typeof ec.indent_size === "number") argv.push(`--indent-width=${ec.indent_size}`);
-    if (ec.end_of_line) argv.push(`--line-ending=${ec.end_of_line}`);
-    if (typeof ec.max_line_length === "number") argv.push(`--line-width=${ec.max_line_length}`);
-    return { argv };
   },
   ruff(base, ec) {
     const argv = base.slice();
