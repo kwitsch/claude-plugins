@@ -332,7 +332,7 @@ const CI_RESULT = {
       items: {
         type: "object",
         required: ["name"],
-        properties: { name: { type: "string" }, reason: { type: "string" }, logExcerpt: { type: "string" } },
+        properties: { name: { type: "string" }, reason: { type: "string" }, logExcerpt: { type: "string" }, rerunId: { type: "string" } },
       },
     },
     detail: { type: "string" },
@@ -731,7 +731,7 @@ async function verifyGroups(candidates) {
       });
       if (!r) return [];
       const byIdx = {};
-      for (const v of r.verdicts) if (inBounds(v.index, g.length)) byIdx[v.index] = v;
+      for (const v of r.verdicts || []) if (inBounds(v.index, g.length)) byIdx[v.index] = v;
       return g.flatMap((c, i) => (byIdx[i] ? [{ ...c, verdict: byIdx[i].verdict, evidence: byIdx[i].evidence }] : []));
     }),
   );
@@ -746,7 +746,7 @@ const finderOuts = await parallel(
   FINDERS.map(
     (f) => () =>
       agent(FINDER_PROMPT(f), { label: f.label, phase: "Review", schema: CANDIDATES_SCHEMA, model: MODELS.finder, agentType: AGENTS.finder }).then((r) => {
-        if (!r) return [];
+        if (!r || !Array.isArray(r.candidates)) return [];
         log(f.label + ": " + r.candidates.length + " candidates");
         return ingest(r.candidates, f.cap, f.kind);
       }),
@@ -772,7 +772,7 @@ if (P.sweep) {
       "Structured output only.",
     { label: "sweep", phase: "Review", schema: CANDIDATES_SCHEMA, model: MODELS.finder, agentType: AGENTS.finder },
   );
-  if (sweep && sweep.candidates.length > 0) {
+  if (sweep && Array.isArray(sweep.candidates) && sweep.candidates.length > 0) {
     const sliced = ingest(sweep.candidates, SWEEP_MAX, "correctness");
     candidatesSeen += sliced.length;
     log("sweep: " + sliced.length + " candidates");

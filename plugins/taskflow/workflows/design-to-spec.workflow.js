@@ -415,11 +415,18 @@ async function writeSpec(revision, label) {
   return w;
 }
 
+async function reviewSpec(label) {
+  const opts = { label, phase: "Spec", schema: SPEC_REVIEW, model: MODELS.specReview };
+  let r = await agent(specReviewerPrompt, opts);
+  if (r === null) r = await agent(specReviewerPrompt, { ...opts, label: label + ":retry" });
+  return r;
+}
+
 let spec = await writeSpec(null, "spec-write");
 if (!spec || spec.status === "blocked") {
   return { status: "error", stage: "Spec", error: spec ? spec.detail : "spec writer returned null twice", draftPath: DRAFT_PATH };
 }
-let specCheck = await agent(specReviewerPrompt, { label: "spec-review", phase: "Spec", schema: SPEC_REVIEW, model: MODELS.specReview });
+let specCheck = await reviewSpec("spec-review");
 if (specCheck && !specCheck.approved) {
   const specBlocking = specCheck.findings.filter((f) => f.severity === "blocking");
   if (specBlocking.length) {
@@ -428,7 +435,7 @@ if (specCheck && !specCheck.approved) {
     if (!spec || spec.status === "blocked") {
       return { status: "error", stage: "Spec", error: "spec writer failed during fix round", draftPath: DRAFT_PATH };
     }
-    specCheck = await agent(specReviewerPrompt, { label: "spec-recheck", phase: "Spec", schema: SPEC_REVIEW, model: MODELS.specReview });
+    specCheck = await reviewSpec("spec-recheck");
     if (specCheck && !specCheck.approved && specCheck.findings.some((f) => f.severity === "blocking")) {
       return {
         status: "error",
@@ -446,6 +453,7 @@ return {
   specPath: SPEC_PATH,
   draftPath: DRAFT_PATH, // left in place: context for the delivery workflow's review
   keypoints: design.keypoints, // verbatim for approval (AskUserQuestion) by the orchestrator
+  specReviewed: specCheck != null, // false means the reviewer failed twice — spec shipped unreviewed
   minorFindings: {
     design: (review.findings || []).filter((f) => f.severity === "minor"),
     spec: specCheck ? (specCheck.findings || []).filter((f) => f.severity === "minor") : [],

@@ -10,14 +10,14 @@ The plugin ships these components:
 
 Renaming the plugin requires updating the `AGENTS` map's namespace prefix in both workflow scripts to match.
 
-## `workflows/` — a plugin component undocumented in `plugins/CLAUDE.md`
+## `workflows/` is a documented plugin component
 
 This is the first plugin in the repo to ship a `workflows/` directory. It is
 a real, documented Claude Code plugin component (auto-discovered like
 `skills/`/`agents/`; see the curated `claude-code-plugins-reference.md`) —
-`plugins/CLAUDE.md`'s structure table just predates it. If you touch that
-table, add a `workflows/` row rather than treating this plugin's use of the
-directory as nonstandard.
+`plugins/CLAUDE.md`'s structure table just predated it and now carries a
+`workflows/` row (added alongside this plugin). Treat this plugin's use of
+the directory as the standard, not an exception.
 
 ## userConfig
 

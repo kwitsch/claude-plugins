@@ -129,6 +129,10 @@ export -f rg_or_grep
   for f in design-to-spec.workflow.js spec-driven-delivery.workflow.js; do
     run rg_or_grep -cE '[äöüßÄÖÜ]' "$WORKFLOWS/$f"
     [ "$status" -ne 0 ] || [ "$output" -eq 0 ]
+    # ASCII-only German (no diacritics, e.g. "// wenn ..."): scan comment text
+    # only, for common unambiguous German stopwords, word-bounded.
+    run bash -c "rg_or_grep -oE '//.*' '$WORKFLOWS/$f' | rg_or_grep -icE '\\b(und|oder|nicht|wird|werden|auch|sowie|sind|eine|einen|kein|keine|wenn|dass|immer|nie)\\b'"
+    [ "$status" -ne 0 ] || [ "$output" -eq 0 ]
   done
 }
 
@@ -187,7 +191,44 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   for a in design-reviewer review-finder review-verifier ci-monitor; do
     run rg_or_grep -E '^tools:' "$AGENTS_DIR/$a.md"
     [ "$status" -eq 0 ]
-    run rg_or_grep -E '^tools:.*"(Write|Edit)"' "$AGENTS_DIR/$a.md"
+    run rg_or_grep -E "^tools:.*[[:space:],\\[\\]\"'](Write|Edit)([[:space:],\\[\\]\"']|\$)" "$AGENTS_DIR/$a.md"
     [ "$status" -ne 0 ]
   done
+}
+
+@test "fix-applier detects a linked worktree via git-dir/git-common-dir, not --show-toplevel alone" {
+  run rg_or_grep -F -- '-ef' "$AGENTS_DIR/fix-applier.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'git-common-dir' "$AGENTS_DIR/fix-applier.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "fix-applier applies and tests fixes per-fix before a single category commit" {
+  run rg_or_grep -iF 'PER-FIX' "$AGENTS_DIR/fix-applier.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "ci-monitor collects a rerunId per failed job; ci-fixer consumes it" {
+  run rg_or_grep -F 'rerunId' "$AGENTS_DIR/ci-monitor.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'rerunId' "$AGENTS_DIR/ci-fixer.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'rerunId' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+@test "design-to-spec workflow retries the spec reviewer once and reports specReviewed" {
+  run rg_or_grep -F 'function reviewSpec' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'specReviewed' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+@test "spec-driven-delivery workflow guards agent array fields before iterating" {
+  run rg_or_grep -F 'r.verdicts || []' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'Array.isArray(r.candidates)' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'Array.isArray(sweep.candidates)' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
 }

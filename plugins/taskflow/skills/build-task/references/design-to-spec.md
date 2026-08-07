@@ -26,22 +26,27 @@ rename together with the plugin). An unknown type throws hard at dispatch
 
 ## Parameters (`args` object)
 
-| Key          | Type    | Required | Meaning                                                                                                  |
-| :----------- | :------ | :------- | :-------------------------------------------------------------------------------------------------------- |
-| `TASK`       | string  | yes      | The design task / work description                                                                        |
-| `DRAFT_PATH` | string  | yes      | Absolute path of the draft file — the single persistent state between runs; same path on every resume    |
-| `SPEC_PATH`  | string  | yes      | Absolute target path of the spec (input contract of `/taskflow:spec-driven-delivery`)                    |
-| `RESUME`     | boolean | no       | `false` (default) on the first run; `true` when restarting with an existing draft + answers              |
+| Key          | Type    | Required | Meaning                                                                                                                                          |
+| :----------- | :------ | :------- | :----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TASK`       | string  | yes      | The design task / work description                                                                                                               |
+| `DRAFT_PATH` | string  | yes      | Absolute path of the draft file — the single persistent state between runs; same path on every resume                                            |
+| `SPEC_PATH`  | string  | yes      | Absolute target path of the spec (input contract of `/taskflow:spec-driven-delivery`)                                                            |
+| `RESUME`     | boolean | no       | `false` (default) on the first run; `true` when restarting with an existing draft + answers                                                      |
 | `USER_INPUT` | string  | no       | `''` (default) on the first run; on resume: the answers to the previously returned questions — BINDING. Recommended shape: JSON `[{id, answer}]` |
 
 Guards: missing required keys or `RESUME: true` without `USER_INPUT` return
 `status: 'error', stage: 'args'` before any agent is dispatched.
 
-Delivery format: the runtime may hand `args` to the script as a JSON STRING
-depending on the invocation path — `decodeArgs` parses string deliveries
-(including double-encoded) transparently. A `stage: 'args'` error therefore
-always means genuinely malformed input (free text, array, missing keys),
-never a threading quirk — fix the payload; do not switch to the fallback.
+Delivery format (primary/named-workflow invocation): the runtime may hand
+`args` to the script as a JSON STRING depending on the invocation path —
+`decodeArgs` parses string deliveries (including double-encoded)
+transparently. On this path, a `stage: 'args'` error always means genuinely
+malformed input (free text, array, missing keys), never a threading quirk —
+fix the payload; do not switch to the fallback. On the ad-hoc fallback path,
+the same `stage: 'args'` error can ALSO mean the threading quirk described
+above (the tool-level `args` parameter was passed instead of prepending
+`const args = {…}` to the script text) — check the invocation shape first
+before assuming malformed content.
 
 ## Result (exit contract)
 
@@ -50,33 +55,34 @@ Consume only this return — never re-derive state from transcript output.
 
 ### `status: 'complete'` — Exit 1: design fully written to spec
 
-| Field           | Meaning                                                                                                   |
-| :-------------- | :---------------------------------------------------------------------------------------------------------- |
-| `specPath`      | The finished spec (all draft decisions carried over, no open questions, `## Global Constraints` included) |
-| `draftPath`     | The draft is left in place — context for the delivery workflow's review synthesis                          |
-| `keypoints`     | The Keypoints section verbatim — present this to the user for approval (the spec is NOT yet approved)      |
-| `minorFindings` | `{design: [], spec: []}` — non-blocking reviewer findings, for the final report                            |
+| Field           | Meaning                                                                                                                                                                            |
+| :-------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `specPath`      | The finished spec (all draft decisions carried over, no open questions, `## Global Constraints` included)                                                                          |
+| `draftPath`     | The draft is left in place — context for the delivery workflow's review synthesis                                                                                                  |
+| `keypoints`     | The Keypoints section verbatim — present this to the user for approval (the spec is NOT yet approved)                                                                              |
+| `specReviewed`  | `true` unless the spec reviewer failed twice (both attempts returned null) — `false` means the spec shipped without the completeness/ambiguity gate; note this in the final report |
+| `minorFindings` | `{design: [], spec: []}` — non-blocking reviewer findings, for the final report                                                                                                    |
 
 ### `status: 'user_input_required'` — Exit 2: open user questions
 
-| Field       | Meaning                                                                                                          |
-| :---------- | :------------------------------------------------------------------------------------------------------------------ |
-| `draftPath` | Complete draft persisted (incl. `## Open questions` and `## Decisions & assumptions`) — restart state              |
-| `keypoints` | Current Keypoints — usable as context when asking the user                                                          |
-| `questions` | ≤4 entries `{id, question, options[2-4], whyItMatters}` — AskUserQuestion-ready; free text arrives via "Other"     |
-| `resume`    | Restart instruction: re-run with `RESUME: true`, the same `DRAFT_PATH`, and the answers as `USER_INPUT`             |
+| Field       | Meaning                                                                                                        |
+| :---------- | :------------------------------------------------------------------------------------------------------------- |
+| `draftPath` | Complete draft persisted (incl. `## Open questions` and `## Decisions & assumptions`) — restart state          |
+| `keypoints` | Current Keypoints — usable as context when asking the user                                                     |
+| `questions` | ≤4 entries `{id, question, options[2-4], whyItMatters}` — AskUserQuestion-ready; free text arrives via "Other" |
+| `resume`    | Restart instruction: re-run with `RESUME: true`, the same `DRAFT_PATH`, and the answers as `USER_INPUT`        |
 
 New genuine questions after a resume are expected, not a failure — the loop
 repeats until `complete` or `error`.
 
 ### `status: 'error'`
 
-| `stage`   | Meaning                                                             | Action                                                       |
-| :-------- | :------------------------------------------------------------------- | :------------------------------------------------------------ |
-| `args`    | Invocation malformed (no/missing args, RESUME without USER_INPUT)   | Fix the call — do not debug the pipeline                      |
-| `Explore` | Scout or all explorers returned null                                | Retry once; then surface                                      |
-| `Design`  | Designer blocked, or blocking findings survived the revision round  | Surface `error` + `draftPath` (draft preserved for inspection) |
-| `Spec`    | Spec writer blocked, or blocking findings survived the fix round    | Surface `error` + `draftPath`                                 |
+| `stage`   | Meaning                                                            | Action                                                         |
+| :-------- | :----------------------------------------------------------------- | :------------------------------------------------------------- |
+| `args`    | Invocation malformed (no/missing args, RESUME without USER_INPUT)  | Fix the call — do not debug the pipeline                       |
+| `Explore` | Scout or all explorers returned null                               | Retry once; then surface                                       |
+| `Design`  | Designer blocked, or blocking findings survived the revision round | Surface `error` + `draftPath` (draft preserved for inspection) |
+| `Spec`    | Spec writer blocked, or blocking findings survived the fix round   | Surface `error` + `draftPath`                                  |
 
 ## Behavior notes
 

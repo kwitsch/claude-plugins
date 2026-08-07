@@ -14,10 +14,13 @@ PR/MR url, and the failing jobs with log excerpts. Diagnose first, then act
 1. CLASSIFY each failure from the logs and, where needed, the code:
    - infra/flaky — runner/network/timeout errors unrelated to the diff, or a
      known-flaky test untouched by this branch → action 'rerun': retrigger
-     ONLY the failed jobs once (GitHub: `gh run rerun <id> --failed`;
-     GitLab: `glab ci retry <job>`), return status 'rerun'. If the runtime
-     prompt says a rerun was already tried for this failure, treat it as
-     code-caused instead.
+     ONLY the failed jobs once, using each failing job's `rerunId` from your
+     prompt (GitHub: `gh run rerun <rerunId> --failed`; GitLab: `glab ci
+retry <rerunId>`). If `rerunId` is missing, resolve it yourself first
+     (GitHub: `gh run list --branch <branch> --limit 1`; GitLab: `glab ci
+status --branch <branch>`) — never guess an id. Return status 'rerun'.
+     If the runtime prompt says a rerun was already tried for this failure,
+     treat it as code-caused instead.
    - code-caused — the diff broke it → fix it.
    - out of scope — the BASE branch is broken (failure reproduces without
      this branch's changes) → status 'blocked' with the evidence; never

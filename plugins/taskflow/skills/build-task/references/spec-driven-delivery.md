@@ -25,19 +25,24 @@ rename together with the plugin). An unknown type throws hard at dispatch
 
 ## Parameters (`args` object)
 
-| Key           | Type   | Required | Meaning                                                                       |
-| :------------ | :----- | :------- | :------------------------------------------------------------------------------ |
-| `SPEC_PATH`   | string | yes      | Absolute path of the user-approved spec file                                   |
-| `PLAN_PATH`   | string | yes      | Absolute temp path where the planner writes the plan (session scratch, never in the repo) |
-| `BRANCH_NAME` | string | yes      | Current work branch (`git branch --show-current`)                              |
-| `BASE_BRANCH` | string | no       | Branch the work branch was cut from. Default `main`. Drives the review diff `git diff <base>...HEAD` |
+| Key           | Type   | Required | Meaning                                                                                                                    |
+| :------------ | :----- | :------- | :------------------------------------------------------------------------------------------------------------------------- |
+| `SPEC_PATH`   | string | yes      | Absolute path of the user-approved spec file                                                                               |
+| `PLAN_PATH`   | string | yes      | Absolute temp path where the planner writes the plan (session scratch, never in the repo)                                  |
+| `BRANCH_NAME` | string | yes      | Current work branch (`git branch --show-current`)                                                                          |
+| `BASE_BRANCH` | string | no       | Branch the work branch was cut from. Default `main`. Drives the review diff `git diff <base>...HEAD`                       |
 | `SHIP`        | bool   | no       | Default `true`. Run the Ship stage (push, PR/MR create-or-update, CI watch + bounded fix rounds); `false` ends after Apply |
 
-Delivery format: the runtime may hand `args` to the script as a JSON STRING
-depending on the invocation path — `decodeArgs` parses string deliveries
-(including double-encoded) transparently. A `stage: 'args'` error therefore
-always means genuinely malformed input (free text, array, missing keys),
-never a threading quirk — fix the payload; do not switch to the fallback.
+Delivery format (primary/named-workflow invocation): the runtime may hand
+`args` to the script as a JSON STRING depending on the invocation path —
+`decodeArgs` parses string deliveries (including double-encoded)
+transparently. On this path, a `stage: 'args'` error always means genuinely
+malformed input (free text, array, missing keys), never a threading quirk —
+fix the payload; do not switch to the fallback. On the ad-hoc fallback path,
+the same `stage: 'args'` error can ALSO mean the threading quirk described
+above (the tool-level `args` parameter was passed instead of prepending
+`const args = {…}` to the script text) — check the invocation shape first
+before assuming malformed content.
 
 ## Preconditions
 
@@ -53,26 +58,26 @@ Consume only this return — never re-derive state from transcript output.
 
 ### `stage: 'done'` — full pipeline succeeded
 
-| Field                    | Meaning                                                                                                  |
-| :----------------------- | :--------------------------------------------------------------------------------------------------------- |
-| `plan`                   | `{path, tasks: [{id, title, complexity, model}]}` — model per task from complexity (trivial→haiku, standard→sonnet, complex→`claude-opus-4-8`); planner and synthesizer pinned to `claude-opus-4-8` |
-| `waves`                  | Wave layout, e.g. `[[1,2],[3]]` — file-overlap ∪ consumes→produces ∪ conservative fallback              |
-| `taskResults`            | Per task: `{id, status, branch, worktreePath, minor}`                                                     |
-| `implementMinorFindings` | Non-blocking per-task review findings — pass through to the final report/PR                               |
-| `review`                 | `{level, finders, candidates, verifierAgents, verified, refuted, summary, findings}`                      |
-| `refuted`                | Candidates the independent verifiers disproved (transparency)                                             |
-| `applied`                | `{applied: [indexes], skipped: [{index, reason}], commits: [hashes]}` from the fix-application agent      |
-| `escalatedToUser`        | Findings whose fix would REVERSE an approved-spec decision — NEVER auto-applied; the caller must decide (AskUserQuestion), apply accepted ones itself, and commit them |
+| Field                    | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| :----------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `plan`                   | `{path, tasks: [{id, title, complexity, model}]}` — model per task from complexity (trivial→haiku, standard→sonnet, complex→`claude-opus-4-8`); planner and synthesizer pinned to `claude-opus-4-8`                                                                                                                                                                                                                                                                                             |
+| `waves`                  | Wave layout, e.g. `[[1,2],[3]]` — file-overlap ∪ consumes→produces ∪ conservative fallback                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `taskResults`            | Per task: `{id, status, branch, worktreePath, minor}`                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `implementMinorFindings` | Non-blocking per-task review findings — pass through to the final report/PR                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `review`                 | `{level, finders, candidates, verifierAgents, verified, refuted, summary, findings}`                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `refuted`                | Candidates the independent verifiers disproved (transparency)                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `applied`                | `{applied: [indexes], skipped: [{index, reason}], commits: [hashes]}` from the fix-application agent                                                                                                                                                                                                                                                                                                                                                                                            |
+| `escalatedToUser`        | Findings whose fix would REVERSE an approved-spec decision — NEVER auto-applied; the caller must decide (AskUserQuestion), apply accepted ones itself, and commit them                                                                                                                                                                                                                                                                                                                          |
 | `ship`                   | `{status, url?, platform?, prAction?, ci?}` — `status`: `shipped` (CI green or no CI), `ci_failed` (red after fix budget — human takes over at `url`), `ci_timeout` (still running after monitor budget), `ci_unknown` (monitor failed), `blocked` (push/CLI/auth problem, see `detail`), `skipped` (`SHIP: false`). `ci` carries `{status, monitorRounds, fixRounds, failedJobs?, fixDetail?}`. Ship problems are reportable states, never a pipeline error — the work is committed either way |
 
 ### Error stages
 
-| `stage`     | Meaning                                                                                   | Action                                                                                             |
-| :---------- | :------------------------------------------------------------------------------------------ | :--------------------------------------------------------------------------------------------------- |
-| `args`      | Invocation malformed (no args / missing required keys)                                     | Fix the call — do not debug the pipeline                                                            |
-| `Plan`      | Planner failed/blocked, or plan still blocking after one revision round                    | Surface `error`; nothing was implemented                                                            |
-| `Implement` | A task failed, a merger failed, or a wave merge hit a conflict — HARD STOP                 | Never retry the merge, never resolve conflicts, never open a PR on a half-implemented plan. `results` names abandoned worktrees/branches for manual cleanup; partial `minorFindings` included |
-| `Review`    | Scope agent failed or found no diff after a merged implement phase                         | Surface `error` + partial `results`                                                                 |
+| `stage`     | Meaning                                                                    | Action                                                                                                                                                                                        |
+| :---------- | :------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `args`      | Invocation malformed (no args / missing required keys)                     | Fix the call — do not debug the pipeline                                                                                                                                                      |
+| `Plan`      | Planner failed/blocked, or plan still blocking after one revision round    | Surface `error`; nothing was implemented                                                                                                                                                      |
+| `Implement` | A task failed, a merger failed, or a wave merge hit a conflict — HARD STOP | Never retry the merge, never resolve conflicts, never open a PR on a half-implemented plan. `results` names abandoned worktrees/branches for manual cleanup; partial `minorFindings` included |
+| `Review`    | Scope agent failed or found no diff after a merged implement phase         | Surface `error` + partial `results`                                                                                                                                                           |
 
 A wave-merge conflict means the wave analysis missed a real dependency — that
 is a planning defect to surface, not a git problem to solve.

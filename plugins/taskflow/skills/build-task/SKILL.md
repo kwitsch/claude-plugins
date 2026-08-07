@@ -118,6 +118,9 @@ USER_INPUT: ''}` (paths from the temp directory). Then by `status`:
      until `complete` or `error` — new genuine questions after a resume are
      expected, not a failure.
    - `error` → surface `stage`, `error`, and `draftPath`, then stop.
+   - `complete` with `specReviewed: false` → note it for the final report
+     (step 5): the spec shipped without its completeness/ambiguity gate
+     because the reviewer failed twice.
 3. **Intent confirmation.** Read nothing aloud from memory: output the
    returned `keypoints` verbatim as your own plain-text message (the user has
    never seen the temp files), then `AskUserQuestion`: does this match their
