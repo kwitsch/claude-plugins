@@ -128,10 +128,15 @@ line>"}` (no `log_excerpt`)
      Normalize each into the findings shape below. No CodeRabbit app on the
      repo → empty list, not an error. Bot comments that only report status
      (e.g. "rate limit exceeded", "review skipped") are NOT findings — drop
-     them and put a note in your report instead. Carry each thread/discussion
-     id into both `id` and `thread_id` (same value) — the skill needs `id` to
-     correlate `pr-fixer`'s resolutions back to a thread, and `thread_id` to
-     actually resolve it.
+     them and put a note in your report instead. Always set `id` to whatever
+     identifier the source gave you — the skill needs it to correlate
+     `pr-fixer`'s resolutions back to a finding. Set `thread_id` **only** when
+     that identifier is a real review-thread / discussion id (the GitHub
+     GraphQL `reviewThreads` node id, or the GitLab discussion id); then it
+     equals `id`. On the GitHub REST fallback above, `id` is a
+     review-**comment** id, which `resolveReviewThread` cannot accept — omit
+     `thread_id` entirely for those findings, and the skill will skip thread
+     resolution for them.
 4. **Extract the AI-agent fix prompt, if CodeRabbit attached one.** CodeRabbit
    review comments often carry a collapsible section titled "Prompt for AI Agents"
    (search the comment `body` for that phrase, case-insensitive; the instruction
@@ -150,7 +155,7 @@ Return ONLY this JSON as your final message:
   "failures": [{ "job": "name", "cause": "analysis", "log_excerpt": "lines (omitted for the synthetic ci-watch failures above)" }],
   "review_findings": [
     {
-      "id": "same value as thread_id",
+      "id": "thread/discussion id, or the REST review-comment id on the fallback path",
       "file": "path",
       "line": 0,
       "severity": "critical|major|minor",
@@ -158,7 +163,7 @@ Return ONLY this JSON as your final message:
       "description": "...",
       "recommendation": "...",
       "ai_prompt": "... (omit key entirely if none found)",
-      "thread_id": "GraphQL thread node id / GitLab discussion id"
+      "thread_id": "GraphQL thread node id / GitLab discussion id (omit the key entirely when only a REST comment id is available)"
     }
   ]
 }
