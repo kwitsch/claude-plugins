@@ -4,6 +4,11 @@ import globals from "globals";
 export default [
   js.configs.recommended,
   {
+    // Workflow-tool scripts run inside an implicit async wrapper (top-level
+    // `await`/`return` are valid there) — not parseable as a standalone module.
+    ignores: ["**/*.workflow.js"],
+  },
+  {
     files: ["**/*.{js,mjs}"],
     languageOptions: {
       ecmaVersion: 2022,

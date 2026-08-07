@@ -13,6 +13,7 @@ Each plugin: `.claude-plugin/plugin.json` (manifest: `version` plus metadata lik
 | `skills/`                | Skills as `<name>/SKILL.md` dirs — **preferred for new plugins**                                                                                                                     |
 | `commands/`              | Skills as flat `.md` files — legacy, avoid for new plugins                                                                                                                           |
 | `agents/`                | Custom agent definitions                                                                                                                                                             |
+| `workflows/`             | Dynamic Workflow-tool scripts (`<name>.workflow.js`), auto-discovered and namespaced as `/<plugin>:<name>`. Excluded from `eslint.config.mjs` (top-level `await`/`return`)           |
 | `hooks/`                 | Event handlers in `hooks.json`                                                                                                                                                       |
 | `mcp/`                   | Self-contained zero-dep MCP stdio server (`server.mjs`) backing `mcp_tool` hooks, invoked directly as the `.mcp.json` `command` (executable `.mjs`, `#!/usr/bin/env node`, `100755`) |
 | `bin/`                   | Executables added to Bash `PATH` when plugin enabled (must be chmod +x)                                                                                                              |

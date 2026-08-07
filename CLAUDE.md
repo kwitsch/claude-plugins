@@ -7,7 +7,7 @@ Claude Code plugin marketplace.
 - `.claude-plugin/marketplace.json` — marketplace manifest (root).
 - `plugins/<name>/` — one plugin each: `.claude-plugin/plugin.json` + components (`skills/`, `agents/`, `hooks/`, `bin/`, `commands/` legacy, …) + `README.md` + `CLAUDE.md`. Full list in `plugins/CLAUDE.md`.
 - `test/<name>/test.bats` — per-plugin bats suite (top-level); conventions in `.claude/rules/test-conventions.md`.
-- `.claude/rules/` — path-scoped rules loaded by Claude Code when editing matching files (versioning, userConfig, hooks, skills, agents, README sync, test conventions, coderabbit review).
+- `.claude/rules/` — path-scoped rules loaded by Claude Code when editing matching files (versioning, userConfig, hooks, skills, agents, harness-content language, README sync, test conventions, coderabbit review).
 - `.github/workflows/ci.yml` validates manifests; `test.yml` runs bats suites plus a `unit_and_typecheck` job (`npm run typecheck` + `npm run test:unit`); `tag-on-version-bump.yml` tags plugins whose plugin.json version has no tag yet.
 
 ## Testing

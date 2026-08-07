@@ -21,6 +21,7 @@ A [Claude Code](https://docs.claude.com/en/docs/claude-code/plugins) plugin mark
 | [memory-enhancement](plugins/memory-enhancement/README.md)       | A dream skill that consolidates this project's auto-memory files in four phases, a self-improvement skill that reflects on session efficiency, and a Stop/SessionStart hook pair that nudges the next session to run a dream cycle.                                                           |
 | [npm-automations](plugins/npm-automations/README.md)             | Runs an async npm ci when a package-lock.json project is entered via EnterWorktree, and an async, dependency-scoped npm install whenever a package.json's dependencies actually change.                                                                                                       |
 | [kiwi-code-style](plugins/kiwi-code-style/README.md)             | Ships the kiwi-code-style output style and a SessionStart hook that injects the karpathy-ponytail coding guidelines — both enforced whenever this plugin is enabled.                                                                                                                          |
+| [taskflow](plugins/taskflow/README.md)                           | Spec-driven design & delivery pipeline: `/taskflow:build-task` orchestrates a design-to-spec workflow and a spec-driven-delivery workflow (wave-parallel implement in isolated worktrees, combined review, fix application, ship).                                                            |
 
 ## Configure plugins
 

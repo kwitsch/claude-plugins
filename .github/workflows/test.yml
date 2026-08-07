@@ -26,6 +26,7 @@ jobs:
           - memory-enhancement
           - npm-automations
           - kiwi-code-style
+          - taskflow
     steps:
       - name: Checkout
         uses: actions/checkout@v6

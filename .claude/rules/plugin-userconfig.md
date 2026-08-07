@@ -50,3 +50,8 @@ plugin — one fixed, all-or-nothing contract, not two independently
 toggle-needing features. There's nothing to switch off short of
 disabling/uninstalling the plugin itself, so no `userConfig` is declared for
 either.
+
+`taskflow` (2026-08-07) is the same case for a different reason: it ships one
+skill (`build-task`) that only ever runs when the user explicitly invokes it —
+there is no automatic/background behavior a toggle could suppress without
+being equivalent to disabling the plugin. No `userConfig` is declared.
