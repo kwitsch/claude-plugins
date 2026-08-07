@@ -131,7 +131,7 @@ export -f rg_or_grep
     [ "$status" -ne 0 ] || [ "$output" -eq 0 ]
     # ASCII-only German (no diacritics, e.g. "// wenn ..."): scan comment text
     # only, for common unambiguous German stopwords, word-bounded.
-    run bash -c "rg_or_grep -oE '//.*' '$WORKFLOWS/$f' | rg_or_grep -icE '\\b(und|oder|nicht|wird|werden|auch|sowie|sind|eine|einen|kein|keine|wenn|dass|immer|nie)\\b'"
+    run bash -c "rg_or_grep -oE '//.*' '$WORKFLOWS/$f' | rg_or_grep -icE '\\b(und|oder|nicht|wird|werden|auch|sowie|sind|eine|einen|kein|keine|wenn|dass|immer|nie|schritt)\\b'"
     [ "$status" -ne 0 ] || [ "$output" -eq 0 ]
   done
 }
