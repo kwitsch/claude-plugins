@@ -2,6 +2,7 @@
 paths:
   - "**/*.md"
 ---
+
 # Rule: CodeRabbit annotations on markdown files
 
 Applies to all `.md` files matched by the glob above. The glob includes `**/README.md` — **ignore this rule when the file being edited is a README** (negative globs are not supported in paths frontmatter; the exclusion is prose-only).

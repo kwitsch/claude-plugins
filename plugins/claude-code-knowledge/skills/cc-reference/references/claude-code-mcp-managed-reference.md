@@ -63,11 +63,7 @@ Example (managed settings):
 
 ```json
 {
-  "allowedMcpServers": [
-    { "serverUrl": "https://mcp.example.com/*" },
-    { "serverName": "github" },
-    { "serverCommand": ["npx", "-y", "approved-package"] }
-  ],
+  "allowedMcpServers": [{ "serverUrl": "https://mcp.example.com/*" }, { "serverName": "github" }, { "serverCommand": ["npx", "-y", "approved-package"] }],
   "deniedMcpServers": [{ "serverUrl": "https://staging.example.com/*" }],
   "allowManagedMcpServersOnly": true
 }

@@ -1,7 +1,6 @@
 ---
 description: Install a user-level ~/.claude/agents/explore.md, choosing between a plain and a codebase-memory-mcp-aware variant based on whether that MCP server is detected on this machine. Run once per machine, or again after codebase-memory-mcp is installed/removed.
-allowed-tools:
-  ["Read", "Bash(mkdir:*)", "Bash(mktemp:*)", "Bash(cp:*)", "Bash(mv:*)"]
+allowed-tools: ["Read", "Bash(mkdir:*)", "Bash(mktemp:*)", "Bash(cp:*)", "Bash(mv:*)"]
 disable-model-invocation: true
 ---
 

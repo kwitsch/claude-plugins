@@ -170,6 +170,7 @@ options:
   for the exact rows to include (only those whose tool is in `detected`,
   verbatim, in that file's order) — single source of truth, also read by
   `refresh-tools-rule`, never inlined here.
+
 - Question 2 answered "Yes", but `detected` is **empty**: make **no change**
   in either case below. If `tools_installed` was already true (the only way
   Step 3b reaches this — it skips Question 2 entirely when both are false):

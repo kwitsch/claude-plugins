@@ -110,7 +110,7 @@ concurrently across the wave, plus two additions:
    Agent tool's own return value, not confirmed for the Workflow-script
    `agent()` primitive; self-report works identically in both engines.
 2. **Review.** Unchanged — no isolation, no path targeting: `git show
-   <commitHash>` reads shared objects from any worktree, including the main
+<commitHash>` reads shared objects from any worktree, including the main
    checkout.
 3. **Fix (if blocking findings).** Dispatched **without** `isolation` (that
    would mint a third, unrelated worktree) but instructed to operate at the
@@ -121,16 +121,16 @@ concurrently across the wave, plus two additions:
    run in the main work-branch checkout (the primary worktree, on
    `branchName`), which is where a non-isolated `agent()` call runs by
    default. That default is itself session-dependent: in a linked/bridge
-   worktree session, an Agent-tool subagent's default cwd is the *primary*
+   worktree session, an Agent-tool subagent's default cwd is the _primary_
    repo root, not the bridge worktree — verify this holds for the session
    this skill is actually running in before trusting the merge-back's target,
    rather than assuming it. Given the ordered `{taskId, branch, worktreePath}`
    list for every task that reached `approved`, runs in task-id order:
    `git merge --no-ff <branch>`, then
    cleans up in the only order git allows — `git worktree remove
-   <worktreePath>` **first**, then `git branch -d <branch>` (git refuses to
+<worktreePath>` **first**, then `git branch -d <branch>` (git refuses to
    delete a branch still checked out in a worktree). Disjoint files by
-   construction ⇒ no *textual* conflict is expected. **A reported conflict
+   construction ⇒ no _textual_ conflict is expected. **A reported conflict
    is a hard stop** — it means the parallelism analysis missed a real
    dependency; surface the task ids, branches, and conflicting paths, and do
    not proceed to the next wave or attempt to resolve it. Scope note: a clean
@@ -495,8 +495,8 @@ identical wall-clock behavior to the Workflow engine's per-task `parallel()` pip
 > 4. Escape hatch only: if, when next awake, a still-`in_progress` entry is judged
 >    genuinely stuck, `TaskStop` its `dispatch_id`, mark it terminal, record a
 >    soft-failure, proceed. Never `TaskOutput` a dispatch_id (transcript overflow).
-> Prose-count fallback (CRUD ledger tools genuinely absent): track the dispatched
-> count explicitly; do not advance until that many structured results are in hand.
+>    Prose-count fallback (CRUD ledger tools genuinely absent): track the dispatched
+>    count explicitly; do not advance until that many structured results are in hand.
 
 ## Exit
 

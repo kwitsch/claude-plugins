@@ -12,29 +12,29 @@ handler-type choice see `hook-handler-selection.md`; for hook mechanics see
 
 ## When to use mcp_tool vs a command hook
 
-| Situation | Handler |
-| --- | --- |
-| Non-blocking, mid-session (`PreToolUse`/`PostToolUse`/`Stop`/`SubagentStop`/…): inject context, observe, reuse a live runtime/deps | **`mcp_tool`** (preferred) |
-| Fires before the server connects (`SessionStart`, `Setup`) | command (`.mjs`) — server not up yet → `mcp_tool` fails open |
-| Fail-closed hard gate (must deny/abort, needs exit 2) | command — `mcp_tool` has no exit-2 path, fails open if server down |
-| Must-fire side-effect (snapshot, state-write other hooks read) | command — `mcp_tool` silently no-ops when the server is down |
+| Situation                                                                                                                          | Handler                                                            |
+| ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Non-blocking, mid-session (`PreToolUse`/`PostToolUse`/`Stop`/`SubagentStop`/…): inject context, observe, reuse a live runtime/deps | **`mcp_tool`** (preferred)                                         |
+| Fires before the server connects (`SessionStart`, `Setup`)                                                                         | command (`.mjs`) — server not up yet → `mcp_tool` fails open       |
+| Fail-closed hard gate (must deny/abort, needs exit 2)                                                                              | command — `mcp_tool` has no exit-2 path, fails open if server down |
+| Must-fire side-effect (snapshot, state-write other hooks read)                                                                     | command — `mcp_tool` silently no-ops when the server is down       |
 
 `mcp_tool` requires an **already-connected** server; the hook never triggers a
 connection flow.
 
-**Fail-open is two-fold:** a *non-blocking error* (execution continues regardless)
+**Fail-open is two-fold:** a _non-blocking error_ (execution continues regardless)
 occurs both when the named server is **not connected** AND when the tool returns
 `isError: true`. So a tool that signals an error cannot block — to deny/abort, return
-a valid hook-decision JSON (see *Output contract*), never `isError`.
+a valid hook-decision JSON (see _Output contract_), never `isError`.
 
 ## Hook fields
 
-| Field | Required | Notes |
-| --- | --- | --- |
-| `type` | yes | `"mcp_tool"` |
-| `server` | yes | Name of a **connected** server — see *Server name* below |
-| `tool` | yes | Tool to call on that server |
-| `input` | no | Arguments object; `${path}` substitution from the hook JSON (e.g. `${tool_input.file_path}`, `${session_id}`, `${cwd}`). Omit → the tool receives the full hook event JSON as its arguments |
+| Field    | Required | Notes                                                                                                                                                                                       |
+| -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type`   | yes      | `"mcp_tool"`                                                                                                                                                                                |
+| `server` | yes      | Name of a **connected** server — see _Server name_ below                                                                                                                                    |
+| `tool`   | yes      | Tool to call on that server                                                                                                                                                                 |
+| `input`  | no       | Arguments object; `${path}` substitution from the hook JSON (e.g. `${tool_input.file_path}`, `${session_id}`, `${cwd}`). Omit → the tool receives the full hook event JSON as its arguments |
 
 Common fields apply (`if`, `timeout` default 600s, `statusMessage`).
 
@@ -51,9 +51,9 @@ necessarily the key you wrote in config.
 - **Settings/user server** (defined directly in settings, not a plugin): use the
   bare key as written.
 - The `.mcp.json` server key and the server's self-reported `serverInfo.name` stay
-  bare; only the hook's `server` *reference* is namespaced.
+  bare; only the hook's `server` _reference_ is namespaced.
 
-Hook-tool *matchers* (a different surface) use the sanitized tool name
+Hook-tool _matchers_ (a different surface) use the sanitized tool name
 `mcp__plugin_<plugin>_<server-key>__<tool>` (chars outside `[A-Za-z0-9_-]` → `_`;
 hyphens preserved, e.g. `mcp__plugin_my-plugin_database-tools__query`); the `server`
 field uses the colon-form connected name.
@@ -67,7 +67,7 @@ emit exit code 2.
 
 - Return the same `hookSpecificOutput` shape a command hook would print, e.g. for
   `PreToolUse`: `{"hookSpecificOutput":{"hookEventName":"PreToolUse",
-  "permissionDecision":"allow","updatedInput":{…}}}` — `updatedInput` works
+"permissionDecision":"allow","updatedInput":{…}}}` — `updatedInput` works
   identically (full-replace before the tool runs).
 - Self-contained servers should return both `content:[{type:"text",text:JSON}]`
   (the parsed surface) and `structuredContent` (the same object).

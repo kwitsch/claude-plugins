@@ -3,23 +3,9 @@ name: fresh-pr
 description: Use when branch work should become a pull/merge request without a code-review-rounds step — commits pending work, rebases onto an updated base, pushes, opens or refreshes a PR/MR (GitHub and GitLab), then drives it to CI-green (and, if CodeRabbit participates, all its review threads resolved) via this plugin's own ci-watcher/pr-fixer agents. Self-contained — every script/agent used here lives in this plugin.
 argument-hint: "[--base <branch>]"
 allowed-tools:
-  [
-    "Agent",
-    "AskUserQuestion",
-    "Bash(git:*)",
-    "Bash(gh:*)",
-    "Bash(glab:*)",
-    "Bash(jq:*)",
-    "Bash(bash:*)",
-    "Bash(mktemp:*)",
-    "ToolSearch",
-    "TaskCreate",
-    "TaskUpdate",
-    "TaskList",
-    "TaskGet",
-    "TaskStop",
-  ]
+  ["Agent", "AskUserQuestion", "Bash(git:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(jq:*)", "Bash(bash:*)", "Bash(mktemp:*)", "ToolSearch", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TaskStop"]
 ---
+
 <!-- markdownlint-disable MD029 -- this file's numbered steps are ONE continuous sequence deliberately split across many list blocks by intervening prose/code; step numbers are cross-referenced by their original value elsewhere in this file ("step 3 above", "step 8 below") and must not be renumbered per-block -->
 
 # Push work and open/refresh a PR/MR, then drive it to CI-green
@@ -224,13 +210,18 @@ Self-contained: every script/agent used here lives in `coding-toolbox`.
         `--force` — `pr-fixer` never rewrites history, only adds commits).
       - For each `resolutions` entry with `"resolution": "skipped"` **and a
         non-empty `id`** (CI-failure-derived resolutions arrive without one —
-        there is no CodeRabbit thread to resolve for those), reply on the
-        CodeRabbit thread with its `reason` and resolve it, using its
-        `id` (equals the original finding's `thread_id`):
+        there is no CodeRabbit thread to resolve for those), look the `id` back
+        up in `ci-watcher`'s own `review_findings`. Resolve the thread **only
+        when that finding carries a `thread_id`**; when the key is absent
+        (`ci-watcher` fell back to the GitHub REST comment list, so it only ever
+        had a review-**comment** id, which `resolveReviewThread` rejects), skip
+        resolution for that finding and note it in the report. Otherwise reply
+        on the CodeRabbit thread with its `reason` and resolve it, using that
+        `thread_id`:
         GitHub — GraphQL mutation
-        `gh api graphql -f query='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}' -f id=<id>`;
+        `gh api graphql -f query='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}' -f id=<thread_id>`;
         GitLab —
-        `glab api -X PUT "projects/:id/merge_requests/$number/discussions/<id>" -f resolved=true`.
+        `glab api -X PUT "projects/:id/merge_requests/$number/discussions/<thread_id>" -f resolved=true`.
    5. Loop back to 9.1 — a push (from `commits`) restarts CI and CodeRabbit
       review, so the next iteration's `ci-watcher` observes fresh state.
 

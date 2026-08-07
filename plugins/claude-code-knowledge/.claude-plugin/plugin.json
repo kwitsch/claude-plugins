@@ -1,6 +1,6 @@
 {
   "name": "claude-code-knowledge",
-  "version": "1.7.6",
+  "version": "1.7.7",
   "description": "Lookup skill plus harness-optimized reference files for authoring and configuring Claude Code — skills, subagents, hooks, slash commands, MCP, plugins, CLAUDE.md memory, and settings — a read-only expert agent that replaces the built-in claude-code-guide, a cc-review skill that audits components, a cc-author skill that creates new components, and a cc-memory skill that audits & improves a project's memory (every CLAUDE.md and .claude/rules/*.md by default) with a claude-md-improver-style quality report and leanness/scope-split recommendations, all grounded in the same cc-reference knowledge, and a cc-compress skill that compresses a markdown memory file into dense caveman-style prose to cut future-session load tokens, backing up the original to session-temp storage for rollback. Retrieves only the relevant section into context. (CC docs read: 2026-07-31)",
   "author": {
     "name": "Kwitsch"

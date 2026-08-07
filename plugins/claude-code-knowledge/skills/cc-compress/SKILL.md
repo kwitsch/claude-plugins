@@ -43,7 +43,7 @@ Exit codes: `0` = success or clean skip (not a markdown file); `1` = usage
 error, refusal (sensitive filename, empty file, existing/concurrent backup), or
 I/O failure; `2` = compression failed validation after retries; `3` = the
 target is untracked or has uncommitted changes, so the session-temp backup
-would be the *only* rollback path — nothing was touched yet.
+would be the _only_ rollback path — nothing was touched yet.
 
 **On exit 3:** ask via `AskUserQuestion` whether to proceed anyway (session-temp
 backup only) or cancel. If the user says proceed, re-run the exact same command

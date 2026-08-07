@@ -67,7 +67,7 @@ types structure the body with **Why:** and **How to apply:** lines):
    the actual rollback point for a failed compression; restoring from the
    pre-dream `.bak` instead would silently discard this cycle's
    consolidation work). Extract the file's reference set with `rg -o
-   '\[\[[^]]+\]\]|\b[\w-]+\.md\b' <file> | sort -u` (wikilinks plus
+'\[\[[^]]+\]\]|\b[\w-]+\.md\b' <file> | sort -u` (wikilinks plus
    bare-`.md` filenames — `cc-compress`'s path-preservation check does not
    protect either, only slash-containing paths and full URLs). Invoke
    `claude-code-knowledge:cc-compress` (Skill tool) on it with `--confirmed`
@@ -77,7 +77,7 @@ types structure the body with **Why:** and **How to apply:** lines):
    same `rg -o ... | sort -u` command against the compressed result and
    `diff` the two sorted lists. Any difference (a missing or altered entry)
    → restore the file from `<file>.pre-compress.bak` (not the pre-dream
-   `.bak`), and note *that* skip in the session summary (this one is a real,
+   `.bak`), and note _that_ skip in the session summary (this one is a real,
    file-specific finding — unlike `cc-compress` simply being unavailable).
    Either way (compression accepted or rolled back), delete
    `<file>.pre-compress.bak` once its job is done — only the pre-dream
@@ -102,7 +102,7 @@ itself, so it must never risk a reworded filename.
 Gate: `coding-toolbox:refresh-tools-rule` is among this session's available
 skills (same presence check as the `claude-code-knowledge:cc-compress` check
 in phase 3) — a narrow, non-destructive companion to `coding-toolbox:setup-rules`
-that only ever refreshes an *already-installed*
+that only ever refreshes an _already-installed_
 `~/.claude/rules/coding-toolbox-tools.md`, never installs or removes it.
 Absent → skip; note that in the Report line below (a one-line note, not
 additional summary detail).

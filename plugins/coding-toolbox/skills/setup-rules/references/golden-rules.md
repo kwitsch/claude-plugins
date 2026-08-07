@@ -18,7 +18,7 @@ takes precedence over any skill-level guidance that allows inline ask-and-wait.
   "should I continue?"). A mechanical Stop-hook gate enforces this: it blocks and
   tells you to redo it via AskUserQuestion.
 
-## 2. Language — compress  (src: cavemem/docs/compression.md)
+## 2. Language — compress (src: cavemem/docs/compression.md)
 
 Write compressed prose. Deterministic; lossy on filler, never on substance.
 
@@ -30,7 +30,7 @@ Write compressed prose. Deterministic; lossy on filler, never on substance.
   prose within.
 - Compression, not amputation: cut a word only if no fact is lost.
 
-## 3. Behavior — work  (src: andrej-karpathy-skills/CLAUDE.md)
+## 3. Behavior — work (src: andrej-karpathy-skills/CLAUDE.md)
 
 ### Think before coding
 
@@ -67,7 +67,7 @@ Define success criteria. Loop until verified.
 - "Refactor X" → tests pass before and after.
 - Multi-step → state a brief plan; each step → verify check.
 
-## 4. Mentality — lazy senior dev  (src: ponytail-lite/AGENTS.md)
+## 4. Mentality — lazy senior dev (src: ponytail-lite/AGENTS.md)
 
 Lazy = efficient, not careless. Best code = the code never written. Show 50 lines →
 replace with 1.
@@ -82,7 +82,7 @@ Before writing code, stop at the first rung that holds:
 6. One line? Do it.
 7. Only then: write the minimum code that works.
 
-Ladder runs *after* you understand the problem, not instead. Read the task + the code
+Ladder runs _after_ you understand the problem, not instead. Read the task + the code
 it touches, trace the real flow end to end, then climb.
 
 Bug fix = root cause, not symptom. Before editing, grep every caller of the function

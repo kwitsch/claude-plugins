@@ -18,6 +18,7 @@ model-invocable. See `coding-toolbox/CLAUDE.md`'s "Skill design
 ## Step 1 — Detect
 
 <!-- coderabbit-skip: `ls`/`command -v` here run inside a dynamic-context `!` block — load-time preprocessing executed before Claude sees the content, not a Claude tool call, so `allowed-tools` has no bearing on it (cc-reference claude-code-skills-reference.md, "Dynamic context injection": "runs the shell command BEFORE Claude sees content ... preprocessing, not a Claude action"). Only the runtime Bash call in Step 2 is a model-issued tool call, and that is covered. -->
+
 ```!
 echo "Installed: $(ls $HOME/.claude/rules/coding-toolbox-tools.md 2>/dev/null || echo '(none)')"
 echo "rtk: $(command -v rtk >/dev/null 2>&1 && echo present || echo absent)"
@@ -66,6 +67,7 @@ If the block above rendered as literally `[shell command execution disabled by p
   for the exact rows to include (only those detected, verbatim, in that
   file's order) — the same file `setup-rules` reads, single source of
   truth, never inlined here.
+
 - `Installed:` line mentions it, but nothing is detected: make **no change** —
   never overwrite an existing, populated table with an empty one. Report that
   nothing was detected so the existing file was left as-is.

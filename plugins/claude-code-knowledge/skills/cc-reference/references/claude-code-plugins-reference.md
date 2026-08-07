@@ -127,10 +127,7 @@ Default component dirs are auto-discovered (see [Component auto-discovery](#comp
   "mcpServers": "./mcp-config.json",
   "lspServers": "./.lsp.json",
   "experimental": { "themes": "./themes/", "monitors": "./monitors.json" },
-  "dependencies": [
-    "helper-lib",
-    { "name": "secrets-vault", "version": "~2.1.0" }
-  ]
+  "dependencies": ["helper-lib", { "name": "secrets-vault", "version": "~2.1.0" }]
 }
 ```
 
@@ -379,9 +376,7 @@ Example in Node.js:
 
 ```js
 if (process.env.CLAUDECODE) {
-  process.stderr.write(
-    '<claude-code-hint v="1" type="plugin" value="example-cli@claude-plugins-official" />\n',
-  );
+  process.stderr.write('<claude-code-hint v="1" type="plugin" value="example-cli@claude-plugins-official" />\n');
 }
 ```
 

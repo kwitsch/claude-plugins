@@ -22,13 +22,13 @@ rows only).
 
 A `command` hook is required when **any** of these hold; otherwise prefer `mcp_tool`.
 
-| Use a **command** hook when… | Why |
-| --- | --- |
-| The event fires **before the server connects** — `SessionStart`, `Setup` | `mcp_tool` needs an already-connected server; on first run it is not up yet, so the hook **fails open** (silent no-op). These are the *only* events with a connectivity problem. |
-| You need a **fail-closed hard gate** (must deny / abort) | `mcp_tool` has no exit-2 path and fails open on server-down — it can express only a *soft* JSON decision, never a guaranteed block. A guard that fails open is a silent security regression. |
-| The hook is a **fail-open-sensitive side-effect that must reliably fire** — e.g. a state-write that *other* command hooks read (`ConfigChange`) | A command hook spawns independently of server liveness; an `mcp_tool` hook would silently skip exactly when the side-effect matters most. |
-| The event is **latency-sensitive / high-frequency** — `UserPromptSubmit` (30 s timeout), `MessageDisplay` (10 s) | An MCP round-trip on every prompt / streamed line-batch is a latency + cost choice; the shorter timeout also bites. (A hook here that also does a must-run state-write falls under the fail-open-sensitive row too.) |
-| **Otherwise: non-blocking, mid-session context injection / observation** — `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Stop`, `SubagentStop`, … | **Prefer `mcp_tool`.** The server is reliably connected mid-session; you reuse a live runtime/deps instead of spawning a process per event. |
+| Use a **command** hook when…                                                                                                                            | Why                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The event fires **before the server connects** — `SessionStart`, `Setup`                                                                                | `mcp_tool` needs an already-connected server; on first run it is not up yet, so the hook **fails open** (silent no-op). These are the _only_ events with a connectivity problem.                                     |
+| You need a **fail-closed hard gate** (must deny / abort)                                                                                                | `mcp_tool` has no exit-2 path and fails open on server-down — it can express only a _soft_ JSON decision, never a guaranteed block. A guard that fails open is a silent security regression.                         |
+| The hook is a **fail-open-sensitive side-effect that must reliably fire** — e.g. a state-write that _other_ command hooks read (`ConfigChange`)         | A command hook spawns independently of server liveness; an `mcp_tool` hook would silently skip exactly when the side-effect matters most.                                                                            |
+| The event is **latency-sensitive / high-frequency** — `UserPromptSubmit` (30 s timeout), `MessageDisplay` (10 s)                                        | An MCP round-trip on every prompt / streamed line-batch is a latency + cost choice; the shorter timeout also bites. (A hook here that also does a must-run state-write falls under the fail-open-sensitive row too.) |
+| **Otherwise: non-blocking, mid-session context injection / observation** — `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Stop`, `SubagentStop`, … | **Prefer `mcp_tool`.** The server is reliably connected mid-session; you reuse a live runtime/deps instead of spawning a process per event.                                                                          |
 
 **Exception — single-hook plugins.** A plugin backing **exactly one** hook may use a
 `command` hook instead of standing up an MCP server for it: the server's only real
@@ -38,22 +38,22 @@ the hook `async: true` when it is read-only / side-effect-free — this removes 
 server's latency argument entirely, since the agentic loop no longer waits on either
 a server round-trip or a per-event spawn. Leave it synchronous when it mutates state
 whose ordering relative to the next tool call matters (the async result only arrives
-on the *next* conversation turn — too late to prevent Claude from acting on stale
+on the _next_ conversation turn — too late to prevent Claude from acting on stale
 state in between). `universal-lint` (async — read-only) and `universal-format`
 (synchronous — mutates the file) are this repo's two examples, decided 2026-07-24.
 
 Why the limits (documented Claude Code behavior):
 
 - `mcp_tool` requires an **already-connected** server; the hook never triggers a
-  connection flow. Servers connect during/after startup, so only the *pre-connect*
+  connection flow. Servers connect during/after startup, so only the _pre-connect_
   events (`SessionStart`, `Setup`) genuinely can't rely on it. Mid-session
   lifecycle events (`PreCompact`, `ConfigChange`, `Stop`, `SubagentStop`, …) are
   `full` in the matrix — connectivity is **not** the reason to keep them command
   hooks.
 - `mcp_tool` expresses a decision **only via the JSON it returns as tool text** —
-  it cannot emit exit code 2. On block-capable events it can do a *soft* block
+  it cannot emit exit code 2. On block-capable events it can do a _soft_ block
   (`permissionDecision: "deny"` / `decision: "block"`), but if the server is down
-  it **fails open**. For *hard* enforcement use a command hook + exit 2.
+  it **fails open**. For _hard_ enforcement use a command hook + exit 2.
 - Because the failure mode is non-blocking, an `mcp_tool` hook standing in for a
   must-fire side-effect (snapshot, state-write) silently no-ops when the server is
   down. Keep those as command hooks even though the event itself is `full`.
@@ -64,7 +64,7 @@ Why the limits (documented Claude Code behavior):
 > only `SessionStart`/`Setup` have the pre-connect problem. `PreCompact` and
 > `SessionEnd` are mid/late-session and `full`; `UserPromptSubmit` is limited by
 > timeout/latency, not connectivity. Keep `ConfigChange` as a command hook for the
-> *fail-open-sensitive side-effect* reason, not a connectivity one. `PreCompact` is
+> _fail-open-sensitive side-effect_ reason, not a connectivity one. `PreCompact` is
 > no longer a must-stay-command-hook case: it is `full` in the event matrix, so an
 > `mcp_tool` hook works mid-session with the server reliably connected. A
 > fail-open-sensitive `PreCompact` side-effect (e.g. a resume snapshot) failing
@@ -126,9 +126,7 @@ to MCP-server spawning.
     "PostToolUse": [
       {
         "matcher": "Read|Edit|Write",
-        "hooks": [
-          { "type": "mcp_tool", "server": "plugin:<plugin-name>:example-hooks", "tool": "example_context" }
-        ]
+        "hooks": [{ "type": "mcp_tool", "server": "plugin:<plugin-name>:example-hooks", "tool": "example_context" }]
       }
     ]
   }
@@ -241,9 +239,7 @@ function startServer() {
         const tool = findTool(params?.name);
         if (!tool) return fail(id, -32602, `unknown tool: ${params?.name}`);
         if (process.env.MCP_HOOK_DEBUG) {
-          process.stderr.write(
-            `[${SERVER_NAME}] tools/call ${params?.name} args=${JSON.stringify(params?.arguments)}\n`,
-          );
+          process.stderr.write(`[${SERVER_NAME}] tools/call ${params?.name} args=${JSON.stringify(params?.arguments)}\n`);
         }
         let result;
         try {
@@ -267,10 +263,17 @@ function startServer() {
     const trimmed = line.trim();
     if (!trimmed) return;
     let msg;
-    try { msg = JSON.parse(trimmed); }
-    catch { process.stderr.write(`[${SERVER_NAME}] non-JSON line ignored\n`); return; }
-    try { handle(msg); }
-    catch (e) { process.stderr.write(`[${SERVER_NAME}] handler crash: ${e?.stack ?? e}\n`); }
+    try {
+      msg = JSON.parse(trimmed);
+    } catch {
+      process.stderr.write(`[${SERVER_NAME}] non-JSON line ignored\n`);
+      return;
+    }
+    try {
+      handle(msg);
+    } catch (e) {
+      process.stderr.write(`[${SERVER_NAME}] handler crash: ${e?.stack ?? e}\n`);
+    }
   });
   rl.on("close", () => process.exit(0));
 }

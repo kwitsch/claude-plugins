@@ -52,10 +52,7 @@ network) with no code fix — mark those `skipped` with exactly that reason.
 Return ONLY this JSON as your final message:
 
 ```json
-{"resolutions": [{"id": "the finding's id from the dispatch",
-                  "title": "finding title", "file": "path",
-                  "resolution": "fixed|skipped", "reason": "why"}],
- "commits": ["<short-hash> <subject>"]}
+{ "resolutions": [{ "id": "the finding's id from the dispatch", "title": "finding title", "file": "path", "resolution": "fixed|skipped", "reason": "why" }], "commits": ["<short-hash> <subject>"] }
 ```
 
 Echo each finding's `id` unchanged — the dispatching skill keys its

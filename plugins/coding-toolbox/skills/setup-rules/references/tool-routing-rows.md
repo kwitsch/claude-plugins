@@ -11,7 +11,8 @@ For each tool in `detected`, emit its row below as one line of the heredoc,
 in this order — copy only the fenced line itself (the exact text between the
 ` ``` ` markers), never the `### <tool>` heading or the fence markers:
 
-<!-- markdownlint-disable-next-line MD001 -- heading level intentionally ### here; the literal "### <tool>" text is referenced by name in coding-toolbox/CLAUDE.md and must not change -->
+<!-- markdownlint-disable MD001 -- heading level intentionally ### here; the literal "### <tool>" text is referenced by name in coding-toolbox/CLAUDE.md and must not change. Block form, not disable-next-line: prettier inserts a blank line after an HTML comment, which detaches a next-line directive from its target. -->
+
 ### rtk
 
 ```

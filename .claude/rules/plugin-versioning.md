@@ -3,6 +3,7 @@ paths:
   - "plugins/*/.claude-plugin/plugin.json"
   - ".claude-plugin/marketplace.json"
 ---
+
 # Rule: plugin versioning
 
 ## Version field ownership
