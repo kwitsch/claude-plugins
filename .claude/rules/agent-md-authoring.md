@@ -11,8 +11,8 @@ Source: <https://code.claude.com/docs/en/sub-agents>
 
 ```markdown
 ---
-name: my-agent          # required
-description: ...        # required
+name: my-agent # required
+description: ... # required
 # optional fields below
 ---
 
@@ -23,24 +23,24 @@ NOT the full Claude Code system prompt. No conversation history.
 
 ## Frontmatter (complete reference)
 
-| Field | Required | Notes |
-| --- | --- | --- |
-| `name` | **Yes** | Lowercase letters + hyphens. Hooks receive as `agent_type`. Filename does NOT have to match. |
-| `description` | **Yes** | When Claude should delegate to this agent. Write precisely — Claude auto-delegates based on this. |
-| `tools` | No | Allowlist of tools. Omit = inherits all parent tools. Use `skills` to preload skills, not `Skill` here. |
-| `disallowedTools` | No | Removed from inherited or specified tool list. |
-| `model` | No | `sonnet` `opus` `haiku` `fable` · full model ID · `inherit` (default). |
-| `permissionMode` | No | **Plugin subagents: IGNORED.** `default` `acceptEdits` `auto` `dontAsk` `bypassPermissions` `plan` |
-| `maxTurns` | No | Max agentic turns before subagent stops. |
-| `skills` | No | Skills to preload into context at startup (full content, not just description). Skills with `disable-model-invocation: true` are NOT preloaded. |
-| `initialPrompt` | No | Initial prompt passed to subagent on first turn. |
-| `memory` | No | Persistent cross-session memory scope: `user` `project` `local`. |
-| `background` | No | `true` = always run as background task. Default: `false`. |
-| `effort` | No | `low` `medium` `high` `xhigh` `max` — overrides session effort level. |
-| `isolation` | No | `worktree` = isolated git worktree (branched from default branch). |
-| `color` | No | Color shown in agent view UI. |
-| `mcpServers` | No | **Plugin subagents: IGNORED.** |
-| `hooks` | No | **Plugin subagents: IGNORED.** (Stop hooks auto-converted to SubagentStop.) |
+| Field             | Required | Notes                                                                                                                                           |
+| ----------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`            | **Yes**  | Lowercase letters + hyphens. Hooks receive as `agent_type`. Filename does NOT have to match.                                                    |
+| `description`     | **Yes**  | When Claude should delegate to this agent. Write precisely — Claude auto-delegates based on this.                                               |
+| `tools`           | No       | Allowlist of tools. Omit = inherits all parent tools. Use `skills` to preload skills, not `Skill` here.                                         |
+| `disallowedTools` | No       | Removed from inherited or specified tool list.                                                                                                  |
+| `model`           | No       | `sonnet` `opus` `haiku` `fable` · full model ID · `inherit` (default).                                                                          |
+| `permissionMode`  | No       | **Plugin subagents: IGNORED.** `default` `acceptEdits` `auto` `dontAsk` `bypassPermissions` `plan`                                              |
+| `maxTurns`        | No       | Max agentic turns before subagent stops.                                                                                                        |
+| `skills`          | No       | Skills to preload into context at startup (full content, not just description). Skills with `disable-model-invocation: true` are NOT preloaded. |
+| `initialPrompt`   | No       | Initial prompt passed to subagent on first turn.                                                                                                |
+| `memory`          | No       | Persistent cross-session memory scope: `user` `project` `local`.                                                                                |
+| `background`      | No       | `true` = always run as background task. Default: `false`.                                                                                       |
+| `effort`          | No       | `low` `medium` `high` `xhigh` `max` — overrides session effort level.                                                                           |
+| `isolation`       | No       | `worktree` = isolated git worktree (branched from default branch).                                                                              |
+| `color`           | No       | Color shown in agent view UI.                                                                                                                   |
+| `mcpServers`      | No       | **Plugin subagents: IGNORED.**                                                                                                                  |
+| `hooks`           | No       | **Plugin subagents: IGNORED.** (Stop hooks auto-converted to SubagentStop.)                                                                     |
 
 ## Plugin subagent restrictions ⚠️
 

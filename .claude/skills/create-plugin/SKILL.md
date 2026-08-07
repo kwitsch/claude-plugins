@@ -152,9 +152,11 @@ Create `plugins/<name>/CLAUDE.md` (short, project-specific context):
 <one or two lines on what the plugin is and its main component>.
 
 ## Behavior
+
 <what the plugin's component(s) do at runtime — key rules, guards, edge cases>.
 
 ## Tests
+
 `test/<name>/test.bats` (bats). Run: `BATS_LIB_PATH=/usr/lib/bats bats test/<name>/`.
 ```
 
@@ -259,10 +261,10 @@ setup() {
 Wire into CI: in `.github/workflows/test.yml`, append `- <name>` under `plugin:`, preserve existing entries + valid YAML:
 
 ```yaml
-      matrix:
-        plugin:
-          - no-co-authored   # existing entry — keep it
-          - <name>           # the new plugin
+matrix:
+  plugin:
+    - no-co-authored # existing entry — keep it
+    - <name> # the new plugin
 ```
 
 ## Step 6 — Register in marketplace.json

@@ -67,6 +67,9 @@ It cannot emit exit code 2. Therefore:
 
 ## CANONICAL_SPEC
 
+<!-- One column-aligned line per event is deliberate: this block is the machine-readable
+     record and is read row-wise; prettier's expansion makes it unscannable. -->
+<!-- prettier-ignore -->
 ```json
 {
   "events": [

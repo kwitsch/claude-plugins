@@ -44,12 +44,8 @@ Return a single JSON object:
 
 ```json
 {
-  "files": [
-    { "path": "<path to create or overwrite>", "full_content": "<entire file content>" }
-  ],
-  "uncovered": [
-    "<a point your intent needed that cc-reference (incl. fallback) does not cover>"
-  ]
+  "files": [{ "path": "<path to create or overwrite>", "full_content": "<entire file content>" }],
+  "uncovered": ["<a point your intent needed that cc-reference (incl. fallback) does not cover>"]
 }
 ```
 

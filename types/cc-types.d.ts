@@ -8,7 +8,7 @@ interface HookCommonInput {
   session_id: string;
   transcript_path: string;
   cwd: string;
-  permission_mode: 'default' | 'plan' | 'acceptEdits' | 'auto' | 'dontAsk' | 'bypassPermissions';
+  permission_mode: "default" | "plan" | "acceptEdits" | "auto" | "dontAsk" | "bypassPermissions";
   hook_event_name: string;
   agent_id?: string;
   agent_type?: string;
@@ -45,13 +45,13 @@ interface PostToolUseHookInput extends ToolHookInput {
 interface HookSpecificOutput {
   hookEventName: string;
   additionalContext?: string;
-  permissionDecision?: 'allow' | 'deny' | 'ask' | 'defer';
+  permissionDecision?: "allow" | "deny" | "ask" | "defer";
   permissionDecisionReason?: string;
   updatedInput?: Record<string, unknown>;
 }
 
 interface HookResult {
-  decision?: 'block';
+  decision?: "block";
   reason?: string;
   hookSpecificOutput?: HookSpecificOutput;
   updatedInput?: Record<string, unknown>;

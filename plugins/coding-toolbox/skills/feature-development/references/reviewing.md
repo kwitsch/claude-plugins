@@ -417,8 +417,8 @@ agent `model: sonnet`):
 > 4. Escape hatch only: a genuinely stuck entry → `TaskStop` its
 >    `dispatch_id`, mark it terminal, record a soft-failure, proceed. Never
 >    `TaskOutput` a dispatch_id (transcript overflow).
-> Prose-count fallback: track the dispatched count explicitly; do not advance
-> until that many structured results are in hand.
+>    Prose-count fallback: track the dispatched count explicitly; do not advance
+>    until that many structured results are in hand.
 
 ## Exit
 

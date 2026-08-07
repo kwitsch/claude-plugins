@@ -2,6 +2,7 @@
 paths:
   - "plugins/**/*.mjs"
 ---
+
 # Rule: JSDoc annotations in .mjs files
 
 ## Machine-checkable floor

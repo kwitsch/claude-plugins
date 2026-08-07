@@ -39,7 +39,7 @@ Mirrors `dream`'s own orient/backup/two-step-save/index protocol -- keep
 the two in parity if either changes.
 
 For each concrete, generalizable lesson from Step 1 (the kind that would
-help a *future* session, not a one-off fact about this task) that also
+help a _future_ session, not a one-off fact about this task) that also
 clears the auto-memory system prompt's own "What NOT to save" list (no
 task-specific facts, no derivable code patterns/architecture, nothing
 already documented in a CLAUDE.md, no ephemeral/in-progress state):
@@ -52,7 +52,7 @@ already documented in a CLAUDE.md, no ephemeral/in-progress state):
    stands on its own).
 2. **Dedup check (hard gate).** Read `MEMORY.md` and this skill's own
    running memory file, `feedback_self_improvement_efficiency.md`, if it
-   exists, *before* writing anything. A candidate lesson already captured
+   exists, _before_ writing anything. A candidate lesson already captured
    (even paraphrased) is **not** written again -- merge into the existing
    bullet at most (e.g. tightening its wording), never append a
    near-duplicate.
@@ -61,7 +61,7 @@ already documented in a CLAUDE.md, no ephemeral/in-progress state):
    `feedback_self_improvement_efficiency.md.bak` first, then write the
    merged content. If it doesn't exist yet, author it fresh via this
    session's own auto-memory two-step save process: frontmatter `name:
-   self-improvement-efficiency`, `description:` one line,
+self-improvement-efficiency`, `description:` one line,
    `metadata.type: feedback`; body structured per lesson as **Why:** /
    **How to apply:** lines. State plainly in the body that these are
    self-derived retrospective findings from Claude's own analysis, not

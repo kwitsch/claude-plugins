@@ -3,7 +3,7 @@
 <!-- static convention reference — NOT refreshed by /update-cc-references -->
 
 Directory layout of a Claude Code skill, plus this plugin's convention for where
-reference files live. Mechanics of *what a skill is* and its frontmatter live in
+reference files live. Mechanics of _what a skill is_ and its frontmatter live in
 `claude-code-skills-reference.md`; this file is layout-only.
 
 ## Skill directory layout
@@ -29,10 +29,10 @@ material loaded on demand from the skill body.
 
 This plugin's layout rule for a skill's bundled reference/knowledge files:
 
-| Count | Location | Path from `SKILL.md` |
-| --- | --- | --- |
-| **1** reference file | next to `SKILL.md` (skill root) | `${CLAUDE_SKILL_DIR}/<file>.md` |
-| **≥2** reference files | in a `references/` subfolder | `${CLAUDE_SKILL_DIR}/references/<file>.md` |
+| Count                  | Location                        | Path from `SKILL.md`                       |
+| ---------------------- | ------------------------------- | ------------------------------------------ |
+| **1** reference file   | next to `SKILL.md` (skill root) | `${CLAUDE_SKILL_DIR}/<file>.md`            |
+| **≥2** reference files | in a `references/` subfolder    | `${CLAUDE_SKILL_DIR}/references/<file>.md` |
 
 - When a skill grows from one bundled reference file to two or more, move them all
   into `references/` and update the `${CLAUDE_SKILL_DIR}/...` paths in `SKILL.md`.

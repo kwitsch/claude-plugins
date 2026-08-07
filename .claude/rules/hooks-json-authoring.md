@@ -34,27 +34,27 @@ Sources: <https://code.claude.com/docs/en/hooks> · <https://code.claude.com/doc
 
 ## Plugin path variables
 
-| Variable | Value |
-| --- | --- |
+| Variable                | Value                                                                                  |
+| ----------------------- | -------------------------------------------------------------------------------------- |
 | `${CLAUDE_PLUGIN_ROOT}` | Plugin install directory — **changes on each plugin update**. Use for bundled scripts. |
-| `${CLAUDE_PLUGIN_DATA}` | Persistent data dir — survives plugin updates. Use for deps and runtime state. |
-| `${CLAUDE_PROJECT_DIR}` | Project's `.claude/` parent directory. |
+| `${CLAUDE_PLUGIN_DATA}` | Persistent data dir — survives plugin updates. Use for deps and runtime state.         |
+| `${CLAUDE_PROJECT_DIR}` | Project's `.claude/` parent directory.                                                 |
 
 **Use exec form** (`"args": []`) when referencing path variables — each element is passed verbatim, no shell tokenization, so paths with spaces or special characters work without quoting. Omit `args` when you need pipes or `&&`.
 
 ## Hook command fields
 
-| Field | Required | Notes |
-| --- | --- | --- |
-| `type` | yes | `command` `http` `mcp_tool` `prompt` `agent` |
-| `command` | yes | Executable or shell string |
-| `args` | no | Exec form when present (no shell). Omit for shell form (pipes, `&&`). |
-| `if` | no | Permission-rule syntax filter — only on tool events. One rule per handler, no `&&`/`\|\|`. Example: `"Bash(git *)"` or `"Edit(*.ts)"` |
-| `timeout` | no | Seconds. Default: 600 (command/http/mcp_tool), 30 (prompt), 60 (agent) |
-| `statusMessage` | no | Spinner text while hook runs |
-| `shell` | no | `bash` or `powershell` (shell form only) |
-| `async` | no | `true` = fire-and-forget. Result delivered as context on next turn. |
-| `asyncRewake` | no | `true` = background + wakes model on exit 2 |
+| Field           | Required | Notes                                                                                                                                 |
+| --------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `type`          | yes      | `command` `http` `mcp_tool` `prompt` `agent`                                                                                          |
+| `command`       | yes      | Executable or shell string                                                                                                            |
+| `args`          | no       | Exec form when present (no shell). Omit for shell form (pipes, `&&`).                                                                 |
+| `if`            | no       | Permission-rule syntax filter — only on tool events. One rule per handler, no `&&`/`\|\|`. Example: `"Bash(git *)"` or `"Edit(*.ts)"` |
+| `timeout`       | no       | Seconds. Default: 600 (command/http/mcp_tool), 30 (prompt), 60 (agent)                                                                |
+| `statusMessage` | no       | Spinner text while hook runs                                                                                                          |
+| `shell`         | no       | `bash` or `powershell` (shell form only)                                                                                              |
+| `async`         | no       | `true` = fire-and-forget. Result delivered as context on next turn.                                                                   |
+| `asyncRewake`   | no       | `true` = background + wakes model on exit 2                                                                                           |
 
 **`.mjs` hooks**: executable, invoked directly — do NOT prefix with `node`. See hooks-executable rule and hooks-json-mjs-command rule.
 
@@ -66,9 +66,9 @@ of a configured, connected MCP server; the hook never triggers a connection
 flow) and `tool` (required — the tool to call).
 
 Two consequences: it needs the server **already connected** (so it can't serve
-the *pre-connect* events `SessionStart`/`Setup` — on first run the server is not
+the _pre-connect_ events `SessionStart`/`Setup` — on first run the server is not
 up and the hook **fails open**, a silent no-op), and it expresses any decision
-**only via returned JSON**, never exit code 2. So it can *soft*-block on
+**only via returned JSON**, never exit code 2. So it can _soft_-block on
 block-capable events but cannot be a fail-closed hard gate. It fires fine for
 mid-session events well beyond `PreToolUse`/`PostToolUse` — `Stop`,
 `SubagentStop`, `PostToolUseFailure`, `PreCompact`, `ConfigChange`, etc. are all
@@ -89,23 +89,23 @@ is documented in the **hooks-mcp-server** rule.
 
 ## Events reference
 
-| Event | Matcher support | Can block | Notes |
-| --- | --- | --- | --- |
-| `SessionStart` | `startup` `resume` `clear` `compact` | No | Load context; set `sessionTitle`; `reloadSkills: true` |
-| `PreToolUse` | tool name | **Yes** (exit 2) | Can allow/deny/modify tool input |
-| `PostToolUse` | tool name | No | Tool already ran; stderr shown to Claude |
-| `PostToolUseFailure` | tool name | No | Tool already failed |
-| `PostToolBatch` | — (ignored) | Yes | Stops loop before next model call |
-| `PermissionRequest` | tool name | Yes | Override permission dialog |
-| `PermissionDenied` | tool name | No | Use `hookSpecificOutput.retry: true` to allow retry |
-| `UserPromptSubmit` | — (ignored) | Yes | Blocks prompt; erases it on block |
-| `Stop` | — | Yes | Prevents Claude stopping |
-| `SubagentStart` | agent type name | No | Notification only |
-| `SubagentStop` | agent type name | Yes | Prevents subagent stopping (exit 2 or `decision: "block"`) |
-| `PreCompact` | `manual` `auto` | Yes | Block compaction |
-| `PostCompact` | `manual` `auto` | No | |
-| `FileChanged` | — | No | Async file watch events |
-| `CwdChanged` | — | No | |
+| Event                | Matcher support                      | Can block        | Notes                                                      |
+| -------------------- | ------------------------------------ | ---------------- | ---------------------------------------------------------- |
+| `SessionStart`       | `startup` `resume` `clear` `compact` | No               | Load context; set `sessionTitle`; `reloadSkills: true`     |
+| `PreToolUse`         | tool name                            | **Yes** (exit 2) | Can allow/deny/modify tool input                           |
+| `PostToolUse`        | tool name                            | No               | Tool already ran; stderr shown to Claude                   |
+| `PostToolUseFailure` | tool name                            | No               | Tool already failed                                        |
+| `PostToolBatch`      | — (ignored)                          | Yes              | Stops loop before next model call                          |
+| `PermissionRequest`  | tool name                            | Yes              | Override permission dialog                                 |
+| `PermissionDenied`   | tool name                            | No               | Use `hookSpecificOutput.retry: true` to allow retry        |
+| `UserPromptSubmit`   | — (ignored)                          | Yes              | Blocks prompt; erases it on block                          |
+| `Stop`               | —                                    | Yes              | Prevents Claude stopping                                   |
+| `SubagentStart`      | agent type name                      | No               | Notification only                                          |
+| `SubagentStop`       | agent type name                      | Yes              | Prevents subagent stopping (exit 2 or `decision: "block"`) |
+| `PreCompact`         | `manual` `auto`                      | Yes              | Block compaction                                           |
+| `PostCompact`        | `manual` `auto`                      | No               |                                                            |
+| `FileChanged`        | —                                    | No               | Async file watch events                                    |
+| `CwdChanged`         | —                                    | No               |                                                            |
 
 **MCP tools** match as `mcp__<server>__<tool>`. Use `mcp__server__.*` to match all tools from a server.
 
@@ -132,10 +132,10 @@ is documented in the **hooks-mcp-server** rule.
 
 ```json
 {
-  "continue": false,         // stops Claude entirely; takes precedence over event decisions
-  "stopReason": "...",       // shown to USER (not Claude) when continue: false
-  "suppressOutput": false,   // hide stdout from transcript (still in debug log)
-  "systemMessage": "..."     // warning shown to user
+  "continue": false, // stops Claude entirely; takes precedence over event decisions
+  "stopReason": "...", // shown to USER (not Claude) when continue: false
+  "suppressOutput": false, // hide stdout from transcript (still in debug log)
+  "systemMessage": "..." // warning shown to user
 }
 ```
 
@@ -185,10 +185,10 @@ Plain stdout also reaches Claude for SessionStart (no JSON wrapper needed for co
 
 ## Exit codes
 
-| Code | Meaning |
-| --- | --- |
-| 0 | Success |
-| 2 | Block (for blockable events) |
+| Code           | Meaning                                            |
+| -------------- | -------------------------------------------------- |
+| 0              | Success                                            |
+| 2              | Block (for blockable events)                       |
 | other non-zero | Failure — stderr shown per event (see table above) |
 
 ## Best practices

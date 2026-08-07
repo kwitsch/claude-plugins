@@ -3,23 +3,9 @@ name: fresh-pr
 description: Use when branch work should become a pull/merge request without a code-review-rounds step — commits pending work, rebases onto an updated base, pushes, opens or refreshes a PR/MR (GitHub and GitLab), then drives it to CI-green (and, if CodeRabbit participates, all its review threads resolved) via this plugin's own ci-watcher/pr-fixer agents. Self-contained — every script/agent used here lives in this plugin.
 argument-hint: "[--base <branch>]"
 allowed-tools:
-  [
-    "Agent",
-    "AskUserQuestion",
-    "Bash(git:*)",
-    "Bash(gh:*)",
-    "Bash(glab:*)",
-    "Bash(jq:*)",
-    "Bash(bash:*)",
-    "Bash(mktemp:*)",
-    "ToolSearch",
-    "TaskCreate",
-    "TaskUpdate",
-    "TaskList",
-    "TaskGet",
-    "TaskStop",
-  ]
+  ["Agent", "AskUserQuestion", "Bash(git:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(jq:*)", "Bash(bash:*)", "Bash(mktemp:*)", "ToolSearch", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TaskStop"]
 ---
+
 <!-- markdownlint-disable MD029 -- this file's numbered steps are ONE continuous sequence deliberately split across many list blocks by intervening prose/code; step numbers are cross-referenced by their original value elsewhere in this file ("step 3 above", "step 8 below") and must not be renumbered per-block -->
 
 # Push work and open/refresh a PR/MR, then drive it to CI-green

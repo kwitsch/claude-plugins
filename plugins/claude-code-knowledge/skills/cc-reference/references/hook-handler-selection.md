@@ -38,34 +38,33 @@
 
 ## Type comparison
 
-| type | process per call | per-call latency | hard-block reliable? | error mode | default timeout | holds state across calls |
-| --- | --- | --- | --- | --- | --- | --- |
-| `command` .sh | new shell | ~1–5 ms | YES (exit 2) | fail closed (own logic) | 600 s | no |
-| `command` binary | new process | ~1–10 ms | YES (exit 2) | fail closed | 600 s | no |
-| `command` .mjs | new node proc | ~20–30 ms empty, 100 ms+ w/ imports | YES (exit 2) | fail closed | 600 s | no |
-| `mcp_tool` | none (reuses server) | stdio RPC, sub-ms–low ms | NO — fail open | non-blocking on not-connected/isError | 600 s | YES (in server) |
-| `http` | none (reuses server) | HTTP RTT (localhost ~ms) | NO — fail open | non-blocking on non-2xx/conn/timeout | 600 s | YES (in server) |
-| `prompt` | model call | model latency | event-dependent | own decision | 30 s | no |
-| `agent` | subagent | model + tool latency | event-dependent | own decision | 60 s | no |
+| type             | process per call     | per-call latency                    | hard-block reliable? | error mode                            | default timeout | holds state across calls |
+| ---------------- | -------------------- | ----------------------------------- | -------------------- | ------------------------------------- | --------------- | ------------------------ |
+| `command` .sh    | new shell            | ~1–5 ms                             | YES (exit 2)         | fail closed (own logic)               | 600 s           | no                       |
+| `command` binary | new process          | ~1–10 ms                            | YES (exit 2)         | fail closed                           | 600 s           | no                       |
+| `command` .mjs   | new node proc        | ~20–30 ms empty, 100 ms+ w/ imports | YES (exit 2)         | fail closed                           | 600 s           | no                       |
+| `mcp_tool`       | none (reuses server) | stdio RPC, sub-ms–low ms            | NO — fail open       | non-blocking on not-connected/isError | 600 s           | YES (in server)          |
+| `http`           | none (reuses server) | HTTP RTT (localhost ~ms)            | NO — fail open       | non-blocking on non-2xx/conn/timeout  | 600 s           | YES (in server)          |
+| `prompt`         | model call           | model latency                       | event-dependent      | own decision                          | 30 s            | no                       |
+| `agent`          | subagent             | model + tool latency                | event-dependent      | own decision                          | 60 s            | no                       |
 
 `UserPromptSubmit` lowers command/http/mcp_tool default to 30 s. `MessageDisplay` lowers to 10 s. `SessionEnd` lowers to 1.5 s (budget auto-raises to the highest per-hook `timeout` configured, cap 60 s; plugin-hook timeouts don't raise it; override via env `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS`, milliseconds).
 
 ## Handler fields (config, all types unless noted)
 
-| field | type | effect |
-| --- | --- | --- |
-| `async` | `command` | `true` → runs in background, does NOT block. A backgrounded hook can't hard-block (exit 2 is not awaited inline). |
-| `asyncRewake` | `command` | `true` → runs in background AND wakes Claude on `exit 2` (implies `async`). The hook's stderr (or stdout if stderr empty) is shown to Claude as a system reminder — the path by which a long-running background failure reaches Claude. |
-| `once` | handler | `true` → runs once per session then is removed. ONLY honored for hooks declared in skill frontmatter; ignored in settings files and agent frontmatter. |
-| `statusMessage` | handler | custom spinner/status message shown while the hook runs. |
+| field             | type             | effect                                                                                                                                                                                                                                                                                           |
+| ----------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `async`           | `command`        | `true` → runs in background, does NOT block. A backgrounded hook can't hard-block (exit 2 is not awaited inline).                                                                                                                                                                                |
+| `asyncRewake`     | `command`        | `true` → runs in background AND wakes Claude on `exit 2` (implies `async`). The hook's stderr (or stdout if stderr empty) is shown to Claude as a system reminder — the path by which a long-running background failure reaches Claude.                                                          |
+| `once`            | handler          | `true` → runs once per session then is removed. ONLY honored for hooks declared in skill frontmatter; ignored in settings files and agent frontmatter.                                                                                                                                           |
+| `statusMessage`   | handler          | custom spinner/status message shown while the hook runs.                                                                                                                                                                                                                                         |
 | `continueOnBlock` | `prompt`/`agent` | `true` → on `ok:false`, feed `reason` back to Claude and continue the turn instead of stopping (implemented as `continue:true` on the resulting `decision:"block"`). Default `false`. No effect on `PostToolBatch`/`UserPromptSubmit`/`UserPromptExpansion`, which always end the turn on block. |
-| `shell` | `command` | `"bash"` or `"powershell"`. Default `"bash"`, or `"powershell"` on Windows when Git Bash isn't installed. Ignored when `args` is set (exec form spawns directly, no shell). |
+| `shell`           | `command`        | `"bash"` or `"powershell"`. Default `"bash"`, or `"powershell"` on Windows when Git Bash isn't installed. Ignored when `args` is set (exec form spawns directly, no shell).                                                                                                                      |
 
 ## mcp_tool handler shape
 
 ```json
-{ "type": "mcp_tool", "server": "<connected-server>", "tool": "<tool>",
-  "input": { "file_path": "${tool_input.file_path}" } }
+{ "type": "mcp_tool", "server": "<connected-server>", "tool": "<tool>", "input": { "file_path": "${tool_input.file_path}" } }
 ```
 
 - `server` + `tool` required; `input` optional. `${path}` substitution pulls from hook JSON input (e.g. `${tool_input.file_path}`, `${cwd}`).

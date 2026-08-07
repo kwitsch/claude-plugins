@@ -57,34 +57,34 @@ Run all scripts and fetch commands via the Bash tool.
 1. **Wait for the CI result — through the bundled watch script.**
    - GitHub: `cd "<worktree path>" && CI_WATCH_TIMEOUT=1800 TMPDIR="<scratchpad path>" bash "<ci-watch.sh-path>" github <nr>`
    - GitLab: `cd "<worktree path>" && CI_WATCH_TIMEOUT=1800 TMPDIR="<scratchpad path>" bash "<ci-watch.sh-path>" gitlab "<branch>"`
-   `TMPDIR` routes the script's own `mktemp` (used to capture stderr while
-   polling) into the session's scratch space instead of shared system
-   `/tmp` — its `TMPDIR` behavior needs no change, `mktemp` already prefers
-   `$TMPDIR` when set (the script separately gained an explicit
-   `mktemp`-failure guard, exit `64`, mapped below).
-   The script polls until every REAL check is done — CodeRabbit's own PR
-   checks are excluded by name, so a CodeRabbit app that never reacts (not
-   installed, rate-limited) can neither block the watch nor flip the result.
-   Map its exit code:
+     `TMPDIR` routes the script's own `mktemp` (used to capture stderr while
+     polling) into the session's scratch space instead of shared system
+     `/tmp` — its `TMPDIR` behavior needs no change, `mktemp` already prefers
+     `$TMPDIR` when set (the script separately gained an explicit
+     `mktemp`-failure guard, exit `64`, mapped below).
+     The script polls until every REAL check is done — CodeRabbit's own PR
+     checks are excluded by name, so a CodeRabbit app that never reacts (not
+     installed, rate-limited) can neither block the watch nor flip the result.
+     Map its exit code:
    - `0` → `ci: "green"` (carry any `note:` lines from stdout into your report)
    - `1` → `ci: "red"` — pull the evidence (step 2)
    - `2` → `ci: "red"` with exactly one synthetic failure entry
      `{"job": "ci-watch", "cause": "watch hit its deadline without a
-     conclusive CI result"}` (no `log_excerpt` — there is no log to pull)
+conclusive CI result"}` (no `log_excerpt` — there is no log to pull)
    - `64` → `ci: "red"` with exactly one synthetic failure entry
      `{"job": "ci-watch", "cause": "environment error: <the script's stderr
-     line>"}` (no `log_excerpt`)
-   Run the watch on plain Bash: it is long-blocking with a guaranteed-small
-   final output — run it directly, not through any other tooling.
+line>"}` (no `log_excerpt`)
+     Run the watch on plain Bash: it is long-blocking with a guaranteed-small
+     final output — run it directly, not through any other tooling.
 2. **On a non-synthetic failure (exit code 1), pull the evidence.**
    - GitHub: ONE call — `cd "<worktree path>" && gh run view <run-id>
-     --log-failed` returns the logs of every failed step; extract the relevant
+--log-failed` returns the logs of every failed step; extract the relevant
      sections (job names, "error", "FAIL").
    - GitLab: one `cd "<worktree path>" && glab ci trace <job>` per failing job
      (up to 4 at a time if possible), collecting output per job.
-   Distill every failing job into: job name, root cause (your analysis, one or
-   two sentences), and a minimal log excerpt (the failing lines only — not the
-   whole log).
+     Distill every failing job into: job name, root cause (your analysis, one or
+     two sentences), and a minimal log excerpt (the failing lines only — not the
+     whole log).
 3. **Wait for CodeRabbit's own check to conclude, then collect its feedback
    — through the same bundled script's second query mode.** CodeRabbit posts
    as its own GitHub check (excluded from step 1's real-CI verdict on
@@ -97,9 +97,9 @@ Run all scripts and fetch commands via the Bash tool.
    - GitLab: no equivalent check exists to gate on (CodeRabbit posts only as
      MR discussions there) — skip this call; the fetch below is your only
      signal.
-   Map its exit code (informational only — every outcome below proceeds to
-   the thread fetch; the exit code only decides what you note in the
-   report, never whether you fetch):
+     Map its exit code (informational only — every outcome below proceeds to
+     the thread fetch; the exit code only decides what you note in the
+     report, never whether you fetch):
    - `0` → the check concluded, or no coderabbit-named check was ever found
      (3 consecutive confirmations) — CodeRabbit is done, or not
      installed/reacting on this repo.
@@ -111,9 +111,9 @@ Run all scripts and fetch commands via the Bash tool.
      missing) — proceed to the fetch anyway; this call is a best-effort
      gate, never a hard dependency, and never changes the `ci` field step 1
      already decided.
-   A silent CodeRabbit (app not installed, rate limit exhausted) is an
-   empty `review_findings` list — never an error. Then fetch the open
-   CodeRabbit threads ONCE:
+     A silent CodeRabbit (app not installed, rate limit exhausted) is an
+     empty `review_findings` list — never an error. Then fetch the open
+     CodeRabbit threads ONCE:
    - GitHub: resolution state lives on review threads and is only available
      via GraphQL — query the PR's `reviewThreads` with `isResolved` and keep
      unresolved threads whose comments are authored by `coderabbitai`:
@@ -125,13 +125,13 @@ Run all scripts and fetch commands via the Bash tool.
    - GitLab: `cd "<worktree path>" && glab api "projects/:id/merge_requests/<iid>/discussions"` —
      discussions carry a `resolved` flag; keep unresolved ones authored by
      `coderabbitai`.
-   Normalize each into the findings shape below. No CodeRabbit app on the
-   repo → empty list, not an error. Bot comments that only report status
-   (e.g. "rate limit exceeded", "review skipped") are NOT findings — drop
-   them and put a note in your report instead. Carry each thread/discussion
-   id into both `id` and `thread_id` (same value) — the skill needs `id` to
-   correlate `pr-fixer`'s resolutions back to a thread, and `thread_id` to
-   actually resolve it.
+     Normalize each into the findings shape below. No CodeRabbit app on the
+     repo → empty list, not an error. Bot comments that only report status
+     (e.g. "rate limit exceeded", "review skipped") are NOT findings — drop
+     them and put a note in your report instead. Carry each thread/discussion
+     id into both `id` and `thread_id` (same value) — the skill needs `id` to
+     correlate `pr-fixer`'s resolutions back to a thread, and `thread_id` to
+     actually resolve it.
 4. **Extract the AI-agent fix prompt, if CodeRabbit attached one.** CodeRabbit
    review comments often carry a collapsible section titled "Prompt for AI Agents"
    (search the comment `body` for that phrase, case-insensitive; the instruction
@@ -145,11 +145,21 @@ Run all scripts and fetch commands via the Bash tool.
 Return ONLY this JSON as your final message:
 
 ```json
-{"ci": "green|red",
- "failures": [{"job": "name", "cause": "analysis", "log_excerpt": "lines (omitted for the synthetic ci-watch failures above)"}],
- "review_findings": [{"id": "same value as thread_id", "file": "path", "line": 0,
-                      "severity": "critical|major|minor", "title": "...",
-                      "description": "...", "recommendation": "...",
-                      "ai_prompt": "... (omit key entirely if none found)",
-                      "thread_id": "GraphQL thread node id / GitLab discussion id"}]}
+{
+  "ci": "green|red",
+  "failures": [{ "job": "name", "cause": "analysis", "log_excerpt": "lines (omitted for the synthetic ci-watch failures above)" }],
+  "review_findings": [
+    {
+      "id": "same value as thread_id",
+      "file": "path",
+      "line": 0,
+      "severity": "critical|major|minor",
+      "title": "...",
+      "description": "...",
+      "recommendation": "...",
+      "ai_prompt": "... (omit key entirely if none found)",
+      "thread_id": "GraphQL thread node id / GitLab discussion id"
+    }
+  ]
+}
 ```

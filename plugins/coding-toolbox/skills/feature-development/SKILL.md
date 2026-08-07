@@ -139,6 +139,7 @@ line.
    one human-facing checkpoint on the design — Design's self-review (and
    advisor consultation, when it judged one warranted) is the correctness
    validation, not this step.
+
 3. **Plan.** Read `references/planning.md`; produce the plan at the plan temp path
    from the revised design doc. Scales itself against the complexity heuristic,
    same as Design. **Self-review is the hard gate before implementation starts —

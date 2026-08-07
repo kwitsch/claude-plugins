@@ -4,6 +4,7 @@ paths:
   - "test/**/*.mjs"
   - "types/cc-types.d.ts"
 ---
+
 # Rule: Claude Code type definitions in types/cc-types.d.ts
 
 `types/cc-types.d.ts` is the single source of truth for Claude Code API shapes used
