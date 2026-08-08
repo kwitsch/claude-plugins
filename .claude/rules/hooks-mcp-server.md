@@ -39,8 +39,15 @@ server's latency argument entirely, since the agentic loop no longer waits on ei
 a server round-trip or a per-event spawn. Leave it synchronous when it mutates state
 whose ordering relative to the next tool call matters (the async result only arrives
 on the _next_ conversation turn — too late to prevent Claude from acting on stale
-state in between). `universal-lint` (async — read-only) and `universal-format`
-(synchronous — mutates the file) are this repo's two examples, decided 2026-07-24.
+state in between). `universal-lint` (async — read-only, exactly one hook) is this
+repo's single-hook example.
+
+> Correction note (superseded 2026-08-08): `universal-format` was previously listed
+> here alongside `universal-lint` as a single-hook example. As of 0.9.0 it backs TWO
+> `mcp_tool` hooks (`format_pre` PreToolUse + `format_post` PostToolUse) on its own
+> plugin-local MCP server, so it no longer qualifies for the single-hook exception —
+> the warm in-process prettier library the server keeps alive is exactly the "server
+> stays warm" benefit this exception says a single call site can't amortize.
 
 Why the limits (documented Claude Code behavior):
 
@@ -142,13 +149,15 @@ This wrapper is an **optional fallback** for a plugin that genuinely needs
 bun-preferred runtime selection; the canonical shape is the direct-`.mjs` `command`
 shown above. It carries known edge-case issues (empty PATH segment, lingering signal
 forwarder); prefer the direct-`.mjs` form. No LSP plugin ships one anymore;
-`claude-code-knowledge` and `coding-toolbox` use it (their own PATH line deviates
-from the template below — appending `~/.local/bin`/`~/.bun/bin` instead of
-prepending them, per a correctness finding on `universal-lint`/`universal-format`'s
-own rtk/PATH review, before those two dropped their MCP servers entirely on
-2026-07-24 and now carry no wrapper at all — see each plugin's CLAUDE.md) — copy
-the template below if you need it. Prefers bun; falls back to node; errors if
-neither is available. All messages go to stderr (stdout is the MCP stdio channel).
+`claude-code-knowledge`, `coding-toolbox`, and `universal-format` use it (their own
+PATH line deviates from the template below — appending `~/.local/bin`/`~/.bun/bin`
+instead of prepending them, per a correctness finding on
+`universal-lint`/`universal-format`'s own rtk/PATH review — see each plugin's
+CLAUDE.md). `universal-lint` dropped its MCP server on 2026-07-24 and carries no
+wrapper; `universal-format` re-introduced a wrapper-launched MCP server in 0.9.0 (two
+hooks on a warm in-process prettier server). Copy the template below if you need it.
+Prefers bun; falls back to node; errors if neither is available. All messages go to
+stderr (stdout is the MCP stdio channel).
 
 ```bash
 #!/usr/bin/env bash

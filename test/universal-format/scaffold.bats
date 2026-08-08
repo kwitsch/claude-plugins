@@ -118,3 +118,8 @@ setup() {
   run rg_or_grep -E "^## Hooks" "$PLUGIN/README.md"
   assert_failure
 }
+
+@test "plugin.json version is 0.9.0" {
+  run jq -e '.version == "0.9.0"' "$PLUGIN/.claude-plugin/plugin.json"
+  assert_success
+}

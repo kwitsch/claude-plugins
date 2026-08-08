@@ -1,24 +1,111 @@
 # CLAUDE.md — universal-format
 
-Hooks-only plugin: a PostToolUse `Write|Edit` `command` hook silently auto-formats the just-written file for Shell/Java/Kotlin/JS-TS/Python/Go/JSON/YAML/Markdown/CSS/SCSS/PHP via each language's standard formatter, backed by a self-contained zero-dep `hooks/format-file.mjs`. No `userConfig` — the hook is always active once the plugin is installed (see "No toggle" below).
+Auto-formatter plugin backed by a self-contained zero-dep MCP stdio server
+(`mcp/server.mjs`), launched via a bun-preferred `bin/mjs-launch.sh` wrapper. Two
+`mcp_tool` hooks on `Write|Edit`: **PreToolUse `format_pre`** formats prettier
+languages (JS/TS, JSON, YAML, Markdown, CSS, SCSS) in-process BEFORE the write via
+`hookSpecificOutput.updatedInput`; **PostToolUse `format_post`** formats the
+remaining languages (Shell/Java/Kotlin/Python/Go/PHP) on disk after the write via
+each tool's CLI, and also covers prettier languages when no in-process prettier is
+available. No `userConfig` — the hooks ARE the plugin (see "No toggle").
 
-## Hook design (do not "fix" without reading this)
+## Architecture (do not "fix" without reading this)
 
-- **PostToolUse `Write|Edit` → `command`: `command: "${CLAUDE_PLUGIN_ROOT}/hooks/format-file.mjs"`, `timeout: 60`.** Invoked directly (no `node` prefix), no persistent process. **Deliberately no `async`** — the reformat must land, and Claude must see the "re-read before further edits" notice, before its next tool call touches the file; an async hook's output only arrives on the _next_ conversation turn, by which point Claude could already have issued a stale `Edit` against the pre-reformat content. This is the one difference from its sibling `universal-lint`, which IS `async: true` (safe there because linting never mutates the file). No `statusMessage` (silent).
-- **Single-hook exception to the repo's `mcp_tool`-preferred default (see `.claude/rules/hooks-mcp-server.md`).** Same rationale as `universal-lint`: exactly one hook, so a persistent MCP stdio server buys nothing here. Unlike `universal-lint`, this plugin gains no extra latency argument from staying synchronous — it simply drops one moving part (the server) while keeping the same timing guarantee it always had.
-- **No `bin/mjs-launch.sh` wrapper, no `.mcp.json`.** The script runs directly under `node` (no persistent MCP server).
+- **One MCP server, two tools.** `.mcp.json` registers `universal-format-hooks`
+  (`command: ${CLAUDE_PLUGIN_ROOT}/bin/mjs-launch.sh`, `args:
+["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"]`, `env.CLAUDE_PLUGIN_DATA`). Both hooks
+  reference the runtime-namespaced `plugin:universal-format:universal-format-hooks`
+  (NOT the bare `.mcp.json` key — that fails to connect). `timeout: 60`, no `async`,
+  no `if` on either. All logic lives in `mcp/server.mjs`; the old
+  `hooks/format-file.mjs` command hook is deleted.
+- **`bin/mjs-launch.sh` is shipped for repo parity, NOT for speed.** Measured on this
+  machine, bun is SLOWER here than node (warm format ~48 ms bun vs ~39 ms node; first
+  format ~354 ms vs ~161 ms); only the one-time module import is faster under bun.
+  Both are far under the ~223 ms cold-CLI spawn, so the in-process thesis holds. Do
+  NOT "restore" a direct-`.mjs` invocation on performance grounds, and do NOT claim
+  bun is faster here, without a new decision. Wrapper uses the APPEND-PATH form
+  (inherited PATH wins over `~/.local/bin`/`~/.bun/bin`) so a stale user-dir binary
+  can't shadow a system tool.
+- **`format_pre` never sets `permissionDecision`.** Only `updatedInput` (+ the
+  `additionalContext` reformat notice). `"allow"` would auto-approve every Write/Edit;
+  `"defer"` would drop the mutation. For Edit it emits a WHOLE-FILE SWAP:
+  `updatedInput = { file_path, old_string: <entire pre-edit file>, new_string:
+<formatted whole file>, replace_all: false }` — formatting only the Edit fragment is
+  broken and is not the design. `applyEdit` mirrors Claude Code's Edit contract
+  (not-found / non-unique → `null` → return `{}` so the original Edit proceeds/errs).
+- **Synchronous hooks, still.** Neither hook is `async`: the reformat must land, and
+  Claude must see the "re-read before further edits" notice, before its next tool call
+  touches the file. The notice text is identical across both events (only
+  `hookEventName` differs). Success is decided by CONTENT DIFF, never exit codes, in
+  both handlers. Every error/guard-failure returns `{}` (silent fail open).
+
+## Prettier resolution — shared 3-tier resolver + npx safety net (do not "fix" without reading this)
+
+`resolvePrettierSource(cwd)` is a pure predicate both handlers call so exactly one
+formats each prettier file (no cross-call signaling). A project's own prettier ALWAYS
+wins; the managed copy is NEVER preferred over PATH prettier; npx is only ever the
+final resort:
+
+1. **project-local importable** — `createRequire(join(cwd,"package.json")).resolve("prettier")` → `in-process` (PreToolUse, warm import).
+2. **else prettier on PATH** — `onPath("prettier")` → `path-subprocess` (PostToolUse, direct binary; `guardPrintWidthArgv` for json/yaml).
+3. **else managed copy** under `${CLAUDE_PLUGIN_DATA}/prettier/current` → `in-process` (PreToolUse, warm import).
+4. **else `npx --yes prettier`** — the retained final safety net, reached in
+   `format_post`'s existing chain on the `none` case. This is NOT a resolver kind.
+
+Tiers 1/2 are cached per `cwd` for the server lifetime; tier 3 is re-checked live so a
+just-completed lazy install is picked up on the next Write. `format_pre` handles only
+tiers 1/3 (in-process); on tier 2 or non-prettier it returns `{}`; on `none` it fires
+the lazy install out of band and returns `{}`. `format_post` returns `{}` for a
+prettier language on tier 1/3 (already handled), fires the lazy install on `none` and
+falls through to the existing chain (→ npx), and runs the direct binary on tier 2.
+`prettier.clearConfigCache()` is called before every `resolveConfig` so a mid-session
+`.prettierrc*`/`.editorconfig`/`package.json` prettier change is honored. In-process
+json/yaml sets `printWidth = 99999` iff `shouldOverridePrintWidth(file,cwd)` (the
+in-process mirror of the subprocess `guardPrintWidthArgv`).
+
+**The `npx --yes prettier` fallback is RETAINED and LIVE** (do not remove):
+`PRETTIER_NATIVE`/`PRETTIER_LINE_LENGTH_GUARDED` keep `npmSpec: "prettier"`;
+`NPX_SPAWN_TIMEOUT_MS` (55 s) is retained; `isToolAvailable`/`selectFormatter`'s npx
+pass and `format_post`'s npx else-branch all move verbatim and stay reachable. The
+managed copy replaces npx only as the NORMAL path for prettier-less projects (tier-3
+in-process), not by removing it.
+
+## Managed prettier copy under `${CLAUDE_PLUGIN_DATA}` (do not "fix" without reading this)
+
+Pinned to `MANAGED_PRETTIER_VERSION = "3.9.4"` (aligned with the repo's `prettier`
+devDependency). Layout: `versions/<pin>-<rand>/node_modules/prettier` (npm `--prefix`
+target), `current` (symlink, atomically flipped, only ever points at a COMPLETE tree),
+`.last-check` (daily marker).
+
+- **Lazy install (first tier-none miss, non-blocking).** A module-level state machine
+  (`idle → installing → done|failed`) fires `spawn npm install --no-save
+--no-package-lock --no-audit --no-fund --loglevel=error --prefix <staging>
+prettier@<pin>` with `cwd` inside `${CLAUDE_PLUGIN_DATA}` — async `spawn`, NEVER
+  awaited, `INSTALL_TIMEOUT_MS = 120000`. The hook returns `{}` immediately. On clean
+  `exit(0)` AND a version sanity check, it publishes via a temp symlink + `rename()`
+  onto `current` (atomic on POSIX), then GCs other versions. A reader never sees a
+  half-installed tree. One attempt per server lifetime after a failure.
+- **Race-safe / fail-open.** Concurrent sessions each stage into a unique dir and each
+  atomically flip `current`; last flip wins, all point at a complete pinned tree. Every
+  failure (no npm / no network / disk full / non-zero exit / timeout / wrong version /
+  `${CLAUDE_PLUGIN_DATA}` unset) is a silent no-op that leaves `current` untouched; the
+  npx net keeps formatting prettier files meanwhile — a failed/absent install is never
+  a formatting regression.
+- **Daily reconcile-to-pin (at server start, fire-and-forget, never awaited).** Rate-
+  limited to at most 1 per 24 h via `.last-check` (written FIRST, claiming the window,
+  so a failed/offline check still counts and rapid restarts do at most one). Only if a
+  managed copy EXISTS and its version differs from the pin does it reinstall (local
+  version-string compare — NO npm-registry query; npm shelled out only to reinstall),
+  using the same staging + atomic-flip mechanism. Never eager-installs when no copy
+  exists. Only ever touches the managed copy — never a project's prettier or a PATH
+  prettier. An already-imported in-memory prettier is NOT re-imported; a new version
+  takes effect only on the next server start.
 
 ## No toggle (do not "fix" without reading this)
 
-This plugin declares no `userConfig` — see `.claude/rules/plugin-userconfig.md`'s exception list. Auto-formatting IS the entire plugin; disabling it is equivalent to uninstalling. Anyone who previously set `auto_format: false` will find that setting silently ignored going forward.
-
-## Runtime behavior (`format_file`)
-
-Guards, each failing to `{}` silently: `tool_response.success !== false` → extension in the registry → resolved path inside `cwd` and passes `isExcludedPath` (not under `node_modules/`/`vendor/`/`.git/`, `.claude/worktrees/`, `.claude/agent-memory/`, or a `*.local.*` filename — see "Path exclusions" below) → file exists → some chain tool on `PATH` (probes cached in-process for the process lifetime). Then: `selectFormatter` walks the language chain in order — a tool missing from `PATH` **or** hitting a hard style conflict (e.g. `.editorconfig` says tabs, `google-java-format` can't do tabs) is skipped, falling through to the next chain entry rather than aborting; only when no chain tool can run does the hook no-op. Invocation resolved per strategy → `spawnSync` (`cwd` = project cwd, 30 s timeout, stdio ignored) → before/after **content diff** decides success (NEVER exit codes: ktlint exits non-zero after a successful format). Changed → `hookSpecificOutput.additionalContext`; unchanged or any error/timeout → `{}`.
-
-Config strategy per tool: `shfmt`/`ktlint`/`prettier` native (run bare, flag-free — shfmt loses ALL EditorConfig handling if given any parser/printer flag); `ktfmt` always `--enable-editorconfig`; `goimports`/`gofmt` fixed style; `google-java-format`/`clang-format`/`ruff`/`black` mapped — nearest tool-native config upward → run bare, else `.editorconfig` → mapped flags (hard conflict → skip). `goimports` preferred over `gofmt` (fixes imports); `gofumpt` deliberately excluded (churn on non-opted-in projects). JSON/YAML/Markdown/CSS/SCSS all reuse this machinery largely unchanged: `prettier` (native) covers all five, with one addition — JSON and YAML's `prettier` entry (`PRETTIER_LINE_LENGTH_GUARDED`) also carries the `guardPrintWidth` line-length guard described below; Markdown/CSS/SCSS stay plain `PRETTIER_NATIVE`.
-
-**Biome fallback removed (2026-08-07).** JSON/CSS/JS-TS previously chained to `biome` (mapped strategy) after `prettier`. Dropped entirely — `biome` no longer appears anywhere in `REGISTRY` or `MAPPERS` — so all three languages are now `prettier`-only, matching YAML/Markdown/SCSS. Do not re-add a `biome` chain entry without re-deriving its known caveats from git history (pre-1.9 CSS formatting was opt-in-only and silently no-op'd; SCSS was never supported).
+This plugin declares no `userConfig` — see `.claude/rules/plugin-userconfig.md`'s
+exception list. Auto-formatting IS the entire plugin; disabling it is equivalent to
+uninstalling. The bats suite asserts `userConfig`'s absence as a tripwire.
 
 ## Path exclusions (`isExcludedPath`)
 
@@ -101,12 +188,16 @@ the wrong or unvetted code.
 `test/universal-format/` — split into one `.bats` file per language/tool
 (`scaffold.bats`, `core.bats`, `go.bats`, `kotlin.bats`, `java.bats`,
 `python.bats`, `jsts.bats`, `json.bats`, `yaml.bats`, `markdown.bats`,
-`css.bats`, `php.bats`), mirroring `test/coding-toolbox/`'s split. `test_helper.bash`
-holds what's shared across files (`common_setup`, `rg_or_grep`,
-`make_stub`, `rec_stub`, `format_file_call`). Hermetic: stub formatters on
-an isolated PATH recording argv. Plus `test/universal-format/*.test.mjs`
-(`node:test` unit tests for the `.editorconfig` resolver and registry flag
-mapping). Run:
+`css.bats`, `php.bats`, `managed-prettier.bats`), mirroring `test/coding-toolbox/`'s
+split. `test_helper.bash` holds what's shared across files (`common_setup`,
+`rg_or_grep`, `make_stub`, `rec_stub`, a JSON-RPC driver over the MCP server —
+`format_file_call`/`pre_tool_use_write_call`/`pre_tool_use_edit_call`). Hermetic:
+stub formatters (and, for `managed-prettier.bats`, a stub `npm`) on an isolated
+`PATH` recording argv, no real network. `managed-prettier.bats` drives the
+lazy-install/daily-check state machine end to end over JSON-RPC with a per-test
+`${CLAUDE_PLUGIN_DATA}`. Plus `test/universal-format/*.test.mjs` (`node:test` unit
+tests for the `.editorconfig` resolver, registry flag mapping, and the in-process
+prettier contract in `prettier.test.mjs`). Run:
 
 ```bash
 BATS_LIB_PATH="$PWD/node_modules" pnpm exec bats test/universal-format/

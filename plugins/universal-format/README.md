@@ -10,9 +10,22 @@ Silently auto-formats just-written source files after Write/Edit using each lang
 
 ## What it does
 
-A synchronous PostToolUse `Write|Edit` command hook (no MCP server — the plugin has exactly one hook) reformats the file Claude just wrote, in place, for twelve languages. The formatter runs when its CLI is on `PATH` — or, for `prettier`, via the `npx` fallback (see below); an unavailable formatter (no `PATH` CLI and no `npx` fallback), any formatter failure, an unsupported extension, a file outside the project, or a file under `node_modules/`/`vendor/`/`.git/` is a **silent no-op** — the hook never blocks or degrades the session. When (and only when) formatting actually changed the file, the hook returns a one-line note telling Claude to re-read the file before further string-based edits (so subsequent `Edit` calls don't fail on stale `old_string`) and that the reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules — it should not be reverted or redone by hand to shrink the diff.
+Two `Write|Edit` hooks on a self-contained plugin-local MCP server. **Prettier
+languages** (JS/TS, JSON, YAML, Markdown, CSS, SCSS) are formatted **before the write**
+(PreToolUse) by a warm in-process prettier, so the file lands already formatted — using
+a project's own prettier when present, otherwise a plugin-managed copy the server
+installs on demand under its data dir; a prettier on `PATH` (or `npx --yes prettier` as
+a last resort) formats them **after the write** (PostToolUse) when no in-process
+prettier is available. **All other languages** (Shell, Java, Kotlin, Python, Go, PHP)
+are formatted after the write via each tool's CLI. An unavailable formatter, any
+failure, an unsupported extension, a file outside the project, or a file under
+`node_modules/`/`vendor/`/`.git/` is a **silent no-op** — the hooks never block or
+degrade the session. When formatting changed the file, the hook returns a one-line note
+telling Claude to re-read it before further string-based edits, and that the reformat is
+intentional and exempt from "surgical/minimal-diff" change-scope rules.
 
-This hook is always active once the plugin is installed — there is no toggle. Per-language opt-out is simply not installing that formatter.
+This plugin is always active once installed — there is no toggle. Per-language opt-out
+is simply not installing that formatter.
 
 ## Supported formatters
 
@@ -31,10 +44,12 @@ This hook is always active once the plugin is installed — there is no toggle. 
 | SCSS     | `.scss`                                               | `prettier`                             |
 | PHP      | `.php`                                                | `php-cs-fixer`                         |
 
-`prettier` additionally runs via `npx` when not installed locally (an
-official npm package) — this also covers its JSON/YAML/Markdown/CSS/SCSS
-chain entries. No other formatter in this chain has an npx fallback — see
-`CLAUDE.md` for why.
+`prettier` is obtained in-process from a project-local install (preferred) or a
+plugin-managed copy the server installs on demand under `${CLAUDE_PLUGIN_DATA}` when
+neither a project-local nor a `PATH` prettier is found; `npx --yes prettier` (an
+official npm package) is retained as the last-resort fallback. This also covers its
+JSON/YAML/Markdown/CSS/SCSS chain entries. No other formatter in this chain has an npx
+fallback — see `CLAUDE.md` for why.
 
 ## `.editorconfig` support
 
