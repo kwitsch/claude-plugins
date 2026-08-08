@@ -1,0 +1,5 @@
+# Generated lockfile. pnpm re-serialises it with its own writer on every dependency
+# change, so a prettier pass here is undone by the next install and only makes
+# dependency diffs unreadable (287 of 290 lines rewritten: quote style, brace spacing,
+# blank lines). Excluded rather than formatted.
+pnpm-lock.yaml
