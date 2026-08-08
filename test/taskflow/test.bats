@@ -264,6 +264,15 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
 }
 
+@test "design-to-spec reference documents the Explore cache" {
+  run rg_or_grep -F 'explore-' "$REFS/design-to-spec.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'cache' "$REFS/design-to-spec.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F '.explore-' "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
 @test "spec-driven-delivery workflow guards agent array fields before iterating" {
   run rg_or_grep -F 'r.verdicts || []' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
