@@ -49,6 +49,8 @@ repo's single-hook example.
 > the warm in-process prettier library the server keeps alive is exactly the "server
 > stays warm" benefit this exception says a single call site can't amortize.
 
+<!-- separate blockquote, not a continuation of the one above -->
+
 > Correction note (added 2026-08-08): `universal-format` is this repo's ONE deliberate
 > exception to "self-contained zero-dep `mcp/server.mjs`". As of 0.10.0 its
 > `plugins/universal-format/mcp/server.mjs` is a committed ~5.4 MB `bun build` bundle
