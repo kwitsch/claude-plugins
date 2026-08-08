@@ -23,10 +23,6 @@ common_setup() {
   # Isolated HOME so no test reads real user config.
   export HOME="$BATS_TEST_TMPDIR/home"
   mkdir -p "$HOME/.claude"
-
-  # Empty persistent data dir: no managed prettier copy present by default.
-  export CLAUDE_PLUGIN_DATA="$BATS_TEST_TMPDIR/plugin-data"
-  mkdir -p "$CLAUDE_PLUGIN_DATA"
 }
 
 # Prefer ripgrep; fall back to grep if rg isn't installed. rg's -E means
@@ -92,7 +88,7 @@ _mcp_call() {
   local fifo="$BATS_TEST_TMPDIR/mcpin.$$.$RANDOM"
   local outfile="$BATS_TEST_TMPDIR/mcpout.$$.$RANDOM"
   mkfifo "$fifo"
-  env PATH="$MOCKBIN" HOME="$HOME" RECORD="${RECORD:-/dev/null}" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" \
+  env PATH="$MOCKBIN" HOME="$HOME" RECORD="${RECORD:-/dev/null}" \
     node "$SERVER" <"$fifo" >"$outfile" 2>/dev/null &
   local server_pid=$!
   exec {w}>"$fifo"

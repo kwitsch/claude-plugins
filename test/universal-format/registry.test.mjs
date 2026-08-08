@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { buildInvocation, isToolAvailable, isExcludedPath, REGISTRY, hasPrettierProjectConfig, guardPrintWidthArgv, shouldOverridePrintWidth } from "../../plugins/universal-format/mcp/server.mjs";
+import { buildInvocation, isExcludedPath, REGISTRY, EXT_MAP, PRETTIER_LANGS, hasPrettierProjectConfig, shouldOverridePrintWidth } from "../../plugins/universal-format/mcp/server.mjs";
 
 const shfmt = REGISTRY.shell.chain[0];
 const gjf = REGISTRY.java.chain[0];
@@ -94,68 +94,28 @@ test("clang-format: native config -> bare (fallback ignored when .clang-format p
   );
 });
 
-test("REGISTRY: only prettier carries npmSpec, with the exact npm package name", () => {
-  assert.equal(REGISTRY.jsts.chain[0].npmSpec, "prettier");
-  for (const lang of ["shell", "java", "kotlin", "python", "go"]) {
-    for (const tool of REGISTRY[lang].chain) {
-      assert.equal(tool.npmSpec, undefined);
+// Tripwire 1 (inverse of the old "only prettier carries npmSpec" test): prettier is not in
+// REGISTRY at all any more, and no surviving chain tool ever carried npmSpec or guardPrintWidth.
+// Existence checks only — `tool.npmSpec` would be a TS2339 typecheck failure.
+test("REGISTRY: no chain tool carries npmSpec or guardPrintWidth", () => {
+  for (const entry of Object.values(REGISTRY)) {
+    for (const tool of entry.chain) {
+      assert.equal("npmSpec" in tool, false, `${tool.name} must not carry npmSpec`);
+      assert.equal("guardPrintWidth" in tool, false, `${tool.name} must not carry guardPrintWidth`);
     }
   }
 });
 
-test("REGISTRY: json/yaml/markdown chains and npmSpecs", () => {
-  assert.deepEqual(
-    REGISTRY.json.chain.map((t) => t.name),
-    ["prettier"],
-  );
-  assert.equal(REGISTRY.json.chain[0].npmSpec, "prettier");
-  assert.deepEqual(
-    REGISTRY.yaml.chain.map((t) => t.name),
-    ["prettier"],
-  );
-  assert.equal(REGISTRY.yaml.chain[0].npmSpec, "prettier");
-  assert.deepEqual(
-    REGISTRY.markdown.chain.map((t) => t.name),
-    ["prettier"],
-  );
-  assert.equal(REGISTRY.markdown.chain[0].npmSpec, "prettier");
-});
-
-test("REGISTRY: css/scss chains are both prettier-only", () => {
-  assert.deepEqual(
-    REGISTRY.css.chain.map((t) => t.name),
-    ["prettier"],
-  );
-  assert.equal(REGISTRY.css.chain[0].npmSpec, "prettier");
-  assert.deepEqual(
-    REGISTRY.scss.chain.map((t) => t.name),
-    ["prettier"],
-  );
-  assert.equal(REGISTRY.scss.chain[0].npmSpec, "prettier");
-});
-
-test("isToolAvailable: true when the tool itself is on PATH", () => {
-  assert.equal(isToolAvailable({ name: "shfmt" }, true, false), true);
-  assert.equal(isToolAvailable({ name: "prettier", npmSpec: "prettier" }, true, false), true);
-});
-
-test("isToolAvailable: true via npx only when npmSpec is set and npx is on PATH", () => {
-  assert.equal(isToolAvailable({ name: "prettier", npmSpec: "prettier" }, false, true), true);
-  assert.equal(isToolAvailable({ name: "prettier", npmSpec: "prettier" }, false, false), false);
-  assert.equal(isToolAvailable({ name: "shfmt" }, false, true), false);
-});
-
-test("isToolAvailable: false when neither PATH nor npx-with-npmSpec applies", () => {
-  assert.equal(isToolAvailable({ name: "shfmt" }, false, false), false);
-});
-
-test("REGISTRY: yaml/json prettier entries carry guardPrintWidth; css/scss/markdown do not", () => {
-  assert.equal(REGISTRY.yaml.chain[0].guardPrintWidth, true);
-  assert.equal(REGISTRY.json.chain[0].guardPrintWidth, true);
-  assert.equal(REGISTRY.json.chain[0].name, "prettier");
-  assert.equal(REGISTRY.css.chain[0].guardPrintWidth, undefined);
-  assert.equal(REGISTRY.scss.chain[0].guardPrintWidth, undefined);
-  assert.equal(REGISTRY.markdown.chain[0].guardPrintWidth, undefined);
+// Tripwire 2: EXT_MAP partitions exactly — every mapped language is either owned by the bundled
+// prettier (format_pre) or has a CLI chain in REGISTRY (format_post), never both and never
+// neither. This is the unit-level pin for formatPost's REGISTRY[lang] existence guard.
+test("EXT_MAP partitions exactly into PRETTIER_LANGS and REGISTRY keys", () => {
+  for (const lang of Object.values(EXT_MAP)) {
+    assert.equal(PRETTIER_LANGS.has(lang) !== Object.hasOwn(REGISTRY, lang), true, `${lang} must be in exactly one of PRETTIER_LANGS / REGISTRY`);
+  }
+  for (const lang of PRETTIER_LANGS) {
+    assert.equal(Object.hasOwn(REGISTRY, lang), false, `${lang} must not have a REGISTRY chain`);
+  }
 });
 
 test("hasPrettierProjectConfig: finds .prettierrc directly in the file's dir", () => {
@@ -195,38 +155,10 @@ test("hasPrettierProjectConfig: nothing found -> false", () => {
   assert.equal(hasPrettierProjectConfig(dir), false);
 });
 
-test("guardPrintWidthArgv: no prettier config, no .editorconfig -> --print-width appended", () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "uf-pw-"));
-  const file = path.join(dir, "a.yaml");
-  assert.deepEqual(guardPrintWidthArgv(["--write"], file, dir), ["--write", "--print-width", "99999"]);
-});
-
-test("guardPrintWidthArgv: prettier project config present -> bare, no override", () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "uf-pw-"));
-  writeFileSync(path.join(dir, ".prettierrc"), "{}");
-  const file = path.join(dir, "a.yaml");
-  assert.deepEqual(guardPrintWidthArgv(["--write"], file, dir), ["--write"]);
-});
-
-test("guardPrintWidthArgv: .editorconfig sets max_line_length -> bare, prettier honors it natively", () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "uf-pw-"));
-  writeFileSync(path.join(dir, ".editorconfig"), "root = true\n[*]\nmax_line_length = 100\n");
-  const file = path.join(dir, "a.json");
-  assert.deepEqual(guardPrintWidthArgv(["--write"], file, dir), ["--write"]);
-});
-
-test("guardPrintWidthArgv: .editorconfig present but without max_line_length -> override still applies", () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "uf-pw-"));
-  writeFileSync(path.join(dir, ".editorconfig"), "root = true\n[*]\nindent_size = 2\n");
-  const file = path.join(dir, "a.json");
-  assert.deepEqual(guardPrintWidthArgv(["--write"], file, dir), ["--write", "--print-width", "99999"]);
-});
-
-test("REGISTRY: php chain is php-cs-fixer only (chain of 1), native strategy, no npmSpec, caching disabled", () => {
+test("REGISTRY: php chain is php-cs-fixer only (chain of 1), native strategy, caching disabled", () => {
   assert.equal(REGISTRY.php.chain.length, 1);
   assert.equal(REGISTRY.php.chain[0].name, "php-cs-fixer");
   assert.equal(REGISTRY.php.chain[0].strategy, "native");
-  assert.equal(REGISTRY.php.chain[0].npmSpec, undefined);
   assert.ok(REGISTRY.php.chain[0].base.includes("--using-cache=no"));
 });
 

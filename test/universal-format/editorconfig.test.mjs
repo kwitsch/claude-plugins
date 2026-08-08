@@ -5,6 +5,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseEditorconfig, matchGlob, resolveEditorconfig } from "../../plugins/universal-format/mcp/server.mjs";
 
+// The artifact is a @ts-nocheck generated bundle, so TS infers resolveEditorconfig's `props` from
+// the emitted JS as a union that still includes the empty-object start state — a direct
+// `r.props.indent_size` read is a TS2339 in this checked test file. Same cast idiom as
+// prettier.test.mjs uses for the handler results.
+/** @param {{props: unknown}} r @returns {any} */
+const props = (r) => r.props;
+
 test("matchGlob supports *, *.ext, *.{a,b}, **.ext; rejects unsupported forms", () => {
   assert.equal(matchGlob("*", "Foo.java"), true);
   assert.equal(matchGlob("*.java", "Foo.java"), true);
@@ -35,7 +42,7 @@ test("resolveEditorconfig: later matching section wins within a file", () => {
   writeFileSync(path.join(dir, ".editorconfig"), "root = true\n[*]\nindent_size = 2\n[*.java]\nindent_size = 4\n");
   const r = resolveEditorconfig(path.join(dir, "Foo.java"), dir);
   assert.equal(r.found, true);
-  assert.equal(r.props.indent_size, 4);
+  assert.equal(props(r).indent_size, 4);
 });
 
 test("resolveEditorconfig: nearer file overrides farther; stops climbing at root=true", () => {
@@ -45,8 +52,8 @@ test("resolveEditorconfig: nearer file overrides farther; stops climbing at root
   mkdirSync(sub);
   writeFileSync(path.join(sub, ".editorconfig"), "[*]\nindent_size = 8\n");
   const r = resolveEditorconfig(path.join(sub, "a.py"), root);
-  assert.equal(r.props.indent_size, 8); // nearer file wins
-  assert.equal(r.props.max_line_length, 120); // inherited from the root file
+  assert.equal(props(r).indent_size, 8); // nearer file wins
+  assert.equal(props(r).max_line_length, 120); // inherited from the root file
 });
 
 test("resolveEditorconfig: nothing found -> {found:false}", () => {
@@ -60,5 +67,5 @@ test("resolveEditorconfig: indent_style=tab surfaces for hard-conflict predicate
   const dir = mkdtempSync(path.join(tmpdir(), "uf-ec-"));
   writeFileSync(path.join(dir, ".editorconfig"), "root = true\n[*]\nindent_style = tab\n");
   const r = resolveEditorconfig(path.join(dir, "Foo.java"), dir);
-  assert.equal(r.props.indent_style, "tab");
+  assert.equal(props(r).indent_style, "tab");
 });
