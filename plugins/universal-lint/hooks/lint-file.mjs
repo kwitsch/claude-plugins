@@ -541,19 +541,31 @@ export function classifyExit(toolName, status) {
       // own docs don't separate the two); accepted -- see design doc Risks.
       return status === 0 ? "clean" : "issues";
     case "stylelint":
-    case "tsc":
-      // 0 clean, 2 real problem (stylelint: lint violation; tsc: type/syntax
-      // diagnostic), else crash/misconfig/invalid-project (skip). stylelint's
-      // contract verified against stylelint.io/user-guide/usage/cli. tsc's
-      // contract verified EMPIRICALLY (v6.0.3), not from docs: a real type or
-      // syntax error under --noEmit exits 2; an invalid project path
-      // (nonexistent tsconfig) exits 1 -- the OPPOSITE of the compiler's
-      // documented ExitStatus enum (Success=0,
-      // DiagnosticsPresent_OutputsSkipped=1, _OutputsGenerated=2). Trust the
-      // live behavior, not the enum -- re-verify if the installed tsc major
-      // version changes materially and findings stop surfacing.
+      // 0 clean, 2 real lint violation, else crash/misconfig (skip) --
+      // verified against stylelint.io/user-guide/usage/cli.
       if (status === 0) return "clean";
       if (status === 2) return "issues";
+      return "skip";
+    case "tsc":
+      // 0 clean, 1 OR 2 real problem, else skip -- verified EMPIRICALLY, not
+      // from docs, and the contract has already flipped once across a tsc
+      // major version: under tsc v6.0.3, a real type/syntax error under
+      // --noEmit exited 2 and only an invalid project path (nonexistent
+      // tsconfig) exited 1 -- the OPPOSITE of the compiler's documented
+      // ExitStatus enum (Success=0, DiagnosticsPresent_OutputsSkipped=1,
+      // _OutputsGenerated=2). Under TypeScript 7.0's native ("tsgo") tsc,
+      // real diagnostics under --noEmit instead exit 1 (matching the
+      // documented enum this time), and an invalid project path *also* exits
+      // 1 -- the two are no longer distinguishable by exit code alone.
+      // Accepting both 1 and 2 as "issues" is the only contract that catches
+      // real findings on both major versions; the cost is that the rare
+      // invalid-project-path race (resolveTsconfig already confirms the
+      // tsconfig exists on disk before this ever runs) surfaces its own
+      // error text as a finding instead of being silently skipped. Trust the
+      // live behavior, not the enum -- re-verify whenever the installed tsc
+      // major version changes materially and findings stop surfacing.
+      if (status === 0) return "clean";
+      if (status === 1 || status === 2) return "issues";
       return "skip";
     case "phpstan":
       // 0 clean (phpstan.org/user-guide/command-line-usage, quoted: "Exit code 0

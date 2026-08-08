@@ -159,14 +159,24 @@ the tsconfig's realpath (`tsBuildInfoPathFor`, mirroring
 empirically against this repo's own `tsconfig.json`: a cold run took 0.70s,
 the cached rerun 0.29s.
 
-`classifyExit`'s `"tsc"` case shares stylelint's 0-clean/2-issues/else-skip
-contract — verified **empirically** (tsc v6.0.3), not from documentation: a
-real type or syntax error under `--noEmit` exits `2`; an invalid project
-path (nonexistent tsconfig) exits `1` — the _opposite_ of what the
-compiler's documented `ExitStatus` enum (`Success=0`,
+`classifyExit`'s `"tsc"` case is 0-clean/1-or-2-issues/else-skip — verified
+**empirically**, not from documentation, and the contract has already
+flipped once across a `tsc` major version. Under tsc v6.0.3, a real type or
+syntax error under `--noEmit` exited `2`; only an invalid project path
+(nonexistent tsconfig) exited `1` — the _opposite_ of what the compiler's
+documented `ExitStatus` enum (`Success=0`,
 `DiagnosticsPresent_OutputsSkipped=1`, `_OutputsGenerated=2`) suggested.
-Trust the live behavior, not the enum — re-verify if the installed `tsc`
-major version changes materially and findings stop surfacing.
+Under TypeScript 7.0's native ("tsgo") compiler (verified against 7.0.2,
+GA'd 2026-07-08), a real diagnostic under `--noEmit` instead exits `1`
+(matching the documented enum this time), and an invalid project path
+_also_ exits `1` — no longer distinguishable by exit code alone. Accepting
+both `1` and `2` as `"issues"` is the only contract that catches real
+findings on both major versions; the cost is that the invalid-project-path
+case (already a rare race in practice — `resolveTsconfig` confirms the
+tsconfig exists on disk before this ever runs) now surfaces its own error
+text as a finding instead of being silently skipped. Trust the live
+behavior, not the enum — re-verify whenever the installed `tsc` major
+version changes materially and findings stop surfacing.
 
 Discovery: `tsc` on `PATH` first (runs through the same `runLintTool`
 rtk-compaction attempt every other chain tool gets, keyed off the static

@@ -1,6 +1,6 @@
 {
   "name": "universal-lint",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Silently runs each language's standard linter (read-only — never autofixes) on just-written Shell, Java, Kotlin, JS/TS, Python, Go, YAML, Markdown, CSS, SCSS and PHP files after Write/Edit, surfacing any findings as additional context for Claude to fix (shellcheck, checkstyle, ktlint, eslint, ruff check, golangci-lint/go vet, yamllint, markdownlint-cli2/markdownlint, stylelint, phpstan/psalm; eslint/markdownlint-cli2/markdownlint/stylelint also fall back to npx; runs through rtk for more compact output when rtk is present); yamllint/markdownlint's max-line-length rule is skipped when the project has no linter config of its own; JSON is intentionally not covered (no exit-code-clean standalone JSON linter exists); no-op when the linter is absent. Always active once installed — no on/off toggle.",
   "author": {
     "name": "Kwitsch"

@@ -209,10 +209,11 @@ test("classifyExit: stylelint is 0-clean/2-issues/else-skip (NOT the shared 0/1/
   assert.equal(classifyExit("stylelint", 78), "skip");
 });
 
-test("classifyExit: tsc shares stylelint's 0-clean/2-issues/else-skip contract (empirically verified, NOT the ExitStatus-enum-derived 0/1/else)", () => {
+test("classifyExit: tsc is 0-clean/1-or-2-issues/else-skip (empirically verified across both tsc v6.0.3 and TypeScript 7.0's native compiler)", () => {
   assert.equal(classifyExit("tsc", 0), "clean");
-  assert.equal(classifyExit("tsc", 1), "skip");
+  assert.equal(classifyExit("tsc", 1), "issues");
   assert.equal(classifyExit("tsc", 2), "issues");
+  assert.equal(classifyExit("tsc", 64), "skip");
 });
 
 test("resolveTsconfig: finds tsconfig.json walking up to cwd", () => {
