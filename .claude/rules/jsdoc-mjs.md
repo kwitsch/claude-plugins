@@ -16,6 +16,10 @@ sufficient for `pnpm exec tsc --noEmit` to pass with `checkJs: true` and `strict
   API shape.
 - Other typed parameters use their real type (`@param {string} text`,
   `@param {number} ms`). Genuinely untyped parameters use `@param {any}`.
+- **Exempt: generated bundles.** A build-output `.mjs` carrying a `// @ts-nocheck` banner on line 2
+  (today only `plugins/universal-format/mcp/server.mjs`, built from `src/universal-format-mcp/`) is
+  outside this floor — it is not hand-written source. Its TypeScript sources are what
+  `pnpm run typecheck` checks instead; never add JSDoc to, or hand-edit, the bundle.
 
 ## Manual convention (not tsc-enforced)
 

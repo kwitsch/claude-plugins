@@ -1,6 +1,6 @@
 # universal-format
 
-Silently auto-formats source files around Write/Edit using each language's standard formatter — Prettier languages before the write when an importable Prettier is available, everything else after it — honoring `.editorconfig`, `.prettierignore`/`.gitignore` and tool-native configs, and doing nothing when no formatter can be found.
+Silently auto-formats source files around Write/Edit using each language's standard formatter — Prettier languages before the write with the Prettier the plugin ships inside its own MCP server, everything else after it — honoring `.editorconfig`, `.prettierignore`/`.gitignore` and tool-native configs, and doing nothing when no formatter can be found.
 
 ## Install
 
@@ -12,60 +12,58 @@ Silently auto-formats source files around Write/Edit using each language's stand
 
 Two `Write|Edit` hooks on a self-contained plugin-local MCP server.
 
-**Prettier languages** (JS/TS, JSON, YAML, Markdown, CSS, SCSS) resolve a Prettier in a
-fixed order — a project's own always wins:
+**Prettier languages** (JS/TS, JSON, YAML, Markdown, CSS, SCSS) are formatted **before** the write,
+in-process, by the Prettier this plugin ships inside its own MCP server. There is no version
+lookup and no install step: one bundled copy, always used, with no network access.
 
-| #   | Prettier source                                 | When it formats                  |
-| --- | ----------------------------------------------- | -------------------------------- |
-| 1   | project-local (importable from the project)     | **before** the write, in-process |
-| 2   | `prettier` on `PATH`                            | after the write, subprocess      |
-| 3   | plugin-managed copy under the plugin's data dir | **before** the write, in-process |
-| 4   | `npx --yes prettier`                            | after the write, subprocess      |
+**All other languages** (Shell, Java, Kotlin, Python, Go, PHP) are formatted after the write via
+each tool's CLI.
 
-Tiers 1 and 3 run in a warm in-process Prettier, so the file lands already formatted;
-tiers 2 and 4 reformat it on disk afterwards. The managed copy (tier 3) is installed on
-demand, out of band, the first time a project has neither of the first two — until that
-finishes, tier 4 keeps formatting.
+Your project's Prettier **configuration** is still honored in full — `.prettierrc*`,
+`prettier.config.*`, a top-level `"prettier"` key in `package.json`/`package.yaml`,
+`.editorconfig`, and `.prettierignore`/`.gitignore`.
 
-**All other languages** (Shell, Java, Kotlin, Python, Go, PHP) are formatted after the
-write via each tool's CLI.
+Two consequences worth knowing:
 
-An unavailable formatter, any failure, an unsupported extension, a file outside the
-project, a file under `node_modules/`/`vendor/`/`.git/`, or a path excluded by the
-project's `.prettierignore`/`.gitignore` is a **silent no-op** — the hooks never block
-or degrade the session. When formatting changed the file, the hook returns a one-line
-note telling Claude to re-read it before further string-based edits, and that the
-reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules.
+- **The bundled Prettier version is used even when your project pins a different one.** Formatting
+  differences between Prettier minors are real, so your own `prettier --check` may disagree with
+  what this plugin wrote. Exclude the paths via `.prettierignore` if that matters.
+- **A `plugins:` entry your project's config names must be resolvable from the project.** Entries
+  are resolved against the session's working directory; if one cannot be resolved, the file is left
+  **unformatted** rather than formatted without the plugin you asked for.
 
-This plugin is always active once installed — there is no toggle, and there is no
-per-language switch. For every formatter except Prettier, not installing the tool is
-the opt-out. **Prettier is the exception:** when a project has none, the plugin installs
-and uses its own managed copy, so removing Prettier does not opt out of Prettier
+An unavailable formatter, any failure, an unsupported extension, a file outside the project, a file
+under `node_modules/`/`vendor/`/`.git/`, or a path excluded by the project's
+`.prettierignore`/`.gitignore` is a **silent no-op** — the hooks never block or degrade the session.
+When formatting changed the file, the hook returns a one-line note telling Claude to re-read it
+before further string-based edits, and that the reformat is intentional and exempt from
+"surgical/minimal-diff" change-scope rules.
+
+This plugin is always active once installed — there is no toggle, and there is no per-language
+switch. For every formatter except Prettier, not installing the tool is the opt-out. **Prettier is
+the exception:** it is bundled, so removing Prettier from your project does not opt out of Prettier
 formatting — exclude the paths via `.prettierignore` instead.
 
 ## Supported formatters
 
-| Language | Extensions                                            | Formatter chain (first on `PATH` wins) |
-| -------- | ----------------------------------------------------- | -------------------------------------- |
-| Shell    | `.sh` `.bash`                                         | `shfmt`                                |
-| Java     | `.java`                                               | `google-java-format` → `clang-format`  |
-| Kotlin   | `.kt` `.kts`                                          | `ktlint` → `ktfmt`                     |
-| JS/TS    | `.js` `.jsx` `.mjs` `.cjs` `.ts` `.tsx` `.mts` `.cts` | `prettier`                             |
-| Python   | `.py` `.pyi`                                          | `ruff` → `black`                       |
-| Go       | `.go`                                                 | `goimports` → `gofmt`                  |
-| JSON     | `.json`                                               | `prettier`                             |
-| YAML     | `.yaml` `.yml`                                        | `prettier`                             |
-| Markdown | `.md`                                                 | `prettier`                             |
-| CSS      | `.css`                                                | `prettier`                             |
-| SCSS     | `.scss`                                               | `prettier`                             |
-| PHP      | `.php`                                                | `php-cs-fixer`                         |
+| Language | Extensions                                            | Formatter chain                                   |
+| -------- | ----------------------------------------------------- | ------------------------------------------------- |
+| Shell    | `.sh` `.bash`                                         | `shfmt`                                           |
+| Java     | `.java`                                               | `google-java-format` → `clang-format`             |
+| Kotlin   | `.kt` `.kts`                                          | `ktlint` → `ktfmt`                                |
+| JS/TS    | `.js` `.jsx` `.mjs` `.cjs` `.ts` `.tsx` `.mts` `.cts` | bundled `prettier` (in-process, before the write) |
+| Python   | `.py` `.pyi`                                          | `ruff` → `black`                                  |
+| Go       | `.go`                                                 | `goimports` → `gofmt`                             |
+| JSON     | `.json`                                               | bundled `prettier` (in-process, before the write) |
+| YAML     | `.yaml` `.yml`                                        | bundled `prettier` (in-process, before the write) |
+| Markdown | `.md`                                                 | bundled `prettier` (in-process, before the write) |
+| CSS      | `.css`                                                | bundled `prettier` (in-process, before the write) |
+| SCSS     | `.scss`                                               | bundled `prettier` (in-process, before the write) |
+| PHP      | `.php`                                                | `php-cs-fixer`                                    |
 
-`prettier` is obtained in-process from a project-local install (preferred) or a
-plugin-managed copy the server installs on demand under `${CLAUDE_PLUGIN_DATA}` when
-neither a project-local nor a `PATH` prettier is found; `npx --yes prettier` (an
-official npm package) is retained as the last-resort fallback. This also covers its
-JSON/YAML/Markdown/CSS/SCSS chain entries. No other formatter in this chain has an npx
-fallback — see `CLAUDE.md` for why.
+`prettier` is the copy bundled into the plugin's own MCP server — it is never looked up on `PATH`,
+never installed, and never fetched. This covers the JS/TS, JSON, YAML, Markdown, CSS and SCSS rows.
+No other formatter has any fallback — see `CLAUDE.md` for why.
 
 ## `.editorconfig` support
 
@@ -81,8 +79,8 @@ fallback — see `CLAUDE.md` for why.
 
 `prettier`'s own default `printWidth` (80) reflows long JSON/YAML arrays and
 flow mappings onto multiple lines even when the project never asked for an
-80-column limit. When formatting `.yaml`/`.yml`/`.json`, this hook now leaves
-`printWidth` unbounded unless the project set a real preference itself — a
+80-column limit. When formatting `.yaml`/`.yml`/`.json`, `shouldOverridePrintWidth`
+leaves `printWidth` unbounded unless the project set a real preference itself — a
 `.prettierrc`/`prettier.config.*`/`package.json` `"prettier"` key, or
 `.editorconfig`'s `max_line_length` (which `prettier` already honors
 natively). Markdown is unaffected: `prettier`'s default `proseWrap` already

@@ -166,3 +166,21 @@ setup() {
   run bash -c "jq -r '.description' '$HOOKS' | grep -qivE 'managed|npx'"
   assert_success
 }
+
+@test "plugin CLAUDE.md documents the bundled prettier and the built artifact, not the deleted machinery" {
+  run rg_or_grep -q -F "Managed prettier copy" "$PLUGIN/CLAUDE.md"
+  assert_failure
+  run rg_or_grep -q -F "3-tier resolver" "$PLUGIN/CLAUDE.md"
+  assert_failure
+  run rg_or_grep -q -F "Bundled prettier (no resolver)" "$PLUGIN/CLAUDE.md"
+  assert_success
+  run rg_or_grep -q -F "Built artifact (do not edit" "$PLUGIN/CLAUDE.md"
+  assert_success
+}
+
+@test "root CLAUDE.md documents src/ and the build script" {
+  run rg_or_grep -q -F "src/universal-format-mcp" "$REPO_ROOT/CLAUDE.md"
+  assert_success
+  run rg_or_grep -q -F "pnpm run build:universal-format-mcp" "$REPO_ROOT/CLAUDE.md"
+  assert_success
+}
