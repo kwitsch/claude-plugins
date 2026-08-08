@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=0fd1c40f5e3a5358 body=2e53ba8e9d376186 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=fcbfbd1e6bee983f bun=1.3.14
+// uf-build-fingerprint src=f713e25068455bfd body=2480182a89e84cac prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=fcbfbd1e6bee983f bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -171645,27 +171645,6 @@ function buildInvocation(tool, opts = {}) {
   return mapper ? mapper(tool.base, editorconfig) : { argv: tool.base.slice() };
 }
 var MAPPERS = {
-  "google-java-format"(base, ec) {
-    if (ec.indent_style === "tab")
-      return { skip: true };
-    if (ec.indent_size === "tab")
-      return { skip: true };
-    if (typeof ec.indent_size === "number" && ec.indent_size !== 2 && ec.indent_size !== 4)
-      return { skip: true };
-    if (typeof ec.max_line_length === "number" && ec.max_line_length < 100)
-      return { skip: true };
-    return { argv: ec.indent_size === 4 ? ["--aosp", ...base] : base.slice() };
-  },
-  "clang-format"(base, ec) {
-    const parts2 = ["BasedOnStyle: Google"];
-    if (typeof ec.indent_size === "number")
-      parts2.push(`IndentWidth: ${ec.indent_size}`);
-    if (ec.indent_style)
-      parts2.push(`UseTab: ${ec.indent_style === "tab" ? "ForIndentation" : "Never"}`);
-    if (typeof ec.max_line_length === "number")
-      parts2.push(`ColumnLimit: ${ec.max_line_length}`);
-    return { argv: ["-i", `--style={${parts2.join(", ")}}`] };
-  },
   ruff(base, ec) {
     const argv = base.slice();
     if (typeof ec.max_line_length === "number")
@@ -171906,24 +171885,8 @@ var EXT_MAP = {
   ".gql": "graphql",
   ".php": "php"
 };
-var PRETTIER_LANGS = new Set(["jsts", "json", "yaml", "markdown", "css", "scss", "less", "html", "vue", "graphql"]);
+var PRETTIER_LANGS = new Set(["jsts", "json", "yaml", "markdown", "css", "scss", "less", "html", "vue", "graphql", "shell", "java", "php"]);
 var REGISTRY = {
-  shell: { chain: [{ name: "shfmt", strategy: "native", base: ["-w"] }] },
-  java: {
-    chain: [
-      {
-        name: "google-java-format",
-        strategy: "mapped",
-        base: ["--replace"]
-      },
-      {
-        name: "clang-format",
-        strategy: "mapped",
-        nativeConfig: [".clang-format", "_clang-format"],
-        base: ["-i", "--style=file", "--fallback-style=Google"]
-      }
-    ]
-  },
   kotlin: {
     chain: [
       {
@@ -171958,15 +171921,6 @@ var REGISTRY = {
     chain: [
       { name: "goimports", strategy: "fixed", base: ["-w"] },
       { name: "gofmt", strategy: "fixed", base: ["-w"] }
-    ]
-  },
-  php: {
-    chain: [
-      {
-        name: "php-cs-fixer",
-        strategy: "native",
-        base: ["fix", "--quiet", "--using-cache=no"]
-      }
     ]
   }
 };
@@ -200076,7 +200030,7 @@ var getProcessor = (getWasmFile) => {
 };
 
 // node_modules/sh-syntax/lib/index.js
-var __dirname = "/home/kwitsch/repos/claude-plugins/.claude/worktrees/wf_3e221d92-0bc-17/node_modules/.pnpm/sh-syntax@0.4.2/node_modules/sh-syntax/lib";
+var __dirname = "/home/kwitsch/repos/claude-plugins/.claude/worktrees/wf_3e221d92-0bc-20/node_modules/.pnpm/sh-syntax@0.4.2/node_modules/sh-syntax/lib";
 var _dirname = typeof __dirname === "undefined" ? path19.dirname(fileURLToPath6(import.meta.url)) : __dirname;
 var processor2 = getProcessor(() => fs13.readFile(path19.resolve(_dirname, "../main.wasm")));
 
@@ -200952,13 +200906,13 @@ function startServer() {
   const TOOLS = [
     {
       name: "format_pre",
-      description: "PreToolUse Write|Edit: format prettier-language files (jsts/json/yaml/markdown/css/scss/less/html/vue/graphql) in-process before the write (updatedInput) with the prettier bundled into this server.",
+      description: "PreToolUse Write|Edit: format prettier-language files (jsts/json/yaml/markdown/css/scss/less/html/vue/graphql/shell/java/php) in-process before the write (updatedInput) with the bundled prettier.",
       inputSchema: { type: "object", additionalProperties: true },
       handler: formatPre
     },
     {
       name: "format_post",
-      description: "PostToolUse Write|Edit: format the just-written file with the language's CLI formatter (shell/java/kotlin/python/go/php); prettier languages belong to format_pre.",
+      description: "PostToolUse Write|Edit: format the just-written file with the language's CLI formatter (kotlin/python/go); prettier languages belong to format_pre.",
       inputSchema: { type: "object", additionalProperties: true },
       handler: formatPost
     }
