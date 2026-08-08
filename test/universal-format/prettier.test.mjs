@@ -163,10 +163,10 @@ test("format_pre Edit: absent old_string -> {}", async () => {
   assert.deepEqual(res, {});
 });
 
-test("format_pre: non-prettier ext and excluded path -> {}", async () => {
+test("format_pre: non-prettier ext (.go) and excluded path -> {}", async () => {
   const cwd = tmp("uf-guard-");
-  const sh = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "a.sh"), content: "echo hi" } }));
-  assert.deepEqual(sh, {});
+  const go = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "a.go"), content: "package main" } }));
+  assert.deepEqual(go, {});
   mkdirSync(path.join(cwd, "node_modules", "pkg"), { recursive: true });
   const nm = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "node_modules", "pkg", "a.json"), content: '{"a":1}' } }));
   assert.deepEqual(nm, {});

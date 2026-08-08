@@ -15,16 +15,21 @@ import { BUNDLED_PRETTIER_VERSION } from "../../plugins/universal-format/mcp/ser
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const SRC_DIR = path.join(REPO_ROOT, "src", "universal-format-mcp");
 const ARTIFACT = path.join(REPO_ROOT, "plugins", "universal-format", "mcp", "server.mjs");
-const FINGERPRINT_RE = /^\/\/ uf-build-fingerprint src=([0-9a-f]{16}) body=([0-9a-f]{16}) prettier=(\S+) bun=(\S*)$/;
+const MCP_DIR = path.dirname(ARTIFACT);
+// Sorted by basename, exactly as build.mjs hashes them.
+const EXPECTED_WASM = ["tree-sitter-java_orchard.wasm", "web-tree-sitter.wasm"];
+// Same order build.mjs joins them in, so the expected `plugins=` string is reproducible here.
+const PLUGIN_PINS = ["prettier-plugin-java", "@prettier/plugin-php", "prettier-plugin-sh"];
+const FINGERPRINT_RE = /^\/\/ uf-build-fingerprint src=([0-9a-f]{16}) body=([0-9a-f]{16}) prettier=(\S+) plugins=(\S+) assets=([0-9a-f]{16}) bun=(\S*)$/;
 
 const text = readFileSync(ARTIFACT, "utf8");
 const lines = text.split("\n");
 
-/** @param {string} line @returns {{src: string, body: string, prettier: string}} */
+/** @param {string} line @returns {{src: string, body: string, prettier: string, plugins: string, assets: string}} */
 function parseFingerprint(line) {
   const m = FINGERPRINT_RE.exec(line);
   if (!m) throw new Error(`line 3 is not a uf-build-fingerprint line: ${line}`);
-  return { src: m[1], body: m[2], prettier: m[3] };
+  return { src: m[1], body: m[2], prettier: m[3], plugins: m[4], assets: m[5] };
 }
 
 /** Every regular file under `dir`, recursively. @param {string} dir @returns {string[]} */
@@ -74,4 +79,30 @@ test("bundled prettier matches the banner and the installed prettier", () => {
   const installed = JSON.parse(readFileSync(createRequire(import.meta.url).resolve("prettier/package.json"), "utf8")).version;
   assert.equal(BUNDLED_PRETTIER_VERSION, parseFingerprint(lines[2]).prettier, "banner prettier= must match the prettier baked into the bundle");
   assert.equal(BUNDLED_PRETTIER_VERSION, installed, "prettier was bumped without a rebuild — run `pnpm run build:universal-format-mcp`");
+});
+
+test("banner plugins= matches the root package.json pins, and all three pins are exact", () => {
+  const rootPkg = JSON.parse(readFileSync(path.join(REPO_ROOT, "package.json"), "utf8"));
+  const expected = PLUGIN_PINS.map((name) => `${name}@${rootPkg.devDependencies[name]}`).join("+");
+  assert.equal(parseFingerprint(lines[2]).plugins, expected, "a plugin pin changed without a rebuild — run `pnpm run build:universal-format-mcp`");
+  for (const name of PLUGIN_PINS) {
+    assert.match(rootPkg.devDependencies[name], /^\d+\.\d+\.\d+$/, `${name} must be pinned exactly (no ^, ~ or range)`);
+  }
+});
+
+// src=/body= cover only src/ and the bundle body, so a deleted, stale, corrupted or orphaned
+// sidecar is invisible to them. assets= is the only gate on the shipped wasm files.
+test("exactly the two expected .wasm sidecars ship next to the bundle, and assets= matches them", () => {
+  // Cast: this repo ships no @types/node, so readdirSync's return is `any` and the filter
+  // callback's parameter would be an implicit-any typecheck error.
+  const found = /** @type {string[]} */ (readdirSync(MCP_DIR)).filter((name) => name.endsWith(".wasm")).sort();
+  assert.deepEqual(found, EXPECTED_WASM, "mcp/ must hold exactly the two expected wasm sidecars (an orphan means a plugin bump renamed one)");
+  const hash = createHash("sha256");
+  for (const base of found) {
+    hash.update(base);
+    hash.update("\0");
+    hash.update(readFileSync(path.join(MCP_DIR, base)));
+    hash.update("\0");
+  }
+  assert.equal(parseFingerprint(lines[2]).assets, hash.digest("hex").slice(0, 16), "a sidecar is stale or corrupted — run `pnpm run build:universal-format-mcp`");
 });

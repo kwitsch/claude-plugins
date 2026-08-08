@@ -1,14 +1,14 @@
 # CLAUDE.md — universal-format
 
-Auto-formatter plugin backed by a plugin-local MCP stdio server (`mcp/server.mjs` — a
-committed `bun build` bundle, see "Built artifact" below), launched via a bun-preferred
-`bin/mjs-launch.sh` wrapper. Two `mcp_tool` hooks on `Write|Edit`: **PreToolUse
-`format_pre`** formats prettier languages (JS/TS, JSON, YAML, Markdown, CSS, SCSS)
-in-process BEFORE the write via `hookSpecificOutput.updatedInput`, always with the
-prettier bundled into the server; **PostToolUse `format_post`** formats the remaining
-languages (Shell/Java/Kotlin/Python/Go/PHP) on disk after the write via each tool's CLI,
-and returns `{}` for every prettier language. No `userConfig` — the hooks ARE the plugin
-(see "No toggle").
+Auto-formatter plugin backed by a plugin-local MCP stdio server (`mcp/server.mjs` — a committed
+`bun build` bundle plus two committed `.wasm` sidecars, see "Built artifact" below), launched via
+a bun-preferred `bin/mjs-launch.sh` wrapper. Two `mcp_tool` hooks on `Write|Edit`: **PreToolUse
+`format_pre`** formats the thirteen prettier languages (JS/TS, JSON, YAML, Markdown, CSS, SCSS,
+LESS, HTML, Vue, GraphQL, Shell, Java, PHP) in-process BEFORE the write via
+`hookSpecificOutput.updatedInput`, always with the prettier bundled into the server; **PostToolUse
+`format_post`** formats the three remaining languages (Kotlin/Python/Go) on disk after the write
+via each tool's CLI, and returns `{}` for every prettier language. No `userConfig` — the hooks ARE
+the plugin (see "No toggle").
 
 ## Architecture (do not "fix" without reading this)
 
@@ -53,6 +53,27 @@ plugin-installed copy under the plugin data dir, the `npx --yes prettier` safety
 `guardPrintWidthArgv`, and the six prettier `REGISTRY` entries. `format_pre` owns every
 prettier language end to end; `format_post` returns `{}` for them (both hooks carry the
 same `Write|Edit` matcher, so coverage is identical).
+
+**Three third-party plugins are bundled next to it** (0.11.0): `prettier-plugin-java@2.10.3`,
+`@prettier/plugin-php@0.25.0` and `prettier-plugin-sh@0.16.1`, registered as the module-internal
+`BUNDLED_PLUGINS` array in `prettier.ts` and appended to the `plugins` option of EVERY
+`formatInProcess` call (single-branched call site; verified not to perturb any pre-existing
+language). They replaced the `shell`, `java` and `php` CLI chains outright — those `REGISTRY`
+entries, their `MAPPERS` and every doc describing them are deleted, and there is deliberately NO
+CLI fallback: a plugin that cannot parse a file throws, the handler's `catch` returns `{}`, and the
+write proceeds unformatted. Pins are **exact**: java is the LATEST release (its two `.wasm`
+sidecars resolve to the bundle's own directory, so shipping them needs no path hack), php's latest
+is pure JS, and shell is pinned to its last pure-JS release on purpose — 0.17.0+ is WASM-only,
+resolves its wasm OUTSIDE the bundle's directory and needs 539 lines of vendored TinyGo glue to
+defeat a four-year-old `sideEffects` bug. Never set a plugin OPTION from this code (in particular
+never `experimentalWasm`): a project's prettier config is the only knob. `prettier.ts` also arms a
+stderr-only `process.on("unhandledRejection")` handler — plugin-java fires `Parser.init()` in a
+module-scope IIFE, so a missing/corrupt sidecar rejects a floating promise at import time, which
+without the guard KILLS the server under node (verified: exit 1) and takes down all thirteen
+languages instead of just Java. Kotlin, Python and Go stay on their CLIs by survey, not by
+deferral: kotlin's only plugin `spawnSync`s `java -jar` against a bundled 39.9 MB JVM jar and needs
+prettier 1.x, python's has a single 2018 release pinned to a prettier git SHA, and no prettier
+plugin formats Go source at all.
 
 Two consequences, both accepted:
 
@@ -139,7 +160,7 @@ Beyond `node_modules`/`vendor`/`.git`, `isExcludedPath` also skips two Claude-Co
 verified empirically: a JSON/YAML array or flow mapping longer than 80
 columns gets broken onto multiple lines by default, purely because of this
 default, in a project that never asked for an 80-column limit. Unlike the
-`google-java-format`/`clang-format`/`ruff`/`black` tools above,
+`ruff`/`black` tools above,
 `prettier`'s CLI auto-discovers its **own** project config when invoked bare
 ("native" strategy) — so a project with a real `.prettierrc`/`printWidth`
 setting was always already respected. This guard only changes the _absent_
@@ -147,7 +168,7 @@ case: previously, no project config meant prettier's built-in 80-column
 default applied unconditionally; now it means no line-length limit at all.
 
 - `shouldOverridePrintWidth(file, cwd)` (used only for `json`/`yaml` inside
-  `formatInProcess`; `markdown`/`css`/`scss`/`jsts` are untouched) checks the same two
+  `formatInProcess`; `markdown`/`css`/`scss`/`less`/`html`/`vue`/`graphql`/`jsts`/`shell`/`java`/`php` are untouched) checks the same two
   things in the same order — `hasPrettierProjectConfig`, then `resolveEditorconfig`'s
   `max_line_length` — and only when both come up empty (or resolve to `off`) does
   `formatInProcess` set `config.printWidth = 99999`: (1) `hasPrettierProjectConfig`,
@@ -188,27 +209,23 @@ default applied unconditionally; now it means no line-length limit at all.
   to prose, but does perturb _other_ formatting decisions inside a Markdown
   file (verified empirically: it changes how a fenced ` ```json ` code block
   gets wrapped) — an unrelated side effect this guard has no reason to cause.
-- `.scss`'s own printWidth default is also unguarded, same as `css`/`markdown`
+- `.scss`'s own printWidth default is also unguarded, same as `css`/`less`/`markdown`/`html`/`vue`/`graphql`/`shell`/`java`/`php`
   — only `json`/`yaml` were reported as having this problem.
-
-`php` is a chain of one: `php-cs-fixer`, `native` strategy (always bare, aside from `--using-cache=no`) — no `.editorconfig` mapping, no `MAPPERS` entry. Its own docs state that a bare `fix` with no `--config`/`--rules` already defaults to `@PSR12` when no `.php-cs-fixer.php`/`.dist.php` is found, and auto-discovers a project's own config when one exists. Since format success here is always judged by content diff (never exit code), its exit-code contract doesn't matter. `--using-cache=no` is required: `php-cs-fixer` caches by default, and without this flag it writes a `.php-cs-fixer.cache` file into the project root on every PHP format — the one cwd-relative side effect this plugin would otherwise have (contrast `universal-lint`'s own `tsc` cache, deliberately routed to `${CLAUDE_PLUGIN_DATA}` to avoid exactly this). No chain tool has an npm fallback of any kind; `npm view` shows their same-named npm packages are either non-existent, unrelated projects, or unofficial wrappers with no repo and near-zero downloads. Known limitation (confirmed with the user at this feature's design stage): PATH-only detection — unlike `universal-lint`'s own `tsc` special case (`node_modules/.bin/tsc`), no `vendor/bin/php-cs-fixer` discovery exists, even though most real PHP projects install it as a local Composer dev-dependency rather than globally.
-
-**PHP_CodeSniffer's `phpcbf` was deliberately NOT added as a fallback** (do not re-add without reading this): its bare-invocation default standard is version-dependent — PSR-12 only on the brand-new PHP_CodeSniffer 4.0.x, PEAR on the still-dominant 3.x line (confirmed against PHP_CodeSniffer's own source for both versions). Pinning an explicit `--standard=PSR12` to force determinism was considered and rejected: PHP_CodeSniffer only auto-discovers a project's own `phpcs.xml`/`.phpcs.xml`(`.dist`) ruleset when NO `--standard` is given, so an explicit flag would silently defeat that discovery — trading one wrong behavior (an unpredictable PEAR/PSR-12 default) for another (ignoring a project's real ruleset). A one-tool chain was judged the honest answer, matching the existing `shell`/`scss`/`yaml`/`markdown` chain-of-one precedent.
 
 ## Built artifact (do not edit `mcp/server.mjs`)
 
 `mcp/server.mjs` is **generated**. The source of truth is `src/universal-format-mcp/`:
 
-| File              | Responsibility                                                                                                                                                  |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `types.ts`        | `FormatTool`, `LangEntry`, `EditorConfigProps` (type-only)                                                                                                      |
-| `util.ts`         | `walkToRoot`, `onPath` + the module-level `probeCache` singleton                                                                                                |
-| `editorconfig.ts` | `findNativeConfig`, `resolveEditorconfig`, `parseEditorconfig`, `matchGlob`, `MAPPERS`, `buildInvocation`                                                       |
-| `prettier.ts`     | the bundled prettier, `BUNDLED_PRETTIER_VERSION`, config discovery, `resolveConfigPlugins`, `formatInProcess`, `isPrettierIgnored`, `clearPrettierConfigCaches` |
-| `registry.ts`     | `EXT_MAP`, `PRETTIER_LANGS`, `REGISTRY` (CLI chains only), `resolveInvocation`, `selectFormatter`                                                               |
-| `handlers.ts`     | `isExcludedPath`, `applyEdit`, `CACHE_INVALIDATING_BASENAMES`, `formatPre`, `formatPost`                                                                        |
-| `server.ts`       | MCP scaffold, `isMainModule`, `SERVER_INFO` (hand-paired with `plugin.json`), and the artifact's 17 public re-exports                                           |
-| `build.mjs`       | the build driver (node-runnable; also runs under bun)                                                                                                           |
+| File              | Responsibility                                                                                                                                                                                                                                                        |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`        | `FormatTool`, `LangEntry`, `EditorConfigProps` (type-only)                                                                                                                                                                                                            |
+| `util.ts`         | `walkToRoot`, `onPath` + the module-level `probeCache` singleton                                                                                                                                                                                                      |
+| `editorconfig.ts` | `findNativeConfig`, `resolveEditorconfig`, `parseEditorconfig`, `matchGlob`, `MAPPERS`, `buildInvocation`                                                                                                                                                             |
+| `prettier.ts`     | the bundled prettier and its three bundled plugins (`BUNDLED_PLUGINS`, `asPlugin`), the `unhandledRejection` startup guard, `BUNDLED_PRETTIER_VERSION`, config discovery, `resolveConfigPlugins`, `formatInProcess`, `isPrettierIgnored`, `clearPrettierConfigCaches` |
+| `registry.ts`     | `EXT_MAP`, `PRETTIER_LANGS`, `REGISTRY` (CLI chains only), `resolveInvocation`, `selectFormatter`                                                                                                                                                                     |
+| `handlers.ts`     | `isExcludedPath`, `applyEdit`, `CACHE_INVALIDATING_BASENAMES`, `formatPre`, `formatPost`                                                                                                                                                                              |
+| `server.ts`       | MCP scaffold, `isMainModule`, `SERVER_INFO` (hand-paired with `plugin.json`), and the artifact's 17 public re-exports                                                                                                                                                 |
+| `build.mjs`       | the build driver (node-runnable; also runs under bun)                                                                                                                                                                                                                 |
 
 Import graph is acyclic (`types ← util ← editorconfig ← prettier ← registry ← handlers ← server`)
 and relative imports use the `./x.js` specifier form, required by the root tsconfig's
@@ -221,7 +238,12 @@ pnpm run build:universal-format-mcp     # requires a local bun; CI never runs it
 ```
 
 The driver writes a 3-line banner then the bundle body: `#!/usr/bin/env node`, the `@ts-nocheck`
-"generated bundle" line, and `// uf-build-fingerprint src=<16hex> body=<16hex> prettier=<v> bun=<v>`.
+"generated bundle" line, and
+`// uf-build-fingerprint src=<16hex> body=<16hex> prettier=<v> plugins=<pins> assets=<16hex> bun=<v>`.
+`plugins=` is the three exact plugin pins read from the root `package.json` (not `node_modules` —
+two of the three do not export `./package.json`); `assets=` is a 16-hex hash over the copied
+`.wasm` sidecars as `basename \0 bytes \0`, sorted by basename, which closes the gap that
+`hashSourceTree` covers only `src/`.
 Freshness is enforced by `test/universal-format/build-artifact.test.mjs` under
 `pnpm run test:unit` — it recomputes the source hash and the body hash and compares the bundled
 prettier version against the installed one, so CI needs **no bun** and no byte-reproducibility.
@@ -243,18 +265,34 @@ Every flag is load-bearing:
 | **not** `--reject-unresolved`                       | prettier resolves a project's config file through a runtime `import()` of a computed path, unresolvable at build time _by design_.                                                                                                                     |
 | **not** `--production` / `--bytecode` / `--compile` | `--production` implies minification, `--bytecode` forces CJS, `--compile` emits a standalone bun executable — all three contradict a node-runnable ESM artifact.                                                                                       |
 
-Measured: ~5.4 MB, `node --check` clean in 0.13 s, byte-identical on repeated builds in one tree,
-runs under both `node` and `bun`, import ≈113 ms, first format ≈30 ms, warm format ≈1.3 ms. The
-whole prettier package (all 13 parser plugins) is bundled on purpose: prettier delegates embedded
-`html`/`graphql`/`css` blocks inside Markdown to those parsers, so trimming would silently break
-accepted inputs. `eslint.config.mjs` and `.prettierignore` both exclude the artifact.
+Measured: ~9.3 MB bundle plus 648,962 B of `.wasm` sidecars, `node --check` clean, byte-identical
+on repeated builds in one tree, runs under both `node` and `bun`, import ≈246 ms (one-time per
+session), warm format ≈1.6–2.0 ms (java 1.8, sh 2.0, php 1.6). The whole prettier package (all 13
+parser plugins) is bundled on purpose: prettier delegates embedded `html`/`graphql`/`css` blocks
+inside Markdown to those parsers, so trimming would silently break accepted inputs.
+`eslint.config.mjs` and `.prettierignore` both exclude the artifact; neither matches `.wasm`, and
+`EXT_MAP` has no `.wasm` entry, so nothing ever tries to format a sidecar.
+
+**The artifact is `server.mjs` PLUS two committed `.wasm` sidecars in the same `mcp/` directory**
+— `web-tree-sitter.wasm` (201,037 B) and `tree-sitter-java_orchard.wasm` (447,925 B), git mode
+`100644`, `*.wasm binary` in `.gitattributes`. They live exactly there because
+`prettier-plugin-java` and `web-tree-sitter` load them via `new URL(<name>, import.meta.url)`,
+which after bundling resolves to the BUNDLE's own directory — independent of the dependency's
+internal layout, and verified relocatable (the whole `mcp/` directory runs from a copy with no
+`node_modules` above it, under node and bun; the plugin runs from a versioned plugin-cache copy,
+so this matters). `bun build` cannot emit them (`--outdir` + `--loader:.wasm=file` emits only the
+JS: both are runtime lookups the bundler cannot see), so `build.mjs` copies them by hand —
+resolving each the same way its plugin resolves it at runtime, sweeping every other `*.wasm` out
+of the output directory first so a plugin bump that renames a grammar cannot leave an orphan, and
+fingerprinting them into `assets=`. Never hand-edit the bundle or the sidecars.
 
 ## Tests
 
 `test/universal-format/` — split into one `.bats` file per language/tool
 (`scaffold.bats`, `core.bats`, `go.bats`, `kotlin.bats`, `java.bats`,
 `python.bats`, `jsts.bats`, `json.bats`, `yaml.bats`, `markdown.bats`,
-`css.bats`, `php.bats`), mirroring `test/coding-toolbox/`'s split. `test_helper.bash`
+`css.bats`, `php.bats`, `shell.bats`, `html.bats`, `vue.bats`, `graphql.bats`),
+mirroring `test/coding-toolbox/`'s split. `test_helper.bash`
 holds what's shared across files (`common_setup`, `rg_or_grep`, `make_stub`,
 `rec_stub`, and `_mcp_call` — the single async-safe JSON-RPC driver over the MCP
 server, held open via a FIFO and polled for the `"id":2` response, wrapping
@@ -262,10 +300,15 @@ server, held open via a FIFO and polled for the `"id":2` response, wrapping
 stub formatters on an isolated `PATH` recording argv, no real network — the
 prettier-language suites need **no stubs at all**, since the bundled prettier needs
 no network and no PATH entry. The prettier-language `printWidth` policy is asserted
-on produced content rather than on a recorded argv. Plus
+on produced content rather than on a recorded argv. `core.bats`'s guard-clause vehicle
+is `.go` + a `gofmt` stub (it used `.sh` + a CLI shell-formatter stub until `.sh` became
+a `format_pre` language), and `css.bats` also covers `.less`. Plus
 `test/universal-format/*.test.mjs` (`node:test` unit tests for the `.editorconfig`
 resolver, registry flag mapping, the in-process prettier contract in
-`prettier.test.mjs`, and artifact freshness in `build-artifact.test.mjs`). Run:
+`prettier.test.mjs`, artifact freshness in `build-artifact.test.mjs`, and
+`bundled-plugins.test.mjs` — the three bundled plugins and the four newly routed core
+languages against the built bundle, plus the structural tripwire that the
+`unhandledRejection` guard is armed). Run:
 
 ```bash
 BATS_LIB_PATH="$PWD/node_modules" pnpm exec bats test/universal-format/

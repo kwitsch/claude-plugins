@@ -17,22 +17,6 @@ export function buildInvocation(tool: FormatTool, opts: { hasNativeConfig?: bool
 // Per-tool .editorconfig -> CLI-flag mappers. Only reached when the tool is "mapped", no
 // tool-native config governs, and an .editorconfig was found for the file.
 const MAPPERS: Record<string, (base: string[], ec: EditorConfigProps) => { argv: string[] } | { skip: true }> = {
-  "google-java-format"(base, ec) {
-    // gjf is fixed at spaces-only, 100-col, 2/4-space indent. Skip on any conflict.
-    if (ec.indent_style === "tab") return { skip: true };
-    if (ec.indent_size === "tab") return { skip: true };
-    if (typeof ec.indent_size === "number" && ec.indent_size !== 2 && ec.indent_size !== 4) return { skip: true };
-    if (typeof ec.max_line_length === "number" && ec.max_line_length < 100) return { skip: true };
-    return { argv: ec.indent_size === 4 ? ["--aosp", ...base] : base.slice() };
-  },
-  "clang-format"(base, ec) {
-    // No tool-native config: construct an explicit Google-based style from .editorconfig.
-    const parts = ["BasedOnStyle: Google"];
-    if (typeof ec.indent_size === "number") parts.push(`IndentWidth: ${ec.indent_size}`);
-    if (ec.indent_style) parts.push(`UseTab: ${ec.indent_style === "tab" ? "ForIndentation" : "Never"}`);
-    if (typeof ec.max_line_length === "number") parts.push(`ColumnLimit: ${ec.max_line_length}`);
-    return { argv: ["-i", `--style={${parts.join(", ")}}`] };
-  },
   ruff(base, ec) {
     const argv = base.slice();
     if (typeof ec.max_line_length === "number") argv.push("--line-length", String(ec.max_line_length));

@@ -1,7 +1,8 @@
 // registry.ts — extension/language map and the CLI formatter chains. REGISTRY holds ONLY the
 // non-prettier languages: prettier is never spawned as a subprocess, so it has no chain, no
-// npmSpec and no guardPrintWidth entry. EXT_MAP still maps the six prettier languages (format_pre
-// needs them), which is exactly why formatPost carries a REGISTRY[lang] existence guard.
+// npmSpec and no guardPrintWidth entry. EXT_MAP still maps the thirteen prettier languages
+// (format_pre needs them), which is exactly why formatPost carries a REGISTRY[lang] existence
+// guard.
 import path from "node:path";
 import type { EditorConfigProps, FormatTool, LangEntry } from "./types.js";
 import { buildInvocation, findNativeConfig, resolveEditorconfig } from "./editorconfig.js";
@@ -28,37 +29,26 @@ export const EXT_MAP: Record<string, string> = {
   ".json": "json",
   ".css": "css",
   ".scss": "scss",
+  ".less": "less",
   ".yaml": "yaml",
   ".yml": "yaml",
   ".md": "markdown",
+  ".html": "html",
+  ".htm": "html",
+  ".vue": "vue",
+  ".graphql": "graphql",
+  ".gql": "graphql",
   ".php": "php",
 };
 
 /** Languages the bundled prettier owns, entirely inside format_pre. */
-export const PRETTIER_LANGS: Set<string> = new Set(["jsts", "json", "yaml", "markdown", "css", "scss"]);
+export const PRETTIER_LANGS: Set<string> = new Set(["jsts", "json", "yaml", "markdown", "css", "scss", "less", "html", "vue", "graphql", "shell", "java", "php"]);
 
 // Formatter registry (research-verified). chain = first tool on PATH wins.
 // strategy "native"/"fixed" -> always run bare (base args); "mapped" -> .editorconfig flag
 // mapping applied only when no tool-native config governs. base = argv BEFORE the target file
-// (the file is always appended last). clang-format base carries --fallback-style=Google: it is
-// ignored when a real .clang-format is found, so the same base is correct both with and without.
+// (the file is always appended last).
 export const REGISTRY: Record<string, LangEntry> = {
-  shell: { chain: [{ name: "shfmt", strategy: "native", base: ["-w"] }] },
-  java: {
-    chain: [
-      {
-        name: "google-java-format",
-        strategy: "mapped",
-        base: ["--replace"],
-      },
-      {
-        name: "clang-format",
-        strategy: "mapped",
-        nativeConfig: [".clang-format", "_clang-format"],
-        base: ["-i", "--style=file", "--fallback-style=Google"],
-      },
-    ],
-  },
   kotlin: {
     chain: [
       {
@@ -93,15 +83,6 @@ export const REGISTRY: Record<string, LangEntry> = {
     chain: [
       { name: "goimports", strategy: "fixed", base: ["-w"] },
       { name: "gofmt", strategy: "fixed", base: ["-w"] },
-    ],
-  },
-  php: {
-    chain: [
-      {
-        name: "php-cs-fixer",
-        strategy: "native",
-        base: ["fix", "--quiet", "--using-cache=no"],
-      },
     ],
   },
 };

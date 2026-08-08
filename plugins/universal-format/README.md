@@ -1,6 +1,6 @@
 # universal-format
 
-Silently auto-formats source files around Write/Edit using each language's standard formatter — Prettier languages before the write with the Prettier the plugin ships inside its own MCP server, everything else after it — honoring `.editorconfig`, `.prettierignore`/`.gitignore` and tool-native configs, and doing nothing when no formatter can be found.
+Silently auto-formats source files around Write/Edit — Prettier languages before the write with the Prettier (and the Java, PHP and Shell plugins bundled next to it) the plugin ships inside its own MCP server, the three remaining languages after it via their own CLI — honoring `.editorconfig`, `.prettierignore`/`.gitignore` and tool-native configs, and doing nothing when no formatter can be found.
 
 ## Install
 
@@ -12,12 +12,14 @@ Silently auto-formats source files around Write/Edit using each language's stand
 
 Two `Write|Edit` hooks on a self-contained plugin-local MCP server.
 
-**Prettier languages** (JS/TS, JSON, YAML, Markdown, CSS, SCSS) are formatted **before** the write,
-in-process, by the Prettier this plugin ships inside its own MCP server. There is no version
-lookup and no install step: one bundled copy, always used, with no network access.
+**Prettier languages** (JS/TS, JSON, YAML, Markdown, CSS, SCSS, LESS, HTML, Vue, GraphQL, Shell,
+Java, PHP) are formatted **before** the write, in-process, by the Prettier this plugin ships inside
+its own MCP server — together with the three community plugins bundled next to it
+(`prettier-plugin-java`, `@prettier/plugin-php`, `prettier-plugin-sh`) and their two `.wasm`
+sidecars. There is no version lookup and no install step: one bundled copy, always used, with no
+network access.
 
-**All other languages** (Shell, Java, Kotlin, Python, Go, PHP) are formatted after the write via
-each tool's CLI.
+**All other languages** (Kotlin, Python, Go) are formatted after the write via each tool's CLI.
 
 Your project's Prettier **configuration** is still honored in full — `.prettierrc*`,
 `prettier.config.*`, a top-level `"prettier"` key in `package.json`/`package.yaml`,
@@ -40,16 +42,16 @@ before further string-based edits, and that the reformat is intentional and exem
 "surgical/minimal-diff" change-scope rules.
 
 This plugin is always active once installed — there is no toggle, and there is no per-language
-switch. For every formatter except Prettier, not installing the tool is the opt-out. **Prettier is
-the exception:** it is bundled, so removing Prettier from your project does not opt out of Prettier
-formatting — exclude the paths via `.prettierignore` instead.
+switch. For Kotlin, Python and Go, not installing the tool is the opt-out. **Prettier is the
+exception:** it is bundled — Java, PHP and Shell included — so removing Prettier from your project
+does not opt out of Prettier formatting; exclude the paths via `.prettierignore` instead.
 
 ## Supported formatters
 
 | Language | Extensions                                            | Formatter chain                                   |
 | -------- | ----------------------------------------------------- | ------------------------------------------------- |
-| Shell    | `.sh` `.bash`                                         | `shfmt`                                           |
-| Java     | `.java`                                               | `google-java-format` → `clang-format`             |
+| Shell    | `.sh` `.bash`                                         | bundled `prettier` (in-process, before the write) |
+| Java     | `.java`                                               | bundled `prettier` (in-process, before the write) |
 | Kotlin   | `.kt` `.kts`                                          | `ktlint` → `ktfmt`                                |
 | JS/TS    | `.js` `.jsx` `.mjs` `.cjs` `.ts` `.tsx` `.mts` `.cts` | bundled `prettier` (in-process, before the write) |
 | Python   | `.py` `.pyi`                                          | `ruff` → `black`                                  |
@@ -59,21 +61,31 @@ formatting — exclude the paths via `.prettierignore` instead.
 | Markdown | `.md`                                                 | bundled `prettier` (in-process, before the write) |
 | CSS      | `.css`                                                | bundled `prettier` (in-process, before the write) |
 | SCSS     | `.scss`                                               | bundled `prettier` (in-process, before the write) |
-| PHP      | `.php`                                                | `php-cs-fixer`                                    |
+| LESS     | `.less`                                               | bundled `prettier` (in-process, before the write) |
+| HTML     | `.html` `.htm`                                        | bundled `prettier` (in-process, before the write) |
+| Vue      | `.vue`                                                | bundled `prettier` (in-process, before the write) |
+| GraphQL  | `.graphql` `.gql`                                     | bundled `prettier` (in-process, before the write) |
+| PHP      | `.php`                                                | bundled `prettier` (in-process, before the write) |
 
-`prettier` is the copy bundled into the plugin's own MCP server — it is never looked up on `PATH`,
-never installed, and never fetched. This covers the JS/TS, JSON, YAML, Markdown, CSS and SCSS rows.
-No other formatter has any fallback — see `CLAUDE.md` for why.
+`prettier` is the copy bundled into the plugin's own MCP server, together with the
+`prettier-plugin-java`, `@prettier/plugin-php` and `prettier-plugin-sh` plugins bundled beside it
+— never looked up on `PATH`, never installed, never fetched. This covers all thirteen bundled
+`prettier` rows above. No other formatter has any fallback — see `CLAUDE.md` for why.
 
 ## `.editorconfig` support
 
-`.editorconfig` is honored when present; tool-native configs (`.prettierrc*`, `.clang-format`, `.ruff.toml`, `pyproject.toml [tool.ruff]`/`[tool.black]`) take precedence over it.
+`.editorconfig` is honored when present; tool-native configs (`.prettierrc*`, `.ruff.toml`, `pyproject.toml [tool.ruff]`/`[tool.black]`) take precedence over it.
 
-- `shfmt`, `ktlint`, `prettier` read `.editorconfig` natively (run flag-free).
+- `prettier` and `ktlint` read `.editorconfig` natively (run flag-free). For the thirteen bundled `prettier` languages that is the whole mechanism — `indent_style`, `indent_size` and `max_line_length` included, Shell, Java and PHP with them.
 - `ktfmt` is always passed `--enable-editorconfig`.
-- For `google-java-format`, `clang-format`, `ruff`, and `black`, a minimal built-in resolver maps core `.editorconfig` properties (`indent_style`, `indent_size`, `max_line_length`, `end_of_line`) to CLI flags — **only** when no tool-native config governs the file. This mapping is intentionally partial (documented properties only).
-- **Hard conflicts are skipped, not violated:** if `.editorconfig` declares a style a fixed-style tool cannot produce (`indent_style = tab` for `google-java-format`/`black`; `google-java-format` is also fixed at 100 columns and 2/4-space indent), the file is left untouched rather than reformatted against its own config.
+- For `ruff` and `black`, a minimal built-in resolver maps core `.editorconfig` properties (`indent_style`, `indent_size`, `max_line_length`, `end_of_line`) to CLI flags — **only** when no tool-native config governs the file. This mapping is intentionally partial (documented properties only).
+- **Hard conflicts are skipped, not violated:** `black` is hard-fixed at 4-space indentation, so an `.editorconfig` declaring `indent_style = tab` leaves the Python file untouched rather than reformatted against its own config.
 - Go's style is fixed by design (tabs); a conforming `[*.go] indent_style = tab` is honored by construction.
+
+Two notes on the languages that moved to the bundled `prettier`:
+
+- `.html`/`.htm` is formatted by `prettier`'s own HTML printer, and `*.component.html` automatically picks up its `angular` parser. Server-side template dialects that merely look like HTML (Twig, Blade, Go templates, ERB) are not HTML — exclude them via `.prettierignore`.
+- `.prettierignore`/`.gitignore` now suppress Shell, Java and PHP formatting too. The old post-write CLI chains never consulted those files, so a `.sh` file listed in `.prettierignore` used to be reformatted anyway and no longer is. Without a `max_line_length`/`printWidth` preference these languages get `prettier`'s 80-column default.
 
 ## YAML/JSON: no line-length limit without a project config
 

@@ -5,48 +5,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { buildInvocation, isExcludedPath, REGISTRY, EXT_MAP, PRETTIER_LANGS, hasPrettierProjectConfig, shouldOverridePrintWidth } from "../../plugins/universal-format/mcp/server.mjs";
 
-const shfmt = REGISTRY.shell.chain[0];
-const gjf = REGISTRY.java.chain[0];
-const clang = REGISTRY.java.chain[1];
+const gofmt = REGISTRY.go.chain[1];
 const ruff = REGISTRY.python.chain[0];
 const black = REGISTRY.python.chain[1];
 
 test("native/fixed tools always run bare regardless of editorconfig", () => {
-  assert.deepEqual(buildInvocation(shfmt, { editorconfig: { indent_style: "tab" } }), { argv: ["-w"] });
-});
-
-test("google-java-format: indent_size 4 -> --aosp", () => {
-  assert.deepEqual(buildInvocation(gjf, { editorconfig: { indent_size: 4 } }), {
-    argv: ["--aosp", "--replace"],
-  });
-});
-
-test("google-java-format: indent_size 2 or no editorconfig -> bare", () => {
-  assert.deepEqual(buildInvocation(gjf, { editorconfig: { indent_size: 2 } }), {
-    argv: ["--replace"],
-  });
-  assert.deepEqual(buildInvocation(gjf, { editorconfig: null }), {
-    argv: ["--replace"],
-  });
-});
-
-test("google-java-format: hard conflicts skip (tab, odd indent, narrow columns)", () => {
-  assert.deepEqual(buildInvocation(gjf, { editorconfig: { indent_style: "tab" } }), { skip: true });
-  assert.deepEqual(buildInvocation(gjf, { editorconfig: { indent_size: 3 } }), {
-    skip: true,
-  });
-  assert.deepEqual(buildInvocation(gjf, { editorconfig: { indent_size: "tab" } }), { skip: true });
-  assert.deepEqual(buildInvocation(gjf, { editorconfig: { max_line_length: 80 } }), { skip: true });
-});
-
-test("google-java-format: native config beats editorconfig -> bare", () => {
-  assert.deepEqual(
-    buildInvocation(gjf, {
-      hasNativeConfig: true,
-      editorconfig: { indent_style: "tab" },
-    }),
-    { argv: ["--replace"] },
-  );
+  assert.deepEqual(buildInvocation(gofmt, { editorconfig: { indent_style: "tab" } }), { argv: ["-w"] });
 });
 
 test("black: tab indent skips; max_line_length maps", () => {
@@ -66,31 +30,6 @@ test("ruff: editorconfig maps line length + indent style/width", () => {
     {
       argv: ["format", "--quiet", "--line-length", "88", "--config", "format.indent-style='space'", "--config", "format.indent-width=4"],
     },
-  );
-});
-
-test("clang-format: editorconfig builds an explicit Google-based style", () => {
-  assert.deepEqual(
-    buildInvocation(clang, {
-      editorconfig: {
-        indent_size: 2,
-        indent_style: "space",
-        max_line_length: 100,
-      },
-    }),
-    {
-      argv: ["-i", "--style={BasedOnStyle: Google, IndentWidth: 2, UseTab: Never, ColumnLimit: 100}"],
-    },
-  );
-});
-
-test("clang-format: native config -> bare (fallback ignored when .clang-format present)", () => {
-  assert.deepEqual(
-    buildInvocation(clang, {
-      hasNativeConfig: true,
-      editorconfig: { indent_size: 2 },
-    }),
-    { argv: ["-i", "--style=file", "--fallback-style=Google"] },
   );
 });
 
@@ -116,6 +55,24 @@ test("EXT_MAP partitions exactly into PRETTIER_LANGS and REGISTRY keys", () => {
   for (const lang of PRETTIER_LANGS) {
     assert.equal(Object.hasOwn(REGISTRY, lang), false, `${lang} must not have a REGISTRY chain`);
   }
+});
+
+// Tripwire 3: every PRETTIER_LANGS member is reachable from at least one EXT_MAP entry. The
+// partition test above iterates EXT_MAP *values* only, so it structurally cannot catch a
+// PRETTIER_LANGS member added without its extension -- a language that would then never dispatch.
+test("every PRETTIER_LANGS member is reachable from at least one EXT_MAP extension", () => {
+  const mapped = new Set(Object.values(EXT_MAP));
+  for (const lang of PRETTIER_LANGS) {
+    assert.equal(mapped.has(lang), true, `${lang} is in PRETTIER_LANGS but no EXT_MAP extension maps to it`);
+  }
+});
+
+// Tripwire 4: REGISTRY holds exactly the three languages with no viable prettier plugin (surveyed:
+// kotlin's only plugin shells out to a bundled 39.9 MB JVM jar and needs prettier 1.x, python's has
+// one 2018 release pinned to a prettier git SHA, and no prettier plugin formats Go source at all).
+// Pins the shell/java/php CLI-chain removal.
+test("REGISTRY holds exactly kotlin, python, go", () => {
+  assert.deepEqual(Object.keys(REGISTRY).sort(), ["go", "kotlin", "python"]);
 });
 
 test("hasPrettierProjectConfig: finds .prettierrc directly in the file's dir", () => {
@@ -153,13 +110,6 @@ test('hasPrettierProjectConfig: top-level "prettier" key in package.yaml counts'
 test("hasPrettierProjectConfig: nothing found -> false", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "uf-pc-"));
   assert.equal(hasPrettierProjectConfig(dir), false);
-});
-
-test("REGISTRY: php chain is php-cs-fixer only (chain of 1), native strategy, caching disabled", () => {
-  assert.equal(REGISTRY.php.chain.length, 1);
-  assert.equal(REGISTRY.php.chain[0].name, "php-cs-fixer");
-  assert.equal(REGISTRY.php.chain[0].strategy, "native");
-  assert.ok(REGISTRY.php.chain[0].base.includes("--using-cache=no"));
 });
 
 test("isExcludedPath: node_modules/vendor/.git segments -> excluded", () => {

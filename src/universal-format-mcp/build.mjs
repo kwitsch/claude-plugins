@@ -2,7 +2,10 @@
 // build.mjs — build driver for the universal-format MCP server. Spawns the local `bun build`,
 // canonicalizes bun's provenance comments, prepends the 3-line banner (shebang + @ts-nocheck +
 // build fingerprint) and writes the committed artifact at
-// plugins/universal-format/mcp/server.mjs, mode 0755.
+// plugins/universal-format/mcp/server.mjs, mode 0755. It also copies the bundled prettier
+// plugins' .wasm sidecars next to that bundle (mode 0644) -- bun cannot see their runtime
+// `new URL(name, import.meta.url)` lookups -- sweeping stale ones and hashing the survivors into
+// the banner's assets= field.
 // Runs under plain `node` AND under `bun`. Requires a local `bun`; CI never runs this script —
 // artifact freshness is a node-only assertion in test/universal-format/build-artifact.test.mjs.
 // Run `pnpm install --frozen-lockfile` in this tree first: the bundle embeds that prettier, and
@@ -102,10 +105,67 @@ const require = createRequire(import.meta.url);
 const prettierVersion = JSON.parse(readFileSync(require.resolve("prettier/package.json"), "utf8")).version;
 const bunVersion = String(spawnSync("bun", ["--version"], { encoding: "utf8" }).stdout ?? "").trim();
 
+// The third-party prettier plugins bundled alongside prettier itself. Versions come from the
+// DECLARED pins in the root package.json, not from node_modules: the pins are exact,
+// `pnpm install --frozen-lockfile` guarantees declared == installed, and two of the three
+// packages do not export "./package.json" at all (ERR_PACKAGE_PATH_NOT_EXPORTED).
+const PLUGIN_PINS = ["prettier-plugin-java", "@prettier/plugin-php", "prettier-plugin-sh"];
+const rootPkg = JSON.parse(readFileSync(path.join(REPO_ROOT, "package.json"), "utf8"));
+const pluginVersions = PLUGIN_PINS.map((name) => `${name}@${rootPkg.devDependencies[name]}`).join("+");
+
+// bun build CANNOT emit these: both are runtime lookups (`new URL(name, import.meta.url)`),
+// invisible to the bundler -- verified that --outdir + --loader:.wasm=file emits only the JS. So
+// copy them by hand, next to the bundle, because that is exactly where
+// `new URL(name, import.meta.url)` resolves once everything is one file. Both are resolved FROM
+// prettier-plugin-java, the same way that plugin resolves them at runtime: web-tree-sitter is its
+// transitive dependency, not a root one, so under pnpm's isolated node_modules it is reachable
+// only from the plugin's own directory.
+const javaPluginEntry = require.resolve("prettier-plugin-java");
+const WASM_ASSETS = [
+  // web-tree-sitter exports this subpath explicitly.
+  createRequire(javaPluginEntry).resolve("web-tree-sitter/web-tree-sitter.wasm"),
+  // prettier-plugin-java does NOT export the subpath (ERR_PACKAGE_PATH_NOT_EXPORTED), nor its
+  // package.json. Resolve the entry and join -- mirrors the plugin's own runtime lookup.
+  path.join(path.dirname(javaPluginEntry), "tree-sitter-java_orchard.wasm"),
+];
+
+// Sweep every pre-existing *.wasm first: a plugin bump that renames its grammar must never leave
+// an orphaned sidecar behind that build-artifact.test.mjs would still hash as present.
+const OUT_DIR = path.dirname(OUT_FILE);
+for (const name of readdirSync(OUT_DIR)) {
+  if (name.endsWith(".wasm")) rmSync(path.join(OUT_DIR, name), { force: true });
+}
+
+// Same same-directory temp file + atomic rename the artifact itself uses; mode 0644 (data, not
+// executable).
+/** @type {Array<{base: string, bytes: Buffer}>} */
+const assets = [];
+for (const asset of WASM_ASSETS) {
+  const base = path.basename(asset);
+  const bytes = readFileSync(asset);
+  const tmpAsset = path.join(OUT_DIR, `.${base}.tmp-${process.pid}`);
+  writeFileSync(tmpAsset, bytes);
+  chmodSync(tmpAsset, 0o644);
+  renameSync(tmpAsset, path.join(OUT_DIR, base));
+  assets.push({ base, bytes });
+}
+
+// hashSourceTree covers only src/, so a deleted, stale or corrupted sidecar would change neither
+// src= nor body=. Same `name \0 bytes \0` shape, keyed by basename, sorted by basename.
+assets.sort((a, b) => (a.base < b.base ? -1 : a.base > b.base ? 1 : 0));
+const assetsDigest = createHash("sha256");
+for (const asset of assets) {
+  assetsDigest.update(asset.base);
+  assetsDigest.update("\0");
+  assetsDigest.update(asset.bytes);
+  assetsDigest.update("\0");
+}
+const assetsHash = assetsDigest.digest("hex").slice(0, 16);
+
 const banner = [
   "#!/usr/bin/env node",
   "// @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`",
-  `// uf-build-fingerprint src=${srcHash} body=${bodyHash} prettier=${prettierVersion} bun=${bunVersion}`,
+  `// uf-build-fingerprint src=${srcHash} body=${bodyHash} prettier=${prettierVersion} plugins=${pluginVersions} assets=${assetsHash} bun=${bunVersion}`,
   "",
 ].join("\n");
 
@@ -116,4 +176,5 @@ const tmpArtifact = path.join(path.dirname(OUT_FILE), `.server.mjs.tmp-${process
 writeFileSync(tmpArtifact, banner + body);
 chmodSync(tmpArtifact, 0o755);
 renameSync(tmpArtifact, OUT_FILE);
-process.stderr.write(`built ${path.relative(REPO_ROOT, OUT_FILE)} — src=${srcHash} body=${bodyHash} prettier=${prettierVersion} bun=${bunVersion}\n`);
+process.stderr.write(`built ${path.relative(REPO_ROOT, OUT_FILE)} — src=${srcHash} body=${bodyHash} prettier=${prettierVersion} plugins=${pluginVersions} assets=${assetsHash} bun=${bunVersion}\n`);
+process.stderr.write(`copied ${assets.length} wasm sidecar(s) into ${path.relative(REPO_ROOT, OUT_DIR)}: ${assets.map((a) => a.base).join(", ")}\n`);

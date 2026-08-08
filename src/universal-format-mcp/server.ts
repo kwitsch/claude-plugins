@@ -2,7 +2,7 @@
 // `pnpm run build:universal-format-mcp` into plugins/universal-format/mcp/server.mjs.
 // Transport: newline-delimited JSON-RPC 2.0. stdout = JSON-RPC only; logs -> stderr.
 //   format_pre  (PreToolUse Write|Edit)  — prettier languages, in-process, updatedInput
-//   format_post (PostToolUse Write|Edit) — shell/java/kotlin/python/go/php via each tool's CLI
+//   format_post (PostToolUse Write|Edit) — kotlin/python/go via each tool's CLI
 import process from "node:process";
 import readline from "node:readline";
 import { realpathSync } from "node:fs";
@@ -45,13 +45,14 @@ function startServer(): void {
   const TOOLS: ToolDef[] = [
     {
       name: "format_pre",
-      description: "PreToolUse Write|Edit: format prettier-language files (jsts/json/yaml/markdown/css/scss) in-process before the write (updatedInput) with the prettier bundled into this server.",
+      description:
+        "PreToolUse Write|Edit: format prettier-language files (jsts/json/yaml/markdown/css/scss/less/html/vue/graphql/shell/java/php) in-process before the write (updatedInput) with the bundled prettier.",
       inputSchema: { type: "object", additionalProperties: true },
       handler: formatPre,
     },
     {
       name: "format_post",
-      description: "PostToolUse Write|Edit: format the just-written file with the language's CLI formatter (shell/java/kotlin/python/go/php); prettier languages belong to format_pre.",
+      description: "PostToolUse Write|Edit: format the just-written file with the language's CLI formatter (kotlin/python/go); prettier languages belong to format_pre.",
       inputSchema: { type: "object", additionalProperties: true },
       handler: formatPost,
     },

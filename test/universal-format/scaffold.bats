@@ -119,8 +119,8 @@ setup() {
   assert_failure
 }
 
-@test "plugin.json version is 0.10.0" {
-  run jq -e '.version == "0.10.0"' "$PLUGIN/.claude-plugin/plugin.json"
+@test "plugin.json version is 0.11.0" {
+  run jq -e '.version == "0.11.0"' "$PLUGIN/.claude-plugin/plugin.json"
   assert_success
 }
 
@@ -131,6 +131,21 @@ setup() {
 
 @test "root package.json declares the build:universal-format-mcp script" {
   run jq -e '.scripts["build:universal-format-mcp"] == "node src/universal-format-mcp/build.mjs"' "$REPO_ROOT/package.json"
+  assert_success
+}
+
+@test "root package.json pins the three bundled prettier plugins exactly (no range prefix)" {
+  run jq -e '.devDependencies["prettier-plugin-java"] == "2.10.3" and .devDependencies["@prettier/plugin-php"] == "0.25.0" and .devDependencies["prettier-plugin-sh"] == "0.16.1"' "$REPO_ROOT/package.json"
+  assert_success
+}
+
+@test "root tsconfig.json enables skipLibCheck (the bundled prettier plugins ship dirty .d.ts files)" {
+  run jq -e '.compilerOptions.skipLibCheck == true' "$REPO_ROOT/tsconfig.json"
+  assert_success
+}
+
+@test ".gitattributes marks *.wasm binary so the committed sidecars are never EOL-translated" {
+  run rg_or_grep -q -F "*.wasm binary" "$REPO_ROOT/.gitattributes"
   assert_success
 }
 
@@ -148,7 +163,7 @@ setup() {
   run bash -c "sed -n 2p '$SERVER'"
   assert_output --partial "@ts-nocheck"
   run bash -c "sed -n 3p '$SERVER'"
-  assert_output --regexp '^// uf-build-fingerprint src=[0-9a-f]{16} body=[0-9a-f]{16} prettier=[0-9.]+ bun='
+  assert_output --regexp '^// uf-build-fingerprint src=[0-9a-f]{16} body=[0-9a-f]{16} prettier=[0-9.]+ plugins=[^ ]+ assets=[0-9a-f]{16} bun='
 }
 
 # High-signal: a real bun-built bundle of these sources contains 0 occurrences of either string,
@@ -183,4 +198,48 @@ setup() {
   assert_success
   run rg_or_grep -q -F "pnpm run build:universal-format-mcp" "$REPO_ROOT/CLAUDE.md"
   assert_success
+}
+
+# core.fileMode = false in this repo, so a wrong mode on a NEW file surfaces only on a fresh CI
+# checkout — assert the index directly.
+@test "both wasm sidecars are tracked next to the bundle with git mode 100644" {
+  run bash -c "cd '$REPO_ROOT' && git ls-files -s plugins/universal-format/mcp/"
+  assert_success
+  assert_line --regexp '^100755 [0-9a-f]+ 0[[:space:]]+plugins/universal-format/mcp/server\.mjs$'
+  assert_line --regexp '^100644 [0-9a-f]+ 0[[:space:]]+plugins/universal-format/mcp/tree-sitter-java_orchard\.wasm$'
+  assert_line --regexp '^100644 [0-9a-f]+ 0[[:space:]]+plugins/universal-format/mcp/web-tree-sitter\.wasm$'
+}
+
+# Acceptance tripwire: the three migrated languages must not be described anywhere by the CLI
+# formatter that no longer runs for them. The generated bundle is out of scope (vendored
+# third-party code), but it too contains 0 occurrences of these names.
+@test "no source or user-facing doc names a removed shell/java/php CLI formatter" {
+  run rg_or_grep -q -E "shfmt|php-cs-fixer|google-java-format|clang-format" \
+    "$PLUGIN/README.md" "$PLUGIN/CLAUDE.md" "$HOOKS" "$PLUGIN/.claude-plugin/plugin.json" "$REPO_ROOT/README.md" \
+    "$REPO_ROOT/src/universal-format-mcp"/*.ts "$REPO_ROOT/src/universal-format-mcp/build.mjs"
+  assert_failure
+}
+
+@test "the three global docs describe the artifact as a bundle plus two committed .wasm sidecars" {
+  local f
+  for f in "$REPO_ROOT/CLAUDE.md" "$REPO_ROOT/plugins/CLAUDE.md" "$REPO_ROOT/.claude/rules/hooks-mcp-server.md"; do
+    run rg_or_grep -q -F "web-tree-sitter.wasm" "$f"
+    assert_success
+    run rg_or_grep -q -F "tree-sitter-java_orchard.wasm" "$f"
+    assert_success
+  done
+}
+
+@test "plugin README table and both manifest descriptions cover the thirteen bundled-prettier languages" {
+  run rg_or_grep -c -F "in-process, before the write" "$PLUGIN/README.md"
+  assert_output "13"
+  local desc t
+  desc="$(jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json")"
+  for t in Shell Java PHP LESS HTML Vue GraphQL; do
+    case "$desc" in *"$t"*) ;; *) printf 'plugin.json description is missing %s\n' "$t"; return 1 ;; esac
+  done
+  desc="$(jq -r '.description' "$HOOKS")"
+  for t in shell java php less html vue graphql kotlin python go; do
+    case "$desc" in *"$t"*) ;; *) printf 'hooks.json description is missing %s\n' "$t"; return 1 ;; esac
+  done
 }

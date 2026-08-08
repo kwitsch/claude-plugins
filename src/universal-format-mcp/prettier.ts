@@ -1,11 +1,16 @@
-// prettier.ts — the ONE prettier in this process: the copy `bun build` inlines here. There is no
-// resolver, no project-local probe, no PATH probe, no managed copy and no package-runner
-// fallback: this instance formats every prettier-covered file. A project's prettier CONFIG is
-// still honored in full.
+// prettier.ts — the ONE prettier in this process: the copy `bun build` inlines here, plus the
+// three third-party plugins bundled next to it (java, php, shell). There is no resolver, no
+// project-local probe, no PATH probe, no managed copy and no package-runner fallback: this
+// instance formats every prettier-covered file. A project's prettier CONFIG is still honored in
+// full.
+import process from "node:process";
 import path from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import * as prettierNs from "prettier";
+import * as javaPluginNs from "prettier-plugin-java";
+import * as phpPluginNs from "@prettier/plugin-php";
+import * as shPluginNs from "prettier-plugin-sh";
 import { walkToRoot } from "./util.js";
 import { resolveEditorconfig } from "./editorconfig.js";
 
@@ -18,6 +23,34 @@ const bundledPrettier: typeof prettierNs = (prettierNs as unknown as { default?:
 
 /** Version of the bundled prettier — asserted against node_modules by the freshness test. */
 export const BUNDLED_PRETTIER_VERSION: string = String(bundledPrettier.version ?? "");
+
+/** A bundled plugin's module namespace normalized to the plugin object prettier expects.
+ * prettier-plugin-java and prettier-plugin-sh expose it as `default`; @prettier/plugin-php has no
+ * default export and its namespace IS the plugin object. Read through a parameter on purpose: a
+ * direct `ns.default` on a namespace with no such export is a bun build warning. */
+function asPlugin(ns: unknown): unknown {
+  return (ns as { default?: unknown }).default ?? ns;
+}
+
+/** The prettier plugins bundled alongside the prettier above: java, php and shell. java is the
+ * LATEST release and loads two .wasm sidecars from this bundle's own directory (put there by
+ * build.mjs); php is latest and pure JS; sh is pinned to its last pure-JS release on purpose --
+ * newer releases are WASM-only and resolve their wasm OUTSIDE this bundle's directory. No plugin
+ * OPTION is ever set from here (never experimentalWasm): a project's config is the only knob. */
+export const BUNDLED_PLUGINS: unknown[] = [asPlugin(javaPluginNs), asPlugin(phpPluginNs), asPlugin(shPluginNs)];
+
+// prettier-plugin-java starts `Parser.init()` in a module-scope IIFE, so a floating promise exists
+// from import time. If a .wasm sidecar is missing or corrupt that promise rejects with nothing
+// attached, which KILLS this process under node (verified: exit 1) and exits non-zero under bun --
+// taking down formatting for every OTHER language too. Downgrade it to a stderr note so the server
+// survives and only the affected language fails open. stdout is the JSON-RPC channel: never write
+// there. Deliberately process-global because the hazard is created by this module's own imports;
+// the cost is that an unrelated unhandled rejection is reported instead of fatal, which is the
+// correct trade for a hook whose entire contract is to fail open.
+process.on("unhandledRejection", (reason: unknown) => {
+  const msg = String((reason as { message?: string })?.message ?? reason).split("\n")[0];
+  process.stderr.write(`[universal-format] background plugin init failed; that language will fail open: ${msg}\n`);
+});
 
 // Prettier's own project-config search (verified against prettier's bundled source: its
 // CONFIG_FILES searcher has no stopDirectory -- the hook that would supply one always returns
@@ -143,7 +176,13 @@ export async function formatInProcess(src: string, filePath: string, cwd: string
     config.plugins = resolvedPlugins;
   }
   if ((lang === "json" || lang === "yaml") && shouldOverridePrintWidth(filePath, cwd)) config.printWidth = 99999;
-  return await bundledPrettier.format(src, { ...config, filepath: filePath });
+  // Bundled entries go LAST so a project config naming the same plugin cannot leave the bundled
+  // prettier without a parser (duplicate registration verified safe). Local array, never assigned
+  // back into `config`: resolveConfig's result is cached inside prettier. The resolveConfigPlugins
+  // null early-return above MUST stay ahead of this -- a project with an unresolvable custom
+  // plugin must keep getting "leave the file alone", not BUNDLED_PLUGINS-only formatting.
+  const plugins = [...(Array.isArray(config.plugins) ? config.plugins : []), ...BUNDLED_PLUGINS];
+  return await bundledPrettier.format(src, { ...config, plugins, filepath: filePath });
 }
 
 /** Drop the bundled prettier's cached config state. Called only from the PostToolUse handler,

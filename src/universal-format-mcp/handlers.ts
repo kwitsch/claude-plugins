@@ -77,9 +77,9 @@ export async function formatPost(args: PostToolUseHookInput): Promise<HookResult
     // format_pre owns every prettier language, before the write, with the bundled prettier.
     if (PRETTIER_LANGS.has(lang)) return {};
 
-    // EXT_MAP/REGISTRY drift guard: EXT_MAP maps six languages REGISTRY no longer contains, so an
-    // unguarded REGISTRY[lang].chain would throw if the PRETTIER_LANGS return were ever reordered
-    // away. Pinned by registry.test.mjs's EXT_MAP-partition tripwire.
+    // EXT_MAP/REGISTRY drift guard: EXT_MAP maps thirteen languages REGISTRY no longer contains,
+    // so an unguarded REGISTRY[lang].chain would throw if the PRETTIER_LANGS return were ever
+    // reordered away. Pinned by registry.test.mjs's EXT_MAP-partition tripwire.
     const entry = REGISTRY[lang];
     if (!entry) return {};
 
