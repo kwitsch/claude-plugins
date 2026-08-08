@@ -16,6 +16,7 @@ import {
   resolveTsconfig,
   looksLikeSolutionStyleTsconfig,
   tsBuildInfoPathFor,
+  tscOutputHasSourceDiagnostic,
   hasProjectYamllintConfig,
   hasProjectMarkdownlintConfig,
 } from "../../plugins/universal-lint/hooks/lint-file.mjs";
@@ -214,6 +215,29 @@ test("classifyExit: tsc is 0-clean/1-or-2-issues/else-skip (empirically verified
   assert.equal(classifyExit("tsc", 1), "issues");
   assert.equal(classifyExit("tsc", 2), "issues");
   assert.equal(classifyExit("tsc", 64), "skip");
+});
+
+test("tscOutputHasSourceDiagnostic: true for a real diagnostic anchored to a .ts/.tsx/.mts/.cts location", () => {
+  assert.equal(tscOutputHasSourceDiagnostic("a.ts(1,1): error TS2322: bad"), true);
+  assert.equal(tscOutputHasSourceDiagnostic("src/a.tsx:1:1 - error TS2322: bad"), true);
+  assert.equal(tscOutputHasSourceDiagnostic("a.mts(1,1): error TS2322: bad"), true);
+  assert.equal(tscOutputHasSourceDiagnostic("a.cts:1:1 - error TS2322: bad"), true);
+});
+
+test("tscOutputHasSourceDiagnostic: false for a pure project/config-loading failure (no source-file location)", () => {
+  assert.equal(tscOutputHasSourceDiagnostic("error TS5083: Cannot read file '/proj/missing-base.json'."), false);
+  assert.equal(tscOutputHasSourceDiagnostic("error TS5058: The specified path does not exist: '/proj/tsconfig.json'."), false);
+  assert.equal(tscOutputHasSourceDiagnostic("tsconfig.json(1,44): error TS6046: invalid --target value"), false);
+});
+
+test("tscOutputHasSourceDiagnostic: true when a config failure and a real diagnostic are both present", () => {
+  const combined = "error TS5083: Cannot read file '/proj/missing-base.json'.\na.ts(1,1): error TS2322: bad";
+  assert.equal(tscOutputHasSourceDiagnostic(combined), true);
+});
+
+test("tscOutputHasSourceDiagnostic: matches through ANSI color codes (real tsc output is colorized even when piped)", () => {
+  const colorized = "\x1b[96ma.ts\x1b[0m:\x1b[93m1\x1b[0m:\x1b[93m7\x1b[0m - \x1b[91merror\x1b[0m TS2322: bad";
+  assert.equal(tscOutputHasSourceDiagnostic(colorized), true);
 });
 
 test("resolveTsconfig: finds tsconfig.json walking up to cwd", () => {

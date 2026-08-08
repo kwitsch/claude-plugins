@@ -168,15 +168,28 @@ documented `ExitStatus` enum (`Success=0`,
 `DiagnosticsPresent_OutputsSkipped=1`, `_OutputsGenerated=2`) suggested.
 Under TypeScript 7.0's native ("tsgo") compiler (verified against 7.0.2,
 GA'd 2026-07-08), a real diagnostic under `--noEmit` instead exits `1`
-(matching the documented enum this time), and an invalid project path
-_also_ exits `1` — no longer distinguishable by exit code alone. Accepting
-both `1` and `2` as `"issues"` is the only contract that catches real
-findings on both major versions; the cost is that the invalid-project-path
-case (already a rare race in practice — `resolveTsconfig` confirms the
-tsconfig exists on disk before this ever runs) now surfaces its own error
-text as a finding instead of being silently skipped. Trust the live
-behavior, not the enum — re-verify whenever the installed `tsc` major
-version changes materially and findings stop surfacing.
+(matching the documented enum this time), but exit `1` is now _also_ used
+for genuine project/config-loading failures — a broken `extends` path, an
+invalid compiler-option value, a nonexistent tsconfig path (verified
+empirically: `TS5083`, `TS6046`, `TS5058`, all exit `1`) — no longer
+distinguishable from a real diagnostic by exit code alone. `classifyExit`
+therefore only answers "clean vs. worth a closer look"; `runTypeCheck` does
+a second, content-based pass on exit-`1` results specifically —
+`tscOutputHasSourceDiagnostic` checks (after stripping ANSI color codes,
+which the native compiler emits even when piped) whether the output
+contains a diagnostic anchored to an actual `.ts`/`.tsx`/`.mts`/`.cts`
+location (`<file>:<line>:<col>` or `<file>(<line>,<col>)`) rather than only
+to `tsconfig.json` itself or no location at all — a pure config-loading
+failure never anchors to a real source file, so this reliably tells "tsc
+actually checked project code and found a problem in it" apart from "tsc
+never got past loading the project." A config failure alongside a genuine
+source diagnostic (e.g. a broken `extends` _and_ a real type error in the
+checked file) still surfaces the real finding, since tsc reports both and
+the check only needs one true source location to fire. Exit `2` skips this
+extra check — it meant a real diagnostic both before and after the TS7
+change, so no disambiguation is needed there. Trust the live behavior, not
+the enum — re-verify whenever the installed `tsc` major version changes
+materially and findings stop surfacing.
 
 Discovery: `tsc` on `PATH` first (runs through the same `runLintTool`
 rtk-compaction attempt every other chain tool gets, keyed off the static
