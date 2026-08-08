@@ -6,7 +6,7 @@ The plugin ships these components:
 
 - `skills/build-task/` — the inline orchestrator skill. Branch handling, `AskUserQuestion` checkpoints, invokes the two workflows below by name, applies escalated review fixes.
 - `workflows/design-to-spec.workflow.js` + `workflows/spec-driven-delivery.workflow.js` — the two dynamic Workflow-tool scripts that do the heavy lifting. Auto-discovered from the plugin-root `workflows/` directory (no manifest field needed); run namespaced as `/taskflow:design-to-spec` / `/taskflow:spec-driven-delivery`.
-- `agents/*.md` — 11 static role prompts (`planner`, `designer`, `design-reviewer`, `review-finder`, `review-verifier`, `worktree-merger`, `fix-applier`, `pr-author`, `shipper`, `ci-monitor`, `ci-fixer`), dispatched by the workflows via `agentType: 'taskflow:<name>'`. INTERNAL — each agent's own description says not to delegate to it directly.
+- `agents/*.md` — 12 static role prompts (`planner`, `designer`, `design-reviewer`, `review-finder`, `review-verifier`, `worktree-merger`, `fix-applier`, `pr-author`, `shipper`, `ci-monitor`, `ci-fixer`, `cache-probe`), dispatched by the workflows via `agentType: 'taskflow:<name>'`. INTERNAL — each agent's own description says not to delegate to it directly.
 
 Renaming the plugin requires updating the `AGENTS` map's namespace prefix in both workflow scripts to match.
 
@@ -55,8 +55,16 @@ explorers. Every point below is load-bearing:
   (`explore-cache:probe`, `haiku`) and cache write (`explore-cache:write`,
   `sonnet`) are `agent()` dispatches, per the no-FS contract in the file's own
   header. `FINGERPRINT_CMD` is one constant shared by both prompts, so probe
-  and writer can never diverge. Neither uses an `agentType`, so no new
-  `agents/*.md` file and no new bats `agentType` coupling.
+  and writer can never diverge. The probe runs as `agentType:
+  'taskflow:cache-probe'` (`agents/cache-probe.md`, `tools: ["Bash",
+  "Read"]`) — it needs `Bash` for `FINGERPRINT_CMD` but never `Write`/`Edit`,
+  unlike the general-purpose-tooled writer. The write is dispatched
+  concurrently with the first designer call (`parallel()` in Phase 2, not
+  awaited before it) since Design only needs `explorationBlock`, and reuses
+  the probe's already-computed fingerprint on any RESUME round instead of
+  re-running `FINGERPRINT_CMD` a second time; a null/`blocked` writer result
+  gets one script-enforced retry (`writeCache()`), on top of the writer's own
+  single-turn `wc -l` self-check.
 - **One gate for cached data:**
   `const cachedAreas = cacheHit ? parsedAreas : [];` (`test/taskflow/test.bats`
   pins that literal line). `probe.found === true` only certifies "the header
@@ -122,10 +130,10 @@ BATS_LIB_PATH="$PWD/node_modules" pnpm exec bats test/taskflow/
 
 The suite is structural: plugin manifest invariants (no `userConfig`), the
 `build-task` skill frontmatter + reference files, presence and frontmatter of
-all 11 agents (including the least-privilege `tools:` allowlist on the 4
+all 12 agents (including the least-privilege `tools:` allowlist on the 5
 read-only-declared agents: `design-reviewer`, `review-finder`,
-`review-verifier`, `ci-monitor`), and both `workflows/*.workflow.js` files'
-`export const meta` shape.
+`review-verifier`, `ci-monitor`, `cache-probe`), and both
+`workflows/*.workflow.js` files' `export const meta` shape.
 
 ## Linting
 

@@ -55,6 +55,7 @@
 //   specWriter sonnet — approved draft → spec (transformation, decisions stand)
 //   specRev   sonnet  — completeness/unambiguity gate
 //   cacheProbe  haiku  — read the Explore-cache header + one git fingerprint
+//                        (agentType 'cache-probe', Bash+Read only)
 //   cacheWriter sonnet — verbatim persistence of the exploration reports
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -122,6 +123,7 @@ const MODELS = {
 const AGENTS = {
   designer: "taskflow:designer",
   reviewer: "taskflow:design-reviewer",
+  cacheProbe: "taskflow:cache-probe", // Bash+Read only — never Write/Edit
 };
 
 const MAX_PARALLEL_EXPLORES = 4;
@@ -291,7 +293,9 @@ ${FINGERPRINT_CMD}
    starts with \`## \`, in order — this is still reading the cache file, not
    exploring the codebase.`;
 
-const probe = RESUME ? await agent(cacheProbePrompt, { label: "explore-cache:probe", phase: "Explore", schema: EXPLORE_CACHE_PROBE, model: MODELS.cacheProbe }) : null;
+const probe = RESUME
+  ? await agent(cacheProbePrompt, { label: "explore-cache:probe", phase: "Explore", schema: EXPLORE_CACHE_PROBE, model: MODELS.cacheProbe, agentType: AGENTS.cacheProbe })
+  : null;
 // Normalize once, in place: SCHEMA types these as `number`, but structured
 // output can still hand back a numeric string — coerce before any comparison
 // so a genuinely-matching line count is never rejected as a type mismatch.
@@ -411,15 +415,21 @@ const exploration = sections.join("\n\n");
 if (!cacheHit && !exploration) return { status: "error", stage: "Explore", error: "all explorers returned null" };
 
 // Persist: create on a fresh run or a miss, append on a top-up. Nothing new to
-// write when a hit produced no new areas. Never fails the run.
+// write when a hit produced no new areas. Never fails the run. Dispatched
+// concurrently with the first designer call below (Design does not depend on
+// this write finishing) — its own explicit `phase: "Explore"` keeps it in the
+// right progress group despite racing the "Design" phase.
 const cacheWriterPrompt = (mode, totalLines, areaLine, fingerprintValue) => `You are the exploration-cache writer. This is a mechanical file
 operation — no analysis, no summarizing, no commentary.
 Mode: ${mode}. Target file: ${EXPLORE_CACHE_PATH}
 
 In \`create\` mode write that file with exactly this layout:
 line 1: <!-- taskflow explore cache (session-only, never commit) -->
-line 2: \`FINGERPRINT: \` followed by the verbatim stdout of this command, which you run yourself:
-${FINGERPRINT_CMD}
+line 2: \`FINGERPRINT: \` followed by ${
+  fingerprintValue
+    ? "this exact value, already computed earlier this run — copy it verbatim, do NOT re-run any command: " + fingerprintValue
+    : "the verbatim stdout of this command, which you run yourself:\n" + FINGERPRINT_CMD
+}
 line 3: \`AREAS: ${areaLine}\`
 line 4: \`LINES: ${totalLines}\`
 line 5: empty
@@ -440,18 +450,26 @@ BEGIN-BODY
 ${exploration}
 END-BODY`;
 
-if (exploration) {
+// Script-enforced retry (matches runDesigner/writeSpec elsewhere in this
+// file) instead of trusting the writer's own single-turn self-check alone —
+// a null or still-`blocked` result gets exactly one more full attempt.
+async function writeCache(mode, totalLines, areaLine, fingerprintValue) {
+  const opts = { label: "explore-cache:write", phase: "Explore", schema: WRITE_RESULT, model: MODELS.cacheWriter };
+  let w = await agent(cacheWriterPrompt(mode, totalLines, areaLine, fingerprintValue), opts);
+  if (!w || w.status !== "done") w = await agent(cacheWriterPrompt(mode, totalLines, areaLine, fingerprintValue), { ...opts, label: "explore-cache:write:retry" });
+  return w;
+}
+
+const cacheWriteThunk = () => {
+  if (!exploration) return Promise.resolve(null);
   const mode = cacheHit ? "append" : "create";
   const totalLines = (cacheHit ? probe.actualLines + 1 : CACHE_HEADER_LINES) + lineCount(exploration);
   const areaLine = cachedAreas.concat(exploredAreas).join(" | "); // cachedAreas is [] on a miss
-  const w = await agent(cacheWriterPrompt(mode, totalLines, areaLine, cacheHit ? currentFingerprint : ""), {
-    label: "explore-cache:write",
-    phase: "Explore",
-    schema: WRITE_RESULT,
-    model: MODELS.cacheWriter,
-  });
-  if (!w || w.status !== "done") log("Explore cache: write failed — the next resume round will explore fully");
-}
+  // Reuse the fingerprint the probe already computed this run whenever one
+  // exists (any RESUME round), instead of paying for a second live git
+  // round-trip inside the writer for a value already sitting in scope.
+  return writeCache(mode, totalLines, areaLine, currentFingerprint);
+};
 
 const explorationBlock =
   (cacheHit
@@ -512,7 +530,12 @@ async function reviewDesign(label) {
   return r;
 }
 
-let design = await runDesigner(initialMode, initialExtra, "design");
+// Runs concurrently with the Explore-cache write above — Design only needs
+// `explorationBlock`, already built from in-memory data, not from the write's
+// own result.
+const [cacheWriteResult, firstDesign] = await parallel([cacheWriteThunk, () => runDesigner(initialMode, initialExtra, "design")]);
+if (exploration && (!cacheWriteResult || cacheWriteResult.status !== "done")) log("Explore cache: write failed — the next resume round will explore fully");
+let design = firstDesign;
 if (!design || design.status === "blocked") {
   return { status: "error", stage: "Design", error: design ? design.detail : "designer returned null twice" };
 }

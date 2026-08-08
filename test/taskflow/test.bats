@@ -163,9 +163,9 @@ export -f rg_or_grep
 
 # --- agents ---
 
-AGENT_NAMES="planner designer design-reviewer review-finder review-verifier worktree-merger fix-applier pr-author shipper ci-monitor ci-fixer"
+AGENT_NAMES="planner designer design-reviewer review-finder review-verifier worktree-merger fix-applier pr-author shipper ci-monitor ci-fixer cache-probe"
 
-@test "all 11 agent files exist with matching name frontmatter" {
+@test "all 12 agent files exist with matching name frontmatter" {
   for a in $AGENT_NAMES; do
     [ -f "$AGENTS_DIR/$a.md" ]
     run rg_or_grep -E "^name:[[:space:]]*$a\$" "$AGENTS_DIR/$a.md"
@@ -188,7 +188,7 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
 }
 
 @test "read-only-declared agents carry a least-privilege tools allowlist without Write/Edit" {
-  for a in design-reviewer review-finder review-verifier ci-monitor; do
+  for a in design-reviewer review-finder review-verifier ci-monitor cache-probe; do
     run rg_or_grep -E '^tools:' "$AGENTS_DIR/$a.md"
     [ "$status" -eq 0 ]
     run rg_or_grep -E "^tools:.*[[:space:],\\[\\]\"'](Write|Edit)([[:space:],\\[\\]\"']|\$)" "$AGENTS_DIR/$a.md"
@@ -261,6 +261,26 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
 
 @test "the Explore cache introduces no new required arg" {
   run rg_or_grep -F 'decodeArgs(["TASK", "DRAFT_PATH", "SPEC_PATH"]' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+@test "the Explore-cache probe is dispatched with a Bash+Read-only agentType" {
+  run rg_or_grep -F 'agentType: AGENTS.cacheProbe' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+  [ -f "$AGENTS_DIR/cache-probe.md" ]
+  run rg_or_grep -F 'tools: ["Bash", "Read"]' "$AGENTS_DIR/cache-probe.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "the Explore-cache write runs concurrently with the first designer call" {
+  run rg_or_grep -F 'parallel([cacheWriteThunk,' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+@test "the Explore-cache writer reuses an already-computed fingerprint and gets one scripted retry" {
+  run rg_or_grep -F 'function writeCache' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'writeCache(mode, totalLines, areaLine, currentFingerprint)' "$WORKFLOWS/design-to-spec.workflow.js"
   [ "$status" -eq 0 ]
 }
 
