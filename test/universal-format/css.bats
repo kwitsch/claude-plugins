@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-# .css/.scss through format_pre and the bundled prettier; format_post owns neither.
+# .css/.scss/.less through format_pre and the bundled prettier; format_post owns none of them.
 
 load 'test_helper'
 
@@ -39,4 +39,14 @@ setup() {
   assert_success
   [ "$output" = "{}" ]
   [ ! -s "$RECORD" ]
+}
+
+@test "less: format_pre formats a .less file with the bundled prettier" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  run pre_tool_use_write_call "$cwd/a.less" '@c:  red;
+.a{color:@c}
+' "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.updatedInput.content == "@c: red;\n.a {\n  color: @c;\n}\n"'
 }

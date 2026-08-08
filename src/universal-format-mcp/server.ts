@@ -45,7 +45,8 @@ function startServer(): void {
   const TOOLS: ToolDef[] = [
     {
       name: "format_pre",
-      description: "PreToolUse Write|Edit: format prettier-language files (jsts/json/yaml/markdown/css/scss) in-process before the write (updatedInput) with the prettier bundled into this server.",
+      description:
+        "PreToolUse Write|Edit: format prettier-language files (jsts/json/yaml/markdown/css/scss/less/html/vue/graphql) in-process before the write (updatedInput) with the prettier bundled into this server.",
       inputSchema: { type: "object", additionalProperties: true },
       handler: formatPre,
     },

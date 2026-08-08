@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=e8087aacdf63bccc body=89b14f5a5bfb82c3 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=fcbfbd1e6bee983f bun=1.3.14
+// uf-build-fingerprint src=0fd1c40f5e3a5358 body=2e53ba8e9d376186 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=fcbfbd1e6bee983f bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -171895,12 +171895,18 @@ var EXT_MAP = {
   ".json": "json",
   ".css": "css",
   ".scss": "scss",
+  ".less": "less",
   ".yaml": "yaml",
   ".yml": "yaml",
   ".md": "markdown",
+  ".html": "html",
+  ".htm": "html",
+  ".vue": "vue",
+  ".graphql": "graphql",
+  ".gql": "graphql",
   ".php": "php"
 };
-var PRETTIER_LANGS = new Set(["jsts", "json", "yaml", "markdown", "css", "scss"]);
+var PRETTIER_LANGS = new Set(["jsts", "json", "yaml", "markdown", "css", "scss", "less", "html", "vue", "graphql"]);
 var REGISTRY = {
   shell: { chain: [{ name: "shfmt", strategy: "native", base: ["-w"] }] },
   java: {
@@ -200070,7 +200076,7 @@ var getProcessor = (getWasmFile) => {
 };
 
 // node_modules/sh-syntax/lib/index.js
-var __dirname = "/home/kwitsch/repos/claude-plugins/.claude/worktrees/wf_3e221d92-0bc-14/node_modules/.pnpm/sh-syntax@0.4.2/node_modules/sh-syntax/lib";
+var __dirname = "/home/kwitsch/repos/claude-plugins/.claude/worktrees/wf_3e221d92-0bc-17/node_modules/.pnpm/sh-syntax@0.4.2/node_modules/sh-syntax/lib";
 var _dirname = typeof __dirname === "undefined" ? path19.dirname(fileURLToPath6(import.meta.url)) : __dirname;
 var processor2 = getProcessor(() => fs13.readFile(path19.resolve(_dirname, "../main.wasm")));
 
@@ -200946,7 +200952,7 @@ function startServer() {
   const TOOLS = [
     {
       name: "format_pre",
-      description: "PreToolUse Write|Edit: format prettier-language files (jsts/json/yaml/markdown/css/scss) in-process before the write (updatedInput) with the prettier bundled into this server.",
+      description: "PreToolUse Write|Edit: format prettier-language files (jsts/json/yaml/markdown/css/scss/less/html/vue/graphql) in-process before the write (updatedInput) with the prettier bundled into this server.",
       inputSchema: { type: "object", additionalProperties: true },
       handler: formatPre
     },

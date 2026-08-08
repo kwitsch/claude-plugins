@@ -1,6 +1,6 @@
 // registry.ts — extension/language map and the CLI formatter chains. REGISTRY holds ONLY the
 // non-prettier languages: prettier is never spawned as a subprocess, so it has no chain, no
-// npmSpec and no guardPrintWidth entry. EXT_MAP still maps the six prettier languages (format_pre
+// npmSpec and no guardPrintWidth entry. EXT_MAP still maps the ten prettier languages (format_pre
 // needs them), which is exactly why formatPost carries a REGISTRY[lang] existence guard.
 import path from "node:path";
 import type { EditorConfigProps, FormatTool, LangEntry } from "./types.js";
@@ -28,14 +28,20 @@ export const EXT_MAP: Record<string, string> = {
   ".json": "json",
   ".css": "css",
   ".scss": "scss",
+  ".less": "less",
   ".yaml": "yaml",
   ".yml": "yaml",
   ".md": "markdown",
+  ".html": "html",
+  ".htm": "html",
+  ".vue": "vue",
+  ".graphql": "graphql",
+  ".gql": "graphql",
   ".php": "php",
 };
 
 /** Languages the bundled prettier owns, entirely inside format_pre. */
-export const PRETTIER_LANGS: Set<string> = new Set(["jsts", "json", "yaml", "markdown", "css", "scss"]);
+export const PRETTIER_LANGS: Set<string> = new Set(["jsts", "json", "yaml", "markdown", "css", "scss", "less", "html", "vue", "graphql"]);
 
 // Formatter registry (research-verified). chain = first tool on PATH wins.
 // strategy "native"/"fixed" -> always run bare (base args); "mapped" -> .editorconfig flag

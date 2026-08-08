@@ -118,6 +118,16 @@ test("EXT_MAP partitions exactly into PRETTIER_LANGS and REGISTRY keys", () => {
   }
 });
 
+// Tripwire 3: every PRETTIER_LANGS member is reachable from at least one EXT_MAP entry. The
+// partition test above iterates EXT_MAP *values* only, so it structurally cannot catch a
+// PRETTIER_LANGS member added without its extension -- a language that would then never dispatch.
+test("every PRETTIER_LANGS member is reachable from at least one EXT_MAP extension", () => {
+  const mapped = new Set(Object.values(EXT_MAP));
+  for (const lang of PRETTIER_LANGS) {
+    assert.equal(mapped.has(lang), true, `${lang} is in PRETTIER_LANGS but no EXT_MAP extension maps to it`);
+  }
+});
+
 test("hasPrettierProjectConfig: finds .prettierrc directly in the file's dir", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "uf-pc-"));
   writeFileSync(path.join(dir, ".prettierrc"), "{}");
