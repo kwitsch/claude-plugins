@@ -1,8 +1,9 @@
 #!/usr/bin/env bats
 
 # Hermetic coverage of the managed-prettier install/update state machine.
-# A stub `npm` on an isolated PATH materialises node_modules/prettier by symlinking
-# the repo's real prettier (so the pinned version matches and the tree is importable).
+# A stub `npm` on an isolated PATH materialises node_modules/prettier from the repo's real
+# prettier (importable) while reporting the server's own pinned version, so the tree passes
+# the server's sanity check regardless of which prettier the repo happens to depend on.
 # No network. The async publish runs in the install child's exit handler, so
 # install-observing tests hold the server's stdin OPEN while polling the filesystem,
 # then close it -- a test-harness concern only (a real session's server is long-lived).
@@ -14,12 +15,21 @@ setup() {
   REPO_PRETTIER_DIR="$REPO_ROOT/node_modules/prettier"
   [ -d "$REPO_PRETTIER_DIR" ] || skip "repo prettier not installed (run npm ci)"
   command -v node >/dev/null 2>&1 || skip "node not installed"
-  PIN="$(node -e 'process.stdout.write(require("'"$REPO_PRETTIER_DIR"'/package.json").version)')"
+  # The pin is the SERVER's own MANAGED_PRETTIER_VERSION, never the repo devDependency's
+  # version: the two are independent (the repo pins what CI lints with, the server pins what
+  # the managed copy installs), and reading the repo's version here made every install test
+  # fail the server's sanity check whenever they drifted apart.
+  PIN="$(sed -n 's/^const MANAGED_PRETTIER_VERSION = "\(.*\)";$/\1/p' "$SERVER")"
+  [ -n "$PIN" ] || skip "could not read MANAGED_PRETTIER_VERSION from $SERVER"
 }
 
 # --- stub npm variants -------------------------------------------------------
 
-# Success: parse --prefix <dir>, materialise <dir>/node_modules/prettier -> repo prettier.
+# Success: parse --prefix <dir>, materialise <dir>/node_modules/prettier as a real,
+# importable prettier — every entry symlinked to the repo copy EXCEPT package.json, which is
+# rewritten to report the server's pinned version. Symlinking the repo copy wholesale would
+# report the repo devDependency's version instead and the server's sanity check would (rightly)
+# reject the tree, making these tests pass only while the two versions happened to agree.
 make_npm_success_stub() {
   cat > "$MOCKBIN/npm" <<'EOF'
 #!/usr/bin/env bash
@@ -29,8 +39,19 @@ for ((i=0; i<${#args[@]}; i++)); do
   [ "${args[$i]}" = "--prefix" ] && prefix="${args[$((i+1))]}"
 done
 [ -n "$prefix" ] || exit 1
-mkdir -p "$prefix/node_modules"
-ln -s "$REPO_PRETTIER_DIR" "$prefix/node_modules/prettier"
+dest="$prefix/node_modules/prettier"
+mkdir -p "$dest"
+for entry in "$REPO_PRETTIER_DIR"/*; do
+  base="$(basename "$entry")"
+  [ "$base" = "package.json" ] && continue
+  ln -s "$entry" "$dest/$base"
+done
+node -e '
+  const fs = require("fs");
+  const pkg = JSON.parse(fs.readFileSync(process.argv[1] + "/package.json", "utf8"));
+  pkg.version = process.argv[3];
+  fs.writeFileSync(process.argv[2] + "/package.json", JSON.stringify(pkg, null, 2) + "\n");
+' "$REPO_PRETTIER_DIR" "$dest" "$STUB_PIN" || exit 1
 exit 0
 EOF
   chmod +x "$MOCKBIN/npm"
@@ -84,7 +105,7 @@ drive_and_wait() {
   local tool="$1" args_json="$2" target="$3"
   local fifo="$BATS_TEST_TMPDIR/in.$RANDOM"
   mkfifo "$fifo"
-  env PATH="$MOCKBIN" HOME="$HOME" REPO_PRETTIER_DIR="$REPO_PRETTIER_DIR" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" node "$SERVER" <"$fifo" >/dev/null 2>&1 &
+  env PATH="$MOCKBIN" HOME="$HOME" REPO_PRETTIER_DIR="$REPO_PRETTIER_DIR" STUB_PIN="$PIN" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" node "$SERVER" <"$fifo" >/dev/null 2>&1 &
   local server_pid=$!
   exec {w}>"$fifo"
   printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n' >&"$w"
@@ -108,7 +129,7 @@ drive_and_capture() {
   local fifo="$BATS_TEST_TMPDIR/cap.$RANDOM"
   local outfile="$BATS_TEST_TMPDIR/capout.$RANDOM"
   mkfifo "$fifo"
-  env PATH="$MOCKBIN" HOME="$HOME" REPO_PRETTIER_DIR="$REPO_PRETTIER_DIR" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" node "$SERVER" <"$fifo" >"$outfile" 2>/dev/null &
+  env PATH="$MOCKBIN" HOME="$HOME" REPO_PRETTIER_DIR="$REPO_PRETTIER_DIR" STUB_PIN="$PIN" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" node "$SERVER" <"$fifo" >"$outfile" 2>/dev/null &
   local server_pid=$!
   exec {w}>"$fifo"
   printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n' >&"$w"
@@ -130,7 +151,7 @@ start_and_hold() {
   local tenths="${1:-15}"
   local fifo="$BATS_TEST_TMPDIR/hold.$RANDOM"
   mkfifo "$fifo"
-  env PATH="$MOCKBIN" HOME="$HOME" REPO_PRETTIER_DIR="$REPO_PRETTIER_DIR" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" node "$SERVER" <"$fifo" >/dev/null 2>&1 &
+  env PATH="$MOCKBIN" HOME="$HOME" REPO_PRETTIER_DIR="$REPO_PRETTIER_DIR" STUB_PIN="$PIN" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" node "$SERVER" <"$fifo" >/dev/null 2>&1 &
   local server_pid=$!
   exec {w}>"$fifo"
   printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n' >&"$w"
@@ -232,7 +253,7 @@ set_last_check() {
   local target="$CLAUDE_PLUGIN_DATA/prettier/current/node_modules/prettier/package.json"
   # Hold stdin open, polling until the reconcile publish flips current to the pin.
   local fifo="$BATS_TEST_TMPDIR/dc.$RANDOM"; mkfifo "$fifo"
-  env PATH="$MOCKBIN" HOME="$HOME" REPO_PRETTIER_DIR="$REPO_PRETTIER_DIR" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" node "$SERVER" <"$fifo" >/dev/null 2>&1 &
+  env PATH="$MOCKBIN" HOME="$HOME" REPO_PRETTIER_DIR="$REPO_PRETTIER_DIR" STUB_PIN="$PIN" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" node "$SERVER" <"$fifo" >/dev/null 2>&1 &
   local pid=$!
   exec {w}>"$fifo"
   printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n' >&"$w"
