@@ -207,3 +207,53 @@ start_and_hold() {
   drive_and_wait format_post "$args" "$target"
   [ -e "$target" ]
 }
+
+# --- daily-check tests -------------------------------------------------------
+
+# Write the .last-check marker (epoch ms). $1 = ms value.
+set_last_check() {
+  mkdir -p "$CLAUDE_PLUGIN_DATA/prettier"
+  printf '%s' "$1" > "$CLAUDE_PLUGIN_DATA/prettier/.last-check"
+}
+
+@test "daily check: skipped when .last-check is fresh (no reinstall)" {
+  make_npm_success_stub
+  make_managed_copy "0.0.0"
+  set_last_check "$(node -e 'process.stdout.write(String(Date.now()))')"
+  start_and_hold 15
+  run node -e 'process.stdout.write(require(process.argv[1]).version)' "$CLAUDE_PLUGIN_DATA/prettier/current/node_modules/prettier/package.json"
+  assert_output "0.0.0"
+}
+
+@test "daily check: runs when .last-check is stale (reconciles to the pin) and rewrites the marker" {
+  make_npm_success_stub
+  make_managed_copy "0.0.0"
+  set_last_check "$(node -e 'process.stdout.write(String(Date.now() - 25*60*60*1000))')"
+  local target="$CLAUDE_PLUGIN_DATA/prettier/current/node_modules/prettier/package.json"
+  # Hold stdin open, polling until the reconcile publish flips current to the pin.
+  local fifo="$BATS_TEST_TMPDIR/dc.$RANDOM"; mkfifo "$fifo"
+  env PATH="$MOCKBIN" HOME="$HOME" REPO_PRETTIER_DIR="$REPO_PRETTIER_DIR" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" node "$SERVER" <"$fifo" >/dev/null 2>&1 &
+  local pid=$!
+  exec {w}>"$fifo"
+  printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n' >&"$w"
+  local i cur
+  for ((i=0; i<40; i++)); do
+    cur="$(node -e 'try{process.stdout.write(require(process.argv[1]).version)}catch(e){}' "$target" 2>/dev/null || true)"
+    [ "$cur" = "$PIN" ] && break
+    sleep 0.1
+  done
+  exec {w}>&-
+  wait "$pid" 2>/dev/null || true
+  run node -e 'process.stdout.write(require(process.argv[1]).version)' "$target"
+  assert_output "$PIN"
+  # marker rewritten to ~now (well under 24h old)
+  run node -e 'const fs=require("fs");const t=Number(fs.readFileSync(process.argv[1],"utf8").trim());process.exit(Date.now()-t < 60*60*1000 ? 0 : 1)' "$CLAUDE_PLUGIN_DATA/prettier/.last-check"
+  assert_success
+}
+
+@test "daily check: never eager-installs when no managed copy exists" {
+  make_npm_success_stub
+  set_last_check "$(node -e 'process.stdout.write(String(Date.now() - 25*60*60*1000))')"
+  start_and_hold 15
+  [ ! -e "$CLAUDE_PLUGIN_DATA/prettier/current" ]
+}

@@ -8,7 +8,7 @@ import process from "node:process";
 import readline from "node:readline";
 import { spawn, spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { accessSync, existsSync, readFileSync, realpathSync, mkdirSync, mkdtempSync, renameSync, symlinkSync, rmSync, readdirSync, constants as fsConstants } from "node:fs";
+import { accessSync, existsSync, readFileSync, realpathSync, mkdirSync, mkdtempSync, renameSync, symlinkSync, rmSync, readdirSync, writeFileSync, constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -802,12 +802,40 @@ function ensureManagedPrettierInstalled() {
   }
 }
 
-// ---- daily-check STUB (real body lands in Task 4) ----
+// ---- daily reconcile-to-pin check ----
 
-// Daily reconcile-to-pin check. Task 4 replaces this stub with the real body.
-// Fired fire-and-forget at server start; never awaited.
+/** Daily reconcile-to-pin check: fire-and-forget at server start, never awaited.
+ * At most 1 per 24 h (marker written FIRST, claiming the window). Reconciles only an
+ * EXISTING managed copy whose version differs from the pin — local version-string
+ * compare, no npm-registry query; npm shelled out only to reinstall. Never eager-installs.
+ * Every failure a silent no-op. @returns {Promise<void>} */
 async function maybeRunDailyUpdateCheck() {
-  // no-op until Task 4
+  try {
+    const baseDir = managedPrettierDir();
+    if (!baseDir) return;
+    const marker = path.join(baseDir, ".last-check");
+    let last = null;
+    try {
+      const n = Number(readFileSync(marker, "utf8").trim());
+      last = Number.isFinite(n) ? n : null;
+    } catch {
+      last = null;
+    }
+    if (!shouldRunDailyCheck(last, Date.now())) return;
+    // Claim the window first, so a failed/offline check still counts (at most one/day).
+    try {
+      mkdirSync(baseDir, { recursive: true });
+      writeFileSync(marker, String(Date.now()));
+    } catch {
+      return;
+    }
+    const installed = readManagedPrettierVersion(baseDir);
+    if (installed === null) return; // no managed copy -> never eager-install
+    if (installed === MANAGED_PRETTIER_VERSION) return; // already at the pin
+    installManagedPrettier(baseDir, MANAGED_PRETTIER_VERSION); // reconcile (same staging + atomic flip)
+  } catch {
+    /* silent fail-open */
+  }
 }
 
 // ---- format_post handler (today's behavior + one prettier-ownership guard) ----
