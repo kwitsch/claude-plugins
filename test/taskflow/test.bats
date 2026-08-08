@@ -238,6 +238,32 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
 }
 
+@test "design-to-spec workflow caches Explore results per session" {
+  for pat in EXPLORE_CACHE_PATH FINGERPRINT_CMD 'explore-cache:probe' 'explore-cache:write' MAX_TOTAL_EXPLORE_AREAS; do
+    run rg_or_grep -F "$pat" "$WORKFLOWS/design-to-spec.workflow.js"
+    [ "$status" -eq 0 ]
+  done
+}
+
+@test "the Explore cache is keyed on the task and validated before reuse" {
+  run rg_or_grep -F 'function taskKey' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'cacheHit' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'declaredLines === probe.actualLines' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+@test "an invalidated Explore cache contributes no area names" {
+  run rg_or_grep -F 'const cachedAreas = cacheHit ? parsedAreas : [];' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+@test "the Explore cache introduces no new required arg" {
+  run rg_or_grep -F 'decodeArgs(["TASK", "DRAFT_PATH", "SPEC_PATH"]' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
 @test "spec-driven-delivery workflow guards agent array fields before iterating" {
   run rg_or_grep -F 'r.verdicts || []' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
