@@ -277,10 +277,20 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
 }
 
+@test "the Explore-cache write is serialized instead when the designer would read the same file" {
+  run rg_or_grep -F 'needsSerialWrite = cacheHit && exploration' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
 @test "the Explore-cache writer reuses an already-computed fingerprint and gets one scripted retry" {
   run rg_or_grep -F 'function writeCache' "$WORKFLOWS/design-to-spec.workflow.js"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'writeCache(mode, totalLines, areaLine, currentFingerprint)' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+@test "the Explore-cache writer's scripted retry excludes the non-idempotent append mode" {
+  run rg_or_grep -F 'mode === "create"' "$WORKFLOWS/design-to-spec.workflow.js"
   [ "$status" -eq 0 ]
 }
 

@@ -382,7 +382,7 @@ const proposed = scout && Array.isArray(scout.subsystems)
 const covered = cachedAreas.map((a) => a.trim().toLowerCase()); // [] on every miss
 const subsystems = proposed.filter((s) => !covered.includes(s.name.trim().toLowerCase())).slice(0, Math.min(budget, MAX_PARALLEL_EXPLORES));
 if (!cacheHit && subsystems.length === 0) subsystems.push({ name: "whole task", focus: TASK });
-log(cacheHit ? "Explore cache: top-up — " + subsystems.length + " new area(s)" : "Scout: " + scout.complexity + ", " + subsystems.length + " exploration target(s)");
+if (!cacheHit) log("Scout: " + scout.complexity + ", " + subsystems.length + " exploration target(s)");
 
 const explorerPrompt = (s) =>
   `You are a read-only codebase explorer (never edit anything). Task being
@@ -413,12 +413,25 @@ for (let i = 0; i < exploreOuts.length; i++) {
 }
 const exploration = sections.join("\n\n");
 if (!cacheHit && !exploration) return { status: "error", stage: "Explore", error: "all explorers returned null" };
+// Actual count, not the scout's proposal — a proposed area whose explorer
+// call failed never reaches `exploredAreas`, so this also surfaces a partial
+// top-up failure the cache-hit branch otherwise treats as "nothing new".
+if (cacheHit) {
+  log(
+    "Explore cache: top-up — " +
+      exploredAreas.length +
+      " new area(s)" +
+      (subsystems.length > exploredAreas.length ? " (" + (subsystems.length - exploredAreas.length) + " proposed area(s) failed to explore)" : ""),
+  );
+}
 
 // Persist: create on a fresh run or a miss, append on a top-up. Nothing new to
 // write when a hit produced no new areas. Never fails the run. Dispatched
-// concurrently with the first designer call below (Design does not depend on
-// this write finishing) — its own explicit `phase: "Explore"` keeps it in the
-// right progress group despite racing the "Design" phase.
+// concurrently with the first designer call below on a miss/fresh round
+// (Design does not depend on this write finishing); serialized ahead of it on
+// a cache-hit top-up round instead, since the designer is told to read this
+// same file there — see `needsSerialWrite` below. Its own explicit
+// `phase: "Explore"` keeps it in the right progress group either way.
 const cacheWriterPrompt = (mode, totalLines, areaLine, fingerprintValue) => `You are the exploration-cache writer. This is a mechanical file
 operation — no analysis, no summarizing, no commentary.
 Mode: ${mode}. Target file: ${EXPLORE_CACHE_PATH}
@@ -441,6 +454,7 @@ In \`append\` mode the file already exists and holds earlier rounds' reports —
 do not retype or alter its existing body. Append one empty line, then the
 BEGIN-BODY block verbatim, then update the header in place:
 \`FINGERPRINT: ${fingerprintValue}\`, \`AREAS: ${areaLine}\`, \`LINES: ${totalLines}\`.
+Exactly one trailing newline at the end of the file, same as \`create\` mode.
 
 Finally verify with \`wc -l < ${EXPLORE_CACHE_PATH}\`: it must print exactly
 ${totalLines}. If it does not, fix the file and re-check (at most twice); if it
@@ -452,11 +466,17 @@ END-BODY`;
 
 // Script-enforced retry (matches runDesigner/writeSpec elsewhere in this
 // file) instead of trusting the writer's own single-turn self-check alone —
-// a null or still-`blocked` result gets exactly one more full attempt.
+// a null or still-`blocked` result gets exactly one more full attempt. Only
+// safe for `create` (idempotent overwrite): retrying `append` blindly risks
+// duplicating the new section if the first call's write actually landed but
+// its final structured turn didn't. `append` keeps only the writer's own
+// single-turn internal self-check.
 async function writeCache(mode, totalLines, areaLine, fingerprintValue) {
   const opts = { label: "explore-cache:write", phase: "Explore", schema: WRITE_RESULT, model: MODELS.cacheWriter };
   let w = await agent(cacheWriterPrompt(mode, totalLines, areaLine, fingerprintValue), opts);
-  if (!w || w.status !== "done") w = await agent(cacheWriterPrompt(mode, totalLines, areaLine, fingerprintValue), { ...opts, label: "explore-cache:write:retry" });
+  if ((!w || w.status !== "done") && mode === "create") {
+    w = await agent(cacheWriterPrompt(mode, totalLines, areaLine, fingerprintValue), { ...opts, label: "explore-cache:write:retry" });
+  }
   return w;
 }
 
@@ -530,10 +550,20 @@ async function reviewDesign(label) {
   return r;
 }
 
-// Runs concurrently with the Explore-cache write above — Design only needs
-// `explorationBlock`, already built from in-memory data, not from the write's
-// own result.
-const [cacheWriteResult, firstDesign] = await parallel([cacheWriteThunk, () => runDesigner(initialMode, initialExtra, "design")]);
+// Safe to run concurrently with the Explore-cache write ONLY when Design
+// never reads EXPLORE_CACHE_PATH itself: on a miss/fresh round explorationBlock
+// has no "read that file" instruction, so the two are genuinely independent.
+// On a cache-hit top-up round explorationBlock DOES tell the designer to read
+// that same file for the earlier-cached sections while cacheWriteThunk would
+// be concurrently appending to it (a torn read) — serialize in that case.
+const needsSerialWrite = cacheHit && exploration;
+let cacheWriteResult, firstDesign;
+if (needsSerialWrite) {
+  cacheWriteResult = await cacheWriteThunk();
+  firstDesign = await runDesigner(initialMode, initialExtra, "design");
+} else {
+  [cacheWriteResult, firstDesign] = await parallel([cacheWriteThunk, () => runDesigner(initialMode, initialExtra, "design")]);
+}
 if (exploration && (!cacheWriteResult || cacheWriteResult.status !== "done")) log("Explore cache: write failed — the next resume round will explore fully");
 let design = firstDesign;
 if (!design || design.status === "blocked") {

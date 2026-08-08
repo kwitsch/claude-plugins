@@ -59,12 +59,17 @@ explorers. Every point below is load-bearing:
   'taskflow:cache-probe'` (`agents/cache-probe.md`, `tools: ["Bash",
   "Read"]`) — it needs `Bash` for `FINGERPRINT_CMD` but never `Write`/`Edit`,
   unlike the general-purpose-tooled writer. The write is dispatched
-  concurrently with the first designer call (`parallel()` in Phase 2, not
-  awaited before it) since Design only needs `explorationBlock`, and reuses
-  the probe's already-computed fingerprint on any RESUME round instead of
-  re-running `FINGERPRINT_CMD` a second time; a null/`blocked` writer result
-  gets one script-enforced retry (`writeCache()`), on top of the writer's own
-  single-turn `wc -l` self-check.
+  concurrently with the first designer call (`parallel()` in Phase 2) only on
+  a miss/fresh round, since Design only needs `explorationBlock` there and
+  never reads `EXPLORE_CACHE_PATH` itself; on a cache-hit top-up round
+  (`needsSerialWrite`), the designer's `explorationBlock` instructs it to
+  read that same file for the earlier-cached sections, so the write is
+  awaited first to avoid a torn read. The writer reuses the probe's
+  already-computed fingerprint on any RESUME round instead of re-running
+  `FINGERPRINT_CMD` a second time. A null/`blocked` writer result gets one
+  script-enforced retry (`writeCache()`) only in idempotent `create` mode —
+  `append` is not idempotent (a blind retry risks duplicating the new
+  section), so it keeps only the writer's own single-turn `wc -l` self-check.
 - **One gate for cached data:**
   `const cachedAreas = cacheHit ? parsedAreas : [];` (`test/taskflow/test.bats`
   pins that literal line). `probe.found === true` only certifies "the header
