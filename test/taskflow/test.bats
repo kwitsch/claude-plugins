@@ -264,6 +264,11 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
 }
 
+@test "the scout's proposed subsystems are deduped before the budget slice" {
+  run rg_or_grep -F 'seenProposedNames' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
 @test "the Explore-cache probe is dispatched with a Bash+Read-only agentType" {
   run rg_or_grep -F 'agentType: AGENTS.cacheProbe' "$WORKFLOWS/design-to-spec.workflow.js"
   [ "$status" -eq 0 ]

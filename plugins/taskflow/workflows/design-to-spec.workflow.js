@@ -374,10 +374,21 @@ if (!scout && !cacheHit) return { status: "error", stage: "Explore", error: "sco
 // name containing a literal '|' would otherwise fragment into extra bogus
 // areas on the next round. Replacing it here keeps every downstream name
 // (exploredAreas, cachedAreas, the header, the dedup compare) pipe-free.
+// Also dedup WITHIN this single scout response (same exact-match, trim+
+// lowercase key already used against `covered` below) — a duplicate name in
+// one call would otherwise burn a budget slot on exploring the same area
+// twice instead of a genuinely distinct one.
+const seenProposedNames = new Set();
 const proposed = scout && Array.isArray(scout.subsystems)
   ? scout.subsystems
       .filter((s) => s && typeof s.name === "string" && s.name.trim() !== "")
       .map((s) => ({ ...s, name: s.name.replace(/\|/g, "/").trim() }))
+      .filter((s) => {
+        const key = s.name.toLowerCase();
+        if (seenProposedNames.has(key)) return false;
+        seenProposedNames.add(key);
+        return true;
+      })
   : [];
 const covered = cachedAreas.map((a) => a.trim().toLowerCase()); // [] on every miss
 const subsystems = proposed.filter((s) => !covered.includes(s.name.trim().toLowerCase())).slice(0, Math.min(budget, MAX_PARALLEL_EXPLORES));
