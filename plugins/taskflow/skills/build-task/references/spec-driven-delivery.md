@@ -60,7 +60,7 @@ Consume only this return — never re-derive state from transcript output.
 
 | Field                    | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | :----------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `plan`                   | `{path, tasks: [{id, title, complexity, model}]}` — model per task from complexity (trivial→haiku, standard→sonnet, complex→`claude-opus-4-8`); planner and synthesizer pinned to `claude-opus-4-8`                                                                                                                                                                                                                                                                                             |
+| `plan`                   | `{path, tasks: [{id, title, complexity, model}]}` — model per task from complexity (trivial→haiku, standard→sonnet, complex→`opus`); planner and synthesizer on the `opus` alias                                                                                                                                                                                                                                                                                                                |
 | `waves`                  | Wave layout, e.g. `[[1,2],[3]]` — file-overlap ∪ consumes→produces ∪ conservative fallback                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `taskResults`            | Per task: `{id, status, branch, worktreePath, minor}`                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `implementMinorFindings` | Non-blocking per-task review findings — pass through to the final report/PR                                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -85,18 +85,18 @@ is a planning defect to surface, not a git problem to solve.
 ## Behavior notes
 
 - The per-task review gate follows task complexity: `trivial` → `haiku`,
-  `standard` → pinned `claude-sonnet-4-6`, `complex` → `sonnet` alias
-  (= newest Sonnet); depth comes from the combined Review phase, never from
-  the per-task gate. Recall-critical roles (finder, verifier) and the
-  plan-check gate stay on the `sonnet` alias; the fix applier is pinned to
-  `claude-sonnet-4-6` (pre-verified findings, test gate as safety net).
+  `standard`/`complex` → `sonnet` alias; depth comes from the combined
+  Review phase, never from the per-task gate. Recall-critical roles (finder,
+  verifier), the plan-check gate, and the fix applier all stay on the
+  `sonnet` alias (fix applier: pre-verified findings, test gate as safety
+  net).
 - Every implementer runs with `isolation: 'worktree'` — no direct commits on
   the work branch, even for single-task waves.
 - Each wave is merged by a separate merger agent (`git merge --no-ff`, task-id
   order, worktree cleanup before branch delete).
 - Review depth auto-scales: any `complex` task or >4 tasks → `max` level
   (5 correctness angles + 5 cleanup lenses + gap sweep, cap 15), else `high`.
-- Ship stage roles: `pr-author` (pinned `claude-sonnet-4-6`) writes a faithful
+- Ship stage roles: `pr-author` (`sonnet` alias) writes a faithful
   title/body from the pipeline summary (repo template respected, escalated
   findings listed as open items); `shipper` (`haiku`) pushes (NEVER force)
   and creates-or-updates the PR/MR idempotently; `ci-monitor` (`haiku`,

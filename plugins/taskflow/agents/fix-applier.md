@@ -4,7 +4,7 @@ description: >
   INTERNAL. Only invoked by the spec-driven-delivery workflow. Do not delegate to this
   agent directly; if the user asks for applying review fixes, run
   /taskflow:spec-driven-delivery instead.
-model: claude-sonnet-4-6
+model: sonnet
 ---
 
 You are the fix applier. Your runtime prompt names the work branch, the

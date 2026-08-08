@@ -26,17 +26,15 @@ No `userConfig` in `plugin.json` — deliberate, see the `taskflow` entry in
 one skill that only runs when explicitly invoked, so there is no
 automatic/background behavior for a toggle to suppress.
 
-## Model pinning
+## Model assignment
 
-Some roles use a bare alias (`sonnet`/`haiku`/`opus` — floats to the newest
-model in that family); others pin an exact model ID (e.g. `claude-opus-4-8`,
-`claude-sonnet-4-6`) to keep behavior stable across model upgrades for
-high-leverage or high-volume roles. Both are legitimate current model IDs —
-verified against live Anthropic docs during integration (2026-08-07), not a
-naming-scheme guess. The `MODELS` object at the top of each workflow script
-is the single place to change an assignment; agent frontmatter `model:`
-fields must be kept in sync with the corresponding workflow's default when an
-agent is also invoked directly outside its workflow's normal path.
+Every role uses a bare alias (`sonnet`/`haiku`/`opus` — floats to the newest
+model in that family); no role pins an exact model ID. Pinned IDs caused
+problems in practice and were removed in favor of aliases across the board.
+The `MODELS` object at the top of each workflow script is the single place to
+change an assignment; agent frontmatter `model:` fields must be kept in sync
+with the corresponding workflow's default when an agent is also invoked
+directly outside its workflow's normal path.
 
 ## Generated pipeline artifacts are always English
 

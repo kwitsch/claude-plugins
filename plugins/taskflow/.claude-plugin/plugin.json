@@ -1,6 +1,6 @@
 {
   "name": "taskflow",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Spec-driven design & delivery pipeline. /taskflow:build-task orchestrates two dynamic workflows: design-to-spec (explore, draft, review, spec) and spec-driven-delivery (plan, wave-parallel implement in isolated worktrees, per-wave merge, combined review, fix application).",
   "author": {
     "name": "Kwitsch"
