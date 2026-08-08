@@ -42,6 +42,22 @@ EOF
   chmod +x "$NPMDIR/npm"
   export PATH="$NPMDIR:$PATH"
 }
+# make_pnpm_stub <exit_code> <stdout_text> -- same as make_npm_stub, but for a fake
+# `pnpm` on PATH; records to the same $CALLLOG.
+make_pnpm_stub() {
+  local exit_code="$1" stdout_text="$2"
+  PNPMDIR="$BATS_TEST_TMPDIR/pnpmbin"
+  mkdir -p "$PNPMDIR"
+  CALLLOG="$BATS_TEST_TMPDIR/npm-calls.log"
+  cat > "$PNPMDIR/pnpm" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$PWD \$*" >> "$CALLLOG"
+printf '%s' "$stdout_text"
+exit $exit_code
+EOF
+  chmod +x "$PNPMDIR/pnpm"
+  export PATH="$PNPMDIR:$PATH"
+}
 @test "npm-ci-on-worktree is executable" {
   [ -x "$HOOKS/npm-ci-on-worktree.mjs" ]
 }
@@ -102,6 +118,69 @@ EOF
   assert_output --partial '"additionalContext"'
   assert_output --partial 'npm ci` failed'
   assert_output --partial "peer dep missing"
+}
+@test "npm-ci-on-worktree: pnpm-lock.yaml runs pnpm install --frozen-lockfile, not npm ci" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  make_pnpm_stub 0 "ok"
+  PROJ="$BATS_TEST_TMPDIR/proj-pnpm"; mkdir -p "$PROJ"; : > "$PROJ/pnpm-lock.yaml"
+  run npm_ci_hook "true" "$PROJ"
+  assert_success
+  [ -z "$output" ]
+  grep -q "^$PROJ install --frozen-lockfile\$" "$CALLLOG"
+}
+@test "npm-ci-on-worktree: pnpm-lock.yaml and package-lock.json both present -> pnpm wins, npm never invoked" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  make_npm_stub 0 "ok"
+  make_pnpm_stub 0 "ok"
+  PROJ="$BATS_TEST_TMPDIR/proj-both"; mkdir -p "$PROJ"
+  : > "$PROJ/package-lock.json"; : > "$PROJ/pnpm-lock.yaml"
+  run npm_ci_hook "true" "$PROJ"
+  assert_success
+  [ -z "$output" ]
+  grep -q "^$PROJ install --frozen-lockfile\$" "$CALLLOG"
+  ! grep -q " ci\$" "$CALLLOG"
+}
+@test "npm-ci-on-worktree: pnpm missing from PATH surfaces a one-line diagnostic" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  local fakebin="$BATS_TEST_TMPDIR/fakebin-no-pnpm"
+  mkdir -p "$fakebin"
+  for t in node env bash; do
+    src="$(command -v "$t" 2>/dev/null)" && ln -s "$src" "$fakebin/$t"
+  done
+  PROJ="$BATS_TEST_TMPDIR/proj-pnpm-missing"; mkdir -p "$PROJ"; : > "$PROJ/pnpm-lock.yaml"
+  local payload="$BATS_TEST_TMPDIR/payload-pnpm-missing.json"
+  jq -cn --arg cwd "$PROJ" '{tool_name:"EnterWorktree", tool_input:{}, cwd:$cwd}' > "$payload"
+  run env -i PATH="$fakebin" HOME="$HOME" CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE=true \
+    bash -c "'$HOOKS/npm-ci-on-worktree.mjs' < '$payload'"
+  assert_success
+  assert_output --partial "pnpm not found on PATH"
+}
+@test "npm-ci-on-worktree: finds pnpm at \$HOME/.local/bin even when it's absent from the inherited PATH" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  local localbin="$HOME/.local/bin"
+  mkdir -p "$localbin"
+  CALLLOG="$BATS_TEST_TMPDIR/npm-calls.log"
+  cat > "$localbin/pnpm" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$PWD \$*" >> "$CALLLOG"
+exit 0
+EOF
+  chmod +x "$localbin/pnpm"
+  local fakebin="$BATS_TEST_TMPDIR/fakebin-no-localbin"
+  mkdir -p "$fakebin"
+  for t in node env bash; do
+    src="$(command -v "$t" 2>/dev/null)" && ln -s "$src" "$fakebin/$t"
+  done
+  PROJ="$BATS_TEST_TMPDIR/proj-localbin"; mkdir -p "$PROJ"; : > "$PROJ/pnpm-lock.yaml"
+  local payload="$BATS_TEST_TMPDIR/payload-localbin.json"
+  jq -cn --arg cwd "$PROJ" '{tool_name:"EnterWorktree", tool_input:{}, cwd:$cwd}' > "$payload"
+  # PATH deliberately excludes $HOME/.local/bin -- the hook's own PATH fix must add
+  # it back for the stub to be found at all.
+  run env -i PATH="$fakebin" HOME="$HOME" CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE=true \
+    bash -c "'$HOOKS/npm-ci-on-worktree.mjs' < '$payload'"
+  assert_success
+  [ -z "$output" ]
+  grep -q "^$PROJ install --frozen-lockfile\$" "$CALLLOG"
 }
 @test "npm-ci-on-worktree fails open on garbage stdin" {
   command -v node >/dev/null 2>&1 || skip "node not installed"

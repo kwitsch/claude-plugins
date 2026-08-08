@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, chmodSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync } from "node:fs";
+import { tmpdir, homedir } from "node:os";
 import path from "node:path";
-import { isNpmCiEnabled, truncate, npmCiOnWorktreeHandler } from "../../plugins/npm-automations/hooks/npm-ci-on-worktree.mjs";
+import { isNpmCiEnabled, truncate, detectPackageManager, pathWithLocalBin, npmCiOnWorktreeHandler } from "../../plugins/npm-automations/hooks/npm-ci-on-worktree.mjs";
 
 test('isNpmCiEnabled: fail-open, only literal "false" disables', () => {
   assert.equal(isNpmCiEnabled("true"), true);
@@ -22,6 +22,48 @@ test("truncate: caps long text at 4000 chars with a truncation marker", () => {
   const out = truncate(long);
   assert.ok(out.length < long.length);
   assert.match(out, /\(truncated\)$/);
+});
+
+test("detectPackageManager: no lockfile -> null", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "pm-none-"));
+  assert.equal(detectPackageManager(dir), null);
+});
+
+test("detectPackageManager: package-lock.json -> npm", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "pm-npm-"));
+  writeFileSync(path.join(dir, "package-lock.json"), "");
+  assert.equal(detectPackageManager(dir)?.name, "npm");
+});
+
+test("detectPackageManager: pnpm-lock.yaml -> pnpm", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "pm-pnpm-"));
+  writeFileSync(path.join(dir, "pnpm-lock.yaml"), "");
+  assert.equal(detectPackageManager(dir)?.name, "pnpm");
+});
+
+test("detectPackageManager: yarn.lock -> yarn", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "pm-yarn-"));
+  writeFileSync(path.join(dir, "yarn.lock"), "");
+  assert.equal(detectPackageManager(dir)?.name, "yarn");
+});
+
+test("detectPackageManager: pnpm-lock.yaml and package-lock.json both present -> pnpm wins", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "pm-both-"));
+  writeFileSync(path.join(dir, "package-lock.json"), "");
+  writeFileSync(path.join(dir, "pnpm-lock.yaml"), "");
+  assert.equal(detectPackageManager(dir)?.name, "pnpm");
+});
+
+test("pathWithLocalBin: prepends ~/.local/bin ahead of the inherited PATH", () => {
+  const origPath = process.env.PATH;
+  process.env.PATH = "/usr/bin";
+  try {
+    const result = pathWithLocalBin();
+    assert.ok(result.startsWith(path.join(homedir(), ".local", "bin")));
+    assert.ok(result.endsWith("/usr/bin"));
+  } finally {
+    process.env.PATH = origPath;
+  }
 });
 
 /** @param {string} cwd @returns {PostToolUseHookInput} */
@@ -79,6 +121,55 @@ test("npmCiOnWorktreeHandler: a non-ENOENT spawn error (EACCES) is not misreport
     assert.match(message, /npm ci` failed/);
     assert.match(message, /EACCES/);
   } finally {
+    process.env.PATH = origPath;
+  }
+});
+
+test("npmCiOnWorktreeHandler: pnpm-lock.yaml runs `pnpm install --frozen-lockfile`, not npm", () => {
+  const projDir = mkdtempSync(path.join(tmpdir(), "npm-ci-pnpm-"));
+  writeFileSync(path.join(projDir, "pnpm-lock.yaml"), "");
+
+  const binDir = mkdtempSync(path.join(tmpdir(), "npm-ci-pnpmstub-"));
+  const callLog = path.join(binDir, "calls.log");
+  const pnpmStub = path.join(binDir, "pnpm");
+  writeFileSync(pnpmStub, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> '${callLog}'\nexit 0\n`);
+  chmodSync(pnpmStub, 0o755);
+
+  const origPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${origPath}`;
+  try {
+    const result = npmCiOnWorktreeHandler(mockInput(projDir));
+    assert.deepEqual(result, {});
+    assert.match(readFileSync(callLog, "utf8"), /^install --frozen-lockfile$/m);
+  } finally {
+    process.env.PATH = origPath;
+  }
+});
+
+test("npmCiOnWorktreeHandler: finds pnpm at ~/.local/bin even when it's absent from the inherited PATH", () => {
+  const projDir = mkdtempSync(path.join(tmpdir(), "npm-ci-localbin-proj-"));
+  writeFileSync(path.join(projDir, "pnpm-lock.yaml"), "");
+
+  const fakeHome = mkdtempSync(path.join(tmpdir(), "npm-ci-localbin-home-"));
+  const localBin = path.join(fakeHome, ".local", "bin");
+  mkdirSync(localBin, { recursive: true });
+  const callLog = path.join(fakeHome, "calls.log");
+  const pnpmStub = path.join(localBin, "pnpm");
+  writeFileSync(pnpmStub, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> '${callLog}'\nexit 0\n`);
+  chmodSync(pnpmStub, 0o755);
+
+  const origHome = process.env.HOME;
+  const origPath = process.env.PATH;
+  process.env.HOME = fakeHome;
+  // A PATH deliberately without $HOME/.local/bin -- the handler's own
+  // pathWithLocalBin() must add it back for the stub to be found at all.
+  process.env.PATH = "/usr/bin:/bin";
+  try {
+    const result = npmCiOnWorktreeHandler(mockInput(projDir));
+    assert.deepEqual(result, {});
+    assert.match(readFileSync(callLog, "utf8"), /^install --frozen-lockfile$/m);
+  } finally {
+    process.env.HOME = origHome;
     process.env.PATH = origPath;
   }
 });

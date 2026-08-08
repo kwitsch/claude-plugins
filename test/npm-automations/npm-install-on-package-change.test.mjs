@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, utimesSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, utimesSync, existsSync } from "node:fs";
 import { spawn } from "node:child_process";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import path from "node:path";
 import {
   isNpmInstallEnabled,
@@ -10,6 +10,9 @@ import {
   countOccurrences,
   reconstructOld,
   collectChangedSpecs,
+  detectPackageManager,
+  pathWithLocalBin,
+  installArgsFor,
   lockPathFor,
   acquireLock,
   releaseLock,
@@ -77,6 +80,47 @@ test("collectChangedSpecs: covers dependencies/devDependencies/optionalDependenc
   };
   const specs = collectChangedSpecs(oldPkg, newPkg).sort();
   assert.deepEqual(specs, ["a@^1.0.0", "b@^1.0.0", "c@^1.0.0"]);
+});
+
+test("detectPackageManager: no lockfile -> null", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "pm-none-"));
+  assert.equal(detectPackageManager(dir), null);
+});
+
+test("detectPackageManager: pnpm-lock.yaml -> pnpm", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "pm-pnpm-"));
+  writeFileSync(path.join(dir, "pnpm-lock.yaml"), "");
+  assert.equal(detectPackageManager(dir)?.name, "pnpm");
+});
+
+test("detectPackageManager: yarn.lock -> yarn", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "pm-yarn-"));
+  writeFileSync(path.join(dir, "yarn.lock"), "");
+  assert.equal(detectPackageManager(dir)?.name, "yarn");
+});
+
+test("pathWithLocalBin: prepends ~/.local/bin ahead of the inherited PATH", () => {
+  const origPath = process.env.PATH;
+  process.env.PATH = "/usr/bin";
+  try {
+    const result = pathWithLocalBin();
+    assert.ok(result.startsWith(path.join(homedir(), ".local", "bin")));
+    assert.ok(result.endsWith("/usr/bin"));
+  } finally {
+    process.env.PATH = origPath;
+  }
+});
+
+test("installArgsFor: bare install (no specs) is the same verb for every manager", () => {
+  assert.deepEqual(installArgsFor("npm", null), ["install"]);
+  assert.deepEqual(installArgsFor("pnpm", null), ["install"]);
+  assert.deepEqual(installArgsFor("yarn", null), ["install"]);
+});
+
+test("installArgsFor: npm keeps `install <specs>`, pnpm/yarn use `add <specs>`", () => {
+  assert.deepEqual(installArgsFor("npm", ["a@^1.0.0"]), ["install", "a@^1.0.0"]);
+  assert.deepEqual(installArgsFor("pnpm", ["a@^1.0.0"]), ["add", "a@^1.0.0"]);
+  assert.deepEqual(installArgsFor("yarn", ["a@^1.0.0"]), ["add", "a@^1.0.0"]);
 });
 
 test("acquireLock: acquires immediately when free, releaseLock removes it", () => {
@@ -182,6 +226,55 @@ test("npmInstallOnPackageChangeHandler: an exhausted budget still bounds npm", (
     const result = npmInstallOnPackageChangeHandler(mockInput(pkgPath, "Write", { content: "{}" }), 0);
     assert.deepEqual(result, {});
   } finally {
+    process.env.PATH = originalPath;
+  }
+});
+
+test("npmInstallOnPackageChangeHandler: a pnpm-lock.yaml directory runs `pnpm add <spec>`, not npm", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "handler-pnpm-"));
+  writeFileSync(path.join(dir, "pnpm-lock.yaml"), "");
+  const pkgPath = path.join(dir, "package.json");
+  writeFileSync(pkgPath, '{"name":"x","dependencies":{"left-pad":"^2.0.0"}}');
+
+  const binDir = mkdtempSync(path.join(tmpdir(), "handler-pnpmstub-"));
+  const callLog = path.join(binDir, "calls.log");
+  writeFileSync(path.join(binDir, "pnpm"), `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> '${callLog}'\nexit 0\n`, { mode: 0o755 });
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${originalPath}`;
+  try {
+    const result = npmInstallOnPackageChangeHandler(mockInput(pkgPath, "Edit", { old_string: '"left-pad":"^1.0.0"', new_string: '"left-pad":"^2.0.0"' }), 1000);
+    assert.deepEqual(result, {});
+    assert.match(readFileSync(callLog, "utf8"), /^add left-pad@\^2\.0\.0$/m);
+  } finally {
+    process.env.PATH = originalPath;
+  }
+});
+
+test("npmInstallOnPackageChangeHandler: finds pnpm at ~/.local/bin even when it's absent from the inherited PATH", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "handler-localbin-proj-"));
+  writeFileSync(path.join(dir, "pnpm-lock.yaml"), "");
+  const pkgPath = path.join(dir, "package.json");
+  writeFileSync(pkgPath, '{"name":"x","dependencies":{"left-pad":"^2.0.0"}}');
+
+  const fakeHome = mkdtempSync(path.join(tmpdir(), "handler-localbin-home-"));
+  const localBin = path.join(fakeHome, ".local", "bin");
+  mkdirSync(localBin, { recursive: true });
+  const callLog = path.join(fakeHome, "calls.log");
+  writeFileSync(path.join(localBin, "pnpm"), `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> '${callLog}'\nexit 0\n`);
+  chmodSync(path.join(localBin, "pnpm"), 0o755);
+
+  const origHome = process.env.HOME;
+  const originalPath = process.env.PATH;
+  process.env.HOME = fakeHome;
+  // Deliberately without $HOME/.local/bin -- the handler's own pathWithLocalBin()
+  // must add it back for the stub to be found at all.
+  process.env.PATH = "/usr/bin:/bin";
+  try {
+    const result = npmInstallOnPackageChangeHandler(mockInput(pkgPath, "Edit", { old_string: '"left-pad":"^1.0.0"', new_string: '"left-pad":"^2.0.0"' }), 1000);
+    assert.deepEqual(result, {});
+    assert.match(readFileSync(callLog, "utf8"), /^add left-pad@\^2\.0\.0$/m);
+  } finally {
+    process.env.HOME = origHome;
     process.env.PATH = originalPath;
   }
 });

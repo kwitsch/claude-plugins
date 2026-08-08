@@ -27,6 +27,23 @@ EOF
   export PATH="$NPMDIR:$PATH"
 }
 
+# make_pnpm_stub <exit_code> <stdout_text> -- same as make_npm_stub, but for a fake
+# `pnpm` on PATH; records to the same $CALLLOG.
+make_pnpm_stub() {
+  local exit_code="$1" stdout_text="$2"
+  PNPMDIR="$BATS_TEST_TMPDIR/pnpmbin"
+  mkdir -p "$PNPMDIR"
+  CALLLOG="$BATS_TEST_TMPDIR/npm-calls.log"
+  cat > "$PNPMDIR/pnpm" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$PWD \$*" >> "$CALLLOG"
+printf '%s' "$stdout_text"
+exit $exit_code
+EOF
+  chmod +x "$PNPMDIR/pnpm"
+  export PATH="$PNPMDIR:$PATH"
+}
+
 # edit_hook <enabled> <file_path> <old_string> <new_string> -- drive the hook with
 # an Edit-shaped PostToolUse payload.
 edit_hook() {
@@ -207,6 +224,96 @@ EOF
   assert_output --partial '"additionalContext"'
   assert_output --partial 'npm install` failed'
   assert_output --partial "peer dep missing"
+}
+
+@test "a pnpm-lock.yaml directory runs pnpm add <spec>, not npm install" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  make_pnpm_stub 0 "ok"
+  PROJ="$BATS_TEST_TMPDIR/proj-pnpm"; mkdir -p "$PROJ"; : > "$PROJ/pnpm-lock.yaml"
+  cat > "$PROJ/package.json" <<'EOF'
+{
+  "name": "x",
+  "version": "1.0.0",
+  "dependencies": {
+    "left-pad": "^2.0.0"
+  }
+}
+EOF
+  run edit_hook "true" "$PROJ/package.json" '"left-pad": "^1.0.0"' '"left-pad": "^2.0.0"'
+  assert_success
+  [ -z "$output" ]
+  grep -q "^$PROJ add left-pad@\^2.0.0\$" "$CALLLOG"
+}
+
+@test "a pnpm-lock.yaml directory falls back to bare pnpm install (not npm) on Write" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  make_pnpm_stub 0 "ok"
+  PROJ="$BATS_TEST_TMPDIR/proj-pnpm-write"; mkdir -p "$PROJ"; : > "$PROJ/pnpm-lock.yaml"
+  cat > "$PROJ/package.json" <<'EOF'
+{
+  "name": "x",
+  "version": "1.0.0",
+  "dependencies": {
+    "left-pad": "^1.0.0"
+  }
+}
+EOF
+  run write_hook "true" "$PROJ/package.json"
+  assert_success
+  [ -z "$output" ]
+  grep -q "^$PROJ install\$" "$CALLLOG"
+}
+
+@test "pnpm missing from PATH surfaces a one-line diagnostic" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  local fakebin="$BATS_TEST_TMPDIR/fakebin-no-pnpm"
+  mkdir -p "$fakebin"
+  for t in node env bash jq; do
+    src="$(command -v "$t" 2>/dev/null)" && ln -s "$src" "$fakebin/$t"
+  done
+  PROJ="$BATS_TEST_TMPDIR/proj-pnpm-missing"; mkdir -p "$PROJ"; : > "$PROJ/pnpm-lock.yaml"
+  cat > "$PROJ/package.json" <<'EOF'
+{"name": "x", "version": "1.0.0", "dependencies": {"left-pad": "^2.0.0"}}
+EOF
+  local payload="$BATS_TEST_TMPDIR/payload-pnpm-missing.json"
+  jq -cn --arg fp "$PROJ/package.json" --arg old '"left-pad": "^1.0.0"' --arg new '"left-pad": "^2.0.0"' \
+    '{tool_name:"Edit", tool_input:{file_path:$fp, old_string:$old, new_string:$new}}' > "$payload"
+  run env -i PATH="$fakebin" HOME="$HOME" CLAUDE_PLUGIN_OPTION_NPM_INSTALL_ON_PACKAGE_CHANGE=true \
+    bash -c "'$HOOKS/npm-install-on-package-change.mjs' < '$payload'"
+  assert_success
+  assert_output --partial "pnpm not found on PATH"
+}
+
+@test "finds pnpm at \$HOME/.local/bin even when it's absent from the inherited PATH" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  local localbin="$HOME/.local/bin"
+  mkdir -p "$localbin"
+  CALLLOG="$BATS_TEST_TMPDIR/npm-calls.log"
+  cat > "$localbin/pnpm" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$PWD \$*" >> "$CALLLOG"
+exit 0
+EOF
+  chmod +x "$localbin/pnpm"
+  local fakebin="$BATS_TEST_TMPDIR/fakebin-no-localbin"
+  mkdir -p "$fakebin"
+  for t in node env bash jq; do
+    src="$(command -v "$t" 2>/dev/null)" && ln -s "$src" "$fakebin/$t"
+  done
+  PROJ="$BATS_TEST_TMPDIR/proj-localbin"; mkdir -p "$PROJ"; : > "$PROJ/pnpm-lock.yaml"
+  cat > "$PROJ/package.json" <<'EOF'
+{"name": "x", "version": "1.0.0", "dependencies": {"left-pad": "^2.0.0"}}
+EOF
+  local payload="$BATS_TEST_TMPDIR/payload-localbin.json"
+  jq -cn --arg fp "$PROJ/package.json" --arg old '"left-pad": "^1.0.0"' --arg new '"left-pad": "^2.0.0"' \
+    '{tool_name:"Edit", tool_input:{file_path:$fp, old_string:$old, new_string:$new}}' > "$payload"
+  # PATH deliberately excludes $HOME/.local/bin -- the hook's own PATH fix must add
+  # it back for the stub to be found at all.
+  run env -i PATH="$fakebin" HOME="$HOME" CLAUDE_PLUGIN_OPTION_NPM_INSTALL_ON_PACKAGE_CHANGE=true \
+    bash -c "'$HOOKS/npm-install-on-package-change.mjs' < '$payload'"
+  assert_success
+  [ -z "$output" ]
+  grep -q "^$PROJ add left-pad@\^2.0.0\$" "$CALLLOG"
 }
 
 @test "npm missing from PATH surfaces a one-line diagnostic" {
