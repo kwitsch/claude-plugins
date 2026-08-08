@@ -51,16 +51,24 @@ repo's single-hook example.
 
 <!-- separate blockquote, not a continuation of the one above -->
 
-> Correction note (added 2026-08-08): `universal-format` is this repo's ONE deliberate
-> exception to "self-contained zero-dep `mcp/server.mjs`". As of 0.10.0 its
-> `plugins/universal-format/mcp/server.mjs` is a committed ~5.4 MB `bun build` bundle
-> generated from `src/universal-format-mcp/*.ts` with prettier inlined (rebuild:
-> `pnpm run build:universal-format-mcp`; freshness gated by
-> `test/universal-format/build-artifact.test.mjs`). Every invariant in this rule still
-> holds for it: an executable `.mjs`, `#!/usr/bin/env node` on line 1, git mode `100755`,
-> runs under plain `node`, and no Bun-only API (`Bun.*`, `bun:*`, `import.meta.require`)
-> anywhere in the bundle. Do not hand-edit it — edit the TS sources and rebuild. Every
-> other plugin's `mcp/server.mjs` stays hand-written and dependency-free.
+> Correction note (added 2026-08-08, updated for 0.11.0): `universal-format` is this repo's ONE
+> deliberate exception to "self-contained zero-dep `mcp/server.mjs`". As of 0.11.0 its
+> `plugins/universal-format/mcp/server.mjs` is a committed ~9.3 MB `bun build` bundle generated
+> from `src/universal-format-mcp/*.ts` with prettier and its `prettier-plugin-java`,
+> `@prettier/plugin-php` and `prettier-plugin-sh` plugins inlined, **plus two committed `.wasm`
+> sidecars in the same directory** (`web-tree-sitter.wasm`, 201,037 B, and
+> `tree-sitter-java_orchard.wasm`, 447,925 B, both git mode `100644`) — copied there by
+> `build.mjs` because `new URL(name, import.meta.url)` resolves to the bundle's own directory
+> once everything is one file. Rebuild: `pnpm run build:universal-format-mcp`; freshness of the
+> bundle AND the sidecars is gated by `test/universal-format/build-artifact.test.mjs` (`src=`,
+> `body=`, `plugins=`, `assets=`). The ONE invariant that no longer holds is "a single
+> self-contained file": the whole `mcp/` directory is the artifact, and it stays relocatable
+> (verified — it runs from a copy with no `node_modules` anywhere above it, under node and bun).
+> Every other invariant still holds: an executable `.mjs`, `#!/usr/bin/env node` on line 1, git
+> mode `100755`, runs under plain `node`, and no Bun-only API (`Bun.*`, `bun:*`,
+> `import.meta.require`) anywhere in the bundle. Do not hand-edit the bundle or the sidecars —
+> edit the TS sources and rebuild. Every other plugin's `mcp/server.mjs` stays hand-written and
+> dependency-free.
 
 Why the limits (documented Claude Code behavior):
 

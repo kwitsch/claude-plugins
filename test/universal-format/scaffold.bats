@@ -209,3 +209,37 @@ setup() {
   assert_line --regexp '^100644 [0-9a-f]+ 0[[:space:]]+plugins/universal-format/mcp/tree-sitter-java_orchard\.wasm$'
   assert_line --regexp '^100644 [0-9a-f]+ 0[[:space:]]+plugins/universal-format/mcp/web-tree-sitter\.wasm$'
 }
+
+# Acceptance tripwire: the three migrated languages must not be described anywhere by the CLI
+# formatter that no longer runs for them. The generated bundle is out of scope (vendored
+# third-party code), but it too contains 0 occurrences of these names.
+@test "no source or user-facing doc names a removed shell/java/php CLI formatter" {
+  run rg_or_grep -q -E "shfmt|php-cs-fixer|google-java-format|clang-format" \
+    "$PLUGIN/README.md" "$PLUGIN/CLAUDE.md" "$HOOKS" "$PLUGIN/.claude-plugin/plugin.json" "$REPO_ROOT/README.md" \
+    "$REPO_ROOT/src/universal-format-mcp"/*.ts "$REPO_ROOT/src/universal-format-mcp/build.mjs"
+  assert_failure
+}
+
+@test "the three global docs describe the artifact as a bundle plus two committed .wasm sidecars" {
+  local f
+  for f in "$REPO_ROOT/CLAUDE.md" "$REPO_ROOT/plugins/CLAUDE.md" "$REPO_ROOT/.claude/rules/hooks-mcp-server.md"; do
+    run rg_or_grep -q -F "web-tree-sitter.wasm" "$f"
+    assert_success
+    run rg_or_grep -q -F "tree-sitter-java_orchard.wasm" "$f"
+    assert_success
+  done
+}
+
+@test "plugin README table and both manifest descriptions cover the thirteen bundled-prettier languages" {
+  run rg_or_grep -c -F "in-process, before the write" "$PLUGIN/README.md"
+  assert_output "13"
+  local desc t
+  desc="$(jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json")"
+  for t in Shell Java PHP LESS HTML Vue GraphQL; do
+    case "$desc" in *"$t"*) ;; *) printf 'plugin.json description is missing %s\n' "$t"; return 1 ;; esac
+  done
+  desc="$(jq -r '.description' "$HOOKS")"
+  for t in shell java php less html vue graphql kotlin python go; do
+    case "$desc" in *"$t"*) ;; *) printf 'hooks.json description is missing %s\n' "$t"; return 1 ;; esac
+  done
+}
