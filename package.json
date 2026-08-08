@@ -7,8 +7,9 @@
     "test:bats": "BATS_LIB_PATH=\"$PWD/node_modules\" bats -r test/",
     "test:unit": "node --test",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint plugins test",
-    "format": "prettier --write \"plugins/**/*.{js,mjs}\" \"test/**/*.{js,mjs}\""
+    "lint": "eslint plugins test src",
+    "format": "prettier --write \"plugins/**/*.{js,mjs}\" \"test/**/*.{js,mjs}\" \"src/**/*.{ts,mjs}\"",
+    "build:universal-format-mcp": "node src/universal-format-mcp/build.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

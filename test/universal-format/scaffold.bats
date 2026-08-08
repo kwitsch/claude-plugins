@@ -123,3 +123,23 @@ setup() {
   run jq -e '.version == "0.9.0"' "$PLUGIN/.claude-plugin/plugin.json"
   assert_success
 }
+
+@test "src/universal-format-mcp holds the TS sources and the build driver" {
+  [ -f "$REPO_ROOT/src/universal-format-mcp/server.ts" ]
+  [ -f "$REPO_ROOT/src/universal-format-mcp/build.mjs" ]
+}
+
+@test "root package.json declares the build:universal-format-mcp script" {
+  run jq -e '.scripts["build:universal-format-mcp"] == "node src/universal-format-mcp/build.mjs"' "$REPO_ROOT/package.json"
+  assert_success
+}
+
+# The bundled prettier makes the resolver, the managed copy and npx dead: the sources must not
+# even mention them. (Explicit file list, never a recursive grep: rg_or_grep's flag rewriting
+# turns grep's -r into rg's --replace.)
+@test "src/universal-format-mcp mentions neither CLAUDE_PLUGIN_DATA nor npx" {
+  run rg_or_grep -q -F "CLAUDE_PLUGIN_DATA" "$REPO_ROOT/src/universal-format-mcp"/*.ts "$REPO_ROOT/src/universal-format-mcp/build.mjs"
+  assert_failure
+  run rg_or_grep -q -F "npx" "$REPO_ROOT/src/universal-format-mcp"/*.ts "$REPO_ROOT/src/universal-format-mcp/build.mjs"
+  assert_failure
+}
