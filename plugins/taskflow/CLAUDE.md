@@ -36,6 +36,48 @@ change an assignment; agent frontmatter `model:` fields must be kept in sync
 with the corresponding workflow's default when an agent is also invoked
 directly outside its workflow's normal path.
 
+## Explore-result cache
+
+`workflows/design-to-spec.workflow.js` PHASE 1 caches the joined exploration
+reports for the session, so a resume round does not re-run the up-to-4 `sonnet`
+explorers. Every point below is load-bearing:
+
+- **Derived path, never an arg:**
+  `EXPLORE_CACHE_PATH = DRAFT_PATH.replace(/\.md$/i, "") + ".explore-" + taskKey(TASK) + ".md"`.
+  `skills/build-task/SKILL.md` builds the `args` object literal in prose at two
+  independent resume call sites (step 2's question loop, step 3's
+  intent-correction loop); a new required-on-resume key would have to be added
+  to both, and missing one would silently break exactly that path. So
+  `decodeArgs`'s `required` array stays `["TASK", "DRAFT_PATH", "SPEC_PATH"]`
+  and the task identity is hashed into the file name instead of compared as
+  text an agent echoes back.
+- **The script never touches the filesystem.** Cache read
+  (`explore-cache:probe`, `haiku`) and cache write (`explore-cache:write`,
+  `sonnet`) are `agent()` dispatches, per the no-FS contract in the file's own
+  header. `FINGERPRINT_CMD` is one constant shared by both prompts, so probe
+  and writer can never diverge. Neither uses an `agentType`, so no new
+  `agents/*.md` file and no new bats `agentType` coupling.
+- **One gate for cached data:**
+  `const cachedAreas = cacheHit ? parsedAreas : [];` (`test/taskflow/test.bats`
+  pins that literal line). `probe.found === true` only certifies "the header
+  parsed" — a fingerprint mismatch or a `declaredLines !== actualLines`
+  mismatch still returns a populated `areas` array. `covered`, `budget`,
+  `coverageNote`, `areaLine`, the `log()` lines and `explorationBlock` read
+  `cachedAreas` only. Without the gate a miss round would filter freshly
+  scouted subsystems against stale names and write an `AREAS` manifest naming
+  areas it never explored.
+- **`LINES` is the fidelity guard.** A workflow script cannot write files, so
+  the ~20-30k-character exploration blob has to pass through an LLM's output.
+  The script computes the expected total line count in pure JS and dictates it
+  to the writer; the next probe compares it to `wc -l`. A mismatch invalidates
+  the cache rather than trusting a truncated body.
+- **Every uncertainty degrades to the old behavior** — full exploration. Probe
+  failure, fingerprint mismatch, mangled cache, and a failed write are all
+  logged and continue; the cache never blocks or fails a run.
+- **Cache growth is bounded** by `MAX_TOTAL_EXPLORE_AREAS = 6` (4 from the
+  first scout, at most 2 added across all resume rounds); per-round
+  parallelism stays at `MAX_PARALLEL_EXPLORES = 4`.
+
 ## Generated pipeline artifacts are always English
 
 The draft/spec/plan files the designer, spec writer, and planner write
