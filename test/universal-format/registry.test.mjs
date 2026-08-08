@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { buildInvocation, isToolAvailable, isExcludedPath, REGISTRY, hasPrettierProjectConfig, guardPrintWidthArgv } from "../../plugins/universal-format/mcp/server.mjs";
+import { buildInvocation, isToolAvailable, isExcludedPath, REGISTRY, hasPrettierProjectConfig, guardPrintWidthArgv, shouldOverridePrintWidth } from "../../plugins/universal-format/mcp/server.mjs";
 
 const shfmt = REGISTRY.shell.chain[0];
 const gjf = REGISTRY.java.chain[0];
@@ -255,4 +255,21 @@ test("isExcludedPath: *.local.* files excluded regardless of location", () => {
   assert.equal(isExcludedPath(path.join(".claude", "settings.local.json")), true);
   assert.equal(isExcludedPath("docker-compose.local.yml"), true);
   assert.equal(isExcludedPath("a.sh"), false);
+});
+
+test("shouldOverridePrintWidth: no config -> true", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "uf-sopw-a-"));
+  assert.equal(shouldOverridePrintWidth(path.join(dir, "a.json"), dir), true);
+});
+
+test("shouldOverridePrintWidth: .prettierrc -> false", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "uf-sopw-b-"));
+  writeFileSync(path.join(dir, ".prettierrc"), "{}");
+  assert.equal(shouldOverridePrintWidth(path.join(dir, "a.json"), dir), false);
+});
+
+test("shouldOverridePrintWidth: .editorconfig max_line_length -> false", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "uf-sopw-c-"));
+  writeFileSync(path.join(dir, ".editorconfig"), "root = true\n[*]\nmax_line_length = 100\n");
+  assert.equal(shouldOverridePrintWidth(path.join(dir, "a.json"), dir), false);
 });

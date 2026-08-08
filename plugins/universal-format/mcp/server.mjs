@@ -10,7 +10,7 @@ import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { accessSync, existsSync, readFileSync, realpathSync, constants as fsConstants } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const SERVER_NAME = "universal-format-hooks"; // keep aligned with the .mcp.json key
 const SERVER_INFO = { name: SERVER_NAME, version: "0.9.0" };
@@ -654,6 +654,43 @@ export function resolvePrettierSource(cwd) {
   return { kind: "none" };
 }
 
+/** Dynamically import a resolved prettier entry (works under node and bun; prettier's
+ * default export carries format/resolveConfig/clearConfigCache). @param {string} modulePath @returns {Promise<any>} */
+async function loadPrettier(modulePath) {
+  const mod = await import(pathToFileURL(modulePath).href);
+  return mod?.default ?? mod;
+}
+
+/** json/yaml only: true when neither a prettier project config nor an .editorconfig
+ * max_line_length governs the file (mirror of guardPrintWidthArgv).
+ * @param {string} file @param {string} cwd @returns {boolean} */
+export function shouldOverridePrintWidth(file, cwd) {
+  if (hasPrettierProjectConfig(path.dirname(file))) return false;
+  const ec = resolveEditorconfig(file, cwd);
+  if (ec.found && typeof ec.props.max_line_length === "number") return false;
+  return true;
+}
+
+/** Format a whole source string in-process with an already-imported prettier module.
+ * @param {any} prettier @param {string} src @param {string} filePath @param {string} cwd @param {string} lang @returns {Promise<string>} */
+export async function formatInProcess(prettier, src, filePath, cwd, lang) {
+  if (typeof prettier.clearConfigCache === "function") prettier.clearConfigCache();
+  const config = (await prettier.resolveConfig(filePath, { editorconfig: true })) ?? {};
+  if ((lang === "json" || lang === "yaml") && shouldOverridePrintWidth(filePath, cwd)) config.printWidth = 99999;
+  return await prettier.format(src, { ...config, filepath: filePath });
+}
+
+/** Apply an Edit in memory (mirrors Claude Code Edit semantics): whole-file swap must
+ * never mask a not-found/non-unique error. @param {string} current @param {string} oldStr
+ * @param {string} newStr @param {boolean} replaceAll @returns {string|null} */
+export function applyEdit(current, oldStr, newStr, replaceAll) {
+  if (replaceAll) return current.includes(oldStr) ? current.split(oldStr).join(newStr) : null;
+  const idx = current.indexOf(oldStr);
+  if (idx === -1) return null;
+  if (current.indexOf(oldStr, idx + oldStr.length) !== -1) return null; // non-unique
+  return current.slice(0, idx) + newStr + current.slice(idx + oldStr.length);
+}
+
 // ---- install / daily-check STUBS (real bodies land in Tasks 3 & 4) ----
 
 // Lazy managed-copy installer. Task 3 replaces this stub with the real state machine.
@@ -735,14 +772,62 @@ export async function formatPost(args) {
   }
 }
 
-// ---- format_pre routing STUB (real in-process body lands in Task 2) ----
+// ---- format_pre handler (in-process prettier path via updatedInput) ----
 
-/** PreToolUse handler. Task 1 ships a routing stub (always fails open with {});
- * Task 2 replaces the body with the in-process prettier path.
+/** PreToolUse handler: prettier languages formatted in-process before the write via
+ * updatedInput, only when resolvePrettierSource returns in-process (tier 1 or 3).
+ * Never sets permissionDecision. Returns {} on every guard failure / error (fail open).
  * @param {ToolHookInput} args @returns {Promise<HookResult>} */
 export async function formatPre(args) {
-  void args;
-  return {};
+  try {
+    const cwd = typeof args?.cwd === "string" ? args.cwd : "";
+    const fp = args?.tool_input?.file_path;
+    if (!cwd || typeof fp !== "string" || !fp) return {};
+
+    const resolved = path.resolve(cwd, fp);
+    if (resolved !== cwd && !resolved.startsWith(cwd + path.sep)) return {};
+    const rel = path.relative(cwd, resolved);
+    if (isExcludedPath(rel)) return {};
+
+    const lang = EXT_MAP[path.extname(resolved).toLowerCase()];
+    if (!lang || !PRETTIER_LANGS.has(lang)) return {};
+
+    const src = resolvePrettierSource(cwd);
+    if (src.kind === "path-subprocess") return {}; // tier 2 -> format_post owns it
+    if (src.kind === "none") {
+      ensureManagedPrettierInstalled(); // fire out of band; fail open now
+      return {};
+    }
+    const prettier = await loadPrettier(src.modulePath); // tier 1 or 3, in-process
+
+    // eslint-disable-next-line max-len -- literal reformat notice; verbatim except hookEventName
+    const notice = `universal-format: prettier reformatted ${rel}; re-read it before further string-based edits. This reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules — do not revert or redo it by hand to shrink the diff.`;
+
+    if (args.tool_name === "Write") {
+      const content = args.tool_input.content;
+      if (typeof content !== "string") return {};
+      const formatted = await formatInProcess(prettier, content, resolved, cwd, lang);
+      if (formatted === content) return {};
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp, content: formatted }, additionalContext: notice } };
+    }
+
+    if (args.tool_name === "Edit") {
+      if (!existsSync(resolved)) return {};
+      const current = readFileSync(resolved, "utf8");
+      const oldStr = args.tool_input.old_string;
+      const newStr = args.tool_input.new_string;
+      if (typeof oldStr !== "string" || typeof newStr !== "string") return {};
+      const merged = applyEdit(current, oldStr, newStr, args.tool_input.replace_all === true);
+      if (merged === null) return {}; // absent OR non-unique -> let the original Edit proceed/err
+      const formatted = await formatInProcess(prettier, merged, resolved, cwd, lang);
+      if (formatted === merged) return {};
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp, old_string: current, new_string: formatted, replace_all: false }, additionalContext: notice } };
+    }
+
+    return {};
+  } catch {
+    return {};
+  }
 }
 
 // True only when this file is the process entry point (MCP spawn / `node server.mjs`),
