@@ -1,6 +1,6 @@
 # universal-format
 
-Silently auto-formats just-written source files after Write/Edit using each language's standard formatter when it is installed — honoring `.editorconfig` and tool-native configs, and doing nothing when the formatter is absent.
+Silently auto-formats source files around Write/Edit using each language's standard formatter — Prettier languages before the write when an importable Prettier is available, everything else after it — honoring `.editorconfig`, `.prettierignore`/`.gitignore` and tool-native configs, and doing nothing when no formatter can be found.
 
 ## Install
 
@@ -10,22 +10,38 @@ Silently auto-formats just-written source files after Write/Edit using each lang
 
 ## What it does
 
-Two `Write|Edit` hooks on a self-contained plugin-local MCP server. **Prettier
-languages** (JS/TS, JSON, YAML, Markdown, CSS, SCSS) are formatted **before the write**
-(PreToolUse) by a warm in-process prettier, so the file lands already formatted — using
-a project's own prettier when present, otherwise a plugin-managed copy the server
-installs on demand under its data dir; a prettier on `PATH` (or `npx --yes prettier` as
-a last resort) formats them **after the write** (PostToolUse) when no in-process
-prettier is available. **All other languages** (Shell, Java, Kotlin, Python, Go, PHP)
-are formatted after the write via each tool's CLI. An unavailable formatter, any
-failure, an unsupported extension, a file outside the project, or a file under
-`node_modules/`/`vendor/`/`.git/` is a **silent no-op** — the hooks never block or
-degrade the session. When formatting changed the file, the hook returns a one-line note
-telling Claude to re-read it before further string-based edits, and that the reformat is
-intentional and exempt from "surgical/minimal-diff" change-scope rules.
+Two `Write|Edit` hooks on a self-contained plugin-local MCP server.
 
-This plugin is always active once installed — there is no toggle. Per-language opt-out
-is simply not installing that formatter.
+**Prettier languages** (JS/TS, JSON, YAML, Markdown, CSS, SCSS) resolve a Prettier in a
+fixed order — a project's own always wins:
+
+| #   | Prettier source                                 | When it formats                  |
+| --- | ----------------------------------------------- | -------------------------------- |
+| 1   | project-local (importable from the project)     | **before** the write, in-process |
+| 2   | `prettier` on `PATH`                            | after the write, subprocess      |
+| 3   | plugin-managed copy under the plugin's data dir | **before** the write, in-process |
+| 4   | `npx --yes prettier`                            | after the write, subprocess      |
+
+Tiers 1 and 3 run in a warm in-process Prettier, so the file lands already formatted;
+tiers 2 and 4 reformat it on disk afterwards. The managed copy (tier 3) is installed on
+demand, out of band, the first time a project has neither of the first two — until that
+finishes, tier 4 keeps formatting.
+
+**All other languages** (Shell, Java, Kotlin, Python, Go, PHP) are formatted after the
+write via each tool's CLI.
+
+An unavailable formatter, any failure, an unsupported extension, a file outside the
+project, a file under `node_modules/`/`vendor/`/`.git/`, or a path excluded by the
+project's `.prettierignore`/`.gitignore` is a **silent no-op** — the hooks never block
+or degrade the session. When formatting changed the file, the hook returns a one-line
+note telling Claude to re-read it before further string-based edits, and that the
+reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules.
+
+This plugin is always active once installed — there is no toggle, and there is no
+per-language switch. For every formatter except Prettier, not installing the tool is
+the opt-out. **Prettier is the exception:** when a project has none, the plugin installs
+and uses its own managed copy, so removing Prettier does not opt out of Prettier
+formatting — exclude the paths via `.prettierignore` instead.
 
 ## Supported formatters
 

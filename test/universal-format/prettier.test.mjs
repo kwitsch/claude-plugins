@@ -6,7 +6,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
-import { formatInProcess, applyEdit, shouldOverridePrintWidth, resolvePrettierSource, readManagedPrettierVersion, shouldRunDailyCheck, formatPre } from "../../plugins/universal-format/mcp/server.mjs";
+import { formatInProcess, applyEdit, resolvePrettierSource, readManagedPrettierVersion, shouldRunDailyCheck, formatPre } from "../../plugins/universal-format/mcp/server.mjs";
 
 const require = createRequire(import.meta.url);
 /** @type {string|null} */
@@ -111,16 +111,16 @@ test("applyEdit: replace_all, single swap, null on absent and non-unique", () =>
   assert.equal(applyEdit("nope", "Q", "Z", true), null); // replace_all, absent
 });
 
-maybe("shouldOverridePrintWidth: no config true; .prettierrc false; .editorconfig max_line_length false", () => {
-  const cwd = tmp("uf-sopw-");
-  assert.equal(shouldOverridePrintWidth(path.join(cwd, "a.json"), cwd), true);
-  const cwd2 = tmp("uf-sopw2-");
-  writeFileSync(path.join(cwd2, ".prettierrc"), "{}");
-  assert.equal(shouldOverridePrintWidth(path.join(cwd2, "a.json"), cwd2), false);
-  const cwd3 = tmp("uf-sopw3-");
-  writeFileSync(path.join(cwd3, ".editorconfig"), "root = true\n[*]\nmax_line_length = 80\n");
-  assert.equal(shouldOverridePrintWidth(path.join(cwd3, "a.json"), cwd3), false);
+// An empty old_string "matches" under both includes() and indexOf(), so without an
+// explicit guard the replace_all branch would splice new_string between every character
+// of the file and hand that whole-file swap back as updatedInput.
+test("applyEdit: empty old_string is rejected on both branches", () => {
+  assert.equal(applyEdit("abc", "", "X", false), null);
+  assert.equal(applyEdit("abc", "", "X", true), null);
 });
+
+// shouldOverridePrintWidth's own cases live unconditionally in registry.test.mjs; they
+// were duplicated here behind `maybe` (strictly weaker: skipped when prettier is absent).
 
 maybe("format_pre Write: updatedInput.content formatted, no permissionDecision", async () => {
   const cwd = projectWithPrettier();
@@ -130,6 +130,25 @@ maybe("format_pre Write: updatedInput.content formatted, no permissionDecision",
   assert.equal(res.hookSpecificOutput.updatedInput.file_path, path.join(cwd, "a.json"));
   assert.ok(!("permissionDecision" in res.hookSpecificOutput), "format_pre must never set permissionDecision");
   assert.ok(typeof res.hookSpecificOutput.additionalContext === "string");
+});
+
+// Parity with the subprocess path: `prettier --write <file>` filters even an explicitly
+// named file through --ignore-path ([.gitignore, .prettierignore]). getFileInfo does not
+// auto-discover those, so the in-process path must pass them itself.
+maybe("format_pre: a .prettierignore'd file is left alone", async () => {
+  const cwd = projectWithPrettier();
+  writeFileSync(path.join(cwd, ".prettierignore"), "ignored.json\n");
+  const plain = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "kept.json"), content: '{"a":1}' } })));
+  assert.ok(plain.hookSpecificOutput, "a non-ignored file is still formatted");
+  const res = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "ignored.json"), content: '{"a":1}' } }));
+  assert.deepEqual(res, {});
+});
+
+maybe("format_pre: a .gitignore'd file is left alone", async () => {
+  const cwd = projectWithPrettier();
+  writeFileSync(path.join(cwd, ".gitignore"), "generated.json\n");
+  const res = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "generated.json"), content: '{"a":1}' } }));
+  assert.deepEqual(res, {});
 });
 
 maybe("format_pre Edit: whole-file swap old_string=full pre-edit, new_string=formatted, replace_all false", async () => {
@@ -196,6 +215,11 @@ maybe("tier-3: managed copy resolves in-process and format_pre formats via it", 
   // test-runner artifact, not a real project-local/PATH prettier), never reaching
   // tier-3 at all. Isolate PATH to a value with no "prettier" executable for the
   // resolution call, matching this suite's hermetic-PATH convention.
+  // NOTE: onPath() memoises its probe in a module-level cache, so clearing PATH only
+  // works while no earlier test in this file has already probed "prettier" with a
+  // populated PATH. Every earlier resolvePrettierSource() call here resolves at tier 1
+  // (project-local, returns before any PATH probe), so the cache stays empty until this
+  // point. Keep it that way — a new tier-2 test placed above this one would poison it.
   process.env.PATH = "";
   try {
     const src = resolvePrettierSource(cwd);

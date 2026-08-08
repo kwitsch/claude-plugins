@@ -697,10 +697,34 @@ export async function formatInProcess(prettier, src, filePath, cwd, lang) {
   return await prettier.format(src, { ...config, filepath: filePath });
 }
 
+/** True when prettier's own ignore files exclude this path — the parity check for the
+ * in-process path. The subprocess path gets this for free: prettier's CLI filters even
+ * explicitly-named files through `--ignore-path`, which defaults to
+ * `[.gitignore, .prettierignore]` resolved against its cwd. `getFileInfo` does NOT
+ * auto-discover them (verified: no `ignorePath` -> `ignored:false`), so pass both
+ * explicitly; missing files are tolerated. Any error -> not ignored (fail open to
+ * formatting, the pre-existing behaviour).
+ * @param {any} prettier @param {string} filePath @param {string} cwd @returns {Promise<boolean>} */
+async function isPrettierIgnored(prettier, filePath, cwd) {
+  try {
+    if (typeof prettier.getFileInfo !== "function") return false;
+    const info = await prettier.getFileInfo(filePath, {
+      ignorePath: [path.join(cwd, ".gitignore"), path.join(cwd, ".prettierignore")],
+    });
+    return info?.ignored === true;
+  } catch {
+    return false;
+  }
+}
+
 /** Apply an Edit in memory (mirrors Claude Code Edit semantics): whole-file swap must
- * never mask a not-found/non-unique error. @param {string} current @param {string} oldStr
+ * never mask a not-found/non-unique error. An empty `oldStr` is rejected outright —
+ * `"".includes` / `indexOf("")` both "match", and the replace_all branch would splice
+ * `newStr` between every character of the file and hand that back as updatedInput.
+ * @param {string} current @param {string} oldStr
  * @param {string} newStr @param {boolean} replaceAll @returns {string|null} */
 export function applyEdit(current, oldStr, newStr, replaceAll) {
+  if (oldStr === "") return null;
   if (replaceAll) return current.includes(oldStr) ? current.split(oldStr).join(newStr) : null;
   const idx = current.indexOf(oldStr);
   if (idx === -1) return null;
@@ -958,6 +982,7 @@ export async function formatPre(args) {
       return {};
     }
     const prettier = await loadPrettier(src.modulePath); // tier 1 or 3, in-process
+    if (await isPrettierIgnored(prettier, resolved, cwd)) return {};
 
     // eslint-disable-next-line max-len -- literal reformat notice; verbatim except hookEventName
     const notice = `universal-format: prettier reformatted ${rel}; re-read it before further string-based edits. This reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules — do not revert or redo it by hand to shrink the diff.`;

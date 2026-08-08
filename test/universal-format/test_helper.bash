@@ -77,7 +77,13 @@ rec_stub() {
 }
 
 # Drive one JSON-RPC request against a fresh server on the isolated PATH; echo the
-# id:2 result text (JSON.stringify of the handler result), or "{}" when empty.
+# id:2 result text (JSON.stringify of the handler result), or the literal NO_RESULT
+# when the server produced no id:2 response at all. A handler that legitimately returns
+# nothing still emits the string "{}", so the two cases stay distinguishable — echoing
+# "{}" for both would let a crashed or silent server pass every `assert_output "{}"`.
+# Closes stdin immediately, so it is only safe for handlers that answer synchronously;
+# a handler with a real async step (the in-process prettier path) races the response
+# away — use managed-prettier.bats' drive_and_capture for those.
 # $1 = tool name, $2 = arguments JSON object (compact).
 _mcp_call() {
   local tool="$1" args_json="$2" out
@@ -86,12 +92,12 @@ _mcp_call() {
       printf '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"%s","arguments":%s}}\n' "$tool" "$args_json"
     } | env PATH="$MOCKBIN" HOME="$HOME" RECORD="${RECORD:-/dev/null}" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" node "$SERVER" 2>/dev/null \
       | jq -rc 'select(.id == 2) | .result.content[0].text' )"
-  if [ -n "$out" ]; then printf '%s' "$out"; else printf '{}'; fi
+  if [ -n "$out" ]; then printf '%s' "$out"; else printf 'NO_RESULT'; fi
 }
 
 # format_file_call <file_path> <cwd> — drive format_post (PostToolUse). Signature
-# and "{}"-on-empty contract unchanged from the pre-MCP helper, so existing
-# per-language call sites keep their assertions.
+# unchanged from the pre-MCP helper, so existing per-language call sites keep their
+# assertions; a no-op handler still yields "{}", a dead server now yields NO_RESULT.
 format_file_call() {
   local fp="$1" cwd="$2" args
   args="$(jq -cn --arg f "$fp" --arg c "$cwd" '{hook_event_name:"PostToolUse", tool_name:"Write", tool_input:{file_path:$f}, tool_response:{success:true}, cwd:$c}')"

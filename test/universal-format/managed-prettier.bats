@@ -270,7 +270,7 @@ drive_two_misses() {
   local cwd="$BATS_TEST_TMPDIR/proj5"; mkdir -p "$cwd"
   local target="$CLAUDE_PLUGIN_DATA/prettier/current/node_modules/prettier/package.json"
   local args
-  args="$(jq -cn --arg f "$cwd/a.json" --arg c "$cwd" '{hook_event_name:"format_pre_write", tool_name:"Write", tool_input:{file_path:$f, content:"{\"a\":1}"}, cwd:$c}')"
+  args="$(jq -cn --arg f "$cwd/a.json" --arg c "$cwd" '{hook_event_name:"PreToolUse", tool_name:"Write", tool_input:{file_path:$f, content:"{\"a\":1}"}, cwd:$c}')"
   drive_and_wait format_pre "$args" "$target"
   [ -L "$CLAUDE_PLUGIN_DATA/prettier/current" ]
   [ -e "$target" ]

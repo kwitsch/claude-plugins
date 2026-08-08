@@ -58,6 +58,16 @@ tiers 1/3 (in-process); on tier 2 or non-prettier it returns `{}`; on `none` it 
 the lazy install out of band and returns `{}`. `format_post` returns `{}` for a
 prettier language on tier 1/3 (already handled), fires the lazy install on `none` and
 falls through to the existing chain (→ npx), and runs the direct binary on tier 2.
+**`isPrettierIgnored` keeps the in-process path at parity with the CLI** (do not drop
+it): `prettier --write <file>` filters even an explicitly-named file through
+`--ignore-path`, which defaults to `[.gitignore, .prettierignore]` resolved against its
+cwd — so the subprocess tiers got this for free and the in-process tiers did not.
+`getFileInfo` does NOT auto-discover those files (verified: without `ignorePath` it
+returns `ignored:false`), so both are passed explicitly, joined to `cwd`; missing files
+are tolerated and any error falls open to formatting. Without it, `format_pre` would
+reformat a `.prettierignore`d file that the old command hook left alone — including this
+repo's own `pnpm-lock.yaml`.
+
 `prettier.clearConfigCache()` is called before every `resolveConfig` so a mid-session
 `.prettierrc*`/`.editorconfig`/`package.json` prettier change is honored. In-process
 json/yaml sets `printWidth = 99999` iff `shouldOverridePrintWidth(file,cwd)` (the
