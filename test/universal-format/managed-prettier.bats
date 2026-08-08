@@ -21,6 +21,9 @@ setup() {
   # fail the server's sanity check whenever they drifted apart.
   PIN="$(sed -n 's/^const MANAGED_PRETTIER_VERSION = "\(.*\)";$/\1/p' "$SERVER")"
   [ -n "$PIN" ] || skip "could not read MANAGED_PRETTIER_VERSION from $SERVER"
+  NPM_CALLS="$BATS_TEST_TMPDIR/npm-calls"
+  : > "$NPM_CALLS"
+  UF_BACKOFF="" # empty -> server falls back to its own default
 }
 
 # --- stub npm variants -------------------------------------------------------
@@ -60,6 +63,16 @@ EOF
 # Failure: nonzero exit, nothing written.
 make_npm_fail_stub() {
   make_stub npm 'exit 1'
+}
+
+# Failure that records every invocation into $NPM_CALLS, so retry attempts are countable.
+make_npm_fail_recording_stub() {
+  make_stub npm 'printf "call\n" >> "$NPM_CALLS"' 'exit 1'
+}
+
+# Count recorded npm invocations (0 when the stub never ran).
+npm_call_count() {
+  [ -s "$NPM_CALLS" ] && wc -l < "$NPM_CALLS" | tr -d ' ' || printf '0'
 }
 
 # Wrong version: exit 0 but the installed tree reports a different version.
@@ -105,7 +118,7 @@ drive_and_wait() {
   local tool="$1" args_json="$2" target="$3"
   local fifo="$BATS_TEST_TMPDIR/in.$RANDOM"
   mkfifo "$fifo"
-  env PATH="$MOCKBIN" HOME="$HOME" REPO_PRETTIER_DIR="$REPO_PRETTIER_DIR" STUB_PIN="$PIN" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" node "$SERVER" <"$fifo" >/dev/null 2>&1 &
+  env PATH="$MOCKBIN" HOME="$HOME" REPO_PRETTIER_DIR="$REPO_PRETTIER_DIR" STUB_PIN="$PIN" NPM_CALLS="$NPM_CALLS" UF_INSTALL_RETRY_BACKOFF_MS="$UF_BACKOFF" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" node "$SERVER" <"$fifo" >/dev/null 2>&1 &
   local server_pid=$!
   exec {w}>"$fifo"
   printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n' >&"$w"
@@ -129,7 +142,7 @@ drive_and_capture() {
   local fifo="$BATS_TEST_TMPDIR/cap.$RANDOM"
   local outfile="$BATS_TEST_TMPDIR/capout.$RANDOM"
   mkfifo "$fifo"
-  env PATH="$MOCKBIN" HOME="$HOME" REPO_PRETTIER_DIR="$REPO_PRETTIER_DIR" STUB_PIN="$PIN" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" node "$SERVER" <"$fifo" >"$outfile" 2>/dev/null &
+  env PATH="$MOCKBIN" HOME="$HOME" REPO_PRETTIER_DIR="$REPO_PRETTIER_DIR" STUB_PIN="$PIN" NPM_CALLS="$NPM_CALLS" UF_INSTALL_RETRY_BACKOFF_MS="$UF_BACKOFF" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" node "$SERVER" <"$fifo" >"$outfile" 2>/dev/null &
   local server_pid=$!
   exec {w}>"$fifo"
   printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n' >&"$w"
@@ -151,7 +164,7 @@ start_and_hold() {
   local tenths="${1:-15}"
   local fifo="$BATS_TEST_TMPDIR/hold.$RANDOM"
   mkfifo "$fifo"
-  env PATH="$MOCKBIN" HOME="$HOME" REPO_PRETTIER_DIR="$REPO_PRETTIER_DIR" STUB_PIN="$PIN" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" node "$SERVER" <"$fifo" >/dev/null 2>&1 &
+  env PATH="$MOCKBIN" HOME="$HOME" REPO_PRETTIER_DIR="$REPO_PRETTIER_DIR" STUB_PIN="$PIN" NPM_CALLS="$NPM_CALLS" UF_INSTALL_RETRY_BACKOFF_MS="$UF_BACKOFF" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" node "$SERVER" <"$fifo" >/dev/null 2>&1 &
   local server_pid=$!
   exec {w}>"$fifo"
   printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n' >&"$w"
@@ -159,6 +172,32 @@ start_and_hold() {
   for ((i=0; i<tenths; i++)); do sleep 0.1; done
   exec {w}>&-
   wait "$server_pid" 2>/dev/null || true
+}
+
+# Drive TWO tier-none misses through ONE long-lived server, waiting for the first install
+# attempt to be recorded before sending the second, then polling for a second attempt.
+# Echoes the number of recorded npm invocations. $1=args JSON (reused for both calls).
+drive_two_misses() {
+  local args_json="$1" i
+  local fifo="$BATS_TEST_TMPDIR/two.$RANDOM"
+  mkfifo "$fifo"
+  env PATH="$MOCKBIN" HOME="$HOME" REPO_PRETTIER_DIR="$REPO_PRETTIER_DIR" STUB_PIN="$PIN" NPM_CALLS="$NPM_CALLS" UF_INSTALL_RETRY_BACKOFF_MS="$UF_BACKOFF" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" node "$SERVER" <"$fifo" >/dev/null 2>&1 &
+  local server_pid=$!
+  exec {w}>"$fifo"
+  printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n' >&"$w"
+  printf '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"format_pre","arguments":%s}}\n' "$args_json" >&"$w"
+  for ((i=0; i<40; i++)); do
+    [ "$(npm_call_count)" -ge 1 ] && break
+    sleep 0.1
+  done
+  printf '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"format_pre","arguments":%s}}\n' "$args_json" >&"$w"
+  for ((i=0; i<40; i++)); do
+    [ "$(npm_call_count)" -ge 2 ] && break
+    sleep 0.1
+  done
+  exec {w}>&-
+  wait "$server_pid" 2>/dev/null || true
+  npm_call_count
 }
 
 # --- install tests -----------------------------------------------------------
@@ -194,6 +233,27 @@ start_and_hold() {
   # First return is immediate {}; then let the (failing) install run its course.
   drive_and_wait format_pre "$args" "$CLAUDE_PLUGIN_DATA/prettier/current"
   [ ! -e "$CLAUDE_PLUGIN_DATA/prettier/current" ]
+}
+
+@test "failed install is retried on a later miss once the backoff has elapsed" {
+  make_npm_fail_recording_stub
+  UF_BACKOFF=0
+  local cwd="$BATS_TEST_TMPDIR/proj-retry"; mkdir -p "$cwd"
+  local args
+  args="$(jq -cn --arg f "$cwd/a.json" --arg c "$cwd" '{hook_event_name:"PreToolUse", tool_name:"Write", tool_input:{file_path:$f, content:"{\"a\":1}"}, cwd:$c}')"
+  run drive_two_misses "$args"
+  assert_output "2"
+  [ ! -e "$CLAUDE_PLUGIN_DATA/prettier/current" ]
+}
+
+@test "failed install is NOT retried while the backoff is still running" {
+  make_npm_fail_recording_stub
+  UF_BACKOFF=600000
+  local cwd="$BATS_TEST_TMPDIR/proj-noretry"; mkdir -p "$cwd"
+  local args
+  args="$(jq -cn --arg f "$cwd/a.json" --arg c "$cwd" '{hook_event_name:"PreToolUse", tool_name:"Write", tool_input:{file_path:$f, content:"{\"a\":1}"}, cwd:$c}')"
+  run drive_two_misses "$args"
+  assert_output "1"
 }
 
 @test "wrong-version install is rejected by the sanity check; no current published" {
@@ -253,7 +313,7 @@ set_last_check() {
   local target="$CLAUDE_PLUGIN_DATA/prettier/current/node_modules/prettier/package.json"
   # Hold stdin open, polling until the reconcile publish flips current to the pin.
   local fifo="$BATS_TEST_TMPDIR/dc.$RANDOM"; mkfifo "$fifo"
-  env PATH="$MOCKBIN" HOME="$HOME" REPO_PRETTIER_DIR="$REPO_PRETTIER_DIR" STUB_PIN="$PIN" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" node "$SERVER" <"$fifo" >/dev/null 2>&1 &
+  env PATH="$MOCKBIN" HOME="$HOME" REPO_PRETTIER_DIR="$REPO_PRETTIER_DIR" STUB_PIN="$PIN" NPM_CALLS="$NPM_CALLS" UF_INSTALL_RETRY_BACKOFF_MS="$UF_BACKOFF" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" node "$SERVER" <"$fifo" >/dev/null 2>&1 &
   local pid=$!
   exec {w}>"$fifo"
   printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n' >&"$w"

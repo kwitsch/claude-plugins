@@ -84,7 +84,15 @@ prettier@<pin>` with `cwd` inside `${CLAUDE_PLUGIN_DATA}` — async `spawn`, NEV
   awaited, `INSTALL_TIMEOUT_MS = 120000`. The hook returns `{}` immediately. On clean
   `exit(0)` AND a version sanity check, it publishes via a temp symlink + `rename()`
   onto `current` (atomic on POSIX), then GCs other versions. A reader never sees a
-  half-installed tree. One attempt per server lifetime after a failure.
+  half-installed tree. **A failed attempt is retried on a later tier-none miss once
+  `INSTALL_RETRY_BACKOFF_MS` (10 min, env-overridable via `UF_INSTALL_RETRY_BACKOFF_MS`
+  for the bats suite) has elapsed — it does NOT latch off for the server lifetime.** That
+  was the original shape and it is deliberately not restored: the daily reconcile below
+  never eager-installs, so nothing else could ever rescue a copy that failed to install,
+  and one transient offline moment would have pinned every later write in a prettier-less
+  project to the slow npx path until the next server start. `installing` and `done` still
+  short-circuit; only `failed` is time-gated. Parse the env override explicitly, never
+  `Number(x) || default` — `0` is a legitimate value and is falsy.
 - **Race-safe / fail-open.** Concurrent sessions each stage into a unique dir and each
   atomically flip `current`; last flip wins, all point at a complete pinned tree. Every
   failure (no npm / no network / disk full / non-zero exit / timeout / wrong version /

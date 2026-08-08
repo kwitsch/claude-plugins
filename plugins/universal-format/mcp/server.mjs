@@ -31,6 +31,23 @@ const prettierSourceCache = new Map();
 
 /** @type {"idle"|"installing"|"done"|"failed"} */
 let managedInstallState = "idle";
+/** Epoch ms of the last failed install attempt; drives the retry backoff below. */
+let managedInstallFailedAtMs = 0;
+// A failed install is retried after this long rather than latching off for the whole server
+// lifetime: one transient failure (offline registry, disk hiccup) would otherwise force every
+// later write in a prettier-less project onto the slow npx path until the next server start.
+// The daily reconcile check cannot rescue it either — it never eager-installs by design.
+// Env-overridable so the bats suite can exercise the retry without waiting. Parsed
+// explicitly rather than with `Number(...) || default` — 0 is a legitimate override
+// (retry immediately) and would otherwise fall through to the default as a falsy value.
+const INSTALL_RETRY_BACKOFF_MS = parseBackoffEnv(process.env.UF_INSTALL_RETRY_BACKOFF_MS, 10 * 60 * 1000);
+
+/** @param {string|undefined} raw @param {number} fallback @returns {number} */
+function parseBackoffEnv(raw, fallback) {
+  if (typeof raw !== "string" || raw.trim() === "") return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
 
 /**
  * @typedef {{ name: string, strategy: string, base: string[], nativeConfig?: Array<string | {file: string, section: string}>, guardPrintWidth?: boolean, npmSpec?: string }} FormatTool
@@ -745,6 +762,14 @@ function gcOldVersions(baseDir, keep) {
   }
 }
 
+/** Record an install failure and stamp it, so ensureManagedPrettierInstalled can retry
+ * after INSTALL_RETRY_BACKOFF_MS instead of latching off for the server lifetime.
+ * @returns {void} */
+function markManagedInstallFailed() {
+  managedInstallState = "failed";
+  managedInstallFailedAtMs = Date.now();
+}
+
 /** Install prettier@version into a fresh staging dir via async npm (never awaited),
  * then sanity-check + atomically publish on a clean exit. Non-blocking; every failure
  * a silent no-op that leaves `current` untouched. @param {string} baseDir @param {string} version @returns {void} */
@@ -758,18 +783,18 @@ function installManagedPrettier(baseDir, version) {
     timeout: INSTALL_TIMEOUT_MS,
   });
   child.on("error", () => {
-    managedInstallState = "failed";
+    markManagedInstallFailed();
     safeRm(staging);
   });
   child.on("exit", (/** @type {number|null} */ code) => {
     try {
       if (code !== 0) {
-        managedInstallState = "failed";
+        markManagedInstallFailed();
         safeRm(staging);
         return;
       }
       if (readInstalledVersion(staging) !== version) {
-        managedInstallState = "failed";
+        markManagedInstallFailed();
         safeRm(staging);
         return;
       }
@@ -777,28 +802,32 @@ function installManagedPrettier(baseDir, version) {
       managedInstallState = "done";
       gcOldVersions(baseDir, staging);
     } catch {
-      managedInstallState = "failed";
+      markManagedInstallFailed();
       safeRm(staging);
     }
   });
   child.unref();
 }
 
-/** Lazy managed-copy installer: at most one attempt per server lifetime. Fired
+/** Lazy managed-copy installer: one attempt at a time, retried after
+ * INSTALL_RETRY_BACKOFF_MS when the previous one failed (a transient failure must not
+ * disable the managed tier for the rest of the server's lifetime — the daily reconcile
+ * check never eager-installs, so nothing else would ever rescue it). Fired
  * fire-and-forget from a tier-none miss; never throws into a hook call; never blocks.
  * @returns {void} */
 function ensureManagedPrettierInstalled() {
-  if (managedInstallState !== "idle") return;
+  if (managedInstallState === "installing" || managedInstallState === "done") return;
+  if (managedInstallState === "failed" && Date.now() - managedInstallFailedAtMs < INSTALL_RETRY_BACKOFF_MS) return;
   const baseDir = managedPrettierDir();
   if (!baseDir) {
-    managedInstallState = "failed"; // no data dir -> managed tier disabled
+    markManagedInstallFailed(); // no data dir -> managed tier disabled
     return;
   }
   managedInstallState = "installing";
   try {
     installManagedPrettier(baseDir, MANAGED_PRETTIER_VERSION);
   } catch {
-    managedInstallState = "failed";
+    markManagedInstallFailed();
   }
 }
 
