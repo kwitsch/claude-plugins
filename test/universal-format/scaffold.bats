@@ -163,7 +163,7 @@ setup() {
   run bash -c "sed -n 2p '$SERVER'"
   assert_output --partial "@ts-nocheck"
   run bash -c "sed -n 3p '$SERVER'"
-  assert_output --regexp '^// uf-build-fingerprint src=[0-9a-f]{16} body=[0-9a-f]{16} prettier=[0-9.]+ bun='
+  assert_output --regexp '^// uf-build-fingerprint src=[0-9a-f]{16} body=[0-9a-f]{16} prettier=[0-9.]+ plugins=[^ ]+ assets=[0-9a-f]{16} bun='
 }
 
 # High-signal: a real bun-built bundle of these sources contains 0 occurrences of either string,
@@ -198,4 +198,14 @@ setup() {
   assert_success
   run rg_or_grep -q -F "pnpm run build:universal-format-mcp" "$REPO_ROOT/CLAUDE.md"
   assert_success
+}
+
+# core.fileMode = false in this repo, so a wrong mode on a NEW file surfaces only on a fresh CI
+# checkout — assert the index directly.
+@test "both wasm sidecars are tracked next to the bundle with git mode 100644" {
+  run bash -c "cd '$REPO_ROOT' && git ls-files -s plugins/universal-format/mcp/"
+  assert_success
+  assert_line --regexp '^100755 [0-9a-f]+ 0[[:space:]]+plugins/universal-format/mcp/server\.mjs$'
+  assert_line --regexp '^100644 [0-9a-f]+ 0[[:space:]]+plugins/universal-format/mcp/tree-sitter-java_orchard\.wasm$'
+  assert_line --regexp '^100644 [0-9a-f]+ 0[[:space:]]+plugins/universal-format/mcp/web-tree-sitter\.wasm$'
 }
