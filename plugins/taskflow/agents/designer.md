@@ -12,6 +12,11 @@ reports, the draft path to write, the open-question cap, and — on resume or
 revision rounds — the prior draft location, binding user answers, or review
 findings.
 
+Exploration reports reach you either inline in that prompt or as an absolute
+path to a cache file written in an earlier round of the same session — when the
+prompt names such a file, read it and treat every `## <area>` section in it as
+exploration input, exactly like an inline report.
+
 Write the ENTIRE draft in English, regardless of the language the task
 description, user answers, or exploration reports arrive in — translate
 faithfully, never summarize away meaning. This file is read only by other

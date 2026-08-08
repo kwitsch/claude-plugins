@@ -6,7 +6,7 @@ The plugin ships these components:
 
 - `skills/build-task/` — the inline orchestrator skill. Branch handling, `AskUserQuestion` checkpoints, invokes the two workflows below by name, applies escalated review fixes.
 - `workflows/design-to-spec.workflow.js` + `workflows/spec-driven-delivery.workflow.js` — the two dynamic Workflow-tool scripts that do the heavy lifting. Auto-discovered from the plugin-root `workflows/` directory (no manifest field needed); run namespaced as `/taskflow:design-to-spec` / `/taskflow:spec-driven-delivery`.
-- `agents/*.md` — 11 static role prompts (`planner`, `designer`, `design-reviewer`, `review-finder`, `review-verifier`, `worktree-merger`, `fix-applier`, `pr-author`, `shipper`, `ci-monitor`, `ci-fixer`), dispatched by the workflows via `agentType: 'taskflow:<name>'`. INTERNAL — each agent's own description says not to delegate to it directly.
+- `agents/*.md` — 12 static role prompts (`planner`, `designer`, `design-reviewer`, `review-finder`, `review-verifier`, `worktree-merger`, `fix-applier`, `pr-author`, `shipper`, `ci-monitor`, `ci-fixer`, `cache-probe`), dispatched by the workflows via `agentType: 'taskflow:<name>'`. INTERNAL — each agent's own description says not to delegate to it directly.
 
 Renaming the plugin requires updating the `AGENTS` map's namespace prefix in both workflow scripts to match.
 
@@ -35,6 +35,63 @@ The `MODELS` object at the top of each workflow script is the single place to
 change an assignment; agent frontmatter `model:` fields must be kept in sync
 with the corresponding workflow's default when an agent is also invoked
 directly outside its workflow's normal path.
+
+## Explore-result cache
+
+`workflows/design-to-spec.workflow.js` PHASE 1 caches the joined exploration
+reports for the session, so a resume round does not re-run the up-to-4 `sonnet`
+explorers. Every point below is load-bearing:
+
+- **Derived path, never an arg:**
+  `EXPLORE_CACHE_PATH = DRAFT_PATH.replace(/\.md$/i, "") + ".explore-" + taskKey(TASK) + ".md"`.
+  `skills/build-task/SKILL.md` builds the `args` object literal in prose at two
+  independent resume call sites (step 2's question loop, step 3's
+  intent-correction loop); a new required-on-resume key would have to be added
+  to both, and missing one would silently break exactly that path. So
+  `decodeArgs`'s `required` array stays `["TASK", "DRAFT_PATH", "SPEC_PATH"]`
+  and the task identity is hashed into the file name instead of compared as
+  text an agent echoes back.
+- **The script never touches the filesystem.** Cache read
+  (`explore-cache:probe`, `haiku`) and cache write (`explore-cache:write`,
+  `sonnet`) are `agent()` dispatches, per the no-FS contract in the file's own
+  header. `FINGERPRINT_CMD` is one constant shared by both prompts, so probe
+  and writer can never diverge. The probe runs as `agentType:
+  'taskflow:cache-probe'` (`agents/cache-probe.md`, `tools: ["Bash",
+  "Read"]`) — it needs `Bash` for `FINGERPRINT_CMD` but never `Write`/`Edit`,
+  unlike the general-purpose-tooled writer. The write is dispatched
+  concurrently with the first designer call (`parallel()` in Phase 2) only on
+  a miss/fresh round, since Design only needs `explorationBlock` there and
+  never reads `EXPLORE_CACHE_PATH` itself; on a cache-hit top-up round
+  (`needsSerialWrite`), the designer's `explorationBlock` instructs it to
+  read that same file for the earlier-cached sections, so the write is
+  awaited first to avoid a torn read. The writer reuses the probe's
+  already-computed fingerprint on any RESUME round instead of re-running
+  `FINGERPRINT_CMD` a second time. A null/`blocked` writer result gets one
+  script-enforced retry (`writeCache()`) only in idempotent `create` mode —
+  `append` is not idempotent (a blind retry risks duplicating the new
+  section), so it keeps only the writer's own single-turn `wc -l` self-check.
+- **One gate for cached data:**
+  `const cachedAreas = cacheHit ? parsedAreas : [];` (`test/taskflow/test.bats`
+  pins that literal line). `probe.found === true` only certifies "the header
+  parsed" — a fingerprint mismatch or a `declaredLines !== actualLines`
+  mismatch still returns a populated `areas` array. `covered`, `budget`,
+  `coverageNote`, `areaLine`, the `log()` lines and `explorationBlock` read
+  `cachedAreas` only. Without the gate a miss round would filter freshly
+  scouted subsystems against stale names and write an `AREAS` manifest naming
+  areas it never explored.
+- **`LINES` is the fidelity guard.** A workflow script cannot write files, so
+  the ~20-30k-character exploration blob has to pass through an LLM's output.
+  The script computes the expected total line count in pure JS and dictates it
+  to the writer; the next probe compares it to `wc -l`. A mismatch invalidates
+  the cache rather than trusting a truncated body.
+- **Every uncertainty degrades to the old behavior** — full exploration. Probe
+  failure, fingerprint mismatch, mangled cache, and a failed write are all
+  logged and continue; the cache never blocks or fails a run.
+- **Cache growth is bounded** by `MAX_TOTAL_EXPLORE_AREAS = 6` — the running
+  total per session, not "4 + at most 2 more": a single resume round's actual
+  top-up is `min(6 - areas already cached, MAX_PARALLEL_EXPLORES)`, which can
+  exceed 2 when the first scout used fewer than `MAX_PARALLEL_EXPLORES = 4`;
+  per-round parallelism stays at that same cap.
 
 ## Generated pipeline artifacts are always English
 
@@ -78,10 +135,10 @@ BATS_LIB_PATH="$PWD/node_modules" pnpm exec bats test/taskflow/
 
 The suite is structural: plugin manifest invariants (no `userConfig`), the
 `build-task` skill frontmatter + reference files, presence and frontmatter of
-all 11 agents (including the least-privilege `tools:` allowlist on the 4
+all 12 agents (including the least-privilege `tools:` allowlist on the 5
 read-only-declared agents: `design-reviewer`, `review-finder`,
-`review-verifier`, `ci-monitor`), and both `workflows/*.workflow.js` files'
-`export const meta` shape.
+`review-verifier`, `ci-monitor`, `cache-probe`), and both
+`workflows/*.workflow.js` files' `export const meta` shape.
 
 ## Linting
 

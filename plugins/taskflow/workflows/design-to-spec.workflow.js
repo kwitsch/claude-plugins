@@ -37,6 +37,10 @@
 //   - No Date.now()/Math.random()/FS in the script — everything file-related
 //     runs through agent() workers; the draft is written to DRAFT_PATH by
 //     the designer agent itself (persistent state between runs).
+//   - Second persisted artifact: the session-scoped Explore-result cache
+//     (DRAFT_PATH without its .md suffix + ".explore-<task key>.md"), written
+//     by a cache-writer agent and reused by later RESUME rounds. Session-only,
+//     never committed.
 //   - Resume: RESUME=true ⇒ DRAFT_PATH exists and USER_INPUT holds the
 //     answers to the previously returned questions (recommended: JSON
 //     [{id, answer}] or free text; answers are BINDING for the designer).
@@ -50,6 +54,9 @@
 //   designRev sonnet  — consistency/scope/placeholder gate + question validation
 //   specWriter sonnet — approved draft → spec (transformation, decisions stand)
 //   specRev   sonnet  — completeness/unambiguity gate
+//   cacheProbe  haiku  — read the Explore-cache header + one git fingerprint
+//                        (agentType 'cache-probe', Bash+Read only)
+//   cacheWriter sonnet — verbatim persistence of the exploration reports
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const meta = {
@@ -107,6 +114,8 @@ const MODELS = {
   designReview: "sonnet",
   specWriter: "sonnet", // 1:1 transformation, no new decisions
   specReview: "sonnet", // document comparison draft↔spec
+  cacheProbe: "haiku", // read 4 header lines + run one git command
+  cacheWriter: "sonnet", // verbatim reproduction at length — fidelity over cost
 };
 // ── Plugin agent types (namespace = plugin name; keep in sync on rename).
 //    An unknown type throws hard — this script assumes the taskflow plugin
@@ -114,10 +123,41 @@ const MODELS = {
 const AGENTS = {
   designer: "taskflow:designer",
   reviewer: "taskflow:design-reviewer",
+  cacheProbe: "taskflow:cache-probe", // Bash+Read only — never Write/Edit
 };
 
 const MAX_PARALLEL_EXPLORES = 4;
 const MAX_OPEN_QUESTIONS = 4; // AskUserQuestion limit of the orchestrator
+
+// ── Explore-result cache (session-scoped; reused by resume rounds) ───────────
+// The path is derived from DRAFT_PATH — no extra arg to thread through the two
+// resume call sites of build-task/SKILL.md. The TASK key makes a changed task
+// address a different file instead of relying on a string compare an agent
+// would have to echo back.
+function taskKey(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
+// Matches `wc -l` semantics (count of newline bytes), not JS split() segment
+// count: split() over-counts by one whenever s already ends in "\n" (the
+// trailing split produces a phantom empty final segment).
+const lineCount = (s) => (s.endsWith("\n") ? s.slice(0, -1) : s).split("\n").length;
+const EXPLORE_CACHE_PATH = DRAFT_PATH.replace(/\.md$/i, "") + ".explore-" + taskKey(TASK) + ".md";
+const CACHE_HEADER_LINES = 5; // 4 header lines + 1 blank separator before the body
+// Hard cap on the running total explored areas per session. NOT "4 from the
+// first scout + 2 added" — a resume round's actual top-up is
+// min(MAX_TOTAL_EXPLORE_AREAS - cached areas so far, MAX_PARALLEL_EXPLORES),
+// which is >2 whenever the first scout used fewer than MAX_PARALLEL_EXPLORES.
+const MAX_TOTAL_EXPLORE_AREAS = 6;
+const FINGERPRINT_CMD =
+  `printf '%s|%s|%s\\n' "$(git rev-parse --show-toplevel 2>/dev/null || echo NO_REPO)" ` +
+  `"$(git rev-parse HEAD 2>/dev/null || echo NO_HEAD)" ` +
+  // Captured separately first: piping straight into `git hash-object --stdin`
+  // would let `|| echo NO_STATUS` see only the pipe's LAST stage exit code,
+  // masking a `git status` failure (e.g. broken/locked index) behind a
+  // successful empty-input hash.
+  `"$(st=$(git status --porcelain 2>/dev/null); if [ $? -ne 0 ]; then echo NO_STATUS; else printf '%s' "$st" | git hash-object --stdin 2>/dev/null || echo NO_STATUS; fi)"`;
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
 const SCOUT_SCHEMA = {
@@ -139,6 +179,19 @@ const EXPLORE_SCHEMA = {
   type: "object",
   required: ["report"],
   properties: { report: { type: "string" } },
+};
+const EXPLORE_CACHE_PROBE = {
+  type: "object",
+  required: ["found", "fingerprint"],
+  properties: {
+    found: { type: "boolean" }, // cache file exists and carries all three header fields
+    fingerprint: { type: "string" }, // stdout of FINGERPRINT_CMD, verbatim (current state)
+    cachedFingerprint: { type: "string" }, // the file's FINGERPRINT field, verbatim
+    areas: { type: "array", items: { type: "string" } }, // the file's AREAS field, split on '|'
+    declaredLines: { type: "number" }, // the file's LINES field
+    actualLines: { type: "number" }, // integer printed by `wc -l` on the cache file
+    sectionHeadings: { type: "array", items: { type: "string" } }, // body's '## <area>' lines, text after '## ', in order
+  },
 };
 const OPEN_QUESTION = {
   type: "object",
@@ -221,14 +274,74 @@ const SPEC_REVIEW = {
 // ═════════════════════════════════════════════════════════════════════════════
 phase("Explore");
 
+// ── Explore cache: probe (only a RESUME round can have a prior cache) ────────
+const cacheProbePrompt = `You are a read-only cache probe. Do exactly these two
+things, then return structured output. Do not explore the codebase, do not read
+anything else, and never create, modify, or delete a file.
+1. Run exactly this command and report its stdout verbatim (a single line) as
+   \`fingerprint\`:
+${FINGERPRINT_CMD}
+2. If ${EXPLORE_CACHE_PATH} exists, its first four lines are a header: an HTML
+   comment, then \`FINGERPRINT: <value>\`, \`AREAS: <name> | <name>\`,
+   \`LINES: <integer>\`. If the file is missing or unreadable, or any of those
+   three fields is absent, return \`found: false\` and nothing else. Otherwise
+   return \`found: true\`, \`cachedFingerprint\` = the FINGERPRINT value
+   verbatim, \`areas\` = the AREAS value split on \`|\` and trimmed,
+   \`declaredLines\` = the LINES integer, \`actualLines\` = the integer
+   printed by \`wc -l < ${EXPLORE_CACHE_PATH}\`, and \`sectionHeadings\` = the
+   text after \`## \` on every line in the body (from line 6 onward) that
+   starts with \`## \`, in order — this is still reading the cache file, not
+   exploring the codebase.`;
+
+const probe = RESUME
+  ? await agent(cacheProbePrompt, { label: "explore-cache:probe", phase: "Explore", schema: EXPLORE_CACHE_PROBE, model: MODELS.cacheProbe, agentType: AGENTS.cacheProbe })
+  : null;
+// Normalize once, in place: SCHEMA types these as `number`, but structured
+// output can still hand back a numeric string — coerce before any comparison
+// so a genuinely-matching line count is never rejected as a type mismatch.
+// (Number(undefined) is NaN, so a missing field still safely fails below.)
+if (probe) {
+  probe.declaredLines = Number(probe.declaredLines);
+  probe.actualLines = Number(probe.actualLines);
+}
+const currentFingerprint = probe && typeof probe.fingerprint === "string" ? probe.fingerprint : "";
+// parsedAreas is RAW probe output — it feeds the cacheHit decision and nothing
+// else. Never read it below the cachedAreas line.
+const parsedAreas = probe && Array.isArray(probe.areas) ? probe.areas.filter((a) => typeof a === "string" && a.trim() !== "") : [];
+// Structural check alongside the line-count parity check: the LINES header
+// can match wc -l on a body that was still garbled/reordered by an earlier
+// writer (same total length, corrupted content). Require every declared area
+// to actually have a matching `## <area>` section in the body before trusting
+// it as real, freshly-explored-equivalent content.
+const parsedHeadings =
+  probe && Array.isArray(probe.sectionHeadings) ? probe.sectionHeadings.filter((h) => typeof h === "string" && h.trim() !== "").map((h) => h.trim().toLowerCase()) : [];
+const cacheHit =
+  probe != null &&
+  probe.found === true &&
+  currentFingerprint !== "" &&
+  probe.cachedFingerprint === currentFingerprint &&
+  parsedAreas.length > 0 &&
+  probe.declaredLines > CACHE_HEADER_LINES &&
+  probe.declaredLines === probe.actualLines &&
+  parsedHeadings.length === parsedAreas.length &&
+  parsedAreas.every((a) => parsedHeadings.includes(a.trim().toLowerCase()));
+// Single gate for every downstream use of cached data: on ANY miss (probe null,
+// fingerprint mismatch, mangled cache, unparseable areas) this is empty, so an
+// invalidated cache can never influence the full-exploration fallback.
+const cachedAreas = cacheHit ? parsedAreas : [];
+const budget = cacheHit ? Math.max(0, MAX_TOTAL_EXPLORE_AREAS - cachedAreas.length) : MAX_PARALLEL_EXPLORES;
+if (RESUME) {
+  log(cacheHit ? "Explore cache: hit — " + cachedAreas.length + " cached area(s) at " + EXPLORE_CACHE_PATH : "Explore cache: miss — full exploration");
+}
+
 const resumeNote = RESUME
   ? `\nRESUME RUN: a prior draft exists at ${DRAFT_PATH}. Read it first and scope
 exploration to the areas its open questions and gaps actually touch — do not
 re-explore what the draft already covers with evidence.`
   : "";
+const coverageNote = cacheHit ? "\nAlready covered by valid cached reports (never repeat these): " + cachedAreas.join(", ") + "." : "";
 
-const scout = await agent(
-  `You are a read-only scout. Task to be designed:\n${TASK}\n${resumeNote}\n
+const scoutPrompt = `You are a read-only scout. Task to be designed:\n${TASK}\n${resumeNote}\n
 Survey the repository just enough to answer:
 1. complexity — 'simple' (single subsystem, tightly-scoped, one clearly correct
    approach) or 'complex' (spans multiple independent files/subsystems, more
@@ -236,16 +349,55 @@ Survey the repository just enough to answer:
 2. subsystems — the 1-${MAX_PARALLEL_EXPLORES} areas an explorer should each dig
    into (name + one-line focus: what to find there). For 'simple', return
    exactly one subsystem covering the whole task.
-Do not design anything. Structured output only.`,
-  { label: "scout", phase: "Explore", schema: SCOUT_SCHEMA, model: MODELS.scout, agentType: "explore" },
-);
-if (!scout) return { status: "error", stage: "Explore", error: "scout returned no result" };
-const subsystems = (scout.subsystems || []).slice(0, MAX_PARALLEL_EXPLORES);
-log("Scout: " + scout.complexity + ", " + subsystems.length + " exploration target(s)");
+Do not design anything. Structured output only.`;
+
+const scoutTopUpPrompt = `You are a read-only top-up scout. Task being designed:\n${TASK}\n${resumeNote}\n
+Valid exploration reports from an earlier round of THIS session already exist at
+${EXPLORE_CACHE_PATH}, and the codebase has not changed since they were written.
+Already covered — never propose any of these again: ${cachedAreas.join(", ")}.
+Read that cache file first, then read the latest user input below and answer the
+ONE question that matters: does it open an area the cached reports genuinely do
+not cover?
+## Latest user input
+${USER_INPUT}
+Return in \`subsystems\` ONLY genuinely new areas (name + one-line focus: what
+to find there), at most ${budget}. An EMPTY subsystems array is the expected and
+most common answer — return it whenever the cached coverage already suffices.
+\`complexity\` is required by the schema but unused on this path; answer it
+however you like. Do not design anything. Structured output only.`;
+
+const scout = await agent(cacheHit ? scoutTopUpPrompt : scoutPrompt, { label: "scout", phase: "Explore", schema: SCOUT_SCHEMA, model: MODELS.scout, agentType: "explore" });
+if (!scout && !cacheHit) return { status: "error", stage: "Explore", error: "scout returned no result" };
+
+// Sanitize at the source: the AREAS header packs names with ' | ' and a later
+// probe/top-up-scout round splits on that same '|' — a free-form LLM-chosen
+// name containing a literal '|' would otherwise fragment into extra bogus
+// areas on the next round. Replacing it here keeps every downstream name
+// (exploredAreas, cachedAreas, the header, the dedup compare) pipe-free.
+// Also dedup WITHIN this single scout response (same exact-match, trim+
+// lowercase key already used against `covered` below) — a duplicate name in
+// one call would otherwise burn a budget slot on exploring the same area
+// twice instead of a genuinely distinct one.
+const seenProposedNames = new Set();
+const proposed = scout && Array.isArray(scout.subsystems)
+  ? scout.subsystems
+      .filter((s) => s && typeof s.name === "string" && s.name.trim() !== "")
+      .map((s) => ({ ...s, name: s.name.replace(/\|/g, "/").trim() }))
+      .filter((s) => {
+        const key = s.name.toLowerCase();
+        if (seenProposedNames.has(key)) return false;
+        seenProposedNames.add(key);
+        return true;
+      })
+  : [];
+const covered = cachedAreas.map((a) => a.trim().toLowerCase()); // [] on every miss
+const subsystems = proposed.filter((s) => !covered.includes(s.name.trim().toLowerCase())).slice(0, Math.min(budget, MAX_PARALLEL_EXPLORES));
+if (!cacheHit && subsystems.length === 0) subsystems.push({ name: "whole task", focus: TASK });
+if (!cacheHit) log("Scout: " + scout.complexity + ", " + subsystems.length + " exploration target(s)");
 
 const explorerPrompt = (s) =>
   `You are a read-only codebase explorer (never edit anything). Task being
-designed:\n${TASK}\n${resumeNote}\n
+designed:\n${TASK}\n${resumeNote}${coverageNote}\n
 Your assigned area: ${s.name} — ${s.focus}
 Report for the designer: relevant files (exact paths), existing patterns and
 conventions to follow, the real flow end to end, key signatures/interfaces the
@@ -255,14 +407,108 @@ generalities. Structured output only.`;
 
 const exploreOpts = (s) => ({ label: "explore:" + s.name, phase: "Explore", schema: EXPLORE_SCHEMA, model: MODELS.explorer, agentType: "explore" });
 const exploreOuts =
-  subsystems.length > 1
-    ? await parallel(subsystems.map((s) => () => agent(explorerPrompt(s), exploreOpts(s))))
-    : [await agent(explorerPrompt(subsystems[0] || { name: "whole task", focus: TASK }), exploreOpts(subsystems[0] || { name: "main" }))];
-const exploration = exploreOuts
-  .map((r, i) => (r ? "## " + (subsystems[i] ? subsystems[i].name : "area " + i) + "\n" + r.report : null))
-  .filter(Boolean)
-  .join("\n\n");
-if (!exploration) return { status: "error", stage: "Explore", error: "all explorers returned null" };
+  subsystems.length === 0
+    ? []
+    : subsystems.length > 1
+      ? await parallel(subsystems.map((s) => () => agent(explorerPrompt(s), exploreOpts(s))))
+      : [await agent(explorerPrompt(subsystems[0]), exploreOpts(subsystems[0]))];
+
+const exploredAreas = [];
+const sections = [];
+for (let i = 0; i < exploreOuts.length; i++) {
+  const r = exploreOuts[i];
+  if (r && r.report) {
+    exploredAreas.push(subsystems[i].name);
+    sections.push("## " + subsystems[i].name + "\n" + r.report);
+  }
+}
+const exploration = sections.join("\n\n");
+if (!cacheHit && !exploration) return { status: "error", stage: "Explore", error: "all explorers returned null" };
+// Actual count, not the scout's proposal — a proposed area whose explorer
+// call failed never reaches `exploredAreas`, so this also surfaces a partial
+// top-up failure the cache-hit branch otherwise treats as "nothing new".
+if (cacheHit) {
+  log(
+    "Explore cache: top-up — " +
+      exploredAreas.length +
+      " new area(s)" +
+      (subsystems.length > exploredAreas.length ? " (" + (subsystems.length - exploredAreas.length) + " proposed area(s) failed to explore)" : ""),
+  );
+}
+
+// Persist: create on a fresh run or a miss, append on a top-up. Nothing new to
+// write when a hit produced no new areas. Never fails the run. Dispatched
+// concurrently with the first designer call below on a miss/fresh round
+// (Design does not depend on this write finishing); serialized ahead of it on
+// a cache-hit top-up round instead, since the designer is told to read this
+// same file there — see `needsSerialWrite` below. Its own explicit
+// `phase: "Explore"` keeps it in the right progress group either way.
+const cacheWriterPrompt = (mode, totalLines, areaLine, fingerprintValue) => `You are the exploration-cache writer. This is a mechanical file
+operation — no analysis, no summarizing, no commentary.
+Mode: ${mode}. Target file: ${EXPLORE_CACHE_PATH}
+
+In \`create\` mode write that file with exactly this layout:
+line 1: <!-- taskflow explore cache (session-only, never commit) -->
+line 2: \`FINGERPRINT: \` followed by ${
+  fingerprintValue
+    ? "this exact value, already computed earlier this run — copy it verbatim, do NOT re-run any command: " + fingerprintValue
+    : "the verbatim stdout of this command, which you run yourself:\n" + FINGERPRINT_CMD
+}
+line 3: \`AREAS: ${areaLine}\`
+line 4: \`LINES: ${totalLines}\`
+line 5: empty
+line 6 onwards: the block between BEGIN-BODY and END-BODY below, VERBATIM —
+byte for byte, every line, nothing reordered, reformatted, summarized, added or
+removed. Exactly one trailing newline at the end of the file.
+
+In \`append\` mode the file already exists and holds earlier rounds' reports —
+do not retype or alter its existing body. Append one empty line, then the
+BEGIN-BODY block verbatim, then update the header in place:
+\`FINGERPRINT: ${fingerprintValue}\`, \`AREAS: ${areaLine}\`, \`LINES: ${totalLines}\`.
+Exactly one trailing newline at the end of the file, same as \`create\` mode.
+
+Finally verify with \`wc -l < ${EXPLORE_CACHE_PATH}\`: it must print exactly
+${totalLines}. If it does not, fix the file and re-check (at most twice); if it
+still does not, return status \`blocked\` with the actual number in \`detail\`.
+
+BEGIN-BODY
+${exploration}
+END-BODY`;
+
+// Script-enforced retry (matches runDesigner/writeSpec elsewhere in this
+// file) instead of trusting the writer's own single-turn self-check alone —
+// a null or still-`blocked` result gets exactly one more full attempt. Only
+// safe for `create` (idempotent overwrite): retrying `append` blindly risks
+// duplicating the new section if the first call's write actually landed but
+// its final structured turn didn't. `append` keeps only the writer's own
+// single-turn internal self-check.
+async function writeCache(mode, totalLines, areaLine, fingerprintValue) {
+  const opts = { label: "explore-cache:write", phase: "Explore", schema: WRITE_RESULT, model: MODELS.cacheWriter };
+  let w = await agent(cacheWriterPrompt(mode, totalLines, areaLine, fingerprintValue), opts);
+  if ((!w || w.status !== "done") && mode === "create") {
+    w = await agent(cacheWriterPrompt(mode, totalLines, areaLine, fingerprintValue), { ...opts, label: "explore-cache:write:retry" });
+  }
+  return w;
+}
+
+const cacheWriteThunk = () => {
+  if (!exploration) return Promise.resolve(null);
+  const mode = cacheHit ? "append" : "create";
+  const totalLines = (cacheHit ? probe.actualLines + 1 : CACHE_HEADER_LINES) + lineCount(exploration);
+  const areaLine = cachedAreas.concat(exploredAreas).join(" | "); // cachedAreas is [] on a miss
+  // Reuse the fingerprint the probe already computed this run whenever one
+  // exists (any RESUME round), instead of paying for a second live git
+  // round-trip inside the writer for a value already sitting in scope.
+  return writeCache(mode, totalLines, areaLine, currentFingerprint);
+};
+
+const explorationBlock =
+  (cacheHit
+    ? "Cached exploration reports from an earlier round of THIS session are at " +
+      EXPLORE_CACHE_PATH +
+      " — read that file now and treat every `## <area>` section in it as exploration input (ignore its 4-line header). The codebase is unchanged since those reports were written.\n" +
+      (exploration ? "Additionally explored in this round:\n" : "")
+    : "") + exploration;
 
 // ═════════════════════════════════════════════════════════════════════════════
 // PHASE 2 — DESIGN  (write draft → review gate → optional 1 revision round)
@@ -278,7 +524,7 @@ Open-question cap: ${MAX_OPEN_QUESTIONS} (2-4 options each).
 Draft requirements, question bar, and self-review checklist per your agent
 definition.
 ## Exploration reports
-${exploration}
+${explorationBlock}
 
 ${extra}
 Return structured output: status, the Keypoints section verbatim, and
@@ -315,7 +561,22 @@ async function reviewDesign(label) {
   return r;
 }
 
-let design = await runDesigner(initialMode, initialExtra, "design");
+// Safe to run concurrently with the Explore-cache write ONLY when Design
+// never reads EXPLORE_CACHE_PATH itself: on a miss/fresh round explorationBlock
+// has no "read that file" instruction, so the two are genuinely independent.
+// On a cache-hit top-up round explorationBlock DOES tell the designer to read
+// that same file for the earlier-cached sections while cacheWriteThunk would
+// be concurrently appending to it (a torn read) — serialize in that case.
+const needsSerialWrite = cacheHit && exploration;
+let cacheWriteResult, firstDesign;
+if (needsSerialWrite) {
+  cacheWriteResult = await cacheWriteThunk();
+  firstDesign = await runDesigner(initialMode, initialExtra, "design");
+} else {
+  [cacheWriteResult, firstDesign] = await parallel([cacheWriteThunk, () => runDesigner(initialMode, initialExtra, "design")]);
+}
+if (exploration && (!cacheWriteResult || cacheWriteResult.status !== "done")) log("Explore cache: write failed — the next resume round will explore fully");
+let design = firstDesign;
 if (!design || design.status === "blocked") {
   return { status: "error", stage: "Design", error: design ? design.detail : "designer returned null twice" };
 }

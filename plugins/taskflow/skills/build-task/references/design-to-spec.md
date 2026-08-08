@@ -92,6 +92,32 @@ repeats until `complete` or `error`.
   are decided by the designer in one revision round, not returned to the user.
 - Model assignment (fixed in template + agent frontmatter): designer on the
   `opus` alias; design reviewer on the `sonnet` alias (judgment-heavy
-  question validation); explorers, spec writer, and spec reviewer on the
-  `sonnet` alias (mechanical/faithful work); classification on `haiku`
-  (scout).
+  question validation); explorers, spec writer, spec reviewer, and the
+  Explore-cache writer on the `sonnet` alias (mechanical/faithful work);
+  classification and the Explore-cache probe on the `haiku` alias (scout,
+  cache probe).
+- **Explore-result cache (session-scoped).** Phase 1 persists the joined
+  exploration reports beside the draft at
+  `<DRAFT_PATH without its .md suffix>.explore-<task key>.md` — a derived
+  path, not a parameter, so nothing in the Parameters table changes. It is
+  session-only and must never be committed; it disappears with the session
+  temp directory.
+- A resume round reuses that cache only when the `haiku` cache probe confirms
+  all of: same `TASK` (its hash is part of the file name), same codebase
+  (`git rev-parse --show-toplevel` + `git rev-parse HEAD` + a digest of
+  `git status --porcelain`, compared as one opaque string), and an intact file
+  (its `LINES:` header equals its own `wc -l`).
+- On a hit the up-to-4 `sonnet` explorer dispatches are skipped: the designer
+  reads the cached reports from that file, and a `haiku` top-up scout decides
+  only whether the latest `USER_INPUT` opens genuinely new areas — an empty
+  answer is the expected, common case. At most 6 areas accumulate per
+  session; a single resume round's actual top-up is `min(6 - areas already
+  cached, 4)`, which can exceed 2 when the first scout used fewer than 4;
+  per-round parallelism stays capped at 4.
+- Any doubt means a full exploration: probe failure, fingerprint mismatch, a
+  mangled cache, or a failed cache write all degrade to the uncached behavior,
+  and no area name from an invalidated cache is reused. The cache never blocks
+  or fails a run; four `log()` lines prefixed `Explore cache:` (`hit — …`,
+  `miss — full exploration`, `top-up — N new area(s)`, and
+  `write failed — …`) are the only observability surface — no field is added
+  to the return object.

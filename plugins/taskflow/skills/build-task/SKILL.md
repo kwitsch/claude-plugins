@@ -59,6 +59,12 @@ Every pipeline file is session-only, never a repository file:
   written in English by the designer/spec-writer/planner agents, regardless
   of `$task_description`'s language — these files are read only by other
   agents in the pipeline, never shown to the user directly.
+- **Derived:** the design workflow additionally writes its session-scoped
+  Explore-result cache to `draft-<slug>.explore-<key>.md` beside the draft
+  (`<key>` is a hash of the task text) — same session-only rules, and never
+  passed in as a parameter. Keep the temp directory OUTSIDE the repository
+  working tree, or its untracked files invalidate that cache every round;
+  both directory defaults above already are.
 - **Never commit them.** Durable artifacts are the branch and its commits.
   State in commit/PR descriptions when design context matters.
 
