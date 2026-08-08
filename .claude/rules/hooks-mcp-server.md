@@ -49,6 +49,17 @@ repo's single-hook example.
 > the warm in-process prettier library the server keeps alive is exactly the "server
 > stays warm" benefit this exception says a single call site can't amortize.
 
+> Correction note (added 2026-08-08): `universal-format` is this repo's ONE deliberate
+> exception to "self-contained zero-dep `mcp/server.mjs`". As of 0.10.0 its
+> `plugins/universal-format/mcp/server.mjs` is a committed ~5.4 MB `bun build` bundle
+> generated from `src/universal-format-mcp/*.ts` with prettier inlined (rebuild:
+> `pnpm run build:universal-format-mcp`; freshness gated by
+> `test/universal-format/build-artifact.test.mjs`). Every invariant in this rule still
+> holds for it: an executable `.mjs`, `#!/usr/bin/env node` on line 1, git mode `100755`,
+> runs under plain `node`, and no Bun-only API (`Bun.*`, `bun:*`, `import.meta.require`)
+> anywhere in the bundle. Do not hand-edit it — edit the TS sources and rebuild. Every
+> other plugin's `mcp/server.mjs` stays hand-written and dependency-free.
+
 Why the limits (documented Claude Code behavior):
 
 - `mcp_tool` requires an **already-connected** server; the hook never triggers a
