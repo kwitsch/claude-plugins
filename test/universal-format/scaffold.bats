@@ -45,8 +45,8 @@ setup() {
   assert_success
 }
 
-@test ".mcp.json wires universal-format-hooks -> wrapper + server + CLAUDE_PLUGIN_DATA env" {
-  run jq -e '.mcpServers["universal-format-hooks"] | (.command | endswith("bin/mjs-launch.sh")) and (.args[0] | endswith("mcp/server.mjs")) and (.env.CLAUDE_PLUGIN_DATA == "${CLAUDE_PLUGIN_DATA}")' "$MCP_JSON"
+@test ".mcp.json wires universal-format-hooks -> wrapper + server, with no env block" {
+  run jq -e '.mcpServers["universal-format-hooks"] | (.command | endswith("bin/mjs-launch.sh")) and (.args[0] | endswith("mcp/server.mjs")) and (has("env") | not)' "$MCP_JSON"
   assert_success
 }
 
@@ -119,8 +119,8 @@ setup() {
   assert_failure
 }
 
-@test "plugin.json version is 0.9.0" {
-  run jq -e '.version == "0.9.0"' "$PLUGIN/.claude-plugin/plugin.json"
+@test "plugin.json version is 0.10.0" {
+  run jq -e '.version == "0.10.0"' "$PLUGIN/.claude-plugin/plugin.json"
   assert_success
 }
 
@@ -142,4 +142,27 @@ setup() {
   assert_failure
   run rg_or_grep -q -F "npx" "$REPO_ROOT/src/universal-format-mcp"/*.ts "$REPO_ROOT/src/universal-format-mcp/build.mjs"
   assert_failure
+}
+
+@test "mcp/server.mjs is the generated bundle: @ts-nocheck banner on line 2, fingerprint on line 3" {
+  run bash -c "sed -n 2p '$SERVER'"
+  assert_output --partial "@ts-nocheck"
+  run bash -c "sed -n 3p '$SERVER'"
+  assert_output --regexp '^// uf-build-fingerprint src=[0-9a-f]{16} body=[0-9a-f]{16} prettier=[0-9.]+ bun='
+}
+
+# High-signal: a real bun-built bundle of these sources contains 0 occurrences of either string,
+# so a hit means the deleted managed-copy/npx machinery came back.
+@test "mcp/server.mjs mentions neither CLAUDE_PLUGIN_DATA nor npx" {
+  run rg_or_grep -q -F "CLAUDE_PLUGIN_DATA" "$SERVER"
+  assert_failure
+  run rg_or_grep -q -F "npx" "$SERVER"
+  assert_failure
+}
+
+@test "no user-facing description advertises a managed copy or npx" {
+  run bash -c "jq -r '.description' '$PLUGIN/.claude-plugin/plugin.json' | grep -qivE 'managed|npx'"
+  assert_success
+  run bash -c "jq -r '.description' '$HOOKS' | grep -qivE 'managed|npx'"
+  assert_success
 }
