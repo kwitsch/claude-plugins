@@ -90,8 +90,8 @@ repeats until `complete` or `error`.
   and are binding — the design reviewer flags any reversal as blocking.
 - Question bar is high: questions the reviewer judges resolvable from the code
   are decided by the designer in one revision round, not returned to the user.
-- Model assignment (fixed in template + agent frontmatter): designer pinned to
-  `claude-opus-4-8`; design reviewer on the `sonnet` alias (= newest Sonnet;
-  judgment-heavy question validation); explorers, spec writer, and spec
-  reviewer pinned to `claude-sonnet-4-6` (mechanical/faithful work);
-  classification on `haiku` (scout).
+- Model assignment (fixed in template + agent frontmatter): designer on the
+  `opus` alias; design reviewer on the `sonnet` alias (judgment-heavy
+  question validation); explorers, spec writer, and spec reviewer on the
+  `sonnet` alias (mechanical/faithful work); classification on `haiku`
+  (scout).

@@ -102,11 +102,11 @@ if (RESUME && !USER_INPUT) return { status: "error", stage: "args", error: "RESU
 
 const MODELS = {
   scout: "haiku", // pure classification — deliberately small
-  explorer: "claude-sonnet-4-6",
-  designer: "claude-opus-4-8",
+  explorer: "sonnet",
+  designer: "opus",
   designReview: "sonnet",
-  specWriter: "claude-sonnet-4-6", // 1:1 transformation, no new decisions
-  specReview: "claude-sonnet-4-6", // document comparison draft↔spec
+  specWriter: "sonnet", // 1:1 transformation, no new decisions
+  specReview: "sonnet", // document comparison draft↔spec
 };
 // ── Plugin agent types (namespace = plugin name; keep in sync on rename).
 //    An unknown type throws hard — this script assumes the taskflow plugin

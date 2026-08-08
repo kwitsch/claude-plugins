@@ -14,7 +14,7 @@
 //      merge agent (git merge --no-ff, task-id order).
 //   3. Model assignment by difficulty: the planner assigns each task a
 //      complexity ∈ trivial|standard|complex → haiku|sonnet|opus; roles with
-//      a fixed difficulty profile are pinned outright (MODELS below).
+//      a fixed difficulty profile use that model alias outright (MODELS below).
 //   4. Review fixes are applied within the workflow by an apply agent;
 //      findings with reversesDecision are NEVER applied, only reported (no
 //      AskUserQuestion is possible inside a workflow script).
@@ -94,16 +94,16 @@ const { SPEC_PATH, PLAN_PATH, BRANCH_NAME, BASE_BRANCH, SHIP } = A;
 //   haiku  — mechanical/deterministic (gathering scope, git merge sequence)
 // Per-task scaling: complexity from the plan → implModel().
 const MODELS = {
-  planner: "claude-opus-4-8", // spec → complete plan; highest leverage in the process (pinned)
+  planner: "opus", // spec → complete plan; highest leverage in the process
   planChecker: "sonnet", // coverage/consistency gate before Implement
   taskReviewer: "sonnet", // per-task diff review
   merger: "haiku", // pure git command sequence, no judgment load
   scope: "haiku", // list diff, collect CLAUDE.md
   finder: "sonnet", // review finder (angles + lenses)
   verifier: "sonnet", // independent per-finding verification
-  synthesizer: "claude-opus-4-8", // ranking, dedupe, reversesDecision judgment (pinned)
-  applier: "claude-sonnet-4-6", // apply pre-verified fixes — test gate as safety net
-  prAuthor: "claude-sonnet-4-6", // faithful writing from structured inputs + repo template
+  synthesizer: "opus", // ranking, dedupe, reversesDecision judgment
+  applier: "sonnet", // apply pre-verified fixes — test gate as safety net
+  prAuthor: "sonnet", // faithful writing from structured inputs + repo template
   shipper: "haiku", // pure git/gh/glab procedure (merger analogue)
   ciMonitor: "haiku", // bounded poll + classification, read-only
   ciFixer: "sonnet", // diagnose + fix: judgment/coding, CI as the only safety net
@@ -125,13 +125,12 @@ const AGENTS = {
   ciFixer: "taskflow:ci-fixer",
 };
 
-const IMPL_MODEL = { trivial: "haiku", standard: "sonnet", complex: "claude-opus-4-8" };
+const IMPL_MODEL = { trivial: "haiku", standard: "sonnet", complex: "opus" };
 const implModel = (t) => IMPL_MODEL[t.complexity] || "sonnet";
-const fixModel = (t) => (implModel(t) === "haiku" ? "claude-sonnet-4-6" : implModel(t)); // fixing is never trivial; 4.6 is enough for trivial tasks
-// Per-task review gate follows task complexity: trivial → haiku, standard →
-// pinned sonnet-4-6, complex → the 'sonnet' alias (= newest Sonnet). Depth
-// comes from the combined review phase, not this gate.
-const reviewModel = (t) => (t.complexity === "trivial" ? "haiku" : t.complexity === "complex" ? MODELS.taskReviewer : "claude-sonnet-4-6");
+const fixModel = (t) => (implModel(t) === "haiku" ? "sonnet" : implModel(t)); // fixing is never trivial; sonnet is enough for trivial tasks
+// Per-task review gate follows task complexity: trivial → haiku, standard/complex → sonnet.
+// Depth comes from the combined review phase, not this gate.
+const reviewModel = (t) => (t.complexity === "trivial" ? "haiku" : t.complexity === "complex" ? MODELS.taskReviewer : "sonnet");
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
 const TASK_ITEM = {
