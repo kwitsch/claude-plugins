@@ -5,31 +5,36 @@
 // CLAUDE_PLUGIN_OPTION_NPM_INSTALL_ON_PACKAGE_CHANGE (same fail-open env-var route as
 // the sibling npm-ci-on-worktree.mjs hook in this plugin).
 //
-// Runs an npm install scoped to ONLY the dependency entries that actually changed
+// Runs an install scoped to ONLY the dependency entries that actually changed
 // between the pre-edit and post-edit package.json -- a version-only (or scripts/
-// description/etc.) edit triggers no npm call at all. Old content is reconstructed
-// from the Edit tool's own old_string/new_string (no git dependency); Write and any
-// ambiguous reconstruction fall back to a plain `npm install`. Verified experimentally
-// (npm 11.16.0): `npm install <name>@<range>` for a name already declared anywhere in
-// package.json updates that entry in place, it does not move it into `dependencies` --
-// every spec here is read back from the file's own current, already-correct-section
-// state, so a single flat `npm install <spec>...` call is safe (no per-field grouping
-// needed).
+// description/etc.) edit triggers no install call at all. Old content is
+// reconstructed from the Edit tool's own old_string/new_string (no git dependency);
+// Write and any ambiguous reconstruction fall back to a plain bare install. Verified
+// experimentally: `npm install <name>@<range>` (npm 11.16.0) and `pnpm add
+// <name>@<range>` (pnpm 11.20.0) both update an entry already declared anywhere in
+// package.json in place, neither moves it into `dependencies` -- every spec here is
+// read back from the file's own current, already-correct-section state, so a single
+// flat `<manager> <verb> <spec>...` call is safe (no per-field grouping needed).
 //
 // Concurrent edits to the same package.json are serialized with a filesystem lock so
 // two async installs in one directory never race on node_modules/the lockfile -- this
 // hook (unlike the sibling, which fires at most once per EnterWorktree) can fire
 // repeatedly in quick succession.
 //
-// async:true in hooks.json -- the agent loop never waits for `npm install` to finish.
-// Every branch below exits 0; only a real `npm install` failure, a missing-npm PATH
+// async:true in hooks.json -- the agent loop never waits for the install to finish.
+// Every branch below exits 0; only a real install failure, a missing-binary PATH
 // gap, or giving up on a contended lock prints anything.
+//
+// Which package manager runs is decided by the lockfile found next to package.json
+// (see detectPackageManager below), not hardcoded to npm. A directory with no
+// lockfile yet (first-ever install right after `package.json` is created) defaults
+// to npm, matching this hook's original behavior.
 import process from "node:process";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, openSync, closeSync, unlinkSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { createHash } from "node:crypto";
 
 const NPM_INSTALL_TIMEOUT_MS = 280000; // leaves margin under hooks.json's own timeout: 300
@@ -37,6 +42,45 @@ const MAX_CONTEXT_CHARS = 4000; // same cap as the sibling npm-ci-on-worktree.mj
 const DEP_FIELDS = ["dependencies", "devDependencies", "optionalDependencies"];
 const LOCK_STALE_MS = 10 * 60 * 1000; // abandoned-lock threshold (crashed prior process)
 const LOCK_POLL_MS = 250;
+
+// Same package-manager detection as the sibling npm-ci-on-worktree.mjs hook
+// (duplicated, not shared -- each command hook here is a fully self-contained
+// process, same as this file's own pre-existing truncate/ctx duplication). Checked
+// in this priority order so a project mid-migration prefers the newer lockfile over
+// npm's. DEFAULT_MANAGER (npm) is used only when no lockfile exists at all.
+const PACKAGE_MANAGERS = [
+  { name: "pnpm", lockfile: "pnpm-lock.yaml" },
+  { name: "yarn", lockfile: "yarn.lock" },
+  { name: "npm", lockfile: "package-lock.json" },
+];
+const DEFAULT_MANAGER = PACKAGE_MANAGERS[2];
+
+/** @param {string} dir @returns {{name: string, lockfile: string} | null} */
+export function detectPackageManager(dir) {
+  for (const pm of PACKAGE_MANAGERS) {
+    if (existsSync(path.join(dir, pm.lockfile))) return pm;
+  }
+  return null;
+}
+
+// Same PATH gap and fix as the sibling npm-ci-on-worktree.mjs hook -- see its
+// comment and .claude/rules/hooks-mcp-server.md's bun-preferred wrapper precedent.
+/** @returns {string} */
+export function pathWithLocalBin() {
+  const localBin = path.join(homedir(), ".local", "bin");
+  const current = process.env.PATH ?? "";
+  return current ? `${localBin}${path.delimiter}${current}` : localBin;
+}
+
+// pnpm/yarn use `add <spec>...` to install/update specific specs (both verified to
+// update an existing dependencies/devDependencies/optionalDependencies entry in
+// place, same as npm -- see CLAUDE.md) and bare `install` (no args) to reconcile
+// from the current package.json, same as npm's bare `install`.
+/** @param {string} managerName @param {string[] | null} specs @returns {string[]} */
+export function installArgsFor(managerName, specs) {
+  if (specs === null) return ["install"];
+  return managerName === "npm" ? ["install", ...specs] : ["add", ...specs];
+}
 
 // Lock lives in the OS temp dir, keyed by a hash of the target directory -- never
 // inside the project tree itself (would otherwise be visible to `git status`/
@@ -181,32 +225,34 @@ export function npmInstallOnPackageChangeHandler(args, timeoutMs = NPM_INSTALL_T
     if (specs !== null && specs.length === 0) return {}; // e.g. version-only change
 
     const cwd = path.dirname(filePath);
+    const manager = detectPackageManager(cwd) ?? DEFAULT_MANAGER;
     const lockPath = lockPathFor(cwd);
     if (!acquireLock(lockPath, LOCK_STALE_MS, Math.max(0, deadline - Date.now()))) {
       return ctx(`npm-install-on-package-change: gave up waiting on a concurrent install lock in ${cwd}`);
     }
     try {
-      const npmArgs = specs === null ? ["install"] : ["install", ...specs];
+      const npmArgs = installArgsFor(manager.name, specs);
       // Whatever the lock wait left over. Floor of 1, never 0: spawnSync treats
       // timeout: 0 as "no timeout at all" (and rejects a negative value outright), so
-      // an already-exhausted budget must still bound npm -- it gets killed at once
-      // (ETIMEDOUT -> silent no-op below) rather than running unbounded.
-      const result = spawnSync("npm", npmArgs, {
+      // an already-exhausted budget must still bound the install -- it gets killed at
+      // once (ETIMEDOUT -> silent no-op below) rather than running unbounded.
+      const result = spawnSync(manager.name, npmArgs, {
         cwd,
         timeout: Math.max(1, deadline - Date.now()),
         encoding: "utf8",
         maxBuffer: 10 * 1024 * 1024,
+        env: { ...process.env, PATH: pathWithLocalBin() },
       });
 
       if (result.error?.code === "ETIMEDOUT") return {};
       if (result.error?.code === "ENOENT") {
-        return ctx(`npm-install-on-package-change: npm not found on PATH, skipped in ${cwd}`);
+        return ctx(`npm-install-on-package-change: ${manager.name} not found on PATH, skipped in ${cwd}`);
       }
       if (result.status === 0 && !result.error && !result.signal) return {};
 
       const reason = result.error ? `spawn error ${result.error.code ?? result.error.message}` : result.signal ? `killed by signal ${result.signal}` : `exit code ${result.status}`;
       const output = `${truncate(result.stdout ?? "")}\n${truncate(result.stderr ?? "")}`;
-      return ctx(`npm-install-on-package-change: \`npm install\` failed in ${cwd} (${reason}):\n${truncate(output)}`);
+      return ctx(`npm-install-on-package-change: \`${manager.name} ${npmArgs[0]}\` failed in ${cwd} (${reason}):\n${truncate(output)}`);
     } finally {
       releaseLock(lockPath);
     }

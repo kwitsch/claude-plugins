@@ -18,5 +18,5 @@ Matched strings: `Co-Authored-By:` (case-insensitive) and `Generated with [Claud
 `test/no-co-authored/test.bats` — run with:
 
 ```bash
-BATS_LIB_PATH="$PWD/node_modules" npx bats test/no-co-authored/
+BATS_LIB_PATH="$PWD/node_modules" pnpm exec bats test/no-co-authored/
 ```

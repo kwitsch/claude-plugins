@@ -41,9 +41,9 @@ setup() {
   run rg_or_grep -E "^## Hooks" "$PLUGIN/README.md"
   assert_failure
 }
-@test "plugin.json version is 1.0.1" {
+@test "plugin.json version is 1.1.0" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "1.0.1"
+  assert_output "1.1.0"
 }
 @test "userConfig has exactly the expected keys (extend when adding a toggle)" {
   run jq -e '[.userConfig | keys_unsorted | sort[]] == ["npm_ci_on_worktree", "npm_install_on_package_change"]' "$PLUGIN/.claude-plugin/plugin.json"

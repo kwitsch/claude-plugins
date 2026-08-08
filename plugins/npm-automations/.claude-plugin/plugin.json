@@ -1,21 +1,21 @@
 {
   "name": "npm-automations",
-  "version": "1.0.1",
-  "description": "Runs an async npm ci when a package-lock.json project is entered via EnterWorktree (toggle: npm_ci_on_worktree), and an async, dependency-scoped npm install whenever a package.json's dependencies actually change (toggle: npm_install_on_package_change) — moved out of coding-toolbox to centralize npm-lifecycle automation hooks.",
+  "version": "1.1.0",
+  "description": "Runs an async lockfile-frozen install (npm ci / pnpm install --frozen-lockfile / yarn install --frozen-lockfile, picked by whichever lockfile is present) when a project is entered via EnterWorktree (toggle: npm_ci_on_worktree), and an async, dependency-scoped install whenever a package.json's dependencies actually change (toggle: npm_install_on_package_change) — moved out of coding-toolbox to centralize npm-lifecycle automation hooks.",
   "author": {
     "name": "Kwitsch"
   },
   "userConfig": {
     "npm_ci_on_worktree": {
       "type": "boolean",
-      "title": "Auto npm ci on worktree entry",
-      "description": "When entering a git worktree (EnterWorktree) whose project has a package-lock.json, runs npm ci there in the background. Values: true (or unset) = enabled; false = disabled. Fail-open: only the literal value false disables it. Default: true.",
+      "title": "Auto clean install on worktree entry",
+      "description": "When entering a git worktree (EnterWorktree) whose project has a lockfile, runs that manager's frozen-lockfile install there in the background: npm ci (package-lock.json), pnpm install --frozen-lockfile (pnpm-lock.yaml), or yarn install --frozen-lockfile (yarn.lock) — pnpm/yarn take priority over npm when more than one lockfile is present. Values: true (or unset) = enabled; false = disabled. Fail-open: only the literal value false disables it. Default: true.",
       "default": true
     },
     "npm_install_on_package_change": {
       "type": "boolean",
-      "title": "Auto npm install on package.json dependency change",
-      "description": "After a Write/Edit to any package.json whose dependencies/devDependencies/optionalDependencies actually changed, runs npm install scoped to only the changed specs in the background — a version-only (or other non-dependency) change triggers no npm call. Values: true (or unset) = enabled; false = disabled. Fail-open: only the literal value false disables it. Default: true.",
+      "title": "Auto install on package.json dependency change",
+      "description": "After a Write/Edit to any package.json whose dependencies/devDependencies/optionalDependencies actually changed, runs an install scoped to only the changed specs in the background (npm install/pnpm add/yarn add, picked by whichever lockfile is present, defaulting to npm when none exists yet) — a version-only (or other non-dependency) change triggers no call. Values: true (or unset) = enabled; false = disabled. Fail-open: only the literal value false disables it. Default: true.",
       "default": true
     }
   }

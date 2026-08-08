@@ -57,7 +57,7 @@ so `commit-tree`/`committed` are excluded.
 ## Tests
 
 ```bash
-BATS_LIB_PATH="$PWD/node_modules" npx bats test/git-sign-key/
+BATS_LIB_PATH="$PWD/node_modules" pnpm exec bats test/git-sign-key/
 ```
 
 `test/git-sign-key/test.bats` (bats). The suite isolates `$HOME` to a temp dir

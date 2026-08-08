@@ -120,9 +120,9 @@ one fixed, all-or-nothing contract, install/enable the plugin or don't.
 (`node --test`). Run:
 
 ```bash
-BATS_LIB_PATH="$PWD/node_modules" npx bats test/kiwi-code-style/
-npm run test:unit
-npm run typecheck
+BATS_LIB_PATH="$PWD/node_modules" pnpm exec bats test/kiwi-code-style/
+pnpm run test:unit
+pnpm run typecheck
 ```
 
 bats guards: the 3 output-style frontmatter keys, the contract heading, the

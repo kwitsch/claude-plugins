@@ -8,7 +8,7 @@ paths:
 ## Machine-checkable floor
 
 All **exported** functions in `.mjs` files must carry `@param` and `@returns` JSDoc
-sufficient for `npx tsc --noEmit` to pass with `checkJs: true` and `strict: true`.
+sufficient for `pnpm exec tsc --noEmit` to pass with `checkJs: true` and `strict: true`.
 
 - Claude Code-specific parameter types (`HookCommonInput`, `ToolHookInput`,
   `HookResult`, `HookSpecificOutput`, `CompressResult`, `GitInfo`) must reference the
@@ -26,6 +26,6 @@ annotations. This is prose-only — tsc does not check unexported functions unde
 ## Verification
 
 ```bash
-npx tsc --noEmit
+pnpm exec tsc --noEmit
 # expected: 0 errors
 ```
