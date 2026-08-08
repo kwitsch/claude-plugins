@@ -187,7 +187,16 @@ maybe("tier-3: managed copy resolves in-process and format_pre formats via it", 
   symlinkSync(PRETTIER_PKG_DIR, path.join(vdir, "node_modules", "prettier"), "dir");
   symlinkSync(vdir, path.join(data, "prettier", "current"), "dir");
   const prev = process.env.CLAUDE_PLUGIN_DATA;
+  const prevPath = process.env.PATH;
   process.env.CLAUDE_PLUGIN_DATA = data;
+  // This fixture asserts tier-2 (PATH prettier) is absent so resolution falls through
+  // to tier-3 (the managed copy). Under `npm run`/`pnpm run` the repo's own PATH is
+  // prefixed with node_modules/.bin, which contains this repo's prettier devDependency
+  // -- onPath("prettier") would otherwise see that binary and report tier-2 (a
+  // test-runner artifact, not a real project-local/PATH prettier), never reaching
+  // tier-3 at all. Isolate PATH to a value with no "prettier" executable for the
+  // resolution call, matching this suite's hermetic-PATH convention.
+  process.env.PATH = "";
   try {
     const src = resolvePrettierSource(cwd);
     assert.equal(src.kind, "in-process");
@@ -197,6 +206,8 @@ maybe("tier-3: managed copy resolves in-process and format_pre formats via it", 
   } finally {
     if (prev === undefined) delete process.env.CLAUDE_PLUGIN_DATA;
     else process.env.CLAUDE_PLUGIN_DATA = prev;
+    if (prevPath === undefined) delete process.env.PATH;
+    else process.env.PATH = prevPath;
   }
 });
 

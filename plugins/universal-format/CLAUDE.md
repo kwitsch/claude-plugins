@@ -72,7 +72,7 @@ in-process), not by removing it.
 
 ## Managed prettier copy under `${CLAUDE_PLUGIN_DATA}` (do not "fix" without reading this)
 
-Pinned to `MANAGED_PRETTIER_VERSION = "3.9.4"` (aligned with the repo's `prettier`
+Pinned to `MANAGED_PRETTIER_VERSION = "3.9.6"` (aligned with the repo's `prettier`
 devDependency). Layout: `versions/<pin>-<rand>/node_modules/prettier` (npm `--prefix`
 target), `current` (symlink, atomically flipped, only ever points at a COMPLETE tree),
 `.last-check` (daily marker).

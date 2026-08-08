@@ -20,7 +20,7 @@ const SPAWN_TIMEOUT_MS = 30000; // inner formatter timeout; hook-level timeout:6
 const NPX_SPAWN_TIMEOUT_MS = 55000; // cold npx install can exceed SPAWN_TIMEOUT_MS; stay under the hook's 60s ceiling
 
 const PRETTIER_LANGS = new Set(["jsts", "json", "yaml", "markdown", "css", "scss"]);
-const MANAGED_PRETTIER_VERSION = "3.9.4";
+const MANAGED_PRETTIER_VERSION = "3.9.6";
 const DAILY_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const INSTALL_TIMEOUT_MS = 120000; // npm install budget; out of band, never blocks a hook
 
