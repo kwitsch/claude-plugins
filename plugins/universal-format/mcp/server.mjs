@@ -671,11 +671,43 @@ export function resolvePrettierSource(cwd) {
   return { kind: "none" };
 }
 
+// Every prettier instance this process has imported, keyed by modulePath. Node's ESM
+// loader already dedupes the import; this map exists so a config-file write can reach
+// every loaded instance's clearConfigCache() without knowing which tier is in play.
+/** @type {Map<string, any>} */
+const loadedPrettiers = new Map();
+
 /** Dynamically import a resolved prettier entry (works under node and bun; prettier's
  * default export carries format/resolveConfig/clearConfigCache). @param {string} modulePath @returns {Promise<any>} */
 async function loadPrettier(modulePath) {
+  const cached = loadedPrettiers.get(modulePath);
+  if (cached) return cached;
   const mod = await import(pathToFileURL(modulePath).href);
-  return mod?.default ?? mod;
+  const prettier = mod?.default ?? mod;
+  loadedPrettiers.set(modulePath, prettier);
+  return prettier;
+}
+
+// Basenames whose write invalidates prettier's cached configuration. The prettier config
+// files themselves, the two files prettier reads a top-level "prettier" key out of, and
+// .editorconfig (a SEPARATE cache inside prettier from .prettierrc -- verified that
+// clearConfigCache() covers both). The two ignore files are listed for completeness:
+// prettier does NOT cache them (verified -- getFileInfo re-reads them on every call), so
+// clearing for them is a no-op today, kept so the trigger set matches the concept.
+const CACHE_INVALIDATING_BASENAMES = new Set([...PRETTIER_CONFIG_FILENAMES, "package.json", "package.yaml", ".editorconfig", ".prettierignore", ".gitignore"]);
+
+/** Drop prettier's cached config state on every loaded instance. Called only from the
+ * PostToolUse handler, once a config/ignore file has actually landed on disk — clearing
+ * at PreToolUse would re-cache the pre-write content on the next resolveConfig.
+ * @returns {void} */
+function clearPrettierConfigCaches() {
+  for (const prettier of loadedPrettiers.values()) {
+    try {
+      if (typeof prettier.clearConfigCache === "function") prettier.clearConfigCache();
+    } catch {
+      /* a broken instance must never break the hook */
+    }
+  }
 }
 
 /** json/yaml only: true when neither a prettier project config nor an .editorconfig
@@ -691,7 +723,12 @@ export function shouldOverridePrintWidth(file, cwd) {
 /** Format a whole source string in-process with an already-imported prettier module.
  * @param {any} prettier @param {string} src @param {string} filePath @param {string} cwd @param {string} lang @returns {Promise<string>} */
 export async function formatInProcess(prettier, src, filePath, cwd, lang) {
-  if (typeof prettier.clearConfigCache === "function") prettier.clearConfigCache();
+  // Deliberately does NOT clear prettier's config cache. Doing that per format cost
+  // ~9.9 ms of the ~10.6 ms total (measured: 10.60 -> 0.73 ms/format on a nested project),
+  // i.e. it threw away most of the warm-instance win on every single write. Invalidation
+  // is now event-driven: formatPost clears the caches when a config/ignore file is
+  // written. Trade-off, accepted deliberately: a config edited OUTSIDE the Write/Edit
+  // tools (a Bash `sed`, an external editor) is not noticed until the server restarts.
   const config = (await prettier.resolveConfig(filePath, { editorconfig: true })) ?? {};
   if ((lang === "json" || lang === "yaml") && shouldOverridePrintWidth(filePath, cwd)) config.printWidth = 99999;
   return await prettier.format(src, { ...config, filepath: filePath });
@@ -907,6 +944,12 @@ export async function formatPost(args) {
     if (resolved !== cwd && !resolved.startsWith(cwd + path.sep)) return {};
     const rel = path.relative(cwd, resolved);
     if (isExcludedPath(rel)) return {};
+
+    // The write has landed by now, so this is the only correct moment to invalidate.
+    // Runs BEFORE the language guard on purpose: most of these basenames have no
+    // extension at all (`.prettierrc`, `.editorconfig`, `.prettierignore`), so EXT_MAP
+    // would drop them and the cache would never be cleared.
+    if (CACHE_INVALIDATING_BASENAMES.has(path.basename(resolved))) clearPrettierConfigCaches();
 
     const lang = EXT_MAP[path.extname(resolved).toLowerCase()];
     if (!lang) return {};

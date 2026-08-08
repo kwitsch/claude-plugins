@@ -6,7 +6,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
-import { formatInProcess, applyEdit, resolvePrettierSource, readManagedPrettierVersion, shouldRunDailyCheck, formatPre } from "../../plugins/universal-format/mcp/server.mjs";
+import { formatInProcess, applyEdit, resolvePrettierSource, readManagedPrettierVersion, shouldRunDailyCheck, formatPre, formatPost } from "../../plugins/universal-format/mcp/server.mjs";
 
 const require = createRequire(import.meta.url);
 /** @type {string|null} */
@@ -92,15 +92,42 @@ maybe("json printWidth override: .prettierrc printWidth honored", async () => {
   assert.ok(out.includes("\n"), "a project printWidth must be honored (array wraps)");
 });
 
-maybe("clearConfigCache: a mid-run .prettierrc change takes effect", async () => {
-  const prettier = await repoPrettier();
-  const cwd = tmp("uf-ccc-");
-  const long = JSON.stringify([...Array(40).keys()]);
-  const first = await formatInProcess(prettier, long, path.join(cwd, "a.json"), cwd, "json");
-  assert.ok(!first.includes("\n  0"));
-  writeFileSync(path.join(cwd, ".prettierrc"), JSON.stringify({ printWidth: 20 }));
-  const second = await formatInProcess(prettier, long, path.join(cwd, "a.json"), cwd, "json");
-  assert.ok(second.includes("\n"), "the new .prettierrc must take effect after clearConfigCache");
+// Config invalidation is event-driven: formatInProcess no longer clears prettier's config
+// cache per call (that cost ~9.9 of ~10.6 ms per format). formatPost clears it when a
+// config/ignore file is written — which is why the .prettierrc write below is followed by
+// a formatPost on that file, exactly as the two hooks fire in a real session.
+// Both cases probe `semi` on a .mjs file deliberately: it is a value only prettier's own
+// (cached) config can produce. A json/yaml printWidth probe would be confounded by this
+// plugin's shouldOverridePrintWidth, which re-reads the filesystem on every call and would
+// react to a new .prettierrc even with prettier's cache untouched.
+/** @param {any} res @returns {string} */
+const preContent = (res) => res.hookSpecificOutput.updatedInput.content;
+
+maybe("config cache: a .prettierrc written through the hooks takes effect on the next format", async () => {
+  const cwd = projectWithPrettier();
+  const fp = path.join(cwd, "a.mjs");
+  const before = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: "const a = 1\n" } })));
+  assert.ok(preContent(before).includes(";"), "no config yet -> prettier's default semi: true");
+
+  const rc = path.join(cwd, ".prettierrc");
+  writeFileSync(rc, JSON.stringify({ semi: false }));
+  await formatPost(/** @type {any} */ (hookInput({ cwd, tool_name: "Write", tool_input: { file_path: rc } })));
+
+  const after = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: "const a = 1;\n" } })));
+  assert.ok(!preContent(after).includes(";"), "the new .prettierrc must take effect once formatPost invalidated the cache");
+});
+
+// The documented trade-off of dropping the per-format clear: a config that appears without
+// ever passing through Write/Edit (a Bash `sed`, an external editor) is NOT picked up.
+// Prettier caches the negative lookup too, so this holds for a newly created config, not
+// only for an edited one.
+maybe("config cache: a .prettierrc appearing out of band is NOT picked up (documented trade-off)", async () => {
+  const cwd = projectWithPrettier();
+  const fp = path.join(cwd, "a.mjs");
+  await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: "const a = 1\n" } })); // primes the cache
+  writeFileSync(path.join(cwd, ".prettierrc"), JSON.stringify({ semi: false })); // no hook fires
+  const after = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: "const a = 1\n" } })));
+  assert.ok(preContent(after).includes(";"), "still formatted with the pre-write config");
 });
 
 test("applyEdit: replace_all, single swap, null on absent and non-unique", () => {

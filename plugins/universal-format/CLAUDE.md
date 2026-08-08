@@ -68,10 +68,38 @@ are tolerated and any error falls open to formatting. Without it, `format_pre` w
 reformat a `.prettierignore`d file that the old command hook left alone — including this
 repo's own `pnpm-lock.yaml`.
 
-`prettier.clearConfigCache()` is called before every `resolveConfig` so a mid-session
-`.prettierrc*`/`.editorconfig`/`package.json` prettier change is honored. In-process
-json/yaml sets `printWidth = 99999` iff `shouldOverridePrintWidth(file,cwd)` (the
-in-process mirror of the subprocess `guardPrintWidthArgv`).
+**Config-cache invalidation is event-driven, NOT per format** (do not "fix" back):
+`formatInProcess` deliberately does not call `clearConfigCache()`. Doing so per format
+cost ~9.9 ms of ~10.6 ms total (measured 10.60 → 0.73 ms/format on a nested project) —
+it threw away most of the warm-instance win on every single write. Instead `formatPost`
+calls `clearPrettierConfigCaches()` when the written file's basename is in
+`CACHE_INVALIDATING_BASENAMES` (`PRETTIER_CONFIG_FILENAMES` + `package.json` +
+`package.yaml` + `.editorconfig` + `.prettierignore` + `.gitignore`). Three things this
+depends on, all verified empirically:
+
+- **PostToolUse is the only correct moment.** PreToolUse fires before the write, so
+  clearing there would just re-cache the pre-write content on the next `resolveConfig`.
+- **The check runs BEFORE the `EXT_MAP` language guard.** Most of these basenames have no
+  extension (`.prettierrc`, `.editorconfig`, `.prettierignore`), so the guard would drop
+  them and the cache would never clear.
+- **`loadedPrettiers` exists for this.** `loadPrettier` memoises each instance by
+  modulePath so the invalidation can reach every loaded tier without knowing which is
+  active.
+
+Prettier's cache is stale in all three shapes — config **created** after a negative
+lookup, `.prettierrc` **edited**, `.editorconfig` **edited** (a separate cache inside
+prettier, also covered by `clearConfigCache()`). Ignore files are in the trigger set for
+completeness only: prettier does not cache them at all (`getFileInfo` re-reads on every
+call), so clearing for them is a no-op today.
+
+**Accepted trade-off, pinned by a test:** a config that changes without passing through
+Write/Edit (a Bash `sed`, an external editor) is NOT picked up until the server restarts.
+Both directions are covered in `prettier.test.mjs`, probing `semi` on a `.mjs` file —
+never json/yaml `printWidth`, which `shouldOverridePrintWidth` re-reads from disk on every
+call and would make the test pass for the wrong reason.
+
+In-process json/yaml sets `printWidth = 99999` iff `shouldOverridePrintWidth(file,cwd)`
+(the in-process mirror of the subprocess `guardPrintWidthArgv`).
 
 **The `npx --yes prettier` fallback is RETAINED and LIVE** (do not remove):
 `PRETTIER_NATIVE`/`PRETTIER_LINE_LENGTH_GUARDED` keep `npmSpec: "prettier"`;
