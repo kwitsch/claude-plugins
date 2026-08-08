@@ -9,18 +9,24 @@ common_setup() {
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
   PLUGIN="$REPO_ROOT/plugins/universal-format"
   HOOKS="$PLUGIN/hooks/hooks.json"
-  SERVER="$PLUGIN/hooks/format-file.mjs"
+  SERVER="$PLUGIN/mcp/server.mjs"
+  MCP_JSON="$PLUGIN/.mcp.json"
+  WRAPPER="$PLUGIN/bin/mjs-launch.sh"
 
   # Isolated PATH: only system tools symlinked in; formatter stubs added per test.
   MOCKBIN="$BATS_TEST_TMPDIR/bin"
   mkdir -p "$MOCKBIN"
-  for t in bash env node jq cat rm mkdir mktemp dirname head grep; do
+  for t in bash env node jq cat rm mkdir mktemp dirname head grep ln sleep printf; do
     src="$(command -v "$t" 2>/dev/null)" && [ -n "$src" ] && ln -s "$src" "$MOCKBIN/$t"
   done
 
   # Isolated HOME so no test reads real user config.
   export HOME="$BATS_TEST_TMPDIR/home"
   mkdir -p "$HOME/.claude"
+
+  # Empty persistent data dir: no managed prettier copy present by default.
+  export CLAUDE_PLUGIN_DATA="$BATS_TEST_TMPDIR/plugin-data"
+  mkdir -p "$CLAUDE_PLUGIN_DATA"
 }
 
 # Prefer ripgrep; fall back to grep if rg isn't installed. rg's -E means
@@ -29,10 +35,6 @@ common_setup() {
 # default) — so a bundled/bare -E is stripped before delegating to rg
 # (its regex syntax is already ERE-equivalent for every pattern used in
 # this file); grep gets its original arguments completely untouched.
-# Note: bare `rg -c` prints nothing on 0 matches where `grep -c` prints `0`
-# (both exit 1) -- no call site here checks that text (only $status or a
-# nonzero count), so this divergence is accepted rather than papered over
-# with --include-zero, which errors on ripgrep < 12.0.0.
 rg_or_grep() {
   if command -v rg >/dev/null 2>&1; then
     local args=() a stripped seen_dashdash=false
@@ -74,14 +76,38 @@ rec_stub() {
     'printf "reformatted-by-'"$1"'\n" > "$last"'
 }
 
-# format_file_call <file_path> <cwd> -- pipe one PostToolUse hook-JSON object into a
-# fresh format-file.mjs invocation, on the isolated PATH. Echoes stdout, or the
-# literal string "{}" when the script printed nothing (matches the old JSON-RPC
-# helper's contract, so `[ "$output" = "{}" ]` assertions keep working unchanged).
-format_file_call() {
-  local fp="$1" cwd="$2"
-  local out
-  out="$(jq -cn --arg f "$fp" --arg c "$cwd" '{hook_event_name:"PostToolUse", tool_name:"Write", tool_input:{file_path:$f}, tool_response:{success:true}, cwd:$c}' \
-    | env PATH="$MOCKBIN" HOME="$HOME" RECORD="$RECORD" node "$SERVER" 2>/dev/null)"
+# Drive one JSON-RPC request against a fresh server on the isolated PATH; echo the
+# id:2 result text (JSON.stringify of the handler result), or "{}" when empty.
+# $1 = tool name, $2 = arguments JSON object (compact).
+_mcp_call() {
+  local tool="$1" args_json="$2" out
+  out="$( {
+      printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n'
+      printf '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"%s","arguments":%s}}\n' "$tool" "$args_json"
+    } | env PATH="$MOCKBIN" HOME="$HOME" RECORD="${RECORD:-/dev/null}" CLAUDE_PLUGIN_DATA="$CLAUDE_PLUGIN_DATA" node "$SERVER" 2>/dev/null \
+      | jq -rc 'select(.id == 2) | .result.content[0].text' )"
   if [ -n "$out" ]; then printf '%s' "$out"; else printf '{}'; fi
+}
+
+# format_file_call <file_path> <cwd> — drive format_post (PostToolUse). Signature
+# and "{}"-on-empty contract unchanged from the pre-MCP helper, so existing
+# per-language call sites keep their assertions.
+format_file_call() {
+  local fp="$1" cwd="$2" args
+  args="$(jq -cn --arg f "$fp" --arg c "$cwd" '{hook_event_name:"PostToolUse", tool_name:"Write", tool_input:{file_path:$f}, tool_response:{success:true}, cwd:$c}')"
+  _mcp_call format_post "$args"
+}
+
+# pre_tool_use_write_call <file_path> <content> <cwd> — drive format_pre for a Write.
+pre_tool_use_write_call() {
+  local fp="$1" content="$2" cwd="$3" args
+  args="$(jq -cn --arg f "$fp" --arg t "$content" --arg c "$cwd" '{hook_event_name:"PreToolUse", tool_name:"Write", tool_input:{file_path:$f, content:$t}, cwd:$c}')"
+  _mcp_call format_pre "$args"
+}
+
+# pre_tool_use_edit_call <file_path> <old_string> <new_string> <cwd> — drive format_pre for an Edit.
+pre_tool_use_edit_call() {
+  local fp="$1" old="$2" new="$3" cwd="$4" args
+  args="$(jq -cn --arg f "$fp" --arg o "$old" --arg n "$new" --arg c "$cwd" '{hook_event_name:"PreToolUse", tool_name:"Edit", tool_input:{file_path:$f, old_string:$o, new_string:$n}, cwd:$c}')"
+  _mcp_call format_pre "$args"
 }

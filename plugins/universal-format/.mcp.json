@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "universal-format-hooks": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/mjs-launch.sh",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"],
+      "env": {
+        "CLAUDE_PLUGIN_DATA": "${CLAUDE_PLUGIN_DATA}"
+      }
+    }
+  }
+}

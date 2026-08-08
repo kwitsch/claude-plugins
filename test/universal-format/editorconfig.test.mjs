@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { parseEditorconfig, matchGlob, resolveEditorconfig } from "../../plugins/universal-format/hooks/format-file.mjs";
+import { parseEditorconfig, matchGlob, resolveEditorconfig } from "../../plugins/universal-format/mcp/server.mjs";
 
 test("matchGlob supports *, *.ext, *.{a,b}, **.ext; rejects unsupported forms", () => {
   assert.equal(matchGlob("*", "Foo.java"), true);

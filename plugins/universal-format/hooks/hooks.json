@@ -1,10 +1,16 @@
 {
-  "description": "PostToolUse Write|Edit -> format-file.mjs: silently formats the just-written file with the language's standard formatter.",
+  "description": "PreToolUse Write|Edit -> format_pre: prettier languages (jsts/json/yaml/markdown/css/scss) formatted in-process before the write when an in-process prettier is available (project-local or the plugin-managed copy). PostToolUse Write|Edit -> format_post: shell/java/kotlin/python/go/php formatted on disk after the write (subprocess), plus prettier on PATH for prettier languages when no in-process prettier is available.",
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [{ "type": "mcp_tool", "server": "plugin:universal-format:universal-format-hooks", "tool": "format_pre", "timeout": 60 }]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit",
-        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/format-file.mjs", "timeout": 60 }]
+        "hooks": [{ "type": "mcp_tool", "server": "plugin:universal-format:universal-format-hooks", "tool": "format_post", "timeout": 60 }]
       }
     ]
   }

@@ -131,3 +131,28 @@ setup() {
   [ "$output" = "{}" ]
 }
 
+@test "PreToolUse: excluded path (node_modules) -> {}" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd/node_modules/x"
+  run pre_tool_use_write_call "$cwd/node_modules/x/a.json" '{"a":1}' "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+}
+
+@test "PreToolUse: path outside cwd -> {}" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  local out="$BATS_TEST_TMPDIR/outside"; mkdir -p "$out"
+  run pre_tool_use_write_call "$out/a.json" '{"a":1}' "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+}
+
+@test "PreToolUse: non-prettier extension (.sh) -> {} (shell is PostToolUse only)" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  run pre_tool_use_write_call "$cwd/a.sh" 'echo hi' "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+}
+

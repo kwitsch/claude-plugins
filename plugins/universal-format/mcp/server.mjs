@@ -1,28 +1,36 @@
 #!/usr/bin/env node
-// hooks/format-file.mjs — universal-format plugin: PostToolUse Write|Edit auto-formatter.
-// Command hook, invoked directly per event (no MCP server). stdin = hook JSON
-// (PostToolUseHookInput), stdout = hook result JSON (hookSpecificOutput.additionalContext)
-// or nothing when the file was unchanged. Synchronous (no async in hooks.json) —
-// the reformat must land, and Claude must see the notice, before the next tool call
-// touches the file.
-//
-// format_file flow (every failure path returns {} silently — fail open):
-//   guard tool_response.success !== false -> ext in registry -> path inside cwd and not
-//   excluded (node_modules/vendor/.git, .claude/worktrees, .claude/agent-memory,
-//   *.local.* -- see isExcludedPath) -> file exists -> some chain tool on PATH (probes
-//   cached) -> selectFormatter walks the chain in order, skipping a tool that's
-//   absent or hits a hard style conflict, and falls through to the next -> spawnSync
-//   (cwd = project cwd, 30s timeout, stdio ignored) -> before/after content diff
-//   (NEVER exit codes) -> changed: additionalContext one-liner; unchanged or no
-//   chain tool can run: nothing printed.
+// mcp/server.mjs — universal-format plugin. Self-contained, zero-dependency MCP
+// stdio server (Node built-ins + a lazily-imported prettier). Backs two hooks:
+//   format_pre  (PreToolUse Write|Edit) — prettier languages, in-process, updatedInput
+//   format_post (PostToolUse Write|Edit) — non-prettier + prettier-on-PATH + npx net
+// Transport: newline-delimited JSON-RPC 2.0. stdout = JSON-RPC only; logs -> stderr.
 import process from "node:process";
+import readline from "node:readline";
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { accessSync, existsSync, readFileSync, realpathSync, constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+const SERVER_NAME = "universal-format-hooks"; // keep aligned with the .mcp.json key
+const SERVER_INFO = { name: SERVER_NAME, version: "0.9.0" };
+const DEFAULT_PROTOCOL = "2025-11-25"; // only used if the client omits protocolVersion
+
 const SPAWN_TIMEOUT_MS = 30000; // inner formatter timeout; hook-level timeout:60 is the backstop
 const NPX_SPAWN_TIMEOUT_MS = 55000; // cold npx install can exceed SPAWN_TIMEOUT_MS; stay under the hook's 60s ceiling
+
+const PRETTIER_LANGS = new Set(["jsts", "json", "yaml", "markdown", "css", "scss"]);
+const MANAGED_PRETTIER_VERSION = "3.9.4";
+const DAILY_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const INSTALL_TIMEOUT_MS = 120000; // npm install budget; out of band, never blocks a hook
+
+// Per-cwd cache of tier-1/tier-2 classification (session lifetime, like the PATH probe cache).
+// A "needs-managed" entry means tiers 1 & 2 were probed and missed; tier 3 is then re-checked live.
+/** @type {Map<string, {kind:"in-process",modulePath:string}|{kind:"path-subprocess"}|{kind:"needs-managed"}>} */
+const prettierSourceCache = new Map();
+
+/** @type {"idle"|"installing"|"done"|"failed"} */
+let managedInstallState = "idle";
 
 /**
  * @typedef {{ name: string, strategy: string, base: string[], nativeConfig?: Array<string | {file: string, section: string}>, guardPrintWidth?: boolean, npmSpec?: string }} FormatTool
@@ -575,9 +583,100 @@ export function isExcludedPath(rel) {
   return segments[segments.length - 1].includes(".local.");
 }
 
-// The format_file tool handler. Returns {} on every guard failure / error (fail open).
-/** @param {PostToolUseHookInput} args @returns {HookResult} */
-function formatFileHandler(args) {
+// ---- managed-copy read helpers + 3-tier prettier resolver (pure; no install side effects) ----
+
+/** Managed-copy base dir from env, or null when CLAUDE_PLUGIN_DATA is unset/empty.
+ * @returns {string|null} */
+export function managedPrettierDir() {
+  const base = process.env.CLAUDE_PLUGIN_DATA;
+  return base ? path.resolve(base, "prettier") : null;
+}
+
+/** Installed managed prettier version (reads current/node_modules/prettier/package.json), or null.
+ * @param {string} baseDir @returns {string|null} */
+export function readManagedPrettierVersion(baseDir) {
+  try {
+    const pkg = path.join(baseDir, "current", "node_modules", "prettier", "package.json");
+    const v = JSON.parse(readFileSync(pkg, "utf8"))?.version;
+    return typeof v === "string" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** True when the daily reconcile check is due.
+ * @param {number|null} lastCheckMs @param {number} nowMs @returns {boolean} */
+export function shouldRunDailyCheck(lastCheckMs, nowMs) {
+  return lastCheckMs === null || nowMs - lastCheckMs >= DAILY_CHECK_INTERVAL_MS;
+}
+
+/** Classify how (if at all) an in-process/subprocess prettier is available for cwd.
+ * Pure (fs reads only, no install trigger). Tiers 1 & 2 cached per cwd for the server
+ * lifetime; tier 3 (managed copy) is re-evaluated live so a just-completed lazy install
+ * is picked up on the next Write in the same session.
+ * @param {string} cwd
+ * @returns {{kind:"in-process",modulePath:string}|{kind:"path-subprocess"}|{kind:"none"}} */
+export function resolvePrettierSource(cwd) {
+  const cached = prettierSourceCache.get(cwd);
+  if (cached && cached.kind !== "needs-managed") return cached;
+  if (!cached) {
+    // Tier 1: project-local importable prettier (a project's own prettier always wins).
+    try {
+      const req = createRequire(path.join(cwd, "package.json"));
+      const modulePath = req.resolve("prettier");
+      /** @type {{kind:"in-process",modulePath:string}} */
+      const res = { kind: "in-process", modulePath };
+      prettierSourceCache.set(cwd, res);
+      return res;
+    } catch {
+      /* not importable from cwd */
+    }
+    // Tier 2: prettier on PATH -> PostToolUse subprocess owns it.
+    if (onPath("prettier")) {
+      /** @type {{kind:"path-subprocess"}} */
+      const res = { kind: "path-subprocess" };
+      prettierSourceCache.set(cwd, res);
+      return res;
+    }
+    prettierSourceCache.set(cwd, { kind: "needs-managed" });
+  }
+  // Tier 3: managed copy under ${CLAUDE_PLUGIN_DATA}/prettier/current (re-checked live).
+  const baseDir = managedPrettierDir();
+  if (baseDir) {
+    try {
+      const req = createRequire(path.join(baseDir, "current", "package.json"));
+      const modulePath = req.resolve("prettier");
+      return { kind: "in-process", modulePath };
+    } catch {
+      /* managed copy absent or incomplete */
+    }
+  }
+  return { kind: "none" };
+}
+
+// ---- install / daily-check STUBS (real bodies land in Tasks 3 & 4) ----
+
+// Lazy managed-copy installer. Task 3 replaces this stub with the real state machine.
+// Fired fire-and-forget from a tier-none miss; must never throw into a hook call.
+function ensureManagedPrettierInstalled() {
+  // no-op until Task 3
+  void managedInstallState;
+  void INSTALL_TIMEOUT_MS;
+  void MANAGED_PRETTIER_VERSION;
+}
+
+// Daily reconcile-to-pin check. Task 4 replaces this stub with the real body.
+// Fired fire-and-forget at server start; never awaited.
+async function maybeRunDailyUpdateCheck() {
+  // no-op until Task 4
+}
+
+// ---- format_post handler (today's behavior + one prettier-ownership guard) ----
+
+/** PostToolUse handler. Today's format-file behavior plus one prettier-ownership guard.
+ * Returns {} on every guard failure / error (fail open).
+ * @param {PostToolUseHookInput} args @returns {Promise<HookResult>} */
+export async function formatPost(args) {
   try {
     if (args?.tool_response?.success === false) return {};
     const cwd = typeof args?.cwd === "string" ? args.cwd : "";
@@ -593,6 +692,16 @@ function formatFileHandler(args) {
     if (!lang) return {};
     if (!existsSync(resolved)) return {};
 
+    // Prettier-ownership guard: an in-process-handled prettier language (tier 1/3) was
+    // already formatted before the write by format_pre -> nothing to do here. On `none`,
+    // warm the managed copy for later calls but STILL fall through to the existing chain
+    // (the npx safety net). `path-subprocess` (tier 2) also falls through (direct binary).
+    if (PRETTIER_LANGS.has(lang)) {
+      const src = resolvePrettierSource(cwd);
+      if (src.kind === "in-process") return {};
+      if (src.kind === "none") ensureManagedPrettierInstalled();
+    }
+
     // Cached O(1) PATH probe short-circuits before selectFormatter's fuller walk.
     const candidate = REGISTRY[lang].chain.find((t) => isToolAvailable(t, onPath(t.name), onPath("npx")));
     if (!candidate) return {};
@@ -601,20 +710,13 @@ function formatFileHandler(args) {
     if (!selection) return {};
     const { tool, argv } = selection;
 
-    // isToolAvailable() already guaranteed npmSpec is set when tool.name isn't on PATH.
-    // npx gets its own, more generous timeout: a cold `npx --yes <pkg>` install can
-    // exceed the local-binary budget on a slow network or fresh CI runner.
     const [cmd, cmdArgv, timeout] = onPath(tool.name)
       ? [tool.name, [...argv, resolved], SPAWN_TIMEOUT_MS]
       : ["npx", ["--yes", /** @type {string} */ (tool.npmSpec), ...argv, resolved], NPX_SPAWN_TIMEOUT_MS];
 
     const before = readFileSync(resolved);
     try {
-      spawnSync(cmd, cmdArgv, {
-        cwd,
-        timeout,
-        stdio: "ignore",
-      });
+      spawnSync(cmd, cmdArgv, { cwd, timeout, stdio: "ignore" });
     } catch {
       /* spawn failure is a silent no-op */
     }
@@ -633,6 +735,16 @@ function formatFileHandler(args) {
   }
 }
 
+// ---- format_pre routing STUB (real in-process body lands in Task 2) ----
+
+/** PreToolUse handler. Task 1 ships a routing stub (always fails open with {});
+ * Task 2 replaces the body with the in-process prettier path.
+ * @param {ToolHookInput} args @returns {Promise<HookResult>} */
+export async function formatPre(args) {
+  void args;
+  return {};
+}
+
 // True only when this file is the process entry point (MCP spawn / `node server.mjs`),
 // false when imported by a unit test — so importing never starts the stdin loop.
 function isMainModule() {
@@ -643,19 +755,77 @@ function isMainModule() {
   }
 }
 
-/** Read the hook's stdin JSON, run formatFileHandler, print the result JSON (or
- * nothing) to stdout. Fails open on any error — no output, exit 0. */
-function main() {
-  try {
-    const raw = readFileSync(0, "utf8");
-    const input = JSON.parse(raw);
-    const result = formatFileHandler(input);
-    if (result && Object.keys(result).length > 0) {
-      process.stdout.write(JSON.stringify(result) + "\n");
+// ---- MCP scaffold + startup ----
+
+function startServer() {
+  const TOOLS = [
+    {
+      name: "format_pre",
+      description:
+        "PreToolUse Write|Edit: format prettier-language files in-process before the write (updatedInput) when an in-process prettier is available (project-local or the plugin-managed copy).",
+      inputSchema: { type: "object", additionalProperties: true },
+      handler: formatPre,
+    },
+    {
+      name: "format_post",
+      description:
+        "PostToolUse Write|Edit: format the just-written file with the language's formatter (subprocess); prettier on PATH and the npx safety net for prettier languages with no in-process prettier.",
+      inputSchema: { type: "object", additionalProperties: true },
+      handler: formatPost,
+    },
+  ];
+  const findTool = (/** @type {any} */ name) => TOOLS.find((t) => t.name === name);
+  const send = (/** @type {any} */ msg) => process.stdout.write(JSON.stringify(msg) + "\n");
+  const ok = (/** @type {any} */ id, /** @type {any} */ result) => send({ jsonrpc: "2.0", id, result });
+  const fail = (/** @type {any} */ id, /** @type {any} */ code, /** @type {any} */ message) => send({ jsonrpc: "2.0", id, error: { code, message } });
+
+  const handle = async (/** @type {any} */ msg) => {
+    const { id, method, params } = msg;
+    switch (method) {
+      case "initialize":
+        return ok(id, { protocolVersion: params?.protocolVersion ?? DEFAULT_PROTOCOL, capabilities: { tools: {} }, serverInfo: SERVER_INFO });
+      case "notifications/initialized":
+      case "notifications/cancelled":
+        return;
+      case "ping":
+        return ok(id, {});
+      case "tools/list":
+        return ok(id, { tools: TOOLS.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })) });
+      case "tools/call": {
+        const tool = findTool(params?.name);
+        if (!tool) return fail(id, -32602, `unknown tool: ${params?.name}`);
+        if (process.env.MCP_HOOK_DEBUG) process.stderr.write(`[${SERVER_NAME}] tools/call ${params?.name}\n`);
+        let result;
+        try {
+          result = await tool.handler(params?.arguments ?? {});
+        } catch (e) {
+          const err = /** @type {any} */ (e);
+          return fail(id, -32603, `tool error: ${err?.message ?? err}`);
+        }
+        return ok(id, { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result });
+      }
+      default:
+        if (id === undefined) return;
+        return fail(id, -32601, `method not found: ${method}`);
     }
-  } catch {
-    // fail open — no output, exit 0
-  }
+  };
+
+  const rl = readline.createInterface({ input: process.stdin });
+  rl.on("line", (/** @type {any} */ line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    let msg;
+    try {
+      msg = JSON.parse(trimmed);
+    } catch {
+      process.stderr.write(`[${SERVER_NAME}] non-JSON line ignored\n`);
+      return;
+    }
+    Promise.resolve(handle(msg)).catch((/** @type {any} */ e) => process.stderr.write(`[${SERVER_NAME}] handler crash: ${e?.stack ?? e}\n`));
+  });
+  rl.on("close", () => process.exit(0));
+
+  void maybeRunDailyUpdateCheck();
 }
 
-if (isMainModule()) main();
+if (isMainModule()) startServer();

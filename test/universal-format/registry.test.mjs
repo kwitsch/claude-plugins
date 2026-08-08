@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { buildInvocation, isToolAvailable, isExcludedPath, REGISTRY, hasPrettierProjectConfig, guardPrintWidthArgv } from "../../plugins/universal-format/hooks/format-file.mjs";
+import { buildInvocation, isToolAvailable, isExcludedPath, REGISTRY, hasPrettierProjectConfig, guardPrintWidthArgv } from "../../plugins/universal-format/mcp/server.mjs";
 
 const shfmt = REGISTRY.shell.chain[0];
 const gjf = REGISTRY.java.chain[0];
