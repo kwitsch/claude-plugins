@@ -1,1 +1,5 @@
 * text=auto eol=lf
+
+# universal-format ships committed .wasm sidecars next to its MCP bundle: binary data that a
+# `text=auto` repo must never EOL-translate or diff as text.
+*.wasm binary

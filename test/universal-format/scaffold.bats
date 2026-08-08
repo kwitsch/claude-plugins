@@ -134,6 +134,21 @@ setup() {
   assert_success
 }
 
+@test "root package.json pins the three bundled prettier plugins exactly (no range prefix)" {
+  run jq -e '.devDependencies["prettier-plugin-java"] == "2.10.3" and .devDependencies["@prettier/plugin-php"] == "0.25.0" and .devDependencies["prettier-plugin-sh"] == "0.16.1"' "$REPO_ROOT/package.json"
+  assert_success
+}
+
+@test "root tsconfig.json enables skipLibCheck (the bundled prettier plugins ship dirty .d.ts files)" {
+  run jq -e '.compilerOptions.skipLibCheck == true' "$REPO_ROOT/tsconfig.json"
+  assert_success
+}
+
+@test ".gitattributes marks *.wasm binary so the committed sidecars are never EOL-translated" {
+  run rg_or_grep -q -F "*.wasm binary" "$REPO_ROOT/.gitattributes"
+  assert_success
+}
+
 # The bundled prettier makes the resolver, the managed copy and npx dead: the sources must not
 # even mention them. (Explicit file list, never a recursive grep: rg_or_grep's flag rewriting
 # turns grep's -r into rg's --replace.)
