@@ -6,7 +6,8 @@ Claude Code plugin marketplace.
 
 - `.claude-plugin/marketplace.json` — marketplace manifest (root).
 - `plugins/<name>/` — one plugin each: `.claude-plugin/plugin.json` + components (`skills/`, `agents/`, `hooks/`, `bin/`, `commands/` legacy, …) + `README.md` + `CLAUDE.md`. Full list in `plugins/CLAUDE.md`.
-- `test/<name>/test.bats` — per-plugin bats suite (top-level); conventions in `.claude/rules/test-conventions.md`.
+- `test/<name>/` — per-plugin bats suite (top-level): a single `test.bats`, or split into several thematic `.bats` files (`test-conventions.md`'s "Splitting a large suite") once a suite outgrows one file — `coding-toolbox`, `universal-format`, `universal-lint`, and `npm-automations` are already split. Conventions in `.claude/rules/test-conventions.md`.
+- `src/<name>/` — TypeScript sources whose build output is a **committed** plugin artifact; `universal-format` only (`src/universal-format-mcp/` → `plugins/universal-format/mcp/server.mjs`, built by `bun build`). The repo-wide convention stays hand-written zero-dep `.mjs`.
 - `.claude/rules/` — path-scoped rules loaded by Claude Code when editing matching files (versioning, userConfig, hooks, skills, agents, harness-content language, README sync, test conventions, coderabbit review).
 - `.github/workflows/ci.yml` validates manifests; `test.yml` runs bats suites plus a `unit_and_typecheck` job (`pnpm run typecheck` + `pnpm run test:unit`); `tag-on-version-bump.yml` tags plugins whose plugin.json version has no tag yet.
 
@@ -27,6 +28,9 @@ pnpm run test:unit
 
 # lint (dev-time only, not CI-gated on pre-existing files)
 pnpm run lint
+
+# rebuild universal-format's committed MCP-server bundle (requires a local bun; CI never runs it)
+pnpm run build:universal-format-mcp
 
 # validate marketplace manifest + plugin.json files (mirrors CI)
 jq empty .claude-plugin/marketplace.json && \

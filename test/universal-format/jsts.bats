@@ -1,6 +1,7 @@
 #!/usr/bin/env bats
 
-# prettier chain, npx fallback.
+# JS/TS belongs entirely to format_pre and the bundled prettier: no prettier binary, no npx, no
+# stub of either is ever involved.
 
 load 'test_helper'
 
@@ -8,43 +9,27 @@ setup() {
   common_setup
 }
 
-@test "jsts: prettier absent but npx present -> npx --yes prettier fallback runs" {
+@test "jsts: format_pre formats a .ts file with no prettier and no npx anywhere on PATH" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
-  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
-  printf 'let x=1\n' > "$cwd/a.js"
-  rec_stub npx
-  run format_file_call "$cwd/a.js" "$cwd"
+  run pre_tool_use_write_call "$cwd/a.ts" 'let x=1' "$cwd"
   assert_success
-  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("prettier reformatted a.js")'
-  run rg_or_grep -F "npx --yes prettier" "$RECORD"
-  assert_success
-  run cat "$cwd/a.js"
-  assert_output --partial "reformatted-by-npx"
+  echo "$output" | jq -e '.hookSpecificOutput.updatedInput.content == "let x = 1;\n"'
+  echo "$output" | jq -e '.hookSpecificOutput.hookEventName == "PreToolUse"'
+  echo "$output" | jq -e '.hookSpecificOutput | has("permissionDecision") | not'
 }
 
-@test "jsts: prettier present on PATH -> npx never invoked" {
+@test "jsts: format_post returns {} for a prettier language, with prettier and npx stubs present but never run" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
   printf 'let x=1\n' > "$cwd/a.js"
   rec_stub prettier
-  rec_stub npx   # present but must not be used
-  run format_file_call "$cwd/a.js" "$cwd"
-  assert_success
-  run rg_or_grep -E "^prettier " "$RECORD"
-  assert_success
-  run rg_or_grep -F "npx" "$RECORD"
-  assert_failure
-}
-
-@test "jsts: prettier absent, npx also absent -> {}" {
-  command -v node >/dev/null 2>&1 || skip "node not installed"
-  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
-  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
-  printf 'let x=1\n' > "$cwd/a.js"
+  rec_stub npx
   run format_file_call "$cwd/a.js" "$cwd"
   assert_success
   [ "$output" = "{}" ]
+  [ ! -s "$RECORD" ]
+  run cat "$cwd/a.js"
+  assert_output "let x=1"
 }
-

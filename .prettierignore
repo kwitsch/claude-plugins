@@ -3,3 +3,9 @@
 # dependency diffs unreadable (287 of 290 lines rewritten: quote style, brace spacing,
 # blank lines). Excluded rather than formatted.
 pnpm-lock.yaml
+
+# Generated bundle — the source of truth is `src/universal-format-mcp/`; rebuild with
+# `pnpm run build:universal-format-mcp`. The `format` script's plugins/**/*.{js,mjs} glob would
+# otherwise match it, and universal-format's own format_pre honors this file, so this also stops
+# the plugin from reformatting its own artifact.
+plugins/universal-format/mcp/server.mjs

@@ -1,23 +1,25 @@
 # CLAUDE.md — universal-format
 
-Auto-formatter plugin backed by a self-contained zero-dep MCP stdio server
-(`mcp/server.mjs`), launched via a bun-preferred `bin/mjs-launch.sh` wrapper. Two
-`mcp_tool` hooks on `Write|Edit`: **PreToolUse `format_pre`** formats prettier
-languages (JS/TS, JSON, YAML, Markdown, CSS, SCSS) in-process BEFORE the write via
-`hookSpecificOutput.updatedInput`; **PostToolUse `format_post`** formats the
-remaining languages (Shell/Java/Kotlin/Python/Go/PHP) on disk after the write via
-each tool's CLI, and also covers prettier languages when no in-process prettier is
-available. No `userConfig` — the hooks ARE the plugin (see "No toggle").
+Auto-formatter plugin backed by a plugin-local MCP stdio server (`mcp/server.mjs` — a
+committed `bun build` bundle, see "Built artifact" below), launched via a bun-preferred
+`bin/mjs-launch.sh` wrapper. Two `mcp_tool` hooks on `Write|Edit`: **PreToolUse
+`format_pre`** formats prettier languages (JS/TS, JSON, YAML, Markdown, CSS, SCSS)
+in-process BEFORE the write via `hookSpecificOutput.updatedInput`, always with the
+prettier bundled into the server; **PostToolUse `format_post`** formats the remaining
+languages (Shell/Java/Kotlin/Python/Go/PHP) on disk after the write via each tool's CLI,
+and returns `{}` for every prettier language. No `userConfig` — the hooks ARE the plugin
+(see "No toggle").
 
 ## Architecture (do not "fix" without reading this)
 
 - **One MCP server, two tools.** `.mcp.json` registers `universal-format-hooks`
   (`command: ${CLAUDE_PLUGIN_ROOT}/bin/mjs-launch.sh`, `args:
-["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"]`, `env.CLAUDE_PLUGIN_DATA`). Both hooks
-  reference the runtime-namespaced `plugin:universal-format:universal-format-hooks`
-  (NOT the bare `.mcp.json` key — that fails to connect). `timeout: 60`, no `async`,
-  no `if` on either. All logic lives in `mcp/server.mjs`; the old
-  `hooks/format-file.mjs` command hook is deleted.
+["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"]`, no `env` block). Both hooks reference the
+  runtime-namespaced `plugin:universal-format:universal-format-hooks` (NOT the bare
+  `.mcp.json` key — that fails to connect). `timeout: 60`, no `async`, no `if` on
+  either. All logic lives in `mcp/server.mjs`; the old `hooks/format-file.mjs` command
+  hook is deleted. This plugin writes nothing outside the project: `${CLAUDE_PLUGIN_DATA}`
+  is not used at all.
 - **`bin/mjs-launch.sh` is shipped for repo parity, NOT for speed.** Measured on this
   machine, bun is SLOWER here than node (warm format ~48 ms bun vs ~39 ms node; first
   format ~354 ms vs ~161 ms); only the one-time module import is faster under bun.
@@ -39,40 +41,61 @@ available. No `userConfig` — the hooks ARE the plugin (see "No toggle").
   `hookEventName` differs). Success is decided by CONTENT DIFF, never exit codes, in
   both handlers. Every error/guard-failure returns `{}` (silent fail open).
 
-## Prettier resolution — shared 3-tier resolver + npx safety net (do not "fix" without reading this)
+## Bundled prettier (no resolver) (do not "fix" without reading this)
 
-`resolvePrettierSource(cwd)` is a pure predicate both handlers call so exactly one
-formats each prettier file (no cross-call signaling). A project's own prettier ALWAYS
-wins; the managed copy is NEVER preferred over PATH prettier; npx is only ever the
-final resort:
+There is exactly ONE prettier in this process: the copy `bun build` inlines into
+`mcp/server.mjs` from `src/universal-format-mcp/prettier.ts`'s
+`import * as prettierNs from "prettier"`. It formats every prettier-covered file,
+unconditionally. **Deliberately removed, do not re-add:** the project-local tier
+(`createRequire(cwd).resolve("prettier")`), the PATH tier (`onPath("prettier")`), the
+plugin-installed copy under the plugin data dir, the `npx --yes prettier` safety net, the
+`resolvePrettierSource` predicate, `loadPrettier`/`loadedPrettiers`, `isToolAvailable`,
+`guardPrintWidthArgv`, and the six prettier `REGISTRY` entries. `format_pre` owns every
+prettier language end to end; `format_post` returns `{}` for them (both hooks carry the
+same `Write|Edit` matcher, so coverage is identical).
 
-1. **project-local importable** — `createRequire(join(cwd,"package.json")).resolve("prettier")` → `in-process` (PreToolUse, warm import).
-2. **else prettier on PATH** — `onPath("prettier")` → `path-subprocess` (PostToolUse, direct binary; `guardPrintWidthArgv` for json/yaml).
-3. **else managed copy** under `${CLAUDE_PLUGIN_DATA}/prettier/current` → `in-process` (PreToolUse, warm import).
-4. **else `npx --yes prettier`** — the retained final safety net, reached in
-   `format_post`'s existing chain on the `none` case. This is NOT a resolver kind.
+Two consequences, both accepted:
 
-Tiers 1/2 are cached per `cwd` for the server lifetime; tier 3 is re-checked live so a
-just-completed lazy install is picked up on the next Write. `format_pre` handles only
-tiers 1/3 (in-process); on tier 2 or non-prettier it returns `{}`; on `none` it fires
-the lazy install out of band and returns `{}`. `format_post` returns `{}` for a
-prettier language on tier 1/3 (already handled), fires the lazy install on `none` and
-falls through to the existing chain (→ npx), and runs the direct binary on tier 2.
+- **A project's own prettier version no longer wins.** Every project is formatted by the
+  bundled version even when it pins another one in `devDependencies` or has one on
+  `PATH`; a project's CI `prettier --check` may then disagree with what this plugin
+  wrote. The escape hatch is `.prettierignore`.
+- **Third-party prettier plugins are best-effort.** See `resolveConfigPlugins` below.
+
+**Project-level prettier CONFIG discovery is unchanged.** `formatInProcess` still calls
+`resolveConfig(filePath, { editorconfig: true })`, so `.prettierrc*`, `prettier.config.*`,
+a top-level `"prettier"` key in `package.json`/`package.yaml` and `.editorconfig` are all
+honored exactly as before — only _which prettier module runs_ was simplified.
+
+**`resolveConfigPlugins` exists because a bundled prettier resolves `plugins:` against
+the SERVER process's cwd, not the session's** (verified: from a foreign cwd `format()`
+throws `Cannot find package '<pp>' imported from <procCwd>/noop.js`, which the handler's
+catch turns into a silent "no formatting at all" for that project). It rewrites every
+non-absolute string entry to an absolute path via
+`createRequire(join(cwd, "package.json")).resolve(entry)`, passes non-strings and
+absolute paths through untouched, and returns `null` if any entry is unresolvable — on
+`null`, `formatInProcess` returns its input unchanged, so the handler's
+`formatted === input` check yields `{}`. Formatting is skipped rather than performed
+without a plugin the project asked for; silently stripping `plugins` was considered and
+rejected (it would write output the project never asked for, and would fail anyway for a
+parser-providing plugin).
+
 **`isPrettierIgnored` keeps the in-process path at parity with the CLI** (do not drop
-it): `prettier --write <file>` filters even an explicitly-named file through
-`--ignore-path`, which defaults to `[.gitignore, .prettierignore]` resolved against its
-cwd — so the subprocess tiers got this for free and the in-process tiers did not.
-`getFileInfo` does NOT auto-discover those files (verified: without `ignorePath` it
-returns `ignored:false`), so both are passed explicitly, joined to `cwd`; missing files
-are tolerated and any error falls open to formatting. Without it, `format_pre` would
-reformat a `.prettierignore`d file that the old command hook left alone — including this
-repo's own `pnpm-lock.yaml`.
+it — it matters MORE now that no subprocess prettier path exists to get it for free):
+`prettier --write <file>` filters even an explicitly-named file through `--ignore-path`,
+which defaults to `[.gitignore, .prettierignore]` resolved against its cwd. `getFileInfo`
+does NOT auto-discover those files (verified: without `ignorePath` it returns
+`ignored:false`), so both are passed explicitly, joined to `cwd`; missing files are
+tolerated and any error falls open to formatting. Without it, `format_pre` would reformat
+a `.prettierignore`d file — including this repo's own `pnpm-lock.yaml` and its own
+generated `mcp/server.mjs`.
 
 **Config-cache invalidation is event-driven, NOT per format** (do not "fix" back):
 `formatInProcess` deliberately does not call `clearConfigCache()`. Doing so per format
-cost ~9.9 ms of ~10.6 ms total (measured 10.60 → 0.73 ms/format on a nested project) —
-it threw away most of the warm-instance win on every single write. Instead `formatPost`
-calls `clearPrettierConfigCaches()` when the written file's basename is in
+cost ~9.9 ms of ~10.6 ms total (measured 10.60 → 0.73 ms/format on a nested project) — it
+threw away most of the warm-instance win on every single write. Instead `formatPost`
+calls `clearPrettierConfigCaches()` (one guarded `clearConfigCache()` on the bundled
+instance, inside a `try/catch`) when the written file's basename is in
 `CACHE_INVALIDATING_BASENAMES` (`PRETTIER_CONFIG_FILENAMES` + `package.json` +
 `package.yaml` + `.editorconfig` + `.prettierignore` + `.gitignore`). Three things this
 depends on, all verified empirically:
@@ -82,9 +105,9 @@ depends on, all verified empirically:
 - **The check runs BEFORE the `EXT_MAP` language guard.** Most of these basenames have no
   extension (`.prettierrc`, `.editorconfig`, `.prettierignore`), so the guard would drop
   them and the cache would never clear.
-- **`loadedPrettiers` exists for this.** `loadPrettier` memoises each instance by
-  modulePath so the invalidation can reach every loaded tier without knowing which is
-  active.
+- **One instance means one clear.** The old `loadedPrettiers` iteration existed only to
+  reach several tiers; with a single bundled instance a single guarded call is the whole
+  mechanism.
 
 Prettier's cache is stale in all three shapes — config **created** after a negative
 lookup, `.prettierrc` **edited**, `.editorconfig` **edited** (a separate cache inside
@@ -97,55 +120,6 @@ Write/Edit (a Bash `sed`, an external editor) is NOT picked up until the server 
 Both directions are covered in `prettier.test.mjs`, probing `semi` on a `.mjs` file —
 never json/yaml `printWidth`, which `shouldOverridePrintWidth` re-reads from disk on every
 call and would make the test pass for the wrong reason.
-
-In-process json/yaml sets `printWidth = 99999` iff `shouldOverridePrintWidth(file,cwd)`
-(the in-process mirror of the subprocess `guardPrintWidthArgv`).
-
-**The `npx --yes prettier` fallback is RETAINED and LIVE** (do not remove):
-`PRETTIER_NATIVE`/`PRETTIER_LINE_LENGTH_GUARDED` keep `npmSpec: "prettier"`;
-`NPX_SPAWN_TIMEOUT_MS` (55 s) is retained; `isToolAvailable`/`selectFormatter`'s npx
-pass and `format_post`'s npx else-branch all move verbatim and stay reachable. The
-managed copy replaces npx only as the NORMAL path for prettier-less projects (tier-3
-in-process), not by removing it.
-
-## Managed prettier copy under `${CLAUDE_PLUGIN_DATA}` (do not "fix" without reading this)
-
-Pinned to `MANAGED_PRETTIER_VERSION = "3.9.6"` (aligned with the repo's `prettier`
-devDependency). Layout: `versions/<pin>-<rand>/node_modules/prettier` (npm `--prefix`
-target), `current` (symlink, atomically flipped, only ever points at a COMPLETE tree),
-`.last-check` (daily marker).
-
-- **Lazy install (first tier-none miss, non-blocking).** A module-level state machine
-  (`idle → installing → done|failed`) fires `spawn npm install --no-save
---no-package-lock --no-audit --no-fund --loglevel=error --prefix <staging>
-prettier@<pin>` with `cwd` inside `${CLAUDE_PLUGIN_DATA}` — async `spawn`, NEVER
-  awaited, `INSTALL_TIMEOUT_MS = 120000`. The hook returns `{}` immediately. On clean
-  `exit(0)` AND a version sanity check, it publishes via a temp symlink + `rename()`
-  onto `current` (atomic on POSIX), then GCs other versions. A reader never sees a
-  half-installed tree. **A failed attempt is retried on a later tier-none miss once
-  `INSTALL_RETRY_BACKOFF_MS` (10 min, env-overridable via `UF_INSTALL_RETRY_BACKOFF_MS`
-  for the bats suite) has elapsed — it does NOT latch off for the server lifetime.** That
-  was the original shape and it is deliberately not restored: the daily reconcile below
-  never eager-installs, so nothing else could ever rescue a copy that failed to install,
-  and one transient offline moment would have pinned every later write in a prettier-less
-  project to the slow npx path until the next server start. `installing` and `done` still
-  short-circuit; only `failed` is time-gated. Parse the env override explicitly, never
-  `Number(x) || default` — `0` is a legitimate value and is falsy.
-- **Race-safe / fail-open.** Concurrent sessions each stage into a unique dir and each
-  atomically flip `current`; last flip wins, all point at a complete pinned tree. Every
-  failure (no npm / no network / disk full / non-zero exit / timeout / wrong version /
-  `${CLAUDE_PLUGIN_DATA}` unset) is a silent no-op that leaves `current` untouched; the
-  npx net keeps formatting prettier files meanwhile — a failed/absent install is never
-  a formatting regression.
-- **Daily reconcile-to-pin (at server start, fire-and-forget, never awaited).** Rate-
-  limited to at most 1 per 24 h via `.last-check` (written FIRST, claiming the window,
-  so a failed/offline check still counts and rapid restarts do at most one). Only if a
-  managed copy EXISTS and its version differs from the pin does it reinstall (local
-  version-string compare — NO npm-registry query; npm shelled out only to reinstall),
-  using the same staging + atomic-flip mechanism. Never eager-installs when no copy
-  exists. Only ever touches the managed copy — never a project's prettier or a PATH
-  prettier. An already-imported in-memory prettier is NOT re-imported; a new version
-  takes effect only on the next server start.
 
 ## No toggle (do not "fix" without reading this)
 
@@ -172,30 +146,31 @@ setting was always already respected. This guard only changes the _absent_
 case: previously, no project config meant prettier's built-in 80-column
 default applied unconditionally; now it means no line-length limit at all.
 
-- `guardPrintWidthArgv` (used only by `json`/`yaml`'s prettier entry,
-  `PRETTIER_LINE_LENGTH_GUARDED` — `markdown`/`css`/`scss`/`jsts` keep plain
-  `PRETTIER_NATIVE`, untouched) checks two things in order: (1)
-  `hasPrettierProjectConfig`, existence-only over prettier's own bundled
-  `CONFIG_FILES` list (`.prettierrc*`/`prettier.config.*`) plus a top-level
-  `"prettier"` key in `package.json` (parsed as JSON, `Object.hasOwn` on the
-  top-level key only — a `"prettier"` entry under `devDependencies` does
-  **not** count) or `package.yaml` (pnpm's `package.json` equivalent; existence-
-  checked via an anchored top-level-only regex, since this file has no bundled
-  YAML parser) — verified against prettier 3.9.6's own source
+- `shouldOverridePrintWidth(file, cwd)` (used only for `json`/`yaml` inside
+  `formatInProcess`; `markdown`/`css`/`scss`/`jsts` are untouched) checks the same two
+  things in the same order — `hasPrettierProjectConfig`, then `resolveEditorconfig`'s
+  `max_line_length` — and only when both come up empty (or resolve to `off`) does
+  `formatInProcess` set `config.printWidth = 99999`: (1) `hasPrettierProjectConfig`,
+  existence-only over prettier's own bundled `CONFIG_FILES` list
+  (`.prettierrc*`/`prettier.config.*`) plus a top-level `"prettier"` key in
+  `package.json` (parsed as JSON, `Object.hasOwn` on the top-level key only — a
+  `"prettier"` entry under `devDependencies` does **not** count) or `package.yaml`
+  (pnpm's `package.json` equivalent; existence-checked via an anchored
+  top-level-only regex, since this file has no bundled YAML parser) — verified
+  against prettier 3.9.6's own source
   (`loadConfigFromPackageJson`/`loadConfigFromPackageYaml`); (2) if that finds
-  nothing, `resolveEditorconfig` (the same resolver `ruff`/`black`
-  already use) — prettier already reads `.editorconfig`'s `max_line_length`
-  natively when run bare (verified empirically), so a project that set it
-  there is also left alone. One wrinkle: `normalizeProps` drops an explicit
-  `max_line_length = off` entirely (treated the same as "not set" — see its
-  own comment), so a project that deliberately turned the limit _off_ via
-  `.editorconfig` still falls through to `--print-width` below. Same net
-  effect either way (no line-length limit), so this isn't a behavior bug —
-  just worth knowing so "off" isn't mistaken for a case this guard skips.
-  Only when **both** checks come up empty (or resolve to "off") does
-  `--print-width 99999` get appended — a value large enough that no real line
-  ever triggers wrapping, without passing a literal `Infinity` (prettier's CLI
-  argument parser rejects that).
+  nothing, `resolveEditorconfig` (the same resolver `ruff`/`black` already use) —
+  prettier already reads `.editorconfig`'s `max_line_length` natively when run bare
+  (verified empirically), so a project that set it there is also left alone. One
+  wrinkle: `normalizeProps` drops an explicit `max_line_length = off` entirely
+  (treated the same as "not set" — see its own comment), so a project that
+  deliberately turned the limit _off_ via `.editorconfig` still falls through to the
+  `printWidth = 99999` override. Same net effect either way (no line-length limit),
+  so this isn't a behavior bug — just worth knowing so "off" isn't mistaken for a
+  case this guard skips. Only when **both** checks come up empty (or resolve to
+  "off") does `config.printWidth = 99999` get set — a value large enough that no
+  real line ever triggers wrapping, without passing a literal `Infinity` (prettier
+  rejects that).
 - **Unbounded walk, not `cwd`-bounded:** `hasPrettierProjectConfig` walks from
   the edited file's own directory all the way to the filesystem root, not
   just up to `cwd` — verified against prettier 3.9.6's own source: its config
@@ -216,37 +191,85 @@ default applied unconditionally; now it means no line-length limit at all.
 - `.scss`'s own printWidth default is also unguarded, same as `css`/`markdown`
   — only `json`/`yaml` were reported as having this problem.
 
-`prettier` additionally falls back to `npx --yes prettier ...` when absent
-from `PATH` (a verified-official npm package; `npx` itself is assumed
-present since the plugin's own hook script already requires node/npm — no
-separate onboarding step). No other chain tool gets an npx fallback: `npm
-view` shows their same-named npm packages are either non-existent, unrelated
-projects (name collisions), or unofficial/unverifiable wrappers with no repo
-and near-zero downloads — adding a fallback for those would silently run
-the wrong or unvetted code.
-
-`php` is a chain of one: `php-cs-fixer`, `native` strategy (always bare, aside from `--using-cache=no`) — no `.editorconfig` mapping, no `MAPPERS` entry. Its own docs state that a bare `fix` with no `--config`/`--rules` already defaults to `@PSR12` when no `.php-cs-fixer.php`/`.dist.php` is found, and auto-discovers a project's own config when one exists. Since format success here is always judged by content diff (never exit code), its exit-code contract doesn't matter. `--using-cache=no` is required: `php-cs-fixer` caches by default, and without this flag it writes a `.php-cs-fixer.cache` file into the project root on every PHP format — the one cwd-relative side effect this plugin would otherwise have (contrast `universal-lint`'s own `tsc` cache, deliberately routed to `${CLAUDE_PLUGIN_DATA}` to avoid exactly this). `php-cs-fixer` gets no `npmSpec`: Composer-distributed, not npm-distributed. Known limitation (confirmed with the user at this feature's design stage): PATH-only detection — unlike `universal-lint`'s own `tsc` special case (`node_modules/.bin/tsc`), no `vendor/bin/php-cs-fixer` discovery exists, even though most real PHP projects install it as a local Composer dev-dependency rather than globally.
+`php` is a chain of one: `php-cs-fixer`, `native` strategy (always bare, aside from `--using-cache=no`) — no `.editorconfig` mapping, no `MAPPERS` entry. Its own docs state that a bare `fix` with no `--config`/`--rules` already defaults to `@PSR12` when no `.php-cs-fixer.php`/`.dist.php` is found, and auto-discovers a project's own config when one exists. Since format success here is always judged by content diff (never exit code), its exit-code contract doesn't matter. `--using-cache=no` is required: `php-cs-fixer` caches by default, and without this flag it writes a `.php-cs-fixer.cache` file into the project root on every PHP format — the one cwd-relative side effect this plugin would otherwise have (contrast `universal-lint`'s own `tsc` cache, deliberately routed to `${CLAUDE_PLUGIN_DATA}` to avoid exactly this). No chain tool has an npm fallback of any kind; `npm view` shows their same-named npm packages are either non-existent, unrelated projects, or unofficial wrappers with no repo and near-zero downloads. Known limitation (confirmed with the user at this feature's design stage): PATH-only detection — unlike `universal-lint`'s own `tsc` special case (`node_modules/.bin/tsc`), no `vendor/bin/php-cs-fixer` discovery exists, even though most real PHP projects install it as a local Composer dev-dependency rather than globally.
 
 **PHP_CodeSniffer's `phpcbf` was deliberately NOT added as a fallback** (do not re-add without reading this): its bare-invocation default standard is version-dependent — PSR-12 only on the brand-new PHP_CodeSniffer 4.0.x, PEAR on the still-dominant 3.x line (confirmed against PHP_CodeSniffer's own source for both versions). Pinning an explicit `--standard=PSR12` to force determinism was considered and rejected: PHP_CodeSniffer only auto-discovers a project's own `phpcs.xml`/`.phpcs.xml`(`.dist`) ruleset when NO `--standard` is given, so an explicit flag would silently defeat that discovery — trading one wrong behavior (an unpredictable PEAR/PSR-12 default) for another (ignoring a project's real ruleset). A one-tool chain was judged the honest answer, matching the existing `shell`/`scss`/`yaml`/`markdown` chain-of-one precedent.
+
+## Built artifact (do not edit `mcp/server.mjs`)
+
+`mcp/server.mjs` is **generated**. The source of truth is `src/universal-format-mcp/`:
+
+| File              | Responsibility                                                                                                                                                  |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`        | `FormatTool`, `LangEntry`, `EditorConfigProps` (type-only)                                                                                                      |
+| `util.ts`         | `walkToRoot`, `onPath` + the module-level `probeCache` singleton                                                                                                |
+| `editorconfig.ts` | `findNativeConfig`, `resolveEditorconfig`, `parseEditorconfig`, `matchGlob`, `MAPPERS`, `buildInvocation`                                                       |
+| `prettier.ts`     | the bundled prettier, `BUNDLED_PRETTIER_VERSION`, config discovery, `resolveConfigPlugins`, `formatInProcess`, `isPrettierIgnored`, `clearPrettierConfigCaches` |
+| `registry.ts`     | `EXT_MAP`, `PRETTIER_LANGS`, `REGISTRY` (CLI chains only), `resolveInvocation`, `selectFormatter`                                                               |
+| `handlers.ts`     | `isExcludedPath`, `applyEdit`, `CACHE_INVALIDATING_BASENAMES`, `formatPre`, `formatPost`                                                                        |
+| `server.ts`       | MCP scaffold, `isMainModule`, `SERVER_INFO` (hand-paired with `plugin.json`), and the artifact's 17 public re-exports                                           |
+| `build.mjs`       | the build driver (node-runnable; also runs under bun)                                                                                                           |
+
+Import graph is acyclic (`types ← util ← editorconfig ← prettier ← registry ← handlers ← server`)
+and relative imports use the `./x.js` specifier form, required by the root tsconfig's
+`moduleResolution: "NodeNext"`; `bun build` resolves `./x.js` to `x.ts`. Module-level singletons
+(`probeCache`) stay single instances — bun emits each module once, so both handlers share them.
+
+```bash
+pnpm install --frozen-lockfile          # the bundle embeds THIS prettier
+pnpm run build:universal-format-mcp     # requires a local bun; CI never runs it
+```
+
+The driver writes a 3-line banner then the bundle body: `#!/usr/bin/env node`, the `@ts-nocheck`
+"generated bundle" line, and `// uf-build-fingerprint src=<16hex> body=<16hex> prettier=<v> bun=<v>`.
+Freshness is enforced by `test/universal-format/build-artifact.test.mjs` under
+`pnpm run test:unit` — it recomputes the source hash and the body hash and compares the bundled
+prettier version against the installed one, so CI needs **no bun** and no byte-reproducibility.
+`bun=` is provenance only, never asserted: bun is pinned nowhere in this repo and byte-equality
+across bun versions is not claimed.
+
+Every flag is load-bearing:
+
+| Flag / setting                                      | Why                                                                                                                                                                                                                                                    |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--target=node`                                     | bun's default target is `browser`. With `node`, built-ins stay external imports and no bun shims are emitted — verified: 0 occurrences of `Bun.` and of `import.meta.require`, runs under plain `node`.                                                |
+| `--format=esm`                                      | named exports must survive for `node --test`; `import.meta.url` must stay real (`isMainModule` depends on it).                                                                                                                                         |
+| `cwd: repoRoot` on the spawn                        | bun embeds cwd-relative `// <module path>` provenance comments; building from a parent directory changed 20 comment lines. Pinning cwd makes the output caller-independent. Run `pnpm install` in the tree you build from so `node_modules` is local.  |
+| comment canonicalization                            | `node_modules/.pnpm/<pkg>/node_modules/` → `node_modules/` inside `//`-prefixed lines only; hoisted and pnpm-symlinked layouts then produce identical sha256.                                                                                          |
+| banner prepended by the script (not `--banner`)     | the shebang must be byte one and the fingerprint must be computed over the final body.                                                                                                                                                                 |
+| `@ts-nocheck` on line 2                             | the artifact sits under `plugins/**/*.mjs`, which the root `tsconfig.json` `include` glob matches directly; unchecked it reports thousands of `TS7006`-class errors. It also exempts the file from the JSDoc floor (see `.claude/rules/jsdoc-mjs.md`). |
+| `chmodSync(0o755)`                                  | per `.claude/rules/hooks-executable.md`. The file is already git mode `100755` and `core.fileMode=false`, so a rebuild in place needs no `git update-index --chmod=+x`.                                                                                |
+| **not** `--minify`                                  | ~8% gzip saving is not worth losing line-numbered stack traces in a fail-open code path.                                                                                                                                                               |
+| **not** `--reject-unresolved`                       | prettier resolves a project's config file through a runtime `import()` of a computed path, unresolvable at build time _by design_.                                                                                                                     |
+| **not** `--production` / `--bytecode` / `--compile` | `--production` implies minification, `--bytecode` forces CJS, `--compile` emits a standalone bun executable — all three contradict a node-runnable ESM artifact.                                                                                       |
+
+Measured: ~5.4 MB, `node --check` clean in 0.13 s, byte-identical on repeated builds in one tree,
+runs under both `node` and `bun`, import ≈113 ms, first format ≈30 ms, warm format ≈1.3 ms. The
+whole prettier package (all 13 parser plugins) is bundled on purpose: prettier delegates embedded
+`html`/`graphql`/`css` blocks inside Markdown to those parsers, so trimming would silently break
+accepted inputs. `eslint.config.mjs` and `.prettierignore` both exclude the artifact.
 
 ## Tests
 
 `test/universal-format/` — split into one `.bats` file per language/tool
 (`scaffold.bats`, `core.bats`, `go.bats`, `kotlin.bats`, `java.bats`,
 `python.bats`, `jsts.bats`, `json.bats`, `yaml.bats`, `markdown.bats`,
-`css.bats`, `php.bats`, `managed-prettier.bats`), mirroring `test/coding-toolbox/`'s
-split. `test_helper.bash` holds what's shared across files (`common_setup`,
-`rg_or_grep`, `make_stub`, `rec_stub`, a JSON-RPC driver over the MCP server —
+`css.bats`, `php.bats`), mirroring `test/coding-toolbox/`'s split. `test_helper.bash`
+holds what's shared across files (`common_setup`, `rg_or_grep`, `make_stub`,
+`rec_stub`, and `_mcp_call` — the single async-safe JSON-RPC driver over the MCP
+server, held open via a FIFO and polled for the `"id":2` response, wrapping
 `format_file_call`/`pre_tool_use_write_call`/`pre_tool_use_edit_call`). Hermetic:
-stub formatters (and, for `managed-prettier.bats`, a stub `npm`) on an isolated
-`PATH` recording argv, no real network. `managed-prettier.bats` drives the
-lazy-install/daily-check state machine end to end over JSON-RPC with a per-test
-`${CLAUDE_PLUGIN_DATA}`. Plus `test/universal-format/*.test.mjs` (`node:test` unit
-tests for the `.editorconfig` resolver, registry flag mapping, and the in-process
-prettier contract in `prettier.test.mjs`). Run:
+stub formatters on an isolated `PATH` recording argv, no real network — the
+prettier-language suites need **no stubs at all**, since the bundled prettier needs
+no network and no PATH entry. The prettier-language `printWidth` policy is asserted
+on produced content rather than on a recorded argv. Plus
+`test/universal-format/*.test.mjs` (`node:test` unit tests for the `.editorconfig`
+resolver, registry flag mapping, the in-process prettier contract in
+`prettier.test.mjs`, and artifact freshness in `build-artifact.test.mjs`). Run:
 
 ```bash
 BATS_LIB_PATH="$PWD/node_modules" pnpm exec bats test/universal-format/
 pnpm run test:unit
 pnpm run typecheck
+pnpm run lint
 ```

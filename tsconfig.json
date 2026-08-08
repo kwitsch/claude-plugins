@@ -9,6 +9,6 @@
     "strict": true,
     "lib": ["ES2022"]
   },
-  "include": ["plugins/**/*.mjs", "test/**/*.mjs", "types/**/*.d.ts"],
+  "include": ["plugins/**/*.mjs", "test/**/*.mjs", "src/**/*.ts", "src/**/*.mjs", "types/**/*.d.ts"],
   "exclude": ["node_modules"]
 }
