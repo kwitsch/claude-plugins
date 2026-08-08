@@ -137,14 +137,25 @@ function taskKey(s) {
   for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
   return (h >>> 0).toString(36);
 }
-const lineCount = (s) => s.split("\n").length;
+// Matches `wc -l` semantics (count of newline bytes), not JS split() segment
+// count: split() over-counts by one whenever s already ends in "\n" (the
+// trailing split produces a phantom empty final segment).
+const lineCount = (s) => (s.endsWith("\n") ? s.slice(0, -1) : s).split("\n").length;
 const EXPLORE_CACHE_PATH = DRAFT_PATH.replace(/\.md$/i, "") + ".explore-" + taskKey(TASK) + ".md";
 const CACHE_HEADER_LINES = 5; // 4 header lines + 1 blank separator before the body
-const MAX_TOTAL_EXPLORE_AREAS = 6; // 4 from the first scout + at most 2 added over all resume rounds
+// Hard cap on the running total explored areas per session. NOT "4 from the
+// first scout + 2 added" — a resume round's actual top-up is
+// min(MAX_TOTAL_EXPLORE_AREAS - cached areas so far, MAX_PARALLEL_EXPLORES),
+// which is >2 whenever the first scout used fewer than MAX_PARALLEL_EXPLORES.
+const MAX_TOTAL_EXPLORE_AREAS = 6;
 const FINGERPRINT_CMD =
   `printf '%s|%s|%s\\n' "$(git rev-parse --show-toplevel 2>/dev/null || echo NO_REPO)" ` +
   `"$(git rev-parse HEAD 2>/dev/null || echo NO_HEAD)" ` +
-  `"$(git status --porcelain 2>/dev/null | git hash-object --stdin 2>/dev/null || echo NO_STATUS)"`;
+  // Captured separately first: piping straight into `git hash-object --stdin`
+  // would let `|| echo NO_STATUS` see only the pipe's LAST stage exit code,
+  // masking a `git status` failure (e.g. broken/locked index) behind a
+  // successful empty-input hash.
+  `"$(st=$(git status --porcelain 2>/dev/null); if [ $? -ne 0 ]; then echo NO_STATUS; else printf '%s' "$st" | git hash-object --stdin 2>/dev/null || echo NO_STATUS; fi)"`;
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
 const SCOUT_SCHEMA = {
@@ -177,6 +188,7 @@ const EXPLORE_CACHE_PROBE = {
     areas: { type: "array", items: { type: "string" } }, // the file's AREAS field, split on '|'
     declaredLines: { type: "number" }, // the file's LINES field
     actualLines: { type: "number" }, // integer printed by `wc -l` on the cache file
+    sectionHeadings: { type: "array", items: { type: "string" } }, // body's '## <area>' lines, text after '## ', in order
   },
 };
 const OPEN_QUESTION = {
@@ -273,14 +285,32 @@ ${FINGERPRINT_CMD}
    three fields is absent, return \`found: false\` and nothing else. Otherwise
    return \`found: true\`, \`cachedFingerprint\` = the FINGERPRINT value
    verbatim, \`areas\` = the AREAS value split on \`|\` and trimmed,
-   \`declaredLines\` = the LINES integer, and \`actualLines\` = the integer
-   printed by \`wc -l < ${EXPLORE_CACHE_PATH}\`.`;
+   \`declaredLines\` = the LINES integer, \`actualLines\` = the integer
+   printed by \`wc -l < ${EXPLORE_CACHE_PATH}\`, and \`sectionHeadings\` = the
+   text after \`## \` on every line in the body (from line 6 onward) that
+   starts with \`## \`, in order — this is still reading the cache file, not
+   exploring the codebase.`;
 
 const probe = RESUME ? await agent(cacheProbePrompt, { label: "explore-cache:probe", phase: "Explore", schema: EXPLORE_CACHE_PROBE, model: MODELS.cacheProbe }) : null;
+// Normalize once, in place: SCHEMA types these as `number`, but structured
+// output can still hand back a numeric string — coerce before any comparison
+// so a genuinely-matching line count is never rejected as a type mismatch.
+// (Number(undefined) is NaN, so a missing field still safely fails below.)
+if (probe) {
+  probe.declaredLines = Number(probe.declaredLines);
+  probe.actualLines = Number(probe.actualLines);
+}
 const currentFingerprint = probe && typeof probe.fingerprint === "string" ? probe.fingerprint : "";
 // parsedAreas is RAW probe output — it feeds the cacheHit decision and nothing
 // else. Never read it below the cachedAreas line.
 const parsedAreas = probe && Array.isArray(probe.areas) ? probe.areas.filter((a) => typeof a === "string" && a.trim() !== "") : [];
+// Structural check alongside the line-count parity check: the LINES header
+// can match wc -l on a body that was still garbled/reordered by an earlier
+// writer (same total length, corrupted content). Require every declared area
+// to actually have a matching `## <area>` section in the body before trusting
+// it as real, freshly-explored-equivalent content.
+const parsedHeadings =
+  probe && Array.isArray(probe.sectionHeadings) ? probe.sectionHeadings.filter((h) => typeof h === "string" && h.trim() !== "").map((h) => h.trim().toLowerCase()) : [];
 const cacheHit =
   probe != null &&
   probe.found === true &&
@@ -288,7 +318,9 @@ const cacheHit =
   probe.cachedFingerprint === currentFingerprint &&
   parsedAreas.length > 0 &&
   probe.declaredLines > CACHE_HEADER_LINES &&
-  probe.declaredLines === probe.actualLines;
+  probe.declaredLines === probe.actualLines &&
+  parsedHeadings.length === parsedAreas.length &&
+  parsedAreas.every((a) => parsedHeadings.includes(a.trim().toLowerCase()));
 // Single gate for every downstream use of cached data: on ANY miss (probe null,
 // fingerprint mismatch, mangled cache, unparseable areas) this is empty, so an
 // invalidated cache can never influence the full-exploration fallback.
@@ -333,7 +365,16 @@ however you like. Do not design anything. Structured output only.`;
 const scout = await agent(cacheHit ? scoutTopUpPrompt : scoutPrompt, { label: "scout", phase: "Explore", schema: SCOUT_SCHEMA, model: MODELS.scout, agentType: "explore" });
 if (!scout && !cacheHit) return { status: "error", stage: "Explore", error: "scout returned no result" };
 
-const proposed = scout && Array.isArray(scout.subsystems) ? scout.subsystems.filter((s) => s && typeof s.name === "string" && s.name.trim() !== "") : [];
+// Sanitize at the source: the AREAS header packs names with ' | ' and a later
+// probe/top-up-scout round splits on that same '|' — a free-form LLM-chosen
+// name containing a literal '|' would otherwise fragment into extra bogus
+// areas on the next round. Replacing it here keeps every downstream name
+// (exploredAreas, cachedAreas, the header, the dedup compare) pipe-free.
+const proposed = scout && Array.isArray(scout.subsystems)
+  ? scout.subsystems
+      .filter((s) => s && typeof s.name === "string" && s.name.trim() !== "")
+      .map((s) => ({ ...s, name: s.name.replace(/\|/g, "/").trim() }))
+  : [];
 const covered = cachedAreas.map((a) => a.trim().toLowerCase()); // [] on every miss
 const subsystems = proposed.filter((s) => !covered.includes(s.name.trim().toLowerCase())).slice(0, Math.min(budget, MAX_PARALLEL_EXPLORES));
 if (!cacheHit && subsystems.length === 0) subsystems.push({ name: "whole task", focus: TASK });

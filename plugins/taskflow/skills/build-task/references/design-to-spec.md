@@ -110,12 +110,14 @@ repeats until `complete` or `error`.
 - On a hit the up-to-4 `sonnet` explorer dispatches are skipped: the designer
   reads the cached reports from that file, and a `haiku` top-up scout decides
   only whether the latest `USER_INPUT` opens genuinely new areas — an empty
-  answer is the expected, common case. At most 6 areas accumulate per session
-  (4 from the first scout, at most 2 added across all resume rounds);
+  answer is the expected, common case. At most 6 areas accumulate per
+  session; a single resume round's actual top-up is `min(6 - areas already
+  cached, 4)`, which can exceed 2 when the first scout used fewer than 4;
   per-round parallelism stays capped at 4.
 - Any doubt means a full exploration: probe failure, fingerprint mismatch, a
   mangled cache, or a failed cache write all degrade to the uncached behavior,
   and no area name from an invalidated cache is reused. The cache never blocks
-  or fails a run; the two `log()` lines (`Explore cache: hit — …` and
-  `Explore cache: miss — full exploration`) are the only observability
-  surface — no field is added to the return object.
+  or fails a run; four `log()` lines prefixed `Explore cache:` (`hit — …`,
+  `miss — full exploration`, `top-up — N new area(s)`, and
+  `write failed — …`) are the only observability surface — no field is added
+  to the return object.

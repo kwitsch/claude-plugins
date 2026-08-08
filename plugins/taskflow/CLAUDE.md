@@ -74,9 +74,11 @@ explorers. Every point below is load-bearing:
 - **Every uncertainty degrades to the old behavior** — full exploration. Probe
   failure, fingerprint mismatch, mangled cache, and a failed write are all
   logged and continue; the cache never blocks or fails a run.
-- **Cache growth is bounded** by `MAX_TOTAL_EXPLORE_AREAS = 6` (4 from the
-  first scout, at most 2 added across all resume rounds); per-round
-  parallelism stays at `MAX_PARALLEL_EXPLORES = 4`.
+- **Cache growth is bounded** by `MAX_TOTAL_EXPLORE_AREAS = 6` — the running
+  total per session, not "4 + at most 2 more": a single resume round's actual
+  top-up is `min(6 - areas already cached, MAX_PARALLEL_EXPLORES)`, which can
+  exceed 2 when the first scout used fewer than `MAX_PARALLEL_EXPLORES = 4`;
+  per-round parallelism stays at that same cap.
 
 ## Generated pipeline artifacts are always English
 
