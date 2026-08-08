@@ -6,9 +6,9 @@
 // Transport: newline-delimited JSON-RPC 2.0. stdout = JSON-RPC only; logs -> stderr.
 import process from "node:process";
 import readline from "node:readline";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { accessSync, existsSync, readFileSync, realpathSync, constants as fsConstants } from "node:fs";
+import { accessSync, existsSync, readFileSync, realpathSync, mkdirSync, mkdtempSync, renameSync, symlinkSync, rmSync, readdirSync, constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -691,16 +691,118 @@ export function applyEdit(current, oldStr, newStr, replaceAll) {
   return current.slice(0, idx) + newStr + current.slice(idx + oldStr.length);
 }
 
-// ---- install / daily-check STUBS (real bodies land in Tasks 3 & 4) ----
+// ---- managed-copy install state machine (staging + atomic flip) ----
 
-// Lazy managed-copy installer. Task 3 replaces this stub with the real state machine.
-// Fired fire-and-forget from a tier-none miss; must never throw into a hook call.
-function ensureManagedPrettierInstalled() {
-  // no-op until Task 3
-  void managedInstallState;
-  void INSTALL_TIMEOUT_MS;
-  void MANAGED_PRETTIER_VERSION;
+/** Best-effort recursive remove; never throws. @param {string} p @returns {void} */
+function safeRm(p) {
+  try {
+    rmSync(p, { recursive: true, force: true });
+  } catch {
+    /* ignore */
+  }
 }
+
+/** Version of prettier installed under a staging prefix, or null. @param {string} staging @returns {string|null} */
+function readInstalledVersion(staging) {
+  try {
+    const pkg = path.join(staging, "node_modules", "prettier", "package.json");
+    const v = JSON.parse(readFileSync(pkg, "utf8"))?.version;
+    return typeof v === "string" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Atomically point ${baseDir}/current at a complete staging tree via a temp symlink +
+ * rename (atomic replace on POSIX), so a reader never sees a half-installed tree.
+ * @param {string} baseDir @param {string} staging @returns {void} */
+function publishManagedVersion(baseDir, staging) {
+  const current = path.join(baseDir, "current");
+  const tmpLink = path.join(baseDir, `.current.${process.pid}.${Date.now()}`);
+  safeRm(tmpLink);
+  symlinkSync(staging, tmpLink, "dir");
+  renameSync(tmpLink, current);
+}
+
+/** Remove version dirs other than `keep` and any stale .current.* temp links; best-effort.
+ * @param {string} baseDir @param {string} keep @returns {void} */
+function gcOldVersions(baseDir, keep) {
+  try {
+    const versionsDir = path.join(baseDir, "versions");
+    for (const name of readdirSync(versionsDir)) {
+      const full = path.join(versionsDir, name);
+      if (full !== keep) safeRm(full);
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    for (const name of readdirSync(baseDir)) {
+      if (name.startsWith(".current.")) safeRm(path.join(baseDir, name));
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Install prettier@version into a fresh staging dir via async npm (never awaited),
+ * then sanity-check + atomically publish on a clean exit. Non-blocking; every failure
+ * a silent no-op that leaves `current` untouched. @param {string} baseDir @param {string} version @returns {void} */
+function installManagedPrettier(baseDir, version) {
+  const versionsDir = path.join(baseDir, "versions");
+  mkdirSync(versionsDir, { recursive: true });
+  const staging = mkdtempSync(path.join(versionsDir, `${version}-`));
+  const child = spawn("npm", ["install", "--no-save", "--no-package-lock", "--no-audit", "--no-fund", "--loglevel=error", "--prefix", staging, `prettier@${version}`], {
+    cwd: baseDir,
+    stdio: "ignore",
+    timeout: INSTALL_TIMEOUT_MS,
+  });
+  child.on("error", () => {
+    managedInstallState = "failed";
+    safeRm(staging);
+  });
+  child.on("exit", (/** @type {number|null} */ code) => {
+    try {
+      if (code !== 0) {
+        managedInstallState = "failed";
+        safeRm(staging);
+        return;
+      }
+      if (readInstalledVersion(staging) !== version) {
+        managedInstallState = "failed";
+        safeRm(staging);
+        return;
+      }
+      publishManagedVersion(baseDir, staging);
+      managedInstallState = "done";
+      gcOldVersions(baseDir, staging);
+    } catch {
+      managedInstallState = "failed";
+      safeRm(staging);
+    }
+  });
+  child.unref();
+}
+
+/** Lazy managed-copy installer: at most one attempt per server lifetime. Fired
+ * fire-and-forget from a tier-none miss; never throws into a hook call; never blocks.
+ * @returns {void} */
+function ensureManagedPrettierInstalled() {
+  if (managedInstallState !== "idle") return;
+  const baseDir = managedPrettierDir();
+  if (!baseDir) {
+    managedInstallState = "failed"; // no data dir -> managed tier disabled
+    return;
+  }
+  managedInstallState = "installing";
+  try {
+    installManagedPrettier(baseDir, MANAGED_PRETTIER_VERSION);
+  } catch {
+    managedInstallState = "failed";
+  }
+}
+
+// ---- daily-check STUB (real body lands in Task 4) ----
 
 // Daily reconcile-to-pin check. Task 4 replaces this stub with the real body.
 // Fired fire-and-forget at server start; never awaited.
