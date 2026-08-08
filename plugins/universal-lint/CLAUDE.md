@@ -299,7 +299,7 @@ for `classifyExit`, `classifyCheckstyleOutput`, `resolveCheckstyleConfig`,
 `buildArgv`, `truncate`). Run:
 
 ```bash
-BATS_LIB_PATH="$PWD/node_modules" npx bats test/universal-lint/
-npm run test:unit
-npm run typecheck
+BATS_LIB_PATH="$PWD/node_modules" pnpm exec bats test/universal-lint/
+pnpm run test:unit
+pnpm run typecheck
 ```

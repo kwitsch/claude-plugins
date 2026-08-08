@@ -8,25 +8,25 @@ Claude Code plugin marketplace.
 - `plugins/<name>/` — one plugin each: `.claude-plugin/plugin.json` + components (`skills/`, `agents/`, `hooks/`, `bin/`, `commands/` legacy, …) + `README.md` + `CLAUDE.md`. Full list in `plugins/CLAUDE.md`.
 - `test/<name>/test.bats` — per-plugin bats suite (top-level); conventions in `.claude/rules/test-conventions.md`.
 - `.claude/rules/` — path-scoped rules loaded by Claude Code when editing matching files (versioning, userConfig, hooks, skills, agents, harness-content language, README sync, test conventions, coderabbit review).
-- `.github/workflows/ci.yml` validates manifests; `test.yml` runs bats suites plus a `unit_and_typecheck` job (`npm run typecheck` + `npm run test:unit`); `tag-on-version-bump.yml` tags plugins whose plugin.json version has no tag yet.
+- `.github/workflows/ci.yml` validates manifests; `test.yml` runs bats suites plus a `unit_and_typecheck` job (`pnpm run typecheck` + `pnpm run test:unit`); `tag-on-version-bump.yml` tags plugins whose plugin.json version has no tag yet.
 
 ## Testing
 
 ```bash
 # one-time setup
-npm ci
+pnpm install --frozen-lockfile
 
 # run plugin bats suite
-BATS_LIB_PATH="$PWD/node_modules" npx bats test/<name>/
+BATS_LIB_PATH="$PWD/node_modules" pnpm exec bats test/<name>/
 
 # type-check .mjs files (plugins/, test/)
-npm run typecheck
+pnpm run typecheck
 
 # JS unit tests (node:test)
-npm run test:unit
+pnpm run test:unit
 
 # lint (dev-time only, not CI-gated on pre-existing files)
-npm run lint
+pnpm run lint
 
 # validate marketplace manifest + plugin.json files (mirrors CI)
 jq empty .claude-plugin/marketplace.json && \

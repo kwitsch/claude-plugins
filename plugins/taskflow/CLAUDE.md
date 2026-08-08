@@ -75,7 +75,7 @@ the two.)
 ## Tests
 
 ```bash
-BATS_LIB_PATH="$PWD/node_modules" npx bats test/taskflow/
+BATS_LIB_PATH="$PWD/node_modules" pnpm exec bats test/taskflow/
 ```
 
 The suite is structural: plugin manifest invariants (no `userConfig`), the

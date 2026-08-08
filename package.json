@@ -2,6 +2,7 @@
   "name": "claude-plugins-tests",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@11.20.0",
   "scripts": {
     "test:bats": "BATS_LIB_PATH=\"$PWD/node_modules\" bats -r test/",
     "test:unit": "node --test",

@@ -113,4 +113,4 @@ loads it via `load 'test_helper'` and declares its own `setup() { common_setup; 
 invariants and generic README structure; `npm-ci-on-worktree.bats` +
 `.test.mjs` cover that hook's behavior end to end (bats, process-level) and its
 pure functions (`node:test`, unit-level).
-Run: `BATS_LIB_PATH="$PWD/node_modules" npx bats test/npm-automations/`
+Run: `BATS_LIB_PATH="$PWD/node_modules" pnpm exec bats test/npm-automations/`

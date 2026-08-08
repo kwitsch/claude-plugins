@@ -914,7 +914,7 @@ helper function (`setup_worktree_fixture`, `run_freshbranch`, `run_rebase`,
 not hoisted. Each `.bats` file starts with `load 'test_helper'` and its own
 `setup() { common_setup; }`. `bats test/coding-toolbox/` (below) already runs
 every `.bats` file in the directory — this is the same invocation CI uses
-(`.github/workflows/test.yml`'s `npx bats "test/${{ matrix.plugin }}/"` targets
+(`.github/workflows/test.yml`'s `pnpm exec bats "test/${{ matrix.plugin }}/"` targets
 the directory, not a filename), so the split needed no CI change. Grouping:
 `manifest.bats` (plugin.json/marketplace/root-README/test.yml-matrix invariants
 plus generic README structure checks — content not owned by one skill/hook),
@@ -994,4 +994,4 @@ assertions (reference doc present, `SKILL.md` reads it before invoking,
 `Bash(bash:*)` present, not executable, tripwire that the old inline
 verb/target prose no longer appears in `SKILL.md`) — replacing, not
 supplementing, the presence-only greps that used to cover this prose.
-Run: `BATS_LIB_PATH="$PWD/node_modules" npx bats test/coding-toolbox/`
+Run: `BATS_LIB_PATH="$PWD/node_modules" pnpm exec bats test/coding-toolbox/`

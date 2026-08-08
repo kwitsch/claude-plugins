@@ -109,7 +109,7 @@ an isolated PATH recording argv. Plus `test/universal-format/*.test.mjs`
 mapping). Run:
 
 ```bash
-BATS_LIB_PATH="$PWD/node_modules" npx bats test/universal-format/
-npm run test:unit
-npm run typecheck
+BATS_LIB_PATH="$PWD/node_modules" pnpm exec bats test/universal-format/
+pnpm run test:unit
+pnpm run typecheck
 ```

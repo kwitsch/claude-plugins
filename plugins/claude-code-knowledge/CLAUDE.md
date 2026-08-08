@@ -43,7 +43,7 @@ Version lives ONLY in `.claude-plugin/plugin.json`. Rules:
 ## Tests
 
 ```bash
-BATS_LIB_PATH="$PWD/node_modules" npx bats test/claude-code-knowledge/
+BATS_LIB_PATH="$PWD/node_modules" pnpm exec bats test/claude-code-knowledge/
 ```
 
 The suite is structural: it checks the plugin manifest, the cc-reference skill shape, the reference files under `references/` (incl. the `references/` layout convention + `skill-folder-structure.md`), the expert agent, the mcp_tool reroute server, and that the update-cc-references maintenance skill is present but user-only.

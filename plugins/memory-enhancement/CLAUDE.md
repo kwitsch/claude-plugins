@@ -89,7 +89,7 @@ feature (v2.1.59+).
 (`node --test`). Run:
 
 ```bash
-BATS_LIB_PATH="$PWD/node_modules" npx bats test/memory-enhancement/
-npm run test:unit
-npm run typecheck
+BATS_LIB_PATH="$PWD/node_modules" pnpm exec bats test/memory-enhancement/
+pnpm run test:unit
+pnpm run typecheck
 ```
