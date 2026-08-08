@@ -4,12 +4,13 @@ import process from "node:process";
 import { accessSync, constants as fsConstants } from "node:fs";
 
 // Walk from `dir` up to the filesystem root (inclusive), calling `checkDir` at each level;
-// true on the first hit. Unbounded -- unlike editorconfig.ts's walkers (findNativeConfig,
-// resolveEditorconfig), which stop at `cwd` because their governing tools (ruff/black/
-// .editorconfig) only ever look inside the project tree. Prettier's own config search has no
-// such bound (verified against prettier's source: its CONFIG_FILES searcher has no
-// stopDirectory), so bounding this one at `cwd` would misdetect "absent" for a real config
-// living above the project root (a workspace/monorepo case).
+// true on the first hit. Unbounded -- unlike editorconfig.ts's `findNativeConfig`, which stops at
+// `cwd` because its governing tools (ruff/black) only ever look inside the project tree.
+// `resolveEditorconfig` defaults to the same cwd bound but takes an `unbounded` opt for its one
+// caller (the printWidth guard) that needs to match prettier's own unbounded `.editorconfig`
+// resolution. Prettier's own config search has no such bound either (verified against prettier's
+// source: its CONFIG_FILES searcher has no stopDirectory), so bounding this one at `cwd` would
+// misdetect "absent" for a real config living above the project root (a workspace/monorepo case).
 export function walkToRoot(dir: string, checkDir: (dir: string) => boolean): boolean {
   for (;;) {
     if (checkDir(dir)) return true;

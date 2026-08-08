@@ -36,7 +36,7 @@ const MAPPERS: Record<string, (base: string[], ec: EditorConfigProps) => { argv:
   ruff(base, ec) {
     const argv = base.slice();
     if (typeof ec.max_line_length === "number") argv.push("--line-length", String(ec.max_line_length));
-    if (ec.indent_style) argv.push("--config", `format.indent-style='${ec.indent_style}'`);
+    if (ec.indent_style === "tab" || ec.indent_style === "space") argv.push("--config", `format.indent-style='${ec.indent_style}'`);
     if (typeof ec.indent_size === "number") argv.push("--config", `format.indent-width=${ec.indent_size}`);
     return { argv };
   },
@@ -82,25 +82,33 @@ export function findNativeConfig(fileDir: string, cwd: string, entries: Array<st
 
 // Resolve .editorconfig props for a file by walking dir->cwd (inclusive), stopping after a file
 // with root=true. Sections applied farthest-first, later-section-wins, so nearer files and later
-// matching sections override. Returns {found, props}.
-export function resolveEditorconfig(file: string, cwd: string): { found: boolean; props: EditorConfigProps } {
+// matching sections override. Returns {found, props}. `opts.unbounded` skips the cwd stop,
+// walking all the way to the filesystem root instead -- real .editorconfig resolution (and
+// prettier's own internal `editorconfig: true` lookup) has no project-boundary concept, only
+// root=true/filesystem-root; the printWidth guard needs that same unbounded scope to avoid
+// missing a real max_line_length set above cwd (a workspace/monorepo case). ruff/black's
+// tool-native-config mapping stays cwd-bounded (the default) -- unrelated concern, unchanged.
+export function resolveEditorconfig(file: string, cwd: string, opts: { unbounded?: boolean } = {}): { found: boolean; props: EditorConfigProps } {
+  const { unbounded = false } = opts;
   const basename = path.basename(file);
   const parsed: Array<{ root: boolean; sections: Array<{ glob: string; props: Record<string, string> }> }> = []; // nearest-first as we ascend
   let dir = path.dirname(file);
   for (;;) {
     const p = path.join(dir, ".editorconfig");
     if (existsSync(p)) {
-      let text = "";
+      let text: string | undefined;
       try {
         text = readFileSync(p, "utf8");
       } catch {
-        /* unreadable .editorconfig -> treat as absent */
+        /* unreadable .editorconfig -> treat as absent: do not push a phantom empty entry */
       }
-      const pf = parseEditorconfig(text);
-      parsed.push(pf);
-      if (pf.root) break; // stop climbing at root=true
+      if (text !== undefined) {
+        const pf = parseEditorconfig(text);
+        parsed.push(pf);
+        if (pf.root) break; // stop climbing at root=true
+      }
     }
-    if (dir === cwd) break;
+    if (!unbounded && dir === cwd) break;
     const parent = path.dirname(dir);
     if (parent === dir) break;
     dir = parent;
@@ -183,9 +191,10 @@ function globToRegExp(glob: string): RegExp | null {
   return new RegExp("^" + re + "$");
 }
 
-// Normalize raw string props to typed EditorConfigProps (lowercased styles; finite numbers only —
-// a non-numeric/invalid value is dropped rather than emitted as NaN). An explicit
-// `max_line_length = off` is dropped entirely, i.e. treated the same as "not set".
+// Normalize raw string props to typed EditorConfigProps (lowercased styles; positive integers
+// only — a non-numeric, zero, negative, or fractional value is dropped rather than mapped to a
+// formatter flag). An explicit `max_line_length = off` is dropped entirely, i.e. treated the same
+// as "not set".
 function normalizeProps(raw: Record<string, string>): EditorConfigProps {
   const out: EditorConfigProps = {};
   if (raw.indent_style) out.indent_style = raw.indent_style.toLowerCase();
@@ -194,14 +203,14 @@ function normalizeProps(raw: Record<string, string>): EditorConfigProps {
     if (v === "tab") out.indent_size = "tab";
     else {
       const n = Number(v);
-      if (Number.isFinite(n)) out.indent_size = n;
+      if (Number.isInteger(n) && n > 0) out.indent_size = n;
     }
   }
   if (raw.max_line_length !== undefined) {
     const v = raw.max_line_length.toLowerCase();
     if (v !== "off") {
       const n = Number(v);
-      if (Number.isFinite(n)) out.max_line_length = n;
+      if (Number.isInteger(n) && n > 0) out.max_line_length = n;
     }
   }
   if (raw.end_of_line) out.end_of_line = raw.end_of_line.toLowerCase();

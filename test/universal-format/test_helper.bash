@@ -80,7 +80,10 @@ rec_stub() {
 # stdin is held OPEN through a FIFO and the output polled for an `"id":2` line (bounded,
 # ~4 s) before stdin is closed and the server reaped, so a handler with a real async step
 # (the in-process prettier path) cannot have its response raced away by the server's
-# exit-on-stdin-close. mkfifo/grep/sleep/jq run in the bats shell with the real PATH, so
+# exit-on-stdin-close. Termination is ALSO bounded (~3 s, then SIGTERM, then SIGKILL): stdin
+# closing should make the server's readline hit EOF and exit on its own, but a server bug
+# (a stray timer, an unresolved promise) keeping it alive must never hang the whole suite on
+# an unbounded `wait`. mkfifo/grep/sleep/jq run in the bats shell with the real PATH, so
 # MOCKBIN's symlink farm needs no new entry.
 # $1 = tool name, $2 = arguments JSON object (compact).
 _mcp_call() {
@@ -99,6 +102,18 @@ _mcp_call() {
     sleep 0.1
   done
   exec {w}>&-
+  for ((i=0; i<30; i++)); do
+    kill -0 "$server_pid" 2>/dev/null || break
+    sleep 0.1
+  done
+  if kill -0 "$server_pid" 2>/dev/null; then
+    kill "$server_pid" 2>/dev/null
+    for ((i=0; i<10; i++)); do
+      kill -0 "$server_pid" 2>/dev/null || break
+      sleep 0.1
+    done
+    kill -0 "$server_pid" 2>/dev/null && kill -9 "$server_pid" 2>/dev/null
+  fi
   wait "$server_pid" 2>/dev/null || true
   rm -f "$fifo"
   out="$(jq -rc 'select(.id == 2) | .result.content[0].text' "$outfile" 2>/dev/null)"

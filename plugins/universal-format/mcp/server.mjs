@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=9ef2414d946f4dc9 body=c817beda0606db56 prettier=3.9.6 bun=1.3.14
+// uf-build-fingerprint src=2681b6fe847d39a8 body=ad36dae5d42b7dfb prettier=3.9.6 bun=1.3.14
 var __defProp = Object.defineProperty;
 var __returnValue = (v) => v;
 function __exportSetter(name, newValue) {
@@ -68337,7 +68337,8 @@ import { fileURLToPath as fileURLToPath6 } from "node:url";
 // src/universal-format-mcp/handlers.ts
 import path19 from "node:path";
 import { existsSync as existsSync3, readFileSync as readFileSync3 } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { execFile as execFileCb } from "node:child_process";
+import { promisify } from "node:util";
 
 // src/universal-format-mcp/registry.ts
 import path3 from "node:path";
@@ -68380,7 +68381,7 @@ var MAPPERS = {
     const argv = base.slice();
     if (typeof ec.max_line_length === "number")
       argv.push("--line-length", String(ec.max_line_length));
-    if (ec.indent_style)
+    if (ec.indent_style === "tab" || ec.indent_style === "space")
       argv.push("--config", `format.indent-style='${ec.indent_style}'`);
     if (typeof ec.indent_size === "number")
       argv.push("--config", `format.indent-width=${ec.indent_size}`);
@@ -68425,23 +68426,26 @@ function findNativeConfig(fileDir, cwd, entries) {
   }
   return false;
 }
-function resolveEditorconfig(file, cwd) {
+function resolveEditorconfig(file, cwd, opts = {}) {
+  const { unbounded = false } = opts;
   const basename = path.basename(file);
   const parsed = [];
   let dir = path.dirname(file);
   for (;; ) {
     const p = path.join(dir, ".editorconfig");
     if (existsSync(p)) {
-      let text = "";
+      let text;
       try {
         text = readFileSync(p, "utf8");
       } catch {}
-      const pf = parseEditorconfig(text);
-      parsed.push(pf);
-      if (pf.root)
-        break;
+      if (text !== undefined) {
+        const pf = parseEditorconfig(text);
+        parsed.push(pf);
+        if (pf.root)
+          break;
+      }
     }
-    if (dir === cwd)
+    if (!unbounded && dir === cwd)
       break;
     const parent = path.dirname(dir);
     if (parent === dir)
@@ -68531,7 +68535,7 @@ function normalizeProps(raw) {
       out.indent_size = "tab";
     else {
       const n = Number(v);
-      if (Number.isFinite(n))
+      if (Number.isInteger(n) && n > 0)
         out.indent_size = n;
     }
   }
@@ -68539,7 +68543,7 @@ function normalizeProps(raw) {
     const v = raw.max_line_length.toLowerCase();
     if (v !== "off") {
       const n = Number(v);
-      if (Number.isFinite(n))
+      if (Number.isInteger(n) && n > 0)
         out.max_line_length = n;
     }
   }
@@ -87399,8 +87403,8 @@ var debugApis = {
 };
 
 // src/universal-format-mcp/prettier.ts
-var bundledPrettier = exports_prettier?.default ?? exports_prettier;
-var BUNDLED_PRETTIER_VERSION = String(bundledPrettier?.version ?? "");
+var bundledPrettier = index_exports ?? exports_prettier;
+var BUNDLED_PRETTIER_VERSION = String(bundledPrettier.version ?? "");
 var PRETTIER_CONFIG_FILENAMES = [
   ".prettierrc",
   ".prettierrc.json",
@@ -87421,8 +87425,12 @@ var PRETTIER_CONFIG_FILENAMES = [
   "prettier.config.cts",
   ".prettierrc.toml"
 ];
+var projectConfigCache = new Map;
 function hasPrettierProjectConfig(fileDir) {
-  return walkToRoot(fileDir, (dir) => {
+  const cached = projectConfigCache.get(fileDir);
+  if (cached !== undefined)
+    return cached;
+  const result = walkToRoot(fileDir, (dir) => {
     if (PRETTIER_CONFIG_FILENAMES.some((name) => existsSync2(path17.join(dir, name))))
       return true;
     const pkgPath = path17.join(dir, "package.json");
@@ -87444,11 +87452,13 @@ function hasPrettierProjectConfig(fileDir) {
     }
     return false;
   });
+  projectConfigCache.set(fileDir, result);
+  return result;
 }
 function shouldOverridePrintWidth(file, cwd) {
   if (hasPrettierProjectConfig(path17.dirname(file)))
     return false;
-  const ec3 = resolveEditorconfig(file, cwd);
+  const ec3 = resolveEditorconfig(file, cwd, { unbounded: true });
   if (ec3.found && typeof ec3.props.max_line_length === "number")
     return false;
   return true;
@@ -87472,7 +87482,7 @@ function resolveConfigPlugins(plugins2, cwd) {
   return out;
 }
 async function formatInProcess(src, filePath, cwd, lang) {
-  const config = await bundledPrettier.resolveConfig(filePath, { editorconfig: true }) ?? {};
+  const config = { ...await bundledPrettier.resolveConfig(filePath, { editorconfig: true }) ?? {} };
   if (Array.isArray(config.plugins)) {
     const resolvedPlugins = resolveConfigPlugins(config.plugins, cwd);
     if (resolvedPlugins === null)
@@ -87484,6 +87494,7 @@ async function formatInProcess(src, filePath, cwd, lang) {
   return await bundledPrettier.format(src, { ...config, filepath: filePath });
 }
 function clearPrettierConfigCaches() {
+  projectConfigCache.clear();
   try {
     if (typeof bundledPrettier.clearConfigCache === "function")
       bundledPrettier.clearConfigCache();
@@ -87504,6 +87515,7 @@ async function isPrettierIgnored(filePath, cwd) {
 
 // src/universal-format-mcp/handlers.ts
 var SPAWN_TIMEOUT_MS = 30000;
+var execFile = promisify(execFileCb);
 function isExcludedPath(rel) {
   const segments = rel.split(path19.sep);
   if (segments.some((s) => s === "node_modules" || s === "vendor" || s === ".git"))
@@ -87557,7 +87569,7 @@ async function formatPost(args) {
     const { tool, argv } = selection;
     const before = readFileSync3(resolved);
     try {
-      spawnSync(tool.name, [...argv, resolved], { cwd, timeout: SPAWN_TIMEOUT_MS, stdio: "ignore" });
+      await execFile(tool.name, [...argv, resolved], { cwd, timeout: SPAWN_TIMEOUT_MS });
     } catch {}
     const after = readFileSync3(resolved);
     if (before.equals(after))
@@ -87623,7 +87635,7 @@ async function formatPre(args) {
 
 // src/universal-format-mcp/server.ts
 var SERVER_NAME = "universal-format-hooks";
-var SERVER_INFO = { name: SERVER_NAME, version: "0.10.0" };
+var SERVER_INFO = { name: SERVER_NAME, version: process5.env.UNIVERSAL_FORMAT_MCP_VERSION ?? "0.0.0" };
 var DEFAULT_PROTOCOL = "2025-11-25";
 function isMainModule() {
   try {
@@ -87699,8 +87711,12 @@ function startServer() {
 `);
       return;
     }
-    Promise.resolve(handle(msg)).catch((e7) => process5.stderr.write(`[${SERVER_NAME}] handler crash: ${e7?.stack ?? e7}
-`));
+    Promise.resolve(handle(msg)).catch((e7) => {
+      process5.stderr.write(`[${SERVER_NAME}] handler crash: ${e7?.stack ?? e7}
+`);
+      if (msg?.id !== undefined)
+        fail(msg.id, -32603, `internal error: ${e7?.message ?? e7}`);
+    });
   });
   rl4.on("close", () => process5.exit(0));
 }

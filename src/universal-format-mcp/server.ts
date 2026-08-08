@@ -10,7 +10,10 @@ import { fileURLToPath } from "node:url";
 import { formatPost, formatPre } from "./handlers.js";
 
 const SERVER_NAME = "universal-format-hooks"; // keep aligned with the .mcp.json key
-const SERVER_INFO = { name: SERVER_NAME, version: "0.10.0" }; // hand-paired with plugin.json
+// UNIVERSAL_FORMAT_MCP_VERSION is inlined at build time by build.mjs's `bun build --env` flag
+// from plugin.json's own version, so plugin.json stays the single source of truth -- never
+// hand-edit this fallback to "match" a release; it only fires if server.ts runs unbundled.
+const SERVER_INFO = { name: SERVER_NAME, version: process.env.UNIVERSAL_FORMAT_MCP_VERSION ?? "0.0.0" };
 const DEFAULT_PROTOCOL = "2025-11-25"; // only used if the client omits protocolVersion
 
 // ---- public surface of the built artifact: exactly 17 names, imported by the test suites ----
@@ -100,7 +103,12 @@ function startServer(): void {
       process.stderr.write(`[${SERVER_NAME}] non-JSON line ignored\n`);
       return;
     }
-    Promise.resolve(handle(msg)).catch((e: any) => process.stderr.write(`[${SERVER_NAME}] handler crash: ${e?.stack ?? e}\n`));
+    Promise.resolve(handle(msg)).catch((e: any) => {
+      process.stderr.write(`[${SERVER_NAME}] handler crash: ${e?.stack ?? e}\n`);
+      // A request (has an id) must always get a response, or the client hangs waiting for one
+      // that will never come; a notification (no id) correctly gets none, per the default case.
+      if (msg?.id !== undefined) fail(msg.id, -32603, `internal error: ${e?.message ?? e}`);
+    });
   });
   rl.on("close", () => process.exit(0));
 }

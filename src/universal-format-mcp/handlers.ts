@@ -3,11 +3,17 @@
 // because a type says a value cannot be undefined.
 import path from "node:path";
 import { existsSync, readFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { execFile as execFileCb } from "node:child_process";
+import { promisify } from "node:util";
 import { EXT_MAP, PRETTIER_LANGS, REGISTRY, selectFormatter } from "./registry.js";
 import { PRETTIER_CONFIG_FILENAMES, clearPrettierConfigCaches, formatInProcess, isPrettierIgnored } from "./prettier.js";
 
 const SPAWN_TIMEOUT_MS = 30000; // inner formatter timeout; the hook-level timeout:60 is the backstop
+
+// Promise-based, not spawnSync: this handler runs inside a persistent MCP server that also
+// services other concurrent hook calls, so a blocking spawn would stall the whole event loop
+// (and every other in-flight format_pre/format_post) for up to SPAWN_TIMEOUT_MS.
+const execFile = promisify(execFileCb);
 
 // True when `rel` (already resolved inside cwd) is dependency/VCS state (node_modules/vendor/
 // .git) or Claude-Code-owned session/worktree machinery that happens to sit inside cwd -- a
@@ -83,9 +89,10 @@ export async function formatPost(args: PostToolUseHookInput): Promise<HookResult
 
     const before = readFileSync(resolved);
     try {
-      spawnSync(tool.name, [...argv, resolved], { cwd, timeout: SPAWN_TIMEOUT_MS, stdio: "ignore" });
+      await execFile(tool.name, [...argv, resolved], { cwd, timeout: SPAWN_TIMEOUT_MS });
     } catch {
-      /* spawn failure is a silent no-op */
+      /* spawn/non-zero-exit failure is a silent no-op -- some tools (ktlint) exit non-zero after
+       * a successful format, so this must never gate the before/after diff below */
     }
     const after = readFileSync(resolved);
     if (before.equals(after)) return {};
