@@ -159,14 +159,37 @@ the tsconfig's realpath (`tsBuildInfoPathFor`, mirroring
 empirically against this repo's own `tsconfig.json`: a cold run took 0.70s,
 the cached rerun 0.29s.
 
-`classifyExit`'s `"tsc"` case shares stylelint's 0-clean/2-issues/else-skip
-contract — verified **empirically** (tsc v6.0.3), not from documentation: a
-real type or syntax error under `--noEmit` exits `2`; an invalid project
-path (nonexistent tsconfig) exits `1` — the _opposite_ of what the
-compiler's documented `ExitStatus` enum (`Success=0`,
+`classifyExit`'s `"tsc"` case is 0-clean/1-or-2-issues/else-skip — verified
+**empirically**, not from documentation, and the contract has already
+flipped once across a `tsc` major version. Under tsc v6.0.3, a real type or
+syntax error under `--noEmit` exited `2`; only an invalid project path
+(nonexistent tsconfig) exited `1` — the _opposite_ of what the compiler's
+documented `ExitStatus` enum (`Success=0`,
 `DiagnosticsPresent_OutputsSkipped=1`, `_OutputsGenerated=2`) suggested.
-Trust the live behavior, not the enum — re-verify if the installed `tsc`
-major version changes materially and findings stop surfacing.
+Under TypeScript 7.0's native ("tsgo") compiler (verified against 7.0.2,
+GA'd 2026-07-08), a real diagnostic under `--noEmit` instead exits `1`
+(matching the documented enum this time), but exit `1` is now _also_ used
+for genuine project/config-loading failures — a broken `extends` path, an
+invalid compiler-option value, a nonexistent tsconfig path (verified
+empirically: `TS5083`, `TS6046`, `TS5058`, all exit `1`) — no longer
+distinguishable from a real diagnostic by exit code alone. `classifyExit`
+therefore only answers "clean vs. worth a closer look"; `runTypeCheck` does
+a second, content-based pass on exit-`1` results specifically —
+`tscOutputHasSourceDiagnostic` checks (after stripping ANSI color codes,
+which the native compiler emits even when piped) whether the output
+contains a diagnostic anchored to an actual `.ts`/`.tsx`/`.mts`/`.cts`
+location (`<file>:<line>:<col>` or `<file>(<line>,<col>)`) rather than only
+to `tsconfig.json` itself or no location at all — a pure config-loading
+failure never anchors to a real source file, so this reliably tells "tsc
+actually checked project code and found a problem in it" apart from "tsc
+never got past loading the project." A config failure alongside a genuine
+source diagnostic (e.g. a broken `extends` _and_ a real type error in the
+checked file) still surfaces the real finding, since tsc reports both and
+the check only needs one true source location to fire. Exit `2` skips this
+extra check — it meant a real diagnostic both before and after the TS7
+change, so no disambiguation is needed there. Trust the live behavior, not
+the enum — re-verify whenever the installed `tsc` major version changes
+materially and findings stop surfacing.
 
 Discovery: `tsc` on `PATH` first (runs through the same `runLintTool`
 rtk-compaction attempt every other chain tool gets, keyed off the static

@@ -541,19 +541,34 @@ export function classifyExit(toolName, status) {
       // own docs don't separate the two); accepted -- see design doc Risks.
       return status === 0 ? "clean" : "issues";
     case "stylelint":
-    case "tsc":
-      // 0 clean, 2 real problem (stylelint: lint violation; tsc: type/syntax
-      // diagnostic), else crash/misconfig/invalid-project (skip). stylelint's
-      // contract verified against stylelint.io/user-guide/usage/cli. tsc's
-      // contract verified EMPIRICALLY (v6.0.3), not from docs: a real type or
-      // syntax error under --noEmit exits 2; an invalid project path
-      // (nonexistent tsconfig) exits 1 -- the OPPOSITE of the compiler's
-      // documented ExitStatus enum (Success=0,
-      // DiagnosticsPresent_OutputsSkipped=1, _OutputsGenerated=2). Trust the
-      // live behavior, not the enum -- re-verify if the installed tsc major
-      // version changes materially and findings stop surfacing.
+      // 0 clean, 2 real lint violation, else crash/misconfig (skip) --
+      // verified against stylelint.io/user-guide/usage/cli.
       if (status === 0) return "clean";
       if (status === 2) return "issues";
+      return "skip";
+    case "tsc":
+      // 0 clean, 1 OR 2 real problem, else skip -- verified EMPIRICALLY, not
+      // from docs, and the contract has already flipped once across a tsc
+      // major version: under tsc v6.0.3, a real type/syntax error under
+      // --noEmit exited 2 and only an invalid project path (nonexistent
+      // tsconfig) exited 1 -- the OPPOSITE of the compiler's documented
+      // ExitStatus enum (Success=0, DiagnosticsPresent_OutputsSkipped=1,
+      // _OutputsGenerated=2). Under TypeScript 7.0's native ("tsgo") tsc,
+      // real diagnostics under --noEmit instead exit 1 (matching the
+      // documented enum this time), but exit 1 is now ALSO used for genuine
+      // project/config-loading failures (broken `extends` path, invalid
+      // compiler-option value, nonexistent tsconfig path) -- verified
+      // empirically against 7.0.2 (TS5083/TS6046/TS5058, all exit 1, none
+      // referencing a real source-file location). This exit-code-only bucket
+      // therefore only separates clean (0) from "worth a closer look" (1 or
+      // 2); the caller (runTypeCheck) does a second, content-based pass on
+      // status-1 results specifically (tscOutputHasSourceDiagnostic) to
+      // distinguish an actual source-file diagnostic from a pure
+      // config-loading failure before surfacing a finding. Trust the live
+      // behavior, not the enum -- re-verify whenever the installed tsc major
+      // version changes materially and findings stop surfacing.
+      if (status === 0) return "clean";
+      if (status === 1 || status === 2) return "issues";
       return "skip";
     case "phpstan":
       // 0 clean (phpstan.org/user-guide/command-line-usage, quoted: "Exit code 0
@@ -666,6 +681,25 @@ function runChainLint(lang, resolved, cwd, rel) {
   return { tool: tool.name, target, text };
 }
 
+// tsc's per-diagnostic location line always anchors to the checked file:
+// "<path>:<line>:<col> - error TS<code>: <message>" (verified against the
+// native 7.0.2 compiler's own output). A pure project/config-loading failure
+// (broken `extends`, invalid compiler-option value, nonexistent tsconfig
+// path -- verified empirically: TS5083/TS6046/TS5058) either carries no
+// location at all or anchors to tsconfig.json itself, never to a
+// .ts/.tsx/.mts/.cts source file -- so this regex only matches when tsc
+// actually reached and diagnosed real project source. A tsconfig-loading
+// failure alongside a genuine source diagnostic (e.g. a broken `extends`
+// PLUS a real type error in the checked file) still matches, since tsc
+// reports both and this only needs one true location to fire.
+const TSC_SOURCE_DIAGNOSTIC_RE = /\.(?:ts|tsx|mts|cts)[:(]\d+/;
+/** @param {string} text @returns {boolean} */
+export function tscOutputHasSourceDiagnostic(text) {
+  // eslint-disable-next-line no-control-regex -- stripping ANSI SGR sequences from tsc's colorized output
+  const plain = text.replace(/\x1b\[[0-9;]*m/g, "");
+  return TSC_SOURCE_DIAGNOSTIC_RE.test(plain);
+}
+
 // Run tsc against the whole project governed by the nearest tsconfig.json
 // (tsc has no single-file mode with project context -- confirmed: "When
 // input files are specified on the command line, tsconfig.json files are
@@ -707,10 +741,18 @@ function runTypeCheck(resolved, cwd) {
   if (result.error || result.signal) return null;
   if (classifyExit("tsc", result.status) !== "issues") return null;
 
+  const text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  // Exit 1 alone doesn't distinguish a real source diagnostic from a pure
+  // project/config-loading failure under TS7's native compiler (see
+  // classifyExit's "tsc" case) -- exit 2 always meant a real diagnostic
+  // already, both before and after that change, so only exit 1 needs the
+  // extra content check.
+  if (result.status === 1 && !tscOutputHasSourceDiagnostic(text)) return null;
+
   return {
     tool: "tsc",
     target: path.relative(cwd, path.dirname(tsconfigPath)) || ".",
-    text: `${result.stdout ?? ""}\n${result.stderr ?? ""}`,
+    text,
   };
 }
 

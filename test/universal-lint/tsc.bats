@@ -65,14 +65,54 @@ setup() {
   [ "$output" = "{}" ]
 }
 
-@test "tsc exit 1 (invalid project) -> {} (proves 0/2/else, opposite of the doc-derived 0/1/else guess)" {
+@test "tsc exit 1 (TypeScript 7 native compiler's real-diagnostic exit code, source location present) -> surfaced as issues" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
   printf '{"compilerOptions":{"noEmit":true},"include":["*.ts"]}' > "$cwd/tsconfig.json"
   printf 'const x: number = 1;\n' > "$cwd/a.ts"
-  OUT='error TS5058: something is broken'
+  OUT='a.ts(1,1): error TS2322: tsc-finding-marker'
   rec_stub tsc 1
+  run lint_file_call "$cwd/a.ts" "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("tsc-finding-marker")'
+}
+
+@test "tsc exit 1 (pure project/config-loading failure, no source-file location) -> {} (skip, not a real finding)" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '{"compilerOptions":{"noEmit":true},"include":["*.ts"]}' > "$cwd/tsconfig.json"
+  printf 'const x: number = 1;\n' > "$cwd/a.ts"
+  OUT="error TS5083: Cannot read file '/proj/missing-base.json'."
+  rec_stub tsc 1
+  run lint_file_call "$cwd/a.ts" "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+}
+
+@test "tsc exit 1 (config-loading failure AND a real diagnostic together) -> the real finding still surfaces" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '{"compilerOptions":{"noEmit":true},"include":["*.ts"]}' > "$cwd/tsconfig.json"
+  printf 'const x: number = 1;\n' > "$cwd/a.ts"
+  OUT="error TS5083: Cannot read file '/proj/missing-base.json'.
+a.ts(1,1): error TS2322: tsc-finding-marker"
+  rec_stub tsc 1
+  run lint_file_call "$cwd/a.ts" "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("tsc-finding-marker")'
+}
+
+@test "tsc exit 64 (unrecognized/crash) -> {} (skip bucket)" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf '{"compilerOptions":{"noEmit":true},"include":["*.ts"]}' > "$cwd/tsconfig.json"
+  printf 'const x: number = 1;\n' > "$cwd/a.ts"
+  OUT='unexpected crash'
+  rec_stub tsc 64
   run lint_file_call "$cwd/a.ts" "$cwd"
   assert_success
   [ "$output" = "{}" ]
