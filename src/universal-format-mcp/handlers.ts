@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { EXT_MAP, PRETTIER_LANGS, REGISTRY, selectFormatter } from "./registry.js";
-import { PRETTIER_CONFIG_FILENAMES, clearPrettierConfigCaches, formatInProcess, isPrettierIgnored, primePrettierIgnoreCache } from "./prettier.js";
+import { PRETTIER_CONFIG_FILENAMES, clearPrettierConfigCaches, clearPrettierIgnoreCache, formatInProcess, isPrettierIgnored, primePrettierIgnoreCache, warmPrettierConfigCache } from "./prettier.js";
 
 const SPAWN_TIMEOUT_MS = 30000; // inner formatter timeout; the hook-level timeout:60 is the backstop
 
@@ -178,4 +178,27 @@ export async function formatPre(args: ToolHookInput): Promise<HookResult> {
   } catch {
     return {};
   }
+}
+
+/** CwdChanged handler: the session's working directory moved, so drop the OLD directory's ignore
+ * entry and prefetch both halves for the NEW one — its cwd-rooted ignore files, and prettier's
+ * own directory-keyed config-search cache (measured ~1.9 ms -> ~0.25 ms for the first format
+ * there). A `cd` is not a format, so this really is a prefetch and not a cost shift.
+ * Per .claude/rules/hooks-mcp-tool-event-matrix.md CwdChanged is block_capable:false,
+ * additional_context:false, block_mechanism:"none" — there is nothing useful to say, so it always
+ * returns {}. Each half is independently guarded so a missing/non-string field is simply
+ * skipped. */
+export async function cwdChanged(args: CwdChangedHookInput): Promise<HookResult> {
+  try {
+    const oldCwd = typeof args?.old_cwd === "string" ? args.old_cwd : "";
+    const newCwd = typeof args?.new_cwd === "string" ? args.new_cwd : "";
+    if (oldCwd) clearPrettierIgnoreCache(oldCwd);
+    if (newCwd) {
+      primePrettierIgnoreCache(newCwd);
+      await warmPrettierConfigCache(newCwd);
+    }
+  } catch {
+    /* fail open: a cache prefetch must never surface as a hook failure */
+  }
+  return {};
 }
