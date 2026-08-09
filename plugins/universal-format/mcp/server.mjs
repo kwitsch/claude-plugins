@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=f713e25068455bfd body=2480182a89e84cac prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=fcbfbd1e6bee983f bun=1.3.14
+// uf-build-fingerprint src=875dd478d43ef5fa body=e026849e030f7e0e prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=fcbfbd1e6bee983f bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -200030,7 +200030,7 @@ var getProcessor = (getWasmFile) => {
 };
 
 // node_modules/sh-syntax/lib/index.js
-var __dirname = "/home/kwitsch/repos/claude-plugins/.claude/worktrees/wf_3e221d92-0bc-20/node_modules/.pnpm/sh-syntax@0.4.2/node_modules/sh-syntax/lib";
+var __dirname = "/home/kwitsch/repos/claude-plugins/.claude/worktrees/wf_a4fdf013-d70-3/node_modules/.pnpm/sh-syntax@0.4.2/node_modules/sh-syntax/lib";
 var _dirname = typeof __dirname === "undefined" ? path19.dirname(fileURLToPath6(import.meta.url)) : __dirname;
 var processor2 = getProcessor(() => fs13.readFile(path19.resolve(_dirname, "../main.wasm")));
 
@@ -200782,6 +200782,13 @@ function isExcludedPath(rel) {
     return true;
   return segments[segments.length - 1].includes(".local.");
 }
+function relativeInCwd(cwd, filePath) {
+  const resolved = path21.resolve(cwd, filePath);
+  const rel = path21.relative(cwd, resolved);
+  if (rel === ".." || rel.startsWith(".." + path21.sep) || path21.isAbsolute(rel))
+    return null;
+  return rel;
+}
 function applyEdit(current, oldStr, newStr, replaceAll3) {
   if (oldStr === "")
     return null;
@@ -200804,9 +200811,9 @@ async function formatPost(args2) {
     if (!cwd || typeof fp2 !== "string" || !fp2)
       return {};
     const resolved = path21.resolve(cwd, fp2);
-    if (resolved !== cwd && !resolved.startsWith(cwd + path21.sep))
+    const rel = relativeInCwd(cwd, resolved);
+    if (rel === null)
       return {};
-    const rel = path21.relative(cwd, resolved);
     if (isExcludedPath(rel))
       return {};
     if (CACHE_INVALIDATING_BASENAMES.has(path21.basename(resolved)))
@@ -200849,9 +200856,9 @@ async function formatPre(args2) {
     if (!cwd || typeof fp2 !== "string" || !fp2)
       return {};
     const resolved = path21.resolve(cwd, fp2);
-    if (resolved !== cwd && !resolved.startsWith(cwd + path21.sep))
+    const rel = relativeInCwd(cwd, resolved);
+    if (rel === null)
       return {};
-    const rel = path21.relative(cwd, resolved);
     if (isExcludedPath(rel))
       return {};
     const lang = EXT_MAP[path21.extname(resolved).toLowerCase()];

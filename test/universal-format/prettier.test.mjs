@@ -201,3 +201,18 @@ test("format_pre: a .prettierrc naming an unresolvable plugin yields {} rather t
   const res = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "a.json"), content: '{"a":1}' } }));
   assert.deepEqual(res, {});
 });
+
+// The containment guard is path.relative-based on purpose. The older
+// `resolved.startsWith(cwd + path.sep)` form rejected EVERY file when cwd carried a trailing
+// separator (or was "/"), i.e. it silently disabled the whole plugin for that session.
+test("format_pre containment guard: trailing-separator cwd still formats; a file outside cwd does not", async () => {
+  const cwd = tmp("uf-guard-cwd-");
+  const inside = /** @type {any} */ (
+    await formatPre(hookInput({ cwd: cwd + path.sep, tool_name: "Write", tool_input: { file_path: path.join(cwd, "a.json"), content: '{"a":1}' } }))
+  );
+  assert.equal(preContent(inside), '{ "a": 1 }\n', "a trailing-separator cwd must not disable the plugin");
+
+  const outsideDir = path.join(path.dirname(cwd), path.basename(cwd) + "-other");
+  const outside = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(outsideDir, "a.json"), content: '{"a":1}' } }));
+  assert.deepEqual(outside, {}, "a sibling directory sharing the cwd prefix must still be rejected");
+});
