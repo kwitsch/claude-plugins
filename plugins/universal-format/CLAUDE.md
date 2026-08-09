@@ -109,15 +109,20 @@ without a plugin the project asked for; silently stripping `plugins` was conside
 rejected (it would write output the project never asked for, and would fail anyway for a
 parser-providing plugin).
 
-**`isPrettierIgnored` keeps the in-process path at parity with the CLI** (do not drop
-it — it matters MORE now that no subprocess prettier path exists to get it for free):
-`prettier --write <file>` filters even an explicitly-named file through `--ignore-path`,
-which defaults to `[.gitignore, .prettierignore]` resolved against its cwd. `getFileInfo`
-does NOT auto-discover those files (verified: without `ignorePath` it returns
-`ignored:false`), so both are passed explicitly, joined to `cwd`; missing files are
-tolerated and any error falls open to formatting. Without it, `format_pre` would reformat
-a `.prettierignore`d file — including this repo's own `pnpm-lock.yaml` and its own
-generated `mcp/server.mjs`.
+**`isPrettierIgnored` is the ONE ignore source, and it is deliberately NOT CLI parity** (do not
+"fix" it back): `prettier --write <file>` filters even an explicitly-named file through
+`--ignore-path`, whose CLI default is `[.gitignore, .prettierignore]`. This plugin passes **only**
+`<base>/.prettierignore` — the single module-private `PRETTIER_IGNORE_FILENAME` constant in
+`prettier.ts`, read by both `readIgnoreState` and `probePrettierIgnored`. **Do not restore
+`.gitignore` for CLI parity:** "not tracked by git" and "must not be reformatted" are different
+questions, so a `.gitignore`d-but-not-`.prettierignore`d file (a `dist/` bundle, generated
+sources, this repo's own `docs/`) IS formatted here on purpose, and `.prettierignore` is the single
+opt-out users are pointed at. `getFileInfo` does NOT auto-discover ignore files (verified: without
+`ignorePath` it returns `ignored:false`), so the one path is passed explicitly, joined to the
+file's `base` (see "`resolveBase`" below); a missing file is tolerated and any error falls open to
+formatting. Without it, `format_pre` would reformat a `.prettierignore`d file — including this
+repo's own `pnpm-lock.yaml` and its own generated `mcp/server.mjs`, both of which are listed in the
+root `.prettierignore` (not merely `.gitignore`) for exactly that reason.
 
 **Config-cache invalidation is event-driven, NOT per format** (do not "fix" back):
 `formatInProcess` deliberately does not call `clearConfigCache()`. Doing so per format
@@ -126,7 +131,7 @@ threw away most of the warm-instance win on every single write. Instead `formatP
 calls `clearPrettierConfigCaches()` (one guarded `clearConfigCache()` on the bundled
 instance, inside a `try/catch`) when the written file's basename is in
 `CACHE_INVALIDATING_BASENAMES` (`PRETTIER_CONFIG_FILENAMES` + `package.json` +
-`package.yaml` + `.editorconfig` + `.prettierignore` + `.gitignore`). Three things this
+`package.yaml` + `.editorconfig` + `.prettierignore`). Three things this
 depends on, all verified empirically:
 
 - **PostToolUse is the only correct moment.** PreToolUse fires before the write, so
@@ -140,12 +145,12 @@ depends on, all verified empirically:
 
 Prettier's cache is stale in all three shapes — config **created** after a negative
 lookup, `.prettierrc` **edited**, `.editorconfig` **edited** (a separate cache inside
-prettier, also covered by `clearConfigCache()`). The two ignore files are spread into
-`CACHE_INVALIDATING_BASENAMES` from `PRETTIER_IGNORE_BASENAMES` so the set stays the single
-"a config-ish file was written" concept; `clearConfigCache()` really is inert for them
-(prettier caches no ignore file — `getFileInfo` re-reads on every call), but they are not
-inert overall: `formatPost`'s basename block has a **second** line that re-reads this
-server's own ignore cache for them. See the next section.
+prettier, also covered by `clearConfigCache()`). The one ignore file is spread into
+`CACHE_INVALIDATING_BASENAMES` from `PRETTIER_IGNORE_BASENAMES` (a one-element set since 0.14.0)
+so the set stays the single "a config-ish file was written" concept; `clearConfigCache()` really
+is inert for it (prettier caches no ignore file — `getFileInfo` re-reads on every call), but it is
+not inert overall: `formatPost`'s basename block has a **second** line that re-reads this
+server's own ignore cache for it. See the next section.
 
 **Accepted trade-off, pinned by a test:** a config that changes without passing through
 Write/Edit (a Bash `sed`, an external editor) is NOT picked up until the server restarts.
@@ -155,26 +160,30 @@ call and would make the test pass for the wrong reason.
 
 **Ignore-file caching is event-driven too** (do not "fix" back to a per-call re-read):
 `isPrettierIgnored` keeps its name, signature and `formatPre` call site, but is backed by a
-module-level `ignoreCache: Map<cwd, { hasRules, verdicts }>` in `prettier.ts`, keyed by the
-session's cwd exactly like `projectConfigCache` — never a single "current cwd" global, because
-concurrent in-flight calls from sub-agents can carry different cwds against this one server
-process. `hasRules` is derived from the two cwd-rooted ignore files' **content**, not their mere
-existence: a `.gitignore` holding only blank/`#` lines cannot ignore anything, and any doubt (an
-unreadable file, an unusual escape) resolves to `true`, i.e. the unchanged slow path. `verdicts`
-memoizes prettier's own per-path `getFileInfo` answers — sound because gitignore matching is
-purely path-based, so a verdict can only change when an ignore file changes. Prettier remains the
-only thing that decides whether a path matches a rule, so no ignore-dialect feature (negation,
-`**`, anchoring, directory-only patterns, escapes) can silently regress; a hand-rolled matcher was
-rejected for exactly that reason. Measured: 0.45 ms per repeat PreToolUse saved with both ignore
-files present, 0.17 ms for ignore-less projects.
+module-level `ignoreCache: Map<base, { hasRules, verdicts }>` in `prettier.ts`, keyed by the
+caller's **base** directory (`resolveBase`'s result — the session cwd for every in-cwd file, so
+keys, hit rates and the `cwd_changed`/`worktree_entered` prime/clear calls are exactly as before)
+exactly like `projectConfigCache` — never a single "current cwd" global, because concurrent
+in-flight calls from sub-agents can carry different cwds against this one server process.
+Out-of-cwd files add one entry per foreign project root, each holding that project's own
+`.prettierignore` state; those entries live for the process lifetime, bounded by the handful of
+distinct project roots one session ever writes into — the same growth class already accepted for
+`projectConfigCache`. `hasRules` is derived from the base-rooted `.prettierignore`'s **content**,
+not its mere existence: a `.prettierignore` holding only blank/`#` lines cannot ignore anything,
+and any doubt (an unreadable file, an unusual escape) resolves to `true`, i.e. the unchanged slow
+path. `verdicts` memoizes prettier's own per-path `getFileInfo` answers — sound because gitignore
+matching is purely path-based, so a verdict can only change when an ignore file changes. Prettier
+remains the only thing that decides whether a path matches a rule, so no ignore-dialect feature
+(negation, `**`, anchoring, directory-only patterns, escapes) can silently regress; a hand-rolled
+matcher was rejected for exactly that reason. Measured: 0.45 ms per repeat PreToolUse saved with
+both ignore files present, 0.17 ms for ignore-less projects.
 
 Three events refresh it, all event-driven, none on the `formatPre` hot path:
 
-- **`formatPost` on a `.prettierignore`/`.gitignore` write** — `primePrettierIgnoreCache(cwd)`
-  re-reads the **cwd-rooted** pair (so a nested `sub/.prettierignore` write causes a harmless,
-  correct re-read rather than mistaking the written file for the cached one). Same BEFORE-the-
-  `EXT_MAP`-guard placement as the config clear, for the same reason: these basenames have no
-  extension.
+- **`formatPost` on a `.prettierignore` write** — `primePrettierIgnoreCache(base)` re-reads the
+  **base-rooted** file (so a nested `sub/.prettierignore` write causes a harmless, correct re-read
+  rather than mistaking the written file for the cached one). Same BEFORE-the-`EXT_MAP`-guard
+  placement as the config clear, for the same reason: these basenames have no extension.
 - **`cwd_changed`** — `clearPrettierIgnoreCache(old_cwd)` then `primePrettierIgnoreCache(new_cwd)`
   plus `warmPrettierConfigCache(new_cwd)`. The warm is `resolveConfig` on a probe path in the new
   directory, result discarded: it populates **prettier's own** directory-keyed config-search cache
@@ -192,10 +201,30 @@ out of band (a Bash `sed`, an external editor) is not picked up until a Write/Ed
 formatted once more. `clearPrettierConfigCaches()` deliberately does NOT touch `ignoreCache`: a
 `.prettierrc` write cannot change what is ignored.
 
-**The outside-cwd guard is `path.relative`-based** (`relativeInCwd` in `handlers.ts`, shared by
-both handlers). The older `resolved !== cwd && !resolved.startsWith(cwd + path.sep)` form rejected
-**every** file when `cwd` carried a trailing separator or was `/` — i.e. it silently formatted
-nothing for that whole session. Do not "simplify" it back to a `startsWith` prefix test.
+**`cwd` is a HINT, never a gate — `resolveBase` is the anchor** (`handlers.ts`, shared by both
+handlers; exported and re-exported from `server.ts` so `handlers.test.mjs` can test it against the
+built artifact). There is **no outside-cwd guard** any more: a Write/Edit to any path is formatted,
+including a file in no project at all. `resolveBase(cwd, resolved)` returns, in order: (1) `cwd`,
+when it is non-empty and `contains` the file — byte-identical behavior to before for every in-cwd
+file, which is what keeps the whole existing suite a meaningful regression gate; (2) otherwise the
+nearest ancestor directory of the file holding a `.git` entry, **existence-checked, never
+`isDirectory()`-checked**, because a linked worktree's and a submodule's `.git` is a FILE (found
+via `util.ts`'s `walkToRoot`, so there is no second hand-rolled ascent loop); (3) otherwise the
+file's own directory. Everything project-scoped anchors on that `base`: `isExcludedPath`'s input
+(`path.relative(base, resolved)`), `<base>/.prettierignore`, prettier `plugins:` resolution, the
+`.editorconfig`/tool-native-config walk bound, the formatter subprocess's cwd and the `ignoreCache`
+key — so an out-of-cwd file is formatted against **its own** project's config. Because `base` is
+always an ancestor-or-equal of the file's directory, the relative path never escapes with `..` and
+both bounded upward walks (`findNativeConfig`, `resolveEditorconfig`) terminate at `base` instead
+of silently walking to the filesystem root. `contains` is `path.relative`-based on purpose: the
+older `resolved !== dir && !resolved.startsWith(dir + path.sep)` form rejected **every** file when
+the directory carried a trailing separator or was `/` — it silently formatted nothing for that
+whole session. Do not "simplify" it back to a `startsWith` prefix test, and do not re-add a
+project-membership gate — that is exactly the cwd-as-gate pattern this design removed. The only
+reasons to skip are extension/language, `isExcludedPath`, and `<base>/.prettierignore`; a relative
+`file_path` with an empty `cwd` is the one unresolvable case and returns `{}`. The notice text
+shows the base-relative path when `base === cwd` (so in-cwd messages stay byte-identical) and the
+absolute path otherwise.
 
 ## No toggle (do not "fix" without reading this)
 
@@ -212,6 +241,15 @@ Beyond `node_modules`/`vendor`/`.git`, `isExcludedPath` also skips two Claude-Co
 **A background-job session's OWN active worktree can hit this exclusion by mistake (0.13.0 fix: `worktree_entered`).** `EnterWorktree` switches such a session's cwd into `.claude/worktrees/<name>/` for every later tool call, but `cwd` on subsequent `PreToolUse`/`PostToolUse` `Write|Edit` calls has been observed (real session transcript: zero `CwdChanged` events across a real `EnterWorktree` call, ever) to keep reporting the PRE-worktree directory. Every file in the session's own worktree then resolves, relative to that stale cwd, as `.claude/worktrees/<name>/...` — indistinguishable from another agent's scratch state — so `isExcludedPath` skips it and formatting silently stops for the rest of the session. `worktree_entered` (`PostToolUse:EnterWorktree`, reading `tool_response.worktreePath` — the same field coding-toolbox's `worktreeRefreshHandler` already prefers over `cwd` for this exact tool) is the fallback signal that actually fires; it raises an override in `handlers.ts`'s `cwdOverrides` map that `formatPre`/`formatPost` resolve through instead of trusting `args.cwd` once it's set for that agent. Do not remove this override on the theory that `CwdChanged` "should" cover it — it doesn't, in this exact scenario, as verified live.
 
 **`cwdOverrides` is a `Map` keyed by `agent_id` (falling back to `session_id`), NEVER a bare global.** This one MCP server process is shared by every subagent running in the session — `ignoreCache`/`projectConfigCache` in `prettier.ts` are cwd-keyed for exactly the same stated reason ("concurrent in-flight hook calls from sub-agents may carry different cwds against this one long-lived server process"). A single mutable `cwdOverride` would let whichever subagent's `EnterWorktree` fires last win the override for EVERY OTHER concurrently running subagent too, silently formatting one agent's files against a sibling agent's worktree. `overrideKey()` in `handlers.ts` derives the key; a hook call with neither field resolves to `""` and is treated as un-keyable (falls through to raw `args.cwd`, i.e. today's pre-fix behavior for that one call — never crashes, never guesses). Pinned by `prettier.test.mjs`'s "concurrent subagents keep independent overrides" test.
+
+**`isExcludedPath` is evaluated on the BASE-relative path, never on the absolute one.** Checking
+absolute segments would permanently exclude a background session's own worktree
+(`<repo>/.claude/worktrees/<name>/…`) — precisely the 0.13.0 bug `worktree_entered` exists to fix.
+Accepted consequence of `resolveBase`: a file written by absolute path into a _sibling_ agent's
+worktree anchors at that worktree's own root, so its relative path no longer contains
+`.claude/worktrees` and it IS formatted — a file this agent explicitly wrote, formatted with that
+worktree's own config. `node_modules`/`vendor`/`.git`/`*.local.*` are position-independent and
+still apply.
 
 ## YAML/JSON line-length guard (do not "fix" without reading this)
 
@@ -280,10 +318,10 @@ default applied unconditionally; now it means no line-length limit at all.
 | `types.ts`        | `FormatTool`, `LangEntry`, `EditorConfigProps` (type-only)                                                                                                                                                                                                                                                                                                                                  |
 | `util.ts`         | `walkToRoot`, `onPath` + the module-level `probeCache` singleton                                                                                                                                                                                                                                                                                                                            |
 | `editorconfig.ts` | `findNativeConfig`, `resolveEditorconfig`, `parseEditorconfig`, `matchGlob`, `MAPPERS`, `buildInvocation`                                                                                                                                                                                                                                                                                   |
-| `prettier.ts`     | the bundled prettier and its three bundled plugins (`BUNDLED_PLUGINS`, `asPlugin`), the `unhandledRejection` startup guard, `BUNDLED_PRETTIER_VERSION`, config discovery, `resolveConfigPlugins`, `formatInProcess`, the cwd-keyed `ignoreCache` behind `isPrettierIgnored`, `primePrettierIgnoreCache`, `clearPrettierIgnoreCache`, `warmPrettierConfigCache`, `clearPrettierConfigCaches` |
+| `prettier.ts`     | the bundled prettier and its three bundled plugins (`BUNDLED_PLUGINS`, `asPlugin`), the `unhandledRejection` startup guard, `BUNDLED_PRETTIER_VERSION`, config discovery, `resolveConfigPlugins`, `formatInProcess`, the base-keyed `ignoreCache` behind `isPrettierIgnored`, `primePrettierIgnoreCache`, `clearPrettierIgnoreCache`, `warmPrettierConfigCache`, `clearPrettierConfigCaches` |
 | `registry.ts`     | `EXT_MAP`, `PRETTIER_LANGS`, `REGISTRY` (CLI chains only), `resolveInvocation`, `selectFormatter`                                                                                                                                                                                                                                                                                           |
-| `handlers.ts`     | `isExcludedPath`, `relativeInCwd`, `resolveCwd`/`overrideKey`/`cwdOverrides`, `applyEdit`, `CACHE_INVALIDATING_BASENAMES`, `PRETTIER_IGNORE_BASENAMES`, `formatPre`, `formatPost`, `cwdChanged`, `worktreeEntered`                                                                                                                                                                          |
-| `server.ts`       | MCP scaffold, `isMainModule`, `SERVER_INFO` (hand-paired with `plugin.json`), and the artifact's 19 public re-exports                                                                                                                                                                                                                                                                       |
+| `handlers.ts`     | `isExcludedPath`, `contains`/`resolveBase`, `resolveCwd`/`overrideKey`/`cwdOverrides`, `applyEdit`, `CACHE_INVALIDATING_BASENAMES`, `PRETTIER_IGNORE_BASENAMES`, `formatPre`, `formatPost`, `cwdChanged`, `worktreeEntered`                                                                                                                                                                          |
+| `server.ts`       | MCP scaffold, `isMainModule`, `SERVER_INFO` (hand-paired with `plugin.json`), and the artifact's 20 public re-exports                                                                                                                                                                                                                                                                       |
 | `build.mjs`       | the build driver (node-runnable; also runs under bun)                                                                                                                                                                                                                                                                                                                                       |
 
 Import graph is acyclic (`types ← util ← editorconfig ← prettier ← registry ← handlers ← server`)
