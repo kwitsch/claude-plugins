@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=390fd604fa93b82a body=79d5f5fbb9559207 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=6b18e6b7160fc5ff body=a2aec1d973dffdaa prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -200759,36 +200759,31 @@ function clearPrettierConfigCaches() {
   } catch {}
 }
 var ignoreCache = new Map;
-var IGNORE_FILENAMES = [".gitignore", ".prettierignore"];
+var PRETTIER_IGNORE_FILENAME = ".prettierignore";
 function readIgnoreState(cwd) {
-  let hasRules = false;
-  for (const name2 of IGNORE_FILENAMES) {
-    const file = path20.join(cwd, name2);
-    if (!existsSync2(file))
-      continue;
-    let text = "";
-    try {
-      text = readFileSync2(file, "utf8");
-    } catch {
-      hasRules = true;
-      continue;
-    }
-    for (const line5 of text.split(`
-`)) {
-      const t34 = line5.endsWith("\r") ? line5.slice(0, -1) : line5;
-      if (t34 !== "" && t34[0] !== "#") {
-        hasRules = true;
-        break;
-      }
-    }
+  const verdicts = new Map;
+  const file = path20.join(cwd, PRETTIER_IGNORE_FILENAME);
+  if (!existsSync2(file))
+    return { hasRules: false, verdicts };
+  let text = "";
+  try {
+    text = readFileSync2(file, "utf8");
+  } catch {
+    return { hasRules: true, verdicts };
   }
-  return { hasRules, verdicts: new Map };
+  for (const line5 of text.split(`
+`)) {
+    const t34 = line5.endsWith("\r") ? line5.slice(0, -1) : line5;
+    if (t34 !== "" && t34[0] !== "#")
+      return { hasRules: true, verdicts };
+  }
+  return { hasRules: false, verdicts };
 }
 async function probePrettierIgnored(filePath, cwd) {
   if (typeof bundledPrettier.getFileInfo !== "function")
     return false;
   const info2 = await bundledPrettier.getFileInfo(filePath, {
-    ignorePath: [path20.join(cwd, ".gitignore"), path20.join(cwd, ".prettierignore")]
+    ignorePath: [path20.join(cwd, PRETTIER_IGNORE_FILENAME)]
   });
   return info2?.ignored === true;
 }
@@ -200880,7 +200875,7 @@ function applyEdit(current, oldStr, newStr, replaceAll3) {
     return null;
   return current.slice(0, idx) + newStr + current.slice(idx + oldStr.length);
 }
-var PRETTIER_IGNORE_BASENAMES = new Set([".prettierignore", ".gitignore"]);
+var PRETTIER_IGNORE_BASENAMES = new Set([".prettierignore"]);
 var CACHE_INVALIDATING_BASENAMES = new Set([...PRETTIER_CONFIG_FILENAMES, "package.json", "package.yaml", ".editorconfig", ...PRETTIER_IGNORE_BASENAMES]);
 async function formatPost(args2) {
   try {
