@@ -18,11 +18,11 @@ const SERVER_NAME = "universal-format-hooks"; // keep aligned with the .mcp.json
 const SERVER_INFO = { name: SERVER_NAME, version: process.env.UNIVERSAL_FORMAT_MCP_VERSION ?? "0.0.0" };
 const DEFAULT_PROTOCOL = "2025-11-25"; // only used if the client omits protocolVersion
 
-// ---- public surface of the built artifact: exactly 19 names, imported by the test suites ----
+// ---- public surface of the built artifact: exactly 20 names, imported by the test suites ----
 export { BUNDLED_PRETTIER_VERSION, formatInProcess, hasPrettierProjectConfig, resolveConfigPlugins, shouldOverridePrintWidth } from "./prettier.js";
 export { EXT_MAP, PRETTIER_LANGS, REGISTRY } from "./registry.js";
 export { buildInvocation, findNativeConfig, matchGlob, parseEditorconfig, resolveEditorconfig } from "./editorconfig.js";
-export { applyEdit, cwdChanged, formatPost, formatPre, isExcludedPath, worktreeEntered } from "./handlers.js";
+export { applyEdit, cwdChanged, formatPost, formatPre, isExcludedPath, resolveBase, worktreeEntered } from "./handlers.js";
 
 type ToolDef = {
   name: string;
