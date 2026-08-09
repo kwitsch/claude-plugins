@@ -1,14 +1,15 @@
 // server.ts — entry point of the universal-format MCP stdio server. Bundled by
 // `pnpm run build:universal-format-mcp` into plugins/universal-format/mcp/server.mjs.
 // Transport: newline-delimited JSON-RPC 2.0. stdout = JSON-RPC only; logs -> stderr.
-//   format_pre  (PreToolUse Write|Edit)  — prettier languages, in-process, updatedInput
-//   format_post (PostToolUse Write|Edit) — kotlin/python/go via each tool's CLI
-//   cwd_changed (CwdChanged)             — refresh the cwd-keyed prettier ignore/config caches
+//   format_pre       (PreToolUse Write|Edit)       — prettier languages, in-process, updatedInput
+//   format_post      (PostToolUse Write|Edit)      — kotlin/python/go via each tool's CLI
+//   cwd_changed      (CwdChanged)                  — refresh the cwd-keyed prettier ignore/config caches
+//   worktree_entered (PostToolUse EnterWorktree)   — same, via the signal that actually fires (see handlers.ts)
 import process from "node:process";
 import readline from "node:readline";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { cwdChanged, formatPost, formatPre } from "./handlers.js";
+import { cwdChanged, formatPost, formatPre, worktreeEntered } from "./handlers.js";
 
 const SERVER_NAME = "universal-format-hooks"; // keep aligned with the .mcp.json key
 // UNIVERSAL_FORMAT_MCP_VERSION is inlined at build time by build.mjs's `bun build --env` flag
@@ -17,11 +18,11 @@ const SERVER_NAME = "universal-format-hooks"; // keep aligned with the .mcp.json
 const SERVER_INFO = { name: SERVER_NAME, version: process.env.UNIVERSAL_FORMAT_MCP_VERSION ?? "0.0.0" };
 const DEFAULT_PROTOCOL = "2025-11-25"; // only used if the client omits protocolVersion
 
-// ---- public surface of the built artifact: exactly 18 names, imported by the test suites ----
+// ---- public surface of the built artifact: exactly 19 names, imported by the test suites ----
 export { BUNDLED_PRETTIER_VERSION, formatInProcess, hasPrettierProjectConfig, resolveConfigPlugins, shouldOverridePrintWidth } from "./prettier.js";
 export { EXT_MAP, PRETTIER_LANGS, REGISTRY } from "./registry.js";
 export { buildInvocation, findNativeConfig, matchGlob, parseEditorconfig, resolveEditorconfig } from "./editorconfig.js";
-export { applyEdit, cwdChanged, formatPost, formatPre, isExcludedPath } from "./handlers.js";
+export { applyEdit, cwdChanged, formatPost, formatPre, isExcludedPath, worktreeEntered } from "./handlers.js";
 
 type ToolDef = {
   name: string;
@@ -62,6 +63,13 @@ function startServer(): void {
       description: "CwdChanged: refresh this server's cached prettier ignore state for the new working directory and drop the old one's.",
       inputSchema: { type: "object", additionalProperties: true },
       handler: cwdChanged,
+    },
+    {
+      name: "worktree_entered",
+      description:
+        "PostToolUse EnterWorktree: CwdChanged does not fire when this switches the session's cwd into a worktree, so capture the worktree path here instead and use it for every later format_pre/format_post cwd resolution.",
+      inputSchema: { type: "object", additionalProperties: true },
+      handler: worktreeEntered,
     },
   ];
   const findTool = (name: string) => TOOLS.find((t) => t.name === name);

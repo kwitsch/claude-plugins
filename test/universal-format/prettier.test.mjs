@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { formatInProcess, applyEdit, cwdChanged, formatPre, formatPost, resolveConfigPlugins } from "../../plugins/universal-format/mcp/server.mjs";
+import { formatInProcess, applyEdit, cwdChanged, formatPre, formatPost, resolveConfigPlugins, worktreeEntered } from "../../plugins/universal-format/mcp/server.mjs";
 
 // No `maybe`/tier gating any more: prettier is bundled into the artifact, so every test here is
 // unconditional. There is exactly one prettier instance in this process.
@@ -310,4 +310,50 @@ test("cwd_changed: entering a directory re-reads its ignore files", async () => 
 
   const after = await formatPre(hookInput({ cwd: a, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } }));
   assert.deepEqual(after, {}, "cwd_changed must have re-read the new cwd's ignore files");
+});
+
+// Reproduces a live bug: EnterWorktree switches a background-job session's cwd into a worktree,
+// but CwdChanged has been observed (real session transcript, no CwdChanged event at all across a
+// real EnterWorktree call) to never fire for it. Every later PreToolUse/PostToolUse Write|Edit
+// call then keeps reporting the pre-worktree cwd, so isExcludedPath misclassifies the session's
+// OWN active worktree as another agent's scratch state (`.claude/worktrees/...`) and formatting
+// silently stops. worktreeEntered (PostToolUse:EnterWorktree) is the fallback signal that DOES
+// fire; these tests MUST run last in this file — the override they raise is module-global and
+// would otherwise leak into every test below it.
+test("worktree_entered: before the fix, a stale outer cwd misclassifies a worktree-nested file as excluded", async () => {
+  const outer = tmp("uf-outer-");
+  const worktreeDir = path.join(outer, ".claude", "worktrees", "my-worktree");
+  mkdirSync(worktreeDir, { recursive: true });
+  const fp = path.join(worktreeDir, "a.json");
+
+  const before = await formatPre(hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1,"b":2}' } }));
+  assert.deepEqual(before, {}, "relative to the stale outer cwd this looks like another agent's worktree scratch state");
+
+  await worktreeEntered(/** @type {any} */ ({ ...hookInput({ cwd: outer, tool_name: "EnterWorktree", tool_input: {} }), tool_response: { worktreePath: worktreeDir } }));
+
+  const after = /** @type {any} */ (await formatPre(hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1,"b":2}' } })));
+  assert.equal(preContent(after), '{ "a": 1, "b": 2 }\n', "override must resolve the file relative to the worktree, ignoring the stale outer cwd");
+});
+
+test("worktree_entered: format_post also resolves against the override, not the stale cwd", async () => {
+  const outer = tmp("uf-outer2-");
+  const worktreeDir = path.join(outer, ".claude", "worktrees", "another-worktree");
+  mkdirSync(worktreeDir, { recursive: true });
+  const goFile = path.join(worktreeDir, "main.go");
+  writeFileSync(goFile, "package main\n");
+
+  await worktreeEntered(/** @type {any} */ ({ ...hookInput({ cwd: outer, tool_name: "EnterWorktree", tool_input: {} }), tool_response: { worktreePath: worktreeDir } }));
+
+  // No gofmt/goimports on this PATH -> selectFormatter finds nothing -> {}. The point here is
+  // only that the file is NOT rejected upfront by isExcludedPath against the stale outer cwd.
+  const result = await formatPost(/** @type {any} */ (hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: goFile } })));
+  assert.deepEqual(result, {}, "no formatter on PATH -> {}, but not because of a stale-cwd exclusion");
+});
+
+test("worktree_entered: no tool_response.worktreePath falls back to cwd", async () => {
+  const dir = tmp("uf-fallback-");
+  const fp = path.join(dir, "b.json");
+  await worktreeEntered(/** @type {any} */ (hookInput({ cwd: dir, tool_name: "EnterWorktree", tool_input: {} })));
+  const result = /** @type {any} */ (await formatPre(hookInput({ cwd: dir, tool_name: "Write", tool_input: { file_path: fp, content: '{"c":3}' } })));
+  assert.equal(preContent(result), '{ "c": 3 }\n', "falling back to cwd must still resolve correctly");
 });

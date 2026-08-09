@@ -10,9 +10,11 @@ Silently auto-formats source files around Write/Edit — Prettier languages befo
 
 ## What it does
 
-Two `Write|Edit` hooks on a self-contained plugin-local MCP server, plus a third `CwdChanged` hook
-that only refreshes that server's cached view of your `.prettierignore`/`.gitignore` when you
-change directory — it never formats anything.
+Two `Write|Edit` hooks on a self-contained plugin-local MCP server, plus two more that only
+refresh that server's cached view of your `.prettierignore`/`.gitignore` when your working
+directory changes — a `CwdChanged` hook, and (for background-job sessions using `EnterWorktree`,
+which `CwdChanged` doesn't reliably fire for) a `PostToolUse:EnterWorktree` hook. Neither ever
+formats anything.
 
 **Prettier languages** (JS/TS, JSON, YAML, Markdown, CSS, SCSS, LESS, HTML, Vue, GraphQL, Shell,
 Java, PHP) are formatted **before** the write, in-process, by the Prettier this plugin ships inside

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=edbe40d730d99643 body=9218b63f473593db prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=5ab4be485995ba5c body=4b84994b189f9197 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -200845,6 +200845,12 @@ function relativeInCwd(cwd, filePath) {
     return null;
   return rel;
 }
+var cwdOverride = null;
+function resolveCwd(args2) {
+  if (cwdOverride)
+    return cwdOverride;
+  return typeof args2?.cwd === "string" ? args2.cwd : "";
+}
 function applyEdit(current, oldStr, newStr, replaceAll3) {
   if (oldStr === "")
     return null;
@@ -200863,7 +200869,7 @@ async function formatPost(args2) {
   try {
     if (args2?.tool_response?.success === false)
       return {};
-    const cwd = typeof args2?.cwd === "string" ? args2.cwd : "";
+    const cwd = resolveCwd(args2);
     const fp2 = args2?.tool_input?.file_path;
     if (!cwd || typeof fp2 !== "string" || !fp2)
       return {};
@@ -200911,7 +200917,7 @@ async function formatPost(args2) {
 }
 async function formatPre(args2) {
   try {
-    const cwd = typeof args2?.cwd === "string" ? args2.cwd : "";
+    const cwd = resolveCwd(args2);
     const fp2 = args2?.tool_input?.file_path;
     if (!cwd || typeof fp2 !== "string" || !fp2)
       return {};
@@ -200964,9 +200970,24 @@ async function cwdChanged(args2) {
     if (oldCwd)
       clearPrettierIgnoreCache(oldCwd);
     if (newCwd) {
+      cwdOverride = newCwd;
       primePrettierIgnoreCache(newCwd);
       await warmPrettierConfigCache(newCwd);
     }
+  } catch {}
+  return {};
+}
+async function worktreeEntered(args2) {
+  try {
+    const reported = args2?.tool_response?.worktreePath;
+    const newCwd = typeof reported === "string" && reported ? reported : typeof args2?.cwd === "string" ? args2.cwd : "";
+    if (!newCwd)
+      return {};
+    if (cwdOverride && cwdOverride !== newCwd)
+      clearPrettierIgnoreCache(cwdOverride);
+    cwdOverride = newCwd;
+    primePrettierIgnoreCache(newCwd);
+    await warmPrettierConfigCache(newCwd);
   } catch {}
   return {};
 }
@@ -201001,6 +201022,12 @@ function startServer() {
       description: "CwdChanged: refresh this server's cached prettier ignore state for the new working directory and drop the old one's.",
       inputSchema: { type: "object", additionalProperties: true },
       handler: cwdChanged
+    },
+    {
+      name: "worktree_entered",
+      description: "PostToolUse EnterWorktree: CwdChanged does not fire when this switches the session's cwd into a worktree, so capture the worktree path here instead and use it for every later format_pre/format_post cwd resolution.",
+      inputSchema: { type: "object", additionalProperties: true },
+      handler: worktreeEntered
     }
   ];
   const findTool = (name2) => TOOLS.find((t34) => t34.name === name2);
@@ -201067,6 +201094,7 @@ function startServer() {
 if (isMainModule())
   startServer();
 export {
+  worktreeEntered,
   shouldOverridePrintWidth,
   resolveEditorconfig,
   resolveConfigPlugins,

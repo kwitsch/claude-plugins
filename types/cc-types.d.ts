@@ -34,6 +34,8 @@ interface StopHookInput extends HookCommonInput {
 interface ToolResponse {
   success?: boolean;
   filePath?: string;
+  /** EnterWorktree's own reported path — verified live against a real EnterWorktree call. */
+  worktreePath?: string;
   [k: string]: unknown;
 }
 
