@@ -318,8 +318,10 @@ test("cwd_changed: entering a directory re-reads its ignore files", async () => 
 // call then keeps reporting the pre-worktree cwd, so isExcludedPath misclassifies the session's
 // OWN active worktree as another agent's scratch state (`.claude/worktrees/...`) and formatting
 // silently stops. worktreeEntered (PostToolUse:EnterWorktree) is the fallback signal that DOES
-// fire; these tests MUST run last in this file — the override they raise is module-global and
-// would otherwise leak into every test below it.
+// fire; these tests MUST run last in this file. The override it raises is keyed by
+// agent_id/session_id (never a bare global — see handlers.ts's `cwdOverrides` comment), but every
+// call below uses hookInput()'s hardcoded "test-session" and no agent_id, so they all share ONE
+// key and would still leak into any test placed after them.
 test("worktree_entered: before the fix, a stale outer cwd misclassifies a worktree-nested file as excluded", async () => {
   const outer = tmp("uf-outer-");
   const worktreeDir = path.join(outer, ".claude", "worktrees", "my-worktree");
@@ -356,4 +358,39 @@ test("worktree_entered: no tool_response.worktreePath falls back to cwd", async 
   await worktreeEntered(/** @type {any} */ (hookInput({ cwd: dir, tool_name: "EnterWorktree", tool_input: {} })));
   const result = /** @type {any} */ (await formatPre(hookInput({ cwd: dir, tool_name: "Write", tool_input: { file_path: fp, content: '{"c":3}' } })));
   assert.equal(preContent(result), '{ "c": 3 }\n', "falling back to cwd must still resolve correctly");
+});
+
+// The concurrency case: this MCP server is one long-lived process shared by every subagent in the
+// session (see ignoreCache/projectConfigCache's own "concurrent in-flight hook calls from
+// sub-agents" comment in prettier.ts). Two subagents, each isolated into its OWN worktree via
+// EnterWorktree, both report the SAME (stale) outer cwd but must never share one cwd override —
+// a bare global would let whichever subagent's EnterWorktree ran last win for BOTH of them.
+test("worktree_entered: concurrent subagents keep independent overrides, keyed by agent_id", async () => {
+  const outer = tmp("uf-concurrent-outer-");
+  const worktreeA = path.join(outer, ".claude", "worktrees", "agent-a-wt");
+  const worktreeB = path.join(outer, ".claude", "worktrees", "agent-b-wt");
+  mkdirSync(worktreeA, { recursive: true });
+  mkdirSync(worktreeB, { recursive: true });
+  const fpA = path.join(worktreeA, "a.json");
+  const fpB = path.join(worktreeB, "b.json");
+
+  await worktreeEntered(/** @type {any} */ ({ ...hookInput({ cwd: outer, tool_name: "EnterWorktree", tool_input: {} }), agent_id: "agent-A", tool_response: { worktreePath: worktreeA } }));
+  await worktreeEntered(/** @type {any} */ ({ ...hookInput({ cwd: outer, tool_name: "EnterWorktree", tool_input: {} }), agent_id: "agent-B", tool_response: { worktreePath: worktreeB } }));
+
+  const resultA = /** @type {any} */ (await formatPre({ ...hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: fpA, content: '{"a":1}' } }), agent_id: "agent-A" }));
+  const resultB = /** @type {any} */ (await formatPre({ ...hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: fpB, content: '{"b":2}' } }), agent_id: "agent-B" }));
+
+  assert.equal(preContent(resultA), '{ "a": 1 }\n', "agent A's file resolves against ITS OWN worktree override");
+  assert.equal(preContent(resultB), '{ "b": 2 }\n', "agent B's file resolves against ITS OWN worktree override, unaffected by agent A's");
+
+  // A call under a DIFFERENT session_id (a genuinely distinct parent session, not either
+  // subagent's agent_id) must be untouched by both subagents' overrides. A dedicated session_id
+  // here, not hookInput()'s shared "test-session" default -- other tests earlier in this file
+  // also key on "test-session" and would otherwise make this assertion depend on file ordering.
+  const dirC = tmp("uf-parent-");
+  const fpC = path.join(dirC, "c.json");
+  const resultC = /** @type {any} */ (
+    await formatPre({ ...hookInput({ cwd: dirC, tool_name: "Write", tool_input: { file_path: fpC, content: '{"c":3}' } }), session_id: "concurrency-parent-session" })
+  );
+  assert.equal(preContent(resultC), '{ "c": 3 }\n', "an unrelated session's own calls are unaffected by either subagent's override");
 });
