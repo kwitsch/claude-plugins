@@ -1,5 +1,5 @@
 {
-  "description": "PreToolUse Write|Edit -> format_pre: prettier languages (jsts/json/yaml/markdown/css/scss/less/html/vue/graphql/shell/java/php) formatted in-process before the write with the prettier — and the bundled java/php/shell plugins — inside this plugin's MCP server. PostToolUse Write|Edit -> format_post: kotlin/python/go formatted on disk after the write via each tool's CLI. CwdChanged -> cwd_changed: refresh that server's cached prettier ignore state for the new working directory and drop the old one's.",
+  "description": "PreToolUse Write|Edit -> format_pre: prettier languages (jsts/json/yaml/markdown/css/scss/less/html/vue/graphql/shell/java/php) formatted in-process before the write with the prettier — and the bundled java/php/shell plugins — inside this plugin's MCP server. PostToolUse Write|Edit -> format_post: kotlin/python/go formatted on disk after the write via each tool's CLI. CwdChanged -> cwd_changed: refresh that server's cached prettier ignore state for the new working directory and drop the old one's. PostToolUse EnterWorktree -> worktree_entered: same, via the signal that actually fires when a background-job session's cwd moves into a worktree (CwdChanged does not).",
   "hooks": {
     "PreToolUse": [
       {
@@ -11,6 +11,10 @@
       {
         "matcher": "Write|Edit",
         "hooks": [{ "type": "mcp_tool", "server": "plugin:universal-format:universal-format-hooks", "tool": "format_post", "timeout": 60 }]
+      },
+      {
+        "matcher": "EnterWorktree",
+        "hooks": [{ "type": "mcp_tool", "server": "plugin:universal-format:universal-format-hooks", "tool": "worktree_entered", "timeout": 60 }]
       }
     ],
     "CwdChanged": [

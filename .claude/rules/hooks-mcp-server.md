@@ -42,16 +42,21 @@ on the _next_ conversation turn — too late to prevent Claude from acting on st
 state in between). `universal-lint` (async — read-only, exactly one hook) is this
 repo's single-hook example.
 
-> Correction note (superseded 2026-08-08, updated for 0.12.0): `universal-format` was previously
+> Correction note (superseded 2026-08-08, updated for 0.13.0): `universal-format` was previously
 > listed here alongside `universal-lint` as a single-hook example. As of 0.9.0 it backed two
-> `mcp_tool` hooks, and as of 0.12.0 it backs THREE (`format_pre` PreToolUse + `format_post`
-> PostToolUse + `cwd_changed` CwdChanged) on its own plugin-local MCP server, so it no longer
-> qualifies for the single-hook exception — the warm in-process prettier library the server keeps
-> alive is exactly the "server stays warm" benefit this exception says a single call site can't
-> amortize. The `CwdChanged` entry is this repo's first use of that event: it is `limited` in the
-> event matrix only because its documented `CLAUDE_ENV_FILE` purpose is unavailable to `mcp_tool`,
-> while its use here — a pure side-effect trigger with no decision and no context — is exactly
-> what the matrix says works. It carries no `matcher` (silently ignored on that event).
+> `mcp_tool` hooks, and as of 0.13.0 it backs FOUR (`format_pre` PreToolUse + `format_post`
+> PostToolUse + `cwd_changed` CwdChanged + `worktree_entered` PostToolUse:EnterWorktree) on its own
+> plugin-local MCP server, so it no longer qualifies for the single-hook exception — the warm
+> in-process prettier library the server keeps alive is exactly the "server stays warm" benefit
+> this exception says a single call site can't amortize. The `CwdChanged` entry is this repo's
+> first use of that event: it is `limited` in the event matrix only because its documented
+> `CLAUDE_ENV_FILE` purpose is unavailable to `mcp_tool`, while its use here — a pure side-effect
+> trigger with no decision and no context — is exactly what the matrix says works. It carries no
+> `matcher` (silently ignored on that event). `worktree_entered` was added because `CwdChanged` has
+> been observed to never fire when `EnterWorktree` switches a background-job session's cwd into a
+> worktree (real session transcript: zero `CwdChanged` events across a real `EnterWorktree` call),
+> which otherwise silently disables all formatting for the rest of such a session — see
+> `plugins/universal-format/CLAUDE.md`'s "Path exclusions" section.
 
 <!-- separate blockquote, not a continuation of the one above -->
 

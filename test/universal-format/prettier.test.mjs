@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { formatInProcess, applyEdit, cwdChanged, formatPre, formatPost, resolveConfigPlugins } from "../../plugins/universal-format/mcp/server.mjs";
+import { formatInProcess, applyEdit, cwdChanged, formatPre, formatPost, resolveConfigPlugins, worktreeEntered } from "../../plugins/universal-format/mcp/server.mjs";
 
 // No `maybe`/tier gating any more: prettier is bundled into the artifact, so every test here is
 // unconditional. There is exactly one prettier instance in this process.
@@ -310,4 +310,115 @@ test("cwd_changed: entering a directory re-reads its ignore files", async () => 
 
   const after = await formatPre(hookInput({ cwd: a, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } }));
   assert.deepEqual(after, {}, "cwd_changed must have re-read the new cwd's ignore files");
+});
+
+// Reproduces a live bug: EnterWorktree switches a background-job session's cwd into a worktree,
+// but CwdChanged has been observed (real session transcript, no CwdChanged event at all across a
+// real EnterWorktree call) to never fire for it. Every later PreToolUse/PostToolUse Write|Edit
+// call then keeps reporting the pre-worktree cwd, so isExcludedPath misclassifies the session's
+// OWN active worktree as another agent's scratch state (`.claude/worktrees/...`) and formatting
+// silently stops. worktreeEntered (PostToolUse:EnterWorktree) is the fallback signal that DOES
+// fire; these tests MUST run last in this file. The override it raises is keyed by
+// agent_id/session_id (never a bare global — see handlers.ts's `cwdOverrides` comment), but every
+// call below uses hookInput()'s hardcoded "test-session" and no agent_id, so they all share ONE
+// key and would still leak into any test placed after them.
+test("worktree_entered: before the fix, a stale outer cwd misclassifies a worktree-nested file as excluded", async () => {
+  const outer = tmp("uf-outer-");
+  const worktreeDir = path.join(outer, ".claude", "worktrees", "my-worktree");
+  mkdirSync(worktreeDir, { recursive: true });
+  const fp = path.join(worktreeDir, "a.json");
+
+  const before = await formatPre(hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1,"b":2}' } }));
+  assert.deepEqual(before, {}, "relative to the stale outer cwd this looks like another agent's worktree scratch state");
+
+  await worktreeEntered(/** @type {any} */ ({ ...hookInput({ cwd: outer, tool_name: "EnterWorktree", tool_input: {} }), tool_response: { worktreePath: worktreeDir } }));
+
+  const after = /** @type {any} */ (await formatPre(hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1,"b":2}' } })));
+  assert.equal(preContent(after), '{ "a": 1, "b": 2 }\n', "override must resolve the file relative to the worktree, ignoring the stale outer cwd");
+});
+
+// A stub "goimports" that deterministically rewrites its target file, so a real format and a
+// same-shaped {} no-op (which formatPost also returns for an excluded/unresolvable path, or for
+// "no formatter on PATH") are distinguishable from the test's own assertions -- {} alone would
+// pass even if the cwd override were silently broken and the file were still misclassified as
+// excluded. onPath()'s PATH probe is cached for the process lifetime (see util.ts), so this must
+// be the first (and only) place in this file that probes "goimports"/"gofmt".
+const STUB_GO_OUTPUT = "package main\n\n// stub-formatted\n";
+
+/** Installs an executable `goimports` stub on `process.env.PATH` for the duration of `fn`,
+ * restoring the original PATH afterward even if `fn` throws. @param {() => Promise<void>} fn */
+async function withGoimportsStub(fn) {
+  const binDir = tmp("uf-stub-bin-");
+  const stub = path.join(binDir, "goimports");
+  // A heredoc, not `printf '%s' "<escaped>"`: printf does not interpret backslash escapes inside
+  // a substituted argument (only inside the format operand itself), so a JSON-escaped `\n` would
+  // land in the target file as a literal backslash-n instead of a real newline.
+  writeFileSync(stub, `#!/bin/sh\ncat > "$2" <<'STUBEOF'\n${STUB_GO_OUTPUT}STUBEOF\n`);
+  chmodSync(stub, 0o755);
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${originalPath}`;
+  try {
+    await fn();
+  } finally {
+    process.env.PATH = originalPath;
+  }
+}
+
+test("worktree_entered: format_post also resolves against the override, not the stale cwd", async () => {
+  const outer = tmp("uf-outer2-");
+  const worktreeDir = path.join(outer, ".claude", "worktrees", "another-worktree");
+  mkdirSync(worktreeDir, { recursive: true });
+  const goFile = path.join(worktreeDir, "main.go");
+  writeFileSync(goFile, "package main\n");
+
+  await worktreeEntered(/** @type {any} */ ({ ...hookInput({ cwd: outer, tool_name: "EnterWorktree", tool_input: {} }), tool_response: { worktreePath: worktreeDir } }));
+
+  await withGoimportsStub(async () => {
+    const result = /** @type {any} */ (await formatPost(/** @type {any} */ (hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: goFile } }))));
+    assert.equal(result?.hookSpecificOutput?.hookEventName, "PostToolUse", "the stub must actually have run -- a same-shaped {} would also pass if the override were silently broken");
+    assert.equal(readFileSync(goFile, "utf8"), STUB_GO_OUTPUT, "the stub ran against the worktree-resolved file, proving the override (not the stale outer cwd) was used");
+  });
+});
+
+test("worktree_entered: no tool_response.worktreePath falls back to cwd", async () => {
+  const dir = tmp("uf-fallback-");
+  const fp = path.join(dir, "b.json");
+  await worktreeEntered(/** @type {any} */ (hookInput({ cwd: dir, tool_name: "EnterWorktree", tool_input: {} })));
+  const result = /** @type {any} */ (await formatPre(hookInput({ cwd: dir, tool_name: "Write", tool_input: { file_path: fp, content: '{"c":3}' } })));
+  assert.equal(preContent(result), '{ "c": 3 }\n', "falling back to cwd must still resolve correctly");
+});
+
+// The concurrency case: this MCP server is one long-lived process shared by every subagent in the
+// session (see ignoreCache/projectConfigCache's own "concurrent in-flight hook calls from
+// sub-agents" comment in prettier.ts). Two subagents, each isolated into its OWN worktree via
+// EnterWorktree, both report the SAME (stale) outer cwd but must never share one cwd override —
+// a bare global would let whichever subagent's EnterWorktree ran last win for BOTH of them.
+test("worktree_entered: concurrent subagents keep independent overrides, keyed by agent_id", async () => {
+  const outer = tmp("uf-concurrent-outer-");
+  const worktreeA = path.join(outer, ".claude", "worktrees", "agent-a-wt");
+  const worktreeB = path.join(outer, ".claude", "worktrees", "agent-b-wt");
+  mkdirSync(worktreeA, { recursive: true });
+  mkdirSync(worktreeB, { recursive: true });
+  const fpA = path.join(worktreeA, "a.json");
+  const fpB = path.join(worktreeB, "b.json");
+
+  await worktreeEntered(/** @type {any} */ ({ ...hookInput({ cwd: outer, tool_name: "EnterWorktree", tool_input: {} }), agent_id: "agent-A", tool_response: { worktreePath: worktreeA } }));
+  await worktreeEntered(/** @type {any} */ ({ ...hookInput({ cwd: outer, tool_name: "EnterWorktree", tool_input: {} }), agent_id: "agent-B", tool_response: { worktreePath: worktreeB } }));
+
+  const resultA = /** @type {any} */ (await formatPre({ ...hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: fpA, content: '{"a":1}' } }), agent_id: "agent-A" }));
+  const resultB = /** @type {any} */ (await formatPre({ ...hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: fpB, content: '{"b":2}' } }), agent_id: "agent-B" }));
+
+  assert.equal(preContent(resultA), '{ "a": 1 }\n', "agent A's file resolves against ITS OWN worktree override");
+  assert.equal(preContent(resultB), '{ "b": 2 }\n', "agent B's file resolves against ITS OWN worktree override, unaffected by agent A's");
+
+  // A call under a DIFFERENT session_id (a genuinely distinct parent session, not either
+  // subagent's agent_id) must be untouched by both subagents' overrides. A dedicated session_id
+  // here, not hookInput()'s shared "test-session" default -- other tests earlier in this file
+  // also key on "test-session" and would otherwise make this assertion depend on file ordering.
+  const dirC = tmp("uf-parent-");
+  const fpC = path.join(dirC, "c.json");
+  const resultC = /** @type {any} */ (
+    await formatPre({ ...hookInput({ cwd: dirC, tool_name: "Write", tool_input: { file_path: fpC, content: '{"c":3}' } }), session_id: "concurrency-parent-session" })
+  );
+  assert.equal(preContent(resultC), '{ "c": 3 }\n', "an unrelated session's own calls are unaffected by either subagent's override");
 });

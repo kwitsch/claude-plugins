@@ -45,6 +45,16 @@ setup() {
   assert_success
 }
 
+@test "PostToolUse has exactly two entries: format_post (Write|Edit) and worktree_entered (EnterWorktree)" {
+  run jq -e '.hooks.PostToolUse | length == 2' "$HOOKS"
+  assert_success
+}
+
+@test "PostToolUse hook -> worktree_entered mcp_tool, matcher EnterWorktree, timeout 60, not async" {
+  run jq -e '.hooks.PostToolUse[1] | .matcher == "EnterWorktree" and (.hooks[0].type == "mcp_tool") and (.hooks[0].server == "plugin:universal-format:universal-format-hooks") and (.hooks[0].tool == "worktree_entered") and (.hooks[0].timeout == 60) and ((.hooks[0].async // false) == false)' "$HOOKS"
+  assert_success
+}
+
 @test "CwdChanged hook -> cwd_changed mcp_tool, no matcher, timeout 60, not async" {
   run jq -e '.hooks.CwdChanged[0] | (has("matcher") | not) and (.hooks[0].type == "mcp_tool") and (.hooks[0].server == "plugin:universal-format:universal-format-hooks") and (.hooks[0].tool == "cwd_changed") and (.hooks[0].timeout == 60) and ((.hooks[0].async // false) == false)' "$HOOKS"
   assert_success
@@ -80,7 +90,7 @@ setup() {
   assert_success
 }
 
-@test "tools/list lists format_pre, format_post and cwd_changed, and the server exits" {
+@test "tools/list lists format_pre, format_post, cwd_changed and worktree_entered, and the server exits" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   run bash -c '
     printf "%s\n%s\n" \
@@ -92,6 +102,7 @@ setup() {
   assert_output --partial '"format_pre"'
   assert_output --partial '"format_post"'
   assert_output --partial '"cwd_changed"'
+  assert_output --partial '"worktree_entered"'
 }
 
 @test "format_post on an unsupported extension over JSON-RPC returns {}" {
@@ -125,8 +136,8 @@ setup() {
   assert_failure
 }
 
-@test "plugin.json version is 0.12.0" {
-  run jq -e '.version == "0.12.0"' "$PLUGIN/.claude-plugin/plugin.json"
+@test "plugin.json version is 0.13.0" {
+  run jq -e '.version == "0.13.0"' "$PLUGIN/.claude-plugin/plugin.json"
   assert_success
 }
 

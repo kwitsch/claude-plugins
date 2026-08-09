@@ -43,6 +43,38 @@ function relativeInCwd(cwd: string, filePath: string): string | null {
   return rel;
 }
 
+// Per-agent override of "the real current cwd", raised only by worktreeEntered
+// (PostToolUse:EnterWorktree). CwdChanged is wired for the same purpose but has been observed
+// (live session transcript, no CwdChanged event at all across a real EnterWorktree call) to
+// never fire when EnterWorktree switches a background-job session into a worktree -- so `cwd` on
+// every later PreToolUse/PostToolUse Write|Edit call keeps reporting the pre-worktree directory,
+// isExcludedPath then misclassifies the session's OWN active worktree as another agent's scratch
+// state (the very thing that exclusion is meant to skip), and formatting silently stops for the
+// rest of the session. This override is the fallback that actually fires.
+//
+// Keyed by agent_id (falling back to session_id for the main/non-subagent conversation), exactly
+// like ignoreCache/projectConfigCache in prettier.ts are keyed by cwd, and for the same reason
+// their own comment states: "concurrent in-flight hook calls from sub-agents may carry different
+// cwds against this one long-lived server process." A bare global here would let one concurrently
+// running subagent's EnterWorktree clobber the cwd every OTHER subagent's format_pre/format_post
+// resolves against -- cross-contaminating which worktree a file gets formatted relative to.
+const cwdOverrides = new Map<string, string>();
+
+/** The key `cwdOverrides` is keyed by for this hook call, or "" if neither field is present
+ * (resolveCwd then falls through to `args.cwd` untouched, same as before this override existed). */
+function overrideKey(args: { agent_id?: unknown; session_id?: unknown }): string {
+  if (typeof args?.agent_id === "string" && args.agent_id) return args.agent_id;
+  return typeof args?.session_id === "string" ? args.session_id : "";
+}
+
+/** `args.cwd`, unless worktreeEntered has raised an override for THIS agent/session. */
+function resolveCwd(args: { cwd?: unknown; agent_id?: unknown; session_id?: unknown }): string {
+  const key = overrideKey(args);
+  const override = key ? cwdOverrides.get(key) : undefined;
+  if (override) return override;
+  return typeof args?.cwd === "string" ? args.cwd : "";
+}
+
 /** Apply an Edit in memory (mirrors Claude Code Edit semantics): the whole-file swap must never
  * mask a not-found/non-unique error. An empty `oldStr` is rejected outright — `"".includes` /
  * `indexOf("")` both "match", and the replace_all branch would splice `newStr` between every
@@ -75,7 +107,7 @@ export const CACHE_INVALIDATING_BASENAMES: Set<string> = new Set([...PRETTIER_CO
 export async function formatPost(args: PostToolUseHookInput): Promise<HookResult> {
   try {
     if (args?.tool_response?.success === false) return {};
-    const cwd = typeof args?.cwd === "string" ? args.cwd : "";
+    const cwd = resolveCwd(args);
     const fp = args?.tool_input?.file_path;
     if (!cwd || typeof fp !== "string" || !fp) return {};
 
@@ -137,7 +169,7 @@ export async function formatPost(args: PostToolUseHookInput): Promise<HookResult
  * guard failure / error (fail open). */
 export async function formatPre(args: ToolHookInput): Promise<HookResult> {
   try {
-    const cwd = typeof args?.cwd === "string" ? args.cwd : "";
+    const cwd = resolveCwd(args);
     const fp = args?.tool_input?.file_path;
     if (!cwd || typeof fp !== "string" || !fp) return {};
 
@@ -183,20 +215,53 @@ export async function formatPre(args: ToolHookInput): Promise<HookResult> {
 /** CwdChanged handler: the session's working directory moved, so drop the OLD directory's ignore
  * entry and prefetch both halves for the NEW one — its cwd-rooted ignore files, and prettier's
  * own directory-keyed config-search cache (measured ~1.9 ms -> ~0.25 ms for the first format
- * there). A `cd` is not a format, so this really is a prefetch and not a cost shift.
- * Per .claude/rules/hooks-mcp-tool-event-matrix.md CwdChanged is block_capable:false,
- * additional_context:false, block_mechanism:"none" — there is nothing useful to say, so it always
- * returns {}. Each half is independently guarded so a missing/non-string field is simply
- * skipped. */
+ * there). A `cd` is not a format, so this really is a prefetch and not a cost shift. Also raises
+ * this call's `cwdOverrides` entry to `newCwd`, same as worktreeEntered, so this stays
+ * authoritative if a real CwdChanged ever does fire after a worktreeEntered-raised override (e.g.
+ * a plain `cd` later in the same agent/session). Per .claude/rules/hooks-mcp-tool-event-matrix.md
+ * CwdChanged is block_capable:false, additional_context:false, block_mechanism:"none" — there is
+ * nothing useful to say, so it always returns {}. Each half is independently guarded so a
+ * missing/non-string field is simply skipped. */
 export async function cwdChanged(args: CwdChangedHookInput): Promise<HookResult> {
   try {
     const oldCwd = typeof args?.old_cwd === "string" ? args.old_cwd : "";
     const newCwd = typeof args?.new_cwd === "string" ? args.new_cwd : "";
     if (oldCwd) clearPrettierIgnoreCache(oldCwd);
     if (newCwd) {
+      const key = overrideKey(args);
+      if (key) cwdOverrides.set(key, newCwd);
       primePrettierIgnoreCache(newCwd);
       await warmPrettierConfigCache(newCwd);
     }
+  } catch {
+    /* fail open: a cache prefetch must never surface as a hook failure */
+  }
+  return {};
+}
+
+/** PostToolUse:EnterWorktree handler: the one signal that has actually been observed to fire when
+ * a background-job session's cwd moves into a worktree, since the dedicated CwdChanged event does
+ * not (see cwdOverrides' comment). `tool_response.worktreePath` is EnterWorktree's own reported
+ * path — the same field coding-toolbox's worktreeRefreshHandler already prefers over `cwd` for
+ * this exact tool, because `cwd` "is present for every tool but not guaranteed to name the
+ * worktree" on this specific call. Falls back to `cwd` only if `worktreePath` is absent. Primes
+ * the new cwd's caches exactly like cwdChanged, plus raises THIS call's `cwdOverrides` entry
+ * (keyed by agent_id/session_id, never a bare global — see overrideKey) so every later
+ * format_pre/format_post call from the SAME agent resolves against the worktree regardless of
+ * what `cwd` the platform reports going forward, without disturbing a concurrently running
+ * sibling agent's own override. Fail open: any error leaves the override untouched. */
+export async function worktreeEntered(args: PostToolUseHookInput): Promise<HookResult> {
+  try {
+    const reported = args?.tool_response?.worktreePath;
+    const newCwd = typeof reported === "string" && reported ? reported : typeof args?.cwd === "string" ? args.cwd : "";
+    if (!newCwd) return {};
+    const key = overrideKey(args);
+    if (!key) return {}; // no way to scope the override to this agent -- leave args.cwd as-is
+    const previous = cwdOverrides.get(key);
+    if (previous && previous !== newCwd) clearPrettierIgnoreCache(previous);
+    cwdOverrides.set(key, newCwd);
+    primePrettierIgnoreCache(newCwd);
+    await warmPrettierConfigCache(newCwd);
   } catch {
     /* fail open: a cache prefetch must never surface as a hook failure */
   }

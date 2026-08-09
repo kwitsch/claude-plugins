@@ -2,27 +2,31 @@
 
 Auto-formatter plugin backed by a plugin-local MCP stdio server (`mcp/server.mjs` — a committed
 `bun build` bundle plus three committed `.wasm` sidecars, see "Built artifact" below), launched via
-a bun-preferred `bin/mjs-launch.sh` wrapper. Three `mcp_tool` hooks — two on `Write|Edit`, one on
-`CwdChanged`: **PreToolUse `format_pre`** formats the thirteen prettier languages (JS/TS, JSON,
-YAML, Markdown, CSS, SCSS, LESS, HTML, Vue, GraphQL, Shell, Java, PHP) in-process BEFORE the write
-via `hookSpecificOutput.updatedInput`, always with the prettier bundled into the server;
-**PostToolUse `format_post`** formats the three remaining languages (Kotlin/Python/Go) on disk
-after the write via each tool's CLI, and returns `{}` for every prettier language; **CwdChanged
-`cwd_changed`** formats nothing at all — it drops the old directory's cached ignore state and
-prefetches the new directory's (see "Ignore-file caching"). No `userConfig` — the hooks ARE the
-plugin (see "No toggle").
+a bun-preferred `bin/mjs-launch.sh` wrapper. Four `mcp_tool` hooks — two on `Write|Edit`, one on
+`CwdChanged`, one on `PostToolUse:EnterWorktree`: **PreToolUse `format_pre`** formats the thirteen
+prettier languages (JS/TS, JSON, YAML, Markdown, CSS, SCSS, LESS, HTML, Vue, GraphQL, Shell, Java,
+PHP) in-process BEFORE the write via `hookSpecificOutput.updatedInput`, always with the prettier
+bundled into the server; **PostToolUse `format_post`** formats the three remaining languages
+(Kotlin/Python/Go) on disk after the write via each tool's CLI, and returns `{}` for every prettier
+language; **CwdChanged `cwd_changed`** formats nothing at all — it drops the old directory's cached
+ignore state and prefetches the new directory's (see "Ignore-file caching"); **PostToolUse
+`worktree_entered`** (matcher `EnterWorktree`) does the same cache priming as `cwd_changed`, plus
+raises a session-lifetime cwd override, because `CwdChanged` has been observed to never fire when
+`EnterWorktree` moves a background-job session's cwd into a worktree (see "Path exclusions"). No
+`userConfig` — the hooks ARE the plugin (see "No toggle").
 
 ## Architecture (do not "fix" without reading this)
 
-- **One MCP server, three tools.** `.mcp.json` registers `universal-format-hooks`
+- **One MCP server, four tools.** `.mcp.json` registers `universal-format-hooks`
   (`command: ${CLAUDE_PLUGIN_ROOT}/bin/mjs-launch.sh`, `args:
-["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"]`, no `env` block). All three hooks reference the
+["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"]`, no `env` block). All four hooks reference the
   runtime-namespaced `plugin:universal-format:universal-format-hooks` (NOT the bare
   `.mcp.json` key — that fails to connect). `timeout: 60`, no `async`, no `if` on any of
   them; the `CwdChanged` block additionally carries no `matcher` (that event silently
-  ignores one). All logic lives in `mcp/server.mjs`; the old `hooks/format-file.mjs` command
-  hook is deleted. This plugin writes nothing outside the project: `${CLAUDE_PLUGIN_DATA}`
-  is not used at all.
+  ignores one), and `worktree_entered`'s matcher is the literal tool name `EnterWorktree`
+  (same idiom coding-toolbox's `worktree_refresh` already uses for the same tool). All logic
+  lives in `mcp/server.mjs`; the old `hooks/format-file.mjs` command hook is deleted. This
+  plugin writes nothing outside the project: `${CLAUDE_PLUGIN_DATA}` is not used at all.
 - **`bin/mjs-launch.sh` is shipped for repo parity, NOT for speed.** Measured on this
   machine, bun is SLOWER here than node (warm format ~48 ms bun vs ~39 ms node; first
   format ~354 ms vs ~161 ms); only the one-time module import is faster under bun.
@@ -205,6 +209,10 @@ Beyond `node_modules`/`vendor`/`.git`, `isExcludedPath` also skips two Claude-Co
 
 **Deliberately narrow — not a blanket `.claude/` exclusion.** This repo (and plenty of real projects) tracks legitimate content directly under `.claude/` — `rules/`, `agents/`, `skills/`, `settings.json` — that should keep getting auto-formatted like any other file. Only the two named subtrees are excluded; a `.claude/rules/*.md` edit still triggers `prettier` exactly as before.
 
+**A background-job session's OWN active worktree can hit this exclusion by mistake (0.13.0 fix: `worktree_entered`).** `EnterWorktree` switches such a session's cwd into `.claude/worktrees/<name>/` for every later tool call, but `cwd` on subsequent `PreToolUse`/`PostToolUse` `Write|Edit` calls has been observed (real session transcript: zero `CwdChanged` events across a real `EnterWorktree` call, ever) to keep reporting the PRE-worktree directory. Every file in the session's own worktree then resolves, relative to that stale cwd, as `.claude/worktrees/<name>/...` — indistinguishable from another agent's scratch state — so `isExcludedPath` skips it and formatting silently stops for the rest of the session. `worktree_entered` (`PostToolUse:EnterWorktree`, reading `tool_response.worktreePath` — the same field coding-toolbox's `worktreeRefreshHandler` already prefers over `cwd` for this exact tool) is the fallback signal that actually fires; it raises an override in `handlers.ts`'s `cwdOverrides` map that `formatPre`/`formatPost` resolve through instead of trusting `args.cwd` once it's set for that agent. Do not remove this override on the theory that `CwdChanged` "should" cover it — it doesn't, in this exact scenario, as verified live.
+
+**`cwdOverrides` is a `Map` keyed by `agent_id` (falling back to `session_id`), NEVER a bare global.** This one MCP server process is shared by every subagent running in the session — `ignoreCache`/`projectConfigCache` in `prettier.ts` are cwd-keyed for exactly the same stated reason ("concurrent in-flight hook calls from sub-agents may carry different cwds against this one long-lived server process"). A single mutable `cwdOverride` would let whichever subagent's `EnterWorktree` fires last win the override for EVERY OTHER concurrently running subagent too, silently formatting one agent's files against a sibling agent's worktree. `overrideKey()` in `handlers.ts` derives the key; a hook call with neither field resolves to `""` and is treated as un-keyable (falls through to raw `args.cwd`, i.e. today's pre-fix behavior for that one call — never crashes, never guesses). Pinned by `prettier.test.mjs`'s "concurrent subagents keep independent overrides" test.
+
 ## YAML/JSON line-length guard (do not "fix" without reading this)
 
 `prettier`'s own default `printWidth` (80) drives real wrapping decisions —
@@ -274,8 +282,8 @@ default applied unconditionally; now it means no line-length limit at all.
 | `editorconfig.ts` | `findNativeConfig`, `resolveEditorconfig`, `parseEditorconfig`, `matchGlob`, `MAPPERS`, `buildInvocation`                                                                                                                                                                                                                                                                                   |
 | `prettier.ts`     | the bundled prettier and its three bundled plugins (`BUNDLED_PLUGINS`, `asPlugin`), the `unhandledRejection` startup guard, `BUNDLED_PRETTIER_VERSION`, config discovery, `resolveConfigPlugins`, `formatInProcess`, the cwd-keyed `ignoreCache` behind `isPrettierIgnored`, `primePrettierIgnoreCache`, `clearPrettierIgnoreCache`, `warmPrettierConfigCache`, `clearPrettierConfigCaches` |
 | `registry.ts`     | `EXT_MAP`, `PRETTIER_LANGS`, `REGISTRY` (CLI chains only), `resolveInvocation`, `selectFormatter`                                                                                                                                                                                                                                                                                           |
-| `handlers.ts`     | `isExcludedPath`, `relativeInCwd`, `applyEdit`, `CACHE_INVALIDATING_BASENAMES`, `PRETTIER_IGNORE_BASENAMES`, `formatPre`, `formatPost`, `cwdChanged`                                                                                                                                                                                                                                        |
-| `server.ts`       | MCP scaffold, `isMainModule`, `SERVER_INFO` (hand-paired with `plugin.json`), and the artifact's 18 public re-exports                                                                                                                                                                                                                                                                       |
+| `handlers.ts`     | `isExcludedPath`, `relativeInCwd`, `resolveCwd`/`overrideKey`/`cwdOverrides`, `applyEdit`, `CACHE_INVALIDATING_BASENAMES`, `PRETTIER_IGNORE_BASENAMES`, `formatPre`, `formatPost`, `cwdChanged`, `worktreeEntered`                                                                                                                                                                          |
+| `server.ts`       | MCP scaffold, `isMainModule`, `SERVER_INFO` (hand-paired with `plugin.json`), and the artifact's 19 public re-exports                                                                                                                                                                                                                                                                       |
 | `build.mjs`       | the build driver (node-runnable; also runs under bun)                                                                                                                                                                                                                                                                                                                                       |
 
 Import graph is acyclic (`types ← util ← editorconfig ← prettier ← registry ← handlers ← server`)
