@@ -208,10 +208,11 @@ setup() {
 
 # core.fileMode = false in this repo, so a wrong mode on a NEW file surfaces only on a fresh CI
 # checkout — assert the index directly.
-@test "both wasm sidecars are tracked next to the bundle with git mode 100644" {
+@test "all three wasm sidecars are tracked next to the bundle with git mode 100644" {
   run bash -c "cd '$REPO_ROOT' && git ls-files -s plugins/universal-format/mcp/"
   assert_success
   assert_line --regexp '^100755 [0-9a-f]+ 0[[:space:]]+plugins/universal-format/mcp/server\.mjs$'
+  assert_line --regexp '^100644 [0-9a-f]+ 0[[:space:]]+plugins/universal-format/mcp/main\.wasm$'
   assert_line --regexp '^100644 [0-9a-f]+ 0[[:space:]]+plugins/universal-format/mcp/tree-sitter-java_orchard\.wasm$'
   assert_line --regexp '^100644 [0-9a-f]+ 0[[:space:]]+plugins/universal-format/mcp/web-tree-sitter\.wasm$'
 }
@@ -226,12 +227,14 @@ setup() {
   assert_failure
 }
 
-@test "the three global docs describe the artifact as a bundle plus two committed .wasm sidecars" {
+@test "the three global docs describe the artifact as a bundle plus three committed .wasm sidecars" {
   local f
   for f in "$REPO_ROOT/CLAUDE.md" "$REPO_ROOT/plugins/CLAUDE.md" "$REPO_ROOT/.claude/rules/hooks-mcp-server.md"; do
     run rg_or_grep -q -F "web-tree-sitter.wasm" "$f"
     assert_success
     run rg_or_grep -q -F "tree-sitter-java_orchard.wasm" "$f"
+    assert_success
+    run rg_or_grep -q -F "main.wasm" "$f"
     assert_success
   done
 }

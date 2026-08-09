@@ -17,7 +17,7 @@ change directory — it never formats anything.
 **Prettier languages** (JS/TS, JSON, YAML, Markdown, CSS, SCSS, LESS, HTML, Vue, GraphQL, Shell,
 Java, PHP) are formatted **before** the write, in-process, by the Prettier this plugin ships inside
 its own MCP server — together with the three community plugins bundled next to it
-(`prettier-plugin-java`, `@prettier/plugin-php`, `prettier-plugin-sh`) and their two `.wasm`
+(`prettier-plugin-java`, `@prettier/plugin-php`, `prettier-plugin-sh`) and their three `.wasm`
 sidecars. There is no version lookup and no install step: one bundled copy, always used, with no
 network access.
 

@@ -1,7 +1,7 @@
 # CLAUDE.md — universal-format
 
 Auto-formatter plugin backed by a plugin-local MCP stdio server (`mcp/server.mjs` — a committed
-`bun build` bundle plus two committed `.wasm` sidecars, see "Built artifact" below), launched via
+`bun build` bundle plus three committed `.wasm` sidecars, see "Built artifact" below), launched via
 a bun-preferred `bin/mjs-launch.sh` wrapper. Three `mcp_tool` hooks — two on `Write|Edit`, one on
 `CwdChanged`: **PreToolUse `format_pre`** formats the thirteen prettier languages (JS/TS, JSON,
 YAML, Markdown, CSS, SCSS, LESS, HTML, Vue, GraphQL, Shell, Java, PHP) in-process BEFORE the write
@@ -65,7 +65,8 @@ language). They replaced the `shell`, `java` and `php` CLI chains outright — t
 entries, their `MAPPERS` and every doc describing them are deleted, and there is deliberately NO
 CLI fallback: a plugin that cannot parse a file throws, the handler's `catch` returns `{}`, and the
 write proceeds unformatted. Pins are **exact**: java is the LATEST release (its two `.wasm`
-sidecars resolve to the bundle's own directory, so shipping them needs no path hack), php's latest
+sidecars resolve to the bundle's own directory, so shipping them needs no path hack); shell's
+`sh-syntax` dependency ships its own `main.wasm` the same way (see "Built artifact"); php's latest
 is pure JS, and shell is pinned to its last pure-JS release on purpose — 0.17.0+ is WASM-only,
 resolves its wasm OUTSIDE the bundle's directory and needs 539 lines of vendored TinyGo glue to
 defeat a four-year-old `sideEffects` bug. Never set a plugin OPTION from this code (in particular
@@ -266,16 +267,16 @@ default applied unconditionally; now it means no line-length limit at all.
 
 `mcp/server.mjs` is **generated**. The source of truth is `src/universal-format-mcp/`:
 
-| File              | Responsibility                                                                                                                                                                                                                                                        |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `types.ts`        | `FormatTool`, `LangEntry`, `EditorConfigProps` (type-only)                                                                                                                                                                                                            |
-| `util.ts`         | `walkToRoot`, `onPath` + the module-level `probeCache` singleton                                                                                                                                                                                                      |
-| `editorconfig.ts` | `findNativeConfig`, `resolveEditorconfig`, `parseEditorconfig`, `matchGlob`, `MAPPERS`, `buildInvocation`                                                                                                                                                             |
+| File              | Responsibility                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`        | `FormatTool`, `LangEntry`, `EditorConfigProps` (type-only)                                                                                                                                                                                                                                                                                                                                  |
+| `util.ts`         | `walkToRoot`, `onPath` + the module-level `probeCache` singleton                                                                                                                                                                                                                                                                                                                            |
+| `editorconfig.ts` | `findNativeConfig`, `resolveEditorconfig`, `parseEditorconfig`, `matchGlob`, `MAPPERS`, `buildInvocation`                                                                                                                                                                                                                                                                                   |
 | `prettier.ts`     | the bundled prettier and its three bundled plugins (`BUNDLED_PLUGINS`, `asPlugin`), the `unhandledRejection` startup guard, `BUNDLED_PRETTIER_VERSION`, config discovery, `resolveConfigPlugins`, `formatInProcess`, the cwd-keyed `ignoreCache` behind `isPrettierIgnored`, `primePrettierIgnoreCache`, `clearPrettierIgnoreCache`, `warmPrettierConfigCache`, `clearPrettierConfigCaches` |
-| `registry.ts`     | `EXT_MAP`, `PRETTIER_LANGS`, `REGISTRY` (CLI chains only), `resolveInvocation`, `selectFormatter`                                                                                                                                                                     |
-| `handlers.ts`     | `isExcludedPath`, `relativeInCwd`, `applyEdit`, `CACHE_INVALIDATING_BASENAMES`, `PRETTIER_IGNORE_BASENAMES`, `formatPre`, `formatPost`, `cwdChanged`                                                                                                                   |
-| `server.ts`       | MCP scaffold, `isMainModule`, `SERVER_INFO` (hand-paired with `plugin.json`), and the artifact's 18 public re-exports                                                                                                                                                 |
-| `build.mjs`       | the build driver (node-runnable; also runs under bun)                                                                                                                                                                                                                 |
+| `registry.ts`     | `EXT_MAP`, `PRETTIER_LANGS`, `REGISTRY` (CLI chains only), `resolveInvocation`, `selectFormatter`                                                                                                                                                                                                                                                                                           |
+| `handlers.ts`     | `isExcludedPath`, `relativeInCwd`, `applyEdit`, `CACHE_INVALIDATING_BASENAMES`, `PRETTIER_IGNORE_BASENAMES`, `formatPre`, `formatPost`, `cwdChanged`                                                                                                                                                                                                                                        |
+| `server.ts`       | MCP scaffold, `isMainModule`, `SERVER_INFO` (hand-paired with `plugin.json`), and the artifact's 18 public re-exports                                                                                                                                                                                                                                                                       |
+| `build.mjs`       | the build driver (node-runnable; also runs under bun)                                                                                                                                                                                                                                                                                                                                       |
 
 Import graph is acyclic (`types ← util ← editorconfig ← prettier ← registry ← handlers ← server`)
 and relative imports use the `./x.js` specifier form, required by the root tsconfig's
@@ -315,7 +316,7 @@ Every flag is load-bearing:
 | **not** `--reject-unresolved`                       | prettier resolves a project's config file through a runtime `import()` of a computed path, unresolvable at build time _by design_.                                                                                                                     |
 | **not** `--production` / `--bytecode` / `--compile` | `--production` implies minification, `--bytecode` forces CJS, `--compile` emits a standalone bun executable — all three contradict a node-runnable ESM artifact.                                                                                       |
 
-Measured: ~9.3 MB bundle plus 648,962 B of `.wasm` sidecars, `node --check` clean, byte-identical
+Measured: ~9.3 MB bundle plus 3,037,240 B of `.wasm` sidecars, `node --check` clean, byte-identical
 on repeated builds in one tree, runs under both `node` and `bun`, import ≈246 ms (one-time per
 session), warm format ≈1.6–2.0 ms (java 1.8, sh 2.0, php 1.6). The whole prettier package (all 13
 parser plugins) is bundled on purpose: prettier delegates embedded `html`/`graphql`/`css` blocks
@@ -323,18 +324,23 @@ inside Markdown to those parsers, so trimming would silently break accepted inpu
 `eslint.config.mjs` and `.prettierignore` both exclude the artifact; neither matches `.wasm`, and
 `EXT_MAP` has no `.wasm` entry, so nothing ever tries to format a sidecar.
 
-**The artifact is `server.mjs` PLUS two committed `.wasm` sidecars in the same `mcp/` directory**
-— `web-tree-sitter.wasm` (201,037 B) and `tree-sitter-java_orchard.wasm` (447,925 B), git mode
-`100644`, `*.wasm binary` in `.gitattributes`. They live exactly there because
-`prettier-plugin-java` and `web-tree-sitter` load them via `new URL(<name>, import.meta.url)`,
+**The artifact is `server.mjs` PLUS three committed `.wasm` sidecars in the same `mcp/` directory**
+— `web-tree-sitter.wasm` (201,037 B), `tree-sitter-java_orchard.wasm` (447,925 B) and `main.wasm`
+(2,388,278 B, sh-syntax's dormant-by-default parser — see "Three third-party plugins" above), git
+mode `100644`, `*.wasm binary` in `.gitattributes`. They live exactly there because
+`prettier-plugin-java` and `web-tree-sitter` load their two via `new URL(<name>, import.meta.url)`,
 which after bundling resolves to the BUNDLE's own directory — independent of the dependency's
 internal layout, and verified relocatable (the whole `mcp/` directory runs from a copy with no
 `node_modules` above it, under node and bun; the plugin runs from a versioned plugin-cache copy,
-so this matters). `bun build` cannot emit them (`--outdir` + `--loader:.wasm=file` emits only the
-JS: both are runtime lookups the bundler cannot see), so `build.mjs` copies them by hand —
-resolving each the same way its plugin resolves it at runtime, sweeping every other `*.wasm` out
-of the output directory first so a plugin bump that renames a grammar cannot leave an orphan, and
-fingerprinting them into `assets=`. Never hand-edit the bundle or the sidecars.
+so this matters). `sh-syntax` resolves its `main.wasm` differently — a CJS `__dirname`-relative
+lookup, not `new URL` — and bun's bundler hardcodes THAT as the build machine's absolute path
+unless corrected; `build.mjs`'s `containShSyntaxDirname` rewrites it to the same
+import.meta.url-based resolution, anchored so the lookup still lands next to the bundle. `bun
+build` cannot emit any of the three (`--outdir` + `--loader:.wasm=file` emits only the JS: all are
+runtime lookups the bundler cannot see), so `build.mjs` copies them by hand — resolving each the
+same way its plugin resolves it at runtime, sweeping every other `*.wasm` out of the output
+directory first so a plugin bump that renames a grammar cannot leave an orphan, and fingerprinting
+them into `assets=`. Never hand-edit the bundle or the sidecars.
 
 ## Tests
 

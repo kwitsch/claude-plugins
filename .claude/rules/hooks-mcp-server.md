@@ -55,15 +55,17 @@ repo's single-hook example.
 
 <!-- separate blockquote, not a continuation of the one above -->
 
-> Correction note (added 2026-08-08, updated for 0.11.0): `universal-format` is this repo's ONE
-> deliberate exception to "self-contained zero-dep `mcp/server.mjs`". As of 0.11.0 its
+> Correction note (added 2026-08-08, updated for 0.12.0): `universal-format` is this repo's ONE
+> deliberate exception to "self-contained zero-dep `mcp/server.mjs`". As of 0.12.0 its
 > `plugins/universal-format/mcp/server.mjs` is a committed ~9.3 MB `bun build` bundle generated
 > from `src/universal-format-mcp/*.ts` with prettier and its `prettier-plugin-java`,
-> `@prettier/plugin-php` and `prettier-plugin-sh` plugins inlined, **plus two committed `.wasm`
-> sidecars in the same directory** (`web-tree-sitter.wasm`, 201,037 B, and
-> `tree-sitter-java_orchard.wasm`, 447,925 B, both git mode `100644`) — copied there by
-> `build.mjs` because `new URL(name, import.meta.url)` resolves to the bundle's own directory
-> once everything is one file. Rebuild: `pnpm run build:universal-format-mcp`; freshness of the
+> `@prettier/plugin-php` and `prettier-plugin-sh` plugins inlined, **plus three committed `.wasm`
+> sidecars in the same directory** (`web-tree-sitter.wasm`, 201,037 B; `tree-sitter-java_orchard.wasm`,
+> 447,925 B; and `main.wasm`, 2,388,278 B — sh-syntax's parser, all git mode `100644`) — copied
+> there by `build.mjs` because `new URL(name, import.meta.url)` (or, for sh-syntax's CJS
+> `__dirname`-relative lookup, an equivalent self-contained resolution — see `build.mjs`'s
+> `containShSyntaxDirname`) resolves to the bundle's own directory once everything is one file.
+> Rebuild: `pnpm run build:universal-format-mcp`; freshness of the
 > bundle AND the sidecars is gated by `test/universal-format/build-artifact.test.mjs` (`src=`,
 > `body=`, `plugins=`, `assets=`). The ONE invariant that no longer holds is "a single
 > self-contained file": the whole `mcp/` directory is the artifact, and it stays relocatable
