@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { EXT_MAP, PRETTIER_LANGS, REGISTRY, selectFormatter } from "./registry.js";
-import { PRETTIER_CONFIG_FILENAMES, clearPrettierConfigCaches, formatInProcess, isPrettierIgnored } from "./prettier.js";
+import { PRETTIER_CONFIG_FILENAMES, clearPrettierConfigCaches, formatInProcess, isPrettierIgnored, primePrettierIgnoreCache } from "./prettier.js";
 
 const SPAWN_TIMEOUT_MS = 30000; // inner formatter timeout; the hook-level timeout:60 is the backstop
 
@@ -56,13 +56,19 @@ export function applyEdit(current: string, oldStr: string, newStr: string, repla
   return current.slice(0, idx) + newStr + current.slice(idx + oldStr.length);
 }
 
+// The two cwd-rooted ignore files. A write to either one refreshes THIS server's cwd-keyed
+// ignore cache (prettier's own getFileInfo still caches nothing). Kept as its own set so
+// formatPost can act on it separately from the config clear.
+export const PRETTIER_IGNORE_BASENAMES: Set<string> = new Set([".prettierignore", ".gitignore"]);
+
 // Basenames whose write invalidates prettier's cached configuration. The prettier config files
 // themselves, the two files prettier reads a top-level "prettier" key out of, and .editorconfig
 // (a SEPARATE cache inside prettier from .prettierrc -- verified that clearConfigCache() covers
-// both). The two ignore files are listed for completeness: prettier does NOT cache them
-// (verified -- getFileInfo re-reads them on every call), so clearing for them is a no-op today,
-// kept so the trigger set matches the concept.
-export const CACHE_INVALIDATING_BASENAMES: Set<string> = new Set([...PRETTIER_CONFIG_FILENAMES, "package.json", "package.yaml", ".editorconfig", ".prettierignore", ".gitignore"]);
+// both). The two ignore files are spread in so this set stays the single "a config-ish file was
+// written" concept; clearing prettier's config cache for them really is inert, but they are NOT
+// inert overall -- the second line of formatPost's basename block re-reads the ignore cache for
+// them. Membership is unchanged from before that second line existed.
+export const CACHE_INVALIDATING_BASENAMES: Set<string> = new Set([...PRETTIER_CONFIG_FILENAMES, "package.json", "package.yaml", ".editorconfig", ...PRETTIER_IGNORE_BASENAMES]);
 
 /** PostToolUse handler: the non-prettier CLI chains only, plus the event-driven prettier
  * config-cache invalidation. Returns {} on every guard failure / error (fail open). */
@@ -78,11 +84,15 @@ export async function formatPost(args: PostToolUseHookInput): Promise<HookResult
     if (rel === null) return {};
     if (isExcludedPath(rel)) return {};
 
-    // The write has landed by now, so this is the only correct moment to invalidate. Runs BEFORE
-    // the language guard on purpose: most of these basenames have no extension at all
-    // (`.prettierrc`, `.editorconfig`, `.prettierignore`), so EXT_MAP would drop them and the
-    // cache would never be cleared.
-    if (CACHE_INVALIDATING_BASENAMES.has(path.basename(resolved))) clearPrettierConfigCaches();
+    // The write has landed by now, so this is the only correct moment to invalidate/refresh. Runs
+    // BEFORE the language guard on purpose: most of these basenames have no extension at all
+    // (`.prettierrc`, `.editorconfig`, `.prettierignore`), so EXT_MAP would drop them and neither
+    // cache would ever be touched. primePrettierIgnoreCache always re-reads the CWD-ROOTED ignore
+    // files, so a write to a nested `sub/.prettierignore` triggers a harmless (and correct)
+    // re-read of the cwd-rooted pair rather than mistaking the written file for the cached one.
+    const basename = path.basename(resolved);
+    if (CACHE_INVALIDATING_BASENAMES.has(basename)) clearPrettierConfigCaches();
+    if (PRETTIER_IGNORE_BASENAMES.has(basename)) primePrettierIgnoreCache(cwd);
 
     const lang = EXT_MAP[path.extname(resolved).toLowerCase()];
     if (!lang) return {};
