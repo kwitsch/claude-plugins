@@ -93,6 +93,25 @@ function resolveCwd(args: { cwd?: unknown; agent_id?: unknown; session_id?: unkn
   return typeof args?.cwd === "string" ? args.cwd : "";
 }
 
+/** Resolves the write target shared by both hook handlers: the file path, the `base` directory
+ * every project-scoped lookup anchors at, and the base-relative path used for exclusion. Returns
+ * null on any guard failure -- callers return {} in that case (fail open). Extracted so the
+ * resolution sequence (resolveCwd -> fp guard -> resolve -> resolveBase -> rel -> isExcludedPath)
+ * can't silently drift out of sync between formatPost and formatPre, which must otherwise be
+ * edited in lockstep. */
+function resolveTarget(args: ToolHookInput): { cwd: string; base: string; resolved: string; rel: string; fp: string } | null {
+  const cwd = resolveCwd(args);
+  const fp = args?.tool_input?.file_path;
+  if (typeof fp !== "string" || !fp) return null;
+  if (!cwd && !path.isAbsolute(fp)) return null; // nothing to resolve a relative path against
+
+  const resolved = path.resolve(cwd, fp);
+  const base = resolveBase(cwd, resolved);
+  const rel = path.relative(base, resolved);
+  if (isExcludedPath(rel)) return null;
+  return { cwd, base, resolved, rel, fp };
+}
+
 /** Apply an Edit in memory (mirrors Claude Code Edit semantics): the whole-file swap must never
  * mask a not-found/non-unique error. An empty `oldStr` is rejected outright — `"".includes` /
  * `indexOf("")` both "match", and the replace_all branch would splice `newStr` between every
@@ -126,15 +145,9 @@ export const CACHE_INVALIDATING_BASENAMES: Set<string> = new Set([...PRETTIER_CO
 export async function formatPost(args: PostToolUseHookInput): Promise<HookResult> {
   try {
     if (args?.tool_response?.success === false) return {};
-    const cwd = resolveCwd(args);
-    const fp = args?.tool_input?.file_path;
-    if (typeof fp !== "string" || !fp) return {};
-    if (!cwd && !path.isAbsolute(fp)) return {}; // nothing to resolve a relative path against
-
-    const resolved = path.resolve(cwd, fp);
-    const base = resolveBase(cwd, resolved);
-    const rel = path.relative(base, resolved);
-    if (isExcludedPath(rel)) return {};
+    const target = resolveTarget(args);
+    if (!target) return {};
+    const { cwd, base, resolved, rel } = target;
 
     // The write has landed by now, so this is the only correct moment to invalidate/refresh. Runs
     // BEFORE the language guard on purpose: most of these basenames have no extension at all
@@ -193,15 +206,9 @@ export async function formatPost(args: PostToolUseHookInput): Promise<HookResult
  * guard failure / error (fail open). */
 export async function formatPre(args: ToolHookInput): Promise<HookResult> {
   try {
-    const cwd = resolveCwd(args);
-    const fp = args?.tool_input?.file_path;
-    if (typeof fp !== "string" || !fp) return {};
-    if (!cwd && !path.isAbsolute(fp)) return {}; // nothing to resolve a relative path against
-
-    const resolved = path.resolve(cwd, fp);
-    const base = resolveBase(cwd, resolved);
-    const rel = path.relative(base, resolved);
-    if (isExcludedPath(rel)) return {};
+    const target = resolveTarget(args);
+    if (!target) return {};
+    const { cwd, base, resolved, rel, fp } = target;
 
     const lang = EXT_MAP[path.extname(resolved).toLowerCase()];
     if (!lang || !PRETTIER_LANGS.has(lang)) return {};

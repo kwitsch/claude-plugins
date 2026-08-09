@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=6b18e6b7160fc5ff body=a2aec1d973dffdaa prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=eccb1b3a578b78a0 body=ee943f1bb6a4acd8 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -200863,6 +200863,20 @@ function resolveCwd(args2) {
     return override;
   return typeof args2?.cwd === "string" ? args2.cwd : "";
 }
+function resolveTarget(args2) {
+  const cwd = resolveCwd(args2);
+  const fp2 = args2?.tool_input?.file_path;
+  if (typeof fp2 !== "string" || !fp2)
+    return null;
+  if (!cwd && !path21.isAbsolute(fp2))
+    return null;
+  const resolved = path21.resolve(cwd, fp2);
+  const base = resolveBase(cwd, resolved);
+  const rel = path21.relative(base, resolved);
+  if (isExcludedPath(rel))
+    return null;
+  return { cwd, base, resolved, rel, fp: fp2 };
+}
 function applyEdit(current, oldStr, newStr, replaceAll3) {
   if (oldStr === "")
     return null;
@@ -200881,17 +200895,10 @@ async function formatPost(args2) {
   try {
     if (args2?.tool_response?.success === false)
       return {};
-    const cwd = resolveCwd(args2);
-    const fp2 = args2?.tool_input?.file_path;
-    if (typeof fp2 !== "string" || !fp2)
+    const target = resolveTarget(args2);
+    if (!target)
       return {};
-    if (!cwd && !path21.isAbsolute(fp2))
-      return {};
-    const resolved = path21.resolve(cwd, fp2);
-    const base = resolveBase(cwd, resolved);
-    const rel = path21.relative(base, resolved);
-    if (isExcludedPath(rel))
-      return {};
+    const { cwd, base, resolved, rel } = target;
     const basename = path21.basename(resolved);
     if (CACHE_INVALIDATING_BASENAMES.has(basename))
       clearPrettierConfigCaches();
@@ -200931,17 +200938,10 @@ async function formatPost(args2) {
 }
 async function formatPre(args2) {
   try {
-    const cwd = resolveCwd(args2);
-    const fp2 = args2?.tool_input?.file_path;
-    if (typeof fp2 !== "string" || !fp2)
+    const target = resolveTarget(args2);
+    if (!target)
       return {};
-    if (!cwd && !path21.isAbsolute(fp2))
-      return {};
-    const resolved = path21.resolve(cwd, fp2);
-    const base = resolveBase(cwd, resolved);
-    const rel = path21.relative(base, resolved);
-    if (isExcludedPath(rel))
-      return {};
+    const { cwd, base, resolved, rel, fp: fp2 } = target;
     const lang = EXT_MAP[path21.extname(resolved).toLowerCase()];
     if (!lang || !PRETTIER_LANGS.has(lang))
       return {};
