@@ -289,4 +289,8 @@ setup() {
   assert_success
   run rg_or_grep -nF "outside the project" "$PLUGIN/README.md"
   assert_failure
+  run rg_or_grep -nF "this plugin only ever reads the \`.prettierignore\` at the file's" "$PLUGIN/README.md"
+  assert_success
+  run rg_or_grep -nF "no Git root either — the file's own directory" "$PLUGIN/README.md"
+  assert_success
 }

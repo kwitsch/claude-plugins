@@ -36,15 +36,20 @@ Your project's Prettier **configuration** is still honored in full — `.prettie
 own project root. A file that is gitignored but not prettierignored (a `dist/` bundle, generated
 sources) **is** formatted — add it to `.prettierignore` if it should not be.
 
+**"The file's own project root" is one directory per file, chosen in this order:** your session's
+working directory when the file is inside it, otherwise the file's own Git root, otherwise — when
+the file has no Git root either — the file's own directory. That same directory controls every
+other project-scoped lookup too: `.prettierrc*`/`.editorconfig` discovery and `plugins:` resolution
+below.
+
 Two consequences worth knowing:
 
 - **The bundled Prettier version is used even when your project pins a different one.** Formatting
   differences between Prettier minors are real, so your own `prettier --check` may disagree with
   what this plugin wrote. Exclude the paths via `.prettierignore` if that matters.
-- **A `plugins:` entry your project's config names must be resolvable from the project.** Entries
-  are resolved against the file's own project — its git root, or the session's working directory
-  when the file is inside it; if one cannot be resolved, the file is left **unformatted** rather
-  than formatted without the plugin you asked for.
+- **A `plugins:` entry your project's config names must be resolvable from that same directory;**
+  if one cannot be resolved, the file is left **unformatted** rather than formatted without the
+  plugin you asked for.
 
 An unavailable formatter, any failure, an unsupported extension, a file under
 `node_modules/`/`vendor/`/`.git/`, or a path excluded by the project's own `.prettierignore` is a
