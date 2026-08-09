@@ -236,6 +236,22 @@ setup() {
   done
 }
 
+# Doc drift is the main failure mode of the ignore cache: three places used to assert that
+# clearing for an ignore file is inert, and one asserted this plugin backs exactly two mcp_tool
+# hooks. All of them are wrong as of 0.12.0.
+@test "docs describe the ignore cache and the third mcp_tool hook, not the stale no-op claim" {
+  run rg_or_grep -q -F "no-op today" "$PLUGIN/CLAUDE.md"
+  assert_failure
+  run rg_or_grep -q -F "Ignore-file caching is event-driven" "$PLUGIN/CLAUDE.md"
+  assert_success
+  run rg_or_grep -q -F "cwd_changed" "$PLUGIN/CLAUDE.md"
+  assert_success
+  run rg_or_grep -q -F "cwd_changed" "$REPO_ROOT/.claude/rules/hooks-mcp-server.md"
+  assert_success
+  run rg_or_grep -q -F "CwdChanged" "$PLUGIN/README.md"
+  assert_success
+}
+
 @test "plugin README table and both manifest descriptions cover the thirteen bundled-prettier languages" {
   run rg_or_grep -c -F "in-process, before the write" "$PLUGIN/README.md"
   assert_output "13"
