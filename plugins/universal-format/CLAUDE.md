@@ -17,6 +17,34 @@ raises a session-lifetime cwd override, because `CwdChanged` has been observed t
 
 ## Architecture (do not "fix" without reading this)
 
+- **Explicit hook `input` field, one per `mcp_tool` hook — REQUIRED, not decorative
+  (0.14.1 fix).** Live-verified on Claude Code 2.1.226: an `mcp_tool` hook with NO
+  `"input"` field receives a literal empty `arguments: {}` — not the full hook JSON
+  that `.claude/rules/hooks-mcp-server.md`'s reference `server.mjs` template previously
+  assumed as the (undocumented) default. Root-caused by patching a live plugin-cache
+  copy of `server.mjs` to log raw `params.arguments` and confirming `{}` for both
+  `format_pre`/`format_post` on a real Write call; the official hooks docs never
+  actually documented a full-JSON-passthrough default (confirmed via a docs re-check),
+  so this repo's own assumption — not a version regression — was the bug. Each hook now
+  reconstructs exactly the fields its handler reads, via `${...}` string-substitution
+  placeholders (`hooks/hooks.json`): `format_pre` → `cwd`, `agent_id`, `session_id`,
+  `tool_name`, `tool_input.{file_path,content,old_string,new_string,replace_all}`;
+  `format_post` → `cwd`, `agent_id`, `session_id`, `tool_input.file_path`,
+  `tool_response.success`; `worktree_entered` → `cwd`, `agent_id`, `session_id`,
+  `tool_response.worktreePath`; `cwd_changed` → `agent_id`, `session_id`, `old_cwd`,
+  `new_cwd`. Pinned by `scaffold.bats`'s "every mcp_tool hook declares an explicit
+  input field" test plus one shape-assertion test per hook.
+  **Substitution is string-only — no documented type preservation**, per the official
+  docs ("string values support `${path}` substitution"): a placeholder that resolves to
+  a boolean or object in the real hook JSON (`tool_input.replace_all`,
+  `tool_response.success`) arrives as the STRING `"true"`/`"false"`, not a real
+  boolean. `handlers.ts`'s `formatPre`/`formatPost` compare against both the real and
+  the string-coerced form (`=== true || === "true"`, `=== false || === "false"`) for
+  exactly these two fields — do not "simplify" back to a bare boolean comparison.
+  **claude-code-knowledge and coding-toolbox's own `mcp_tool` hooks were not audited
+  for this same gap** when this was found — check `hooks-mcp-tool-event-matrix.md`'s
+  `GLOBAL_MECHANICS.optional_fields` note before assuming either one still gets full
+  hook JSON without an explicit `input`.
 - **One MCP server, four tools.** `.mcp.json` registers `universal-format-hooks`
   (`command: ${CLAUDE_PLUGIN_ROOT}/bin/mjs-launch.sh`, `args:
 ["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"]`, no `env` block). All four hooks reference the

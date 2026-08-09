@@ -175,6 +175,22 @@ to MCP-server spawning.
 `mcp_tool` fields: `server` (required — must match a connected server), `tool`
 (required). Common fields apply (`if`, `timeout` default 600, `statusMessage`).
 
+**`input` is REQUIRED in practice, despite being schema-optional — omitting it means
+the tool receives a literal empty `arguments: {}`, NOT the full hook event JSON.**
+Live-verified on Claude Code 2.1.226 (see `hooks-mcp-tool-event-matrix.md`'s
+`GLOBAL_MECHANICS.input_omitted_default` and `plugins/universal-format/CLAUDE.md`'s
+0.14.1 fix): a `format_pre`/`format_post` hook with no `input` field fired
+successfully (`exitCode: 0`) on every real Write/Edit but its handler always saw
+`args` as `{}`, silently no-opping every guard clause that reads `tool_input`/`cwd`/etc.
+The reference `server.mjs` below and its comment `// args is the hook event JSON`
+describes what the handler receives ONLY when the hook explicitly reconstructs that
+shape via an `input` field with `${...}` placeholders — build one explicitly for any
+new `mcp_tool` hook; do not rely on implicit passthrough. Substitution is
+**string-only** (see the event matrix's `input_substitution_type_preservation`): a
+placeholder resolving to a boolean/object in the source hook JSON arrives as a
+stringified value (`"true"`/`"false"`), so a handler comparing against a literal
+`true`/`false` must also accept the string form for any such field.
+
 ## `bin/mjs-launch.sh` (OPTIONAL bun-preferred wrapper — not the default)
 
 This wrapper is an **optional fallback** for a plugin that genuinely needs
