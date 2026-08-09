@@ -262,3 +262,20 @@ test("ignore cache: a .prettierignore appearing out of band is NOT picked up (do
   const after = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } })));
   assert.equal(preContent(after), '{ "a": 1 }\n', "still formatted with the pre-write ignore state");
 });
+
+// The update path, mirroring the .prettierrc one above: an ignore file written THROUGH the hooks
+// re-reads that cwd's ignore state (and discards its memoized verdicts) at PostToolUse — the only
+// correct moment, since at PreToolUse the write has not landed yet.
+test("ignore cache: a .prettierignore written through the hooks takes effect on the next format", async () => {
+  const cwd = tmp("uf-ign-post-");
+  const fp = path.join(cwd, "late.json");
+  const before = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } })));
+  assert.equal(preContent(before), '{ "a": 1 }\n', "no ignore file yet -> formatted");
+
+  const ign = path.join(cwd, ".prettierignore");
+  writeFileSync(ign, "late.json\n");
+  await formatPost(/** @type {any} */ (hookInput({ cwd, tool_name: "Write", tool_input: { file_path: ign } })));
+
+  const after = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } }));
+  assert.deepEqual(after, {}, "formatPost on .prettierignore must re-read this cwd's ignore state");
+});

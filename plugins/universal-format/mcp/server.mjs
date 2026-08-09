@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=3dc054d159a25099 body=5193d77b5f59e815 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=fcbfbd1e6bee983f bun=1.3.14
+// uf-build-fingerprint src=66723edc37dddb5c body=695b0dbab15ec8c1 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=fcbfbd1e6bee983f bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -200030,7 +200030,7 @@ var getProcessor = (getWasmFile) => {
 };
 
 // node_modules/sh-syntax/lib/index.js
-var __dirname = "/home/kwitsch/repos/claude-plugins/.claude/worktrees/wf_a4fdf013-d70-6/node_modules/.pnpm/sh-syntax@0.4.2/node_modules/sh-syntax/lib";
+var __dirname = "/home/kwitsch/repos/claude-plugins/.claude/worktrees/wf_a4fdf013-d70-9/node_modules/.pnpm/sh-syntax@0.4.2/node_modules/sh-syntax/lib";
 var _dirname = typeof __dirname === "undefined" ? path19.dirname(fileURLToPath6(import.meta.url)) : __dirname;
 var processor2 = getProcessor(() => fs13.readFile(path19.resolve(_dirname, "../main.wasm")));
 
@@ -200811,6 +200811,13 @@ async function isPrettierIgnored(filePath, cwd) {
     return false;
   }
 }
+function primePrettierIgnoreCache(cwd) {
+  try {
+    ignoreCache.set(cwd, readIgnoreState(cwd));
+  } catch {
+    ignoreCache.delete(cwd);
+  }
+}
 
 // src/universal-format-mcp/handlers.ts
 var SPAWN_TIMEOUT_MS = 30000;
@@ -200842,7 +200849,8 @@ function applyEdit(current, oldStr, newStr, replaceAll3) {
     return null;
   return current.slice(0, idx) + newStr + current.slice(idx + oldStr.length);
 }
-var CACHE_INVALIDATING_BASENAMES = new Set([...PRETTIER_CONFIG_FILENAMES, "package.json", "package.yaml", ".editorconfig", ".prettierignore", ".gitignore"]);
+var PRETTIER_IGNORE_BASENAMES = new Set([".prettierignore", ".gitignore"]);
+var CACHE_INVALIDATING_BASENAMES = new Set([...PRETTIER_CONFIG_FILENAMES, "package.json", "package.yaml", ".editorconfig", ...PRETTIER_IGNORE_BASENAMES]);
 async function formatPost(args2) {
   try {
     if (args2?.tool_response?.success === false)
@@ -200857,8 +200865,11 @@ async function formatPost(args2) {
       return {};
     if (isExcludedPath(rel))
       return {};
-    if (CACHE_INVALIDATING_BASENAMES.has(path21.basename(resolved)))
+    const basename = path21.basename(resolved);
+    if (CACHE_INVALIDATING_BASENAMES.has(basename))
       clearPrettierConfigCaches();
+    if (PRETTIER_IGNORE_BASENAMES.has(basename))
+      primePrettierIgnoreCache(cwd);
     const lang = EXT_MAP[path21.extname(resolved).toLowerCase()];
     if (!lang)
       return {};
