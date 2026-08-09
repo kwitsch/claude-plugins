@@ -216,3 +216,49 @@ test("format_pre containment guard: trailing-separator cwd still formats; a file
   const outside = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(outsideDir, "a.json"), content: '{"a":1}' } }));
   assert.deepEqual(outside, {}, "a sibling directory sharing the cwd prefix must still be rejected");
 });
+
+// hasRules is derived from file CONTENT, not mere existence: a cwd with no ignore files at all,
+// and a cwd whose .gitignore holds only blank/# lines, both provably cannot ignore anything, so
+// the ignore round-trip is skipped entirely. Regression anchor for that fast path.
+test("ignore fast path: no ignore files, and a comments-only .gitignore, both still format", async () => {
+  const empty = tmp("uf-ign-none-");
+  const bare = /** @type {any} */ (
+    await formatPre(hookInput({ cwd: empty, tool_name: "Write", tool_input: { file_path: path.join(empty, "a.json"), content: '{"a":1}' } }))
+  );
+  assert.equal(preContent(bare), '{ "a": 1 }\n');
+
+  const commented = tmp("uf-ign-hash-");
+  writeFileSync(path.join(commented, ".gitignore"), "# nothing here\n\n   \n");
+  const res = /** @type {any} */ (
+    await formatPre(hookInput({ cwd: commented, tool_name: "Write", tool_input: { file_path: path.join(commented, "a.json"), content: '{"a":1}' } }))
+  );
+  assert.equal(preContent(res), '{ "a": 1 }\n');
+});
+
+// The verdict memo must not change any answer: gitignore matching is purely path-based, so a
+// second call for the same path in the same cwd is the cached boolean, and an unseen sibling
+// still goes through prettier.
+test("ignore verdict memo: a repeated ignored path stays ignored, an unseen sibling still formats", async () => {
+  const cwd = tmp("uf-ign-memo-");
+  writeFileSync(path.join(cwd, ".prettierignore"), "ignored.json\n");
+  const fp = path.join(cwd, "ignored.json");
+  assert.deepEqual(await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } })), {});
+  assert.deepEqual(await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } })), {});
+  const sibling = /** @type {any} */ (
+    await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "kept.json"), content: '{"a":1}' } }))
+  );
+  assert.equal(preContent(sibling), '{ "a": 1 }\n');
+});
+
+// The documented trade-off of caching the ignore state, mirroring the .prettierrc one above: an
+// ignore file that appears without ever passing through Write/Edit (a Bash `sed`, an external
+// editor) is NOT picked up until a hook refreshes it or the server restarts. Fail direction is
+// mild — a newly ignored file gets formatted once more.
+test("ignore cache: a .prettierignore appearing out of band is NOT picked up (documented trade-off)", async () => {
+  const cwd = tmp("uf-ign-oob-");
+  const fp = path.join(cwd, "late.json");
+  await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } })); // primes the cache
+  writeFileSync(path.join(cwd, ".prettierignore"), "late.json\n"); // no hook fires
+  const after = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } })));
+  assert.equal(preContent(after), '{ "a": 1 }\n', "still formatted with the pre-write ignore state");
+});
