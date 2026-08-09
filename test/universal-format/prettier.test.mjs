@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -337,6 +337,33 @@ test("worktree_entered: before the fix, a stale outer cwd misclassifies a worktr
   assert.equal(preContent(after), '{ "a": 1, "b": 2 }\n', "override must resolve the file relative to the worktree, ignoring the stale outer cwd");
 });
 
+// A stub "goimports" that deterministically rewrites its target file, so a real format and a
+// same-shaped {} no-op (which formatPost also returns for an excluded/unresolvable path, or for
+// "no formatter on PATH") are distinguishable from the test's own assertions -- {} alone would
+// pass even if the cwd override were silently broken and the file were still misclassified as
+// excluded. onPath()'s PATH probe is cached for the process lifetime (see util.ts), so this must
+// be the first (and only) place in this file that probes "goimports"/"gofmt".
+const STUB_GO_OUTPUT = "package main\n\n// stub-formatted\n";
+
+/** Installs an executable `goimports` stub on `process.env.PATH` for the duration of `fn`,
+ * restoring the original PATH afterward even if `fn` throws. @param {() => Promise<void>} fn */
+async function withGoimportsStub(fn) {
+  const binDir = tmp("uf-stub-bin-");
+  const stub = path.join(binDir, "goimports");
+  // A heredoc, not `printf '%s' "<escaped>"`: printf does not interpret backslash escapes inside
+  // a substituted argument (only inside the format operand itself), so a JSON-escaped `\n` would
+  // land in the target file as a literal backslash-n instead of a real newline.
+  writeFileSync(stub, `#!/bin/sh\ncat > "$2" <<'STUBEOF'\n${STUB_GO_OUTPUT}STUBEOF\n`);
+  chmodSync(stub, 0o755);
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${originalPath}`;
+  try {
+    await fn();
+  } finally {
+    process.env.PATH = originalPath;
+  }
+}
+
 test("worktree_entered: format_post also resolves against the override, not the stale cwd", async () => {
   const outer = tmp("uf-outer2-");
   const worktreeDir = path.join(outer, ".claude", "worktrees", "another-worktree");
@@ -346,10 +373,11 @@ test("worktree_entered: format_post also resolves against the override, not the 
 
   await worktreeEntered(/** @type {any} */ ({ ...hookInput({ cwd: outer, tool_name: "EnterWorktree", tool_input: {} }), tool_response: { worktreePath: worktreeDir } }));
 
-  // No gofmt/goimports on this PATH -> selectFormatter finds nothing -> {}. The point here is
-  // only that the file is NOT rejected upfront by isExcludedPath against the stale outer cwd.
-  const result = await formatPost(/** @type {any} */ (hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: goFile } })));
-  assert.deepEqual(result, {}, "no formatter on PATH -> {}, but not because of a stale-cwd exclusion");
+  await withGoimportsStub(async () => {
+    const result = /** @type {any} */ (await formatPost(/** @type {any} */ (hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: goFile } }))));
+    assert.equal(result?.hookSpecificOutput?.hookEventName, "PostToolUse", "the stub must actually have run -- a same-shaped {} would also pass if the override were silently broken");
+    assert.equal(readFileSync(goFile, "utf8"), STUB_GO_OUTPUT, "the stub ran against the worktree-resolved file, proving the override (not the stale outer cwd) was used");
+  });
 });
 
 test("worktree_entered: no tool_response.worktreePath falls back to cwd", async () => {
