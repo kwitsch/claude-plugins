@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=109195be5891c37d body=128d8499d269d9b1 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=fcbfbd1e6bee983f bun=1.3.14
+// uf-build-fingerprint src=109195be5891c37d body=cb8c19fa73b433db prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=fcbfbd1e6bee983f bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -200030,7 +200030,7 @@ var getProcessor = (getWasmFile) => {
 };
 
 // node_modules/sh-syntax/lib/index.js
-var __dirname = "/home/kwitsch/repos/claude-plugins/.claude/worktrees/wf_a4fdf013-d70-12/node_modules/.pnpm/sh-syntax@0.4.2/node_modules/sh-syntax/lib";
+var __dirname = "/home/kwitsch/repos/claude-plugins/.claude/worktrees/wf_a4fdf013-d70-18/node_modules/.pnpm/sh-syntax@0.4.2/node_modules/sh-syntax/lib";
 var _dirname = typeof __dirname === "undefined" ? path19.dirname(fileURLToPath6(import.meta.url)) : __dirname;
 var processor2 = getProcessor(() => fs13.readFile(path19.resolve(_dirname, "../main.wasm")));
 
