@@ -42,6 +42,13 @@ interface PostToolUseHookInput extends ToolHookInput {
   tool_response?: ToolResponse;
 }
 
+/** CwdChanged: the session's working directory moved. Field names per the cc-reference hook
+ * schema ("CwdChanged adds old_cwd, new_cwd"). No matcher, no block path. */
+interface CwdChangedHookInput extends HookCommonInput {
+  old_cwd: string;
+  new_cwd: string;
+}
+
 interface HookSpecificOutput {
   hookEventName: string;
   additionalContext?: string;

@@ -1,5 +1,5 @@
 {
-  "description": "PreToolUse Write|Edit -> format_pre: prettier languages (jsts/json/yaml/markdown/css/scss/less/html/vue/graphql/shell/java/php) formatted in-process before the write with the prettier — and the bundled java/php/shell plugins — inside this plugin's MCP server. PostToolUse Write|Edit -> format_post: kotlin/python/go formatted on disk after the write via each tool's CLI.",
+  "description": "PreToolUse Write|Edit -> format_pre: prettier languages (jsts/json/yaml/markdown/css/scss/less/html/vue/graphql/shell/java/php) formatted in-process before the write with the prettier — and the bundled java/php/shell plugins — inside this plugin's MCP server. PostToolUse Write|Edit -> format_post: kotlin/python/go formatted on disk after the write via each tool's CLI. CwdChanged -> cwd_changed: refresh that server's cached prettier ignore state for the new working directory and drop the old one's.",
   "hooks": {
     "PreToolUse": [
       {
@@ -11,6 +11,11 @@
       {
         "matcher": "Write|Edit",
         "hooks": [{ "type": "mcp_tool", "server": "plugin:universal-format:universal-format-hooks", "tool": "format_post", "timeout": 60 }]
+      }
+    ],
+    "CwdChanged": [
+      {
+        "hooks": [{ "type": "mcp_tool", "server": "plugin:universal-format:universal-format-hooks", "tool": "cwd_changed", "timeout": 60 }]
       }
     ]
   }

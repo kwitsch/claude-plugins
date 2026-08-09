@@ -45,6 +45,11 @@ setup() {
   assert_success
 }
 
+@test "CwdChanged hook -> cwd_changed mcp_tool, no matcher, timeout 60, not async" {
+  run jq -e '.hooks.CwdChanged[0] | (has("matcher") | not) and (.hooks[0].type == "mcp_tool") and (.hooks[0].server == "plugin:universal-format:universal-format-hooks") and (.hooks[0].tool == "cwd_changed") and (.hooks[0].timeout == 60) and ((.hooks[0].async // false) == false)' "$HOOKS"
+  assert_success
+}
+
 @test ".mcp.json wires universal-format-hooks -> wrapper + server, with no env block" {
   run jq -e '.mcpServers["universal-format-hooks"] | (.command | endswith("bin/mjs-launch.sh")) and (.args[0] | endswith("mcp/server.mjs")) and (has("env") | not)' "$MCP_JSON"
   assert_success
@@ -75,7 +80,7 @@ setup() {
   assert_success
 }
 
-@test "tools/list lists both format_pre and format_post, and the server exits" {
+@test "tools/list lists format_pre, format_post and cwd_changed, and the server exits" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   run bash -c '
     printf "%s\n%s\n" \
@@ -86,6 +91,7 @@ setup() {
   assert_success
   assert_output --partial '"format_pre"'
   assert_output --partial '"format_post"'
+  assert_output --partial '"cwd_changed"'
 }
 
 @test "format_post on an unsupported extension over JSON-RPC returns {}" {

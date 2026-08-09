@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=66723edc37dddb5c body=695b0dbab15ec8c1 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=fcbfbd1e6bee983f bun=1.3.14
+// uf-build-fingerprint src=109195be5891c37d body=128d8499d269d9b1 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=fcbfbd1e6bee983f bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -200030,7 +200030,7 @@ var getProcessor = (getWasmFile) => {
 };
 
 // node_modules/sh-syntax/lib/index.js
-var __dirname = "/home/kwitsch/repos/claude-plugins/.claude/worktrees/wf_a4fdf013-d70-9/node_modules/.pnpm/sh-syntax@0.4.2/node_modules/sh-syntax/lib";
+var __dirname = "/home/kwitsch/repos/claude-plugins/.claude/worktrees/wf_a4fdf013-d70-12/node_modules/.pnpm/sh-syntax@0.4.2/node_modules/sh-syntax/lib";
 var _dirname = typeof __dirname === "undefined" ? path19.dirname(fileURLToPath6(import.meta.url)) : __dirname;
 var processor2 = getProcessor(() => fs13.readFile(path19.resolve(_dirname, "../main.wasm")));
 
@@ -200818,6 +200818,14 @@ function primePrettierIgnoreCache(cwd) {
     ignoreCache.delete(cwd);
   }
 }
+function clearPrettierIgnoreCache(cwd) {
+  ignoreCache.delete(cwd);
+}
+async function warmPrettierConfigCache(cwd) {
+  try {
+    await bundledPrettier.resolveConfig(path20.join(cwd, "__universal_format_probe__"), { editorconfig: true });
+  } catch {}
+}
 
 // src/universal-format-mcp/handlers.ts
 var SPAWN_TIMEOUT_MS = 30000;
@@ -200949,6 +200957,19 @@ async function formatPre(args2) {
     return {};
   }
 }
+async function cwdChanged(args2) {
+  try {
+    const oldCwd = typeof args2?.old_cwd === "string" ? args2.old_cwd : "";
+    const newCwd = typeof args2?.new_cwd === "string" ? args2.new_cwd : "";
+    if (oldCwd)
+      clearPrettierIgnoreCache(oldCwd);
+    if (newCwd) {
+      primePrettierIgnoreCache(newCwd);
+      await warmPrettierConfigCache(newCwd);
+    }
+  } catch {}
+  return {};
+}
 
 // src/universal-format-mcp/server.ts
 var SERVER_NAME = "universal-format-hooks";
@@ -200974,6 +200995,12 @@ function startServer() {
       description: "PostToolUse Write|Edit: format the just-written file with the language's CLI formatter (kotlin/python/go); prettier languages belong to format_pre.",
       inputSchema: { type: "object", additionalProperties: true },
       handler: formatPost
+    },
+    {
+      name: "cwd_changed",
+      description: "CwdChanged: refresh this server's cached prettier ignore state for the new working directory and drop the old one's.",
+      inputSchema: { type: "object", additionalProperties: true },
+      handler: cwdChanged
     }
   ];
   const findTool = (name2) => TOOLS.find((t34) => t34.name === name2);
@@ -201051,6 +201078,7 @@ export {
   formatPost,
   formatInProcess,
   findNativeConfig,
+  cwdChanged,
   buildInvocation,
   applyEdit,
   REGISTRY,

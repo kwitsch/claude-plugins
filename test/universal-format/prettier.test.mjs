@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { formatInProcess, applyEdit, formatPre, formatPost, resolveConfigPlugins } from "../../plugins/universal-format/mcp/server.mjs";
+import { formatInProcess, applyEdit, cwdChanged, formatPre, formatPost, resolveConfigPlugins } from "../../plugins/universal-format/mcp/server.mjs";
 
 // No `maybe`/tier gating any more: prettier is bundled into the artifact, so every test here is
 // unconditional. There is exactly one prettier instance in this process.
@@ -38,6 +38,20 @@ function hookInput(p) {
     hook_event_name: "PreToolUse",
     tool_name: p.tool_name,
     tool_input: p.tool_input,
+  };
+}
+
+// Build a full CwdChangedHookInput from just the two directories these tests vary.
+/** @param {{old_cwd:string, new_cwd:string}} p @returns {CwdChangedHookInput} */
+function cwdChangedInput(p) {
+  return {
+    session_id: "test-session",
+    transcript_path: "/dev/null",
+    cwd: p.new_cwd,
+    permission_mode: "default",
+    hook_event_name: "CwdChanged",
+    old_cwd: p.old_cwd,
+    new_cwd: p.new_cwd,
   };
 }
 
@@ -278,4 +292,22 @@ test("ignore cache: a .prettierignore written through the hooks takes effect on 
 
   const after = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } }));
   assert.deepEqual(after, {}, "formatPost on .prettierignore must re-read this cwd's ignore state");
+});
+
+// A `cd` is not a Write/Edit, so nothing else would ever re-read the new directory's ignore
+// files. cwd_changed reads them at the moment of the change (and drops the old directory's entry
+// so the Map does not grow for the process lifetime). Also the only exit from the out-of-band
+// trade-off short of a server restart.
+test("cwd_changed: entering a directory re-reads its ignore files", async () => {
+  const a = tmp("uf-cwd-a-");
+  const b = tmp("uf-cwd-b-");
+  const fp = path.join(a, "later.json");
+  const primed = /** @type {any} */ (await formatPre(hookInput({ cwd: a, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } })));
+  assert.equal(preContent(primed), '{ "a": 1 }\n', "no ignore file yet -> formatted");
+
+  writeFileSync(path.join(a, ".prettierignore"), "later.json\n"); // out of band, no Write/Edit hook fires
+  assert.deepEqual(await cwdChanged(cwdChangedInput({ old_cwd: b, new_cwd: a })), {}, "cwd_changed always returns {}");
+
+  const after = await formatPre(hookInput({ cwd: a, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } }));
+  assert.deepEqual(after, {}, "cwd_changed must have re-read the new cwd's ignore files");
 });
