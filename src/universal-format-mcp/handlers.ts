@@ -190,7 +190,11 @@ export const CACHE_INVALIDATING_BASENAMES: Set<string> = new Set([...PRETTIER_CO
  * config-cache invalidation. Returns {} on every guard failure / error (fail open). */
 export async function formatPost(args: PostToolUseHookInput): Promise<HookResult> {
   try {
-    if (args?.tool_response?.success === false) return {};
+    // `=== "false"` too: hooks.json's mcp_tool `input` reconstructs this field via `${...}`
+    // string substitution (Claude Code has no documented type-preserving whole-value
+    // substitution), so a real `false` may arrive stringified rather than as a boolean.
+    const success: unknown = args?.tool_response?.success;
+    if (success === false || success === "false") return {};
     const target = resolveTarget(args);
     if (!target) return {};
     const { cwd, base, resolved, rel } = target;
@@ -278,7 +282,9 @@ export async function formatPre(args: ToolHookInput): Promise<HookResult> {
       const oldStr = args.tool_input.old_string;
       const newStr = args.tool_input.new_string;
       if (typeof oldStr !== "string" || typeof newStr !== "string") return {};
-      const merged = applyEdit(current, oldStr, newStr, args.tool_input.replace_all === true);
+      // `=== "true"` too: see formatPost's matching comment on hooks.json's `input` reconstruction.
+      const replaceAll = args.tool_input.replace_all;
+      const merged = applyEdit(current, oldStr, newStr, replaceAll === true || replaceAll === "true");
       if (merged === null) return {}; // absent OR non-unique -> let the original Edit proceed/err
       const formatted = await formatInProcess(merged, resolved, base, lang);
       if (formatted === merged) return {};

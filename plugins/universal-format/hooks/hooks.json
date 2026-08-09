@@ -4,22 +4,82 @@
     "PreToolUse": [
       {
         "matcher": "Write|Edit",
-        "hooks": [{ "type": "mcp_tool", "server": "plugin:universal-format:universal-format-hooks", "tool": "format_pre", "timeout": 60 }]
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "plugin:universal-format:universal-format-hooks",
+            "tool": "format_pre",
+            "timeout": 60,
+            "input": {
+              "cwd": "${cwd}",
+              "agent_id": "${agent_id}",
+              "session_id": "${session_id}",
+              "tool_name": "${tool_name}",
+              "tool_input": {
+                "file_path": "${tool_input.file_path}",
+                "content": "${tool_input.content}",
+                "old_string": "${tool_input.old_string}",
+                "new_string": "${tool_input.new_string}",
+                "replace_all": "${tool_input.replace_all}"
+              }
+            }
+          }
+        ]
       }
     ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit",
-        "hooks": [{ "type": "mcp_tool", "server": "plugin:universal-format:universal-format-hooks", "tool": "format_post", "timeout": 60 }]
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "plugin:universal-format:universal-format-hooks",
+            "tool": "format_post",
+            "timeout": 60,
+            "input": {
+              "cwd": "${cwd}",
+              "agent_id": "${agent_id}",
+              "session_id": "${session_id}",
+              "tool_input": { "file_path": "${tool_input.file_path}" },
+              "tool_response": { "success": "${tool_response.success}" }
+            }
+          }
+        ]
       },
       {
         "matcher": "EnterWorktree",
-        "hooks": [{ "type": "mcp_tool", "server": "plugin:universal-format:universal-format-hooks", "tool": "worktree_entered", "timeout": 60 }]
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "plugin:universal-format:universal-format-hooks",
+            "tool": "worktree_entered",
+            "timeout": 60,
+            "input": {
+              "cwd": "${cwd}",
+              "agent_id": "${agent_id}",
+              "session_id": "${session_id}",
+              "tool_response": { "worktreePath": "${tool_response.worktreePath}" }
+            }
+          }
+        ]
       }
     ],
     "CwdChanged": [
       {
-        "hooks": [{ "type": "mcp_tool", "server": "plugin:universal-format:universal-format-hooks", "tool": "cwd_changed", "timeout": 60 }]
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "plugin:universal-format:universal-format-hooks",
+            "tool": "cwd_changed",
+            "timeout": 60,
+            "input": {
+              "agent_id": "${agent_id}",
+              "session_id": "${session_id}",
+              "old_cwd": "${old_cwd}",
+              "new_cwd": "${new_cwd}"
+            }
+          }
+        ]
       }
     ]
   }

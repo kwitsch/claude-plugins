@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=7f5094ba4c5d1ecc body=2bf093b67d6e1a87 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=ae6083665cee111f body=8017adbb7eb56ddc prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -200918,7 +200918,8 @@ var PRETTIER_IGNORE_BASENAMES = new Set([".prettierignore"]);
 var CACHE_INVALIDATING_BASENAMES = new Set([...PRETTIER_CONFIG_FILENAMES, "package.json", "package.yaml", ".editorconfig", ...PRETTIER_IGNORE_BASENAMES]);
 async function formatPost(args2) {
   try {
-    if (args2?.tool_response?.success === false)
+    const success = args2?.tool_response?.success;
+    if (success === false || success === "false")
       return {};
     const target = resolveTarget(args2);
     if (!target)
@@ -200991,7 +200992,8 @@ async function formatPre(args2) {
       const newStr = args2.tool_input.new_string;
       if (typeof oldStr !== "string" || typeof newStr !== "string")
         return {};
-      const merged = applyEdit(current, oldStr, newStr, args2.tool_input.replace_all === true);
+      const replaceAll3 = args2.tool_input.replace_all;
+      const merged = applyEdit(current, oldStr, newStr, replaceAll3 === true || replaceAll3 === "true");
       if (merged === null)
         return {};
       const formatted = await formatInProcess(merged, resolved, base, lang);
