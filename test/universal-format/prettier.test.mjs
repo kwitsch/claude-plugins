@@ -139,9 +139,11 @@ test("format_pre Write: updatedInput.content formatted, no permissionDecision", 
   assert.ok(typeof res.hookSpecificOutput.additionalContext === "string");
 });
 
-// isPrettierIgnored is now the ONLY thing keeping the in-process path at parity with
-// `prettier --write <file>`, which filters even an explicitly named file through --ignore-path
-// ([.gitignore, .prettierignore]). getFileInfo does not auto-discover those.
+// `.prettierignore` is the ONLY ignore source. Deliberate divergence from `prettier --write`,
+// whose CLI filters even an explicitly named file through --ignore-path (default
+// [.gitignore, .prettierignore]): here a .gitignore'd file IS formatted unless .prettierignore
+// lists it too. Do not "restore parity" by re-adding .gitignore -- both directions are pinned
+// below. getFileInfo does not auto-discover ignore files, so the one path is passed explicitly.
 test("format_pre: a .prettierignore'd file is left alone", async () => {
   const cwd = tmp("uf-ign-a-");
   writeFileSync(path.join(cwd, ".prettierignore"), "ignored.json\n");
@@ -151,11 +153,13 @@ test("format_pre: a .prettierignore'd file is left alone", async () => {
   assert.deepEqual(res, {});
 });
 
-test("format_pre: a .gitignore'd file is left alone", async () => {
+test("format_pre: a .gitignore'd file is still formatted (.prettierignore is the only ignore source)", async () => {
   const cwd = tmp("uf-ign-b-");
   writeFileSync(path.join(cwd, ".gitignore"), "generated.json\n");
-  const res = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "generated.json"), content: '{"a":1}' } }));
-  assert.deepEqual(res, {});
+  const res = /** @type {any} */ (
+    await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "generated.json"), content: '{"a":1}' } }))
+  );
+  assert.equal(preContent(res), '{ "a": 1 }\n', "a .gitignore must not suppress formatting any more");
 });
 
 test("format_pre Edit: whole-file swap old_string=full pre-edit, new_string=formatted, replace_all false", async () => {
@@ -235,10 +239,12 @@ test("format_pre anchoring: trailing-separator cwd still formats; a file outside
   assert.equal(preContent(outside), '{ "a": 1 }\n', "a sibling directory is anchored at itself, not skipped");
 });
 
-// hasRules is derived from file CONTENT, not mere existence: a cwd with no ignore files at all,
-// and a cwd whose .gitignore holds only blank/# lines, both provably cannot ignore anything, so
-// the ignore round-trip is skipped entirely. Regression anchor for that fast path.
-test("ignore fast path: no ignore files, and a comments-only .gitignore, both still format", async () => {
+// hasRules is derived from file CONTENT, not mere existence: a base with no .prettierignore at
+// all, and one whose .prettierignore holds only blank/# lines, both provably cannot ignore
+// anything, so the ignore round-trip is skipped entirely. Regression anchor for that fast path --
+// the fixture is a .prettierignore on purpose, since a .gitignore is no longer read at all and
+// would make this test pass for the wrong reason.
+test("ignore fast path: no ignore file, and a comments-only .prettierignore, both still format", async () => {
   const empty = tmp("uf-ign-none-");
   const bare = /** @type {any} */ (
     await formatPre(hookInput({ cwd: empty, tool_name: "Write", tool_input: { file_path: path.join(empty, "a.json"), content: '{"a":1}' } }))
@@ -246,7 +252,7 @@ test("ignore fast path: no ignore files, and a comments-only .gitignore, both st
   assert.equal(preContent(bare), '{ "a": 1 }\n');
 
   const commented = tmp("uf-ign-hash-");
-  writeFileSync(path.join(commented, ".gitignore"), "# nothing here\n\n   \n");
+  writeFileSync(path.join(commented, ".prettierignore"), "# nothing here\n\n   \n");
   const res = /** @type {any} */ (
     await formatPre(hookInput({ cwd: commented, tool_name: "Write", tool_input: { file_path: path.join(commented, "a.json"), content: '{"a":1}' } }))
   );
