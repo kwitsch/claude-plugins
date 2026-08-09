@@ -29,6 +29,20 @@ export function isExcludedPath(rel: string): boolean {
   return segments[segments.length - 1].includes(".local.");
 }
 
+/** `filePath` as a cwd-relative path when it resolves INSIDE `cwd` (or equals it), else null.
+ * `path.relative` is the containment test on purpose: the older
+ * `resolved !== cwd && !resolved.startsWith(cwd + path.sep)` form rejected EVERY file when `cwd`
+ * carried a trailing separator or was `/`, silently formatting nothing for that whole session.
+ * `".."` alone and `".." + sep` are both checked so a legitimate `..foo.json` still passes, and
+ * an absolute result (a different Windows drive) is rejected too. `resolved === cwd` yields `""`,
+ * which is accepted here and dropped later by the EXT_MAP language guard exactly as before. */
+function relativeInCwd(cwd: string, filePath: string): string | null {
+  const resolved = path.resolve(cwd, filePath);
+  const rel = path.relative(cwd, resolved);
+  if (rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel)) return null;
+  return rel;
+}
+
 /** Apply an Edit in memory (mirrors Claude Code Edit semantics): the whole-file swap must never
  * mask a not-found/non-unique error. An empty `oldStr` is rejected outright — `"".includes` /
  * `indexOf("")` both "match", and the replace_all branch would splice `newStr` between every
@@ -60,8 +74,8 @@ export async function formatPost(args: PostToolUseHookInput): Promise<HookResult
     if (!cwd || typeof fp !== "string" || !fp) return {};
 
     const resolved = path.resolve(cwd, fp);
-    if (resolved !== cwd && !resolved.startsWith(cwd + path.sep)) return {};
-    const rel = path.relative(cwd, resolved);
+    const rel = relativeInCwd(cwd, resolved);
+    if (rel === null) return {};
     if (isExcludedPath(rel)) return {};
 
     // The write has landed by now, so this is the only correct moment to invalidate. Runs BEFORE
@@ -118,8 +132,8 @@ export async function formatPre(args: ToolHookInput): Promise<HookResult> {
     if (!cwd || typeof fp !== "string" || !fp) return {};
 
     const resolved = path.resolve(cwd, fp);
-    if (resolved !== cwd && !resolved.startsWith(cwd + path.sep)) return {};
-    const rel = path.relative(cwd, resolved);
+    const rel = relativeInCwd(cwd, resolved);
+    if (rel === null) return {};
     if (isExcludedPath(rel)) return {};
 
     const lang = EXT_MAP[path.extname(resolved).toLowerCase()];
