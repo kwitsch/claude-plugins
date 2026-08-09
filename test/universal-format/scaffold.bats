@@ -60,6 +60,37 @@ setup() {
   assert_success
 }
 
+# Regression pin: every mcp_tool hook here declares an explicit "input" field. Omitting it makes
+# Claude Code deliver an EMPTY arguments object to the tool (verified live, 2.1.226) rather than the
+# full hook JSON that .claude/rules/hooks-mcp-server.md's reference server previously assumed as the
+# default -- see plugins/universal-format/CLAUDE.md's "Explicit hook input" section. Losing this
+# field silently reintroduces "formatting stops working" with hooks/format_pre/etc. still reporting
+# exitCode 0.
+@test "every mcp_tool hook declares an explicit input field (no implicit-passthrough regression)" {
+  run jq -e '[.hooks.PreToolUse[0].hooks[0], .hooks.PostToolUse[0].hooks[0], .hooks.PostToolUse[1].hooks[0], .hooks.CwdChanged[0].hooks[0]] | all(has("input") and (.input | type == "object") and (.input | length > 0))' "$HOOKS"
+  assert_success
+}
+
+@test "format_pre's input reconstructs tool_input.file_path/content/old_string/new_string/replace_all" {
+  run jq -e '.hooks.PreToolUse[0].hooks[0].input | .cwd == "${cwd}" and .tool_name == "${tool_name}" and (.tool_input | .file_path == "${tool_input.file_path}" and .content == "${tool_input.content}" and .old_string == "${tool_input.old_string}" and .new_string == "${tool_input.new_string}" and .replace_all == "${tool_input.replace_all}")' "$HOOKS"
+  assert_success
+}
+
+@test "format_post's input reconstructs tool_input.file_path and tool_response.success" {
+  run jq -e '.hooks.PostToolUse[0].hooks[0].input | .tool_input.file_path == "${tool_input.file_path}" and .tool_response.success == "${tool_response.success}"' "$HOOKS"
+  assert_success
+}
+
+@test "worktree_entered's input reconstructs tool_response.worktreePath" {
+  run jq -e '.hooks.PostToolUse[1].hooks[0].input.tool_response.worktreePath == "${tool_response.worktreePath}"' "$HOOKS"
+  assert_success
+}
+
+@test "cwd_changed's input reconstructs old_cwd/new_cwd" {
+  run jq -e '.hooks.CwdChanged[0].hooks[0].input | .old_cwd == "${old_cwd}" and .new_cwd == "${new_cwd}"' "$HOOKS"
+  assert_success
+}
+
 @test ".mcp.json wires universal-format-hooks -> wrapper + server, with no env block" {
   run jq -e '.mcpServers["universal-format-hooks"] | (.command | endswith("bin/mjs-launch.sh")) and (.args[0] | endswith("mcp/server.mjs")) and (has("env") | not)' "$MCP_JSON"
   assert_success
@@ -136,8 +167,8 @@ setup() {
   assert_failure
 }
 
-@test "plugin.json version is 0.14.0" {
-  run jq -e '.version == "0.14.0"' "$PLUGIN/.claude-plugin/plugin.json"
+@test "plugin.json version is 0.14.1" {
+  run jq -e '.version == "0.14.1"' "$PLUGIN/.claude-plugin/plugin.json"
   assert_success
 }
 
