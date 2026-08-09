@@ -139,9 +139,11 @@ test("format_pre Write: updatedInput.content formatted, no permissionDecision", 
   assert.ok(typeof res.hookSpecificOutput.additionalContext === "string");
 });
 
-// isPrettierIgnored is now the ONLY thing keeping the in-process path at parity with
-// `prettier --write <file>`, which filters even an explicitly named file through --ignore-path
-// ([.gitignore, .prettierignore]). getFileInfo does not auto-discover those.
+// `.prettierignore` is the ONLY ignore source. Deliberate divergence from `prettier --write`,
+// whose CLI filters even an explicitly named file through --ignore-path (default
+// [.gitignore, .prettierignore]): here a .gitignore'd file IS formatted unless .prettierignore
+// lists it too. Do not "restore parity" by re-adding .gitignore -- both directions are pinned
+// below. getFileInfo does not auto-discover ignore files, so the one path is passed explicitly.
 test("format_pre: a .prettierignore'd file is left alone", async () => {
   const cwd = tmp("uf-ign-a-");
   writeFileSync(path.join(cwd, ".prettierignore"), "ignored.json\n");
@@ -151,11 +153,13 @@ test("format_pre: a .prettierignore'd file is left alone", async () => {
   assert.deepEqual(res, {});
 });
 
-test("format_pre: a .gitignore'd file is left alone", async () => {
+test("format_pre: a .gitignore'd file is still formatted (.prettierignore is the only ignore source)", async () => {
   const cwd = tmp("uf-ign-b-");
   writeFileSync(path.join(cwd, ".gitignore"), "generated.json\n");
-  const res = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "generated.json"), content: '{"a":1}' } }));
-  assert.deepEqual(res, {});
+  const res = /** @type {any} */ (
+    await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "generated.json"), content: '{"a":1}' } }))
+  );
+  assert.equal(preContent(res), '{ "a": 1 }\n', "a .gitignore must not suppress formatting any more");
 });
 
 test("format_pre Edit: whole-file swap old_string=full pre-edit, new_string=formatted, replace_all false", async () => {
@@ -216,10 +220,11 @@ test("format_pre: a .prettierrc naming an unresolvable plugin yields {} rather t
   assert.deepEqual(res, {});
 });
 
-// The containment guard is path.relative-based on purpose. The older
+// `contains` (inside resolveBase) is path.relative-based on purpose. The older
 // `resolved.startsWith(cwd + path.sep)` form rejected EVERY file when cwd carried a trailing
-// separator (or was "/"), i.e. it silently disabled the whole plugin for that session.
-test("format_pre containment guard: trailing-separator cwd still formats; a file outside cwd does not", async () => {
+// separator (or was "/"), i.e. it silently disabled the whole plugin for that session. There is
+// no outside-cwd GATE any more: a sibling directory is anchored at its own project instead.
+test("format_pre anchoring: trailing-separator cwd still formats; a file outside cwd is formatted against its own directory", async () => {
   const cwd = tmp("uf-guard-cwd-");
   const inside = /** @type {any} */ (
     await formatPre(hookInput({ cwd: cwd + path.sep, tool_name: "Write", tool_input: { file_path: path.join(cwd, "a.json"), content: '{"a":1}' } }))
@@ -227,14 +232,19 @@ test("format_pre containment guard: trailing-separator cwd still formats; a file
   assert.equal(preContent(inside), '{ "a": 1 }\n', "a trailing-separator cwd must not disable the plugin");
 
   const outsideDir = path.join(path.dirname(cwd), path.basename(cwd) + "-other");
-  const outside = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(outsideDir, "a.json"), content: '{"a":1}' } }));
-  assert.deepEqual(outside, {}, "a sibling directory sharing the cwd prefix must still be rejected");
+  mkdirSync(outsideDir, { recursive: true });
+  const outside = /** @type {any} */ (
+    await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(outsideDir, "a.json"), content: '{"a":1}' } }))
+  );
+  assert.equal(preContent(outside), '{ "a": 1 }\n', "a sibling directory is anchored at itself, not skipped");
 });
 
-// hasRules is derived from file CONTENT, not mere existence: a cwd with no ignore files at all,
-// and a cwd whose .gitignore holds only blank/# lines, both provably cannot ignore anything, so
-// the ignore round-trip is skipped entirely. Regression anchor for that fast path.
-test("ignore fast path: no ignore files, and a comments-only .gitignore, both still format", async () => {
+// hasRules is derived from file CONTENT, not mere existence: a base with no .prettierignore at
+// all, and one whose .prettierignore holds only blank/# lines, both provably cannot ignore
+// anything, so the ignore round-trip is skipped entirely. Regression anchor for that fast path --
+// the fixture is a .prettierignore on purpose, since a .gitignore is no longer read at all and
+// would make this test pass for the wrong reason.
+test("ignore fast path: no ignore file, and a comments-only .prettierignore, both still format", async () => {
   const empty = tmp("uf-ign-none-");
   const bare = /** @type {any} */ (
     await formatPre(hookInput({ cwd: empty, tool_name: "Write", tool_input: { file_path: path.join(empty, "a.json"), content: '{"a":1}' } }))
@@ -242,7 +252,7 @@ test("ignore fast path: no ignore files, and a comments-only .gitignore, both st
   assert.equal(preContent(bare), '{ "a": 1 }\n');
 
   const commented = tmp("uf-ign-hash-");
-  writeFileSync(path.join(commented, ".gitignore"), "# nothing here\n\n   \n");
+  writeFileSync(path.join(commented, ".prettierignore"), "# nothing here\n\n   \n");
   const res = /** @type {any} */ (
     await formatPre(hookInput({ cwd: commented, tool_name: "Write", tool_input: { file_path: path.join(commented, "a.json"), content: '{"a":1}' } }))
   );
@@ -294,6 +304,94 @@ test("ignore cache: a .prettierignore written through the hooks takes effect on 
   assert.deepEqual(after, {}, "formatPost on .prettierignore must re-read this cwd's ignore state");
 });
 
+// cwd is a HINT, not a gate: a file written outside the session cwd is formatted against its OWN
+// project. Its git root's .prettierignore governs it; the session cwd's does not reach into it.
+// This is the correctness claim of the whole anchoring design, asserted in both directions.
+test("out-of-cwd anchoring: the file's own git root governs, not the session cwd", async () => {
+  const cwd = tmp("uf-anchor-cwd-");
+  writeFileSync(path.join(cwd, ".prettierignore"), "foreign.json\n");
+  const proj = tmp("uf-anchor-proj-");
+  mkdirSync(path.join(proj, ".git"));
+  writeFileSync(path.join(proj, ".prettierignore"), "blocked.json\n");
+  mkdirSync(path.join(proj, "src"));
+
+  const foreign = /** @type {any} */ (
+    await formatPre({
+      ...hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(proj, "src", "foreign.json"), content: '{"a":1}' } }),
+      session_id: "uf-anchor-session-1",
+    })
+  );
+  assert.equal(preContent(foreign), '{ "a": 1 }\n', "the session cwd's ignore rules must not reach into another project");
+
+  const blocked = await formatPre({
+    ...hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(proj, "src", "blocked.json"), content: '{"a":1}' } }),
+    session_id: "uf-anchor-session-2",
+  });
+  assert.deepEqual(blocked, {}, "the file's own project's .prettierignore must govern it");
+});
+
+// A linked worktree's and a submodule's .git is a FILE, so resolveBase existence-checks .git
+// rather than stat'ing it as a directory. Without that, a worktree would fall through to branch 3.
+test("out-of-cwd anchoring: a .git FILE (worktree/submodule shape) is a project root too", async () => {
+  const cwd = tmp("uf-anchor-cwd2-");
+  const proj = tmp("uf-anchor-wt-");
+  writeFileSync(path.join(proj, ".git"), "gitdir: /elsewhere/.git/worktrees/wt\n");
+  writeFileSync(path.join(proj, ".prettierignore"), "blocked.json\n");
+  mkdirSync(path.join(proj, "src"));
+
+  const blocked = await formatPre({
+    ...hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(proj, "src", "blocked.json"), content: '{"a":1}' } }),
+    session_id: "uf-anchor-session-3",
+  });
+  assert.deepEqual(blocked, {}, "the worktree root's own .prettierignore must govern its files");
+
+  const kept = /** @type {any} */ (
+    await formatPre({
+      ...hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(proj, "src", "kept.json"), content: '{"a":1}' } }),
+      session_id: "uf-anchor-session-4",
+    })
+  );
+  assert.equal(preContent(kept), '{ "a": 1 }\n', "a non-ignored file in that worktree is still formatted");
+});
+
+// No residual project-membership gate: a file belonging to no project at all is formatted,
+// anchored at its own directory -- and a .prettierignore sitting right next to it is still a
+// working opt-out, which is why no plugin-side toggle is needed. Plus the one unresolvable case:
+// a relative file_path with no cwd to resolve it against.
+test("out-of-cwd anchoring: an orphan file formats, its own directory's .prettierignore still opts out", async () => {
+  const cwd = tmp("uf-orphan-cwd-");
+  const orphan = tmp("uf-orphan-");
+  const kept = /** @type {any} */ (
+    await formatPre({
+      ...hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(orphan, "a.json"), content: '{"a":1}' } }),
+      session_id: "uf-orphan-session-1",
+    })
+  );
+  assert.equal(preContent(kept), '{ "a": 1 }\n', "no project-membership gate: an orphan file is still formatted");
+
+  const opted = tmp("uf-orphan-opt-");
+  writeFileSync(path.join(opted, ".prettierignore"), "a.json\n");
+  const res = await formatPre({
+    ...hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(opted, "a.json"), content: '{"a":1}' } }),
+    session_id: "uf-orphan-session-2",
+  });
+  assert.deepEqual(res, {}, "a .prettierignore in the file's own directory is still an opt-out");
+
+  const noCwdAbsolute = /** @type {any} */ (
+    await formatPre({
+      ...hookInput({ cwd: "", tool_name: "Write", tool_input: { file_path: path.join(orphan, "b.json"), content: '{"a":1}' } }),
+      session_id: "uf-orphan-session-3",
+    })
+  );
+  assert.equal(preContent(noCwdAbsolute), '{ "a": 1 }\n', "no cwd at all + an absolute path is still resolvable");
+
+  const noCwdRelative = await formatPre({
+    ...hookInput({ cwd: "", tool_name: "Write", tool_input: { file_path: "b.json", content: '{"a":1}' } }),
+    session_id: "uf-orphan-session-4",
+  });
+  assert.deepEqual(noCwdRelative, {}, "a relative path with no cwd has nothing to resolve against");
+});
+
 // A `cd` is not a Write/Edit, so nothing else would ever re-read the new directory's ignore
 // files. cwd_changed reads them at the moment of the change (and drops the old directory's entry
 // so the Map does not grow for the process lifetime). Also the only exit from the out-of-band
@@ -319,21 +417,29 @@ test("cwd_changed: entering a directory re-reads its ignore files", async () => 
 // OWN active worktree as another agent's scratch state (`.claude/worktrees/...`) and formatting
 // silently stops. worktreeEntered (PostToolUse:EnterWorktree) is the fallback signal that DOES
 // fire; these tests MUST run last in this file. The override it raises is keyed by
-// agent_id/session_id (never a bare global — see handlers.ts's `cwdOverrides` comment), but every
-// call below uses hookInput()'s hardcoded "test-session" and no agent_id, so they all share ONE
-// key and would still leak into any test placed after them.
+// agent_id/session_id (never a bare global — see handlers.ts's `cwdOverrides` comment), and most
+// calls below use hookInput()'s hardcoded "test-session" and no agent_id, so they share ONE key
+// and would still leak into any test placed after them.
+// A dedicated session_id on every call here, not hookInput()'s shared "test-session" default: the
+// `cwd_changed` test above raises an override under that shared key, and resolveCwd would hand this
+// test THAT directory instead of `outer`. Until this change an outside-cwd file was gated to {}
+// either way, so the leak was invisible; now the first assertion below really does depend on `cwd`
+// being `outer`, so the key has to be its own (same reasoning as the concurrency test at the end).
 test("worktree_entered: before the fix, a stale outer cwd misclassifies a worktree-nested file as excluded", async () => {
   const outer = tmp("uf-outer-");
   const worktreeDir = path.join(outer, ".claude", "worktrees", "my-worktree");
   mkdirSync(worktreeDir, { recursive: true });
   const fp = path.join(worktreeDir, "a.json");
+  const session_id = "uf-worktree-session-1";
 
-  const before = await formatPre(hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1,"b":2}' } }));
+  const before = await formatPre({ ...hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1,"b":2}' } }), session_id });
   assert.deepEqual(before, {}, "relative to the stale outer cwd this looks like another agent's worktree scratch state");
 
-  await worktreeEntered(/** @type {any} */ ({ ...hookInput({ cwd: outer, tool_name: "EnterWorktree", tool_input: {} }), tool_response: { worktreePath: worktreeDir } }));
+  await worktreeEntered(/** @type {any} */ ({ ...hookInput({ cwd: outer, tool_name: "EnterWorktree", tool_input: {} }), session_id, tool_response: { worktreePath: worktreeDir } }));
 
-  const after = /** @type {any} */ (await formatPre(hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1,"b":2}' } })));
+  const after = /** @type {any} */ (
+    await formatPre({ ...hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1,"b":2}' } }), session_id })
+  );
   assert.equal(preContent(after), '{ "a": 1, "b": 2 }\n', "override must resolve the file relative to the worktree, ignoring the stale outer cwd");
 });
 
@@ -421,4 +527,23 @@ test("worktree_entered: concurrent subagents keep independent overrides, keyed b
     await formatPre({ ...hookInput({ cwd: dirC, tool_name: "Write", tool_input: { file_path: fpC, content: '{"c":3}' } }), session_id: "concurrency-parent-session" })
   );
   assert.equal(preContent(resultC), '{ "c": 3 }\n', "an unrelated session's own calls are unaffected by either subagent's override");
+});
+
+// Out-of-cwd absolute write into a SIBLING agent's worktree, with no override raised for THIS
+// session/agent: resolveBase's git-root walk lands directly on the worktree root (its `.git` is a
+// FILE), which would erase `.claude/worktrees` from a base-relative `rel`. isClaudeInternalPath's
+// absolute-path check (gated on base !== cwd) must still exclude it -- this agent never entered
+// that worktree, so it must not reformat another agent's in-flight scratch state.
+test("out-of-cwd absolute write into a sibling agent's worktree is still excluded (no override raised here)", async () => {
+  const cwd = tmp("uf-sibling-cwd-");
+  const siblingRepo = tmp("uf-sibling-repo-");
+  const siblingWorktree = path.join(siblingRepo, ".claude", "worktrees", "other-agent-wt");
+  mkdirSync(siblingWorktree, { recursive: true });
+  writeFileSync(path.join(siblingWorktree, ".git"), "gitdir: /elsewhere/.git/worktrees/other-agent-wt\n");
+  const fp = path.join(siblingWorktree, "a.json");
+
+  const result = /** @type {any} */ (
+    await formatPre({ ...hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } }), session_id: "uf-sibling-worktree-session" })
+  );
+  assert.deepEqual(result, {}, "a sibling agent's worktree must stay excluded even though resolveBase anchors base at its own root");
 });

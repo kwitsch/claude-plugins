@@ -136,8 +136,8 @@ setup() {
   assert_failure
 }
 
-@test "plugin.json version is 0.13.0" {
-  run jq -e '.version == "0.13.0"' "$PLUGIN/.claude-plugin/plugin.json"
+@test "plugin.json version is 0.14.0" {
+  run jq -e '.version == "0.14.0"' "$PLUGIN/.claude-plugin/plugin.json"
   assert_success
 }
 
@@ -278,4 +278,19 @@ setup() {
   for t in shell java php less html vue graphql kotlin python go; do
     case "$desc" in *"$t"*) ;; *) printf 'hooks.json description is missing %s\n' "$t"; return 1 ;; esac
   done
+}
+
+@test "docs describe resolveBase and no longer promise a cwd gate or .gitignore honoring" {
+  run rg_or_grep -n "gitignore" "$REPO_ROOT/README.md"
+  assert_failure
+  run rg_or_grep -nF "relativeInCwd" "$PLUGIN/CLAUDE.md"
+  assert_failure
+  run rg_or_grep -nF "resolveBase" "$PLUGIN/CLAUDE.md"
+  assert_success
+  run rg_or_grep -nF "outside the project" "$PLUGIN/README.md"
+  assert_failure
+  run rg_or_grep -nF "this plugin only ever reads the \`.prettierignore\` at the file's" "$PLUGIN/README.md"
+  assert_success
+  run rg_or_grep -nF "no Git root either — the file's own directory" "$PLUGIN/README.md"
+  assert_success
 }

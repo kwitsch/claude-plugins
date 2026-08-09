@@ -1,6 +1,6 @@
 # universal-format
 
-Silently auto-formats source files around Write/Edit — Prettier languages before the write with the Prettier (and the Java, PHP and Shell plugins bundled next to it) the plugin ships inside its own MCP server, the three remaining languages after it via their own CLI — honoring `.editorconfig`, `.prettierignore`/`.gitignore` and tool-native configs, and doing nothing when no formatter can be found.
+Silently auto-formats source files around Write/Edit — Prettier languages before the write with the Prettier (and the Java, PHP and Shell plugins bundled next to it) the plugin ships inside its own MCP server, the three remaining languages after it via their own CLI — honoring `.editorconfig`, `.prettierignore` and tool-native configs, and doing nothing when no formatter can be found.
 
 ## Install
 
@@ -12,7 +12,7 @@ Silently auto-formats source files around Write/Edit — Prettier languages befo
 
 Two `Write|Edit` hooks on a self-contained plugin-local MCP server, plus two more that react to
 your working directory changing — a `CwdChanged` hook that only refreshes that server's cached
-view of your `.prettierignore`/`.gitignore`, and (for background-job sessions using
+view of your `.prettierignore`, and (for background-job sessions using
 `EnterWorktree`, which `CwdChanged` doesn't reliably fire for) a `PostToolUse:EnterWorktree` hook
 that does the same cache refresh plus remembers the worktree path it was given as the cwd the
 other two hooks should resolve files against for the rest of that session. Neither ever formats
@@ -29,23 +29,35 @@ network access.
 
 Your project's Prettier **configuration** is still honored in full — `.prettierrc*`,
 `prettier.config.*`, a top-level `"prettier"` key in `package.json`/`package.yaml`,
-`.editorconfig`, and `.prettierignore`/`.gitignore`.
+`.editorconfig`, and `.prettierignore`.
+
+**`.gitignore` is deliberately not consulted.** Prettier's own CLI defaults `--ignore-path` to
+`[.gitignore, .prettierignore]`; this plugin only ever reads the `.prettierignore` at the file's
+own project root. A file that is gitignored but not prettierignored (a `dist/` bundle, generated
+sources) **is** formatted — add it to `.prettierignore` if it should not be.
+
+**"The file's own project root" is one directory per file, chosen in this order:** your session's
+working directory when the file is inside it, otherwise the file's own Git root, otherwise — when
+the file has no Git root either — the file's own directory. That same directory controls every
+other project-scoped lookup too: `.prettierrc*`/`.editorconfig` discovery and `plugins:` resolution
+below.
 
 Two consequences worth knowing:
 
 - **The bundled Prettier version is used even when your project pins a different one.** Formatting
   differences between Prettier minors are real, so your own `prettier --check` may disagree with
   what this plugin wrote. Exclude the paths via `.prettierignore` if that matters.
-- **A `plugins:` entry your project's config names must be resolvable from the project.** Entries
-  are resolved against the session's working directory; if one cannot be resolved, the file is left
-  **unformatted** rather than formatted without the plugin you asked for.
+- **A `plugins:` entry your project's config names must be resolvable from that same directory;**
+  if one cannot be resolved, the file is left **unformatted** rather than formatted without the
+  plugin you asked for.
 
-An unavailable formatter, any failure, an unsupported extension, a file outside the project, a file
-under `node_modules/`/`vendor/`/`.git/`, or a path excluded by the project's
-`.prettierignore`/`.gitignore` is a **silent no-op** — the hooks never block or degrade the session.
-When formatting changed the file, the hook returns a one-line note telling Claude to re-read it
-before further string-based edits, and that the reformat is intentional and exempt from
-"surgical/minimal-diff" change-scope rules.
+An unavailable formatter, any failure, an unsupported extension, a file under
+`node_modules/`/`vendor/`/`.git/`, or a path excluded by the project's own `.prettierignore` is a
+**silent no-op** — the hooks never block or degrade the session. Files outside your working
+directory are no longer skipped: they are formatted against **their own** project's configuration
+(its `.prettierrc*`, `.editorconfig` and `.prettierignore`). When formatting changed the file, the
+hook returns a one-line note telling Claude to re-read it before further string-based edits, and
+that the reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules.
 
 This plugin is always active once installed — there is no toggle, and there is no per-language
 switch. For Kotlin, Python and Go, not installing the tool is the opt-out. **Prettier is the
@@ -91,7 +103,7 @@ does not opt out of Prettier formatting; exclude the paths via `.prettierignore`
 Two notes on the languages that moved to the bundled `prettier`:
 
 - `.html`/`.htm` is formatted by `prettier`'s own HTML printer, and `*.component.html` automatically picks up its `angular` parser. Server-side template dialects that merely look like HTML (Twig, Blade, Go templates, ERB) are not HTML — exclude them via `.prettierignore`.
-- `.prettierignore`/`.gitignore` now suppress Shell, Java and PHP formatting too. The old post-write CLI chains never consulted those files, so a `.sh` file listed in `.prettierignore` used to be reformatted anyway and no longer is. Without a `max_line_length`/`printWidth` preference these languages get `prettier`'s 80-column default.
+- `.prettierignore` now suppresses Shell, Java and PHP formatting too. The old post-write CLI chains never consulted that file, so a `.sh` file listed in `.prettierignore` used to be reformatted anyway and no longer is. Without a `max_line_length`/`printWidth` preference these languages get `prettier`'s 80-column default.
 
 ## YAML/JSON: no line-length limit without a project config
 

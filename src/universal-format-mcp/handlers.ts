@@ -2,10 +2,12 @@
 // guard failure and every caught error returns {}. The TS port must never "tighten" that away
 // because a type says a value cannot be undefined.
 import path from "node:path";
+import os from "node:os";
 import { existsSync, readFileSync } from "node:fs";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { EXT_MAP, PRETTIER_LANGS, REGISTRY, selectFormatter } from "./registry.js";
+import { walkToRoot } from "./util.js";
 import { PRETTIER_CONFIG_FILENAMES, clearPrettierConfigCaches, clearPrettierIgnoreCache, formatInProcess, isPrettierIgnored, primePrettierIgnoreCache, warmPrettierConfigCache } from "./prettier.js";
 
 const SPAWN_TIMEOUT_MS = 30000; // inner formatter timeout; the hook-level timeout:60 is the backstop
@@ -29,18 +31,80 @@ export function isExcludedPath(rel: string): boolean {
   return segments[segments.length - 1].includes(".local.");
 }
 
-/** `filePath` as a cwd-relative path when it resolves INSIDE `cwd` (or equals it), else null.
- * `path.relative` is the containment test on purpose: the older
- * `resolved !== cwd && !resolved.startsWith(cwd + path.sep)` form rejected EVERY file when `cwd`
- * carried a trailing separator or was `/`, silently formatting nothing for that whole session.
- * `".."` alone and `".." + sep` are both checked so a legitimate `..foo.json` still passes, and
- * an absolute result (a different Windows drive) is rejected too. `resolved === cwd` yields `""`,
- * which is accepted here and dropped later by the EXT_MAP language guard exactly as before. */
-function relativeInCwd(cwd: string, filePath: string): string | null {
-  const resolved = path.resolve(cwd, filePath);
-  const rel = path.relative(cwd, resolved);
+/** True when `resolved` is `dir` itself or lives underneath it; returns the relative path, or
+ * `null` when it is not contained. `path.relative` is the containment test on purpose: the older
+ * `resolved !== dir && !resolved.startsWith(dir + path.sep)` form answered "no" for EVERY file
+ * when `dir` carried a trailing separator or was `/`. Do not "simplify" it back. */
+function relativeIfContains(dir: string, resolved: string): string | null {
+  const rel = path.relative(dir, resolved);
   if (rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel)) return null;
   return rel;
+}
+
+// Process-lifetime memo of the out-of-cwd git-root walk, keyed by the file's own directory --
+// same unreclaimed-for-the-process-lifetime growth class already accepted for ignoreCache/
+// projectConfigCache in prettier.ts (bounded by the number of distinct out-of-cwd directories a
+// session ever writes into). A `git init` after the first miss is not observed, consistent with
+// the rest of this plugin's in-memory caches.
+const gitRootCache = new Map<string, string>();
+
+/** The nearest ancestor of `fileDir` (inclusive) holding a `.git` entry -- file or directory, so a
+ * worktree's and a submodule's `.git` (a FILE) both resolve -- or `""` if none is found before
+ * `home`. The walk stops AT `home` without checking it: a user's home directory is frequently a
+ * git-tracked dotfiles checkout, and treating the whole home directory as "the project" for an
+ * unrelated scratch file would apply that dotfiles repo's `.prettierignore`/config to it. Memoized
+ * per `fileDir` for the process lifetime. */
+function findGitRoot(fileDir: string, home: string): string {
+  const cached = gitRootCache.get(fileDir);
+  if (cached !== undefined) return cached;
+  let found = "";
+  walkToRoot(fileDir, (dir) => {
+    if (home && dir === home) return true; // stop before treating $HOME itself as a project root
+    if (!existsSync(path.join(dir, ".git"))) return false;
+    found = dir;
+    return true;
+  });
+  gitRootCache.set(fileDir, found);
+  return found;
+}
+
+/** Position-independent counterpart to `isExcludedPath`'s `.claude/worktrees`/`.claude/agent-memory`
+ * check, for the out-of-cwd case ONLY (callers must gate this on `base !== cwd`): the git-root walk
+ * can anchor `base` AT a worktree's own root (a worktree's `.git` is a FILE, so branch 2 stops right
+ * there), which erases the `.claude/worktrees` segment from a base-relative `rel` entirely and would
+ * otherwise let this agent reformat a SIBLING agent's in-flight worktree/scratch state. Must never
+ * be consulted when `base === cwd` -- that is precisely the session's OWN worktree, entered on
+ * purpose via `worktreeEntered`'s override (the 0.13.0 fix), whose absolute path legitimately
+ * contains `.claude/worktrees/<name>` too; gating on `base !== cwd` keeps that case formatting. */
+function isClaudeInternalPath(resolved: string): boolean {
+  const segments = resolved.split(path.sep);
+  return segments.some((s, i) => s === ".claude" && (segments[i + 1] === "worktrees" || segments[i + 1] === "agent-memory"));
+}
+
+/** Resolves both `base` (see `resolveBase`) and the base-relative path in one pass, so the in-cwd
+ * containment check is never computed twice -- once here, and a second time by a caller
+ * re-deriving `rel` from the returned `base`. */
+function resolveBaseAndRel(cwd: string, resolved: string): { base: string; rel: string } {
+  if (cwd) {
+    const rel = relativeIfContains(cwd, resolved);
+    if (rel !== null) return { base: cwd, rel };
+  }
+  const fileDir = path.dirname(resolved);
+  const base = findGitRoot(fileDir, os.homedir()) || fileDir;
+  return { base, rel: path.relative(base, resolved) };
+}
+
+/** The directory every project-scoped lookup for `resolved` anchors at: its `.prettierignore`, its
+ * prettier `plugins:` resolution, the upper bound of the .editorconfig / tool-native-config walks,
+ * and the formatter subprocess's own cwd. The session's `cwd` when it really contains the file
+ * (unchanged behavior for the normal case, and the ONLY case whose ignore/config resolution this
+ * plugin has ever promised); otherwise the file's own git root, bounded at `$HOME` -- see
+ * `findGitRoot`; otherwise the file's own directory. `cwd` is a hint here, never a gate: a file
+ * outside `cwd` is formatted against its own project instead of being skipped. Always returns an
+ * ancestor-or-equal directory of `resolved`, so the caller's `path.relative(base, resolved)` never
+ * escapes with `..` and both bounded upward walks terminate at `base` as intended. */
+export function resolveBase(cwd: string, resolved: string): string {
+  return resolveBaseAndRel(cwd, resolved).base;
 }
 
 // Per-agent override of "the real current cwd", raised only by worktreeEntered
@@ -75,6 +139,25 @@ function resolveCwd(args: { cwd?: unknown; agent_id?: unknown; session_id?: unkn
   return typeof args?.cwd === "string" ? args.cwd : "";
 }
 
+/** Resolves the write target shared by both hook handlers: the file path, the `base` directory
+ * every project-scoped lookup anchors at, and the base-relative path used for exclusion. Returns
+ * null on any guard failure -- callers return {} in that case (fail open). Extracted so the
+ * resolution sequence (resolveCwd -> fp guard -> resolve -> resolveBaseAndRel -> isExcludedPath ->
+ * isClaudeInternalPath) can't silently drift out of sync between formatPost and formatPre, which
+ * must otherwise be edited in lockstep. */
+function resolveTarget(args: ToolHookInput): { cwd: string; base: string; resolved: string; rel: string; fp: string } | null {
+  const cwd = resolveCwd(args);
+  const fp = args?.tool_input?.file_path;
+  if (typeof fp !== "string" || !fp) return null;
+  if (!cwd && !path.isAbsolute(fp)) return null; // nothing to resolve a relative path against
+
+  const resolved = path.resolve(cwd, fp);
+  const { base, rel } = resolveBaseAndRel(cwd, resolved);
+  if (isExcludedPath(rel)) return null;
+  if (base !== cwd && isClaudeInternalPath(resolved)) return null; // out-of-cwd only; see isClaudeInternalPath
+  return { cwd, base, resolved, rel, fp };
+}
+
 /** Apply an Edit in memory (mirrors Claude Code Edit semantics): the whole-file swap must never
  * mask a not-found/non-unique error. An empty `oldStr` is rejected outright — `"".includes` /
  * `indexOf("")` both "match", and the replace_all branch would splice `newStr` between every
@@ -88,18 +171,19 @@ export function applyEdit(current: string, oldStr: string, newStr: string, repla
   return current.slice(0, idx) + newStr + current.slice(idx + oldStr.length);
 }
 
-// The two cwd-rooted ignore files. A write to either one refreshes THIS server's cwd-keyed
-// ignore cache (prettier's own getFileInfo still caches nothing). Kept as its own set so
-// formatPost can act on it separately from the config clear.
-export const PRETTIER_IGNORE_BASENAMES: Set<string> = new Set([".prettierignore", ".gitignore"]);
+// The ONE base-rooted ignore file. A write to it refreshes THIS server's base-keyed ignore cache
+// (prettier's own getFileInfo still caches nothing). Kept as its own set so formatPost can act on
+// it separately from the config clear. `.gitignore` is deliberately NOT a member -- see
+// isPrettierIgnored in prettier.ts.
+export const PRETTIER_IGNORE_BASENAMES: Set<string> = new Set([".prettierignore"]);
 
 // Basenames whose write invalidates prettier's cached configuration. The prettier config files
 // themselves, the two files prettier reads a top-level "prettier" key out of, and .editorconfig
 // (a SEPARATE cache inside prettier from .prettierrc -- verified that clearConfigCache() covers
-// both). The two ignore files are spread in so this set stays the single "a config-ish file was
-// written" concept; clearing prettier's config cache for them really is inert, but they are NOT
+// both). The ignore file is spread in so this set stays the single "a config-ish file was
+// written" concept; clearing prettier's config cache for it really is inert, but it is NOT
 // inert overall -- the second line of formatPost's basename block re-reads the ignore cache for
-// them. Membership is unchanged from before that second line existed.
+// it.
 export const CACHE_INVALIDATING_BASENAMES: Set<string> = new Set([...PRETTIER_CONFIG_FILENAMES, "package.json", "package.yaml", ".editorconfig", ...PRETTIER_IGNORE_BASENAMES]);
 
 /** PostToolUse handler: the non-prettier CLI chains only, plus the event-driven prettier
@@ -107,24 +191,19 @@ export const CACHE_INVALIDATING_BASENAMES: Set<string> = new Set([...PRETTIER_CO
 export async function formatPost(args: PostToolUseHookInput): Promise<HookResult> {
   try {
     if (args?.tool_response?.success === false) return {};
-    const cwd = resolveCwd(args);
-    const fp = args?.tool_input?.file_path;
-    if (!cwd || typeof fp !== "string" || !fp) return {};
-
-    const resolved = path.resolve(cwd, fp);
-    const rel = relativeInCwd(cwd, resolved);
-    if (rel === null) return {};
-    if (isExcludedPath(rel)) return {};
+    const target = resolveTarget(args);
+    if (!target) return {};
+    const { cwd, base, resolved, rel } = target;
 
     // The write has landed by now, so this is the only correct moment to invalidate/refresh. Runs
     // BEFORE the language guard on purpose: most of these basenames have no extension at all
     // (`.prettierrc`, `.editorconfig`, `.prettierignore`), so EXT_MAP would drop them and neither
-    // cache would ever be touched. primePrettierIgnoreCache always re-reads the CWD-ROOTED ignore
-    // files, so a write to a nested `sub/.prettierignore` triggers a harmless (and correct)
-    // re-read of the cwd-rooted pair rather than mistaking the written file for the cached one.
+    // cache would ever be touched. primePrettierIgnoreCache always re-reads the BASE-ROOTED
+    // .prettierignore, so a write to a nested `sub/.prettierignore` triggers a harmless (and correct)
+    // re-read of the base-rooted one rather than mistaking the written file for the cached one.
     const basename = path.basename(resolved);
     if (CACHE_INVALIDATING_BASENAMES.has(basename)) clearPrettierConfigCaches();
-    if (PRETTIER_IGNORE_BASENAMES.has(basename)) primePrettierIgnoreCache(cwd);
+    if (PRETTIER_IGNORE_BASENAMES.has(basename)) primePrettierIgnoreCache(base);
 
     const lang = EXT_MAP[path.extname(resolved).toLowerCase()];
     if (!lang) return {};
@@ -139,13 +218,13 @@ export async function formatPost(args: PostToolUseHookInput): Promise<HookResult
     const entry = REGISTRY[lang];
     if (!entry) return {};
 
-    const selection = selectFormatter(entry.chain, resolved, cwd);
+    const selection = selectFormatter(entry.chain, resolved, base);
     if (!selection) return {};
     const { tool, argv } = selection;
 
     const before = readFileSync(resolved);
     try {
-      await execFile(tool.name, [...argv, resolved], { cwd, timeout: SPAWN_TIMEOUT_MS });
+      await execFile(tool.name, [...argv, resolved], { cwd: base, timeout: SPAWN_TIMEOUT_MS });
     } catch {
       /* spawn/non-zero-exit failure is a silent no-op -- some tools (ktlint) exit non-zero after
        * a successful format, so this must never gate the before/after diff below */
@@ -153,10 +232,14 @@ export async function formatPost(args: PostToolUseHookInput): Promise<HookResult
     const after = readFileSync(resolved);
     if (before.equals(after)) return {};
 
+    // A repo-relative path alone is ambiguous once files from several projects can be formatted in
+    // one session, so only an in-cwd file (base === cwd) keeps the short form; everything else is
+    // named absolutely. In-cwd notices stay byte-identical to before.
+    const display = base === cwd ? rel : resolved;
     return {
       hookSpecificOutput: {
         hookEventName: "PostToolUse",
-        additionalContext: `universal-format: ${tool.name} reformatted ${rel}; re-read it before further string-based edits. This reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules — do not revert or redo it by hand to shrink the diff.`,
+        additionalContext: `universal-format: ${tool.name} reformatted ${display}; re-read it before further string-based edits. This reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules — do not revert or redo it by hand to shrink the diff.`,
       },
     };
   } catch {
@@ -169,26 +252,22 @@ export async function formatPost(args: PostToolUseHookInput): Promise<HookResult
  * guard failure / error (fail open). */
 export async function formatPre(args: ToolHookInput): Promise<HookResult> {
   try {
-    const cwd = resolveCwd(args);
-    const fp = args?.tool_input?.file_path;
-    if (!cwd || typeof fp !== "string" || !fp) return {};
-
-    const resolved = path.resolve(cwd, fp);
-    const rel = relativeInCwd(cwd, resolved);
-    if (rel === null) return {};
-    if (isExcludedPath(rel)) return {};
+    const target = resolveTarget(args);
+    if (!target) return {};
+    const { cwd, base, resolved, rel, fp } = target;
 
     const lang = EXT_MAP[path.extname(resolved).toLowerCase()];
     if (!lang || !PRETTIER_LANGS.has(lang)) return {};
 
-    if (await isPrettierIgnored(resolved, cwd)) return {};
+    if (await isPrettierIgnored(resolved, base)) return {};
 
-    const notice = `universal-format: prettier reformatted ${rel}; re-read it before further string-based edits. This reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules — do not revert or redo it by hand to shrink the diff.`;
+    const display = base === cwd ? rel : resolved;
+    const notice = `universal-format: prettier reformatted ${display}; re-read it before further string-based edits. This reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules — do not revert or redo it by hand to shrink the diff.`;
 
     if (args.tool_name === "Write") {
       const content = args.tool_input.content;
       if (typeof content !== "string") return {};
-      const formatted = await formatInProcess(content, resolved, cwd, lang);
+      const formatted = await formatInProcess(content, resolved, base, lang);
       if (formatted === content) return {};
       return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp, content: formatted }, additionalContext: notice } };
     }
@@ -201,7 +280,7 @@ export async function formatPre(args: ToolHookInput): Promise<HookResult> {
       if (typeof oldStr !== "string" || typeof newStr !== "string") return {};
       const merged = applyEdit(current, oldStr, newStr, args.tool_input.replace_all === true);
       if (merged === null) return {}; // absent OR non-unique -> let the original Edit proceed/err
-      const formatted = await formatInProcess(merged, resolved, cwd, lang);
+      const formatted = await formatInProcess(merged, resolved, base, lang);
       if (formatted === merged) return {};
       return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp, old_string: current, new_string: formatted, replace_all: false }, additionalContext: notice } };
     }

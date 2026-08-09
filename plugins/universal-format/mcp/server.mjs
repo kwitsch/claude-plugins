@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=c5caf3fd10a7b19b body=31bd52ade4bb962d prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=7f5094ba4c5d1ecc body=2bf093b67d6e1a87 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -171625,6 +171625,7 @@ import { fileURLToPath as fileURLToPath8 } from "node:url";
 
 // src/universal-format-mcp/handlers.ts
 import path21 from "node:path";
+import os9 from "node:os";
 import { existsSync as existsSync3, readFileSync as readFileSync3 } from "node:fs";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
@@ -200759,36 +200760,31 @@ function clearPrettierConfigCaches() {
   } catch {}
 }
 var ignoreCache = new Map;
-var IGNORE_FILENAMES = [".gitignore", ".prettierignore"];
+var PRETTIER_IGNORE_FILENAME = ".prettierignore";
 function readIgnoreState(cwd) {
-  let hasRules = false;
-  for (const name2 of IGNORE_FILENAMES) {
-    const file = path20.join(cwd, name2);
-    if (!existsSync2(file))
-      continue;
-    let text = "";
-    try {
-      text = readFileSync2(file, "utf8");
-    } catch {
-      hasRules = true;
-      continue;
-    }
-    for (const line5 of text.split(`
-`)) {
-      const t34 = line5.endsWith("\r") ? line5.slice(0, -1) : line5;
-      if (t34 !== "" && t34[0] !== "#") {
-        hasRules = true;
-        break;
-      }
-    }
+  const verdicts = new Map;
+  const file = path20.join(cwd, PRETTIER_IGNORE_FILENAME);
+  if (!existsSync2(file))
+    return { hasRules: false, verdicts };
+  let text = "";
+  try {
+    text = readFileSync2(file, "utf8");
+  } catch {
+    return { hasRules: true, verdicts };
   }
-  return { hasRules, verdicts: new Map };
+  for (const line5 of text.split(`
+`)) {
+    const t34 = line5.endsWith("\r") ? line5.slice(0, -1) : line5;
+    if (t34 !== "" && t34[0] !== "#")
+      return { hasRules: true, verdicts };
+  }
+  return { hasRules: false, verdicts };
 }
 async function probePrettierIgnored(filePath, cwd) {
   if (typeof bundledPrettier.getFileInfo !== "function")
     return false;
   const info2 = await bundledPrettier.getFileInfo(filePath, {
-    ignorePath: [path20.join(cwd, ".gitignore"), path20.join(cwd, ".prettierignore")]
+    ignorePath: [path20.join(cwd, PRETTIER_IGNORE_FILENAME)]
   });
   return info2?.ignored === true;
 }
@@ -200838,12 +200834,45 @@ function isExcludedPath(rel) {
     return true;
   return segments[segments.length - 1].includes(".local.");
 }
-function relativeInCwd(cwd, filePath) {
-  const resolved = path21.resolve(cwd, filePath);
-  const rel = path21.relative(cwd, resolved);
+function relativeIfContains(dir, resolved) {
+  const rel = path21.relative(dir, resolved);
   if (rel === ".." || rel.startsWith(".." + path21.sep) || path21.isAbsolute(rel))
     return null;
   return rel;
+}
+var gitRootCache = new Map;
+function findGitRoot(fileDir, home) {
+  const cached = gitRootCache.get(fileDir);
+  if (cached !== undefined)
+    return cached;
+  let found = "";
+  walkToRoot(fileDir, (dir) => {
+    if (home && dir === home)
+      return true;
+    if (!existsSync3(path21.join(dir, ".git")))
+      return false;
+    found = dir;
+    return true;
+  });
+  gitRootCache.set(fileDir, found);
+  return found;
+}
+function isClaudeInternalPath(resolved) {
+  const segments = resolved.split(path21.sep);
+  return segments.some((s, i5) => s === ".claude" && (segments[i5 + 1] === "worktrees" || segments[i5 + 1] === "agent-memory"));
+}
+function resolveBaseAndRel(cwd, resolved) {
+  if (cwd) {
+    const rel = relativeIfContains(cwd, resolved);
+    if (rel !== null)
+      return { base: cwd, rel };
+  }
+  const fileDir = path21.dirname(resolved);
+  const base = findGitRoot(fileDir, os9.homedir()) || fileDir;
+  return { base, rel: path21.relative(base, resolved) };
+}
+function resolveBase(cwd, resolved) {
+  return resolveBaseAndRel(cwd, resolved).base;
 }
 var cwdOverrides = new Map;
 function overrideKey(args2) {
@@ -200858,6 +200887,21 @@ function resolveCwd(args2) {
     return override;
   return typeof args2?.cwd === "string" ? args2.cwd : "";
 }
+function resolveTarget(args2) {
+  const cwd = resolveCwd(args2);
+  const fp2 = args2?.tool_input?.file_path;
+  if (typeof fp2 !== "string" || !fp2)
+    return null;
+  if (!cwd && !path21.isAbsolute(fp2))
+    return null;
+  const resolved = path21.resolve(cwd, fp2);
+  const { base, rel } = resolveBaseAndRel(cwd, resolved);
+  if (isExcludedPath(rel))
+    return null;
+  if (base !== cwd && isClaudeInternalPath(resolved))
+    return null;
+  return { cwd, base, resolved, rel, fp: fp2 };
+}
 function applyEdit(current, oldStr, newStr, replaceAll3) {
   if (oldStr === "")
     return null;
@@ -200870,27 +200914,21 @@ function applyEdit(current, oldStr, newStr, replaceAll3) {
     return null;
   return current.slice(0, idx) + newStr + current.slice(idx + oldStr.length);
 }
-var PRETTIER_IGNORE_BASENAMES = new Set([".prettierignore", ".gitignore"]);
+var PRETTIER_IGNORE_BASENAMES = new Set([".prettierignore"]);
 var CACHE_INVALIDATING_BASENAMES = new Set([...PRETTIER_CONFIG_FILENAMES, "package.json", "package.yaml", ".editorconfig", ...PRETTIER_IGNORE_BASENAMES]);
 async function formatPost(args2) {
   try {
     if (args2?.tool_response?.success === false)
       return {};
-    const cwd = resolveCwd(args2);
-    const fp2 = args2?.tool_input?.file_path;
-    if (!cwd || typeof fp2 !== "string" || !fp2)
+    const target = resolveTarget(args2);
+    if (!target)
       return {};
-    const resolved = path21.resolve(cwd, fp2);
-    const rel = relativeInCwd(cwd, resolved);
-    if (rel === null)
-      return {};
-    if (isExcludedPath(rel))
-      return {};
+    const { cwd, base, resolved, rel } = target;
     const basename = path21.basename(resolved);
     if (CACHE_INVALIDATING_BASENAMES.has(basename))
       clearPrettierConfigCaches();
     if (PRETTIER_IGNORE_BASENAMES.has(basename))
-      primePrettierIgnoreCache(cwd);
+      primePrettierIgnoreCache(base);
     const lang = EXT_MAP[path21.extname(resolved).toLowerCase()];
     if (!lang)
       return {};
@@ -200901,21 +200939,22 @@ async function formatPost(args2) {
     const entry = REGISTRY[lang];
     if (!entry)
       return {};
-    const selection = selectFormatter(entry.chain, resolved, cwd);
+    const selection = selectFormatter(entry.chain, resolved, base);
     if (!selection)
       return {};
     const { tool, argv } = selection;
     const before = readFileSync3(resolved);
     try {
-      await execFile(tool.name, [...argv, resolved], { cwd, timeout: SPAWN_TIMEOUT_MS });
+      await execFile(tool.name, [...argv, resolved], { cwd: base, timeout: SPAWN_TIMEOUT_MS });
     } catch {}
     const after = readFileSync3(resolved);
     if (before.equals(after))
       return {};
+    const display = base === cwd ? rel : resolved;
     return {
       hookSpecificOutput: {
         hookEventName: "PostToolUse",
-        additionalContext: `universal-format: ${tool.name} reformatted ${rel}; re-read it before further string-based edits. This reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules — do not revert or redo it by hand to shrink the diff.`
+        additionalContext: `universal-format: ${tool.name} reformatted ${display}; re-read it before further string-based edits. This reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules — do not revert or redo it by hand to shrink the diff.`
       }
     };
   } catch {
@@ -200924,27 +200963,22 @@ async function formatPost(args2) {
 }
 async function formatPre(args2) {
   try {
-    const cwd = resolveCwd(args2);
-    const fp2 = args2?.tool_input?.file_path;
-    if (!cwd || typeof fp2 !== "string" || !fp2)
+    const target = resolveTarget(args2);
+    if (!target)
       return {};
-    const resolved = path21.resolve(cwd, fp2);
-    const rel = relativeInCwd(cwd, resolved);
-    if (rel === null)
-      return {};
-    if (isExcludedPath(rel))
-      return {};
+    const { cwd, base, resolved, rel, fp: fp2 } = target;
     const lang = EXT_MAP[path21.extname(resolved).toLowerCase()];
     if (!lang || !PRETTIER_LANGS.has(lang))
       return {};
-    if (await isPrettierIgnored(resolved, cwd))
+    if (await isPrettierIgnored(resolved, base))
       return {};
-    const notice = `universal-format: prettier reformatted ${rel}; re-read it before further string-based edits. This reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules — do not revert or redo it by hand to shrink the diff.`;
+    const display = base === cwd ? rel : resolved;
+    const notice = `universal-format: prettier reformatted ${display}; re-read it before further string-based edits. This reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules — do not revert or redo it by hand to shrink the diff.`;
     if (args2.tool_name === "Write") {
       const content = args2.tool_input.content;
       if (typeof content !== "string")
         return {};
-      const formatted = await formatInProcess(content, resolved, cwd, lang);
+      const formatted = await formatInProcess(content, resolved, base, lang);
       if (formatted === content)
         return {};
       return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp2, content: formatted }, additionalContext: notice } };
@@ -200960,7 +200994,7 @@ async function formatPre(args2) {
       const merged = applyEdit(current, oldStr, newStr, args2.tool_input.replace_all === true);
       if (merged === null)
         return {};
-      const formatted = await formatInProcess(merged, resolved, cwd, lang);
+      const formatted = await formatInProcess(merged, resolved, base, lang);
       if (formatted === merged)
         return {};
       return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp2, old_string: current, new_string: formatted, replace_all: false }, additionalContext: notice } };
@@ -201111,6 +201145,7 @@ export {
   shouldOverridePrintWidth,
   resolveEditorconfig,
   resolveConfigPlugins,
+  resolveBase,
   parseEditorconfig,
   matchGlob,
   isExcludedPath,
