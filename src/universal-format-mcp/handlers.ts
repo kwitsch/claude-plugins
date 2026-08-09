@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { EXT_MAP, PRETTIER_LANGS, REGISTRY, selectFormatter } from "./registry.js";
+import { walkToRoot } from "./util.js";
 import { PRETTIER_CONFIG_FILENAMES, clearPrettierConfigCaches, clearPrettierIgnoreCache, formatInProcess, isPrettierIgnored, primePrettierIgnoreCache, warmPrettierConfigCache } from "./prettier.js";
 
 const SPAWN_TIMEOUT_MS = 30000; // inner formatter timeout; the hook-level timeout:60 is the backstop
@@ -41,6 +42,37 @@ function relativeInCwd(cwd: string, filePath: string): string | null {
   const rel = path.relative(cwd, resolved);
   if (rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel)) return null;
   return rel;
+}
+
+/** True when `resolved` is `dir` itself or lives underneath it. `path.relative` is the
+ * containment test on purpose: the older
+ * `resolved !== dir && !resolved.startsWith(dir + path.sep)` form answered "no" for EVERY file
+ * when `dir` carried a trailing separator or was `/`. Do not "simplify" it back. */
+function contains(dir: string, resolved: string): boolean {
+  const rel = path.relative(dir, resolved);
+  return rel !== ".." && !rel.startsWith(".." + path.sep) && !path.isAbsolute(rel);
+}
+
+/** The directory every project-scoped lookup for `resolved` anchors at: its `.prettierignore`, its
+ * prettier `plugins:` resolution, the upper bound of the .editorconfig / tool-native-config walks,
+ * and the formatter subprocess's own cwd. The session's `cwd` when it really contains the file
+ * (unchanged behavior for the normal case, and the ONLY case whose ignore/config resolution this
+ * plugin has ever promised); otherwise the file's own git root -- `.git` is existence-checked, not
+ * stat'd as a directory, because a worktree's and a submodule's `.git` is a FILE; otherwise the
+ * file's own directory. `cwd` is a hint here, never a gate: a file outside `cwd` is formatted
+ * against its own project instead of being skipped. Always returns an ancestor-or-equal directory
+ * of `resolved`, so the caller's `path.relative(base, resolved)` never escapes with `..` and both
+ * bounded upward walks terminate at `base` as intended. */
+export function resolveBase(cwd: string, resolved: string): string {
+  if (cwd && contains(cwd, resolved)) return cwd;
+  const fileDir = path.dirname(resolved);
+  let found = "";
+  walkToRoot(fileDir, (dir) => {
+    if (!existsSync(path.join(dir, ".git"))) return false;
+    found = dir;
+    return true;
+  });
+  return found || fileDir;
 }
 
 // Per-agent override of "the real current cwd", raised only by worktreeEntered

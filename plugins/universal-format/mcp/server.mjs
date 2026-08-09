@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=c5caf3fd10a7b19b body=31bd52ade4bb962d prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=d6fdd618e116abbc body=2f9c538cb6210d77 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -200845,6 +200845,23 @@ function relativeInCwd(cwd, filePath) {
     return null;
   return rel;
 }
+function contains(dir, resolved) {
+  const rel = path21.relative(dir, resolved);
+  return rel !== ".." && !rel.startsWith(".." + path21.sep) && !path21.isAbsolute(rel);
+}
+function resolveBase(cwd, resolved) {
+  if (cwd && contains(cwd, resolved))
+    return cwd;
+  const fileDir = path21.dirname(resolved);
+  let found = "";
+  walkToRoot(fileDir, (dir) => {
+    if (!existsSync3(path21.join(dir, ".git")))
+      return false;
+    found = dir;
+    return true;
+  });
+  return found || fileDir;
+}
 var cwdOverrides = new Map;
 function overrideKey(args2) {
   if (typeof args2?.agent_id === "string" && args2.agent_id)
@@ -201111,6 +201128,7 @@ export {
   shouldOverridePrintWidth,
   resolveEditorconfig,
   resolveConfigPlugins,
+  resolveBase,
   parseEditorconfig,
   matchGlob,
   isExcludedPath,
