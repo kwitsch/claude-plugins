@@ -316,6 +316,27 @@ EOF
   grep -q "^$PROJ add left-pad@\^2.0.0\$" "$CALLLOG"
 }
 
+@test "a stale ~/.local/bin/pnpm never shadows the real one earlier on PATH" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  local localbin="$HOME/.local/bin"
+  mkdir -p "$localbin"
+  cat > "$localbin/pnpm" <<'EOF'
+#!/usr/bin/env bash
+echo "stale-local-bin-pnpm" >&2
+exit 1
+EOF
+  chmod +x "$localbin/pnpm"
+  make_pnpm_stub 0 "ok"
+  PROJ="$BATS_TEST_TMPDIR/proj-pnpm-shadow"; mkdir -p "$PROJ"; : > "$PROJ/pnpm-lock.yaml"
+  cat > "$PROJ/package.json" <<'EOF'
+{"name": "x", "version": "1.0.0", "dependencies": {"left-pad": "^2.0.0"}}
+EOF
+  run edit_hook "true" "$PROJ/package.json" '"left-pad": "^1.0.0"' '"left-pad": "^2.0.0"'
+  assert_success
+  [ -z "$output" ]
+  grep -q "^$PROJ add left-pad@\^2.0.0\$" "$CALLLOG"
+}
+
 @test "npm missing from PATH surfaces a one-line diagnostic" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   local fakebin="$BATS_TEST_TMPDIR/fakebin-no-npm"

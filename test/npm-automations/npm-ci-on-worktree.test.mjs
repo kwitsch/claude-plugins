@@ -54,13 +54,13 @@ test("detectPackageManager: pnpm-lock.yaml and package-lock.json both present ->
   assert.equal(detectPackageManager(dir)?.name, "pnpm");
 });
 
-test("pathWithLocalBin: prepends ~/.local/bin ahead of the inherited PATH", () => {
+test("pathWithLocalBin: appends ~/.local/bin after the inherited PATH", () => {
   const origPath = process.env.PATH;
   process.env.PATH = "/usr/bin";
   try {
     const result = pathWithLocalBin();
-    assert.ok(result.startsWith(path.join(homedir(), ".local", "bin")));
-    assert.ok(result.endsWith("/usr/bin"));
+    assert.ok(result.startsWith("/usr/bin"));
+    assert.ok(result.endsWith(path.join(homedir(), ".local", "bin")));
   } finally {
     process.env.PATH = origPath;
   }
