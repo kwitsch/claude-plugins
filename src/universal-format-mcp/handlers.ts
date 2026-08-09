@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { EXT_MAP, PRETTIER_LANGS, REGISTRY, selectFormatter } from "./registry.js";
-import { PRETTIER_CONFIG_FILENAMES, clearPrettierConfigCaches, formatInProcess, isPrettierIgnored } from "./prettier.js";
+import { PRETTIER_CONFIG_FILENAMES, clearPrettierConfigCaches, clearPrettierIgnoreCache, formatInProcess, isPrettierIgnored, primePrettierIgnoreCache, warmPrettierConfigCache } from "./prettier.js";
 
 const SPAWN_TIMEOUT_MS = 30000; // inner formatter timeout; the hook-level timeout:60 is the backstop
 
@@ -29,6 +29,20 @@ export function isExcludedPath(rel: string): boolean {
   return segments[segments.length - 1].includes(".local.");
 }
 
+/** `filePath` as a cwd-relative path when it resolves INSIDE `cwd` (or equals it), else null.
+ * `path.relative` is the containment test on purpose: the older
+ * `resolved !== cwd && !resolved.startsWith(cwd + path.sep)` form rejected EVERY file when `cwd`
+ * carried a trailing separator or was `/`, silently formatting nothing for that whole session.
+ * `".."` alone and `".." + sep` are both checked so a legitimate `..foo.json` still passes, and
+ * an absolute result (a different Windows drive) is rejected too. `resolved === cwd` yields `""`,
+ * which is accepted here and dropped later by the EXT_MAP language guard exactly as before. */
+function relativeInCwd(cwd: string, filePath: string): string | null {
+  const resolved = path.resolve(cwd, filePath);
+  const rel = path.relative(cwd, resolved);
+  if (rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel)) return null;
+  return rel;
+}
+
 /** Apply an Edit in memory (mirrors Claude Code Edit semantics): the whole-file swap must never
  * mask a not-found/non-unique error. An empty `oldStr` is rejected outright — `"".includes` /
  * `indexOf("")` both "match", and the replace_all branch would splice `newStr` between every
@@ -42,13 +56,19 @@ export function applyEdit(current: string, oldStr: string, newStr: string, repla
   return current.slice(0, idx) + newStr + current.slice(idx + oldStr.length);
 }
 
+// The two cwd-rooted ignore files. A write to either one refreshes THIS server's cwd-keyed
+// ignore cache (prettier's own getFileInfo still caches nothing). Kept as its own set so
+// formatPost can act on it separately from the config clear.
+export const PRETTIER_IGNORE_BASENAMES: Set<string> = new Set([".prettierignore", ".gitignore"]);
+
 // Basenames whose write invalidates prettier's cached configuration. The prettier config files
 // themselves, the two files prettier reads a top-level "prettier" key out of, and .editorconfig
 // (a SEPARATE cache inside prettier from .prettierrc -- verified that clearConfigCache() covers
-// both). The two ignore files are listed for completeness: prettier does NOT cache them
-// (verified -- getFileInfo re-reads them on every call), so clearing for them is a no-op today,
-// kept so the trigger set matches the concept.
-export const CACHE_INVALIDATING_BASENAMES: Set<string> = new Set([...PRETTIER_CONFIG_FILENAMES, "package.json", "package.yaml", ".editorconfig", ".prettierignore", ".gitignore"]);
+// both). The two ignore files are spread in so this set stays the single "a config-ish file was
+// written" concept; clearing prettier's config cache for them really is inert, but they are NOT
+// inert overall -- the second line of formatPost's basename block re-reads the ignore cache for
+// them. Membership is unchanged from before that second line existed.
+export const CACHE_INVALIDATING_BASENAMES: Set<string> = new Set([...PRETTIER_CONFIG_FILENAMES, "package.json", "package.yaml", ".editorconfig", ...PRETTIER_IGNORE_BASENAMES]);
 
 /** PostToolUse handler: the non-prettier CLI chains only, plus the event-driven prettier
  * config-cache invalidation. Returns {} on every guard failure / error (fail open). */
@@ -60,15 +80,19 @@ export async function formatPost(args: PostToolUseHookInput): Promise<HookResult
     if (!cwd || typeof fp !== "string" || !fp) return {};
 
     const resolved = path.resolve(cwd, fp);
-    if (resolved !== cwd && !resolved.startsWith(cwd + path.sep)) return {};
-    const rel = path.relative(cwd, resolved);
+    const rel = relativeInCwd(cwd, resolved);
+    if (rel === null) return {};
     if (isExcludedPath(rel)) return {};
 
-    // The write has landed by now, so this is the only correct moment to invalidate. Runs BEFORE
-    // the language guard on purpose: most of these basenames have no extension at all
-    // (`.prettierrc`, `.editorconfig`, `.prettierignore`), so EXT_MAP would drop them and the
-    // cache would never be cleared.
-    if (CACHE_INVALIDATING_BASENAMES.has(path.basename(resolved))) clearPrettierConfigCaches();
+    // The write has landed by now, so this is the only correct moment to invalidate/refresh. Runs
+    // BEFORE the language guard on purpose: most of these basenames have no extension at all
+    // (`.prettierrc`, `.editorconfig`, `.prettierignore`), so EXT_MAP would drop them and neither
+    // cache would ever be touched. primePrettierIgnoreCache always re-reads the CWD-ROOTED ignore
+    // files, so a write to a nested `sub/.prettierignore` triggers a harmless (and correct)
+    // re-read of the cwd-rooted pair rather than mistaking the written file for the cached one.
+    const basename = path.basename(resolved);
+    if (CACHE_INVALIDATING_BASENAMES.has(basename)) clearPrettierConfigCaches();
+    if (PRETTIER_IGNORE_BASENAMES.has(basename)) primePrettierIgnoreCache(cwd);
 
     const lang = EXT_MAP[path.extname(resolved).toLowerCase()];
     if (!lang) return {};
@@ -118,8 +142,8 @@ export async function formatPre(args: ToolHookInput): Promise<HookResult> {
     if (!cwd || typeof fp !== "string" || !fp) return {};
 
     const resolved = path.resolve(cwd, fp);
-    if (resolved !== cwd && !resolved.startsWith(cwd + path.sep)) return {};
-    const rel = path.relative(cwd, resolved);
+    const rel = relativeInCwd(cwd, resolved);
+    if (rel === null) return {};
     if (isExcludedPath(rel)) return {};
 
     const lang = EXT_MAP[path.extname(resolved).toLowerCase()];
@@ -154,4 +178,27 @@ export async function formatPre(args: ToolHookInput): Promise<HookResult> {
   } catch {
     return {};
   }
+}
+
+/** CwdChanged handler: the session's working directory moved, so drop the OLD directory's ignore
+ * entry and prefetch both halves for the NEW one — its cwd-rooted ignore files, and prettier's
+ * own directory-keyed config-search cache (measured ~1.9 ms -> ~0.25 ms for the first format
+ * there). A `cd` is not a format, so this really is a prefetch and not a cost shift.
+ * Per .claude/rules/hooks-mcp-tool-event-matrix.md CwdChanged is block_capable:false,
+ * additional_context:false, block_mechanism:"none" — there is nothing useful to say, so it always
+ * returns {}. Each half is independently guarded so a missing/non-string field is simply
+ * skipped. */
+export async function cwdChanged(args: CwdChangedHookInput): Promise<HookResult> {
+  try {
+    const oldCwd = typeof args?.old_cwd === "string" ? args.old_cwd : "";
+    const newCwd = typeof args?.new_cwd === "string" ? args.new_cwd : "";
+    if (oldCwd) clearPrettierIgnoreCache(oldCwd);
+    if (newCwd) {
+      primePrettierIgnoreCache(newCwd);
+      await warmPrettierConfigCache(newCwd);
+    }
+  } catch {
+    /* fail open: a cache prefetch must never surface as a hook failure */
+  }
+  return {};
 }

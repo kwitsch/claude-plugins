@@ -70,6 +70,33 @@ function canonicalize(text) {
     .join("\n");
 }
 
+// bun's CJS interop shim for sh-syntax/lib/index.js hardcodes the BUILD MACHINE's absolute
+// node_modules path as a `var __dirname = "…"` literal, ahead of the shim's own
+// import.meta.url-based fallback for when __dirname is undefined. That literal makes the
+// committed artifact resolve sh-syntax's main.wasm against a path that only exists on the
+// machine (and worktree) that ran the build. Reusing the shim's own fallback keeps the artifact
+// self-contained; anchoring it one directory ("lib") deeper than the bundle's own directory
+// preserves sh-syntax's `path.resolve(__dirname, "../main.wasm")` lookup landing next to the
+// bundle, exactly where the other wasm sidecars are copied.
+const SH_SYNTAX_DIRNAME_RE =
+  /(\/\/ node_modules\/sh-syntax\/lib\/index\.js\nvar __dirname = )"[^"]*"(;\nvar _dirname = typeof __dirname === "undefined" \? (\w+)\.dirname\((\w+)\(import\.meta\.url\)\) : __dirname;)/;
+
+/** Replace the hardcoded absolute path bun emits for sh-syntax's `__dirname` with an expression
+ * built from the SAME import.meta.url fallback the next line already uses — reusing whatever
+ * `path`/`fileURLToPath` local aliases bun picked this build, so nothing here depends on bun's
+ * bundler-internal naming staying stable across builds. Throws if the known pattern is absent
+ * (a sh-syntax/bun upgrade changed the shim shape): silently shipping the old absolute path back
+ * is worse than a loud build failure. @param {string} text @returns {string} */
+function containShSyntaxDirname(text) {
+  if (!SH_SYNTAX_DIRNAME_RE.test(text)) {
+    throw new Error("build.mjs: sh-syntax's `var __dirname = \"…\";` shim line was not found — sh-syntax or bun's CJS interop shim changed shape; update SH_SYNTAX_DIRNAME_RE.");
+  }
+  return text.replace(SH_SYNTAX_DIRNAME_RE, (_m, prefix, suffix, pathAlias, urlToPathAlias) => {
+    const dirnameExpr = `${pathAlias}.join(${pathAlias}.dirname(${urlToPathAlias}(import.meta.url)), "lib")`;
+    return `${prefix}${dirnameExpr}${suffix}`;
+  });
+}
+
 if (!haveBun()) {
   process.stderr.write("bun is required to build the universal-format MCP server. Install bun (https://bun.sh), then re-run `pnpm run build:universal-format-mcp`.\n");
   process.exit(1);
@@ -96,7 +123,7 @@ if (built.error || built.status !== 0) {
   process.exit(1);
 }
 
-const body = canonicalize(readFileSync(tmpOut, "utf8"));
+const body = containShSyntaxDirname(canonicalize(readFileSync(tmpOut, "utf8")));
 rmSync(tmpDir, { recursive: true, force: true });
 
 const srcHash = hashSourceTree(SRC_DIR);
@@ -113,13 +140,14 @@ const PLUGIN_PINS = ["prettier-plugin-java", "@prettier/plugin-php", "prettier-p
 const rootPkg = JSON.parse(readFileSync(path.join(REPO_ROOT, "package.json"), "utf8"));
 const pluginVersions = PLUGIN_PINS.map((name) => `${name}@${rootPkg.devDependencies[name]}`).join("+");
 
-// bun build CANNOT emit these: both are runtime lookups (`new URL(name, import.meta.url)`),
-// invisible to the bundler -- verified that --outdir + --loader:.wasm=file emits only the JS. So
-// copy them by hand, next to the bundle, because that is exactly where
-// `new URL(name, import.meta.url)` resolves once everything is one file. Both are resolved FROM
-// prettier-plugin-java, the same way that plugin resolves them at runtime: web-tree-sitter is its
-// transitive dependency, not a root one, so under pnpm's isolated node_modules it is reachable
-// only from the plugin's own directory.
+// bun build CANNOT emit these: all three are runtime lookups (`new URL`/CJS-`__dirname`-relative
+// lookups against import.meta.url), invisible to the bundler -- verified that --outdir +
+// --loader:.wasm=file emits only the JS. So copy them by hand, next to the bundle, because that
+// is exactly where those lookups resolve once everything is one file (main.wasm's own lookup is
+// contained to the same directory by containShSyntaxDirname above). web-tree-sitter and
+// tree-sitter-java_orchard are resolved FROM prettier-plugin-java, the same way that plugin
+// resolves them at runtime: web-tree-sitter is its transitive dependency, not a root one, so
+// under pnpm's isolated node_modules it is reachable only from the plugin's own directory.
 const javaPluginEntry = require.resolve("prettier-plugin-java");
 const WASM_ASSETS = [
   // web-tree-sitter exports this subpath explicitly.
@@ -127,6 +155,8 @@ const WASM_ASSETS = [
   // prettier-plugin-java does NOT export the subpath (ERR_PACKAGE_PATH_NOT_EXPORTED), nor its
   // package.json. Resolve the entry and join -- mirrors the plugin's own runtime lookup.
   path.join(path.dirname(javaPluginEntry), "tree-sitter-java_orchard.wasm"),
+  // sh-syntax exports this subpath explicitly, unlike the java plugin above.
+  createRequire(require.resolve("prettier-plugin-sh")).resolve("sh-syntax/main.wasm"),
 ];
 
 // Sweep every pre-existing *.wasm first: a plugin bump that renames its grammar must never leave

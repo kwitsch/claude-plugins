@@ -45,6 +45,11 @@ setup() {
   assert_success
 }
 
+@test "CwdChanged hook -> cwd_changed mcp_tool, no matcher, timeout 60, not async" {
+  run jq -e '.hooks.CwdChanged[0] | (has("matcher") | not) and (.hooks[0].type == "mcp_tool") and (.hooks[0].server == "plugin:universal-format:universal-format-hooks") and (.hooks[0].tool == "cwd_changed") and (.hooks[0].timeout == 60) and ((.hooks[0].async // false) == false)' "$HOOKS"
+  assert_success
+}
+
 @test ".mcp.json wires universal-format-hooks -> wrapper + server, with no env block" {
   run jq -e '.mcpServers["universal-format-hooks"] | (.command | endswith("bin/mjs-launch.sh")) and (.args[0] | endswith("mcp/server.mjs")) and (has("env") | not)' "$MCP_JSON"
   assert_success
@@ -75,7 +80,7 @@ setup() {
   assert_success
 }
 
-@test "tools/list lists both format_pre and format_post, and the server exits" {
+@test "tools/list lists format_pre, format_post and cwd_changed, and the server exits" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   run bash -c '
     printf "%s\n%s\n" \
@@ -86,6 +91,7 @@ setup() {
   assert_success
   assert_output --partial '"format_pre"'
   assert_output --partial '"format_post"'
+  assert_output --partial '"cwd_changed"'
 }
 
 @test "format_post on an unsupported extension over JSON-RPC returns {}" {
@@ -119,8 +125,8 @@ setup() {
   assert_failure
 }
 
-@test "plugin.json version is 0.11.0" {
-  run jq -e '.version == "0.11.0"' "$PLUGIN/.claude-plugin/plugin.json"
+@test "plugin.json version is 0.12.0" {
+  run jq -e '.version == "0.12.0"' "$PLUGIN/.claude-plugin/plugin.json"
   assert_success
 }
 
@@ -202,10 +208,11 @@ setup() {
 
 # core.fileMode = false in this repo, so a wrong mode on a NEW file surfaces only on a fresh CI
 # checkout — assert the index directly.
-@test "both wasm sidecars are tracked next to the bundle with git mode 100644" {
+@test "all three wasm sidecars are tracked next to the bundle with git mode 100644" {
   run bash -c "cd '$REPO_ROOT' && git ls-files -s plugins/universal-format/mcp/"
   assert_success
   assert_line --regexp '^100755 [0-9a-f]+ 0[[:space:]]+plugins/universal-format/mcp/server\.mjs$'
+  assert_line --regexp '^100644 [0-9a-f]+ 0[[:space:]]+plugins/universal-format/mcp/main\.wasm$'
   assert_line --regexp '^100644 [0-9a-f]+ 0[[:space:]]+plugins/universal-format/mcp/tree-sitter-java_orchard\.wasm$'
   assert_line --regexp '^100644 [0-9a-f]+ 0[[:space:]]+plugins/universal-format/mcp/web-tree-sitter\.wasm$'
 }
@@ -220,14 +227,32 @@ setup() {
   assert_failure
 }
 
-@test "the three global docs describe the artifact as a bundle plus two committed .wasm sidecars" {
+@test "the three global docs describe the artifact as a bundle plus three committed .wasm sidecars" {
   local f
   for f in "$REPO_ROOT/CLAUDE.md" "$REPO_ROOT/plugins/CLAUDE.md" "$REPO_ROOT/.claude/rules/hooks-mcp-server.md"; do
     run rg_or_grep -q -F "web-tree-sitter.wasm" "$f"
     assert_success
     run rg_or_grep -q -F "tree-sitter-java_orchard.wasm" "$f"
     assert_success
+    run rg_or_grep -q -F "main.wasm" "$f"
+    assert_success
   done
+}
+
+# Doc drift is the main failure mode of the ignore cache: three places used to assert that
+# clearing for an ignore file is inert, and one asserted this plugin backs exactly two mcp_tool
+# hooks. All of them are wrong as of 0.12.0.
+@test "docs describe the ignore cache and the third mcp_tool hook, not the stale no-op claim" {
+  run rg_or_grep -q -F "no-op today" "$PLUGIN/CLAUDE.md"
+  assert_failure
+  run rg_or_grep -q -F "Ignore-file caching is event-driven" "$PLUGIN/CLAUDE.md"
+  assert_success
+  run rg_or_grep -q -F "cwd_changed" "$PLUGIN/CLAUDE.md"
+  assert_success
+  run rg_or_grep -q -F "cwd_changed" "$REPO_ROOT/.claude/rules/hooks-mcp-server.md"
+  assert_success
+  run rg_or_grep -q -F "CwdChanged" "$PLUGIN/README.md"
+  assert_success
 }
 
 @test "plugin README table and both manifest descriptions cover the thirteen bundled-prettier languages" {

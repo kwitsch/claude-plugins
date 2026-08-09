@@ -188,7 +188,9 @@ export async function formatInProcess(src: string, filePath: string, cwd: string
 /** Drop the bundled prettier's cached config state. Called only from the PostToolUse handler,
  * once a config/ignore file has actually landed on disk — clearing at PreToolUse would re-cache
  * the pre-write content on the next resolveConfig. A broken clearConfigCache must never break
- * the hook, hence the guard + catch. */
+ * the hook, hence the guard + catch. Deliberately does NOT touch `ignoreCache` below: a
+ * `.prettierrc` write cannot change what is ignored, and an ignore-file write refreshes that
+ * cache through its own `primePrettierIgnoreCache` call instead. */
 export function clearPrettierConfigCaches(): void {
   projectConfigCache.clear();
   try {
@@ -198,20 +200,116 @@ export function clearPrettierConfigCaches(): void {
   }
 }
 
+/** One session directory's ignore state. `hasRules` is false only when BOTH cwd-rooted ignore
+ * files are absent or contribute nothing (blank / `#` lines only) — the case where getFileInfo
+ * provably always answers `ignored:false` and can be skipped outright. `verdicts` memoizes
+ * prettier's per-path answers; gitignore matching is purely path-based (no stat), so a verdict
+ * cannot go stale while the ignore files themselves are unchanged. */
+type IgnoreState = { hasRules: boolean; verdicts: Map<string, boolean> };
+
+// Keyed by the session's cwd, exactly like projectConfigCache above — deliberately NOT a single
+// mutable "current cwd" global: concurrent in-flight hook calls from sub-agents may carry
+// different cwds against this one long-lived server process. Populated on first use (MCP
+// `initialize` carries no cwd, so there is no startup moment to populate it at) and invalidated
+// event-driven only, never from formatPre.
+const ignoreCache = new Map<string, IgnoreState>();
+
+// The two cwd-rooted files prettier's CLI defaults --ignore-path to. Scope stays exactly
+// cwd-rooted: no walking up for nested ignore files, matching isPrettierIgnored's own scope.
+const IGNORE_FILENAMES = [".gitignore", ".prettierignore"] as const;
+
+/** Read both cwd-rooted ignore files once and derive `hasRules` from their CONTENT, not mere
+ * existence — a file holding only blank / `#` lines cannot ignore anything. Any doubt (an
+ * unreadable file, an unusual escape such as a leading `\#`) resolves to `hasRules = true`, i.e.
+ * the unchanged slow path through prettier. Never throws. */
+function readIgnoreState(cwd: string): IgnoreState {
+  let hasRules = false;
+  for (const name of IGNORE_FILENAMES) {
+    const file = path.join(cwd, name);
+    if (!existsSync(file)) continue;
+    let text = "";
+    try {
+      text = readFileSync(file, "utf8");
+    } catch {
+      hasRules = true; // unreadable -> let prettier decide, exactly as before
+      continue;
+    }
+    for (const line of text.split("\n")) {
+      const t = line.endsWith("\r") ? line.slice(0, -1) : line;
+      if (t !== "" && t[0] !== "#") {
+        hasRules = true;
+        break;
+      }
+    }
+  }
+  return { hasRules, verdicts: new Map<string, boolean>() };
+}
+
+/** The uncached ignore probe — the previous isPrettierIgnored body verbatim. Prettier stays the
+ * ONLY thing that decides whether a path matches an ignore rule, so no ignore-dialect feature
+ * (negation, `**`, anchoring, directory-only patterns, escapes) can silently regress.
+ * `getFileInfo` does NOT auto-discover the ignore files (verified: no `ignorePath` ->
+ * `ignored:false`), so both are passed explicitly; missing files are tolerated. */
+async function probePrettierIgnored(filePath: string, cwd: string): Promise<boolean> {
+  if (typeof bundledPrettier.getFileInfo !== "function") return false;
+  const info = await bundledPrettier.getFileInfo(filePath, {
+    ignorePath: [path.join(cwd, ".gitignore"), path.join(cwd, ".prettierignore")],
+  });
+  return info?.ignored === true;
+}
+
 /** True when prettier's own ignore files exclude this path. With no subprocess prettier left,
  * this is the ONLY thing keeping the in-process path at parity with `prettier --write`, whose CLI
  * filters even explicitly-named files through `--ignore-path` (default
- * `[.gitignore, .prettierignore]`, resolved against its cwd). `getFileInfo` does NOT
- * auto-discover them (verified: no `ignorePath` -> `ignored:false`), so pass both explicitly;
- * missing files are tolerated. Any error -> not ignored (fail open to formatting). */
+ * `[.gitignore, .prettierignore]`, resolved against its cwd). Name, signature and call site are
+ * unchanged; only the two fast paths in front of `probePrettierIgnored` are new — a cwd with no
+ * ignore rules skips the round-trip entirely, and an already-decided path is a Map lookup. Any
+ * error -> not ignored (fail open to formatting). */
 export async function isPrettierIgnored(filePath: string, cwd: string): Promise<boolean> {
   try {
-    if (typeof bundledPrettier.getFileInfo !== "function") return false;
-    const info = await bundledPrettier.getFileInfo(filePath, {
-      ignorePath: [path.join(cwd, ".gitignore"), path.join(cwd, ".prettierignore")],
-    });
-    return info?.ignored === true;
+    let state = ignoreCache.get(cwd);
+    if (state === undefined) {
+      state = readIgnoreState(cwd);
+      ignoreCache.set(cwd, state);
+    }
+    if (!state.hasRules) return false; // fast path: nothing can be ignored in this cwd
+    const memo = state.verdicts.get(filePath);
+    if (memo !== undefined) return memo; // fast path: already decided this path
+    const ignored = await probePrettierIgnored(filePath, cwd);
+    state.verdicts.set(filePath, ignored);
+    return ignored;
   } catch {
     return false;
+  }
+}
+
+/** Re-read `cwd`'s ignore files now, discarding that directory's memoized verdicts. Called from
+ * the PostToolUse handler when an ignore file has just landed, and from the CwdChanged handler
+ * for the NEW directory. On failure the entry is deleted rather than left half-built, so a
+ * transient fs error degrades to "read lazily next time", never to a poisoned cache. */
+export function primePrettierIgnoreCache(cwd: string): void {
+  try {
+    ignoreCache.set(cwd, readIgnoreState(cwd));
+  } catch {
+    ignoreCache.delete(cwd);
+  }
+}
+
+/** Drop `cwd`'s ignore entry entirely — the CwdChanged handler uses it on the OLD directory so
+ * the Map does not grow for the process lifetime. */
+export function clearPrettierIgnoreCache(cwd: string): void {
+  ignoreCache.delete(cwd);
+}
+
+/** Prefetch prettier's OWN directory-keyed config-search cache for `cwd`; the resolved value is
+ * discarded and nothing is stored here — this is the "warm", not a second config store. The probe
+ * basename never has to exist: resolveConfig searches directories. Measured on prettier 3.9.4:
+ * 1.92 ms cold, after which a real file in that directory resolves in 0.25 ms instead of 1.9 ms.
+ * A pure prefetch has no observable result, so it swallows everything. */
+export async function warmPrettierConfigCache(cwd: string): Promise<void> {
+  try {
+    await bundledPrettier.resolveConfig(path.join(cwd, "__universal_format_probe__"), { editorconfig: true });
+  } catch {
+    /* pure prefetch — nothing to preserve on failure */
   }
 }

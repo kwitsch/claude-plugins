@@ -17,7 +17,7 @@ const SRC_DIR = path.join(REPO_ROOT, "src", "universal-format-mcp");
 const ARTIFACT = path.join(REPO_ROOT, "plugins", "universal-format", "mcp", "server.mjs");
 const MCP_DIR = path.dirname(ARTIFACT);
 // Sorted by basename, exactly as build.mjs hashes them.
-const EXPECTED_WASM = ["tree-sitter-java_orchard.wasm", "web-tree-sitter.wasm"];
+const EXPECTED_WASM = ["main.wasm", "tree-sitter-java_orchard.wasm", "web-tree-sitter.wasm"];
 // Same order build.mjs joins them in, so the expected `plugins=` string is reproducible here.
 const PLUGIN_PINS = ["prettier-plugin-java", "@prettier/plugin-php", "prettier-plugin-sh"];
 const FINGERPRINT_RE = /^\/\/ uf-build-fingerprint src=([0-9a-f]{16}) body=([0-9a-f]{16}) prettier=(\S+) plugins=(\S+) assets=([0-9a-f]{16}) bun=(\S*)$/;
@@ -92,11 +92,11 @@ test("banner plugins= matches the root package.json pins, and all three pins are
 
 // src=/body= cover only src/ and the bundle body, so a deleted, stale, corrupted or orphaned
 // sidecar is invisible to them. assets= is the only gate on the shipped wasm files.
-test("exactly the two expected .wasm sidecars ship next to the bundle, and assets= matches them", () => {
+test("exactly the three expected .wasm sidecars ship next to the bundle, and assets= matches them", () => {
   // Cast: this repo ships no @types/node, so readdirSync's return is `any` and the filter
   // callback's parameter would be an implicit-any typecheck error.
   const found = /** @type {string[]} */ (readdirSync(MCP_DIR)).filter((name) => name.endsWith(".wasm")).sort();
-  assert.deepEqual(found, EXPECTED_WASM, "mcp/ must hold exactly the two expected wasm sidecars (an orphan means a plugin bump renamed one)");
+  assert.deepEqual(found, EXPECTED_WASM, "mcp/ must hold exactly the three expected wasm sidecars (an orphan means a plugin bump renamed one)");
   const hash = createHash("sha256");
   for (const base of found) {
     hash.update(base);
@@ -105,4 +105,11 @@ test("exactly the two expected .wasm sidecars ship next to the bundle, and asset
     hash.update("\0");
   }
   assert.equal(parseFingerprint(lines[2]).assets, hash.digest("hex").slice(0, 16), "a sidecar is stale or corrupted — run `pnpm run build:universal-format-mcp`");
+});
+
+// bun's CJS interop shim for sh-syntax used to hardcode the BUILD MACHINE's absolute
+// node_modules path as sh-syntax's `__dirname`, so the committed artifact only worked from the
+// exact worktree that ran the build. Regression anchor: the artifact must be portable.
+test("artifact is portable: no build-machine absolute path is embedded in the bundle", () => {
+  assert.ok(!text.includes(REPO_ROOT), "the bundle embeds this checkout's own absolute path — a bundler CJS-interop shim likely hardcoded a build-machine __dirname again");
 });

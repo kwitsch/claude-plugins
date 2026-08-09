@@ -1,6 +1,6 @@
 {
   "name": "universal-format",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Silently formats Shell, Java, PHP, JS/TS, JSON, YAML, Markdown, CSS, SCSS, LESS, HTML, Vue, GraphQL, Kotlin, Python and Go files on Write/Edit. The thirteen Prettier languages (JS/TS, JSON, YAML, Markdown, CSS, SCSS, LESS, HTML, Vue, GraphQL, Shell, Java, PHP) are always formatted in-process before the write by the prettier bundled into the plugin's own MCP server together with its java, php and shell plugins (PreToolUse) — one copy, always used: no install, no network, no PATH lookup; the three remaining languages are formatted after the write via each tool's CLI (ktlint/ktfmt, ruff/black, goimports/gofmt). Honors .editorconfig and tool-native configs, including a project's own prettier config; skips prettier's default 80-column printWidth for JSON/YAML when the project has no line-length preference of its own; no-op when no formatter is available. Always active once installed — no on/off toggle.",
   "author": {
     "name": "Kwitsch"

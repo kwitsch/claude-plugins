@@ -1,23 +1,26 @@
 # CLAUDE.md — universal-format
 
 Auto-formatter plugin backed by a plugin-local MCP stdio server (`mcp/server.mjs` — a committed
-`bun build` bundle plus two committed `.wasm` sidecars, see "Built artifact" below), launched via
-a bun-preferred `bin/mjs-launch.sh` wrapper. Two `mcp_tool` hooks on `Write|Edit`: **PreToolUse
-`format_pre`** formats the thirteen prettier languages (JS/TS, JSON, YAML, Markdown, CSS, SCSS,
-LESS, HTML, Vue, GraphQL, Shell, Java, PHP) in-process BEFORE the write via
-`hookSpecificOutput.updatedInput`, always with the prettier bundled into the server; **PostToolUse
-`format_post`** formats the three remaining languages (Kotlin/Python/Go) on disk after the write
-via each tool's CLI, and returns `{}` for every prettier language. No `userConfig` — the hooks ARE
-the plugin (see "No toggle").
+`bun build` bundle plus three committed `.wasm` sidecars, see "Built artifact" below), launched via
+a bun-preferred `bin/mjs-launch.sh` wrapper. Three `mcp_tool` hooks — two on `Write|Edit`, one on
+`CwdChanged`: **PreToolUse `format_pre`** formats the thirteen prettier languages (JS/TS, JSON,
+YAML, Markdown, CSS, SCSS, LESS, HTML, Vue, GraphQL, Shell, Java, PHP) in-process BEFORE the write
+via `hookSpecificOutput.updatedInput`, always with the prettier bundled into the server;
+**PostToolUse `format_post`** formats the three remaining languages (Kotlin/Python/Go) on disk
+after the write via each tool's CLI, and returns `{}` for every prettier language; **CwdChanged
+`cwd_changed`** formats nothing at all — it drops the old directory's cached ignore state and
+prefetches the new directory's (see "Ignore-file caching"). No `userConfig` — the hooks ARE the
+plugin (see "No toggle").
 
 ## Architecture (do not "fix" without reading this)
 
-- **One MCP server, two tools.** `.mcp.json` registers `universal-format-hooks`
+- **One MCP server, three tools.** `.mcp.json` registers `universal-format-hooks`
   (`command: ${CLAUDE_PLUGIN_ROOT}/bin/mjs-launch.sh`, `args:
-["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"]`, no `env` block). Both hooks reference the
+["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"]`, no `env` block). All three hooks reference the
   runtime-namespaced `plugin:universal-format:universal-format-hooks` (NOT the bare
-  `.mcp.json` key — that fails to connect). `timeout: 60`, no `async`, no `if` on
-  either. All logic lives in `mcp/server.mjs`; the old `hooks/format-file.mjs` command
+  `.mcp.json` key — that fails to connect). `timeout: 60`, no `async`, no `if` on any of
+  them; the `CwdChanged` block additionally carries no `matcher` (that event silently
+  ignores one). All logic lives in `mcp/server.mjs`; the old `hooks/format-file.mjs` command
   hook is deleted. This plugin writes nothing outside the project: `${CLAUDE_PLUGIN_DATA}`
   is not used at all.
 - **`bin/mjs-launch.sh` is shipped for repo parity, NOT for speed.** Measured on this
@@ -62,7 +65,8 @@ language). They replaced the `shell`, `java` and `php` CLI chains outright — t
 entries, their `MAPPERS` and every doc describing them are deleted, and there is deliberately NO
 CLI fallback: a plugin that cannot parse a file throws, the handler's `catch` returns `{}`, and the
 write proceeds unformatted. Pins are **exact**: java is the LATEST release (its two `.wasm`
-sidecars resolve to the bundle's own directory, so shipping them needs no path hack), php's latest
+sidecars resolve to the bundle's own directory, so shipping them needs no path hack); shell's
+`sh-syntax` dependency ships its own `main.wasm` the same way (see "Built artifact"); php's latest
 is pure JS, and shell is pinned to its last pure-JS release on purpose — 0.17.0+ is WASM-only,
 resolves its wasm OUTSIDE the bundle's directory and needs 539 lines of vendored TinyGo glue to
 defeat a four-year-old `sideEffects` bug. Never set a plugin OPTION from this code (in particular
@@ -132,15 +136,62 @@ depends on, all verified empirically:
 
 Prettier's cache is stale in all three shapes — config **created** after a negative
 lookup, `.prettierrc` **edited**, `.editorconfig` **edited** (a separate cache inside
-prettier, also covered by `clearConfigCache()`). Ignore files are in the trigger set for
-completeness only: prettier does not cache them at all (`getFileInfo` re-reads on every
-call), so clearing for them is a no-op today.
+prettier, also covered by `clearConfigCache()`). The two ignore files are spread into
+`CACHE_INVALIDATING_BASENAMES` from `PRETTIER_IGNORE_BASENAMES` so the set stays the single
+"a config-ish file was written" concept; `clearConfigCache()` really is inert for them
+(prettier caches no ignore file — `getFileInfo` re-reads on every call), but they are not
+inert overall: `formatPost`'s basename block has a **second** line that re-reads this
+server's own ignore cache for them. See the next section.
 
 **Accepted trade-off, pinned by a test:** a config that changes without passing through
 Write/Edit (a Bash `sed`, an external editor) is NOT picked up until the server restarts.
 Both directions are covered in `prettier.test.mjs`, probing `semi` on a `.mjs` file —
 never json/yaml `printWidth`, which `shouldOverridePrintWidth` re-reads from disk on every
 call and would make the test pass for the wrong reason.
+
+**Ignore-file caching is event-driven too** (do not "fix" back to a per-call re-read):
+`isPrettierIgnored` keeps its name, signature and `formatPre` call site, but is backed by a
+module-level `ignoreCache: Map<cwd, { hasRules, verdicts }>` in `prettier.ts`, keyed by the
+session's cwd exactly like `projectConfigCache` — never a single "current cwd" global, because
+concurrent in-flight calls from sub-agents can carry different cwds against this one server
+process. `hasRules` is derived from the two cwd-rooted ignore files' **content**, not their mere
+existence: a `.gitignore` holding only blank/`#` lines cannot ignore anything, and any doubt (an
+unreadable file, an unusual escape) resolves to `true`, i.e. the unchanged slow path. `verdicts`
+memoizes prettier's own per-path `getFileInfo` answers — sound because gitignore matching is
+purely path-based, so a verdict can only change when an ignore file changes. Prettier remains the
+only thing that decides whether a path matches a rule, so no ignore-dialect feature (negation,
+`**`, anchoring, directory-only patterns, escapes) can silently regress; a hand-rolled matcher was
+rejected for exactly that reason. Measured: 0.45 ms per repeat PreToolUse saved with both ignore
+files present, 0.17 ms for ignore-less projects.
+
+Three events refresh it, all event-driven, none on the `formatPre` hot path:
+
+- **`formatPost` on a `.prettierignore`/`.gitignore` write** — `primePrettierIgnoreCache(cwd)`
+  re-reads the **cwd-rooted** pair (so a nested `sub/.prettierignore` write causes a harmless,
+  correct re-read rather than mistaking the written file for the cached one). Same BEFORE-the-
+  `EXT_MAP`-guard placement as the config clear, for the same reason: these basenames have no
+  extension.
+- **`cwd_changed`** — `clearPrettierIgnoreCache(old_cwd)` then `primePrettierIgnoreCache(new_cwd)`
+  plus `warmPrettierConfigCache(new_cwd)`. The warm is `resolveConfig` on a probe path in the new
+  directory, result discarded: it populates **prettier's own** directory-keyed config-search cache
+  (1.92 ms cold → 0.25 ms for the first real format there) and stores nothing of its own. There is
+  deliberately **no second prettier-config store** — `formatInProcess` still calls
+  `resolveConfig(filePath, { editorconfig: true })` and `clearPrettierConfigCaches()` is still the
+  invalidation.
+- **Server restart** — there is no startup moment with a known cwd (MCP `initialize` carries only
+  `protocolVersion`, and `SessionStart`/`Setup` fire before the server connects), so "at start" is
+  populate-on-first-use, exactly like `projectConfigCache`/`hasPrettierProjectConfig`.
+
+**Same accepted trade-off as the config cache, pinned by two tests:** an ignore file edited
+out of band (a Bash `sed`, an external editor) is not picked up until a Write/Edit lands on it, a
+`cd` happens, or the server restarts. The fail direction is mild — a newly ignored file gets
+formatted once more. `clearPrettierConfigCaches()` deliberately does NOT touch `ignoreCache`: a
+`.prettierrc` write cannot change what is ignored.
+
+**The outside-cwd guard is `path.relative`-based** (`relativeInCwd` in `handlers.ts`, shared by
+both handlers). The older `resolved !== cwd && !resolved.startsWith(cwd + path.sep)` form rejected
+**every** file when `cwd` carried a trailing separator or was `/` — i.e. it silently formatted
+nothing for that whole session. Do not "simplify" it back to a `startsWith` prefix test.
 
 ## No toggle (do not "fix" without reading this)
 
@@ -216,16 +267,16 @@ default applied unconditionally; now it means no line-length limit at all.
 
 `mcp/server.mjs` is **generated**. The source of truth is `src/universal-format-mcp/`:
 
-| File              | Responsibility                                                                                                                                                                                                                                                        |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `types.ts`        | `FormatTool`, `LangEntry`, `EditorConfigProps` (type-only)                                                                                                                                                                                                            |
-| `util.ts`         | `walkToRoot`, `onPath` + the module-level `probeCache` singleton                                                                                                                                                                                                      |
-| `editorconfig.ts` | `findNativeConfig`, `resolveEditorconfig`, `parseEditorconfig`, `matchGlob`, `MAPPERS`, `buildInvocation`                                                                                                                                                             |
-| `prettier.ts`     | the bundled prettier and its three bundled plugins (`BUNDLED_PLUGINS`, `asPlugin`), the `unhandledRejection` startup guard, `BUNDLED_PRETTIER_VERSION`, config discovery, `resolveConfigPlugins`, `formatInProcess`, `isPrettierIgnored`, `clearPrettierConfigCaches` |
-| `registry.ts`     | `EXT_MAP`, `PRETTIER_LANGS`, `REGISTRY` (CLI chains only), `resolveInvocation`, `selectFormatter`                                                                                                                                                                     |
-| `handlers.ts`     | `isExcludedPath`, `applyEdit`, `CACHE_INVALIDATING_BASENAMES`, `formatPre`, `formatPost`                                                                                                                                                                              |
-| `server.ts`       | MCP scaffold, `isMainModule`, `SERVER_INFO` (hand-paired with `plugin.json`), and the artifact's 17 public re-exports                                                                                                                                                 |
-| `build.mjs`       | the build driver (node-runnable; also runs under bun)                                                                                                                                                                                                                 |
+| File              | Responsibility                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`        | `FormatTool`, `LangEntry`, `EditorConfigProps` (type-only)                                                                                                                                                                                                                                                                                                                                  |
+| `util.ts`         | `walkToRoot`, `onPath` + the module-level `probeCache` singleton                                                                                                                                                                                                                                                                                                                            |
+| `editorconfig.ts` | `findNativeConfig`, `resolveEditorconfig`, `parseEditorconfig`, `matchGlob`, `MAPPERS`, `buildInvocation`                                                                                                                                                                                                                                                                                   |
+| `prettier.ts`     | the bundled prettier and its three bundled plugins (`BUNDLED_PLUGINS`, `asPlugin`), the `unhandledRejection` startup guard, `BUNDLED_PRETTIER_VERSION`, config discovery, `resolveConfigPlugins`, `formatInProcess`, the cwd-keyed `ignoreCache` behind `isPrettierIgnored`, `primePrettierIgnoreCache`, `clearPrettierIgnoreCache`, `warmPrettierConfigCache`, `clearPrettierConfigCaches` |
+| `registry.ts`     | `EXT_MAP`, `PRETTIER_LANGS`, `REGISTRY` (CLI chains only), `resolveInvocation`, `selectFormatter`                                                                                                                                                                                                                                                                                           |
+| `handlers.ts`     | `isExcludedPath`, `relativeInCwd`, `applyEdit`, `CACHE_INVALIDATING_BASENAMES`, `PRETTIER_IGNORE_BASENAMES`, `formatPre`, `formatPost`, `cwdChanged`                                                                                                                                                                                                                                        |
+| `server.ts`       | MCP scaffold, `isMainModule`, `SERVER_INFO` (hand-paired with `plugin.json`), and the artifact's 18 public re-exports                                                                                                                                                                                                                                                                       |
+| `build.mjs`       | the build driver (node-runnable; also runs under bun)                                                                                                                                                                                                                                                                                                                                       |
 
 Import graph is acyclic (`types ← util ← editorconfig ← prettier ← registry ← handlers ← server`)
 and relative imports use the `./x.js` specifier form, required by the root tsconfig's
@@ -265,7 +316,7 @@ Every flag is load-bearing:
 | **not** `--reject-unresolved`                       | prettier resolves a project's config file through a runtime `import()` of a computed path, unresolvable at build time _by design_.                                                                                                                     |
 | **not** `--production` / `--bytecode` / `--compile` | `--production` implies minification, `--bytecode` forces CJS, `--compile` emits a standalone bun executable — all three contradict a node-runnable ESM artifact.                                                                                       |
 
-Measured: ~9.3 MB bundle plus 648,962 B of `.wasm` sidecars, `node --check` clean, byte-identical
+Measured: ~9.3 MB bundle plus 3,037,240 B of `.wasm` sidecars, `node --check` clean, byte-identical
 on repeated builds in one tree, runs under both `node` and `bun`, import ≈246 ms (one-time per
 session), warm format ≈1.6–2.0 ms (java 1.8, sh 2.0, php 1.6). The whole prettier package (all 13
 parser plugins) is bundled on purpose: prettier delegates embedded `html`/`graphql`/`css` blocks
@@ -273,18 +324,23 @@ inside Markdown to those parsers, so trimming would silently break accepted inpu
 `eslint.config.mjs` and `.prettierignore` both exclude the artifact; neither matches `.wasm`, and
 `EXT_MAP` has no `.wasm` entry, so nothing ever tries to format a sidecar.
 
-**The artifact is `server.mjs` PLUS two committed `.wasm` sidecars in the same `mcp/` directory**
-— `web-tree-sitter.wasm` (201,037 B) and `tree-sitter-java_orchard.wasm` (447,925 B), git mode
-`100644`, `*.wasm binary` in `.gitattributes`. They live exactly there because
-`prettier-plugin-java` and `web-tree-sitter` load them via `new URL(<name>, import.meta.url)`,
+**The artifact is `server.mjs` PLUS three committed `.wasm` sidecars in the same `mcp/` directory**
+— `web-tree-sitter.wasm` (201,037 B), `tree-sitter-java_orchard.wasm` (447,925 B) and `main.wasm`
+(2,388,278 B, sh-syntax's dormant-by-default parser — see "Three third-party plugins" above), git
+mode `100644`, `*.wasm binary` in `.gitattributes`. They live exactly there because
+`prettier-plugin-java` and `web-tree-sitter` load their two via `new URL(<name>, import.meta.url)`,
 which after bundling resolves to the BUNDLE's own directory — independent of the dependency's
 internal layout, and verified relocatable (the whole `mcp/` directory runs from a copy with no
 `node_modules` above it, under node and bun; the plugin runs from a versioned plugin-cache copy,
-so this matters). `bun build` cannot emit them (`--outdir` + `--loader:.wasm=file` emits only the
-JS: both are runtime lookups the bundler cannot see), so `build.mjs` copies them by hand —
-resolving each the same way its plugin resolves it at runtime, sweeping every other `*.wasm` out
-of the output directory first so a plugin bump that renames a grammar cannot leave an orphan, and
-fingerprinting them into `assets=`. Never hand-edit the bundle or the sidecars.
+so this matters). `sh-syntax` resolves its `main.wasm` differently — a CJS `__dirname`-relative
+lookup, not `new URL` — and bun's bundler hardcodes THAT as the build machine's absolute path
+unless corrected; `build.mjs`'s `containShSyntaxDirname` rewrites it to the same
+import.meta.url-based resolution, anchored so the lookup still lands next to the bundle. `bun
+build` cannot emit any of the three (`--outdir` + `--loader:.wasm=file` emits only the JS: all are
+runtime lookups the bundler cannot see), so `build.mjs` copies them by hand — resolving each the
+same way its plugin resolves it at runtime, sweeping every other `*.wasm` out of the output
+directory first so a plugin bump that renames a grammar cannot leave an orphan, and fingerprinting
+them into `assets=`. Never hand-edit the bundle or the sidecars.
 
 ## Tests
 

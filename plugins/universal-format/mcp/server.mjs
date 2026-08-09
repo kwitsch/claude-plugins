@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=f713e25068455bfd body=2480182a89e84cac prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=fcbfbd1e6bee983f bun=1.3.14
+// uf-build-fingerprint src=edbe40d730d99643 body=9218b63f473593db prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -200030,7 +200030,7 @@ var getProcessor = (getWasmFile) => {
 };
 
 // node_modules/sh-syntax/lib/index.js
-var __dirname = "/home/kwitsch/repos/claude-plugins/.claude/worktrees/wf_3e221d92-0bc-20/node_modules/.pnpm/sh-syntax@0.4.2/node_modules/sh-syntax/lib";
+var __dirname = path19.join(path19.dirname(fileURLToPath6(import.meta.url)), "lib");
 var _dirname = typeof __dirname === "undefined" ? path19.dirname(fileURLToPath6(import.meta.url)) : __dirname;
 var processor2 = getProcessor(() => fs13.readFile(path19.resolve(_dirname, "../main.wasm")));
 
@@ -200758,17 +200758,73 @@ function clearPrettierConfigCaches() {
       bundledPrettier.clearConfigCache();
   } catch {}
 }
+var ignoreCache = new Map;
+var IGNORE_FILENAMES = [".gitignore", ".prettierignore"];
+function readIgnoreState(cwd) {
+  let hasRules = false;
+  for (const name2 of IGNORE_FILENAMES) {
+    const file = path20.join(cwd, name2);
+    if (!existsSync2(file))
+      continue;
+    let text = "";
+    try {
+      text = readFileSync2(file, "utf8");
+    } catch {
+      hasRules = true;
+      continue;
+    }
+    for (const line5 of text.split(`
+`)) {
+      const t34 = line5.endsWith("\r") ? line5.slice(0, -1) : line5;
+      if (t34 !== "" && t34[0] !== "#") {
+        hasRules = true;
+        break;
+      }
+    }
+  }
+  return { hasRules, verdicts: new Map };
+}
+async function probePrettierIgnored(filePath, cwd) {
+  if (typeof bundledPrettier.getFileInfo !== "function")
+    return false;
+  const info2 = await bundledPrettier.getFileInfo(filePath, {
+    ignorePath: [path20.join(cwd, ".gitignore"), path20.join(cwd, ".prettierignore")]
+  });
+  return info2?.ignored === true;
+}
 async function isPrettierIgnored(filePath, cwd) {
   try {
-    if (typeof bundledPrettier.getFileInfo !== "function")
+    let state = ignoreCache.get(cwd);
+    if (state === undefined) {
+      state = readIgnoreState(cwd);
+      ignoreCache.set(cwd, state);
+    }
+    if (!state.hasRules)
       return false;
-    const info2 = await bundledPrettier.getFileInfo(filePath, {
-      ignorePath: [path20.join(cwd, ".gitignore"), path20.join(cwd, ".prettierignore")]
-    });
-    return info2?.ignored === true;
+    const memo = state.verdicts.get(filePath);
+    if (memo !== undefined)
+      return memo;
+    const ignored = await probePrettierIgnored(filePath, cwd);
+    state.verdicts.set(filePath, ignored);
+    return ignored;
   } catch {
     return false;
   }
+}
+function primePrettierIgnoreCache(cwd) {
+  try {
+    ignoreCache.set(cwd, readIgnoreState(cwd));
+  } catch {
+    ignoreCache.delete(cwd);
+  }
+}
+function clearPrettierIgnoreCache(cwd) {
+  ignoreCache.delete(cwd);
+}
+async function warmPrettierConfigCache(cwd) {
+  try {
+    await bundledPrettier.resolveConfig(path20.join(cwd, "__universal_format_probe__"), { editorconfig: true });
+  } catch {}
 }
 
 // src/universal-format-mcp/handlers.ts
@@ -200782,6 +200838,13 @@ function isExcludedPath(rel) {
     return true;
   return segments[segments.length - 1].includes(".local.");
 }
+function relativeInCwd(cwd, filePath) {
+  const resolved = path21.resolve(cwd, filePath);
+  const rel = path21.relative(cwd, resolved);
+  if (rel === ".." || rel.startsWith(".." + path21.sep) || path21.isAbsolute(rel))
+    return null;
+  return rel;
+}
 function applyEdit(current, oldStr, newStr, replaceAll3) {
   if (oldStr === "")
     return null;
@@ -200794,7 +200857,8 @@ function applyEdit(current, oldStr, newStr, replaceAll3) {
     return null;
   return current.slice(0, idx) + newStr + current.slice(idx + oldStr.length);
 }
-var CACHE_INVALIDATING_BASENAMES = new Set([...PRETTIER_CONFIG_FILENAMES, "package.json", "package.yaml", ".editorconfig", ".prettierignore", ".gitignore"]);
+var PRETTIER_IGNORE_BASENAMES = new Set([".prettierignore", ".gitignore"]);
+var CACHE_INVALIDATING_BASENAMES = new Set([...PRETTIER_CONFIG_FILENAMES, "package.json", "package.yaml", ".editorconfig", ...PRETTIER_IGNORE_BASENAMES]);
 async function formatPost(args2) {
   try {
     if (args2?.tool_response?.success === false)
@@ -200804,13 +200868,16 @@ async function formatPost(args2) {
     if (!cwd || typeof fp2 !== "string" || !fp2)
       return {};
     const resolved = path21.resolve(cwd, fp2);
-    if (resolved !== cwd && !resolved.startsWith(cwd + path21.sep))
+    const rel = relativeInCwd(cwd, resolved);
+    if (rel === null)
       return {};
-    const rel = path21.relative(cwd, resolved);
     if (isExcludedPath(rel))
       return {};
-    if (CACHE_INVALIDATING_BASENAMES.has(path21.basename(resolved)))
+    const basename = path21.basename(resolved);
+    if (CACHE_INVALIDATING_BASENAMES.has(basename))
       clearPrettierConfigCaches();
+    if (PRETTIER_IGNORE_BASENAMES.has(basename))
+      primePrettierIgnoreCache(cwd);
     const lang = EXT_MAP[path21.extname(resolved).toLowerCase()];
     if (!lang)
       return {};
@@ -200849,9 +200916,9 @@ async function formatPre(args2) {
     if (!cwd || typeof fp2 !== "string" || !fp2)
       return {};
     const resolved = path21.resolve(cwd, fp2);
-    if (resolved !== cwd && !resolved.startsWith(cwd + path21.sep))
+    const rel = relativeInCwd(cwd, resolved);
+    if (rel === null)
       return {};
-    const rel = path21.relative(cwd, resolved);
     if (isExcludedPath(rel))
       return {};
     const lang = EXT_MAP[path21.extname(resolved).toLowerCase()];
@@ -200890,6 +200957,19 @@ async function formatPre(args2) {
     return {};
   }
 }
+async function cwdChanged(args2) {
+  try {
+    const oldCwd = typeof args2?.old_cwd === "string" ? args2.old_cwd : "";
+    const newCwd = typeof args2?.new_cwd === "string" ? args2.new_cwd : "";
+    if (oldCwd)
+      clearPrettierIgnoreCache(oldCwd);
+    if (newCwd) {
+      primePrettierIgnoreCache(newCwd);
+      await warmPrettierConfigCache(newCwd);
+    }
+  } catch {}
+  return {};
+}
 
 // src/universal-format-mcp/server.ts
 var SERVER_NAME = "universal-format-hooks";
@@ -200915,6 +200995,12 @@ function startServer() {
       description: "PostToolUse Write|Edit: format the just-written file with the language's CLI formatter (kotlin/python/go); prettier languages belong to format_pre.",
       inputSchema: { type: "object", additionalProperties: true },
       handler: formatPost
+    },
+    {
+      name: "cwd_changed",
+      description: "CwdChanged: refresh this server's cached prettier ignore state for the new working directory and drop the old one's.",
+      inputSchema: { type: "object", additionalProperties: true },
+      handler: cwdChanged
     }
   ];
   const findTool = (name2) => TOOLS.find((t34) => t34.name === name2);
@@ -200992,6 +201078,7 @@ export {
   formatPost,
   formatInProcess,
   findNativeConfig,
+  cwdChanged,
   buildInvocation,
   applyEdit,
   REGISTRY,
