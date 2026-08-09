@@ -65,12 +65,15 @@ export function detectPackageManager(dir) {
 // ~/.local/bin (pnpm's official install script; corepack-shimmed yarn), which a
 // non-login/non-interactive PATH inherited by this hook's subprocess may not include
 // -- the same PATH gap the bun-preferred mjs-launch.sh wrapper works around for bun
-// (see .claude/rules/hooks-mcp-server.md). Prepended, never replaces the inherited PATH.
+// (see .claude/rules/hooks-mcp-server.md). APPENDED, not prepended: the inherited
+// PATH wins, so a stale ~/.local/bin binary can never shadow a canonical one earlier
+// on PATH -- same rtk/PATH-review finding already applied to coding-toolbox's and
+// universal-format's bin/mjs-launch.sh wrappers.
 /** @returns {string} */
 export function pathWithLocalBin() {
   const localBin = path.join(homedir(), ".local", "bin");
   const current = process.env.PATH ?? "";
-  return current ? `${localBin}${path.delimiter}${current}` : localBin;
+  return current ? `${current}${path.delimiter}${localBin}` : localBin;
 }
 
 // Fail-open: only the literal string "false" disables -- deliberate exception to

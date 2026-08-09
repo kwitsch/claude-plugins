@@ -182,6 +182,23 @@ EOF
   [ -z "$output" ]
   grep -q "^$PROJ install --frozen-lockfile\$" "$CALLLOG"
 }
+@test "npm-ci-on-worktree: a stale ~/.local/bin/pnpm never shadows the real one earlier on PATH" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  local localbin="$HOME/.local/bin"
+  mkdir -p "$localbin"
+  cat > "$localbin/pnpm" <<'EOF'
+#!/usr/bin/env bash
+echo "stale-local-bin-pnpm" >&2
+exit 1
+EOF
+  chmod +x "$localbin/pnpm"
+  make_pnpm_stub 0 "ok"
+  PROJ="$BATS_TEST_TMPDIR/proj-pnpm-shadow"; mkdir -p "$PROJ"; : > "$PROJ/pnpm-lock.yaml"
+  run npm_ci_hook "true" "$PROJ"
+  assert_success
+  [ -z "$output" ]
+  grep -q "^$PROJ install --frozen-lockfile\$" "$CALLLOG"
+}
 @test "npm-ci-on-worktree fails open on garbage stdin" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   run bash -c "printf 'not json at all' | CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE=true '$HOOKS/npm-ci-on-worktree.mjs' 2>/dev/null"

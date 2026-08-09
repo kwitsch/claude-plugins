@@ -18,14 +18,17 @@ falls back to npm when no lockfile exists at all yet (first-ever install right
 after `package.json` is created — matches this hook's original, npm-only
 behavior).
 
-Both hooks also prepend `~/.local/bin` to the spawned process's `PATH`
+Both hooks also append `~/.local/bin` to the spawned process's `PATH`
 (`pathWithLocalBin`, also duplicated) — standalone/corepack installs of pnpm and
 yarn commonly land there, and a non-login/non-interactive `PATH` inherited by a
 command-hook subprocess may not include it. Same PATH gap the bun-preferred
 `mjs-launch.sh` wrapper works around for bun (see
-`.claude/rules/hooks-mcp-server.md`); prepended, never replaces the inherited
-`PATH`. If the detected manager's binary still isn't found (`ENOENT`), the hook
-reports `<manager> not found on PATH` exactly like the original npm-only message.
+`.claude/rules/hooks-mcp-server.md`); appended, not prepended, so the inherited
+`PATH` always wins and a stale `~/.local/bin` binary can never shadow a canonical
+one earlier on `PATH` — same rtk/PATH-review finding already applied to
+`coding-toolbox`'s and `universal-format`'s `bin/mjs-launch.sh` wrappers. If the
+detected manager's binary still isn't found (`ENOENT`), the hook reports
+`<manager> not found on PATH` exactly like the original npm-only message.
 
 ## Hook design (`npm-ci-on-worktree`)
 

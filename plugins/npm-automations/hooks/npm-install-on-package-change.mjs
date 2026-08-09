@@ -65,11 +65,12 @@ export function detectPackageManager(dir) {
 
 // Same PATH gap and fix as the sibling npm-ci-on-worktree.mjs hook -- see its
 // comment and .claude/rules/hooks-mcp-server.md's bun-preferred wrapper precedent.
+// APPENDED, not prepended: the inherited PATH wins.
 /** @returns {string} */
 export function pathWithLocalBin() {
   const localBin = path.join(homedir(), ".local", "bin");
   const current = process.env.PATH ?? "";
-  return current ? `${localBin}${path.delimiter}${current}` : localBin;
+  return current ? `${current}${path.delimiter}${localBin}` : localBin;
 }
 
 // pnpm/yarn use `add <spec>...` to install/update specific specs (both verified to
