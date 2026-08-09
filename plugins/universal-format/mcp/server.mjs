@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=875dd478d43ef5fa body=e026849e030f7e0e prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=fcbfbd1e6bee983f bun=1.3.14
+// uf-build-fingerprint src=3dc054d159a25099 body=5193d77b5f59e815 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=fcbfbd1e6bee983f bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -200030,7 +200030,7 @@ var getProcessor = (getWasmFile) => {
 };
 
 // node_modules/sh-syntax/lib/index.js
-var __dirname = "/home/kwitsch/repos/claude-plugins/.claude/worktrees/wf_a4fdf013-d70-3/node_modules/.pnpm/sh-syntax@0.4.2/node_modules/sh-syntax/lib";
+var __dirname = "/home/kwitsch/repos/claude-plugins/.claude/worktrees/wf_a4fdf013-d70-6/node_modules/.pnpm/sh-syntax@0.4.2/node_modules/sh-syntax/lib";
 var _dirname = typeof __dirname === "undefined" ? path19.dirname(fileURLToPath6(import.meta.url)) : __dirname;
 var processor2 = getProcessor(() => fs13.readFile(path19.resolve(_dirname, "../main.wasm")));
 
@@ -200758,14 +200758,55 @@ function clearPrettierConfigCaches() {
       bundledPrettier.clearConfigCache();
   } catch {}
 }
+var ignoreCache = new Map;
+var IGNORE_FILENAMES = [".gitignore", ".prettierignore"];
+function readIgnoreState(cwd) {
+  let hasRules = false;
+  for (const name2 of IGNORE_FILENAMES) {
+    const file = path20.join(cwd, name2);
+    if (!existsSync2(file))
+      continue;
+    let text = "";
+    try {
+      text = readFileSync2(file, "utf8");
+    } catch {
+      hasRules = true;
+      continue;
+    }
+    for (const line5 of text.split(`
+`)) {
+      const t34 = line5.trim();
+      if (t34 !== "" && !t34.startsWith("#")) {
+        hasRules = true;
+        break;
+      }
+    }
+  }
+  return { hasRules, verdicts: new Map };
+}
+async function probePrettierIgnored(filePath, cwd) {
+  if (typeof bundledPrettier.getFileInfo !== "function")
+    return false;
+  const info2 = await bundledPrettier.getFileInfo(filePath, {
+    ignorePath: [path20.join(cwd, ".gitignore"), path20.join(cwd, ".prettierignore")]
+  });
+  return info2?.ignored === true;
+}
 async function isPrettierIgnored(filePath, cwd) {
   try {
-    if (typeof bundledPrettier.getFileInfo !== "function")
+    let state = ignoreCache.get(cwd);
+    if (state === undefined) {
+      state = readIgnoreState(cwd);
+      ignoreCache.set(cwd, state);
+    }
+    if (!state.hasRules)
       return false;
-    const info2 = await bundledPrettier.getFileInfo(filePath, {
-      ignorePath: [path20.join(cwd, ".gitignore"), path20.join(cwd, ".prettierignore")]
-    });
-    return info2?.ignored === true;
+    const memo = state.verdicts.get(filePath);
+    if (memo !== undefined)
+      return memo;
+    const ignored = await probePrettierIgnored(filePath, cwd);
+    state.verdicts.set(filePath, ignored);
+    return ignored;
   } catch {
     return false;
   }
