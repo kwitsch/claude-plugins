@@ -204,27 +204,34 @@ formatted once more. `clearPrettierConfigCaches()` deliberately does NOT touch `
 **`cwd` is a HINT, never a gate — `resolveBase` is the anchor** (`handlers.ts`, shared by both
 handlers; exported and re-exported from `server.ts` so `handlers.test.mjs` can test it against the
 built artifact). There is **no outside-cwd guard** any more: a Write/Edit to any path is formatted,
-including a file in no project at all. `resolveBase(cwd, resolved)` returns, in order: (1) `cwd`,
-when it is non-empty and `contains` the file — byte-identical behavior to before for every in-cwd
-file, which is what keeps the whole existing suite a meaningful regression gate; (2) otherwise the
-nearest ancestor directory of the file holding a `.git` entry, **existence-checked, never
-`isDirectory()`-checked**, because a linked worktree's and a submodule's `.git` is a FILE (found
-via `util.ts`'s `walkToRoot`, so there is no second hand-rolled ascent loop); (3) otherwise the
-file's own directory. Everything project-scoped anchors on that `base`: `isExcludedPath`'s input
-(`path.relative(base, resolved)`), `<base>/.prettierignore`, prettier `plugins:` resolution, the
-`.editorconfig`/tool-native-config walk bound, the formatter subprocess's cwd and the `ignoreCache`
-key — so an out-of-cwd file is formatted against **its own** project's config. Because `base` is
-always an ancestor-or-equal of the file's directory, the relative path never escapes with `..` and
-both bounded upward walks (`findNativeConfig`, `resolveEditorconfig`) terminate at `base` instead
-of silently walking to the filesystem root. `contains` is `path.relative`-based on purpose: the
-older `resolved !== dir && !resolved.startsWith(dir + path.sep)` form rejected **every** file when
-the directory carried a trailing separator or was `/` — it silently formatted nothing for that
-whole session. Do not "simplify" it back to a `startsWith` prefix test, and do not re-add a
+including a file in no project at all. `resolveBase(cwd, resolved)` (backed by
+`resolveBaseAndRel`, which resolves `base` and the base-relative path together so the in-cwd
+containment check is never computed twice) returns, in order: (1) `cwd`, when it is non-empty and
+`relativeIfContains` says it contains the file — byte-identical behavior to before for every
+in-cwd file, which is what keeps the whole existing suite a meaningful regression gate; (2)
+otherwise the nearest ancestor directory of the file holding a `.git` entry, **existence-checked,
+never `isDirectory()`-checked**, because a linked worktree's and a submodule's `.git` is a FILE
+(found via `util.ts`'s `walkToRoot`, so there is no second hand-rolled ascent loop) — this walk
+stops AT `$HOME` without checking it (a git-tracked dotfiles checkout at `$HOME` must never become
+"the project" for an unrelated scratch file), and its result is memoized per file directory
+(`findGitRoot`'s `gitRootCache`, process-lifetime, same accepted growth class as `ignoreCache`/
+`projectConfigCache`) so an out-of-cwd session doesn't re-walk the filesystem on every hook call;
+(3) otherwise the file's own directory. Everything project-scoped anchors on that `base`:
+`isExcludedPath`'s input (`path.relative(base, resolved)`), `<base>/.prettierignore`, prettier
+`plugins:` resolution, the `.editorconfig`/tool-native-config walk bound, the formatter
+subprocess's cwd and the `ignoreCache` key — so an out-of-cwd file is formatted against **its own**
+project's config. Because `base` is always an ancestor-or-equal of the file's directory, the
+relative path never escapes with `..` and both bounded upward walks (`findNativeConfig`,
+`resolveEditorconfig`) terminate at `base` instead of silently walking to the filesystem root.
+`relativeIfContains` is `path.relative`-based on purpose: the older
+`resolved !== dir && !resolved.startsWith(dir + path.sep)` form rejected **every** file when the
+directory carried a trailing separator or was `/` — it silently formatted nothing for that whole
+session. Do not "simplify" it back to a `startsWith` prefix test, and do not re-add a
 project-membership gate — that is exactly the cwd-as-gate pattern this design removed. The only
-reasons to skip are extension/language, `isExcludedPath`, and `<base>/.prettierignore`; a relative
-`file_path` with an empty `cwd` is the one unresolvable case and returns `{}`. The notice text
-shows the base-relative path when `base === cwd` (so in-cwd messages stay byte-identical) and the
-absolute path otherwise.
+reasons to skip are extension/language, `isExcludedPath`/`isClaudeInternalPath`, and
+`<base>/.prettierignore`; a relative `file_path` with an empty `cwd` is the one unresolvable case
+and returns `{}`. The notice text shows the base-relative path when `base === cwd` (so in-cwd
+messages stay byte-identical) and the absolute path otherwise.
 
 ## No toggle (do not "fix" without reading this)
 
@@ -243,13 +250,19 @@ Beyond `node_modules`/`vendor`/`.git`, `isExcludedPath` also skips two Claude-Co
 **`cwdOverrides` is a `Map` keyed by `agent_id` (falling back to `session_id`), NEVER a bare global.** This one MCP server process is shared by every subagent running in the session — `ignoreCache`/`projectConfigCache` in `prettier.ts` are cwd-keyed for exactly the same stated reason ("concurrent in-flight hook calls from sub-agents may carry different cwds against this one long-lived server process"). A single mutable `cwdOverride` would let whichever subagent's `EnterWorktree` fires last win the override for EVERY OTHER concurrently running subagent too, silently formatting one agent's files against a sibling agent's worktree. `overrideKey()` in `handlers.ts` derives the key; a hook call with neither field resolves to `""` and is treated as un-keyable (falls through to raw `args.cwd`, i.e. today's pre-fix behavior for that one call — never crashes, never guesses). Pinned by `prettier.test.mjs`'s "concurrent subagents keep independent overrides" test.
 
 **`isExcludedPath` is evaluated on the BASE-relative path, never on the absolute one.** Checking
-absolute segments would permanently exclude a background session's own worktree
+absolute segments unconditionally would permanently exclude a background session's own worktree
 (`<repo>/.claude/worktrees/<name>/…`) — precisely the 0.13.0 bug `worktree_entered` exists to fix.
-Accepted consequence of `resolveBase`: a file written by absolute path into a _sibling_ agent's
-worktree anchors at that worktree's own root, so its relative path no longer contains
-`.claude/worktrees` and it IS formatted — a file this agent explicitly wrote, formatted with that
-worktree's own config. `node_modules`/`vendor`/`.git`/`*.local.*` are position-independent and
-still apply.
+`node_modules`/`vendor`/`.git`/`*.local.*` are position-independent and still apply on `rel`.
+
+**`isClaudeInternalPath` closes the out-of-cwd gap, gated on `base !== cwd`.** Without it, a file
+written by absolute path into a _sibling_ agent's worktree/scratch state would anchor `base` at
+that worktree's own root (a worktree's `.git` is a FILE, so the git-root walk stops right there),
+erasing `.claude/worktrees` from `rel` and formatting content this agent never entered. `handlers.ts`
+checks the file's absolute path for `.claude/worktrees`/`.claude/agent-memory` instead, but ONLY
+when `base !== cwd` — when `base === cwd`, the write is inside the session's own acknowledged
+project root (including its own entered worktree, via `worktreeEntered`'s override), whose absolute
+path legitimately contains `.claude/worktrees/<name>` too, and must keep formatting exactly as the
+0.13.0 fix intends.
 
 ## YAML/JSON line-length guard (do not "fix" without reading this)
 
@@ -313,16 +326,16 @@ default applied unconditionally; now it means no line-length limit at all.
 
 `mcp/server.mjs` is **generated**. The source of truth is `src/universal-format-mcp/`:
 
-| File              | Responsibility                                                                                                                                                                                                                                                                                                                                                                              |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `types.ts`        | `FormatTool`, `LangEntry`, `EditorConfigProps` (type-only)                                                                                                                                                                                                                                                                                                                                  |
-| `util.ts`         | `walkToRoot`, `onPath` + the module-level `probeCache` singleton                                                                                                                                                                                                                                                                                                                            |
-| `editorconfig.ts` | `findNativeConfig`, `resolveEditorconfig`, `parseEditorconfig`, `matchGlob`, `MAPPERS`, `buildInvocation`                                                                                                                                                                                                                                                                                   |
+| File              | Responsibility                                                                                                                                                                                                                                                                                                                                                                               |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`        | `FormatTool`, `LangEntry`, `EditorConfigProps` (type-only)                                                                                                                                                                                                                                                                                                                                   |
+| `util.ts`         | `walkToRoot`, `onPath` + the module-level `probeCache` singleton                                                                                                                                                                                                                                                                                                                             |
+| `editorconfig.ts` | `findNativeConfig`, `resolveEditorconfig`, `parseEditorconfig`, `matchGlob`, `MAPPERS`, `buildInvocation`                                                                                                                                                                                                                                                                                    |
 | `prettier.ts`     | the bundled prettier and its three bundled plugins (`BUNDLED_PLUGINS`, `asPlugin`), the `unhandledRejection` startup guard, `BUNDLED_PRETTIER_VERSION`, config discovery, `resolveConfigPlugins`, `formatInProcess`, the base-keyed `ignoreCache` behind `isPrettierIgnored`, `primePrettierIgnoreCache`, `clearPrettierIgnoreCache`, `warmPrettierConfigCache`, `clearPrettierConfigCaches` |
-| `registry.ts`     | `EXT_MAP`, `PRETTIER_LANGS`, `REGISTRY` (CLI chains only), `resolveInvocation`, `selectFormatter`                                                                                                                                                                                                                                                                                           |
-| `handlers.ts`     | `isExcludedPath`, `contains`/`resolveBase`, `resolveCwd`/`overrideKey`/`cwdOverrides`, `applyEdit`, `CACHE_INVALIDATING_BASENAMES`, `PRETTIER_IGNORE_BASENAMES`, `formatPre`, `formatPost`, `cwdChanged`, `worktreeEntered`                                                                                                                                                                          |
-| `server.ts`       | MCP scaffold, `isMainModule`, `SERVER_INFO` (hand-paired with `plugin.json`), and the artifact's 20 public re-exports                                                                                                                                                                                                                                                                       |
-| `build.mjs`       | the build driver (node-runnable; also runs under bun)                                                                                                                                                                                                                                                                                                                                       |
+| `registry.ts`     | `EXT_MAP`, `PRETTIER_LANGS`, `REGISTRY` (CLI chains only), `resolveInvocation`, `selectFormatter`                                                                                                                                                                                                                                                                                            |
+| `handlers.ts`     | `isExcludedPath`/`isClaudeInternalPath`, `resolveBase`/`resolveBaseAndRel`/`findGitRoot`/`relativeIfContains`, `resolveTarget`, `resolveCwd`/`overrideKey`/`cwdOverrides`, `applyEdit`, `CACHE_INVALIDATING_BASENAMES`, `PRETTIER_IGNORE_BASENAMES`, `formatPre`, `formatPost`, `cwdChanged`, `worktreeEntered`                                                                              |
+| `server.ts`       | MCP scaffold, `isMainModule`, `SERVER_INFO` (hand-paired with `plugin.json`), and the artifact's 20 public re-exports                                                                                                                                                                                                                                                                        |
+| `build.mjs`       | the build driver (node-runnable; also runs under bun)                                                                                                                                                                                                                                                                                                                                        |
 
 Import graph is acyclic (`types ← util ← editorconfig ← prettier ← registry ← handlers ← server`)
 and relative imports use the `./x.js` specifier form, required by the root tsconfig's

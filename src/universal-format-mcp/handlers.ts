@@ -2,6 +2,7 @@
 // guard failure and every caught error returns {}. The TS port must never "tighten" that away
 // because a type says a value cannot be undefined.
 import path from "node:path";
+import os from "node:os";
 import { existsSync, readFileSync } from "node:fs";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
@@ -30,35 +31,80 @@ export function isExcludedPath(rel: string): boolean {
   return segments[segments.length - 1].includes(".local.");
 }
 
-/** True when `resolved` is `dir` itself or lives underneath it. `path.relative` is the
- * containment test on purpose: the older
+/** True when `resolved` is `dir` itself or lives underneath it; returns the relative path, or
+ * `null` when it is not contained. `path.relative` is the containment test on purpose: the older
  * `resolved !== dir && !resolved.startsWith(dir + path.sep)` form answered "no" for EVERY file
  * when `dir` carried a trailing separator or was `/`. Do not "simplify" it back. */
-function contains(dir: string, resolved: string): boolean {
+function relativeIfContains(dir: string, resolved: string): string | null {
   const rel = path.relative(dir, resolved);
-  return rel !== ".." && !rel.startsWith(".." + path.sep) && !path.isAbsolute(rel);
+  if (rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel)) return null;
+  return rel;
+}
+
+// Process-lifetime memo of the out-of-cwd git-root walk, keyed by the file's own directory --
+// same unreclaimed-for-the-process-lifetime growth class already accepted for ignoreCache/
+// projectConfigCache in prettier.ts (bounded by the number of distinct out-of-cwd directories a
+// session ever writes into). A `git init` after the first miss is not observed, consistent with
+// the rest of this plugin's in-memory caches.
+const gitRootCache = new Map<string, string>();
+
+/** The nearest ancestor of `fileDir` (inclusive) holding a `.git` entry -- file or directory, so a
+ * worktree's and a submodule's `.git` (a FILE) both resolve -- or `""` if none is found before
+ * `home`. The walk stops AT `home` without checking it: a user's home directory is frequently a
+ * git-tracked dotfiles checkout, and treating the whole home directory as "the project" for an
+ * unrelated scratch file would apply that dotfiles repo's `.prettierignore`/config to it. Memoized
+ * per `fileDir` for the process lifetime. */
+function findGitRoot(fileDir: string, home: string): string {
+  const cached = gitRootCache.get(fileDir);
+  if (cached !== undefined) return cached;
+  let found = "";
+  walkToRoot(fileDir, (dir) => {
+    if (home && dir === home) return true; // stop before treating $HOME itself as a project root
+    if (!existsSync(path.join(dir, ".git"))) return false;
+    found = dir;
+    return true;
+  });
+  gitRootCache.set(fileDir, found);
+  return found;
+}
+
+/** Position-independent counterpart to `isExcludedPath`'s `.claude/worktrees`/`.claude/agent-memory`
+ * check, for the out-of-cwd case ONLY (callers must gate this on `base !== cwd`): the git-root walk
+ * can anchor `base` AT a worktree's own root (a worktree's `.git` is a FILE, so branch 2 stops right
+ * there), which erases the `.claude/worktrees` segment from a base-relative `rel` entirely and would
+ * otherwise let this agent reformat a SIBLING agent's in-flight worktree/scratch state. Must never
+ * be consulted when `base === cwd` -- that is precisely the session's OWN worktree, entered on
+ * purpose via `worktreeEntered`'s override (the 0.13.0 fix), whose absolute path legitimately
+ * contains `.claude/worktrees/<name>` too; gating on `base !== cwd` keeps that case formatting. */
+function isClaudeInternalPath(resolved: string): boolean {
+  const segments = resolved.split(path.sep);
+  return segments.some((s, i) => s === ".claude" && (segments[i + 1] === "worktrees" || segments[i + 1] === "agent-memory"));
+}
+
+/** Resolves both `base` (see `resolveBase`) and the base-relative path in one pass, so the in-cwd
+ * containment check is never computed twice -- once here, and a second time by a caller
+ * re-deriving `rel` from the returned `base`. */
+function resolveBaseAndRel(cwd: string, resolved: string): { base: string; rel: string } {
+  if (cwd) {
+    const rel = relativeIfContains(cwd, resolved);
+    if (rel !== null) return { base: cwd, rel };
+  }
+  const fileDir = path.dirname(resolved);
+  const base = findGitRoot(fileDir, os.homedir()) || fileDir;
+  return { base, rel: path.relative(base, resolved) };
 }
 
 /** The directory every project-scoped lookup for `resolved` anchors at: its `.prettierignore`, its
  * prettier `plugins:` resolution, the upper bound of the .editorconfig / tool-native-config walks,
  * and the formatter subprocess's own cwd. The session's `cwd` when it really contains the file
  * (unchanged behavior for the normal case, and the ONLY case whose ignore/config resolution this
- * plugin has ever promised); otherwise the file's own git root -- `.git` is existence-checked, not
- * stat'd as a directory, because a worktree's and a submodule's `.git` is a FILE; otherwise the
- * file's own directory. `cwd` is a hint here, never a gate: a file outside `cwd` is formatted
- * against its own project instead of being skipped. Always returns an ancestor-or-equal directory
- * of `resolved`, so the caller's `path.relative(base, resolved)` never escapes with `..` and both
- * bounded upward walks terminate at `base` as intended. */
+ * plugin has ever promised); otherwise the file's own git root, bounded at `$HOME` -- see
+ * `findGitRoot`; otherwise the file's own directory. `cwd` is a hint here, never a gate: a file
+ * outside `cwd` is formatted against its own project instead of being skipped. Always returns an
+ * ancestor-or-equal directory of `resolved`, so the caller's `path.relative(base, resolved)` never
+ * escapes with `..` and both bounded upward walks terminate at `base` as intended. */
 export function resolveBase(cwd: string, resolved: string): string {
-  if (cwd && contains(cwd, resolved)) return cwd;
-  const fileDir = path.dirname(resolved);
-  let found = "";
-  walkToRoot(fileDir, (dir) => {
-    if (!existsSync(path.join(dir, ".git"))) return false;
-    found = dir;
-    return true;
-  });
-  return found || fileDir;
+  return resolveBaseAndRel(cwd, resolved).base;
 }
 
 // Per-agent override of "the real current cwd", raised only by worktreeEntered
@@ -96,9 +142,9 @@ function resolveCwd(args: { cwd?: unknown; agent_id?: unknown; session_id?: unkn
 /** Resolves the write target shared by both hook handlers: the file path, the `base` directory
  * every project-scoped lookup anchors at, and the base-relative path used for exclusion. Returns
  * null on any guard failure -- callers return {} in that case (fail open). Extracted so the
- * resolution sequence (resolveCwd -> fp guard -> resolve -> resolveBase -> rel -> isExcludedPath)
- * can't silently drift out of sync between formatPost and formatPre, which must otherwise be
- * edited in lockstep. */
+ * resolution sequence (resolveCwd -> fp guard -> resolve -> resolveBaseAndRel -> isExcludedPath ->
+ * isClaudeInternalPath) can't silently drift out of sync between formatPost and formatPre, which
+ * must otherwise be edited in lockstep. */
 function resolveTarget(args: ToolHookInput): { cwd: string; base: string; resolved: string; rel: string; fp: string } | null {
   const cwd = resolveCwd(args);
   const fp = args?.tool_input?.file_path;
@@ -106,9 +152,9 @@ function resolveTarget(args: ToolHookInput): { cwd: string; base: string; resolv
   if (!cwd && !path.isAbsolute(fp)) return null; // nothing to resolve a relative path against
 
   const resolved = path.resolve(cwd, fp);
-  const base = resolveBase(cwd, resolved);
-  const rel = path.relative(base, resolved);
+  const { base, rel } = resolveBaseAndRel(cwd, resolved);
   if (isExcludedPath(rel)) return null;
+  if (base !== cwd && isClaudeInternalPath(resolved)) return null; // out-of-cwd only; see isClaudeInternalPath
   return { cwd, base, resolved, rel, fp };
 }
 

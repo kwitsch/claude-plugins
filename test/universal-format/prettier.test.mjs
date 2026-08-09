@@ -528,3 +528,22 @@ test("worktree_entered: concurrent subagents keep independent overrides, keyed b
   );
   assert.equal(preContent(resultC), '{ "c": 3 }\n', "an unrelated session's own calls are unaffected by either subagent's override");
 });
+
+// Out-of-cwd absolute write into a SIBLING agent's worktree, with no override raised for THIS
+// session/agent: resolveBase's git-root walk lands directly on the worktree root (its `.git` is a
+// FILE), which would erase `.claude/worktrees` from a base-relative `rel`. isClaudeInternalPath's
+// absolute-path check (gated on base !== cwd) must still exclude it -- this agent never entered
+// that worktree, so it must not reformat another agent's in-flight scratch state.
+test("out-of-cwd absolute write into a sibling agent's worktree is still excluded (no override raised here)", async () => {
+  const cwd = tmp("uf-sibling-cwd-");
+  const siblingRepo = tmp("uf-sibling-repo-");
+  const siblingWorktree = path.join(siblingRepo, ".claude", "worktrees", "other-agent-wt");
+  mkdirSync(siblingWorktree, { recursive: true });
+  writeFileSync(path.join(siblingWorktree, ".git"), "gitdir: /elsewhere/.git/worktrees/other-agent-wt\n");
+  const fp = path.join(siblingWorktree, "a.json");
+
+  const result = /** @type {any} */ (
+    await formatPre({ ...hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } }), session_id: "uf-sibling-worktree-session" })
+  );
+  assert.deepEqual(result, {}, "a sibling agent's worktree must stay excluded even though resolveBase anchors base at its own root");
+});

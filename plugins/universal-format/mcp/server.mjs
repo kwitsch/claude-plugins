@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=eccb1b3a578b78a0 body=ee943f1bb6a4acd8 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=7f5094ba4c5d1ecc body=2bf093b67d6e1a87 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -171625,6 +171625,7 @@ import { fileURLToPath as fileURLToPath8 } from "node:url";
 
 // src/universal-format-mcp/handlers.ts
 import path21 from "node:path";
+import os9 from "node:os";
 import { existsSync as existsSync3, readFileSync as readFileSync3 } from "node:fs";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
@@ -200833,22 +200834,45 @@ function isExcludedPath(rel) {
     return true;
   return segments[segments.length - 1].includes(".local.");
 }
-function contains(dir, resolved) {
+function relativeIfContains(dir, resolved) {
   const rel = path21.relative(dir, resolved);
-  return rel !== ".." && !rel.startsWith(".." + path21.sep) && !path21.isAbsolute(rel);
+  if (rel === ".." || rel.startsWith(".." + path21.sep) || path21.isAbsolute(rel))
+    return null;
+  return rel;
 }
-function resolveBase(cwd, resolved) {
-  if (cwd && contains(cwd, resolved))
-    return cwd;
-  const fileDir = path21.dirname(resolved);
+var gitRootCache = new Map;
+function findGitRoot(fileDir, home) {
+  const cached = gitRootCache.get(fileDir);
+  if (cached !== undefined)
+    return cached;
   let found = "";
   walkToRoot(fileDir, (dir) => {
+    if (home && dir === home)
+      return true;
     if (!existsSync3(path21.join(dir, ".git")))
       return false;
     found = dir;
     return true;
   });
-  return found || fileDir;
+  gitRootCache.set(fileDir, found);
+  return found;
+}
+function isClaudeInternalPath(resolved) {
+  const segments = resolved.split(path21.sep);
+  return segments.some((s, i5) => s === ".claude" && (segments[i5 + 1] === "worktrees" || segments[i5 + 1] === "agent-memory"));
+}
+function resolveBaseAndRel(cwd, resolved) {
+  if (cwd) {
+    const rel = relativeIfContains(cwd, resolved);
+    if (rel !== null)
+      return { base: cwd, rel };
+  }
+  const fileDir = path21.dirname(resolved);
+  const base = findGitRoot(fileDir, os9.homedir()) || fileDir;
+  return { base, rel: path21.relative(base, resolved) };
+}
+function resolveBase(cwd, resolved) {
+  return resolveBaseAndRel(cwd, resolved).base;
 }
 var cwdOverrides = new Map;
 function overrideKey(args2) {
@@ -200871,9 +200895,10 @@ function resolveTarget(args2) {
   if (!cwd && !path21.isAbsolute(fp2))
     return null;
   const resolved = path21.resolve(cwd, fp2);
-  const base = resolveBase(cwd, resolved);
-  const rel = path21.relative(base, resolved);
+  const { base, rel } = resolveBaseAndRel(cwd, resolved);
   if (isExcludedPath(rel))
+    return null;
+  if (base !== cwd && isClaudeInternalPath(resolved))
     return null;
   return { cwd, base, resolved, rel, fp: fp2 };
 }

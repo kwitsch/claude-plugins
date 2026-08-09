@@ -83,3 +83,43 @@ test("resolveBase: an empty cwd falls straight through to the git root, else the
   assert.equal(resolveBase("", loose), orphan);
   assertAncestor(resolveBase("", loose), loose);
 });
+
+test("resolveBase: the git-root walk stops AT $HOME, so a dotfiles repo there is never used as an anchor", () => {
+  const originalHome = process.env.HOME;
+  const fakeHome = tmp("uf-rb-home-");
+  mkdirSync(path.join(fakeHome, ".git")); // simulates a git-tracked dotfiles checkout at $HOME
+  process.env.HOME = fakeHome;
+  try {
+    const scratch = path.join(fakeHome, "scratch-notes");
+    mkdirSync(scratch);
+    const fp = path.join(scratch, "a.json");
+    assert.equal(resolveBase("", fp), scratch, "must fall back to the file's own directory, never treat $HOME's dotfiles repo as the project");
+  } finally {
+    process.env.HOME = originalHome;
+  }
+});
+
+test("resolveBase: a real project nested inside $HOME still resolves to its own nearer git root", () => {
+  const originalHome = process.env.HOME;
+  const fakeHome = tmp("uf-rb-home2-");
+  mkdirSync(path.join(fakeHome, ".git")); // dotfiles repo at $HOME -- must not win over the nearer project
+  process.env.HOME = fakeHome;
+  try {
+    const proj = path.join(fakeHome, "repos", "myproject");
+    mkdirSync(path.join(proj, ".git"), { recursive: true });
+    const fp = path.join(proj, "a.json");
+    assert.equal(resolveBase("", fp), proj, "the nearer project root wins over $HOME's dotfiles repo");
+  } finally {
+    process.env.HOME = originalHome;
+  }
+});
+
+test("resolveBase: the out-of-cwd git-root walk is memoized per file directory", () => {
+  const parent = tmp("uf-rb-memo-parent-");
+  const fileDir = path.join(parent, "sub");
+  mkdirSync(fileDir);
+  const fp = path.join(fileDir, "a.json");
+  assert.equal(resolveBase("", fp), fileDir, "no .git ancestor yet -> falls back to the file's own directory");
+  mkdirSync(path.join(parent, ".git")); // a fresh walk would now find this ancestor
+  assert.equal(resolveBase("", fp), fileDir, "the earlier miss stays cached -- a later git init at an ancestor is not picked up (documented, accepted trade-off)");
+});
