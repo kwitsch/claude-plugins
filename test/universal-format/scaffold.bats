@@ -279,3 +279,14 @@ setup() {
     case "$desc" in *"$t"*) ;; *) printf 'hooks.json description is missing %s\n' "$t"; return 1 ;; esac
   done
 }
+
+@test "docs describe resolveBase and no longer promise a cwd gate or .gitignore honoring" {
+  run rg_or_grep -n "gitignore" "$REPO_ROOT/README.md"
+  assert_failure
+  run rg_or_grep -nF "relativeInCwd" "$PLUGIN/CLAUDE.md"
+  assert_failure
+  run rg_or_grep -nF "resolveBase" "$PLUGIN/CLAUDE.md"
+  assert_success
+  run rg_or_grep -nF "outside the project" "$PLUGIN/README.md"
+  assert_failure
+}
