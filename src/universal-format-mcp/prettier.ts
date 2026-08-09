@@ -235,8 +235,8 @@ function readIgnoreState(cwd: string): IgnoreState {
       continue;
     }
     for (const line of text.split("\n")) {
-      const t = line.trim();
-      if (t !== "" && !t.startsWith("#")) {
+      const t = line.endsWith("\r") ? line.slice(0, -1) : line;
+      if (t !== "" && t[0] !== "#") {
         hasRules = true;
         break;
       }
