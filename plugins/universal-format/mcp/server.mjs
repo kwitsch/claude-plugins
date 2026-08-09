@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=d6fdd618e116abbc body=2f9c538cb6210d77 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=390fd604fa93b82a body=79d5f5fbb9559207 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -200838,13 +200838,6 @@ function isExcludedPath(rel) {
     return true;
   return segments[segments.length - 1].includes(".local.");
 }
-function relativeInCwd(cwd, filePath) {
-  const resolved = path21.resolve(cwd, filePath);
-  const rel = path21.relative(cwd, resolved);
-  if (rel === ".." || rel.startsWith(".." + path21.sep) || path21.isAbsolute(rel))
-    return null;
-  return rel;
-}
 function contains(dir, resolved) {
   const rel = path21.relative(dir, resolved);
   return rel !== ".." && !rel.startsWith(".." + path21.sep) && !path21.isAbsolute(rel);
@@ -200895,19 +200888,20 @@ async function formatPost(args2) {
       return {};
     const cwd = resolveCwd(args2);
     const fp2 = args2?.tool_input?.file_path;
-    if (!cwd || typeof fp2 !== "string" || !fp2)
+    if (typeof fp2 !== "string" || !fp2)
+      return {};
+    if (!cwd && !path21.isAbsolute(fp2))
       return {};
     const resolved = path21.resolve(cwd, fp2);
-    const rel = relativeInCwd(cwd, resolved);
-    if (rel === null)
-      return {};
+    const base = resolveBase(cwd, resolved);
+    const rel = path21.relative(base, resolved);
     if (isExcludedPath(rel))
       return {};
     const basename = path21.basename(resolved);
     if (CACHE_INVALIDATING_BASENAMES.has(basename))
       clearPrettierConfigCaches();
     if (PRETTIER_IGNORE_BASENAMES.has(basename))
-      primePrettierIgnoreCache(cwd);
+      primePrettierIgnoreCache(base);
     const lang = EXT_MAP[path21.extname(resolved).toLowerCase()];
     if (!lang)
       return {};
@@ -200918,21 +200912,22 @@ async function formatPost(args2) {
     const entry = REGISTRY[lang];
     if (!entry)
       return {};
-    const selection = selectFormatter(entry.chain, resolved, cwd);
+    const selection = selectFormatter(entry.chain, resolved, base);
     if (!selection)
       return {};
     const { tool, argv } = selection;
     const before = readFileSync3(resolved);
     try {
-      await execFile(tool.name, [...argv, resolved], { cwd, timeout: SPAWN_TIMEOUT_MS });
+      await execFile(tool.name, [...argv, resolved], { cwd: base, timeout: SPAWN_TIMEOUT_MS });
     } catch {}
     const after = readFileSync3(resolved);
     if (before.equals(after))
       return {};
+    const display = base === cwd ? rel : resolved;
     return {
       hookSpecificOutput: {
         hookEventName: "PostToolUse",
-        additionalContext: `universal-format: ${tool.name} reformatted ${rel}; re-read it before further string-based edits. This reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules — do not revert or redo it by hand to shrink the diff.`
+        additionalContext: `universal-format: ${tool.name} reformatted ${display}; re-read it before further string-based edits. This reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules — do not revert or redo it by hand to shrink the diff.`
       }
     };
   } catch {
@@ -200943,25 +200938,27 @@ async function formatPre(args2) {
   try {
     const cwd = resolveCwd(args2);
     const fp2 = args2?.tool_input?.file_path;
-    if (!cwd || typeof fp2 !== "string" || !fp2)
+    if (typeof fp2 !== "string" || !fp2)
+      return {};
+    if (!cwd && !path21.isAbsolute(fp2))
       return {};
     const resolved = path21.resolve(cwd, fp2);
-    const rel = relativeInCwd(cwd, resolved);
-    if (rel === null)
-      return {};
+    const base = resolveBase(cwd, resolved);
+    const rel = path21.relative(base, resolved);
     if (isExcludedPath(rel))
       return {};
     const lang = EXT_MAP[path21.extname(resolved).toLowerCase()];
     if (!lang || !PRETTIER_LANGS.has(lang))
       return {};
-    if (await isPrettierIgnored(resolved, cwd))
+    if (await isPrettierIgnored(resolved, base))
       return {};
-    const notice = `universal-format: prettier reformatted ${rel}; re-read it before further string-based edits. This reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules — do not revert or redo it by hand to shrink the diff.`;
+    const display = base === cwd ? rel : resolved;
+    const notice = `universal-format: prettier reformatted ${display}; re-read it before further string-based edits. This reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules — do not revert or redo it by hand to shrink the diff.`;
     if (args2.tool_name === "Write") {
       const content = args2.tool_input.content;
       if (typeof content !== "string")
         return {};
-      const formatted = await formatInProcess(content, resolved, cwd, lang);
+      const formatted = await formatInProcess(content, resolved, base, lang);
       if (formatted === content)
         return {};
       return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp2, content: formatted }, additionalContext: notice } };
@@ -200977,7 +200974,7 @@ async function formatPre(args2) {
       const merged = applyEdit(current, oldStr, newStr, args2.tool_input.replace_all === true);
       if (merged === null)
         return {};
-      const formatted = await formatInProcess(merged, resolved, cwd, lang);
+      const formatted = await formatInProcess(merged, resolved, base, lang);
       if (formatted === merged)
         return {};
       return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp2, old_string: current, new_string: formatted, replace_all: false }, additionalContext: notice } };

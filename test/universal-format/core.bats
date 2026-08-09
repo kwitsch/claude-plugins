@@ -47,7 +47,7 @@ setup() {
   [ ! -s "$RECORD" ]
 }
 
-@test "path outside cwd -> formatter never invoked" {
+@test "path outside cwd -> formatted against its own project" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
@@ -56,8 +56,11 @@ setup() {
   rec_stub gofmt
   run format_file_call "$out/a.go" "$cwd"
   assert_success
-  [ "$output" = "{}" ]
-  [ ! -s "$RECORD" ]
+  echo "$output" | jq -e '.hookSpecificOutput.hookEventName == "PostToolUse"'
+  run rg_or_grep -F "gofmt " "$RECORD"
+  assert_success
+  run cat "$out/a.go"
+  assert_output --partial "reformatted-by-gofmt"
 }
 
 @test "node_modules path -> formatter never invoked" {
@@ -139,13 +142,21 @@ setup() {
   [ "$output" = "{}" ]
 }
 
-@test "PreToolUse: path outside cwd -> {}" {
+@test "PreToolUse: path outside cwd -> formatted against its own project" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
   local out="$BATS_TEST_TMPDIR/outside"; mkdir -p "$out"
   run pre_tool_use_write_call "$out/a.json" '{"a":1}' "$cwd"
   assert_success
-  [ "$output" = "{}" ]
+  echo "$output" | jq -e '.hookSpecificOutput.updatedInput.content == "{ \"a\": 1 }\n"'
+}
+
+@test "absent cwd + absolute path -> still formatted" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  local out="$BATS_TEST_TMPDIR/nocwd"; mkdir -p "$out"
+  run pre_tool_use_write_call "$out/a.json" '{"a":1}' ""
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.updatedInput.content == "{ \"a\": 1 }\n"'
 }
 
 @test "PreToolUse: non-prettier extension (.go) -> {} (go is PostToolUse only)" {

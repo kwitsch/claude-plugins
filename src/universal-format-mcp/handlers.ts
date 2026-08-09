@@ -30,20 +30,6 @@ export function isExcludedPath(rel: string): boolean {
   return segments[segments.length - 1].includes(".local.");
 }
 
-/** `filePath` as a cwd-relative path when it resolves INSIDE `cwd` (or equals it), else null.
- * `path.relative` is the containment test on purpose: the older
- * `resolved !== cwd && !resolved.startsWith(cwd + path.sep)` form rejected EVERY file when `cwd`
- * carried a trailing separator or was `/`, silently formatting nothing for that whole session.
- * `".."` alone and `".." + sep` are both checked so a legitimate `..foo.json` still passes, and
- * an absolute result (a different Windows drive) is rejected too. `resolved === cwd` yields `""`,
- * which is accepted here and dropped later by the EXT_MAP language guard exactly as before. */
-function relativeInCwd(cwd: string, filePath: string): string | null {
-  const resolved = path.resolve(cwd, filePath);
-  const rel = path.relative(cwd, resolved);
-  if (rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel)) return null;
-  return rel;
-}
-
 /** True when `resolved` is `dir` itself or lives underneath it. `path.relative` is the
  * containment test on purpose: the older
  * `resolved !== dir && !resolved.startsWith(dir + path.sep)` form answered "no" for EVERY file
@@ -141,22 +127,23 @@ export async function formatPost(args: PostToolUseHookInput): Promise<HookResult
     if (args?.tool_response?.success === false) return {};
     const cwd = resolveCwd(args);
     const fp = args?.tool_input?.file_path;
-    if (!cwd || typeof fp !== "string" || !fp) return {};
+    if (typeof fp !== "string" || !fp) return {};
+    if (!cwd && !path.isAbsolute(fp)) return {}; // nothing to resolve a relative path against
 
     const resolved = path.resolve(cwd, fp);
-    const rel = relativeInCwd(cwd, resolved);
-    if (rel === null) return {};
+    const base = resolveBase(cwd, resolved);
+    const rel = path.relative(base, resolved);
     if (isExcludedPath(rel)) return {};
 
     // The write has landed by now, so this is the only correct moment to invalidate/refresh. Runs
     // BEFORE the language guard on purpose: most of these basenames have no extension at all
     // (`.prettierrc`, `.editorconfig`, `.prettierignore`), so EXT_MAP would drop them and neither
-    // cache would ever be touched. primePrettierIgnoreCache always re-reads the CWD-ROOTED ignore
+    // cache would ever be touched. primePrettierIgnoreCache always re-reads the BASE-ROOTED ignore
     // files, so a write to a nested `sub/.prettierignore` triggers a harmless (and correct)
-    // re-read of the cwd-rooted pair rather than mistaking the written file for the cached one.
+    // re-read of the base-rooted ones rather than mistaking the written file for the cached one.
     const basename = path.basename(resolved);
     if (CACHE_INVALIDATING_BASENAMES.has(basename)) clearPrettierConfigCaches();
-    if (PRETTIER_IGNORE_BASENAMES.has(basename)) primePrettierIgnoreCache(cwd);
+    if (PRETTIER_IGNORE_BASENAMES.has(basename)) primePrettierIgnoreCache(base);
 
     const lang = EXT_MAP[path.extname(resolved).toLowerCase()];
     if (!lang) return {};
@@ -171,13 +158,13 @@ export async function formatPost(args: PostToolUseHookInput): Promise<HookResult
     const entry = REGISTRY[lang];
     if (!entry) return {};
 
-    const selection = selectFormatter(entry.chain, resolved, cwd);
+    const selection = selectFormatter(entry.chain, resolved, base);
     if (!selection) return {};
     const { tool, argv } = selection;
 
     const before = readFileSync(resolved);
     try {
-      await execFile(tool.name, [...argv, resolved], { cwd, timeout: SPAWN_TIMEOUT_MS });
+      await execFile(tool.name, [...argv, resolved], { cwd: base, timeout: SPAWN_TIMEOUT_MS });
     } catch {
       /* spawn/non-zero-exit failure is a silent no-op -- some tools (ktlint) exit non-zero after
        * a successful format, so this must never gate the before/after diff below */
@@ -185,10 +172,14 @@ export async function formatPost(args: PostToolUseHookInput): Promise<HookResult
     const after = readFileSync(resolved);
     if (before.equals(after)) return {};
 
+    // A repo-relative path alone is ambiguous once files from several projects can be formatted in
+    // one session, so only an in-cwd file (base === cwd) keeps the short form; everything else is
+    // named absolutely. In-cwd notices stay byte-identical to before.
+    const display = base === cwd ? rel : resolved;
     return {
       hookSpecificOutput: {
         hookEventName: "PostToolUse",
-        additionalContext: `universal-format: ${tool.name} reformatted ${rel}; re-read it before further string-based edits. This reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules — do not revert or redo it by hand to shrink the diff.`,
+        additionalContext: `universal-format: ${tool.name} reformatted ${display}; re-read it before further string-based edits. This reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules — do not revert or redo it by hand to shrink the diff.`,
       },
     };
   } catch {
@@ -203,24 +194,26 @@ export async function formatPre(args: ToolHookInput): Promise<HookResult> {
   try {
     const cwd = resolveCwd(args);
     const fp = args?.tool_input?.file_path;
-    if (!cwd || typeof fp !== "string" || !fp) return {};
+    if (typeof fp !== "string" || !fp) return {};
+    if (!cwd && !path.isAbsolute(fp)) return {}; // nothing to resolve a relative path against
 
     const resolved = path.resolve(cwd, fp);
-    const rel = relativeInCwd(cwd, resolved);
-    if (rel === null) return {};
+    const base = resolveBase(cwd, resolved);
+    const rel = path.relative(base, resolved);
     if (isExcludedPath(rel)) return {};
 
     const lang = EXT_MAP[path.extname(resolved).toLowerCase()];
     if (!lang || !PRETTIER_LANGS.has(lang)) return {};
 
-    if (await isPrettierIgnored(resolved, cwd)) return {};
+    if (await isPrettierIgnored(resolved, base)) return {};
 
-    const notice = `universal-format: prettier reformatted ${rel}; re-read it before further string-based edits. This reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules — do not revert or redo it by hand to shrink the diff.`;
+    const display = base === cwd ? rel : resolved;
+    const notice = `universal-format: prettier reformatted ${display}; re-read it before further string-based edits. This reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules — do not revert or redo it by hand to shrink the diff.`;
 
     if (args.tool_name === "Write") {
       const content = args.tool_input.content;
       if (typeof content !== "string") return {};
-      const formatted = await formatInProcess(content, resolved, cwd, lang);
+      const formatted = await formatInProcess(content, resolved, base, lang);
       if (formatted === content) return {};
       return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp, content: formatted }, additionalContext: notice } };
     }
@@ -233,7 +226,7 @@ export async function formatPre(args: ToolHookInput): Promise<HookResult> {
       if (typeof oldStr !== "string" || typeof newStr !== "string") return {};
       const merged = applyEdit(current, oldStr, newStr, args.tool_input.replace_all === true);
       if (merged === null) return {}; // absent OR non-unique -> let the original Edit proceed/err
-      const formatted = await formatInProcess(merged, resolved, cwd, lang);
+      const formatted = await formatInProcess(merged, resolved, base, lang);
       if (formatted === merged) return {};
       return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp, old_string: current, new_string: formatted, replace_all: false }, additionalContext: notice } };
     }
