@@ -17,3 +17,6 @@ node_modules/
 # Agent runtime artifacts — local only, never pushed.
 .claude/agent-memory/
 **/.orphaned_at
+
+# headroom MCP memory store — local only, never pushed.
+.headroom/
