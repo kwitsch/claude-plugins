@@ -72,19 +72,26 @@ export function sameFile(a, b) {
  * The PreToolUse result: the ENTIRE original tool_input, with only `command` replaced.
  * updatedInput replaces the whole input object, so a freshly built {command,description}
  * would silently drop timeout / run_in_background and any future harness field.
- * Never emits permissionDecision — `allow` makes the harness drop updatedInput.
+ * Only emits permissionDecision when the wrapped rtk process itself returned one
+ * alongside its rewritten command, and only when it isn't "allow" — `allow` makes the
+ * harness drop updatedInput.
  * @param {Record<string, unknown>} toolInput
  * @param {string} command
+ * @param {{permissionDecision?: string, reason?: string}} [decision]
  * @returns {HookResult}
  */
-export function buildUpdatedInput(toolInput, command) {
-  return {
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      permissionDecisionReason: "rtk auto-rewrite (bundled)",
-      updatedInput: { ...toolInput, command },
-    },
+export function buildUpdatedInput(toolInput, command, decision) {
+  const hasDecision = Boolean(decision?.permissionDecision) && decision?.permissionDecision !== "allow";
+  /** @type {HookSpecificOutput} */
+  const hookSpecificOutput = {
+    hookEventName: "PreToolUse",
+    permissionDecisionReason: hasDecision ? (decision?.reason ?? "rtk auto-rewrite (bundled)") : "rtk auto-rewrite (bundled)",
+    updatedInput: { ...toolInput, command },
   };
+  if (hasDecision) {
+    hookSpecificOutput.permissionDecision = /** @type {HookSpecificOutput["permissionDecision"]} */ (decision?.permissionDecision);
+  }
+  return { hookSpecificOutput };
 }
 
 // True only when this file is the process entry point, false when imported by a unit
@@ -128,6 +135,7 @@ function main() {
       encoding: "utf8",
       timeout: RTK_SPAWN_TIMEOUT_MS,
       maxBuffer: RTK_MAX_OUTPUT_BYTES,
+      cwd: typeof input.cwd === "string" && input.cwd !== "" ? input.cwd : undefined,
     });
     if (result.error || result.signal) return; // checked before .status/.stdout
     if (result.status !== 0) return;
@@ -140,13 +148,18 @@ function main() {
     } catch {
       return;
     }
-    const rewritten = parsed?.hookSpecificOutput?.updatedInput?.command;
+    const hso = parsed?.hookSpecificOutput;
+    const rewritten = hso?.updatedInput?.command;
     if (typeof rewritten !== "string") {
       process.stdout.write(stdout + "\n"); // some other decision shape: pass through
       return;
     }
     if (rewritten === original) return; // nothing changed
-    process.stdout.write(JSON.stringify(buildUpdatedInput(toolInput, rewritten)) + "\n");
+    const output = buildUpdatedInput(toolInput, rewritten, {
+      permissionDecision: hso?.permissionDecision,
+      reason: hso?.permissionDecisionReason,
+    });
+    process.stdout.write(JSON.stringify(output) + "\n");
   } catch {
     // fail open — no output, exit 0
   }
