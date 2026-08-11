@@ -16,8 +16,9 @@
 import process from "node:process";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { accessSync, readFileSync, realpathSync, constants as fsConstants } from "node:fs";
+import { accessSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync, constants as fsConstants } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 
 /** Hard cap on injected context per event — well under the 10 000-char hook-output cap. */
 export const CONTEXT_CHAR_LIMIT = 1500;
@@ -28,13 +29,22 @@ export const PATTERN_CHAR_LIMIT = 200;
 /** Same stdin cap as coding-toolbox/hooks/encoding-guard.mjs. */
 export const STDIN_CAP = 1024 * 1024;
 /**
- * main() makes up to two sequential cbm spawns per invocation (list_projects, then an
- * event-specific call), each capped at this. Worst case 2 * 5000 ms = 10 000 ms, safely
- * under hooks.json's timeout: 21 (leaves margin for node startup, JSON parsing, output).
+ * main() makes at most two sequential cbm spawns per invocation (list_projects, then an
+ * event-specific call), each capped at this — but list_projects is skipped entirely on a
+ * warm project-cache hit (see PROJECT_CACHE_TTL_MS), the common case after the first call
+ * for a given cwd. Worst case (cold cache) is 2 * 5000 ms = 10 000 ms, safely under
+ * hooks.json's timeout: 21 (leaves margin for node startup, JSON parsing, output).
  */
 export const CBM_SPAWN_TIMEOUT_MS = 5000;
 /** spawnSync's default, pinned explicitly. */
 export const CBM_MAX_OUTPUT_BYTES = 1024 * 1024;
+/**
+ * How long a resolved cwd -> project mapping is trusted before re-running list_projects.
+ * The mapping is stable within a session (per-cwd repo root doesn't move) but a fresh
+ * `index_repository` can add a project cbm previously didn't know about, so this bounds
+ * staleness rather than caching forever.
+ */
+export const PROJECT_CACHE_TTL_MS = 10 * 60 * 1000;
 
 /**
  * @param {unknown} value
@@ -169,6 +179,71 @@ export function resolveBundleCache(env) {
   const tmp = usablePath(env.TMPDIR) ? String(env.TMPDIR).trim() : "/tmp";
   const uid = typeof process.getuid === "function" ? process.getuid() : 0;
   return path.join(tmp, `claude-cbm-${uid}`);
+}
+
+/**
+ * Directory holding one small JSON file per resolved cwd -> project mapping. A subdir of
+ * the same extraction-cache root cbm-launch.sh already writes to (never a new root).
+ * @param {Record<string, string|undefined>} env
+ * @returns {string}
+ */
+export function resolveProjectCacheDir(env) {
+  return path.join(resolveBundleCache(env), "project-cache");
+}
+
+/**
+ * Stable, filesystem-safe filename for a cwd — sha256 keeps it short and collision-free
+ * regardless of path length or characters.
+ * @param {string} cwd
+ * @returns {string}
+ */
+export function projectCacheKey(cwd) {
+  return createHash("sha256").update(cwd).digest("hex");
+}
+
+/**
+ * Read a still-fresh cached project name for `cwd`. Returns null on a miss, an expired
+ * entry, or ANY read/parse error — a corrupt or absent cache is always just a miss.
+ * @param {string} cacheDir
+ * @param {string} cwd
+ * @returns {string|null}
+ */
+export function readProjectCache(cacheDir, cwd) {
+  try {
+    const raw = readFileSync(path.join(cacheDir, `${projectCacheKey(cwd)}.json`), "utf8");
+    const parsed = JSON.parse(raw);
+    const rec = asRecord(parsed);
+    if (rec === null) return null;
+    const project = firstString(rec, ["project"]);
+    const cachedAt = firstNumber(rec, ["cachedAt"]);
+    if (project === null || cachedAt === null) return null;
+    if (Date.now() - cachedAt > PROJECT_CACHE_TTL_MS) return null;
+    return project;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Best-effort cache write. Writes to a per-process temp file then renames into place
+ * (atomic on the same filesystem) so a concurrent reader never sees a partial write.
+ * Any failure (missing dir, no permissions, race) is swallowed — the cache is purely an
+ * optimization, never a dependency.
+ * @param {string} cacheDir
+ * @param {string} cwd
+ * @param {string} project
+ * @returns {void}
+ */
+export function writeProjectCache(cacheDir, cwd, project) {
+  try {
+    mkdirSync(cacheDir, { recursive: true });
+    const key = projectCacheKey(cwd);
+    const tmp = path.join(cacheDir, `.${key}.${process.pid}.tmp`);
+    writeFileSync(tmp, JSON.stringify({ project, cachedAt: Date.now() }), "utf8");
+    renameSync(tmp, path.join(cacheDir, `${key}.json`));
+  } catch {
+    // best-effort — a failed cache write never blocks context injection
+  }
 }
 
 /**
@@ -421,8 +496,13 @@ function main() {
     }
 
     const cwd = typeof input.cwd === "string" && input.cwd !== "" ? input.cwd : process.cwd();
-    const project = pickProject(runCbm(launcher, ["cli", "list_projects", "--json"], cwd), cwd);
-    if (project === null) return; // no graph project covers this repo — say nothing
+    const cacheDir = resolveProjectCacheDir(process.env);
+    let project = readProjectCache(cacheDir, cwd);
+    if (project === null) {
+      project = pickProject(runCbm(launcher, ["cli", "list_projects", "--json"], cwd), cwd);
+      if (project === null) return; // no graph project covers this repo — say nothing
+      writeProjectCache(cacheDir, cwd, project);
+    }
 
     /** @type {string|null} */
     let context = null;

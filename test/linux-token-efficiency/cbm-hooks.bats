@@ -247,3 +247,32 @@ assert_json() {
   assert_success
   assert_json '.hookSpecificOutput.hookEventName == "SessionStart"'
 }
+
+@test "a resolved project is cached: the second call for the same cwd never re-runs list_projects" {
+  hook_run "$(session_payload SessionStart)"
+  assert_success
+  run grep -c 'list_projects' "$ARGS_LOG"
+  assert_output '1'
+
+  hook_run "$(pre_payload Grep 'handleRequest')"
+  assert_success
+  assert_json '.hookSpecificOutput.additionalContext | test("app.handleRequest")'
+  run grep -c 'list_projects' "$ARGS_LOG"
+  assert_output '1' # still 1 -- the second hook reused the cached project, not a fresh lookup
+  run grep -c 'search_graph' "$ARGS_LOG"
+  assert_output '1'
+}
+
+@test "a different cwd gets its own cache entry, not the first cwd's" {
+  hook_run "$(session_payload SessionStart)"
+  assert_success
+
+  OTHER_WORKDIR="$BATS_TEST_TMPDIR/repo/other"
+  mkdir -p "$OTHER_WORKDIR"
+  hook_run "$(jq -cn --arg cwd "$OTHER_WORKDIR" --arg ev "SessionStart" \
+    '{hook_event_name:$ev, cwd:$cwd, session_id:"s", transcript_path:"/dev/null", permission_mode:"default"}')"
+  assert_success
+  assert_output '' # no project covers this cwd -- resolved fresh, not borrowed from the cache dir's other entry
+  run grep -c 'list_projects' "$ARGS_LOG"
+  assert_output '2'
+}

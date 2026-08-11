@@ -47,13 +47,25 @@ Every failure path is a bare `return` inside `main()`'s single `try/catch` — n
 This plugin now backs five hooks total: `rtk-rewrite.mjs` above plus four cbm entries
 (`SessionStart`, `SubagentStart`, `PreToolUse` `Grep`/`Glob`, `PostToolUse` `Read`) all served by one
 `hooks/cbm-context.mjs` dispatching on `hook_event_name`. They are synchronous (`async: true` would
-deliver context a turn late) with `hooks.json` `timeout: 21` — main() makes up to two sequential
+deliver context a turn late) with `hooks.json` `timeout: 21` — main() makes at most two sequential
 5 s-capped cbm spawns per invocation (`list_projects`, then an event-specific call), so `21` leaves
 real margin above the 10 s worst case for node startup, JSON parsing and output, unlike the single-
 spawn `rtk-rewrite.mjs`'s `timeout: 10`. They are **`command`** hooks rather than `mcp_tool` ones for
 two reasons: `SessionStart` fires before any MCP server is connected, and an `mcp_tool` hook's only
 output channel is the called tool's own text content — none of cbm's 15 upstream tools can emit
 `hookSpecificOutput.additionalContext`.
+
+**Per-cwd project cache.** Each hook process is a fresh process, so an in-memory cache buys nothing
+across invocations — `resolveProjectCacheDir()`/`readProjectCache()`/`writeProjectCache()` persist the
+resolved `cwd -> project` mapping as one small JSON file per cwd (keyed by a sha256 of the cwd) under
+a `project-cache` subdir of the same extraction-cache root `cbm-launch.sh` already writes to.
+`list_projects` — the mapping's only source — is skipped entirely on a fresh cache hit, so a warm repo
+pays exactly one cbm spawn per hook call instead of two; a miss, a corrupt entry, or an entry older
+than `PROJECT_CACHE_TTL_MS` (10 minutes — bounds staleness against a fresh `index_repository` adding a
+project cbm previously didn't know about) all fall back to the original two-spawn path transparently.
+The write is temp-file-then-`rename` (atomic on the same filesystem) so a racing reader never observes
+a partial file; any read/write failure is swallowed exactly like every other guard in this file — the
+cache is a pure optimization, never a dependency.
 
 ## userConfig
 

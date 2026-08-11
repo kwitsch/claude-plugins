@@ -1,12 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
+import fs from "node:fs";
+import os from "node:os";
 import {
   CONTEXT_CHAR_LIMIT,
   SYMBOL_LIMIT,
   PATTERN_CHAR_LIMIT,
+  PROJECT_CACHE_TTL_MS,
   isCbmEnabled,
   resolveBundleCache,
+  resolveProjectCacheDir,
+  projectCacheKey,
+  readProjectCache,
+  writeProjectCache,
   pickProject,
   graphQueryFromToolInput,
   formatSessionContext,
@@ -53,6 +60,47 @@ test("resolveBundleCache: an uninterpolated placeholder is never a path", () => 
 test("resolveBundleCache: no TMPDIR falls back under /tmp", () => {
   const out = resolveBundleCache({});
   assert.equal(out.startsWith(path.join("/tmp", "claude-cbm-")), true);
+});
+
+test("resolveProjectCacheDir: a project-cache subdir of the bundle cache", () => {
+  assert.equal(resolveProjectCacheDir({ CBM_BUNDLE_CACHE: "/data/cbm" }), path.join("/data/cbm", "project-cache"));
+});
+
+test("projectCacheKey: stable, filesystem-safe, distinct per cwd", () => {
+  const a = projectCacheKey("/repos/app");
+  const b = projectCacheKey("/repos/app");
+  const c = projectCacheKey("/repos/other");
+  assert.equal(a, b);
+  assert.notEqual(a, c);
+  assert.match(a, /^[0-9a-f]{64}$/);
+});
+
+test("readProjectCache / writeProjectCache: round-trip, miss, expiry, corruption", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cbm-project-cache-"));
+  try {
+    assert.equal(readProjectCache(dir, "/repos/app"), null); // miss: no file yet
+
+    writeProjectCache(dir, "/repos/app", "app-project");
+    assert.equal(readProjectCache(dir, "/repos/app"), "app-project"); // round-trip
+    assert.equal(readProjectCache(dir, "/repos/other"), null); // distinct cwd, no cross-talk
+
+    const key = projectCacheKey("/repos/app");
+    const filePath = path.join(dir, `${key}.json`);
+    fs.writeFileSync(filePath, JSON.stringify({ project: "app-project", cachedAt: Date.now() - PROJECT_CACHE_TTL_MS - 1 }));
+    assert.equal(readProjectCache(dir, "/repos/app"), null); // expired entry -> miss
+
+    fs.writeFileSync(filePath, "not json");
+    assert.equal(readProjectCache(dir, "/repos/app"), null); // corrupt entry -> miss, never throws
+
+    fs.rmSync(filePath);
+    assert.equal(readProjectCache(dir, "/repos/app"), null); // deleted -> miss
+
+    // A missing cache directory never throws on write (best-effort).
+    writeProjectCache(path.join(dir, "does", "not", "exist", "yet"), "/repos/app", "later-project");
+    assert.equal(readProjectCache(path.join(dir, "does", "not", "exist", "yet"), "/repos/app"), "later-project");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("pickProject: exact path, nearest ancestor, no match, unrecognized payload", () => {
