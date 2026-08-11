@@ -56,3 +56,18 @@ setup() {
   assert_success
   assert_output --partial 'binary: set'
 }
+
+@test "bin/cbm-launch.sh is executable in the git index (100755)" {
+  run git -C "$REPO_ROOT" ls-files --stage -- plugins/linux-token-efficiency/bin/cbm-launch.sh
+  assert_success
+  assert_line --regexp '^100755 [0-9a-f]+ 0[[:space:]]+plugins/linux-token-efficiency/bin/cbm-launch\.sh$'
+}
+
+@test ".gitattributes re-asserts text handling for the bin/ shell launcher" {
+  run grep -F -- 'plugins/linux-token-efficiency/bin/*.sh text eol=lf diff merge' "$REPO_ROOT/.gitattributes"
+  assert_success
+  run git -C "$REPO_ROOT" check-attr text diff -- plugins/linux-token-efficiency/bin/cbm-launch.sh
+  assert_success
+  assert_output --partial 'text: set'
+  assert_output --partial 'diff: set'
+}
