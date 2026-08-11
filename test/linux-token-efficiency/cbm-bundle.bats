@@ -94,7 +94,7 @@ setup() {
   assert_success
   run jq -e '[.hooks | to_entries[] | .value[] | .hooks[] | select(.command | test("cbm-context.mjs"))] | length == 4' "$HOOKS"
   assert_success
-  run jq -e '[.hooks | to_entries[] | .value[] | .hooks[] | select(.command | test("cbm-context.mjs")) | .type == "command" and .timeout == 10 and (has("args") | not) and (has("async") | not)] | all' "$HOOKS"
+  run jq -e '[.hooks | to_entries[] | .value[] | .hooks[] | select(.command | test("cbm-context.mjs")) | .type == "command" and .timeout == 21 and (has("args") | not) and (has("async") | not)] | all' "$HOOKS"
   assert_success
   run jq -e '(.hooks.SessionStart | length) == 1 and (.hooks.SubagentStart | length) == 1' "$HOOKS"
   assert_success

@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/cbm-context.mjs",
-            "timeout": 10,
+            "timeout": 21,
             "statusMessage": "Checking codebase graph..."
           }
         ]
@@ -19,7 +19,7 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/cbm-context.mjs",
-            "timeout": 10
+            "timeout": 21
           }
         ]
       }
@@ -41,7 +41,7 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/cbm-context.mjs",
-            "timeout": 10
+            "timeout": 21
           }
         ]
       }
@@ -53,7 +53,7 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/cbm-context.mjs",
-            "timeout": 10
+            "timeout": 21
           }
         ]
       }

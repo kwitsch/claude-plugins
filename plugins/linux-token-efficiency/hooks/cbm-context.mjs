@@ -27,7 +27,11 @@ export const SYMBOL_LIMIT = 10;
 export const PATTERN_CHAR_LIMIT = 200;
 /** Same stdin cap as coding-toolbox/hooks/encoding-guard.mjs. */
 export const STDIN_CAP = 1024 * 1024;
-/** Stays well under hooks.json's timeout: 10. */
+/**
+ * main() makes up to two sequential cbm spawns per invocation (list_projects, then an
+ * event-specific call), each capped at this. Worst case 2 * 5000 ms = 10 000 ms, safely
+ * under hooks.json's timeout: 21 (leaves margin for node startup, JSON parsing, output).
+ */
 export const CBM_SPAWN_TIMEOUT_MS = 5000;
 /** spawnSync's default, pinned explicitly. */
 export const CBM_MAX_OUTPUT_BYTES = 1024 * 1024;
@@ -109,7 +113,15 @@ function collectArray(payload, keys) {
  */
 function truncate(text) {
   const trimmed = text.trim();
-  return trimmed.length <= CONTEXT_CHAR_LIMIT ? trimmed : `${trimmed.slice(0, CONTEXT_CHAR_LIMIT - 1)}…`;
+  if (trimmed.length <= CONTEXT_CHAR_LIMIT) return trimmed;
+  let cut = CONTEXT_CHAR_LIMIT - 1;
+  // Never split a UTF-16 surrogate pair: back off one unit if the slice would end on
+  // a leading (high) surrogate with its trailing (low) surrogate just past the cut.
+  if (cut > 0) {
+    const code = trimmed.charCodeAt(cut - 1);
+    if (code >= 0xd800 && code <= 0xdbff) cut -= 1;
+  }
+  return `${trimmed.slice(0, cut)}…`;
 }
 
 /**
@@ -234,7 +246,7 @@ export function formatSessionContext(project, statusJson) {
   const suffix = state === null ? "" : ` (${state})`;
   return truncate(
     `codebase-memory graph project "${project.trim()}" covers this repository${suffix}. ` +
-      "Prefer the mcp__codebase-memory__* graph tools (search_graph, get_symbol, list_symbols) over plain text search " +
+      "Prefer the mcp__codebase-memory__* graph tools over plain text search " +
       "when locating symbols, definitions or callers here.",
   );
 }

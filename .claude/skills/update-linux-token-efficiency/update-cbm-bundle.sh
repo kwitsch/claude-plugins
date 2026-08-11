@@ -105,18 +105,18 @@ jq empty "$pin" > /dev/null 2>&1 || {
   echo "pin file is not valid JSON: $pin" >&2
   exit 2
 }
-pinned="$(jq -r '.cbmVersion // empty' "$pin")"
+# One jq call, one read of the pin file, for all four fields.
+IFS=$'\t' read -r pinned binary_count asset target_rel < <(
+  jq -r '[(.cbmVersion // ""), ((.binaries // []) | length), (.binaries[0].asset // ""), (.binaries[0].path // "")] | @tsv' "$pin"
+)
 [ -n "$pinned" ] || {
   echo "pin file has no cbmVersion: $pin" >&2
   exit 2
 }
-binary_count="$(jq -r '(.binaries // []) | length' "$pin")"
 [ "$binary_count" -eq 1 ] || {
   echo "pin file must list exactly one asset, found $binary_count: $pin" >&2
   exit 2
 }
-asset="$(jq -r '.binaries[0].asset // empty' "$pin")"
-target_rel="$(jq -r '.binaries[0].path // empty' "$pin")"
 [ -n "$asset" ] && [ -n "$target_rel" ] || {
   echo "pin file entry is missing asset or path: $pin" >&2
   exit 2
@@ -201,19 +201,22 @@ dest="$repo_root/$PLUGIN_REL/$target_rel"
 mkdir -p "$(dirname "$dest")" && mv -f "$tmp/$asset" "$dest"
 echo "replaced $PLUGIN_REL/$target_rel"
 
-# 9. Rewrite the machine-owned checksum sidecar atomically.
+# 9. Render both the checksum sidecar and the pin into the scratch dir FIRST, so a
+#    jq failure can never leave one file rewritten and the other stale -- neither
+#    working-tree file is touched until both renders have succeeded.
 sums="$repo_root/$PLUGIN_REL/$SUMS_REL"
 {
   printf '%s  %s\n' "$asset_sha" "$asset"
   printf '%s  %s\n' "$binary_sha" "$BINARY_NAME"
-} > "$tmp/sums-next.txt" && mv -f "$tmp/sums-next.txt" "$sums"
-echo "rewrote $PLUGIN_REL/$SUMS_REL"
-
-# 10. Rewrite the machine-owned pin via jq, gated on jq succeeding.
+} > "$tmp/sums-next.txt"
 jq --arg a "$asset_sha" --arg b "$binary_sha" --arg v "$latest" --arg t "$tag" \
   '.binaries[0].assetSha256 = $a | .binaries[0].binarySha256 = $b | .cbmVersion = $v | .releaseTag = $t' \
-  "$pin" > "$tmp/pin-next.json" \
-  && mv -f "$tmp/pin-next.json" "$pin"
+  "$pin" > "$tmp/pin-next.json"
+
+# 10. Both renders succeeded -- move both into place back-to-back.
+mv -f "$tmp/sums-next.txt" "$sums"
+echo "rewrote $PLUGIN_REL/$SUMS_REL"
+mv -f "$tmp/pin-next.json" "$pin"
 echo "rewrote $PLUGIN_REL/cbm-bundle.json"
 
 echo "updated $pinned -> $latest"

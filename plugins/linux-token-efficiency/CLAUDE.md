@@ -47,8 +47,10 @@ Every failure path is a bare `return` inside `main()`'s single `try/catch` — n
 This plugin now backs five hooks total: `rtk-rewrite.mjs` above plus four cbm entries
 (`SessionStart`, `SubagentStart`, `PreToolUse` `Grep`/`Glob`, `PostToolUse` `Read`) all served by one
 `hooks/cbm-context.mjs` dispatching on `hook_event_name`. They are synchronous (`async: true` would
-deliver context a turn late) with `hooks.json` `timeout: 10` and a stricter internal 5 s spawn
-timeout on the `cbm-launch.sh` child. They are **`command`** hooks rather than `mcp_tool` ones for
+deliver context a turn late) with `hooks.json` `timeout: 21` — main() makes up to two sequential
+5 s-capped cbm spawns per invocation (`list_projects`, then an event-specific call), so `21` leaves
+real margin above the 10 s worst case for node startup, JSON parsing and output, unlike the single-
+spawn `rtk-rewrite.mjs`'s `timeout: 10`. They are **`command`** hooks rather than `mcp_tool` ones for
 two reasons: `SessionStart` fires before any MCP server is connected, and an `mcp_tool` hook's only
 output channel is the called tool's own text content — none of cbm's 15 upstream tools can emit
 `hookSpecificOutput.additionalContext`.
