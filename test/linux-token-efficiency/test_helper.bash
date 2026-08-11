@@ -13,12 +13,18 @@ common_setup() {
   HOOKS="$PLUGIN/hooks/hooks.json"
   HOOK="$PLUGIN/hooks/rtk-rewrite.mjs"
   SKILL_DIR="$REPO_ROOT/.claude/skills/update-linux-token-efficiency"
+  CBM_PIN="$PLUGIN/cbm-bundle.json"
+  CBM_SUMS="$PLUGIN/bin/cbm-checksums.txt"
+  CBM_TARBALL="$PLUGIN/bin/codebase-memory-mcp-linux-amd64-portable.tar.gz"
+  CBM_LAUNCHER="$PLUGIN/bin/cbm-launch.sh"
+  CBM_HOOK="$PLUGIN/hooks/cbm-context.mjs"
+  MCP_JSON="$PLUGIN/.mcp.json"
 
   # Isolated PATH: only system tools that actually exist on the host are symlinked
   # in; per-test stubs are added on top via make_stub.
   MOCKBIN="$BATS_TEST_TMPDIR/bin"
   mkdir -p "$MOCKBIN"
-  for t in bash env node jq git grep sed awk cat cut head find ls cp mv rm mkdir chmod tar sha256sum uname timeout sleep mktemp printf; do
+  for t in bash env node jq git grep sed awk cat cut head find ls cp mv rm mkdir chmod tar sha256sum uname timeout sleep mktemp printf id dirname gzip stat wc; do
     src="$(command -v "$t" 2> /dev/null)" && [ -n "$src" ] && ln -s "$src" "$MOCKBIN/$t"
   done
 
