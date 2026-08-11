@@ -6,8 +6,11 @@ with open user questions (resumable any number of times).
 
 ## Invocation
 
-**Primary:** run the plugin workflow `/taskflow:design-to-spec` with ONE
-structured `args` object — the script reads it as the global `args`.
+**Primary:** run the plugin workflow with `Workflow({name: "taskflow:design-to-spec", args})`
+— **no leading `/`** on `name` (the `/taskflow:design-to-spec` display form is how the
+workflow is described/run as a slash command, not the literal tool-call value; a leading
+`/` makes the tool report the name as not found). Pass ONE structured `args` object — the
+script reads it as the global `args`.
 
 **Fallback** (workflow not registered): read
 `${CLAUDE_PLUGIN_ROOT}/workflows/design-to-spec.workflow.js`, prepend exactly
@@ -112,7 +115,7 @@ repeats until `complete` or `error`.
   only whether the latest `USER_INPUT` opens genuinely new areas — an empty
   answer is the expected, common case. At most 6 areas accumulate per
   session; a single resume round's actual top-up is `min(6 - areas already
-  cached, 4)`, which can exceed 2 when the first scout used fewer than 4;
+cached, 4)`, which can exceed 2 when the first scout used fewer than 4;
   per-round parallelism stays capped at 4.
 - Any doubt means a full exploration: probe failure, fingerprint mismatch, a
   mangled cache, or a failed cache write all degrade to the uncached behavior,

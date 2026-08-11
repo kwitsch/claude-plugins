@@ -6,8 +6,11 @@ merger agent) → combined Review → fix application.
 
 ## Invocation
 
-**Primary:** run the plugin workflow `/taskflow:spec-driven-delivery` with ONE
-structured `args` object — the script reads it as the global `args`.
+**Primary:** run the plugin workflow with `Workflow({name: "taskflow:spec-driven-delivery", args})`
+— **no leading `/`** on `name` (the `/taskflow:spec-driven-delivery` display form is how the
+workflow is described/run as a slash command, not the literal tool-call value; a leading
+`/` makes the tool report the name as not found). Pass ONE structured `args` object — the
+script reads it as the global `args`.
 
 **Fallback** (workflow not registered): read
 `${CLAUDE_PLUGIN_ROOT}/workflows/spec-driven-delivery.workflow.js`, prepend
