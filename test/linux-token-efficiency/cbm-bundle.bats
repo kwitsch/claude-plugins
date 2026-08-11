@@ -71,3 +71,18 @@ setup() {
   assert_output --partial 'text: set'
   assert_output --partial 'diff: set'
 }
+
+@test ".mcp.json registers exactly one codebase-memory stdio server via the launcher" {
+  run jq empty "$MCP_JSON"
+  assert_success
+  run jq -e '.mcpServers | keys == ["codebase-memory"]' "$MCP_JSON"
+  assert_success
+  run jq -e '.mcpServers["codebase-memory"] | .command == "${CLAUDE_PLUGIN_ROOT}/bin/cbm-launch.sh" and (has("args") | not)' "$MCP_JSON"
+  assert_success
+  run jq -e '.mcpServers["codebase-memory"].env | keys == ["CBM_BUNDLE_CACHE","CLAUDE_PLUGIN_OPTION_CBM_ENABLED"] and .CLAUDE_PLUGIN_OPTION_CBM_ENABLED == "${user_config.cbm_enabled}" and .CBM_BUNDLE_CACHE == "${CLAUDE_PLUGIN_DATA}/cbm"' "$MCP_JSON"
+  assert_success
+  run grep -F 'CBM_CACHE_DIR' "$MCP_JSON"
+  assert_failure
+  run grep -F 'CBM_NO_EXTRACT' "$MCP_JSON"
+  assert_failure
+}

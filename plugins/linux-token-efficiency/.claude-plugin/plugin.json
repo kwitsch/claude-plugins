@@ -1,13 +1,19 @@
 {
   "name": "linux-token-efficiency",
-  "version": "0.0.1",
-  "description": "Bundles the rtk token-optimizing CLI proxy (https://github.com/rtk-ai/rtk) as a Linux x86_64 binary and routes Bash commands through it via a PreToolUse rewrite hook. LINUX ONLY: the bundled binary is a Linux executable; this plugin does not work on macOS, Windows, or any other operating system, where every hook no-ops.",
+  "version": "0.1.0",
+  "description": "Bundles the rtk token-optimizing CLI proxy (https://github.com/rtk-ai/rtk) as a Linux x86_64 binary and routes Bash commands through it via a PreToolUse rewrite hook, and bundles codebase-memory-mcp (https://github.com/DeusData/codebase-memory-mcp) as a lazily extracted MCP stdio server with four context-only graph hooks. LINUX ONLY: the bundled binaries are Linux executables; this plugin does not work on macOS, Windows, or any other operating system, where every hook no-ops.",
   "author": { "name": "Kwitsch" },
   "userConfig": {
     "auto_rewrite": {
       "type": "boolean",
       "title": "Auto-rewrite Bash commands through rtk",
       "description": "Before every Bash tool call, rewrites the command through the bundled rtk binary (rtk hook claude) so it runs token-optimized. Disabled, the bundled rtk stays on PATH and can still be invoked manually. Linux only — a no-op on every other OS. Values: true (or unset) = enabled; false = disabled. Fail-open: only the literal value false disables it. Default: true.",
+      "default": true
+    },
+    "cbm_enabled": {
+      "type": "boolean",
+      "title": "Enable the bundled codebase-memory-mcp MCP server and its context hooks",
+      "description": "Starts the bundled codebase-memory-mcp (cbm) as an MCP stdio server, extracting its ~280 MiB binary from the committed tarball into the plugin's data directory on first start, and enables the four context-only cbm hooks (SessionStart, SubagentStart, Grep/Glob, post-Read). Linux x86_64 only. Set to false to disable: only the literal value false disables it; unset, missing or any other value leaves it enabled. Default: true. Disabling after first use does not delete the extracted cache; remove it by hand (see README).",
       "default": true
     }
   }
