@@ -86,3 +86,48 @@ setup() {
   run grep -F 'CBM_NO_EXTRACT' "$MCP_JSON"
   assert_failure
 }
+
+@test "hooks.json keeps the rtk entry and adds exactly four cbm handlers" {
+  run jq empty "$HOOKS"
+  assert_success
+  run jq -e '[.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[0].command] == ["${CLAUDE_PLUGIN_ROOT}/hooks/rtk-rewrite.mjs"]' "$HOOKS"
+  assert_success
+  run jq -e '[.hooks | to_entries[] | .value[] | .hooks[] | select(.command | test("cbm-context.mjs"))] | length == 4' "$HOOKS"
+  assert_success
+  run jq -e '[.hooks | to_entries[] | .value[] | .hooks[] | select(.command | test("cbm-context.mjs")) | .type == "command" and .timeout == 10 and (has("args") | not) and (has("async") | not)] | all' "$HOOKS"
+  assert_success
+  run jq -e '(.hooks.SessionStart | length) == 1 and (.hooks.SubagentStart | length) == 1' "$HOOKS"
+  assert_success
+  run jq -e '.hooks.SessionStart[0] | has("matcher") | not' "$HOOKS"
+  assert_success
+  run jq -e '.hooks.SubagentStart[0] | has("matcher") | not' "$HOOKS"
+  assert_success
+  run jq -e '[.hooks.PreToolUse[] | select(.matcher == "Grep|Glob") | .hooks[0].command] == ["${CLAUDE_PLUGIN_ROOT}/hooks/cbm-context.mjs"]' "$HOOKS"
+  assert_success
+  run jq -e '[.hooks.PostToolUse[] | select(.matcher == "Read") | .hooks[0].command] == ["${CLAUDE_PLUGIN_ROOT}/hooks/cbm-context.mjs"]' "$HOOKS"
+  assert_success
+  run grep -F 'node ' "$HOOKS"
+  assert_failure
+  run grep -F 'user_config' "$HOOKS"
+  assert_failure
+}
+
+@test "hooks/cbm-context.mjs is executable in the git index (100755)" {
+  run git -C "$REPO_ROOT" ls-files --stage -- plugins/linux-token-efficiency/hooks/cbm-context.mjs
+  assert_success
+  assert_line --regexp '^100755 [0-9a-f]+ 0[[:space:]]+plugins/linux-token-efficiency/hooks/cbm-context\.mjs$'
+}
+
+@test "the plugin sets only its own two CBM_ variables" {
+  # Only env-name positions count (`CBM_X=` in shell, `"CBM_X":` in JSON / a JS object
+  # literal). The leading non-word-char guard excludes the CLAUDE_PLUGIN_OPTION_CBM_ENABLED
+  # suffix, and cbm-context.mjs's CBM_SPAWN_TIMEOUT_MS / CBM_MAX_OUTPUT_BYTES are
+  # module-local constants (`NAME = value`), never environment variables.
+  run bash -c "grep -rhoE '(^|[^A-Za-z0-9_])CBM_[A-Z_]+[=:]' '$MCP_JSON' '$PLUGIN/hooks/' '$PLUGIN/bin/cbm-launch.sh' | grep -oE 'CBM_[A-Z_]+' | sort -u | tr '\n' ' '"
+  assert_output 'CBM_BUNDLE_CACHE CBM_NO_EXTRACT '
+}
+
+@test "no file in the plugin ever assigns the upstream-owned CBM_CACHE_DIR" {
+  run bash -c "grep -rnE 'CBM_CACHE_DIR[=:]' '$MCP_JSON' '$PLUGIN/hooks/' '$PLUGIN/bin/cbm-launch.sh'"
+  assert_failure
+}

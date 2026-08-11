@@ -15,6 +15,9 @@
 // cbm tools are called (list_projects, index_status, search_graph, check_index_coverage).
 import process from "node:process";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { accessSync, readFileSync, realpathSync, constants as fsConstants } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 /** Hard cap on injected context per event — well under the 10 000-char hook-output cap. */
 export const CONTEXT_CHAR_LIMIT = 1500;
@@ -311,3 +314,109 @@ export function buildOutput(hookEventName, additionalContext) {
   const hookSpecificOutput = { hookEventName, additionalContext };
   return { hookSpecificOutput };
 }
+
+/**
+ * One read-only cbm one-shot CLI call through the bundled launcher. Returns the parsed
+ * JSON payload, or null on any failure — a non-zero exit, a signal, the 5 s timeout,
+ * empty stdout (a cold cache under CBM_NO_EXTRACT) or unparsable output.
+ * @param {string} launcher
+ * @param {string[]} args
+ * @param {string} cwd
+ * @returns {unknown}
+ */
+function runCbm(launcher, args, cwd) {
+  const result = spawnSync(launcher, args, {
+    env: {
+      ...process.env,
+      CBM_BUNDLE_CACHE: resolveBundleCache(process.env),
+      CBM_NO_EXTRACT: "1",
+    },
+    input: "",
+    encoding: "utf8",
+    timeout: CBM_SPAWN_TIMEOUT_MS,
+    maxBuffer: CBM_MAX_OUTPUT_BYTES,
+    cwd,
+  });
+  if (result.error || result.signal) return null;
+  if (result.status !== 0) return null;
+  const stdout = typeof result.stdout === "string" ? result.stdout.trim() : "";
+  if (stdout === "") return null;
+  try {
+    return JSON.parse(stdout);
+  } catch {
+    return null;
+  }
+}
+
+// True only when this file is the process entry point, false when imported by a unit
+// test -- so importing never reads stdin.
+/** @returns {boolean} */
+function isMainModule() {
+  try {
+    return realpathSync(String(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+/** @returns {void} */
+function main() {
+  try {
+    // Guards, cheapest first. Platform before stdin, exactly as rtk-rewrite.mjs does.
+    if (process.platform !== "linux" || process.arch !== "x64") return;
+    if (!isCbmEnabled(process.env.CLAUDE_PLUGIN_OPTION_CBM_ENABLED)) return;
+    const raw = readFileSync(0, "utf8");
+    if (raw.length > STDIN_CAP) return;
+    /** @type {ToolHookInput} */
+    const input = JSON.parse(raw);
+    const event = input.hook_event_name;
+    if (typeof event !== "string" || event === "") return;
+
+    // Event-specific preconditions BEFORE any spawn: a hopeless event never pays for one.
+    /** @type {{flag: string, value: string}|null} */
+    let query = null;
+    /** @type {string|null} */
+    let filePath = null;
+    if (event === "PreToolUse") {
+      query = graphQueryFromToolInput(input.tool_name, input.tool_input);
+      if (query === null) return;
+    } else if (event === "PostToolUse") {
+      if (input.tool_name !== "Read") return;
+      const candidate = input.tool_input ? input.tool_input.file_path : undefined;
+      if (typeof candidate !== "string" || candidate.trim() === "") return;
+      filePath = candidate;
+    } else if (event !== "SessionStart" && event !== "SubagentStart") {
+      return;
+    }
+
+    const launcher = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "bin", "cbm-launch.sh");
+    try {
+      accessSync(launcher, fsConstants.X_OK);
+    } catch {
+      return; // no bundled launcher to delegate to
+    }
+
+    const cwd = typeof input.cwd === "string" && input.cwd !== "" ? input.cwd : process.cwd();
+    const project = pickProject(runCbm(launcher, ["cli", "list_projects", "--json"], cwd), cwd);
+    if (project === null) return; // no graph project covers this repo — say nothing
+
+    /** @type {string|null} */
+    let context = null;
+    if (event === "SessionStart" || event === "SubagentStart") {
+      const status = runCbm(launcher, ["cli", "index_status", "--project", project, "--json"], cwd);
+      context = event === "SessionStart" ? formatSessionContext(project, status) : formatSubagentContext(project, status);
+    } else if (event === "PreToolUse" && query !== null) {
+      const found = runCbm(launcher, ["cli", "search_graph", "--project", project, query.flag, query.value, "--limit", String(SYMBOL_LIMIT), "--json"], cwd);
+      context = formatSymbolContext(found, SYMBOL_LIMIT);
+    } else if (event === "PostToolUse" && filePath !== null) {
+      const coverage = runCbm(launcher, ["cli", "check_index_coverage", "--project", project, "--path", filePath, "--json"], cwd);
+      context = formatCoverageContext(coverage, filePath);
+    }
+    if (context === null || context === "") return; // nothing to say -> no stdout at all
+    process.stdout.write(JSON.stringify(buildOutput(event, context)) + "\n");
+  } catch {
+    // fail open — no output, exit 0
+  }
+}
+
+if (isMainModule()) main();

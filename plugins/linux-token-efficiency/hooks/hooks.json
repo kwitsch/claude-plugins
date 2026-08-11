@@ -1,6 +1,29 @@
 {
-  "description": "PreToolUse Bash -> rtk-rewrite.mjs: rewrites Bash commands to rtk equivalents using the bundled rtk binary.",
+  "description": "PreToolUse Bash -> rtk-rewrite.mjs: rewrites Bash commands to rtk equivalents using the bundled rtk binary. SessionStart / SubagentStart / PreToolUse Grep|Glob / PostToolUse Read -> cbm-context.mjs: fail-open, context-only codebase-memory-mcp graph context from the bundled cbm binary's one-shot cli mode.",
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/cbm-context.mjs",
+            "timeout": 10,
+            "statusMessage": "Checking codebase graph..."
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/cbm-context.mjs",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Bash",
@@ -8,6 +31,28 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/rtk-rewrite.mjs",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/cbm-context.mjs",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/cbm-context.mjs",
             "timeout": 10
           }
         ]
