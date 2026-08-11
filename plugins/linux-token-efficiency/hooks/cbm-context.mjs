@@ -235,19 +235,34 @@ function describeIndexStatus(payload) {
 }
 
 /**
+ * Shared shape for SessionStart/SubagentStart context: project name, index freshness
+ * (from `describeIndexStatus`), and a caller-supplied head clause + tail instruction.
+ * null on a missing/blank project — never guessed.
+ * @param {string} project
+ * @param {unknown} statusJson
+ * @param {string} headClause
+ * @param {string} tailSentence
+ * @returns {string|null}
+ */
+function formatProjectContext(project, statusJson, headClause, tailSentence) {
+  if (typeof project !== "string" || project.trim() === "") return null;
+  const state = describeIndexStatus(statusJson);
+  const suffix = state === null ? "" : ` (${state})`;
+  return truncate(`codebase-memory graph project "${project.trim()}"${headClause}${suffix}. ${tailSentence}`);
+}
+
+/**
  * SessionStart context: project, index freshness, and the steer towards the graph tools.
  * @param {string} project
  * @param {unknown} statusJson
  * @returns {string|null}
  */
 export function formatSessionContext(project, statusJson) {
-  if (typeof project !== "string" || project.trim() === "") return null;
-  const state = describeIndexStatus(statusJson);
-  const suffix = state === null ? "" : ` (${state})`;
-  return truncate(
-    `codebase-memory graph project "${project.trim()}" covers this repository${suffix}. ` +
-      "Prefer the mcp__codebase-memory__* graph tools over plain text search " +
-      "when locating symbols, definitions or callers here.",
+  return formatProjectContext(
+    project,
+    statusJson,
+    " covers this repository",
+    "Prefer the mcp__codebase-memory__* graph tools over plain text search when locating symbols, definitions or callers here.",
   );
 }
 
@@ -258,10 +273,7 @@ export function formatSessionContext(project, statusJson) {
  * @returns {string|null}
  */
 export function formatSubagentContext(project, statusJson) {
-  if (typeof project !== "string" || project.trim() === "") return null;
-  const state = describeIndexStatus(statusJson);
-  const suffix = state === null ? "" : ` (${state})`;
-  return truncate(`codebase-memory graph project "${project.trim()}"${suffix}. ` + "Pass qualified symbol names and file paths through when delegating further.");
+  return formatProjectContext(project, statusJson, "", "Pass qualified symbol names and file paths through when delegating further.");
 }
 
 /**
