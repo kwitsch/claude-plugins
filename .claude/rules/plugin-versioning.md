@@ -10,6 +10,8 @@ paths:
 
 Each plugin's `version` lives **only** in `plugins/<name>/.claude-plugin/plugin.json`. The marketplace manifest (`.claude-plugin/marketplace.json`) has its own top-level `version` field (the manifest version) — this is separate. Do not confuse the two: the rule is about individual plugin entry versions, not the manifest's own version. Every plugin change requires a bump — no exceptions. Use semver (`MAJOR.MINOR.PATCH`); breaking changes bump MAJOR.
 
+Bumping `plugin.json`'s version in a commit without also updating that plugin's own `test/<name>/*.bats` version-pin assertion (see `.claude/rules/test-conventions.md`'s "Manifest assertions") turns CI red on the next run — grep `test/<name>/` for the old version literal in the _same_ commit as the bump, every time, for every plugin (not just the ones with a history of this).
+
 ## marketplace.json entries
 
 Do **not** add a `version` field to marketplace.json plugin entries. `plugin.json` wins silently when both declare a version, but CI fails on any entry that declares `version` or any `plugin.json` that lacks one.
