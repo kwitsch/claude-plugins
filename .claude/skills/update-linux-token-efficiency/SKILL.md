@@ -16,11 +16,12 @@ never opens a PR.
 ## Step 1 — Detect the environment
 
 ```!
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo n/a)"
 echo "OS=$(uname -s)"
 echo "ARCH=$(uname -m)"
-echo "REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo n/a)"
-echo "PINNED=$(jq -r '.rtkVersion // "n/a"' "$(git rev-parse --show-toplevel 2>/dev/null)/plugins/linux-token-efficiency/rtk-bundle.json" 2>/dev/null || echo n/a)"
-echo "BUNDLED=$("$(git rev-parse --show-toplevel 2>/dev/null)/plugins/linux-token-efficiency/bin/rtk" --version 2>/dev/null || echo n/a)"
+echo "REPO_ROOT=$REPO_ROOT"
+echo "PINNED=$(jq -r '.rtkVersion // "n/a"' "$REPO_ROOT/plugins/linux-token-efficiency/rtk-bundle.json" 2>/dev/null || echo n/a)"
+echo "BUNDLED=$("$REPO_ROOT/plugins/linux-token-efficiency/bin/rtk" --version 2>/dev/null || echo n/a)"
 echo "CURL=$(command -v curl >/dev/null 2>&1 && echo yes || echo no)"
 echo "JQ=$(command -v jq >/dev/null 2>&1 && echo yes || echo no)"
 echo "TAR=$(command -v tar >/dev/null 2>&1 && echo yes || echo no)"

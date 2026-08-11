@@ -25,24 +25,27 @@ usage: update-rtk-bundle.sh --repo-root <path> [--check|--apply] [--tag <vX.Y.Z>
 EOF
 }
 
+# require_arg <flag> <remaining-arg-count> -- shared usage-error guard for every
+# value-taking flag below.
+require_arg() {
+  [ "$2" -ge 2 ] || {
+    echo "usage: $1 needs a value" >&2
+    exit 2
+  }
+}
+
 repo_root=""
 mode="check"
 tag=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --repo-root)
-      [ "$#" -ge 2 ] || {
-        echo "usage: --repo-root needs a value" >&2
-        exit 2
-      }
+      require_arg --repo-root "$#"
       repo_root="$2"
       shift 2
       ;;
     --tag)
-      [ "$#" -ge 2 ] || {
-        echo "usage: --tag needs a value" >&2
-        exit 2
-      }
+      require_arg --tag "$#"
       tag="$2"
       shift 2
       ;;

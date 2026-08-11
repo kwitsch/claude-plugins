@@ -8,9 +8,11 @@
 //
 // Fail-open everywhere: every failure path is a bare `return` inside main()'s single
 // try/catch (no process.exit), so the process exits 0 having printed nothing and the
-// Bash command runs unmodified. Ordered guards: stdin size/parse -> platform -> toggle
+// Bash command runs unmodified. Ordered guards: platform -> stdin size/parse -> toggle
 // -> Bash + non-empty command -> bundled binary executable -> `rtk` resolves on PATH
 // and resolves to THIS binary (a global rtk install owns the rewrite instead) -> spawn.
+// Platform is checked before touching stdin: on any non-Linux host every Bash call
+// would otherwise pay for a readFileSync(0) + JSON.parse it can never use.
 // Not async in hooks.json: a PreToolUse hook returning updatedInput must be synchronous.
 import process from "node:process";
 import { spawnSync } from "node:child_process";
@@ -107,11 +109,11 @@ function isMainModule() {
 /** @returns {void} */
 function main() {
   try {
+    if (process.platform !== "linux") return;
     const raw = readFileSync(0, "utf8");
     if (raw.length > STDIN_CAP) return;
     /** @type {ToolHookInput} */
     const input = JSON.parse(raw);
-    if (process.platform !== "linux") return;
     if (!isAutoRewriteEnabled(process.env.CLAUDE_PLUGIN_OPTION_AUTO_REWRITE)) return;
     if (input.tool_name !== "Bash") return;
     const toolInput = input.tool_input;
