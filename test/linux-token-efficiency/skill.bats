@@ -23,12 +23,16 @@ setup() {
 }
 
 @test "SKILL.md reads the reference doc in the step immediately before invoking the script" {
-  local ref_line invoke_line
+  local ref_line invoke_line between_steps
   ref_line="$(grep -n 'update-rtk-bundle.reference.md' "$SKILL" | head -n 1 | cut -d: -f1)"
   invoke_line="$(grep -n 'update-rtk-bundle.sh --repo-root' "$SKILL" | head -n 1 | cut -d: -f1)"
   [ -n "$ref_line" ]
   [ -n "$invoke_line" ]
   [ "$ref_line" -lt "$invoke_line" ]
+  # Exactly one heading (the invoking step's own) may appear between the two lines --
+  # anything more means a step got wedged between the reference read and the invocation.
+  between_steps="$(sed -n "$((ref_line + 1)),$((invoke_line - 1))p" "$SKILL" | grep -c '^## ' || true)"
+  [ "$between_steps" -eq 1 ]
 }
 
 @test "SKILL.md invokes the script by repo-relative path, not CLAUDE_SKILL_DIR" {

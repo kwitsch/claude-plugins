@@ -74,25 +74,19 @@ export function sameFile(a, b) {
  * The PreToolUse result: the ENTIRE original tool_input, with only `command` replaced.
  * updatedInput replaces the whole input object, so a freshly built {command,description}
  * would silently drop timeout / run_in_background and any future harness field.
- * Only emits permissionDecision when the wrapped rtk process itself returned one
- * alongside its rewritten command, and only when it isn't "allow" — `allow` makes the
- * harness drop updatedInput.
+ * Never emits permissionDecision — `allow` makes the harness drop updatedInput, and any
+ * other decision must come from the passthrough-rejection path below, never from here.
  * @param {Record<string, unknown>} toolInput
  * @param {string} command
- * @param {{permissionDecision?: string, reason?: string}} [decision]
  * @returns {HookResult}
  */
-export function buildUpdatedInput(toolInput, command, decision) {
-  const hasDecision = Boolean(decision?.permissionDecision) && decision?.permissionDecision !== "allow";
+export function buildUpdatedInput(toolInput, command) {
   /** @type {HookSpecificOutput} */
   const hookSpecificOutput = {
     hookEventName: "PreToolUse",
-    permissionDecisionReason: hasDecision ? (decision?.reason ?? "rtk auto-rewrite (bundled)") : "rtk auto-rewrite (bundled)",
+    permissionDecisionReason: "rtk auto-rewrite (bundled)",
     updatedInput: { ...toolInput, command },
   };
-  if (hasDecision) {
-    hookSpecificOutput.permissionDecision = /** @type {HookSpecificOutput["permissionDecision"]} */ (decision?.permissionDecision);
-  }
   return { hookSpecificOutput };
 }
 
@@ -152,15 +146,12 @@ function main() {
     }
     const hso = parsed?.hookSpecificOutput;
     const rewritten = hso?.updatedInput?.command;
-    if (typeof rewritten !== "string") {
-      process.stdout.write(stdout + "\n"); // some other decision shape: pass through
-      return;
-    }
+    // Anything other than a plain rewritten command (e.g. rtk's own permissionDecision)
+    // is rejected, not forwarded: this wrapper must never emit permissionDecision, and
+    // writing rtk's raw JSON through unchecked would do exactly that.
+    if (typeof rewritten !== "string") return;
     if (rewritten === original) return; // nothing changed
-    const output = buildUpdatedInput(toolInput, rewritten, {
-      permissionDecision: hso?.permissionDecision,
-      reason: hso?.permissionDecisionReason,
-    });
+    const output = buildUpdatedInput(toolInput, rewritten);
     process.stdout.write(JSON.stringify(output) + "\n");
   } catch {
     // fail open — no output, exit 0

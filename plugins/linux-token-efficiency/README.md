@@ -50,4 +50,5 @@ broken by it. It deliberately no-ops when:
 
 The bundled binary is pinned in `rtk-bundle.json`. The repo-level
 `update-linux-token-efficiency` skill (`.claude/skills/`) compares that pin against the latest
-upstream release and, on `apply`, re-downloads every binary checksum-verified.
+upstream release and, on `apply`, re-downloads every binary, verifying each one against exactly
+one matching entry in the release's own `checksums.txt` before replacing anything.

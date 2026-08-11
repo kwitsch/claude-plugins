@@ -120,12 +120,12 @@ assert_json() {
   assert_output ''
 }
 
-@test "a non-updatedInput decision shape is passed through verbatim" {
+@test "a non-updatedInput decision shape produces no output (fail-open, never forwards permissionDecision)" {
   local other='{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"blocked by rtk"}}'
   rtk_stub "$PLUGIN_BIN" "printf '%s\n' '$other'"
   hook_run "$(make_input 'rm -rf /')"
   assert_success
-  assert_json '.hookSpecificOutput.permissionDecision == "deny"'
+  assert_output ''
 }
 
 @test "missing bundled binary produces no output" {

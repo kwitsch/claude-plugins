@@ -85,3 +85,11 @@ test("buildUpdatedInput: forwards every field, replaces only command, no permiss
   assert.equal("permissionDecision" in (result.hookSpecificOutput ?? {}), false);
   assert.equal(toolInput.command, "ls -la /tmp", "the original object must not be mutated");
 });
+
+test("buildUpdatedInput: takes no decision parameter and never emits permissionDecision", () => {
+  assert.equal(buildUpdatedInput.length, 2);
+  const toolInput = { command: "ls -la /tmp" };
+  const result = buildUpdatedInput(toolInput, "rtk ls -la /tmp");
+  assert.equal("permissionDecision" in (result.hookSpecificOutput ?? {}), false);
+  assert.equal(result.hookSpecificOutput?.updatedInput?.command, "rtk ls -la /tmp");
+});

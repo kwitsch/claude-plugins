@@ -157,7 +157,26 @@ for asset in "${assets[@]}"; do
   fi
 done
 
-if ! (cd "$tmp" && sha256sum --check --ignore-missing --status checksums.txt); then
+# Build a manifest containing exactly one checksums.txt entry per requested asset --
+# an asset absent from checksums.txt, or listed more than once, fails closed instead of
+# being silently skipped by --ignore-missing.
+expected="$tmp/expected.sha256"
+: > "$expected"
+for asset in "${assets[@]}"; do
+  matches="$(awk -v f="$asset" '$2 == f' "$tmp/checksums.txt")"
+  line_count="$(printf '%s' "$matches" | grep -c . || true)"
+  if [ "$line_count" -eq 0 ]; then
+    echo "no checksum entry for $asset in checksums.txt" >&2
+    exit 4
+  fi
+  if [ "$line_count" -gt 1 ]; then
+    echo "duplicate checksum entries for $asset in checksums.txt" >&2
+    exit 4
+  fi
+  printf '%s\n' "$matches" >> "$expected"
+done
+
+if ! (cd "$tmp" && sha256sum --check --status "$expected"); then
   echo "checksum verification failed for $tag" >&2
   exit 4
 fi

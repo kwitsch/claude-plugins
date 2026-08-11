@@ -72,7 +72,10 @@ overwrites a committed artifact — an explicit destructive-side-effect exceptio
 `.claude/rules/skill-invocation-control.md`'s model-invocable default.
 
 Download source is the upstream GitHub release; **verification is mandatory** against the release's
-own `checksums.txt` (plain `sha256sum` format) before any file is replaced. Version comparison is
+own `checksums.txt` (plain `sha256sum` format) before any file is replaced — the script requires
+exactly one checksum entry per requested asset (an asset missing from, or duplicated in,
+`checksums.txt` fails closed) rather than trusting `--ignore-missing` to skip it silently. Version
+comparison is
 plain string equality between the pin's `rtkVersion` and `tag_name` minus a leading `v` — no semver
 ordering, so a retagged or yanked release conservatively reads as "update available". The script
 never commits, never bumps `plugin.json` and never opens a PR.
