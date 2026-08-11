@@ -70,3 +70,45 @@ setup() {
   run grep -F 'linux-token-efficiency' "$REPO_ROOT/plugins/CLAUDE.md"
   assert_success
 }
+
+@test "plugin README documents the bundled cbm version, toggle and cache" {
+  run grep -F '0.10.1' "$PLUGIN_README"
+  assert_success
+  run grep -F 'cbm_enabled' "$PLUGIN_README"
+  assert_success
+  run grep -F 'only the literal value `false` disables' "$PLUGIN_README"
+  assert_success
+  run grep -F '${CLAUDE_PLUGIN_DATA}/cbm' "$PLUGIN_README"
+  assert_success
+  run grep -F 'rm -rf' "$PLUGIN_README"
+  assert_success
+}
+
+@test "plugin README names all four cbm hooks and the no-approval-prompt behavior" {
+  for token in 'SessionStart' 'SubagentStart' 'Grep' 'Glob' 'Read' 'codebase-memory'; do
+    run grep -F "$token" "$PLUGIN_README"
+    assert_success
+  done
+  run grep -Fi 'no separate' "$PLUGIN_README"
+  assert_success
+  run grep -Fi 'restart' "$PLUGIN_README"
+  assert_success
+}
+
+@test "plugin CLAUDE.md carries the codebase-memory-mcp bundle section and its rationale" {
+  run grep -F '## codebase-memory-mcp bundle' "$PLUGIN_CLAUDE"
+  assert_success
+  for token in 'fail-open' 'npm-automations' '${CLAUDE_PLUGIN_DATA}' 'cbm-checksums.txt' 'CBM_NO_EXTRACT' 'CBM_CACHE_DIR' '100 MiB' 'command'; do
+    run grep -F "$token" "$PLUGIN_CLAUDE"
+    assert_success
+  done
+}
+
+@test "root README and plugins/CLAUDE.md rows mention the cbm bundle" {
+  run grep -F '[linux-token-efficiency](plugins/linux-token-efficiency/README.md)' "$REPO_ROOT/README.md"
+  assert_success
+  run bash -c "grep -F '[linux-token-efficiency](plugins/linux-token-efficiency/README.md)' '$REPO_ROOT/README.md' | grep -F 'codebase-memory-mcp'"
+  assert_success
+  run grep -F 'codebase-memory-mcp' "$REPO_ROOT/plugins/CLAUDE.md"
+  assert_success
+}
