@@ -49,7 +49,7 @@
 //
 // Model assignment by difficulty:
 //   scout     haiku   — classify complexity/subsystems
-//   explorer  sonnet  — read-only codebase exploration (agentType 'explore')
+//   explorer  sonnet  — read-only codebase exploration (agentType 'Explore')
 //   designer  opus    — design, trade-offs, decisions (highest judgment load)
 //   designRev sonnet  — consistency/scope/placeholder gate + question validation
 //   specWriter sonnet — approved draft → spec (transformation, decisions stand)
@@ -293,9 +293,7 @@ ${FINGERPRINT_CMD}
    starts with \`## \`, in order — this is still reading the cache file, not
    exploring the codebase.`;
 
-const probe = RESUME
-  ? await agent(cacheProbePrompt, { label: "explore-cache:probe", phase: "Explore", schema: EXPLORE_CACHE_PROBE, model: MODELS.cacheProbe, agentType: AGENTS.cacheProbe })
-  : null;
+const probe = RESUME ? await agent(cacheProbePrompt, { label: "explore-cache:probe", phase: "Explore", schema: EXPLORE_CACHE_PROBE, model: MODELS.cacheProbe, agentType: AGENTS.cacheProbe }) : null;
 // Normalize once, in place: SCHEMA types these as `number`, but structured
 // output can still hand back a numeric string — coerce before any comparison
 // so a genuinely-matching line count is never rejected as a type mismatch.
@@ -313,8 +311,7 @@ const parsedAreas = probe && Array.isArray(probe.areas) ? probe.areas.filter((a)
 // writer (same total length, corrupted content). Require every declared area
 // to actually have a matching `## <area>` section in the body before trusting
 // it as real, freshly-explored-equivalent content.
-const parsedHeadings =
-  probe && Array.isArray(probe.sectionHeadings) ? probe.sectionHeadings.filter((h) => typeof h === "string" && h.trim() !== "").map((h) => h.trim().toLowerCase()) : [];
+const parsedHeadings = probe && Array.isArray(probe.sectionHeadings) ? probe.sectionHeadings.filter((h) => typeof h === "string" && h.trim() !== "").map((h) => h.trim().toLowerCase()) : [];
 const cacheHit =
   probe != null &&
   probe.found === true &&
@@ -366,7 +363,7 @@ most common answer — return it whenever the cached coverage already suffices.
 \`complexity\` is required by the schema but unused on this path; answer it
 however you like. Do not design anything. Structured output only.`;
 
-const scout = await agent(cacheHit ? scoutTopUpPrompt : scoutPrompt, { label: "scout", phase: "Explore", schema: SCOUT_SCHEMA, model: MODELS.scout, agentType: "explore" });
+const scout = await agent(cacheHit ? scoutTopUpPrompt : scoutPrompt, { label: "scout", phase: "Explore", schema: SCOUT_SCHEMA, model: MODELS.scout, agentType: "Explore" });
 if (!scout && !cacheHit) return { status: "error", stage: "Explore", error: "scout returned no result" };
 
 // Sanitize at the source: the AREAS header packs names with ' | ' and a later
@@ -379,17 +376,18 @@ if (!scout && !cacheHit) return { status: "error", stage: "Explore", error: "sco
 // one call would otherwise burn a budget slot on exploring the same area
 // twice instead of a genuinely distinct one.
 const seenProposedNames = new Set();
-const proposed = scout && Array.isArray(scout.subsystems)
-  ? scout.subsystems
-      .filter((s) => s && typeof s.name === "string" && s.name.trim() !== "")
-      .map((s) => ({ ...s, name: s.name.replace(/\|/g, "/").trim() }))
-      .filter((s) => {
-        const key = s.name.toLowerCase();
-        if (seenProposedNames.has(key)) return false;
-        seenProposedNames.add(key);
-        return true;
-      })
-  : [];
+const proposed =
+  scout && Array.isArray(scout.subsystems)
+    ? scout.subsystems
+        .filter((s) => s && typeof s.name === "string" && s.name.trim() !== "")
+        .map((s) => ({ ...s, name: s.name.replace(/\|/g, "/").trim() }))
+        .filter((s) => {
+          const key = s.name.toLowerCase();
+          if (seenProposedNames.has(key)) return false;
+          seenProposedNames.add(key);
+          return true;
+        })
+    : [];
 const covered = cachedAreas.map((a) => a.trim().toLowerCase()); // [] on every miss
 const subsystems = proposed.filter((s) => !covered.includes(s.name.trim().toLowerCase())).slice(0, Math.min(budget, MAX_PARALLEL_EXPLORES));
 if (!cacheHit && subsystems.length === 0) subsystems.push({ name: "whole task", focus: TASK });
@@ -405,7 +403,7 @@ design must match, recent related commits, constraints and pitfalls you can
 see in the code. Dense and exact — file paths and symbol names, not prose
 generalities. Structured output only.`;
 
-const exploreOpts = (s) => ({ label: "explore:" + s.name, phase: "Explore", schema: EXPLORE_SCHEMA, model: MODELS.explorer, agentType: "explore" });
+const exploreOpts = (s) => ({ label: "explore:" + s.name, phase: "Explore", schema: EXPLORE_SCHEMA, model: MODELS.explorer, agentType: "Explore" });
 const exploreOuts =
   subsystems.length === 0
     ? []

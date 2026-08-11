@@ -76,9 +76,13 @@ Every pipeline file is session-only, never a repository file:
    are the engine.
 2. **Primary — invoke by name with `args`:** both scripts live in this
    plugin's root `workflows/` directory and are auto-discovered, so they run
-   namespaced by the plugin name as `/taskflow:design-to-spec` and
+   namespaced by the plugin name, displayed as `/taskflow:design-to-spec` and
    `/taskflow:spec-driven-delivery` (the prefix follows the manifest
-   `name`). Pass the inputs as ONE structured `args` object — the script
+   `name`). The `Workflow` tool's `name` parameter takes that identifier
+   WITHOUT the leading `/` — `taskflow:design-to-spec` /
+   `taskflow:spec-driven-delivery`; a leading `/` makes the tool report the
+   name as not found (confirmed live). Pass the inputs as ONE structured
+   `args` object — the script
    reads it as the `args` global; keys and return contract are documented in
    the per-workflow reference files linked above. Structured data, so task
    text and user answers need no string escaping. The runtime may deliver
