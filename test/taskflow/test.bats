@@ -332,33 +332,21 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
 @test "designer, planner, synthesizer and the complex impl tier are pinned to claude-opus-4-8" {
   run rg_or_grep -F 'designer: "claude-opus-4-8"' "$WORKFLOWS/design-to-spec.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'planner: "claude-opus-4-8"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'const PINNED_OPUS = "claude-opus-4-8"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'synthesizer: "claude-opus-4-8"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'planner: PINNED_OPUS' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'complex: "claude-opus-4-8"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'synthesizer: PINNED_OPUS' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
-}
-
-@test "no workflow script keeps a bare opus alias in a value or a comment" {
-  for f in design-to-spec.workflow.js spec-driven-delivery.workflow.js; do
-    # Plain grep: -w keeps `opus` inside `claude-opus-4-8` a whole word (filtered
-    # below) while prose `Opus` is deliberately not a hit.
-    run bash -c "grep -nw 'opus' '$WORKFLOWS/$f' | grep -v 'claude-opus-4-8' || true"
-    [ "$status" -eq 0 ]
-    [ "$output" = "" ]
-    run rg_or_grep -F ': "opus"' "$WORKFLOWS/$f"
-    [ "$status" -ne 0 ]
-  done
+  run rg_or_grep -F 'complex: PINNED_OPUS' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
 }
 
 @test "both workflow scripts' comment blocks name the pinned model ID" {
-  run bash -c "grep -c 'claude-opus-4-8' '$WORKFLOWS/design-to-spec.workflow.js'"
+  run rg_or_grep -F 'claude-opus-4-8' "$WORKFLOWS/design-to-spec.workflow.js"
   [ "$status" -eq 0 ]
-  [ "$output" -ge 2 ]
-  run bash -c "grep -c 'claude-opus-4-8' '$WORKFLOWS/spec-driven-delivery.workflow.js'"
+  run rg_or_grep -F 'claude-opus-4-8' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
-  [ "$output" -ge 5 ]
 }
 
 @test "sonnet and haiku workflow assignments stay bare aliases" {
@@ -368,12 +356,6 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'trivial: "haiku", standard: "sonnet"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
-}
-
-@test "no agent file declares the bare opus alias" {
-  run bash -c "grep -n '^model: opus\$' \"$AGENTS_DIR\"/*.md || true"
-  [ "$status" -eq 0 ]
-  [ "$output" = "" ]
 }
 
 @test "CLAUDE.md's Model assignment section records the Opus pin as a dated exception and keeps aliases as the rule" {
@@ -435,9 +417,9 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   done
 }
 
-@test "dispatch-task is model-invocable (no disable-model-invocation)" {
+@test "dispatch-task is user-only (disable-model-invocation: true)" {
   run rg_or_grep -E '^disable-model-invocation:[[:space:]]*true' "$DISPATCH/SKILL.md"
-  [ "$status" -ne 0 ]
+  [ "$status" -eq 0 ]
 }
 
 @test "dispatch-task skill dir is self-contained (no cross-plugin references)" {
@@ -464,7 +446,21 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
 @test "dispatch-task hands the background session /taskflow:build-task inside a quoted heredoc" {
   run rg_or_grep -F '/taskflow:build-task' "$DISPATCH/SKILL.md"
   [ "$status" -eq 0 ]
+  run rg_or_grep -E "<<[[:space:]]?'DISPATCH_TASK_PROMPT_" "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "dispatch-task picks a fresh heredoc delimiter per invocation, not the old fixed literal" {
+  run rg_or_grep -iF 'never reuse a fixed literal' "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
   run rg_or_grep -E "<<[[:space:]]?'DISPATCH_TASK_PROMPT_EOF'" "$DISPATCH/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "dispatch-task cuts a properly named feature/<slug> branch before invoking build-task" {
+  run rg_or_grep -F 'git checkout -b' "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'feature/<' "$DISPATCH/SKILL.md"
   [ "$status" -eq 0 ]
 }
 

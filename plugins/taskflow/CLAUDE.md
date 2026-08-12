@@ -23,13 +23,16 @@ the directory as the standard, not an exception.
 ## userConfig
 
 No `userConfig` in `plugin.json` — deliberate, see the `taskflow` entry in
-`.claude/rules/plugin-userconfig.md`'s no-toggle exceptions: both
-`build-task` and `dispatch-task` only ever run on invocation — by the user
-directly, or by the model choosing to invoke them (`dispatch-task` carries no
-`disable-model-invocation` either) — never from a hook or other unattended
-trigger, so there is no automatic/background behavior for a toggle to
-suppress. (`dispatch-task` itself launches an unattended background session
-once invoked, but the invocation that starts it is never automatic.)
+`.claude/rules/plugin-userconfig.md`'s no-toggle exceptions: `build-task` only
+ever runs on invocation — by the user directly, or by the model choosing to
+invoke it. `dispatch-task` carries `disable-model-invocation: true` (added
+2026-08-12 — it launches an unattended, `--permission-mode auto` background
+session, so only an explicit user invocation may start one, never the
+model's own judgment). Neither skill ever runs from a hook or other
+unattended trigger, so there is no automatic/background behavior for a
+toggle to suppress. (`dispatch-task` itself launches an unattended
+background session once invoked, but the invocation that starts it is never
+automatic.)
 
 ## Model assignment
 
@@ -70,18 +73,36 @@ decisions:
   other's future fixes. A bats tripwire greps `skills/dispatch-task/` for
   references to any other plugin and must find none — do not "deduplicate" this
   by calling the other skill.
+- **`disable-model-invocation: true`** (added 2026-08-12): this skill launches
+  an unattended, full-`--permission-mode auto` background session — per
+  `.claude/rules/skill-invocation-control.md`'s "explicit reason" carve-out
+  (deploy/destructive-side-effect skills stay user-only), only an explicit
+  user invocation may start one, never the model's own judgment.
 - **`sonnet`/`medium` are fixed constants, not flags** — the whole argument is
   the task description. The `^[A-Za-z0-9._-]+$` validation rule is stated in the
   skill anyway, so a future override cannot skip it.
 - **`--permission-mode auto` always**, and the task text always travels inside a
-  quoted heredoc (`<< 'DISPATCH_TASK_PROMPT_EOF'`) read back by direct command
-  substitution — no temp file, so a dispatch failing under `set -e` leaves
-  nothing on disk to leak.
-- **Residual risk, accepted:** the heredoc delimiter is fixed, so a task
-  description containing a line exactly equal to `DISPATCH_TASK_PROMPT_EOF`
-  terminates the heredoc early and the remainder of that text is parsed as shell
-  input. This mirrors the implementation being reproduced; it is documented here
-  rather than silently claimed fixed.
+  quoted heredoc read back by direct command substitution — no temp file, so a
+  dispatch failing under `set -e` leaves nothing on disk to leak.
+- **Fixed 2026-08-12: the heredoc delimiter is chosen fresh per invocation,
+  never a fixed literal.** The invoking model reads the whole task text first
+  and picks a ≥20-character delimiter verified absent from it, instead of the
+  old fixed `DISPATCH_TASK_PROMPT_EOF` literal — closing the gap where a task
+  description containing a line exactly equal to that fixed terminator would
+  end the heredoc early and have its remainder parsed as shell input in the
+  _dispatching_ session. `coding-toolbox:dispatch-agent` still carries the
+  original fixed-delimiter form — out of scope for this fix, a known,
+  unaddressed sibling exposure (see that plugin's own CLAUDE.md).
+- **Fixed 2026-08-12: the payload cuts its own `feature/<slug>` branch first.**
+  `claude --worktree` bases the new worktree on `origin/<default branch>` but
+  checks it out under an auto-generated branch NAME, not that default branch
+  by name — `build-task`'s step 1 only cuts `feature/<slug>` when the current
+  branch name equals `BASE_BRANCH` exactly, so without this fix the
+  "otherwise, stay on the current branch" path fired on every dispatch and
+  shipped from the ugly auto-generated branch instead. The payload's first
+  instruction is now `git checkout -b "feature/<same-slug>"`, run by the new
+  session itself (full `--permission-mode auto` tooling) — this skill's own
+  Bash calls still never touch `git`, see below.
 - **Unattended checkpoints:** `build-task` funnels every human decision through
   `AskUserQuestion`, so a dispatched run may pause at one with nobody present.
   The skill's report step says so and points at `claude attach <id>`; the
