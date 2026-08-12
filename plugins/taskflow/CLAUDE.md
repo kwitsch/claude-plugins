@@ -23,9 +23,13 @@ the directory as the standard, not an exception.
 ## userConfig
 
 No `userConfig` in `plugin.json` — deliberate, see the `taskflow` entry in
-`.claude/rules/plugin-userconfig.md`'s no-toggle exceptions: the plugin ships
-one skill that only runs when explicitly invoked, so there is no
-automatic/background behavior for a toggle to suppress.
+`.claude/rules/plugin-userconfig.md`'s no-toggle exceptions: both
+`build-task` and `dispatch-task` only ever run on invocation — by the user
+directly, or by the model choosing to invoke them (`dispatch-task` carries no
+`disable-model-invocation` either) — never from a hook or other unattended
+trigger, so there is no automatic/background behavior for a toggle to
+suppress. (`dispatch-task` itself launches an unattended background session
+once invoked, but the invocation that starts it is never automatic.)
 
 ## Model assignment
 
