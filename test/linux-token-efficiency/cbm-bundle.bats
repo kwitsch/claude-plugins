@@ -40,11 +40,13 @@ setup() {
   assert_success
 }
 
-@test "bin/ holds nothing but the committed rtk binary" {
+@test "bin/ holds the committed rtk binary and the context-mode launcher" {
   run bash -c "git -C '$REPO_ROOT' ls-files -- plugins/linux-token-efficiency/bin/"
-  assert_output 'plugins/linux-token-efficiency/bin/rtk'
+  assert_output 'plugins/linux-token-efficiency/bin/context-mode-launch.sh
+plugins/linux-token-efficiency/bin/rtk'
   run bash -c "ls -A '$PLUGIN/bin'"
-  assert_output 'rtk'
+  assert_output 'context-mode-launch.sh
+rtk'
 }
 
 @test "no cbm artifact is tracked anywhere in the repo" {
