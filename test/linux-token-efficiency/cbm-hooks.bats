@@ -164,7 +164,7 @@ hook_result() {
   CBM_RPC_ENV=(CLAUDE_PLUGIN_OPTION_CBM_ENABLED=false)
   cbm_call hook_session_context "$(jq -cn --arg cwd "$WORKDIR" '{cwd:$cwd}')"
   # The process exits at startup, so there is no response at all — and nothing was called.
-  run bash -c "printf '%s\n' \"\$CBM_RPC_STDOUT\" | grep -c '\"id\":2' || true"
+  run bash -c 'printf "%s\n" "$1" | grep -c "\"id\":2" || true' _ "$CBM_RPC_STDOUT"
   assert_output '0'
   run bash -c "grep -c . '$FAKE_LOG' || true"
   assert_output '0'

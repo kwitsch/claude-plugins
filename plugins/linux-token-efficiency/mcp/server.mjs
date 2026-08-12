@@ -19,7 +19,7 @@ import readline from "node:readline";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { accessSync, chmodSync, constants as fsConstants, createReadStream, createWriteStream, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { accessSync, chmodSync, constants as fsConstants, createReadStream, createWriteStream, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
 import { Readable } from "node:stream";
@@ -258,19 +258,40 @@ function findBinaries(dir) {
   return found;
 }
 
+/**
+ * True when `p` doesn't exist yet, or exists and is owned by this process's uid and is
+ * not a symlink. `cachedBinaryPath()` is derived from `PIN.binarySha256`, which is
+ * committed (public) in cbm-bundle.json — on a shared host with the TMPDIR fallback
+ * active (no CLAUDE_PLUGIN_DATA), that path is predictable to any local user, so the
+ * fast path below must not trust a pre-existing file there on ownership alone.
+ * @param {string} p
+ * @returns {boolean}
+ */
+function isOwnedByUs(p) {
+  try {
+    const st = lstatSync(p);
+    const uid = typeof process.getuid === "function" ? process.getuid() : 0;
+    return !st.isSymbolicLink() && st.uid === uid;
+  } catch {
+    return true; // doesn't exist — nothing to distrust
+  }
+}
+
 /** @returns {Promise<boolean>} */
 async function prepareBinary() {
   const target = cachedBinaryPath();
   try {
     // Fast path: the path is derived from the verified hash and only ever created after
-    // verification, so a warm start never re-hashes 279.6 MiB.
+    // verification, so a warm start never re-hashes 279.6 MiB — but only once ownership
+    // confirms nobody else could have planted a file at this predictable path.
     accessSync(target, fsConstants.X_OK);
-    return true;
+    if (isOwnedByUs(target)) return true;
+    log(`cached binary at ${target} is not owned by this process; refusing to trust it, re-verifying`);
   } catch {
     // cold cache — fall through to the download path
   }
   const cacheRoot = resolveBundleCache(process.env);
-  mkdirSync(cacheRoot, { recursive: true });
+  mkdirSync(cacheRoot, { recursive: true, mode: 0o700 });
   const tmp = mkdtempSync(path.join(cacheRoot, ".tmp."));
   try {
     const base = process.env.CBM_DOWNLOAD_BASE_URL || DEFAULT_DOWNLOAD_BASE_URL;
@@ -298,7 +319,7 @@ async function prepareBinary() {
       log("extracted binary does not match the pin; nothing cached");
       return false;
     }
-    mkdirSync(path.dirname(target), { recursive: true });
+    mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
     // Atomic inside the cache root, so two racing servers converge on the identical
     // verified file.
     renameSync(found[0], target);

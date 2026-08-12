@@ -231,7 +231,7 @@ export function writeProjectCache(cacheDir, cwd, entry) {
     const name = firstString(rec, ["name"]);
     const root = firstString(rec, ["root"]);
     if (name === null || root === null) return;
-    mkdirSync(cacheDir, { recursive: true });
+    mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
     const key = projectCacheKey(cwd);
     const tmp = path.join(cacheDir, `.${key}.${process.pid}.tmp`);
     writeFileSync(tmp, JSON.stringify({ project: name, root, cachedAt: Date.now() }), "utf8");

@@ -289,6 +289,29 @@ test("formatSymbolContext: truncates to CONTEXT_CHAR_LIMIT", () => {
   assert.equal((ctx ?? "").length <= CONTEXT_CHAR_LIMIT, true);
 });
 
+test("formatSymbolContext: truncation never splits a UTF-16 surrogate pair", () => {
+  // An astral-plane symbol is one code point but two UTF-16 code units (a surrogate
+  // pair). A name made of nothing but repeated pairs guarantees the truncation cut
+  // lands mid-pair for one of the two possible cut parities; run both (an even and
+  // an odd leading offset) and assert neither ever leaves a lone surrogate behind.
+  const pairs = "𝌆".repeat(CONTEXT_CHAR_LIMIT);
+  const UNPAIRED_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u;
+  for (const name of [pairs, `S${pairs}`]) {
+    const rows = [[name, "function", "1-1", 0, 0]];
+    const ctx = formatSymbolContext(
+      {
+        cols: ["name", "label", "lines", "in", "out"],
+        groups: [{ qn_prefix: "", file: "", rows }],
+      },
+      10,
+    );
+    assert.notEqual(ctx, null);
+    const text = /** @type {string} */ (ctx);
+    assert.equal(text.length <= CONTEXT_CHAR_LIMIT, true);
+    assert.equal(UNPAIRED_SURROGATE.test(text), false);
+  }
+});
+
 test("formatCoverageContext: warns on a real gap, silent on no-signal payloads", () => {
   const warn = formatCoverageContext(COVERAGE_GAP, "src/server.mjs");
   assert.notEqual(warn, null);
@@ -333,6 +356,12 @@ test("relativeToProject: inside, exact root, outside", () => {
   assert.equal(relativeToProject("/repos/app", "/repos/other/a.mjs"), null);
   assert.equal(relativeToProject("", "/repos/app/a.mjs"), null);
   assert.equal(relativeToProject("/repos/app", ""), null);
+});
+
+test("relativeToProject: a relative filePath resolves against the passed baseCwd, not the server's own cwd", () => {
+  assert.equal(relativeToProject("/repos/app", "src/server.mjs", "/repos/app"), "src/server.mjs");
+  assert.equal(relativeToProject("/repos/app", "../server.mjs", "/repos/app"), null);
+  assert.equal(relativeToProject("/repos/app", "src/server.mjs", "/repos/other"), null);
 });
 
 test("buildOutput: exactly hookSpecificOutput.{hookEventName,additionalContext}", () => {
