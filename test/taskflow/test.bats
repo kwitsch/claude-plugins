@@ -7,6 +7,7 @@ setup() {
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
   PLUGIN="$REPO_ROOT/plugins/taskflow"
   SKILL="$PLUGIN/skills/build-task"
+  DISPATCH="$PLUGIN/skills/dispatch-task"
   REFS="$SKILL/references"
   AGENTS_DIR="$PLUGIN/agents"
   WORKFLOWS="$PLUGIN/workflows"
@@ -412,4 +413,57 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   run bash -c "grep -cw 'opus' '$PLUGIN/CLAUDE.md'"
   [ "$status" -eq 0 ]
   [ "$output" -ge 2 ]
+}
+
+# --- dispatch-task skill ---
+
+@test "dispatch-task SKILL.md exists and is non-empty" {
+  [ -s "$DISPATCH/SKILL.md" ]
+}
+
+@test "dispatch-task frontmatter declares name, arguments and the minimal allowed-tools" {
+  fm="$BATS_TEST_TMPDIR/dispatch-task-frontmatter.txt"
+  sed -n '/^---$/,/^---$/p' "$DISPATCH/SKILL.md" > "$fm"
+  [ -s "$fm" ]
+  for pat in 'name: dispatch-task' 'arguments: task_description' '"Bash(claude:*)"' '"AskUserQuestion"'; do
+    run rg_or_grep -F "$pat" "$fm"
+    [ "$status" -eq 0 ]
+  done
+  for pat in '"Agent"' '"Skill"' '"Bash(git:*)"' 'TaskCreate'; do
+    run rg_or_grep -F "$pat" "$fm"
+    [ "$status" -ne 0 ]
+  done
+}
+
+@test "dispatch-task is model-invocable (no disable-model-invocation)" {
+  run rg_or_grep -E '^disable-model-invocation:[[:space:]]*true' "$DISPATCH/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "dispatch-task skill dir is self-contained (no cross-plugin references)" {
+  run bash -c "grep -riE 'coding-toolbox|dispatch-agent|superpowers|branch-management' '$DISPATCH'"
+  [ "$status" -eq 1 ]
+}
+
+@test "dispatch-task dispatches a background worktree session on fixed sonnet/medium with permission-mode auto" {
+  for pat in 'claude --worktree' '--bg' '--model "sonnet"' '--effort "medium"' '--permission-mode auto'; do
+    run rg_or_grep -F -- "$pat" "$DISPATCH/SKILL.md"
+    [ "$status" -eq 0 ]
+  done
+}
+
+@test "dispatch-task hardens the session name and any interpolated value" {
+  run rg_or_grep -F 'RANDOM' "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'date +%s' "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F '^[A-Za-z0-9._-]+$' "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "dispatch-task hands the background session /taskflow:build-task inside a quoted heredoc" {
+  run rg_or_grep -F '/taskflow:build-task' "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -E "<<[[:space:]]?'DISPATCH_TASK_PROMPT_EOF'" "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
 }
