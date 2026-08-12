@@ -408,9 +408,12 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
 }
 
 @test "no bare opus alias survives anywhere in the plugin outside CLAUDE.md's exception prose" {
-  # Plain grep: --exclude has no rg_or_grep equivalent; -w keeps `opus` inside
-  # `claude-opus-4-8` a whole word (filtered below), prose `Opus` is not a hit.
-  run bash -c "grep -rnw 'opus' '$PLUGIN' --exclude=CLAUDE.md | grep -v 'claude-opus-4-8' || true"
+  # Plain grep: --exclude has no rg_or_grep equivalent. Match only a standalone
+  # `opus` token (not part of a hyphenated model ID like `claude-opus-4-8`) —
+  # filtering out whole lines that merely CONTAIN `claude-opus-4-8` would also
+  # hide a bare `opus` alias coexisting on that same line (CodeRabbit finding,
+  # PR #193).
+  run bash -c "grep -rnE '(^|[^[:alnum:]_-])opus([^[:alnum:]_-]|\$)' '$PLUGIN' --exclude=CLAUDE.md || true"
   [ "$status" -eq 0 ]
   [ "$output" = "" ]
   # CLAUDE.md keeps exactly the exception prose that names the alias.
@@ -454,6 +457,17 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
     run rg_or_grep -F -- "$pat" "$DISPATCH/SKILL.md"
     [ "$status" -eq 0 ]
   done
+}
+
+@test "dispatch-task and CLAUDE.md document worktree.baseRef instead of assuming the default branch unconditionally" {
+  run rg_or_grep -F 'worktree.baseRef' "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F '"head"' "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'worktree.baseRef' "$PLUGIN/CLAUDE.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F '"head"' "$PLUGIN/CLAUDE.md"
+  [ "$status" -eq 0 ]
 }
 
 @test "dispatch-task hardens the session name and any interpolated value" {

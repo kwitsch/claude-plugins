@@ -115,22 +115,41 @@ decisions:
   original fixed-delimiter form — out of scope for this fix, a known,
   unaddressed sibling exposure (see that plugin's own CLAUDE.md).
 - **Fixed 2026-08-12: the payload cuts its own `feature/<slug>` branch first.**
-  `claude --worktree` bases the new worktree on `origin/<default branch>` but
-  checks it out under an auto-generated branch NAME, not that default branch
-  by name — `build-task`'s step 1 only cuts `feature/<slug>` when the current
-  branch name equals `BASE_BRANCH` exactly, so without this fix the
-  "otherwise, stay on the current branch" path fired on every dispatch and
-  shipped from the ugly auto-generated branch instead. The payload's first
-  instruction is now `git checkout -b "feature/<same-slug>"`, run by the new
-  session itself (full `--permission-mode auto` tooling) — this skill's own
-  Bash calls still never touch `git`, see below.
+  `claude --worktree` bases the new worktree on `origin/<default branch>` —
+  unless this project's `worktree.baseRef` setting is `"head"` (not the
+  default `"fresh"`), in which case it bases it on the dispatching session's
+  own current `HEAD` instead (see the `worktree.baseRef` bullet below). Either
+  way it checks the worktree out under an auto-generated branch NAME, never
+  literally the base branch by name — `build-task`'s step 1 only cuts
+  `feature/<slug>` when the current branch name equals `BASE_BRANCH` exactly,
+  so without this fix the "otherwise, stay on the current branch" path fired
+  on every dispatch and shipped from the ugly auto-generated branch instead,
+  regardless of which base it started from. The payload's first instruction
+  is now `git checkout -b "feature/<same-slug>"`, run by the new session
+  itself (full `--permission-mode auto` tooling) — this skill's own Bash
+  calls still never touch `git`, see below.
+- **`worktree.baseRef` (CodeRabbit finding, PR #193 — this repo's own bundled
+  `claude-code-knowledge` reference cache was stale on this exact setting;
+  verified against the live `code.claude.com/docs/en/worktrees` doc before
+  fixing).** `claude --worktree`'s base is controlled by the `worktree.baseRef`
+  setting (`settings.json`), default `"fresh"` (branch from the repo's default
+  branch on `origin`). A project that sets it to `"head"` instead gets every
+  new worktree — `--worktree`, `EnterWorktree`, and subagent `isolation:
+worktree` alike — branched from local `HEAD` where it runs, carrying
+  unpushed commits/feature-branch state. This skill does not, and should not,
+  try to override or second-guess that project-level choice; it only needs to
+  document the conditional behavior accurately (this doc and `SKILL.md` used
+  to claim the default-branch base unconditionally) rather than assume
+  `"fresh"`. The `feature/<slug>` branch-cut fix above already behaves
+  correctly under either mode without any further code change.
 - **Unattended checkpoints:** `build-task` funnels every human decision through
   `AskUserQuestion`, so a dispatched run may pause at one with nobody present.
   The skill's report step says so and points at `claude attach <id>`; the
   dispatched prompt itself is the bare command plus the task text, with no
   autonomy nudging added.
-- **No `git`, hence no `Bash(git:*)` grant:** `claude --worktree` cuts the
-  worktree from `origin/<default branch>` with a clean tree, which already
+- **No `git`, hence no `Bash(git:*)` grant:** `claude --worktree` starts the
+  worktree with a clean tree regardless of its base (`origin/<default
+branch>` or local `HEAD` per `worktree.baseRef` above), which already
   satisfies `build-task`'s clean-`git status` precondition.
 
 ## Explore-result cache

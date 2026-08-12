@@ -3,9 +3,9 @@ name: dispatch-task
 description: >-
   Kicks off this plugin's build-task pipeline for a described task in a new,
   worktree-isolated background Claude Code session (`claude --worktree ... --bg`, model
-  `sonnet`, effort `medium`) cut from the repository's default branch on origin — so the
-  current session does not have to stay and babysit the run. Use to hand off a full
-  design-and-delivery task and keep working. Self-contained: depends on no other plugin.
+  `sonnet`, effort `medium`) — so the current session does not have to stay and babysit the
+  run. Use to hand off a full design-and-delivery task and keep working. Self-contained:
+  depends on no other plugin.
 argument-hint: "[task-description]"
 arguments: task_description
 allowed-tools: ["Bash(claude:*)", "AskUserQuestion"]
@@ -16,15 +16,18 @@ disable-model-invocation: true
 
 Hands one described task to a new, worktree-isolated background Claude Code session
 (`claude --worktree ... --bg`) that runs this plugin's `build-task` pipeline unattended —
-not an in-session subagent of this conversation. The dispatched session's worktree is
-branched off the repository's **default branch on origin** (`claude --worktree` always
-creates it that way), but checked out on an auto-generated branch NAME, not literally that
-default branch — so nothing about the current session's own branch or sync state affects
-the dispatch, but the payload below has the new session cut a properly-named
-`feature/<slug>` branch as its own first action, before invoking `build-task`; skipping that
-would make `build-task`'s step 1 ("otherwise, stay on the current branch") fire on every
-dispatch and ship from the ugly auto-generated branch instead. This skill's own Bash calls
-still never touch `git` — that first action runs inside the new session, not here.
+not an in-session subagent of this conversation. The dispatched session's worktree branches
+from the repository's **default branch on origin** — UNLESS this project's `worktree.baseRef`
+setting is `"head"` (not the default `"fresh"`), in which case it instead branches from
+_this session's own current local `HEAD`_, carrying this session's unpushed commits and
+feature-branch state into the dispatched run. Either way it is checked out on an
+auto-generated branch NAME, never literally the default branch or this session's branch by
+name — so the payload below has the new session cut a properly-named `feature/<slug>`
+branch as its own first action, before invoking `build-task`, regardless of which base it
+started from; skipping that would make `build-task`'s step 1 ("otherwise, stay on the
+current branch") fire on every dispatch and ship from the ugly auto-generated branch
+instead. This skill's own Bash calls still never touch `git` — that first action runs
+inside the new session, not here.
 
 `$task_description` is the whole task text — there are no flags to parse: model
 (`sonnet`) and effort (`medium`) are fixed constants here. If `$task_description` is
@@ -65,8 +68,8 @@ Never guess a task.
    }
    claude --worktree "$name" --model "sonnet" --effort "medium" --permission-mode auto --bg "$(
      cat << 'DISPATCH_TASK_PROMPT_<fresh-collision-free-token-here>'
-   First, in this fresh worktree (already a clean checkout branched off the repository's
-   default branch), run exactly this before anything else:
+   First, in this fresh worktree (already a clean checkout), run exactly this before
+   anything else:
      git checkout -b "feature/<same-3-6-word-english-slug-as-above>"
    Then invoke:
    /taskflow:build-task <the literal, verbatim task description text goes here —
@@ -94,8 +97,10 @@ Never guess a task.
    (`claude agents`, `claude attach <id>`, `claude logs <id>`, `claude stop <id>`,
    `claude rm <id>` — this last one removes the worktree too, since `claude --worktree`
    owns it), plus the model (`sonnet`) and effort (`medium`) used. State plainly that
-   (a) the dispatched session started from the repository's default branch on origin, not
-   this session's branch, (b) that session's own transcript is the only result channel
+   (a) the dispatched session's worktree started from the repository's default branch on
+   origin, unless this project has `worktree.baseRef` set to `"head"`, in which case it
+   started from this session's own current HEAD instead, (b) that session's own transcript
+   is the only result channel
    (`claude logs <id>` / `claude attach <id>`) — `build-task` ends with a prose report,
    not a structured payload this skill can capture — and (c) `build-task` funnels its
    human checkpoints through `AskUserQuestion`, so an unattended run may pause at one
