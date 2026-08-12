@@ -1,7 +1,7 @@
 # Claude Code MCP — Managed / Enterprise Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (Managed MCP), verified 2026-07-31.
+> (Managed MCP), verified 2026-08-13.
 > Apply when deploying or troubleshooting enterprise MCP restrictions (`managed-mcp.json`,
 > allowlists/denylists). See `claude-code-mcp-reference.md` for general MCP config/auth/naming.
 
@@ -111,8 +111,15 @@ Example (managed settings):
 - Hostname matching: case-insensitive, trailing FQDN dot ignored.
 - Path matching: case-sensitive.
 - Command matching: exact array comparison including every argument and order.
-- `serverCommand` and `serverUrl` values expand before matching: both the policy entry and the server's configured value go through the same `${VAR}` / `${VAR:-default}` expansion as `.mcp.json`, so an entry written `["${HOME}/bin/server"]` matches a config using either the same reference or the expanded path. On Windows reference a variable that is set there, e.g. `${USERPROFILE}` instead of `${HOME}`. `serverName` matches literally and never expands.
-- Expansion reads Claude Code's own process environment, so a `serverCommand`/`serverUrl` entry referencing a variable expands to whatever value the user sets. Use literal URLs and commands for entries you rely on for enforcement.
+- `serverCommand` and `serverUrl` values expand before matching: both the policy entry and the server's configured value go through `${VAR}` / `${VAR:-default}` expansion as in `.mcp.json`, so an entry written `["${HOME}/bin/server"]` matches a config using either the same reference or the expanded path. On Windows reference a variable that is set there, e.g. `${USERPROFILE}` instead of `${HOME}`. `serverName` matches literally and never expands.
+- version >= 2.1.219: the two sides expand from different environments — the server's configured value still reads Claude Code's live process environment, but a policy entry reads a pinned environment, so a variable set by a project/user settings file cannot change what an allowlist/denylist entry means. Before 2.1.219, both sides expanded from the same live process environment (including variables set by settings files).
+
+  | Entry list          | Expands from                                                                                                                                                                      |
+  | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `allowedMcpServers` | The environment Claude Code started with, plus `env` values from managed settings                                                                                                 |
+  | `deniedMcpServers`  | Same, plus: a variable with no startup value and no `:-default` fills from settings files outside the repo (user/managed settings) — this only ever widens what the entry matches |
+
+- A policy entry still depends on the launching shell's value for any variable it references — use literal URLs and commands for entries you rely on for enforcement.
 
 ## `allowManagedMcpServersOnly`
 
@@ -132,7 +139,8 @@ Example (managed settings):
 
 ## Version notes
 
-| version >= | Feature                                                         |
-| ---------- | --------------------------------------------------------------- |
-| 2.1.149    | `allowAllClaudeAiMcps` setting                                  |
-| 2.1.182    | `serverName` in `deniedMcpServers` accepts any non-empty string |
+| version >= | Feature                                                                                                                                      |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2.1.149    | `allowAllClaudeAiMcps` setting                                                                                                               |
+| 2.1.182    | `serverName` in `deniedMcpServers` accepts any non-empty string                                                                              |
+| 2.1.219    | Policy-entry (`allowedMcpServers`/`deniedMcpServers`) `${VAR}` expansion sourced from a pinned environment, not the live process environment |

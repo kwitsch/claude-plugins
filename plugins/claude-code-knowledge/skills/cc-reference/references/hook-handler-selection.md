@@ -1,7 +1,7 @@
 # Claude Code — Hook Handler Selection
 
 <!-- AGENT-FACING REFERENCE. Not prose. Optimize for lookup + decision, not readability. -->
-<!-- Source: code.claude.com/docs/en/hooks + code.claude.com/docs/en/hooks-guide. Verified 2026-07-31. Re-verify against docs if version differs. -->
+<!-- Source: code.claude.com/docs/en/hooks + code.claude.com/docs/en/hooks-guide. Verified 2026-08-13. Re-verify against docs if version differs. -->
 <!-- Scope: choosing the `type` of a hook handler. Not about when hooks vs CLAUDE.md vs skills. -->
 
 ## Handler types
@@ -81,9 +81,9 @@
 ## Hard constraints
 
 - Exit codes: only `exit 2` blocks (most events). `exit 1` = non-blocking error → action PROCEEDS. Exception: `WorktreeCreate` aborts on any non-zero.
-- JSON output only parsed on `exit 0`. Pick one: exit-code signaling OR `exit 0` + JSON. Not both.
+- JSON output is read on EVERY exit code, not just `exit 0` — for events using the standard decision model, valid JSON decides the outcome regardless of exit code, EXCEPT exit 2's block itself, which JSON can never override (even `permissionDecision:"allow"`). `version >= 2.1.214:` exit 2 + JSON that fails schema validation still blocks (before: non-blocking, action proceeded).
 - `if` filter is best-effort; fails OPEN on unparseable Bash. Do not use `if` for security gating — use permission rules.
-- Command hooks run with NO controlling terminal (macOS/Linux, v2.1.139+). Cannot write `/dev/tty`. Surface to user via `systemMessage`; notify via `terminalSequence` (allowlisted OSC only). `version >= 2.1.141:` `terminalSequence` is supported.
+- Command hooks run with NO controlling terminal (macOS/Linux). Cannot write `/dev/tty`. Surface to user via `systemMessage`; notify via `terminalSequence` (allowlisted OSC only). `version >= 2.1.141:` `terminalSequence` is supported.
 - stdout reaches Claude only on `UserPromptSubmit`, `UserPromptExpansion`, `SessionStart`; elsewhere use `hookSpecificOutput.additionalContext`. Output strings capped 10k chars.
 - State: `command` holds NO state between fires. Stateful/expensive init must live in a persistent server → `mcp_tool` or `http`.
 - Context/token cost: model-facing MCP tools load tool defs into model context (ongoing token cost). A tool used ONLY as an `mcp_tool` hook trigger is config-driven and need not be exposed to the model — keep hook-only tools off the model surface to avoid context cost.

@@ -1,7 +1,7 @@
 # Claude Code Skills — Authoring Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (Skill authoring best practices + Claude Code Skills + Agent Skills overview + Agent SDK skills), verified 2026-07-25.
+> (Skill authoring best practices + Claude Code Skills + Agent Skills overview + Agent SDK skills), verified 2026-08-13.
 > Apply when authoring, reviewing, or refactoring a `SKILL.md`.
 
 ## What a skill is / when to choose it
@@ -47,8 +47,15 @@ v2.1.218+: boolean fields also accept `yes`/`no`/`on`/`off`/`1`/`0` in any lette
 | `hooks`                    | Hooks scoped to this skill's lifecycle.                                                                                                                                                                                         |
 | `paths`                    | Glob patterns; auto-activate only on matching files. Comma string or YAML list.                                                                                                                                                 |
 | `shell`                    | `bash` (default) or `powershell` for `!` injection. `powershell` requires the PowerShell tool: on by default on Windows without Git Bash, elsewhere via `CLAUDE_CODE_USE_POWERSHELL_TOOL=1`.                                    |
+| `metadata`                 | Free-form YAML map for caller-defined data (entitlement/catalog fields, own tooling). Claude Code doesn't act on it; drops a non-map value. Don't reuse other frontmatter field names (e.g. `paths`) as keys.                   |
+| `license`                  | License string for the skill. Part of the Agent Skills spec; Claude Code accepts but doesn't act on it.                                                                                                                         |
+| `compatibility`            | Environment/prerequisite string, ≤500 chars. Part of the Agent Skills spec; Claude Code accepts but doesn't act on it.                                                                                                          |
 
 Note: the SDK ignores `allowed-tools`; it is CLI-only. In the SDK, control access via `allowedTools` — without a `canUseTool` callback anything not listed is denied (`permissionMode: "dontAsk"` states that explicitly). SDK skill discovery: `settingSources`/`setting_sources` must include `user` or `project` (else no skills load; both are loaded by default), scanning `.claude/skills/` in `cwd` plus every parent up to the repo root; the `skills` option filters them (`"all"` | name list | `[]`; omitted = discovered skills enabled and the `Skill` tool available, matching CLI), and setting it auto-adds the `Skill` tool to `allowedTools` — but if an explicit `tools` list is also passed, add `"Skill"` to it manually. Plugin skills load via the `plugins` option / `plugin:skill` names. `skills` is a context filter, not a sandbox: unlisted skills are hidden from the model and rejected by the Skill tool, but their files stay reachable via `Read`/`Bash`.
+
+### Using skill frontmatter outside Claude Code
+
+Skills follow the [Agent Skills](https://agentskills.io) open standard; Claude Code accepts every field above, but claude.ai skill uploads, the Skills API, and `package_skill.py` (anthropics/skills) allow only 6 spec fields: `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools`. A Claude-Code-only field (e.g. `argument-hint`) in one of those paths fails packaging/upload with a hard error: `Unexpected key(s) in SKILL.md frontmatter: argument-hint. Allowed properties are: allowed-tools, compatibility, description, license, metadata, name`. Enabling a personal skill for Cowork/cloud sessions uploads it to claude.ai, so the same 6-field restriction applies there too. Claude-Code-only body features (dynamic context injection, etc.) don't function in claude.ai chat or via the API.
 
 ### Command-name mapping
 
@@ -61,6 +68,7 @@ Note: the SDK ignores `allowed-tools`; it is CLI-only. In the SDK, control acces
 | nested `.claude/skills/<dir>/SKILL.md` clashing with another skill's name | subdir path relative to cwd + dir name, e.g. `apps/web/.claude/skills/deploy/` → `/apps/web:deploy` |
 
 - Plugin skill `name` replaces only the last segment: `my-plugin/skills/review/` with `name: fancy` → `/my-plugin:fancy`; bare `/fancy` also invokes it unless another command owns that name. Pre-v2.1.216: `name` replaced the whole command name (menu showed `/fancy` without the plugin prefix, and `/my-plugin:fancy` did not autocomplete).
+- Non-interactive sessions don't reserve `help`/`feedback` for their terminal-only built-ins, so a plugin skill named one of those keeps its bare command there; every other terminal-only built-in name (e.g. `/login`) stays reserved even though it can't run in that session. v2.1.216–v2.1.220: `help`/`feedback` were reserved too, so a plugin skill with one of those names needed its namespaced command in non-interactive sessions during that window.
 
 ## Core authoring principles
 
@@ -161,6 +169,10 @@ Note: the SDK ignores `allowed-tools`; it is CLI-only. In the SDK, control acces
 - Multi-line: fenced ` ```! ` block.
 - Disable via `disableSkillShellExecution: true` — a normal setting, most useful in managed settings where users cannot override it. Applies to skills and custom commands from user/project/plugin/additional-directory sources; each `!` block becomes `[shell command execution disabled by policy]`. Bundled/managed skills unaffected.
 - Include `ultrathink` anywhere in the skill content to request deeper reasoning when the skill runs.
+- **Which tool runs it:** picked from the skill's `shell` field + environment. `shell: powershell` + PowerShell tool enabled → PowerShell tool. `shell: bash` when bash is unavailable (Windows w/o Git Bash) → the invocation fails outright (``Skill <name> requires bash (`shell: bash` in frontmatter) but Git Bash was not found``). Any other combination → Bash tool when available, else PowerShell tool.
+- **Execution semantics** mirror the underlying tool: working dir = the session shell's cwd (moves with `cd`; use `${CLAUDE_SKILL_DIR}`/`${CLAUDE_PROJECT_DIR}` for paths that must resolve consistently); default `bash` merges stderr into stdout; each command runs under the Bash tool's default 2-min timeout (an auto-backgrounded command still renders — injected text reports the move + the output file; a command that's never auto-backgrounded is killed at timeout, which aborts the invocation); output past the inline ceiling arrives as a file path + short preview, not truncated text.
+- **A failed command aborts the whole invocation** (not just its placeholder) — Claude never sees that turn's skill content; shown as `Shell command failed for pattern "..."` with `[stderr]`. Default `bash`: any non-zero exit fails, EXCEPT exit code 1 from search/comparison commands (grep, diff, etc.), treated as a normal result — exit ≥2 fails even for those; append `|| true` to a command expected to exit non-zero for another reason. `shell: powershell` uses a different carveout set (includes `grep`/`git diff`, not `find`/`diff`).
+- **Permission checks never prompt** for injected commands — anything but an allow decision (including a rule that would normally ask) aborts the invocation (`Shell command permission check failed for pattern "..."`). Pre-approve via `allowed-tools` to avoid the abort; a matching ask/deny rule still aborts regardless.
 
 ### Substitutions
 
@@ -199,6 +211,13 @@ Note: the SDK ignores `allowed-tools`; it is CLI-only. In the SDK, control acces
 - `--add-dir`/`/add-dir`: `.claude/skills/` IS loaded (exception); `permissions.additionalDirectories` setting does NOT load skills. Other config (agents/commands/output-styles) not loaded from added dirs.
 - Cowork sessions and cloud sessions (incl. routines) do NOT read `~/.claude/skills/` on the user's machine: they load the skills enabled for the claude.ai account, synced at session start; cloud sessions additionally load project skills committed to the cloned repo's `.claude/skills/`. A personal-only skill therefore reports not-found when a routine invokes it → enable it for the claude.ai account, or commit it to the repo / ship it in a repo-declared plugin. Desktop scheduled tasks run locally and load skills like any local session.
 - Live change detection: edits to watched `SKILL.md` apply mid-session; a brand-new top-level skills dir needs a restart. Plugin-folder `hooks/`/`.mcp.json`/`agents/`/`output-styles/` changes need `/reload-plugins`.
+
+### Synced skills (claude.ai)
+
+- `CLAUDE_CODE_SYNC_SKILLS=1` + a non-interactive (`-p`) run downloads the skills enabled for your claude.ai account into `~/.claude/skills/synced/`; ordinary local sessions load them from there afterward without re-syncing (rerun the sync command after changing account skills). `CLAUDE_CODE_SYNC_SKILLS_WAIT_TIMEOUT_MS` controls how long that run waits for the sync before answering its prompt. `synced` is a reserved folder name (any capitalization) at every skills location — Claude Code skips a skill you author there. v2.1.227+ (pre-v2.1.227: a `synced` folder loaded as an ordinary skill).
+- Name clash with any other command (built-in, bundled skill, local-level skill, plugin skill, `.claude/commands/` file, MCP prompt) → the synced skill is skipped and the other command runs, even a built-in/bundled name that's currently unavailable (e.g. bundled skills disabled). Name comparison ignores case/spacing/invisible chars and normalizes compatibility forms (fullwidth letters, dash variants); a look-alike letter from another alphabet counts as a different name. `/skills` and `/context` label synced skills `claude.ai sync`.
+- Frontmatter is honored normally (an `allowed-tools` grant goes through the normal permission flow), but display text (e.g. `description`) is sanitized: control characters stripped, angle brackets escaped so it can't imitate internal formatting.
+- Body handling varies by session: cloud session → behaves like a local skill (isolated container). Cowork desktop session → behaves like a local skill except every `!` command line is replaced by the `disableSkillShellExecution` placeholder. Any other local session → `!` commands don't run (reach Claude as literal text, or that placeholder if the setting is on), `@` file references aren't attached, and `${CLAUDE_PROJECT_DIR}`/`${CLAUDE_SESSION_ID}` aren't substituted (literal text).
 
 ## Permissions / access control
 
@@ -239,5 +258,5 @@ Note: the SDK ignores `allowed-tools`; it is CLI-only. In the SDK, control acces
 - Bundled skills ship in every session (prompt-based, invoked like any skill): `/doctor`, `/code-review`, `/batch`, `/debug`, `/loop`, `/claude-api`, plus `/run`, `/verify`, `/run-skill-generator`. Disable the whole set via `disableBundledSkills` setting. A same-named user/project/plugin skill overrides a bundled one.
 - v2.1.215+: `/verify` and `/code-review` run only on user invocation (Claude no longer triggers them itself); other bundled skills stay model-invocable. Pre-v2.1.215: Claude could run both on its own.
 - v2.1.205+: `/doctor` is the one exception to `disableBundledSkills` — stays typable when the setting is on. Hide it via `DISABLE_DOCTOR_COMMAND` env var or `skillOverrides: {"doctor": "off"}`. Before v2.1.205, `/doctor` was a built-in command, not a bundled skill.
-- `/run`, `/verify`, `/run-skill-generator` require Claude Code ≥ v2.1.145.
+- `/run`, `/verify`, `/run-skill-generator` require Claude Code ≥ v2.1.145. `/run`/`/verify` infer the app launch from project type + README/`package.json`/Makefile — unreliable beyond a standard launch (DB, env file, GUI session, multi-step build). `/run-skill-generator` records a working recipe once as a per-project skill at `.claude/skills/run-<name>/`, which `/run`/`/verify`/other agents then follow. `/verify` can also self-record: with no recipe, it writes what worked to `.claude/skills/verify/SKILL.md` (repo root, or the touched package dir in a monorepo) — requires v2.1.200+; at the repo root the recorded skill replaces the bundled `/verify`. v2.1.205+: it edits that file only when a run was steered wrong (failed command / missing step), so it stays diff-free between sessions otherwise; pre-v2.1.205 it folded in everything a run learned, causing frequent merge conflicts.
 - `allowed-tools` is CLI-only (SDK ignores it). Use skills only from trusted sources; a malicious skill can direct tool/code execution. Skills feature is not ZDR-eligible.

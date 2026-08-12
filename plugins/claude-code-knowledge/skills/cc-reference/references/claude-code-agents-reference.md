@@ -1,7 +1,7 @@
 # Claude Code Subagents / Agents — Authoring Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (Claude Code "Create custom subagents"; Agent SDK "Subagents in the SDK"), verified 2026-07-25.
+> (Claude Code "Create custom subagents"; Agent SDK "Subagents in the SDK"), verified 2026-08-13.
 > Apply when authoring, reviewing, or refactoring a subagent definition (`.claude/agents/*.md`).
 
 ## What a subagent is / when to choose it
@@ -23,13 +23,14 @@
 
 ## Built-in subagents
 
-| Agent             | Model   | Tools                                           | Purpose                                                                                    |
-| ----------------- | ------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Explore           | inherit | read-only (no Write/Edit)                       | fast file discovery / code search. Specifies thoroughness: quick / medium / very thorough. |
-| Plan              | inherit | read-only                                       | research during plan mode before presenting a plan                                         |
-| general-purpose   | inherit | every tool available to subagents (post-filter) | complex multi-step exploration + modification                                              |
-| statusline-setup  | Sonnet  | —                                               | auto, on `/statusline`                                                                     |
-| claude-code-guide | Haiku   | —                                               | auto, on questions about Claude Code features                                              |
+| Agent             | Model   | Tools                                           | Purpose                                                                                                                                                                                   |
+| ----------------- | ------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Explore           | inherit | read-only (no Write/Edit)                       | fast file discovery / code search. Specifies thoroughness: quick / medium / very thorough.                                                                                                |
+| Plan              | inherit | read-only                                       | research during plan mode before presenting a plan                                                                                                                                        |
+| general-purpose   | inherit | every tool available to subagents (post-filter) | complex multi-step exploration + modification                                                                                                                                             |
+| claude            | inherit | every tool available to subagents (post-filter) | catch-all when no other built-in fits; default agent for a dispatched background session (`claude --bg`/agent view) — runs under your settings' permission mode, not the parent session's |
+| statusline-setup  | Sonnet  | —                                               | auto, on `/statusline`                                                                                                                                                                    |
+| claude-code-guide | Haiku   | —                                               | auto, on questions about Claude Code features                                                                                                                                             |
 
 - version >= 2.1.198: Explore inherits the main conversation's model instead of always running on Haiku; on the Claude API the inherited model is capped at Opus (a session on a higher tier runs Explore on Opus; Sonnet/Haiku sessions keep Explore on that same model). On other providers (Amazon Bedrock, Google Cloud's Agent Platform, Microsoft Foundry, Claude Platform on AWS), Explore inherits the main model directly, uncapped. A user/project subagent literally named `Explore` overrides the built-in and keeps its own `model` field — set `model: haiku` there to keep exploration cheap.
 - Explore + Plan **skip CLAUDE.md and git status** (kept small). All other built-in + custom agents load both.
@@ -61,7 +62,7 @@ Required: `name`, `description`. Body = system prompt (subagent gets ONLY this +
 
 | Field             | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`            | lowercase + hyphens, unique. Hooks receive it as `agent_type`. Filename need not match.                                                                                                                                                                                                                                                                                                                                                                                       |
+| `name`            | lowercase + hyphens, unique. Hooks receive it as `agent_type`. Filename need not match. Can't contain `:` (reserved for plugin-scoped identifiers, e.g. `my-plugin:reviewer`) — version >= 2.1.218: a file whose `name` contains one fails to load (error logged to debug log); earlier versions accepted it.                                                                                                                                                                 |
 | `description`     | when Claude should delegate here. Add "use proactively" to encourage delegation.                                                                                                                                                                                                                                                                                                                                                                                              |
 | `tools`           | allowlist; inherits every tool available to subagents if omitted. Use `skills` field (not `Skill` here) to preload skills. Accepts MCP server-level patterns: `mcp__<server>` or `mcp__<server>__*` grants every tool from that server. version >= 2.1.208: if nothing in the list resolves to a tool, the subagent usually refuses to launch and the Agent tool errors naming the unresolved entries; earlier versions launched it with zero tools (empty/confusing result). |
 | `disallowedTools` | denylist; removed from inherited/specified set. Accepts MCP patterns: `mcp__<server>` / `mcp__<server>__*` removes every tool from that server; `mcp__*` removes every MCP tool from any server.                                                                                                                                                                                                                                                                              |
@@ -105,7 +106,7 @@ actionable feedback on quality, security, and best practices.
 1. `CLAUDE_CODE_SUBAGENT_MODEL` env var → 2. per-invocation `model` param → 3. definition `model` frontmatter → 4. main conversation model.
 
 - version >= 2.1.196: `CLAUDE_CODE_SUBAGENT_MODEL=inherit` is treated as unset — resolution falls through to the per-invocation param then frontmatter. Earlier versions: `inherit` forced the main conversation's model and skipped both of those sources.
-- Each resolved value (env var, per-invocation param, frontmatter) is checked against org `availableModels`; a value resolving to an excluded model is skipped and the subagent runs on the main conversation's model instead.
+- Each resolved value (env var, per-invocation param, frontmatter) is checked against org `availableModels`. version >= 2.1.222: a blocked family alias (e.g. `opus`) substitutes the newest version of that family the allowlist permits (same substitution + provider-scope rules as `/model`); any other blocked value, or a blocked family alias where that substitution doesn't apply, falls back to the main conversation's model. Earlier versions: any blocked value — including a blocked family alias — fell back to the main conversation's model. Interactive sessions show a warning naming the requested + actual model for either substitution.
 - version >= 2.1.211: a per-invocation `model` param also applies when the subagent is resumed or sent a follow-up, so it stays on that model. Earlier versions: resuming dropped it and fell back to frontmatter `model`, else the main conversation's model.
 - version >= 2.1.198: subagent inherits the main conversation's extended-thinking setting (on stays on, off stays off) — no per-subagent thinking config. Earlier versions: subagents always ran with extended thinking disabled regardless of the main conversation's setting.
 
@@ -115,7 +116,7 @@ actionable feedback on quality, security, and best practices.
 - **MCP server-level patterns** in either field: `mcp__<server>` / `mcp__<server>__*` = every tool from that server; in `disallowedTools`, `mcp__*` = every MCP tool from any server.
 - **Base pool:** a subagent inherits the main conversation's built-in + MCP tools, then TWO filters narrow it. Forks skip both filters and get the main conversation's exact pool.
 - **Filter 1 — stripped from EVERY subagent**, even when listed in `tools`: `Agent` (until nested spawning is turned on; in a fork it stays listed but errors instead of spawning), `AskUserQuestion`, `EndConversation` (can only end the main conversation), `EnterPlanMode`, `ExitPlanMode` (unless `permissionMode: plan`), `ScheduleWakeup`, `TaskOutput`, `WaitForMcpServers`, `Workflow`.
-- **Filter 2 — background subagents only** (= the default since v2.1.198): keeps every MCP tool, but only these built-ins: `Read`, `Grep`, `Glob`, `Bash`, `PowerShell`, `Edit`, `Write`, `NotebookEdit`, `WebFetch`, `WebSearch`, `TodoWrite`, `Skill`, `ToolSearch`, `EnterWorktree`, `ExitWorktree`, `Monitor`, `TaskStop`, `SendMessage`, `Artifact`. Every other built-in is removed whether inherited or listed → **the same definition resolves to a different tool set in foreground vs background**. Removal is silent unless it leaves `tools` resolving to nothing. `Agent` + `ExitPlanMode` follow filter 1's conditions wherever the subagent runs.
+- **Filter 2 — background subagents only** (= the default since v2.1.198): keeps every MCP tool, but only these built-ins: `Read`, `Grep`, `Glob`, `Bash`, `PowerShell`, `Edit`, `Write`, `NotebookEdit`, `WebFetch`, `WebSearch`, `TodoWrite`, `Skill`, `ToolSearch`, `EnterWorktree`, `ExitWorktree`, `Monitor`, `TaskStop`, `SendMessage`, `Artifact`. Every other built-in is removed whether inherited or listed → **the same definition resolves to a different tool set in foreground vs background**. Removal is silent unless it leaves `tools` resolving to nothing. `Agent` + `ExitPlanMode` follow filter 1's conditions wherever the subagent runs. `ListAgents` (cross-session messaging) follows the same filters as any built-in: a foreground subagent inherits it when the session has cross-session messaging enabled; a background subagent does not keep it.
 - Agent-teams teammates additionally keep the task + cron tools: `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`, `CronCreate`, `CronDelete`, `CronList`.
 - **Restrict which agents a main-thread agent may spawn** (only under `claude --agent`): `tools: Agent(worker, researcher)` (allowlist; other types fail and the agent only sees the allowed types). `Agent` w/o parens = any; omit `Agent` = none. To block specific types while allowing the rest use `permissions.deny` instead. In a _subagent_ definition, the type-list inside parens is ignored — listing `Agent` only lets it spawn nested agents once nested spawning is enabled (see Nested subagents).
 
@@ -137,7 +138,8 @@ actionable feedback on quality, security, and best practices.
 | `plan`              | read-only exploration                                                                                                                                                                      |
 
 - Parent `bypassPermissions`/`acceptEdits` takes precedence and cannot be overridden by the child. Parent `auto` → child inherits auto; child `permissionMode` ignored — classifier evaluates the subagent's tool calls with the parent session's same block/allow rules.
-- `bypassPermissions` still prompts on explicit `ask` rules, connector tools your org set to `ask`, MCP tools marked `requiresUserInteraction`, and root/home removals (`rm -rf /`), but allows writes to protected dirs `.git`, `.config/git`, `.claude`, `.vscode`, `.idea`, `.husky`, `.cargo`, `.devcontainer`, `.yarn`, `.mvn` — use with extreme caution.
+- `bypassPermissions` still prompts on explicit `ask` rules, connector tools your org set to `ask`, MCP tools marked `requiresUserInteraction`, root/home removals (`rm -rf /`), and the `isolatePeerMachines` approval for messages beyond this machine, but allows writes to protected dirs `.git`, `.config/git`, `.claude`, `.vscode`, `.idea`, `.husky`, `.cargo`, `.devcontainer`, `.yarn`, `.mvn` — use with extreme caution.
+- version >= 2.1.223: if `permissions.disableBypassPermissionsMode` disables bypass mode, a subagent's frontmatter `permissionMode: bypassPermissions` is ignored and it runs with the parent session's mode instead. Earlier versions applied the frontmatter mode regardless.
 
 ## Conditional rules (finer than `tools`)
 
@@ -220,16 +222,14 @@ skills:
 
 ## Subagent count limits
 
-Three independent caps: total per session, concurrently running, and nesting depth (see Nested subagents).
+Two independent caps: concurrently running, and nesting depth (see Nested subagents). There is no limit on the total number of subagents Claude can spawn over a session.
 
-| Limit       | Default | Env var                                 | Error on hit                        | Gate       |
-| ----------- | ------- | --------------------------------------- | ----------------------------------- | ---------- |
-| Per session | 200     | `CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION` | `Subagent spawn limit reached`      | ≥ v2.1.212 |
-| Concurrent  | 20      | `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`  | `Concurrent subagent limit reached` | ≥ v2.1.217 |
+| Limit      | Default | Env var                                | Error on hit                        | Gate       |
+| ---------- | ------- | -------------------------------------- | ----------------------------------- | ---------- |
+| Concurrent | 20      | `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` | `Concurrent subagent limit reached` | ≥ v2.1.217 |
 
-- Both accept any positive whole number; neither can be turned off. Sessions with ultracode active are exempt from the concurrent limit.
-- Per-session count includes nested subagents, forks, background subagents, subagents spawned with the Agent tool by a workflow's agents, and an in-session `/subtask` fork. NOT counted: a `/fork` background session (own budget) and agents a workflow script spawns via `agent()` (own per-run limit). A finished subagent still counts. On the spawn error Claude is told to finish the work with its own tools; `/clear` resets the count (a survivor that can still spawn, e.g. a running workflow, carries its count over).
-- Concurrent limit blocks only Agent-tool spawns: an in-session `/subtask` fork occupies a slot but is never blocked, and resuming an already-finished subagent takes a fresh slot without checking the limit (so resumes can push the running count past it). Workflow agents and agent-team teammates follow their own limits.
+- Accepts any positive whole number; can't be turned off. Sessions with ultracode active are exempt. On hit, the error also tells Claude not to retry; spawning succeeds again once the running count drops below the limit.
+- Blocks only Agent-tool spawns: an in-session `/subtask` fork occupies a slot but is never blocked, and resuming an already-finished subagent takes a fresh slot without checking the limit (so resumes can push the running count past it). Workflow agents and agent-team teammates follow their own limits.
 
 ## Common patterns
 
@@ -239,13 +239,14 @@ Three independent caps: total per session, concurrently running, and nesting dep
 
 ## Nested subagents
 
-- version >= 2.1.217: **nesting is OFF by default** — a subagent cannot spawn subagents; asked to delegate, it does the work itself and returns one summary. While nesting is off the `Agent` tool is withheld from every subagent except a fork, where it stays listed but returns an error instead of spawning.
-- Opt in with `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` = number of layers below the main conversation (`2` or higher). With `2`, subagents may delegate to a second layer and that layer cannot delegate further. In `settings.json` `env`:
+- version >= 2.1.219: subagents nest **up to 3 layers below the main conversation by default** — a subagent may spawn a subagent, which may spawn one more, and that third layer cannot delegate further. At the depth limit the `Agent` tool is withheld from every subagent except a fork, where it stays listed but returns an error instead of spawning; a subagent hitting the limit does the delegated work itself and returns one summary.
+- Change the limit with `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` = number of layers below the main conversation. Set `1` to turn nesting off entirely. In `settings.json` `env`:
 
 ```json
 { "env": { "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "2" } }
 ```
 
+- version 2.1.217–2.1.218: default was `1` (nesting off) — the same env var raised it.
 - version <= 2.1.216 (from v2.1.172): subagents nested by default, up to five layers, limit not configurable.
 - A nested subagent is configured like a top-level one and resolves from the same scopes. Keep one from spawning while nesting is on: omit `Agent` from `tools` or add it to `disallowedTools`.
 - Use for a delegated task that itself splits into parallel subtasks (e.g. a reviewer dispatching a verifier per finding) — intermediate output never reaches main; only the top-level summary returns.
@@ -298,6 +299,7 @@ Three independent caps: total per session, concurrently running, and nesting dep
 ## Best practices
 
 - One job per subagent (focused). Detailed `description` (drives delegation; "use proactively" to nudge). Limit tools to the minimum (security + focus). Check project agents into version control. Set `model` deliberately (route cheap/fast work to Haiku via `model: haiku`).
+- Claude Opus 5 delegates to subagents more readily than earlier models — set `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`/`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` (and, in the SDK, `maxBudgetUsd`/`max_budget_usd`) deliberately on any run that may use it. The `claude_code` system-prompt preset adds a line telling Opus 5 not to call `Agent` unless asked; a custom or absent system prompt doesn't get that line — add the Opus 5 prompting guide's delegation instruction to your own prompt instead.
 
 ## Disable specific subagents
 
@@ -319,13 +321,23 @@ Agent SDK "Subagents in the SDK". Applies to the `agents` param passed to `query
 
 - Python SDK keeps camelCase for multi-word fields (`disallowedTools`, `mcpServers`) to match the wire format — not snake_case.
 - Programmatic `agents` definitions override a filesystem-based agent of the same `name` (a common cause of a filesystem agent appearing not to load, alongside invalid frontmatter or a duplicate `name`).
-- Nested spawning is off by default here too (`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` opts in — see Nested subagents).
+- Subagents nest up to 3 layers below the main agent by default here too (`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` controls it — see Nested subagents and Cap subagent depth, concurrency, and spend below).
 - Include `Agent` in `allowedTools` to auto-approve subagent invocations; otherwise they fall through to the `canUseTool` callback, or are denied outright in `dontAsk` mode.
 - Detect invocation: `tool_use` block `name === "Agent"` (renamed from `"Task"` at v2.1.63); the `system:init` tools list and `result.permission_denials[].tool_name` still report `"Task"` — check both when matching.
 - CLAUDE.md/project memory reaches a subagent only if the parent `query()` sets `settingSources` to include it — not automatic the way it is in interactive Claude Code.
 - Parent gets the subagent's final message verbatim as the Agent tool result but may summarize it in its own reply; instruct the subagent (or the main call's `systemPrompt`) explicitly if verbatim output must reach the user.
 - Resume programmatically: capture `session_id` from a message during the first `query()`, parse `agentId` from the Agent tool result text (`agentId: <id>`), then pass `resume: sessionId` plus the same agent definitions on the next `query()` call, referencing the agent ID in the prompt.
 - Windows: very long subagent prompts can fail (CLI length limit 8191 chars) — keep prompts concise or use filesystem-based agents.
+
+### Cap subagent depth, concurrency, and spend (TS SDK ≥ v0.3.219, Python SDK ≥ v0.2.127; bundles Claude Code ≥ v2.1.219)
+
+| Cap         | Set via                                                      | Default                                                          | At the limit                                                                                                                             |
+| ----------- | ------------------------------------------------------------ | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Depth       | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` (via `env` option)    | 3 layers below main agent; `1` disables                          | bottom-layer subagent does the work itself instead of spawning                                                                           |
+| Concurrency | `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` (via `env` option)    | 20 running at once                                               | refuses to spawn, returns `Concurrent subagent limit reached`; ultracode sessions exempt                                                 |
+| Spend       | `maxBudgetUsd` (TS) / `max_budget_usd` (Python) query option | no limit; compared to `total_cost_usd` (subagent requests count) | refuses to spawn more subagents (`Budget limit reached`), stops running background subagents, ends the query with `error_max_budget_usd` |
+
+- TS SDK's `env` option REPLACES the subprocess environment — spread `process.env` into it to keep `PATH`; Python SDK's `env` MERGES into the inherited environment.
 
 ## Version notes
 
@@ -343,4 +355,8 @@ Agent SDK "Subagents in the SDK". Applies to the `agents` param passed to `query
 - v2.1.212 forked subagent moves to `/subtask`, `/fork` becomes a new background session (except with agent view off); per-session cap of 200 subagents via `CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION`.
 - v2.1.215 bundled `/verify` + `/code-review` skills cannot be preloaded via `skills`.
 - v2.1.216 `isolation: worktree` also content-checks Bash commands for git redirection into the main checkout; resuming a session whose `--agent` no longer exists falls back to default tools/prompt with a warning.
-- v2.1.217 nested spawning OFF by default — opt in via `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` (was: on, five fixed layers, since v2.1.172); concurrent cap of 20 running subagents via `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` (ultracode sessions exempt).
+- v2.1.217 nested-spawn depth default drops to `1` (off) — configurable via `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` (was: on, five fixed layers, since v2.1.172); concurrent cap of 20 running subagents via `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` (ultracode sessions exempt). Current docs no longer mention the v2.1.212 per-session total cap (200, `CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION`) and state there is no limit on the total subagents per session — treat that cap as removed.
+- v2.1.218 `name` frontmatter can't contain `:` — a file whose name does is not loaded (was accepted).
+- v2.1.219 nested-subagent default depth raised to 3 layers below main (was `1`/off, since v2.1.217).
+- v2.1.222 a blocked family-alias `model` (e.g. `opus`) substitutes the newest allowlisted version of that family instead of falling back to the inherited model.
+- v2.1.223 `permissions.disableBypassPermissionsMode` also overrides a subagent's frontmatter `permissionMode: bypassPermissions` (was: frontmatter mode still applied).
