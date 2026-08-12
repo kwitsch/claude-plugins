@@ -34,13 +34,18 @@ Never guess a task.
    value you interpolate into the command below must match `^[A-Za-z0-9._-]+$` — safe
    bare tokens only, no quotes, `$()`, backticks, or whitespace; the fixed
    `sonnet`/`medium` constants satisfy that trivially, and any future override would have
-   to pass the same check before substitution. Then embed the task text verbatim inside
-   the quoted heredoc (never shell-expanded, whatever it is punctuated with), all in one
-   Bash call:
+   to pass the same check before substitution. The script itself re-checks `$name`
+   against that same pattern before it is ever passed to `claude` — never rely on the
+   slug you derived alone. Then embed the task text verbatim inside the quoted heredoc
+   (never shell-expanded, whatever it is punctuated with), all in one Bash call:
 
    ```bash
    set -e
    name="taskflow-build-<3-6-word-english-slug-of-the-task>-$(date +%s)-$RANDOM"
+   [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] || {
+     echo "unsafe dispatch name: $name" >&2
+     exit 1
+   }
    claude --worktree "$name" --model "sonnet" --effort "medium" --permission-mode auto --bg "$(
      cat << 'DISPATCH_TASK_PROMPT_EOF'
    /taskflow:build-task <the literal, verbatim task description text goes here —
