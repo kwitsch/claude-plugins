@@ -166,7 +166,8 @@ fi
 # Exactly one checksums.txt entry for the asset -- 0 or >1 fails closed instead of being
 # silently skipped by --ignore-missing.
 expected="$tmp/expected.sha256"
-matches="$(awk -v f="$asset" '$2 == f' "$tmp/checksums.txt")"
+# sha256sum -b (binary mode) prefixes the filename column with '*'; match either form.
+matches="$(awk -v f="$asset" '$2 == f || $2 == "*" f' "$tmp/checksums.txt")"
 line_count="$(printf '%s' "$matches" | grep -c . || true)"
 if [ "$line_count" -eq 0 ]; then
   echo "no checksum entry for $asset in checksums.txt" >&2
