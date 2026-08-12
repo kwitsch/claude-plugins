@@ -19,7 +19,8 @@ Files live in the `references/` subfolder of this skill:
 - `${CLAUDE_SKILL_DIR}/references/claude-code-commands-reference.md` — authoring **slash commands** (`.claude/commands`, frontmatter, `$ARGUMENTS`, dynamic context, namespacing)
 - `${CLAUDE_SKILL_DIR}/references/claude-code-mcp-reference.md` — **MCP** integration (`.mcp.json`, transports, scopes, auth, tool naming)
 - `${CLAUDE_SKILL_DIR}/references/claude-code-mcp-managed-reference.md` — **managed/enterprise MCP** (`managed-mcp.json`, allowlists/denylists)
-- `${CLAUDE_SKILL_DIR}/references/claude-code-plugins-reference.md` — **plugins** (`plugin.json`/`marketplace.json`, layout, path variables, components, CLI)
+- `${CLAUDE_SKILL_DIR}/references/claude-code-plugins-reference.md` — **plugins** (`plugin.json`, layout, path variables, components, dependencies, hints, CLI)
+- `${CLAUDE_SKILL_DIR}/references/claude-code-plugins-marketplace-reference.md` — **plugin marketplaces** (`marketplace.json` schema, plugin entry fields, source types, `claude plugin validate`)
 - `${CLAUDE_SKILL_DIR}/references/claude-code-plugins-lsp-reference.md` — **LSP servers** (`.lsp.json`/`lspServers` scopes, server entry schema, official LSP plugins)
 - `${CLAUDE_SKILL_DIR}/references/claude-code-memory-reference.md` — **memory** (`CLAUDE.md` locations/precedence, `@imports`, auto-memory)
 - `${CLAUDE_SKILL_DIR}/references/claude-code-settings-reference.md` — **settings/config** (`settings.json`, env vars, permissions & modes, model config, output styles, statusline, sandboxing)
@@ -46,7 +47,8 @@ docs the `update-cc-references` maintenance skill refreshes from:
 - **hooks** (mechanics + handler selection) → `https://code.claude.com/docs/en/hooks` (+ examples: `https://code.claude.com/docs/en/hooks-guide`)
 - **slash commands** → `https://code.claude.com/docs/en/slash-commands` (+ built-ins: `https://code.claude.com/docs/en/commands`)
 - **MCP** → `https://code.claude.com/docs/en/mcp` (+ `https://code.claude.com/docs/en/mcp-quickstart`, `https://code.claude.com/docs/en/managed-mcp`)
-- **plugins** → `https://code.claude.com/docs/en/plugins` (+ `https://code.claude.com/docs/en/plugins-reference`, `https://code.claude.com/docs/en/plugin-marketplaces`)
+- **plugins** → `https://code.claude.com/docs/en/plugins` (+ `https://code.claude.com/docs/en/plugins-reference`)
+- **plugin marketplaces** → `https://code.claude.com/docs/en/plugin-marketplaces`
 - **memory** → `https://code.claude.com/docs/en/memory`
 - **settings/config** → `https://code.claude.com/docs/en/settings` (+ `env-vars`, `permissions`, `permission-modes`, `model-config`, `output-styles`, `statusline`, `sandboxing` under `https://code.claude.com/docs/en/`)
 
@@ -59,7 +61,8 @@ Map key → file on disk: `skills-reference` → `claude-code-skills-reference.m
 `claude-code-mcp-tool-hooks-reference.md`; `commands-reference` →
 `claude-code-commands-reference.md`; `mcp-reference` → `claude-code-mcp-reference.md`;
 `mcp-managed-reference` → `claude-code-mcp-managed-reference.md`;
-`plugins-reference` → `claude-code-plugins-reference.md`; `plugins-lsp-reference` →
+`plugins-reference` → `claude-code-plugins-reference.md`; `plugins-marketplace-reference` →
+`claude-code-plugins-marketplace-reference.md`; `plugins-lsp-reference` →
 `claude-code-plugins-lsp-reference.md`; `memory-reference` →
 `claude-code-memory-reference.md`; `settings-reference` →
 `claude-code-settings-reference.md`; `skill-folder-structure` →
@@ -83,7 +86,9 @@ which handler `type`).
 
 **mcp-managed-reference** (`claude-code-mcp-managed-reference.md`) — managed/enterprise MCP: `managed-mcp.json` exclusive control, `allowedMcpServers`/`deniedMcpServers` allowlists & denylists, evaluation order, URL wildcard matching, `allowManagedMcpServersOnly`, `allowAllClaudeAiMcps`.
 
-**plugins-reference** (`claude-code-plugins-reference.md`) — plugin authoring: structure/layout, `plugin.json` schema, `${CLAUDE_PLUGIN_ROOT}`/`${CLAUDE_PLUGIN_DATA}`, component auto-discovery, `marketplace.json`, dependencies, hints, plugin CLI.
+**plugins-reference** (`claude-code-plugins-reference.md`) — plugin authoring: structure/layout, `plugin.json` schema, `${CLAUDE_PLUGIN_ROOT}`/`${CLAUDE_PLUGIN_DATA}`, component auto-discovery, dependencies, hints, plugin CLI.
+
+**plugins-marketplace-reference** (`claude-code-plugins-marketplace-reference.md`) — `marketplace.json` schema: required/optional top-level fields (incl. reserved names, `renames`), plugin entry fields, plugin source types (relative path/`github`/`url`/`git-subdir`/`npm`/`archive`), `claude plugin validate`.
 
 **memory-reference** (`claude-code-memory-reference.md`) — `CLAUDE.md` memory: locations & precedence, `@imports`, auto-memory, what belongs, quick-add / `/memory`.
 
@@ -238,13 +243,20 @@ Plugin structure & layout
 plugin.json schema
 Path variables
 Component auto-discovery
-Marketplace
+Marketplace                            # one-line pointer — full schema in claude-code-plugins-marketplace-reference.md
 Plugin dependencies
 Plugin hints
 Plugin CLI
 LSP servers                            # one-line pointer — full schema in claude-code-plugins-lsp-reference.md
 Monitors                               # monitors.json schema, background log/file watchers
 Version notes
+```
+
+### claude-code-plugins-marketplace-reference.md
+
+```
+marketplace.json schema                # incl. Required/Optional top-level fields, Plugin entry fields, Plugin source types
+Validate marketplace
 ```
 
 ### claude-code-plugins-lsp-reference.md

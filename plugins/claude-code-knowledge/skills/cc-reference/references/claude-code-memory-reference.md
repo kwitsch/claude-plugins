@@ -1,7 +1,7 @@
 # Claude Code Memory — Authoring Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (How Claude remembers your project), verified 2026-07-31.
+> (How Claude remembers your project), verified 2026-08-13.
 > Apply when authoring or editing CLAUDE.md files or configuring auto memory.
 
 ## CLAUDE.md: what & when
@@ -77,6 +77,7 @@ Files load in the order below (broadest to most specific); a later entry wins on
 - Claude Code reads `CLAUDE.md`, **not** `AGENTS.md`.
 - To reuse an existing `AGENTS.md`: create a `CLAUDE.md` that imports it (`@AGENTS.md`) — add Claude-specific instructions below the import. Or symlink (`ln -s AGENTS.md CLAUDE.md`) if no Claude-specific content is needed.
 - On Windows symlinks need Administrator/Developer Mode → use the `@AGENTS.md` import instead.
+- version >= 2.1.213: `/import` brings a supported coding agent's configuration into Claude Code — appends a one-time copy of instruction files such as `AGENTS.md` to the matching CLAUDE.md and carries over MCP servers, commands, subagents, and skills.
 
 ## Auto memory
 
@@ -99,6 +100,7 @@ Default path: `~/.claude/projects/<project>/memory/` where `<project>` is derive
 └── ...                # any other topic files Claude creates
 ```
 
+- Auto memory files (`MEMORY.md` + topic files) are excluded from the `cleanupPeriodDays` session-transcript retention sweep — they persist until you or Claude edits or deletes them, unlike session transcripts.
 - `MEMORY.md` is the entry point and acts as the index of the memory directory; first **200 lines or 25 KB** (whichever comes first) load at session start. Content past that threshold is **not** loaded at session start.
 - This 200-line/25 KB limit applies **only to `MEMORY.md`**. CLAUDE.md files load in full regardless of length (shorter files still produce better adherence).
 - version >= 2.1.210: after each write to `MEMORY.md`, Claude Code measures the file against the 200-line/25 KB read limits. Near a limit → Claude is reminded to shorten it (one line per entry, detail into topic files, merge or drop stale entries). Over a limit → the write still succeeds, but Claude Code returns an error telling Claude to rewrite the index, because everything past the limit is dropped on the next load.
@@ -203,6 +205,7 @@ paths:
 | version >= 2.1.198 | Path-scoped `.claude/rules/` `paths` matching also works through a symlinked path to the project directory (e.g. a symlinked checkout)         |
 | version >= 2.1.206 | `/doctor` checkup proposes trims for a checked-in CLAUDE.md (cuts codebase-derivable content, keeps pitfalls/rationale/conventions)            |
 | version >= 2.1.210 | Claude Code measures `MEMORY.md` against the 200-line/25 KB read limits after each write; reminder near a limit, error over a limit            |
+| version >= 2.1.213 | `/import` copies a supported coding agent's config (e.g. `AGENTS.md`, MCP servers, commands, subagents, skills) into Claude Code               |
 | version >= 2.1.214 | `modified` ISO 8601 write-time frontmatter field added to memory files that already have frontmatter                                           |
 | before v2.1.207    | One invalid `[` pattern in a rule's `paths` made the Read tool fail for every file the rule was evaluated against, instead of matching nothing |
 | before v2.1.211    | `MEMORY.md` limit check measured the raw file, so frontmatter/HTML comments could trigger the error even when the loaded content fit           |

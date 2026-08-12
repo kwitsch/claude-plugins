@@ -53,7 +53,10 @@ cc-reference/
     hook-handler-selection.md
     claude-code-commands-reference.md
     claude-code-mcp-reference.md
+    claude-code-mcp-managed-reference.md
     claude-code-plugins-reference.md
+    claude-code-plugins-marketplace-reference.md
+    claude-code-plugins-lsp-reference.md
     claude-code-memory-reference.md
     claude-code-settings-reference.md
     skill-folder-structure.md

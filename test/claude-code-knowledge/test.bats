@@ -1110,10 +1110,10 @@ MDEOF
 
 # --- cc-compress doc/manifest sync ---
 
-@test "plugin.json version was bumped for cc-compress (minor, new skill)" {
+@test "plugin.json version was bumped for cc-reference docs refresh (patch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" != "1.6.1" ]
+  [ "$output" != "1.7.7" ]
 }
 
 @test "plugin.json description mentions cc-compress" {
