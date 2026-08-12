@@ -111,7 +111,7 @@
     {
       "name": "linux-token-efficiency",
       "source": "./plugins/linux-token-efficiency",
-      "description": "Bundles the rtk token-optimizing CLI proxy (https://github.com/rtk-ai/rtk) as a Linux x86_64 binary and routes Bash commands through it via a PreToolUse rewrite hook, and bundles codebase-memory-mcp (https://github.com/DeusData/codebase-memory-mcp) as a lazily extracted MCP stdio server with four context-only graph hooks. LINUX ONLY: the bundled binaries are Linux executables; this plugin does not work on macOS, Windows, or any other operating system, where every hook no-ops.",
+      "description": "Bundles the rtk token-optimizing CLI proxy (https://github.com/rtk-ai/rtk) as a Linux x86_64 binary and routes Bash commands through it via a PreToolUse rewrite hook, and ships codebase-memory-mcp (https://github.com/DeusData/codebase-memory-mcp) as a plugin-local proxy MCP server that downloads and sha256-verifies the pinned release on first start, with four context-only graph hooks. LINUX ONLY: the bundled binaries are Linux executables; this plugin does not work on macOS, Windows, or any other operating system, where every hook no-ops.",
       "author": {
         "name": "Kwitsch"
       },

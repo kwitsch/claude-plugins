@@ -72,7 +72,7 @@ function describe(error) {
 
 /**
  * The machine-owned version pin. Exactly one binaries[] entry is required — 0 or >1 is a
- * fail-closed startup error, mirroring bin/cbm-launch.sh's "exactly one entry" rule.
+ * fail-closed startup error, mirroring the deleted shell-script launcher's "exactly one entry" rule.
  * @returns {{cbmVersion: string, releaseTag: string, asset: string, assetSha256: string, binarySha256: string}|null}
  */
 function readPin() {

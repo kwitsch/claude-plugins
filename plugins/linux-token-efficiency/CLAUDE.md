@@ -44,21 +44,31 @@ and turn a backgrounded Bash call into a blocking one. `permissionDecision` is n
 Every failure path is a bare `return` inside `main()`'s single `try/catch` — never
 `process.exit()`, matching `encoding-guard.mjs` and `lint-file.mjs`.
 
-This plugin now backs five hooks total: `rtk-rewrite.mjs` above plus four cbm entries
-(`SessionStart`, `SubagentStart`, `PreToolUse` `Grep`/`Glob`, `PostToolUse` `Read`) all served by one
-`hooks/cbm-context.mjs` dispatching on `hook_event_name`. They are synchronous (`async: true` would
-deliver context a turn late) with `hooks.json` `timeout: 21` — main() makes at most two sequential
-5 s-capped cbm spawns per invocation (`list_projects`, then an event-specific call), so `21` leaves
-real margin above the 10 s worst case for node startup, JSON parsing and output, unlike the single-
-spawn `rtk-rewrite.mjs`'s `timeout: 10`. They are **`command`** hooks rather than `mcp_tool` ones for
-two reasons: `SessionStart` fires before any MCP server is connected, and an `mcp_tool` hook's only
-output channel is the called tool's own text content — none of cbm's 15 upstream tools can emit
-`hookSpecificOutput.additionalContext`.
+This plugin backs five hooks total: `rtk-rewrite.mjs` above plus four cbm entries
+(`SessionStart`, `SubagentStart`, `PreToolUse` `Grep`/`Glob`, `PostToolUse` `Read`), all four `type: "mcp_tool"` on
+`plugin:linux-token-efficiency:codebase-memory` (the namespaced form — the bare `.mcp.json` key
+resolves to "not connected" on every fire) with an explicit `input` block each, because an omitted
+`input` delivers `{}` instead of the hook JSON. Each names its own purpose-built tool
+(`hook_session_context`, `hook_subagent_context`, `hook_symbol_context`, `hook_coverage_context`), so
+`hookEventName` is hardcoded per tool and can never be wrong.
+
+`timeout: 12` (was `21`): there is no per-event process any more, so the budget is two 4 s child
+round-trips (`HOOK_CALL_TIMEOUT_MS`) plus margin, not two 5 s `spawnSync` calls plus Node start-up.
+
+`SessionStart` is `status: "limited"` in `.claude/rules/hooks-mcp-tool-event-matrix.md` ("servers
+usually not connected yet on first run") and `hooks-mcp-server.md`'s decision tree lists it as a
+`command`-hook case. It is `mcp_tool` here anyway, deliberately: on a cold first run the hook simply
+fails open (no context, no error, session proceeds), which is the matrix's own prescription, and the
+loss is close to zero — the previous CLI-based design never extracted from a hook either, so a cold
+cache produced no SessionStart context there too. `SubagentStart`, `PreToolUse` and `PostToolUse` are
+all `status: "full"`. **No compensating `command` hook is added**: duplicating the event across two
+handler types would double-inject context whenever both fire, for a benefit measured only on the
+first session after a fresh install.
 
 **Per-cwd project cache.** Each hook process is a fresh process, so an in-memory cache buys nothing
 across invocations — `resolveProjectCacheDir()`/`readProjectCache()`/`writeProjectCache()` persist the
 resolved `cwd -> project` mapping as one small JSON file per cwd (keyed by a sha256 of the cwd) under
-a `project-cache` subdir of the same extraction-cache root `cbm-launch.sh` already writes to.
+a `project-cache` subdir of the same `CBM_BUNDLE_CACHE` root the download cache already lives under.
 `list_projects` — the mapping's only source — is skipped entirely on a fresh cache hit, so a warm repo
 pays exactly one cbm spawn per hook call instead of two; a miss, a corrupt entry, or an entry older
 than `PROJECT_CACHE_TTL_MS` (10 minutes — bounds staleness against a fresh `index_repository` adding a
@@ -75,10 +85,16 @@ deliberate no-toggle exception, because the hook is not the whole plugin — wit
 the bundled `rtk` is still on the Bash `PATH` and usable by hand, so disabling the hook is
 genuinely different from uninstalling.
 
-`cbm_enabled` is deliberately fail-open despite gating a state-creating action (extracting ~280 MiB
-and starting a background process): worst case is one unwanted extraction plus one background stdio
-process — no data loss, no security exposure, no repo mutation, reversible via the toggle plus
-`rm -rf` of the cache. This is the same explicit fail-open exception to
+`cbm_enabled` is deliberately fail-open despite gating a state-creating action that now also reaches
+the **network**: enabling means one HTTPS GET of a 37.6 MiB release asset from GitHub Releases (once
+per pinned version per cache root) plus a ~280 MiB extraction and one background stdio process.
+Mitigations are structural, not conventional: the asset **and** the extracted binary are
+sha256-verified against the committed pin before anything enters the cache, the download is bounded
+by `DOWNLOAD_TIMEOUT_MS` (5 min) and attempted at most once per server process, a failure degrades
+silently (hook tools return `{}`, passthrough calls return `isError`) instead of blocking a session,
+and nothing is written outside `${CLAUDE_PLUGIN_DATA}/cbm`. Worst case for an unwanted enable is one
+download, one extraction, one background process — no data loss, no credential use, no repo mutation,
+reversible via the toggle plus `rm -rf` of the cache. This is the same explicit fail-open exception to
 `.claude/rules/plugin-userconfig.md`'s state-creating clause that `plugins/npm-automations/CLAUDE.md`
 already documents — **do not "harmonize" this back to fail-closed**.
 
@@ -122,16 +138,26 @@ never commits, never bumps `plugin.json` and never opens a PR.
   so `jq` is correct here.
 - **Stubbed `curl` + env-overridable base URLs** (`RTK_RELEASE_BASE_URL`,
   `RTK_DOWNLOAD_BASE_URL`) give the bats suite a local fixture release tree — no network in tests.
-- **The literal-`${` rejection for cache paths.** `bin/cbm-launch.sh` and
-  `hooks/cbm-context.mjs`'s `resolveBundleCache` both refuse to treat a `CBM_BUNDLE_CACHE` value
-  that still contains `${` as a real path, falling back to `${TMPDIR:-/tmp}/claude-cbm-$(id -u)`. No
-  other `.mjs`/`.sh` in this repo does this; the repo root has held exactly such an untracked
-  `${CLAUDE_PLUGIN_DATA}` directory, so the failure mode is demonstrated, not hypothetical.
-- **Committed tarball + lazy `exec`-replacement launcher.** Unlike `bin/rtk` (committed as an
-  extracted, ready-to-run binary), cbm's binary is too large to commit directly (see
-  `## codebase-memory-mcp bundle` below); `bin/cbm-launch.sh` extracts it into a content-addressed
-  cache on first use and then `exec`s it — a single process replacement, not spawn-and-wait, so the
-  harness's stdio talks directly to the real cbm process.
+- **The literal-`${` rejection for cache paths.** `mcp/cbm-context.mjs`'s `resolveBundleCache`
+  refuses to treat a `CBM_BUNDLE_CACHE` value that still contains `${` as a real path, falling back to
+  `${TMPDIR:-/tmp}/claude-cbm-$(id -u)`. No other `.mjs` in this repo does this; the repo root has held
+  exactly such an untracked `${CLAUDE_PLUGIN_DATA}` directory, so the failure mode is demonstrated,
+  not hypothetical.
+- **Download-on-startup proxy MCP server + transparent tool passthrough.** `mcp/server.mjs` is the
+  first server in this repo that spawns an MCP-speaking child and forwards `tools/call` to it
+  verbatim (ids remapped, `isError`/`content`/`structuredContent` returned untouched), and the first
+  that fetches its own dependency over the network at startup. Only the transport skeleton
+  (`send`/`ok`/`fail` + method dispatch) and the per-call timeout idiom have precedent here; child
+  spawn, handshake and id remapping are original. `tools/list` is served from the committed
+  `cbm-tools.json` snapshot rather than mirrored from the child, so the MCP handshake never waits on
+  a download — call-time forwarding is name-agnostic, so a drifted snapshot costs advertisement, never
+  a working call.
+- **`mcp/` holds two hand-written files.** `server.mjs` imports `./cbm-context.mjs`, keeping ~350
+  already-tested pure lines out of the transport file; `mcp/` stays the relocatable, zero-npm-dep
+  unit. `server.mjs` is also the repo's first **wrapper-less** MCP server
+  (`command: ${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs`, no `bin/mjs-launch.sh`) — the written rule's
+  default, knowingly divergent from the three other MCP plugins. Do not "fix" it toward that
+  precedent.
 
 ## Tests
 
@@ -139,58 +165,57 @@ never commits, never bumps `plugin.json` and never opens a PR.
 matrix), `bundle.bats` (binary, pin, `.gitattributes`, index mode), `hook.bats` (hook behavior via a
 copy of the hook in a fake plugin tree with a stub `rtk`), `update-rtk-bundle.bats` (script exit-code
 contract), `skill.bats` (SKILL.md shape), `docs.bats` (docs/registration), plus
-`rtk-rewrite.test.mjs` (`node:test` unit coverage of the hook's exported helpers). The cbm bundle
-adds `cbm-bundle.json` verification (`cbm-bundle.bats`), launcher behavior on fabricated fixture
-trees (`cbm-launch.bats`), hook behavior on fixture trees with a stub launcher (`cbm-hooks.bats`),
-`node:test` unit coverage of the hook's exported helpers (`cbm-context.test.mjs`), and the
-maintainer-script exit-code contract (`update-cbm-bundle.bats`) — all fixtures are few-byte
-fabricated tarballs and a stub cbm binary; the real 279.6 MiB binary is never extracted or
-downloaded in tests.
+`rtk-rewrite.test.mjs` (`node:test` unit coverage of the hook's exported helpers). The cbm proxy adds
+pin + snapshot + file-mode + `.mcp.json` verification (`cbm-bundle.bats`), server behavior on a
+fixture plugin tree with a fake MCP-speaking cbm binary and an ephemeral 127.0.0.1 release server
+(`cbm-server.bats`), the four hook tools driven as real `tools/call` requests plus the `hooks.json`
+wiring pins (`cbm-hooks.bats`), `node:test` coverage of the pure helpers (`cbm-context.test.mjs`), and
+the maintainer-script exit-code contract (`update-cbm-bundle.bats`) — every fixture is fabricated and
+few bytes; the real 279.6 MiB binary is never downloaded or extracted.
 
 ## codebase-memory-mcp bundle
 
-**Storage differs from rtk's direct commit on purpose.** cbm's extracted binary is 293,160,104 bytes
-(279.6 MiB) — above GitHub's **100 MiB** per-file limit — so the committed artifact is the
-39,482,833-byte release tarball, and `bin/cbm-launch.sh` extracts it lazily on the MCP server's
-first start. `cbm-bundle.json` therefore points `binaries[0].path` at the tarball: `assetSha256` is
-the hash of the tracked file (offline-checkable) and `binarySha256` is the hash extraction must
-produce.
+**Why no committed binary or tarball.** cbm's extracted binary is 293,160,104 bytes (279.6 MiB) —
+above GitHub's **100 MiB** per-file limit — so it can never be committed like `bin/rtk` is. With a
+server that downloads on first start there is no reason to commit the 37.6 MiB archive either, so
+**nothing cbm-related is in git**: `bin/` holds only `rtk`, and the two machine-owned JSON files
+`cbm-bundle.json` (the pin) and `cbm-tools.json` (the advertised tool list) are the whole artifact
+surface.
 
-**Two hash homes, by design.** `bin/cbm-checksums.txt` exists so the launcher can verify with
-`sha256sum --check` + `awk` alone — no `jq` and no Node on the MCP start path. `update-cbm-bundle.sh`
-writes both it and `cbm-bundle.json` from the same verified values, and `cbm-bundle.bats` asserts
-they agree, so the duplication cannot drift.
+**One process model.** `mcp/server.mjs` owns the pin, the first-run download + verification +
+extraction, the warm cbm child, the four hook tools and the passthrough. Both the hook reads and the
+model's own `mcp__codebase-memory__*` calls go through the same child, so there is exactly one place
+that knows how to talk to cbm and one place that peels its result envelope. `mcp_tool` hooks
+therefore cost a round-trip, not a fresh Node process plus a fresh 279.6 MiB exec per event.
+
+**Verification discipline** (carried over verbatim from the deleted shell-script launcher): exactly one
+pin entry or fail closed; asset sha256 checked before extraction; exactly one `codebase-memory-mcp`
+inside the archive or fail closed; extracted-binary sha256 checked before the cache is touched;
+population by atomic `rename` into
+`${CBM_BUNDLE_CACHE}/<binarySha256[0:16]>/codebase-memory-mcp`. The layout is byte-identical to the
+old launcher's, so an existing warm cache is reused. Runtime verifies against the committed pin only
+and never fetches the release's `checksums.txt` — a checksum file served by the same origin as the
+asset would add no trust; `checksums.txt` is the maintainer script's business.
 
 **`CBM_BUNDLE_CACHE` is ours; `CBM_CACHE_DIR` is upstream's.** `CBM_CACHE_DIR` is cbm's own graph
 database root (upstream default `~/.cache/codebase-memory-mcp`), and upstream rejects a genuinely
-different canonical root while any cbm process is active. This plugin never sets it — server, hooks
-and manual CLI use all share upstream's default. The only `CBM_*` variables this plugin sets are
-`CBM_BUNDLE_CACHE` (extraction cache root, content-addressed as
-`${CLAUDE_PLUGIN_DATA}/cbm/<binarySha256[0:16]>/`) and `CBM_NO_EXTRACT`.
+different canonical root while any cbm process is active. `server.mjs` never sets it — that is an
+invariant of the file, asserted by the bats suite — so server, hooks and manual CLI use all share
+upstream's default. The only variable the plugin sets is `CBM_BUNDLE_CACHE` (download-cache root,
+default `${CLAUDE_PLUGIN_DATA}/cbm`); `CBM_DOWNLOAD_BASE_URL` is only ever _read_ (same name, join
+shape and default as `update-cbm-bundle.sh`: `${base}/${releaseTag}/${asset}`, never reconstructed
+from a bare host — `upstreamRepo` in the pin is metadata only).
 
-**`CBM_NO_EXTRACT` contract.** Every hook spawn sets it to `1`, so a hook can never trigger the
-~280 MiB extraction: a cold cache is silence. Extraction happens in exactly one place — the MCP
-server's own first start, where the harness already tolerates startup latency (a `SessionStart`
-hook must stay fast).
+**Upstream result shapes** (read off the pinned v0.10.1 binary directly, which fixed three defects
+the earlier CLI-based hooks shipped with):
 
-**Upstream result shapes.** Upstream documents the tool names, `--json`, and that flags are
-generated from each tool's input schema (kebab-case), but not the result-field names of
-`list_projects`, `index_status` or `check_index_coverage`. Each parser therefore accepts a set of
-key aliases and returns `null` ("nothing to say") on anything unrecognized, so an upstream schema
-change costs context, never correctness:
+| Read                   | Real shape                                                                                                                                                                                           |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| every `tools/call`     | `{content:[{type:"text",text:"<json>"}],isError:bool}`, sometimes plus `structuredContent` — peeled by `unwrapToolResult()`; the old parsers never peeled it, so every hook was silent in production |
+| `search_graph`         | `format` defaults to a text `tree`; with `format:"json"` it is `{total,count,cols,groups:[{qn_prefix,file,rows:[[…]]}],has_more}` — read via `cols` index lookup in `formatSymbolContext()`          |
+| `check_index_coverage` | argument is `paths` (array); result is `{…,paths:[{requested_path,path,coverage_lookup,status,freshness,recommended_action,coverage:[]}],…}` — matched per entry in `formatCoverageContext()`        |
 
-| Parser                  | Accepted keys                                                                                                                                                                                                                                                                                                            |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pickProject`           | array at root or under `projects`/`items`/`entries`; name from `name`/`project`/`project_name`/`projectName`/`id`; path from `path`/`root`/`repo_path`/`repoPath`/`root_path`/`rootPath`/`directory`                                                                                                                     |
-| `formatSessionContext`  | `status`/`state`/`index_status`/`indexStatus`, `files`/`file_count`/`fileCount`/`indexed_files`/`indexedFiles`, `symbols`/`symbol_count`/`symbolCount`, `stale`/`is_stale`/`isStale`, `last_indexed`/`lastIndexed`/`updated_at`/`updatedAt`                                                                              |
-| `formatSymbolContext`   | array under `results`/`symbols`/`matches`/`nodes`/`items`; `qualified_name`/`qualifiedName`/`fqn`/`name`/`symbol`, `file`/`path`/`file_path`/`filePath`/`location`, `line`/`start_line`/`startLine`/`lineno`                                                                                                             |
-| `formatCoverageContext` | booleans `skipped`/`excluded`/`partial`/`partially_parsed`/`partiallyParsed`/`unsupported`/`truncated`, `indexed`/`covered` `=== false`, or a `status`/`state`/`coverage`/`coverage_status`/`reason`/`parse_error`/`error` string matching `skip \| exclud \| partial \| unsupported \| error \| missing \| not indexed` |
-
-Narrowing these lists to the real field names is a follow-up for whoever next runs the bundled
-binary on an indexed repo:
-
-```bash
-plugins/linux-token-efficiency/bin/cbm-launch.sh cli check_index_coverage --help
-plugins/linux-token-efficiency/bin/cbm-launch.sh cli list_projects --json
-plugins/linux-token-efficiency/bin/cbm-launch.sh cli index_status --project < p > --json
-```
+`coverage_lookup === "error"` and `status === "coverage_unavailable"` are checked **first** and mean
+silence: no signal is not evidence of a gap, and warning there would fire on every single `Read` in
+any repo without recorded coverage. Any unrecognized payload is silence too, so a future upstream
+reshape costs context, never correctness. Re-probe at the next pin bump.
