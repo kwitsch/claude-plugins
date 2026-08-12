@@ -93,12 +93,12 @@ repeats until `complete` or `error`.
   and are binding — the design reviewer flags any reversal as blocking.
 - Question bar is high: questions the reviewer judges resolvable from the code
   are decided by the designer in one revision round, not returned to the user.
-- Model assignment (fixed in template + agent frontmatter): designer on the
-  `opus` alias; design reviewer on the `sonnet` alias (judgment-heavy
-  question validation); explorers, spec writer, spec reviewer, and the
-  Explore-cache writer on the `sonnet` alias (mechanical/faithful work);
-  classification and the Explore-cache probe on the `haiku` alias (scout,
-  cache probe).
+- Model assignment (fixed in template + agent frontmatter): designer pinned to
+  `claude-opus-4-8` (see the plugin's CLAUDE.md); design reviewer on the
+  `sonnet` alias (judgment-heavy question validation); explorers, spec writer,
+  spec reviewer, and the Explore-cache writer on the `sonnet` alias
+  (mechanical/faithful work); classification and the Explore-cache probe on the
+  `haiku` alias (scout, cache probe).
 - **Explore-result cache (session-scoped).** Phase 1 persists the joined
   exploration reports beside the draft at
   `<DRAFT_PATH without its .md suffix>.explore-<task key>.md` — a derived

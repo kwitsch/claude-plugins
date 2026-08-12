@@ -374,3 +374,42 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
   [ "$output" = "" ]
 }
+
+@test "CLAUDE.md's Model assignment section records the Opus pin as a dated exception and keeps aliases as the rule" {
+  section="$BATS_TEST_TMPDIR/model-assignment.md"
+  awk '/^## Model assignment$/{f=1;next} /^## /{f=0} f' "$PLUGIN/CLAUDE.md" > "$section"
+  [ -s "$section" ]
+  run rg_or_grep -F 'claude-opus-4-8' "$section"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -iF 'exception' "$section"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F '2026-08-12' "$section"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F '`sonnet`/`haiku`' "$section"
+  [ "$status" -eq 0 ]
+}
+
+@test "README Agents table and both workflow references quote the pinned model ID, not the opus alias" {
+  run rg_or_grep -F 'claude-opus-4-8' "$PLUGIN/README.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'claude-opus-4-8' "$REFS/design-to-spec.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'claude-opus-4-8' "$REFS/spec-driven-delivery.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F '`opus` alias' "$REFS/design-to-spec.md"
+  [ "$status" -ne 0 ]
+  run rg_or_grep -F '`opus` alias' "$REFS/spec-driven-delivery.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "no bare opus alias survives anywhere in the plugin outside CLAUDE.md's exception prose" {
+  # Plain grep: --exclude has no rg_or_grep equivalent; -w keeps `opus` inside
+  # `claude-opus-4-8` a whole word (filtered below), prose `Opus` is not a hit.
+  run bash -c "grep -rnw 'opus' '$PLUGIN' --exclude=CLAUDE.md | grep -v 'claude-opus-4-8' || true"
+  [ "$status" -eq 0 ]
+  [ "$output" = "" ]
+  # CLAUDE.md keeps exactly the exception prose that names the alias.
+  run bash -c "grep -cw 'opus' '$PLUGIN/CLAUDE.md'"
+  [ "$status" -eq 0 ]
+  [ "$output" -ge 2 ]
+}

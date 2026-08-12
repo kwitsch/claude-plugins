@@ -28,12 +28,26 @@ automatic/background behavior for a toggle to suppress.
 
 ## Model assignment
 
-Every role uses a bare alias (`sonnet`/`haiku`/`opus` — floats to the newest
-model in that family); no role pins an exact model ID. Pinned IDs caused
-problems in practice and were removed in favor of aliases across the board.
-The `MODELS` object at the top of each workflow script is the single place to
-change an assignment; agent frontmatter `model:` fields must be kept in sync
-with the corresponding workflow's default when an agent is also invoked
+Sonnet- and Haiku-tier roles use bare aliases (`sonnet`/`haiku` — each floats
+to the newest model in that family). That is still the rule: pinned IDs caused
+problems in practice and were removed in favor of aliases across the board
+(commit `c66f3ea`).
+
+**Opus tier is a deliberate, narrow exception as of 2026-08-12:** every
+Opus-tier value is pinned to `claude-opus-4-8` because the `opus` alias
+currently resolves to Opus 5, which has severe latency problems. Revisit and
+return these to the bare `opus` alias once that is fixed. Pinned entries — all
+of them, nothing else:
+
+- `workflows/design-to-spec.workflow.js` → `MODELS.designer`
+- `workflows/spec-driven-delivery.workflow.js` → `MODELS.planner`,
+  `MODELS.synthesizer`, and `IMPL_MODEL.complex` (the per-task-complexity tier
+  that `implModel()`/`fixModel()` resolve for `complexity === "complex"` tasks)
+- `agents/designer.md` and `agents/planner.md` frontmatter `model:`
+
+The `MODELS` object at the top of each workflow script is still the single
+place to change an assignment; agent frontmatter `model:` fields must be kept
+in sync with the corresponding workflow's default when an agent is also invoked
 directly outside its workflow's normal path.
 
 ## Explore-result cache
@@ -56,8 +70,8 @@ explorers. Every point below is load-bearing:
   `sonnet`) are `agent()` dispatches, per the no-FS contract in the file's own
   header. `FINGERPRINT_CMD` is one constant shared by both prompts, so probe
   and writer can never diverge. The probe runs as `agentType:
-  'taskflow:cache-probe'` (`agents/cache-probe.md`, `tools: ["Bash",
-  "Read"]`) — it needs `Bash` for `FINGERPRINT_CMD` but never `Write`/`Edit`,
+'taskflow:cache-probe'` (`agents/cache-probe.md`, `tools: ["Bash",
+"Read"]`) — it needs `Bash` for `FINGERPRINT_CMD` but never `Write`/`Edit`,
   unlike the general-purpose-tooled writer. The write is dispatched
   concurrently with the first designer call (`parallel()` in Phase 2) only on
   a miss/fresh round, since Design only needs `explorationBlock` there and
