@@ -184,6 +184,14 @@ setup() {
   assert_success
   run grep -F 'five hooks total' "$PLUGIN_CLAUDE"
   assert_failure
+  run grep -F 'Six hooks total.' "$HOOKS"
+  assert_success
+  # Ties both hardcoded "six" claims above to the actual hook count, so a future hook
+  # addition/removal that forgets to update this prose is caught structurally instead
+  # of only by string-matching a hardcoded number (same derivation as context-mode.bats
+  # / cbm-hooks.bats use for their own hooks.json structural assertions).
+  run jq -e '([.hooks[][].hooks | length] | add) == 6' "$HOOKS"
+  assert_success
 }
 
 @test "plugin CLAUDE.md and the root README carry the context-mode history note and row clause" {
