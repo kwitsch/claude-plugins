@@ -9,22 +9,35 @@ setup() {
   common_setup
 }
 
-@test "cbm-bundle.json pins codebase-memory-mcp 0.10.1 and the portable tarball" {
+@test "cbm-bundle.json pins codebase-memory-mcp 0.10.1 and the portable asset, with no committed path" {
   run jq -e '.cbmVersion == "0.10.1" and .upstreamRepo == "DeusData/codebase-memory-mcp" and .releaseTag == "v0.10.1"' "$CBM_PIN"
   assert_success
-  run jq -e '(.binaries | length) == 1 and .binaries[0].path == "bin/codebase-memory-mcp-linux-amd64-portable.tar.gz" and .binaries[0].asset == "codebase-memory-mcp-linux-amd64-portable.tar.gz"' "$CBM_PIN"
+  run jq -e '.releaseTag == "v" + .cbmVersion' "$CBM_PIN"
+  assert_success
+  run jq -e '(.binaries | length) == 1 and (.binaries[0] | has("path") | not) and .binaries[0].asset == "codebase-memory-mcp-linux-amd64-portable.tar.gz"' "$CBM_PIN"
+  assert_success
+  run jq -e '.binaries[0] | (.assetSha256 | test("^[0-9a-f]{64}$")) and (.binarySha256 | test("^[0-9a-f]{64}$"))' "$CBM_PIN"
   assert_success
   run jq -e '.binaries[0].assetSha256 == "97c6580a13d772d040e936584f3c5234586ab03f31a77354af8a763851a39a7f" and .binaries[0].binarySha256 == "3380cf3b868d749c63f564e7c6b81381a140942ec42253f785e158ab5144064f"' "$CBM_PIN"
   assert_success
 }
 
-@test "binaries[0].path resolves to the committed tarball and matches assetSha256" {
-  local target actual expected
-  target="$PLUGIN/$(jq -r '.binaries[0].path' "$CBM_PIN")"
-  [ -f "$target" ]
-  actual="$(sha256sum < "$target" | cut -d' ' -f1)"
-  expected="$(jq -r '.binaries[0].assetSha256' "$CBM_PIN")"
-  [ "$actual" = "$expected" ]
+@test "cbm-tools.json is a 15-tool snapshot pinned to the same cbm version" {
+  run jq empty "$CBM_TOOLS"
+  assert_success
+  run jq -e --slurpfile pin "$CBM_PIN" '.cbmVersion == $pin[0].cbmVersion' "$CBM_TOOLS"
+  assert_success
+  run jq -e '(.tools | length) == 15' "$CBM_TOOLS"
+  assert_success
+  run jq -e '.tools | all((.name | type == "string" and length > 0) and (.description | type == "string" and length > 0) and (.inputSchema | type == "object") and (.inputSchema.type == "object"))' "$CBM_TOOLS"
+  assert_success
+  run jq -e '[.tools[].name] | sort == unique' "$CBM_TOOLS"
+  assert_success
+  # Collision guard: the four proxy-local hook tools own the hook_ prefix.
+  run jq -e '[.tools[].name] | all(startswith("hook_") | not)' "$CBM_TOOLS"
+  assert_success
+  run jq -e '[.tools[].name] | sort == (["index_repository","search_graph","query_graph","trace_path","get_code_snippet","get_graph_schema","get_architecture","search_code","list_projects","delete_project","index_status","check_index_coverage","detect_changes","manage_adr","ingest_traces"] | sort)' "$CBM_TOOLS"
+  assert_success
 }
 
 @test "the committed tarball has the upstream byte size" {

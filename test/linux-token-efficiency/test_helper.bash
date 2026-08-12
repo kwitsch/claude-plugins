@@ -14,10 +14,12 @@ common_setup() {
   HOOK="$PLUGIN/hooks/rtk-rewrite.mjs"
   SKILL_DIR="$REPO_ROOT/.claude/skills/update-linux-token-efficiency"
   CBM_PIN="$PLUGIN/cbm-bundle.json"
+  CBM_TOOLS="$PLUGIN/cbm-tools.json"
+  CBM_SERVER="$PLUGIN/mcp/server.mjs"
+  CBM_HELPERS="$PLUGIN/mcp/cbm-context.mjs"
   CBM_SUMS="$PLUGIN/bin/cbm-checksums.txt"
   CBM_TARBALL="$PLUGIN/bin/codebase-memory-mcp-linux-amd64-portable.tar.gz"
   CBM_LAUNCHER="$PLUGIN/bin/cbm-launch.sh"
-  CBM_HELPERS="$PLUGIN/mcp/cbm-context.mjs"
   MCP_JSON="$PLUGIN/.mcp.json"
 
   # Isolated PATH: only system tools that actually exist on the host are symlinked

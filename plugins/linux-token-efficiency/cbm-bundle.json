@@ -4,7 +4,6 @@
   "releaseTag": "v0.10.1",
   "binaries": [
     {
-      "path": "bin/codebase-memory-mcp-linux-amd64-portable.tar.gz",
       "asset": "codebase-memory-mcp-linux-amd64-portable.tar.gz",
       "assetSha256": "97c6580a13d772d040e936584f3c5234586ab03f31a77354af8a763851a39a7f",
       "binarySha256": "3380cf3b868d749c63f564e7c6b81381a140942ec42253f785e158ab5144064f"

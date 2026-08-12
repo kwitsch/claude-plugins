@@ -1,0 +1,200 @@
+{
+  "cbmVersion": "0.10.1",
+  "tools": [
+    {
+      "name": "index_repository",
+      "description": "Index a repository into the codebase-memory graph, creating or refreshing a project.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "Absolute path to the repository root to index." },
+          "project": { "type": "string", "description": "Project name to create or refresh. Defaults to the directory name." },
+          "force": { "type": "boolean", "description": "Re-index every file even when unchanged." }
+        },
+        "required": ["path"],
+        "additionalProperties": true
+      }
+    },
+    {
+      "name": "search_graph",
+      "description": "Search graph nodes by symbol name pattern and/or file pattern. Set format to \"json\" for a machine-readable {cols,groups,rows} payload.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": { "type": "string", "description": "Project to search." },
+          "name_pattern": { "type": "string", "description": "Symbol name pattern." },
+          "file_pattern": { "type": "string", "description": "File path pattern." },
+          "label": { "type": "string", "description": "Restrict to one node label (function, class, …)." },
+          "limit": { "type": "integer", "description": "Maximum rows to return." },
+          "format": { "type": "string", "description": "Output format: tree (default) or json." }
+        },
+        "required": ["project"],
+        "additionalProperties": true
+      }
+    },
+    {
+      "name": "query_graph",
+      "description": "Run a structured query against the codebase graph.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": { "type": "string" },
+          "query": { "type": "string", "description": "Query expression." },
+          "params": { "type": "object", "description": "Query parameters." },
+          "limit": { "type": "integer" }
+        },
+        "required": ["project", "query"],
+        "additionalProperties": true
+      }
+    },
+    {
+      "name": "trace_path",
+      "description": "Trace call or dependency paths between two graph nodes.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": { "type": "string" },
+          "from": { "type": "string", "description": "Qualified name of the source node." },
+          "to": { "type": "string", "description": "Qualified name of the target node." },
+          "max_depth": { "type": "integer" }
+        },
+        "required": ["project", "from", "to"],
+        "additionalProperties": true
+      }
+    },
+    {
+      "name": "get_code_snippet",
+      "description": "Return the source lines behind a graph node or a file range.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": { "type": "string" },
+          "file": { "type": "string" },
+          "qualified_name": { "type": "string" },
+          "start_line": { "type": "integer" },
+          "end_line": { "type": "integer" }
+        },
+        "required": ["project"],
+        "additionalProperties": true
+      }
+    },
+    {
+      "name": "get_graph_schema",
+      "description": "Describe the graph's node labels, edge types and properties.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "project": { "type": "string" } },
+        "additionalProperties": true
+      }
+    },
+    {
+      "name": "get_architecture",
+      "description": "Summarize a project's architecture from the graph: modules, layers and their dependencies.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": { "type": "string" },
+          "depth": { "type": "integer", "description": "How deep to summarize." }
+        },
+        "required": ["project"],
+        "additionalProperties": true
+      }
+    },
+    {
+      "name": "search_code",
+      "description": "Search indexed source text within a project.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": { "type": "string" },
+          "pattern": { "type": "string" },
+          "file_pattern": { "type": "string" },
+          "limit": { "type": "integer" }
+        },
+        "required": ["project", "pattern"],
+        "additionalProperties": true
+      }
+    },
+    {
+      "name": "list_projects",
+      "description": "List every indexed project with its recorded repository path.",
+      "inputSchema": { "type": "object", "properties": {}, "additionalProperties": true }
+    },
+    {
+      "name": "delete_project",
+      "description": "Delete an indexed project and its graph data.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "project": { "type": "string" } },
+        "required": ["project"],
+        "additionalProperties": true
+      }
+    },
+    {
+      "name": "index_status",
+      "description": "Report a project's index state: file and symbol counts, staleness, last index time.",
+      "inputSchema": {
+        "type": "object",
+        "properties": { "project": { "type": "string" } },
+        "required": ["project"],
+        "additionalProperties": true
+      }
+    },
+    {
+      "name": "check_index_coverage",
+      "description": "Report per-path index coverage for a list of paths: status, freshness and recommended action.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": { "type": "string" },
+          "paths": { "type": "array", "items": { "type": "string" }, "description": "Paths to check, relative to the project root." }
+        },
+        "required": ["project", "paths"],
+        "additionalProperties": true
+      }
+    },
+    {
+      "name": "detect_changes",
+      "description": "List files that changed since the project was last indexed.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": { "type": "string" },
+          "since": { "type": "string", "description": "Optional revision or timestamp to compare against." }
+        },
+        "required": ["project"],
+        "additionalProperties": true
+      }
+    },
+    {
+      "name": "manage_adr",
+      "description": "Create, list or read architecture decision records attached to a project.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": { "type": "string" },
+          "action": { "type": "string", "description": "list, get, create or update." },
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "body": { "type": "string" }
+        },
+        "required": ["project", "action"],
+        "additionalProperties": true
+      }
+    },
+    {
+      "name": "ingest_traces",
+      "description": "Ingest runtime traces into the graph to enrich call relationships.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project": { "type": "string" },
+          "path": { "type": "string", "description": "Path to a trace file." },
+          "traces": { "type": "array", "items": { "type": "object" } }
+        },
+        "required": ["project"],
+        "additionalProperties": true
+      }
+    }
+  ]
+}
