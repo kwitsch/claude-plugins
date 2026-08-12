@@ -117,6 +117,31 @@ subprocess, an explicit `false` goes unhonored and the feature stays enabled.
 Fail-open (not the rule's fail-closed exception): the hook creates no files and no external state,
 so only the literal string `false` (after `trim()`) disables it.
 
+## Output style
+
+`output-styles/terse.md` is a third fixed, always-on component next to the rtk rewrite hook and the
+cbm server. **No toggle, deliberately**: the style creates no state, and `force-for-plugin` is static
+frontmatter that no `userConfig` value can drive (`${user_config.*}` placeholders are rejected in hook
+`command` fields anyway, see above).
+
+- `force-for-plugin: true` auto-applies the style whenever the plugin is enabled and **overrides the
+  user's own `outputStyle` setting** by design; "first loaded wins if several set it".
+- `keep-coding-instructions: true` keeps Claude Code's built-in software-engineering instructions in
+  the system prompt, so only communication form changes, never coding behavior.
+- The body must stay short — one heading plus 6 bullets, deliberately **not** a
+  `kiwi-code-style`-shaped machine contract. `output-style.bats`'s ≤ 40-line cap is the tripwire that
+  enforces it; raising it is a design decision, not a test fix.
+- Scope: the main conversation only (a subagent has its own system prompt and never sees it), and it
+  takes effect in a new session or after `/clear`.
+- It is the plugin's **only OS-independent component** — which is why every "Linux only" claim in this
+  plugin's manifests and docs (`plugin.json`, the root `marketplace.json` entry, the plugin README
+  banner, the root README row) is scoped to the **bundled tooling**, never to the plugin as a whole.
+  Do not "simplify" those strings back to "this plugin does not work": the same edit must keep the
+  literal `does not work` with a **singular** subject, because `manifest.bats` matches that string in
+  both manifests.
+- If `kiwi-code-style` is enabled too, both force a style and only one wins — load-order dependent,
+  not controllable from here. Accepted; do not build detection or a precedence mechanism.
+
 ## Skill design (update-linux-token-efficiency)
 
 The maintainer skill lives at repo level in `.claude/skills/`, next to `create-plugin` and
@@ -180,7 +205,9 @@ fixture plugin tree with a fake MCP-speaking cbm binary and an ephemeral 127.0.0
 (`cbm-server.bats`), the four hook tools driven as real `tools/call` requests plus the `hooks.json`
 wiring pins (`cbm-hooks.bats`), `node:test` coverage of the pure helpers (`cbm-context.test.mjs`), and
 the maintainer-script exit-code contract (`update-cbm-bundle.bats`) — every fixture is fabricated and
-few bytes; the real 279.6 MiB binary is never downloaded or extracted.
+few bytes; the real 279.6 MiB binary is never downloaded or extracted. The forced output style adds
+`output-style.bats` (style presence, frontmatter keys read strictly between the real `---` fences, the
+exact first body heading, the ≤ 40-line brevity cap, required directive tokens).
 
 ## codebase-memory-mcp bundle
 
