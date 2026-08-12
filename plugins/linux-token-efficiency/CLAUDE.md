@@ -400,10 +400,12 @@ start there. Purely additive documentation — no behavior changes as a result.
 **The `SubagentStart` nudge hook (`hooks/subagent-nudge.md`, `cat`-ed) is a separate, explicitly
 user-requested addition — not part of the PreToolUse/PostToolUse analysis below.** It is a static
 file with two unrelated points: (1) subagents should not print narrative status text between tool
-calls, only their final report, and (2) subagents should prefer `context-mode`'s `ctx_*` tools when
-connected. Point 2 exists because subagents get their own system prompt and do **not**
-automatically inherit the main session's `SessionStart`-injected routing document, so without this
-hook a subagent has zero context-mode awareness. `SubagentStart` is `status: "full"` in the event
+calls, only their final report, and (2) subagents should prefer `context-mode`'s `ctx_*` tools —
+phrased unconditionally, on the assumption (USER DECISION) that the context-mode MCP server is
+always connected, not gated behind an "if connected" check. Point 2 exists because subagents get
+their own system prompt and do **not** automatically inherit the main session's
+`SessionStart`-injected routing document, so without this hook a subagent has zero context-mode
+awareness. `SubagentStart` is `status: "full"` in the event
 matrix (unlike `SessionStart`, `mcp_tool` works fine here — see `hook_subagent_context` above), so
 per the decision tree this could instead be `mcp_tool`; it is a plain `command` `cat` hook because
 (a) bolting a static, cbm-unrelated tool onto the `codebase-memory` proxy would be the same category
