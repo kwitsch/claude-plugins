@@ -183,7 +183,7 @@ hook_result() {
   run jq empty "$HOOKS"
   assert_success
   local entries='[.hooks.SessionStart[0].hooks[0], .hooks.SubagentStart[0].hooks[0], .hooks.PreToolUse[1].hooks[0], .hooks.PostToolUse[0].hooks[0]]'
-  run jq -e "$entries | all(.type == \"mcp_tool\" and .server == \"plugin:linux-token-efficiency:codebase-memory\" and .timeout == 12 and (has(\"command\") | not) and (has(\"async\") | not))" "$HOOKS"
+  run jq -e "$entries | all(.type == \"mcp_tool\" and .server == \"plugin:linux-token-efficiency:codebase-memory\" and .timeout == 20 and (has(\"command\") | not) and (has(\"async\") | not))" "$HOOKS"
   assert_success
   # Regression pin: an omitted "input" delivers {} instead of the hook JSON.
   run jq -e "$entries | all(has(\"input\") and (.input | type == \"object\") and (.input | length > 0))" "$HOOKS"

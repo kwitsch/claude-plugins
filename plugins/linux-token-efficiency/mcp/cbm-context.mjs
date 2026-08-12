@@ -291,17 +291,6 @@ export function pickProjectEntry(payload, cwd) {
 }
 
 /**
- * The matched project's name only — a thin wrapper over pickProjectEntry.
- * @param {unknown} payload
- * @param {string} cwd
- * @returns {string|null}
- */
-export function pickProject(payload, cwd) {
-  const entry = pickProjectEntry(payload, cwd);
-  return entry === null ? null : entry.name;
-}
-
-/**
  * The read-only search_graph query a Grep/Glob call maps to, as MCP argument names (not
  * CLI flags): Grep's pattern is a symbol name pattern, Glob's is a file pattern. null for
  * any other tool, a missing, blank or over-long pattern — no graph call is worth making.

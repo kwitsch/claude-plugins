@@ -16,7 +16,6 @@ import {
   writeProjectCache,
   unwrapToolResult,
   pickProjectEntry,
-  pickProject,
   graphQueryFromToolInput,
   formatSessionContext,
   formatSubagentContext,
@@ -193,7 +192,7 @@ test("unwrapToolResult: peels the MCP envelope, prefers structuredContent, null 
   assert.equal(unwrapToolResult("garbage"), null);
 });
 
-test("pickProjectEntry / pickProject: exact path, nearest ancestor, no match, key aliases", () => {
+test("pickProjectEntry: exact path, nearest ancestor, no match, key aliases", () => {
   const payload = {
     projects: [
       { name: "outer", path: "/repos" },
@@ -220,8 +219,6 @@ test("pickProjectEntry / pickProject: exact path, nearest ancestor, no match, ke
     name: "graph",
     root: "/repos/app",
   });
-  assert.equal(pickProject(payload, "/repos/app"), "inner");
-  assert.equal(pickProject(payload, "/nowhere"), null);
 });
 
 test("graphQueryFromToolInput: MCP argument names, not CLI flags", () => {

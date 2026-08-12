@@ -52,8 +52,11 @@ resolves to "not connected" on every fire) with an explicit `input` block each, 
 (`hook_session_context`, `hook_subagent_context`, `hook_symbol_context`, `hook_coverage_context`), so
 `hookEventName` is hardcoded per tool and can never be wrong.
 
-`timeout: 12` (was `21`): there is no per-event process any more, so the budget is two 4 s child
-round-trips (`HOOK_CALL_TIMEOUT_MS`) plus margin, not two 5 s `spawnSync` calls plus Node start-up.
+`timeout: 20` (was `21`, briefly `12`): there is no per-event process any more, so the budget is two
+4 s child round-trips (`HOOK_CALL_TIMEOUT_MS`) plus a cold-start handshake (`HOOK_CALL_TIMEOUT_MS *
+2`) plus margin, not two 5 s `spawnSync` calls plus Node start-up. `12` under-counted the handshake
+cost on the very first call of a session (cold child, cold project cache) — real review finding,
+raised to `20` to actually cover the worst case.
 
 `SessionStart` is `status: "limited"` in `.claude/rules/hooks-mcp-tool-event-matrix.md` ("servers
 usually not connected yet on first run") and `hooks-mcp-server.md`'s decision tree lists it as a

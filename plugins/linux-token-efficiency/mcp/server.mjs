@@ -47,7 +47,7 @@ const SERVER_NAME = "codebase-memory"; // keep aligned with the .mcp.json key
 const SERVER_INFO = { name: SERVER_NAME, version: "0.1.0" };
 const DEFAULT_PROTOCOL = "2025-11-25"; // what the pinned v0.10.1 binary itself reports
 const BINARY_NAME = "codebase-memory-mcp";
-/** Per-child-call bound for hook tools: two of these plus margin is hooks.json's timeout 12. */
+/** Per-child-call bound for hook tools: two of these plus a cold handshake plus margin is hooks.json's timeout 20. */
 const HOOK_CALL_TIMEOUT_MS = 4000;
 /** One bounded download attempt per server process — no retry storm on an offline host. */
 const DOWNLOAD_TIMEOUT_MS = 300000;

@@ -108,7 +108,7 @@ setup() {
     run grep -F "$token" "$PLUGIN_CLAUDE"
     assert_success
   done
-  run grep -F 'timeout: 12' "$PLUGIN_CLAUDE"
+  run grep -F 'timeout: 20' "$PLUGIN_CLAUDE"
   assert_success
   run grep -Fi 'network' "$PLUGIN_CLAUDE"
   assert_success
