@@ -7,6 +7,3 @@
 # linux-token-efficiency ships committed rtk release binaries: binary data that a
 # `text=auto` repo must never EOL-translate or diff as text.
 plugins/linux-token-efficiency/bin/* binary
-
-# The launcher next to those artifacts is source, not data: re-assert text handling for it.
-plugins/linux-token-efficiency/bin/*.sh text eol=lf diff merge

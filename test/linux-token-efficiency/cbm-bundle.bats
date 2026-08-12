@@ -40,63 +40,40 @@ setup() {
   assert_success
 }
 
-@test "the committed tarball has the upstream byte size" {
-  run stat -c %s "$CBM_TARBALL"
-  assert_output '39482833'
+@test "bin/ holds nothing but the committed rtk binary" {
+  run bash -c "git -C '$REPO_ROOT' ls-files -- plugins/linux-token-efficiency/bin/"
+  assert_output 'plugins/linux-token-efficiency/bin/rtk'
+  run bash -c "ls -A '$PLUGIN/bin'"
+  assert_output 'rtk'
 }
 
-@test "cbm-checksums.txt has exactly two entries agreeing with the pin" {
-  [ -f "$CBM_SUMS" ]
-  run bash -c "grep -c . '$CBM_SUMS'"
-  assert_output '2'
-  local asset_sha bin_sha
-  asset_sha="$(awk '$2 == "codebase-memory-mcp-linux-amd64-portable.tar.gz" { print $1 }' "$CBM_SUMS")"
-  bin_sha="$(awk '$2 == "codebase-memory-mcp" { print $1 }' "$CBM_SUMS")"
-  [ "$asset_sha" = "$(jq -r '.binaries[0].assetSha256' "$CBM_PIN")" ]
-  [ "$bin_sha" = "$(jq -r '.binaries[0].binarySha256' "$CBM_PIN")" ]
+@test "no cbm artifact is tracked anywhere in the repo" {
+  run bash -c "git -C '$REPO_ROOT' ls-files | grep -E 'cbm-launch\.sh|cbm-checksums\.txt|portable\.tar\.gz' | grep -c . || true"
+  assert_output '0'
 }
 
-@test "the sidecar's tarball entry verifies from the bin directory" {
-  run bash -c "cd '$PLUGIN/bin' && awk '\$2 == \"codebase-memory-mcp-linux-amd64-portable.tar.gz\"' cbm-checksums.txt | sha256sum --check --status -"
+@test ".gitattributes still marks bin/ as binary data for the rtk binary" {
+  run grep -F -- 'plugins/linux-token-efficiency/bin/* binary' "$REPO_ROOT/.gitattributes"
   assert_success
-}
-
-@test "the committed tarball is tracked as data (100644) and marked binary" {
-  run git -C "$REPO_ROOT" ls-files --stage -- plugins/linux-token-efficiency/bin/codebase-memory-mcp-linux-amd64-portable.tar.gz
-  assert_success
-  assert_line --regexp '^100644 [0-9a-f]+ 0[[:space:]]+plugins/linux-token-efficiency/bin/codebase-memory-mcp-linux-amd64-portable\.tar\.gz$'
-  run git -C "$REPO_ROOT" check-attr binary -- plugins/linux-token-efficiency/bin/codebase-memory-mcp-linux-amd64-portable.tar.gz
+  run git -C "$REPO_ROOT" check-attr binary -- plugins/linux-token-efficiency/bin/rtk
   assert_success
   assert_output --partial 'binary: set'
 }
 
-@test "bin/cbm-launch.sh is executable in the git index (100755)" {
-  run git -C "$REPO_ROOT" ls-files --stage -- plugins/linux-token-efficiency/bin/cbm-launch.sh
-  assert_success
-  assert_line --regexp '^100755 [0-9a-f]+ 0[[:space:]]+plugins/linux-token-efficiency/bin/cbm-launch\.sh$'
-}
-
-@test ".gitattributes re-asserts text handling for the bin/ shell launcher" {
-  run grep -F -- 'plugins/linux-token-efficiency/bin/*.sh text eol=lf diff merge' "$REPO_ROOT/.gitattributes"
-  assert_success
-  run git -C "$REPO_ROOT" check-attr text diff -- plugins/linux-token-efficiency/bin/cbm-launch.sh
-  assert_success
-  assert_output --partial 'text: set'
-  assert_output --partial 'diff: set'
-}
-
-@test ".mcp.json registers exactly one codebase-memory stdio server via the launcher" {
+@test ".mcp.json registers exactly one codebase-memory server, wrapper-less, at mcp/server.mjs" {
   run jq empty "$MCP_JSON"
   assert_success
   run jq -e '.mcpServers | keys == ["codebase-memory"]' "$MCP_JSON"
   assert_success
-  run jq -e '.mcpServers["codebase-memory"] | .command == "${CLAUDE_PLUGIN_ROOT}/bin/cbm-launch.sh" and (has("args") | not)' "$MCP_JSON"
+  run jq -e '.mcpServers["codebase-memory"] | .command == "${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs" and (has("args") | not)' "$MCP_JSON"
   assert_success
   run jq -e '.mcpServers["codebase-memory"].env | keys == ["CBM_BUNDLE_CACHE","CLAUDE_PLUGIN_OPTION_CBM_ENABLED"] and .CLAUDE_PLUGIN_OPTION_CBM_ENABLED == "${user_config.cbm_enabled}" and .CBM_BUNDLE_CACHE == "${CLAUDE_PLUGIN_DATA}/cbm"' "$MCP_JSON"
   assert_success
   run grep -F 'CBM_CACHE_DIR' "$MCP_JSON"
   assert_failure
   run grep -F 'CBM_NO_EXTRACT' "$MCP_JSON"
+  assert_failure
+  run grep -F 'mjs-launch.sh' "$MCP_JSON"
   assert_failure
 }
 
@@ -145,16 +122,17 @@ setup() {
   assert_success
 }
 
-@test "the plugin sets only its own two CBM_ variables" {
-  # Only env-name positions count (`CBM_X=` in shell, `"CBM_X":` in JSON / a JS object
-  # literal). The leading non-word-char guard excludes the CLAUDE_PLUGIN_OPTION_CBM_ENABLED
-  # suffix, and cbm-context.mjs's CBM_SPAWN_TIMEOUT_MS / CBM_MAX_OUTPUT_BYTES are
-  # module-local constants (`NAME = value`), never environment variables.
-  run bash -c "grep -rhoE '(^|[^A-Za-z0-9_])CBM_[A-Z_]+[=:]' '$MCP_JSON' '$PLUGIN/hooks/' '$PLUGIN/bin/cbm-launch.sh' | grep -oE 'CBM_[A-Z_]+' | sort -u | tr '\n' ' '"
-  assert_output 'CBM_BUNDLE_CACHE CBM_NO_EXTRACT '
-}
-
-@test "no file in the plugin ever assigns the upstream-owned CBM_CACHE_DIR" {
-  run bash -c "grep -rnE 'CBM_CACHE_DIR[=:]' '$MCP_JSON' '$PLUGIN/hooks/' '$PLUGIN/bin/cbm-launch.sh'"
+@test "the plugin sets only its own CBM_BUNDLE_CACHE, never the upstream CBM_CACHE_DIR" {
+  # Only env-name positions count (`CBM_X=` in shell, `"CBM_X":` in JSON -- the optional `"?`
+  # tolerates the closing quote a JSON key has before its colon). CBM_NO_EXTRACT is gone with
+  # the launcher; CBM_DOWNLOAD_BASE_URL is only ever READ (process.env.CBM_…), never assigned,
+  # so it does not appear here.
+  run bash -c "grep -rhoE '(^|[^A-Za-z0-9_])CBM_[A-Z_]+\"?[=:]' '$MCP_JSON' '$PLUGIN/hooks/' '$PLUGIN/mcp/' | grep -oE 'CBM_[A-Z_]+' | sort -u | tr '\n' ' '"
+  assert_output 'CBM_BUNDLE_CACHE '
+  run bash -c "grep -rnE 'CBM_CACHE_DIR\"?[=:]' '$MCP_JSON' '$PLUGIN/hooks/' '$PLUGIN/mcp/'"
+  assert_failure
+  # Scoped to code, not docs: CLAUDE.md's own CBM_NO_EXTRACT mention is a Task 7 (doc sync)
+  # cleanup, tracked separately by docs.bats.
+  run bash -c "grep -rn 'CBM_NO_EXTRACT' '$MCP_JSON' '$PLUGIN/hooks/' '$PLUGIN/mcp/'"
   assert_failure
 }

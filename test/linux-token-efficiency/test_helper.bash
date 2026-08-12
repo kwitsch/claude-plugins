@@ -17,9 +17,6 @@ common_setup() {
   CBM_TOOLS="$PLUGIN/cbm-tools.json"
   CBM_SERVER="$PLUGIN/mcp/server.mjs"
   CBM_HELPERS="$PLUGIN/mcp/cbm-context.mjs"
-  CBM_SUMS="$PLUGIN/bin/cbm-checksums.txt"
-  CBM_TARBALL="$PLUGIN/bin/codebase-memory-mcp-linux-amd64-portable.tar.gz"
-  CBM_LAUNCHER="$PLUGIN/bin/cbm-launch.sh"
   MCP_JSON="$PLUGIN/.mcp.json"
 
   # Isolated PATH: only system tools that actually exist on the host are symlinked
@@ -62,29 +59,6 @@ make_input() {
   [ -n "$extra" ] || extra='{}'
   jq -cn --arg cmd "$cmd" --argjson extra "$extra" \
     '{hook_event_name:"PreToolUse", tool_name:"Bash", tool_input:({command:$cmd} + $extra)}'
-}
-
-# make_cbm_fixture <dir> -- build a few-byte fake plugin tree: bin/<tarball> holding a
-# stub `codebase-memory-mcp` (+ an install.sh member, like upstream's archive) next to
-# a cbm-checksums.txt with locally computed hashes, plus a copy of the real launcher.
-# The real 279.6 MiB binary is never involved.
-make_cbm_fixture() {
-  local dir="$1" asset_sha bin_sha
-  mkdir -p "$dir/bin" "$dir/pack"
-  make_stub_in "$dir/pack" codebase-memory-mcp 'printf "CBM-STUB %s\n" "$*"'
-  printf '#!/usr/bin/env bash\necho fixture-install\n' > "$dir/pack/install.sh"
-  tar -czf "$dir/bin/codebase-memory-mcp-linux-amd64-portable.tar.gz" \
-    -C "$dir/pack" codebase-memory-mcp install.sh
-  asset_sha="$(sha256sum < "$dir/bin/codebase-memory-mcp-linux-amd64-portable.tar.gz" | cut -d' ' -f1)"
-  bin_sha="$(sha256sum < "$dir/pack/codebase-memory-mcp" | cut -d' ' -f1)"
-  {
-    printf '%s  codebase-memory-mcp-linux-amd64-portable.tar.gz\n' "$asset_sha"
-    printf '%s  codebase-memory-mcp\n' "$bin_sha"
-  } > "$dir/bin/cbm-checksums.txt"
-  cp "$CBM_LAUNCHER" "$dir/bin/cbm-launch.sh"
-  chmod +x "$dir/bin/cbm-launch.sh"
-  rm -rf "$dir/pack"
-  return 0
 }
 
 # write_fake_cbm <path> -- a tiny executable stand-in for the real 279.6 MiB cbm binary
