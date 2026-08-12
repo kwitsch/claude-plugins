@@ -44,8 +44,7 @@ still mismatch on unusual POM layouts.
 2. Run, as **one Bash tool call**:
 
    ```bash
-   export TMPDIR="<scratchpad-or-mktemp-dir>"
-   bash ${CLAUDE_SKILL_DIR}/bump-version.sh <part>
+   export TMPDIR="<scratchpad-or-mktemp-dir>" && bash ${CLAUDE_SKILL_DIR}/bump-version.sh <part>
    ```
 
    Substitute `<part>` with the caller's literal argument
@@ -54,11 +53,14 @@ still mismatch on unusual POM layouts.
    prompt); if none is available, run `mktemp -d -t bump-version-XXXXXX`
    once first and use that directory's path instead.
 
-   When the target is a plugin in a plugin-marketplace repo, prefix the same
-   Bash call with `cd <absolute-path-to>/plugins/<name> && ` so detection runs
-   in the plugin's own directory — detection is cwd-only and never walks the
-   tree, so running from the repo root (or from deeper inside the plugin, e.g.
-   `plugins/<name>/skills/<skill>/`) does not find the plugin's manifest.
+   When the target is a plugin in a plugin-marketplace repo, prefix the same,
+   single chained line with `cd <absolute-path-to>/plugins/<name> && ` (keeping
+   everything on one `&&`-chained line, so a failed `cd` short-circuits the
+   whole command instead of letting the bump still run in the wrong directory)
+   so detection runs in the plugin's own directory — detection is cwd-only and
+   never walks the tree, so running from the repo root (or from deeper inside
+   the plugin, e.g. `plugins/<name>/skills/<skill>/`) does not find the
+   plugin's manifest.
 
 3. Map the exit code per `bump-version.reference.md`'s table:
    - `0` — report the printed `file:`/`old:`/`new:`/`sync:` lines
