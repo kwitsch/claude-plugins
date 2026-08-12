@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# bump-version: detect a project's version file (package.json > composer.json >
-# pom.xml > VERSION, cwd only), bump the given semver segment (zeroing segments
-# to its right), then sync the matching lock file if present.
+# bump-version: detect a project's version file (.claude-plugin/plugin.json >
+# package.json > composer.json > pom.xml > VERSION, cwd only), bump the given
+# semver segment (zeroing segments to its right), then sync the matching lock
+# file if present. A plugin-marketplace repo root (.claude-plugin/marketplace.json
+# with no plugin.json of its own) is refused, not guessed at.
 #
 # Usage: bump-version.sh <major|minor|patch>
 # Exit: 0 ok · 2 usage · 3 no_version_file · 4 unparseable_version ·
@@ -10,10 +12,16 @@
 set -uo pipefail
 
 part="${1:-}"
-[ "$#" -eq 1 ] || { echo "usage: bump-version.sh <major|minor|patch>" >&2; exit 2; }
+[ "$#" -eq 1 ] || {
+  echo "usage: bump-version.sh <major|minor|patch>" >&2
+  exit 2
+}
 case "$part" in
-  major|minor|patch) ;;
-  *) echo "usage: bump-version.sh <major|minor|patch>" >&2; exit 2 ;;
+  major | minor | patch) ;;
+  *)
+    echo "usage: bump-version.sh <major|minor|patch>" >&2
+    exit 2
+    ;;
 esac
 
 is_bare_semver() {
@@ -22,10 +30,17 @@ is_bare_semver() {
 
 bump_semver() {
   local major minor patch
-  IFS='.' read -r major minor patch <<<"$1"
+  IFS='.' read -r major minor patch <<< "$1"
   case "$2" in
-    major) major=$((major + 1)); minor=0; patch=0 ;;
-    minor) minor=$((minor + 1)); patch=0 ;;
+    major)
+      major=$((major + 1))
+      minor=0
+      patch=0
+      ;;
+    minor)
+      minor=$((minor + 1))
+      patch=0
+      ;;
     patch) patch=$((patch + 1)) ;;
   esac
   echo "$major.$minor.$patch"
@@ -42,7 +57,7 @@ bump_semver() {
 # nonzero count), so this divergence is accepted rather than papered over
 # with --include-zero, which errors on ripgrep < 12.0.0.
 rg_or_grep() {
-  if command -v rg >/dev/null 2>&1; then
+  if command -v rg > /dev/null 2>&1; then
     local args=() a stripped seen_dashdash=false
     for a in "$@"; do
       if [ "$seen_dashdash" = true ]; then
@@ -50,7 +65,10 @@ rg_or_grep() {
         continue
       fi
       case "$a" in
-        --) seen_dashdash=true; args+=("$a") ;;
+        --)
+          seen_dashdash=true
+          args+=("$a")
+          ;;
         -[A-Za-z]*)
           stripped="${a//E/}"
           [ "$stripped" = "-" ] && continue
@@ -75,7 +93,10 @@ version_line=""
 # locals before calling this, and bash's dynamic scoping means this callee
 # sees those exact locals without needing them passed explicitly.
 require_bare_semver() {
-  is_bare_semver "$old" || { echo "bump-version only supports bare MAJOR.MINOR.PATCH; $f has \"$old\"" >&2; exit 4; }
+  is_bare_semver "$old" || {
+    echo "bump-version only supports bare MAJOR.MINOR.PATCH; $f has \"$old\"" >&2
+    exit 4
+  }
 }
 
 detect_json() {
@@ -109,7 +130,10 @@ detect_json() {
     }
     END { if (best_line != "" && tie_count == 1) print best_line }
   ' "$f")"
-  [ -n "$line_no" ] || { echo "no top-level \"version\" field found in $f" >&2; exit 4; }
+  [ -n "$line_no" ] || {
+    echo "no top-level \"version\" field found in $f" >&2
+    exit 4
+  }
   match="$(sed -n "${line_no}p" "$f" | rg_or_grep -o -E '"version"[[:space:]]*:[[:space:]]*"[^"]*"')"
   old="$(printf '%s' "$match" | rg_or_grep -o -E '"[^"]*"$' | tr -d '"')"
   require_bare_semver
@@ -125,7 +149,10 @@ detect_pom() {
   parent_end="$(rg_or_grep -n '</parent>' "$f" | head -n1 | cut -d: -f1)"
   [ -n "$parent_end" ] && start=$((parent_end + 1))
   version_line="$(awk -v start="$start" 'NR>=start && match($0, /<version>[0-9]+\.[0-9]+\.[0-9]+<\/version>/) {print NR; exit}' "$f")"
-  [ -n "$version_line" ] || { echo "no project <version> tag found in $f" >&2; exit 4; }
+  [ -n "$version_line" ] || {
+    echo "no project <version> tag found in $f" >&2
+    exit 4
+  }
   old="$(sed -n "${version_line}p" "$f" | rg_or_grep -o -E '<version>[0-9]+\.[0-9]+\.[0-9]+</version>' | sed -E 's#</?version>##g')"
   require_bare_semver
   file="$f"
@@ -141,7 +168,23 @@ detect_version_file() {
   return 0
 }
 
-if detect_json "package.json"; then
+# A Claude Code plugin manifest is checked first: inside a plugin directory its
+# version is authoritative (plugins/<name>/.claude-plugin/plugin.json is the
+# only place a plugin's version may live), so a package.json that happens to sit
+# beside it must not win. This is still a fixed cwd-relative path, not a search.
+if detect_json ".claude-plugin/plugin.json"; then
+  kind="plugin"
+elif [ -f ".claude-plugin/marketplace.json" ]; then
+  # A plugin-marketplace repo root: no single project version lives here. The
+  # manifest's own top-level "version" is the MARKETPLACE manifest's version,
+  # never a plugin's, and a root package.json in such a repo is typically
+  # private tooling. Say where to run instead of bumping the wrong thing.
+  # This branch MUST precede detect_json "package.json": a marketplace root's
+  # own package.json usually has no "version" key at all, and detect_json
+  # hard-exits 4 from inside itself in that case, so a later guard is dead code.
+  echo "plugin-marketplace repo root ($(pwd)/.claude-plugin/marketplace.json): no single project version here — cd into plugins/<name> and re-run to bump that plugin's .claude-plugin/plugin.json (the manifest's own \"version\" field is the marketplace manifest's, never a plugin's)" >&2
+  exit 3
+elif detect_json "package.json"; then
   kind="npm"
 elif detect_json "composer.json"; then
   kind="composer"
@@ -150,7 +193,7 @@ elif detect_pom; then
 elif detect_version_file; then
   kind="plain"
 else
-  echo "no supported version file (package.json, composer.json, pom.xml, VERSION) found in $(pwd)" >&2
+  echo "no supported version file (.claude-plugin/plugin.json, package.json, composer.json, pom.xml, VERSION) found in $(pwd)" >&2
   exit 3
 fi
 
@@ -168,11 +211,21 @@ write_plain() {
   sed -i "1s/.*/${new}/" "$file"
 }
 
+# The *) arm is not speculative hardening: an unmatched case returns success, so
+# a kind missing from this dispatch printed all four output lines and exited 0
+# while writing nothing (the trailing || guard never fires). Verified live.
 case "$kind" in
-  npm|composer) write_json ;;
+  npm | composer | plugin) write_json ;;
   maven) write_pom ;;
   plain) write_plain ;;
-esac || { echo "failed to write $file" >&2; exit 5; }
+  *)
+    echo "internal error: no writer for kind=$kind" >&2
+    exit 5
+    ;;
+esac || {
+  echo "failed to write $file" >&2
+  exit 5
+}
 
 sync_status="no_lockfile"
 
@@ -180,9 +233,12 @@ sync_lock() {
   local lockfile="$1"
   shift
   [ -f "$lockfile" ] || return 0
-  sync_log="$(mktemp)" || { sync_status="temp_failed"; return 0; }
+  sync_log="$(mktemp)" || {
+    sync_status="temp_failed"
+    return 0
+  }
   trap 'rm -f "$sync_log"' EXIT
-  if "$@" >"$sync_log" 2>&1; then
+  if "$@" > "$sync_log" 2>&1; then
     sync_status="synced"
   else
     sync_status="failed"
@@ -192,7 +248,10 @@ sync_lock() {
 case "$kind" in
   npm) sync_lock package-lock.json npm i --package-lock-only ;;
   composer) sync_lock composer.lock composer update --lock ;;
-  maven|plain) sync_status="no_convention" ;;
+  # plugin.json has no lock-file concept: a plugin's version must not be
+  # duplicated anywhere, so marketplace.json is explicitly NOT a lock file to
+  # propagate into. sync_lock never runs here, so exits 6/7 are unreachable.
+  maven | plain | plugin) sync_status="no_convention" ;;
 esac
 
 printf 'file: %s\nold: %s\nnew: %s\nsync: %s\n' "$file" "$old" "$new" "$sync_status"
