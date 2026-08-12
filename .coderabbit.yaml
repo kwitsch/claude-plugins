@@ -1,14 +1,16 @@
 # yaml-language-server: $schema=https://storage.googleapis.com/coderabbit_public_assets/schema.v2.json
 # CodeRabbit configuration for kwitsch-plugins.
 #
-# Exclude the vendored third-party context-mode tree from review. It is a prepared,
-# byte-for-byte vendored copy of the upstream `context-mode` package (Elastic License
-# 2.0, https://github.com/mksglu/context-mode) — not code authored in this repo — so
-# reviewing it only produces noise and false findings. See
-# `.claude/rules/cave-context-vendored.md` for how it is prepared.
+# Exclude the repo's one byte-for-byte vendored upstream file from review:
+# plugins/linux-token-efficiency/hooks/SessionStart.md is an unmodified copy of context-mode's own
+# routing-rules document (Elastic License 2.0,
+# https://github.com/mksglu/context-mode/blob/main/configs/claude-code/CLAUDE.md) — not content
+# authored in this repo — so reviewing it only produces noise and suggestions that would have to be
+# rejected to keep the copy verbatim. Its own contract is documented in the `## context-mode`
+# section of `plugins/linux-token-efficiency/CLAUDE.md`.
 #
 # `path_filters` is a glob list; a pattern starting with `!` EXCLUDES, everything else is
 # reviewed as normal.
 reviews:
   path_filters:
-    - "!plugins/cave-context/bin/context-mode/**"
+    - "!plugins/linux-token-efficiency/hooks/SessionStart.md"

@@ -141,3 +141,67 @@ cm_run() {
   run jq -e '.mcpServers["context-mode"].env | keys == ["CLAUDE_PLUGIN_OPTION_CONTEXT_MODE_ENABLED"] and .CLAUDE_PLUGIN_OPTION_CONTEXT_MODE_ENABLED == "${user_config.context_mode_enabled}"' "$MCP_JSON"
   assert_success
 }
+
+@test "hooks/SessionStart.md is upstream's routing document verbatim, tracked 100644" {
+  local ss="$PLUGIN/hooks/SessionStart.md"
+  [ -s "$ss" ]
+  run head -n 1 "$ss"
+  assert_output '# context-mode — MANDATORY routing rules'
+  run tail -n 1 "$ss"
+  assert_output 'After /clear or /compact: knowledge base and session stats preserved. Use `ctx purge` to start fresh.'
+  # The research-notes boundary marker is the notes author's, never upstream content.
+  run grep -F 'END OF SessionStart.md CONTENT' "$ss"
+  assert_failure
+  local token
+  for token in 'ctx_batch_execute' 'ctx_execute_file' 'ctx_fetch_and_index' 'ctx_purge' 'DO NOT ask "what were we working on?"'; do
+    run grep -F "$token" "$ss"
+    assert_success
+  done
+  # No exec bit: .claude/rules/hooks-executable.md globs only hooks/*.sh and hooks/*.mjs.
+  run git -C "$REPO_ROOT" ls-files --stage -- plugins/linux-token-efficiency/hooks/SessionStart.md
+  assert_success
+  assert_line --regexp '^100644 [0-9a-f]+ 0[[:space:]]+plugins/linux-token-efficiency/hooks/SessionStart\.md$'
+}
+
+@test "the SessionStart cat entry is a second top-level entry in exec form" {
+  run jq -e '(.hooks.SessionStart | length) == 2' "$HOOKS"
+  assert_success
+  run jq -e '.hooks.SessionStart[1].hooks[0] == {type:"command", command:"cat", args:["${CLAUDE_PLUGIN_ROOT}/hooks/SessionStart.md"], timeout:5}' "$HOOKS"
+  assert_success
+  run jq -e '.hooks.SessionStart[1] | (has("matcher") | not) and (.hooks | length) == 1' "$HOOKS"
+  assert_success
+  run jq -e '.hooks.SessionStart[1].hooks[0] | has("async") | not' "$HOOKS"
+  assert_success
+  # Index-0 stability pin: cbm-hooks.bats addresses the mcp_tool entry positionally.
+  run jq -e '.hooks.SessionStart[0].hooks[0].tool == "hook_session_context"' "$HOOKS"
+  assert_success
+}
+
+@test "cat on SessionStart.md through an isolated PATH reproduces the document" {
+  local ss="$PLUGIN/hooks/SessionStart.md"
+  run env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" cat "$ss"
+  assert_success
+  [ "$output" = "$(cat "$ss")" ]
+}
+
+@test "zero nudge hooks were added for context-mode" {
+  run jq -e '(.hooks.PreToolUse | length) == 2 and (.hooks.PostToolUse | length) == 1' "$HOOKS"
+  assert_success
+  # Assert on handler fields, not raw strings: the top-level description legitimately
+  # contains "context-mode".
+  run jq -e '[.hooks[][].hooks[] | select(.type == "mcp_tool") | .server] | unique == ["plugin:linux-token-efficiency:codebase-memory"]' "$HOOKS"
+  assert_success
+  run grep -F 'context_guidance' "$HOOKS"
+  assert_failure
+}
+
+@test "the verbatim file is guarded by .prettierignore and .coderabbit.yaml, and the cave-context orphan is gone" {
+  run grep -F 'plugins/linux-token-efficiency/hooks/SessionStart.md' "$REPO_ROOT/.prettierignore"
+  assert_success
+  # `--` is load-bearing: the pattern starts with "- ", which grep would otherwise
+  # parse as an option (same reason as the .gitattributes test above).
+  run grep -F -- '- "!plugins/linux-token-efficiency/hooks/SessionStart.md"' "$REPO_ROOT/.coderabbit.yaml"
+  assert_success
+  run bash -c "grep -ci 'cave-context' '$REPO_ROOT/.coderabbit.yaml' || true"
+  assert_output '0'
+}
