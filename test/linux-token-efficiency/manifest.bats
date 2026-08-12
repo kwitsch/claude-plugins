@@ -18,14 +18,12 @@ setup() {
   assert_success
 }
 
-@test "plugin.json declares exactly the auto_rewrite, cbm_enabled and context_mode_enabled boolean toggles, all default true" {
-  run jq -e '.userConfig | keys == ["auto_rewrite","cbm_enabled","context_mode_enabled"]' "$MANIFEST"
+@test "plugin.json declares exactly the auto_rewrite and cbm_enabled boolean toggles, all default true" {
+  run jq -e '.userConfig | keys == ["auto_rewrite","cbm_enabled"]' "$MANIFEST"
   assert_success
   run jq -e '.userConfig | .auto_rewrite.type == "boolean" and .auto_rewrite.default == true and (.auto_rewrite.title | length > 0) and (.auto_rewrite.description | length > 0)' "$MANIFEST"
   assert_success
   run jq -e '.userConfig | .cbm_enabled.type == "boolean" and .cbm_enabled.default == true and (.cbm_enabled.title | length > 0) and (.cbm_enabled.description | length > 0)' "$MANIFEST"
-  assert_success
-  run jq -e '.userConfig | .context_mode_enabled.type == "boolean" and .context_mode_enabled.default == true and (.context_mode_enabled.title | length > 0) and (.context_mode_enabled.description | length > 0)' "$MANIFEST"
   assert_success
 }
 

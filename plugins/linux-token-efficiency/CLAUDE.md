@@ -101,12 +101,13 @@ cache is a pure optimization, never a dependency.
 
 ## userConfig
 
-Three toggles, one per shipped feature: boolean `auto_rewrite`, boolean `cbm_enabled` and boolean
-`context_mode_enabled`, all `default: true`. This plugin does **not** qualify for
+Two toggles, one per gated feature: boolean `auto_rewrite` and boolean `cbm_enabled`, both
+`default: true`. This plugin does **not** qualify for
 `.claude/rules/plugin-userconfig.md`'s
 deliberate no-toggle exception, because the hook is not the whole plugin — with auto-rewrite off
 the bundled `rtk` is still on the Bash `PATH` and usable by hand, so disabling the hook is
-genuinely different from uninstalling.
+genuinely different from uninstalling. `context-mode` (below) deliberately has no toggle at all —
+it is always enabled, by explicit user decision, not an oversight.
 
 `cbm_enabled` is deliberately fail-open despite gating a state-creating action that now also reaches
 the **network**: enabling means one HTTPS GET of a 37.6 MiB release asset from GitHub Releases (once
@@ -268,11 +269,10 @@ document verbatim at every session start. Nothing is vendored, proxied or commit
 document.
 
 **Why a wrapper instead of the canonical direct-`command` form.** Every other MCP server here points
-`.mcp.json`'s `command` at a bundled file. An external npm package has no local file to exec — and,
-decisively, the wrapper is the only code site that exists for it, so it is the only place the
-`context_mode_enabled` toggle can be enforced. Registering `npx` directly (upstream's own documented
-`claude mcp add context-mode -- npx -y context-mode`) would start the server and fetch the package
-even with the toggle set to `false`, and would lose the bun preference.
+`.mcp.json`'s `command` at a bundled file. An external npm package has no local file to exec, and
+registering `npx` directly (upstream's own documented
+`claude mcp add context-mode -- npx -y context-mode`) would lose the bun preference — the wrapper is
+what lets `bunx` win when available.
 
 **Why `bin/context-mode-launch.sh` is not a copy of `bin/mjs-launch.sh`** (the identical copies in
 `coding-toolbox`, `universal-format`, `claude-code-knowledge`): that wrapper's contract is "exec a
@@ -297,18 +297,18 @@ does **NOT** cover this pin — it only knows `rtk-bundle.json` and `cbm-bundle.
 current is a manual edit and the pin can silently rot. A `context-mode-bundle.json` pin file was
 rejected as YAGNI for one consumer with no automated updater.
 
-**Mitigation delta vs `cbm_enabled` — read this before assuming a pin exists.** cbm's documented
-fail-open exception rests on sha256-verifying both the release asset and the extracted binary against
-a committed pin before anything enters a plugin-owned `${CLAUDE_PLUGIN_DATA}` cache. A registry fetch
-through `bunx` / `npx --yes` has **no** sha256 pin available at all, and it lands in the runtime's own
-global package cache, outside `${CLAUDE_PLUGIN_DATA}`. The version pin buys reproducibility, not
-integrity. Do not restate cbm's mitigation language for this toggle.
+**Integrity delta vs `cbm_enabled` — read this before assuming a pin exists.** cbm's download is
+sha256-verified, both the release asset and the extracted binary, against a committed pin before
+anything enters a plugin-owned `${CLAUDE_PLUGIN_DATA}` cache. A registry fetch through `bunx` /
+`npx --yes` has **no** sha256 pin available at all, and it lands in the runtime's own global package
+cache, outside `${CLAUDE_PLUGIN_DATA}`. The version pin buys reproducibility, not integrity. Do not
+restate cbm's mitigation language for this server — the two are not equivalent.
 
-**`ctx_execute` / `ctx_batch_execute` bypass `Bash` `PreToolUse` hooks.** Enabling this server hands
-the model a code- and shell-execution path that no `Bash` `PreToolUse` hook observes — not this
-plugin's own `rtk-rewrite.mjs`, not another plugin's hard deny gates (e.g. `coding-toolbox`'s
-`encoding-guard.mjs`): an MCP tool call can never match a `Bash` matcher. The `context_mode_enabled`
-toggle is the only control.
+**`ctx_execute` / `ctx_batch_execute` bypass `Bash` `PreToolUse` hooks.** This server hands the model
+a code- and shell-execution path that no `Bash` `PreToolUse` hook observes — not this plugin's own
+`rtk-rewrite.mjs`, not another plugin's hard deny gates (e.g. `coding-toolbox`'s
+`encoding-guard.mjs`): an MCP tool call can never match a `Bash` matcher. There is no toggle to gate
+this with — see "No toggle, by explicit decision" below.
 
 **The verbatim-file contract.** `hooks/SessionStart.md` is upstream's
 `configs/claude-code/CLAUDE.md` byte-for-byte (5,185 bytes, 97 lines, git mode `100644`). It is NEVER
@@ -334,12 +334,20 @@ correction file was considered and rejected as more machinery than four lines ju
 effect: the model may steer away from those tools believing they are blocked — the same direction as
 the intended nudge, and no tool is actually withheld.
 
-**Accepted limitation: the `cat` hook is unconditional.** A literal `cat <path>` has no conditional
-branch, and `if` is a tool-event-only permission filter that does not apply to `SessionStart`, so
-`context_mode_enabled: false` silences the server but NOT the routing-rules injection — the text then
-names `ctx_*` tools that are not connected. Recorded as an accepted gap, in the same spirit as the
-`cbm_enabled` env-var gap documented under `## userConfig`, not a bug to "fix" by replacing `cat`
-with a script.
+**No toggle, by explicit decision.** Unlike `auto_rewrite` and `cbm_enabled`, `context-mode` has no
+`userConfig` entry at all — the server is always registered and the `cat` hook always fires. A
+`context_mode_enabled` toggle was implemented (fail-open, mirroring `cbm_enabled`) and then removed
+on explicit user instruction: "remove the toggle, context-mode should always be enabled" — not a
+plan/review oversight. Enabling the plugin is the only consent step, same as for `cbm_enabled`, and
+there is no way to run rtk/cbm without context-mode alongside them. Both the wrapper's unconditional
+exec and the `cat` hook's unconditional injection are therefore consistent with each other by
+construction — there is no partial-disable state to keep them in sync with.
+
+**Native Windows caveat.** The top-level `description`'s Linux-only clause names only the rtk and
+codebase-memory features (bundled Linux binaries), but `bin/context-mode-launch.sh`
+(`#!/usr/bin/env bash`) and the `SessionStart` `cat` entry are just as platform-dependent: neither
+`bash` nor `cat` is on `PATH` by default on native Windows outside WSL or Git Bash, so both fail to
+start there. Purely additive documentation — no behavior changes as a result.
 
 **Zero nudge hooks — the analyzed outcome, not an omission.** All four of upstream's static
 `<context_guidance><tip>` blocks were worked through and none was added. `createBashGuidance`,

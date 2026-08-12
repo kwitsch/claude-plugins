@@ -108,26 +108,10 @@ cm_run() {
   assert_output 'bunx context-mode@1.0.169 --flag value'
 }
 
-@test "context_mode_enabled=false exits 0, execs nothing, names the toggle on stderr only" {
-  runner_stub bunx
-  runner_stub npx
-  run --separate-stderr env -i PATH="$CM_BIN:$MOCKBIN" HOME="$HOME" \
-    TMPDIR="$BATS_TEST_TMPDIR" CM_RECORD="$CM_RECORD" \
-    CLAUDE_PLUGIN_OPTION_CONTEXT_MODE_ENABLED=false "$WRAPPER"
-  assert_success
-  [ -z "$output" ]
-  [[ "$stderr" == *'context_mode_enabled'* ]]
-  [ ! -s "$CM_RECORD" ]
-}
-
-@test "fail-open: unset, empty, true and an uninterpolated placeholder all exec" {
+@test "no env var disables the launcher: it always execs regardless of stray env" {
   runner_stub bunx
   local v
-  cm_run
-  assert_success
-  run cat "$CM_RECORD"
-  assert_output 'bunx context-mode@1.0.169'
-  for v in '' 'true' '${user_config.context_mode_enabled}'; do
+  for v in '' 'false' 'true' '${user_config.context_mode_enabled}'; do
     : > "$CM_RECORD"
     cm_run CLAUDE_PLUGIN_OPTION_CONTEXT_MODE_ENABLED="$v"
     assert_success
@@ -136,12 +120,10 @@ cm_run() {
   done
 }
 
-@test ".mcp.json registers the context-mode server behind the launcher, toggle-only env" {
+@test ".mcp.json registers the context-mode server behind the launcher, no env" {
   run jq -e '.mcpServers | keys == ["codebase-memory","context-mode"]' "$MCP_JSON"
   assert_success
-  run jq -e '.mcpServers["context-mode"] | .command == "${CLAUDE_PLUGIN_ROOT}/bin/context-mode-launch.sh" and (has("args") | not)' "$MCP_JSON"
-  assert_success
-  run jq -e '.mcpServers["context-mode"].env | keys == ["CLAUDE_PLUGIN_OPTION_CONTEXT_MODE_ENABLED"] and .CLAUDE_PLUGIN_OPTION_CONTEXT_MODE_ENABLED == "${user_config.context_mode_enabled}"' "$MCP_JSON"
+  run jq -e '.mcpServers["context-mode"] | .command == "${CLAUDE_PLUGIN_ROOT}/bin/context-mode-launch.sh" and (has("args") | not) and (has("env") | not)' "$MCP_JSON"
   assert_success
 }
 

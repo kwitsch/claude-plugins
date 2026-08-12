@@ -8,10 +8,7 @@
       }
     },
     "context-mode": {
-      "command": "${CLAUDE_PLUGIN_ROOT}/bin/context-mode-launch.sh",
-      "env": {
-        "CLAUDE_PLUGIN_OPTION_CONTEXT_MODE_ENABLED": "${user_config.context_mode_enabled}"
-      }
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/context-mode-launch.sh"
     }
   }
 }

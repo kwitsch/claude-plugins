@@ -25,11 +25,12 @@ back to the harness — no `rtk` prefix to remember.
 Set via `/plugin manage`, stored in settings.json under
 `pluginConfigs["linux-token-efficiency"].options`.
 
-| Option                 | Default | Effect / Value                                                                                                                                                                                                                                                                                                                                                                           |
-| ---------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `auto_rewrite`         | `true`  | `true` (or unset): rewrite every Bash command through the bundled rtk. `false`: no rewriting — the bundled `rtk` stays on `PATH` for manual use. Only literal `false` disables.                                                                                                                                                                                                          |
-| `cbm_enabled`          | `true`  | `true` (or unset): run the `codebase-memory` MCP server (downloading the pinned cbm release into the plugin data dir on first start) and enable its four `mcp_tool` context hooks. `false`: neither runs and nothing is downloaded. Only the literal value `false` disables.                                                                                                             |
-| `context_mode_enabled` | `true`  | `true` (or unset): run the `context-mode` MCP server via `bunx` / `npx --yes` (fetching the pinned package from the npm registry on first start) so its eleven `ctx_*` tools are available. `false`: the launcher exits 0, nothing is fetched, `/mcp` shows it as not connected — the verbatim `SessionStart` routing rules are still injected. Only the literal value `false` disables. |
+| Option         | Default | Effect / Value                                                                                                                                                                                                                                                               |
+| -------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `auto_rewrite` | `true`  | `true` (or unset): rewrite every Bash command through the bundled rtk. `false`: no rewriting — the bundled `rtk` stays on `PATH` for manual use. Only literal `false` disables.                                                                                              |
+| `cbm_enabled`  | `true`  | `true` (or unset): run the `codebase-memory` MCP server (downloading the pinned cbm release into the plugin data dir on first start) and enable its four `mcp_tool` context hooks. `false`: neither runs and nothing is downloaded. Only the literal value `false` disables. |
+
+The `context-mode` server (below) has no toggle — it is always enabled.
 
 ## When the hook does nothing
 
@@ -120,9 +121,7 @@ integrity. context-mode keeps its own SQLite knowledge base at its upstream defa
 
 **Session-start routing rules.** `hooks/SessionStart.md` is upstream's own routing-rules document,
 copied byte-for-byte, and a `SessionStart` hook literally runs `cat` on it, so its ~5 KB of rules are
-injected on every `startup`, `resume`, `clear` and `compact`. That injection is **not** gated by
-`context_mode_enabled` — a literal `cat` has no conditional branch — so with the server disabled the
-rules still arrive and name tools that are not connected.
+injected on every `startup`, `resume`, `clear` and `compact`.
 
 **The document's "BLOCKED" sections are upstream's own claims, and this plugin enforces none of
 them.** It states that `curl`, `wget`, inline HTTP and `WebFetch` are intercepted and blocked; that is
@@ -132,12 +131,17 @@ so that re-syncing with upstream stays a plain copy.
 
 **`ctx_execute` and `ctx_batch_execute` run code and shell commands inside context-mode's sandbox**,
 which does not pass through `Bash` `PreToolUse` hooks — neither this plugin's rtk rewrite nor another
-plugin's deny gates see them. Set `context_mode_enabled` to `false` if that matters to you.
+plugin's deny gates see them. There is no toggle to disable this — the server is always registered.
 
 **Three token-efficiency signals now coexist** in this one plugin: rtk's Bash rewriting, cbm's graph
 nudges, and context-mode's "prefer `ctx_*` over Bash/Grep/Read" rules. They never conflict
 mechanically (an MCP tool call cannot match a `Bash` matcher) but they do compete for the model's
 attention.
+
+**Native Windows.** `bin/context-mode-launch.sh` is a `#!/usr/bin/env bash` script and the
+`SessionStart` hook runs a bare `cat` — neither `bash` nor `cat` is on `PATH` by default on native
+Windows (outside WSL or Git Bash), so both fail to start there, unlike the rtk/codebase-memory
+features which are already Linux-only for a different reason (bundled Linux binaries).
 
 ## Maintenance
 
