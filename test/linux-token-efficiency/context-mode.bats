@@ -21,9 +21,12 @@ setup() {
 
 # runner_stub <name> -- an executable stub that records "<name> <argv>" and exits 0. It uses
 # bash's own ${0##*/} (not basename, which MOCKBIN does not provide) because `exec` through
-# PATH sets $0 to the resolved stub path, not the bare name.
+# PATH sets $0 to the resolved stub path, not the bare name. Forwards through "$@", not "$*":
+# the latter pre-flattens argv into a single joined word before printf ever sees it, which
+# would mask a future forwarding bug (e.g. an argument boundary collapsed into two plain args).
 runner_stub() {
-  make_stub_in "$CM_BIN" "$1" 'printf "%s %s\n" "${0##*/}" "$*" >> "$CM_RECORD"'
+  make_stub_in "$CM_BIN" "$1" \
+    'printf "%s" "${0##*/}" >> "$CM_RECORD"; printf " %s" "$@" >> "$CM_RECORD"; printf "\n" >> "$CM_RECORD"'
 }
 
 # cm_run [VAR=VALUE ...] -- run the real wrapper on the isolated PATH. env -i wipes
