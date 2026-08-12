@@ -1,14 +1,16 @@
 {
-  "description": "PreToolUse Bash -> rtk-rewrite.mjs: rewrites Bash commands to rtk equivalents using the bundled rtk binary. SessionStart / SubagentStart / PreToolUse Grep|Glob / PostToolUse Read -> cbm-context.mjs: fail-open, context-only codebase-memory-mcp graph context from the bundled cbm binary's one-shot cli mode.",
+  "description": "PreToolUse Bash -> rtk-rewrite.mjs: rewrites Bash commands to rtk equivalents using the bundled rtk binary. SessionStart -> hook_session_context, SubagentStart -> hook_subagent_context, PreToolUse Grep|Glob -> hook_symbol_context, PostToolUse Read -> hook_coverage_context: fail-open, context-only codebase-memory-mcp graph context served as mcp_tool hooks by this plugin's own codebase-memory proxy MCP server (mcp/server.mjs).",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/cbm-context.mjs",
-            "timeout": 21,
-            "statusMessage": "Checking codebase graph..."
+            "type": "mcp_tool",
+            "server": "plugin:linux-token-efficiency:codebase-memory",
+            "tool": "hook_session_context",
+            "timeout": 12,
+            "statusMessage": "Checking codebase graph...",
+            "input": { "cwd": "${cwd}" }
           }
         ]
       }
@@ -17,9 +19,11 @@
       {
         "hooks": [
           {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/cbm-context.mjs",
-            "timeout": 21
+            "type": "mcp_tool",
+            "server": "plugin:linux-token-efficiency:codebase-memory",
+            "tool": "hook_subagent_context",
+            "timeout": 12,
+            "input": { "cwd": "${cwd}" }
           }
         ]
       }
@@ -39,9 +43,15 @@
         "matcher": "Grep|Glob",
         "hooks": [
           {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/cbm-context.mjs",
-            "timeout": 21
+            "type": "mcp_tool",
+            "server": "plugin:linux-token-efficiency:codebase-memory",
+            "tool": "hook_symbol_context",
+            "timeout": 12,
+            "input": {
+              "cwd": "${cwd}",
+              "tool_name": "${tool_name}",
+              "tool_input": { "pattern": "${tool_input.pattern}" }
+            }
           }
         ]
       }
@@ -51,9 +61,14 @@
         "matcher": "Read",
         "hooks": [
           {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/cbm-context.mjs",
-            "timeout": 21
+            "type": "mcp_tool",
+            "server": "plugin:linux-token-efficiency:codebase-memory",
+            "tool": "hook_coverage_context",
+            "timeout": 12,
+            "input": {
+              "cwd": "${cwd}",
+              "tool_input": { "file_path": "${tool_input.file_path}" }
+            }
           }
         ]
       }

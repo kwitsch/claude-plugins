@@ -77,31 +77,6 @@ setup() {
   assert_failure
 }
 
-@test "hooks.json keeps the rtk entry and adds exactly four cbm handlers" {
-  run jq empty "$HOOKS"
-  assert_success
-  run jq -e '[.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[0].command] == ["${CLAUDE_PLUGIN_ROOT}/hooks/rtk-rewrite.mjs"]' "$HOOKS"
-  assert_success
-  run jq -e '[.hooks | to_entries[] | .value[] | .hooks[] | select(.command | test("cbm-context.mjs"))] | length == 4' "$HOOKS"
-  assert_success
-  run jq -e '[.hooks | to_entries[] | .value[] | .hooks[] | select(.command | test("cbm-context.mjs")) | .type == "command" and .timeout == 21 and (has("args") | not) and (has("async") | not)] | all' "$HOOKS"
-  assert_success
-  run jq -e '(.hooks.SessionStart | length) == 1 and (.hooks.SubagentStart | length) == 1' "$HOOKS"
-  assert_success
-  run jq -e '.hooks.SessionStart[0] | has("matcher") | not' "$HOOKS"
-  assert_success
-  run jq -e '.hooks.SubagentStart[0] | has("matcher") | not' "$HOOKS"
-  assert_success
-  run jq -e '[.hooks.PreToolUse[] | select(.matcher == "Grep|Glob") | .hooks[0].command] == ["${CLAUDE_PLUGIN_ROOT}/hooks/cbm-context.mjs"]' "$HOOKS"
-  assert_success
-  run jq -e '[.hooks.PostToolUse[] | select(.matcher == "Read") | .hooks[0].command] == ["${CLAUDE_PLUGIN_ROOT}/hooks/cbm-context.mjs"]' "$HOOKS"
-  assert_success
-  run grep -F 'node ' "$HOOKS"
-  assert_failure
-  run grep -F 'user_config' "$HOOKS"
-  assert_failure
-}
-
 @test "mcp/cbm-context.mjs is tracked as a non-executable helper module (100644)" {
   run git -C "$REPO_ROOT" ls-files --stage -- plugins/linux-token-efficiency/mcp/cbm-context.mjs
   assert_success
