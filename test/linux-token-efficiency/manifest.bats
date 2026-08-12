@@ -8,8 +8,8 @@ setup() {
   common_setup
 }
 
-@test "plugin.json is valid JSON with name and version 0.1.0" {
-  run jq -e '.name == "linux-token-efficiency" and .version == "0.1.0"' "$MANIFEST"
+@test "plugin.json is valid JSON with name and version 0.1.1" {
+  run jq -e '.name == "linux-token-efficiency" and .version == "0.1.1"' "$MANIFEST"
   assert_success
 }
 
