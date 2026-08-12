@@ -132,3 +132,12 @@ cm_run() {
     assert_output 'bunx context-mode@1.0.169'
   done
 }
+
+@test ".mcp.json registers the context-mode server behind the launcher, toggle-only env" {
+  run jq -e '.mcpServers | keys == ["codebase-memory","context-mode"]' "$MCP_JSON"
+  assert_success
+  run jq -e '.mcpServers["context-mode"] | .command == "${CLAUDE_PLUGIN_ROOT}/bin/context-mode-launch.sh" and (has("args") | not)' "$MCP_JSON"
+  assert_success
+  run jq -e '.mcpServers["context-mode"].env | keys == ["CLAUDE_PLUGIN_OPTION_CONTEXT_MODE_ENABLED"] and .CLAUDE_PLUGIN_OPTION_CONTEXT_MODE_ENABLED == "${user_config.context_mode_enabled}"' "$MCP_JSON"
+  assert_success
+}

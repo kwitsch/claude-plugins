@@ -1,7 +1,7 @@
 {
   "name": "linux-token-efficiency",
-  "version": "0.1.0",
-  "description": "Bundles the rtk token-optimizing CLI proxy (https://github.com/rtk-ai/rtk) as a Linux x86_64 binary and routes Bash commands through it via a PreToolUse rewrite hook, and ships codebase-memory-mcp (https://github.com/DeusData/codebase-memory-mcp) as a plugin-local proxy MCP server that downloads and sha256-verifies the pinned release on first start, with four context-only graph hooks. LINUX ONLY: the bundled binaries are Linux executables; this plugin does not work on macOS, Windows, or any other operating system, where every hook no-ops.",
+  "version": "0.2.0",
+  "description": "Bundles the rtk token-optimizing CLI proxy (https://github.com/rtk-ai/rtk) as a Linux x86_64 binary and routes Bash commands through it via a PreToolUse rewrite hook, ships codebase-memory-mcp (https://github.com/DeusData/codebase-memory-mcp) as a plugin-local proxy MCP server that downloads and sha256-verifies the pinned release on first start with four context-only graph hooks, and registers the external context-mode package (https://github.com/mksglu/context-mode) as the context-mode MCP stdio server through a bun-preferred bunx / npx --yes launcher, injecting upstream's own routing-rules document verbatim at every session start via a SessionStart cat hook. LINUX ONLY: the bundled binaries are Linux executables, so on macOS, Windows or any other operating system this plugin does not work for the rtk and codebase-memory features, whose hooks no-op.",
   "author": { "name": "Kwitsch" },
   "userConfig": {
     "auto_rewrite": {
@@ -14,6 +14,12 @@
       "type": "boolean",
       "title": "Enable the codebase-memory-mcp MCP server and its context hooks",
       "description": "Runs codebase-memory-mcp (cbm) as the codebase-memory MCP stdio server through a plugin-local Node proxy, and enables the four context-only cbm graph hooks (SessionStart, SubagentStart, Grep/Glob, post-Read). On first start the proxy DOWNLOADS the pinned ~37.6 MiB release asset from GitHub Releases into the plugin's data directory and sha256-verifies it against the committed pin before extracting its ~280 MiB binary; one bounded attempt per server process, no repo mutation, and silence on failure. Linux x86_64 only. Set to false to disable: only the literal value false disables it; unset, missing or any other value leaves it enabled, and nothing is downloaded while disabled. Default: true. Disabling after first use does not delete the download cache; remove it by hand (see README).",
+      "default": true
+    },
+    "context_mode_enabled": {
+      "type": "boolean",
+      "title": "Enable the context-mode MCP server (ctx_* sandbox and search tools)",
+      "description": "Runs the external context-mode npm package (https://github.com/mksglu/context-mode, Elastic License 2.0) as the context-mode MCP stdio server through a bun-preferred launcher (bunx, falling back to npx --yes); its eleven ctx_* tools then appear as mcp__context-mode__*. On first start the launcher FETCHES the pinned package version from the npm registry into the runtime's own global package cache — outside the plugin's own data directory, and with no sha256 pin possible against a registry fetch, unlike cbm_enabled. The server keeps its own SQLite knowledge base at its upstream default location. ctx_execute / ctx_batch_execute run code and shell commands inside context-mode's sandbox, which does NOT pass through Bash PreToolUse hooks. Set to false and the launcher exits 0 immediately, fetches nothing and shows as not connected in /mcp; only the literal value false disables (unset, missing or any other value leaves it enabled). Default: true. The SessionStart routing-rules injection is NOT gated by this toggle.",
       "default": true
     }
   }

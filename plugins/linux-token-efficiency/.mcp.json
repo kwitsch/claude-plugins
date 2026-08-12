@@ -6,6 +6,12 @@
         "CLAUDE_PLUGIN_OPTION_CBM_ENABLED": "${user_config.cbm_enabled}",
         "CBM_BUNDLE_CACHE": "${CLAUDE_PLUGIN_DATA}/cbm"
       }
+    },
+    "context-mode": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/context-mode-launch.sh",
+      "env": {
+        "CLAUDE_PLUGIN_OPTION_CONTEXT_MODE_ENABLED": "${user_config.context_mode_enabled}"
+      }
     }
   }
 }
