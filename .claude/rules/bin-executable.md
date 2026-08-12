@@ -18,5 +18,5 @@ Never leave bin/ file without executable bit. Applies to shell scripts, binaries
 **Verification:** After any Write or Edit to `plugins/*/bin/` file, confirm with:
 
 ```bash
-ls -la plugins/ < name > /bin/
+ls -la plugins/<name>/bin/
 ```
