@@ -47,10 +47,10 @@ export -f rg_or_grep
   [ "$status" -eq 0 ]
 }
 
-@test "plugin.json version is 1.1.1" {
+@test "plugin.json version is 1.2.0" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "1.1.1" ]
+  [ "$output" = "1.2.0" ]
 }
 
 @test "marketplace entry exists for taskflow" {
@@ -465,5 +465,10 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   run rg_or_grep -F '/taskflow:build-task' "$DISPATCH/SKILL.md"
   [ "$status" -eq 0 ]
   run rg_or_grep -E "<<[[:space:]]?'DISPATCH_TASK_PROMPT_EOF'" "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "plugin README lists dispatch-task in the Skills section" {
+  run rg_or_grep -F '| `dispatch-task`' "$PLUGIN/README.md"
   [ "$status" -eq 0 ]
 }

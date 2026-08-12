@@ -12,9 +12,10 @@ Requires Claude Code v2.1.154+ (dynamic workflows). On Pro plans, enable Dynamic
 
 ## Skills
 
-| Skill        | What it does                                                                                                                                                                |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `build-task` | Orchestrator: branch handling, `AskUserQuestion` checkpoints (open design questions, spec approval, escalated review fixes), final report. Invokes the two workflows below. |
+| Skill           | What it does                                                                                                                                                                |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `build-task`    | Orchestrator: branch handling, `AskUserQuestion` checkpoints (open design questions, spec approval, escalated review fixes), final report. Invokes the two workflows below. |
+| `dispatch-task` | Hands the described task to a new worktree-isolated background session (`claude --worktree … --bg`, `sonnet`/`medium`) that runs `build-task` unattended.                   |
 
 ## Workflows
 
@@ -58,11 +59,13 @@ taskflow/
 │   ├── fix-applier.md      ├── pr-author.md        ├── shipper.md
 │   ├── ci-monitor.md       └── ci-fixer.md
 └── skills/
-    └── build-task/
-        ├── SKILL.md                       # orchestrator
-        └── references/
-            ├── design-to-spec.md          # parameters + exit contract
-            └── spec-driven-delivery.md    # parameters + exit contract
+    ├── build-task/
+    │   ├── SKILL.md                       # orchestrator
+    │   └── references/
+    │       ├── design-to-spec.md          # parameters + exit contract
+    │       └── spec-driven-delivery.md    # parameters + exit contract
+    └── dispatch-task/
+        └── SKILL.md                       # background-session dispatch
 ```
 
 ## Usage

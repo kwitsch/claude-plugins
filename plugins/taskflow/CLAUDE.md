@@ -5,6 +5,7 @@
 The plugin ships these components:
 
 - `skills/build-task/` — the inline orchestrator skill. Branch handling, `AskUserQuestion` checkpoints, invokes the two workflows below by name, applies escalated review fixes.
+- `skills/dispatch-task/` — one-step skill that dispatches `build-task` into a worktree-isolated background session. Self-contained by requirement: no reference to any other plugin, its own copy of the `claude --worktree … --bg` mechanics.
 - `workflows/design-to-spec.workflow.js` + `workflows/spec-driven-delivery.workflow.js` — the two dynamic Workflow-tool scripts that do the heavy lifting. Auto-discovered from the plugin-root `workflows/` directory (no manifest field needed); run namespaced as `/taskflow:design-to-spec` / `/taskflow:spec-driven-delivery`.
 - `agents/*.md` — 12 static role prompts (`planner`, `designer`, `design-reviewer`, `review-finder`, `review-verifier`, `worktree-merger`, `fix-applier`, `pr-author`, `shipper`, `ci-monitor`, `ci-fixer`, `cache-probe`), dispatched by the workflows via `agentType: 'taskflow:<name>'`. INTERNAL — each agent's own description says not to delegate to it directly.
 
@@ -49,6 +50,42 @@ The `MODELS` object at the top of each workflow script is still the single
 place to change an assignment; agent frontmatter `model:` fields must be kept
 in sync with the corresponding workflow's default when an agent is also invoked
 directly outside its workflow's normal path.
+
+## Skill design (dispatch-task)
+
+`skills/dispatch-task/SKILL.md` is a one-step skill: it dispatches
+`/taskflow:build-task <task text>` into a new worktree-isolated background
+session (`claude --worktree <name> --model "sonnet" --effort "medium"
+--permission-mode auto --bg`) and reports the CLI's own session id. Load-bearing
+decisions:
+
+- **A deliberate fork of `coding-toolbox:dispatch-agent`, not a call into it.**
+  taskflow carries its own inline copy of the dispatch mechanics so the plugin
+  gains no cross-plugin dependency and keeps working when that plugin is not
+  installed. The cost is accepted and permanent: neither copy inherits the
+  other's future fixes. A bats tripwire greps `skills/dispatch-task/` for
+  references to any other plugin and must find none — do not "deduplicate" this
+  by calling the other skill.
+- **`sonnet`/`medium` are fixed constants, not flags** — the whole argument is
+  the task description. The `^[A-Za-z0-9._-]+$` validation rule is stated in the
+  skill anyway, so a future override cannot skip it.
+- **`--permission-mode auto` always**, and the task text always travels inside a
+  quoted heredoc (`<< 'DISPATCH_TASK_PROMPT_EOF'`) read back by direct command
+  substitution — no temp file, so a dispatch failing under `set -e` leaves
+  nothing on disk to leak.
+- **Residual risk, accepted:** the heredoc delimiter is fixed, so a task
+  description containing a line exactly equal to `DISPATCH_TASK_PROMPT_EOF`
+  terminates the heredoc early and the remainder of that text is parsed as shell
+  input. This mirrors the implementation being reproduced; it is documented here
+  rather than silently claimed fixed.
+- **Unattended checkpoints:** `build-task` funnels every human decision through
+  `AskUserQuestion`, so a dispatched run may pause at one with nobody present.
+  The skill's report step says so and points at `claude attach <id>`; the
+  dispatched prompt itself is the bare command plus the task text, with no
+  autonomy nudging added.
+- **No `git`, hence no `Bash(git:*)` grant:** `claude --worktree` cuts the
+  worktree from `origin/<default branch>` with a clean tree, which already
+  satisfies `build-task`'s clean-`git status` precondition.
 
 ## Explore-result cache
 
@@ -151,8 +188,12 @@ The suite is structural: plugin manifest invariants (no `userConfig`), the
 `build-task` skill frontmatter + reference files, presence and frontmatter of
 all 12 agents (including the least-privilege `tools:` allowlist on the 5
 read-only-declared agents: `design-reviewer`, `review-finder`,
-`review-verifier`, `ci-monitor`, `cache-probe`), and both
-`workflows/*.workflow.js` files' `export const meta` shape.
+`review-verifier`, `ci-monitor`, `cache-probe`), both
+`workflows/*.workflow.js` files' `export const meta` shape, the Opus-tier pin
+(all four `MODELS`/`IMPL_MODEL` values, both agent frontmatter fields, the
+comment blocks, the four docs, plus a whole-plugin sweep for a surviving bare
+`opus`), and `dispatch-task`'s frontmatter, self-containment tripwire and
+dispatch-command literals.
 
 ## Linting
 
