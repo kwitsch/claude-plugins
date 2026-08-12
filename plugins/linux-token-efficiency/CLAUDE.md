@@ -44,13 +44,13 @@ and turn a backgrounded Bash call into a blocking one. `permissionDecision` is n
 Every failure path is a bare `return` inside `main()`'s single `try/catch` — never
 `process.exit()`, matching `encoding-guard.mjs` and `lint-file.mjs`.
 
-This plugin backs five hooks total: `rtk-rewrite.mjs` above plus four cbm entries
-(`SessionStart`, `SubagentStart`, `PreToolUse` `Grep`/`Glob`, `PostToolUse` `Read`), all four `type: "mcp_tool"` on
-`plugin:linux-token-efficiency:codebase-memory` (the namespaced form — the bare `.mcp.json` key
-resolves to "not connected" on every fire) with an explicit `input` block each, because an omitted
-`input` delivers `{}` instead of the hook JSON. Each names its own purpose-built tool
-(`hook_session_context`, `hook_subagent_context`, `hook_symbol_context`, `hook_coverage_context`), so
-`hookEventName` is hardcoded per tool and can never be wrong.
+This plugin backs five hooks total: `rtk-rewrite.mjs` above, `SessionStart` (below), and three
+remaining cbm entries (`SubagentStart`, `PreToolUse` `Grep`/`Glob`, `PostToolUse` `Read`), all
+`type: "mcp_tool"` on `plugin:linux-token-efficiency:codebase-memory` (the namespaced form — the
+bare `.mcp.json` key resolves to "not connected" on every fire) with an explicit `input` block each,
+because an omitted `input` delivers `{}` instead of the hook JSON. Each names its own purpose-built
+tool (`hook_subagent_context`, `hook_symbol_context`, `hook_coverage_context`), so `hookEventName`
+is hardcoded per tool and can never be wrong.
 
 `timeout: 20` (was `21`, briefly `12`): there is no per-event process any more, so the budget is two
 4 s child round-trips (`HOOK_CALL_TIMEOUT_MS`) plus a cold-start handshake (`HOOK_CALL_TIMEOUT_MS *
@@ -58,15 +58,21 @@ resolves to "not connected" on every fire) with an explicit `input` block each, 
 cost on the very first call of a session (cold child, cold project cache) — real review finding,
 raised to `20` to actually cover the worst case.
 
-`SessionStart` is `status: "limited"` in `.claude/rules/hooks-mcp-tool-event-matrix.md` ("servers
-usually not connected yet on first run") and `hooks-mcp-server.md`'s decision tree lists it as a
-`command`-hook case. It is `mcp_tool` here anyway, deliberately: on a cold first run the hook simply
-fails open (no context, no error, session proceeds), which is the matrix's own prescription, and the
-loss is close to zero — the previous CLI-based design never extracted from a hook either, so a cold
-cache produced no SessionStart context there too. `SubagentStart`, `PreToolUse` and `PostToolUse` are
-all `status: "full"`. **No compensating `command` hook is added**: duplicating the event across two
-handler types would double-inject context whenever both fire, for a benefit measured only on the
-first session after a fresh install.
+> Correction note (2026-08-12): `SessionStart` was `mcp_tool` here through 0.1.0, on the assumption
+> that a cold first run would fail open silently (the matrix's own "servers usually not connected
+> yet" prescription for its `status: "limited"` rating). Live behavior is stricter than that: every
+> `SessionStart` fire produced a visible `SessionStart:startup hook error — mcp_tool hooks are not
+available for the 'SessionStart' hook event (no MCP client context)`, not a silent no-op — this
+> event apparently rejects `mcp_tool` outright rather than merely finding the server unconnected.
+> Fixed by moving `SessionStart` to a `command` hook per `hooks-mcp-server.md`'s decision tree (rule
+> 2: event fires before the server connects). Rather than duplicating `projectStatusHandler`'s
+> env/cache/child-spawn logic in a second file, `mcp/server.mjs` itself gained a `--session-start-hook`
+> CLI branch (checked before `startServer()`/`ensureBinary()` run) that reads the hook JSON off stdin,
+> calls `projectStatusHandler(args, "SessionStart")` directly (bypassing the JSON-RPC loop — no
+> persistent server involved), prints the result, and exits. `hooks.json`'s `SessionStart` entry is
+> now `{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs","args":["--session-start-hook"]}`.
+> `SubagentStart`, `PreToolUse` and `PostToolUse` stay `mcp_tool` (`status: "full"`, genuinely
+> mid-session) — this correction is `SessionStart`-only.
 
 **Per-cwd project cache.** Each hook process is a fresh process, so an in-memory cache buys nothing
 across invocations — `resolveProjectCacheDir()`/`readProjectCache()`/`writeProjectCache()` persist the
