@@ -135,6 +135,16 @@ setup() {
   assert_success
 }
 
+@test "mcp/server.mjs is an executable node program in the git index (100755)" {
+  run git -C "$REPO_ROOT" ls-files --stage -- plugins/linux-token-efficiency/mcp/server.mjs
+  assert_success
+  assert_line --regexp '^100755 [0-9a-f]+ 0[[:space:]]+plugins/linux-token-efficiency/mcp/server\.mjs$'
+  run head -n 1 "$CBM_SERVER"
+  assert_output '#!/usr/bin/env node'
+  run node --check "$CBM_SERVER"
+  assert_success
+}
+
 @test "the plugin sets only its own two CBM_ variables" {
   # Only env-name positions count (`CBM_X=` in shell, `"CBM_X":` in JSON / a JS object
   # literal). The leading non-word-char guard excludes the CLAUDE_PLUGIN_OPTION_CBM_ENABLED
