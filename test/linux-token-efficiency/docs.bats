@@ -139,11 +139,70 @@ setup() {
   assert_output '0'
 }
 
-@test "plugins/CLAUDE.md describes this plugin's mcp/ directory and a rtk-only bin/" {
+@test "plugins/CLAUDE.md describes this plugin's mcp/ directory and both bin/ entries" {
   run bash -c "grep -F 'linux-token-efficiency' '$REPO_ROOT/plugins/CLAUDE.md' | grep -F 'mcp/'"
   assert_success
   run bash -c "grep -F '| \`bin/\`' '$REPO_ROOT/plugins/CLAUDE.md' | grep -Fi 'tarball'"
   assert_failure
+  # The bin/ row must no longer claim an rtk-only bin/.
+  run bash -c "grep -F '| \`bin/\`' '$REPO_ROOT/plugins/CLAUDE.md' | grep -F 'context-mode-launch.sh'"
+  assert_success
+  run bash -c "grep -F '| \`bin/\`' '$REPO_ROOT/plugins/CLAUDE.md' | grep -Fi 'holds only that'"
+  assert_failure
+}
+
+@test "plugin README documents the context-mode server and the pinned package" {
+  local token
+  for token in 'context-mode' 'bunx' 'npx --yes' 'ctx_execute' 'Elastic' 'mcp__plugin_linux-token-efficiency_context-mode__' '1.0.169' 'SessionStart.md'; do
+    run grep -F "$token" "$PLUGIN_README"
+    assert_success
+  done
+}
+
+@test "plugin README and CLAUDE.md both state the BLOCKED divergence" {
+  local f
+  for f in "$PLUGIN_README" "$PLUGIN_CLAUDE"; do
+    run grep -F 'BLOCKED' "$f"
+    assert_success
+    run grep -Fi 'intercept' "$f"
+    assert_success
+  done
+}
+
+@test "plugin CLAUDE.md carries the context-mode section with the launcher rationale" {
+  run grep -F '## context-mode' "$PLUGIN_CLAUDE"
+  assert_success
+  local token
+  for token in 'context-mode@1.0.169' 'bunx' 'npx --yes' 'ctx_execute' 'SessionStart.md' 'Elastic' '.prettierignore' '.coderabbit.yaml'; do
+    run grep -F "$token" "$PLUGIN_CLAUDE"
+    assert_success
+  done
+}
+
+@test "plugin CLAUDE.md states the unconditional-cat limitation and the seven-hook count" {
+  run grep -Fi 'unconditional' "$PLUGIN_CLAUDE"
+  assert_success
+  run grep -F 'seven hooks total' "$PLUGIN_CLAUDE"
+  assert_success
+  run grep -F 'six hooks total' "$PLUGIN_CLAUDE"
+  assert_failure
+  run grep -F 'Seven hooks total.' "$HOOKS"
+  assert_success
+  # Ties both hardcoded "seven" claims above to the actual hook count, so a future hook
+  # addition/removal that forgets to update this prose is caught structurally instead
+  # of only by string-matching a hardcoded number (same derivation as context-mode.bats
+  # / cbm-hooks.bats use for their own hooks.json structural assertions).
+  run jq -e '([.hooks[][].hooks | length] | add) == 7' "$HOOKS"
+  assert_success
+}
+
+@test "plugin CLAUDE.md and the root README carry the context-mode history note and row clause" {
+  run grep -F 'cave-context' "$PLUGIN_CLAUDE"
+  assert_success
+  run grep -F '2026-07' "$PLUGIN_CLAUDE"
+  assert_success
+  run bash -c "grep -F '[linux-token-efficiency](plugins/linux-token-efficiency/README.md)' '$REPO_ROOT/README.md' | grep -F 'context-mode'"
+  assert_success
 }
 
 @test "plugin README documents the forced terse output style" {

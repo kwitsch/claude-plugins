@@ -7,3 +7,7 @@
 # linux-token-efficiency ships committed rtk release binaries: binary data that a
 # `text=auto` repo must never EOL-translate or diff as text.
 plugins/linux-token-efficiency/bin/* binary
+
+# ...but the bun/npx launcher in the same directory is plain text: keep it diffable and
+# LF-normalized (last matching pattern wins per attribute).
+plugins/linux-token-efficiency/bin/*.sh -binary

@@ -357,7 +357,7 @@ export function formatSessionContext(project, statusJson) {
     project,
     statusJson,
     " covers this repository",
-    "Prefer the mcp__codebase-memory__* graph tools over plain text search when locating symbols, definitions or callers here.",
+    "Prefer the mcp__plugin_linux-token-efficiency_codebase-memory__* graph tools over plain text search when locating symbols, definitions or callers here.",
   );
 }
 
@@ -425,7 +425,9 @@ export function formatSymbolContext(payload, limit) {
     }
   }
   if (lines.length === 0) return null;
-  return truncate(["codebase-memory graph matches for this search:", ...lines, "Use mcp__codebase-memory__* on these qualified names instead of widening the text search."].join("\n"));
+  return truncate(
+    ["codebase-memory graph matches for this search:", ...lines, "Use mcp__plugin_linux-token-efficiency_codebase-memory__* on these qualified names instead of widening the text search."].join("\n"),
+  );
 }
 
 /**

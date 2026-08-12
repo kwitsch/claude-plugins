@@ -32,6 +32,8 @@ Set via `/plugin manage`, stored in settings.json under
 | `auto_rewrite` | `true`  | `true` (or unset): rewrite every Bash command through the bundled rtk. `false`: no rewriting — the bundled `rtk` stays on `PATH` for manual use. Only literal `false` disables.                                                                                              |
 | `cbm_enabled`  | `true`  | `true` (or unset): run the `codebase-memory` MCP server (downloading the pinned cbm release into the plugin data dir on first start) and enable its four `mcp_tool` context hooks. `false`: neither runs and nothing is downloaded. Only the literal value `false` disables. |
 
+The `context-mode` server (below) has no toggle — it is always enabled.
+
 ## When the hook does nothing
 
 The rewrite is an optimization and fails open everywhere — a Bash command is never blocked or
@@ -53,8 +55,10 @@ broken by it. It deliberately no-ops when:
 
 Ships [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp) — release **v0.10.1**,
 asset `codebase-memory-mcp-linux-amd64-portable.tar.gz` — as the MCP stdio server `codebase-memory`
-registered through `.mcp.json`. Its 15 graph tools appear as `mcp__codebase-memory__*`, exactly as
-upstream names them.
+registered through `.mcp.json`. Its 15 graph tools appear as
+`mcp__plugin_linux-token-efficiency_codebase-memory__*` (the plugin-namespaced tool-name form; a
+bare `mcp__codebase-memory__*` matcher never fires for a plugin-bundled server), named after
+upstream's own tool names.
 
 **Nothing cbm-related is committed to this repo.** `mcp/server.mjs` is a small Node proxy: on its
 first start it downloads the pinned release asset (37.6 MiB) from GitHub Releases, verifies its
@@ -102,6 +106,47 @@ already-downloaded cache.
 
 **After a plugin update, restart your sessions.** cbm requires every active process to run the exact
 same executable build; a session whose server started on the previous build keeps running it.
+
+## context-mode
+
+Registers the external [context-mode](https://github.com/mksglu/context-mode) npm package
+(Elastic License 2.0) — pinned to **1.0.169** — as the MCP stdio server `context-mode`. Its eleven
+`ctx_*` tools (`ctx_execute`, `ctx_execute_file`, `ctx_batch_execute`, `ctx_index`, `ctx_search`,
+`ctx_fetch_and_index`, `ctx_stats`, `ctx_doctor`, `ctx_upgrade`, `ctx_purge`, `ctx_insight`) appear as
+`mcp__plugin_linux-token-efficiency_context-mode__*` (the plugin-namespaced tool-name form — not the
+bare `mcp__context-mode__*`, which never fires for a plugin-bundled server).
+
+`bin/context-mode-launch.sh` starts it: `bunx context-mode@1.0.169` when `bunx` resolves, otherwise
+`npx --yes context-mode@1.0.169`, and an error on stderr with exit 1 when neither is installed. The
+package is fetched from the npm registry on first start into bun's or npm's own global package cache
+(not this plugin's data directory), so the first handshake is slower, and on an offline host the
+server simply shows as not connected in `/mcp` — nothing else in the plugin depends on it. Unlike the
+cbm download, a registry fetch cannot be sha256-verified: the version pin buys reproducibility, not
+integrity. context-mode keeps its own SQLite knowledge base at its upstream default location.
+
+**Session-start routing rules.** `hooks/SessionStart.md` is upstream's own routing-rules document,
+copied byte-for-byte, and a `SessionStart` hook literally runs `cat` on it, so its ~5 KB of rules are
+injected on every `startup`, `resume`, `clear` and `compact`.
+
+**The document's "BLOCKED" sections are upstream's own claims, and this plugin enforces none of
+them.** It states that `curl`, `wget`, inline HTTP and `WebFetch` are intercepted and blocked; that is
+true only in upstream's full plugin, whose routing engine is deliberately not ported here. Nothing is
+intercepted: `curl`, `wget` and `WebFetch` keep working exactly as before. The file is kept verbatim
+so that re-syncing with upstream stays a plain copy.
+
+**`ctx_execute` and `ctx_batch_execute` run code and shell commands inside context-mode's sandbox**,
+which does not pass through `Bash` `PreToolUse` hooks — neither this plugin's rtk rewrite nor another
+plugin's deny gates see them. There is no toggle to disable this — the server is always registered.
+
+**Three token-efficiency signals now coexist** in this one plugin: rtk's Bash rewriting, cbm's graph
+nudges, and context-mode's "prefer `ctx_*` over Bash/Grep/Read" rules. They never conflict
+mechanically (an MCP tool call cannot match a `Bash` matcher) but they do compete for the model's
+attention.
+
+**Native Windows.** `bin/context-mode-launch.sh` is a `#!/usr/bin/env bash` script and the
+`SessionStart` hook runs a bare `cat` — neither `bash` nor `cat` is on `PATH` by default on native
+Windows (outside WSL or Git Bash), so both fail to start there, unlike the rtk/codebase-memory
+features which are already Linux-only for a different reason (bundled Linux binaries).
 
 ## Terse output style
 

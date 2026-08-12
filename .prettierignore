@@ -9,3 +9,10 @@ pnpm-lock.yaml
 # otherwise match it, and universal-format's own format_pre honors this file, so this also stops
 # the plugin from reformatting its own artifact.
 plugins/universal-format/mcp/server.mjs
+
+# Byte-for-byte vendored upstream file: context-mode's own routing-rules document, injected
+# verbatim by this plugin's SessionStart `cat` hook. Prettier's markdown printer would realign
+# its tables and normalize its spacing, which is exactly the drift the verbatim requirement
+# forbids; universal-format's format_pre/format_post honor this file, so listing it here stops
+# a live formatting hook from rewriting it.
+plugins/linux-token-efficiency/hooks/SessionStart.md

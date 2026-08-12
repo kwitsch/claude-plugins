@@ -40,11 +40,13 @@ setup() {
   assert_success
 }
 
-@test "bin/ holds nothing but the committed rtk binary" {
+@test "bin/ holds the committed rtk binary and the context-mode launcher" {
   run bash -c "git -C '$REPO_ROOT' ls-files -- plugins/linux-token-efficiency/bin/"
-  assert_output 'plugins/linux-token-efficiency/bin/rtk'
+  assert_output 'plugins/linux-token-efficiency/bin/context-mode-launch.sh
+plugins/linux-token-efficiency/bin/rtk'
   run bash -c "ls -A '$PLUGIN/bin'"
-  assert_output 'rtk'
+  assert_output 'context-mode-launch.sh
+rtk'
 }
 
 @test "no cbm artifact is tracked anywhere in the repo" {
@@ -60,10 +62,10 @@ setup() {
   assert_output --partial 'binary: set'
 }
 
-@test ".mcp.json registers exactly one codebase-memory server, wrapper-less, at mcp/server.mjs" {
+@test ".mcp.json registers codebase-memory and context-mode, codebase-memory still wrapper-less at mcp/server.mjs" {
   run jq empty "$MCP_JSON"
   assert_success
-  run jq -e '.mcpServers | keys == ["codebase-memory"]' "$MCP_JSON"
+  run jq -e '.mcpServers | keys == ["codebase-memory","context-mode"]' "$MCP_JSON"
   assert_success
   run jq -e '.mcpServers["codebase-memory"] | .command == "${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs" and (has("args") | not)' "$MCP_JSON"
   assert_success

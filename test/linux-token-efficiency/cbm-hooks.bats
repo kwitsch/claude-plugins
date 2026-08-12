@@ -222,7 +222,7 @@ hook_result() {
   assert_success
   run jq -e '.hooks.PostToolUse[0] | .matcher == "Read" and (.hooks[0].input == {cwd:"${cwd}", tool_input:{file_path:"${tool_input.file_path}"}})' "$HOOKS"
   assert_success
-  run jq -e '(.hooks.SessionStart | length) == 1 and (.hooks.SubagentStart | length) == 1 and (.hooks.PostToolUse | length) == 1 and (.hooks.PreToolUse | length) == 2' "$HOOKS"
+  run jq -e '(.hooks.SessionStart | length) == 2 and (.hooks.SubagentStart | length) == 2 and (.hooks.PostToolUse | length) == 1 and (.hooks.PreToolUse | length) == 2' "$HOOKS"
   assert_success
   run jq -e '.hooks.SessionStart[0] | has("matcher") | not' "$HOOKS"
   assert_success
