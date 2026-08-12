@@ -14,10 +14,7 @@ setup() {
   FIXTURE_ROOT="$BATS_TEST_TMPDIR/repo"
   FIXTURE_PLUGIN="$FIXTURE_ROOT/plugins/linux-token-efficiency"
   mkdir -p "$FIXTURE_PLUGIN/bin"
-  printf 'OLD-TARBALL\n' > "$FIXTURE_PLUGIN/bin/$ASSET"
-  printf '%s\n' '0000000000000000000000000000000000000000000000000000000000000000  '"$ASSET" \
-    '0000000000000000000000000000000000000000000000000000000000000000  codebase-memory-mcp' \
-    > "$FIXTURE_PLUGIN/bin/cbm-checksums.txt"
+  printf 'RTK-SENTINEL\n' > "$FIXTURE_PLUGIN/bin/rtk"
   cat > "$FIXTURE_PLUGIN/cbm-bundle.json" << EOF
 {
   "cbmVersion": "0.10.1",
@@ -25,7 +22,6 @@ setup() {
   "releaseTag": "v0.10.1",
   "binaries": [
     {
-      "path": "bin/$ASSET",
       "asset": "$ASSET",
       "assetSha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "binarySha256": "0000000000000000000000000000000000000000000000000000000000000000"
@@ -33,15 +29,21 @@ setup() {
   ]
 }
 EOF
+  printf '%s\n' '{"cbmVersion":"0.10.1","tools":[{"name":"stale_tool","description":"stale","inputSchema":{"type":"object"}}]}' \
+    > "$FIXTURE_PLUGIN/cbm-tools.json"
 
   API_DIR="$BATS_TEST_TMPDIR/api"
   REL_DIR="$BATS_TEST_TMPDIR/rel"
   mkdir -p "$API_DIR/releases" "$REL_DIR/v0.11.0" "$BATS_TEST_TMPDIR/pack"
   printf '%s\n' '{"tag_name":"v0.11.0"}' > "$API_DIR/releases/latest"
-  printf 'NEW-BINARY\n' > "$BATS_TEST_TMPDIR/pack/codebase-memory-mcp"
+  # The archive's binary is the fake MCP-speaking cbm: the script probes its tools/list.
+  write_fake_cbm "$BATS_TEST_TMPDIR/pack/codebase-memory-mcp"
   printf 'installer\n' > "$BATS_TEST_TMPDIR/pack/install.sh"
   tar -czf "$REL_DIR/v0.11.0/$ASSET" -C "$BATS_TEST_TMPDIR/pack" codebase-memory-mcp install.sh
   (cd "$REL_DIR/v0.11.0" && sha256sum "$ASSET" > checksums.txt)
+
+  FAKE_PAYLOADS="$BATS_TEST_TMPDIR/fake-payloads.json"
+  printf '%s\n' '{"list_projects":{},"search_graph":{}}' > "$FAKE_PAYLOADS"
 
   make_stub curl \
     'out=""; url=""' \
@@ -55,7 +57,16 @@ EOF
 run_update() {
   run env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" \
     CBM_RELEASE_BASE_URL="file://$API_DIR" CBM_DOWNLOAD_BASE_URL="file://$REL_DIR" \
+    CBM_FAKE_PAYLOADS="$FAKE_PAYLOADS" \
     bash "$SCRIPT" --repo-root "$FIXTURE_ROOT" "$@"
+}
+
+# assert_bin_untouched -- the script must never write into the plugin's bin/ again.
+assert_bin_untouched() {
+  run bash -c "ls -A '$FIXTURE_PLUGIN/bin'"
+  assert_output 'rtk'
+  run cat "$FIXTURE_PLUGIN/bin/rtk"
+  assert_output 'RTK-SENTINEL'
 }
 
 @test "--help prints usage and exits 0" {
@@ -95,8 +106,7 @@ run_update() {
   make_stub uname 'printf "Darwin\n"'
   run_update --check
   assert_failure 5
-  run cat "$FIXTURE_PLUGIN/bin/$ASSET"
-  assert_output "OLD-TARBALL"
+  assert_bin_untouched
 }
 
 @test "exit 3: the release API call fails" {
@@ -104,8 +114,7 @@ run_update() {
     CBM_RELEASE_BASE_URL="file://$API_DIR" CBM_DOWNLOAD_BASE_URL="file://$REL_DIR" \
     bash "$SCRIPT" --repo-root "$FIXTURE_ROOT" --check
   assert_failure 3
-  run cat "$FIXTURE_PLUGIN/bin/$ASSET"
-  assert_output "OLD-TARBALL"
+  assert_bin_untouched
 }
 
 @test "exit 0: pin already matches the fixture latest release" {
@@ -119,8 +128,7 @@ run_update() {
   run_update --check
   assert_failure 10
   assert_output --partial "update-available 0.10.1 -> 0.11.0"
-  run cat "$FIXTURE_PLUGIN/bin/$ASSET"
-  assert_output "OLD-TARBALL"
+  assert_bin_untouched
   run jq -r '.cbmVersion' "$FIXTURE_PLUGIN/cbm-bundle.json"
   assert_output "0.10.1"
 }
@@ -129,8 +137,7 @@ run_update() {
   printf 'TAMPERED\n' >> "$REL_DIR/v0.11.0/$ASSET"
   run_update --apply
   assert_failure 4
-  run cat "$FIXTURE_PLUGIN/bin/$ASSET"
-  assert_output "OLD-TARBALL"
+  assert_bin_untouched
   run jq -r '.cbmVersion' "$FIXTURE_PLUGIN/cbm-bundle.json"
   assert_output "0.10.1"
 }
@@ -141,15 +148,16 @@ run_update() {
   (cd "$REL_DIR/v0.11.0" && sha256sum "$ASSET" > checksums.txt)
   run_update --apply
   assert_failure 4
-  run cat "$FIXTURE_PLUGIN/bin/$ASSET"
-  assert_output "OLD-TARBALL"
+  assert_bin_untouched
 }
 
-@test "exit 11: --apply replaces the tarball and rewrites pin + sidecar" {
+@test "exit 11: --apply rewrites the pin and the tool snapshot, never bin/" {
   run_update --apply
   assert_failure 11
   assert_output --partial "updated 0.10.1 -> 0.11.0"
-  run jq -e '.cbmVersion == "0.11.0" and .releaseTag == "v0.11.0"' "$FIXTURE_PLUGIN/cbm-bundle.json"
+  refute_output --partial "bin/"
+  assert_bin_untouched
+  run jq -e '.cbmVersion == "0.11.0" and .releaseTag == "v0.11.0" and (.binaries | length) == 1 and (.binaries[0] | has("path") | not)' "$FIXTURE_PLUGIN/cbm-bundle.json"
   assert_success
   local expected_asset expected_bin
   expected_asset="$(cut -d' ' -f1 < "$REL_DIR/v0.11.0/checksums.txt")"
@@ -158,20 +166,36 @@ run_update() {
   assert_output "$expected_asset"
   run jq -r '.binaries[0].binarySha256' "$FIXTURE_PLUGIN/cbm-bundle.json"
   assert_output "$expected_bin"
-  run awk -v n="$ASSET" '$2 == n { print $1 }' "$FIXTURE_PLUGIN/bin/cbm-checksums.txt"
-  assert_output "$expected_asset"
-  run awk '$2 == "codebase-memory-mcp" { print $1 }' "$FIXTURE_PLUGIN/bin/cbm-checksums.txt"
-  assert_output "$expected_bin"
-  run bash -c "grep -c . '$FIXTURE_PLUGIN/bin/cbm-checksums.txt'"
-  assert_output '2'
-  run bash -c "sha256sum < '$FIXTURE_PLUGIN/bin/$ASSET' | cut -d' ' -f1"
-  assert_output "$expected_asset"
+}
+
+@test "exit 11: --apply regenerates cbm-tools.json from the binary's own tools/list" {
+  run_update --apply
+  assert_failure 11
+  run jq -e '.cbmVersion == "0.11.0"' "$FIXTURE_PLUGIN/cbm-tools.json"
+  assert_success
+  run jq -e '[.tools[].name] | sort == ["list_projects","search_graph"]' "$FIXTURE_PLUGIN/cbm-tools.json"
+  assert_success
+  run jq -e '.tools | all((.name | length > 0) and (.description | length > 0) and (.inputSchema.type == "object"))' "$FIXTURE_PLUGIN/cbm-tools.json"
+  assert_success
+  run jq -e --slurpfile pin "$FIXTURE_PLUGIN/cbm-bundle.json" '.cbmVersion == $pin[0].cbmVersion' "$FIXTURE_PLUGIN/cbm-tools.json"
+  assert_success
+}
+
+@test "exit 4: an empty tool list fails closed with no partial write" {
+  printf '%s\n' '{}' > "$FAKE_PAYLOADS"
+  run_update --apply
+  assert_failure 4
+  run jq -r '.cbmVersion' "$FIXTURE_PLUGIN/cbm-bundle.json"
+  assert_output "0.10.1"
+  run jq -e '[.tools[].name] == ["stale_tool"]' "$FIXTURE_PLUGIN/cbm-tools.json"
+  assert_success
+  assert_bin_untouched
 }
 
 @test "--apply leaves no temp residue and creates no extraction cache" {
   run_update --apply
   assert_failure 11
-  run bash -c "find '$FIXTURE_PLUGIN' -name '.tmp*' -o -name '*.new' | grep -c . || true"
+  run bash -c "find '$FIXTURE_PLUGIN' -name '.tmp*' -o -name '*.new' -o -name '*-next.*' | grep -c . || true"
   assert_output '0'
   run bash -c "find '$FIXTURE_ROOT' -type d -name 'cbm' | grep -c . || true"
   assert_output '0'

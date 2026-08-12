@@ -10,9 +10,9 @@ allowed-tools: Read, Bash
 
 Keeps `plugins/linux-token-efficiency/bin/*` and its pin `rtk-bundle.json` in step with the
 upstream `rtk-ai/rtk` releases. Mode comes from `$ARGUMENTS`: `check` (default) or `apply`.
-The same skill keeps `plugins/linux-token-efficiency/bin/codebase-memory-mcp-linux-amd64-portable.tar.gz`,
-`bin/cbm-checksums.txt` and the pin `cbm-bundle.json` in step with the upstream
-`DeusData/codebase-memory-mcp` releases.
+The same skill keeps the pin `cbm-bundle.json` and the upstream tool-list snapshot
+`cbm-tools.json` in step with the upstream `DeusData/codebase-memory-mcp` releases; nothing
+cbm-related is committed to git.
 The skill only edits the working tree — it never commits, never bumps the plugin version and
 never opens a PR.
 
@@ -26,7 +26,7 @@ echo "REPO_ROOT=$REPO_ROOT"
 echo "PINNED=$(jq -r '.rtkVersion // "n/a"' "$REPO_ROOT/plugins/linux-token-efficiency/rtk-bundle.json" 2>/dev/null || echo n/a)"
 echo "BUNDLED=$("$REPO_ROOT/plugins/linux-token-efficiency/bin/rtk" --version 2>/dev/null || echo n/a)"
 echo "CBM_PINNED=$(jq -r '.cbmVersion // "n/a"' "$REPO_ROOT/plugins/linux-token-efficiency/cbm-bundle.json" 2> /dev/null || echo n/a)"
-echo "CBM_LAUNCHER=$([ -x "$REPO_ROOT/plugins/linux-token-efficiency/bin/cbm-launch.sh" ] && echo yes || echo no)"
+echo "CBM_SERVER=$([ -x "$REPO_ROOT/plugins/linux-token-efficiency/mcp/server.mjs" ] && echo yes || echo no)"
 echo "CURL=$(command -v curl >/dev/null 2>&1 && echo yes || echo no)"
 echo "JQ=$(command -v jq >/dev/null 2>&1 && echo yes || echo no)"
 echo "TAR=$(command -v tar >/dev/null 2>&1 && echo yes || echo no)"
@@ -93,18 +93,16 @@ git ls-tree HEAD plugins/linux-token-efficiency/bin/rtk # post-commit human sani
 Also tell the human to bump `plugins/linux-token-efficiency/.claude-plugin/plugin.json`'s `version`
 and to update the rtk version stated in `plugins/linux-token-efficiency/README.md`.
 
-After a successful cbm `apply`, print this block instead (the tarball is data, so it stays `100644`
-and needs no `--chmod=+x`; only the launcher and the hook are executables, and both are already
-tracked as `100755`):
+After a successful cbm `apply`, print this block instead (only two machine-owned JSON files
+change; nothing cbm-related is committed as a binary, tarball or checksum sidecar):
 
 ```bash
-git add plugins/linux-token-efficiency/bin/codebase-memory-mcp-linux-amd64-portable.tar.gz \
-  plugins/linux-token-efficiency/bin/cbm-checksums.txt \
-  plugins/linux-token-efficiency/cbm-bundle.json
-git ls-files -s plugins/linux-token-efficiency/bin/cbm-launch.sh # must print 100755
+git add plugins/linux-token-efficiency/cbm-bundle.json plugins/linux-token-efficiency/cbm-tools.json
+git ls-files -s plugins/linux-token-efficiency/mcp/server.mjs # must print 100755
 ```
 
 Also tell the human: bump `plugins/linux-token-efficiency/.claude-plugin/plugin.json`'s `version`,
 update the cbm version stated in `plugins/linux-token-efficiency/README.md`, and restart sessions
-after the plugin update so every cbm process runs the same executable build. The runtime extraction
-cache is content-addressed and is never touched by this skill — it needs no clearing.
+after the plugin update so every cbm process runs the same executable build. The runtime download
+cache is content-addressed and is never touched by this skill; the first session after the bump
+downloads the new release once.

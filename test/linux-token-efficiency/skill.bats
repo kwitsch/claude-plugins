@@ -90,8 +90,12 @@ setup() {
   assert_success
   run grep -F 'bash .claude/skills/update-linux-token-efficiency/update-cbm-bundle.sh' "$SKILL"
   assert_success
-  run grep -F 'git add plugins/linux-token-efficiency/bin/codebase-memory-mcp-linux-amd64-portable.tar.gz' "$SKILL"
+  run grep -F 'git add plugins/linux-token-efficiency/cbm-bundle.json plugins/linux-token-efficiency/cbm-tools.json' "$SKILL"
   assert_success
-  run grep -F 'git ls-files -s plugins/linux-token-efficiency/bin/cbm-launch.sh' "$SKILL"
+  run grep -F 'git ls-files -s plugins/linux-token-efficiency/mcp/server.mjs' "$SKILL"
   assert_success
+  run grep -F 'cbm-launch.sh' "$SKILL"
+  assert_failure
+  run grep -F 'cbm-checksums.txt' "$SKILL"
+  assert_failure
 }
