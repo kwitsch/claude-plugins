@@ -273,7 +273,8 @@ surface.
 
 **One process model.** `mcp/server.mjs` owns the pin, the first-run download + verification +
 extraction, the warm cbm child, the four hook tools and the passthrough. Both the hook reads and the
-model's own `mcp__codebase-memory__*` calls go through the same child, so there is exactly one place
+model's own `mcp__plugin_linux-token-efficiency_codebase-memory__*` calls go through the same child,
+so there is exactly one place
 that knows how to talk to cbm and one place that peels its result envelope. `mcp_tool` hooks
 therefore cost a round-trip, not a fresh Node process plus a fresh 279.6 MiB exec per event.
 

@@ -240,7 +240,7 @@ test("formatSessionContext / formatSubagentContext: project, index state, steer"
   assert.notEqual(ctx, null);
   assert.equal(ctx?.includes("app"), true);
   assert.equal(ctx?.includes("ready"), true);
-  assert.equal(ctx?.includes("mcp__codebase-memory__"), true);
+  assert.equal(ctx?.includes("mcp__plugin_linux-token-efficiency_codebase-memory__"), true);
   assert.equal(formatSessionContext("", { status: "ready" }), null);
   assert.notEqual(formatSessionContext("app", "garbage"), null);
   const sub = formatSubagentContext("app", { status: "ready" });
@@ -254,7 +254,7 @@ test("formatSymbolContext: reads cols/groups/rows, prefixes the qualified name, 
   assert.notEqual(ctx, null);
   assert.equal(ctx?.includes("- app.handleRequest — src/server.mjs:12"), true);
   assert.equal(ctx?.includes("- app.util.slugify — src/util.mjs:7"), true);
-  assert.equal(ctx?.includes("mcp__codebase-memory__"), true);
+  assert.equal(ctx?.includes("mcp__plugin_linux-token-efficiency_codebase-memory__"), true);
   assert.equal(
     formatSymbolContext(SEARCH_JSON, 1)
       ?.split("\n")

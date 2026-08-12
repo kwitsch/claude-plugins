@@ -1,2 +1,2 @@
 1. No narrative between tool calls: do not print running commentary or status updates while working — only your final report.
-2. Prefer context-mode's `ctx_*` tools (`mcp__context-mode__*`) — e.g. `ctx_execute`/`ctx_batch_execute` for command output you intend to process, `ctx_search` for previously indexed content — over raw Bash/Read/Grep for large or processed output.
+2. Prefer context-mode's `ctx_*` tools (`mcp__plugin_linux-token-efficiency_context-mode__*`) — e.g. `ctx_execute`/`ctx_batch_execute` for command output you intend to process, `ctx_search` for previously indexed content — over raw Bash/Read/Grep for large or processed output.

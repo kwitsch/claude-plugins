@@ -8,7 +8,8 @@
 // itself (never blocking on I/O), serves four purpose-built hook tools, and forwards every
 // other tools/call verbatim to the real cbm binary, which it spawns once (no args => cbm's
 // own MCP stdio mode) and keeps warm. Tool names are never renamed, so Claude keeps seeing
-// mcp__codebase-memory__<upstream tool>.
+// mcp__plugin_linux-token-efficiency_codebase-memory__<upstream tool> (the plugin-namespaced
+// tool-name form; a bare mcp__codebase-memory__* never fires for a plugin-bundled server).
 //
 // It is the ONLY component permitted to download or extract the pinned upstream binary
 // (asset + extracted binary both sha256-verified against cbm-bundle.json before anything

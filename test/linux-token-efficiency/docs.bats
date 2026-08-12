@@ -153,7 +153,7 @@ setup() {
 
 @test "plugin README documents the context-mode server and the pinned package" {
   local token
-  for token in 'context-mode' 'bunx' 'npx --yes' 'ctx_execute' 'Elastic' 'mcp__context-mode__' '1.0.169' 'SessionStart.md'; do
+  for token in 'context-mode' 'bunx' 'npx --yes' 'ctx_execute' 'Elastic' 'mcp__plugin_linux-token-efficiency_context-mode__' '1.0.169' 'SessionStart.md'; do
     run grep -F "$token" "$PLUGIN_README"
     assert_success
   done

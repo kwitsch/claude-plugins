@@ -55,8 +55,10 @@ broken by it. It deliberately no-ops when:
 
 Ships [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp) — release **v0.10.1**,
 asset `codebase-memory-mcp-linux-amd64-portable.tar.gz` — as the MCP stdio server `codebase-memory`
-registered through `.mcp.json`. Its 15 graph tools appear as `mcp__codebase-memory__*`, exactly as
-upstream names them.
+registered through `.mcp.json`. Its 15 graph tools appear as
+`mcp__plugin_linux-token-efficiency_codebase-memory__*` (the plugin-namespaced tool-name form; a
+bare `mcp__codebase-memory__*` matcher never fires for a plugin-bundled server), named after
+upstream's own tool names.
 
 **Nothing cbm-related is committed to this repo.** `mcp/server.mjs` is a small Node proxy: on its
 first start it downloads the pinned release asset (37.6 MiB) from GitHub Releases, verifies its
@@ -111,7 +113,8 @@ Registers the external [context-mode](https://github.com/mksglu/context-mode) np
 (Elastic License 2.0) — pinned to **1.0.169** — as the MCP stdio server `context-mode`. Its eleven
 `ctx_*` tools (`ctx_execute`, `ctx_execute_file`, `ctx_batch_execute`, `ctx_index`, `ctx_search`,
 `ctx_fetch_and_index`, `ctx_stats`, `ctx_doctor`, `ctx_upgrade`, `ctx_purge`, `ctx_insight`) appear as
-`mcp__context-mode__*`.
+`mcp__plugin_linux-token-efficiency_context-mode__*` (the plugin-namespaced tool-name form — not the
+bare `mcp__context-mode__*`, which never fires for a plugin-bundled server).
 
 `bin/context-mode-launch.sh` starts it: `bunx context-mode@1.0.169` when `bunx` resolves, otherwise
 `npx --yes context-mode@1.0.169`, and an error on stderr with exit 1 when neither is installed. The
