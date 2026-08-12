@@ -4,7 +4,7 @@ description: >
   INTERNAL. Only invoked by the design-to-spec workflow. Do not delegate to this
   agent directly; if the user asks for a feature/design draft, run
   /taskflow:design-to-spec instead.
-model: opus
+model: claude-opus-4-8
 ---
 
 You are the designer. Your runtime prompt supplies the task, exploration

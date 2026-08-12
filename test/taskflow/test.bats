@@ -173,9 +173,18 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   done
 }
 
-@test "all agent files declare a model" {
+@test "all agent files declare a model; only designer and planner carry the Opus pin" {
   for a in $AGENT_NAMES; do
     run rg_or_grep -E '^model:' "$AGENTS_DIR/$a.md"
+    [ "$status" -eq 0 ]
+    case "$a" in
+      designer | planner)
+        run rg_or_grep -E '^model: claude-opus-4-8$' "$AGENTS_DIR/$a.md"
+        ;;
+      *)
+        run rg_or_grep -E '^model: (sonnet|haiku)$' "$AGENTS_DIR/$a.md"
+        ;;
+    esac
     [ "$status" -eq 0 ]
   done
 }
@@ -358,4 +367,10 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'trivial: "haiku", standard: "sonnet"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
+}
+
+@test "no agent file declares the bare opus alias" {
+  run bash -c "grep -n '^model: opus\$' \"$AGENTS_DIR\"/*.md || true"
+  [ "$status" -eq 0 ]
+  [ "$output" = "" ]
 }
