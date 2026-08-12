@@ -156,3 +156,144 @@ EOF
   run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
   assert_output --partial "bump-version"
 }
+
+# make_marketplace_fixture — a plugin-marketplace-shaped tree built entirely
+# inside $BATS_TEST_TMPDIR: a root manifest (own top-level "version", plugins[]
+# entry deliberately carrying NO version key) plus one plugin directory with its
+# own .claude-plugin/plugin.json at 1.2.3. The real repo's .claude-plugin/ files
+# are never read or written by any test here.
+make_marketplace_fixture() {
+  mkdir -p "$BATS_TEST_TMPDIR/market/.claude-plugin" \
+    "$BATS_TEST_TMPDIR/market/plugins/fixture/.claude-plugin"
+  cat > "$BATS_TEST_TMPDIR/market/.claude-plugin/marketplace.json" <<'EOF'
+{
+  "name": "fixture-market",
+  "owner": {
+    "name": "Fixture"
+  },
+  "version": "1.0.0",
+  "plugins": [
+    {
+      "name": "fixture",
+      "source": "./plugins/fixture"
+    }
+  ]
+}
+EOF
+  cat > "$BATS_TEST_TMPDIR/market/plugins/fixture/.claude-plugin/plugin.json" <<'EOF'
+{
+  "name": "fixture",
+  "version": "1.2.3",
+  "description": "fixture plugin"
+}
+EOF
+}
+@test "bump-version.sh: bumps a marketplace plugin's .claude-plugin/plugin.json" {
+  make_marketplace_fixture
+  cd "$BATS_TEST_TMPDIR/market/plugins/fixture" || return 1
+  run_bumpver minor
+  assert_success
+  assert_output --partial "file: .claude-plugin/plugin.json"
+  assert_output --partial "old: 1.2.3"
+  assert_output --partial "new: 1.3.0"
+  assert_output --partial "sync: no_convention"
+}
+@test "bump-version.sh: actually writes the bumped version into plugin.json" {
+  make_marketplace_fixture
+  cd "$BATS_TEST_TMPDIR/market/plugins/fixture" || return 1
+  run_bumpver minor
+  assert_success
+  run rg_or_grep -F '"version": "1.3.0"' .claude-plugin/plugin.json
+  assert_success
+}
+@test "bump-version.sh: leaves the marketplace manifest untouched" {
+  make_marketplace_fixture
+  cd "$BATS_TEST_TMPDIR/market/plugins/fixture" || return 1
+  run_bumpver minor
+  assert_success
+  run jq -r '.version' "$BATS_TEST_TMPDIR/market/.claude-plugin/marketplace.json"
+  assert_output "1.0.0"
+  run jq -e '[.plugins[] | has("version")] | any | not' "$BATS_TEST_TMPDIR/market/.claude-plugin/marketplace.json"
+  assert_success
+}
+@test "bump-version.sh: plugin.json outranks a sibling package.json" {
+  make_marketplace_fixture
+  cd "$BATS_TEST_TMPDIR/market/plugins/fixture" || return 1
+  cat > package.json <<'EOF'
+{
+  "name": "sibling",
+  "version": "9.9.9"
+}
+EOF
+  run_bumpver patch
+  assert_success
+  assert_output --partial "file: .claude-plugin/plugin.json"
+  assert_output --partial "new: 1.2.4"
+  assert_output --partial "sync: no_convention"
+  run rg_or_grep -F '"version": "9.9.9"' package.json
+  assert_success
+}
+@test "bump-version.sh: refuses a plugin-marketplace repo root with exit 3" {
+  make_marketplace_fixture
+  cat > "$BATS_TEST_TMPDIR/market/package.json" <<'EOF'
+{
+  "name": "market-tooling",
+  "version": "9.9.9"
+}
+EOF
+  cd "$BATS_TEST_TMPDIR/market" || return 1
+  run_bumpver patch
+  assert_failure 3
+  assert_output --partial "plugin-marketplace repo root"
+  assert_output --partial "plugins/"
+  run rg_or_grep -F '"version": "9.9.9"' package.json
+  assert_success
+}
+@test "bump-version.sh: rejects a non-bare-semver plugin.json version" {
+  mkdir -p "$BATS_TEST_TMPDIR/pre/.claude-plugin"
+  cat > "$BATS_TEST_TMPDIR/pre/.claude-plugin/plugin.json" <<'EOF'
+{
+  "name": "pre",
+  "version": "1.2.3-beta"
+}
+EOF
+  cd "$BATS_TEST_TMPDIR/pre" || return 1
+  run_bumpver patch
+  assert_failure 4
+}
+@test "bump-version.sh: an empty .claude-plugin dir exits 3 and names plugin.json" {
+  mkdir -p "$BATS_TEST_TMPDIR/bare/.claude-plugin"
+  cd "$BATS_TEST_TMPDIR/bare" || return 1
+  run_bumpver patch
+  assert_failure 3
+  assert_output --partial "no supported version file"
+  assert_output --partial ".claude-plugin/plugin.json"
+}
+@test "bump-version.sh reads marketplace.json but never writes it" {
+  run rg_or_grep -F '[ -f ".claude-plugin/marketplace.json" ]' "$PLUGIN/skills/bump-version/bump-version.sh"
+  assert_success
+  run rg_or_grep -E 'sed -i.*marketplace' "$PLUGIN/skills/bump-version/bump-version.sh"
+  assert_failure
+  run bash -c "rg_or_grep -n -F 'marketplace.json' '$PLUGIN/skills/bump-version/bump-version.sh' | rg_or_grep -v -E '^[0-9]+:[[:space:]]*#' | rg_or_grep -v -E '\[ -f|echo '"
+  assert_failure
+}
+@test "bump-version SKILL.md documents the plugin manifest and the marketplace-root refusal" {
+  run rg_or_grep -F '.claude-plugin/plugin.json' "$PLUGIN/skills/bump-version/SKILL.md"
+  assert_success
+  run rg_or_grep -F '.claude-plugin/marketplace.json' "$PLUGIN/skills/bump-version/SKILL.md"
+  assert_success
+}
+@test "bump-version frontmatter pre-approves Bash(cd:*) and keeps its argument-hint" {
+  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/skills/bump-version/SKILL.md'"
+  assert_success
+  assert_output --partial 'Bash(cd:*)'
+  assert_output --partial 'argument-hint: "<major|minor|patch>"'
+}
+@test "bump-version.reference.md documents the plugin-manifest candidate" {
+  run rg_or_grep -F '.claude-plugin/plugin.json' "$PLUGIN/skills/bump-version/bump-version.reference.md"
+  assert_success
+}
+@test "plugin README's bump-version row names the plugin manifest" {
+  run bash -c "rg_or_grep -F 'bump-version' '$PLUGIN/README.md' | rg_or_grep -F '.claude-plugin/plugin.json'"
+  assert_success
+}
