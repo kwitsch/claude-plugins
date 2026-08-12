@@ -11,6 +11,14 @@ The plugin ships these components:
 
 Renaming the plugin requires updating the `AGENTS` map's namespace prefix in both workflow scripts to match.
 
+Every one of the 12 agent files also carries the identical, verbatim rule "No
+narrative text between tool calls — call tools silently and speak only in
+your final message (the report or structured output)." as its first paragraph
+after frontmatter — these agents run headless inside a Workflow, so any prose
+between tool calls is pure wasted tokens no one reads; only the last message
+(plain text or the schema-forced structured output) is ever consumed. Add it
+to any new agent file too.
+
 ## `workflows/` is a documented plugin component
 
 This is the first plugin in the repo to ship a `workflows/` directory. It is
