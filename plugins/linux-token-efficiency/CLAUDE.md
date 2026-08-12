@@ -59,13 +59,14 @@ and turn a backgrounded Bash call into a blocking one. `permissionDecision` is n
 Every failure path is a bare `return` inside `main()`'s single `try/catch` — never
 `process.exit()`, matching `encoding-guard.mjs` and `lint-file.mjs`.
 
-This plugin backs six hooks total: `rtk-rewrite.mjs` above, four cbm entries
-(`SessionStart`, `SubagentStart`, `PreToolUse` `Grep`/`Glob`, `PostToolUse` `Read`), all four `type: "mcp_tool"` on
-`plugin:linux-token-efficiency:codebase-memory` (the namespaced form — the bare `.mcp.json` key
-resolves to "not connected" on every fire) with an explicit `input` block each, because an omitted
-`input` delivers `{}` instead of the hook JSON, and a second `SessionStart` entry that `cat`s
-`hooks/SessionStart.md` (see `## context-mode`). Each cbm entry names its own purpose-built tool
-(`hook_session_context`, `hook_subagent_context`, `hook_symbol_context`, `hook_coverage_context`), so
+This plugin backs six hooks total: `rtk-rewrite.mjs` above, `SessionStart` →
+`mcp/server.mjs --session-start-hook` (a `command` hook — see the correction note below), three
+remaining cbm entries (`SubagentStart`, `PreToolUse` `Grep`/`Glob`, `PostToolUse` `Read`), all
+`type: "mcp_tool"` on `plugin:linux-token-efficiency:codebase-memory` (the namespaced form — the
+bare `.mcp.json` key resolves to "not connected" on every fire) with an explicit `input` block each,
+because an omitted `input` delivers `{}` instead of the hook JSON, and a second `SessionStart` entry
+that `cat`s `hooks/SessionStart.md` (see `## context-mode`). Each cbm entry names its own
+purpose-built tool (`hook_subagent_context`, `hook_symbol_context`, `hook_coverage_context`), so
 `hookEventName` is hardcoded per tool and can never be wrong.
 
 `timeout: 20` (was `21`, briefly `12`): there is no per-event process any more, so the budget is two
@@ -74,18 +75,25 @@ resolves to "not connected" on every fire) with an explicit `input` block each, 
 cost on the very first call of a session (cold child, cold project cache) — real review finding,
 raised to `20` to actually cover the worst case.
 
-`SessionStart` is `status: "limited"` in `.claude/rules/hooks-mcp-tool-event-matrix.md` ("servers
-usually not connected yet on first run") and `hooks-mcp-server.md`'s decision tree lists it as a
-`command`-hook case. It is `mcp_tool` here anyway, deliberately: on a cold first run the hook simply
-fails open (no context, no error, session proceeds), which is the matrix's own prescription, and the
-loss is close to zero — the previous CLI-based design never extracted from a hook either, so a cold
-cache produced no SessionStart context there too. `SubagentStart`, `PreToolUse` and `PostToolUse` are
-all `status: "full"`. **No compensating `command` hook is added**: duplicating the event across two
-handler types would double-inject context whenever both fire, for a benefit measured only on the
-first session after a fresh install. That sentence is about re-emitting `hook_session_context`'s
-**own** context; it is not contradicted by the second `SessionStart` entry added for context-mode,
-which injects a **different**, static document (upstream's routing rules) that no other handler
-produces, so nothing is double-injected.
+> Correction note (2026-08-12): `SessionStart` was `mcp_tool` here through 0.1.0, on the assumption
+> that a cold first run would fail open silently (the matrix's own "servers usually not connected
+> yet" prescription for its `status: "limited"` rating). Live behavior is stricter than that: every
+> `SessionStart` fire produced a visible `SessionStart:startup hook error — mcp_tool hooks are not
+available for the 'SessionStart' hook event (no MCP client context)`, not a silent no-op — this
+> event apparently rejects `mcp_tool` outright rather than merely finding the server unconnected.
+> Fixed by moving `SessionStart` to a `command` hook per `hooks-mcp-server.md`'s decision tree (rule
+> 2: event fires before the server connects). Rather than duplicating `projectStatusHandler`'s
+> env/cache/child-spawn logic in a second file, `mcp/server.mjs` itself gained a `--session-start-hook`
+> CLI branch (checked before `startServer()`/`ensureBinary()` run) that reads the hook JSON off stdin,
+> calls `projectStatusHandler(args, "SessionStart")` directly (bypassing the JSON-RPC loop — no
+> persistent server involved), prints the result, and exits. `hooks.json`'s `SessionStart` entry is
+> now `{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs","args":["--session-start-hook"]}`.
+> `SubagentStart`, `PreToolUse` and `PostToolUse` stay `mcp_tool` (`status: "full"`, genuinely
+> mid-session) — this correction is `SessionStart`-only.
+
+This is not contradicted by the second `SessionStart` entry added for context-mode (a plain `cat`,
+unrelated to `--session-start-hook`): it injects a **different**, static document (upstream's
+routing rules) that no other handler produces, so nothing is double-injected between the two.
 
 **Per-cwd project cache.** Each hook process is a fresh process, so an in-memory cache buys nothing
 across invocations — `resolveProjectCacheDir()`/`readProjectCache()`/`writeProjectCache()` persist the
@@ -131,6 +139,31 @@ subprocess, an explicit `false` goes unhonored and the feature stays enabled.
 
 Fail-open (not the rule's fail-closed exception): the hook creates no files and no external state,
 so only the literal string `false` (after `trim()`) disables it.
+
+## Output style
+
+`output-styles/terse.md` is a third fixed, always-on component next to the rtk rewrite hook and the
+cbm server. **No toggle, deliberately**: the style creates no state, and `force-for-plugin` is static
+frontmatter that no `userConfig` value can drive (`${user_config.*}` placeholders are rejected in hook
+`command` fields anyway, see above).
+
+- `force-for-plugin: true` auto-applies the style whenever the plugin is enabled and **overrides the
+  user's own `outputStyle` setting** by design; "first loaded wins if several set it".
+- `keep-coding-instructions: true` keeps Claude Code's built-in software-engineering instructions in
+  the system prompt, so only communication form changes, never coding behavior.
+- The body must stay short — one heading plus 6 bullets, deliberately **not** a
+  `kiwi-code-style`-shaped machine contract. `output-style.bats`'s ≤ 40-line cap is the tripwire that
+  enforces it; raising it is a design decision, not a test fix.
+- Scope: the main conversation only (a subagent has its own system prompt and never sees it), and it
+  takes effect in a new session or after `/clear`.
+- It is the plugin's **only OS-independent component** — which is why every "Linux only" claim in this
+  plugin's manifests and docs (`plugin.json`, the root `marketplace.json` entry, the plugin README
+  banner, the root README row) is scoped to the **bundled tooling**, never to the plugin as a whole.
+  Do not "simplify" those strings back to "this plugin does not work": the same edit must keep the
+  literal `does not work` with a **singular** subject, because `manifest.bats` matches that string in
+  both manifests.
+- If `kiwi-code-style` is enabled too, both force a style and only one wins — load-order dependent,
+  not controllable from here. Accepted; do not build detection or a precedence mechanism.
 
 ## Skill design (update-linux-token-efficiency)
 
@@ -208,11 +241,13 @@ fixture plugin tree with a fake MCP-speaking cbm binary and an ephemeral 127.0.0
 wiring pins (`cbm-hooks.bats`), `node:test` coverage of the pure helpers (`cbm-context.test.mjs`), and
 the maintainer-script exit-code contract (`update-cbm-bundle.bats`) — every fixture is fabricated and
 few bytes; the real 279.6 MiB binary is never downloaded or extracted. context-mode adds
-`context-mode.bats`: the launcher's runtime selection and toggle behavior against stubbed
-`bunx`/`npx` on an isolated PATH (the real runners are never invoked and the npm registry is never
-reached), the `.mcp.json` server entry, the verbatim `hooks/SessionStart.md` (first/last line,
-load-bearing literals, index mode), the `SessionStart` `cat` wiring, the zero-nudge-hook tripwire and
-the `.prettierignore`/`.coderabbit.yaml` verbatim guards.
+`context-mode.bats`: the launcher's runtime selection against stubbed `bunx`/`npx` on an isolated
+PATH (the real runners are never invoked and the npm registry is never reached), the `.mcp.json`
+server entry, the verbatim `hooks/SessionStart.md` (first/last line, load-bearing literals, index
+mode), the `SessionStart` `cat` wiring, the zero-nudge-hook tripwire and the
+`.prettierignore`/`.coderabbit.yaml` verbatim guards. The forced output style adds `output-style.bats`
+(style presence, frontmatter keys read strictly between the real `---` fences, the exact first body
+heading, the ≤ 40-line brevity cap, required directive tokens).
 
 ## codebase-memory-mcp bundle
 

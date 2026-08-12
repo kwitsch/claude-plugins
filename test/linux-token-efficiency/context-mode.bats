@@ -157,9 +157,8 @@ cm_run() {
   assert_success
   run jq -e '.hooks.SessionStart[1].hooks[0] | has("async") | not' "$HOOKS"
   assert_success
-  # Index-0 stability pin: cbm-hooks.bats addresses the mcp_tool entry positionally.
-  run jq -e '.hooks.SessionStart[0].hooks[0].tool == "hook_session_context"' "$HOOKS"
-  assert_success
+  # Index-0 shape (the command hook calling mcp/server.mjs --session-start-hook) is pinned by
+  # cbm-hooks.bats, not duplicated here.
 }
 
 @test "cat on SessionStart.md through an isolated PATH reproduces the document" {

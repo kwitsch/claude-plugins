@@ -45,6 +45,8 @@ setup() {
   assert_success
   run grep -F '## userConfig' "$PLUGIN_CLAUDE"
   assert_success
+  run grep -F '## Output style' "$PLUGIN_CLAUDE"
+  assert_success
 }
 
 @test "plugin CLAUDE.md restates the git update-index --chmod=+x requirement" {
@@ -200,5 +202,14 @@ setup() {
   run grep -F '2026-07' "$PLUGIN_CLAUDE"
   assert_success
   run bash -c "grep -F '[linux-token-efficiency](plugins/linux-token-efficiency/README.md)' '$REPO_ROOT/README.md' | grep -F 'context-mode'"
+  assert_success
+}
+
+@test "plugin README documents the forced terse output style" {
+  for token in 'output-styles/terse.md' 'force-for-plugin' 'keep-coding-instructions'; do
+    run grep -F "$token" "$PLUGIN_README"
+    assert_success
+  done
+  run grep -Fi 'override' "$PLUGIN_README"
   assert_success
 }

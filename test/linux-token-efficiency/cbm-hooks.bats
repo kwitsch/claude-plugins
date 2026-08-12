@@ -57,6 +57,28 @@ hook_result() {
   assert_success
 }
 
+@test "--session-start-hook CLI mode emits the same shape without the JSON-RPC loop" {
+  run env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" \
+    CBM_BUNDLE_CACHE="$CBM_CACHE" CBM_DOWNLOAD_BASE_URL="$CBM_DOWNLOAD_BASE_URL" \
+    CBM_FAKE_LOG="$FAKE_LOG" CBM_FAKE_PAYLOADS="$FAKE_PAYLOADS" \
+    node "$FIXTURE_SERVER" --session-start-hook <<< "$(jq -cn --arg cwd "$WORKDIR" '{cwd:$cwd}')"
+  assert_success
+  local hook_output="$output"
+  run jq -e '.hookSpecificOutput | keys | sort == ["additionalContext","hookEventName"]' <<< "$hook_output"
+  assert_success
+  run jq -e '.hookSpecificOutput | .hookEventName == "SessionStart" and (.additionalContext | test("app")) and (.additionalContext | test("ready"))' <<< "$hook_output"
+  assert_success
+}
+
+@test "--session-start-hook CLI mode stays silent on a cwd no graph project covers" {
+  run env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" \
+    CBM_BUNDLE_CACHE="$CBM_CACHE" CBM_DOWNLOAD_BASE_URL="$CBM_DOWNLOAD_BASE_URL" \
+    CBM_FAKE_LOG="$FAKE_LOG" CBM_FAKE_PAYLOADS="$FAKE_PAYLOADS" \
+    node "$FIXTURE_SERVER" --session-start-hook <<< '{"cwd":"/nowhere/at/all"}'
+  assert_success
+  assert_output '{}'
+}
+
 @test "hook_subagent_context emits its own hookEventName" {
   cbm_call hook_subagent_context "$(jq -cn --arg cwd "$WORKDIR" '{cwd:$cwd}')"
   run jq -e '.structuredContent.hookSpecificOutput | .hookEventName == "SubagentStart" and (.additionalContext | length > 0)' <<< "$(hook_result)"
@@ -179,18 +201,20 @@ hook_result() {
   assert_output '0'
 }
 
-@test "hooks.json wires all four events to mcp_tool on the namespaced server with an explicit input" {
+@test "hooks.json wires SubagentStart/PreToolUse/PostToolUse to mcp_tool on the namespaced server with an explicit input, SessionStart to a command hook" {
   run jq empty "$HOOKS"
   assert_success
-  local entries='[.hooks.SessionStart[0].hooks[0], .hooks.SubagentStart[0].hooks[0], .hooks.PreToolUse[1].hooks[0], .hooks.PostToolUse[0].hooks[0]]'
+  local entries='[.hooks.SubagentStart[0].hooks[0], .hooks.PreToolUse[1].hooks[0], .hooks.PostToolUse[0].hooks[0]]'
   run jq -e "$entries | all(.type == \"mcp_tool\" and .server == \"plugin:linux-token-efficiency:codebase-memory\" and .timeout == 20 and (has(\"command\") | not) and (has(\"async\") | not))" "$HOOKS"
   assert_success
   # Regression pin: an omitted "input" delivers {} instead of the hook JSON.
   run jq -e "$entries | all(has(\"input\") and (.input | type == \"object\") and (.input | length > 0))" "$HOOKS"
   assert_success
-  run jq -e "$entries | map(.tool) == [\"hook_session_context\",\"hook_subagent_context\",\"hook_symbol_context\",\"hook_coverage_context\"]" "$HOOKS"
+  run jq -e "$entries | map(.tool) == [\"hook_subagent_context\",\"hook_symbol_context\",\"hook_coverage_context\"]" "$HOOKS"
   assert_success
-  run jq -e '.hooks.SessionStart[0].hooks[0] | .input == {cwd:"${cwd}"} and .statusMessage == "Checking codebase graph..."' "$HOOKS"
+  # SessionStart fires before any MCP server connects, so it is a command hook (mcp_tool
+  # hard-errors there: "no MCP client context") that invokes server.mjs's own CLI mode.
+  run jq -e '.hooks.SessionStart[0].hooks[0] | .type == "command" and .command == "${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs" and .args == ["--session-start-hook"] and .timeout == 20 and .statusMessage == "Checking codebase graph..." and (has("server") | not) and (has("tool") | not) and (has("input") | not)' "$HOOKS"
   assert_success
   run jq -e '.hooks.SubagentStart[0].hooks[0].input == {cwd:"${cwd}"}' "$HOOKS"
   assert_success

@@ -1,7 +1,9 @@
 # linux-token-efficiency
 
-**LINUX ONLY.** This plugin bundles a Linux x86_64 executable. On macOS, Windows or any other
-operating system every hook no-ops and the plugin does nothing.
+**LINUX-ONLY TOOLING.** This plugin's bundled `rtk` binary and the codebase-memory-mcp binary it
+downloads are Linux x86_64 executables. On macOS, Windows or any other operating system every hook
+no-ops and none of that tooling runs; the always-on terse output style (below) is the one
+component that still applies.
 
 ## Install
 
@@ -142,6 +144,23 @@ attention.
 `SessionStart` hook runs a bare `cat` — neither `bash` nor `cat` is on `PATH` by default on native
 Windows (outside WSL or Git Bash), so both fail to start there, unlike the rtk/codebase-memory
 features which are already Linux-only for a different reason (bundled Linux binaries).
+
+## Terse output style
+
+Registers the output style `terse` (`output-styles/terse.md`). Its frontmatter carries
+`force-for-plugin: true`, so Claude Code applies it automatically whenever the plugin is enabled and
+**overrides whatever style you picked via `/config`** — there is no activation step and no toggle.
+`keep-coding-instructions: true` keeps Claude Code's built-in software-engineering instructions
+active, so only response formatting changes, never coding behavior.
+
+What it enforces: responses as short as their content allows — multi-level bullet lists instead of
+prose, no preamble, no postamble, no restating the task, no narrating routine work, and only the
+feedback you genuinely need, once.
+
+It takes effect in a new session or after `/clear`, and it governs the main conversation only (a
+subagent has its own system prompt). It is also this plugin's **one OS-independent component**: it
+applies on macOS and Windows too, where every hook and bundled binary stays inert. If another enabled
+plugin also forces an output style (this marketplace's `kiwi-code-style` does), only one of them wins.
 
 ## Maintenance
 

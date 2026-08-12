@@ -754,9 +754,45 @@ function startServer() {
   rl.on("close", () => process.exit(0));
 }
 
-// The readline loop comes up FIRST so initialize answers immediately, then the first-run
-// download is fired without awaiting — the same latency placement the launcher had for
-// extraction. The warm path resolves before any stdin line is processed (it returns before
-// its first await), so a warm cache is ready for the very first hook call.
-startServer();
-void ensureBinary();
+/**
+ * One-shot CLI mode for the SessionStart command hook (see hooks.json): SessionStart fires
+ * before any MCP server connects, so a `mcp_tool` hook hard-errors there ("no MCP client
+ * context") rather than failing open as `mcp_tool`'s general not-connected case does
+ * elsewhere. This reuses projectStatusHandler unchanged — same env/cache/child-spawn
+ * machinery an mcp_tool call would have used — just invoked directly instead of over the
+ * JSON-RPC loop, and exits instead of staying warm.
+ * @returns {Promise<void>}
+ */
+async function runSessionStartHook() {
+  const raw = (() => {
+    try {
+      return readFileSync(0, "utf8");
+    } catch {
+      return "";
+    }
+  })();
+  /** @type {any} */
+  const args = (() => {
+    try {
+      return raw.trim() === "" ? {} : JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  })();
+  await ensureBinary();
+  const result = await projectStatusHandler(args, "SessionStart");
+  process.stdout.write(JSON.stringify(result));
+}
+
+if (process.argv[2] === "--session-start-hook") {
+  runSessionStartHook()
+    .catch((e) => log(`session-start hook failed: ${describe(e)}`))
+    .finally(() => process.exit(0));
+} else {
+  // The readline loop comes up FIRST so initialize answers immediately, then the first-run
+  // download is fired without awaiting — the same latency placement the launcher had for
+  // extraction. The warm path resolves before any stdin line is processed (it returns before
+  // its first await), so a warm cache is ready for the very first hook call.
+  startServer();
+  void ensureBinary();
+}

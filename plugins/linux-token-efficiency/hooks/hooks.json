@@ -1,16 +1,15 @@
 {
-  "description": "PreToolUse Bash -> rtk-rewrite.mjs: rewrites Bash commands to rtk equivalents using the bundled rtk binary. SessionStart -> hook_session_context, SubagentStart -> hook_subagent_context, PreToolUse Grep|Glob -> hook_symbol_context, PostToolUse Read -> hook_coverage_context: fail-open, context-only codebase-memory-mcp graph context served as mcp_tool hooks by this plugin's own codebase-memory proxy MCP server (mcp/server.mjs). Second SessionStart entry -> cat hooks/SessionStart.md: injects the context-mode MCP server's own routing-rules document (upstream, verbatim) as session context on every startup/resume/clear/compact. Six hooks total.",
+  "description": "PreToolUse Bash -> rtk-rewrite.mjs: rewrites Bash commands to rtk equivalents using the bundled rtk binary. SessionStart -> server.mjs --session-start-hook (command hook: mcp_tool hard-errors pre-connect), SubagentStart -> hook_subagent_context, PreToolUse Grep|Glob -> hook_symbol_context, PostToolUse Read -> hook_coverage_context: fail-open, context-only codebase-memory-mcp graph context served as mcp_tool hooks by this plugin's own codebase-memory proxy MCP server (mcp/server.mjs). Second SessionStart entry -> cat hooks/SessionStart.md: injects the context-mode MCP server's own routing-rules document (upstream, verbatim) as session context on every startup/resume/clear/compact. Six hooks total.",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
-            "type": "mcp_tool",
-            "server": "plugin:linux-token-efficiency:codebase-memory",
-            "tool": "hook_session_context",
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs",
+            "args": ["--session-start-hook"],
             "timeout": 20,
-            "statusMessage": "Checking codebase graph...",
-            "input": { "cwd": "${cwd}" }
+            "statusMessage": "Checking codebase graph..."
           }
         ]
       },
