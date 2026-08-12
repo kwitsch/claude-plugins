@@ -30,6 +30,23 @@ declare class AbortController {
   abort(): void;
 }
 
+declare function fetch(
+  input: string | URL,
+  init?: { signal?: any; headers?: Record<string, string>; method?: string },
+): Promise<{
+  ok: boolean;
+  status: number;
+  statusText: string;
+  body: any;
+  text(): Promise<string>;
+  arrayBuffer(): Promise<any>;
+}>;
+
+declare var AbortSignal: {
+  timeout(ms: number): any;
+  [key: string]: any;
+};
+
 declare class URL {
   constructor(url: string, base?: string | URL);
   readonly href: string;

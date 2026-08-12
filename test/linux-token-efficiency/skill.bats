@@ -58,3 +58,44 @@ setup() {
   run grep -F 'git ls-files -s plugins/linux-token-efficiency/bin/rtk' "$SKILL"
   assert_success
 }
+
+@test "frontmatter description names both bundled artifacts" {
+  run bash -c "sed -n '/^---\$/,/^---\$/p' '$SKILL'"
+  assert_success
+  assert_output --partial "rtk"
+  assert_output --partial "codebase-memory-mcp"
+}
+
+@test "SKILL.md reads both reference docs in the same step, before either invocation" {
+  local rtk_ref cbm_ref first_invoke between
+  rtk_ref="$(grep -n 'update-rtk-bundle.reference.md' "$SKILL" | head -n 1 | cut -d: -f1)"
+  cbm_ref="$(grep -n 'update-cbm-bundle.reference.md' "$SKILL" | head -n 1 | cut -d: -f1)"
+  first_invoke="$(grep -n -e 'update-rtk-bundle.sh --repo-root' -e 'update-cbm-bundle.sh --repo-root' "$SKILL" | head -n 1 | cut -d: -f1)"
+  [ -n "$rtk_ref" ]
+  [ -n "$cbm_ref" ]
+  [ -n "$first_invoke" ]
+  [ "$rtk_ref" -lt "$first_invoke" ]
+  [ "$cbm_ref" -lt "$first_invoke" ]
+  # No heading between the two reference reads: they belong to the same step.
+  if [ "$rtk_ref" -lt "$cbm_ref" ]; then
+    between="$(sed -n "$((rtk_ref + 1)),$((cbm_ref - 1))p" "$SKILL" | grep -c '^## ' || true)"
+  else
+    between="$(sed -n "$((cbm_ref + 1)),$((rtk_ref - 1))p" "$SKILL" | grep -c '^## ' || true)"
+  fi
+  [ "$between" -eq 0 ]
+}
+
+@test "SKILL.md detects the cbm pin, invokes the cbm script and prints its follow-up block" {
+  run grep -F "jq -r '.cbmVersion" "$SKILL"
+  assert_success
+  run grep -F 'bash .claude/skills/update-linux-token-efficiency/update-cbm-bundle.sh' "$SKILL"
+  assert_success
+  run grep -F 'git add plugins/linux-token-efficiency/cbm-bundle.json plugins/linux-token-efficiency/cbm-tools.json' "$SKILL"
+  assert_success
+  run grep -F 'git ls-files -s plugins/linux-token-efficiency/mcp/server.mjs' "$SKILL"
+  assert_success
+  run grep -F 'cbm-launch.sh' "$SKILL"
+  assert_failure
+  run grep -F 'cbm-checksums.txt' "$SKILL"
+  assert_failure
+}

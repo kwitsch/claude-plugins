@@ -70,3 +70,76 @@ setup() {
   run grep -F 'linux-token-efficiency' "$REPO_ROOT/plugins/CLAUDE.md"
   assert_success
 }
+
+@test "plugin README documents the bundled cbm version, toggle and download cache" {
+  run grep -F '0.10.1' "$PLUGIN_README"
+  assert_success
+  run grep -F 'cbm_enabled' "$PLUGIN_README"
+  assert_success
+  run grep -F 'only the literal value `false` disables' "$PLUGIN_README"
+  assert_success
+  run grep -F '${CLAUDE_PLUGIN_DATA}/cbm' "$PLUGIN_README"
+  assert_success
+  run grep -F 'rm -rf' "$PLUGIN_README"
+  assert_success
+  run grep -F 'mcp/server.mjs' "$PLUGIN_README"
+  assert_success
+  run grep -Fi 'download' "$PLUGIN_README"
+  assert_success
+  run grep -Fi 'sha256' "$PLUGIN_README"
+  assert_success
+}
+
+@test "plugin README names all four cbm hooks, mcp_tool, and the no-approval-prompt behavior" {
+  for token in 'SessionStart' 'SubagentStart' 'Grep' 'Glob' 'Read' 'codebase-memory' 'mcp_tool'; do
+    run grep -F "$token" "$PLUGIN_README"
+    assert_success
+  done
+  run grep -Fi 'no separate' "$PLUGIN_README"
+  assert_success
+  run grep -Fi 'restart' "$PLUGIN_README"
+  assert_success
+}
+
+@test "plugin CLAUDE.md carries the codebase-memory-mcp bundle section and its rationale" {
+  run grep -F '## codebase-memory-mcp bundle' "$PLUGIN_CLAUDE"
+  assert_success
+  for token in 'fail-open' 'npm-automations' '${CLAUDE_PLUGIN_DATA}' 'CBM_CACHE_DIR' '100 MiB' 'mcp_tool' 'mcp/server.mjs' 'cbm-tools.json' 'CBM_BUNDLE_CACHE'; do
+    run grep -F "$token" "$PLUGIN_CLAUDE"
+    assert_success
+  done
+  run grep -F 'timeout: 20' "$PLUGIN_CLAUDE"
+  assert_success
+  run grep -Fi 'network' "$PLUGIN_CLAUDE"
+  assert_success
+}
+
+@test "root README and plugins/CLAUDE.md rows mention the cbm bundle" {
+  run grep -F '[linux-token-efficiency](plugins/linux-token-efficiency/README.md)' "$REPO_ROOT/README.md"
+  assert_success
+  run bash -c "grep -F '[linux-token-efficiency](plugins/linux-token-efficiency/README.md)' '$REPO_ROOT/README.md' | grep -F 'codebase-memory-mcp'"
+  assert_success
+  run grep -F 'codebase-memory-mcp' "$REPO_ROOT/plugins/CLAUDE.md"
+  assert_success
+}
+
+@test "no dead cbm reference survives anywhere in the repo" {
+  # Excludes this file itself (its own literal search pattern is a trivial self-match, not a
+  # dead reference) and the pre-existing cbm-bundle.bats/skill.bats suites, whose lines matching
+  # these tokens are themselves absence-check literals (grep -F ... ; assert_failure) rather than
+  # surviving references. portable.tar.gz is checked separately below as a tracked-file guard,
+  # since the string itself is also the real, still-correct upstream release asset name.
+  run bash -c "git -C '$REPO_ROOT' grep -lE 'cbm-launch\.sh|cbm-checksums\.txt|CBM_NO_EXTRACT' -- . \
+    ':!*.lock' ':!test/linux-token-efficiency/docs.bats' ':!test/linux-token-efficiency/cbm-bundle.bats' \
+    ':!test/linux-token-efficiency/skill.bats' | grep -c . || true"
+  assert_output '0'
+  run bash -c "git -C '$REPO_ROOT' ls-files -- '*.tar.gz' | grep -c . || true"
+  assert_output '0'
+}
+
+@test "plugins/CLAUDE.md describes this plugin's mcp/ directory and a rtk-only bin/" {
+  run bash -c "grep -F 'linux-token-efficiency' '$REPO_ROOT/plugins/CLAUDE.md' | grep -F 'mcp/'"
+  assert_success
+  run bash -c "grep -F '| \`bin/\`' '$REPO_ROOT/plugins/CLAUDE.md' | grep -Fi 'tarball'"
+  assert_failure
+}
