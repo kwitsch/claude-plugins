@@ -482,17 +482,20 @@ export function formatCoverageContext(payload, filePath) {
 }
 
 /**
- * `filePath` relative to a project root, or null when it lies outside that root.
+ * `filePath` relative to a project root, or null when it lies outside that root. A relative
+ * `filePath` is resolved against `baseCwd` (the session's real cwd), never this process's own
+ * cwd — the long-lived MCP server's `process.cwd()` has no relation to the hook's session.
  * "." for the root itself.
  * @param {string} root
  * @param {string} filePath
+ * @param {string} [baseCwd]
  * @returns {string|null}
  */
-export function relativeToProject(root, filePath) {
+export function relativeToProject(root, filePath, baseCwd) {
   if (typeof root !== "string" || root.trim() === "") return null;
   if (typeof filePath !== "string" || filePath.trim() === "") return null;
   const base = path.resolve(root.trim());
-  const target = path.resolve(filePath.trim());
+  const target = typeof baseCwd === "string" && baseCwd.trim() !== "" ? path.resolve(baseCwd.trim(), filePath.trim()) : path.resolve(filePath.trim());
   if (!isSameOrAncestor(base, target)) return null;
   const rel = path.relative(base, target);
   return rel === "" ? "." : rel;

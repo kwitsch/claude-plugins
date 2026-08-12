@@ -374,6 +374,11 @@ async function startChild() {
   });
   /** @type {ChildConn} */
   const conn = { proc, pending: new Map() };
+  // A write to a closed/crashed child's stdin fails asynchronously with EPIPE, not
+  // synchronously — without this listener Node treats it as an unhandled 'error' and crashes
+  // the whole proxy process. sendChild()/notifyChild()'s try/catch only covers the synchronous
+  // write() call itself.
+  proc.stdin.on("error", (/** @type {any} */ e) => log(`child stdin error: ${describe(e)}`));
   proc.stderr.on("data", (/** @type {any} */ chunk) => process.stderr.write(chunk));
   const childRl = readline.createInterface({ input: proc.stdout });
   childRl.on("line", (/** @type {string} */ line) => {
@@ -409,16 +414,25 @@ async function startChild() {
     abandon("child spawn error");
   });
   child = conn;
-  await sendChild(
-    conn,
-    "initialize",
-    {
-      protocolVersion: DEFAULT_PROTOCOL,
-      capabilities: {},
-      clientInfo: { name: SERVER_NAME, version: SERVER_INFO.version },
-    },
-    HOOK_CALL_TIMEOUT_MS * 2,
-  );
+  try {
+    await sendChild(
+      conn,
+      "initialize",
+      {
+        protocolVersion: DEFAULT_PROTOCOL,
+        capabilities: {},
+        clientInfo: { name: SERVER_NAME, version: SERVER_INFO.version },
+      },
+      HOOK_CALL_TIMEOUT_MS * 2,
+    );
+  } catch (e) {
+    // The handshake itself timed out/rejected: the spawned process is otherwise never
+    // cleaned up (its 'exit'/'error' handlers only fire on its own termination), so it
+    // would leak as an orphaned process for the lifetime of the parent server otherwise.
+    abandon("child initialize failed");
+    proc.kill();
+    throw e;
+  }
   notifyChild(conn, "notifications/initialized");
   return conn;
 }
@@ -514,7 +528,7 @@ async function coverageContextHandler(args) {
   if (raw === "" || raw.includes("${")) return {};
   const project = await resolveProject(cwd);
   if (project === null) return {};
-  const relative = relativeToProject(project.root, raw);
+  const relative = relativeToProject(project.root, raw, cwd);
   if (relative === null) return {};
   const coverage = unwrapToolResult(await callChild("check_index_coverage", { project: project.name, paths: [relative] }, HOOK_CALL_TIMEOUT_MS));
   const context = formatCoverageContext(coverage, relative);
