@@ -51,7 +51,11 @@ toggle-needing features. There's nothing to switch off short of
 disabling/uninstalling the plugin itself, so no `userConfig` is declared for
 either.
 
-`taskflow` (2026-08-07) is the same case for a different reason: it ships one
-skill (`build-task`) that only ever runs when the user explicitly invokes it —
-there is no automatic/background behavior a toggle could suppress without
-being equivalent to disabling the plugin. No `userConfig` is declared.
+`taskflow` (2026-08-07) is the same case for a different reason: it ships two
+skills (`build-task`, `dispatch-task`) that only ever run on invocation —
+by the user directly, or (for `build-task`) by the model choosing to invoke
+it; `dispatch-task` carries `disable-model-invocation: true` since it launches
+an unattended background session. Neither runs from a hook or other
+unattended trigger, so there is no automatic/background behavior a toggle
+could suppress without being equivalent to disabling the plugin. No
+`userConfig` is declared.

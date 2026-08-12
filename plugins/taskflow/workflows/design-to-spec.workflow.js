@@ -50,7 +50,8 @@
 // Model assignment by difficulty:
 //   scout     haiku   — classify complexity/subsystems
 //   explorer  sonnet  — read-only codebase exploration (agentType 'Explore')
-//   designer  opus    — design, trade-offs, decisions (highest judgment load)
+//   designer  claude-opus-4-8 — design, trade-offs, decisions (highest judgment
+//                     load; Opus tier pinned — see CLAUDE.md "Model assignment")
 //   designRev sonnet  — consistency/scope/placeholder gate + question validation
 //   specWriter sonnet — approved draft → spec (transformation, decisions stand)
 //   specRev   sonnet  — completeness/unambiguity gate
@@ -110,7 +111,7 @@ if (RESUME && !USER_INPUT) return { status: "error", stage: "args", error: "RESU
 const MODELS = {
   scout: "haiku", // pure classification — deliberately small
   explorer: "sonnet",
-  designer: "opus",
+  designer: "claude-opus-4-8", // pinned — see CLAUDE.md "Model assignment"
   designReview: "sonnet",
   specWriter: "sonnet", // 1:1 transformation, no new decisions
   specReview: "sonnet", // document comparison draft↔spec
@@ -125,6 +126,13 @@ const AGENTS = {
   reviewer: "taskflow:design-reviewer",
   cacheProbe: "taskflow:cache-probe", // Bash+Read only — never Write/Edit
 };
+
+// Prepended to every inline prompt below that has no `agentType` (so no
+// plugin agents/*.md system prompt already carries this rule) — same
+// wording as the one baked into every agents/*.md file, so both classes of
+// dispatch behave identically: these agents run headless inside a Workflow,
+// so any prose between tool calls is wasted tokens no one reads.
+const NO_NARRATION = "No narrative text between tool calls — call tools silently and speak only in your final message (the report or structured output).";
 
 const MAX_PARALLEL_EXPLORES = 4;
 const MAX_OPEN_QUESTIONS = 4; // AskUserQuestion limit of the orchestrator
@@ -338,7 +346,7 @@ re-explore what the draft already covers with evidence.`
   : "";
 const coverageNote = cacheHit ? "\nAlready covered by valid cached reports (never repeat these): " + cachedAreas.join(", ") + "." : "";
 
-const scoutPrompt = `You are a read-only scout. Task to be designed:\n${TASK}\n${resumeNote}\n
+const scoutPrompt = `${NO_NARRATION}\n\nYou are a read-only scout. Task to be designed:\n${TASK}\n${resumeNote}\n
 Survey the repository just enough to answer:
 1. complexity — 'simple' (single subsystem, tightly-scoped, one clearly correct
    approach) or 'complex' (spans multiple independent files/subsystems, more
@@ -348,7 +356,7 @@ Survey the repository just enough to answer:
    exactly one subsystem covering the whole task.
 Do not design anything. Structured output only.`;
 
-const scoutTopUpPrompt = `You are a read-only top-up scout. Task being designed:\n${TASK}\n${resumeNote}\n
+const scoutTopUpPrompt = `${NO_NARRATION}\n\nYou are a read-only top-up scout. Task being designed:\n${TASK}\n${resumeNote}\n
 Valid exploration reports from an earlier round of THIS session already exist at
 ${EXPLORE_CACHE_PATH}, and the codebase has not changed since they were written.
 Already covered — never propose any of these again: ${cachedAreas.join(", ")}.
@@ -394,7 +402,7 @@ if (!cacheHit && subsystems.length === 0) subsystems.push({ name: "whole task", 
 if (!cacheHit) log("Scout: " + scout.complexity + ", " + subsystems.length + " exploration target(s)");
 
 const explorerPrompt = (s) =>
-  `You are a read-only codebase explorer (never edit anything). Task being
+  `${NO_NARRATION}\n\nYou are a read-only codebase explorer (never edit anything). Task being
 designed:\n${TASK}\n${resumeNote}${coverageNote}\n
 Your assigned area: ${s.name} — ${s.focus}
 Report for the designer: relevant files (exact paths), existing patterns and
@@ -441,7 +449,9 @@ if (cacheHit) {
 // a cache-hit top-up round instead, since the designer is told to read this
 // same file there — see `needsSerialWrite` below. Its own explicit
 // `phase: "Explore"` keeps it in the right progress group either way.
-const cacheWriterPrompt = (mode, totalLines, areaLine, fingerprintValue) => `You are the exploration-cache writer. This is a mechanical file
+const cacheWriterPrompt = (mode, totalLines, areaLine, fingerprintValue) => `${NO_NARRATION}
+
+You are the exploration-cache writer. This is a mechanical file
 operation — no analysis, no summarizing, no commentary.
 Mode: ${mode}. Target file: ${EXPLORE_CACHE_PATH}
 
@@ -635,7 +645,9 @@ if (genuineQuestions.length > 0) {
 // ═════════════════════════════════════════════════════════════════════════════
 phase("Spec");
 
-const specWriterPrompt = (revision) => `You are the spec writer. The design
+const specWriterPrompt = (revision) => `${NO_NARRATION}
+
+You are the spec writer. The design
 draft at ${DRAFT_PATH} is approved and decision-complete (its Open-questions
 section is empty or fully resolved). Transform it into the final spec at
 ${SPEC_PATH} (create/overwrite).
@@ -655,7 +667,9 @@ English regardless of the draft's language (translate faithfully if needed)
 ${revision ? "\nThis is a FIX round. Address exactly these findings, then rewrite " + SPEC_PATH + " in place:\n" + revision + "\n" : ""}
 Return structured output: status (+ detail when blocked).`;
 
-const specReviewerPrompt = `You are a read-only spec reviewer. Compare the spec
+const specReviewerPrompt = `${NO_NARRATION}
+
+You are a read-only spec reviewer. Compare the spec
 at ${SPEC_PATH} against the approved draft at ${DRAFT_PATH}:
 1. Completeness — every draft decision, interface, constraint, and acceptance
    criterion appears in the spec; name anything dropped or altered.

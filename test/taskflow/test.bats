@@ -7,6 +7,7 @@ setup() {
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
   PLUGIN="$REPO_ROOT/plugins/taskflow"
   SKILL="$PLUGIN/skills/build-task"
+  DISPATCH="$PLUGIN/skills/dispatch-task"
   REFS="$SKILL/references"
   AGENTS_DIR="$PLUGIN/agents"
   WORKFLOWS="$PLUGIN/workflows"
@@ -46,10 +47,10 @@ export -f rg_or_grep
   [ "$status" -eq 0 ]
 }
 
-@test "plugin.json version is 1.1.1" {
+@test "plugin.json version is 1.2.0" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "1.1.1" ]
+  [ "$output" = "1.2.0" ]
 }
 
 @test "marketplace entry exists for taskflow" {
@@ -144,6 +145,21 @@ export -f rg_or_grep
   done
 }
 
+@test "both workflow scripts forbid narrative text in every inline (non-agentType) prompt" {
+  run rg_or_grep -F 'const NO_NARRATION' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'const NO_NARRATION' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  for p in 'scoutPrompt = `${NO_NARRATION}' 'scoutTopUpPrompt = `${NO_NARRATION}' '`${NO_NARRATION}\n\nYou are a read-only codebase explorer' 'cacheWriterPrompt = (mode, totalLines, areaLine, fingerprintValue) => `${NO_NARRATION}' 'specWriterPrompt = (revision) => `${NO_NARRATION}' 'specReviewerPrompt = `${NO_NARRATION}'; do
+    run rg_or_grep -F "$p" "$WORKFLOWS/design-to-spec.workflow.js"
+    [ "$status" -eq 0 ]
+  done
+  for p in 'planCheckerPrompt = `${NO_NARRATION}' 'implementerPrompt = (t) => `${NO_NARRATION}' 'reviewerPrompt = (t, implReport) => `${NO_NARRATION}' 'fixerPrompt = (t, findings, worktreePath, branch) => `${NO_NARRATION}' 'NO_NARRATION +'; do
+    run rg_or_grep -F "$p" "$WORKFLOWS/spec-driven-delivery.workflow.js"
+    [ "$status" -eq 0 ]
+  done
+}
+
 @test "eslint.config.mjs ignores *.workflow.js (top-level await/return, not a standalone module)" {
   run rg_or_grep -F '*.workflow.js' "$ESLINT_CONFIG"
   [ "$status" -eq 0 ]
@@ -173,9 +189,18 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   done
 }
 
-@test "all agent files declare a model" {
+@test "all agent files declare a model; only designer and planner carry the Opus pin" {
   for a in $AGENT_NAMES; do
     run rg_or_grep -E '^model:' "$AGENTS_DIR/$a.md"
+    [ "$status" -eq 0 ]
+    case "$a" in
+      designer | planner)
+        run rg_or_grep -E '^model: claude-opus-4-8$' "$AGENTS_DIR/$a.md"
+        ;;
+      *)
+        run rg_or_grep -E '^model: (sonnet|haiku)$' "$AGENTS_DIR/$a.md"
+        ;;
+    esac
     [ "$status" -eq 0 ]
   done
 }
@@ -183,6 +208,13 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
 @test "all agent files are marked INTERNAL, not for direct delegation" {
   for a in $AGENT_NAMES; do
     run rg_or_grep -F 'INTERNAL' "$AGENTS_DIR/$a.md"
+    [ "$status" -eq 0 ]
+  done
+}
+
+@test "all agent files forbid narrative text between tool calls" {
+  for a in $AGENT_NAMES; do
+    run rg_or_grep -F 'No narrative text between tool calls' "$AGENTS_DIR/$a.md"
     [ "$status" -eq 0 ]
   done
 }
@@ -314,5 +346,161 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   run rg_or_grep -F 'Array.isArray(r.candidates)' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'Array.isArray(sweep.candidates)' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+# --- Model assignment: Opus-tier pin (see plugins/taskflow/CLAUDE.md) ---
+
+@test "designer, planner, synthesizer and the complex impl tier are pinned to claude-opus-4-8" {
+  run rg_or_grep -F 'designer: "claude-opus-4-8"' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'const PINNED_OPUS = "claude-opus-4-8"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'planner: PINNED_OPUS' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'synthesizer: PINNED_OPUS' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'complex: PINNED_OPUS' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+@test "both workflow scripts' comment blocks name the pinned model ID" {
+  run rg_or_grep -F 'claude-opus-4-8' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'claude-opus-4-8' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+@test "sonnet and haiku workflow assignments stay bare aliases" {
+  run rg_or_grep -F 'explorer: "sonnet"' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'merger: "haiku"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'trivial: "haiku", standard: "sonnet"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+@test "CLAUDE.md's Model assignment section records the Opus pin as a dated exception and keeps aliases as the rule" {
+  section="$BATS_TEST_TMPDIR/model-assignment.md"
+  awk '/^## Model assignment$/{f=1;next} /^## /{f=0} f' "$PLUGIN/CLAUDE.md" > "$section"
+  [ -s "$section" ]
+  run rg_or_grep -F 'claude-opus-4-8' "$section"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -iF 'exception' "$section"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F '2026-08-12' "$section"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F '`sonnet`/`haiku`' "$section"
+  [ "$status" -eq 0 ]
+}
+
+@test "README Agents table and both workflow references quote the pinned model ID, not the opus alias" {
+  run rg_or_grep -F 'claude-opus-4-8' "$PLUGIN/README.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'claude-opus-4-8' "$REFS/design-to-spec.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'claude-opus-4-8' "$REFS/spec-driven-delivery.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F '`opus` alias' "$REFS/design-to-spec.md"
+  [ "$status" -ne 0 ]
+  run rg_or_grep -F '`opus` alias' "$REFS/spec-driven-delivery.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "no bare opus alias survives anywhere in the plugin outside CLAUDE.md's exception prose" {
+  # Plain grep: --exclude has no rg_or_grep equivalent. Match only a standalone
+  # `opus` token (not part of a hyphenated model ID like `claude-opus-4-8`) —
+  # filtering out whole lines that merely CONTAIN `claude-opus-4-8` would also
+  # hide a bare `opus` alias coexisting on that same line (CodeRabbit finding,
+  # PR #193).
+  run bash -c "grep -rnE '(^|[^[:alnum:]_-])opus([^[:alnum:]_-]|\$)' '$PLUGIN' --exclude=CLAUDE.md || true"
+  [ "$status" -eq 0 ]
+  [ "$output" = "" ]
+  # CLAUDE.md keeps exactly the exception prose that names the alias.
+  run bash -c "grep -cw 'opus' '$PLUGIN/CLAUDE.md'"
+  [ "$status" -eq 0 ]
+  [ "$output" -ge 2 ]
+}
+
+# --- dispatch-task skill ---
+
+@test "dispatch-task SKILL.md exists and is non-empty" {
+  [ -s "$DISPATCH/SKILL.md" ]
+}
+
+@test "dispatch-task frontmatter declares name, arguments and the minimal allowed-tools" {
+  fm="$BATS_TEST_TMPDIR/dispatch-task-frontmatter.txt"
+  sed -n '/^---$/,/^---$/p' "$DISPATCH/SKILL.md" > "$fm"
+  [ -s "$fm" ]
+  for pat in 'name: dispatch-task' 'arguments: task_description' '"Bash(claude:*)"' '"AskUserQuestion"'; do
+    run rg_or_grep -F "$pat" "$fm"
+    [ "$status" -eq 0 ]
+  done
+  for pat in '"Agent"' '"Skill"' '"Bash(git:*)"' 'TaskCreate'; do
+    run rg_or_grep -F "$pat" "$fm"
+    [ "$status" -ne 0 ]
+  done
+}
+
+@test "dispatch-task is user-only (disable-model-invocation: true)" {
+  run rg_or_grep -E '^disable-model-invocation:[[:space:]]*true' "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "dispatch-task skill dir is self-contained (no cross-plugin references)" {
+  run bash -c "grep -riE 'coding-toolbox|dispatch-agent|superpowers|branch-management' '$DISPATCH'"
+  [ "$status" -eq 1 ]
+}
+
+@test "dispatch-task dispatches a background worktree session on fixed sonnet/medium with permission-mode auto" {
+  for pat in 'claude --worktree' '--bg' '--model "sonnet"' '--effort "medium"' '--permission-mode auto'; do
+    run rg_or_grep -F -- "$pat" "$DISPATCH/SKILL.md"
+    [ "$status" -eq 0 ]
+  done
+}
+
+@test "dispatch-task and CLAUDE.md document worktree.baseRef instead of assuming the default branch unconditionally" {
+  run rg_or_grep -F 'worktree.baseRef' "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F '"head"' "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'worktree.baseRef' "$PLUGIN/CLAUDE.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F '"head"' "$PLUGIN/CLAUDE.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "dispatch-task hardens the session name and any interpolated value" {
+  run rg_or_grep -F 'RANDOM' "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'date +%s' "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F '^[A-Za-z0-9._-]+$' "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "dispatch-task hands the background session /taskflow:build-task inside a quoted heredoc" {
+  run rg_or_grep -F '/taskflow:build-task' "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -E "<<[[:space:]]?'DISPATCH_TASK_PROMPT_" "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "dispatch-task picks a fresh heredoc delimiter per invocation, not the old fixed literal" {
+  run rg_or_grep -iF 'never reuse a fixed literal' "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -E "<<[[:space:]]?'DISPATCH_TASK_PROMPT_EOF'" "$DISPATCH/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "dispatch-task cuts a properly named feature/<slug> branch before invoking build-task" {
+  run rg_or_grep -F 'git checkout -b' "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'feature/<' "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "plugin README lists dispatch-task in the Skills section" {
+  run rg_or_grep -F '| `dispatch-task`' "$PLUGIN/README.md"
   [ "$status" -eq 0 ]
 }
