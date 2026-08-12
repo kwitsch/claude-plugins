@@ -13,8 +13,10 @@
 //   2. Every wave is merged into the work branch at the end by a SEPARATE
 //      merge agent (git merge --no-ff, task-id order).
 //   3. Model assignment by difficulty: the planner assigns each task a
-//      complexity ∈ trivial|standard|complex → haiku|sonnet|opus; roles with
-//      a fixed difficulty profile use that model alias outright (MODELS below).
+//      complexity ∈ trivial|standard|complex → haiku|sonnet|claude-opus-4-8;
+//      roles with a fixed difficulty profile use the value from MODELS below
+//      (bare aliases, except the pinned Opus tier — see CLAUDE.md
+//      "Model assignment").
 //   4. Review fixes are applied within the workflow by an apply agent;
 //      findings with reversesDecision are NEVER applied, only reported (no
 //      AskUserQuestion is possible inside a workflow script).
@@ -89,19 +91,20 @@ const { SPEC_PATH, PLAN_PATH, BRANCH_NAME, BASE_BRANCH, SHIP } = A;
 
 // ── Model assignment by task difficulty ──────────────────────────────────────
 // Role profiles:
-//   opus   — high synthesis/judgment load (planning, final prioritization)
+//   claude-opus-4-8 — high synthesis/judgment load (planning, final
+//                     prioritization); pinned — see CLAUDE.md "Model assignment"
 //   sonnet — writing/checking code with context understanding (default)
 //   haiku  — mechanical/deterministic (gathering scope, git merge sequence)
 // Per-task scaling: complexity from the plan → implModel().
 const MODELS = {
-  planner: "opus", // spec → complete plan; highest leverage in the process
+  planner: "claude-opus-4-8", // spec → complete plan; highest leverage in the process (pinned)
   planChecker: "sonnet", // coverage/consistency gate before Implement
   taskReviewer: "sonnet", // per-task diff review
   merger: "haiku", // pure git command sequence, no judgment load
   scope: "haiku", // list diff, collect CLAUDE.md
   finder: "sonnet", // review finder (angles + lenses)
   verifier: "sonnet", // independent per-finding verification
-  synthesizer: "opus", // ranking, dedupe, reversesDecision judgment
+  synthesizer: "claude-opus-4-8", // ranking, dedupe, reversesDecision judgment (pinned)
   applier: "sonnet", // apply pre-verified fixes — test gate as safety net
   prAuthor: "sonnet", // faithful writing from structured inputs + repo template
   shipper: "haiku", // pure git/gh/glab procedure (merger analogue)
@@ -125,7 +128,7 @@ const AGENTS = {
   ciFixer: "taskflow:ci-fixer",
 };
 
-const IMPL_MODEL = { trivial: "haiku", standard: "sonnet", complex: "opus" };
+const IMPL_MODEL = { trivial: "haiku", standard: "sonnet", complex: "claude-opus-4-8" };
 const implModel = (t) => IMPL_MODEL[t.complexity] || "sonnet";
 const fixModel = (t) => (implModel(t) === "haiku" ? "sonnet" : implModel(t)); // fixing is never trivial; sonnet is enough for trivial tasks
 // Per-task review gate follows task complexity: trivial → haiku, standard/complex → sonnet.

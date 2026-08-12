@@ -50,7 +50,8 @@
 // Model assignment by difficulty:
 //   scout     haiku   — classify complexity/subsystems
 //   explorer  sonnet  — read-only codebase exploration (agentType 'Explore')
-//   designer  opus    — design, trade-offs, decisions (highest judgment load)
+//   designer  claude-opus-4-8 — design, trade-offs, decisions (highest judgment
+//                     load; Opus tier pinned — see CLAUDE.md "Model assignment")
 //   designRev sonnet  — consistency/scope/placeholder gate + question validation
 //   specWriter sonnet — approved draft → spec (transformation, decisions stand)
 //   specRev   sonnet  — completeness/unambiguity gate
@@ -110,7 +111,7 @@ if (RESUME && !USER_INPUT) return { status: "error", stage: "args", error: "RESU
 const MODELS = {
   scout: "haiku", // pure classification — deliberately small
   explorer: "sonnet",
-  designer: "opus",
+  designer: "claude-opus-4-8", // pinned — see CLAUDE.md "Model assignment"
   designReview: "sonnet",
   specWriter: "sonnet", // 1:1 transformation, no new decisions
   specReview: "sonnet", // document comparison draft↔spec

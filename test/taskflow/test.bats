@@ -316,3 +316,46 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   run rg_or_grep -F 'Array.isArray(sweep.candidates)' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
 }
+
+# --- Model assignment: Opus-tier pin (see plugins/taskflow/CLAUDE.md) ---
+
+@test "designer, planner, synthesizer and the complex impl tier are pinned to claude-opus-4-8" {
+  run rg_or_grep -F 'designer: "claude-opus-4-8"' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'planner: "claude-opus-4-8"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'synthesizer: "claude-opus-4-8"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'complex: "claude-opus-4-8"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+@test "no workflow script keeps a bare opus alias in a value or a comment" {
+  for f in design-to-spec.workflow.js spec-driven-delivery.workflow.js; do
+    # Plain grep: -w keeps `opus` inside `claude-opus-4-8` a whole word (filtered
+    # below) while prose `Opus` is deliberately not a hit.
+    run bash -c "grep -nw 'opus' '$WORKFLOWS/$f' | grep -v 'claude-opus-4-8' || true"
+    [ "$status" -eq 0 ]
+    [ "$output" = "" ]
+    run rg_or_grep -F ': "opus"' "$WORKFLOWS/$f"
+    [ "$status" -ne 0 ]
+  done
+}
+
+@test "both workflow scripts' comment blocks name the pinned model ID" {
+  run bash -c "grep -c 'claude-opus-4-8' '$WORKFLOWS/design-to-spec.workflow.js'"
+  [ "$status" -eq 0 ]
+  [ "$output" -ge 2 ]
+  run bash -c "grep -c 'claude-opus-4-8' '$WORKFLOWS/spec-driven-delivery.workflow.js'"
+  [ "$status" -eq 0 ]
+  [ "$output" -ge 5 ]
+}
+
+@test "sonnet and haiku workflow assignments stay bare aliases" {
+  run rg_or_grep -F 'explorer: "sonnet"' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'merger: "haiku"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'trivial: "haiku", standard: "sonnet"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+}
