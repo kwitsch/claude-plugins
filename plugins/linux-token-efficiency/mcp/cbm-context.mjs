@@ -1,23 +1,21 @@
-#!/usr/bin/env node
-// hooks/cbm-context.mjs — linux-token-efficiency: fail-open, context-only
-// codebase-memory-mcp (cbm) graph context for SessionStart, SubagentStart,
-// PreToolUse(Grep|Glob) and PostToolUse(Read). One file backs all four hooks.json
-// registrations, dispatching on hook_event_name.
+// mcp/cbm-context.mjs — linux-token-efficiency: pure helpers for the cbm proxy MCP
+// server (mcp/server.mjs). Imported, never executed: no shebang (mode 100644), no
+// main(), no spawn, no stdin, no process.exit.
 //
-// Contract: this hook emits ONLY hookSpecificOutput.{hookEventName,additionalContext}.
-// It never emits permissionDecision, updatedInput, updatedToolOutput, decision,
-// continue or stopReason, and never exits 2 — the observed tool call always proceeds
-// untouched. Every failure path is a bare `return` inside main()'s single try/catch
-// (never process.exit), matching rtk-rewrite.mjs.
-//
-// Every cbm invocation goes through bin/cbm-launch.sh with CBM_NO_EXTRACT=1, so a hook
-// can never trigger the ~280 MiB extraction: a cold cache means silence. Only read-only
-// cbm tools are called (list_projects, index_status, search_graph, check_index_coverage).
+// Contract: every formatter returns a non-empty context string or null ("nothing to
+// say"); nothing here writes to stdout. Payload shapes were read off the pinned
+// codebase-memory-mcp v0.10.1 binary directly:
+//   * every tools/call result is {content:[{type:"text",text:"<json>"}],isError:bool}
+//     and sometimes carries a parallel structuredContent -> unwrapToolResult().
+//   * search_graph with format:"json" returns {total,count,cols,groups:[{qn_prefix,
+//     file,rows:[[…]]}],has_more} -> formatSymbolContext().
+//   * check_index_coverage takes paths:[…] and returns {…,paths:[{requested_path,path,
+//     coverage_lookup,status,freshness,recommended_action,coverage:[]}],…}
+//     -> formatCoverageContext().
+// An unrecognized payload is always silence, never a guess.
 import process from "node:process";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
-import { accessSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync, constants as fsConstants } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 
 /** Hard cap on injected context per event — well under the 10 000-char hook-output cap. */
@@ -26,18 +24,6 @@ export const CONTEXT_CHAR_LIMIT = 1500;
 export const SYMBOL_LIMIT = 10;
 /** Longest Grep/Glob pattern still worth a graph lookup. */
 export const PATTERN_CHAR_LIMIT = 200;
-/** Same stdin cap as coding-toolbox/hooks/encoding-guard.mjs. */
-export const STDIN_CAP = 1024 * 1024;
-/**
- * main() makes at most two sequential cbm spawns per invocation (list_projects, then an
- * event-specific call), each capped at this — but list_projects is skipped entirely on a
- * warm project-cache hit (see PROJECT_CACHE_TTL_MS), the common case after the first call
- * for a given cwd. Worst case (cold cache) is 2 * 5000 ms = 10 000 ms, safely under
- * hooks.json's timeout: 21 (leaves margin for node startup, JSON parsing, output).
- */
-export const CBM_SPAWN_TIMEOUT_MS = 5000;
-/** spawnSync's default, pinned explicitly. */
-export const CBM_MAX_OUTPUT_BYTES = 1024 * 1024;
 /**
  * How long a resolved cwd -> project mapping is trusted before re-running list_projects.
  * The mapping is stable within a session (per-cwd repo root doesn't move) but a fresh
@@ -45,6 +31,9 @@ export const CBM_MAX_OUTPUT_BYTES = 1024 * 1024;
  * staleness rather than caching forever.
  */
 export const PROJECT_CACHE_TTL_MS = 10 * 60 * 1000;
+
+/** Coverage states worth warning about. `coverage_unavailable` is handled earlier (silence). */
+const COVERAGE_GAP_RE = /not[_ -]?indexed|skipped|exclud|partial|unsupported|stale|source_newer|reindex/i;
 
 /**
  * @param {unknown} value
@@ -83,7 +72,7 @@ function firstNumber(rec, keys) {
 }
 
 /**
- * Peel the common result envelopes cbm may wrap a payload in. Bounded to 4 levels.
+ * Peel the common inner envelopes a payload may still be wrapped in. Bounded to 4 levels.
  * @param {unknown} payload
  * @returns {unknown}
  */
@@ -168,8 +157,8 @@ export function isCbmEnabled(value) {
 }
 
 /**
- * The extraction-cache root handed to bin/cbm-launch.sh. Mirrors the launcher's own
- * rules; never returns a path containing a literal `${`.
+ * The plugin's own extraction-cache root (never cbm's CBM_CACHE_DIR graph root).
+ * Never returns a path containing a literal `${`.
  * @param {Record<string, string|undefined>} env
  * @returns {string}
  */
@@ -183,7 +172,7 @@ export function resolveBundleCache(env) {
 
 /**
  * Directory holding one small JSON file per resolved cwd -> project mapping. A subdir of
- * the same extraction-cache root cbm-launch.sh already writes to (never a new root).
+ * the same extraction-cache root the server writes to (never a new root).
  * @param {Record<string, string|undefined>} env
  * @returns {string}
  */
@@ -202,23 +191,24 @@ export function projectCacheKey(cwd) {
 }
 
 /**
- * Read a still-fresh cached project name for `cwd`. Returns null on a miss, an expired
- * entry, or ANY read/parse error — a corrupt or absent cache is always just a miss.
+ * Read a still-fresh cached {name, root} project entry for `cwd`. Returns null on a miss,
+ * an expired entry, a pre-rework entry without a recorded root, or ANY read/parse error —
+ * a corrupt or absent cache is always just a miss.
  * @param {string} cacheDir
  * @param {string} cwd
- * @returns {string|null}
+ * @returns {{name: string, root: string}|null}
  */
 export function readProjectCache(cacheDir, cwd) {
   try {
     const raw = readFileSync(path.join(cacheDir, `${projectCacheKey(cwd)}.json`), "utf8");
-    const parsed = JSON.parse(raw);
-    const rec = asRecord(parsed);
+    const rec = asRecord(JSON.parse(raw));
     if (rec === null) return null;
-    const project = firstString(rec, ["project"]);
+    const name = firstString(rec, ["project"]);
+    const root = firstString(rec, ["root"]);
     const cachedAt = firstNumber(rec, ["cachedAt"]);
-    if (project === null || cachedAt === null) return null;
+    if (name === null || root === null || cachedAt === null) return null;
     if (Date.now() - cachedAt > PROJECT_CACHE_TTL_MS) return null;
-    return project;
+    return { name, root };
   } catch {
     return null;
   }
@@ -231,15 +221,20 @@ export function readProjectCache(cacheDir, cwd) {
  * optimization, never a dependency.
  * @param {string} cacheDir
  * @param {string} cwd
- * @param {string} project
+ * @param {{name: string, root: string}} entry
  * @returns {void}
  */
-export function writeProjectCache(cacheDir, cwd, project) {
+export function writeProjectCache(cacheDir, cwd, entry) {
   try {
+    const rec = asRecord(entry);
+    if (rec === null) return;
+    const name = firstString(rec, ["name"]);
+    const root = firstString(rec, ["root"]);
+    if (name === null || root === null) return;
     mkdirSync(cacheDir, { recursive: true });
     const key = projectCacheKey(cwd);
     const tmp = path.join(cacheDir, `.${key}.${process.pid}.tmp`);
-    writeFileSync(tmp, JSON.stringify({ project, cachedAt: Date.now() }), "utf8");
+    writeFileSync(tmp, JSON.stringify({ project: name, root, cachedAt: Date.now() }), "utf8");
     renameSync(tmp, path.join(cacheDir, `${key}.json`));
   } catch {
     // best-effort — a failed cache write never blocks context injection
@@ -247,13 +242,39 @@ export function writeProjectCache(cacheDir, cwd, project) {
 }
 
 /**
+ * Peel cbm's MCP tool-result envelope: structuredContent when present, else
+ * JSON.parse(content[0].text). null on isError, a non-object result, a missing text
+ * part, or unparsable text.
+ * @param {unknown} result
+ * @returns {unknown}
+ */
+export function unwrapToolResult(result) {
+  const rec = asRecord(result);
+  if (rec === null) return null;
+  if (rec.isError === true) return null;
+  const structured = rec.structuredContent;
+  if (structured !== undefined && (Array.isArray(structured) || asRecord(structured) !== null)) return structured;
+  const content = Array.isArray(rec.content) ? rec.content : [];
+  const first = asRecord(content[0]);
+  if (first === null) return null;
+  const text = typeof first.text === "string" ? first.text : null;
+  if (text === null) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The graph project whose recorded repo path equals, or is the nearest ancestor of,
- * `cwd`. null when the payload is unrecognized or nothing matches — never guessed.
+ * `cwd`, with that recorded path. null when the payload is unrecognized or nothing
+ * matches — never guessed.
  * @param {unknown} payload
  * @param {string} cwd
- * @returns {string|null}
+ * @returns {{name: string, root: string}|null}
  */
-export function pickProject(payload, cwd) {
+export function pickProjectEntry(payload, cwd) {
   if (typeof cwd !== "string" || cwd.trim() === "") return null;
   /** @type {{name: string, root: string}|null} */
   let best = null;
@@ -266,25 +287,36 @@ export function pickProject(payload, cwd) {
     if (!isSameOrAncestor(root, cwd)) continue;
     if (best === null || path.resolve(root).length > path.resolve(best.root).length) best = { name, root };
   }
-  return best === null ? null : best.name;
+  return best;
 }
 
 /**
- * The read-only search_graph query a Grep/Glob call maps to: Grep's pattern is a symbol
- * name pattern, Glob's is a file pattern. null for any other tool, a missing, blank or
- * over-long pattern — no graph call is worth making then.
+ * The matched project's name only — a thin wrapper over pickProjectEntry.
+ * @param {unknown} payload
+ * @param {string} cwd
+ * @returns {string|null}
+ */
+export function pickProject(payload, cwd) {
+  const entry = pickProjectEntry(payload, cwd);
+  return entry === null ? null : entry.name;
+}
+
+/**
+ * The read-only search_graph query a Grep/Glob call maps to, as MCP argument names (not
+ * CLI flags): Grep's pattern is a symbol name pattern, Glob's is a file pattern. null for
+ * any other tool, a missing, blank or over-long pattern — no graph call is worth making.
  * @param {string} toolName
  * @param {unknown} toolInput
- * @returns {{flag: string, value: string}|null}
+ * @returns {{arg: string, value: string}|null}
  */
 export function graphQueryFromToolInput(toolName, toolInput) {
-  const flag = toolName === "Grep" ? "--name-pattern" : toolName === "Glob" ? "--file-pattern" : null;
-  if (flag === null) return null;
+  const arg = toolName === "Grep" ? "name_pattern" : toolName === "Glob" ? "file_pattern" : null;
+  if (arg === null) return null;
   const rec = asRecord(toolInput);
   if (rec === null) return null;
   const value = firstString(rec, ["pattern"]);
   if (value === null || value.length > PATTERN_CHAR_LIMIT) return null;
-  return { flag, value };
+  return { arg, value };
 }
 
 /**
@@ -310,9 +342,8 @@ function describeIndexStatus(payload) {
 }
 
 /**
- * Shared shape for SessionStart/SubagentStart context: project name, index freshness
- * (from `describeIndexStatus`), and a caller-supplied head clause + tail instruction.
- * null on a missing/blank project — never guessed.
+ * Shared shape for SessionStart/SubagentStart context: project name, index freshness,
+ * and a caller-supplied head clause + tail instruction. null on a blank project.
  * @param {string} project
  * @param {unknown} statusJson
  * @param {string} headClause
@@ -352,33 +383,66 @@ export function formatSubagentContext(project, statusJson) {
 }
 
 /**
- * PreToolUse context: at most `limit` qualified symbols with their files.
+ * The first line number mentioned by a search_graph `lines` cell (a number, a "12-40"
+ * range string, or an array), rendered as ":<n>". "" when there is nothing to render.
+ * @param {unknown} value
+ * @returns {string}
+ */
+function firstLineSuffix(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return `:${Math.trunc(value)}`;
+  if (Array.isArray(value)) {
+    const found = value.find((v) => typeof v === "number" && Number.isFinite(v));
+    return found === undefined ? "" : `:${Math.trunc(/** @type {number} */ (found))}`;
+  }
+  if (typeof value === "string") {
+    const match = value.match(/\d+/);
+    return match === null ? "" : `:${match[0]}`;
+  }
+  return "";
+}
+
+/**
+ * PreToolUse context: at most `limit` qualified symbols with their files, read out of
+ * search_graph's format:"json" model {total,count,cols,groups:[{qn_prefix,file,rows}]}.
+ * The column indices come from `cols`; an unrecognized payload is silence.
  * @param {unknown} payload
  * @param {number} limit
  * @returns {string|null}
  */
 export function formatSymbolContext(payload, limit) {
   const max = typeof limit === "number" && limit > 0 ? Math.floor(limit) : SYMBOL_LIMIT;
+  const rec = asRecord(unwrap(payload));
+  if (rec === null) return null;
+  const cols = (Array.isArray(rec.cols) ? rec.cols : []).map((c) => (typeof c === "string" ? c : ""));
+  const nameIdx = cols.indexOf("name");
+  const linesIdx = cols.indexOf("lines");
+  if (nameIdx < 0) return null;
   /** @type {string[]} */
   const lines = [];
-  for (const item of collectArray(payload, ["results", "symbols", "matches", "nodes", "items"])) {
+  for (const group of Array.isArray(rec.groups) ? rec.groups : []) {
     if (lines.length >= max) break;
-    const rec = asRecord(item);
-    if (rec === null) continue;
-    const name = firstString(rec, ["qualified_name", "qualifiedName", "fqn", "name", "symbol"]);
-    if (name === null) continue;
-    const file = firstString(rec, ["file", "path", "file_path", "filePath", "location"]);
-    const line = firstNumber(rec, ["line", "start_line", "startLine", "lineno"]);
-    const where = file === null ? "" : ` — ${file}${line === null ? "" : `:${line}`}`;
-    lines.push(`- ${name}${where}`);
+    const g = asRecord(group);
+    if (g === null) continue;
+    const prefix = typeof g.qn_prefix === "string" ? g.qn_prefix : "";
+    const file = typeof g.file === "string" ? g.file.trim() : "";
+    for (const row of Array.isArray(g.rows) ? g.rows : []) {
+      if (lines.length >= max) break;
+      if (!Array.isArray(row)) continue;
+      const raw = row[nameIdx];
+      const name = typeof raw === "string" ? raw.trim() : "";
+      if (name === "") continue;
+      const where = file === "" ? "" : ` — ${file}${linesIdx < 0 ? "" : firstLineSuffix(row[linesIdx])}`;
+      lines.push(`- ${prefix}${name}${where}`);
+    }
   }
   if (lines.length === 0) return null;
   return truncate(["codebase-memory graph matches for this search:", ...lines, "Use mcp__codebase-memory__* on these qualified names instead of widening the text search."].join("\n"));
 }
 
 /**
- * PostToolUse context: a warning ONLY when the coverage payload reports the file as
- * skipped, excluded or partially parsed. A clean or unrecognized result is silence.
+ * PostToolUse context: a warning ONLY when check_index_coverage's paths[] entry for
+ * `filePath` reports a real gap. A missing entry, an errored/unavailable lookup, a clean
+ * entry or an unrecognized payload are all silence — no signal is not evidence of a gap.
  * @param {unknown} payload
  * @param {string} filePath
  * @returns {string|null}
@@ -387,23 +451,55 @@ export function formatCoverageContext(payload, filePath) {
   if (typeof filePath !== "string" || filePath.trim() === "") return null;
   const rec = asRecord(unwrap(payload));
   if (rec === null) return null;
+  const wanted = filePath.trim();
+  /** @type {Record<string, unknown>|null} */
+  let entry = null;
+  for (const item of Array.isArray(rec.paths) ? rec.paths : []) {
+    const candidate = asRecord(item);
+    if (candidate === null) continue;
+    const requested = typeof candidate.requested_path === "string" ? candidate.requested_path.trim() : "";
+    const resolved = typeof candidate.path === "string" ? candidate.path.trim() : "";
+    if (requested === wanted || resolved === wanted) {
+      entry = candidate;
+      break;
+    }
+  }
+  if (entry === null) return null;
+  // No signal first: a repo without recorded coverage must not warn on every Read.
+  if (entry.coverage_lookup === "error" || entry.status === "coverage_unavailable") return null;
   /** @type {string[]} */
   const flagged = [];
-  for (const key of ["skipped", "excluded", "partial", "partially_parsed", "partiallyParsed", "unsupported", "truncated"]) {
-    if (rec[key] === true) flagged.push(key.replace(/_/g, " "));
+  for (const key of ["status", "freshness", "recommended_action"]) {
+    const value = entry[key];
+    if (typeof value === "string" && COVERAGE_GAP_RE.test(value)) flagged.push(value.trim());
   }
-  if (rec.indexed === false || rec.covered === false) flagged.push("not indexed");
-  const state = firstString(rec, ["status", "state", "coverage", "coverage_status", "reason", "parse_error", "error"]);
-  if (state !== null && /skip|exclud|partial|unsupported|error|missing|not[ _-]?indexed/i.test(state)) flagged.push(state);
+  if (entry.indexed === false || entry.covered === false) flagged.push("not indexed");
   if (flagged.length === 0) return null;
   return truncate(
-    `codebase-memory graph coverage warning for ${filePath.trim()}: ${flagged.join("; ")}. ` +
+    `codebase-memory graph coverage warning for ${wanted}: ${flagged.join("; ")}. ` +
       "The graph's view of this file is incomplete — rely on the file's own contents rather than on graph results for it.",
   );
 }
 
 /**
- * The ONLY output shape this hook ever writes.
+ * `filePath` relative to a project root, or null when it lies outside that root.
+ * "." for the root itself.
+ * @param {string} root
+ * @param {string} filePath
+ * @returns {string|null}
+ */
+export function relativeToProject(root, filePath) {
+  if (typeof root !== "string" || root.trim() === "") return null;
+  if (typeof filePath !== "string" || filePath.trim() === "") return null;
+  const base = path.resolve(root.trim());
+  const target = path.resolve(filePath.trim());
+  if (!isSameOrAncestor(base, target)) return null;
+  const rel = path.relative(base, target);
+  return rel === "" ? "." : rel;
+}
+
+/**
+ * The ONLY output shape the four hook tools ever return besides `{}`.
  * @param {string} hookEventName
  * @param {string} additionalContext
  * @returns {HookResult}
@@ -413,114 +509,3 @@ export function buildOutput(hookEventName, additionalContext) {
   const hookSpecificOutput = { hookEventName, additionalContext };
   return { hookSpecificOutput };
 }
-
-/**
- * One read-only cbm one-shot CLI call through the bundled launcher. Returns the parsed
- * JSON payload, or null on any failure — a non-zero exit, a signal, the 5 s timeout,
- * empty stdout (a cold cache under CBM_NO_EXTRACT) or unparsable output.
- * @param {string} launcher
- * @param {string[]} args
- * @param {string} cwd
- * @returns {unknown}
- */
-function runCbm(launcher, args, cwd) {
-  const result = spawnSync(launcher, args, {
-    env: {
-      ...process.env,
-      CBM_BUNDLE_CACHE: resolveBundleCache(process.env),
-      CBM_NO_EXTRACT: "1",
-    },
-    input: "",
-    encoding: "utf8",
-    timeout: CBM_SPAWN_TIMEOUT_MS,
-    maxBuffer: CBM_MAX_OUTPUT_BYTES,
-    cwd,
-  });
-  if (result.error || result.signal) return null;
-  if (result.status !== 0) return null;
-  const stdout = typeof result.stdout === "string" ? result.stdout.trim() : "";
-  if (stdout === "") return null;
-  try {
-    return JSON.parse(stdout);
-  } catch {
-    return null;
-  }
-}
-
-// True only when this file is the process entry point, false when imported by a unit
-// test -- so importing never reads stdin.
-/** @returns {boolean} */
-function isMainModule() {
-  try {
-    return realpathSync(String(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url));
-  } catch {
-    return false;
-  }
-}
-
-/** @returns {void} */
-function main() {
-  try {
-    // Guards, cheapest first. Platform before stdin, exactly as rtk-rewrite.mjs does.
-    if (process.platform !== "linux" || process.arch !== "x64") return;
-    if (!isCbmEnabled(process.env.CLAUDE_PLUGIN_OPTION_CBM_ENABLED)) return;
-    const raw = readFileSync(0, "utf8");
-    if (raw.length > STDIN_CAP) return;
-    /** @type {ToolHookInput} */
-    const input = JSON.parse(raw);
-    const event = input.hook_event_name;
-    if (typeof event !== "string" || event === "") return;
-
-    // Event-specific preconditions BEFORE any spawn: a hopeless event never pays for one.
-    /** @type {{flag: string, value: string}|null} */
-    let query = null;
-    /** @type {string|null} */
-    let filePath = null;
-    if (event === "PreToolUse") {
-      query = graphQueryFromToolInput(input.tool_name, input.tool_input);
-      if (query === null) return;
-    } else if (event === "PostToolUse") {
-      if (input.tool_name !== "Read") return;
-      const candidate = input.tool_input ? input.tool_input.file_path : undefined;
-      if (typeof candidate !== "string" || candidate.trim() === "") return;
-      filePath = candidate;
-    } else if (event !== "SessionStart" && event !== "SubagentStart") {
-      return;
-    }
-
-    const launcher = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "bin", "cbm-launch.sh");
-    try {
-      accessSync(launcher, fsConstants.X_OK);
-    } catch {
-      return; // no bundled launcher to delegate to
-    }
-
-    const cwd = typeof input.cwd === "string" && input.cwd !== "" ? input.cwd : process.cwd();
-    const cacheDir = resolveProjectCacheDir(process.env);
-    let project = readProjectCache(cacheDir, cwd);
-    if (project === null) {
-      project = pickProject(runCbm(launcher, ["cli", "list_projects", "--json"], cwd), cwd);
-      if (project === null) return; // no graph project covers this repo — say nothing
-      writeProjectCache(cacheDir, cwd, project);
-    }
-
-    /** @type {string|null} */
-    let context = null;
-    if (event === "SessionStart" || event === "SubagentStart") {
-      const status = runCbm(launcher, ["cli", "index_status", "--project", project, "--json"], cwd);
-      context = event === "SessionStart" ? formatSessionContext(project, status) : formatSubagentContext(project, status);
-    } else if (event === "PreToolUse" && query !== null) {
-      const found = runCbm(launcher, ["cli", "search_graph", "--project", project, query.flag, query.value, "--limit", String(SYMBOL_LIMIT), "--json"], cwd);
-      context = formatSymbolContext(found, SYMBOL_LIMIT);
-    } else if (event === "PostToolUse" && filePath !== null) {
-      const coverage = runCbm(launcher, ["cli", "check_index_coverage", "--project", project, "--path", filePath, "--json"], cwd);
-      context = formatCoverageContext(coverage, filePath);
-    }
-    if (context === null || context === "") return; // nothing to say -> no stdout at all
-    process.stdout.write(JSON.stringify(buildOutput(event, context)) + "\n");
-  } catch {
-    // fail open — no output, exit 0
-  }
-}
-
-if (isMainModule()) main();

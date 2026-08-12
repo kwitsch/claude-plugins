@@ -112,10 +112,14 @@ setup() {
   assert_failure
 }
 
-@test "hooks/cbm-context.mjs is executable in the git index (100755)" {
-  run git -C "$REPO_ROOT" ls-files --stage -- plugins/linux-token-efficiency/hooks/cbm-context.mjs
+@test "mcp/cbm-context.mjs is tracked as a non-executable helper module (100644)" {
+  run git -C "$REPO_ROOT" ls-files --stage -- plugins/linux-token-efficiency/mcp/cbm-context.mjs
   assert_success
-  assert_line --regexp '^100755 [0-9a-f]+ 0[[:space:]]+plugins/linux-token-efficiency/hooks/cbm-context\.mjs$'
+  assert_line --regexp '^100644 [0-9a-f]+ 0[[:space:]]+plugins/linux-token-efficiency/mcp/cbm-context\.mjs$'
+  run head -c 2 "$CBM_HELPERS"
+  refute_output '#!'
+  run node --check "$CBM_HELPERS"
+  assert_success
 }
 
 @test "the plugin sets only its own two CBM_ variables" {
