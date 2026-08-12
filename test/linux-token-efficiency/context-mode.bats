@@ -168,7 +168,44 @@ cm_run() {
   [ "$output" = "$(cat "$ss")" ]
 }
 
-@test "zero nudge hooks were added for context-mode" {
+@test "hooks/subagent-nudge.mjs is an executable node program in the git index (100755)" {
+  local nudge="$PLUGIN/hooks/subagent-nudge.mjs"
+  [ -x "$nudge" ]
+  run head -n 1 "$nudge"
+  assert_output '#!/usr/bin/env node'
+  run git -C "$REPO_ROOT" ls-files --stage -- plugins/linux-token-efficiency/hooks/subagent-nudge.mjs
+  assert_success
+  assert_line --regexp '^100755 [0-9a-f]+ 0[[:space:]]+plugins/linux-token-efficiency/hooks/subagent-nudge\.mjs$'
+}
+
+@test "subagent-nudge.mjs emits static SubagentStart additionalContext with both nudge points" {
+  local nudge_output
+  nudge_output="$(env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" node "$PLUGIN/hooks/subagent-nudge.mjs")"
+  run jq -e '.hookSpecificOutput.hookEventName == "SubagentStart"' <<< "$nudge_output"
+  assert_success
+  run jq -r '.hookSpecificOutput.additionalContext' <<< "$nudge_output"
+  assert_success
+  assert_output --partial 'final report'
+  assert_output --partial 'context-mode'
+  assert_output --partial 'ctx_'
+  # No stdin read: same output whether or not a real hook event JSON is piped in.
+  run bash -c "echo '{\"hook_event_name\":\"SubagentStart\"}' | env -i PATH='$MOCKBIN' HOME='$HOME' TMPDIR='$BATS_TEST_TMPDIR' node '$PLUGIN/hooks/subagent-nudge.mjs'"
+  assert_success
+  [ "$output" = "$nudge_output" ]
+}
+
+@test "hooks.json wires subagent-nudge.mjs as a second SubagentStart entry" {
+  run jq -e '(.hooks.SubagentStart | length) == 2' "$HOOKS"
+  assert_success
+  run jq -e '.hooks.SubagentStart[1].hooks[0] == {type:"command", command:"${CLAUDE_PLUGIN_ROOT}/hooks/subagent-nudge.mjs", timeout:5}' "$HOOKS"
+  assert_success
+  run jq -e '.hooks.SubagentStart[1] | (has("matcher") | not) and (.hooks | length) == 1' "$HOOKS"
+  assert_success
+  # Index-0 shape (hook_subagent_context on the cbm mcp_tool server) is pinned by
+  # cbm-hooks.bats, not duplicated here.
+}
+
+@test "zero PreToolUse/PostToolUse nudge hooks were added for context-mode" {
   run jq -e '(.hooks.PreToolUse | length) == 2 and (.hooks.PostToolUse | length) == 1' "$HOOKS"
   assert_success
   # Assert on handler fields, not raw strings: the top-level description legitimately

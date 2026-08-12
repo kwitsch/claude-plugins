@@ -17,8 +17,8 @@ wildcard line itself: two tests grep its exact literal.
 **This repo sets `core.fileMode=false`**, so a filesystem `chmod +x` is NOT picked up by `git add`.
 `.claude/rules/bin-executable.md` and `.claude/rules/hooks-executable.md` prescribe only
 `chmod +x` + `ls -la` and never mention this — following them literally commits a `100644` that
-Claude Code then silently skips. Whenever `bin/rtk`, `bin/context-mode-launch.sh` or
-`hooks/rtk-rewrite.mjs` is added or replaced:
+Claude Code then silently skips. Whenever `bin/rtk`, `bin/context-mode-launch.sh`, `hooks/rtk-rewrite.mjs` or
+`hooks/subagent-nudge.mjs` is added or replaced:
 
 ```bash
 chmod +x plugins/linux-token-efficiency/bin/rtk plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs
@@ -26,9 +26,9 @@ git add plugins/linux-token-efficiency/bin/rtk plugins/linux-token-efficiency/ho
 git update-index --chmod=+x plugins/linux-token-efficiency/bin/rtk plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs
 git ls-files -s plugins/linux-token-efficiency/bin/rtk # must print 100755
 
-chmod +x plugins/linux-token-efficiency/bin/context-mode-launch.sh
-git add plugins/linux-token-efficiency/bin/context-mode-launch.sh
-git update-index --chmod=+x plugins/linux-token-efficiency/bin/context-mode-launch.sh
+chmod +x plugins/linux-token-efficiency/bin/context-mode-launch.sh plugins/linux-token-efficiency/hooks/subagent-nudge.mjs
+git add plugins/linux-token-efficiency/bin/context-mode-launch.sh plugins/linux-token-efficiency/hooks/subagent-nudge.mjs
+git update-index --chmod=+x plugins/linux-token-efficiency/bin/context-mode-launch.sh plugins/linux-token-efficiency/hooks/subagent-nudge.mjs
 git ls-files -s plugins/linux-token-efficiency/bin/context-mode-launch.sh # must print 100755
 ```
 
@@ -59,15 +59,18 @@ and turn a backgrounded Bash call into a blocking one. `permissionDecision` is n
 Every failure path is a bare `return` inside `main()`'s single `try/catch` — never
 `process.exit()`, matching `encoding-guard.mjs` and `lint-file.mjs`.
 
-This plugin backs six hooks total: `rtk-rewrite.mjs` above, `SessionStart` →
+This plugin backs seven hooks total: `rtk-rewrite.mjs` above, `SessionStart` →
 `mcp/server.mjs --session-start-hook` (a `command` hook — see the correction note below), three
 remaining cbm entries (`SubagentStart`, `PreToolUse` `Grep`/`Glob`, `PostToolUse` `Read`), all
 `type: "mcp_tool"` on `plugin:linux-token-efficiency:codebase-memory` (the namespaced form — the
 bare `.mcp.json` key resolves to "not connected" on every fire) with an explicit `input` block each,
-because an omitted `input` delivers `{}` instead of the hook JSON, and a second `SessionStart` entry
-that `cat`s `hooks/SessionStart.md` (see `## context-mode`). Each cbm entry names its own
-purpose-built tool (`hook_subagent_context`, `hook_symbol_context`, `hook_coverage_context`), so
-`hookEventName` is hardcoded per tool and can never be wrong.
+because an omitted `input` delivers `{}` instead of the hook JSON, a second `SessionStart` entry
+that `cat`s `hooks/SessionStart.md` (see `## context-mode`), and a second `SubagentStart` entry
+(`subagent-nudge.mjs`, see `## context-mode`) that is a plain `command` hook rather than a fifth cbm
+`mcp_tool` — it is generic subagent-behavior guidance plus context-mode awareness, unrelated to the
+cbm graph, so folding it into `hook_subagent_context` would be a category mismatch. Each cbm entry
+names its own purpose-built tool (`hook_subagent_context`, `hook_symbol_context`,
+`hook_coverage_context`), so `hookEventName` is hardcoded per tool and can never be wrong.
 
 `timeout: 20` (was `21`, briefly `12`): there is no per-event process any more, so the budget is two
 4 s child round-trips (`HOOK_CALL_TIMEOUT_MS`) plus a cold-start handshake (`HOOK_CALL_TIMEOUT_MS *
@@ -227,6 +230,10 @@ never commits, never bumps `plugin.json` and never opens a PR.
   `bunx`/`npx --yes` against a pinned published package spec rather than a local `.mjs` — the first
   such wrapper here; the three `bin/mjs-launch.sh` copies all exec a runtime against a bundled file.
   See `## context-mode`.
+- **A `command` hook whose only job is a static `additionalContext` string.** `subagent-nudge.mjs`
+  reads no stdin and calls no server; it always emits the same JSON. No other hook in this repo is
+  this simple — every existing command hook (`rtk-rewrite.mjs`, the cbm CLI branches, `cat`) either
+  transforms input or reads a real file. See `## context-mode`.
 
 ## Tests
 
@@ -244,7 +251,8 @@ few bytes; the real 279.6 MiB binary is never downloaded or extracted. context-m
 `context-mode.bats`: the launcher's runtime selection against stubbed `bunx`/`npx` on an isolated
 PATH (the real runners are never invoked and the npm registry is never reached), the `.mcp.json`
 server entry, the verbatim `hooks/SessionStart.md` (first/last line, load-bearing literals, index
-mode), the `SessionStart` `cat` wiring, the zero-nudge-hook tripwire and the
+mode), the `SessionStart` `cat` wiring, the `subagent-nudge.mjs` output shape and its `SubagentStart`
+wiring, the PreToolUse/PostToolUse zero-nudge-hook tripwire and the
 `.prettierignore`/`.coderabbit.yaml` verbatim guards. The forced output style adds `output-style.bats`
 (style presence, frontmatter keys read strictly between the real `---` fences, the exact first body
 heading, the ≤ 40-line brevity cap, required directive tokens).
@@ -384,7 +392,21 @@ codebase-memory features (bundled Linux binaries), but `bin/context-mode-launch.
 `bash` nor `cat` is on `PATH` by default on native Windows outside WSL or Git Bash, so both fail to
 start there. Purely additive documentation — no behavior changes as a result.
 
-**Zero nudge hooks — the analyzed outcome, not an omission.** All four of upstream's static
+**The `SubagentStart` nudge hook (`subagent-nudge.mjs`) is a separate, explicitly user-requested
+addition — not part of the PreToolUse/PostToolUse analysis below.** It is a plain `command` hook
+returning static `additionalContext` with two unrelated points: (1) subagents should not print
+narrative status text between tool calls, only their final report, and (2) subagents should prefer
+`context-mode`'s `ctx_*` tools when connected. Point 2 exists because subagents get their own
+system prompt and do **not** automatically inherit the main session's `SessionStart`-injected
+routing document, so without this hook a subagent has zero context-mode awareness. `SubagentStart`
+is `status: "full"` in the event matrix (unlike `SessionStart`, `mcp_tool` works fine here — see
+`hook_subagent_context` above), so per the decision tree this should in principle be `mcp_tool`; it
+is a plain `command` hook instead because bolting a static, cbm-unrelated tool onto the
+`codebase-memory` proxy would be the same category mismatch the PreToolUse/PostToolUse analysis
+below rejects, and there is no other MCP server here whose concern it fits (context-mode's own
+server is upstream's external package — not ours to add a tool to).
+
+**Zero PreToolUse/PostToolUse nudge hooks — the analyzed outcome, not an omission.** All four of upstream's static
 `<context_guidance><tip>` blocks were worked through and none was added. `createBashGuidance`,
 `createGrepGuidance` and `createReadGuidance` each restate what `hooks/SessionStart.md` already says
 once per session ("### Bash (>20 lines output)", "### Grep — may flood context", "### Read (for
