@@ -277,3 +277,23 @@ EOF
   run bash -c "rg_or_grep -n -F 'marketplace.json' '$PLUGIN/skills/bump-version/bump-version.sh' | rg_or_grep -v -E '^[0-9]+:[[:space:]]*#' | rg_or_grep -v -E '\[ -f|echo '"
   assert_failure
 }
+@test "bump-version SKILL.md documents the plugin manifest and the marketplace-root refusal" {
+  run rg_or_grep -F '.claude-plugin/plugin.json' "$PLUGIN/skills/bump-version/SKILL.md"
+  assert_success
+  run rg_or_grep -F '.claude-plugin/marketplace.json' "$PLUGIN/skills/bump-version/SKILL.md"
+  assert_success
+}
+@test "bump-version frontmatter pre-approves Bash(cd:*) and keeps its argument-hint" {
+  run bash -c "sed -n '/^---\$/,/^---\$/p' '$PLUGIN/skills/bump-version/SKILL.md'"
+  assert_success
+  assert_output --partial 'Bash(cd:*)'
+  assert_output --partial 'argument-hint: "<major|minor|patch>"'
+}
+@test "bump-version.reference.md documents the plugin-manifest candidate" {
+  run rg_or_grep -F '.claude-plugin/plugin.json' "$PLUGIN/skills/bump-version/bump-version.reference.md"
+  assert_success
+}
+@test "plugin README's bump-version row names the plugin manifest" {
+  run bash -c "rg_or_grep -F 'bump-version' '$PLUGIN/README.md' | rg_or_grep -F '.claude-plugin/plugin.json'"
+  assert_success
+}
