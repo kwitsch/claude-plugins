@@ -141,7 +141,7 @@ function isSameOrAncestor(base, target) {
  * @param {string|undefined} value
  * @returns {boolean}
  */
-function usablePath(value) {
+export function usablePath(value) {
   return typeof value === "string" && value.trim() !== "" && !value.includes("${");
 }
 

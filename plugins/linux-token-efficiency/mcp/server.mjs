@@ -40,6 +40,7 @@ import {
   formatCoverageContext,
   relativeToProject,
   buildOutput,
+  usablePath,
 } from "./cbm-context.mjs";
 
 const SERVER_NAME = "codebase-memory"; // keep aligned with the .mcp.json key
@@ -105,6 +106,15 @@ function readPin() {
   return pin;
 }
 
+// This proxy's own tool names — the single source of truth for the collision guard in
+// readToolSnapshot() below, and reused verbatim as each HOOK_TOOLS entry's `name` further
+// down. Never re-derive via a naming convention (e.g. a "hook_" prefix check).
+const HOOK_SESSION_CONTEXT_NAME = "hook_session_context";
+const HOOK_SUBAGENT_CONTEXT_NAME = "hook_subagent_context";
+const HOOK_SYMBOL_CONTEXT_NAME = "hook_symbol_context";
+const HOOK_COVERAGE_CONTEXT_NAME = "hook_coverage_context";
+const HOOK_TOOL_NAMES = [HOOK_SESSION_CONTEXT_NAME, HOOK_SUBAGENT_CONTEXT_NAME, HOOK_SYMBOL_CONTEXT_NAME, HOOK_COVERAGE_CONTEXT_NAME];
+
 /**
  * The committed upstream tool-list snapshot, pinned to the same release as the binary. A
  * missing, unparsable or version-mismatched snapshot degrades to hook tools only — never a
@@ -132,9 +142,9 @@ function readToolSnapshot(cbmVersion) {
   for (const tool of tools) {
     const name = typeof tool?.name === "string" ? tool.name : "";
     if (name === "") continue;
-    if (name.startsWith("hook_")) {
-      // Collision guard: the hook_ prefix belongs to this proxy's own tools.
-      log(`cbm-tools.json advertises a hook_-prefixed name (${name}); dropping it`);
+    if (HOOK_TOOL_NAMES.includes(name)) {
+      // Collision guard: this name belongs to one of this proxy's own hook tools.
+      log(`cbm-tools.json advertises a name that collides with a hook tool (${name}); dropping it`);
       continue;
     }
     out.push({
@@ -468,8 +478,8 @@ function hookReady() {
 
 /** @param {any} args @returns {string|null} */
 function hookCwd(args) {
-  const cwd = typeof args?.cwd === "string" ? args.cwd.trim() : "";
-  return cwd === "" || cwd.includes("${") ? null : cwd;
+  const cwd = typeof args?.cwd === "string" ? args.cwd : "";
+  return usablePath(cwd) ? cwd.trim() : null;
 }
 
 /**
@@ -488,13 +498,27 @@ async function resolveProject(cwd) {
   return entry;
 }
 
+/**
+ * The shared preamble every hook tool starts with: bail (fail-open, `{}`-shaped by the
+ * caller) unless cbm is ready, `cwd` is a usable path, and it resolves to a known graph
+ * project. Factored out so a future guard-order change only has to be made once.
+ * @param {any} args
+ * @returns {Promise<{cwd: string, project: {name: string, root: string}}|null>}
+ */
+async function resolveHookProject(args) {
+  if (!hookReady()) return null;
+  const cwd = hookCwd(args);
+  if (cwd === null) return null;
+  const project = await resolveProject(cwd);
+  if (project === null) return null;
+  return { cwd, project };
+}
+
 /** @param {any} args @param {"SessionStart"|"SubagentStart"} event @returns {Promise<HookResult>} */
 async function projectStatusHandler(args, event) {
-  if (!hookReady()) return {};
-  const cwd = hookCwd(args);
-  if (cwd === null) return {};
-  const project = await resolveProject(cwd);
-  if (project === null) return {};
+  const resolved = await resolveHookProject(args);
+  if (resolved === null) return {};
+  const { project } = resolved;
   const status = unwrapToolResult(await callChild("index_status", { project: project.name }, HOOK_CALL_TIMEOUT_MS));
   const context = event === "SessionStart" ? formatSessionContext(project.name, status) : formatSubagentContext(project.name, status);
   if (context === null || context === "") return {};
@@ -521,13 +545,11 @@ async function symbolContextHandler(args) {
 
 /** @param {any} args @returns {Promise<HookResult>} */
 async function coverageContextHandler(args) {
-  if (!hookReady()) return {};
-  const cwd = hookCwd(args);
-  if (cwd === null) return {};
+  const resolved = await resolveHookProject(args);
+  if (resolved === null) return {};
+  const { cwd, project } = resolved;
   const raw = typeof args?.tool_input?.file_path === "string" ? args.tool_input.file_path.trim() : "";
-  if (raw === "" || raw.includes("${")) return {};
-  const project = await resolveProject(cwd);
-  if (project === null) return {};
+  if (!usablePath(raw)) return {};
   const relative = relativeToProject(project.root, raw, cwd);
   if (relative === null) return {};
   const coverage = unwrapToolResult(await callChild("check_index_coverage", { project: project.name, paths: [relative] }, HOOK_CALL_TIMEOUT_MS));
@@ -540,7 +562,7 @@ async function coverageContextHandler(args) {
 // can never be wrong. Every failure path returns {} — never isError, never a decision.
 const HOOK_TOOLS = [
   {
-    name: "hook_session_context",
+    name: HOOK_SESSION_CONTEXT_NAME,
     description: "SessionStart hook: inject the codebase-memory graph project covering this repository and its index state.",
     inputSchema: {
       type: "object",
@@ -552,7 +574,7 @@ const HOOK_TOOLS = [
     handler: (args) => projectStatusHandler(args, "SessionStart"),
   },
   {
-    name: "hook_subagent_context",
+    name: HOOK_SUBAGENT_CONTEXT_NAME,
     description: "SubagentStart hook: inject the codebase-memory graph project and index state for a delegated agent.",
     inputSchema: {
       type: "object",
@@ -564,7 +586,7 @@ const HOOK_TOOLS = [
     handler: (args) => projectStatusHandler(args, "SubagentStart"),
   },
   {
-    name: "hook_symbol_context",
+    name: HOOK_SYMBOL_CONTEXT_NAME,
     description: "PreToolUse(Grep|Glob) hook: inject matching graph symbols for the search pattern.",
     inputSchema: {
       type: "object",
@@ -584,7 +606,7 @@ const HOOK_TOOLS = [
     handler: (args) => symbolContextHandler(args),
   },
   {
-    name: "hook_coverage_context",
+    name: HOOK_COVERAGE_CONTEXT_NAME,
     description: "PostToolUse(Read) hook: warn when the graph's coverage of the read file is incomplete.",
     inputSchema: {
       type: "object",

@@ -154,12 +154,18 @@ tmp="$(mktemp -d)" || {
 }
 trap 'rm -rf "$tmp"' EXIT
 
-if ! timeout -k 10 60 curl -fsSL -o "$tmp/checksums.txt" "$CBM_DOWNLOAD_BASE_URL/$tag/checksums.txt"; then
-  echo "failed to download checksums.txt for $tag" >&2
-  exit 3
-fi
+# Fetched concurrently -- the small checksums.txt round-trip no longer serializes ahead of
+# the (potentially hundreds-of-MB) asset transfer.
+timeout -k 10 60 curl -fsSL -o "$tmp/checksums.txt" "$CBM_DOWNLOAD_BASE_URL/$tag/checksums.txt" &
+checksums_pid=$!
+
 if ! timeout -k 10 60 curl -fsSL -o "$tmp/$asset" "$CBM_DOWNLOAD_BASE_URL/$tag/$asset"; then
   echo "failed to download $asset for $tag" >&2
+  wait "$checksums_pid" || true
+  exit 3
+fi
+if ! wait "$checksums_pid"; then
+  echo "failed to download checksums.txt for $tag" >&2
   exit 3
 fi
 
@@ -182,7 +188,7 @@ if ! (cd "$tmp" && sha256sum --check --status "$expected"); then
   echo "checksum verification failed for $tag" >&2
   exit 4
 fi
-asset_sha="$(awk -v f="$asset" '$2 == f { print $1 }' "$tmp/checksums.txt" | head -n 1)"
+asset_sha="$(awk '{ print $1 }' <<< "$matches")"
 
 # 7. Throwaway extraction: binarySha256 plus the tool-list probe. Discarded by the trap.
 mkdir -p "$tmp/x"
