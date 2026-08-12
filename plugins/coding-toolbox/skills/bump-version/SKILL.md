@@ -54,7 +54,7 @@ still mismatch on unusual POM layouts.
    once first and use that directory's path instead.
 
    When the target is a plugin in a plugin-marketplace repo, prefix the same,
-   single chained line with `cd <absolute-path-to>/plugins/<name> && ` (keeping
+   single chained line with `cd <absolute-path-to>/plugins/<name> &&` (keeping
    everything on one `&&`-chained line, so a failed `cd` short-circuits the
    whole command instead of letting the bump still run in the wrong directory)
    so detection runs in the plugin's own directory — detection is cwd-only and
