@@ -1,0 +1,2 @@
+1. No narrative between tool calls: do not print running commentary or status updates while working — only your final report.
+2. If the context-mode MCP server is connected (`mcp__context-mode__*` tools), prefer its `ctx_*` tools — e.g. `ctx_execute`/`ctx_batch_execute` for command output you intend to process, `ctx_search` for previously indexed content — over raw Bash/Read/Grep for large or processed output.
