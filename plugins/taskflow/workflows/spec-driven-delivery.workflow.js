@@ -129,6 +129,13 @@ const AGENTS = {
   ciFixer: "taskflow:ci-fixer",
 };
 
+// Prepended to every inline prompt below that has no `agentType` (so no
+// plugin agents/*.md system prompt already carries this rule) — same
+// wording as the one baked into every agents/*.md file, so both classes of
+// dispatch behave identically: these agents run headless inside a Workflow,
+// so any prose between tool calls is wasted tokens no one reads.
+const NO_NARRATION = "No narrative text between tool calls — call tools silently and speak only in your final message (the report or structured output).";
+
 const IMPL_MODEL = { trivial: "haiku", standard: "sonnet", complex: PINNED_OPUS };
 const implModel = (t) => IMPL_MODEL[t.complexity] || "sonnet";
 const fixModel = (t) => (implModel(t) === "haiku" ? "sonnet" : implModel(t)); // fixing is never trivial; sonnet is enough for trivial tasks
@@ -372,7 +379,9 @@ ${revision}
 Return structured output: status, the '## Global Constraints' section verbatim
 as 'constraints', and the machine-readable tasks array as 'tasks'.`;
 
-const planCheckerPrompt = `You are a read-only plan checker. Read the approved
+const planCheckerPrompt = `${NO_NARRATION}
+
+You are a read-only plan checker. Read the approved
 spec at ${SPEC_PATH} and the plan at ${PLAN_PATH}. Verify:
 1. Coverage — every spec requirement maps to a task; name any gap.
 2. Placeholders — hunt 'TBD', 'TODO', 'similar to Task N', steps that say what
@@ -460,7 +469,9 @@ function computeWaves(tasksIn) {
 const waves = computeWaves(tasks);
 log("Wave plan: " + waves.map((w, i) => i + 1 + ":[" + w.join(",") + "]").join(" "));
 
-const implementerPrompt = (t) => `You are the implementer for exactly one plan
+const implementerPrompt = (t) => `${NO_NARRATION}
+
+You are the implementer for exactly one plan
 task, running in your own isolated git worktree.
 FIRST, before anything else: run \`git reset --hard ${BRANCH_NAME}\`. Your
 worktree was branched from the repo's default branch, not ${BRANCH_NAME} —
@@ -477,7 +488,9 @@ Before returning, run \`git branch --show-current\`,
 exact output, plus test evidence (commands + output) and any deviation from
 the plan. Return through the structured output schema.`;
 
-const reviewerPrompt = (t, implReport) => `You are a read-only reviewer for one
+const reviewerPrompt = (t, implReport) => `${NO_NARRATION}
+
+You are a read-only reviewer for one
 plan task. Plan file: ${PLAN_PATH} — Read it; review ONLY task ${t.id}
 (${t.title}).
 Implementer report: ${implReport}
@@ -488,7 +501,9 @@ global constraints, then correctness: ${constraints}
 Do not re-run tests the implementer already ran — the report carries the
 evidence. Return your verdict through the structured output schema.`;
 
-const fixerPrompt = (t, findings, worktreePath, branch) => `You are the fixer
+const fixerPrompt = (t, findings, worktreePath, branch) => `${NO_NARRATION}
+
+You are the fixer
 for one reviewed plan task. You are on branch ${branch} at ${worktreePath} — an
 isolated worktree; run your commands there, do not create a new one. A
 standalone \`cd\` does NOT persist to your next Bash call — chain
@@ -629,7 +644,9 @@ const CLEANUP_LABELS = ["cleanup:reuse", "cleanup:simplification", "cleanup:effi
 
 // ── Scope ──
 const scope = await agent(
-  "Establish the scope of a code review of the current branch's accumulated diff.\n\n" +
+  NO_NARRATION +
+    "\n\n" +
+    "Establish the scope of a code review of the current branch's accumulated diff.\n\n" +
     "Run this exact diff command: " +
     DIFF_CMD +
     "\n\n" +
@@ -814,7 +831,9 @@ if (surviving.length > 0) {
     .join("\n");
 
   const report = await agent(
-    "## Synthesis: final review report\n\n" +
+    NO_NARRATION +
+      "\n\n" +
+      "## Synthesis: final review report\n\n" +
       ranked.length +
       " findings survived independent verification (" +
       LEVEL +

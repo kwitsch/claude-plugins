@@ -19,6 +19,19 @@ between tool calls is pure wasted tokens no one reads; only the last message
 (plain text or the schema-forced structured output) is ever consumed. Add it
 to any new agent file too.
 
+Both workflow scripts also dispatch several roles with a **fully inline
+prompt and no `agentType`** at all (so no plugin agents/_.md system prompt
+backs them): design-to-spec's scout/top-up-scout, codebase explorer
+(`agentType: "Explore"`, the built-in agent — a foreign system prompt this
+plugin doesn't own, so only the per-call prompt text can carry the rule),
+Explore-cache writer, spec writer, and spec reviewer; spec-driven-delivery's
+plan checker, per-task implementer, per-task reviewer, per-task fixer, the
+Review phase's scope-gathering agent, and its synthesizer. Each script
+defines its own `const NO_NARRATION = "…"` (identical wording to the
+agents/_.md rule) right after its `AGENTS` map, and every one of those inline
+prompts is prefixed with it. Add the same prefix to any new inline
+(non-`agentType`) prompt in either script.
+
 ## `workflows/` is a documented plugin component
 
 This is the first plugin in the repo to ship a `workflows/` directory. It is

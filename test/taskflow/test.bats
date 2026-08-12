@@ -145,6 +145,21 @@ export -f rg_or_grep
   done
 }
 
+@test "both workflow scripts forbid narrative text in every inline (non-agentType) prompt" {
+  run rg_or_grep -F 'const NO_NARRATION' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'const NO_NARRATION' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  for p in 'scoutPrompt = `${NO_NARRATION}' 'scoutTopUpPrompt = `${NO_NARRATION}' '`${NO_NARRATION}\n\nYou are a read-only codebase explorer' 'cacheWriterPrompt = (mode, totalLines, areaLine, fingerprintValue) => `${NO_NARRATION}' 'specWriterPrompt = (revision) => `${NO_NARRATION}' 'specReviewerPrompt = `${NO_NARRATION}'; do
+    run rg_or_grep -F "$p" "$WORKFLOWS/design-to-spec.workflow.js"
+    [ "$status" -eq 0 ]
+  done
+  for p in 'planCheckerPrompt = `${NO_NARRATION}' 'implementerPrompt = (t) => `${NO_NARRATION}' 'reviewerPrompt = (t, implReport) => `${NO_NARRATION}' 'fixerPrompt = (t, findings, worktreePath, branch) => `${NO_NARRATION}' 'NO_NARRATION +'; do
+    run rg_or_grep -F "$p" "$WORKFLOWS/spec-driven-delivery.workflow.js"
+    [ "$status" -eq 0 ]
+  done
+}
+
 @test "eslint.config.mjs ignores *.workflow.js (top-level await/return, not a standalone module)" {
   run rg_or_grep -F '*.workflow.js' "$ESLINT_CONFIG"
   [ "$status" -eq 0 ]
