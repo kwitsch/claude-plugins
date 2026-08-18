@@ -162,8 +162,7 @@ feedback you genuinely need, once.
 
 It takes effect in a new session or after `/clear`, and it governs the main conversation only (a
 subagent has its own system prompt). It is also this plugin's **one OS-independent component**: it
-applies on macOS and Windows too, where every hook and bundled binary stays inert. If another enabled
-plugin also forces an output style (this marketplace's `kiwi-code-style` does), only one of them wins.
+applies on macOS and Windows too, where every hook and bundled binary stays inert.
 
 ## Maintenance
 
