@@ -106,6 +106,10 @@ test("projectCacheKey: stable, filesystem-safe, distinct per cwd", () => {
 });
 
 test("readProjectCache / writeProjectCache: {name,root} round-trip, miss, expiry, corruption", () => {
+  // Pinned to CLAUDE.md's documented "10 minutes" — a unit mixup here would silently
+  // change how long project-cache entries stay valid with no other test catching it.
+  assert.equal(PROJECT_CACHE_TTL_MS, 600_000);
+
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cbm-project-cache-"));
   try {
     assert.equal(readProjectCache(dir, "/repos/app"), null);
