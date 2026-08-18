@@ -28,6 +28,7 @@ jobs:
           - kiwi-code-style
           - taskflow
           - linux-token-efficiency
+          - rc-enhancement
     steps:
       - name: Checkout
         uses: actions/checkout@v6

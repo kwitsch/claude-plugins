@@ -66,3 +66,16 @@ setup() {
   assert_success
   [ "$output" = "$(cat "$PLUGIN/hooks/SessionStart.md")" ]
 }
+
+@test "marketplace.json has exactly one rc-enhancement entry with the right source and no version" {
+  run jq -e '[.plugins[] | select(.name == "rc-enhancement" and .source == "./plugins/rc-enhancement")] | length == 1' "$REPO_ROOT/.claude-plugin/marketplace.json"
+  assert_success
+  run jq -e '[.plugins[] | select(.name == "rc-enhancement") | has("version")] | any | not' "$REPO_ROOT/.claude-plugin/marketplace.json"
+  assert_success
+}
+
+@test "marketplace.json rc-enhancement description is byte-identical to plugin.json" {
+  plugin_desc="$(jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json")"
+  market_desc="$(jq -r '.plugins[] | select(.name == "rc-enhancement") | .description' "$REPO_ROOT/.claude-plugin/marketplace.json")"
+  [ "$plugin_desc" = "$market_desc" ]
+}
