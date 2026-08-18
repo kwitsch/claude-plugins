@@ -402,3 +402,9 @@ CMD
   run jq -e '.hookSpecificOutput.additionalContext' <<<"$output"
   assert_success
 }
+
+@test "plugin.json is valid JSON with a name and a string version" {
+  run jq -e '.name == "git-sign-key" and (.version | type == "string")' \
+    "$REPO_ROOT/plugins/git-sign-key/.claude-plugin/plugin.json"
+  assert_success
+}
