@@ -19,7 +19,7 @@ setup() {
 }
 
 @test "plugin.json declares a string version" {
-  run jq -e '(.version | type == "string")' "$PLUGIN/.claude-plugin/plugin.json"
+  run jq -e '.name == "memory-enhancement" and (.version | type == "string")' "$PLUGIN/.claude-plugin/plugin.json"
   assert_success
 }
 
