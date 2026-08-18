@@ -815,21 +815,13 @@ export function resolveLintTarget(args) {
 /** @param {PostToolUseHookInput} args @returns {HookResult} */
 function lintFileHandler(args) {
   try {
-    if (args?.tool_response?.success === false) return {};
-    const cwd = typeof args?.cwd === "string" ? args.cwd : "";
-    const fp = args?.tool_input?.file_path;
-    if (!cwd || typeof fp !== "string" || !fp) return {};
-
-    const resolved = path.resolve(cwd, fp);
-    if (resolved !== cwd && !resolved.startsWith(cwd + path.sep)) return {};
+    const resolved = resolveLintTarget(args);
+    if (!resolved) return {};
+    const cwd = args.cwd;
     const rel = path.relative(cwd, resolved);
-    if (isExcludedPath(rel)) return {};
-
     const ext = path.extname(resolved).toLowerCase();
     const lang = EXT_MAP[ext];
     const typeCheckEligible = TYPE_CHECK_EXTS.has(ext);
-    if (!lang && !typeCheckEligible) return {};
-    if (!existsSync(resolved)) return {};
 
     /** @type {Array<{tool: string, target: string, text: string}>} */
     const findings = [];
