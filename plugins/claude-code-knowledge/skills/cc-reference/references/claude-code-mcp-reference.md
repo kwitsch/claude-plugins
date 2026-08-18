@@ -1,7 +1,7 @@
 # Claude Code MCP — Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (MCP overview, MCP quickstart, Managed MCP), verified 2026-08-13.
+> (MCP overview, MCP quickstart, Managed MCP), verified 2026-08-18.
 > Apply when configuring, authoring, or troubleshooting MCP servers in Claude Code.
 
 ## What MCP is / when to use
@@ -161,7 +161,7 @@ When the same server appears in more than one source, Claude Code uses the highe
 - Runs in a shell with a 10-second timeout, from the session's cwd — use an absolute path or a `PATH` command. No output caching: runs fresh on each connection (session start and reconnect). Script owns any token reuse.
 - Dynamic headers override static `headers` with the same name.
 - Claude Code sets `CLAUDE_CODE_MCP_SERVER_NAME` and `CLAUDE_CODE_MCP_SERVER_URL` in the helper's environment for multi-server scripts; plugin-provided servers also get `CLAUDE_PLUGIN_ROOT`.
-- Executes arbitrary shell. At project/local scope it runs only after you accept the workspace trust dialog.
+- Executes arbitrary shell. When defined at project or local scope, follows the workspace trust rule: in non-interactive sessions (`-p`) it runs even in a folder you've never trusted; in interactive sessions it runs only after you accept the workspace trust dialog.
 - A tool call returning 401/403 auto-reruns the helper, reconnects with fresh headers, and retries once; the server is flagged needing authentication in `/mcp` only if that retry also fails. version >= 2.1.193
 - For a plugin-provided server, the helper's working directory is the plugin root, so a relative `headersHelper` path resolves inside the plugin dir (not the session cwd). version >= 2.1.195
 - A plugin-provided `headersHelper` must NOT reference `${user_config.*}` — the command is shell-parsed, so the value is not substituted and the server is reported misconfigured. Put `${user_config.KEY}` in `headers` (not shell-parsed) instead, or have the helper read it from its own env/config file. version >= 2.1.207 (earlier: substituted).
@@ -226,7 +226,7 @@ Steps:
 
 | Option                       | CLI flag               | Config field                  | Description                                                                                                                                                                                                        |
 | ---------------------------- | ---------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Fixed callback port          | `--callback-port PORT` | `oauth.callbackPort`          | Fixes OAuth redirect URI to `http://localhost:PORT/callback`; usable with or without `--client-id`                                                                                                                 |
+| Fixed callback port          | `--callback-port PORT` | `oauth.callbackPort`          | Fixes OAuth redirect URI to `http://localhost:PORT/callback`; usable with or without `--client-id`. version >= 2.1.229 bug: sent `127.0.0.1` instead of `localhost`; fixed in 2.1.231                              |
 | Pre-configured client ID     | `--client-id ID`       | `oauth.clientId`              | Skip dynamic client registration                                                                                                                                                                                   |
 | Pre-configured client secret | `--client-secret`      | —                             | Bare flag prompts for secret with masked input; `MCP_CLIENT_SECRET` env var skips the prompt (CI). Stored in system keychain (macOS) or a credentials file, not in config. Public clients: use `--client-id` alone |
 | Custom auth server           | —                      | `oauth.authServerMetadataUrl` | Override autodiscovery metadata URL (must be `https://`); its `scopes_supported` overrides upstream. version >= 2.1.64                                                                                             |
@@ -294,7 +294,7 @@ claude mcp add-json <name> '{"type":"ws","url":"wss://example.com/socket"}'
 ```bash
 claude mcp list          # List all configured servers (shows ⏸ Pending / ✗ Rejected)
 claude mcp get <name>    # Show details for one server
-claude mcp remove <name> # Remove a server
+claude mcp remove <name>           # Remove a server; if name exists at multiple scopes, reports "exists in multiple scopes" — pass --scope to choose which
 claude mcp reset-project-choices  # Clear project-scope approval decisions
 claude mcp login <name>  # Run a configured server's OAuth flow from the shell. version >= 2.1.186
 claude mcp logout <name> # Clear stored OAuth credentials for a server
@@ -318,6 +318,7 @@ claude mcp logout <name> # Clear stored OAuth credentials for a server
 | `✘ Failed to connect`                  | Server didn't respond — see the failure-detail bullet under Reconnection & startup retry |
 | `✘ Connection error`                   | The connection attempt itself threw                                                      |
 | `⏸ Pending approval`                   | Project-scoped server awaiting your approval                                             |
+| `✘ Rejected`                           | Server blocked by `disabledMcpjsonServers`; `claude mcp get <name>` shows the message    |
 | `not configured`                       | Empty `url` — no connection attempted                                                    |
 | `cached <age> · connects on first use` | Remote server's tool list loaded from a prior session — see Discovery cache              |
 
@@ -355,7 +356,7 @@ Some legacy Windows consoles (e.g. the default Windows 10 console) render `√`/
 - Approvals still apply in an untrusted folder from: user `~/.claude/settings.json`, managed settings, and `--settings`-passed files.
 - An untracked `.claude/settings.local.json` approves servers only after a trust dialog is accepted for that folder or a parent (the tracked-check runs git, and only in a trusted folder). Exception: your own config home — home dir, or the dir whose `.claude` is `CLAUDE_CONFIG_DIR`. version >= 2.1.207 (earlier: it approved servers in a folder never trusted).
 - A `disabledMcpjsonServers` entry in any settings file always rejects the server, trusted or not.
-- `claude -p`, Agent SDK runs, and Claude Code on the web can't show the interactive approval prompt — they load project-scoped servers without asking. Exclude one anyway via `disabledMcpjsonServers` (blocks it in every mode) or drop project settings entirely with `--setting-sources` / the SDK's `settingSources` option.
+- `claude -p`, Agent SDK runs, and Claude Code on the web can't show the interactive approval prompt — they load project-scoped servers without asking. A session started in `bypassPermissions` mode with `skipDangerousModePermissionPrompt` set also skips the prompt. Exclude a server anyway via `disabledMcpjsonServers` (blocks it in every mode) or drop project settings entirely with `--setting-sources` / the SDK's `settingSources` option.
 
 ### Permission rules
 
@@ -496,3 +497,5 @@ mcp__github__*
 | 2.1.221    | Remote-server discovery cache / `cached` status in `/mcp` (`MCP_DISCOVERY_CACHE=0` disables); Google Cloud's Agent Platform tool-search default now follows model generation (previously off for every GCAP model unless `ENABLE_TOOL_SEARCH=true`)                                                                                                    |
 | 2.1.222    | A claude.ai connector rejected by claude.ai's session-token check shows a distinct `connected · session token rejected` state, cleared by `/login` + reconnect (previously flagged as needing authentication, which re-authorizing didn't fix)                                                                                                         |
 | 2.1.227    | Managed settings can keep tool search on despite `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS`                                                                                                                                                                                                                                                              |
+| 2.1.229    | Bug: OAuth callback sent `http://127.0.0.1:PORT/callback` instead of `http://localhost:PORT/callback`; servers that exact-match the registered redirect URI rejected sign-in — workaround: add the `127.0.0.1` form to the server's registered redirect URIs, or upgrade to 2.1.231                                                                    |
+| 2.1.231    | OAuth callback URI restored to `http://localhost:PORT/callback` (reverts 2.1.229 regression)                                                                                                                                                                                                                                                           |

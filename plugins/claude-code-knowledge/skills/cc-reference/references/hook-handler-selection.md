@@ -1,7 +1,7 @@
 # Claude Code — Hook Handler Selection
 
 <!-- AGENT-FACING REFERENCE. Not prose. Optimize for lookup + decision, not readability. -->
-<!-- Source: code.claude.com/docs/en/hooks + code.claude.com/docs/en/hooks-guide. Verified 2026-08-13. Re-verify against docs if version differs. -->
+<!-- Source: code.claude.com/docs/en/hooks + code.claude.com/docs/en/hooks-guide. Verified 2026-08-18. Re-verify against docs if version differs. -->
 <!-- Scope: choosing the `type` of a hook handler. Not about when hooks vs CLAUDE.md vs skills. -->
 
 ## Handler types
@@ -52,14 +52,14 @@
 
 ## Handler fields (config, all types unless noted)
 
-| field             | type             | effect                                                                                                                                                                                                                                                                                           |
-| ----------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `async`           | `command`        | `true` → runs in background, does NOT block. A backgrounded hook can't hard-block (exit 2 is not awaited inline).                                                                                                                                                                                |
-| `asyncRewake`     | `command`        | `true` → runs in background AND wakes Claude on `exit 2` (implies `async`). The hook's stderr (or stdout if stderr empty) is shown to Claude as a system reminder — the path by which a long-running background failure reaches Claude.                                                          |
-| `once`            | handler          | `true` → runs once per session then is removed. ONLY honored for hooks declared in skill frontmatter; ignored in settings files and agent frontmatter.                                                                                                                                           |
-| `statusMessage`   | handler          | custom spinner/status message shown while the hook runs.                                                                                                                                                                                                                                         |
-| `continueOnBlock` | `prompt`/`agent` | `true` → on `ok:false`, feed `reason` back to Claude and continue the turn instead of stopping (implemented as `continue:true` on the resulting `decision:"block"`). Default `false`. No effect on `PostToolBatch`/`UserPromptSubmit`/`UserPromptExpansion`, which always end the turn on block. |
-| `shell`           | `command`        | `"bash"` or `"powershell"`. Default `"bash"`, or `"powershell"` on Windows when Git Bash isn't installed. Ignored when `args` is set (exec form spawns directly, no shell).                                                                                                                      |
+| field             | type          | effect                                                                                                                                                                                                                                                                                                                                                                             |
+| ----------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `async`           | `command`     | `true` → runs in background, does NOT block. A backgrounded hook can't hard-block (exit 2 is not awaited inline).                                                                                                                                                                                                                                                                  |
+| `asyncRewake`     | `command`     | `true` → runs in background AND wakes Claude on `exit 2` (implies `async`). The hook's stderr (or stdout if stderr empty) is shown to Claude as a system reminder — the path by which a long-running background failure reaches Claude.                                                                                                                                            |
+| `once`            | handler       | `true` → runs once per session then is removed. ONLY honored for hooks declared in skill frontmatter; ignored in settings files and agent frontmatter.                                                                                                                                                                                                                             |
+| `statusMessage`   | handler       | custom spinner/status message shown while the hook runs.                                                                                                                                                                                                                                                                                                                           |
+| `continueOnBlock` | `prompt` only | `true` → on `ok:false`, feed `reason` back to Claude and continue the turn instead of stopping. Default `false`. No effect on `PostToolBatch`/`UserPromptSubmit`/`UserPromptExpansion` (always end turn on block). `PostToolUseFailure`/`TaskCreated` always continue regardless. `agent` hooks have no `continueOnBlock` field — they always behave as if `continueOnBlock:true`. |
+| `shell`           | `command`     | `"bash"` or `"powershell"`. Default `"bash"`, or `"powershell"` on Windows when Git Bash isn't installed. Ignored when `args` is set (exec form spawns directly, no shell).                                                                                                                                                                                                        |
 
 ## mcp_tool handler shape
 
@@ -88,6 +88,8 @@
 - State: `command` holds NO state between fires. Stateful/expensive init must live in a persistent server → `mcp_tool` or `http`.
 - Context/token cost: model-facing MCP tools load tool defs into model context (ongoing token cost). A tool used ONLY as an `mcp_tool` hook trigger is config-driven and need not be exposed to the model — keep hook-only tools off the model surface to avoid context cost.
 - `PreToolUse` decision lives in `hookSpecificOutput.permissionDecision` (allow/deny/ask/defer), NOT top-level `decision` (deprecated for this event). Multi-hook precedence: deny > defer > ask > allow.
+- `Elicitation`/`ElicitationResult`: exit 2 denies/blocks but `hookSpecificOutput` is ignored on exit 2 for these events. Use exit 0 + JSON `hookSpecificOutput` to set `action`/`content`.
+- `PermissionDenied`: denial already occurred — exit code and stderr are ignored; only command hooks can return `hookSpecificOutput.retry: true` to tell the model it may retry; prompt/agent hook output is discarded entirely on this event. Claude Code ignores `retry: true` when the classifier produced no verdict.
 
 ## Quick map
 
