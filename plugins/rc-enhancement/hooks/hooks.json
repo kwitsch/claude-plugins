@@ -1,0 +1,17 @@
+{
+  "description": "SessionStart: cat hooks/SessionStart.md as additionalContext — injects the AskUserQuestion critical interaction rule. No matcher — fires on every source (startup/resume/clear/compact) since /clear and /compact wipe context same as a fresh startup; must not be restricted to 'startup'. SessionStart is a command-hook-only event (mcp_tool hard-errors pre-connect). One hook total.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cat",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/SessionStart.md"],
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
