@@ -117,6 +117,16 @@
       },
       "category": "productivity",
       "tags": ["rtk", "codebase-memory-mcp", "context-mode", "mcp", "token-efficiency", "linux", "bash", "hooks"]
+    },
+    {
+      "name": "rc-enhancement",
+      "source": "./plugins/rc-enhancement",
+      "description": "SessionStart hook that injects one critical must-follow rule: all user interaction goes through the AskUserQuestion tool — never end a turn with a plain-text question, and capture free-text answers via the tool's Other option alongside an Abort/Cancel option.",
+      "author": {
+        "name": "Kwitsch"
+      },
+      "category": "productivity",
+      "tags": ["hooks", "session-start", "remote-control", "askuserquestion"]
     }
   ]
 }
