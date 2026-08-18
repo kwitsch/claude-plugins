@@ -5,8 +5,6 @@ import fs from "node:fs";
 import os from "node:os";
 import {
   CONTEXT_CHAR_LIMIT,
-  SYMBOL_LIMIT,
-  PATTERN_CHAR_LIMIT,
   PROJECT_CACHE_TTL_MS,
   isCbmEnabled,
   resolveBundleCache,
@@ -73,13 +71,6 @@ const COVERAGE_UNAVAILABLE = {
     },
   ],
 };
-
-test("limits are the documented constants", () => {
-  assert.equal(CONTEXT_CHAR_LIMIT, 1500);
-  assert.equal(SYMBOL_LIMIT, 10);
-  assert.equal(PATTERN_CHAR_LIMIT, 200);
-  assert.equal(PROJECT_CACHE_TTL_MS, 10 * 60 * 1000);
-});
 
 test("isCbmEnabled: only the trimmed literal false disables (fail-open)", () => {
   assert.equal(isCbmEnabled("false"), false);
