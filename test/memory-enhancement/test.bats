@@ -18,6 +18,11 @@ setup() {
   assert_success
 }
 
+@test "plugin.json declares a string version" {
+  run jq -e '(.version | type == "string")' "$PLUGIN/.claude-plugin/plugin.json"
+  assert_success
+}
+
 @test "hooks.json is valid JSON" {
   run jq empty "$HOOKS"
   assert_success
