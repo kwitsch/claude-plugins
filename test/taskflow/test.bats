@@ -47,10 +47,10 @@ export -f rg_or_grep
   [ "$status" -eq 0 ]
 }
 
-@test "plugin.json version is 1.2.0" {
+@test "plugin.json version is 1.3.0" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "1.2.0" ]
+  [ "$output" = "1.3.0" ]
 }
 
 @test "marketplace entry exists for taskflow" {
@@ -150,7 +150,7 @@ export -f rg_or_grep
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'const NO_NARRATION' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
-  for p in 'scoutPrompt = `${NO_NARRATION}' 'scoutTopUpPrompt = `${NO_NARRATION}' '`${NO_NARRATION}\n\nYou are a read-only codebase explorer' 'cacheWriterPrompt = (mode, totalLines, areaLine, fingerprintValue) => `${NO_NARRATION}' 'specWriterPrompt = (revision) => `${NO_NARRATION}' 'specReviewerPrompt = `${NO_NARRATION}'; do
+  for p in 'scoutPrompt = `${NO_NARRATION}' '`${NO_NARRATION}\n\nYou are a read-only codebase explorer' 'specWriterPrompt = (revision) => `${NO_NARRATION}' 'specReviewerPrompt = `${NO_NARRATION}'; do
     run rg_or_grep -F "$p" "$WORKFLOWS/design-to-spec.workflow.js"
     [ "$status" -eq 0 ]
   done
@@ -179,9 +179,9 @@ export -f rg_or_grep
 
 # --- agents ---
 
-AGENT_NAMES="planner designer design-reviewer review-finder review-verifier worktree-merger fix-applier pr-author shipper ci-monitor ci-fixer cache-probe"
+AGENT_NAMES="planner designer design-reviewer review-finder review-verifier worktree-merger fix-applier pr-author shipper ci-monitor ci-fixer"
 
-@test "all 12 agent files exist with matching name frontmatter" {
+@test "all 11 agent files exist with matching name frontmatter" {
   for a in $AGENT_NAMES; do
     [ -f "$AGENTS_DIR/$a.md" ]
     run rg_or_grep -E "^name:[[:space:]]*$a\$" "$AGENTS_DIR/$a.md"
@@ -220,7 +220,7 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
 }
 
 @test "read-only-declared agents carry a least-privilege tools allowlist without Write/Edit" {
-  for a in design-reviewer review-finder review-verifier ci-monitor cache-probe; do
+  for a in design-reviewer review-finder review-verifier ci-monitor; do
     run rg_or_grep -E '^tools:' "$AGENTS_DIR/$a.md"
     [ "$status" -eq 0 ]
     run rg_or_grep -E "^tools:.*[[:space:],\\[\\]\"'](Write|Edit)([[:space:],\\[\\]\"']|\$)" "$AGENTS_DIR/$a.md"
@@ -270,73 +270,8 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
 }
 
-@test "design-to-spec workflow caches Explore results per session" {
-  for pat in EXPLORE_CACHE_PATH FINGERPRINT_CMD 'explore-cache:probe' 'explore-cache:write' MAX_TOTAL_EXPLORE_AREAS; do
-    run rg_or_grep -F "$pat" "$WORKFLOWS/design-to-spec.workflow.js"
-    [ "$status" -eq 0 ]
-  done
-}
-
-@test "the Explore cache is keyed on the task and validated before reuse" {
-  run rg_or_grep -F 'function taskKey' "$WORKFLOWS/design-to-spec.workflow.js"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'cacheHit' "$WORKFLOWS/design-to-spec.workflow.js"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'declaredLines === probe.actualLines' "$WORKFLOWS/design-to-spec.workflow.js"
-  [ "$status" -eq 0 ]
-}
-
-@test "an invalidated Explore cache contributes no area names" {
-  run rg_or_grep -F 'const cachedAreas = cacheHit ? parsedAreas : [];' "$WORKFLOWS/design-to-spec.workflow.js"
-  [ "$status" -eq 0 ]
-}
-
-@test "the Explore cache introduces no new required arg" {
-  run rg_or_grep -F 'decodeArgs(["TASK", "DRAFT_PATH", "SPEC_PATH"]' "$WORKFLOWS/design-to-spec.workflow.js"
-  [ "$status" -eq 0 ]
-}
-
 @test "the scout's proposed subsystems are deduped before the budget slice" {
   run rg_or_grep -F 'seenProposedNames' "$WORKFLOWS/design-to-spec.workflow.js"
-  [ "$status" -eq 0 ]
-}
-
-@test "the Explore-cache probe is dispatched with a Bash+Read-only agentType" {
-  run rg_or_grep -F 'agentType: AGENTS.cacheProbe' "$WORKFLOWS/design-to-spec.workflow.js"
-  [ "$status" -eq 0 ]
-  [ -f "$AGENTS_DIR/cache-probe.md" ]
-  run rg_or_grep -F 'tools: ["Bash", "Read"]' "$AGENTS_DIR/cache-probe.md"
-  [ "$status" -eq 0 ]
-}
-
-@test "the Explore-cache write runs concurrently with the first designer call" {
-  run rg_or_grep -F 'parallel([cacheWriteThunk,' "$WORKFLOWS/design-to-spec.workflow.js"
-  [ "$status" -eq 0 ]
-}
-
-@test "the Explore-cache write is serialized instead when the designer would read the same file" {
-  run rg_or_grep -F 'needsSerialWrite = cacheHit && exploration' "$WORKFLOWS/design-to-spec.workflow.js"
-  [ "$status" -eq 0 ]
-}
-
-@test "the Explore-cache writer reuses an already-computed fingerprint and gets one scripted retry" {
-  run rg_or_grep -F 'function writeCache' "$WORKFLOWS/design-to-spec.workflow.js"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'writeCache(mode, totalLines, areaLine, currentFingerprint)' "$WORKFLOWS/design-to-spec.workflow.js"
-  [ "$status" -eq 0 ]
-}
-
-@test "the Explore-cache writer's scripted retry excludes the non-idempotent append mode" {
-  run rg_or_grep -F 'mode === "create"' "$WORKFLOWS/design-to-spec.workflow.js"
-  [ "$status" -eq 0 ]
-}
-
-@test "design-to-spec reference documents the Explore cache" {
-  run rg_or_grep -F 'explore-' "$REFS/design-to-spec.md"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'cache' "$REFS/design-to-spec.md"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F '.explore-' "$SKILL/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
