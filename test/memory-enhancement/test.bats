@@ -18,6 +18,11 @@ setup() {
   assert_success
 }
 
+@test "plugin.json is valid JSON with name and version 0.4.2" {
+  run jq -e '.name == "memory-enhancement" and .version == "0.4.2"' "$PLUGIN/.claude-plugin/plugin.json"
+  assert_success
+}
+
 @test "hooks.json is valid JSON" {
   run jq empty "$HOOKS"
   assert_success
