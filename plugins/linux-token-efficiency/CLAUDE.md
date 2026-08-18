@@ -156,7 +156,7 @@ frontmatter that no `userConfig` value can drive (`${user_config.*}` placeholder
 - `keep-coding-instructions: true` keeps Claude Code's built-in software-engineering instructions in
   the system prompt, so only communication form changes, never coding behavior.
 - The body must stay short — one heading plus 6 bullets, deliberately **not** a
-  `kiwi-code-style`-shaped machine contract. `output-style.bats`'s ≤ 40-line cap is the tripwire that
+  large machine-readable contract. `output-style.bats`'s ≤ 40-line cap is the tripwire that
   enforces it; raising it is a design decision, not a test fix.
 - Scope: the main conversation only (a subagent has its own system prompt and never sees it), and it
   takes effect in a new session or after `/clear`.
@@ -166,8 +166,6 @@ frontmatter that no `userConfig` value can drive (`${user_config.*}` placeholder
   Do not "simplify" those strings back to "this plugin does not work": the same edit must keep the
   literal `does not work` with a **singular** subject, because `manifest.bats` matches that string in
   both manifests.
-- If `kiwi-code-style` is enabled too, both force a style and only one wins — load-order dependent,
-  not controllable from here. Accepted; do not build detection or a precedence mechanism.
 
 ## Skill design (update-linux-token-efficiency)
 
@@ -225,7 +223,7 @@ never commits, never bumps `plugin.json` and never opens a PR.
   hooks in this repo that run a system tool instead of a plugin-bundled script, and the second- and
   third-ever use of `args` in a hook (after `plugins/memory-enhancement/hooks/hooks.json`). `cat` is
   POSIX-universal on the Linux hosts this plugin targets, and exec form keeps the path an
-  untokenized argument. A `.mjs` reader (kiwi-code-style's `inject-ponytail-guidelines.mjs`) exists
+  untokenized argument. A `.mjs` reader exists
   only because it _transforms_ its input; static files that must not be transformed get a bare `cat`
   instead. `hooks-json-authoring.md` documents plain stdout reaching Claude with no JSON wrapper
   specifically for `SessionStart`; extending that to `SubagentStart` here is by analogy (identical

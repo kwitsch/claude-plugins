@@ -31,7 +31,7 @@ If a plugin has a `configure-*` skill, that skill must cover every option in `us
 
 ## Legacy exception
 
-Two hook-only plugins predate this rule and declare no `userConfig` yet: `git-sign-key`, `no-co-authored`.
+One hook-only plugin predates this rule and declares no `userConfig` yet: `git-sign-key`.
 
 ## Deliberate no-toggle exception
 
@@ -42,14 +42,6 @@ auto-formatting is its one behavior); disabling that behavior is equivalent to
 uninstalling the plugin, so no separate on/off switch is offered. Do not "fix"
 this by re-adding a toggle — all three plugins' bats suites assert
 `userConfig`'s absence as a tripwire against exactly that.
-
-`kiwi-code-style` (2026-08-01) is the same case with two components instead of
-one: its output style and its `SessionStart` hook injecting fixed behavioral
-guidelines (karpathy-ponytail, reduced to `full`) together ARE the entire
-plugin — one fixed, all-or-nothing contract, not two independently
-toggle-needing features. There's nothing to switch off short of
-disabling/uninstalling the plugin itself, so no `userConfig` is declared for
-either.
 
 `taskflow` (2026-08-07) is the same case for a different reason: it ships two
 skills (`build-task`, `dispatch-task`) that only ever run on invocation —
