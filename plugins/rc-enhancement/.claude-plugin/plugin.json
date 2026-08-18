@@ -1,0 +1,6 @@
+{
+  "name": "rc-enhancement",
+  "version": "0.1.0",
+  "description": "SessionStart hook that injects one critical must-follow rule: all user interaction goes through the AskUserQuestion tool — never end a turn with a plain-text question, and capture free-text answers via the tool's Other option alongside an Abort/Cancel option.",
+  "author": { "name": "Kwitsch" }
+}
