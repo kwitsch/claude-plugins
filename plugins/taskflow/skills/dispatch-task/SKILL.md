@@ -8,7 +8,7 @@ description: >-
   depends on no other plugin.
 argument-hint: "[task-description]"
 arguments: task_description
-allowed-tools: ["Bash(claude:*)", "AskUserQuestion"]
+allowed-tools: ["Bash", "AskUserQuestion"]
 disable-model-invocation: true
 ---
 
@@ -47,14 +47,14 @@ Never guess a task.
    `$name` against that same pattern before it is ever passed to `claude` — never rely on
    the slug you derived alone.
 
-   Before writing the command, read the whole task text and pick a **fresh heredoc
-   delimiter for this invocation** — never reuse a fixed literal like
-   `DISPATCH_TASK_PROMPT_EOF` across dispatches. Choose a token (≥20 characters, letters
-   and digits) that does not appear anywhere in the task text, verified by your own
-   reading of it, not assumed. This is what keeps a task description from ever breaking
-   out of the heredoc: a fixed, predictable terminator is the only way that could happen,
-   and a fresh one chosen against the actual text closes it completely, not just makes it
-   less likely.
+   The task text is embedded inside a **single-quoted** heredoc, so nothing in it is ever
+   shell-expanded or interpolated, whatever it is punctuated with. Use the fixed delimiter
+   `DISPATCH_TASK_PROMPT_EOF`. The single-quoted terminator plus a literal payload is
+   exactly what the proven `claude --worktree … --bg` dispatch pattern relies on; the only
+   residual way a task could escape is if it contained the line `DISPATCH_TASK_PROMPT_EOF`
+   verbatim, on its own line — vanishingly unlikely, and not worth trading against the
+   reliability of a fixed, always-matching terminator you no longer have to invent and
+   reproduce identically in two places.
 
    Then embed the task text verbatim inside the quoted heredoc (never shell-expanded,
    whatever it is punctuated with), all in one Bash call:
@@ -67,7 +67,7 @@ Never guess a task.
      exit 1
    }
    claude --worktree "$name" --model "sonnet" --effort "medium" --permission-mode auto --bg "$(
-     cat << 'DISPATCH_TASK_PROMPT_<fresh-collision-free-token-here>'
+     cat << 'DISPATCH_TASK_PROMPT_EOF'
    First, in this fresh worktree (already a clean checkout), run exactly this before
    anything else:
      git checkout -b "feature/<same-3-6-word-english-slug-as-above>"
@@ -75,7 +75,7 @@ Never guess a task.
    /taskflow:build-task <the literal, verbatim task description text goes here —
    substituted by you when you write this command, exactly as given, never the string
    "$task_description">
-   DISPATCH_TASK_PROMPT_<fresh-collision-free-token-here>
+   DISPATCH_TASK_PROMPT_EOF
    )"
    ```
 

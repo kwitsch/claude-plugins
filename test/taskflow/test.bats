@@ -47,10 +47,10 @@ export -f rg_or_grep
   [ "$status" -eq 0 ]
 }
 
-@test "plugin.json version is 1.3.0" {
+@test "plugin.json version is 1.3.1" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "1.3.0" ]
+  [ "$output" = "1.3.1" ]
 }
 
 @test "marketplace entry exists for taskflow" {
@@ -367,7 +367,7 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   fm="$BATS_TEST_TMPDIR/dispatch-task-frontmatter.txt"
   sed -n '/^---$/,/^---$/p' "$DISPATCH/SKILL.md" > "$fm"
   [ -s "$fm" ]
-  for pat in 'name: dispatch-task' 'arguments: task_description' '"Bash(claude:*)"' '"AskUserQuestion"'; do
+  for pat in 'name: dispatch-task' 'arguments: task_description' '"Bash"' '"AskUserQuestion"'; do
     run rg_or_grep -F "$pat" "$fm"
     [ "$status" -eq 0 ]
   done
@@ -421,11 +421,16 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
 }
 
-@test "dispatch-task picks a fresh heredoc delimiter per invocation, not the old fixed literal" {
+@test "dispatch-task uses a fixed heredoc delimiter (no fragile per-invocation token)" {
+  # RC1 fix: the old "fresh delimiter per invocation" mandate forced the model to
+  # invent and reproduce a token identically twice; a mismatch broke the heredoc and
+  # the background job failed to launch. The delimiter is now the fixed EOF literal.
   run rg_or_grep -iF 'never reuse a fixed literal' "$DISPATCH/SKILL.md"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -E "<<[[:space:]]?'DISPATCH_TASK_PROMPT_EOF'" "$DISPATCH/SKILL.md"
   [ "$status" -ne 0 ]
+  run rg_or_grep -iF 'fresh heredoc' "$DISPATCH/SKILL.md"
+  [ "$status" -ne 0 ]
+  run rg_or_grep -E "<<[[:space:]]?'DISPATCH_TASK_PROMPT_EOF'" "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
 }
 
 @test "dispatch-task cuts a properly named feature/<slug> branch before invoking build-task" {

@@ -105,15 +105,19 @@ decisions:
 - **`--permission-mode auto` always**, and the task text always travels inside a
   quoted heredoc read back by direct command substitution — no temp file, so a
   dispatch failing under `set -e` leaves nothing on disk to leak.
-- **Fixed 2026-08-12: the heredoc delimiter is chosen fresh per invocation,
-  never a fixed literal.** The invoking model reads the whole task text first
-  and picks a ≥20-character delimiter verified absent from it, instead of the
-  old fixed `DISPATCH_TASK_PROMPT_EOF` literal — closing the gap where a task
-  description containing a line exactly equal to that fixed terminator would
-  end the heredoc early and have its remainder parsed as shell input in the
-  _dispatching_ session. `coding-toolbox:dispatch-agent` still carries the
-  original fixed-delimiter form — out of scope for this fix, a known,
-  unaddressed sibling exposure (see that plugin's own CLAUDE.md).
+- **Reverted 2026-08-19: back to the fixed `DISPATCH_TASK_PROMPT_EOF`
+  delimiter.** The 2026-08-12 "fresh delimiter per invocation" mandate (invent
+  a ≥20-character token verified absent from the task text, reproduce it
+  identically in the open and close lines) was itself the launch-failure bug:
+  the model had to write the invented token identically **twice**, and any
+  mismatch left the heredoc unterminated, so the `$(cat <<'…' … )"` command
+  substitution broke and the background job either failed to start or launched
+  with a mangled/empty prompt. The theoretical exposure it closed — a task
+  containing a line exactly equal to `DISPATCH_TASK_PROMPT_EOF` — is
+  vanishingly unlikely and is the same residual risk `coding-toolbox:dispatch-agent`
+  has always accepted with its own fixed delimiter; the single-quoted heredoc
+  already blocks all shell expansion of the task text. Reliability of a
+  fixed, always-matching terminator wins over guarding that corner.
 - **Fixed 2026-08-12: the payload cuts its own `feature/<slug>` branch first.**
   `claude --worktree` bases the new worktree on `origin/<default branch>` —
   unless this project's `worktree.baseRef` setting is `"head"` (not the
@@ -147,10 +151,24 @@ worktree` alike — branched from local `HEAD` where it runs, carrying
   The skill's report step says so and points at `claude attach <id>`; the
   dispatched prompt itself is the bare command plus the task text, with no
   autonomy nudging added.
-- **No `git`, hence no `Bash(git:*)` grant:** `claude --worktree` starts the
+- **This skill's own Bash never touches `git`:** `claude --worktree` starts the
   worktree with a clean tree regardless of its base (`origin/<default
 branch>` or local `HEAD` per `worktree.baseRef` above), which already
-  satisfies `build-task`'s clean-`git status` precondition.
+  satisfies `build-task`'s clean-`git status` precondition (the `git checkout
+-b` runs in the _dispatched_ session, not here).
+- **`allowed-tools` is bare `Bash` (widened 2026-08-19), not `Bash(claude:*)`.**
+  Step 1's Bash call is a compound script — `set -e`, a
+  `name="…-$(date +%s)-$RANDOM"` assignment (its `$(date …)` command
+  substitution is not a known-safe leading assignment), `[[ "$name" =~ … ]]`,
+  then `claude … --bg`. The Bash permission matcher splits on separators and
+  requires every sub-command to be covered independently (see the settings
+  reference's "Per-tool specifiers"), so a narrow `Bash(claude:*)` never
+  auto-approved the dispatch and it stalled on a permission prompt / was
+  denied with nobody present — the actual "background job doesn't start"
+  failure. Bare `Bash` matches the pipeline skills `build-task` /
+  `feature-development`; task-text safety comes from the single-quoted heredoc,
+  not the tool matcher, so widening adds no real exposure. `coding-toolbox:dispatch-agent`
+  carried the identical latent gap and was widened in the same change.
 
 ## Generated pipeline artifacts are always English
 

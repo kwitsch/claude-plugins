@@ -7,7 +7,7 @@ description: >-
   kick off an independent background task without staying in this session to babysit it.
 argument-hint: "[--model=<model>] [--effort=<effort>] <prompt-text>"
 arguments: prompt
-allowed-tools: ["Bash(claude:*)", "AskUserQuestion"]
+allowed-tools: ["Bash", "AskUserQuestion"]
 ---
 
 # dispatch-agent
@@ -43,7 +43,8 @@ anything else. Never guess.
    ```bash
    set -e
    name="dispatch-<3-6-word-english-slug-of-the-prompt>-$(date +%s)-$RANDOM"
-   claude --worktree "$name" --model "<validated-model>" --effort "<validated-effort>" --permission-mode auto --bg "$(cat <<'DISPATCH_AGENT_PROMPT_EOF'
+   claude --worktree "$name" --model "<validated-model>" --effort "<validated-effort>" --permission-mode auto --bg "$(
+     cat << 'DISPATCH_AGENT_PROMPT_EOF'
    <the literal, verbatim prompt text goes here — the actual instruction after stripping any
    --model=/--effort= prefix, not the string "$prompt" — substituted by you when you write
    this command, exactly as given>
