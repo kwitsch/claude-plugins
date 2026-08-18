@@ -1,7 +1,7 @@
 # Claude Code Memory — Authoring Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (How Claude remembers your project), verified 2026-08-13.
+> (How Claude remembers your project), verified 2026-08-18.
 > Apply when authoring or editing CLAUDE.md files or configuring auto memory.
 
 ## CLAUDE.md: what & when
@@ -42,10 +42,10 @@ Files load in the order below (broadest to most specific); a later entry wins on
 - Files **in subdirectories** load on demand when Claude reads files in those directories.
 - Load ordering: Claude walks up the directory tree from cwd, concatenating all discovered files (not overriding). Ordered filesystem-root → cwd, so files closest to launch dir are read **last**. Within each directory, `CLAUDE.local.md` is appended **after** `CLAUDE.md`.
 - Managed policy CLAUDE.md **cannot be excluded** by `claudeMdExcludes` — always loads.
-- `claudeMd` key in `managed-settings.json` injects CLAUDE.md content directly; honored only in managed/policy scope.
+- `claudeMd` key in `managed-settings.json` injects CLAUDE.md content directly; honored only in managed/policy scope. Setting it in user, project, or local settings has no effect.
 - `claudeMdExcludes` skips files by path or glob (matched against absolute paths); configurable at **any** settings layer (user/project/local/managed); arrays merge across layers. Put it in `.claude/settings.local.json` to keep the exclusion local to your machine.
 - `--add-dir` directories do NOT load their CLAUDE.md by default. Set `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` to load `CLAUDE.md`, `.claude/CLAUDE.md`, `.claude/rules/*.md`, `CLAUDE.local.md` from them (`CLAUDE.local.md` skipped if `local` is excluded from `--setting-sources`).
-- Compaction: project-root CLAUDE.md **survives `/compact`** — re-read from disk and re-injected. Nested subdirectory CLAUDE.md files are NOT re-injected automatically; they reload next time Claude reads a file in that subdirectory. An instruction missing after compaction was either given only in conversation (never written to a file) or lives in a nested CLAUDE.md that hasn't reloaded yet — put conversation-only instructions into a CLAUDE.md to make them persist.
+- Compaction: project-root CLAUDE.md **survives `/compact`** — re-read from disk and re-injected. Nested subdirectory CLAUDE.md files and rules with `paths:` frontmatter are NOT re-injected automatically; they reload next time Claude reads a file in that subdirectory or a file matching the rule's patterns. An instruction missing after compaction was either given only in conversation (never written to a file), lives in a nested CLAUDE.md that hasn't reloaded yet, or is a path-scoped rule that hasn't matched a file since — put conversation-only instructions into a CLAUDE.md to make them persist.
 - Debug: run `/context` and read the list under **Memory files** to confirm a CLAUDE.md/CLAUDE.local.md file actually loaded in the session — a file missing there is invisible to Claude that session. `/memory` lists memory-file _locations_ and opens them for editing; `/context` is the load check.
 
 ### User-level rules
@@ -143,7 +143,14 @@ Value must be an absolute path or start with `~/`. Read from **any** settings sc
 
 - Move a CLAUDE.md section to a skill when it becomes a multi-step procedure.
 - Move it to a path-scoped rule when it only applies to specific file types.
-- Use managed settings (`permissions.deny`, `sandbox.enabled`) for hard enforcement; CLAUDE.md is guidance, not enforcement.
+- Use managed settings for hard enforcement; CLAUDE.md is guidance, not enforcement. Managed settings enforcement keys:
+
+| Concern                                  | Key(s)                                  |
+| ---------------------------------------- | --------------------------------------- |
+| Block specific tools, commands, or paths | `permissions.deny`                      |
+| Enforce sandbox isolation                | `sandbox.enabled`                       |
+| Environment variables / API routing      | `env`                                   |
+| Login method / org restrictions          | `forceLoginMethod`, `forceLoginOrgUUID` |
 
 ### `.claude/rules/` for path-scoped rules
 

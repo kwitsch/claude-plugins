@@ -1,6 +1,6 @@
 # Claude Code mcp_tool hooks reference
 
-<!-- verified 2026-07-10 · CURATED: doc-derived + hard-won gotchas. The server-name
+<!-- verified 2026-08-18 · CURATED: doc-derived + hard-won gotchas. The server-name
      namespacing rule below is now documented (code.claude.com/docs/en/hooks §MCP tool
      hook fields; code.claude.com/docs/en/mcp §Plugin-provided MCP servers) — preserve
      it on any refresh regardless; never regenerate this file wholesale. -->
@@ -12,15 +12,22 @@ handler-type choice see `hook-handler-selection.md`; for hook mechanics see
 
 ## When to use mcp_tool vs a command hook
 
-| Situation                                                                                                                          | Handler                                                            |
-| ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| Non-blocking, mid-session (`PreToolUse`/`PostToolUse`/`Stop`/`SubagentStop`/…): inject context, observe, reuse a live runtime/deps | **`mcp_tool`** (preferred)                                         |
-| Fires before the server connects (`SessionStart`, `Setup`)                                                                         | command (`.mjs`) — server not up yet → `mcp_tool` fails open       |
-| Fail-closed hard gate (must deny/abort, needs exit 2)                                                                              | command — `mcp_tool` has no exit-2 path, fails open if server down |
-| Must-fire side-effect (snapshot, state-write other hooks read)                                                                     | command — `mcp_tool` silently no-ops when the server is down       |
+Five hook types exist: `command`, `http`, `mcp_tool`, `prompt`, `agent`. This table
+covers the `mcp_tool` vs `command` split; for `http`/`prompt`/`agent` see
+`hook-handler-selection.md`.
+
+| Situation                                                                                                                                                            | Handler                                                                   |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Non-blocking, mid-session (`PreToolUse`/`PostToolUse`/`Stop`/`SubagentStop`/`Elicitation`/`ElicitationResult`/…): inject context, observe, reuse a live runtime/deps | **`mcp_tool`** (preferred)                                                |
+| Fires before the server connects (`SessionStart`, `Setup`)                                                                                                           | command (`.mjs`) — server not up yet → `mcp_tool` fails open on first run |
+| Fail-closed hard gate (must deny/abort, needs exit 2)                                                                                                                | command — `mcp_tool` has no exit-2 path, fails open if server down        |
+| Must hard-deny an MCP server elicitation (`Elicitation` exit-2 = deny; `ElicitationResult` exit-2 = block/decline)                                                   | command — `mcp_tool` can only soft-deny via returned JSON                 |
+| Must-fire side-effect (snapshot, state-write other hooks read)                                                                                                       | command — `mcp_tool` silently no-ops when the server is down              |
 
 `mcp_tool` requires an **already-connected** server; the hook never triggers a
-connection flow.
+connection flow. `SessionStart` and `Setup` do accept `mcp_tool` hooks, but servers
+typically aren't connected yet when they fire, so expect "not connected" errors on
+those events.
 
 **Fail-open is two-fold:** a _non-blocking error_ (execution continues regardless)
 occurs both when the named server is **not connected** AND when the tool returns
@@ -29,14 +36,16 @@ a valid hook-decision JSON (see _Output contract_), never `isError`.
 
 ## Hook fields
 
-| Field    | Required | Notes                                                                                                                                                                                       |
-| -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `type`   | yes      | `"mcp_tool"`                                                                                                                                                                                |
-| `server` | yes      | Name of a **connected** server — see _Server name_ below                                                                                                                                    |
-| `tool`   | yes      | Tool to call on that server                                                                                                                                                                 |
-| `input`  | no       | Arguments object; `${path}` substitution from the hook JSON (e.g. `${tool_input.file_path}`, `${session_id}`, `${cwd}`). Omit → the tool receives the full hook event JSON as its arguments |
+| Field    | Required | Notes                                                                                                                                                                                                             |
+| -------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type`   | yes      | `"mcp_tool"`                                                                                                                                                                                                      |
+| `server` | yes      | Name of a **connected** server — see _Server name_ below                                                                                                                                                          |
+| `tool`   | yes      | Tool to call on that server                                                                                                                                                                                       |
+| `input`  | no       | Arguments object; string values support `${path}` substitution from the hook JSON (e.g. `${tool_input.file_path}`, `${session_id}`, `${cwd}`). Omit → the tool receives the full hook event JSON as its arguments |
 
-Common fields apply (`if`, `timeout` default 600s, `statusMessage`).
+Common fields apply (`if`, `statusMessage`, and `timeout`). Default `timeout` is 600 s
+for most events; `UserPromptSubmit` lowers the default to 30 s; `MessageDisplay` lowers
+it to 10 s. Set the field explicitly when you need a different value.
 
 ## Server name — the namespacing rule (gotcha)
 
@@ -95,3 +104,13 @@ plugins/<name>/
   `claude mcp list` on the running CLI, and via the official docs' MCP tool
   hook fields table and Plugin-provided MCP servers section; the bare-key
   form does not match a plugin-bundled server.
+- `agent` hook type added (5th type alongside `command`, `http`, `mcp_tool`, `prompt`);
+  spawns an agentic verifier with tool access. Supported on the same events as
+  `prompt` (see support-matrix in `claude-code-hooks-reference.md`).
+  Not supported on `SessionStart`, `Setup`, `MessageDisplay`, or other async-only events.
+- `Elicitation` and `ElicitationResult` events added: fire during MCP server elicitation
+  flows. `mcp_tool` hooks can fire on both and soft-deny via returned JSON. Command hooks
+  with exit 2 hard-deny: `Elicitation` exit-2 = deny the elicitation; `ElicitationResult`
+  exit-2 = block the response (action becomes decline). On both events, an exit-2 hook's
+  `hookSpecificOutput` is ignored (mcp_tool can't emit exit-2 anyway, so mcp_tool can only
+  soft-deny these events).
