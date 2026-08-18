@@ -9,16 +9,6 @@
   "version": "1.0.0",
   "plugins": [
     {
-      "name": "no-co-authored",
-      "source": "./plugins/no-co-authored",
-      "description": "Blocks git commits whose message carries a Co-Authored-By trailer or the Claude Code footer, asking Claude to recreate the message without them.",
-      "author": {
-        "name": "Kwitsch"
-      },
-      "category": "git",
-      "tags": ["git", "hooks", "commit"]
-    },
-    {
       "name": "git-sign-key",
       "source": "./plugins/git-sign-key",
       "description": "Signs git commits with a ~/.claude/sign.key file via SSH signing instead of the ssh-agent.",
@@ -87,16 +77,6 @@
       },
       "category": "productivity",
       "tags": ["npm", "hooks", "automation"]
-    },
-    {
-      "name": "kiwi-code-style",
-      "source": "./plugins/kiwi-code-style",
-      "description": "Ships the kiwi-code-style output style and a SessionStart hook that injects the karpathy-ponytail coding guidelines — both enforced whenever this plugin is enabled.",
-      "author": {
-        "name": "Kwitsch"
-      },
-      "category": "productivity",
-      "tags": ["output-style", "formatting", "communication"]
     },
     {
       "name": "taskflow",
