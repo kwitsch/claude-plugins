@@ -35,8 +35,8 @@ setup() {
   assert_success
 }
 
-@test "PostToolUse hook is wired to lint-file.mjs as an async command hook with timeout 90" {
-  run jq -e '.hooks.PostToolUse[0] | .matcher == "Write|Edit" and (.hooks[0].type == "command") and (.hooks[0].command | endswith("hooks/lint-file.mjs")) and (.hooks[0].timeout == 90) and (.hooks[0].async == true)' "$HOOKS"
+@test "PostToolUse hook is wired to lint-file.mjs as an async command hook with timeout 95" {
+  run jq -e '.hooks.PostToolUse[0] | .matcher == "Write|Edit" and (.hooks[0].type == "command") and (.hooks[0].command | endswith("hooks/lint-file.mjs")) and (.hooks[0].timeout == 95) and (.hooks[0].async == true)' "$HOOKS"
   assert_success
 }
 
