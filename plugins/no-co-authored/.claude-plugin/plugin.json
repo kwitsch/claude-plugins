@@ -1,8 +1,0 @@
-{
-  "name": "no-co-authored",
-  "version": "2.0.0",
-  "description": "Blocks git commits whose message carries a Co-Authored-By trailer or the Claude Code footer, asking Claude to recreate the message without them.",
-  "author": {
-    "name": "Kwitsch"
-  }
-}

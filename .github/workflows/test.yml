@@ -17,7 +17,6 @@ jobs:
       matrix:
         # Add a plugin here when it gains a test/<plugin>/test.bats suite.
         plugin:
-          - no-co-authored
           - git-sign-key
           - claude-code-knowledge
           - coding-toolbox
@@ -25,7 +24,6 @@ jobs:
           - universal-lint
           - memory-enhancement
           - npm-automations
-          - kiwi-code-style
           - taskflow
           - linux-token-efficiency
           - rc-enhancement
