@@ -371,8 +371,8 @@ and relative imports use the `./x.js` specifier form, required by the root tscon
 (`probeCache`) stay single instances — bun emits each module once, so both handlers share them.
 
 ```bash
-pnpm install --frozen-lockfile          # the bundle embeds THIS prettier
-pnpm run build:universal-format-mcp     # requires a local bun; CI never runs it
+pnpm install --frozen-lockfile      # the bundle embeds THIS prettier
+pnpm run build:universal-format-mcp # requires a local bun; CI never runs it
 ```
 
 The driver writes a 3-line banner then the bundle body: `#!/usr/bin/env node`, the `@ts-nocheck`
@@ -428,6 +428,8 @@ runtime lookups the bundler cannot see), so `build.mjs` copies them by hand — 
 same way its plugin resolves it at runtime, sweeping every other `*.wasm` out of the output
 directory first so a plugin bump that renames a grammar cannot leave an orphan, and fingerprinting
 them into `assets=`. Never hand-edit the bundle or the sidecars.
+
+Packaging rationale (why this stays bundled and is not un-bundled): the plugin runs from a versioned plugin-cache copy with no ancestor `node_modules`, and `bin/mjs-launch.sh` execs `bun`/`node` with no install step — so `prettier` and its java/php/shell plugins (with their `web-tree-sitter`/`sh-syntax` wasm bindings), which are root devDependencies never present under `plugins/`, are only resolvable at runtime because `bun build` inlines them into this one file. Un-bundling to bare-specifier `.mjs` imports would fail to start for every real consumer; vendoring a full `node_modules` under `mcp/` is larger and more drift-prone than today's one file plus three wasm sidecars; a runtime `pnpm install` step breaks the repo's zero-install single-file launcher convention. The wasm-sidecar copy and the `sh-syntax __dirname` rewrite are consequences of bundling, not independent reasons to un-bundle. Reopen only if Claude Code's plugin-install model ever provisions `node_modules` at runtime.
 
 ## Tests
 
