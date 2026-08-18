@@ -403,8 +403,8 @@ CMD
   assert_success
 }
 
-@test "plugin.json is valid JSON with a name and a string version" {
-  run jq -e '.name == "git-sign-key" and (.version | type == "string")' \
+@test "plugin.json is valid JSON with name and version 1.1.0" {
+  run jq -e '.name == "git-sign-key" and .version == "1.1.0"' \
     "$REPO_ROOT/plugins/git-sign-key/.claude-plugin/plugin.json"
   assert_success
 }

@@ -118,8 +118,8 @@ reason()   { bash "$HOOK" <<<"$1" | jq -r '.hookSpecificOutput.permissionDecisio
   assert_output ""
 }
 
-@test "plugin.json is valid JSON with a name and a string version" {
-  run jq -e '.name == "no-co-authored" and (.version | type == "string")' \
+@test "plugin.json is valid JSON with name and version 2.0.0" {
+  run jq -e '.name == "no-co-authored" and .version == "2.0.0"' \
     "$REPO_ROOT/plugins/no-co-authored/.claude-plugin/plugin.json"
   assert_success
 }
