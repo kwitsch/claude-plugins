@@ -263,7 +263,7 @@ Wire into CI: in `.github/workflows/test.yml`, append `- <name>` under `plugin:`
 ```yaml
 matrix:
   plugin:
-    - no-co-authored # existing entry — keep it
+    - git-sign-key # existing entry — keep it
     - <name> # the new plugin
 ```
 
@@ -292,19 +292,22 @@ Run same checks as `.github/workflows/ci.yml`:
 
 ```bash
 manifest=".claude-plugin/marketplace.json"
-test -f "$manifest" || { echo "Missing $manifest"; exit 1; }
+test -f "$manifest" || {
+  echo "Missing $manifest"
+  exit 1
+}
 
 # marketplace.json is valid JSON
 jq empty "$manifest"
 
 # Required top-level fields
-jq -e '.name and .owner and (.plugins | type == "array")' "$manifest" >/dev/null
+jq -e '.name and .owner and (.plugins | type == "array")' "$manifest" > /dev/null
 
 # Every plugin entry has name + source
-jq -e 'all(.plugins[]; .name and .source)' "$manifest" >/dev/null
+jq -e 'all(.plugins[]; .name and .source)' "$manifest" > /dev/null
 
 # No marketplace entry carries a version (plugin.json is the single source)
-jq -e 'all(.plugins[]; has("version") | not)' "$manifest" >/dev/null
+jq -e 'all(.plugins[]; has("version") | not)' "$manifest" > /dev/null
 
 # Every local plugin source (a full ./plugins/<name> path from the marketplace
 # root) exists, its manifest is valid JSON and declares a version. The
@@ -316,11 +319,20 @@ jq -r '.plugins[].source | if type == "string" then . else "remote" end' "$manif
     remote) ;;
     *)
       dir="$root/$src"
-      test -d "$dir" || { echo "Missing source dir: $dir"; exit 1; }
+      test -d "$dir" || {
+        echo "Missing source dir: $dir"
+        exit 1
+      }
       pm="$dir/.claude-plugin/plugin.json"
-      [ -f "$pm" ] || { echo "Missing plugin manifest: $pm"; exit 1; }
+      [ -f "$pm" ] || {
+        echo "Missing plugin manifest: $pm"
+        exit 1
+      }
       jq empty "$pm"
-      jq -e '.version' "$pm" >/dev/null || { echo "$pm declares no version"; exit 1; }
+      jq -e '.version' "$pm" > /dev/null || {
+        echo "$pm declares no version"
+        exit 1
+      }
       ;;
   esac
 done
@@ -336,7 +348,10 @@ BATS_LIB_PATH=/usr/lib/bats bats "test/<name>/"
 
 # The plugin is present in the test matrix ($ is grep's end-of-line anchor)
 grep -q "^[[:space:]]*-[[:space:]]*<name>\$" .github/workflows/test.yml \
-  || { echo "Missing test.yml matrix entry for <name>"; exit 1; }
+  || {
+    echo "Missing test.yml matrix entry for <name>"
+    exit 1
+  }
 ```
 
 For an **mcp-kind** plugin the same bats suite also exercises the server: executable bit + node shebang, `node --check`, and a live `initialize`+`tools/list` over stdio must pass. `node` is the CI baseline (bun optional; the shim falls back to node when bun is absent).
