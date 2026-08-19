@@ -17,13 +17,15 @@ wildcard line itself: two tests grep its exact literal.
 **This repo sets `core.fileMode=false`**, so a filesystem `chmod +x` is NOT picked up by `git add`.
 `.claude/rules/bin-executable.md` and `.claude/rules/hooks-executable.md` prescribe only
 `chmod +x` + `ls -la` and never mention this — following them literally commits a `100644` that
-Claude Code then silently skips. Whenever `bin/rtk`, `bin/context-mode-launch.sh`, `hooks/rtk-rewrite.mjs` or `hooks/webfetch-steer.mjs` is added or replaced:
+Claude Code then silently skips. Whenever `bin/rtk`, `bin/context-mode-launch.sh`,
+`hooks/rtk-rewrite.mjs` or `mcp/linux-token-efficiency-mcp` is added or replaced:
 
 ```bash
-chmod +x plugins/linux-token-efficiency/bin/rtk plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs plugins/linux-token-efficiency/hooks/webfetch-steer.mjs
-git add plugins/linux-token-efficiency/bin/rtk plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs plugins/linux-token-efficiency/hooks/webfetch-steer.mjs
-git update-index --chmod=+x plugins/linux-token-efficiency/bin/rtk plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs plugins/linux-token-efficiency/hooks/webfetch-steer.mjs
-git ls-files -s plugins/linux-token-efficiency/bin/rtk # must print 100755
+chmod +x plugins/linux-token-efficiency/bin/rtk plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs plugins/linux-token-efficiency/mcp/linux-token-efficiency-mcp
+git add plugins/linux-token-efficiency/bin/rtk plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs plugins/linux-token-efficiency/mcp/linux-token-efficiency-mcp
+git update-index --chmod=+x plugins/linux-token-efficiency/bin/rtk plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs plugins/linux-token-efficiency/mcp/linux-token-efficiency-mcp
+git ls-files -s plugins/linux-token-efficiency/bin/rtk                        # must print 100755
+git ls-files -s plugins/linux-token-efficiency/mcp/linux-token-efficiency-mcp # must print 100755
 
 chmod +x plugins/linux-token-efficiency/bin/context-mode-launch.sh
 git add plugins/linux-token-efficiency/bin/context-mode-launch.sh
@@ -81,32 +83,35 @@ and turn a backgrounded Bash call into a blocking one. `permissionDecision` is n
 Every failure path is a bare `return` inside `main()`'s single `try/catch` — never
 `process.exit()`, matching `encoding-guard.mjs` and `lint-file.mjs`.
 
-`hooks/webfetch-steer.mjs` is the second steering hook: `PreToolUse`/`WebFetch`, denying **every**
+`hook_webfetch_steer` is the second steering hook: `PreToolUse`/`WebFetch`, denying **every**
 WebFetch with a copy-ready `ctx_fetch_and_index` + `ctx_search` replacement embedding
 `tool_input.url` and its hostname as the source label — unlike Bash there is no classifier,
 because WebFetch has no comparable non-context-mode equivalent and no side-effect cases to
-protect. Same `steer_enabled` gate (imported from `rtk-rewrite.mjs`), same fail-open shape: any
-failure means WebFetch runs normally. A **command** hook, knowingly against the decision tree's
-mcp_tool preference: the reason must embed `${tool_input.url}` dynamically, the cbm proxy is the
-wrong category for a context-mode steer (same category-mismatch analysis as the rejected
-`createExternalMcpGuidance` tip — see the steering-decision section below), and a third MCP server
-for one gate is more machinery than it justifies. The escape hatch for a broken/unconnected
-context-mode server is the `steer_enabled` toggle — a command hook cannot check MCP connectivity,
-an accepted limitation documented in the toggle's description.
+protect. Same `steer_enabled` gate as `rtk-rewrite.mjs`'s steer branch, same fail-open shape: any
+failure means WebFetch runs normally. Unlike the 0.4.0–0.5.x design (a standalone hand-written
+**command** hook, kept off `mcp_tool` because the cbm proxy was a Node process with nothing to do
+with context-mode), 0.6.0's Rust binary is a single process that already answers both the cbm graph
+tools and this steer, so `hook_webfetch_steer` is now a fifth tool on the same
+`codebase-memory` server — `type: "mcp_tool"`, `server:
+"plugin:linux-token-efficiency:codebase-memory"`, an explicit `input: { tool_input: { url:
+"${tool_input.url}" } }` block (an omitted `input` delivers `{}`). The escape hatch for a broken/
+unconnected server is still the `steer_enabled` toggle, checked inside the handler now instead of a
+command-hook env read.
 
-This plugin backs eight hooks total: `rtk-rewrite.mjs` and `webfetch-steer.mjs` above, `SessionStart` →
-`mcp/server.mjs --session-start-hook` (a `command` hook — see the correction note below), three
-remaining cbm entries (`SubagentStart`, `PreToolUse` `Grep`/`Glob`, `PostToolUse` `Read`), all
-`type: "mcp_tool"` on `plugin:linux-token-efficiency:codebase-memory` (the namespaced form — the
-bare `.mcp.json` key resolves to "not connected" on every fire) with an explicit `input` block each,
-because an omitted `input` delivers `{}` instead of the hook JSON, a second `SessionStart` entry
-that `cat`s `hooks/SessionStart.md`, and a second `SubagentStart` entry that `cat`s
-`hooks/subagent-nudge.md` (both static files, see `## context-mode`) — a plain `command` hook
-rather than a fifth cbm `mcp_tool`, since the nudge is generic subagent-behavior guidance plus
-context-mode awareness, unrelated to the cbm graph, so folding it into `hook_subagent_context` would
-be a category mismatch. Each cbm entry names its own purpose-built tool (`hook_subagent_context`,
-`hook_symbol_context`, `hook_coverage_context`), so `hookEventName` is hardcoded per tool and can
-never be wrong.
+This plugin backs eight hooks total: `rtk-rewrite.mjs` above, `SessionStart` →
+`mcp/linux-token-efficiency-mcp --session-start-hook` (a `command` hook — see the correction note
+below), four remaining cbm-server entries (`PreToolUse` `WebFetch` → `hook_webfetch_steer`,
+`SubagentStart`, `PreToolUse` `Grep`/`Glob`, `PostToolUse` `Read`), all `type: "mcp_tool"` on
+`plugin:linux-token-efficiency:codebase-memory` (the namespaced form — the bare `.mcp.json` key
+resolves to "not connected" on every fire) with an explicit `input` block each, because an omitted
+`input` delivers `{}` instead of the hook JSON, a second `SessionStart` entry that `cat`s
+`hooks/SessionStart.md`, and a second `SubagentStart` entry that `cat`s `hooks/subagent-nudge.md`
+(both static files, see `## context-mode`) — a plain `command` hook rather than a sixth cbm
+`mcp_tool`, since the nudge is generic subagent-behavior guidance plus context-mode awareness,
+unrelated to the cbm graph, so folding it into `hook_subagent_context` would be a category mismatch.
+Each cbm-server entry names its own purpose-built tool (`hook_subagent_context`,
+`hook_symbol_context`, `hook_coverage_context`, `hook_webfetch_steer`), so `hookEventName` (where
+applicable) is hardcoded per tool and can never be wrong.
 
 `timeout: 20` (was `21`, briefly `12`): there is no per-event process any more, so the budget is two
 4 s child round-trips (`HOOK_CALL_TIMEOUT_MS`) plus a cold-start handshake (`HOOK_CALL_TIMEOUT_MS *
@@ -122,11 +127,12 @@ available for the 'SessionStart' hook event (no MCP client context)`, not a sile
 > event apparently rejects `mcp_tool` outright rather than merely finding the server unconnected.
 > Fixed by moving `SessionStart` to a `command` hook per `hooks-mcp-server.md`'s decision tree (rule
 > 2: event fires before the server connects). Rather than duplicating `projectStatusHandler`'s
-> env/cache/child-spawn logic in a second file, `mcp/server.mjs` itself gained a `--session-start-hook`
-> CLI branch (checked before `startServer()`/`ensureBinary()` run) that reads the hook JSON off stdin,
-> calls `projectStatusHandler(args, "SessionStart")` directly (bypassing the JSON-RPC loop — no
-> persistent server involved), prints the result, and exits. `hooks.json`'s `SessionStart` entry is
-> now `{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs","args":["--session-start-hook"]}`.
+> env/cache/child-spawn logic in a second file, the server binary itself gained a
+> `--session-start-hook` CLI branch (checked before the JSON-RPC dispatch loop / `ensure_binary()`
+> run) that reads the hook JSON off stdin, calls the project-status handler directly (bypassing the
+> JSON-RPC loop — no persistent server involved), prints the result, and exits — ported unchanged
+> from `.mjs` to the 0.6.0 Rust binary. `hooks.json`'s `SessionStart` entry is now
+> `{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/mcp/linux-token-efficiency-mcp","args":["--session-start-hook"]}`.
 > `SubagentStart`, `PreToolUse` and `PostToolUse` stay `mcp_tool` (`status: "full"`, genuinely
 > mid-session) — this correction is `SessionStart`-only.
 
@@ -162,10 +168,9 @@ cache is a pure optimization, never a dependency.
 
 Three toggles, one per gated feature: boolean `auto_rewrite`, boolean `cbm_enabled` and boolean
 `steer_enabled`, all `default: true`. `steer_enabled` gates ONLY the two deny-steers
-(`rtk-rewrite.mjs`'s steer branch and `webfetch-steer.mjs`), never the rtk rewrite — it exists as
+(`rtk-rewrite.mjs`'s steer branch and `hook_webfetch_steer`), never the rtk rewrite — it exists as
 the escape hatch for a context-mode server that is down or misbehaving, since a deny pointing at
-an unavailable `ctx_*` tool would otherwise strand the model (a command hook cannot check MCP
-connectivity). It is fail-open like `auto_rewrite`: read via
+an unavailable `ctx_*` tool would otherwise strand the model. It is fail-open like `auto_rewrite`: read via
 `CLAUDE_PLUGIN_OPTION_STEER_ENABLED`, only the literal `false` disables. A deny-steer creates no
 files and no external state — its worst case is a wrongly withheld tool call with a working
 replacement in the reason — so the fail-closed exception does not apply. This plugin does **not** qualify for
@@ -251,26 +256,31 @@ never commits, never bumps `plugin.json` and never opens a PR.
   so `jq` is correct here.
 - **Stubbed `curl` + env-overridable base URLs** (`RTK_RELEASE_BASE_URL`,
   `RTK_DOWNLOAD_BASE_URL`) give the bats suite a local fixture release tree — no network in tests.
-- **The literal-`${` rejection for cache paths.** `mcp/cbm-context.mjs`'s `resolveBundleCache`
+- **The literal-`${` rejection for cache paths.** `context.rs`'s `resolve_bundle_cache`
   refuses to treat a `CBM_BUNDLE_CACHE` value that still contains `${` as a real path, falling back to
-  `${TMPDIR:-/tmp}/claude-cbm-$(id -u)`. No other `.mjs` in this repo does this; the repo root has held
+  `${TMPDIR:-/tmp}/claude-cbm-$(id -u)`. No `.mjs` in this repo does this; the repo root has held
   exactly such an untracked `${CLAUDE_PLUGIN_DATA}` directory, so the failure mode is demonstrated,
-  not hypothetical.
-- **Download-on-startup proxy MCP server + transparent tool passthrough.** `mcp/server.mjs` is the
-  first server in this repo that spawns an MCP-speaking child and forwards `tools/call` to it
+  not hypothetical. Ported unchanged into the 0.6.0 Rust binary from the retired `.mjs` context helper.
+- **Download-on-startup proxy MCP server + transparent tool passthrough.** `mcp/linux-token-efficiency-mcp`
+  is the first server in this repo that spawns an MCP-speaking child and forwards `tools/call` to it
   verbatim (ids remapped, `isError`/`content`/`structuredContent` returned untouched), and the first
-  that fetches its own dependency over the network at startup. Only the transport skeleton
-  (`send`/`ok`/`fail` + method dispatch) and the per-call timeout idiom have precedent here; child
-  spawn, handshake and id remapping are original. `tools/list` is served from the committed
-  `cbm-tools.json` snapshot rather than mirrored from the child, so the MCP handshake never waits on
-  a download — call-time forwarding is name-agnostic, so a drifted snapshot costs advertisement, never
-  a working call.
-- **`mcp/` holds two hand-written files.** `server.mjs` imports `./cbm-context.mjs`, keeping ~350
-  already-tested pure lines out of the transport file; `mcp/` stays the relocatable, zero-npm-dep
-  unit. `server.mjs` is also the repo's first **wrapper-less** MCP server
-  (`command: ${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs`, no `bin/mjs-launch.sh`) — the written rule's
-  default, knowingly divergent from the three other MCP plugins. Do not "fix" it toward that
-  precedent.
+  that fetches its own dependency over the network at startup — a design ported unchanged from Node
+  to Rust in 0.6.0. Only the transport skeleton (`send`/`ok`/`fail` + method dispatch) and the per-call
+  timeout idiom have precedent here; child spawn, handshake and id remapping are original. `tools/list`
+  is served from the committed `cbm-tools.json` snapshot rather than mirrored from the child, so the
+  MCP handshake never waits on a download — call-time forwarding is name-agnostic, so a drifted
+  snapshot costs advertisement, never a working call.
+- **`mcp/` holds a committed compiled Rust ELF, the second exception to the plugin's own `.mjs`
+  convention.** Through 0.5.x, `mcp/` held two hand-written files — a transport `.mjs` importing a
+  sibling context-helper `.mjs`, keeping ~350 already-tested pure lines out of the transport file.
+  0.6.0 replaces both with a single committed binary, `linux-token-efficiency-mcp`, compiled from the
+  multi-module crate under `src/linux-token-efficiency-mcp/` (`consts`/`context`/`provision`/`child`/
+  `transport`/`rpc`/`hooks`) by `src/linux-token-efficiency-mcp/build.mjs` (never run in CI, mirrors
+  `src/universal-format-mcp/build.mjs`'s atomic-tmpfile-and-rename discipline) — see
+  `plugins/CLAUDE.md`'s `mcp/` row for the repo-wide framing. It is still the repo's only
+  **wrapper-less** MCP server (`command: ${CLAUDE_PLUGIN_ROOT}/mcp/linux-token-efficiency-mcp`, no
+  `bin/mjs-launch.sh`) — the written rule's default, knowingly divergent from the other MCP plugins.
+  Do not "fix" it toward that precedent.
 - **A hook whose `command` is a bare PATH-resolved system binary.** The second `SessionStart` entry
   and the second `SubagentStart` entry are both
   `{"type":"command","command":"cat","args":["${CLAUDE_PLUGIN_ROOT}/hooks/<file>.md"]}` — the first
@@ -301,10 +311,12 @@ contract), `skill.bats` (SKILL.md shape), `docs.bats` (docs/registration), plus
 `rtk-rewrite.test.mjs` (`node:test` unit coverage of the hook's exported helpers). The cbm proxy adds
 pin + snapshot + file-mode + `.mcp.json` verification (`cbm-bundle.bats`), server behavior on a
 fixture plugin tree with a fake MCP-speaking cbm binary and an ephemeral 127.0.0.1 release server
-(`cbm-server.bats`), the four hook tools driven as real `tools/call` requests plus the `hooks.json`
-wiring pins (`cbm-hooks.bats`), `node:test` coverage of the pure helpers (`cbm-context.test.mjs`), and
-the maintainer-script exit-code contract (`update-cbm-bundle.bats`) — every fixture is fabricated and
-few bytes; the real 279.6 MiB binary is never downloaded or extracted. context-mode adds
+(`cbm-server.bats`), the five hook tools driven as real `tools/call` requests plus the `hooks.json`
+wiring pins (`cbm-hooks.bats`), and the maintainer-script exit-code contract (`update-cbm-bundle.bats`)
+— every fixture is fabricated and few bytes; the real 279.6 MiB binary is never downloaded or
+extracted. The Rust binary's own pure-helper coverage moved into `#[cfg(test)]` modules inside
+`src/linux-token-efficiency-mcp/src/*.rs`, run via `cargo test`, replacing the retired
+`cbm-context.test.mjs`. context-mode adds
 `context-mode.bats`: the launcher's runtime selection against stubbed `bunx`/`npx` on an isolated
 PATH (the real runners are never invoked and the npm registry is never reached), the `.mcp.json`
 server entry, the verbatim `hooks/SessionStart.md` (first/last line, load-bearing literals, index
@@ -323,12 +335,13 @@ server that downloads on first start there is no reason to commit the 37.6 MiB a
 `cbm-bundle.json` (the pin) and `cbm-tools.json` (the advertised tool list) are the whole artifact
 surface.
 
-**One process model.** `mcp/server.mjs` owns the pin, the first-run download + verification +
-extraction, the warm cbm child, the four hook tools and the passthrough. Both the hook reads and the
-model's own `mcp__plugin_linux-token-efficiency_codebase-memory__*` calls go through the same child,
-so there is exactly one place
-that knows how to talk to cbm and one place that peels its result envelope. `mcp_tool` hooks
-therefore cost a round-trip, not a fresh Node process plus a fresh 279.6 MiB exec per event.
+**One process model.** `mcp/linux-token-efficiency-mcp` owns the pin, the first-run download +
+verification + extraction, the warm cbm child, the five hook tools (four cbm-graph tools plus
+`hook_webfetch_steer`) and the passthrough. Both the hook reads and the model's own
+`mcp__plugin_linux-token-efficiency_codebase-memory__*` calls go through the same child, so there is
+exactly one place that knows how to talk to cbm and one place that peels its result envelope.
+`mcp_tool` hooks therefore cost a round-trip, not a fresh process plus a fresh 279.6 MiB exec per
+event.
 
 **Verification discipline** (carried over verbatim from the deleted shell-script launcher): exactly one
 pin entry or fail closed; asset sha256 checked before extraction; exactly one `codebase-memory-mcp`
@@ -341,8 +354,8 @@ asset would add no trust; `checksums.txt` is the maintainer script's business.
 
 **`CBM_BUNDLE_CACHE` is ours; `CBM_CACHE_DIR` is upstream's.** `CBM_CACHE_DIR` is cbm's own graph
 database root (upstream default `~/.cache/codebase-memory-mcp`), and upstream rejects a genuinely
-different canonical root while any cbm process is active. `server.mjs` never sets it — that is an
-invariant of the file, asserted by the bats suite — so server, hooks and manual CLI use all share
+different canonical root while any cbm process is active. `linux-token-efficiency-mcp` never sets it
+— that is an invariant of the binary, asserted by the bats suite — so server, hooks and manual CLI use all share
 upstream's default. The only variable the plugin sets is `CBM_BUNDLE_CACHE` (download-cache root,
 default `${CLAUDE_PLUGIN_DATA}/cbm`); `CBM_DOWNLOAD_BASE_URL` is only ever _read_ (same name, join
 shape and default as `update-cbm-bundle.sh`: `${base}/${releaseTag}/${asset}`, never reconstructed
@@ -433,7 +446,7 @@ not a port of upstream's engine.** Its `## BLOCKED — do NOT attempt` sections 
 BLOCKED. Intercepted and replaced with error", "Inline HTTP — BLOCKED", "WebFetch — BLOCKED")
 describe upstream's own routing engine (`hooks/core/routing.mjs`, ~44 KB), which this plugin still
 deliberately does not port. As of 0.4.0 the two steering hooks make three of those claims real in
-effect: `WebFetch` is denied unconditionally (`webfetch-steer.mjs`) and a bare `curl` GET is denied
+effect: `WebFetch` is denied unconditionally (`hook_webfetch_steer`) and a bare `curl` GET is denied
 by the Bash steer branch — both with a `ctx_fetch_and_index` replacement. Still NOT intercepted,
 knowingly: `wget` (its default is a file download, a side effect the steer cannot replicate) and
 inline HTTP inside code the model writes (that is the 44 KB engine; out of scope). The file itself
@@ -485,7 +498,7 @@ hooks for context-mode, after working through all four of upstream's static
 static per-call repeat spending tokens on information already in context — in a token-efficiency
 plugin — and `createExternalMcpGuidance` (matcher `WebFetch`) was rejected as more machinery than a
 tip justifies. That analysis rejected **static tips**; it never evaluated **dynamic deny-steering
-with a copy-ready replacement call**, which is what 0.4.0 adds (`webfetch-steer.mjs` +
+with a copy-ready replacement call**, which is what 0.4.0 adds (`hook_webfetch_steer` +
 `rtk-rewrite.mjs`'s steer branch — see `## Hook design`). What still stands from the old analysis,
 unchanged: NO Grep/Glob or Read steering (a context-mode hook there would stack against
 `hook_symbol_context` / contradict `hook_coverage_context`'s load-bearing fail-quiet contract —

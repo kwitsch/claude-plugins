@@ -26,7 +26,7 @@ echo "REPO_ROOT=$REPO_ROOT"
 echo "PINNED=$(jq -r '.rtkVersion // "n/a"' "$REPO_ROOT/plugins/linux-token-efficiency/rtk-bundle.json" 2>/dev/null || echo n/a)"
 echo "BUNDLED=$("$REPO_ROOT/plugins/linux-token-efficiency/bin/rtk" --version 2>/dev/null || echo n/a)"
 echo "CBM_PINNED=$(jq -r '.cbmVersion // "n/a"' "$REPO_ROOT/plugins/linux-token-efficiency/cbm-bundle.json" 2> /dev/null || echo n/a)"
-echo "CBM_SERVER=$([ -x "$REPO_ROOT/plugins/linux-token-efficiency/mcp/server.mjs" ] && echo yes || echo no)"
+echo "CBM_SERVER=$([ -x "$REPO_ROOT/plugins/linux-token-efficiency/mcp/linux-token-efficiency-mcp" ] && echo yes || echo no)"
 echo "CURL=$(command -v curl >/dev/null 2>&1 && echo yes || echo no)"
 echo "JQ=$(command -v jq >/dev/null 2>&1 && echo yes || echo no)"
 echo "TAR=$(command -v tar >/dev/null 2>&1 && echo yes || echo no)"
@@ -98,7 +98,7 @@ change; nothing cbm-related is committed as a binary, tarball or checksum sideca
 
 ```bash
 git add plugins/linux-token-efficiency/cbm-bundle.json plugins/linux-token-efficiency/cbm-tools.json
-git ls-files -s plugins/linux-token-efficiency/mcp/server.mjs # must print 100755
+git ls-files -s plugins/linux-token-efficiency/mcp/linux-token-efficiency-mcp # must print 100755
 ```
 
 Also tell the human: bump `plugins/linux-token-efficiency/.claude-plugin/plugin.json`'s `version`,
