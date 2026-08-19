@@ -721,13 +721,26 @@ function buildSpawnOpts(cwd, timeout) {
 function runChainLint(lang, resolved, cwd, rel) {
   const tool = selectLintTool(lang.chain);
   if (!tool) return null;
+  // Gate cargo runs on a resolvable manifest: a stray .rs outside any Cargo
+  // project is a silent no-op, not a spurious "could not find Cargo.toml"
+  // exit-101 finding.
+  if (tool.manifestPath && !resolveCargoManifest(path.dirname(resolved), cwd)) return null;
 
   const argv = buildArgv(tool, resolved, cwd);
-  const spawnOpts = buildSpawnOpts(cwd, SPAWN_TIMEOUT_MS);
+  // Compile-heavy cargo tools get their own budget (mirrors TSC_SPAWN_TIMEOUT_MS).
+  const timeout = tool.manifestPath ? CARGO_SPAWN_TIMEOUT_MS : SPAWN_TIMEOUT_MS;
+  const spawnOpts = buildSpawnOpts(cwd, timeout);
   const result = runLintTool(tool, argv, spawnOpts);
   if (result.error || result.signal) return null;
 
-  const target = tool.targetsDir ? path.relative(cwd, path.dirname(resolved)) || "." : rel;
+  // Cargo entries are neither file-scoped nor targetsDir: the natural target
+  // is the crate directory (the dir containing the resolved Cargo.toml). The
+  // gate above guarantees the manifest is non-null here.
+  const target = tool.targetsDir
+    ? path.relative(cwd, path.dirname(resolved)) || "."
+    : tool.manifestPath
+      ? path.relative(cwd, path.dirname(resolveCargoManifest(path.dirname(resolved), cwd) ?? resolved)) || "."
+      : rel;
   let verdict, text;
   if (tool.classify === "output") {
     const out = classifyCheckstyleOutput(result.stdout);
