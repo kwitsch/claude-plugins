@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=ae6083665cee111f body=8017adbb7eb56ddc prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=5cf2249432d7d8b3 body=7e6354a96a1dbc10 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -201052,6 +201052,9 @@ function isMainModule() {
     return false;
   }
 }
+function detectRuntime() {
+  return process7.versions.bun ? "bun" : "node";
+}
 function startServer() {
   const TOOLS = [
     {
@@ -201118,6 +201121,8 @@ function startServer() {
         return fail(id3, -32601, `method not found: ${method}`);
     }
   };
+  process7.stderr.write(`[${SERVER_NAME}] running under ${detectRuntime()} (v${SERVER_INFO.version})
+`);
   const rl4 = readline.createInterface({ input: process7.stdin });
   rl4.on("line", (line5) => {
     const trimmed = line5.trim();
