@@ -4,6 +4,7 @@ paths:
   - "plugins/*/.mcp.json"
   - "plugins/*/hooks/hooks.json"
   - "plugins/*/hooks/*.mjs"
+  - "plugins/linux-token-efficiency/mcp/linux-token-efficiency-mcp"
 ---
 
 # Rule: MCP-server hooks (preferred for non-blocking mid-session hooks)

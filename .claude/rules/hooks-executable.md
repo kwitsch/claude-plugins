@@ -21,5 +21,5 @@ Never leave a hook file without executable bit. Applies to `.sh` and `.mjs` hook
 **Verification:** After any Write or Edit to a `plugins/*/hooks/` or `plugins/*/mcp/` file, confirm with:
 
 ```bash
-ls -la plugins/ plugins/ < name > /hooks/ < name > /mcp/
+ls -la plugins/<name>/hooks/ plugins/<name>/mcp/
 ```
