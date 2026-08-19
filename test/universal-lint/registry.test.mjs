@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   REGISTRY,
   resolveCheckstyleConfig,
+  resolveCargoManifest,
   buildArgv,
   classifyExit,
   classifyCheckstyleOutput,
@@ -148,7 +149,7 @@ test("REGISTRY: npmSpec carried by eslint (jsts) and both markdown tools; not by
   assert.equal(REGISTRY.jsts.chain[0].npmSpec, "eslint");
   assert.equal(REGISTRY.markdown.chain[0].npmSpec, "markdownlint-cli2");
   assert.equal(REGISTRY.markdown.chain[1].npmSpec, "markdownlint-cli");
-  for (const lang of ["shell", "java", "kotlin", "python", "go", "yaml"]) {
+  for (const lang of ["shell", "java", "kotlin", "python", "go", "yaml", "rust"]) {
     for (const tool of REGISTRY[lang].chain) {
       assert.equal(tool.npmSpec, undefined);
     }
@@ -540,4 +541,74 @@ test("resolveLintTarget: null for an unsupported extension", () => {
 test("resolveLintTarget: null when the file does not exist", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "ul-rlt-"));
   assert.equal(resolveLintTarget(mockResolveArgs(dir, "gone.sh")), null);
+});
+
+test("REGISTRY: rust chain is cargo-clippy -> cargo, both manifestPath, neither carries npmSpec", () => {
+  assert.equal(REGISTRY.rust.chain.length, 2);
+  assert.equal(REGISTRY.rust.chain[0].name, "cargo-clippy");
+  assert.deepEqual(REGISTRY.rust.chain[0].args, ["--", "-D", "warnings"]);
+  assert.equal(REGISTRY.rust.chain[0].manifestPath, true);
+  assert.equal(REGISTRY.rust.chain[0].npmSpec, undefined);
+  assert.equal(REGISTRY.rust.chain[1].name, "cargo");
+  assert.deepEqual(REGISTRY.rust.chain[1].args, ["check"]);
+  assert.equal(REGISTRY.rust.chain[1].manifestPath, true);
+  assert.equal(REGISTRY.rust.chain[1].npmSpec, undefined);
+});
+
+test("resolveCargoManifest: finds Cargo.toml walking up from a nested dir", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ul-cargo-"));
+  writeFileSync(path.join(root, "Cargo.toml"), '[package]\nname = "x"\n');
+  const sub = path.join(root, "src", "inner");
+  mkdirSync(sub, { recursive: true });
+  assert.equal(resolveCargoManifest(sub, root), path.join(root, "Cargo.toml"));
+});
+
+test("resolveCargoManifest: finds Cargo.toml at cwd", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ul-cargo-"));
+  writeFileSync(path.join(root, "Cargo.toml"), '[package]\nname = "x"\n');
+  assert.equal(resolveCargoManifest(root, root), path.join(root, "Cargo.toml"));
+});
+
+test("resolveCargoManifest: nothing found -> null", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ul-cargo-"));
+  assert.equal(resolveCargoManifest(dir, dir), null);
+});
+
+test("buildArgv: cargo-clippy inserts --manifest-path before the -- separator, no trailing positional", () => {
+  const clippy = REGISTRY.rust.chain[0];
+  const root = mkdtempSync(path.join(tmpdir(), "ul-cargo-"));
+  writeFileSync(path.join(root, "Cargo.toml"), '[package]\nname = "x"\n');
+  const sub = path.join(root, "src");
+  mkdirSync(sub, { recursive: true });
+  assert.deepEqual(buildArgv(clippy, path.join(sub, "main.rs"), root), ["--manifest-path", path.join(root, "Cargo.toml"), "--", "-D", "warnings"]);
+});
+
+test("buildArgv: cargo check appends --manifest-path, no trailing positional", () => {
+  const cargo = REGISTRY.rust.chain[1];
+  const root = mkdtempSync(path.join(tmpdir(), "ul-cargo-"));
+  writeFileSync(path.join(root, "Cargo.toml"), '[package]\nname = "x"\n');
+  assert.deepEqual(buildArgv(cargo, path.join(root, "main.rs"), root), ["check", "--manifest-path", path.join(root, "Cargo.toml")]);
+});
+
+test("buildArgv: manifestPath tool with no Cargo.toml leaves args unchanged and adds no positional", () => {
+  const cargo = REGISTRY.rust.chain[1];
+  const dir = mkdtempSync(path.join(tmpdir(), "ul-cargo-"));
+  assert.deepEqual(buildArgv(cargo, path.join(dir, "main.rs"), dir), ["check"]);
+  const clippy = REGISTRY.rust.chain[0];
+  assert.deepEqual(buildArgv(clippy, path.join(dir, "main.rs"), dir), ["--", "-D", "warnings"]);
+});
+
+test("classifyExit: cargo-clippy and cargo are 0-clean/nonzero-issues/null-skip", () => {
+  for (const name of ["cargo-clippy", "cargo"]) {
+    assert.equal(classifyExit(name, 0), "clean");
+    assert.equal(classifyExit(name, 101), "issues");
+    assert.equal(classifyExit(name, 1), "issues");
+    assert.equal(classifyExit(name, null), "skip");
+  }
+});
+
+test("resolveLintTarget: a .rs file resolves like any other eligible extension", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ul-rlt-"));
+  writeFileSync(path.join(dir, "main.rs"), "fn main() {}\n");
+  assert.equal(resolveLintTarget(mockResolveArgs(dir, "main.rs")), path.join(dir, "main.rs"));
 });

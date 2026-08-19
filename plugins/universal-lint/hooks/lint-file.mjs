@@ -36,6 +36,9 @@ const TSC_SPAWN_TIMEOUT_MS = 45000; // full-project incremental type-check: slow
 // than a single-file/dir tool (SPAWN_TIMEOUT_MS) but not a cold registry install
 // (NPX_SPAWN_TIMEOUT_MS) -- kept its own, smaller budget so a stale async
 // finding (this hook is async:true) doesn't arrive too late to be useful.
+const CARGO_SPAWN_TIMEOUT_MS = 45000; // cargo check/clippy compile the crate;
+// slower than a single-file/dir tool (SPAWN_TIMEOUT_MS), same budget rationale
+// as TSC_SPAWN_TIMEOUT_MS; stays under the hook-level timeout backstop.
 // Per-file debounce: a lint only starts after the file has been idle for this
 // long; each new edit re-arms it. Overridable via UNIVERSAL_LINT_DEBOUNCE_MS
 // (test-only fast path — NOT part of the hook's public input contract).
@@ -50,7 +53,7 @@ const TYPE_CHECK_EXTS = new Set([".ts", ".tsx", ".mts", ".cts"]); // tsc only
 
 /* eslint-disable max-len -- long line is the literal JSDoc typedef */
 /**
- * @typedef {{ name: string, args: string[], targetsDir?: boolean, classify?: "output", needsCheckstyleConfig?: boolean, guardYamlLineLength?: boolean, guardMarkdownLineLength?: boolean, npmSpec?: string }} LintTool
+ * @typedef {{ name: string, args: string[], targetsDir?: boolean, manifestPath?: boolean, classify?: "output", needsCheckstyleConfig?: boolean, guardYamlLineLength?: boolean, guardMarkdownLineLength?: boolean, npmSpec?: string }} LintTool
  * @typedef {{ chain: LintTool[] }} LangEntry
  */
 /* eslint-enable max-len */
@@ -83,6 +86,7 @@ const EXT_MAP = {
   ".css": "css",
   ".scss": "css",
   ".php": "php",
+  ".rs": "rust",
 };
 
 // Linter registry. chain = first tool on PATH wins. Every entry runs check-only --
@@ -138,6 +142,12 @@ export const REGISTRY = {
     chain: [
       { name: "phpstan", args: ["analyse"] },
       { name: "psalm", args: [] },
+    ],
+  },
+  rust: {
+    chain: [
+      { name: "cargo-clippy", args: ["--", "-D", "warnings"], manifestPath: true },
+      { name: "cargo", args: ["check"], manifestPath: true },
     ],
   },
 };
@@ -302,6 +312,19 @@ export function resolveCheckstyleConfig(fileDir, cwd) {
       if (existsSync(p)) return p;
     }
     return null;
+  });
+}
+
+// Walk from the file's dir up to cwd (inclusive); return the nearest
+// Cargo.toml path, or null. Existence-only (a linter never needs to parse
+// the manifest -- it only needs its path to pass to --manifest-path).
+// cargo clippy/check take no positional file/dir target, so this anchors
+// the run on the correct crate root even in a multi-crate workspace.
+/** @param {string} fileDir @param {string} cwd @returns {string | null} */
+export function resolveCargoManifest(fileDir, cwd) {
+  return walkUpToCwd(fileDir, cwd, (dir) => {
+    const p = path.join(dir, "Cargo.toml");
+    return existsSync(p) ? p : null;
   });
 }
 
@@ -532,6 +555,20 @@ export function buildArgv(tool, resolvedFile, cwd) {
   if (tool.guardMarkdownLineLength && !hasProjectMarkdownlintConfig(dir)) {
     argv.push("--config", MARKDOWNLINT_NO_LINE_LENGTH_CONFIG_PATH);
   }
+  // cargo clippy/check take no positional target. Resolve the nearest
+  // Cargo.toml and emit --manifest-path <path> as a cargo option -- inserted
+  // BEFORE any `--` separator so it stays a cargo flag, never a post-`--`
+  // rustc arg -- then return WITHOUT a trailing positional. A stray .rs file
+  // outside any Cargo project (no manifest) leaves args untouched; the
+  // runChainLint gate no-ops it before spawning.
+  if (tool.manifestPath) {
+    const manifest = resolveCargoManifest(dir, cwd);
+    if (manifest) {
+      const sep = argv.indexOf("--");
+      argv.splice(sep === -1 ? argv.length : sep, 0, "--manifest-path", manifest);
+    }
+    return argv;
+  }
   argv.push(tool.targetsDir ? dir : resolvedFile);
   return argv;
 }
@@ -603,6 +640,12 @@ export function classifyExit(toolName, status) {
       if (status === 0) return "clean";
       if (status === 2) return "issues";
       return "skip";
+    case "cargo-clippy": // with `-- -D warnings`: 0 clean, non-zero = lint/compile
+    // findings promoted to errors. VERIFY EMPIRICALLY before merge.
+    case "cargo": // cargo check: 0 clean, 101 on compile error. Non-zero vs.
+      // "cargo itself failed" is not cleanly separable by exit code -- accepted,
+      // same coarse contract already accepted for `go`/`phpstan` above.
+      return status === 0 ? "clean" : "issues";
     default:
       return "skip";
   }
