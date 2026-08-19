@@ -6,8 +6,8 @@ a bun-preferred `bin/mjs-launch.sh` wrapper. Four `mcp_tool` hooks — two on `W
 `CwdChanged`, one on `PostToolUse:EnterWorktree`: **PreToolUse `format_pre`** formats the thirteen
 prettier languages (JS/TS, JSON, YAML, Markdown, CSS, SCSS, LESS, HTML, Vue, GraphQL, Shell, Java,
 PHP) in-process BEFORE the write via `hookSpecificOutput.updatedInput`, always with the prettier
-bundled into the server; **PostToolUse `format_post`** formats the three remaining languages
-(Kotlin/Python/Go) on disk after the write via each tool's CLI, and returns `{}` for every prettier
+bundled into the server; **PostToolUse `format_post`** formats the four remaining languages
+(Kotlin/Python/Go/Rust) on disk after the write via each tool's CLI, and returns `{}` for every prettier
 language; **CwdChanged `cwd_changed`** formats nothing at all — it drops the old directory's cached
 ignore state and prefetches the new directory's (see "Ignore-file caching"); **PostToolUse
 `worktree_entered`** (matcher `EnterWorktree`) does the same cache priming as `cwd_changed`, plus
@@ -119,8 +119,8 @@ module-scope IIFE, so a missing/corrupt sidecar rejects a floating promise at im
 without the guard KILLS the server under node (verified: exit 1) and takes down all thirteen
 languages instead of just Java. Kotlin, Python and Go stay on their CLIs by survey, not by
 deferral: kotlin's only plugin `spawnSync`s `java -jar` against a bundled 39.9 MB JVM jar and needs
-prettier 1.x, python's has a single 2018 release pinned to a prettier git SHA, and no prettier
-plugin formats Go source at all.
+prettier 1.x, python's has a single 2018 release pinned to a prettier git SHA, no prettier
+plugin formats Go source at all, and no viable prettier plugin formats Rust source either.
 
 Two consequences, both accepted:
 
@@ -446,7 +446,7 @@ Packaging rationale (why this stays bundled and is not un-bundled): the plugin r
 
 `test/universal-format/` — split into one `.bats` file per language/tool
 (`scaffold.bats`, `core.bats`, `go.bats`, `kotlin.bats`, `java.bats`,
-`python.bats`, `jsts.bats`, `json.bats`, `yaml.bats`, `markdown.bats`,
+`python.bats`, `rust.bats`, `jsts.bats`, `json.bats`, `yaml.bats`, `markdown.bats`,
 `css.bats`, `php.bats`, `shell.bats`, `html.bats`, `vue.bats`, `graphql.bats`),
 mirroring `test/coding-toolbox/`'s split. `test_helper.bash`
 holds what's shared across files (`common_setup`, `rg_or_grep`, `make_stub`,

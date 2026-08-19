@@ -25,7 +25,7 @@ its own MCP server — together with the three community plugins bundled next to
 sidecars. There is no version lookup and no install step: one bundled copy, always used, with no
 network access.
 
-**All other languages** (Kotlin, Python, Go) are formatted after the write via each tool's CLI.
+**All other languages** (Kotlin, Python, Go, Rust) are formatted after the write via each tool's CLI.
 
 Your project's Prettier **configuration** is still honored in full — `.prettierrc*`,
 `prettier.config.*`, a top-level `"prettier"` key in `package.json`/`package.yaml`,
@@ -60,7 +60,7 @@ hook returns a one-line note telling Claude to re-read it before further string-
 that the reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules.
 
 This plugin is always active once installed — there is no toggle, and there is no per-language
-switch. For Kotlin, Python and Go, not installing the tool is the opt-out. **Prettier is the
+switch. For Kotlin, Python, Go and Rust, not installing the tool is the opt-out. **Prettier is the
 exception:** it is bundled — Java, PHP and Shell included — so removing Prettier from your project
 does not opt out of Prettier formatting; exclude the paths via `.prettierignore` instead.
 
@@ -74,6 +74,7 @@ does not opt out of Prettier formatting; exclude the paths via `.prettierignore`
 | JS/TS    | `.js` `.jsx` `.mjs` `.cjs` `.ts` `.tsx` `.mts` `.cts` | bundled `prettier` (in-process, before the write) |
 | Python   | `.py` `.pyi`                                          | `ruff` → `black`                                  |
 | Go       | `.go`                                                 | `goimports` → `gofmt`                             |
+| Rust     | `.rs`                                                 | `rustfmt`                                         |
 | JSON     | `.json`                                               | bundled `prettier` (in-process, before the write) |
 | YAML     | `.yaml` `.yml`                                        | bundled `prettier` (in-process, before the write) |
 | Markdown | `.md`                                                 | bundled `prettier` (in-process, before the write) |
@@ -97,6 +98,7 @@ does not opt out of Prettier formatting; exclude the paths via `.prettierignore`
 - `prettier` and `ktlint` read `.editorconfig` natively (run flag-free). For the thirteen bundled `prettier` languages that is the whole mechanism — `indent_style`, `indent_size` and `max_line_length` included, Shell, Java and PHP with them.
 - `ktfmt` is always passed `--enable-editorconfig`.
 - For `ruff` and `black`, a minimal built-in resolver maps core `.editorconfig` properties (`indent_style`, `indent_size`, `max_line_length`, `end_of_line`) to CLI flags — **only** when no tool-native config governs the file. This mapping is intentionally partial (documented properties only).
+- For `rustfmt`, the same resolver maps `max_line_length`/`indent_style`/`indent_size` to `--config max_width`/`--config hard_tabs`/`--config tab_spaces` — **only** when no `rustfmt.toml`/`.rustfmt.toml` governs the file. `rustfmt` honors every tab/space combination, so there is no hard-conflict skip.
 - **Hard conflicts are skipped, not violated:** `black` is hard-fixed at 4-space indentation, so an `.editorconfig` declaring `indent_style = tab` leaves the Python file untouched rather than reformatted against its own config.
 - Go's style is fixed by design (tabs); a conforming `[*.go] indent_style = tab` is honored by construction.
 
