@@ -19,11 +19,12 @@
 //   joined additionalContext; no finding from either check: nothing printed.
 import process from "node:process";
 import { spawnSync } from "node:child_process";
-import { accessSync, existsSync, mkdirSync, readFileSync, realpathSync, constants as fsConstants } from "node:fs";
-import { createHash } from "node:crypto";
+import { accessSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync, constants as fsConstants } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
 import { tmpdir, homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { setTimeout as sleep } from "node:timers/promises";
 
 const SPAWN_TIMEOUT_MS = 30000; // inner linter timeout; hook-level timeout:60 is the backstop
 const NPX_SPAWN_TIMEOUT_MS = 55000; // cold npx install can exceed SPAWN_TIMEOUT_MS; stay under the hook's 60s ceiling
@@ -35,6 +36,14 @@ const TSC_SPAWN_TIMEOUT_MS = 45000; // full-project incremental type-check: slow
 // than a single-file/dir tool (SPAWN_TIMEOUT_MS) but not a cold registry install
 // (NPX_SPAWN_TIMEOUT_MS) -- kept its own, smaller budget so a stale async
 // finding (this hook is async:true) doesn't arrive too late to be useful.
+// Per-file debounce: a lint only starts after the file has been idle for this
+// long; each new edit re-arms it. Overridable via UNIVERSAL_LINT_DEBOUNCE_MS
+// (test-only fast path — NOT part of the hook's public input contract).
+const DEBOUNCE_MS = (() => {
+  const raw = process.env.UNIVERSAL_LINT_DEBOUNCE_MS;
+  const n = raw != null ? Number(raw) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : 5000;
+})();
 const TYPE_CHECK_EXTS = new Set([".ts", ".tsx", ".mts", ".cts"]); // tsc only
 // understands real TypeScript syntax -- .js/.jsx/.mjs/.cjs stay eslint-only
 // via the existing jsts chain.
@@ -774,6 +783,34 @@ export function isExcludedPath(rel) {
   return segments[segments.length - 1].includes(".local.");
 }
 
+// Run every cheap entry guard and return the resolved absolute lint target, or
+// null when any guard rejects (success===false, missing cwd/file_path, path
+// outside cwd, excluded path, unsupported extension, or file absent). Shared by
+// main() (to decide whether/what to debounce) and lintFileHandler (to re-run the
+// guards before linting) so the two never diverge. Fails closed to null on any
+// unexpected error, matching lintFileHandler's fail-open-to-{} philosophy.
+/** @param {PostToolUseHookInput} args @returns {string | null} */
+export function resolveLintTarget(args) {
+  try {
+    if (args?.tool_response?.success === false) return null;
+    const cwd = typeof args?.cwd === "string" ? args.cwd : "";
+    const fp = args?.tool_input?.file_path;
+    if (!cwd || typeof fp !== "string" || !fp) return null;
+
+    const resolved = path.resolve(cwd, fp);
+    if (resolved !== cwd && !resolved.startsWith(cwd + path.sep)) return null;
+    const rel = path.relative(cwd, resolved);
+    if (isExcludedPath(rel)) return null;
+
+    const ext = path.extname(resolved).toLowerCase();
+    if (!EXT_MAP[ext] && !TYPE_CHECK_EXTS.has(ext)) return null;
+    if (!existsSync(resolved)) return null;
+    return resolved;
+  } catch {
+    return null;
+  }
+}
+
 // The lint_file tool handler. Returns {} on every guard failure / clean / skip (fail open).
 /** @param {PostToolUseHookInput} args @returns {HookResult} */
 function lintFileHandler(args) {
@@ -835,12 +872,44 @@ function isMainModule() {
   }
 }
 
-/** Read the hook's stdin JSON, run lintFileHandler, print the result JSON (or
- * nothing) to stdout. Fails open on any error — no output, exit 0. */
-function main() {
+// Debounced gate. Writes a unique token for `resolved` to a per-file marker under
+// tmpdir()/universal-lint-debounce (keyed by sha256 of the resolved absolute path),
+// waits DEBOUNCE_MS, then returns true only if this invocation's token is still the
+// newest — i.e. no later edit's process overwrote it. On any filesystem error,
+// returns true (fail open: run the lint rather than silently skip). The marker
+// write is atomic (temp file + renameSync) so a concurrent process never reads a
+// torn token. No cleanup: markers are tiny and the OS reclaims tmpdir().
+/** @param {string} resolved absolute file path @returns {Promise<boolean>} */
+async function debounceGate(resolved) {
+  const token = `${Date.now()}-${process.pid}-${randomBytes(6).toString("hex")}`;
+  const dir = path.join(tmpdir(), "universal-lint-debounce");
+  const marker = path.join(dir, createHash("sha256").update(resolved).digest("hex") + ".mark");
   try {
-    const raw = readFileSync(0, "utf8");
-    const input = JSON.parse(raw);
+    mkdirSync(dir, { recursive: true });
+    const tmp = `${marker}.${token}.tmp`;
+    writeFileSync(tmp, token);
+    renameSync(tmp, marker);
+  } catch {
+    return true; // couldn't arm the marker — fail open, just run
+  }
+  await sleep(DEBOUNCE_MS);
+  try {
+    return readFileSync(marker, "utf8").trim() === token;
+  } catch {
+    return true; // marker unreadable/deleted — fail open, run
+  }
+}
+
+/** Read the hook's stdin JSON, run the cheap guards, debounce, then run
+ * lintFileHandler and print the result JSON (or nothing). Fails open on any
+ * error — no output, exit 0.
+ * @returns {Promise<void>} */
+async function main() {
+  try {
+    const input = JSON.parse(readFileSync(0, "utf8"));
+    const resolved = resolveLintTarget(input);
+    if (!resolved) return; // guards rejected — nothing to lint, no wait
+    if (!(await debounceGate(resolved))) return; // superseded by a newer edit
     const result = lintFileHandler(input);
     if (result && Object.keys(result).length > 0) {
       process.stdout.write(JSON.stringify(result) + "\n");
