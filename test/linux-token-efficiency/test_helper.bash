@@ -15,8 +15,7 @@ common_setup() {
   SKILL_DIR="$REPO_ROOT/.claude/skills/update-linux-token-efficiency"
   CBM_PIN="$PLUGIN/cbm-bundle.json"
   CBM_TOOLS="$PLUGIN/cbm-tools.json"
-  CBM_SERVER="$PLUGIN/mcp/server.mjs"
-  CBM_HELPERS="$PLUGIN/mcp/cbm-context.mjs"
+  CBM_BINARY="$PLUGIN/mcp/linux-token-efficiency-mcp"
   MCP_JSON="$PLUGIN/.mcp.json"
 
   # Isolated PATH: only system tools that actually exist on the host are symlinked
@@ -138,8 +137,8 @@ FAKE_CBM
   chmod +x "$target"
 }
 
-# make_cbm_server_fixture <dir> -- build a fixture plugin tree holding copies of the real
-# mcp/server.mjs + mcp/cbm-context.mjs plus a FABRICATED cbm-bundle.json / cbm-tools.json
+# make_cbm_server_fixture <dir> -- build a fixture plugin tree holding a copy of the real
+# committed Rust binary mcp/linux-token-efficiency-mcp plus a FABRICATED cbm-bundle.json / cbm-tools.json
 # whose binarySha256 is the fake binary's REAL sha256, so the production
 # content-addressed path ${CBM_BUNDLE_CACHE}/<binarySha256[0:16]>/codebase-memory-mcp
 # resolves to it. Getting that derivation wrong silently falls through to the download
@@ -149,7 +148,7 @@ make_cbm_server_fixture() {
   local dir="$1"
   FIXTURE_TAG="v9.9.9-fixture"
   FIXTURE_ASSET="codebase-memory-mcp-linux-amd64-portable.tar.gz"
-  FIXTURE_SERVER="$dir/mcp/server.mjs"
+  FIXTURE_SERVER="$dir/mcp/linux-token-efficiency-mcp"
   CBM_CACHE="$BATS_TEST_TMPDIR/cache"
   FAKE_LOG="$BATS_TEST_TMPDIR/fake-calls.log"
   FAKE_PAYLOADS="$BATS_TEST_TMPDIR/fake-payloads.json"
@@ -157,9 +156,8 @@ make_cbm_server_fixture() {
   RELEASE_DIR="$BATS_TEST_TMPDIR/release"
 
   mkdir -p "$dir/mcp" "$RELEASE_DIR/$FIXTURE_TAG" "$CBM_CACHE"
-  cp "$CBM_SERVER" "$dir/mcp/server.mjs"
-  cp "$CBM_HELPERS" "$dir/mcp/cbm-context.mjs"
-  chmod +x "$dir/mcp/server.mjs"
+  cp "$CBM_BINARY" "$FIXTURE_SERVER"
+  chmod +x "$FIXTURE_SERVER"
 
   write_fake_cbm "$FAKE_BIN"
   printf 'fixture installer\n' > "$BATS_TEST_TMPDIR/pack/install.sh"
@@ -215,7 +213,7 @@ cbm_rpc() {
   env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" \
     CBM_BUNDLE_CACHE="$CBM_CACHE" CBM_DOWNLOAD_BASE_URL="$CBM_DOWNLOAD_BASE_URL" \
     CBM_FAKE_LOG="$FAKE_LOG" CBM_FAKE_PAYLOADS="$FAKE_PAYLOADS" \
-    "${CBM_RPC_ENV[@]}" node "$FIXTURE_SERVER" < "$fifo" > "$outfile" 2> "$errfile" &
+    "${CBM_RPC_ENV[@]}" "$FIXTURE_SERVER" < "$fifo" > "$outfile" 2> "$errfile" &
   local server_pid=$!
   exec {w}> "$fifo"
   for line in "$@"; do
