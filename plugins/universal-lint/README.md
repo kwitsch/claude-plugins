@@ -28,11 +28,14 @@ This hook is always active once the plugin is installed — there is no toggle. 
 | Markdown              | `.md`                                                 | `markdownlint-cli2` → `markdownlint`                          | file                                                                                               |
 | CSS/SCSS              | `.css` `.scss`                                        | `stylelint`                                                   | file                                                                                               |
 | PHP                   | `.php`                                                | `phpstan` → `psalm`                                           | file                                                                                               |
+| Rust                  | `.rs`                                                 | `cargo clippy` → `cargo check`                                | **crate** — scoped by the nearest `Cargo.toml` (via `--manifest-path`)                             |
 | TypeScript type-check | `.ts` `.tsx` `.mts` `.cts`                            | `tsc --noEmit` (runs independently of the `eslint` row above) | **whole project** — scoped by the nearest `tsconfig.json`                                          |
 
 `eslint`, `markdownlint-cli2`, `markdownlint`, and `stylelint` additionally
 run via `npx` when not installed locally (all official npm packages);
-`yamllint` has no npm distribution and is `PATH`-only. When a linter is on
+`yamllint` has no npm distribution and is `PATH`-only, and Rust's `cargo`/
+`cargo clippy` are rustup-only and likewise `PATH`-only (no npx fallback).
+When a linter is on
 `PATH` and `rtk` is also on `PATH`, findings run through `rtk` for more
 token-efficient output — same pass/fail verdict either way.
 
