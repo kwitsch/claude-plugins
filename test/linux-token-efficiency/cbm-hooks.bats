@@ -214,7 +214,7 @@ hook_result() {
   assert_success
   # SessionStart fires before any MCP server connects, so it is a command hook (mcp_tool
   # hard-errors there: "no MCP client context") that invokes server.mjs's own CLI mode.
-  run jq -e '.hooks.SessionStart[0].hooks[0] | .type == "command" and .command == "${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs" and .args == ["--session-start-hook"] and .timeout == 20 and .statusMessage == "Checking codebase graph..." and (has("server") | not) and (has("tool") | not) and (has("input") | not)' "$HOOKS"
+  run jq -e '.hooks.SessionStart[0].hooks[0] | .type == "command" and .command == "${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs" and .args == ["--session-start-hook"] and .timeout == 20 and .statusMessage == "Checking codebase graph..." and (has("server") | not) and (has("tool") | not) and (has("input") | not) and .async == true and (has("asyncRewake") | not)' "$HOOKS"
   assert_success
   run jq -e '.hooks.SubagentStart[0].hooks[0].input == {cwd:"${cwd}"}' "$HOOKS"
   assert_success

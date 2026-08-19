@@ -9,7 +9,8 @@
             "command": "${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs",
             "args": ["--session-start-hook"],
             "timeout": 20,
-            "statusMessage": "Checking codebase graph..."
+            "statusMessage": "Checking codebase graph...",
+            "async": true
           }
         ]
       },

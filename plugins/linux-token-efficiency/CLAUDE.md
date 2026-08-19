@@ -130,6 +130,18 @@ available for the 'SessionStart' hook event (no MCP client context)`, not a sile
 > `SubagentStart`, `PreToolUse` and `PostToolUse` stay `mcp_tool` (`status: "full"`, genuinely
 > mid-session) — this correction is `SessionStart`-only.
 
+That `SessionStart` command hook is `async: true` (read-only, side-effect-free
+context injection — the single-hook-exception async guidance in
+`.claude/rules/hooks-mcp-server.md`, matching `universal-lint`'s precedent), so its
+graph-status `additionalContext` is delivered on the next conversation turn rather
+than blocking startup for up to `timeout: 20` on a cold cache (`ensureBinary()`
+download/verify/extract plus `projectStatusHandler()`). `asyncRewake` is
+intentionally NOT set: the `--session-start-hook` CLI branch always exits 0 (no
+exit-2 path), so wake-on-exit-2 would be inert, and adding one would contradict the
+plugin's fail-open "every failure path returns `{}`, never a decision" invariant.
+`timeout: 20` and `statusMessage` are retained unchanged — `timeout` now only bounds
+the detached process, and the spinner label is harmless while it spawns.
+
 This is not contradicted by the second `SessionStart` entry added for context-mode (a plain `cat`,
 unrelated to `--session-start-hook`): it injects a **different**, static document (upstream's
 routing rules) that no other handler produces, so nothing is double-injected between the two.
