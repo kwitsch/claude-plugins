@@ -5,6 +5,7 @@
 mod child;
 mod consts;
 mod context;
+mod hooks;
 mod provision;
 mod rpc;
 mod transport;
@@ -22,18 +23,29 @@ fn main() {
         println!("{}", consts::SERVER_VERSION);
         return;
     }
-    // The --session-start-hook CLI branch is added in Task 4.
-    run_server();
+    // Startup guards + pin/snapshot read run for BOTH entry points (mirroring the module-load
+    // guards the Node build ran before its argv branch). A failed guard is a silent exit(0).
+    let state = match build_state() {
+        Some(s) => s,
+        None => std::process::exit(0),
+    };
+    if args.get(1).map(String::as_str) == Some("--session-start-hook") {
+        // One-shot CLI: SessionStart fires before any MCP client connects, so this reuses the
+        // same env/cache/child machinery directly instead of over the JSON-RPC loop, then exits.
+        hooks::run_session_start_hook(&state);
+        std::process::exit(0);
+    }
+    run_server(state);
 }
 
-fn run_server() {
+/// Run the startup guards and build the shared server state, or None (a silent exit(0) caller).
+fn build_state() -> Option<Arc<rpc::ServerState>> {
     use context::{is_cbm_enabled, EnvLookup, RealEnv};
     let env = RealEnv;
 
-    // Startup guards — each is a silent exit(0), never a stdout write.
     if !is_cbm_enabled(env.get("CLAUDE_PLUGIN_OPTION_CBM_ENABLED").as_deref()) {
         log("disabled by the cbm_enabled plugin option; not starting codebase-memory-mcp");
-        std::process::exit(0);
+        return None;
     }
     if !(cfg!(target_os = "linux") && cfg!(target_arch = "x86_64")) {
         log(&format!(
@@ -41,34 +53,29 @@ fn run_server() {
             std::env::consts::OS,
             std::env::consts::ARCH
         ));
-        std::process::exit(0);
+        return None;
     }
-    let server_dir = match std::env::current_exe()
+    let server_dir = std::env::current_exe()
         .ok()
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-    {
-        Some(d) => d,
-        None => std::process::exit(0),
-    };
-    let pin = match provision::read_pin(&server_dir) {
-        Some(p) => p,
-        None => std::process::exit(0),
-    };
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))?;
+    let pin = provision::read_pin(&server_dir)?;
     let passthrough = provision::read_tool_snapshot(&server_dir, &pin.cbm_version);
 
     let provisioner = Arc::new(provision::Provisioner::new(pin, &env));
     let child = Arc::new(child::ChildManager::new(provisioner.clone()));
-    let state = Arc::new(rpc::ServerState {
+    Some(Arc::new(rpc::ServerState {
         passthrough,
-        provisioner: provisioner.clone(),
+        provisioner,
         child,
-        hook_tools: Vec::new(),
-    });
+        hook_tools: hooks::hook_tools(),
+    }))
+}
 
+fn run_server(state: Arc<rpc::ServerState>) {
     // The stdin loop comes up FIRST so initialize answers immediately; then the first-run
     // download is fired on a detached thread without blocking the transport. A warm cache is
     // ready before the first hook call, but a cold download never stalls a JSON-RPC frame.
-    let prov_bg = provisioner;
+    let prov_bg = state.provisioner.clone();
     std::thread::spawn(move || {
         prov_bg.ensure_binary();
     });

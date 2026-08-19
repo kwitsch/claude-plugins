@@ -4,19 +4,11 @@
 
 use crate::child::ChildManager;
 use crate::consts::{DEFAULT_PROTOCOL, SERVER_NAME, SERVER_VERSION};
+use crate::hooks::{self, HookTool};
 use crate::provision::{Provisioner, ToolSpec};
 use crate::transport::{fail, ok};
 use serde_json::{json, Value};
 use std::sync::Arc;
-
-/// Placeholder hook-tool metadata. Task 4 introduces the real hook-tool table (with handlers)
-/// in hooks.rs; Task 3 keeps `ServerState.hook_tools` empty, so `tools/call` here handles only
-/// passthrough forwarding plus the empty-name and child-error paths.
-pub struct HookTool {
-    pub name: &'static str,
-    pub description: &'static str,
-    pub input_schema: Value,
-}
 
 /// Everything a request handler needs. Shared behind an `Arc` across per-message handler
 /// threads.
@@ -82,7 +74,18 @@ fn handle_tool_call(id: &Value, params: &Value, state: &ServerState) {
     let name = params.get("name").and_then(Value::as_str).unwrap_or("");
     let args = params.get("arguments").cloned().unwrap_or(json!({}));
 
-    // Task 4 wires hook-tool dispatch here; with an empty hook_tools table it never matches.
+    // Hook tools are answered locally (never forwarded). Any handler outcome — a buildOutput
+    // value or a fail-open `{}` — is wrapped in the standard MCP tool-result envelope, exactly
+    // as the Node handler did. An empty name never matches a hook tool.
+    if let Some(result) = hooks::dispatch(name, &args, state) {
+        return ok(
+            id,
+            json!({
+                "content": [{ "type": "text", "text": result.to_string() }],
+                "structuredContent": result,
+            }),
+        );
+    }
 
     if name.is_empty() {
         return fail(id, -32602, "tools/call requires a tool name");
