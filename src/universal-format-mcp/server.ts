@@ -41,6 +41,13 @@ function isMainModule(): boolean {
   }
 }
 
+// Which JS runtime this process is under — `process.versions.bun` is bun's version string under
+// bun, undefined under node; reading it introduces no `Bun` token, so the node-target bundle
+// stays free of `Bun.`/`bun:` and needs no @types/bun.
+function detectRuntime(): "bun" | "node" {
+  return process.versions.bun ? "bun" : "node";
+}
+
 // ---- MCP scaffold + startup ----
 
 function startServer(): void {
@@ -107,6 +114,8 @@ function startServer(): void {
         return fail(id, -32601, `method not found: ${method}`);
     }
   };
+
+  process.stderr.write(`[${SERVER_NAME}] running under ${detectRuntime()} (v${SERVER_INFO.version})\n`);
 
   const rl = readline.createInterface({ input: process.stdin });
   rl.on("line", (line: string) => {

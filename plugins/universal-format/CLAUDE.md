@@ -55,14 +55,25 @@ raises a session-lifetime cwd override, because `CwdChanged` has been observed t
   (same idiom coding-toolbox's `worktree_refresh` already uses for the same tool). All logic
   lives in `mcp/server.mjs`; the old `hooks/format-file.mjs` command hook is deleted. This
   plugin writes nothing outside the project: `${CLAUDE_PLUGIN_DATA}` is not used at all.
-- **`bin/mjs-launch.sh` is shipped for repo parity, NOT for speed.** Measured on this
-  machine, bun is SLOWER here than node (warm format ~48 ms bun vs ~39 ms node; first
-  format ~354 ms vs ~161 ms); only the one-time module import is faster under bun.
-  Both are far under the ~223 ms cold-CLI spawn, so the in-process thesis holds. Do
-  NOT "restore" a direct-`.mjs` invocation on performance grounds, and do NOT claim
-  bun is faster here, without a new decision. Wrapper uses the APPEND-PATH form
-  (inherited PATH wins over `~/.local/bin`/`~/.bun/bin`) so a stale user-dir binary
-  can't shadow a system tool.
+- **`bin/mjs-launch.sh` is shipped for repo parity, NOT for speed.** Re-measured 2026-08-19
+  on Kiwi-Tower (Linux x86_64, node v24.19.0, bun 1.3.14) via a Phase 0 benchmark (median of
+  5 spawn-and-drive runs, 100 warm format_pre calls each): bun is NOT meaningfully faster
+  here than node (bun warm p50 3.6 ms vs node 3.8 ms; first format bun 96.9 ms vs node
+  82.1 ms). The pinned threshold (bun warm p50 ≥ 20% lower AND bun first format ≤ node's)
+  is NOT met, so the single-bundle diagnostic-only design stands. Do NOT "restore" a
+  direct-`.mjs` invocation on performance grounds, and do NOT claim bun is faster here,
+  without a new benchmark. Wrapper uses the APPEND-PATH form (inherited PATH wins over
+  `~/.local/bin`/`~/.bun/bin`) so a stale user-dir binary can't shadow a system tool.
+- **The source detects its runtime (`process.versions.bun`) for a startup diagnostic
+  only — it does NOT branch behavior.** `server.ts`'s module-local, non-exported
+  `detectRuntime()` reads `process.versions.bun` (never a bare `Bun` identifier, so the
+  node-target bundle stays free of `Bun.`/`bun:` and needs no `@types/bun`) and
+  `startServer()` emits one `[universal-format-hooks] running under <node|bun>` line on
+  stderr at startup. Per the fresh 2026-08-19 Phase 0 benchmark (bun not meaningfully
+  faster here), there is deliberately NO `Bun.*` fast path. Do NOT add a
+  `Bun.*`-branching fast path or a second runtime-optimized bundle here without a new
+  benchmark clearing the pinned threshold (bun warm p50 ≥ 20% lower AND first format ≤
+  node's) — that is the deferred two-bundle redesign, its own design unit.
 - **`format_pre` never sets `permissionDecision`.** Only `updatedInput` (+ the
   `additionalContext` reformat notice). `"allow"` would auto-approve every Write/Edit;
   `"defer"` would drop the mutation. For Edit it emits a WHOLE-FILE SWAP:
@@ -362,7 +373,7 @@ default applied unconditionally; now it means no line-length limit at all.
 | `prettier.ts`     | the bundled prettier and its three bundled plugins (`BUNDLED_PLUGINS`, `asPlugin`), the `unhandledRejection` startup guard, `BUNDLED_PRETTIER_VERSION`, config discovery, `resolveConfigPlugins`, `formatInProcess`, the base-keyed `ignoreCache` behind `isPrettierIgnored`, `primePrettierIgnoreCache`, `clearPrettierIgnoreCache`, `warmPrettierConfigCache`, `clearPrettierConfigCaches` |
 | `registry.ts`     | `EXT_MAP`, `PRETTIER_LANGS`, `REGISTRY` (CLI chains only), `resolveInvocation`, `selectFormatter`                                                                                                                                                                                                                                                                                            |
 | `handlers.ts`     | `isExcludedPath`/`isClaudeInternalPath`, `resolveBase`/`resolveBaseAndRel`/`findGitRoot`/`relativeIfContains`, `resolveTarget`, `resolveCwd`/`overrideKey`/`cwdOverrides`, `applyEdit`, `CACHE_INVALIDATING_BASENAMES`, `PRETTIER_IGNORE_BASENAMES`, `formatPre`, `formatPost`, `cwdChanged`, `worktreeEntered`                                                                              |
-| `server.ts`       | MCP scaffold, `isMainModule`, `SERVER_INFO` (hand-paired with `plugin.json`), and the artifact's 20 public re-exports                                                                                                                                                                                                                                                                        |
+| `server.ts`       | MCP scaffold, `isMainModule`, `detectRuntime` (module-local, non-exported — startup stderr diagnostic only), `SERVER_INFO` (hand-paired with `plugin.json`), and the artifact's 20 public re-exports                                                                                                                                                                                         |
 | `build.mjs`       | the build driver (node-runnable; also runs under bun)                                                                                                                                                                                                                                                                                                                                        |
 
 Import graph is acyclic (`types ← util ← editorconfig ← prettier ← registry ← handlers ← server`)
@@ -390,18 +401,18 @@ across bun versions is not claimed.
 
 Every flag is load-bearing:
 
-| Flag / setting                                      | Why                                                                                                                                                                                                                                                    |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `--target=node`                                     | bun's default target is `browser`. With `node`, built-ins stay external imports and no bun shims are emitted — verified: 0 occurrences of `Bun.` and of `import.meta.require`, runs under plain `node`.                                                |
-| `--format=esm`                                      | named exports must survive for `node --test`; `import.meta.url` must stay real (`isMainModule` depends on it).                                                                                                                                         |
-| `cwd: repoRoot` on the spawn                        | bun embeds cwd-relative `// <module path>` provenance comments; building from a parent directory changed 20 comment lines. Pinning cwd makes the output caller-independent. Run `pnpm install` in the tree you build from so `node_modules` is local.  |
-| comment canonicalization                            | `node_modules/.pnpm/<pkg>/node_modules/` → `node_modules/` inside `//`-prefixed lines only; hoisted and pnpm-symlinked layouts then produce identical sha256.                                                                                          |
-| banner prepended by the script (not `--banner`)     | the shebang must be byte one and the fingerprint must be computed over the final body.                                                                                                                                                                 |
-| `@ts-nocheck` on line 2                             | the artifact sits under `plugins/**/*.mjs`, which the root `tsconfig.json` `include` glob matches directly; unchecked it reports thousands of `TS7006`-class errors. It also exempts the file from the JSDoc floor (see `.claude/rules/jsdoc-mjs.md`). |
-| `chmodSync(0o755)`                                  | per `.claude/rules/hooks-executable.md`. The file is already git mode `100755` and `core.fileMode=false`, so a rebuild in place needs no `git update-index --chmod=+x`.                                                                                |
-| **not** `--minify`                                  | ~8% gzip saving is not worth losing line-numbered stack traces in a fail-open code path.                                                                                                                                                               |
-| **not** `--reject-unresolved`                       | prettier resolves a project's config file through a runtime `import()` of a computed path, unresolvable at build time _by design_.                                                                                                                     |
-| **not** `--production` / `--bytecode` / `--compile` | `--production` implies minification, `--bytecode` forces CJS, `--compile` emits a standalone bun executable — all three contradict a node-runnable ESM artifact.                                                                                       |
+| Flag / setting                                      | Why                                                                                                                                                                                                                                                                                                                        |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--target=node`                                     | bun's default target is `browser`. With `node`, built-ins stay external imports and no bun shims are emitted — 0 occurrences of `Bun.` and of `import.meta.require`, runs under plain `node`; the no-`Bun.`-token / no-`bun:`-import invariant is now machine-enforced by `test/universal-format/build-artifact.test.mjs`. |
+| `--format=esm`                                      | named exports must survive for `node --test`; `import.meta.url` must stay real (`isMainModule` depends on it).                                                                                                                                                                                                             |
+| `cwd: repoRoot` on the spawn                        | bun embeds cwd-relative `// <module path>` provenance comments; building from a parent directory changed 20 comment lines. Pinning cwd makes the output caller-independent. Run `pnpm install` in the tree you build from so `node_modules` is local.                                                                      |
+| comment canonicalization                            | `node_modules/.pnpm/<pkg>/node_modules/` → `node_modules/` inside `//`-prefixed lines only; hoisted and pnpm-symlinked layouts then produce identical sha256.                                                                                                                                                              |
+| banner prepended by the script (not `--banner`)     | the shebang must be byte one and the fingerprint must be computed over the final body.                                                                                                                                                                                                                                     |
+| `@ts-nocheck` on line 2                             | the artifact sits under `plugins/**/*.mjs`, which the root `tsconfig.json` `include` glob matches directly; unchecked it reports thousands of `TS7006`-class errors. It also exempts the file from the JSDoc floor (see `.claude/rules/jsdoc-mjs.md`).                                                                     |
+| `chmodSync(0o755)`                                  | per `.claude/rules/hooks-executable.md`. The file is already git mode `100755` and `core.fileMode=false`, so a rebuild in place needs no `git update-index --chmod=+x`.                                                                                                                                                    |
+| **not** `--minify`                                  | ~8% gzip saving is not worth losing line-numbered stack traces in a fail-open code path.                                                                                                                                                                                                                                   |
+| **not** `--reject-unresolved`                       | prettier resolves a project's config file through a runtime `import()` of a computed path, unresolvable at build time _by design_.                                                                                                                                                                                         |
+| **not** `--production` / `--bytecode` / `--compile` | `--production` implies minification, `--bytecode` forces CJS, `--compile` emits a standalone bun executable — all three contradict a node-runnable ESM artifact.                                                                                                                                                           |
 
 Measured: ~9.3 MB bundle plus 3,037,240 B of `.wasm` sidecars, `node --check` clean, byte-identical
 on repeated builds in one tree, runs under both `node` and `bun`, import ≈246 ms (one-time per

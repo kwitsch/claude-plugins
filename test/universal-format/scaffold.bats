@@ -167,8 +167,8 @@ setup() {
   assert_failure
 }
 
-@test "plugin.json version is 0.14.1" {
-  run jq -e '.version == "0.14.1"' "$PLUGIN/.claude-plugin/plugin.json"
+@test "plugin.json version is 0.15.0" {
+  run jq -e '.version == "0.15.0"' "$PLUGIN/.claude-plugin/plugin.json"
   assert_success
 }
 

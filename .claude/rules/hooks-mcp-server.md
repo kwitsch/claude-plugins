@@ -80,6 +80,14 @@ repo's single-hook example.
 > `import.meta.require`) anywhere in the bundle. Do not hand-edit the bundle or the sidecars —
 > edit the TS sources and rebuild. Every other plugin's `mcp/server.mjs` stays hand-written and
 > dependency-free.
+>
+> (added 2026-08-19, updated for 0.15.0) The "no Bun-only API" invariant (`Bun.*`, `bun:*`,
+> `import.meta.require`) is now machine-enforced by `test/universal-format/build-artifact.test.mjs`'s
+> no-`Bun.`-token / no-`bun:`-import assertions, not just prose. A benign
+> `process.versions.bun` read exists in `server.ts` (`detectRuntime`, module-local,
+> non-exported) purely to log `running under <node|bun>` on stderr at startup — it is a
+> plain property read off `node:process`, NOT a `Bun.*` property access, so the invariant
+> still holds.
 
 Why the limits (documented Claude Code behavior):
 
@@ -222,8 +230,8 @@ if [ "$#" -eq 0 ]; then
   exit 64
 fi
 
-if command -v bun  >/dev/null 2>&1; then exec bun  "$@"; fi
-if command -v node >/dev/null 2>&1; then exec node "$@"; fi
+if command -v bun > /dev/null 2>&1; then exec bun "$@"; fi
+if command -v node > /dev/null 2>&1; then exec node "$@"; fi
 echo "mjs-launch.sh: neither bun nor node is available. Install Node.js or Bun." >&2
 exit 1
 ```
