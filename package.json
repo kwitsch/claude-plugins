@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint plugins test src",
     "format": "prettier --write \"plugins/**/*.{js,mjs}\" \"test/**/*.{js,mjs}\" \"src/**/*.{ts,mjs}\"",
-    "build:universal-format-mcp": "node src/universal-format-mcp/build.mjs"
+    "build:universal-format-mcp": "node src/universal-format-mcp/build.mjs",
+    "build:linux-token-efficiency-mcp": "node src/linux-token-efficiency-mcp/build.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -84,7 +84,7 @@ setup() {
   assert_success
   run grep -F 'rm -rf' "$PLUGIN_README"
   assert_success
-  run grep -F 'mcp/server.mjs' "$PLUGIN_README"
+  run grep -F 'mcp/linux-token-efficiency-mcp' "$PLUGIN_README"
   assert_success
   run grep -Fi 'download' "$PLUGIN_README"
   assert_success
@@ -106,7 +106,7 @@ setup() {
 @test "plugin CLAUDE.md carries the codebase-memory-mcp bundle section and its rationale" {
   run grep -F '## codebase-memory-mcp bundle' "$PLUGIN_CLAUDE"
   assert_success
-  for token in 'fail-open' 'npm-automations' '${CLAUDE_PLUGIN_DATA}' 'CBM_CACHE_DIR' '100 MiB' 'mcp_tool' 'mcp/server.mjs' 'cbm-tools.json' 'CBM_BUNDLE_CACHE'; do
+  for token in 'fail-open' 'npm-automations' '${CLAUDE_PLUGIN_DATA}' 'CBM_CACHE_DIR' '100 MiB' 'mcp_tool' 'mcp/linux-token-efficiency-mcp' 'cbm-tools.json' 'CBM_BUNDLE_CACHE'; do
     run grep -F "$token" "$PLUGIN_CLAUDE"
     assert_success
   done
@@ -203,6 +203,21 @@ setup() {
   assert_success
   run bash -c "grep -F '[linux-token-efficiency](plugins/linux-token-efficiency/README.md)' '$REPO_ROOT/README.md' | grep -F 'context-mode'"
   assert_success
+}
+
+@test "plugin docs describe the committed Rust MCP binary, not the retired .mjs pair" {
+  for f in "$PLUGIN_README" "$PLUGIN_CLAUDE"; do
+    run grep -F 'linux-token-efficiency-mcp' "$f"
+    assert_success
+    # 'plugins/universal-format/mcp/server.mjs' is a legitimate cross-reference to a
+    # different plugin's file, not a dead reference to this plugin's retired server.
+    run bash -c "grep -F 'mcp/server.mjs' '$f' | grep -vc 'universal-format' || true"
+    assert_output '0'
+    run grep -F 'cbm-context.mjs' "$f"
+    assert_failure
+    run grep -F 'webfetch-steer.mjs' "$f"
+    assert_failure
+  done
 }
 
 @test "plugin README documents the forced terse output style" {

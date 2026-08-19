@@ -4,6 +4,7 @@ paths:
   - "plugins/*/.mcp.json"
   - "plugins/*/hooks/hooks.json"
   - "plugins/*/hooks/*.mjs"
+  - "plugins/linux-token-efficiency/mcp/linux-token-efficiency-mcp"
 ---
 
 # Rule: MCP-server hooks (preferred for non-blocking mid-session hooks)
@@ -60,8 +61,9 @@ repo's single-hook example.
 
 <!-- separate blockquote, not a continuation of the one above -->
 
-> Correction note (added 2026-08-08, updated for 0.12.0): `universal-format` is this repo's ONE
-> deliberate exception to "self-contained zero-dep `mcp/server.mjs`". As of 0.12.0 its
+> Correction note (added 2026-08-08, updated for 0.12.0): `universal-format` was this repo's ONE
+> deliberate exception to "self-contained zero-dep `mcp/server.mjs`" (see the 2026-08-19 note below
+> for the second). As of 0.12.0 its
 > `plugins/universal-format/mcp/server.mjs` is a committed ~9.3 MB `bun build` bundle generated
 > from `src/universal-format-mcp/*.ts` with prettier and its `prettier-plugin-java`,
 > `@prettier/plugin-php` and `prettier-plugin-sh` plugins inlined, **plus three committed `.wasm`
@@ -88,6 +90,24 @@ repo's single-hook example.
 > non-exported) purely to log `running under <node|bun>` on stderr at startup — it is a
 > plain property read off `node:process`, NOT a `Bun.*` property access, so the invariant
 > still holds.
+>
+> Correction note (added 2026-08-19, for `linux-token-efficiency` 0.6.0): a **second** deliberate
+> exception to "self-contained zero-dep `mcp/server.mjs`" — this one is not `.mjs`-shaped at all.
+> `plugins/linux-token-efficiency/mcp/linux-token-efficiency-mcp` is a committed **compiled Rust
+> ELF binary** (git mode `100755`, marked `binary` in `.gitattributes`), replacing the plugin's
+> earlier hand-written `mcp/server.mjs` + `mcp/cbm-context.mjs` pair. Source lives under
+> `src/linux-token-efficiency-mcp/` (a Cargo binary crate: `consts`/`context`/`provision`/`child`/
+> `transport`/`rpc`/`hooks` modules); it is built locally by
+> `src/linux-token-efficiency-mcp/build.mjs` (atomic tmpfile + rename over the committed artifact,
+> mirroring `src/universal-format-mcp/build.mjs`'s discipline) and is **never built in CI** — CI only
+> runs `cargo test` against the crate's unit tests. This rule's normative framing — "an executable
+> `.mjs` with `#!/usr/bin/env node` on line 1" — is therefore no longer exhaustive for every plugin's
+> `mcp/` server: read it as the default shape for a new plugin, not a hard invariant of this repo.
+> Every behavioral invariant this rule documents (invoked directly as the `.mcp.json` `command`, no
+> wrapper, stdout carries JSON-RPC 2.0 exclusively, diagnostics to stderr) still holds for the Rust
+> binary — only the implementation language and the "hand-written, not committed" assumption do not.
+> Do not hand-edit the binary — edit the Rust sources under `src/linux-token-efficiency-mcp/` and
+> rebuild via `pnpm run build:linux-token-efficiency-mcp`.
 
 Why the limits (documented Claude Code behavior):
 
