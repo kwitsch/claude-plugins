@@ -90,7 +90,7 @@ repo's single-hook example.
 > non-exported) purely to log `running under <node|bun>` on stderr at startup — it is a
 > plain property read off `node:process`, NOT a `Bun.*` property access, so the invariant
 > still holds.
-
+>
 > Correction note (added 2026-08-19, for `linux-token-efficiency` 0.6.0): a **second** deliberate
 > exception to "self-contained zero-dep `mcp/server.mjs`" — this one is not `.mjs`-shaped at all.
 > `plugins/linux-token-efficiency/mcp/linux-token-efficiency-mcp` is a committed **compiled Rust
