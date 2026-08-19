@@ -41,7 +41,7 @@ const TSC_SPAWN_TIMEOUT_MS = 45000; // full-project incremental type-check: slow
 // (test-only fast path — NOT part of the hook's public input contract).
 const DEBOUNCE_MS = (() => {
   const raw = process.env.UNIVERSAL_LINT_DEBOUNCE_MS;
-  const n = raw != null ? Number(raw) : NaN;
+  const n = raw ? Number(raw) : NaN;
   return Number.isFinite(n) && n >= 0 ? n : 5000;
 })();
 const TYPE_CHECK_EXTS = new Set([".ts", ".tsx", ".mts", ".cts"]); // tsc only
