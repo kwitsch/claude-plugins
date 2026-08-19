@@ -51,7 +51,7 @@
     {
       "name": "universal-lint",
       "source": "./plugins/universal-lint",
-      "description": "Silently runs each language's standard linter (read-only — never autofixes) on just-written Shell/Java/Kotlin/JS-TS/Python/Go files after Write/Edit, surfacing findings as context for Claude to fix (shellcheck, checkstyle, ktlint, eslint, ruff check, golangci-lint/go vet).",
+      "description": "Silently runs each language's standard linter (read-only — never autofixes) on just-written Shell/Java/Kotlin/JS-TS/Python/Go/YAML/Markdown/CSS/SCSS/PHP files after Write/Edit, surfacing findings as context for Claude to fix (shellcheck, checkstyle, ktlint, eslint, ruff check, golangci-lint/go vet, yamllint, markdownlint-cli2/markdownlint, stylelint, phpstan/psalm). Lints run on a per-file 5s idle debounce so rapid successive edits trigger a single later lint.",
       "author": {
         "name": "Kwitsch"
       },

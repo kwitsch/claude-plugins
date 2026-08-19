@@ -15,7 +15,7 @@ common_setup() {
   MOCKBIN="$BATS_TEST_TMPDIR/bin"
   mkdir -p "$MOCKBIN"
   for t in bash node; do
-    src="$(command -v "$t" 2>/dev/null)" && [ -n "$src" ] && ln -s "$src" "$MOCKBIN/$t"
+    src="$(command -v "$t" 2> /dev/null)" && [ -n "$src" ] && ln -s "$src" "$MOCKBIN/$t"
   done
 
   # Isolated HOME so no test reads real user config.
@@ -34,7 +34,7 @@ common_setup() {
 # nonzero count), so this divergence is accepted rather than papered over
 # with --include-zero, which errors on ripgrep < 12.0.0.
 rg_or_grep() {
-  if command -v rg >/dev/null 2>&1; then
+  if command -v rg > /dev/null 2>&1; then
     local args=() a stripped seen_dashdash=false
     for a in "$@"; do
       if [ "$seen_dashdash" = true ]; then
@@ -42,7 +42,10 @@ rg_or_grep() {
         continue
       fi
       case "$a" in
-        --) seen_dashdash=true; args+=("$a") ;;
+        --)
+          seen_dashdash=true
+          args+=("$a")
+          ;;
         -[A-Za-z]*)
           stripped="${a//E/}"
           [ "$stripped" = "-" ] && continue
@@ -60,8 +63,12 @@ export -f rg_or_grep
 
 # make_stub <name> <body-line>... -- drop an executable bash stub into MOCKBIN.
 make_stub() {
-  local name="$1"; shift
-  { printf '#!/usr/bin/env bash\n'; printf '%s\n' "$@"; } > "$MOCKBIN/$name"
+  local name="$1"
+  shift
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf '%s\n' "$@"
+  } > "$MOCKBIN/$name"
   chmod +x "$MOCKBIN/$name"
 }
 
@@ -86,6 +93,6 @@ lint_file_call() {
   local fp="$1" cwd="$2"
   local out
   out="$(jq -cn --arg f "$fp" --arg c "$cwd" '{hook_event_name:"PostToolUse", tool_name:"Write", tool_input:{file_path:$f}, tool_response:{success:true}, cwd:$c}' \
-    | env PATH="$MOCKBIN" HOME="$HOME" RECORD="$RECORD" OUT="$OUT" node "$SERVER" 2>/dev/null)"
+    | env PATH="$MOCKBIN" HOME="$HOME" RECORD="$RECORD" OUT="$OUT" UNIVERSAL_LINT_DEBOUNCE_MS="${UNIVERSAL_LINT_DEBOUNCE_MS-0}" node "$SERVER" 2> /dev/null)"
   if [ -n "$out" ]; then printf '%s' "$out"; else printf '{}'; fi
 }

@@ -12,6 +12,7 @@ import {
   truncate,
   isToolAvailable,
   isExcludedPath,
+  resolveLintTarget,
   parseRtkPrefix,
   resolveTsconfig,
   looksLikeSolutionStyleTsconfig,
@@ -489,4 +490,54 @@ test("isExcludedPath: *.local.* files excluded regardless of location", () => {
   assert.equal(isExcludedPath(path.join(".claude", "settings.local.json")), true);
   assert.equal(isExcludedPath("docker-compose.local.yml"), true);
   assert.equal(isExcludedPath("a.sh"), false);
+});
+
+/** @param {string} cwd @param {string} filePath @param {boolean} [success] @returns {PostToolUseHookInput} */
+function mockResolveArgs(cwd, filePath, success = true) {
+  return {
+    session_id: "test-session",
+    transcript_path: "/dev/null",
+    cwd,
+    permission_mode: "default",
+    hook_event_name: "PostToolUse",
+    tool_name: "Write",
+    tool_input: { file_path: filePath },
+    tool_response: { success },
+  };
+}
+
+test("resolveLintTarget: returns the resolved absolute path for an in-cwd eligible file", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ul-rlt-"));
+  writeFileSync(path.join(dir, "a.sh"), "echo hi\n");
+  assert.equal(resolveLintTarget(mockResolveArgs(dir, "a.sh")), path.join(dir, "a.sh"));
+});
+
+test("resolveLintTarget: null when tool_response.success === false", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ul-rlt-"));
+  writeFileSync(path.join(dir, "a.sh"), "echo hi\n");
+  assert.equal(resolveLintTarget(mockResolveArgs(dir, "a.sh", false)), null);
+});
+
+test("resolveLintTarget: null for a path resolving outside cwd", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ul-rlt-"));
+  assert.equal(resolveLintTarget(mockResolveArgs(dir, "../escape.sh")), null);
+});
+
+test("resolveLintTarget: null for an excluded path (node_modules)", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ul-rlt-"));
+  const nm = path.join(dir, "node_modules");
+  mkdirSync(nm, { recursive: true });
+  writeFileSync(path.join(nm, "a.sh"), "echo hi\n");
+  assert.equal(resolveLintTarget(mockResolveArgs(dir, "node_modules/a.sh")), null);
+});
+
+test("resolveLintTarget: null for an unsupported extension", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ul-rlt-"));
+  writeFileSync(path.join(dir, "a.txt"), "hi\n");
+  assert.equal(resolveLintTarget(mockResolveArgs(dir, "a.txt")), null);
+});
+
+test("resolveLintTarget: null when the file does not exist", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ul-rlt-"));
+  assert.equal(resolveLintTarget(mockResolveArgs(dir, "gone.sh")), null);
 });
