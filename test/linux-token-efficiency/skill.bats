@@ -92,7 +92,7 @@ setup() {
   assert_success
   run grep -F 'git add plugins/linux-token-efficiency/cbm-bundle.json plugins/linux-token-efficiency/cbm-tools.json' "$SKILL"
   assert_success
-  run grep -F 'git ls-files -s plugins/linux-token-efficiency/mcp/server.mjs' "$SKILL"
+  run grep -F 'git ls-files -s plugins/linux-token-efficiency/mcp/linux-token-efficiency-mcp' "$SKILL"
   assert_success
   run grep -F 'cbm-launch.sh' "$SKILL"
   assert_failure

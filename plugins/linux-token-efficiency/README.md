@@ -69,8 +69,8 @@ registered through `.mcp.json`. Its 15 graph tools appear as
 bare `mcp__codebase-memory__*` matcher never fires for a plugin-bundled server), named after
 upstream's own tool names.
 
-**Nothing cbm-related is committed to this repo.** `mcp/server.mjs` is a small Node proxy: on its
-first start it downloads the pinned release asset (37.6 MiB) from GitHub Releases, verifies its
+**Nothing cbm-related is committed to this repo.** `mcp/linux-token-efficiency-mcp` is a small
+committed Rust proxy binary: on its first start it downloads the pinned release asset (37.6 MiB) from GitHub Releases, verifies its
 sha256 against the pin in `cbm-bundle.json`, extracts it, verifies the extracted 279.6 MiB binary's
 own sha256 against the pin too, and only then moves it into the cache with an atomic rename. It then
 spawns that binary once as a long-lived child and forwards every tool call to it, so all 15 upstream
@@ -138,7 +138,9 @@ copied byte-for-byte, and a `SessionStart` hook literally runs `cat` on it, so i
 injected on every `startup`, `resume`, `clear` and `compact`.
 
 **context-mode steering** (`steer_enabled`, default on). Two `PreToolUse` hooks turn the routing
-rules from advice into enforcement, each deny carrying a complete, ready-to-use replacement call:
+rules from advice into enforcement, each deny carrying a complete, ready-to-use replacement call.
+The Bash steer is a command hook (`hooks/rtk-rewrite.mjs`); the WebFetch steer is an `mcp_tool` hook
+(`hook_webfetch_steer`) served by the same `codebase-memory` server as the context hooks below:
 
 | Denied call                                                                          | Replacement in the deny reason                       |
 | ------------------------------------------------------------------------------------ | ---------------------------------------------------- |

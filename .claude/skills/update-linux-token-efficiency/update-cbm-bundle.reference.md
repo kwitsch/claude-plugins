@@ -30,7 +30,7 @@ Both overrides exist so the bats suite can point at a local fixture tree; no net
 
 - `plugins/linux-token-efficiency/cbm-bundle.json` — `cbmVersion`, `releaseTag`,
   `binaries[0].asset`, `assetSha256`, `binarySha256`. This pin is read at RUNTIME by
-  `plugins/linux-token-efficiency/mcp/server.mjs`, so it is the only thing that can move
+  `plugins/linux-token-efficiency/mcp/linux-token-efficiency-mcp`, so it is the only thing that can move
   users to a new cbm version.
 - `plugins/linux-token-efficiency/cbm-tools.json` — `{cbmVersion, tools:[{name, description, inputSchema}]}`,
   regenerated from the extracted binary's own `tools/list` probe. An empty tool list fails
@@ -42,7 +42,7 @@ purely to compute `binarySha256` and to probe `tools/list`, and that copy is dis
 the trap. The script **never** writes anything under `plugins/linux-token-efficiency/bin/`
 (which holds only `bin/rtk`), and never reads, writes or clears the runtime download cache
 `${CLAUDE_PLUGIN_DATA}/cbm/<binarySha256[0:16]>/` — that cache is content-addressed and
-belongs to `mcp/server.mjs`, so a pin bump simply makes the next server start download into
+belongs to `mcp/linux-token-efficiency-mcp`, so a pin bump simply makes the next server start download into
 a new directory. Old directories remain until a user deletes them.
 
 ## Exit codes
@@ -61,11 +61,11 @@ a new directory. Old directories remain until a user deletes them.
 
 ```bash
 git add plugins/linux-token-efficiency/cbm-bundle.json plugins/linux-token-efficiency/cbm-tools.json
-git ls-files -s plugins/linux-token-efficiency/mcp/server.mjs # must print 100755
+git ls-files -s plugins/linux-token-efficiency/mcp/linux-token-efficiency-mcp # must print 100755
 ```
 
 The repo sets `core.fileMode=false`, so a NEW executable needs `chmod +x` **and**
-`git update-index --chmod=+x`; `mcp/server.mjs` is already tracked as `100755`, so this is a
+`git update-index --chmod=+x`; `mcp/linux-token-efficiency-mcp` is already tracked as `100755`, so this is a
 verification step, not a fix. Then bump
 `plugins/linux-token-efficiency/.claude-plugin/plugin.json`'s `version` and update the cbm
 version stated in `plugins/linux-token-efficiency/README.md`. Tell users to restart sessions
