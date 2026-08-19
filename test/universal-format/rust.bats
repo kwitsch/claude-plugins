@@ -59,3 +59,16 @@ setup() {
   assert_success
   echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("rustfmt reformatted a.rs")'
 }
+
+@test "rust: .editorconfig max_line_length -> rustfmt gets --config max_width" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'fn main(){}\n' > "$cwd/a.rs"
+  printf 'root = true\n[*]\nmax_line_length = 120\n' > "$cwd/.editorconfig"
+  rec_stub rustfmt
+  run format_file_call "$cwd/a.rs" "$cwd"
+  assert_success
+  run rg_or_grep -F -- "--config max_width=120" "$RECORD"
+  assert_success
+}
