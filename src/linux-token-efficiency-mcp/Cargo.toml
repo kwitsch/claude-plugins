@@ -1,0 +1,26 @@
+[package]
+name = "linux-token-efficiency-mcp"
+version = "0.6.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "linux-token-efficiency-mcp"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+regex = "1"
+flate2 = "1"
+tar = "0.4"
+ureq = { version = "2", default-features = false, features = ["tls"] }
+rustix = { version = "0.38", features = ["process"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+codegen-units = 1
+panic = "abort"
