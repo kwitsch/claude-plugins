@@ -276,7 +276,7 @@ function runLintTool(tool, argv, spawnOpts) {
       timeout: NPX_SPAWN_TIMEOUT_MS,
     });
   }
-  if (onPath("rtk")) {
+  if (!tool.manifestPath && onPath("rtk")) {
     const rtkPrefix = getRtkPrefix(tool);
     if (rtkPrefix) {
       const rtkResult = tryRtk([...rtkPrefix, ...argv.slice(tool.args.length)], spawnOpts);
