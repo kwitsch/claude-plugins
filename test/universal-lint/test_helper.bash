@@ -93,6 +93,6 @@ lint_file_call() {
   local fp="$1" cwd="$2"
   local out
   out="$(jq -cn --arg f "$fp" --arg c "$cwd" '{hook_event_name:"PostToolUse", tool_name:"Write", tool_input:{file_path:$f}, tool_response:{success:true}, cwd:$c}' \
-    | env PATH="$MOCKBIN" HOME="$HOME" RECORD="$RECORD" OUT="$OUT" UNIVERSAL_LINT_DEBOUNCE_MS="${UNIVERSAL_LINT_DEBOUNCE_MS:-0}" node "$SERVER" 2> /dev/null)"
+    | env PATH="$MOCKBIN" HOME="$HOME" RECORD="$RECORD" OUT="$OUT" UNIVERSAL_LINT_DEBOUNCE_MS="${UNIVERSAL_LINT_DEBOUNCE_MS-0}" node "$SERVER" 2> /dev/null)"
   if [ -n "$out" ]; then printf '%s' "$out"; else printf '{}'; fi
 }

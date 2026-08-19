@@ -54,3 +54,20 @@ setup() {
   assert_success
   [ "$(wc -l < "$RECORD" | tr -d ' ')" -eq 1 ]
 }
+
+@test "debounce: an explicitly empty UNIVERSAL_LINT_DEBOUNCE_MS falls back to the script's real 5000ms default, not an immediate run" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  OUT='a.sh:1:6: note: something [SC2086]'
+  UNIVERSAL_LINT_DEBOUNCE_MS=""
+  rec_stub shellcheck 1
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'echo $1\n' > "$cwd/a.sh"
+
+  lint_file_call "$cwd/a.sh" "$cwd" &   # backgrounded: real default is 5000ms, far longer than this test waits
+  local pid=$!
+  sleep 0.3
+  [ "$(wc -l < "$RECORD" | tr -d ' ')" -eq 0 ]   # still debouncing -- proves "" didn't coerce to an immediate run
+  kill "$pid" 2> /dev/null || true
+  wait "$pid" 2> /dev/null || true
+}
