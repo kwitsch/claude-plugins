@@ -113,3 +113,12 @@ test("exactly the three expected .wasm sidecars ship next to the bundle, and ass
 test("artifact is portable: no build-machine absolute path is embedded in the bundle", () => {
   assert.ok(!text.includes(REPO_ROOT), "the bundle embeds this checkout's own absolute path — a bundler CJS-interop shim likely hardcoded a build-machine __dirname again");
 });
+
+// The --target=node bundle must carry no Bun-only API: zero `Bun.` property accesses and zero
+// `bun:` import specifiers. Converts the previously prose-only invariant into an enforced one.
+// A benign vendored `process.versions.bun` read, plus the source's own detectRuntime copy, are
+// fine — neither matches `/\bBun\./` — so the exact count is deliberately NOT asserted.
+test("artifact uses no Bun-only API: no `Bun.` token and no `bun:` import", () => {
+  assert.ok(!/\bBun\./.test(text), "the bundle references a `Bun.` API — the --target=node no-Bun invariant is broken; rebuild from Bun-API-free source");
+  assert.ok(!/["']bun:/.test(text), "the bundle imports a `bun:` module — the --target=node no-Bun invariant is broken; rebuild from Bun-API-free source");
+});
