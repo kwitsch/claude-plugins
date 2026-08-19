@@ -18,26 +18,35 @@ asset `rtk-x86_64-unknown-linux-musl.tar.gz` — at `bin/rtk`, and routes Bash t
 automatically.
 
 Claude Code adds an enabled plugin's `bin/` to the Bash `PATH`, so `rtk` is invocable by hand as
-soon as the plugin is enabled. On top of that, a `PreToolUse` hook pipes each Bash command into the
-bundled binary's own `rtk hook claude` protocol and hands the rewritten, token-optimized command
-back to the harness — no `rtk` prefix to remember.
+soon as the plugin is enabled. On top of that, a `PreToolUse` hook routes each Bash command: a
+conservatively classified read-only gather command (a bare `curl` GET, a ≥3-command chain of text
+tools like `grep`/`cat`/`wc`, or a ≥3-stage text pipeline) is denied with a ready-to-use
+replacement call on context-mode's `ctx_fetch_and_index` / `ctx_batch_execute` / `ctx_execute`
+(see "context-mode steering" below); every other command is piped into the bundled binary's own
+`rtk hook claude` protocol and the rewritten, token-optimized command handed back to the harness —
+no `rtk` prefix to remember. The split is deliberate: `git`/`gh` and anything with side effects
+stay in Bash under rtk compression; only output-heavy read-only gathering moves to the
+context-mode sandbox, where output is indexed instead of entering the context window.
 
 ## Configuration options
 
 Set via `/plugin manage`, stored in settings.json under
 `pluginConfigs["linux-token-efficiency"].options`.
 
-| Option         | Default | Effect / Value                                                                                                                                                                                                                                                               |
-| -------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `auto_rewrite` | `true`  | `true` (or unset): rewrite every Bash command through the bundled rtk. `false`: no rewriting — the bundled `rtk` stays on `PATH` for manual use. Only literal `false` disables.                                                                                              |
-| `cbm_enabled`  | `true`  | `true` (or unset): run the `codebase-memory` MCP server (downloading the pinned cbm release into the plugin data dir on first start) and enable its four `mcp_tool` context hooks. `false`: neither runs and nothing is downloaded. Only the literal value `false` disables. |
+| Option          | Default | Effect / Value                                                                                                                                                                                                                                                                                                |
+| --------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `auto_rewrite`  | `true`  | `true` (or unset): rewrite every Bash command through the bundled rtk. `false`: no rewriting — the bundled `rtk` stays on `PATH` for manual use. Only literal `false` disables.                                                                                                                               |
+| `cbm_enabled`   | `true`  | `true` (or unset): run the `codebase-memory` MCP server (downloading the pinned cbm release into the plugin data dir on first start) and enable its four `mcp_tool` context hooks. `false`: neither runs and nothing is downloaded. Only the literal value `false` disables.                                  |
+| `steer_enabled` | `true`  | `true` (or unset): deny-steer WebFetch and read-only Bash gather commands to context-mode's `ctx_*` tools (see "context-mode steering" below). `false`: no steering — the escape hatch when the context-mode server is unavailable. Does not affect the rtk rewrite. Only the literal value `false` disables. |
 
-The `context-mode` server (below) has no toggle — it is always enabled.
+The `context-mode` server (below) has no toggle — it is always enabled. `steer_enabled` gates only
+the two steering hooks, never the server itself.
 
 ## When the hook does nothing
 
-The rewrite is an optimization and fails open everywhere — a Bash command is never blocked or
-broken by it. It deliberately no-ops when:
+The rewrite is an optimization and fails open everywhere — a command that stays in Bash is never
+broken by it (the steering branch above is the only path that denies, and only with a working
+replacement in hand). The rewrite deliberately no-ops when:
 
 - the host is not Linux;
 - `auto_rewrite` is set to `false`;
@@ -128,15 +137,32 @@ integrity. context-mode keeps its own SQLite knowledge base at its upstream defa
 copied byte-for-byte, and a `SessionStart` hook literally runs `cat` on it, so its ~5 KB of rules are
 injected on every `startup`, `resume`, `clear` and `compact`.
 
-**The document's "BLOCKED" sections are upstream's own claims, and this plugin enforces none of
-them.** It states that `curl`, `wget`, inline HTTP and `WebFetch` are intercepted and blocked; that is
-true only in upstream's full plugin, whose routing engine is deliberately not ported here. Nothing is
-intercepted: `curl`, `wget` and `WebFetch` keep working exactly as before. The file is kept verbatim
-so that re-syncing with upstream stays a plain copy.
+**context-mode steering** (`steer_enabled`, default on). Two `PreToolUse` hooks turn the routing
+rules from advice into enforcement, each deny carrying a complete, ready-to-use replacement call:
+
+| Denied call                                                                          | Replacement in the deny reason                       |
+| ------------------------------------------------------------------------------------ | ---------------------------------------------------- |
+| every `WebFetch`                                                                     | `ctx_fetch_and_index(url, source)` then `ctx_search` |
+| Bash: a single bare `curl` GET                                                       | `ctx_fetch_and_index(url, source)` then `ctx_search` |
+| Bash: ≥3 chained read-only text-tool commands (`grep`, `cat`, `wc`, `find`, `jq`, …) | `ctx_batch_execute(commands, queries)`               |
+| Bash: a ≥3-stage all-read-only pipeline                                              | `ctx_execute(language: "shell", code)`               |
+
+The Bash classifier is deliberately conservative: anything with side effects, redirects, command
+substitution, unknown programs, backgrounding, `git`/`gh`, or `wget` (whose default is a file
+download) stays in Bash and gets the rtk rewrite instead. Steering never depends on the rtk binary
+and works even with `auto_rewrite` off. If the context-mode server is not connected, a denied call
+has no working replacement — set `steer_enabled` to `false` as the escape hatch.
+
+**The document's "BLOCKED" sections are upstream's claims — as of 0.4.0 the steering hooks make
+some of them real.** `WebFetch` and bare `curl` GETs are now actually denied (by this plugin's own
+hooks, not by upstream's routing engine, which is still not ported). Still not intercepted: `wget`
+and inline HTTP inside sandboxed code. The file is kept verbatim so that re-syncing with upstream
+stays a plain copy.
 
 **`ctx_execute` and `ctx_batch_execute` run code and shell commands inside context-mode's sandbox**,
 which does not pass through `Bash` `PreToolUse` hooks — neither this plugin's rtk rewrite nor another
-plugin's deny gates see them. There is no toggle to disable this — the server is always registered.
+plugin's deny gates see them. There is no toggle to disable this — the server is always registered,
+and the steering hooks knowingly route more work through this bypass.
 
 **Three token-efficiency signals now coexist** in this one plugin: rtk's Bash rewriting, cbm's graph
 nudges, and context-mode's "prefer `ctx_*` over Bash/Grep/Read" rules. They never conflict

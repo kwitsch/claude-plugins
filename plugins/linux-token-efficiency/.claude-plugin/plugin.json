@@ -1,7 +1,7 @@
 {
   "name": "linux-token-efficiency",
-  "version": "0.3.0",
-  "description": "Bundles the rtk token-optimizing CLI proxy (https://github.com/rtk-ai/rtk) as a Linux x86_64 binary and routes Bash commands through it via a PreToolUse rewrite hook, ships codebase-memory-mcp (https://github.com/DeusData/codebase-memory-mcp) as a plugin-local proxy MCP server that downloads and sha256-verifies the pinned release on first start with four context-only graph hooks, and registers the external context-mode package (https://github.com/mksglu/context-mode) as the context-mode MCP stdio server through a bun-preferred bunx / npx --yes launcher, injecting upstream's own routing-rules document verbatim at every session start via a SessionStart cat hook. LINUX ONLY: the bundled binaries are Linux executables, so on macOS, Windows or any other operating system this plugin does not work for the rtk and codebase-memory features, whose hooks no-op. The one OS-independent component is an always-on, forced terse output style (bullet-first, filler-free), which applies wherever the plugin is enabled.",
+  "version": "0.4.0",
+  "description": "Bundles the rtk token-optimizing CLI proxy (https://github.com/rtk-ai/rtk) as a Linux x86_64 binary and routes Bash commands through it via a PreToolUse rewrite hook, ships codebase-memory-mcp (https://github.com/DeusData/codebase-memory-mcp) as a plugin-local proxy MCP server that downloads and sha256-verifies the pinned release on first start with four context-only graph hooks, and registers the external context-mode package (https://github.com/mksglu/context-mode) as the context-mode MCP stdio server through a bun-preferred bunx / npx --yes launcher, injecting upstream's own routing-rules document verbatim at every session start via a SessionStart cat hook and deny-steering WebFetch plus read-only Bash gather commands to its ctx_* tools via two PreToolUse steering hooks. LINUX ONLY: the bundled binaries are Linux executables, so on macOS, Windows or any other operating system this plugin does not work for the rtk and codebase-memory features, whose hooks no-op. The one OS-independent component is an always-on, forced terse output style (bullet-first, filler-free), which applies wherever the plugin is enabled.",
   "author": { "name": "Kwitsch" },
   "userConfig": {
     "auto_rewrite": {
@@ -14,6 +14,12 @@
       "type": "boolean",
       "title": "Enable the codebase-memory-mcp MCP server and its context hooks",
       "description": "Runs codebase-memory-mcp (cbm) as the codebase-memory MCP stdio server through a plugin-local Node proxy, and enables the four context-only cbm graph hooks (SessionStart, SubagentStart, Grep/Glob, post-Read). On first start the proxy DOWNLOADS the pinned ~37.6 MiB release asset from GitHub Releases into the plugin's data directory and sha256-verifies it against the committed pin before extracting its ~280 MiB binary; one bounded attempt per server process, no repo mutation, and silence on failure. Linux x86_64 only. Set to false to disable: only the literal value false disables it; unset, missing or any other value leaves it enabled, and nothing is downloaded while disabled. Default: true. Disabling after first use does not delete the download cache; remove it by hand (see README).",
+      "default": true
+    },
+    "steer_enabled": {
+      "type": "boolean",
+      "title": "Steer WebFetch and read-only Bash gathers to context-mode",
+      "description": "Denies WebFetch calls and conservatively classified read-only Bash gather commands (bare curl/wget GETs, chains and pipelines of text tools) with a copy-ready replacement call on the context-mode MCP server's ctx_fetch_and_index / ctx_batch_execute / ctx_execute, so raw output is indexed instead of entering the context window. Does not affect the rtk rewrite (auto_rewrite) — commands that stay in Bash are still rewritten. Linux only — a no-op on every other OS. Escape hatch when the context-mode server is unavailable or the steering misfires: only the literal value false disables it; unset or any other value leaves it enabled. Default: true.",
       "default": true
     }
   }
