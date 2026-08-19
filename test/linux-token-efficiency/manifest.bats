@@ -8,8 +8,8 @@ setup() {
   common_setup
 }
 
-@test "plugin.json is valid JSON with name and version 0.3.0" {
-  run jq -e '.name == "linux-token-efficiency" and .version == "0.3.0"' "$MANIFEST"
+@test "plugin.json is valid JSON with name and version 0.4.0" {
+  run jq -e '.name == "linux-token-efficiency" and .version == "0.4.0"' "$MANIFEST"
   assert_success
 }
 
@@ -18,12 +18,14 @@ setup() {
   assert_success
 }
 
-@test "plugin.json declares exactly the auto_rewrite and cbm_enabled boolean toggles, all default true" {
-  run jq -e '.userConfig | keys == ["auto_rewrite","cbm_enabled"]' "$MANIFEST"
+@test "plugin.json declares exactly the auto_rewrite, cbm_enabled and steer_enabled boolean toggles, all default true" {
+  run jq -e '.userConfig | keys == ["auto_rewrite","cbm_enabled","steer_enabled"]' "$MANIFEST"
   assert_success
   run jq -e '.userConfig | .auto_rewrite.type == "boolean" and .auto_rewrite.default == true and (.auto_rewrite.title | length > 0) and (.auto_rewrite.description | length > 0)' "$MANIFEST"
   assert_success
   run jq -e '.userConfig | .cbm_enabled.type == "boolean" and .cbm_enabled.default == true and (.cbm_enabled.title | length > 0) and (.cbm_enabled.description | length > 0)' "$MANIFEST"
+  assert_success
+  run jq -e '.userConfig | .steer_enabled.type == "boolean" and .steer_enabled.default == true and (.steer_enabled.title | length > 0) and (.steer_enabled.description | length > 0)' "$MANIFEST"
   assert_success
 }
 

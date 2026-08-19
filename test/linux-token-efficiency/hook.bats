@@ -1,6 +1,7 @@
 #!/usr/bin/env bats
 
-# hooks/rtk-rewrite.mjs — PreToolUse Bash rewrite hook, linux-token-efficiency.
+# hooks/rtk-rewrite.mjs — PreToolUse Bash router hook (context-mode steer branch +
+# rtk rewrite branch), linux-token-efficiency.
 #
 # The hook resolves its bundled binary as <script dir>/../bin/rtk, so behavior tests
 # run a COPY of the hook inside a fake plugin tree in $BATS_TEST_TMPDIR whose bin/
@@ -197,6 +198,64 @@ assert_json() {
   assert_json '.hookSpecificOutput.updatedInput.command == "rtk ls -la /tmp"'
   hook_run "$(make_input 'ls -la /tmp')" 'CLAUDE_PLUGIN_OPTION_AUTO_REWRITE=${user_config.auto_rewrite}'
   assert_json '.hookSpecificOutput.updatedInput.command == "rtk ls -la /tmp"'
+}
+
+# --- steer branch (context-mode): deny-steers read-only gather commands; everything
+# --- else falls through to the rtk rewrite branch below. Classifier internals are
+# --- unit-tested in rtk-rewrite.test.mjs; these cases pin the end-to-end routing.
+
+@test "steer: a read-only 3-segment chain is denied toward ctx_batch_execute, rtk never consulted" {
+  rtk_stub "$PLUGIN_BIN" "printf '%s\n' '$REWRITE_JSON'"
+  hook_run "$(make_input 'grep -rn foo src && wc -l file && cat README.md')"
+  assert_success
+  # One combined filter: assert_json consumes $output, so it must not be chained.
+  assert_json '.hookSpecificOutput | (.permissionDecision == "deny") and (has("updatedInput") | not) and (.permissionDecisionReason | contains("ctx_batch_execute") and contains("grep -rn foo src") and contains("Do not retry") and contains("steer_enabled"))'
+}
+
+@test "steer: a bare curl GET is denied toward ctx_fetch_and_index" {
+  rtk_stub "$PLUGIN_BIN" "printf '%s\n' '$REWRITE_JSON'"
+  hook_run "$(make_input 'curl -sSL https://example.com/api/items')"
+  assert_success
+  assert_json '.hookSpecificOutput | (.permissionDecision == "deny") and (.permissionDecisionReason | contains("ctx_fetch_and_index") and contains("https://example.com/api/items"))'
+}
+
+@test "steer: a read-only 3-stage pipeline is denied toward ctx_execute" {
+  rtk_stub "$PLUGIN_BIN" "printf '%s\n' '$REWRITE_JSON'"
+  hook_run "$(make_input 'cat log.txt | grep ERROR | sort | uniq -c')"
+  assert_success
+  assert_json '.hookSpecificOutput | (.permissionDecision == "deny") and (.permissionDecisionReason | contains("ctx_execute") and contains("\"language\": \"shell\""))'
+}
+
+@test "steer: git/gh chains stay in Bash and get the rtk rewrite instead" {
+  rtk_stub "$PLUGIN_BIN" "printf '%s\n' '$REWRITE_JSON'"
+  hook_run "$(make_input 'git status && git log --oneline -5 && git diff' '{"description":"list"}')"
+  assert_success
+  assert_json '.hookSpecificOutput | (.updatedInput.command == "rtk ls -la /tmp") and (has("permissionDecision") | not)'
+}
+
+@test "steer: a backgrounded gather command is never steered (ctx tools cannot background)" {
+  rtk_stub "$PLUGIN_BIN" "printf '%s\n' '$REWRITE_JSON'"
+  hook_run "$(make_input 'grep -rn foo src && wc -l file && cat README.md' '{"run_in_background":true}')"
+  assert_success
+  assert_json '.hookSpecificOutput | (has("permissionDecision") | not) and (.updatedInput.command == "rtk ls -la /tmp")'
+}
+
+@test "steer toggle: CLAUDE_PLUGIN_OPTION_STEER_ENABLED=false disables the steer, rewrite still runs" {
+  rtk_stub "$PLUGIN_BIN" "printf '%s\n' '$REWRITE_JSON'"
+  hook_run "$(make_input 'grep -rn foo src && wc -l file && cat README.md')" CLAUDE_PLUGIN_OPTION_STEER_ENABLED=false
+  assert_success
+  assert_json '.hookSpecificOutput | (has("permissionDecision") | not) and (.updatedInput.command == "rtk ls -la /tmp")'
+}
+
+@test "steer runs independently of auto_rewrite: both toggles off produce no output" {
+  rtk_stub "$PLUGIN_BIN" "printf '%s\n' '$REWRITE_JSON'"
+  hook_run "$(make_input 'grep -rn foo src && wc -l file && cat README.md')" CLAUDE_PLUGIN_OPTION_AUTO_REWRITE=false
+  assert_success
+  assert_json '.hookSpecificOutput.permissionDecision == "deny"'
+  hook_run "$(make_input 'grep -rn foo src && wc -l file && cat README.md')" \
+    CLAUDE_PLUGIN_OPTION_AUTO_REWRITE=false CLAUDE_PLUGIN_OPTION_STEER_ENABLED=false
+  assert_success
+  assert_output ''
 }
 
 @test "hooks.json wires PreToolUse/Bash to the hook with no node prefix" {

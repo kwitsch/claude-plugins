@@ -1,9 +1,10 @@
 #!/usr/bin/env bats
 
 # context-mode: the bin/context-mode-launch.sh launcher, the `context-mode` MCP server entry,
-# the verbatim hooks/SessionStart.md document, its SessionStart `cat` hook, and the
-# zero-nudge-hook / verbatim-file guards. Hermetic: `bunx`/`npx` are always stubs on an
-# isolated PATH, so no npm-registry request is ever made.
+# the verbatim hooks/SessionStart.md document, its SessionStart `cat` hook, the two
+# deny-steer hooks (webfetch-steer.mjs and rtk-rewrite.mjs's steer branch wiring) and the
+# verbatim-file guards. Hermetic: `bunx`/`npx` are always stubs on an isolated PATH, so no
+# npm-registry request is ever made.
 
 load 'test_helper'
 
@@ -201,15 +202,91 @@ cm_run() {
   # cbm-hooks.bats, not duplicated here.
 }
 
-@test "zero PreToolUse/PostToolUse nudge hooks were added for context-mode" {
-  run jq -e '(.hooks.PreToolUse | length) == 2 and (.hooks.PostToolUse | length) == 1' "$HOOKS"
+# --- steering hooks (revisits the earlier zero-nudge decision: dynamic deny-steers with
+# --- copy-ready replacement calls, not upstream's static context_guidance tips) ---
+
+@test "PreToolUse holds exactly Bash, Grep|Glob and WebFetch; PostToolUse stays untouched" {
+  run jq -e '(.hooks.PreToolUse | length) == 3 and (.hooks.PostToolUse | length) == 1' "$HOOKS"
+  assert_success
+  run jq -e '[.hooks.PreToolUse[].matcher] == ["Bash","Grep|Glob","WebFetch"]' "$HOOKS"
   assert_success
   # Assert on handler fields, not raw strings: the top-level description legitimately
   # contains "context-mode".
   run jq -e '[.hooks[][].hooks[] | select(.type == "mcp_tool") | .server] | unique == ["plugin:linux-token-efficiency:codebase-memory"]' "$HOOKS"
   assert_success
+  # Upstream's static per-call tips remain rejected; steering is dynamic deny only.
   run grep -F 'context_guidance' "$HOOKS"
   assert_failure
+}
+
+@test "hooks.json wires PreToolUse/WebFetch to webfetch-steer.mjs with no node prefix" {
+  run jq -e '.hooks.PreToolUse[2].hooks == [{type:"command", command:"${CLAUDE_PLUGIN_ROOT}/hooks/webfetch-steer.mjs", timeout:10}]' "$HOOKS"
+  assert_success
+}
+
+@test "webfetch-steer.mjs is executable in the git index (100755)" {
+  # Index, not HEAD: this suite runs before the adding commit exists.
+  run git -C "$REPO_ROOT" ls-files --stage -- plugins/linux-token-efficiency/hooks/webfetch-steer.mjs
+  assert_success
+  assert_line --regexp '^100755 [0-9a-f]+ 0[[:space:]]+plugins/linux-token-efficiency/hooks/webfetch-steer\.mjs$'
+}
+
+# steer_run <payload> [VAR=VALUE ...] -- pipe a payload into the REAL webfetch-steer.mjs
+# (run in place: it imports its sibling rtk-rewrite.mjs) on the isolated PATH.
+steer_run() {
+  local payload="$1"
+  shift
+  run env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" "$@" \
+    "$PLUGIN/hooks/webfetch-steer.mjs" <<< "$payload"
+}
+
+# webfetch_input <url> -- one PreToolUse WebFetch hook payload on stdout.
+webfetch_input() {
+  jq -cn --arg url "$1" '{hook_event_name:"PreToolUse", tool_name:"WebFetch", tool_input:{url:$url, prompt:"summarize"}}'
+}
+
+@test "webfetch-steer denies with a copy-ready ctx_fetch_and_index replacement" {
+  steer_run "$(webfetch_input 'https://example.com/docs/page')"
+  assert_success
+  local out="$output"
+  run jq -e '.hookSpecificOutput | .hookEventName == "PreToolUse" and .permissionDecision == "deny"' <<< "$out"
+  assert_success
+  run jq -e '.hookSpecificOutput.permissionDecisionReason | contains("ctx_fetch_and_index") and contains("mcp__plugin_linux-token-efficiency_context-mode__ctx_fetch_and_index") and contains("https://example.com/docs/page") and contains("\"source\": \"example.com\"") and contains("Do not retry WebFetch") and contains("steer_enabled")' <<< "$out"
+  assert_success
+}
+
+@test "webfetch-steer: an unparseable URL still denies, with the fallback source label" {
+  steer_run "$(webfetch_input 'not a real url')"
+  assert_success
+  local out="$output"
+  run jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | contains("\"source\": \"web\""))' <<< "$out"
+  assert_success
+}
+
+@test "webfetch-steer fails open: non-WebFetch tool, missing url and malformed stdin produce no output" {
+  steer_run "$(jq -cn '{hook_event_name:"PreToolUse", tool_name:"Bash", tool_input:{command:"ls"}}')"
+  assert_success
+  assert_output ''
+  steer_run "$(jq -cn '{hook_event_name:"PreToolUse", tool_name:"WebFetch", tool_input:{prompt:"no url"}}')"
+  assert_success
+  assert_output ''
+  steer_run 'this is not json'
+  assert_success
+  assert_output ''
+}
+
+@test "webfetch-steer toggle: only the literal false disables; unset, empty, true and a placeholder stay enabled" {
+  steer_run "$(webfetch_input 'https://example.com')" CLAUDE_PLUGIN_OPTION_STEER_ENABLED=false
+  assert_success
+  assert_output ''
+  local v
+  for v in '' 'true' '${user_config.steer_enabled}'; do
+    steer_run "$(webfetch_input 'https://example.com')" CLAUDE_PLUGIN_OPTION_STEER_ENABLED="$v"
+    assert_success
+    local out="$output"
+    run jq -e '.hookSpecificOutput.permissionDecision == "deny"' <<< "$out"
+    assert_success
+  done
 }
 
 @test "the verbatim file is guarded by .prettierignore and .coderabbit.yaml, and the cave-context orphan is gone" {

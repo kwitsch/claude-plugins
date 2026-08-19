@@ -17,12 +17,12 @@ wildcard line itself: two tests grep its exact literal.
 **This repo sets `core.fileMode=false`**, so a filesystem `chmod +x` is NOT picked up by `git add`.
 `.claude/rules/bin-executable.md` and `.claude/rules/hooks-executable.md` prescribe only
 `chmod +x` + `ls -la` and never mention this — following them literally commits a `100644` that
-Claude Code then silently skips. Whenever `bin/rtk`, `bin/context-mode-launch.sh` or `hooks/rtk-rewrite.mjs` is added or replaced:
+Claude Code then silently skips. Whenever `bin/rtk`, `bin/context-mode-launch.sh`, `hooks/rtk-rewrite.mjs` or `hooks/webfetch-steer.mjs` is added or replaced:
 
 ```bash
-chmod +x plugins/linux-token-efficiency/bin/rtk plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs
-git add plugins/linux-token-efficiency/bin/rtk plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs
-git update-index --chmod=+x plugins/linux-token-efficiency/bin/rtk plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs
+chmod +x plugins/linux-token-efficiency/bin/rtk plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs plugins/linux-token-efficiency/hooks/webfetch-steer.mjs
+git add plugins/linux-token-efficiency/bin/rtk plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs plugins/linux-token-efficiency/hooks/webfetch-steer.mjs
+git update-index --chmod=+x plugins/linux-token-efficiency/bin/rtk plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs plugins/linux-token-efficiency/hooks/webfetch-steer.mjs
 git ls-files -s plugins/linux-token-efficiency/bin/rtk # must print 100755
 
 chmod +x plugins/linux-token-efficiency/bin/context-mode-launch.sh
@@ -40,12 +40,34 @@ adding commit exists; `git ls-tree HEAD` is only a post-commit human check.
 
 ## Hook design
 
-`hooks/rtk-rewrite.mjs` is a `PreToolUse`/`Bash` **command** hook (the `plugins/CLAUDE.md` hook
-decision tree's single-hook exception; a `PreToolUse` hook returning `updatedInput` must also run
-synchronously, so it is not `async`). It spawns the bundled binary **by absolute path**
-(`<plugin>/bin/rtk hook claude`) and emits rtk's rewritten command **verbatim** — no `PATH` prefix,
-no absolute-path substitution. The bare `rtk` in that command resolves because Claude Code puts an
-enabled plugin's `bin/` on the Bash `PATH`.
+`hooks/rtk-rewrite.mjs` is a `PreToolUse`/`Bash` **command** hook (a `PreToolUse` hook returning
+`updatedInput` must run synchronously, so it is not `async`) that acts as a **router with two
+exits** — ONE hook on the matcher, deliberately, because two separate hooks on the same matcher
+would race a `deny` against an `updatedInput`:
+
+1. **Steer branch (context-mode, gated by `steer_enabled`)**: a conservatively classified
+   read-only gather command — a single bare `curl` GET (never `wget`: its default is a file
+   download, a side effect the steer cannot replicate), a ≥3-segment chain whose every pipe-stage
+   head is in the read-only text-tool set, or a ≥3-stage all-read-only pipeline — is denied with
+   `permissionDecision: "deny"` and a **copy-ready replacement call** on `ctx_fetch_and_index` /
+   `ctx_batch_execute` / `ctx_execute` (full namespaced tool name spelled out) plus an explicit
+   "do not retry via Bash", the anti-denial-loop measure. The classifier
+   (`splitTopLevel`/`commandHead`/`classifyBashCommand`) returns "stay" on ANYTHING beyond a flat
+   quoted chain — substitution, redirects (`2>&1` included), subshells, background `&`, comments,
+   newlines, unknown heads — so the failure direction is always "command runs in Bash", never a
+   wrong deny. Backgrounded commands (`run_in_background`) are never steered: `ctx_*` tools cannot
+   background, so a deny would strand the model.
+2. **Rewrite branch (rtk, gated by `auto_rewrite`)**: everything else spawns the bundled binary
+   **by absolute path** (`<plugin>/bin/rtk hook claude`) and emits rtk's rewritten command
+   **verbatim** — no `PATH` prefix, no absolute-path substitution. The bare `rtk` in that command
+   resolves because Claude Code puts an enabled plugin's `bin/` on the Bash `PATH`.
+
+This split IS the rtk/cbm/context-mode balance: git/gh and other side-effect or single commands
+stay in Bash under rtk compression (the 2026-07 measurement's winner for exactly that class — see
+`## context-mode`'s history note), the read-only gather class rtk has no rewrite for goes to the
+context-mode sandbox where output is indexed instead of entering context, and Grep/Glob/Read stay
+cbm's domain untouched (stacking a context-mode steer there would conflict with
+`hook_symbol_context`/`hook_coverage_context`'s fail-quiet contracts).
 
 Two preflight rules keep that dependency safe: the hook no-ops when `rtk` does not resolve on its
 own `PATH` at all (never emit an unresolvable command), and when the resolved `rtk` is not this
@@ -59,7 +81,20 @@ and turn a backgrounded Bash call into a blocking one. `permissionDecision` is n
 Every failure path is a bare `return` inside `main()`'s single `try/catch` — never
 `process.exit()`, matching `encoding-guard.mjs` and `lint-file.mjs`.
 
-This plugin backs seven hooks total: `rtk-rewrite.mjs` above, `SessionStart` →
+`hooks/webfetch-steer.mjs` is the second steering hook: `PreToolUse`/`WebFetch`, denying **every**
+WebFetch with a copy-ready `ctx_fetch_and_index` + `ctx_search` replacement embedding
+`tool_input.url` and its hostname as the source label — unlike Bash there is no classifier,
+because WebFetch has no comparable non-context-mode equivalent and no side-effect cases to
+protect. Same `steer_enabled` gate (imported from `rtk-rewrite.mjs`), same fail-open shape: any
+failure means WebFetch runs normally. A **command** hook, knowingly against the decision tree's
+mcp_tool preference: the reason must embed `${tool_input.url}` dynamically, the cbm proxy is the
+wrong category for a context-mode steer (same category-mismatch analysis as the rejected
+`createExternalMcpGuidance` tip — see the steering-decision section below), and a third MCP server
+for one gate is more machinery than it justifies. The escape hatch for a broken/unconnected
+context-mode server is the `steer_enabled` toggle — a command hook cannot check MCP connectivity,
+an accepted limitation documented in the toggle's description.
+
+This plugin backs eight hooks total: `rtk-rewrite.mjs` and `webfetch-steer.mjs` above, `SessionStart` →
 `mcp/server.mjs --session-start-hook` (a `command` hook — see the correction note below), three
 remaining cbm entries (`SubagentStart`, `PreToolUse` `Grep`/`Glob`, `PostToolUse` `Read`), all
 `type: "mcp_tool"` on `plugin:linux-token-efficiency:codebase-memory` (the namespaced form — the
@@ -113,8 +148,15 @@ cache is a pure optimization, never a dependency.
 
 ## userConfig
 
-Two toggles, one per gated feature: boolean `auto_rewrite` and boolean `cbm_enabled`, both
-`default: true`. This plugin does **not** qualify for
+Three toggles, one per gated feature: boolean `auto_rewrite`, boolean `cbm_enabled` and boolean
+`steer_enabled`, all `default: true`. `steer_enabled` gates ONLY the two deny-steers
+(`rtk-rewrite.mjs`'s steer branch and `webfetch-steer.mjs`), never the rtk rewrite — it exists as
+the escape hatch for a context-mode server that is down or misbehaving, since a deny pointing at
+an unavailable `ctx_*` tool would otherwise strand the model (a command hook cannot check MCP
+connectivity). It is fail-open like `auto_rewrite`: read via
+`CLAUDE_PLUGIN_OPTION_STEER_ENABLED`, only the literal `false` disables. A deny-steer creates no
+files and no external state — its worst case is a wrongly withheld tool call with a working
+replacement in the reason — so the fail-closed exception does not apply. This plugin does **not** qualify for
 `.claude/rules/plugin-userconfig.md`'s
 deliberate no-toggle exception, because the hook is not the whole plugin — with auto-rewrite off
 the bundled `rtk` is still on the Bash `PATH` and usable by hand, so disabling the hook is
@@ -355,7 +397,11 @@ restate cbm's mitigation language for this server — the two are not equivalent
 a code- and shell-execution path that no `Bash` `PreToolUse` hook observes — not this plugin's own
 `rtk-rewrite.mjs`, not another plugin's hard deny gates (e.g. `coding-toolbox`'s
 `encoding-guard.mjs`): an MCP tool call can never match a `Bash` matcher. There is no toggle to gate
-this with — see "No toggle, by explicit decision" below.
+this with — see "No toggle, by explicit decision" below. The 0.4.0 steering hooks knowingly
+**widen** this bypass: work they push from Bash/WebFetch into `ctx_*` calls is exactly work no
+`Bash`/`WebFetch` `PreToolUse` hook will ever see again. The steer classifier's read-only-only
+scope keeps the widened surface to gather commands, but this remains an accepted trade-off, not an
+oversight.
 
 **The verbatim-file contract.** `hooks/SessionStart.md` is upstream's
 `configs/claude-code/CLAUDE.md` byte-for-byte (5,185 bytes, 97 lines, git mode `100644`). It is NEVER
@@ -370,19 +416,23 @@ any finding it prints on this one is knowingly left unfixed. Re-syncing with ups
 copy plus a diff, nothing else. That `.coderabbit.yaml` filter is the repointed former
 `cave-context` exclusion — same upstream project, same license, same reason.
 
-**Accepted limitation: the document's "BLOCKED" claims are upstream's, not ours.** Its
-`## BLOCKED — do NOT attempt` sections ("curl / wget — BLOCKED. Intercepted and replaced with error",
-"Inline HTTP — BLOCKED", "WebFetch — BLOCKED") describe upstream's own routing engine
-(`hooks/core/routing.mjs`, ~44 KB), which this plugin deliberately does not port. Nothing here
-intercepts `curl`, `wget`, inline HTTP or `WebFetch`; those tools keep working normally. The file is
-NOT patched to say so, because byte-for-byte fidelity is what keeps an upstream re-sync a plain copy,
-and no compensating hook or correction document is added (a third `SessionStart` entry `cat`-ing a
-correction file was considered and rejected as more machinery than four lines justify). Practical
-effect: the model may steer away from those tools believing they are blocked — the same direction as
-the intended nudge, and no tool is actually withheld.
+**The document's "BLOCKED" claims are now PARTIALLY true — via this plugin's own steering hooks,
+not a port of upstream's engine.** Its `## BLOCKED — do NOT attempt` sections ("curl / wget —
+BLOCKED. Intercepted and replaced with error", "Inline HTTP — BLOCKED", "WebFetch — BLOCKED")
+describe upstream's own routing engine (`hooks/core/routing.mjs`, ~44 KB), which this plugin still
+deliberately does not port. As of 0.4.0 the two steering hooks make three of those claims real in
+effect: `WebFetch` is denied unconditionally (`webfetch-steer.mjs`) and a bare `curl` GET is denied
+by the Bash steer branch — both with a `ctx_fetch_and_index` replacement. Still NOT intercepted,
+knowingly: `wget` (its default is a file download, a side effect the steer cannot replicate) and
+inline HTTP inside code the model writes (that is the 44 KB engine; out of scope). The file itself
+remains byte-for-byte upstream and is never patched either way — the verbatim contract above is
+unchanged, and behavior converging toward the document is a side effect of the steering decision,
+not a doc-fidelity fix.
 
 **No toggle, by explicit decision.** Unlike `auto_rewrite` and `cbm_enabled`, `context-mode` has no
-`userConfig` entry at all — the server is always registered and the `cat` hook always fires. A
+`userConfig` entry at all — the server is always registered and the `cat` hook always fires.
+(`steer_enabled` is NOT that toggle: it gates only the two deny-steer hooks, never the server, the
+`cat` injection or the subagent nudge.) A
 `context_mode_enabled` toggle was implemented (fail-open, mirroring `cbm_enabled`) and then removed
 on explicit user instruction: "remove the toggle, context-mode should always be enabled" — not a
 plan/review oversight. Enabling the plugin is the only consent step, same as for `cbm_enabled`, and
@@ -415,23 +465,23 @@ a `subagent-nudge.mjs` script and changed to this file+`cat` shape for exactly t
 `cat`-hook bullet under `## Novel-in-repo mechanics` for the `SessionStart`-vs-`SubagentStart`
 plain-stdout caveat.
 
-**Zero PreToolUse/PostToolUse nudge hooks — the analyzed outcome, not an omission.** All four of upstream's static
-`<context_guidance><tip>` blocks were worked through and none was added. `createBashGuidance`,
-`createGrepGuidance` and `createReadGuidance` each restate what `hooks/SessionStart.md` already says
-once per session ("### Bash (>20 lines output)", "### Grep — may flood context", "### Read (for
-analysis)"), so a static per-call repeat spends tokens on information already in context — in a
-token-efficiency plugin. The Read one would additionally contradict `hook_coverage_context`'s
-load-bearing fail-quiet contract on the same event/matcher (pinned by `cbm-hooks.bats`'s "silent on
-coverage_unavailable and on a clean report" test), and the Grep one would stack a second
-`additionalContext` source next to `hook_symbol_context`, whose design is to speak only on a real
-graph signal. `createExternalMcpGuidance` (matcher `WebFetch`) is the only non-duplicating candidate,
-but its substance is already in "### WebFetch — BLOCKED", and per the decision tree a non-blocking
-`PreToolUse` hook should be `mcp_tool` — which would mean bolting a static, non-graph tool onto the
-cbm proxy (category mismatch, wrong toggle) or standing up a third server. More machinery than a tip
-justifies. `context-mode.bats` pins the decision (`PreToolUse` length 2, `PostToolUse` length 1,
-every `mcp_tool` handler still on `plugin:linux-token-efficiency:codebase-memory`, no
-`context_guidance` literal anywhere in `hooks.json`) so no future editor can add one without
-revisiting this analysis.
+**Steering hooks (0.4.0) — a deliberate, user-directed REVISIT of the earlier zero-nudge decision,
+which rejected something different.** Through 0.3.0 this plugin added zero PreToolUse/PostToolUse
+hooks for context-mode, after working through all four of upstream's static
+`<context_guidance><tip>` blocks: `createBashGuidance`, `createGrepGuidance` and
+`createReadGuidance` each restate what `hooks/SessionStart.md` already says once per session, a
+static per-call repeat spending tokens on information already in context — in a token-efficiency
+plugin — and `createExternalMcpGuidance` (matcher `WebFetch`) was rejected as more machinery than a
+tip justifies. That analysis rejected **static tips**; it never evaluated **dynamic deny-steering
+with a copy-ready replacement call**, which is what 0.4.0 adds (`webfetch-steer.mjs` +
+`rtk-rewrite.mjs`'s steer branch — see `## Hook design`). What still stands from the old analysis,
+unchanged: NO Grep/Glob or Read steering (a context-mode hook there would stack against
+`hook_symbol_context` / contradict `hook_coverage_context`'s load-bearing fail-quiet contract —
+those matchers remain cbm's domain, pinned by `cbm-hooks.bats`), and NO `context_guidance` static
+tips ever. `context-mode.bats` pins the new decision (`PreToolUse` matchers exactly
+`["Bash","Grep|Glob","WebFetch"]`, `PostToolUse` length 1, every `mcp_tool` handler still on
+`plugin:linux-token-efficiency:codebase-memory`, no `context_guidance` literal anywhere in
+`hooks.json`) so no future editor can change the shape without revisiting this analysis.
 
 **History — this knowingly revisits two 2026-07 removals.** context-mode was already tried twice in
 this repo and dropped both times: the in-repo `cave-context` plugin, which vendored and proxied the
