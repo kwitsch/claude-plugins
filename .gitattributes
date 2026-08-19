@@ -11,3 +11,6 @@ plugins/linux-token-efficiency/bin/* binary
 # ...but the bun/npx launcher in the same directory is plain text: keep it diffable and
 # LF-normalized (last matching pattern wins per attribute).
 plugins/linux-token-efficiency/bin/*.sh -binary
+
+# linux-token-efficiency also ships a committed Rust MCP-server ELF next to its cbm sidecars.
+plugins/linux-token-efficiency/mcp/linux-token-efficiency-mcp binary

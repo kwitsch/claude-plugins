@@ -20,3 +20,7 @@ node_modules/
 
 # headroom MCP memory store — local only, never pushed.
 .headroom/
+
+# Rust build output for the linux-token-efficiency MCP crate — local only; the committed
+# artifact lives at plugins/linux-token-efficiency/mcp/linux-token-efficiency-mcp instead.
+src/linux-token-efficiency-mcp/target/
