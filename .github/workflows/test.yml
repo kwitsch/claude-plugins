@@ -62,13 +62,27 @@ jobs:
       - name: JS unit tests
         run: pnpm run test:unit
 
+  cargo_test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo test (linux-token-efficiency MCP)
+        run: cargo test --manifest-path src/linux-token-efficiency-mcp/Cargo.toml
+
   # Single stable check that aggregates the whole test matrix — use this as the
   # required status check (merge guard) in branch protection. It is green only
   # when every matrix leg succeeded; `if: always()` makes it run (and fail) even
   # when a leg fails, instead of being skipped.
   test-gate:
     name: Test gate
-    needs: [test, unit_and_typecheck]
+    needs: [test, unit_and_typecheck, cargo_test]
     if: always()
     runs-on: ubuntu-latest
     permissions:
@@ -76,8 +90,8 @@ jobs:
     steps:
       - name: Require all test matrix jobs to succeed
         run: |
-          if [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.unit_and_typecheck.result }}" != "success" ]; then
-            echo "Test matrix did not fully succeed (test: ${{ needs.test.result }}, unit_and_typecheck: ${{ needs.unit_and_typecheck.result }})."
+          if [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.unit_and_typecheck.result }}" != "success" ] || [ "${{ needs.cargo_test.result }}" != "success" ]; then
+            echo "Test matrix did not fully succeed (test: ${{ needs.test.result }}, unit_and_typecheck: ${{ needs.unit_and_typecheck.result }}, cargo_test: ${{ needs.cargo_test.result }})."
             exit 1
           fi
           echo "All test matrix jobs succeeded."
