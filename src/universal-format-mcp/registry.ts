@@ -39,6 +39,7 @@ export const EXT_MAP: Record<string, string> = {
   ".graphql": "graphql",
   ".gql": "graphql",
   ".php": "php",
+  ".rs": "rust",
 };
 
 /** Languages the bundled prettier owns, entirely inside format_pre. */
@@ -83,6 +84,19 @@ export const REGISTRY: Record<string, LangEntry> = {
     chain: [
       { name: "goimports", strategy: "fixed", base: ["-w"] },
       { name: "gofmt", strategy: "fixed", base: ["-w"] },
+    ],
+  },
+  // rust: no viable prettier plugin formats Rust source (survey, not deferral), so it stays a
+  // post-write CLI language. rustfmt formats a bare file path in place (no -w/--write/--emit), so
+  // base is empty; strategy "mapped" gives .rs the same .editorconfig parity as python.
+  rust: {
+    chain: [
+      {
+        name: "rustfmt",
+        strategy: "mapped",
+        nativeConfig: ["rustfmt.toml", ".rustfmt.toml"],
+        base: [],
+      },
     ],
   },
 };
