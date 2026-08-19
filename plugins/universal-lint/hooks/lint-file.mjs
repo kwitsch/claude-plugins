@@ -251,14 +251,20 @@ function tryRtk(argv, spawnOpts) {
 // since a cold `npx --yes <pkg>` install can exceed the local-binary budget),
 // else the tool directly. argv.slice(tool.args.length) strips the static
 // [name, ...args] prefix that rtkPrefix already reproduces, leaving only the
-// real target (file or directory) to append after it. The npm-fallback rtk
-// attempt is bounded by the shorter RTK_NPX_ATTEMPT_TIMEOUT_MS, not
-// NPX_SPAWN_TIMEOUT_MS -- see that constant's comment for why reusing the full
-// budget here would double it.
+// real target (file or directory) to append after it -- this assumes tool.args
+// is a leading, unmodified prefix of argv, which holds for every tool EXCEPT
+// manifestPath tools (cargo/cargo-clippy): buildArgv inserts `--manifest-path
+// <path>` BEFORE the existing `--` separator there, so tool.args is no longer
+// a leading prefix and a positional slice would silently drop the manifest
+// flag and separator. manifestPath tools therefore skip the rtk fast path
+// entirely here and always spawn directly -- correctness over rtk's output
+// compaction for this one tool shape. The npm-fallback rtk attempt is bounded
+// by the shorter RTK_NPX_ATTEMPT_TIMEOUT_MS, not NPX_SPAWN_TIMEOUT_MS -- see
+// that constant's comment for why reusing the full budget here would double it.
 /** @param {LintTool} tool @param {string[]} argv @param {any} spawnOpts @returns {any} */
 function runLintTool(tool, argv, spawnOpts) {
   if (tool.npmSpec && !onPath(tool.name)) {
-    if (onPath("rtk")) {
+    if (!tool.manifestPath && onPath("rtk")) {
       const rtkPrefix = getRtkPrefix(tool);
       if (rtkPrefix) {
         const rtkResult = tryRtk([...rtkPrefix, ...argv.slice(tool.args.length)], { ...spawnOpts, timeout: RTK_NPX_ATTEMPT_TIMEOUT_MS });
