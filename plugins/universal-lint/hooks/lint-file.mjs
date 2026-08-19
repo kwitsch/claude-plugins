@@ -548,8 +548,12 @@ const MARKDOWNLINT_NO_LINE_LENGTH_CONFIG_PATH = path.join(path.dirname(fileURLTo
 // Build the argv for a chain tool: fixed bare args, an optional -c <config> for
 // checkstyle or -d/--config line-length guards for yamllint/markdownlint, then
 // the target (the file, or its directory for targetsDir tools) last.
-/** @param {LintTool} tool @param {string} resolvedFile @param {string} cwd @returns {string[]} */
-export function buildArgv(tool, resolvedFile, cwd) {
+// `manifest` is an optional precomputed resolveCargoManifest result -- passing
+// it lets a caller that already resolved the manifest (runChainLint's gate)
+// avoid a second directory walk; when omitted (e.g. direct unit-test calls)
+// it's resolved here as before.
+/** @param {LintTool} tool @param {string} resolvedFile @param {string} cwd @param {string | null} [manifest] @returns {string[]} */
+export function buildArgv(tool, resolvedFile, cwd, manifest) {
   const dir = path.dirname(resolvedFile);
   const argv = tool.args.slice();
   if (tool.needsCheckstyleConfig) {
@@ -568,10 +572,10 @@ export function buildArgv(tool, resolvedFile, cwd) {
   // outside any Cargo project (no manifest) leaves args untouched; the
   // runChainLint gate no-ops it before spawning.
   if (tool.manifestPath) {
-    const manifest = resolveCargoManifest(dir, cwd);
-    if (manifest) {
+    const resolved = manifest !== undefined ? manifest : resolveCargoManifest(dir, cwd);
+    if (resolved) {
       const sep = argv.indexOf("--");
-      argv.splice(sep === -1 ? argv.length : sep, 0, "--manifest-path", manifest);
+      argv.splice(sep === -1 ? argv.length : sep, 0, "--manifest-path", resolved);
     }
     return argv;
   }
@@ -729,10 +733,17 @@ function runChainLint(lang, resolved, cwd, rel) {
   if (!tool) return null;
   // Gate cargo runs on a resolvable manifest: a stray .rs outside any Cargo
   // project is a silent no-op, not a spurious "could not find Cargo.toml"
-  // exit-101 finding.
-  if (tool.manifestPath && !resolveCargoManifest(path.dirname(resolved), cwd)) return null;
+  // exit-101 finding. Resolved once here and threaded through buildArgv and
+  // the target computation below -- resolveCargoManifest is a directory walk
+  // doing an existsSync per level, so re-resolving it for the same
+  // file/cwd pair would repeat that walk for no new answer.
+  let manifest = null;
+  if (tool.manifestPath) {
+    manifest = resolveCargoManifest(path.dirname(resolved), cwd);
+    if (!manifest) return null;
+  }
 
-  const argv = buildArgv(tool, resolved, cwd);
+  const argv = buildArgv(tool, resolved, cwd, manifest);
   // Compile-heavy cargo tools get their own budget (mirrors TSC_SPAWN_TIMEOUT_MS).
   const timeout = tool.manifestPath ? CARGO_SPAWN_TIMEOUT_MS : SPAWN_TIMEOUT_MS;
   const spawnOpts = buildSpawnOpts(cwd, timeout);
@@ -741,12 +752,8 @@ function runChainLint(lang, resolved, cwd, rel) {
 
   // Cargo entries are neither file-scoped nor targetsDir: the natural target
   // is the crate directory (the dir containing the resolved Cargo.toml). The
-  // gate above guarantees the manifest is non-null here.
-  const target = tool.targetsDir
-    ? path.relative(cwd, path.dirname(resolved)) || "."
-    : tool.manifestPath
-      ? path.relative(cwd, path.dirname(resolveCargoManifest(path.dirname(resolved), cwd) ?? resolved)) || "."
-      : rel;
+  // gate above guarantees `manifest` is non-null here.
+  const target = tool.targetsDir ? path.relative(cwd, path.dirname(resolved)) || "." : tool.manifestPath ? path.relative(cwd, path.dirname(manifest)) || "." : rel;
   let verdict, text;
   if (tool.classify === "output") {
     const out = classifyCheckstyleOutput(result.stdout);
