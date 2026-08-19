@@ -14,7 +14,6 @@ import {
   classifyBashCommand,
   buildSteerDeny,
 } from "../../plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs";
-import { buildWebFetchDeny } from "../../plugins/linux-token-efficiency/hooks/webfetch-steer.mjs";
 
 /** @param {string} dir @param {string} name @returns {string} */
 function makeExecutable(dir, name) {
@@ -206,16 +205,4 @@ test("buildSteerDeny: deny with a copy-ready replacement per kind; null for stay
     assert.match(r?.hookSpecificOutput?.permissionDecisionReason ?? "", /[Dd]o not retry/);
     assert.equal("updatedInput" in (r?.hookSpecificOutput ?? {}), false);
   }
-});
-
-test("buildWebFetchDeny: deny with the namespaced tool, the URL, the hostname source and the escape hatch", () => {
-  const r = buildWebFetchDeny("https://docs.example.org/page?q=1");
-  assert.equal(r.hookSpecificOutput?.permissionDecision, "deny");
-  const reason = r.hookSpecificOutput?.permissionDecisionReason ?? "";
-  assert.match(reason, /mcp__plugin_linux-token-efficiency_context-mode__ctx_fetch_and_index/);
-  assert.match(reason, /"url": "https:\/\/docs\.example\.org\/page\?q=1"/);
-  assert.match(reason, /"source": "docs\.example\.org"/);
-  assert.match(reason, /Do not retry WebFetch/);
-  assert.match(reason, /steer_enabled/);
-  assert.equal(buildWebFetchDeny("not a url").hookSpecificOutput?.permissionDecisionReason?.includes('"source": "web"'), true);
 });

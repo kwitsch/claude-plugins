@@ -1,12 +1,12 @@
 {
-  "description": "PreToolUse Bash -> rtk-rewrite.mjs: a router — read-only gather commands (bare curl/wget GETs, >=3-segment text-tool chains, >=3-stage text pipelines) are deny-steered to context-mode's ctx_fetch_and_index / ctx_batch_execute / ctx_execute with a copy-ready replacement call (steer_enabled toggle); everything else is rewritten to its rtk equivalent using the bundled rtk binary (auto_rewrite toggle). PreToolUse WebFetch -> webfetch-steer.mjs: deny-steers every WebFetch to ctx_fetch_and_index + ctx_search (steer_enabled toggle). SessionStart -> server.mjs --session-start-hook (command hook: mcp_tool hard-errors pre-connect), SubagentStart -> hook_subagent_context, PreToolUse Grep|Glob -> hook_symbol_context, PostToolUse Read -> hook_coverage_context: fail-open, context-only codebase-memory-mcp graph context served as mcp_tool hooks by this plugin's own codebase-memory proxy MCP server (mcp/server.mjs). Second SessionStart entry -> cat hooks/SessionStart.md: injects the context-mode MCP server's own routing-rules document (upstream, verbatim) as session context on every startup/resume/clear/compact. Second SubagentStart entry -> cat hooks/subagent-nudge.md: static additionalContext telling subagents to skip inter-tool-call narration and to prefer context-mode's ctx_* tools. Eight hooks total.",
+  "description": "PreToolUse Bash -> rtk-rewrite.mjs: a router — read-only gather commands (bare curl/wget GETs, >=3-segment text-tool chains, >=3-stage text pipelines) are deny-steered to context-mode's ctx_fetch_and_index / ctx_batch_execute / ctx_execute with a copy-ready replacement call (steer_enabled toggle); everything else is rewritten to its rtk equivalent using the bundled rtk binary (auto_rewrite toggle). PreToolUse WebFetch -> hook_webfetch_steer (mcp_tool hook on the codebase-memory server): deny-steers every WebFetch to ctx_fetch_and_index + ctx_search (steer_enabled toggle). SessionStart -> linux-token-efficiency-mcp --session-start-hook (command hook: mcp_tool hard-errors pre-connect), SubagentStart -> hook_subagent_context, PreToolUse Grep|Glob -> hook_symbol_context, PostToolUse Read -> hook_coverage_context: fail-open, context-only codebase-memory-mcp graph context served as mcp_tool hooks by this plugin's own codebase-memory proxy MCP server (mcp/linux-token-efficiency-mcp). Second SessionStart entry -> cat hooks/SessionStart.md: injects the context-mode MCP server's own routing-rules document (upstream, verbatim) as session context on every startup/resume/clear/compact. Second SubagentStart entry -> cat hooks/subagent-nudge.md: static additionalContext telling subagents to skip inter-tool-call narration and to prefer context-mode's ctx_* tools. Eight hooks total.",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs",
+            "command": "${CLAUDE_PLUGIN_ROOT}/mcp/linux-token-efficiency-mcp",
             "args": ["--session-start-hook"],
             "timeout": 20,
             "statusMessage": "Checking codebase graph...",
@@ -79,9 +79,11 @@
         "matcher": "WebFetch",
         "hooks": [
           {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/webfetch-steer.mjs",
-            "timeout": 10
+            "type": "mcp_tool",
+            "server": "plugin:linux-token-efficiency:codebase-memory",
+            "tool": "hook_webfetch_steer",
+            "timeout": 20,
+            "input": { "tool_input": { "url": "${tool_input.url}" } }
           }
         ]
       }

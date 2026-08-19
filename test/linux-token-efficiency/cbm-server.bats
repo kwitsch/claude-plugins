@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-# mcp/server.mjs — the cbm proxy MCP server, driven over real stdio in a fixture plugin
+# mcp/linux-token-efficiency-mcp — the cbm proxy MCP server (Rust), driven over real stdio in a fixture plugin
 # tree. The child is a few-byte fake cbm binary; the "release" is a few-byte tarball served
 # by an ephemeral 127.0.0.1 HTTP server. No network, and the real 279.6 MiB binary is never
 # downloaded or extracted.
@@ -23,18 +23,18 @@ teardown() {
   assert_success
 }
 
-@test "tools/list advertises the four hook tools plus every snapshot tool" {
+@test "tools/list advertises the five hook tools plus every snapshot tool" {
   warm_cbm_cache
   cbm_rpc 2 \
     '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
     '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
   local names
   names="$(cbm_rpc_result 2 | jq -c '[.tools[].name]')"
-  for tool in hook_session_context hook_subagent_context hook_symbol_context hook_coverage_context list_projects search_graph; do
+  for tool in hook_session_context hook_subagent_context hook_symbol_context hook_coverage_context hook_webfetch_steer list_projects search_graph; do
     run jq -e --arg t "$tool" 'any(.[]; . == $t)' <<< "$names"
     assert_success
   done
-  run jq -e 'length == 6' <<< "$names"
+  run jq -e 'length == 7' <<< "$names"
   assert_success
   run jq -e '.tools | all((.name | type == "string") and (.description | type == "string") and (.inputSchema.type == "object"))' <<< "$(cbm_rpc_result 2)"
   assert_success
@@ -94,17 +94,11 @@ teardown() {
 
 @test "a cold cache downloads, verifies and extracts into the content-addressed cache" {
   start_release_server
-  cbm_rpc 2 \
-    '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
-    '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
-  run jq -e '(.tools | length) == 6' <<< "$(cbm_rpc_result 2)"
-  assert_success
-  # The download is fired without awaiting, so poll for the cached binary.
+  # A passthrough tools/call needs the warm child, so it drives provisioning to completion
+  # inline. (A bare tools/list would let the process exit on stdin-EOF before the background
+  # warm-up thread finishes — in a real session stdin stays open and the warm-up completes.)
+  cbm_call list_projects '{}'
   local target="$CBM_CACHE/${FAKE_BIN_SHA:0:16}/codebase-memory-mcp"
-  for _ in $(seq 1 50); do
-    [ -x "$target" ] && break
-    sleep 0.1
-  done
   [ -x "$target" ]
   run bash -c "sha256sum < '$target' | cut -d' ' -f1"
   assert_output "$FAKE_BIN_SHA"
@@ -119,10 +113,10 @@ teardown() {
   jq '.binaries[0].assetSha256 = "0000000000000000000000000000000000000000000000000000000000000000"' \
     "$BATS_TEST_TMPDIR/plugin/cbm-bundle.json" > "$BATS_TEST_TMPDIR/pin.json"
   mv "$BATS_TEST_TMPDIR/pin.json" "$BATS_TEST_TMPDIR/plugin/cbm-bundle.json"
-  cbm_rpc 2 \
-    '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
-    '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
-  run jq -e '(.tools | length) == 6' <<< "$(cbm_rpc_result 2)"
+  # A passthrough tools/call drives provisioning inline; it fails the asset-hash check, so the
+  # server answers isError rather than crashing, and nothing is cached.
+  cbm_call list_projects '{}'
+  run jq -e '.isError == true and (.content[0].text | test("codebase-memory unavailable"))' <<< "$(cbm_rpc_result 2)"
   assert_success
   assert_regex "$CBM_RPC_STDERR" 'sha256 mismatch'
   run bash -c "find '$CBM_CACHE' -type f | grep -c . || true"
@@ -202,14 +196,14 @@ refresh_asset_sha() {
   assert_regex "$CBM_RPC_STDERR" 'exactly one'
 }
 
-@test "a version-mismatched snapshot degrades to the four hook tools only" {
+@test "a version-mismatched snapshot degrades to the five hook tools only" {
   warm_cbm_cache
   jq '.cbmVersion = "0.0.0-drift"' "$BATS_TEST_TMPDIR/plugin/cbm-tools.json" > "$BATS_TEST_TMPDIR/tools.json"
   mv "$BATS_TEST_TMPDIR/tools.json" "$BATS_TEST_TMPDIR/plugin/cbm-tools.json"
   cbm_rpc 2 \
     '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
     '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
-  run jq -e '[.tools[].name] | length == 4 and all(startswith("hook_"))' <<< "$(cbm_rpc_result 2)"
+  run jq -e '[.tools[].name] | length == 5 and all(startswith("hook_"))' <<< "$(cbm_rpc_result 2)"
   assert_success
   assert_regex "$CBM_RPC_STDERR" 'cbm-tools.json'
   # Forwarding is name-agnostic: a drifted snapshot never breaks a real call.

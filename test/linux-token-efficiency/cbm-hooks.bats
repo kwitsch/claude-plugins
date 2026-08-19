@@ -61,7 +61,7 @@ hook_result() {
   run env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" \
     CBM_BUNDLE_CACHE="$CBM_CACHE" CBM_DOWNLOAD_BASE_URL="$CBM_DOWNLOAD_BASE_URL" \
     CBM_FAKE_LOG="$FAKE_LOG" CBM_FAKE_PAYLOADS="$FAKE_PAYLOADS" \
-    node "$FIXTURE_SERVER" --session-start-hook <<< "$(jq -cn --arg cwd "$WORKDIR" '{cwd:$cwd}')"
+    "$FIXTURE_SERVER" --session-start-hook <<< "$(jq -cn --arg cwd "$WORKDIR" '{cwd:$cwd}')"
   assert_success
   local hook_output="$output"
   run jq -e '.hookSpecificOutput | keys | sort == ["additionalContext","hookEventName"]' <<< "$hook_output"
@@ -74,7 +74,7 @@ hook_result() {
   run env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" \
     CBM_BUNDLE_CACHE="$CBM_CACHE" CBM_DOWNLOAD_BASE_URL="$CBM_DOWNLOAD_BASE_URL" \
     CBM_FAKE_LOG="$FAKE_LOG" CBM_FAKE_PAYLOADS="$FAKE_PAYLOADS" \
-    node "$FIXTURE_SERVER" --session-start-hook <<< '{"cwd":"/nowhere/at/all"}'
+    "$FIXTURE_SERVER" --session-start-hook <<< '{"cwd":"/nowhere/at/all"}'
   assert_success
   assert_output '{}'
 }
@@ -201,26 +201,53 @@ hook_result() {
   assert_output '0'
 }
 
+@test "hook_webfetch_steer denies with a copy-ready ctx_fetch_and_index replacement" {
+  cbm_call hook_webfetch_steer "$(jq -cn '{tool_input:{url:"https://example.com/docs/page"}}')"
+  run jq -e '.structuredContent.hookSpecificOutput | .hookEventName == "PreToolUse" and .permissionDecision == "deny" and (.permissionDecisionReason | contains("ctx_fetch_and_index") and contains("mcp__plugin_linux-token-efficiency_context-mode__ctx_fetch_and_index") and contains("https://example.com/docs/page") and contains("\"source\": \"example.com\"") and contains("Do not retry WebFetch") and contains("steer_enabled"))' <<< "$(hook_result)"
+  assert_success
+}
+
+@test "hook_webfetch_steer: unparseable URL still denies with the fallback source label" {
+  cbm_call hook_webfetch_steer "$(jq -cn '{tool_input:{url:"not a real url"}}')"
+  run jq -e '.structuredContent.hookSpecificOutput.permissionDecision == "deny" and (.structuredContent.hookSpecificOutput.permissionDecisionReason | contains("\"source\": \"web\""))' <<< "$(hook_result)"
+  assert_success
+}
+
+@test "hook_webfetch_steer stays silent on a missing url" {
+  cbm_call hook_webfetch_steer "$(jq -cn '{tool_input:{prompt:"no url"}}')"
+  run jq -e '.structuredContent == {}' <<< "$(hook_result)"
+  assert_success
+}
+
+@test "hook_webfetch_steer toggle: only the literal false disables" {
+  CBM_RPC_ENV=(CLAUDE_PLUGIN_OPTION_STEER_ENABLED=false)
+  cbm_call hook_webfetch_steer "$(jq -cn '{tool_input:{url:"https://example.com"}}')"
+  run jq -e '.structuredContent == {}' <<< "$(hook_result)"
+  assert_success
+}
+
 @test "hooks.json wires SubagentStart/PreToolUse/PostToolUse to mcp_tool on the namespaced server with an explicit input, SessionStart to a command hook" {
   run jq empty "$HOOKS"
   assert_success
-  local entries='[.hooks.SubagentStart[0].hooks[0], .hooks.PreToolUse[1].hooks[0], .hooks.PostToolUse[0].hooks[0]]'
+  local entries='[.hooks.SubagentStart[0].hooks[0], .hooks.PreToolUse[1].hooks[0], .hooks.PreToolUse[2].hooks[0], .hooks.PostToolUse[0].hooks[0]]'
   run jq -e "$entries | all(.type == \"mcp_tool\" and .server == \"plugin:linux-token-efficiency:codebase-memory\" and .timeout == 20 and (has(\"command\") | not) and (has(\"async\") | not))" "$HOOKS"
   assert_success
   # Regression pin: an omitted "input" delivers {} instead of the hook JSON.
   run jq -e "$entries | all(has(\"input\") and (.input | type == \"object\") and (.input | length > 0))" "$HOOKS"
   assert_success
-  run jq -e "$entries | map(.tool) == [\"hook_subagent_context\",\"hook_symbol_context\",\"hook_coverage_context\"]" "$HOOKS"
+  run jq -e "$entries | map(.tool) == [\"hook_subagent_context\",\"hook_symbol_context\",\"hook_webfetch_steer\",\"hook_coverage_context\"]" "$HOOKS"
   assert_success
   # SessionStart fires before any MCP server connects, so it is a command hook (mcp_tool
   # hard-errors there: "no MCP client context") that invokes server.mjs's own CLI mode.
-  run jq -e '.hooks.SessionStart[0].hooks[0] | .type == "command" and .command == "${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs" and .args == ["--session-start-hook"] and .timeout == 20 and .statusMessage == "Checking codebase graph..." and (has("server") | not) and (has("tool") | not) and (has("input") | not) and .async == true and (has("asyncRewake") | not)' "$HOOKS"
+  run jq -e '.hooks.SessionStart[0].hooks[0] | .type == "command" and .command == "${CLAUDE_PLUGIN_ROOT}/mcp/linux-token-efficiency-mcp" and .args == ["--session-start-hook"] and .timeout == 20 and .statusMessage == "Checking codebase graph..." and (has("server") | not) and (has("tool") | not) and (has("input") | not) and .async == true and (has("asyncRewake") | not)' "$HOOKS"
   assert_success
   run jq -e '.hooks.SubagentStart[0].hooks[0].input == {cwd:"${cwd}"}' "$HOOKS"
   assert_success
   run jq -e '.hooks.PreToolUse[1] | .matcher == "Grep|Glob" and (.hooks[0].input == {cwd:"${cwd}", tool_name:"${tool_name}", tool_input:{pattern:"${tool_input.pattern}"}})' "$HOOKS"
   assert_success
   run jq -e '.hooks.PostToolUse[0] | .matcher == "Read" and (.hooks[0].input == {cwd:"${cwd}", tool_input:{file_path:"${tool_input.file_path}"}})' "$HOOKS"
+  assert_success
+  run jq -e '.hooks.PreToolUse[2] | .matcher == "WebFetch" and (.hooks[0].input == {tool_input:{url:"${tool_input.url}"}})' "$HOOKS"
   assert_success
   run jq -e '(.hooks.SessionStart | length) == 2 and (.hooks.SubagentStart | length) == 2 and (.hooks.PostToolUse | length) == 1 and (.hooks.PreToolUse | length) == 3' "$HOOKS"
   assert_success
