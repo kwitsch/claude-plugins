@@ -401,6 +401,15 @@ export function looksLikeSolutionStyleTsconfig(text) {
   return !hasNonEmptyFiles;
 }
 
+// Shared sha256-hex digest of a path string, used to derive both the tsc
+// buildinfo cache key below and the debounce marker filename further down --
+// one hashing scheme kept in one place instead of two independent inline
+// derivations that would otherwise have to be changed in lockstep.
+/** @param {string} p @returns {string} */
+function hashPath(p) {
+  return createHash("sha256").update(p).digest("hex");
+}
+
 // Stable cache-file path for tsc's --tsBuildInfoFile, keyed by the resolved
 // tsconfig's realpath so repeat edits within the same project reuse one cache.
 // Lives under ${CLAUDE_PLUGIN_DATA} (persistent, survives plugin updates,
@@ -419,7 +428,7 @@ export function tsBuildInfoPathFor(tsconfigPath) {
   } catch {
     resolved = path.resolve(tsconfigPath);
   }
-  const hash = createHash("sha256").update(resolved).digest("hex").slice(0, 8);
+  const hash = hashPath(resolved).slice(0, 8);
   const dataDir = process.env.CLAUDE_PLUGIN_DATA || tmpdir();
   return path.resolve(dataDir, `tsc-buildinfo-${hash}.json`);
 }
@@ -875,7 +884,7 @@ function isMainModule() {
 async function debounceGate(resolved) {
   const token = `${Date.now()}-${process.pid}-${randomBytes(6).toString("hex")}`;
   const dir = path.join(tmpdir(), "universal-lint-debounce");
-  const marker = path.join(dir, createHash("sha256").update(resolved).digest("hex") + ".mark");
+  const marker = path.join(dir, hashPath(resolved) + ".mark");
   try {
     mkdirSync(dir, { recursive: true });
     const tmp = `${marker}.${token}.tmp`;
