@@ -783,14 +783,15 @@ export function isExcludedPath(rel) {
   return segments[segments.length - 1].includes(".local.");
 }
 
-// Run every cheap entry guard and return the resolved absolute lint target, or
-// null when any guard rejects (success===false, missing cwd/file_path, path
-// outside cwd, excluded path, unsupported extension, or file absent). Shared by
-// main() (to decide whether/what to debounce) and lintFileHandler (to re-run the
-// guards before linting) so the two never diverge. Fails closed to null on any
-// unexpected error, matching lintFileHandler's fail-open-to-{} philosophy.
-/** @param {PostToolUseHookInput} args @returns {string | null} */
-export function resolveLintTarget(args) {
+// Run every cheap entry guard and return {resolved, rel, ext}, or null when
+// any guard rejects (success===false, missing cwd/file_path, path outside
+// cwd, excluded path, unsupported extension, or file absent). Shared by
+// main() (to decide whether/what to debounce) and lintFileHandler (to re-run
+// the guards before linting, reusing rel/ext instead of recomputing them) so
+// the two never diverge. Fails closed to null on any unexpected error,
+// matching lintFileHandler's fail-open-to-{} philosophy.
+/** @param {PostToolUseHookInput} args @returns {{resolved: string, rel: string, ext: string} | null} */
+function resolveLintTargetDetails(args) {
   try {
     if (args?.tool_response?.success === false) return null;
     const cwd = typeof args?.cwd === "string" ? args.cwd : "";
@@ -805,21 +806,28 @@ export function resolveLintTarget(args) {
     const ext = path.extname(resolved).toLowerCase();
     if (!EXT_MAP[ext] && !TYPE_CHECK_EXTS.has(ext)) return null;
     if (!existsSync(resolved)) return null;
-    return resolved;
+    return { resolved, rel, ext };
   } catch {
     return null;
   }
+}
+
+// Thin wrapper over resolveLintTargetDetails() for callers that only need
+// the resolved absolute path (e.g. main()'s debounce-marker key) and for the
+// existing unit-test surface. See resolveLintTargetDetails for guard order.
+/** @param {PostToolUseHookInput} args @returns {string | null} */
+export function resolveLintTarget(args) {
+  return resolveLintTargetDetails(args)?.resolved ?? null;
 }
 
 // The lint_file tool handler. Returns {} on every guard failure / clean / skip (fail open).
 /** @param {PostToolUseHookInput} args @returns {HookResult} */
 function lintFileHandler(args) {
   try {
-    const resolved = resolveLintTarget(args);
-    if (!resolved) return {};
+    const target = resolveLintTargetDetails(args);
+    if (!target) return {};
+    const { resolved, rel, ext } = target;
     const cwd = args.cwd;
-    const rel = path.relative(cwd, resolved);
-    const ext = path.extname(resolved).toLowerCase();
     const lang = EXT_MAP[ext];
     const typeCheckEligible = TYPE_CHECK_EXTS.has(ext);
 
