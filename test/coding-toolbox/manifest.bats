@@ -43,5 +43,5 @@ setup() {
 }
 @test "plugin.json version bumped for bump-version's marketplace-plugin detection (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.24.0"
+  assert_output "0.24.1"
 }

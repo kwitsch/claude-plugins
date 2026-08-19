@@ -21,7 +21,7 @@ setup() {
   assert_success
   assert_output --partial "name: dispatch-agent"
   assert_output --partial "arguments: prompt"
-  assert_output --partial '"Bash(claude:*)"'
+  assert_output --partial '"Bash"'
   assert_output --partial '"AskUserQuestion"'
   refute_output --partial '"Agent"'
   refute_output --partial '"Skill"'

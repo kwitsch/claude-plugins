@@ -921,12 +921,20 @@ prompt (same convention as `fresh-work`'s own branch-naming step) with a `$(date
 suffix for uniqueness (CodeRabbit finding, PR #156: a bare `$(date +%s)` alone only resolves to
 the second, so two same-second dispatches of the same prompt would collide; `$RANDOM` closes
 that gap without adding retry logic) — a bare timestamp was also readable only by attaching to
-each session to read its prompt. `allowed-tools` carries `Bash(claude:*)`/`AskUserQuestion`
-only — no `Agent`, no `Skill`, no `Bash(git:*)` (dropped along with the sync step above,
-nothing left here calls `git`). The single-command Bash call in step 1 is never fully covered
-by the `Bash(claude:*)` pre-approval on its own (the compound script's leading `set -e`/`name=`
-lines aren't a `claude`-prefixed command) — that's an accepted consequence of the narrow
-allowed-tools list, not a gap to "fix" by widening it.
+each session to read its prompt. `allowed-tools` carries `Bash`/`AskUserQuestion` only — no
+`Agent`, no `Skill`. It was **widened from the old narrow `Bash(claude:*)` to bare `Bash` on
+2026-08-19**: step 1's Bash call is a compound script (`set -e`, a
+`name="…-$(date +%s)-$RANDOM"` assignment whose command substitution is not a known-safe
+leading assignment, then `claude … --bg`), and the permission matcher splits on separators and
+requires every sub-command to be covered independently (`.claude/rules` → the settings
+reference's "Per-tool specifiers": "matches each subcommand independently") — so
+`Bash(claude:*)` alone never auto-approved the dispatch, and it stalled on a permission prompt
+(or was denied) with nobody present to answer. An earlier revision of this doc called that
+stall "an accepted consequence of the narrow allowed-tools list, not a gap to fix by widening
+it"; that stance is **reversed** — the narrow grant was the bug. The task/prompt text's own
+safety still comes from the single-quoted heredoc, not the tool matcher, so widening the grant
+adds no real exposure (same shape as the pipeline skills `build-task`/`feature-development`,
+which already declare bare `Bash`).
 
 **`--model`/`--effort`/`--permission-mode` on the dispatched session** (added post-ship, same
 PR, per user request): `$prompt` may optionally start with `--model=<model>` and/or
@@ -1025,7 +1033,7 @@ and named for their variant, the skill's apply step reads from
 `references/` rather than inlining either file's body, and both bundled
 reference files themselves carry `name: explore` frontmatter). `dispatch-agent`
 gets structural assertions (exists, frontmatter naming `prompt` plus the required
-`Bash(git:*)`/`Bash(claude:*)`/`AskUserQuestion` `allowed-tools` entries, self-containment
+`Bash`/`AskUserQuestion` `allowed-tools` entries, self-containment
 tripwire, body mentions of `claude --worktree`/`--bg` and the `--model`/`--effort` defaults
 and `--permission-mode auto`) — no script-extraction
 coverage, since the skill's own git/CLI orchestration stays inline per
