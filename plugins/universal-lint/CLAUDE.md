@@ -295,6 +295,63 @@ disable}}"` is passed — single-line flow-style YAML, not the equivalent
 
 Known, accepted limitation (confirmed with the user at this feature's design stage): neither tool gets `vendor/bin/<tool>` discovery -- the PHP analogue of `tsc`'s own `node_modules/.bin/tsc` special case above. Most real PHP projects install these as local Composer dev-dependencies rather than globally on `PATH`, so this chain will silently no-op on a large fraction of real PHP repos until a global/PATH install is also present. A real gap, not solved now -- same restraint already shown by not generalizing `tsc`'s own special case to any other tool in this file.
 
+## Rust: cargo clippy/check, manifest targeting, and the clippy-component gap
+
+`.rs` files route to a `rust` chain of `cargo-clippy` (chain[0], the richer
+linter) → `cargo check` (chain[1], compile-only fallback). Both are
+`manifestPath` tools and both are PATH-only (rustup-distributed, no
+`npmSpec`).
+
+**Why probe `cargo-clippy`, not `cargo clippy`.** `onPath("cargo-clippy")`
+is true iff the clippy rustup component is installed. Probing bare `cargo`
+can't tell whether `cargo clippy` will work: a `cargo` on `PATH` without
+the clippy component makes `cargo clippy` exit non-zero with "no such
+command: clippy", which the coarse `0 clean / else issues` contract would
+misreport as a lint finding. Probing the shim binary directly makes chain
+selection fall through cleanly to `cargo check` when clippy is absent.
+`cargo-clippy` invoked directly behaves as `cargo clippy` and accepts the
+same `--manifest-path` and post-`--` rustc flags (verify empirically before
+merge — see the `classifyExit` comment).
+
+**Why `-- -D warnings`.** clippy's lints default to `warn` level, and plain
+`cargo clippy` exits 0 even when it prints warnings — the same
+warnings-don't-affect-exit-code pitfall already documented for
+`eslint`/`yamllint`. Passing `-D warnings` after the `--` separator promotes
+all warnings to errors so clippy's own exit code becomes a trustworthy
+clean/issues signal. It is additive and non-mutating (never
+`--fix`/`--format`/`--write`), and does not match the banned-flag regex.
+
+**Why `manifestPath` + `resolveCargoManifest`, not `targetsDir`.** `cargo
+clippy`/`cargo check` take no positional file-or-directory target — they
+operate on the crate/workspace discovered from `Cargo.toml`. `buildArgv`
+unconditionally appends a trailing positional for every other tool, which
+cargo would reject as an unrecognized argument. Instead, `manifestPath`
+resolves the nearest `Cargo.toml` (walking up from the edited file to `cwd`
+via the shared `walkUpToCwd`, existence-only, in `resolveCargoManifest`) and
+emits `--manifest-path <that path>` inserted before any `--` separator (so
+it stays a cargo option, not a rustc arg), with no trailing positional —
+correctly targeting the specific crate even in a multi-crate workspace. A
+`.rs` file outside any Cargo project (no manifest up to `cwd`) is a silent
+no-op, gated in `runChainLint` before spawning.
+
+**Coarse `0 clean / else issues` contract.** `classifyExit`'s shared
+`cargo-clippy`/`cargo` case is `0` clean, any non-zero `issues` (101 on a
+compile error) — the same accepted coarse contract already used for
+`go`/`phpstan`: a non-zero exit that is a tool malfunction rather than a
+finding is not cleanly separable by exit code, an accepted, documented
+limitation. `status === null` (timeout/signal) returns `skip` before the
+switch (fail-open).
+
+**No `npmSpec`.** Rust tooling is rustup-only; the `npx --yes` fallback has
+no valid Rust equivalent — same reasoning already applied to
+`go`/`ruff`/`golangci-lint`/`ktlint`/`checkstyle`.
+
+**`CARGO_SPAWN_TIMEOUT_MS` (45s).** cargo check/clippy compile the crate,
+slower than a single-file/dir tool (`SPAWN_TIMEOUT_MS`); its own budget
+mirrors `TSC_SPAWN_TIMEOUT_MS` and stays under the hook-level timeout
+backstop. A cold first build may exceed it, yielding a silent skip
+(fail-open); warm/incremental runs are fast.
+
 ## JSON: not covered (do not "fix" without reading this)
 
 `.json` is intentionally absent from `EXT_MAP` — not a bug. No standalone,
@@ -312,7 +369,7 @@ chain — format-only coverage is the honest answer for this file type.
 `test/universal-lint/` — split into one `.bats` file per language/tool
 (`scaffold.bats`, `core.bats`, `go.bats`, `checkstyle.bats`,
 `truncation.bats`, `npx-fallback.bats`, `rtk.bats`, `yaml.bats`,
-`markdown.bats`, `stylelint.bats`, `tsc.bats`, `php.bats`,
+`markdown.bats`, `stylelint.bats`, `tsc.bats`, `php.bats`, `rust.bats`,
 `debounce.bats`), mirroring
 `test/coding-toolbox/`'s split. `test_helper.bash` holds what's shared
 across files (`common_setup`, `rg_or_grep`, `make_stub`, `rec_stub`,

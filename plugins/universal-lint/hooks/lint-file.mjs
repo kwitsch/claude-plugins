@@ -36,6 +36,9 @@ const TSC_SPAWN_TIMEOUT_MS = 45000; // full-project incremental type-check: slow
 // than a single-file/dir tool (SPAWN_TIMEOUT_MS) but not a cold registry install
 // (NPX_SPAWN_TIMEOUT_MS) -- kept its own, smaller budget so a stale async
 // finding (this hook is async:true) doesn't arrive too late to be useful.
+const CARGO_SPAWN_TIMEOUT_MS = 45000; // cargo check/clippy compile the crate;
+// slower than a single-file/dir tool (SPAWN_TIMEOUT_MS), same budget rationale
+// as TSC_SPAWN_TIMEOUT_MS; stays under the hook-level timeout backstop.
 // Per-file debounce: a lint only starts after the file has been idle for this
 // long; each new edit re-arms it. Overridable via UNIVERSAL_LINT_DEBOUNCE_MS
 // (test-only fast path — NOT part of the hook's public input contract).
@@ -50,7 +53,7 @@ const TYPE_CHECK_EXTS = new Set([".ts", ".tsx", ".mts", ".cts"]); // tsc only
 
 /* eslint-disable max-len -- long line is the literal JSDoc typedef */
 /**
- * @typedef {{ name: string, args: string[], targetsDir?: boolean, classify?: "output", needsCheckstyleConfig?: boolean, guardYamlLineLength?: boolean, guardMarkdownLineLength?: boolean, npmSpec?: string }} LintTool
+ * @typedef {{ name: string, args: string[], targetsDir?: boolean, manifestPath?: boolean, classify?: "output", needsCheckstyleConfig?: boolean, guardYamlLineLength?: boolean, guardMarkdownLineLength?: boolean, npmSpec?: string }} LintTool
  * @typedef {{ chain: LintTool[] }} LangEntry
  */
 /* eslint-enable max-len */
@@ -83,6 +86,7 @@ const EXT_MAP = {
   ".css": "css",
   ".scss": "css",
   ".php": "php",
+  ".rs": "rust",
 };
 
 // Linter registry. chain = first tool on PATH wins. Every entry runs check-only --
@@ -138,6 +142,12 @@ export const REGISTRY = {
     chain: [
       { name: "phpstan", args: ["analyse"] },
       { name: "psalm", args: [] },
+    ],
+  },
+  rust: {
+    chain: [
+      { name: "cargo-clippy", args: ["--", "-D", "warnings"], manifestPath: true },
+      { name: "cargo", args: ["check"], manifestPath: true },
     ],
   },
 };
@@ -241,14 +251,20 @@ function tryRtk(argv, spawnOpts) {
 // since a cold `npx --yes <pkg>` install can exceed the local-binary budget),
 // else the tool directly. argv.slice(tool.args.length) strips the static
 // [name, ...args] prefix that rtkPrefix already reproduces, leaving only the
-// real target (file or directory) to append after it. The npm-fallback rtk
-// attempt is bounded by the shorter RTK_NPX_ATTEMPT_TIMEOUT_MS, not
-// NPX_SPAWN_TIMEOUT_MS -- see that constant's comment for why reusing the full
-// budget here would double it.
+// real target (file or directory) to append after it -- this assumes tool.args
+// is a leading, unmodified prefix of argv, which holds for every tool EXCEPT
+// manifestPath tools (cargo/cargo-clippy): buildArgv inserts `--manifest-path
+// <path>` BEFORE the existing `--` separator there, so tool.args is no longer
+// a leading prefix and a positional slice would silently drop the manifest
+// flag and separator. manifestPath tools therefore skip the rtk fast path
+// entirely here and always spawn directly -- correctness over rtk's output
+// compaction for this one tool shape. The npm-fallback rtk attempt is bounded
+// by the shorter RTK_NPX_ATTEMPT_TIMEOUT_MS, not NPX_SPAWN_TIMEOUT_MS -- see
+// that constant's comment for why reusing the full budget here would double it.
 /** @param {LintTool} tool @param {string[]} argv @param {any} spawnOpts @returns {any} */
 function runLintTool(tool, argv, spawnOpts) {
   if (tool.npmSpec && !onPath(tool.name)) {
-    if (onPath("rtk")) {
+    if (!tool.manifestPath && onPath("rtk")) {
       const rtkPrefix = getRtkPrefix(tool);
       if (rtkPrefix) {
         const rtkResult = tryRtk([...rtkPrefix, ...argv.slice(tool.args.length)], { ...spawnOpts, timeout: RTK_NPX_ATTEMPT_TIMEOUT_MS });
@@ -260,7 +276,7 @@ function runLintTool(tool, argv, spawnOpts) {
       timeout: NPX_SPAWN_TIMEOUT_MS,
     });
   }
-  if (onPath("rtk")) {
+  if (!tool.manifestPath && onPath("rtk")) {
     const rtkPrefix = getRtkPrefix(tool);
     if (rtkPrefix) {
       const rtkResult = tryRtk([...rtkPrefix, ...argv.slice(tool.args.length)], spawnOpts);
@@ -302,6 +318,19 @@ export function resolveCheckstyleConfig(fileDir, cwd) {
       if (existsSync(p)) return p;
     }
     return null;
+  });
+}
+
+// Walk from the file's dir up to cwd (inclusive); return the nearest
+// Cargo.toml path, or null. Existence-only (a linter never needs to parse
+// the manifest -- it only needs its path to pass to --manifest-path).
+// cargo clippy/check take no positional file/dir target, so this anchors
+// the run on the correct crate root even in a multi-crate workspace.
+/** @param {string} fileDir @param {string} cwd @returns {string | null} */
+export function resolveCargoManifest(fileDir, cwd) {
+  return walkUpToCwd(fileDir, cwd, (dir) => {
+    const p = path.join(dir, "Cargo.toml");
+    return existsSync(p) ? p : null;
   });
 }
 
@@ -519,8 +548,12 @@ const MARKDOWNLINT_NO_LINE_LENGTH_CONFIG_PATH = path.join(path.dirname(fileURLTo
 // Build the argv for a chain tool: fixed bare args, an optional -c <config> for
 // checkstyle or -d/--config line-length guards for yamllint/markdownlint, then
 // the target (the file, or its directory for targetsDir tools) last.
-/** @param {LintTool} tool @param {string} resolvedFile @param {string} cwd @returns {string[]} */
-export function buildArgv(tool, resolvedFile, cwd) {
+// `manifest` is an optional precomputed resolveCargoManifest result -- passing
+// it lets a caller that already resolved the manifest (runChainLint's gate)
+// avoid a second directory walk; when omitted (e.g. direct unit-test calls)
+// it's resolved here as before.
+/** @param {LintTool} tool @param {string} resolvedFile @param {string} cwd @param {string | null} [manifest] @returns {string[]} */
+export function buildArgv(tool, resolvedFile, cwd, manifest) {
   const dir = path.dirname(resolvedFile);
   const argv = tool.args.slice();
   if (tool.needsCheckstyleConfig) {
@@ -531,6 +564,20 @@ export function buildArgv(tool, resolvedFile, cwd) {
   }
   if (tool.guardMarkdownLineLength && !hasProjectMarkdownlintConfig(dir)) {
     argv.push("--config", MARKDOWNLINT_NO_LINE_LENGTH_CONFIG_PATH);
+  }
+  // cargo clippy/check take no positional target. Resolve the nearest
+  // Cargo.toml and emit --manifest-path <path> as a cargo option -- inserted
+  // BEFORE any `--` separator so it stays a cargo flag, never a post-`--`
+  // rustc arg -- then return WITHOUT a trailing positional. A stray .rs file
+  // outside any Cargo project (no manifest) leaves args untouched; the
+  // runChainLint gate no-ops it before spawning.
+  if (tool.manifestPath) {
+    const resolved = manifest !== undefined ? manifest : resolveCargoManifest(dir, cwd);
+    if (resolved) {
+      const sep = argv.indexOf("--");
+      argv.splice(sep === -1 ? argv.length : sep, 0, "--manifest-path", resolved);
+    }
+    return argv;
   }
   argv.push(tool.targetsDir ? dir : resolvedFile);
   return argv;
@@ -603,6 +650,12 @@ export function classifyExit(toolName, status) {
       if (status === 0) return "clean";
       if (status === 2) return "issues";
       return "skip";
+    case "cargo-clippy": // with `-- -D warnings`: 0 clean, non-zero = lint/compile
+    // findings promoted to errors. VERIFY EMPIRICALLY before merge.
+    case "cargo": // cargo check: 0 clean, 101 on compile error. Non-zero vs.
+      // "cargo itself failed" is not cleanly separable by exit code -- accepted,
+      // same coarse contract already accepted for `go`/`phpstan` above.
+      return status === 0 ? "clean" : "issues";
     default:
       return "skip";
   }
@@ -678,13 +731,29 @@ function buildSpawnOpts(cwd, timeout) {
 function runChainLint(lang, resolved, cwd, rel) {
   const tool = selectLintTool(lang.chain);
   if (!tool) return null;
+  // Gate cargo runs on a resolvable manifest: a stray .rs outside any Cargo
+  // project is a silent no-op, not a spurious "could not find Cargo.toml"
+  // exit-101 finding. Resolved once here and threaded through buildArgv and
+  // the target computation below -- resolveCargoManifest is a directory walk
+  // doing an existsSync per level, so re-resolving it for the same
+  // file/cwd pair would repeat that walk for no new answer.
+  let manifest = null;
+  if (tool.manifestPath) {
+    manifest = resolveCargoManifest(path.dirname(resolved), cwd);
+    if (!manifest) return null;
+  }
 
-  const argv = buildArgv(tool, resolved, cwd);
-  const spawnOpts = buildSpawnOpts(cwd, SPAWN_TIMEOUT_MS);
+  const argv = buildArgv(tool, resolved, cwd, manifest);
+  // Compile-heavy cargo tools get their own budget (mirrors TSC_SPAWN_TIMEOUT_MS).
+  const timeout = tool.manifestPath ? CARGO_SPAWN_TIMEOUT_MS : SPAWN_TIMEOUT_MS;
+  const spawnOpts = buildSpawnOpts(cwd, timeout);
   const result = runLintTool(tool, argv, spawnOpts);
   if (result.error || result.signal) return null;
 
-  const target = tool.targetsDir ? path.relative(cwd, path.dirname(resolved)) || "." : rel;
+  // Cargo entries are neither file-scoped nor targetsDir: the natural target
+  // is the crate directory (the dir containing the resolved Cargo.toml). The
+  // gate above guarantees `manifest` is non-null here.
+  const target = tool.targetsDir ? path.relative(cwd, path.dirname(resolved)) || "." : tool.manifestPath ? path.relative(cwd, path.dirname(manifest)) || "." : rel;
   let verdict, text;
   if (tool.classify === "output") {
     const out = classifyCheckstyleOutput(result.stdout);
