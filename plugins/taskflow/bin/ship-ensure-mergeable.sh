@@ -161,7 +161,7 @@ remediate_behind_gitlab() {
     rip="$(printf '%s' "$out" | jq -r '.rebase_in_progress // false')"
     [ "$rip" = "false" ] && return 0
   done
-  return 0
+  fail "GitLab rebase still in progress for MR $PR_ID after $RETRIES poll attempts"
 }
 
 remediate_behind() {
