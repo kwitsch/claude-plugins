@@ -53,7 +53,7 @@ const TYPE_CHECK_EXTS = new Set([".ts", ".tsx", ".mts", ".cts"]); // tsc only
 
 /* eslint-disable max-len -- long line is the literal JSDoc typedef */
 /**
- * @typedef {{ name: string, args: string[], targetsDir?: boolean, manifestPath?: boolean, classify?: "output", needsCheckstyleConfig?: boolean, guardYamlLineLength?: boolean, guardMarkdownLineLength?: boolean, npmSpec?: string }} LintTool
+ * @typedef {{ name: string, args: string[], targetsDir?: boolean, manifestPath?: boolean, classify?: "output", needsCheckstyleConfig?: boolean, guardYamlLineLength?: boolean, guardMarkdownLineLength?: boolean, npmSpec?: string, spawnAs?: { name: string, args: string[] } }} LintTool
  * @typedef {{ chain: LintTool[] }} LangEntry
  */
 /* eslint-enable max-len */
@@ -146,7 +146,16 @@ export const REGISTRY = {
   },
   rust: {
     chain: [
-      { name: "cargo-clippy", args: ["--", "-D", "warnings"], manifestPath: true },
+      // name/onPath gates on the standalone cargo-clippy driver binary --
+      // its presence on PATH is how the clippy rustup component is detected
+      // (see CLAUDE.md's "Why probe cargo-clippy, not cargo clippy"). But
+      // that bare binary does NOT accept --manifest-path (it belongs to
+      // cargo/its clippy subcommand, not the driver clippy-driver itself
+      // invokes) -- spawnAs runs the actually-selected tool as `cargo
+      // clippy` instead, so buildArgv's --manifest-path lands on a command
+      // that understands it. onPath/selectLintTool still probe `name`
+      // unchanged.
+      { name: "cargo-clippy", args: ["--", "-D", "warnings"], manifestPath: true, spawnAs: { name: "cargo", args: ["clippy"] } },
       { name: "cargo", args: ["check"], manifestPath: true },
     ],
   },
@@ -283,7 +292,17 @@ function runLintTool(tool, argv, spawnOpts) {
       if (rtkResult) return rtkResult;
     }
   }
-  return spawnSync(tool.name, argv, spawnOpts);
+  // spawnAs decouples "which binary name gates PATH-availability /
+  // selectLintTool matching" (tool.name -- already probed as such above and
+  // by onPath/selectLintTool) from "which binary + args are actually
+  // spawned". Only the rust chain's clippy entry sets it today: it probes
+  // the standalone cargo-clippy driver binary (whose presence signals the
+  // clippy rustup component is installed) but must actually run via the
+  // `cargo clippy` subcommand, since the bare driver binary rejects
+  // buildArgv's --manifest-path.
+  const spawnName = tool.spawnAs?.name ?? tool.name;
+  const spawnArgv = tool.spawnAs ? [...tool.spawnAs.args, ...argv] : argv;
+  return spawnSync(spawnName, spawnArgv, spawnOpts);
 }
 
 // Walk from `fileDir` up to `cwd` (inclusive), calling `checkDir(dir)` at each
@@ -650,8 +669,14 @@ export function classifyExit(toolName, status) {
       if (status === 0) return "clean";
       if (status === 2) return "issues";
       return "skip";
-    case "cargo-clippy": // with `-- -D warnings`: 0 clean, non-zero = lint/compile
-    // findings promoted to errors. VERIFY EMPIRICALLY before merge.
+    // "cargo-clippy" here is the identity used for PATH-probing/selection only
+    // (see REGISTRY's rust chain) -- the selected entry is actually spawned as
+    // `cargo clippy` via its `spawnAs`, so it shares cargo's own exit-code
+    // contract below rather than needing a separate case body. VERIFIED
+    // EMPIRICALLY (cargo 1.97.1 / clippy 0.1.97): `-- -D warnings` promotes a
+    // real clippy finding (clippy::single_match) to exit 101, same as cargo
+    // check's own compile-error exit code.
+    case "cargo-clippy":
     case "cargo": // cargo check: 0 clean, 101 on compile error. Non-zero vs.
       // "cargo itself failed" is not cleanly separable by exit code -- accepted,
       // same coarse contract already accepted for `go`/`phpstan` above.

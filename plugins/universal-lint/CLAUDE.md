@@ -309,9 +309,23 @@ the clippy component makes `cargo clippy` exit non-zero with "no such
 command: clippy", which the coarse `0 clean / else issues` contract would
 misreport as a lint finding. Probing the shim binary directly makes chain
 selection fall through cleanly to `cargo check` when clippy is absent.
-`cargo-clippy` invoked directly behaves as `cargo clippy` and accepts the
-same `--manifest-path` and post-`--` rustc flags (verify empirically before
-merge — see the `classifyExit` comment).
+
+**Why the clippy entry's `spawnAs` differs from its probed `name`.** The
+standalone `cargo-clippy` driver binary does **not** accept `--manifest-path`
+(that flag belongs to `cargo`/its `clippy` subcommand, not the raw driver
+`cargo clippy` invokes under the hood) — confirmed empirically (cargo
+1.97.1 / clippy 0.1.97): `cargo-clippy --manifest-path <path> -- -D warnings`
+fails with clap's own usage error (`error: unexpected argument '<path>'
+found` / `Usage: cargo check [OPTIONS]`), which the coarse `0 clean / else
+issues` contract below would otherwise misreport as a real lint finding on
+**every** edit. The `rust` chain's clippy entry therefore carries
+`spawnAs: { name: "cargo", args: ["clippy"] }`: `onPath`/`selectLintTool`
+still probe `tool.name` (`cargo-clippy`) as before, but `runLintTool` spawns
+`cargo clippy <buildArgv output>` instead — confirmed empirically that
+`cargo clippy --manifest-path <path> -- -D warnings` both accepts the flag
+and exits `101` on a real finding (`clippy::single_match`), same as `cargo
+check`'s own compile-error exit code. No other chain entry in this registry
+needs `spawnAs` — it exists solely for this probe-binary/run-command split.
 
 **Why `-- -D warnings`.** clippy's lints default to `warn` level, and plain
 `cargo clippy` exits 0 even when it prints warnings — the same
