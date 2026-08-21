@@ -627,3 +627,58 @@ mm_git_fixture() {
   run grep -nE -- '--force|--force-with-lease|checkout[[:space:]]+--ours|checkout[[:space:]]+--theirs' "$MERGE_SCRIPT"
   [ "$status" -ne 0 ]
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Ship merge-state remediation wiring (script threaded through the pipeline).
+# ─────────────────────────────────────────────────────────────────────────────
+
+@test "SHIP_RESULT declares optional mergeState enum; status enum unchanged" {
+  run rg_or_grep -F 'mergeState: { enum: ["clean", "rebased", "resolved", "unknown"] }' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  # mergeState is NOT required
+  run rg_or_grep -F 'required: ["status"]' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+@test "workflow decodes PLUGIN_ROOT and threads the script path into the shipper prompt" {
+  run rg_or_grep -F 'PLUGIN_ROOT' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'ship-ensure-mergeable.sh' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'created.mergeState' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+@test "workflow final ship comment documents the optional mergeState field" {
+  run rg_or_grep -F 'mergeState?' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+@test "shipper references the remediation script, platform merge-state fields, and mergeState return" {
+  run rg_or_grep -F 'ship-ensure-mergeable.sh' "$AGENTS_DIR/shipper.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'mergeStateStatus' "$AGENTS_DIR/shipper.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'detailed_merge_status' "$AGENTS_DIR/shipper.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'mergeState' "$AGENTS_DIR/shipper.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "build-task injects CLAUDE_PLUGIN_ROOT and passes PLUGIN_ROOT to the delivery workflow" {
+  run rg_or_grep -F 'CLAUDE_PLUGIN_ROOT' "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'PLUGIN_ROOT' "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "no reverted-alternative pr_stale/pr_conflict strings survive anywhere in the plugin" {
+  run bash -c "grep -rnE 'pr_stale|pr_conflict' '$PLUGIN' || true"
+  [ "$status" -eq 0 ]
+  [ "$output" = "" ]
+}
+
+@test "the agent roster is still exactly 11 *.md files" {
+  run bash -c "ls '$AGENTS_DIR'/*.md | wc -l | tr -d '[:space:]'"
+  [ "$output" = "11" ]
+}
