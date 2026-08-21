@@ -25,20 +25,24 @@ setup() {
   assert_failure
 }
 
-@test "rust: cargo-clippy present -> wins over cargo check, cargo never invoked" {
+@test "rust: cargo-clippy on PATH gates selection, but the actual run is 'cargo clippy' (not the bare driver)" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd/src"
   printf '[package]\nname = "x"\n' > "$cwd/Cargo.toml"
   printf 'fn main() {}\n' > "$cwd/src/main.rs"
   OUT="warning: some clippy finding"
-  rec_stub cargo-clippy 0
-  rec_stub cargo 0   # never runs (cargo-clippy wins) -- shares $OUT harmlessly
+  # cargo-clippy only needs to be executable for onPath's probe -- rec_stub
+  # here so an accidental direct invocation (the regression this test guards
+  # against) would leave its own "cargo-clippy ..." line in $RECORD.
+  rec_stub cargo-clippy 1
+  rec_stub cargo 0
   run lint_file_call "$cwd/src/main.rs" "$cwd"
   assert_success
-  run rg_or_grep -F "cargo-clippy --manifest-path $cwd/Cargo.toml -- -D warnings" "$RECORD"
+  run rg_or_grep -F "cargo clippy --manifest-path $cwd/Cargo.toml -- -D warnings" "$RECORD"
   assert_success
-  run rg_or_grep -F "cargo check" "$RECORD"
+  # the bare cargo-clippy driver was never actually spawned -- only probed
+  run rg_or_grep -E "^cargo-clippy " "$RECORD"
   assert_failure
 }
 

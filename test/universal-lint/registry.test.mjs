@@ -555,6 +555,14 @@ test("REGISTRY: rust chain is cargo-clippy -> cargo, both manifestPath, neither 
   assert.equal(REGISTRY.rust.chain[1].npmSpec, undefined);
 });
 
+test("REGISTRY: rust chain's clippy entry is probed as cargo-clippy but spawned as cargo clippy", () => {
+  const clippy = REGISTRY.rust.chain[0];
+  assert.deepEqual(clippy.spawnAs, { name: "cargo", args: ["clippy"] });
+  // cargo check (chain[1]) has no spawnAs -- it's already spawned under its
+  // own probed name, no decoupling needed.
+  assert.equal(REGISTRY.rust.chain[1].spawnAs, undefined);
+});
+
 test("resolveCargoManifest: finds Cargo.toml walking up from a nested dir", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ul-cargo-"));
   writeFileSync(path.join(root, "Cargo.toml"), '[package]\nname = "x"\n');
