@@ -63,79 +63,81 @@ fail() {
   exit 1
 }
 
-# ── Classification: echo one of clean|behind|conflict|unknown ────────────────
-classify_github() {
-  local out rc mss mergeable i
+# ── shared retry/poll loop ────────────────────────────────────────────────────
+# retry_poll <attempt-fn> [presleep]
+#   Calls attempt-fn up to RETRIES times. attempt-fn must return 0 once it
+#   has reached a terminal outcome (echoing it itself, if any), or non-zero
+#   to request another attempt. Sleeps SLEEP seconds between attempts; with
+#   presleep=1 it also sleeps before the first attempt (used when the caller
+#   just triggered an async action and needs to give it time before polling).
+#   Returns 1 if every attempt was exhausted without a terminal 0.
+retry_poll() {
+  local fn="$1" presleep="${2:-0}" i
   for ((i = 1; i <= RETRIES; i++)); do
-    out="$(gh pr view "$PR_ID" --json mergeable,mergeStateStatus 2> /dev/null)"
-    rc=$?
-    if [ "$rc" -ne 0 ] || [ -z "$out" ]; then
-      if [ "$i" -lt "$RETRIES" ]; then
-        sleep "$SLEEP"
-        continue
-      fi
-      echo unknown
+    [ "$presleep" = 1 ] && sleep "$SLEEP"
+    if "$fn"; then
       return 0
     fi
-    mss="$(printf '%s' "$out" | jq -r '.mergeStateStatus // "UNKNOWN"')"
-    mergeable="$(printf '%s' "$out" | jq -r '.mergeable // "UNKNOWN"')"
-    if [ "$mss" = "DIRTY" ] || [ "$mergeable" = "CONFLICTING" ]; then
-      echo conflict
-      return 0
-    fi
-    if [ "$mss" = "BEHIND" ]; then
-      echo behind
-      return 0
-    fi
-    if [ "$mss" = "UNKNOWN" ] || [ "$mergeable" = "UNKNOWN" ]; then
-      if [ "$i" -lt "$RETRIES" ]; then
-        sleep "$SLEEP"
-        continue
-      fi
-      echo unknown
-      return 0
-    fi
-    echo clean
-    return 0
+    [ "$presleep" != 1 ] && [ "$i" -lt "$RETRIES" ] && sleep "$SLEEP"
   done
-  echo unknown
+  return 1
+}
+
+# ── Classification: echo one of clean|behind|conflict|unknown ────────────────
+classify_github_attempt() {
+  local out rc mss mergeable
+  out="$(gh pr view "$PR_ID" --json mergeable,mergeStateStatus 2> /dev/null)"
+  rc=$?
+  if [ "$rc" -ne 0 ] || [ -z "$out" ]; then
+    return 1
+  fi
+  mss="$(printf '%s' "$out" | jq -r '.mergeStateStatus // "UNKNOWN"')"
+  mergeable="$(printf '%s' "$out" | jq -r '.mergeable // "UNKNOWN"')"
+  if [ "$mss" = "DIRTY" ] || [ "$mergeable" = "CONFLICTING" ]; then
+    echo conflict
+    return 0
+  fi
+  if [ "$mss" = "BEHIND" ]; then
+    echo behind
+    return 0
+  fi
+  if [ "$mss" = "UNKNOWN" ] || [ "$mergeable" = "UNKNOWN" ]; then
+    return 1
+  fi
+  echo clean
+  return 0
+}
+
+classify_github() {
+  retry_poll classify_github_attempt || echo unknown
+}
+
+classify_gitlab_attempt() {
+  local out rc dms ms
+  out="$(glab api "projects/:id/merge_requests/$PR_ID" 2> /dev/null)"
+  rc=$?
+  if [ "$rc" -ne 0 ] || [ -z "$out" ]; then
+    return 1
+  fi
+  dms="$(printf '%s' "$out" | jq -r '.detailed_merge_status // ""')"
+  ms="$(printf '%s' "$out" | jq -r '.merge_status // ""')"
+  if [ "$dms" = "conflict" ] || { [ -z "$dms" ] && [ "$ms" = "cannot_be_merged" ]; }; then
+    echo conflict
+    return 0
+  fi
+  if [ "$dms" = "need_rebase" ]; then
+    echo behind
+    return 0
+  fi
+  if [ "$dms" = "unchecked" ] || [ "$dms" = "checking" ] || { [ -z "$dms" ] && [ "$ms" = "unchecked" ]; }; then
+    return 1
+  fi
+  echo clean
+  return 0
 }
 
 classify_gitlab() {
-  local out rc dms ms i
-  for ((i = 1; i <= RETRIES; i++)); do
-    out="$(glab api "projects/:id/merge_requests/$PR_ID" 2> /dev/null)"
-    rc=$?
-    if [ "$rc" -ne 0 ] || [ -z "$out" ]; then
-      if [ "$i" -lt "$RETRIES" ]; then
-        sleep "$SLEEP"
-        continue
-      fi
-      echo unknown
-      return 0
-    fi
-    dms="$(printf '%s' "$out" | jq -r '.detailed_merge_status // ""')"
-    ms="$(printf '%s' "$out" | jq -r '.merge_status // ""')"
-    if [ "$dms" = "conflict" ] || { [ -z "$dms" ] && [ "$ms" = "cannot_be_merged" ]; }; then
-      echo conflict
-      return 0
-    fi
-    if [ "$dms" = "need_rebase" ]; then
-      echo behind
-      return 0
-    fi
-    if [ "$dms" = "unchecked" ] || [ "$dms" = "checking" ] || { [ -z "$dms" ] && [ "$ms" = "unchecked" ]; }; then
-      if [ "$i" -lt "$RETRIES" ]; then
-        sleep "$SLEEP"
-        continue
-      fi
-      echo unknown
-      return 0
-    fi
-    echo clean
-    return 0
-  done
-  echo unknown
+  retry_poll classify_gitlab_attempt || echo unknown
 }
 
 classify() {
@@ -147,21 +149,22 @@ remediate_behind_github() {
   gh pr update-branch "$PR_ID" > /dev/null 2>&1 || fail "gh pr update-branch $PR_ID failed"
 }
 
+remediate_behind_gitlab_attempt() {
+  local out rip merr
+  out="$(glab api "projects/:id/merge_requests/$PR_ID" 2> /dev/null)" || return 1
+  merr="$(printf '%s' "$out" | jq -r '.merge_error // "null"')"
+  if [ -n "$merr" ] && [ "$merr" != "null" ]; then
+    fail "GitLab rebase reported merge_error: $merr"
+  fi
+  rip="$(printf '%s' "$out" | jq -r '.rebase_in_progress // false')"
+  [ "$rip" = "false" ]
+}
+
 remediate_behind_gitlab() {
   glab api -X PUT "projects/:id/merge_requests/$PR_ID/rebase" > /dev/null 2>&1 \
     || fail "glab rebase API failed for MR $PR_ID"
-  local i out rip merr
-  for ((i = 1; i <= RETRIES; i++)); do
-    sleep "$SLEEP"
-    out="$(glab api "projects/:id/merge_requests/$PR_ID" 2> /dev/null)" || continue
-    merr="$(printf '%s' "$out" | jq -r '.merge_error // "null"')"
-    if [ -n "$merr" ] && [ "$merr" != "null" ]; then
-      fail "GitLab rebase reported merge_error: $merr"
-    fi
-    rip="$(printf '%s' "$out" | jq -r '.rebase_in_progress // false')"
-    [ "$rip" = "false" ] && return 0
-  done
-  fail "GitLab rebase still in progress for MR $PR_ID after $RETRIES poll attempts"
+  retry_poll remediate_behind_gitlab_attempt 1 \
+    || fail "GitLab rebase still in progress for MR $PR_ID after $RETRIES poll attempts"
 }
 
 remediate_behind() {
