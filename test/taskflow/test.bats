@@ -13,6 +13,7 @@ setup() {
   WORKFLOWS="$PLUGIN/workflows"
   MARKET="$REPO_ROOT/.claude-plugin/marketplace.json"
   ESLINT_CONFIG="$REPO_ROOT/eslint.config.mjs"
+  MERGE_SCRIPT="$PLUGIN/bin/ship-ensure-mergeable.sh"
 }
 
 rg_or_grep() {
@@ -443,4 +444,186 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
 @test "plugin README lists dispatch-task in the Skills section" {
   run rg_or_grep -F '| `dispatch-task`' "$PLUGIN/README.md"
   [ "$status" -eq 0 ]
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# bin/ship-ensure-mergeable.sh — hermetic exit-code / mergeState contract.
+# Stubs gh/glab (canned JSON, call recording); real git for the conflict path.
+# NOTE: the script's `env -i` in run_mergeable wipes everything except
+# PATH/HOME/TMPDIR — stub bodies must use $TMPDIR, never $BATS_TEST_TMPDIR.
+# MERGE_SCRIPT is resolved in setup() (top-level assignment can't see $PLUGIN).
+# ─────────────────────────────────────────────────────────────────────────────
+
+mm_mockbin() {
+  MOCKBIN="$BATS_TEST_TMPDIR/bin"
+  mkdir -p "$MOCKBIN"
+  for t in bash env grep sed git jq sleep cat rm mkdir printf head cut tr; do
+    src="$(command -v "$t")" && [ -n "$src" ] && ln -sf "$src" "$MOCKBIN/$t"
+  done
+  export HOME="$BATS_TEST_TMPDIR/home"; mkdir -p "$HOME"
+}
+
+mm_stub() {
+  local name="$1"; shift
+  rm -f "$MOCKBIN/$name"
+  { printf '#!/usr/bin/env bash\n'; printf '%s\n' "$@"; } > "$MOCKBIN/$name"
+  chmod +x "$MOCKBIN/$name"
+}
+
+run_mergeable() {
+  run env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" \
+    SHIP_MERGE_POLL_INTERVAL=0 SHIP_MERGE_POLL_RETRIES=2 \
+    bash "$MERGE_SCRIPT" "$@"
+}
+
+# Build a real git repo with a bare origin. Advances `main` past `feature`;
+# $1 = "conflict" (conflicting hunk, -X ours resolvable) or
+#      "modifydelete" (base deletes f.txt, feature edits it — NOT -X ours
+#      resolvable, leaves an unmerged path).
+mm_git_fixture() {
+  local kind="$1" origin="$BATS_TEST_TMPDIR/origin.git" work="$BATS_TEST_TMPDIR/work"
+  git init -q --bare "$origin"
+  git clone -q "$origin" "$work"
+  cd "$work" || return 1
+  git config user.email t@t; git config user.name t
+  printf 'base\n' > f.txt; git add f.txt; git commit -qm init
+  git branch -M main; git push -q origin main
+  git checkout -q -b feature
+  printf 'feature-change\n' > f.txt; git commit -qam feature
+  git push -q origin feature
+  git checkout -q main
+  if [ "$kind" = "modifydelete" ]; then
+    git rm -q f.txt; git commit -qm 'base deletes f'
+  else
+    printf 'base-change\n' > f.txt; git commit -qam 'base advances'
+  fi
+  git push -q origin main
+  git checkout -q feature
+}
+
+@test "ship-ensure-mergeable.sh exists and is executable" {
+  [ -f "$MERGE_SCRIPT" ]
+  [ -x "$MERGE_SCRIPT" ]
+}
+
+@test "ship-ensure-mergeable.sh rejects a wrong argument count with exit 64" {
+  mm_mockbin
+  run_mergeable github feature main
+  [ "$status" -eq 64 ]
+}
+
+@test "ship-ensure-mergeable.sh: clean GitHub state → mergeState=clean, no mutation" {
+  mm_mockbin
+  mm_stub gh '
+    echo "ARGS: $*" >> "$TMPDIR/gh-calls"
+    if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+      echo "{\"mergeable\":\"MERGEABLE\",\"mergeStateStatus\":\"CLEAN\"}"; exit 0
+    fi
+    exit 0'
+  run_mergeable github feature main 42
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"mergeState=clean"* ]]
+  run grep -F 'update-branch' "$BATS_TEST_TMPDIR/gh-calls"
+  [ "$status" -ne 0 ]
+}
+
+@test "ship-ensure-mergeable.sh: BEHIND GitHub → gh pr update-branch → mergeState=rebased" {
+  mm_mockbin
+  mm_stub gh '
+    n_file="$TMPDIR/gh-n"; n=$(cat "$n_file" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$n_file"
+    echo "ARGS: $*" >> "$TMPDIR/gh-calls"
+    if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+      if [ "$n" -le 1 ]; then echo "{\"mergeable\":\"UNKNOWN\",\"mergeStateStatus\":\"BEHIND\"}";
+      else echo "{\"mergeable\":\"MERGEABLE\",\"mergeStateStatus\":\"CLEAN\"}"; fi
+      exit 0
+    fi
+    if [ "$1" = "pr" ] && [ "$2" = "update-branch" ]; then exit 0; fi
+    exit 0'
+  run_mergeable github feature main 42
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"mergeState=rebased"* ]]
+  run grep -F 'pr update-branch 42' "$BATS_TEST_TMPDIR/gh-calls"
+  [ "$status" -eq 0 ]
+}
+
+@test "ship-ensure-mergeable.sh: need_rebase GitLab → rebase API → mergeState=rebased" {
+  mm_mockbin
+  mm_stub glab '
+    n_file="$TMPDIR/glab-n"; n=$(cat "$n_file" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$n_file"
+    echo "ARGS: $*" >> "$TMPDIR/glab-calls"
+    # PUT rebase call
+    if [ "$1" = "api" ] && [ "$2" = "-X" ] && [ "$3" = "PUT" ]; then exit 0; fi
+    # single-MR GET
+    if [ "$n" -le 1 ]; then echo "{\"detailed_merge_status\":\"need_rebase\",\"merge_status\":\"cannot_be_merged\",\"rebase_in_progress\":false,\"merge_error\":null}";
+    else echo "{\"detailed_merge_status\":\"mergeable\",\"merge_status\":\"can_be_merged\",\"rebase_in_progress\":false,\"merge_error\":null}"; fi
+    exit 0'
+  run_mergeable gitlab feature main 7
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"mergeState=rebased"* ]]
+  run grep -F 'merge_requests/7/rebase' "$BATS_TEST_TMPDIR/glab-calls"
+  [ "$status" -eq 0 ]
+}
+
+@test "ship-ensure-mergeable.sh: -X ours-resolvable conflict → merge + non-force push → mergeState=resolved" {
+  mm_mockbin
+  mm_git_fixture conflict
+  mm_stub gh '
+    n_file="$TMPDIR/gh-n"; n=$(cat "$n_file" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$n_file"
+    if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+      if [ "$n" -le 1 ]; then echo "{\"mergeable\":\"CONFLICTING\",\"mergeStateStatus\":\"DIRTY\"}";
+      else echo "{\"mergeable\":\"MERGEABLE\",\"mergeStateStatus\":\"CLEAN\"}"; fi
+      exit 0
+    fi
+    exit 0'
+  run_mergeable github feature main 42
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"mergeState=resolved"* ]]
+  # -X ours kept the feature side of the conflicting hunk
+  run cat "$BATS_TEST_TMPDIR/work/f.txt"
+  [[ "$output" == *"feature-change"* ]]
+}
+
+@test "ship-ensure-mergeable.sh: conflict NOT -X ours-resolvable → abort, no push, exit 1" {
+  mm_mockbin
+  mm_git_fixture modifydelete
+  local origin_before
+  origin_before="$(git -C "$BATS_TEST_TMPDIR/work" rev-parse origin/feature)"
+  mm_stub gh '
+    if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+      echo "{\"mergeable\":\"CONFLICTING\",\"mergeStateStatus\":\"DIRTY\"}"; exit 0
+    fi
+    exit 0'
+  run_mergeable github feature main 42
+  [ "$status" -eq 1 ]
+  # merge was aborted → no unmerged paths remain
+  run git -C "$BATS_TEST_TMPDIR/work" ls-files --unmerged
+  [ -z "$output" ]
+  # origin/feature was NOT pushed to (remote unchanged)
+  run git -C "$BATS_TEST_TMPDIR/work" rev-parse origin/feature
+  [ "$output" = "$origin_before" ]
+}
+
+@test "ship-ensure-mergeable.sh: remediation error (update-branch fails) → exit 1" {
+  mm_mockbin
+  mm_stub gh '
+    if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+      echo "{\"mergeable\":\"UNKNOWN\",\"mergeStateStatus\":\"BEHIND\"}"; exit 0
+    fi
+    if [ "$1" = "pr" ] && [ "$2" = "update-branch" ]; then echo "boom" >&2; exit 1; fi
+    exit 0'
+  run_mergeable github feature main 42
+  [ "$status" -eq 1 ]
+}
+
+@test "ship-ensure-mergeable.sh: transient read error → mergeState=unknown, exit 0" {
+  mm_mockbin
+  mm_stub gh 'echo "api down" >&2; exit 1'
+  run_mergeable github feature main 42
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"mergeState=unknown"* ]]
+}
+
+@test "ship-ensure-mergeable.sh never issues a force push or a checkout --ours force-pick" {
+  run grep -nE -- '--force|--force-with-lease|checkout[[:space:]]+--ours|checkout[[:space:]]+--theirs' "$MERGE_SCRIPT"
+  [ "$status" -ne 0 ]
 }
