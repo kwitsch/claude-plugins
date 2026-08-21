@@ -40,12 +40,18 @@ Never guess a task.
 1. **Dispatch the background session.** Derive a short (3-6 English words, lowercase,
    non-alphanumeric runs collapsed to a single `-`) slug from the task text yourself —
    reuse the exact same slug both for the session name below and for the `feature/<slug>`
-   branch the payload cuts. Any value you interpolate into the command below must match
-   `^[A-Za-z0-9._-]+$` — safe bare tokens only, no quotes, `$()`, backticks, or whitespace;
-   the fixed `sonnet`/`medium` constants satisfy that trivially, and any future override
-   would have to pass the same check before substitution. The script itself re-checks
-   `$name` against that same pattern before it is ever passed to `claude` — never rely on
-   the slug you derived alone.
+   branch the payload cuts. `claude --worktree` rejects any name over 64 chars total, so
+   the slug itself has a hard budget: the fixed template
+   `taskflow-build-<slug>-$(date +%s)-$RANDOM` burns `taskflow-build-` (15 chars) +
+   `-` + a 10-digit epoch + `-` + up to 5 `$RANDOM` digits (17 more chars) = 32 chars of
+   fixed overhead, leaving **at most 32 characters for the slug itself** — keep it well
+   under that (e.g. 3-4 short words) rather than pushing right up against the limit. Any
+   value you interpolate into the command below must match `^[A-Za-z0-9._-]+$` — safe bare
+   tokens only, no quotes, `$()`, backticks, or whitespace; the fixed `sonnet`/`medium`
+   constants satisfy that trivially, and any future override would have to pass the same
+   check before substitution. The script itself re-checks `$name` against that same pattern,
+   and separately rejects it outright if it is still over 64 chars total, before it is ever
+   passed to `claude` — never rely on the slug you derived alone.
 
    The task text is embedded inside a **single-quoted** heredoc, so nothing in it is ever
    shell-expanded or interpolated, whatever it is punctuated with. Use the fixed delimiter
@@ -64,6 +70,10 @@ Never guess a task.
    name="taskflow-build-<3-6-word-english-slug-of-the-task>-$(date +%s)-$RANDOM"
    [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] || {
      echo "unsafe dispatch name: $name" >&2
+     exit 1
+   }
+   ((${#name} <= 64)) || {
+     echo "worktree name too long (${#name} chars, max 64): $name" >&2
      exit 1
    }
    claude --worktree "$name" --model "sonnet" --effort "medium" --permission-mode auto --bg "$(

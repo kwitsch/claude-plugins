@@ -32,7 +32,12 @@ anything else. Never guess.
 1. **Dispatch the background session.** Derive a short (3-6 English words, lowercase,
    non-alphanumeric runs collapsed to a single `-`) slug from the actual prompt (after
    stripping any `--model=`/`--effort=` prefix) yourself — same convention as `fresh-work`'s
-   own branch-naming step. Before building the command below, validate the resolved `model`
+   own branch-naming step. `claude --worktree` rejects any name over 64 chars total, so the
+   slug has a hard budget: the fixed template `dispatch-<slug>-$(date +%s)-$RANDOM` burns
+   `dispatch-` (9 chars) + `-` + a 10-digit epoch + `-` + up to 5 `$RANDOM` digits (17 more
+   chars) = 26 chars of fixed overhead, leaving **at most 38 characters for the slug
+   itself** — keep it well under that (e.g. 3-4 short words) rather than pushing right up
+   against the limit. Before building the command below, validate the resolved `model`
    and `effort` values (whether parsed from `--model=`/`--effort=` or the `sonnet`/`xhigh`
    defaults) match `^[A-Za-z0-9._-]+$` — safe bare tokens only, no quotes, `$()`, backticks,
    or whitespace. Either one fails this check → stop and report; never substitute an
@@ -43,6 +48,10 @@ anything else. Never guess.
    ```bash
    set -e
    name="dispatch-<3-6-word-english-slug-of-the-prompt>-$(date +%s)-$RANDOM"
+   ((${#name} <= 64)) || {
+     echo "worktree name too long (${#name} chars, max 64): $name" >&2
+     exit 1
+   }
    claude --worktree "$name" --model "<validated-model>" --effort "<validated-effort>" --permission-mode auto --bg "$(
      cat << 'DISPATCH_AGENT_PROMPT_EOF'
    <the literal, verbatim prompt text goes here — the actual instruction after stripping any
