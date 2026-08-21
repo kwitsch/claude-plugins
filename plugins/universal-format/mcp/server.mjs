@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=5cf2249432d7d8b3 body=7e6354a96a1dbc10 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=e330e5fed61a9ea5 body=b6f8bdccf3c19cc9 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -171663,6 +171663,18 @@ var MAPPERS = {
     if (typeof ec.max_line_length === "number")
       argv.push("--line-length", String(ec.max_line_length));
     return { argv };
+  },
+  rustfmt(base, ec) {
+    const argv = base.slice();
+    if (typeof ec.max_line_length === "number")
+      argv.push("--config", `max_width=${ec.max_line_length}`);
+    if (ec.indent_style === "tab")
+      argv.push("--config", "hard_tabs=true");
+    else if (ec.indent_style === "space")
+      argv.push("--config", "hard_tabs=false");
+    if (typeof ec.indent_size === "number")
+      argv.push("--config", `tab_spaces=${ec.indent_size}`);
+    return { argv };
   }
 };
 function findNativeConfig(fileDir, cwd, entries) {
@@ -171884,7 +171896,8 @@ var EXT_MAP = {
   ".vue": "vue",
   ".graphql": "graphql",
   ".gql": "graphql",
-  ".php": "php"
+  ".php": "php",
+  ".rs": "rust"
 };
 var PRETTIER_LANGS = new Set(["jsts", "json", "yaml", "markdown", "css", "scss", "less", "html", "vue", "graphql", "shell", "java", "php"]);
 var REGISTRY = {
@@ -171922,6 +171935,16 @@ var REGISTRY = {
     chain: [
       { name: "goimports", strategy: "fixed", base: ["-w"] },
       { name: "gofmt", strategy: "fixed", base: ["-w"] }
+    ]
+  },
+  rust: {
+    chain: [
+      {
+        name: "rustfmt",
+        strategy: "mapped",
+        nativeConfig: ["rustfmt.toml", ".rustfmt.toml"],
+        base: []
+      }
     ]
   }
 };

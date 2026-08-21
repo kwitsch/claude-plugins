@@ -67,12 +67,12 @@ test("every PRETTIER_LANGS member is reachable from at least one EXT_MAP extensi
   }
 });
 
-// Tripwire 4: REGISTRY holds exactly the three languages with no viable prettier plugin (surveyed:
+// Tripwire 4: REGISTRY holds exactly the four languages with no viable prettier plugin (surveyed:
 // kotlin's only plugin shells out to a bundled 39.9 MB JVM jar and needs prettier 1.x, python's has
-// one 2018 release pinned to a prettier git SHA, and no prettier plugin formats Go source at all).
-// Pins the shell/java/php CLI-chain removal.
-test("REGISTRY holds exactly kotlin, python, go", () => {
-  assert.deepEqual(Object.keys(REGISTRY).sort(), ["go", "kotlin", "python"]);
+// one 2018 release pinned to a prettier git SHA, no prettier plugin formats Go source at all, and no
+// viable prettier plugin formats Rust source either). Pins the shell/java/php CLI-chain removal.
+test("REGISTRY holds exactly go, kotlin, python, rust", () => {
+  assert.deepEqual(Object.keys(REGISTRY).sort(), ["go", "kotlin", "python", "rust"]);
 });
 
 test("hasPrettierProjectConfig: finds .prettierrc directly in the file's dir", () => {

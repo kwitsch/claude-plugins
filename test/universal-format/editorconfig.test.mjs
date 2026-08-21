@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { parseEditorconfig, matchGlob, resolveEditorconfig } from "../../plugins/universal-format/mcp/server.mjs";
+import { parseEditorconfig, matchGlob, resolveEditorconfig, buildInvocation, REGISTRY } from "../../plugins/universal-format/mcp/server.mjs";
 
 // The artifact is a @ts-nocheck generated bundle, so TS infers resolveEditorconfig's `props` from
 // the emitted JS as a union that still includes the empty-object start state — a direct
@@ -68,4 +68,48 @@ test("resolveEditorconfig: indent_style=tab surfaces for hard-conflict predicate
   writeFileSync(path.join(dir, ".editorconfig"), "root = true\n[*]\nindent_style = tab\n");
   const r = resolveEditorconfig(path.join(dir, "Foo.java"), dir);
   assert.equal(props(r).indent_style, "tab");
+});
+
+const rustfmt = REGISTRY.rust.chain[0];
+
+test("rustfmt: max_line_length maps to --config max_width", () => {
+  assert.deepEqual(buildInvocation(rustfmt, { editorconfig: { max_line_length: 120 } }), { argv: ["--config", "max_width=120"] });
+});
+
+test("rustfmt: indent_style tab/space maps to --config hard_tabs", () => {
+  assert.deepEqual(buildInvocation(rustfmt, { editorconfig: { indent_style: "tab" } }), { argv: ["--config", "hard_tabs=true"] });
+  assert.deepEqual(buildInvocation(rustfmt, { editorconfig: { indent_style: "space" } }), { argv: ["--config", "hard_tabs=false"] });
+});
+
+test("rustfmt: indent_size maps to --config tab_spaces", () => {
+  assert.deepEqual(buildInvocation(rustfmt, { editorconfig: { indent_size: 4 } }), { argv: ["--config", "tab_spaces=4"] });
+});
+
+test("rustfmt: all three props combine in max_width/hard_tabs/tab_spaces order", () => {
+  assert.deepEqual(
+    buildInvocation(rustfmt, {
+      editorconfig: {
+        max_line_length: 100,
+        indent_style: "space",
+        indent_size: 4,
+      },
+    }),
+    {
+      argv: ["--config", "max_width=100", "--config", "hard_tabs=false", "--config", "tab_spaces=4"],
+    },
+  );
+});
+
+test("rustfmt: native config governs -> bare base (mapping bypassed)", () => {
+  assert.deepEqual(
+    buildInvocation(rustfmt, {
+      hasNativeConfig: true,
+      editorconfig: { max_line_length: 100 },
+    }),
+    { argv: [] },
+  );
+});
+
+test("rustfmt: no editorconfig -> bare base", () => {
+  assert.deepEqual(buildInvocation(rustfmt), { argv: [] });
 });

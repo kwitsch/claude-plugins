@@ -30,6 +30,14 @@ const MAPPERS: Record<string, (base: string[], ec: EditorConfigProps) => { argv:
     if (typeof ec.max_line_length === "number") argv.push("--line-length", String(ec.max_line_length));
     return { argv };
   },
+  rustfmt(base, ec) {
+    const argv = base.slice();
+    if (typeof ec.max_line_length === "number") argv.push("--config", `max_width=${ec.max_line_length}`);
+    if (ec.indent_style === "tab") argv.push("--config", "hard_tabs=true");
+    else if (ec.indent_style === "space") argv.push("--config", "hard_tabs=false");
+    if (typeof ec.indent_size === "number") argv.push("--config", `tab_spaces=${ec.indent_size}`);
+    return { argv };
+  },
 };
 
 // Walk from the file's dir up to cwd (inclusive); return true if a tool-native config governs the
