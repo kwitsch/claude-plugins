@@ -42,6 +42,18 @@ message).
 > **User decisions go through `AskUserQuestion`** — fixed-choice and
 > open-ended alike; never plain prose that waits for a typed reply.
 
+## Plugin context
+
+Plugin root: !`echo "$CLAUDE_PLUGIN_ROOT"`
+
+Capture the `Plugin root:` value above (populated at skill load time) and
+pass it to the delivery workflow as `PLUGIN_ROOT` (step 4) — agents cannot
+read `$CLAUDE_PLUGIN_ROOT` inside a Bash-tool subprocess, so the workflow
+builds the absolute `bin/ship-ensure-mergeable.sh` path from it and hands it
+to shipper. Empty/`[shell command execution disabled by policy]` → pass it
+through unchanged; shipper degrades to `mergeState: 'unknown'` and skips
+remediation (the pre-fix loop still runs).
+
 ## Session temp files
 
 Every pipeline file is session-only, never a repository file:
@@ -142,7 +154,7 @@ USER_INPUT: ''}` (paths from the temp directory). Then by `status`:
    count as **approved** — this is the pipeline's one human checkpoint on the
    design.
 4. **Deliver.** Run the delivery workflow (invocation rules above) with args
-   `{SPEC_PATH, PLAN_PATH, BRANCH_NAME, BASE_BRANCH}` (add `SHIP: false`
+   `{SPEC_PATH, PLAN_PATH, BRANCH_NAME, BASE_BRANCH, PLUGIN_ROOT}` (add `SHIP: false`
    only if the user asked not to open a PR/MR). The workflow ships on its
    own — push, PR/MR create-or-update, CI watch with bounded fix rounds; the
    returned `ship` object carries url and CI outcome. On an error return

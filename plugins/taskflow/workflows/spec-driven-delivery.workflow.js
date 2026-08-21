@@ -54,11 +54,15 @@ export const meta = {
 };
 
 // ── Inputs via the `args` global (decoder with fail-fast guard) ─────────────
-// Expected: { SPEC_PATH, PLAN_PATH, BRANCH_NAME, BASE_BRANCH? }
+// Expected: { SPEC_PATH, PLAN_PATH, BRANCH_NAME, BASE_BRANCH?, PLUGIN_ROOT? }
 //   SPEC_PATH   — absolute path of the approved spec file
 //   PLAN_PATH   — absolute temp path for the plan (session scratch, never in the repo)
 //   BRANCH_NAME — current work branch (`git branch --show-current`)
 //   BASE_BRANCH — branch the work branch was cut from (default 'main')
+//   PLUGIN_ROOT — absolute plugin root (build-task injects $CLAUDE_PLUGIN_ROOT);
+//                 used to build the ship-ensure-mergeable.sh path handed to
+//                 shipper. Absent → shipper skips remediation, reports
+//                 mergeState 'unknown' (today's pre-fix loop behavior).
 function decodeArgs(required, defaults) {
   let a = typeof args === "undefined" ? null : args;
   // The runtime delivers args as a JSON STRING instead of an object depending
@@ -85,9 +89,9 @@ function decodeArgs(required, defaults) {
   if (missing.length) return { __error: "missing required args: " + missing.join(", ") + " (got keys: " + Object.keys(a).join(", ") + ")" };
   return { ...defaults, ...a };
 }
-const A = decodeArgs(["SPEC_PATH", "PLAN_PATH", "BRANCH_NAME"], { BASE_BRANCH: "main", SHIP: true });
+const A = decodeArgs(["SPEC_PATH", "PLAN_PATH", "BRANCH_NAME"], { BASE_BRANCH: "main", SHIP: true, PLUGIN_ROOT: "" });
 if (A.__error) return { stage: "args", error: A.__error };
-const { SPEC_PATH, PLAN_PATH, BRANCH_NAME, BASE_BRANCH, SHIP } = A;
+const { SPEC_PATH, PLAN_PATH, BRANCH_NAME, BASE_BRANCH, SHIP, PLUGIN_ROOT } = A;
 
 // ── Model assignment by task difficulty ──────────────────────────────────────
 // Role profiles:
@@ -329,6 +333,7 @@ const SHIP_RESULT = {
     status: { enum: ["created", "updated", "blocked"] },
     url: { type: "string" },
     platform: { enum: ["github", "gitlab"] },
+    mergeState: { enum: ["clean", "rebased", "resolved", "unknown"] },
     detail: { type: "string" },
   },
 };
@@ -984,20 +989,23 @@ if (SHIP) {
         " to base " +
         BASE_BRANCH +
         " (procedure, platform\n" +
-        "detection, create-or-update, and hard limits per your agent definition).\n" +
+        "detection, create-or-update, mergeability check, and hard limits per your agent definition).\n" +
         "PR/MR title: " +
         prText.title +
         "\n" +
         "PR/MR body:\n<<<BODY\n" +
         prText.body +
         "\nBODY\n" +
+        "Mergeability script (absolute path): " +
+        (PLUGIN_ROOT ? PLUGIN_ROOT + "/bin/ship-ensure-mergeable.sh" : "(none — skip the mergeability step and report mergeState 'unknown')") +
+        "\n" +
         "Structured output only.",
       { label: "ship", phase: "Ship", schema: SHIP_RESULT, model: MODELS.shipper, agentType: AGENTS.shipper },
     );
     if (!created || created.status === "blocked") {
       ship = { status: "blocked", detail: created ? created.detail : "shipper returned null" };
     } else {
-      ship = { status: "shipped", url: created.url, platform: created.platform, prAction: created.status, ci: { status: "unknown", monitorRounds: 0, fixRounds: 0 } };
+      ship = { status: "shipped", url: created.url, platform: created.platform, prAction: created.status, mergeState: created.mergeState, ci: { status: "unknown", monitorRounds: 0, fixRounds: 0 } };
       let rerunTried = false;
       for (let round = 1; round <= MAX_CI_MONITOR_ROUNDS; round++) {
         ship.ci.monitorRounds = round;
@@ -1066,5 +1074,5 @@ return {
   refuted: refuted.map((c) => ({ file: c.file, line: c.line, summary: c.summary })),
   applied: applyReport,
   escalatedToUser: escalated, // reversesDecision → the human decides after the workflow ends
-  ship, // {status: skipped|blocked|shipped|ci_failed|ci_timeout|ci_unknown, url?, platform?, ci?}
+  ship, // {status: skipped|blocked|shipped|ci_failed|ci_timeout|ci_unknown, url?, platform?, mergeState?, ci?}
 };
