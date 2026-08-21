@@ -48,10 +48,10 @@ export -f rg_or_grep
   [ "$status" -eq 0 ]
 }
 
-@test "plugin.json version is 1.3.1" {
+@test "plugin.json version is 1.4.0" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "1.3.1" ]
+  [ "$output" = "1.4.0" ]
 }
 
 @test "marketplace entry exists for taskflow" {
@@ -681,4 +681,31 @@ mm_git_fixture() {
 @test "the agent roster is still exactly 11 *.md files" {
   run bash -c "ls '$AGENTS_DIR'/*.md | wc -l | tr -d '[:space:]'"
   [ "$output" = "11" ]
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Documentation sync for the Ship merge-state remediation.
+# ─────────────────────────────────────────────────────────────────────────────
+
+@test "reference doc records mergeState in the ship contract and the auto-remediation roles" {
+  run rg_or_grep -F 'mergeState?' "$REFS/spec-driven-delivery.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'ship-ensure-mergeable' "$REFS/spec-driven-delivery.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -iF 'never merges the PR/MR itself' "$REFS/spec-driven-delivery.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "README shipper row and file tree document bin/ship-ensure-mergeable.sh" {
+  run rg_or_grep -F 'ship-ensure-mergeable.sh' "$PLUGIN/README.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -iF 'merge-state' "$PLUGIN/README.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "CLAUDE.md notes the first bin/ script without changing the 11-agent roster" {
+  run rg_or_grep -F 'ship-ensure-mergeable.sh' "$PLUGIN/CLAUDE.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F '11 static role prompts' "$PLUGIN/CLAUDE.md"
+  [ "$status" -eq 0 ]
 }
