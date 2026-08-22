@@ -83,6 +83,11 @@ Rules:
 - `!` must appear at line start or after whitespace — `` KEY=!`cmd` `` is NOT expanded.
 - Output is plain text; no second-pass expansion of further `` !`...` `` placeholders.
 - Disable repo-wide with `"disableSkillShellExecution": true` in settings.
+- For `$CLAUDE_PLUGIN_ROOT`/`$CLAUDE_SKILL_DIR` specifically, prefer the bare
+  `${...}` pre-injection substitution form over `!`-injecting them — see
+  `.claude/rules/script-authoring.md`'s "Invocation mechanism" section for
+  why (this repo has a confirmed, deterministic failure mode from the
+  `!`-injected form when the invoking session is worktree-isolated).
 
 ## Invocation control
 
