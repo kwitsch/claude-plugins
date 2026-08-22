@@ -44,15 +44,21 @@ message).
 
 ## Plugin context
 
-Plugin root: !`echo "$CLAUDE_PLUGIN_ROOT"`
+Plugin root: ${CLAUDE_PLUGIN_ROOT}
 
-Capture the `Plugin root:` value above (populated at skill load time) and
-pass it to the delivery workflow as `PLUGIN_ROOT` (step 4) — agents cannot
-read `$CLAUDE_PLUGIN_ROOT` inside a Bash-tool subprocess, so the workflow
-builds the absolute `bin/ship-ensure-mergeable.sh` path from it and hands it
-to shipper. Empty/`[shell command execution disabled by policy]` → pass it
-through unchanged; shipper degrades to `mergeState: 'unknown'` and skips
-remediation (the pre-fix loop still runs).
+Capture the `Plugin root:` value above and pass it to the delivery workflow
+as `PLUGIN_ROOT` (step 4) — agents cannot read `$CLAUDE_PLUGIN_ROOT` inside a
+Bash-tool subprocess, so the workflow builds the absolute
+`bin/ship-ensure-mergeable.sh` path from it and hands it to shipper. This is
+a plain **pre-injection text substitution** (the same mechanism as
+`${CLAUDE_SKILL_DIR}`, per `.claude/rules/script-authoring.md`) — resolved
+before this skill body is even sent to you, no shell command runs. **Do NOT
+change this back to a load-time shell injection** (`` !`echo
+"$CLAUDE_PLUGIN_ROOT"` ``) — see `CLAUDE.md`'s "Fixed 2026-08-22" section for
+why that broke every `dispatch-task`-launched run. Empty (loaded outside any
+plugin context, or an unresolved literal `${CLAUDE_PLUGIN_ROOT}` token) →
+pass it through unchanged; shipper degrades to `mergeState: 'unknown'` and
+skips remediation (the pre-fix loop still runs).
 
 ## Session temp files
 

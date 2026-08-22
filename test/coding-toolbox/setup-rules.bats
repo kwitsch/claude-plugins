@@ -192,3 +192,10 @@ more text'
   assert_output --partial "golden_rules: yes"
   assert_output --partial "tools: yes"
 }
+
+@test "setup-rules captures the plugin root via bare substitution, never inside its load-time detect block" {
+  run rg_or_grep -F 'Plugin root: ${CLAUDE_PLUGIN_ROOT}' "$PLUGIN/skills/setup-rules/SKILL.md"
+  assert_success
+  run rg_or_grep -F 'echo "Plugin root: $CLAUDE_PLUGIN_ROOT"' "$PLUGIN/skills/setup-rules/SKILL.md"
+  assert_failure
+}

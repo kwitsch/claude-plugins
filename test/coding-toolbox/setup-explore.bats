@@ -67,3 +67,10 @@ setup() {
   run test -e "$PLUGIN/agents/explore.md"
   assert_failure
 }
+
+@test "setup-explore captures the plugin root via bare substitution, never inside its load-time detect block" {
+  run rg_or_grep -F 'Plugin root: ${CLAUDE_PLUGIN_ROOT}' "$PLUGIN/skills/setup-explore/SKILL.md"
+  assert_success
+  run rg_or_grep -F 'echo "Plugin root: $CLAUDE_PLUGIN_ROOT"' "$PLUGIN/skills/setup-explore/SKILL.md"
+  assert_failure
+}

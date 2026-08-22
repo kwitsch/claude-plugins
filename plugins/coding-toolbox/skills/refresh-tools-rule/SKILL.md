@@ -25,8 +25,9 @@ echo "rtk: $(command -v rtk >/dev/null 2>&1 && echo present || echo absent)"
 echo "bun: $(command -v bun >/dev/null 2>&1 && echo present || echo absent)"
 echo "ripgrep: $(command -v rg >/dev/null 2>&1 && echo present || echo absent)"
 echo "codebase-memory: $(command -v codebase-memory-mcp >/dev/null 2>&1 && echo present || echo absent)"
-echo "Plugin root: $CLAUDE_PLUGIN_ROOT"
 ```
+
+Plugin root: ${CLAUDE_PLUGIN_ROOT}
 
 If the block above rendered as literally `[shell command execution disabled by policy]`, stop and report: shell execution is disabled for skills (`disableSkillShellExecution`) — this skill can't detect or refresh safely. Do not guess; end here.
 
@@ -48,11 +49,11 @@ If the block above rendered as literally `[shell command execution disabled by p
   target="$HOME/.claude/rules/coding-toolbox-tools.md"
   if [ -f "$target" ] && [ ! -L "$target" ]; then
     tmp="$(mktemp "$HOME/.claude/rules/.coding-toolbox-tools.md.XXXXXX")" || exit 1
-    cat > "$tmp" <<'EOF'
+    cat > "$tmp" << 'EOF'
   # Tool routing
-
+  
   Detected on this machine — prefer these over the generic default when available.
-
+  
   | Task | Prefer | Why |
   |---|---|---|
   <one line per detected tool, from the candidate rows file below, in this order>

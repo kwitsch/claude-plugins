@@ -91,7 +91,11 @@ function decodeArgs(required, defaults) {
 }
 const A = decodeArgs(["SPEC_PATH", "PLAN_PATH", "BRANCH_NAME"], { BASE_BRANCH: "main", SHIP: true, PLUGIN_ROOT: "" });
 if (A.__error) return { stage: "args", error: A.__error };
-const { SPEC_PATH, PLAN_PATH, BRANCH_NAME, BASE_BRANCH, SHIP, PLUGIN_ROOT } = A;
+const { SPEC_PATH, PLAN_PATH, BRANCH_NAME, BASE_BRANCH, SHIP } = A;
+// An unresolved substitution token (e.g. build-task read its own SKILL.md as
+// plain text instead of through the Skill tool) is a non-empty string that
+// would otherwise pass a bare truthiness check — treat it as absent, same as "".
+const PLUGIN_ROOT = A.PLUGIN_ROOT && !A.PLUGIN_ROOT.includes("${") ? A.PLUGIN_ROOT : "";
 
 // ── Model assignment by task difficulty ──────────────────────────────────────
 // Role profiles:

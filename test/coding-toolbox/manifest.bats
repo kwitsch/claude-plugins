@@ -41,7 +41,7 @@ setup() {
   run rg_or_grep -E "^## Hooks" "$PLUGIN/README.md"
   assert_failure
 }
-@test "plugin.json version bumped for bump-version's marketplace-plugin detection (this unreleased branch)" {
+@test "plugin.json version bumped for the plugin-root worktree-isolation fix (this unreleased branch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
-  assert_output "0.24.1"
+  assert_output "0.24.2"
 }

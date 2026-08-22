@@ -85,7 +85,7 @@ setup() {
 }
 
 @test "finish-pr reuses fresh-pr's rebase.sh via plugin_root, never a duplicated copy" {
-  run rg_or_grep -F "plugin_root: %s" "$PLUGIN/skills/finish-pr/SKILL.md"
+  run rg_or_grep -F "plugin_root: \${CLAUDE_PLUGIN_ROOT}" "$PLUGIN/skills/finish-pr/SKILL.md"
   assert_success
   run rg_or_grep -F "skills/fresh-pr/rebase.sh" "$PLUGIN/skills/finish-pr/SKILL.md"
   assert_success
@@ -508,4 +508,13 @@ gitlab_repo() {
   assert_success
   assert_output --partial "applied: yes"
   assert_output --partial "verified: yes"
+}
+
+@test "finish-pr captures the plugin root via bare substitution, never inside its load-time git-context injection" {
+  run rg_or_grep -F 'plugin_root: ${CLAUDE_PLUGIN_ROOT}' "$PLUGIN/skills/finish-pr/SKILL.md"
+  assert_success
+  # anti-pattern: $CLAUDE_PLUGIN_ROOT inside the `!`-injected git-context block
+  # fails outright, deterministically, inside a worktree-isolated session.
+  run bash -c "sed -n '/^!\`/p' '$PLUGIN/skills/finish-pr/SKILL.md' | grep -F 'CLAUDE_PLUGIN_ROOT'"
+  assert_failure
 }

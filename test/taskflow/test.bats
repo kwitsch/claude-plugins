@@ -48,10 +48,10 @@ export -f rg_or_grep
   [ "$status" -eq 0 ]
 }
 
-@test "plugin.json version is 1.4.0" {
+@test "plugin.json version is 1.4.1" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "1.4.0" ]
+  [ "$output" = "1.4.1" ]
 }
 
 @test "marketplace entry exists for taskflow" {
@@ -670,6 +670,19 @@ mm_git_fixture() {
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'PLUGIN_ROOT' "$SKILL/SKILL.md"
   [ "$status" -eq 0 ]
+}
+
+@test "build-task captures the plugin root via bare substitution, never a load-time shell injection" {
+  run rg_or_grep -F 'Plugin root: ${CLAUDE_PLUGIN_ROOT}' "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
+  # the reverted-anti-pattern this fixed: `!`-injecting $CLAUDE_PLUGIN_ROOT at
+  # the actual context line fails outright (deterministically, unrecoverable by
+  # retry) inside a worktree-isolated session — every dispatch-task-launched
+  # run. See CLAUDE.md's "Fixed 2026-08-22". Matched on the line-start anchor,
+  # not a bare substring, so this survives the file's own cautionary mention
+  # of the anti-pattern in prose a few lines below.
+  run rg_or_grep -F 'Plugin root: !`' "$SKILL/SKILL.md"
+  [ "$status" -ne 0 ]
 }
 
 @test "no reverted-alternative pr_stale/pr_conflict strings survive anywhere in the plugin" {
