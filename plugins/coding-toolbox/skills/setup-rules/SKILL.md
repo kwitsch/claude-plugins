@@ -36,8 +36,9 @@ echo "rtk: $(command -v rtk >/dev/null 2>&1 && echo present || echo absent)"
 echo "bun: $(command -v bun >/dev/null 2>&1 && echo present || echo absent)"
 echo "ripgrep: $(command -v rg >/dev/null 2>&1 && echo present || echo absent)"
 echo "codebase-memory: $(command -v codebase-memory-mcp >/dev/null 2>&1 && echo present || echo absent)"
-echo "Plugin root: $CLAUDE_PLUGIN_ROOT"
 ```
+
+Plugin root: ${CLAUDE_PLUGIN_ROOT}
 
 If the block above rendered as literally `[shell command execution disabled by policy]`, stop and tell the user: shell execution is disabled for skills (`disableSkillShellExecution`) — setup-rules can't detect or install safely. Do not guess install state; end here.
 
@@ -155,11 +156,11 @@ options:
 
   ```bash
   mkdir -p "$HOME/.claude/rules"
-  cat > "$HOME/.claude/rules/coding-toolbox-tools.md" <<'EOF'
+  cat > "$HOME/.claude/rules/coding-toolbox-tools.md" << 'EOF'
   # Tool routing
-
+  
   Detected on this machine — prefer these over the generic default when available.
-
+  
   | Task | Prefer | Why |
   |---|---|---|
   <one line per tool in `detected`, from the candidate rows file below, in this order>

@@ -13,7 +13,7 @@ allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash", "Agent", "Workf
 
 # feature-development
 
-Plugin root: !`echo "$CLAUDE_PLUGIN_ROOT"`
+Plugin root: ${CLAUDE_PLUGIN_ROOT}
 
 Runs fresh-work's design-path pipeline for both `feature`- and
 `refactor`-classified work (the two share an identical pipeline; only the

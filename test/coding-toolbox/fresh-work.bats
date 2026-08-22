@@ -99,3 +99,13 @@ setup() {
   assert_output --partial "3–6 **English** words"
   assert_output --partial "never slugify it verbatim"
 }
+
+@test "fresh-work captures the plugin root via bare substitution, never a load-time shell injection" {
+  run rg_or_grep -F 'Plugin root: ${CLAUDE_PLUGIN_ROOT}' "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_success
+  # anti-pattern: `!`-injecting $CLAUDE_PLUGIN_ROOT fails outright,
+  # deterministically, inside a worktree-isolated session (every session a
+  # dispatch-agent-style skill launches into `claude --worktree ... --bg`).
+  run rg_or_grep -F 'Plugin root: !`' "$PLUGIN/skills/fresh-work/SKILL.md"
+  assert_failure
+}

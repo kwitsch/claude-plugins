@@ -18,8 +18,9 @@ file — it applies to every project you open on this machine, same as
 ```!
 echo "codebase-memory-mcp: $(command -v codebase-memory-mcp >/dev/null 2>&1 && echo present || echo absent)"
 echo "Existing target: $(ls -la "$HOME/.claude/agents/explore.md" 2>/dev/null || echo '(none)')"
-echo "Plugin root: $CLAUDE_PLUGIN_ROOT"
 ```
+
+Plugin root: ${CLAUDE_PLUGIN_ROOT}
 
 If the block above rendered as literally `[shell command execution disabled by policy]`, stop and report: shell execution is disabled for skills (`disableSkillShellExecution`) — this skill can't detect or install safely. Do not guess; end here.
 

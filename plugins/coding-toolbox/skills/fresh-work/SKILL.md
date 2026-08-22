@@ -12,7 +12,7 @@ allowed-tools: ["Skill", "Read", "ToolSearch", "TaskCreate", "TaskUpdate", "Task
 
 # fresh-work
 
-Plugin root: !`echo "$CLAUDE_PLUGIN_ROOT"`
+Plugin root: ${CLAUDE_PLUGIN_ROOT}
 
 Thin dispatcher: classifies one unit of work, branches via `fresh-branch`,
 invokes the one sibling skill that runs the matching pipeline

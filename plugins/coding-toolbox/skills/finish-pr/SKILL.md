@@ -21,7 +21,8 @@ touches CI, reviews, or merges the PR/MR itself.
 
 ## Git context
 
-!`git fetch origin >/dev/null 2>&1 && fetch=ok || fetch=failed; printf "current_branch: %s\nfetch_status: %s\nplugin_root: %s\n" "$(git branch --show-current)" "$fetch" "$CLAUDE_PLUGIN_ROOT"`
+!`git fetch origin >/dev/null 2>&1 && fetch=ok || fetch=failed; printf "current_branch: %s\nfetch_status: %s\n" "$(git branch --show-current)" "$fetch"`
+plugin_root: ${CLAUDE_PLUGIN_ROOT}
 
 ## Preconditions
 
