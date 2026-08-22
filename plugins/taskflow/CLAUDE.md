@@ -205,6 +205,44 @@ unrelated finding about _bridge_/remote-control sessions defaulting subagent
 cwd to the primary root does not apply to this dispatch path — don't conflate
 the two.)
 
+## Fixed 2026-08-22: `build-task` hard-failed on every `dispatch-task` run
+
+`SKILL.md`'s `## Plugin context` section used to capture the plugin root via
+a load-time shell injection — `` Plugin root: !`echo "$CLAUDE_PLUGIN_ROOT"` ``
+— rather than the bare `${CLAUDE_PLUGIN_ROOT}` pre-injection text
+substitution already used elsewhere in this same file (the fallback
+invocation step). Directly confirmed against real transcripts from several
+`dispatch-task`-launched runs: invoking the Skill tool for `taskflow:build-task`
+inside a worktree-isolated session (every `dispatch-task` run, by design)
+comes back with the exact same "too complex to verify that it stays inside
+the worktree" refusal `.claude/rules/script-authoring.md` already documents
+for worktree-isolated Bash-tool calls — as the tool_result for the `Skill`
+invocation itself, before step 1 ever executes. The precise static rule the
+guard applies isn't confirmed from harness source (this repo's own prior art
+on the Bash tool's out-of-worktree-path handling doesn't obviously predict
+it for a bare `echo $VAR`), but the practical effect is: this exact line, in
+this exact context, failed deterministically on every observed invocation —
+because the skill body doesn't change between retries, retrying reproduced
+the identical refusal every time, unlike a model-phrased Bash call that can
+just be retried differently. One observed session retried three times, gave
+up on the `Skill` tool entirely, and worked around it by manually
+`find`/`cat`-ing `SKILL.md` out of the plugin cache and following it as
+plain text; another retried until the user told it to stop. Fixed by
+switching the line to bare `${CLAUDE_PLUGIN_ROOT}`: no shell command runs at
+all, so whatever the guard's exact rule is, there is nothing left for it to
+refuse. Do not revert this to a `!`-injected form — see the same rule file's
+now-updated note.
+
+A related, lower-severity finding from the same investigation: the harness's
+worktree-isolation guard also refuses some Bash-tool calls containing
+multi-statement/piped/command-substitution constructs unrelated to git,
+independent of this fix — this is nondeterministic (depends on how a given
+turn happens to phrase its own Bash call) and self-recovers in every
+observed case (the model retries with simpler, separate commands), unlike
+the deterministic `Plugin root:` failure above. Left unaddressed for now —
+no single prompt wording reliably prevents a model from ever writing a
+compound Bash call, and the observed cases did not block a pipeline.
+
 ## Tests
 
 ```bash
