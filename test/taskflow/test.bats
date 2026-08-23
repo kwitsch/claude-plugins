@@ -48,10 +48,10 @@ export -f rg_or_grep
   [ "$status" -eq 0 ]
 }
 
-@test "plugin.json version is 1.4.1" {
+@test "plugin.json version is 1.4.2" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "1.4.1" ]
+  [ "$output" = "1.4.2" ]
 }
 
 @test "marketplace entry exists for taskflow" {
@@ -678,10 +678,14 @@ mm_git_fixture() {
   # the reverted-anti-pattern this fixed: `!`-injecting $CLAUDE_PLUGIN_ROOT at
   # the actual context line fails outright (deterministically, unrecoverable by
   # retry) inside a worktree-isolated session — every dispatch-task-launched
-  # run. See CLAUDE.md's "Fixed 2026-08-22". Matched on the line-start anchor,
-  # not a bare substring, so this survives the file's own cautionary mention
-  # of the anti-pattern in prose a few lines below.
-  run rg_or_grep -F 'Plugin root: !`' "$SKILL/SKILL.md"
+  # run. See CLAUDE.md's "Fixed 2026-08-22". The load-time preprocessor does
+  # NOT respect markdown code spans, so even a quoted prose mention of the
+  # anti-pattern executes like the real thing (that exact regression shipped
+  # in the 2026-08-22 fix and re-broke every dispatch: "Fixed 2026-08-23") —
+  # assert the two-char sequence is absent from BOTH skill bodies entirely.
+  run rg_or_grep -F '!`' "$SKILL/SKILL.md"
+  [ "$status" -ne 0 ]
+  run rg_or_grep -F '!`' "$DISPATCH/SKILL.md"
   [ "$status" -ne 0 ]
 }
 
