@@ -233,6 +233,24 @@ all, so whatever the guard's exact rule is, there is nothing left for it to
 refuse. Do not revert this to a `!`-injected form — see the same rule file's
 now-updated note.
 
+**Fixed 2026-08-23 (follow-up): the 2026-08-22 fix reintroduced the same
+failure through its own cautionary example.** The warning paragraph that fix
+added to `SKILL.md`'s `## Plugin context` section quoted the anti-pattern
+verbatim inside a double-backtick code span — but the load-time `!`-injection
+preprocessor does **not** respect markdown code spans: any
+exclamation-then-backtick sequence at line start or after whitespace is
+executed as a live shell injection, prose or not. Confirmed against the
+transcript of a fresh `dispatch-task` run on the fixed 1.4.1 cache
+(`taskflow-build-https-proxy-config-wizard-…`): the `Skill` tool_result was
+the identical worktree-guard refusal, before step 1 ever executed. Fixed by
+rewording the warning to describe the pattern without ever writing the
+two-character sequence, and hardening the bats tripwire from the old
+line-start anchor (which deliberately — and wrongly — excused the prose
+mention) to a zero-occurrence assertion over both `build-task` and
+`dispatch-task` skill bodies. Rule: **never write a literal
+exclamation-backtick sequence anywhere in any SKILL.md**, including examples,
+quotes, and code spans.
+
 A related, lower-severity finding from the same investigation: the harness's
 worktree-isolation guard also refuses some Bash-tool calls containing
 multi-statement/piped/command-substitution constructs unrelated to git,

@@ -53,8 +53,12 @@ Bash-tool subprocess, so the workflow builds the absolute
 a plain **pre-injection text substitution** (the same mechanism as
 `${CLAUDE_SKILL_DIR}`, per `.claude/rules/script-authoring.md`) — resolved
 before this skill body is even sent to you, no shell command runs. **Do NOT
-change this back to a load-time shell injection** (`` !`echo
-"$CLAUDE_PLUGIN_ROOT"` ``) — see `CLAUDE.md`'s "Fixed 2026-08-22" section for
+change this back to a load-time shell injection** (the exclamation-prefixed
+backtick form that ran `echo` on this variable at load time — never write
+that two-character sequence anywhere in this file, even as a quoted example:
+the load-time preprocessor does not respect markdown code spans, so a prose
+mention executes exactly like the real thing) — see `CLAUDE.md`'s
+"Fixed 2026-08-22" section for
 why that broke every `dispatch-task`-launched run. Empty (loaded outside any
 plugin context, or an unresolved literal `${CLAUDE_PLUGIN_ROOT}` token) →
 pass it through unchanged; shipper degrades to `mergeState: 'unknown'` and

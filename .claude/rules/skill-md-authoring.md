@@ -81,6 +81,13 @@ git status --short
 Rules:
 
 - `!` must appear at line start or after whitespace — `` KEY=!`cmd` `` is NOT expanded.
+- The preprocessor does NOT respect markdown code spans: an
+  exclamation-then-backtick sequence inside `` `…` `` / doubled-backtick
+  spans still executes at load time. Never write that literal two-character
+  sequence anywhere in a SKILL.md body — not even as a quoted example or
+  cautionary mention (confirmed 2026-08-23: taskflow `build-task`'s own
+  warning paragraph quoting the anti-pattern re-broke every
+  worktree-isolated dispatch). Describe the pattern in words instead.
 - Output is plain text; no second-pass expansion of further `` !`...` `` placeholders.
 - Disable repo-wide with `"disableSkillShellExecution": true` in settings.
 - For `$CLAUDE_PLUGIN_ROOT`/`$CLAUDE_SKILL_DIR` specifically, prefer the bare
