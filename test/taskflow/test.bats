@@ -395,6 +395,16 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   done
 }
 
+@test "dispatch-task validates model/effort as safe bare tokens before shell substitution" {
+  run rg_or_grep -F -- '^[A-Za-z0-9._-]+$' "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "dispatch-task constructs the command line with validated, not raw, model/effort values" {
+  run rg_or_grep -F -- 'claude --worktree "$name" --model "<validated-model>" --effort "<validated-effort>" --permission-mode auto --bg' "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
 @test "dispatch-task and CLAUDE.md document worktree.baseRef instead of assuming the default branch unconditionally" {
   run rg_or_grep -F 'worktree.baseRef' "$DISPATCH/SKILL.md"
   [ "$status" -eq 0 ]

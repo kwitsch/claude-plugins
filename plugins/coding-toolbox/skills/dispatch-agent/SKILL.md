@@ -24,7 +24,7 @@ whichever base `worktree.baseRef` selects instead of fighting it: it runs no pre
 and has no local-branch prerequisite step — it never touches `git` and takes that base as-is.
 Under the default `"fresh"` base the current branch's own sync state is irrelevant to what the
 dispatched session starts from; under `"head"` the session instead starts from this session's
-current local `HEAD` exactly as it is now. This skill's own Bash calls still never touch `git`.
+current local `HEAD` exactly as it is now.
 
 `$prompt` may optionally start with `--model=<model>` and/or `--effort=<effort>` (any order,
 whitespace-separated) — parse and strip these before anything else; default `model` to
