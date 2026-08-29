@@ -65,3 +65,13 @@ setup() {
   refute_output --partial "git fetch origin"
   refute_output --partial "merge --ff-only"
 }
+@test "dispatch-agent and CLAUDE.md document worktree.baseRef instead of assuming the default branch unconditionally" {
+  run rg_or_grep -F 'worktree.baseRef' "$PLUGIN/skills/dispatch-agent/SKILL.md"
+  assert_success
+  run rg_or_grep -F '"head"' "$PLUGIN/skills/dispatch-agent/SKILL.md"
+  assert_success
+  run rg_or_grep -F 'worktree.baseRef' "$PLUGIN/CLAUDE.md"
+  assert_success
+  run rg_or_grep -F '"head"' "$PLUGIN/CLAUDE.md"
+  assert_success
+}
