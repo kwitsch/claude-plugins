@@ -3,10 +3,10 @@ name: dispatch-task
 description: >-
   Kicks off this plugin's build-task pipeline for a described task in a new,
   worktree-isolated background Claude Code session (`claude --worktree ... --bg`, model
-  `sonnet`, effort `medium`) — so the current session does not have to stay and babysit the
-  run. Use to hand off a full design-and-delivery task and keep working. Self-contained:
-  depends on no other plugin.
-argument-hint: "[task-description]"
+  `sonnet`, effort `xhigh` by default, both overridable via optional `--model=`/`--effort=`
+  flags) — so the current session does not have to stay and babysit the run. Use to hand off
+  a full design-and-delivery task and keep working. Self-contained: depends on no other plugin.
+argument-hint: "[--model=<model>] [--effort=<effort>] [task-description]"
 arguments: task_description
 allowed-tools: ["Bash", "AskUserQuestion"]
 disable-model-invocation: true
@@ -29,29 +29,32 @@ current branch") fire on every dispatch and ship from the ugly auto-generated br
 instead. This skill's own Bash calls still never touch `git` — that first action runs
 inside the new session, not here.
 
-`$task_description` is the whole task text — there are no flags to parse: model
-(`sonnet`) and effort (`medium`) are fixed constants here. If `$task_description` is
-empty after trimming, ask via `AskUserQuestion` (2-3 illustrative example task
-descriptions as options; the real one arrives via "Other") before doing anything else.
-Never guess a task.
+`$task_description` may optionally start with `--model=<model>` and/or `--effort=<effort>`
+(any order, whitespace-separated) — parse and strip these before anything else; default
+`model` to `sonnet` and `effort` to `xhigh` when either is not given. Whatever remains
+(trimmed) is the actual task text. If that task text is empty after trimming, ask via
+`AskUserQuestion` (2-3 illustrative example task descriptions as options; the real one
+arrives via "Other") before doing anything else. Never guess a task.
 
 ## Steps
 
 1. **Dispatch the background session.** Derive a short (3-6 English words, lowercase,
-   non-alphanumeric runs collapsed to a single `-`) slug from the task text yourself —
-   reuse the exact same slug both for the session name below and for the `feature/<slug>`
-   branch the payload cuts. `claude --worktree` rejects any name over 64 chars total, so
-   the slug itself has a hard budget: the fixed template
-   `taskflow-build-<slug>-$(date +%s)-$RANDOM` burns `taskflow-build-` (15 chars) +
+   non-alphanumeric runs collapsed to a single `-`) slug from the task text (after stripping
+   any `--model=`/`--effort=` prefix) yourself — reuse the exact same slug both for the
+   session name below and for the `feature/<slug>` branch the payload cuts. `claude --worktree`
+   rejects any name over 64 chars total, so the slug itself has a hard budget: the fixed
+   template `taskflow-build-<slug>-$(date +%s)-$RANDOM` burns `taskflow-build-` (15 chars) +
    `-` + a 10-digit epoch + `-` + up to 5 `$RANDOM` digits (17 more chars) = 32 chars of
    fixed overhead, leaving **at most 32 characters for the slug itself** — keep it well
-   under that (e.g. 3-4 short words) rather than pushing right up against the limit. Any
-   value you interpolate into the command below must match `^[A-Za-z0-9._-]+$` — safe bare
-   tokens only, no quotes, `$()`, backticks, or whitespace; the fixed `sonnet`/`medium`
-   constants satisfy that trivially, and any future override would have to pass the same
-   check before substitution. The script itself re-checks `$name` against that same pattern,
-   and separately rejects it outright if it is still over 64 chars total, before it is ever
-   passed to `claude` — never rely on the slug you derived alone.
+   under that (e.g. 3-4 short words) rather than pushing right up against the limit.
+   Before building the command below, validate the resolved `model` and `effort` values
+   (whether parsed from `--model=`/`--effort=` or the `sonnet`/`xhigh` defaults) match
+   `^[A-Za-z0-9._-]+$` — safe bare tokens only, no quotes, `$()`, backticks, or whitespace.
+   Either one failing this check → stop and report; never substitute an unvalidated value
+   into the command below, and never strip/sanitize it yourself. The script itself re-checks
+   `$name` against that same pattern, and separately rejects it outright if it is still over
+   64 chars total, before it is ever passed to `claude` — never rely on the slug you derived
+   alone.
 
    The task text is embedded inside a **single-quoted** heredoc, so nothing in it is ever
    shell-expanded or interpolated, whatever it is punctuated with. Use the fixed delimiter
@@ -76,15 +79,15 @@ Never guess a task.
      echo "worktree name too long (${#name} chars, max 64): $name" >&2
      exit 1
    }
-   claude --worktree "$name" --model "sonnet" --effort "medium" --permission-mode auto --bg "$(
+   claude --worktree "$name" --model "<validated-model>" --effort "<validated-effort>" --permission-mode auto --bg "$(
      cat << 'DISPATCH_TASK_PROMPT_EOF'
    First, in this fresh worktree (already a clean checkout), run exactly this before
    anything else:
      git checkout -b "feature/<same-3-6-word-english-slug-as-above>"
    Then invoke:
-   /taskflow:build-task <the literal, verbatim task description text goes here —
-   substituted by you when you write this command, exactly as given, never the string
-   "$task_description">
+   /taskflow:build-task <the literal, verbatim task text goes here — the actual task after
+   stripping any --model=/--effort= prefix, not the raw string "$task_description" —
+   substituted by you when you write this command, exactly as given>
    DISPATCH_TASK_PROMPT_EOF
    )"
    ```
@@ -106,7 +109,7 @@ Never guess a task.
 2. **Report.** Relay the CLI's own printed session id and management hints verbatim
    (`claude agents`, `claude attach <id>`, `claude logs <id>`, `claude stop <id>`,
    `claude rm <id>` — this last one removes the worktree too, since `claude --worktree`
-   owns it), plus the model (`sonnet`) and effort (`medium`) used. State plainly that
+   owns it), plus the model/effort actually used. State plainly that
    (a) the dispatched session's worktree started from the repository's default branch on
    origin, unless this project has `worktree.baseRef` set to `"head"`, in which case it
    started from this session's own current HEAD instead, (b) that session's own transcript

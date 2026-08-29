@@ -48,10 +48,10 @@ export -f rg_or_grep
   [ "$status" -eq 0 ]
 }
 
-@test "plugin.json version is 1.4.2" {
+@test "plugin.json version is 1.4.3" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "1.4.2" ]
+  [ "$output" = "1.4.3" ]
 }
 
 @test "marketplace entry exists for taskflow" {
@@ -388,8 +388,8 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 1 ]
 }
 
-@test "dispatch-task dispatches a background worktree session on fixed sonnet/medium with permission-mode auto" {
-  for pat in 'claude --worktree' '--bg' '--model "sonnet"' '--effort "medium"' '--permission-mode auto'; do
+@test "dispatch-task supports --model/--effort overrides, defaults sonnet/xhigh, and forces permission-mode auto" {
+  for pat in 'claude --worktree' '--bg' '--model=<model>' '--effort=<effort>' 'sonnet' 'xhigh' '--permission-mode auto'; do
     run rg_or_grep -F -- "$pat" "$DISPATCH/SKILL.md"
     [ "$status" -eq 0 ]
   done
