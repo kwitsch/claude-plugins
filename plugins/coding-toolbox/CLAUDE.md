@@ -926,6 +926,16 @@ at the cost of that no-longer-automatic freshening (a plain `fresh-branch` cover
 wanted). `allowed-tools` lost its `Bash(git:*)` grant along with it — nothing left in this
 skill calls `git`.
 
+**`worktree.baseRef` (documented, not overridden).** `claude --worktree`'s base is controlled
+by the project's `worktree.baseRef` setting (`settings.json`), default `"fresh"` (branch off
+the repo's default branch on `origin`); `"head"` branches every new worktree (`--worktree`,
+`EnterWorktree`, subagent `isolation: worktree`) from local `HEAD` where it runs, carrying
+unpushed commits/feature-branch state. This skill does not and should not override that
+project-level choice — it only documents the conditional accurately (this doc and `SKILL.md`
+used to claim the default-branch base unconditionally). The dispatch script now also
+regex-guards `$name` against `^[A-Za-z0-9._-]+$` before the length check, mirroring
+`dispatch-task`'s own worktree-name validation.
+
 **Second design revision (post-ship, same PR): switched from a hand-created worktree back to
 the native `claude --worktree` flag, deliberately giving up "current branch as base."** The
 first cut (see git history on this file/PR for the superseded prose) rejected `--worktree`
