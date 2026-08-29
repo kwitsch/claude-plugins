@@ -12,10 +12,10 @@ Requires Claude Code v2.1.154+ (dynamic workflows). On Pro plans, enable Dynamic
 
 ## Skills
 
-| Skill           | What it does                                                                                                                                                                |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `build-task`    | Orchestrator: branch handling, `AskUserQuestion` checkpoints (open design questions, spec approval, escalated review fixes), final report. Invokes the two workflows below. |
-| `dispatch-task` | Hands the described task to a new worktree-isolated background session (`claude --worktree … --bg`, `sonnet`/`medium`) that runs `build-task` unattended.                   |
+| Skill           | What it does                                                                                                                                                                                            |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `build-task`    | Orchestrator: branch handling, `AskUserQuestion` checkpoints (open design questions, spec approval, escalated review fixes), final report. Invokes the two workflows below.                             |
+| `dispatch-task` | Hands the described task to a new worktree-isolated background session (`claude --worktree … --bg`, `sonnet`/`xhigh` by default, `--model=`/`--effort=` overridable) that runs `build-task` unattended. |
 
 ## Workflows
 
