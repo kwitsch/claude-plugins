@@ -2,9 +2,10 @@
 name: dispatch-agent
 description: >-
   Dispatches a new, worktree-isolated background Claude Code session (`claude --worktree ...
-  --bg`, managed via `claude agents`) — cut from the repository's default branch on origin, not
-  the current branch — handing it the prompt passed to this skill to execute unattended. Use to
-  kick off an independent background task without staying in this session to babysit it.
+  --bg`, managed via `claude agents`) — cut from the repository's default branch on origin
+  unless the project's `worktree.baseRef` is `"head"` (then from this session's own local
+  `HEAD`) — handing it the prompt passed to this skill to execute unattended. Use to kick off
+  an independent background task without staying in this session to babysit it.
 argument-hint: "[--model=<model>] [--effort=<effort>] <prompt-text>"
 arguments: prompt
 allowed-tools: ["Bash", "AskUserQuestion"]
@@ -14,11 +15,16 @@ allowed-tools: ["Bash", "AskUserQuestion"]
 
 Hands off an independent task to a new, worktree-isolated background Claude Code session
 (`claude --worktree ... --bg`) — not an in-session `Agent`-tool subagent. The dispatched
-session starts from the repository's **default branch on origin**, not the current branch —
-`claude --worktree` always creates its worktree that way (verified; see
-`coding-toolbox/CLAUDE.md`'s "Skill design (`dispatch-agent`)" section), so this skill works
-with that instead of fighting it. Because of that, nothing about the current branch's own sync
-state affects the dispatch — there is no local-branch prerequisite step.
+session's worktree branches from the repository's **default branch on origin** — UNLESS this
+project's `worktree.baseRef` setting is `"head"` (not the default `"fresh"`), in which case it
+instead branches from _this session's own current local `HEAD`_, carrying this session's
+unpushed commits and feature-branch state into the dispatched run (verified; see
+`coding-toolbox/CLAUDE.md`'s "Skill design (`dispatch-agent`)" section). This skill works with
+whichever base `worktree.baseRef` selects instead of fighting it: it runs no pre-dispatch sync
+and has no local-branch prerequisite step — it never touches `git` and takes that base as-is.
+Under the default `"fresh"` base the current branch's own sync state is irrelevant to what the
+dispatched session starts from; under `"head"` the session instead starts from this session's
+current local `HEAD` exactly as it is now.
 
 `$prompt` may optionally start with `--model=<model>` and/or `--effort=<effort>` (any order,
 whitespace-separated) — parse and strip these before anything else; default `model` to
@@ -48,6 +54,10 @@ anything else. Never guess.
    ```bash
    set -e
    name="dispatch-<3-6-word-english-slug-of-the-prompt>-$(date +%s)-$RANDOM"
+   [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] || {
+     echo "unsafe dispatch name: $name" >&2
+     exit 1
+   }
    ((${#name} <= 64)) || {
      echo "worktree name too long (${#name} chars, max 64): $name" >&2
      exit 1
@@ -74,5 +84,6 @@ anything else. Never guess.
 2. **Report.** Relay the CLI's own printed session id and management hints verbatim (`claude
 agents`, `claude attach <id>`, `claude logs <id>`, `claude stop <id>`, `claude rm <id>` —
    this last one now fully removes the worktree too, since `claude --worktree` owns it), plus
-   the model/effort actually used. State plainly: the dispatched session started from the
-   repo's default branch on origin, not the branch this session is on.
+   the model/effort actually used. State plainly: the dispatched session's worktree started
+   from the repository's default branch on origin, unless this project has `worktree.baseRef`
+   set to `"head"`, in which case it started from this session's own current HEAD instead.

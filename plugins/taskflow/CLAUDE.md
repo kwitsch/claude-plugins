@@ -84,9 +84,9 @@ directly outside its workflow's normal path.
 
 `skills/dispatch-task/SKILL.md` is a one-step skill: it dispatches
 `/taskflow:build-task <task text>` into a new worktree-isolated background
-session (`claude --worktree <name> --model "sonnet" --effort "medium"
---permission-mode auto --bg`) and reports the CLI's own session id. Load-bearing
-decisions:
+session (`claude --worktree <name> --model "sonnet" --effort "xhigh"
+--permission-mode auto --bg`, both overridable via `--model=`/`--effort=`) and
+reports the CLI's own session id. Load-bearing decisions:
 
 - **A deliberate fork of `coding-toolbox:dispatch-agent`, not a call into it.**
   taskflow carries its own inline copy of the dispatch mechanics so the plugin
@@ -100,9 +100,13 @@ decisions:
   `.claude/rules/skill-invocation-control.md`'s "explicit reason" carve-out
   (deploy/destructive-side-effect skills stay user-only), only an explicit
   user invocation may start one, never the model's own judgment.
-- **`sonnet`/`medium` are fixed constants, not flags** — the whole argument is
-  the task description. The `^[A-Za-z0-9._-]+$` validation rule is stated in the
-  skill anyway, so a future override cannot skip it.
+- **`--model=`/`--effort=` overrides (2026-08-30, was fixed `sonnet`/`medium`).**
+  dispatch-task now accepts the same optional `--model=`/`--effort=` override flags as
+  `coding-toolbox:dispatch-agent`, both defaulting `sonnet`/`xhigh`; the resolved values are
+  validated against `^[A-Za-z0-9._-]+$` before substitution, so no override can skip the
+  check. The default effort rose `medium`→`xhigh` for parity with dispatch-agent. (The
+  cross-plugin naming here is allowed — this bullet lives in the plugin-root CLAUDE.md; the
+  self-containment tripwire only scans the skill dir.)
 - **`--permission-mode auto` always**, and the task text always travels inside a
   quoted heredoc read back by direct command substitution — no temp file, so a
   dispatch failing under `set -e` leaves nothing on disk to leak.
