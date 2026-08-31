@@ -52,11 +52,15 @@ setup() {
   assert_failure
 }
 
-@test "SKILL.md prints the exec-bit follow-up commands for the human" {
+@test "SKILL.md's rtk follow-up block references only rtk-bundle.json and rtk-install.mjs, not a vendored binary" {
+  run grep -F 'git add plugins/linux-token-efficiency/rtk-bundle.json' "$SKILL"
+  assert_success
+  run grep -F 'git ls-files -s plugins/linux-token-efficiency/hooks/rtk-install.mjs' "$SKILL"
+  assert_success
   run grep -F 'git update-index --chmod=+x plugins/linux-token-efficiency/bin/rtk' "$SKILL"
-  assert_success
-  run grep -F 'git ls-files -s plugins/linux-token-efficiency/bin/rtk' "$SKILL"
-  assert_success
+  assert_failure
+  run grep -F 'git add plugins/linux-token-efficiency/bin/rtk' "$SKILL"
+  assert_failure
 }
 
 @test "frontmatter description names both bundled artifacts" {

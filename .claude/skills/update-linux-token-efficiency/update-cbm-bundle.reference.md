@@ -40,7 +40,7 @@ Both overrides exist so the bats suite can point at a local fixture tree; no net
 checksum sidecar: the archive is downloaded into the script's own `mktemp -d` scratch dir
 purely to compute `binarySha256` and to probe `tools/list`, and that copy is discarded by
 the trap. The script **never** writes anything under `plugins/linux-token-efficiency/bin/`
-(which holds only `bin/rtk`), and never reads, writes or clears the runtime download cache
+(which holds only `bin/context-mode-launch.sh`), and never reads, writes or clears the runtime download cache
 `${CLAUDE_PLUGIN_DATA}/cbm/<binarySha256[0:16]>/` — that cache is content-addressed and
 belongs to `mcp/server.mjs`, so a pin bump simply makes the next server start download into
 a new directory. Old directories remain until a user deletes them.
