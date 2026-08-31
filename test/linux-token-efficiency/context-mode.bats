@@ -150,7 +150,7 @@ cm_run() {
 }
 
 @test "the SessionStart cat entry is a second top-level entry in exec form" {
-  run jq -e '(.hooks.SessionStart | length) == 2' "$HOOKS"
+  run jq -e '(.hooks.SessionStart | length) == 3' "$HOOKS"
   assert_success
   run jq -e '.hooks.SessionStart[1].hooks[0] == {type:"command", command:"cat", args:["${CLAUDE_PLUGIN_ROOT}/hooks/SessionStart.md"], timeout:5}' "$HOOKS"
   assert_success

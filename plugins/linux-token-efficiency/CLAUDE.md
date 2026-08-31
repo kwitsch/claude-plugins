@@ -94,14 +94,16 @@ for one gate is more machinery than it justifies. The escape hatch for a broken/
 context-mode server is the `steer_enabled` toggle — a command hook cannot check MCP connectivity,
 an accepted limitation documented in the toggle's description.
 
-This plugin backs eight hooks total: `rtk-rewrite.mjs` and `webfetch-steer.mjs` above, `SessionStart` →
+This plugin backs nine hooks total: `rtk-rewrite.mjs` and `webfetch-steer.mjs` above, `SessionStart` →
 `mcp/server.mjs --session-start-hook` (a `command` hook — see the correction note below), three
 remaining cbm entries (`SubagentStart`, `PreToolUse` `Grep`/`Glob`, `PostToolUse` `Read`), all
 `type: "mcp_tool"` on `plugin:linux-token-efficiency:codebase-memory` (the namespaced form — the
 bare `.mcp.json` key resolves to "not connected" on every fire) with an explicit `input` block each,
 because an omitted `input` delivers `{}` instead of the hook JSON, a second `SessionStart` entry
-that `cat`s `hooks/SessionStart.md`, and a second `SubagentStart` entry that `cat`s
-`hooks/subagent-nudge.md` (both static files, see `## context-mode`) — a plain `command` hook
+that `cat`s `hooks/SessionStart.md`, a second `SubagentStart` entry that `cat`s
+`hooks/subagent-nudge.md` (both static files, see `## context-mode`), and a third `SessionStart`
+entry (a `command` hook running `hooks/rtk-install.mjs`, async, no `asyncRewake`) that installs rtk
+into `~/.local/bin/rtk` — a plain `command` hook
 rather than a fifth cbm `mcp_tool`, since the nudge is generic subagent-behavior guidance plus
 context-mode awareness, unrelated to the cbm graph, so folding it into `hook_subagent_context` would
 be a category mismatch. Each cbm entry names its own purpose-built tool (`hook_subagent_context`,

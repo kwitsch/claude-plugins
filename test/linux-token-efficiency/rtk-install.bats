@@ -145,3 +145,8 @@ linux_x64_or_skip() {
   run bash -c "grep -c . '$RELEASE_LOG' || true"
   assert_output '0'
 }
+
+@test "hooks.json wires the installer as an async SessionStart command hook" {
+  run jq -e '.hooks.SessionStart[2].hooks[0] | .type == "command" and .command == "${CLAUDE_PLUGIN_ROOT}/hooks/rtk-install.mjs" and .async == true and .timeout == 20' "$HOOKS"
+  assert_success
+}

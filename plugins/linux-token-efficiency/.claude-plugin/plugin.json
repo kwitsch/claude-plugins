@@ -1,19 +1,25 @@
 {
   "name": "linux-token-efficiency",
-  "version": "0.5.0",
-  "description": "Bundles the rtk token-optimizing CLI proxy (https://github.com/rtk-ai/rtk) as a Linux x86_64 binary and routes Bash commands through it via a PreToolUse rewrite hook, ships codebase-memory-mcp (https://github.com/DeusData/codebase-memory-mcp) as a plugin-local proxy MCP server that downloads and sha256-verifies the pinned release on first start with four context-only graph hooks, and registers the external context-mode package (https://github.com/mksglu/context-mode) as the context-mode MCP stdio server through a bun-preferred bunx / npx --yes launcher, injecting upstream's own routing-rules document verbatim at every session start via a SessionStart cat hook and deny-steering WebFetch plus read-only Bash gather commands to its ctx_* tools via two PreToolUse steering hooks. LINUX ONLY: the bundled binaries are Linux executables, so on macOS, Windows or any other operating system this plugin does not work for the rtk and codebase-memory features, whose hooks no-op. The one OS-independent component is an always-on, forced terse output style (bullet-first, filler-free), which applies wherever the plugin is enabled.",
+  "version": "0.6.0",
+  "description": "Installs the pinned rtk token-optimizing CLI proxy (https://github.com/rtk-ai/rtk) release into ~/.local/bin on first use (Linux x86_64) and routes Bash commands through it via a PreToolUse rewrite hook, ships codebase-memory-mcp (https://github.com/DeusData/codebase-memory-mcp) as a plugin-local proxy MCP server that downloads and sha256-verifies the pinned release on first start with four context-only graph hooks, and registers the external context-mode package (https://github.com/mksglu/context-mode) as the context-mode MCP stdio server through a bun-preferred bunx / npx --yes launcher, injecting upstream's own routing-rules document verbatim at every session start via a SessionStart cat hook and deny-steering WebFetch plus read-only Bash gather commands to its ctx_* tools via two PreToolUse steering hooks. LINUX ONLY: the bundled binaries are Linux executables, so on macOS, Windows or any other operating system this plugin does not work for the rtk and codebase-memory features, whose hooks no-op. The one OS-independent component is an always-on, forced terse output style (bullet-first, filler-free), which applies wherever the plugin is enabled.",
   "author": { "name": "Kwitsch" },
   "userConfig": {
     "auto_rewrite": {
       "type": "boolean",
       "title": "Auto-rewrite Bash commands through rtk",
-      "description": "Before every Bash tool call, rewrites the command through the bundled rtk binary (rtk hook claude) so it runs token-optimized. Disabled, the bundled rtk stays on PATH and can still be invoked manually. Linux only — a no-op on every other OS. Values: true (or unset) = enabled; false = disabled. Fail-open: only the literal value false disables it. Default: true.",
+      "description": "Before every Bash tool call, rewrites the command through the rtk binary installed at ~/.local/bin/rtk by the rtk_enabled provisioning (rtk hook claude) so it runs token-optimized. Disabled, rtk stays installed at ~/.local/bin/rtk and can still be invoked manually when ~/.local/bin is on PATH. Linux only — a no-op on every other OS. Values: true (or unset) = enabled; false = disabled. Fail-open: only the literal value false disables it. Default: true.",
       "default": true
     },
     "cbm_enabled": {
       "type": "boolean",
       "title": "Enable the codebase-memory-mcp MCP server and its context hooks",
       "description": "Runs codebase-memory-mcp (cbm) as the codebase-memory MCP stdio server through a plugin-local Node proxy, and enables the four context-only cbm graph hooks (SessionStart, SubagentStart, Grep/Glob, post-Read). On first start the proxy DOWNLOADS the pinned ~37.6 MiB release asset from GitHub Releases into the plugin's data directory and sha256-verifies it against the committed pin before extracting its ~280 MiB binary; one bounded attempt per server process, no repo mutation, and silence on failure. Linux x86_64 only. Set to false to disable: only the literal value false disables it; unset, missing or any other value leaves it enabled, and nothing is downloaded while disabled. Default: true. Disabling after first use does not delete the download cache; remove it by hand (see README).",
+      "default": true
+    },
+    "rtk_enabled": {
+      "type": "boolean",
+      "title": "Install rtk into ~/.local/bin on first use",
+      "description": "At SessionStart, downloads the pinned rtk release asset from GitHub Releases and, after verifying BOTH the asset and the extracted binary's sha256 against the committed pin, atomically installs it into ~/.local/bin/rtk — only when that path does not already exist (a user's own rtk is never clobbered). One bounded attempt, silent on failure, never inside the synchronous Bash hook. Linux x86_64 only. Set to false to disable: only the literal value false disables it; unset, missing or any other value leaves it enabled, and nothing is downloaded while disabled. Default: true. Reversible via rm ~/.local/bin/rtk. This is the network-install gate; auto_rewrite is the separate per-call rewrite gate.",
       "default": true
     },
     "steer_enabled": {

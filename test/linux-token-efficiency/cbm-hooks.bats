@@ -216,13 +216,18 @@ hook_result() {
   # hard-errors there: "no MCP client context") that invokes server.mjs's own CLI mode.
   run jq -e '.hooks.SessionStart[0].hooks[0] | .type == "command" and .command == "${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs" and .args == ["--session-start-hook"] and .timeout == 20 and .statusMessage == "Checking codebase graph..." and (has("server") | not) and (has("tool") | not) and (has("input") | not) and .async == true and (has("asyncRewake") | not)' "$HOOKS"
   assert_success
+  # SessionStart[2] is the async rtk installer command hook (no server/tool/input; async, no asyncRewake).
+  run jq -e '.hooks.SessionStart[2].hooks[0] | .type == "command" and .command == "${CLAUDE_PLUGIN_ROOT}/hooks/rtk-install.mjs" and .timeout == 20 and .statusMessage == "Installing rtk..." and .async == true and (has("asyncRewake") | not) and (has("server") | not) and (has("tool") | not) and (has("input") | not)' "$HOOKS"
+  assert_success
+  run jq -e '.hooks.SessionStart[2] | has("matcher") | not' "$HOOKS"
+  assert_success
   run jq -e '.hooks.SubagentStart[0].hooks[0].input == {cwd:"${cwd}"}' "$HOOKS"
   assert_success
   run jq -e '.hooks.PreToolUse[1] | .matcher == "Grep|Glob" and (.hooks[0].input == {cwd:"${cwd}", tool_name:"${tool_name}", tool_input:{pattern:"${tool_input.pattern}"}})' "$HOOKS"
   assert_success
   run jq -e '.hooks.PostToolUse[0] | .matcher == "Read" and (.hooks[0].input == {cwd:"${cwd}", tool_input:{file_path:"${tool_input.file_path}"}})' "$HOOKS"
   assert_success
-  run jq -e '(.hooks.SessionStart | length) == 2 and (.hooks.SubagentStart | length) == 2 and (.hooks.PostToolUse | length) == 1 and (.hooks.PreToolUse | length) == 3' "$HOOKS"
+  run jq -e '(.hooks.SessionStart | length) == 3 and (.hooks.SubagentStart | length) == 2 and (.hooks.PostToolUse | length) == 1 and (.hooks.PreToolUse | length) == 3' "$HOOKS"
   assert_success
   run jq -e '.hooks.SessionStart[0] | has("matcher") | not' "$HOOKS"
   assert_success
