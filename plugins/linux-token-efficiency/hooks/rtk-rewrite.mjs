@@ -11,9 +11,9 @@
 // 2. REWRITE (rtk): everything else is piped verbatim into the bundled binary's own
 //    `rtk hook claude` protocol (spawned by ABSOLUTE path) and rtk's rewritten command
 //    is forwarded back as hookSpecificOutput.updatedInput. The emitted command keeps
-//    rtk's bare `rtk …` word: an enabled plugin's bin/ is on the Bash PATH, so it
-//    resolves to this very binary — no path rewriting, no PATH prefix. Gated by the
-//    auto_rewrite toggle.
+//    rtk's bare `rtk …` word: when ~/.local/bin is on the Bash PATH, so it resolves to
+//    the managed binary — no path rewriting, no PATH prefix. Gated by the auto_rewrite
+//    toggle.
 //
 // The split is the deliberate rtk/context-mode balance: git/gh and other side-effect
 // or single commands STAY in Bash under rtk compression (the measured winner for that
@@ -23,15 +23,15 @@
 // Fail-open everywhere: every failure path is a bare `return` inside main()'s single
 // try/catch (no process.exit), so the process exits 0 having printed nothing and the
 // Bash command runs unmodified. Ordered guards: platform -> stdin size/parse
-// -> Bash + non-empty command -> steer classification -> rewrite toggle -> bundled
-// binary executable -> `rtk` resolves on PATH and resolves to THIS binary (a global
-// rtk install owns the rewrite instead) -> spawn.
+// -> Bash + non-empty command -> steer classification -> rewrite toggle -> managed
+// ~/.local/bin/rtk executable + a regular file -> `rtk` resolves on PATH and resolves to
+// THIS binary (a global rtk install owns the rewrite instead) -> spawn.
 // Platform is checked before touching stdin: on any non-Linux host every Bash call
 // would otherwise pay for a readFileSync(0) + JSON.parse it can never use.
 // Not async in hooks.json: a PreToolUse hook returning updatedInput must be synchronous.
 import process from "node:process";
 import { spawnSync } from "node:child_process";
-import { accessSync, readFileSync, realpathSync, constants as fsConstants } from "node:fs";
+import { accessSync, lstatSync, readFileSync, realpathSync, constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -297,6 +297,18 @@ export function buildSteerDeny(classification) {
 }
 
 /**
+ * The plugin-managed rtk install path (${HOME}/.local/bin/rtk), or null when HOME is
+ * unusable (blank or an uninterpolated ${...} placeholder). Never returns a ${-bearing path.
+ * @param {Record<string, string|undefined>} env
+ * @returns {string|null}
+ */
+export function resolveManagedRtk(env) {
+  const home = env.HOME;
+  if (typeof home !== "string" || home.trim() === "" || home.includes("${")) return null;
+  return path.join(home.trim(), ".local", "bin", "rtk");
+}
+
+/**
  * First executable `rtk` on the given PATH string, as an absolute path, or null.
  * Patterned after universal-lint's onPath(), but returns the resolved path.
  * @param {string|undefined} pathEnv
@@ -387,18 +399,23 @@ function main() {
 
     // REWRITE branch.
     if (!isAutoRewriteEnabled(process.env.CLAUDE_PLUGIN_OPTION_AUTO_REWRITE)) return;
-    const binDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "bin");
-    const bundled = path.join(binDir, "rtk");
+    const managed = resolveManagedRtk(process.env);
+    if (managed === null) return; // HOME unusable
     try {
-      accessSync(bundled, fsConstants.X_OK);
+      accessSync(managed, fsConstants.X_OK);
     } catch {
-      return; // no bundled binary to delegate to
+      return; // ~/.local/bin/rtk not installed yet (SessionStart install pending) — fail-open
+    }
+    try {
+      if (!lstatSync(managed).isFile()) return; // reject a symlink / non-regular file
+    } catch {
+      return;
     }
     const resolved = resolveRtkOnPath(process.env.PATH);
-    if (resolved === null) return; // never emit an `rtk …` we have no evidence resolves
-    if (!sameFile(resolved, bundled)) return; // a global rtk install owns the rewrite
+    if (resolved === null) return; // never emit an `rtk …` we have no evidence resolves (~/.local/bin not on PATH)
+    if (!sameFile(resolved, managed)) return; // a global rtk install owns the rewrite; never double-wire
 
-    const result = spawnSync(bundled, ["hook", "claude"], {
+    const result = spawnSync(managed, ["hook", "claude"], {
       input: raw,
       encoding: "utf8",
       timeout: RTK_SPAWN_TIMEOUT_MS,

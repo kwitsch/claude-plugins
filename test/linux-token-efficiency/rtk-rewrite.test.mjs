@@ -7,6 +7,7 @@ import {
   isAutoRewriteEnabled,
   isSteerEnabled,
   resolveRtkOnPath,
+  resolveManagedRtk,
   sameFile,
   buildUpdatedInput,
   splitTopLevel,
@@ -58,6 +59,15 @@ test("resolveRtkOnPath: null for empty, undefined and non-executable candidates"
   assert.equal(resolveRtkOnPath(""), null);
   assert.equal(resolveRtkOnPath(`${path.delimiter}${path.delimiter}`), null);
   assert.equal(resolveRtkOnPath(root), null);
+});
+
+test("resolveManagedRtk: ${HOME}/.local/bin/rtk; null on blank or ${-bearing HOME", () => {
+  assert.equal(resolveManagedRtk({ HOME: "/home/u" }), path.join("/home/u", ".local", "bin", "rtk"));
+  assert.equal(resolveManagedRtk({ HOME: "  /home/u  " }), path.join("/home/u", ".local", "bin", "rtk"));
+  assert.equal(resolveManagedRtk({ HOME: "" }), null);
+  assert.equal(resolveManagedRtk({ HOME: "   " }), null);
+  assert.equal(resolveManagedRtk({ HOME: "${HOME}/.x" }), null);
+  assert.equal(resolveManagedRtk({}), null);
 });
 
 test("sameFile: true through a symlink, false for distinct files and missing paths", () => {
