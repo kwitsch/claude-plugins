@@ -1,29 +1,20 @@
 # CLAUDE.md — linux-token-efficiency
 
-Bundles the upstream rtk Linux binary and auto-rewrites Bash commands through it.
+Installs the upstream rtk Linux binary into ~/.local/bin at SessionStart and auto-rewrites Bash commands through it.
 
-## Committed binary and the exec bit
-
-`bin/rtk` is the extracted upstream release binary, committed verbatim (~10 MB, no Git LFS —
-the repo already commits multi-MB `.wasm` sidecars in `universal-format`). `.gitattributes` marks
-`plugins/linux-token-efficiency/bin/*` as `binary` so a `text=auto` repo never EOL-translates it.
-`bin/` also holds `context-mode-launch.sh` (see `## context-mode`), which is plain text, so a second
-`.gitattributes` line overrides the wildcard for it: `bin/*.sh -binary` (last matching pattern wins
-per attribute). `-binary` is required and was verified empirically — `text eol=lf` as the override
-still leaves `binary: set` / `diff: unset` and `git diff` still prints "Binary files … differ";
-`-binary` restores a textual patch and lets the root `* text=auto eol=lf` apply. Never narrow the
-wildcard line itself: two tests grep its exact literal.
+## Executable bit and core.fileMode
 
 **This repo sets `core.fileMode=false`**, so a filesystem `chmod +x` is NOT picked up by `git add`.
 `.claude/rules/bin-executable.md` and `.claude/rules/hooks-executable.md` prescribe only
 `chmod +x` + `ls -la` and never mention this — following them literally commits a `100644` that
-Claude Code then silently skips. Whenever `bin/rtk`, `bin/context-mode-launch.sh`, `hooks/rtk-rewrite.mjs` or `hooks/webfetch-steer.mjs` is added or replaced:
+Claude Code then silently skips. Whenever `bin/context-mode-launch.sh`, `hooks/rtk-rewrite.mjs`,
+`hooks/rtk-install.mjs` or `hooks/webfetch-steer.mjs` is added or replaced:
 
 ```bash
-chmod +x plugins/linux-token-efficiency/bin/rtk plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs plugins/linux-token-efficiency/hooks/webfetch-steer.mjs
-git add plugins/linux-token-efficiency/bin/rtk plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs plugins/linux-token-efficiency/hooks/webfetch-steer.mjs
-git update-index --chmod=+x plugins/linux-token-efficiency/bin/rtk plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs plugins/linux-token-efficiency/hooks/webfetch-steer.mjs
-git ls-files -s plugins/linux-token-efficiency/bin/rtk # must print 100755
+chmod +x plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs plugins/linux-token-efficiency/hooks/rtk-install.mjs plugins/linux-token-efficiency/hooks/webfetch-steer.mjs
+git add plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs plugins/linux-token-efficiency/hooks/rtk-install.mjs plugins/linux-token-efficiency/hooks/webfetch-steer.mjs
+git update-index --chmod=+x plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs plugins/linux-token-efficiency/hooks/rtk-install.mjs plugins/linux-token-efficiency/hooks/webfetch-steer.mjs
+git ls-files -s plugins/linux-token-efficiency/hooks/rtk-install.mjs # must print 100755
 
 chmod +x plugins/linux-token-efficiency/bin/context-mode-launch.sh
 git add plugins/linux-token-efficiency/bin/context-mode-launch.sh
@@ -57,10 +48,11 @@ would race a `deny` against an `updatedInput`:
    newlines, unknown heads — so the failure direction is always "command runs in Bash", never a
    wrong deny. Backgrounded commands (`run_in_background`) are never steered: `ctx_*` tools cannot
    background, so a deny would strand the model.
-2. **Rewrite branch (rtk, gated by `auto_rewrite`)**: everything else spawns the bundled binary
-   **by absolute path** (`<plugin>/bin/rtk hook claude`) and emits rtk's rewritten command
+2. **Rewrite branch (rtk, gated by `auto_rewrite`)**: everything else spawns the managed binary
+   **by absolute path** (`~/.local/bin/rtk hook claude`) and emits rtk's rewritten command
    **verbatim** — no `PATH` prefix, no absolute-path substitution. The bare `rtk` in that command
-   resolves because Claude Code puts an enabled plugin's `bin/` on the Bash `PATH`.
+   resolves when `~/.local/bin` is on the Bash `PATH` (conventional on modern Linux, not
+   guaranteed); when it is not, the preflight below makes the hook no-op gracefully.
 
 This split IS the rtk/cbm/context-mode balance: git/gh and other side-effect or single commands
 stay in Bash under rtk compression (the 2026-07 measurement's winner for exactly that class — see
@@ -69,9 +61,11 @@ context-mode sandbox where output is indexed instead of entering context, and Gr
 cbm's domain untouched (stacking a context-mode steer there would conflict with
 `hook_symbol_context`/`hook_coverage_context`'s fail-quiet contracts).
 
-Two preflight rules keep that dependency safe: the hook no-ops when `rtk` does not resolve on its
-own `PATH` at all (never emit an unresolvable command), and when the resolved `rtk` is not this
-plugin's `bin/rtk` (a global `rtk init -g` install owns the rewrite; never double-wire).
+Three preflight rules keep that dependency safe: the hook no-ops when `~/.local/bin/rtk` is absent
+(the SessionStart install has not landed yet) or is not a regular file, when `rtk` does not resolve
+on `PATH` at all (never emit an unresolvable command), and when the resolved `rtk` is not this
+plugin's managed `~/.local/bin/rtk` (a global `rtk init -g` install owns the rewrite; never
+double-wire).
 
 `updatedInput` is `{ ...tool_input, command: final }` — it replaces the **entire** input object, so
 constructing a fresh `{command, description}` would silently drop `timeout` / `run_in_background`
@@ -160,6 +154,27 @@ The write is temp-file-then-`rename` (atomic on the same filesystem) so a racing
 a partial file; any read/write failure is swallowed exactly like every other guard in this file — the
 cache is a pure optimization, never a dependency.
 
+## rtk install
+
+`hooks/rtk-install.mjs` is an async `SessionStart` `command` hook (`async: true`, no
+`asyncRewake`, `timeout: 20`) that provisions rtk into `~/.local/bin/rtk`. It reads the pin
+and, ONLY when `~/.local/bin/rtk` is absent, downloads the pinned asset, verifies
+`assetSha256`, extracts, verifies `binarySha256`, and atomically `rename`s the binary into
+`~/.local/bin/rtk` (temp dir on the SAME filesystem so the rename is atomic). Presence-only
+idempotency: any file/symlink at the target is left untouched — a user's own rtk is never
+clobbered. One bounded attempt (`DOWNLOAD_TIMEOUT_MS = 300000`), fail-open (every failure
+logs one stderr line and the process exits 0), never inside the synchronous PreToolUse hook.
+
+**Blast-radius / fail-open justification.** Writing into `~/.local/bin` is new external state
+beyond `${CLAUDE_PLUGIN_DATA}`, so the `rtk_enabled` toggle is deliberately fail-open — the
+same explicit exception to `.claude/rules/plugin-userconfig.md`'s state-creating clause that
+`cbm_enabled` documents, framed for the larger scope: the asset AND the extracted binary are
+sha256-verified against the committed pin before anything is placed; presence-only means a
+user's own `~/.local/bin/rtk` is never overwritten; the write is atomic and bounded to one
+attempt; and it is fully reversible via `rm ~/.local/bin/rtk`. Worst case for an unwanted
+enable is one download of the pinned release and one file in `~/.local/bin` — no data loss,
+no credential use, no repo mutation. **Do not "harmonize" this back to fail-closed.**
+
 ## userConfig
 
 Three toggles, one per gated feature: boolean `auto_rewrite`, boolean `cbm_enabled` and boolean
@@ -229,8 +244,8 @@ The maintainer skill lives at repo level in `.claude/skills/`, next to `create-p
 `update-cc-references` — it edits the git **working tree** (the committed binary), so running it
 from an installed plugin cache would be pointless.
 
-It carries `disable-model-invocation: true`: it downloads a ~10 MB executable from the network and
-overwrites a committed artifact — an explicit destructive-side-effect exception to
+It carries `disable-model-invocation: true`: it downloads a ~10 MB executable from the network into
+a throwaway scratch dir to recompute the pin — an explicit destructive-side-effect exception to
 `.claude/rules/skill-invocation-control.md`'s model-invocable default.
 
 Download source is the upstream GitHub release; **verification is mandatory** against the release's
@@ -240,7 +255,7 @@ exactly one checksum entry per requested asset (an asset missing from, or duplic
 comparison is
 plain string equality between the pin's `rtkVersion` and `tag_name` minus a leading `v` — no semver
 ordering, so a retagged or yanked release conservatively reads as "update available". The script
-never commits, never bumps `plugin.json` and never opens a PR.
+never commits, never bumps `plugin.json`, never opens a PR, and never writes a binary (pin-only).
 
 ## Novel-in-repo mechanics (deliberate, not convention)
 
@@ -319,9 +334,9 @@ heading, the ≤ 40-line brevity cap, required directive tokens).
 ## codebase-memory-mcp bundle
 
 **Why no committed binary or tarball.** cbm's extracted binary is 293,160,104 bytes (279.6 MiB) —
-above GitHub's **100 MiB** per-file limit — so it can never be committed like `bin/rtk` is. With a
+above GitHub's **100 MiB** per-file limit — so it can never be committed. With a
 server that downloads on first start there is no reason to commit the 37.6 MiB archive either, so
-**nothing cbm-related is in git**: `bin/` holds only `rtk`, and the two machine-owned JSON files
+**nothing cbm-related is in git**: `bin/` holds only `context-mode-launch.sh`, and the two machine-owned JSON files
 `cbm-bundle.json` (the pin) and `cbm-tools.json` (the advertised tool list) are the whole artifact
 surface.
 
