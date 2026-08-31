@@ -30,6 +30,7 @@
 // would otherwise pay for a readFileSync(0) + JSON.parse it can never use.
 // Not async in hooks.json: a PreToolUse hook returning updatedInput must be synchronous.
 import process from "node:process";
+import os from "node:os";
 import { spawnSync } from "node:child_process";
 import { accessSync, lstatSync, readFileSync, realpathSync, constants as fsConstants } from "node:fs";
 import path from "node:path";
@@ -297,15 +298,38 @@ export function buildSteerDeny(classification) {
 }
 
 /**
- * The plugin-managed rtk install path (${HOME}/.local/bin/rtk), or null when HOME is
- * unusable (blank or an uninterpolated ${...} placeholder). Never returns a ${-bearing path.
+ * A string is usable as a home directory only when non-empty and free of an
+ * uninterpolated `${` placeholder.
+ * @param {string|undefined} value
+ * @returns {boolean}
+ */
+function usableHome(value) {
+  return typeof value === "string" && value.trim() !== "" && !value.includes("${");
+}
+
+/**
+ * The plugin-managed rtk install path (${HOME}/.local/bin/rtk). Resolves the home
+ * directory the same way rtk-install.mjs's resolveHome() does — env.HOME when usable,
+ * else os.homedir() — so the two stay in agreement about where rtk was installed.
+ * Returns null only when neither source yields a usable home. Never returns a
+ * ${-bearing path.
  * @param {Record<string, string|undefined>} env
  * @returns {string|null}
  */
 export function resolveManagedRtk(env) {
-  const home = env.HOME;
-  if (typeof home !== "string" || home.trim() === "" || home.includes("${")) return null;
-  return path.join(home.trim(), ".local", "bin", "rtk");
+  let home = null;
+  if (usableHome(env.HOME)) {
+    home = String(env.HOME).trim();
+  } else {
+    try {
+      const h = os.homedir();
+      if (usableHome(h)) home = h;
+    } catch {
+      home = null;
+    }
+  }
+  if (home === null) return null;
+  return path.join(home, ".local", "bin", "rtk");
 }
 
 /**
