@@ -40,13 +40,11 @@ setup() {
   assert_success
 }
 
-@test "bin/ holds the committed rtk binary and the context-mode launcher" {
+@test "bin/ holds only the context-mode launcher (rtk no longer vendored)" {
   run bash -c "git -C '$REPO_ROOT' ls-files -- plugins/linux-token-efficiency/bin/"
-  assert_output 'plugins/linux-token-efficiency/bin/context-mode-launch.sh
-plugins/linux-token-efficiency/bin/rtk'
+  assert_output 'plugins/linux-token-efficiency/bin/context-mode-launch.sh'
   run bash -c "ls -A '$PLUGIN/bin'"
-  assert_output 'context-mode-launch.sh
-rtk'
+  assert_output 'context-mode-launch.sh'
 }
 
 @test "no cbm artifact is tracked anywhere in the repo" {
@@ -54,12 +52,9 @@ rtk'
   assert_output '0'
 }
 
-@test ".gitattributes still marks bin/ as binary data for the rtk binary" {
-  run grep -F -- 'plugins/linux-token-efficiency/bin/* binary' "$REPO_ROOT/.gitattributes"
-  assert_success
-  run git -C "$REPO_ROOT" check-attr binary -- plugins/linux-token-efficiency/bin/rtk
-  assert_success
-  assert_output --partial 'binary: set'
+@test ".gitattributes no longer carries the linux-token-efficiency bin/* markings" {
+  run bash -c "grep -c 'plugins/linux-token-efficiency/bin/\\*' '$REPO_ROOT/.gitattributes' || true"
+  assert_output '0'
 }
 
 @test ".mcp.json registers codebase-memory and context-mode, codebase-memory still wrapper-less at mcp/server.mjs" {
