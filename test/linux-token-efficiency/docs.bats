@@ -179,20 +179,20 @@ setup() {
   done
 }
 
-@test "plugin CLAUDE.md states the unconditional-cat limitation and the eight-hook count" {
+@test "plugin CLAUDE.md states the unconditional-cat limitation and the nine-hook count" {
   run grep -Fi 'unconditional' "$PLUGIN_CLAUDE"
   assert_success
+  run grep -F 'nine hooks total' "$PLUGIN_CLAUDE"
+  assert_success
   run grep -F 'eight hooks total' "$PLUGIN_CLAUDE"
-  assert_success
-  run grep -F 'seven hooks total' "$PLUGIN_CLAUDE"
   assert_failure
-  run grep -F 'Eight hooks total.' "$HOOKS"
+  run grep -F 'Nine hooks total.' "$HOOKS"
   assert_success
-  # Ties both hardcoded "eight" claims above to the actual hook count, so a future hook
+  # Ties both hardcoded "nine" claims above to the actual hook count, so a future hook
   # addition/removal that forgets to update this prose is caught structurally instead
   # of only by string-matching a hardcoded number (same derivation as context-mode.bats
   # / cbm-hooks.bats use for their own hooks.json structural assertions).
-  run jq -e '([.hooks[][].hooks | length] | add) == 8' "$HOOKS"
+  run jq -e '([.hooks[][].hooks | length] | add) == 9' "$HOOKS"
   assert_success
 }
 
