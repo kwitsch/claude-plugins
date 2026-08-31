@@ -213,3 +213,27 @@ setup() {
   run grep -Fi 'override' "$PLUGIN_README"
   assert_success
 }
+
+@test "plugin README documents the ~/.local/bin install and the rtk_enabled toggle" {
+  run grep -F '~/.local/bin/rtk' "$PLUGIN_README"
+  assert_success
+  run grep -F 'rtk_enabled' "$PLUGIN_README"
+  assert_success
+  # No doc still asserts the vendored code-span `bin/rtk` path.
+  run grep -F '`bin/rtk`' "$PLUGIN_README"
+  assert_failure
+}
+
+@test "plugin CLAUDE.md carries the rtk install section and no longer describes a committed binary" {
+  run grep -F '## rtk install' "$PLUGIN_CLAUDE"
+  assert_success
+  run grep -F 'hooks/rtk-install.mjs' "$PLUGIN_CLAUDE"
+  assert_success
+  run grep -F '## Committed binary and the exec bit' "$PLUGIN_CLAUDE"
+  assert_failure
+}
+
+@test "plugins/CLAUDE.md bin/ row no longer claims a committed release binary" {
+  run grep -F 'committed release binary' "$REPO_ROOT/plugins/CLAUDE.md"
+  assert_failure
+}
