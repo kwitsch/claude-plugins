@@ -17,6 +17,7 @@ common_setup() {
   CBM_TOOLS="$PLUGIN/cbm-tools.json"
   CBM_SERVER="$PLUGIN/mcp/server.mjs"
   CBM_HELPERS="$PLUGIN/mcp/cbm-context.mjs"
+  CBM_BINARY_FETCH="$PLUGIN/mcp/binary-fetch.mjs"
   MCP_JSON="$PLUGIN/.mcp.json"
 
   # Isolated PATH: only system tools that actually exist on the host are symlinked
@@ -139,7 +140,8 @@ FAKE_CBM
 }
 
 # make_cbm_server_fixture <dir> -- build a fixture plugin tree holding copies of the real
-# mcp/server.mjs + mcp/cbm-context.mjs plus a FABRICATED cbm-bundle.json / cbm-tools.json
+# mcp/server.mjs + mcp/cbm-context.mjs + mcp/binary-fetch.mjs plus a FABRICATED
+# cbm-bundle.json / cbm-tools.json
 # whose binarySha256 is the fake binary's REAL sha256, so the production
 # content-addressed path ${CBM_BUNDLE_CACHE}/<binarySha256[0:16]>/codebase-memory-mcp
 # resolves to it. Getting that derivation wrong silently falls through to the download
@@ -159,6 +161,7 @@ make_cbm_server_fixture() {
   mkdir -p "$dir/mcp" "$RELEASE_DIR/$FIXTURE_TAG" "$CBM_CACHE"
   cp "$CBM_SERVER" "$dir/mcp/server.mjs"
   cp "$CBM_HELPERS" "$dir/mcp/cbm-context.mjs"
+  cp "$CBM_BINARY_FETCH" "$dir/mcp/binary-fetch.mjs"
   chmod +x "$dir/mcp/server.mjs"
 
   write_fake_cbm "$FAKE_BIN"

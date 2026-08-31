@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# bin/rtk -- PATH bridge to the plugin-managed binary at ~/.local/bin/rtk.
+#
+# hooks/rtk-install.mjs installs the real binary there at SessionStart (not committed,
+# downloaded once per machine, only when absent). This plugin's own bin/ is what Claude Code
+# guarantees is on the Bash PATH whenever the plugin is enabled, but ~/.local/bin itself is
+# NOT guaranteed to be on PATH on every host/shell -- so a bare `rtk` command (typed by hand,
+# or invoked by anything other than hooks/rtk-rewrite.mjs, which always spawns the managed
+# binary by absolute path) would otherwise silently fail to resolve even after a successful
+# install. This wrapper closes that gap.
+set -euo pipefail
+managed="${HOME:-}/.local/bin/rtk"
+if [ ! -x "$managed" ]; then
+  echo "rtk: not installed yet at $managed (SessionStart install pending, disabled, or unsupported platform)" >&2
+  exit 127
+fi
+exec "$managed" "$@"

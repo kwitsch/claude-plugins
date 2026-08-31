@@ -32,9 +32,14 @@
 import process from "node:process";
 import os from "node:os";
 import { spawnSync } from "node:child_process";
-import { accessSync, lstatSync, readFileSync, realpathSync, constants as fsConstants } from "node:fs";
+import { accessSync, readFileSync, realpathSync, statSync, constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+/** This plugin's own bin/rtk -- a committed PATH-bridge wrapper (see bin/rtk) that always
+ *  execs the managed ~/.local/bin/rtk. Resolving to it is NOT a competing rtk install, so it
+ *  must not trip the "never double-wire" guard below the way a genuine global rtk would. */
+const PLUGIN_BIN_RTK = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "bin", "rtk");
 
 const STDIN_CAP = 1024 * 1024; // same cap as coding-toolbox/hooks/encoding-guard.mjs
 const RTK_SPAWN_TIMEOUT_MS = 5000; // stays well under hooks.json's timeout: 10
@@ -431,13 +436,18 @@ function main() {
       return; // ~/.local/bin/rtk not installed yet (SessionStart install pending) — fail-open
     }
     try {
-      if (!lstatSync(managed).isFile()) return; // reject a symlink / non-regular file
+      // Follows symlinks: a valid symlink at the managed path (e.g. a stow/asdf/mise-style
+      // user install) is accepted, since accessSync above already proved it resolves and is
+      // executable; only a non-regular file (directory, fifo, …) is rejected.
+      if (!statSync(managed).isFile()) return;
     } catch {
       return;
     }
     const resolved = resolveRtkOnPath(process.env.PATH);
     if (resolved === null) return; // never emit an `rtk …` we have no evidence resolves (~/.local/bin not on PATH)
-    if (!sameFile(resolved, managed)) return; // a global rtk install owns the rewrite; never double-wire
+    // A global rtk install owns the rewrite unless what resolved is either the managed binary
+    // itself or this plugin's own bin/rtk PATH-bridge wrapper (not a competing install).
+    if (!sameFile(resolved, managed) && !sameFile(resolved, PLUGIN_BIN_RTK)) return;
 
     const result = spawnSync(managed, ["hook", "claude"], {
       input: raw,

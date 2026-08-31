@@ -40,11 +40,11 @@ setup() {
   assert_success
 }
 
-@test "bin/ holds only the context-mode launcher (rtk no longer vendored)" {
-  run bash -c "git -C '$REPO_ROOT' ls-files -- plugins/linux-token-efficiency/bin/"
-  assert_output 'plugins/linux-token-efficiency/bin/context-mode-launch.sh'
-  run bash -c "ls -A '$PLUGIN/bin'"
-  assert_output 'context-mode-launch.sh'
+@test "bin/ holds the context-mode launcher and the rtk PATH-bridge wrapper (never the vendored binary)" {
+  run bash -c "git -C '$REPO_ROOT' ls-files -- plugins/linux-token-efficiency/bin/ | sort"
+  assert_output "$(printf 'plugins/linux-token-efficiency/bin/context-mode-launch.sh\nplugins/linux-token-efficiency/bin/rtk')"
+  run bash -c "ls -A '$PLUGIN/bin' | sort"
+  assert_output "$(printf 'context-mode-launch.sh\nrtk')"
 }
 
 @test "no cbm artifact is tracked anywhere in the repo" {

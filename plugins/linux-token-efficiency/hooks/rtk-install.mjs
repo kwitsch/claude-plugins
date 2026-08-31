@@ -13,18 +13,21 @@ import process from "node:process";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { chmodSync, createReadStream, createWriteStream, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
-import { createHash } from "node:crypto";
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
+import { hashFile, downloadToFile, findBinaries } from "../mcp/binary-fetch.mjs";
+import { usablePath } from "../mcp/cbm-context.mjs";
 
 const BINARY_NAME = "rtk";
 /** Identical name, shape and default as update-rtk-bundle.sh's RTK_DOWNLOAD_BASE_URL; joined as
  *  `${base}/${releaseTag}/${asset}`. Overridable via RTK_DOWNLOAD_BASE_URL (test fixtures). */
 const DEFAULT_DOWNLOAD_BASE_URL = "https://github.com/rtk-ai/rtk/releases/download";
-/** One bounded download attempt per SessionStart process — no retry storm on an offline host. */
-const DOWNLOAD_TIMEOUT_MS = 300000;
+/** One bounded download attempt per SessionStart process. Kept well under hooks.json's
+ *  `timeout: 20` for this hook (the harness kills the whole detached process at that wall
+ *  clock regardless of this signal) so a slow-but-not-hung download aborts itself in time for
+ *  the `finally` cleanup below to run, instead of being hard-killed mid-write and leaving an
+ *  orphaned `.rtk-install.*` scratch dir under ~/.local/bin every session. */
+const DOWNLOAD_TIMEOUT_MS = 12000;
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 /** @param {string} message @returns {void} */
@@ -38,25 +41,17 @@ function describe(error) {
 }
 
 /**
- * A string is usable as a filesystem path only when non-empty and free of an uninterpolated
- * `${` — a literal placeholder must never create a directory (the usablePath discipline).
- * @param {string|undefined} value
- * @returns {boolean}
- */
-function usable(value) {
-  return typeof value === "string" && value.trim() !== "" && !value.includes("${");
-}
-
-/**
- * The user's home directory: HOME when usable, else os.homedir(), else null.
+ * The user's home directory: HOME when usable, else os.homedir(), else null. Uses
+ * cbm-context.mjs's usablePath so this and rtk-rewrite.mjs's resolveManagedRtk agree on what
+ * counts as a usable home value.
  * @param {Record<string, string|undefined>} env
  * @returns {string|null}
  */
 function resolveHome(env) {
-  if (usable(env.HOME)) return String(env.HOME).trim();
+  if (usablePath(env.HOME)) return String(env.HOME).trim();
   try {
     const h = os.homedir();
-    if (usable(h)) return h;
+    if (usablePath(h)) return h;
   } catch {
     /* fall through */
   }
@@ -97,53 +92,6 @@ function readPin() {
   return pin;
 }
 
-/** @param {string} file @returns {Promise<string>} */
-async function hashFile(file) {
-  const hash = createHash("sha256");
-  for await (const chunk of createReadStream(file)) hash.update(chunk);
-  return hash.digest("hex");
-}
-
-/** @param {string} url @param {string} dest @returns {Promise<string>} */
-async function downloadToFile(url, dest) {
-  const response = await fetch(url, {
-    signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
-  });
-  if (!response.ok || response.body === null) throw new Error(`download failed (${response.status}): ${url}`);
-  const hash = createHash("sha256");
-  await pipeline(
-    Readable.fromWeb(response.body),
-    async function* (/** @type {any} */ source) {
-      for await (const chunk of source) {
-        hash.update(chunk);
-        yield chunk;
-      }
-    },
-    createWriteStream(dest),
-  );
-  return hash.digest("hex");
-}
-
-/**
- * Every `rtk` file under `dir` — the archive may also ship extras, and 0 or >1 matches fail closed.
- * @param {string} dir
- * @returns {string[]}
- */
-function findBinaries(dir) {
-  /** @type {string[]} */
-  const found = [];
-  /** @param {string} current @returns {void} */
-  const walk = (current) => {
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      const full = path.join(current, entry.name);
-      if (entry.isDirectory()) walk(full);
-      else if (entry.isFile() && entry.name === BINARY_NAME) found.push(full);
-    }
-  };
-  walk(dir);
-  return found;
-}
-
 /** @returns {Promise<void>} */
 async function main() {
   try {
@@ -156,10 +104,22 @@ async function main() {
     if (home === null) return;
     const homeLocalBin = path.join(home, ".local", "bin");
     const target = path.join(homeLocalBin, "rtk");
-    // 4. Presence-only idempotency: anything at the target (file, symlink, user's own rtk) => skip.
+    // 4. Idempotency: a regular file, or a symlink that still resolves, counts as installed
+    //    and is left untouched (never clobber a user's own rtk). A dangling/broken symlink
+    //    (e.g. left behind by an uninstalled tool) is cleared so the installer can actually
+    //    place a working binary instead of skipping forever.
     try {
-      lstatSync(target);
-      return;
+      const dirent = lstatSync(target);
+      if (dirent.isSymbolicLink()) {
+        try {
+          statSync(target); // follows the symlink; throws ENOENT when the target is gone
+          return; // valid symlink — leave the user's own install alone
+        } catch {
+          rmSync(target, { force: true }); // dangling — clear it and fall through to install
+        }
+      } else {
+        return;
+      }
     } catch {
       /* absent — proceed */
     }
@@ -174,7 +134,7 @@ async function main() {
       const url = `${base}/${pin.releaseTag}/${pin.asset}`;
       const archive = path.join(tmp, pin.asset);
       log(`fetching ${url}`);
-      const assetSha = await downloadToFile(url, archive);
+      const assetSha = await downloadToFile(url, archive, DOWNLOAD_TIMEOUT_MS);
       if (assetSha !== pin.assetSha256) {
         log(`asset sha256 mismatch for ${pin.asset}; refusing to extract`);
         return;
@@ -185,7 +145,7 @@ async function main() {
         log(`failed to extract ${pin.asset}: ${describe(e)}`);
         return;
       }
-      const found = findBinaries(tmp);
+      const found = findBinaries(tmp, BINARY_NAME);
       if (found.length !== 1) {
         log(`expected exactly one ${BINARY_NAME} inside ${pin.asset}, found ${found.length}`);
         return;

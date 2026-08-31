@@ -15,10 +15,14 @@ setup() {
 
   INSTALLER="$PLUGIN/hooks/rtk-install.mjs"
   FAKE_PLUGIN="$BATS_TEST_TMPDIR/plugin"
-  mkdir -p "$FAKE_PLUGIN/hooks"
+  mkdir -p "$FAKE_PLUGIN/hooks" "$FAKE_PLUGIN/mcp"
   cp "$INSTALLER" "$FAKE_PLUGIN/hooks/rtk-install.mjs"
   chmod +x "$FAKE_PLUGIN/hooks/rtk-install.mjs"
   FAKE_INSTALLER="$FAKE_PLUGIN/hooks/rtk-install.mjs"
+  # rtk-install.mjs imports its download/verify helpers and usablePath from mcp/ (shared
+  # with the cbm proxy server) via a relative path, so the fake plugin tree needs those too.
+  cp "$PLUGIN/mcp/binary-fetch.mjs" "$FAKE_PLUGIN/mcp/binary-fetch.mjs"
+  cp "$PLUGIN/mcp/cbm-context.mjs" "$FAKE_PLUGIN/mcp/cbm-context.mjs"
 
   FIXTURE_TAG="v9.9.9-fixture"
   FIXTURE_ASSET="rtk-x86_64-unknown-linux-musl.tar.gz"
@@ -117,6 +121,32 @@ linux_x64_or_skip() {
   assert_output 'SENTINEL'
   run bash -c "grep -c . '$RELEASE_LOG' || true"
   assert_output '0'
+}
+
+@test "present target as a valid symlink: left untouched, nothing downloaded" {
+  mkdir -p "$HOME/.local/bin" "$HOME/elsewhere"
+  printf '#!/usr/bin/env bash\necho SENTINEL\n' > "$HOME/elsewhere/rtk"
+  chmod +x "$HOME/elsewhere/rtk"
+  ln -s "$HOME/elsewhere/rtk" "$TARGET"
+  start_server
+  run_install
+  assert_success
+  [ -L "$TARGET" ]
+  run bash -c "grep -c . '$RELEASE_LOG' || true"
+  assert_output '0'
+}
+
+@test "present target as a dangling symlink: cleared and reinstalled" {
+  linux_x64_or_skip
+  mkdir -p "$HOME/.local/bin"
+  ln -s "$HOME/.local/bin/does-not-exist" "$TARGET"
+  start_server
+  run_install
+  assert_success
+  [ ! -L "$TARGET" ]
+  [ -x "$TARGET" ]
+  run bash -c "sha256sum < '$TARGET' | cut -d' ' -f1"
+  assert_output "$FAKE_BIN_SHA"
 }
 
 @test "asset sha256 mismatch: nothing installed, exit 0" {

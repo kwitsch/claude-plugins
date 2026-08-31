@@ -62,10 +62,12 @@ cbm's domain untouched (stacking a context-mode steer there would conflict with
 `hook_symbol_context`/`hook_coverage_context`'s fail-quiet contracts).
 
 Three preflight rules keep that dependency safe: the hook no-ops when `~/.local/bin/rtk` is absent
-(the SessionStart install has not landed yet) or is not a regular file, when `rtk` does not resolve
-on `PATH` at all (never emit an unresolvable command), and when the resolved `rtk` is not this
-plugin's managed `~/.local/bin/rtk` (a global `rtk init -g` install owns the rewrite; never
-double-wire).
+(the SessionStart install has not landed yet) or does not resolve (following symlinks) to a regular
+file — a symlinked managed install (stow/asdf/mise-style) is accepted, only a directory/fifo/other
+non-regular dirent is rejected — when `rtk` does not resolve on `PATH` at all (never emit an
+unresolvable command), and when the resolved `rtk` is neither this plugin's managed
+`~/.local/bin/rtk` nor its own `bin/rtk` PATH-bridge wrapper (a global `rtk init -g` install owns
+the rewrite instead; never double-wire).
 
 `updatedInput` is `{ ...tool_input, command: final }` — it replaces the **entire** input object, so
 constructing a fresh `{command, description}` would silently drop `timeout` / `run_in_background`
@@ -160,10 +162,27 @@ cache is a pure optimization, never a dependency.
 `asyncRewake`, `timeout: 20`) that provisions rtk into `~/.local/bin/rtk`. It reads the pin
 and, ONLY when `~/.local/bin/rtk` is absent, downloads the pinned asset, verifies
 `assetSha256`, extracts, verifies `binarySha256`, and atomically `rename`s the binary into
-`~/.local/bin/rtk` (temp dir on the SAME filesystem so the rename is atomic). Presence-only
-idempotency: any file/symlink at the target is left untouched — a user's own rtk is never
-clobbered. One bounded attempt (`DOWNLOAD_TIMEOUT_MS = 300000`), fail-open (every failure
-logs one stderr line and the process exits 0), never inside the synchronous PreToolUse hook.
+`~/.local/bin/rtk` (temp dir on the SAME filesystem so the rename is atomic). Idempotency: a
+regular file or a symlink that still resolves is left untouched — a user's own rtk (including
+a stow/asdf/mise-style symlinked install) is never clobbered; a dangling/broken symlink at the
+target is cleared first so a stale leftover doesn't wedge the installer forever. One bounded
+attempt (`DOWNLOAD_TIMEOUT_MS = 12000`, kept well under hooks.json's `timeout: 20` for this
+hook so the `finally` cleanup still runs before a hard kill instead of leaving an orphaned
+`.rtk-install.*` scratch dir behind), fail-open (every failure logs one stderr line and the
+process exits 0), never inside the synchronous PreToolUse hook. Its download/verify/extract
+helpers (`hashFile`/`downloadToFile`/`findBinaries`) and its `usable`-path check live in
+`mcp/binary-fetch.mjs` / `mcp/cbm-context.mjs`'s `usablePath`, shared with `mcp/server.mjs`'s
+identical cbm provisioning rather than duplicated.
+
+**`bin/rtk` — the PATH bridge.** Removing the committed binary also removed the previous
+guarantee that a bare `rtk` resolves on PATH (Claude Code always puts an enabled plugin's own
+`bin/` on the Bash PATH; `~/.local/bin` is not guaranteed to be). `bin/rtk` is a small
+committed shell wrapper — the only file left under `bin/` that is genuinely "vendored", and
+deliberately so: it contains no binary, only `exec "${HOME}/.local/bin/rtk" "$@"` behind an
+existence check — that keeps manual `rtk …` use working even when `~/.local/bin` itself isn't
+on PATH. `hooks/rtk-rewrite.mjs`'s `sameFile` "never double-wire" guard treats a PATH
+resolution to this wrapper the same as a resolution to the managed binary itself (both are
+this plugin's own install, not a competing one) — see `PLUGIN_BIN_RTK` in that file.
 
 **Blast-radius / fail-open justification.** Writing into `~/.local/bin` is new external state
 beyond `${CLAUDE_PLUGIN_DATA}`, so the `rtk_enabled` toggle is deliberately fail-open — the
@@ -282,9 +301,12 @@ never commits, never bumps `plugin.json`, never opens a PR, and never writes a b
   `cbm-tools.json` snapshot rather than mirrored from the child, so the MCP handshake never waits on
   a download — call-time forwarding is name-agnostic, so a drifted snapshot costs advertisement, never
   a working call.
-- **`mcp/` holds two hand-written files.** `server.mjs` imports `./cbm-context.mjs`, keeping ~350
-  already-tested pure lines out of the transport file; `mcp/` stays the relocatable, zero-npm-dep
-  unit. `server.mjs` is also the repo's first **wrapper-less** MCP server
+- **`mcp/` holds three hand-written files.** `server.mjs` imports `./cbm-context.mjs`, keeping ~350
+  already-tested pure lines out of the transport file, and `./binary-fetch.mjs`, the
+  download/verify/extract helpers (`hashFile`/`downloadToFile`/`findBinaries`) shared with
+  `hooks/rtk-install.mjs`'s rtk provisioning — `mcp/` stays the relocatable, zero-npm-dep unit that
+  both consumers import from, each keeping its own pin shape, binary name and target path.
+  `server.mjs` is also the repo's first **wrapper-less** MCP server
   (`command: ${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs`, no `bin/mjs-launch.sh`) — the written rule's
   default, knowingly divergent from the three other MCP plugins. Do not "fix" it toward that
   precedent.

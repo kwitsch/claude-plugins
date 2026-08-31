@@ -18,8 +18,10 @@ asset `rtk-x86_64-unknown-linux-musl.tar.gz` — into `~/.local/bin/rtk` on firs
 already present there), and routes Bash tool calls through it automatically.
 
 At SessionStart the plugin installs rtk to `~/.local/bin/rtk` (when absent); it is invocable by
-hand when `~/.local/bin` is on your `PATH` (conventional on modern Linux, not guaranteed), and the
-rewrite gracefully no-ops when it is not. On top of that, a `PreToolUse` hook routes each Bash command: a
+hand as `rtk …` even when `~/.local/bin` itself is not on your `PATH`, via a small bridge wrapper
+the plugin also puts on `PATH` (a small wrapper under the plugin's own `bin/`, always added while
+the plugin is enabled), and the
+rewrite gracefully no-ops when neither resolves. On top of that, a `PreToolUse` hook routes each Bash command: a
 conservatively classified read-only gather command (a bare `curl` GET, a ≥3-command chain of text
 tools like `grep`/`cat`/`wc`, or a ≥3-stage text pipeline) is denied with a ready-to-use
 replacement call on context-mode's `ctx_fetch_and_index` / `ctx_batch_execute` / `ctx_execute`
@@ -52,10 +54,12 @@ replacement in hand). The rewrite deliberately no-ops when:
 
 - the host is not Linux;
 - `auto_rewrite` is set to `false`;
-- `~/.local/bin/rtk` is not yet installed (SessionStart install pending or `rtk_enabled=false`), is
-  not a regular file, or `~/.local/bin` is not on the Bash `PATH`;
+- `~/.local/bin/rtk` is not yet installed (SessionStart install pending or `rtk_enabled=false`), or
+  does not resolve — following a symlink — to a regular file (a symlinked install is fine; a
+  dangling symlink or a directory is not), or nothing on the Bash `PATH` resolves to `rtk` at all;
 - **a global `rtk` install appears earlier on `PATH`** — that install and its own hook already own
-  the rewrite, and this plugin never double-wires. On such a machine (a maintainer's own, typically)
+  the rewrite, and this plugin never double-wires (its own PATH-bridge wrapper under `bin/` is not
+  treated as a competing install). On such a machine (a maintainer's own, typically)
   the plugin looks inert by design;
 - `rtk` does not resolve on `PATH` at all — the hook never emits a command it has no evidence can
   run;

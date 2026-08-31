@@ -165,12 +165,35 @@ assert_json() {
   assert_output ''
 }
 
-@test "a symlink at the managed path is rejected (no rewrite)" {
+@test "a valid symlink at the managed path is accepted (rewrite happens)" {
+  # A stow/asdf/mise-style user install: the managed path is a symlink that resolves to an
+  # executable rtk, and PATH still resolves the bare `rtk` word to that same symlink.
   rtk_stub "$GLOBAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
   ln -s "$GLOBAL_BIN/rtk" "$LOCAL_BIN/rtk"
   hook_run "$(make_input 'ls -la /tmp')"
   assert_success
+  assert_json '.hookSpecificOutput.updatedInput.command == "rtk ls -la /tmp"'
+}
+
+@test "a dangling symlink at the managed path produces no output" {
+  ln -s "$BATS_TEST_TMPDIR/does-not-exist" "$LOCAL_BIN/rtk"
+  hook_run "$(make_input 'ls -la /tmp')"
+  assert_success
   assert_output ''
+}
+
+@test "the plugin's own bin/rtk PATH-bridge wrapper is accepted, not treated as a competing install" {
+  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
+  local plugin_bin="$FAKE_PLUGIN/bin"
+  mkdir -p "$plugin_bin"
+  cat > "$plugin_bin/rtk" <<EOF
+#!/usr/bin/env bash
+exec "$LOCAL_BIN/rtk" "\$@"
+EOF
+  chmod +x "$plugin_bin/rtk"
+  hook_run_path "$(make_input 'ls -la /tmp')" "$plugin_bin:$MOCKBIN"
+  assert_success
+  assert_json '.hookSpecificOutput.updatedInput.command == "rtk ls -la /tmp"'
 }
 
 @test "a non-Bash tool_name produces no output" {
