@@ -1,7 +1,7 @@
 # Claude Code — Hook Handler Selection
 
 <!-- AGENT-FACING REFERENCE. Not prose. Optimize for lookup + decision, not readability. -->
-<!-- Source: code.claude.com/docs/en/hooks + code.claude.com/docs/en/hooks-guide. Verified 2026-08-18. Re-verify against docs if version differs. -->
+<!-- Source: code.claude.com/docs/en/hooks + code.claude.com/docs/en/hooks-guide. Verified 2026-08-31. Re-verify against docs if version differs. -->
 <!-- Scope: choosing the `type` of a hook handler. Not about when hooks vs CLAUDE.md vs skills. -->
 
 ## Handler types
@@ -48,7 +48,7 @@
 | `prompt`         | model call           | model latency                       | event-dependent      | own decision                          | 30 s            | no                       |
 | `agent`          | subagent             | model + tool latency                | event-dependent      | own decision                          | 60 s            | no                       |
 
-`UserPromptSubmit` lowers command/http/mcp_tool default to 30 s. `MessageDisplay` lowers to 10 s. `SessionEnd` lowers to 1.5 s (budget auto-raises to the highest per-hook `timeout` configured, cap 60 s; plugin-hook timeouts don't raise it; override via env `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS`, milliseconds).
+`UserPromptSubmit` lowers command/http/mcp_tool default to 30 s. `version >= 2.1.251:` `PreModelSwitch`/`PostModelSwitch` also default to 30 s and run `command`/`http`/`mcp_tool` only — no `prompt`/`agent` handler on these two events. `MessageDisplay` lowers to 10 s. `SessionEnd` lowers to 1.5 s (budget auto-raises to the highest per-hook `timeout` configured, cap 60 s; plugin-hook timeouts don't raise it; override via env `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS`, milliseconds).
 
 ## Handler fields (config, all types unless noted)
 
@@ -84,7 +84,8 @@
 - JSON output is read on EVERY exit code, not just `exit 0` — for events using the standard decision model, valid JSON decides the outcome regardless of exit code, EXCEPT exit 2's block itself, which JSON can never override (even `permissionDecision:"allow"`). `version >= 2.1.214:` exit 2 + JSON that fails schema validation still blocks (before: non-blocking, action proceeded).
 - `if` filter is best-effort; fails OPEN on unparseable Bash. Do not use `if` for security gating — use permission rules.
 - Command hooks run with NO controlling terminal (macOS/Linux). Cannot write `/dev/tty`. Surface to user via `systemMessage`; notify via `terminalSequence` (allowlisted OSC only). `version >= 2.1.141:` `terminalSequence` is supported.
-- stdout reaches Claude only on `UserPromptSubmit`, `UserPromptExpansion`, `SessionStart`; elsewhere use `hookSpecificOutput.additionalContext`. Output strings capped 10k chars.
+- stdout reaches Claude only on `UserPromptSubmit`, `UserPromptExpansion`, `SessionStart`, `PostModelSwitch`; elsewhere use `hookSpecificOutput.additionalContext`. Output strings capped 10k chars.
+- `PreModelSwitch` (`version >= 2.1.251`) inverts the usual timeout-fails-open pattern: a `command`/`http`/`mcp_tool` hook that hits its timeout BLOCKS the model switch instead of letting it proceed — the one event where a stalled hook still gates. `PostModelSwitch` can't block (model already switched); its exit 2 only shows stderr to the user, same non-gating shape as `SessionStart`/`SubagentStart`.
 - State: `command` holds NO state between fires. Stateful/expensive init must live in a persistent server → `mcp_tool` or `http`.
 - Context/token cost: model-facing MCP tools load tool defs into model context (ongoing token cost). A tool used ONLY as an `mcp_tool` hook trigger is config-driven and need not be exposed to the model — keep hook-only tools off the model surface to avoid context cost.
 - `PreToolUse` decision lives in `hookSpecificOutput.permissionDecision` (allow/deny/ask/defer), NOT top-level `decision` (deprecated for this event). Multi-hook precedence: deny > defer > ask > allow.

@@ -1,21 +1,26 @@
 # Claude Code MCP — Managed / Enterprise Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (Managed MCP), verified 2026-08-18.
+> (Managed MCP), verified 2026-08-31.
 > Apply when deploying or troubleshooting enterprise MCP restrictions (`managed-mcp.json`,
 > allowlists/denylists). See `claude-code-mcp-reference.md` for general MCP config/auth/naming.
 
+- Scope: these restrictions cover only servers Claude Code loads itself, including claude.ai
+  connectors it fetches. Connectors the desktop app delivers to its own local and SSH sessions
+  arrive in-process and are governed by claude.ai organization settings instead — no
+  `managed-mcp.json`/allowlist/denylist reaches them.
+
 ## Choose a pattern
 
-| Pattern             | Effect                                                               | Configure                                                |
-| ------------------- | -------------------------------------------------------------------- | -------------------------------------------------------- |
-| Disable MCP         | No servers load (VS Code extension's own in-process server excepted) | `managed-mcp.json` with an empty server map              |
-| Fixed deployment    | Every user gets the same servers, cannot add others                  | `managed-mcp.json` with the servers you want             |
-| Approved catalog    | Users add from a published approved list; anything else blocked      | `allowedMcpServers` + `allowManagedMcpServersOnly: true` |
-| Plugin servers only | Servers may come only from plugins; users cannot add their own       | `strictPluginOnlyCustomization` with `mcp` in the list   |
-| Soft allowlist      | Allowlist users can broaden in their own settings                    | `allowedMcpServers` without `allowManagedMcpServersOnly` |
-| Denylist only       | Block known-bad servers, allow everything else                       | `deniedMcpServers`                                       |
-| No restrictions     | Users add anything                                                   | Deploy no managed MCP configuration                      |
+| Pattern             | Effect                                                                                                                                                                 | Configure                                                |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Disable MCP         | No servers load, apart from in-process servers the app that started the session registers (VS Code extension's own server, desktop-app-delivered local/SSH connectors) | `managed-mcp.json` with an empty server map              |
+| Fixed deployment    | Every user gets the same servers, cannot add others                                                                                                                    | `managed-mcp.json` with the servers you want             |
+| Approved catalog    | Users add from a published approved list; anything else blocked                                                                                                        | `allowedMcpServers` + `allowManagedMcpServersOnly: true` |
+| Plugin servers only | Servers may come only from plugins; users cannot add their own                                                                                                         | `strictPluginOnlyCustomization` with `mcp` in the list   |
+| Soft allowlist      | Allowlist users can broaden in their own settings                                                                                                                      | `allowedMcpServers` without `allowManagedMcpServersOnly` |
+| Denylist only       | Block known-bad servers, allow everything else                                                                                                                         | `deniedMcpServers`                                       |
+| No restrictions     | Users add anything                                                                                                                                                     | Deploy no managed MCP configuration                      |
 
 - No built-in browsable server registry exists. For the approved-catalog pattern, publish the approved list plus its `claude mcp add` commands (e.g. internal wiki), or ship the servers as plugins via a managed plugin marketplace so users install them from `/plugin`.
 
@@ -34,7 +39,7 @@ Deploy this file to give the system exclusive control over which servers load. U
 }
 ```
 
-- When present, ONLY these servers load — plugin-provided servers and (by default) claude.ai connectors are suppressed. The VS Code extension's own in-process server still loads in sessions the extension starts.
+- When present, ONLY these servers load — plugin-provided servers and (by default) claude.ai connectors Claude Code fetches itself are suppressed. In-process servers the app that started the session registers still load — e.g. the VS Code extension's own server, or connectors the desktop app delivers to its local/SSH sessions (those are governed by claude.ai organization settings instead, not by this file).
 - `--mcp-config` interaction:
   - On a workstation: Claude Code exits at startup with `You cannot dynamically configure MCP servers when an enterprise MCP config is present`.
   - In cloud sessions (which receive claude.ai connectors and server-delivered servers via `--mcp-config`): Claude Code starts with managed servers only. Nothing in the session tells the user which servers were left out; suppressed servers are named in a warning on stderr, recorded by a self-hosted runner at `debug` log level. version >= 2.1.229. Before 2.1.229, cloud sessions also exited with the workstation error.
@@ -53,7 +58,7 @@ Validate deployment on a managed machine:
 1. `claude mcp list` shows only servers in `managed-mcp.json` — if a user's own servers appear, the file isn't being read; check the path and permissions.
 2. `claude mcp add --transport http test https://example.com/mcp` fails with `Cannot add MCP server: enterprise MCP configuration is active and has exclusive control over MCP servers` (URL need not be real; policy check fires before contacting it).
 
-- Deploy empty `{ "mcpServers": {} }` to disable MCP entirely (VS Code extension's own in-process server excepted); a server a new policy blocks silently disappears from `/mcp`/`claude mcp list` — no warning shown.
+- Deploy empty `{ "mcpServers": {} }` to disable MCP entirely, apart from in-process servers the app that started the session registers (VS Code extension's own server, desktop-app-delivered local/SSH connectors); a server a new policy blocks silently disappears from `/mcp`/`claude mcp list` — no warning shown.
 - Do not store credentials in `env` blocks — readable by any user; use `${VAR}` expansion, OAuth, or `headersHelper` instead.
 - Plugin-servers-only pattern (no managed-mcp.json): `strictPluginOnlyCustomization` with `mcp` in its list — servers may come only from plugins; users cannot add their own.
 
@@ -62,7 +67,7 @@ Validate deployment on a managed machine:
 Filter which already-configured servers may load. NOT a registry — a server must first be added by a user, a plugin, or `managed-mcp.json` before either list applies to it; to deploy servers to users, use `managed-mcp.json`.
 
 - Both lists may live in any settings file and entries from every source merge. For enforcement, set them in a managed source: server-managed settings, `managed-settings.json`, an MDM-deployed plist, or an HKLM registry key.
-- Both lists also filter servers passed with `--mcp-config`. `--strict-mcp-config` limits which configuration files load and does NOT bypass either list.
+- Both lists also filter servers passed with `--mcp-config`, other than in-process `type: "sdk"` entries (registered by the app that started the session — these skip both lists entirely). `--strict-mcp-config` limits which configuration files load and does NOT bypass either list.
 - Entry that fails schema validation: see settings → "Invalid entries in managed settings".
 
 Example (managed settings):
@@ -97,7 +102,9 @@ Example (managed settings):
 
 ## How a server is evaluated
 
-Before loading a server (including ones from `managed-mcp.json`), three checks run in order:
+Before loading a server (including ones from `managed-mcp.json`), three checks run in order.
+In-process `type: "sdk"` servers — registered by the app that started the session (e.g. VS
+Code extension, desktop app's local/SSH sessions) — skip all three checks.
 
 1. **Merge the lists.** Allowlist and denylist entries from all settings sources combine. When `allowManagedMcpServersOnly: true`, only the managed allowlist is kept; denylist always merges from all sources.
 2. **Check the denylist.** Any match → blocked; nothing overrides.
@@ -107,6 +114,8 @@ Before loading a server (including ones from `managed-mcp.json`), three checks r
 | -------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | Remote (HTTP or SSE) | A `serverUrl` entry. A `serverName` match counts only when the allowlist contains no `serverUrl` entries         |
 | Stdio                | A `serverCommand` entry. A `serverName` match counts only when the allowlist contains no `serverCommand` entries |
+
+- Built-in servers — Claude in Chrome, the `ide` server Claude Code connects to in a running VS Code or JetBrains IDE, and servers the CLI itself configures — skip this allowlist check.
 
 Three matching rules apply:
 
@@ -157,6 +166,7 @@ Three matching rules apply:
 
 - Set in managed settings to load claude.ai connectors alongside `managed-mcp.json` servers.
 - Affects only the connectors Claude Code fetches itself. Cloud sessions receive connectors as server-delivered `--mcp-config` entries — those stay suppressed whenever `managed-mcp.json` is deployed, regardless of this setting.
+- No `managed-mcp.json`, on any host, reaches the connectors the desktop app delivers to its own local and SSH sessions — those arrive in-process and are governed by claude.ai organization settings instead.
 - Allowlists and denylists still apply to those connectors. Plugin-provided servers stay suppressed.
 - Has no effect when placed in user or project settings. Read only from admin-controlled tiers: server-managed settings, an MDM-deployed plist or HKLM registry key, or a system `managed-settings.json`. version >= 2.1.149
 - To turn off all claude.ai connectors outright rather than filter them, see `disableClaudeAiConnectors` in `claude-code-mcp-reference.md`.

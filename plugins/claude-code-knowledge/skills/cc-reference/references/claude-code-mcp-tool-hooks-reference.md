@@ -1,6 +1,6 @@
 # Claude Code mcp_tool hooks reference
 
-<!-- verified 2026-08-18 · CURATED: doc-derived + hard-won gotchas. The server-name
+<!-- verified 2026-08-31 · CURATED: doc-derived + hard-won gotchas. The server-name
      namespacing rule below is now documented (code.claude.com/docs/en/hooks §MCP tool
      hook fields; code.claude.com/docs/en/mcp §Plugin-provided MCP servers) — preserve
      it on any refresh regardless; never regenerate this file wholesale. -->
@@ -44,8 +44,9 @@ a valid hook-decision JSON (see _Output contract_), never `isError`.
 | `input`  | no       | Arguments object; string values support `${path}` substitution from the hook JSON (e.g. `${tool_input.file_path}`, `${session_id}`, `${cwd}`). Omit → the tool receives the full hook event JSON as its arguments |
 
 Common fields apply (`if`, `statusMessage`, and `timeout`). Default `timeout` is 600 s
-for most events; `UserPromptSubmit` lowers the default to 30 s; `MessageDisplay` lowers
-it to 10 s. Set the field explicitly when you need a different value.
+for most events; `UserPromptSubmit`, `PreModelSwitch`, and `PostModelSwitch` lower the
+default to 30 s; `MessageDisplay` lowers it to 10 s. Set the field explicitly when you
+need a different value.
 
 ## Server name — the namespacing rule (gotcha)
 
@@ -114,3 +115,6 @@ plugins/<name>/
   exit-2 = block the response (action becomes decline). On both events, an exit-2 hook's
   `hookSpecificOutput` is ignored (mcp_tool can't emit exit-2 anyway, so mcp_tool can only
   soft-deny these events).
+- version >= 2.1.251: `PreModelSwitch`/`PostModelSwitch` events exist and accept
+  `mcp_tool` hooks (command/http/mcp_tool only — no `prompt`/`agent` on either); the
+  `mcp_tool` timeout default of 30 s applies to both, same as `UserPromptSubmit`.
