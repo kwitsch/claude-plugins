@@ -1,34 +1,32 @@
 #!/usr/bin/env node
 // hooks/rtk-install.mjs — linux-token-efficiency: SessionStart rtk installer.
 //
-// Async, side-effect-only SessionStart command hook. Reads the committed pin and, ONLY when
-// ${HOME}/.local/bin/rtk is absent, downloads the pinned asset, verifies assetSha256, extracts,
-// verifies binarySha256, and atomically renames the binary into ${HOME}/.local/bin/rtk.
+// Async, side-effect-only SessionStart command hook. ONLY when ${HOME}/.local/bin/rtk is
+// absent, it fetches the release's checksums.txt and the tarball asset in parallel from the
+// releases/latest/download/ redirect alias, verifies the tarball's sha256 against the
+// checksums entry, extracts it, and atomically renames the binary into ${HOME}/.local/bin/rtk.
 // Idempotent (present => no-op, never overwrites), fail-open (every failure logs one stderr
-// line and the process exits 0), one bounded download attempt. A trimmed adaptation of
-// mcp/server.mjs's readPin()/downloadToFile()/hashFile()/findBinaries()/prepareBinary(),
-// retargeted from the hash-suffixed private cache to the fixed ${HOME}/.local/bin/rtk. It NEVER
-// downloads inside the synchronous PreToolUse hook — that is rtk-rewrite.mjs's read-only concern.
+// line and the process exits 0), one bounded download attempt. Shares
+// downloadToFile()/findBinaries()/fetchExpectedSha() with mcp/server.mjs's cbm provisioning.
+// It NEVER downloads inside the synchronous PreToolUse hook — that is rtk-rewrite.mjs's concern.
 import process from "node:process";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, renameSync, rmSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { hashFile, downloadToFile, findBinaries } from "../mcp/binary-fetch.mjs";
+import { downloadToFile, findBinaries, fetchExpectedSha } from "../mcp/binary-fetch.mjs";
 import { usablePath } from "../mcp/cbm-context.mjs";
 
 const BINARY_NAME = "rtk";
-/** Identical name, shape and default as update-rtk-bundle.sh's RTK_DOWNLOAD_BASE_URL; joined as
- *  `${base}/${releaseTag}/${asset}`. Overridable via RTK_DOWNLOAD_BASE_URL (test fixtures). */
-const DEFAULT_DOWNLOAD_BASE_URL = "https://github.com/rtk-ai/rtk/releases/download";
-/** One bounded download attempt per SessionStart process. Kept well under hooks.json's
- *  `timeout: 20` for this hook (the harness kills the whole detached process at that wall
- *  clock regardless of this signal) so a slow-but-not-hung download aborts itself in time for
- *  the `finally` cleanup below to run, instead of being hard-killed mid-write and leaving an
- *  orphaned `.rtk-install.*` scratch dir under ~/.local/bin every session. */
+const RTK_ASSET = "rtk-x86_64-unknown-linux-musl.tar.gz";
+/** The stable per-repo alias GitHub 302-redirects to the newest release's assets;
+ *  `${base}/${asset}` and `${base}/checksums.txt` both resolve there. `fetch` follows
+ *  redirects, so there is no separate tag-resolution step, no GitHub API call, no rate
+ *  limit. Overridable via RTK_DOWNLOAD_BASE_URL (test fixtures point it at 127.0.0.1). */
+const DEFAULT_DOWNLOAD_BASE_URL = "https://github.com/rtk-ai/rtk/releases/latest/download";
+/** One bounded attempt per SessionStart process, kept well under hooks.json's timeout: 20 so
+ *  the finally cleanup runs before a hard kill instead of leaving an orphaned scratch dir. */
 const DOWNLOAD_TIMEOUT_MS = 12000;
-const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 /** @param {string} message @returns {void} */
 function log(message) {
@@ -58,44 +56,10 @@ function resolveHome(env) {
   return null;
 }
 
-/**
- * The machine-owned version pin. Exactly one binaries[] entry is required; the installer reads
- * releaseTag/asset/assetSha256/binarySha256 and ignores any legacy `path`. Any defect => null.
- * @returns {{releaseTag: string, asset: string, assetSha256: string, binarySha256: string}|null}
- */
-function readPin() {
-  const file = path.join(SCRIPT_DIR, "..", "rtk-bundle.json");
-  /** @type {any} */
-  let parsed;
-  try {
-    parsed = JSON.parse(readFileSync(file, "utf8"));
-  } catch (e) {
-    log(`unusable rtk-bundle.json (${file}): ${describe(e)}`);
-    return null;
-  }
-  const binaries = Array.isArray(parsed?.binaries) ? parsed.binaries : [];
-  if (binaries.length !== 1) {
-    log(`rtk-bundle.json must list exactly one binaries[] entry, found ${binaries.length}`);
-    return null;
-  }
-  const entry = binaries[0] ?? {};
-  const pin = {
-    releaseTag: typeof parsed?.releaseTag === "string" ? parsed.releaseTag : "",
-    asset: typeof entry.asset === "string" ? entry.asset : "",
-    assetSha256: typeof entry.assetSha256 === "string" ? entry.assetSha256 : "",
-    binarySha256: typeof entry.binarySha256 === "string" ? entry.binarySha256 : "",
-  };
-  if (pin.releaseTag === "" || pin.asset === "" || !/^[0-9a-f]{64}$/.test(pin.assetSha256) || !/^[0-9a-f]{64}$/.test(pin.binarySha256)) {
-    log("rtk-bundle.json is missing releaseTag/asset/assetSha256/binarySha256");
-    return null;
-  }
-  return pin;
-}
-
 /** @returns {Promise<void>} */
 async function main() {
   try {
-    // 1. Platform guard first, before any pin/network I/O.
+    // 1. Platform guard first, before any network I/O.
     if (os.platform() !== "linux" || os.arch() !== "x64") return;
     // 2. Toggle gate (fail-open: only the trimmed literal "false" disables).
     if (String(process.env.CLAUDE_PLUGIN_OPTION_RTK_ENABLED ?? "").trim() === "false") return;
@@ -104,10 +68,9 @@ async function main() {
     if (home === null) return;
     const homeLocalBin = path.join(home, ".local", "bin");
     const target = path.join(homeLocalBin, "rtk");
-    // 4. Idempotency: a regular file, or a symlink that still resolves, counts as installed
-    //    and is left untouched (never clobber a user's own rtk). A dangling/broken symlink
-    //    (e.g. left behind by an uninstalled tool) is cleared so the installer can actually
-    //    place a working binary instead of skipping forever.
+    // 4. Idempotency: a regular file, or a symlink that still resolves, is left untouched
+    //    (never clobber a user's own rtk). A dangling symlink is cleared so a stale leftover
+    //    cannot wedge the installer forever.
     try {
       const dirent = lstatSync(target);
       if (dirent.isSymbolicLink()) {
@@ -123,38 +86,36 @@ async function main() {
     } catch {
       /* absent — proceed */
     }
-    // 5. Read + validate the pin.
-    const pin = readPin();
-    if (pin === null) return;
-    // 6. Install atomically, temp dir on the SAME filesystem as the target.
+    // 5. Install atomically, temp dir on the SAME filesystem as the target.
     mkdirSync(homeLocalBin, { recursive: true });
     const tmp = mkdtempSync(path.join(homeLocalBin, ".rtk-install."));
     try {
       const base = process.env.RTK_DOWNLOAD_BASE_URL || DEFAULT_DOWNLOAD_BASE_URL;
-      const url = `${base}/${pin.releaseTag}/${pin.asset}`;
-      const archive = path.join(tmp, pin.asset);
-      log(`fetching ${url}`);
-      const assetSha = await downloadToFile(url, archive, DOWNLOAD_TIMEOUT_MS);
-      if (assetSha !== pin.assetSha256) {
-        log(`asset sha256 mismatch for ${pin.asset}; refusing to extract`);
+      const archive = path.join(tmp, RTK_ASSET);
+      log(`fetching ${base}/${RTK_ASSET}`);
+      // checksums and asset in parallel — the alias IS the download URL, so no extra hop.
+      const [expectedSha, actualSha] = await Promise.all([
+        fetchExpectedSha(`${base}/checksums.txt`, RTK_ASSET, DOWNLOAD_TIMEOUT_MS),
+        downloadToFile(`${base}/${RTK_ASSET}`, archive, DOWNLOAD_TIMEOUT_MS),
+      ]);
+      if (actualSha !== expectedSha) {
+        log("asset sha256 mismatch; refusing to extract");
         return;
       }
       try {
-        execFileSync("tar", ["-xzf", archive, "-C", tmp], { stdio: "ignore" });
+        execFileSync("tar", ["-xzf", archive, "-C", tmp], {
+          stdio: "ignore",
+        });
       } catch (e) {
-        log(`failed to extract ${pin.asset}: ${describe(e)}`);
+        log(`failed to extract ${RTK_ASSET}: ${describe(e)}`);
         return;
       }
       const found = findBinaries(tmp, BINARY_NAME);
       if (found.length !== 1) {
-        log(`expected exactly one ${BINARY_NAME} inside ${pin.asset}, found ${found.length}`);
+        log(`expected exactly one ${BINARY_NAME} inside ${RTK_ASSET}, found ${found.length}`);
         return;
       }
       chmodSync(found[0], 0o755);
-      if ((await hashFile(found[0])) !== pin.binarySha256) {
-        log("extracted binary does not match the pin; nothing installed");
-        return;
-      }
       try {
         renameSync(found[0], target); // atomic within ~/.local/bin; a lost race is benign
       } catch (e) {
