@@ -3,7 +3,7 @@
 # The four context-only cbm hooks, exercised as real tools/call requests against the proxy
 # server in a fixture plugin tree (the old command-hook stdin harness is gone with the
 # command hooks). The child is the fake cbm binary; payloads are the shapes recorded from
-# the pinned v0.10.1 binary.
+# the latest cbm binary.
 
 load 'test_helper'
 
@@ -21,7 +21,7 @@ teardown() {
 }
 
 # cbm_payloads <project-root> <gap|unavailable|clean> -- canned cbm payloads for the fake
-# binary, in the shapes the real v0.10.1 binary returns.
+# binary, in the shapes the real cbm binary returns.
 cbm_payloads() {
   local root="$1" coverage="$2"
   local coverage_json
@@ -58,7 +58,9 @@ hook_result() {
 }
 
 @test "--session-start-hook CLI mode emits the same shape without the JSON-RPC loop" {
-  run env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" \
+  # stdout carries the hook JSON; the offline warm-cache fallback logs a diagnostic to
+  # stderr, so capture the two streams separately and assert only on stdout.
+  run --separate-stderr env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" \
     CBM_BUNDLE_CACHE="$CBM_CACHE" CBM_DOWNLOAD_BASE_URL="$CBM_DOWNLOAD_BASE_URL" \
     CBM_FAKE_LOG="$FAKE_LOG" CBM_FAKE_PAYLOADS="$FAKE_PAYLOADS" \
     node "$FIXTURE_SERVER" --session-start-hook <<< "$(jq -cn --arg cwd "$WORKDIR" '{cwd:$cwd}')"
@@ -71,7 +73,9 @@ hook_result() {
 }
 
 @test "--session-start-hook CLI mode stays silent on a cwd no graph project covers" {
-  run env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" \
+  # Separate the streams: stdout must be exactly {} even though the offline warm-cache
+  # fallback writes a diagnostic to stderr.
+  run --separate-stderr env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" \
     CBM_BUNDLE_CACHE="$CBM_CACHE" CBM_DOWNLOAD_BASE_URL="$CBM_DOWNLOAD_BASE_URL" \
     CBM_FAKE_LOG="$FAKE_LOG" CBM_FAKE_PAYLOADS="$FAKE_PAYLOADS" \
     node "$FIXTURE_SERVER" --session-start-hook <<< '{"cwd":"/nowhere/at/all"}'
@@ -193,7 +197,7 @@ hook_result() {
 }
 
 @test "a not-yet-ready binary yields silence instead of waiting for the download" {
-  rm -rf "$CBM_CACHE/${FAKE_BIN_SHA:0:16}" # cold cache, unreachable download base
+  rm -rf "$CBM_CACHE/${ASSET_SHA:0:16}" # cold cache, unreachable download base
   cbm_call hook_session_context "$(jq -cn --arg cwd "$WORKDIR" '{cwd:$cwd}')"
   run jq -e '.structuredContent == {}' <<< "$(hook_result)"
   assert_success

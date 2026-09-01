@@ -1,5 +1,4 @@
 {
-  "cbmVersion": "0.10.1",
   "tools": [
     {
       "name": "index_repository",
