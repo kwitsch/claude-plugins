@@ -1,7 +1,7 @@
 # linux-token-efficiency
 
-**LINUX-ONLY TOOLING.** This plugin's bundled `rtk` binary and the codebase-memory-mcp binary it
-downloads are Linux x86_64 executables. On macOS, Windows or any other operating system every hook
+**LINUX-ONLY TOOLING.** This plugin's `rtk` binary — installed into `~/.local/bin` — and the
+codebase-memory-mcp binary it downloads are Linux x86_64 executables. On macOS, Windows or any other operating system every hook
 no-ops and none of that tooling runs; the always-on terse output style (below) is the one
 component that still applies.
 
@@ -14,11 +14,14 @@ component that still applies.
 ## What it does
 
 Bundles the [rtk](https://github.com/rtk-ai/rtk) token-optimizing CLI proxy — release **v0.45.0**,
-asset `rtk-x86_64-unknown-linux-musl.tar.gz` — at `bin/rtk`, and routes Bash tool calls through it
-automatically.
+asset `rtk-x86_64-unknown-linux-musl.tar.gz` — into `~/.local/bin/rtk` on first use (only when not
+already present there), and routes Bash tool calls through it automatically.
 
-Claude Code adds an enabled plugin's `bin/` to the Bash `PATH`, so `rtk` is invocable by hand as
-soon as the plugin is enabled. On top of that, a `PreToolUse` hook routes each Bash command: a
+At SessionStart the plugin installs rtk to `~/.local/bin/rtk` (when absent); it is invocable by
+hand as `rtk …` even when `~/.local/bin` itself is not on your `PATH`, via a small bridge wrapper
+the plugin also puts on `PATH` (a small wrapper under the plugin's own `bin/`, always added while
+the plugin is enabled), and the
+rewrite gracefully no-ops when neither resolves. On top of that, a `PreToolUse` hook routes each Bash command: a
 conservatively classified read-only gather command (a bare `curl` GET, a ≥3-command chain of text
 tools like `grep`/`cat`/`wc`, or a ≥3-stage text pipeline) is denied with a ready-to-use
 replacement call on context-mode's `ctx_fetch_and_index` / `ctx_batch_execute` / `ctx_execute`
@@ -35,8 +38,9 @@ Set via `/plugin manage`, stored in settings.json under
 
 | Option          | Default | Effect / Value                                                                                                                                                                                                                                                                                                |
 | --------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `auto_rewrite`  | `true`  | `true` (or unset): rewrite every Bash command through the bundled rtk. `false`: no rewriting — the bundled `rtk` stays on `PATH` for manual use. Only literal `false` disables.                                                                                                                               |
+| `auto_rewrite`  | `true`  | `true` (or unset): rewrite every Bash command through rtk. `false`: no rewriting. Only literal `false` disables.                                                                                                                                                                                              |
 | `cbm_enabled`   | `true`  | `true` (or unset): run the `codebase-memory` MCP server (downloading the pinned cbm release into the plugin data dir on first start) and enable its four `mcp_tool` context hooks. `false`: neither runs and nothing is downloaded. Only the literal value `false` disables.                                  |
+| `rtk_enabled`   | `true`  | `true` (or unset): at SessionStart, install the pinned rtk release into `~/.local/bin/rtk` when absent (download + dual-sha256-verify against the pin, atomic). `false`: nothing is installed or downloaded. Only the literal value `false` disables.                                                         |
 | `steer_enabled` | `true`  | `true` (or unset): deny-steer WebFetch and read-only Bash gather commands to context-mode's `ctx_*` tools (see "context-mode steering" below). `false`: no steering — the escape hatch when the context-mode server is unavailable. Does not affect the rtk rewrite. Only the literal value `false` disables. |
 
 The `context-mode` server (below) has no toggle — it is always enabled. `steer_enabled` gates only
@@ -50,9 +54,12 @@ replacement in hand). The rewrite deliberately no-ops when:
 
 - the host is not Linux;
 - `auto_rewrite` is set to `false`;
-- `bin/rtk` is missing or not executable (e.g. a checkout that lost the exec bit);
+- `~/.local/bin/rtk` is not yet installed (SessionStart install pending or `rtk_enabled=false`), or
+  does not resolve — following a symlink — to a regular file (a symlinked install is fine; a
+  dangling symlink or a directory is not), or nothing on the Bash `PATH` resolves to `rtk` at all;
 - **a global `rtk` install appears earlier on `PATH`** — that install and its own hook already own
-  the rewrite, and this plugin never double-wires. On such a machine (a maintainer's own, typically)
+  the rewrite, and this plugin never double-wires (its own PATH-bridge wrapper under `bin/` is not
+  treated as a competing install). On such a machine (a maintainer's own, typically)
   the plugin looks inert by design;
 - `rtk` does not resolve on `PATH` at all — the hook never emits a command it has no evidence can
   run;
@@ -192,10 +199,10 @@ applies on macOS and Windows too, where every hook and bundled binary stays iner
 
 ## Maintenance
 
-The bundled rtk binary is pinned in `rtk-bundle.json`. The repo-level
-`update-linux-token-efficiency` skill (`.claude/skills/`) compares that pin against the latest
-upstream release and, on `apply`, re-downloads every binary, verifying each one against exactly
-one matching entry in the release's own `checksums.txt` before replacing anything.
+The rtk release is pinned in `rtk-bundle.json` and installed at runtime into `~/.local/bin/rtk` by
+`hooks/rtk-install.mjs`. The repo-level `update-linux-token-efficiency` skill compares that pin
+against the latest upstream release and, on `apply`, recomputes `rtk-bundle.json` only — no binary
+is ever committed or replaced, matching the cbm paragraph below.
 
 The cbm release is pinned in `cbm-bundle.json`, with the advertised tool list snapshotted in
 `cbm-tools.json`. The same `update-linux-token-efficiency` skill refreshes both via

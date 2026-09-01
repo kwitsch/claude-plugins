@@ -1,12 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { chmodSync, mkdtempSync, mkdirSync, writeFileSync, symlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
+import os, { tmpdir } from "node:os";
 import path from "node:path";
 import {
   isAutoRewriteEnabled,
   isSteerEnabled,
   resolveRtkOnPath,
+  resolveManagedRtk,
   sameFile,
   buildUpdatedInput,
   splitTopLevel,
@@ -58,6 +59,18 @@ test("resolveRtkOnPath: null for empty, undefined and non-executable candidates"
   assert.equal(resolveRtkOnPath(""), null);
   assert.equal(resolveRtkOnPath(`${path.delimiter}${path.delimiter}`), null);
   assert.equal(resolveRtkOnPath(root), null);
+});
+
+test("resolveManagedRtk: ${HOME}/.local/bin/rtk; falls back to os.homedir() on blank or ${-bearing HOME", () => {
+  assert.equal(resolveManagedRtk({ HOME: "/home/u" }), path.join("/home/u", ".local", "bin", "rtk"));
+  assert.equal(resolveManagedRtk({ HOME: "  /home/u  " }), path.join("/home/u", ".local", "bin", "rtk"));
+  // HOME unusable (blank / ${-bearing / absent): falls back to os.homedir(), matching
+  // rtk-install.mjs's resolveHome() so both agree on the install target in this edge case.
+  const fallback = path.join(os.homedir(), ".local", "bin", "rtk");
+  assert.equal(resolveManagedRtk({ HOME: "" }), fallback);
+  assert.equal(resolveManagedRtk({ HOME: "   " }), fallback);
+  assert.equal(resolveManagedRtk({ HOME: "${HOME}/.x" }), fallback);
+  assert.equal(resolveManagedRtk({}), fallback);
 });
 
 test("sameFile: true through a symlink, false for distinct files and missing paths", () => {

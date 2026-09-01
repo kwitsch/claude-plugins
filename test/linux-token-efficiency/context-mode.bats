@@ -48,15 +48,13 @@ cm_run() {
   assert_line --regexp '^100755 [0-9a-f]+ 0[[:space:]]+plugins/linux-token-efficiency/bin/context-mode-launch\.sh$'
 }
 
-@test ".gitattributes keeps the launcher textual while bin/rtk stays binary" {
-  run grep -F -- 'plugins/linux-token-efficiency/bin/*.sh -binary' "$REPO_ROOT/.gitattributes"
-  assert_success
+@test ".gitattributes no longer carries any linux-token-efficiency bin/* line; the launcher is textual" {
+  run bash -c "grep -c 'plugins/linux-token-efficiency/bin/\\*' '$REPO_ROOT/.gitattributes' || true"
+  assert_output '0'
+  # With the wildcard gone, the root `* text=auto eol=lf` governs the launcher (binary: unspecified).
   run git -C "$REPO_ROOT" check-attr binary -- plugins/linux-token-efficiency/bin/context-mode-launch.sh
   assert_success
-  assert_output --partial 'binary: unset'
-  run git -C "$REPO_ROOT" check-attr binary -- plugins/linux-token-efficiency/bin/rtk
-  assert_success
-  assert_output --partial 'binary: set'
+  assert_output --partial 'binary: unspecified'
 }
 
 @test "the launcher pins the exact context-mode package version 1.0.169" {
@@ -150,7 +148,7 @@ cm_run() {
 }
 
 @test "the SessionStart cat entry is a second top-level entry in exec form" {
-  run jq -e '(.hooks.SessionStart | length) == 2' "$HOOKS"
+  run jq -e '(.hooks.SessionStart | length) == 3' "$HOOKS"
   assert_success
   run jq -e '.hooks.SessionStart[1].hooks[0] == {type:"command", command:"cat", args:["${CLAUDE_PLUGIN_ROOT}/hooks/SessionStart.md"], timeout:5}' "$HOOKS"
   assert_success

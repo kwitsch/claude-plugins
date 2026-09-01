@@ -20,11 +20,8 @@ import readline from "node:readline";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { accessSync, chmodSync, constants as fsConstants, createReadStream, createWriteStream, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
-import { createHash } from "node:crypto";
+import { accessSync, chmodSync, constants as fsConstants, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { execFileSync, spawn } from "node:child_process";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
 import {
   SYMBOL_LIMIT,
   isCbmEnabled,
@@ -43,6 +40,7 @@ import {
   buildOutput,
   usablePath,
 } from "./cbm-context.mjs";
+import { hashFile, downloadToFile, findBinaries } from "./binary-fetch.mjs";
 
 const SERVER_NAME = "codebase-memory"; // keep aligned with the .mcp.json key
 const SERVER_INFO = { name: SERVER_NAME, version: "0.1.0" };
@@ -211,54 +209,6 @@ function ensureBinary() {
   return binaryPromise;
 }
 
-/** @param {string} file @returns {Promise<string>} */
-async function hashFile(file) {
-  const hash = createHash("sha256");
-  for await (const chunk of createReadStream(file)) hash.update(chunk);
-  return hash.digest("hex");
-}
-
-/** @param {string} url @param {string} dest @returns {Promise<string>} */
-async function downloadToFile(url, dest) {
-  const response = await fetch(url, {
-    signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
-  });
-  if (!response.ok || response.body === null) throw new Error(`download failed (${response.status}): ${url}`);
-  const hash = createHash("sha256");
-  await pipeline(
-    Readable.fromWeb(response.body),
-    async function* (/** @type {any} */ source) {
-      for await (const chunk of source) {
-        hash.update(chunk);
-        yield chunk;
-      }
-    },
-    createWriteStream(dest),
-  );
-  return hash.digest("hex");
-}
-
-/**
- * Every `codebase-memory-mcp` file under `dir` — the archive also ships install.sh,
- * LICENSE and THIRD_PARTY_NOTICES.md, and 0 or >1 matches must fail closed.
- * @param {string} dir
- * @returns {string[]}
- */
-function findBinaries(dir) {
-  /** @type {string[]} */
-  const found = [];
-  /** @param {string} current @returns {void} */
-  const walk = (current) => {
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      const full = path.join(current, entry.name);
-      if (entry.isDirectory()) walk(full);
-      else if (entry.isFile() && entry.name === BINARY_NAME) found.push(full);
-    }
-  };
-  walk(dir);
-  return found;
-}
-
 /**
  * True when `p` doesn't exist yet, or exists and is owned by this process's uid and is
  * not a symlink. `cachedBinaryPath()` is derived from `PIN.binarySha256`, which is
@@ -299,7 +249,7 @@ async function prepareBinary() {
     const url = `${base}/${PIN.releaseTag}/${PIN.asset}`;
     const archive = path.join(tmp, PIN.asset);
     log(`fetching ${url}`);
-    const assetSha = await downloadToFile(url, archive);
+    const assetSha = await downloadToFile(url, archive, DOWNLOAD_TIMEOUT_MS);
     if (assetSha !== PIN.assetSha256) {
       log(`asset sha256 mismatch for ${PIN.asset}; refusing to extract`);
       return false;
@@ -310,7 +260,7 @@ async function prepareBinary() {
       log(`failed to extract ${PIN.asset}: ${describe(e)}`);
       return false;
     }
-    const found = findBinaries(tmp);
+    const found = findBinaries(tmp, BINARY_NAME);
     if (found.length !== 1) {
       log(`expected exactly one ${BINARY_NAME} inside ${PIN.asset}, found ${found.length}`);
       return false;

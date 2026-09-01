@@ -179,20 +179,20 @@ setup() {
   done
 }
 
-@test "plugin CLAUDE.md states the unconditional-cat limitation and the eight-hook count" {
+@test "plugin CLAUDE.md states the unconditional-cat limitation and the nine-hook count" {
   run grep -Fi 'unconditional' "$PLUGIN_CLAUDE"
   assert_success
+  run grep -F 'nine hooks total' "$PLUGIN_CLAUDE"
+  assert_success
   run grep -F 'eight hooks total' "$PLUGIN_CLAUDE"
-  assert_success
-  run grep -F 'seven hooks total' "$PLUGIN_CLAUDE"
   assert_failure
-  run grep -F 'Eight hooks total.' "$HOOKS"
+  run grep -F 'Nine hooks total.' "$HOOKS"
   assert_success
-  # Ties both hardcoded "eight" claims above to the actual hook count, so a future hook
+  # Ties both hardcoded "nine" claims above to the actual hook count, so a future hook
   # addition/removal that forgets to update this prose is caught structurally instead
   # of only by string-matching a hardcoded number (same derivation as context-mode.bats
   # / cbm-hooks.bats use for their own hooks.json structural assertions).
-  run jq -e '([.hooks[][].hooks | length] | add) == 8' "$HOOKS"
+  run jq -e '([.hooks[][].hooks | length] | add) == 9' "$HOOKS"
   assert_success
 }
 
@@ -212,4 +212,28 @@ setup() {
   done
   run grep -Fi 'override' "$PLUGIN_README"
   assert_success
+}
+
+@test "plugin README documents the ~/.local/bin install and the rtk_enabled toggle" {
+  run grep -F '~/.local/bin/rtk' "$PLUGIN_README"
+  assert_success
+  run grep -F 'rtk_enabled' "$PLUGIN_README"
+  assert_success
+  # No doc still asserts the vendored code-span `bin/rtk` path.
+  run grep -F '`bin/rtk`' "$PLUGIN_README"
+  assert_failure
+}
+
+@test "plugin CLAUDE.md carries the rtk install section and no longer describes a committed binary" {
+  run grep -F '## rtk install' "$PLUGIN_CLAUDE"
+  assert_success
+  run grep -F 'hooks/rtk-install.mjs' "$PLUGIN_CLAUDE"
+  assert_success
+  run grep -F '## Committed binary and the exec bit' "$PLUGIN_CLAUDE"
+  assert_failure
+}
+
+@test "plugins/CLAUDE.md bin/ row no longer claims a committed release binary" {
+  run grep -F 'committed release binary' "$REPO_ROOT/plugins/CLAUDE.md"
+  assert_failure
 }

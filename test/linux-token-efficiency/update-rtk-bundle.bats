@@ -28,7 +28,6 @@ setup() {
   "releaseTag": "v0.45.0",
   "binaries": [
     {
-      "path": "bin/rtk",
       "asset": "rtk-x86_64-unknown-linux-musl.tar.gz",
       "assetSha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "binarySha256": "0000000000000000000000000000000000000000000000000000000000000000"
@@ -133,30 +132,32 @@ run_update() {
   assert_output "0.45.0"
 }
 
-@test "exit 11: --apply replaces the binary, keeps it executable and rewrites the pin" {
+@test "exit 11: --apply recomputes the pin's shas + version and writes no bin/ file" {
   run_update --apply
   assert_failure 11
   assert_output --partial "updated 0.45.0 -> 0.46.0"
+  # The sentinel binary is never touched — the script is pin-only now.
   run cat "$FIXTURE_PLUGIN/bin/rtk"
-  assert_output "NEW-BINARY"
-  [ -x "$FIXTURE_PLUGIN/bin/rtk" ]
-  run jq -e '.rtkVersion == "0.46.0" and .releaseTag == "v0.46.0"' "$FIXTURE_PLUGIN/rtk-bundle.json"
+  assert_output "OLD-BINARY"
+  run jq -e '.rtkVersion == "0.46.0" and .releaseTag == "v0.46.0" and (.binaries[0] | has("path") | not)' "$FIXTURE_PLUGIN/rtk-bundle.json"
   assert_success
   local expected_asset expected_bin
   expected_asset="$(cut -d' ' -f1 < "$REL_DIR/v0.46.0/checksums.txt")"
-  expected_bin="$(sha256sum < "$FIXTURE_PLUGIN/bin/rtk" | cut -d' ' -f1)"
+  expected_bin="$(tar -xzOf "$REL_DIR/v0.46.0/rtk-x86_64-unknown-linux-musl.tar.gz" rtk | sha256sum | cut -d' ' -f1)"
   run jq -r '.binaries[0].assetSha256' "$FIXTURE_PLUGIN/rtk-bundle.json"
   assert_output "$expected_asset"
   run jq -r '.binaries[0].binarySha256' "$FIXTURE_PLUGIN/rtk-bundle.json"
   assert_output "$expected_bin"
 }
 
-@test "--tag targets a specific release without querying the API" {
+@test "--tag targets a specific release, recomputes the pin, touches no bin/ file" {
   rm -f "$API_DIR/releases/latest"
   run_update --tag v0.46.0 --apply
   assert_failure 11
   run cat "$FIXTURE_PLUGIN/bin/rtk"
-  assert_output "NEW-BINARY"
+  assert_output "OLD-BINARY"
+  run jq -r '.rtkVersion' "$FIXTURE_PLUGIN/rtk-bundle.json"
+  assert_output "0.46.0"
 }
 
 @test "--help prints usage and exits 0" {

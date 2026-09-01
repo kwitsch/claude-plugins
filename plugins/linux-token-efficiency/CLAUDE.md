@@ -1,29 +1,20 @@
 # CLAUDE.md — linux-token-efficiency
 
-Bundles the upstream rtk Linux binary and auto-rewrites Bash commands through it.
+Installs the upstream rtk Linux binary into ~/.local/bin at SessionStart and auto-rewrites Bash commands through it.
 
-## Committed binary and the exec bit
-
-`bin/rtk` is the extracted upstream release binary, committed verbatim (~10 MB, no Git LFS —
-the repo already commits multi-MB `.wasm` sidecars in `universal-format`). `.gitattributes` marks
-`plugins/linux-token-efficiency/bin/*` as `binary` so a `text=auto` repo never EOL-translates it.
-`bin/` also holds `context-mode-launch.sh` (see `## context-mode`), which is plain text, so a second
-`.gitattributes` line overrides the wildcard for it: `bin/*.sh -binary` (last matching pattern wins
-per attribute). `-binary` is required and was verified empirically — `text eol=lf` as the override
-still leaves `binary: set` / `diff: unset` and `git diff` still prints "Binary files … differ";
-`-binary` restores a textual patch and lets the root `* text=auto eol=lf` apply. Never narrow the
-wildcard line itself: two tests grep its exact literal.
+## Executable bit and core.fileMode
 
 **This repo sets `core.fileMode=false`**, so a filesystem `chmod +x` is NOT picked up by `git add`.
 `.claude/rules/bin-executable.md` and `.claude/rules/hooks-executable.md` prescribe only
 `chmod +x` + `ls -la` and never mention this — following them literally commits a `100644` that
-Claude Code then silently skips. Whenever `bin/rtk`, `bin/context-mode-launch.sh`, `hooks/rtk-rewrite.mjs` or `hooks/webfetch-steer.mjs` is added or replaced:
+Claude Code then silently skips. Whenever `bin/context-mode-launch.sh`, `hooks/rtk-rewrite.mjs`,
+`hooks/rtk-install.mjs` or `hooks/webfetch-steer.mjs` is added or replaced:
 
 ```bash
-chmod +x plugins/linux-token-efficiency/bin/rtk plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs plugins/linux-token-efficiency/hooks/webfetch-steer.mjs
-git add plugins/linux-token-efficiency/bin/rtk plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs plugins/linux-token-efficiency/hooks/webfetch-steer.mjs
-git update-index --chmod=+x plugins/linux-token-efficiency/bin/rtk plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs plugins/linux-token-efficiency/hooks/webfetch-steer.mjs
-git ls-files -s plugins/linux-token-efficiency/bin/rtk # must print 100755
+chmod +x plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs plugins/linux-token-efficiency/hooks/rtk-install.mjs plugins/linux-token-efficiency/hooks/webfetch-steer.mjs
+git add plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs plugins/linux-token-efficiency/hooks/rtk-install.mjs plugins/linux-token-efficiency/hooks/webfetch-steer.mjs
+git update-index --chmod=+x plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs plugins/linux-token-efficiency/hooks/rtk-install.mjs plugins/linux-token-efficiency/hooks/webfetch-steer.mjs
+git ls-files -s plugins/linux-token-efficiency/hooks/rtk-install.mjs # must print 100755
 
 chmod +x plugins/linux-token-efficiency/bin/context-mode-launch.sh
 git add plugins/linux-token-efficiency/bin/context-mode-launch.sh
@@ -57,10 +48,11 @@ would race a `deny` against an `updatedInput`:
    newlines, unknown heads — so the failure direction is always "command runs in Bash", never a
    wrong deny. Backgrounded commands (`run_in_background`) are never steered: `ctx_*` tools cannot
    background, so a deny would strand the model.
-2. **Rewrite branch (rtk, gated by `auto_rewrite`)**: everything else spawns the bundled binary
-   **by absolute path** (`<plugin>/bin/rtk hook claude`) and emits rtk's rewritten command
+2. **Rewrite branch (rtk, gated by `auto_rewrite`)**: everything else spawns the managed binary
+   **by absolute path** (`~/.local/bin/rtk hook claude`) and emits rtk's rewritten command
    **verbatim** — no `PATH` prefix, no absolute-path substitution. The bare `rtk` in that command
-   resolves because Claude Code puts an enabled plugin's `bin/` on the Bash `PATH`.
+   resolves when `~/.local/bin` is on the Bash `PATH` (conventional on modern Linux, not
+   guaranteed); when it is not, the preflight below makes the hook no-op gracefully.
 
 This split IS the rtk/cbm/context-mode balance: git/gh and other side-effect or single commands
 stay in Bash under rtk compression (the 2026-07 measurement's winner for exactly that class — see
@@ -69,9 +61,13 @@ context-mode sandbox where output is indexed instead of entering context, and Gr
 cbm's domain untouched (stacking a context-mode steer there would conflict with
 `hook_symbol_context`/`hook_coverage_context`'s fail-quiet contracts).
 
-Two preflight rules keep that dependency safe: the hook no-ops when `rtk` does not resolve on its
-own `PATH` at all (never emit an unresolvable command), and when the resolved `rtk` is not this
-plugin's `bin/rtk` (a global `rtk init -g` install owns the rewrite; never double-wire).
+Three preflight rules keep that dependency safe: the hook no-ops when `~/.local/bin/rtk` is absent
+(the SessionStart install has not landed yet) or does not resolve (following symlinks) to a regular
+file — a symlinked managed install (stow/asdf/mise-style) is accepted, only a directory/fifo/other
+non-regular dirent is rejected — when `rtk` does not resolve on `PATH` at all (never emit an
+unresolvable command), and when the resolved `rtk` is neither this plugin's managed
+`~/.local/bin/rtk` nor its own `bin/rtk` PATH-bridge wrapper (a global `rtk init -g` install owns
+the rewrite instead; never double-wire).
 
 `updatedInput` is `{ ...tool_input, command: final }` — it replaces the **entire** input object, so
 constructing a fresh `{command, description}` would silently drop `timeout` / `run_in_background`
@@ -94,14 +90,16 @@ for one gate is more machinery than it justifies. The escape hatch for a broken/
 context-mode server is the `steer_enabled` toggle — a command hook cannot check MCP connectivity,
 an accepted limitation documented in the toggle's description.
 
-This plugin backs eight hooks total: `rtk-rewrite.mjs` and `webfetch-steer.mjs` above, `SessionStart` →
+This plugin backs nine hooks total: `rtk-rewrite.mjs` and `webfetch-steer.mjs` above, `SessionStart` →
 `mcp/server.mjs --session-start-hook` (a `command` hook — see the correction note below), three
 remaining cbm entries (`SubagentStart`, `PreToolUse` `Grep`/`Glob`, `PostToolUse` `Read`), all
 `type: "mcp_tool"` on `plugin:linux-token-efficiency:codebase-memory` (the namespaced form — the
 bare `.mcp.json` key resolves to "not connected" on every fire) with an explicit `input` block each,
 because an omitted `input` delivers `{}` instead of the hook JSON, a second `SessionStart` entry
-that `cat`s `hooks/SessionStart.md`, and a second `SubagentStart` entry that `cat`s
-`hooks/subagent-nudge.md` (both static files, see `## context-mode`) — a plain `command` hook
+that `cat`s `hooks/SessionStart.md`, a second `SubagentStart` entry that `cat`s
+`hooks/subagent-nudge.md` (both static files, see `## context-mode`), and a third `SessionStart`
+entry (a `command` hook running `hooks/rtk-install.mjs`, async, no `asyncRewake`) that installs rtk
+into `~/.local/bin/rtk` — a plain `command` hook
 rather than a fifth cbm `mcp_tool`, since the nudge is generic subagent-behavior guidance plus
 context-mode awareness, unrelated to the cbm graph, so folding it into `hook_subagent_context` would
 be a category mismatch. Each cbm entry names its own purpose-built tool (`hook_subagent_context`,
@@ -157,6 +155,44 @@ project cbm previously didn't know about) all fall back to the original two-spaw
 The write is temp-file-then-`rename` (atomic on the same filesystem) so a racing reader never observes
 a partial file; any read/write failure is swallowed exactly like every other guard in this file — the
 cache is a pure optimization, never a dependency.
+
+## rtk install
+
+`hooks/rtk-install.mjs` is an async `SessionStart` `command` hook (`async: true`, no
+`asyncRewake`, `timeout: 20`) that provisions rtk into `~/.local/bin/rtk`. It reads the pin
+and, ONLY when `~/.local/bin/rtk` is absent, downloads the pinned asset, verifies
+`assetSha256`, extracts, verifies `binarySha256`, and atomically `rename`s the binary into
+`~/.local/bin/rtk` (temp dir on the SAME filesystem so the rename is atomic). Idempotency: a
+regular file or a symlink that still resolves is left untouched — a user's own rtk (including
+a stow/asdf/mise-style symlinked install) is never clobbered; a dangling/broken symlink at the
+target is cleared first so a stale leftover doesn't wedge the installer forever. One bounded
+attempt (`DOWNLOAD_TIMEOUT_MS = 12000`, kept well under hooks.json's `timeout: 20` for this
+hook so the `finally` cleanup still runs before a hard kill instead of leaving an orphaned
+`.rtk-install.*` scratch dir behind), fail-open (every failure logs one stderr line and the
+process exits 0), never inside the synchronous PreToolUse hook. Its download/verify/extract
+helpers (`hashFile`/`downloadToFile`/`findBinaries`) and its `usable`-path check live in
+`mcp/binary-fetch.mjs` / `mcp/cbm-context.mjs`'s `usablePath`, shared with `mcp/server.mjs`'s
+identical cbm provisioning rather than duplicated.
+
+**`bin/rtk` — the PATH bridge.** Removing the committed binary also removed the previous
+guarantee that a bare `rtk` resolves on PATH (Claude Code always puts an enabled plugin's own
+`bin/` on the Bash PATH; `~/.local/bin` is not guaranteed to be). `bin/rtk` is a small
+committed shell wrapper — the only file left under `bin/` that is genuinely "vendored", and
+deliberately so: it contains no binary, only `exec "${HOME}/.local/bin/rtk" "$@"` behind an
+existence check — that keeps manual `rtk …` use working even when `~/.local/bin` itself isn't
+on PATH. `hooks/rtk-rewrite.mjs`'s `sameFile` "never double-wire" guard treats a PATH
+resolution to this wrapper the same as a resolution to the managed binary itself (both are
+this plugin's own install, not a competing one) — see `PLUGIN_BIN_RTK` in that file.
+
+**Blast-radius / fail-open justification.** Writing into `~/.local/bin` is new external state
+beyond `${CLAUDE_PLUGIN_DATA}`, so the `rtk_enabled` toggle is deliberately fail-open — the
+same explicit exception to `.claude/rules/plugin-userconfig.md`'s state-creating clause that
+`cbm_enabled` documents, framed for the larger scope: the asset AND the extracted binary are
+sha256-verified against the committed pin before anything is placed; presence-only means a
+user's own `~/.local/bin/rtk` is never overwritten; the write is atomic and bounded to one
+attempt; and it is fully reversible via `rm ~/.local/bin/rtk`. Worst case for an unwanted
+enable is one download of the pinned release and one file in `~/.local/bin` — no data loss,
+no credential use, no repo mutation. **Do not "harmonize" this back to fail-closed.**
 
 ## userConfig
 
@@ -227,8 +263,8 @@ The maintainer skill lives at repo level in `.claude/skills/`, next to `create-p
 `update-cc-references` — it edits the git **working tree** (the committed binary), so running it
 from an installed plugin cache would be pointless.
 
-It carries `disable-model-invocation: true`: it downloads a ~10 MB executable from the network and
-overwrites a committed artifact — an explicit destructive-side-effect exception to
+It carries `disable-model-invocation: true`: it downloads a ~10 MB executable from the network into
+a throwaway scratch dir to recompute the pin — an explicit destructive-side-effect exception to
 `.claude/rules/skill-invocation-control.md`'s model-invocable default.
 
 Download source is the upstream GitHub release; **verification is mandatory** against the release's
@@ -238,7 +274,7 @@ exactly one checksum entry per requested asset (an asset missing from, or duplic
 comparison is
 plain string equality between the pin's `rtkVersion` and `tag_name` minus a leading `v` — no semver
 ordering, so a retagged or yanked release conservatively reads as "update available". The script
-never commits, never bumps `plugin.json` and never opens a PR.
+never commits, never bumps `plugin.json`, never opens a PR, and never writes a binary (pin-only).
 
 ## Novel-in-repo mechanics (deliberate, not convention)
 
@@ -265,9 +301,12 @@ never commits, never bumps `plugin.json` and never opens a PR.
   `cbm-tools.json` snapshot rather than mirrored from the child, so the MCP handshake never waits on
   a download — call-time forwarding is name-agnostic, so a drifted snapshot costs advertisement, never
   a working call.
-- **`mcp/` holds two hand-written files.** `server.mjs` imports `./cbm-context.mjs`, keeping ~350
-  already-tested pure lines out of the transport file; `mcp/` stays the relocatable, zero-npm-dep
-  unit. `server.mjs` is also the repo's first **wrapper-less** MCP server
+- **`mcp/` holds three hand-written files.** `server.mjs` imports `./cbm-context.mjs`, keeping ~350
+  already-tested pure lines out of the transport file, and `./binary-fetch.mjs`, the
+  download/verify/extract helpers (`hashFile`/`downloadToFile`/`findBinaries`) shared with
+  `hooks/rtk-install.mjs`'s rtk provisioning — `mcp/` stays the relocatable, zero-npm-dep unit that
+  both consumers import from, each keeping its own pin shape, binary name and target path.
+  `server.mjs` is also the repo's first **wrapper-less** MCP server
   (`command: ${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs`, no `bin/mjs-launch.sh`) — the written rule's
   default, knowingly divergent from the three other MCP plugins. Do not "fix" it toward that
   precedent.
@@ -317,9 +356,9 @@ heading, the ≤ 40-line brevity cap, required directive tokens).
 ## codebase-memory-mcp bundle
 
 **Why no committed binary or tarball.** cbm's extracted binary is 293,160,104 bytes (279.6 MiB) —
-above GitHub's **100 MiB** per-file limit — so it can never be committed like `bin/rtk` is. With a
+above GitHub's **100 MiB** per-file limit — so it can never be committed. With a
 server that downloads on first start there is no reason to commit the 37.6 MiB archive either, so
-**nothing cbm-related is in git**: `bin/` holds only `rtk`, and the two machine-owned JSON files
+**nothing cbm-related is in git**: `bin/` holds only `context-mode-launch.sh`, and the two machine-owned JSON files
 `cbm-bundle.json` (the pin) and `cbm-tools.json` (the advertised tool list) are the whole artifact
 surface.
 
