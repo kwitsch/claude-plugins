@@ -13,7 +13,7 @@ component that still applies.
 
 ## What it does
 
-Bundles the [rtk](https://github.com/rtk-ai/rtk) token-optimizing CLI proxy — release **v0.45.0**,
+Installs the [rtk](https://github.com/rtk-ai/rtk) token-optimizing CLI proxy — the latest release,
 asset `rtk-x86_64-unknown-linux-musl.tar.gz` — into `~/.local/bin/rtk` on first use (only when not
 already present there), and routes Bash tool calls through it automatically.
 
@@ -36,12 +36,12 @@ context-mode sandbox, where output is indexed instead of entering the context wi
 Set via `/plugin manage`, stored in settings.json under
 `pluginConfigs["linux-token-efficiency"].options`.
 
-| Option          | Default | Effect / Value                                                                                                                                                                                                                                                                                                |
-| --------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `auto_rewrite`  | `true`  | `true` (or unset): rewrite every Bash command through rtk. `false`: no rewriting. Only literal `false` disables.                                                                                                                                                                                              |
-| `cbm_enabled`   | `true`  | `true` (or unset): run the `codebase-memory` MCP server (downloading the pinned cbm release into the plugin data dir on first start) and enable its four `mcp_tool` context hooks. `false`: neither runs and nothing is downloaded. Only the literal value `false` disables.                                  |
-| `rtk_enabled`   | `true`  | `true` (or unset): at SessionStart, install the pinned rtk release into `~/.local/bin/rtk` when absent (download + dual-sha256-verify against the pin, atomic). `false`: nothing is installed or downloaded. Only the literal value `false` disables.                                                         |
-| `steer_enabled` | `true`  | `true` (or unset): deny-steer WebFetch and read-only Bash gather commands to context-mode's `ctx_*` tools (see "context-mode steering" below). `false`: no steering — the escape hatch when the context-mode server is unavailable. Does not affect the rtk rewrite. Only the literal value `false` disables. |
+| Option          | Default | Effect / Value                                                                                                                                                                                                                                                                                                      |
+| --------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `auto_rewrite`  | `true`  | `true` (or unset): rewrite every Bash command through rtk. `false`: no rewriting. Only literal `false` disables.                                                                                                                                                                                                    |
+| `cbm_enabled`   | `true`  | `true` (or unset): run the `codebase-memory` MCP server (downloading the latest cbm release, verified against its `checksums.txt`, into the plugin data dir on first start) and enable its four `mcp_tool` context hooks. `false`: neither runs and nothing is downloaded. Only the literal value `false` disables. |
+| `rtk_enabled`   | `true`  | `true` (or unset): at SessionStart, install the latest rtk release into `~/.local/bin/rtk` when absent (download + verify against the release's `checksums.txt`, atomic). `false`: nothing is installed or downloaded. Only the literal value `false` disables.                                                     |
+| `steer_enabled` | `true`  | `true` (or unset): deny-steer WebFetch and read-only Bash gather commands to context-mode's `ctx_*` tools (see "context-mode steering" below). `false`: no steering — the escape hatch when the context-mode server is unavailable. Does not affect the rtk rewrite. Only the literal value `false` disables.       |
 
 The `context-mode` server (below) has no toggle — it is always enabled. `steer_enabled` gates only
 the two steering hooks, never the server itself.
@@ -69,7 +69,7 @@ replacement in hand). The rewrite deliberately no-ops when:
 
 ## codebase-memory-mcp
 
-Ships [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp) — release **v0.10.1**,
+Ships [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp) — the latest release,
 asset `codebase-memory-mcp-linux-amd64-portable.tar.gz` — as the MCP stdio server `codebase-memory`
 registered through `.mcp.json`. Its 15 graph tools appear as
 `mcp__plugin_linux-token-efficiency_codebase-memory__*` (the plugin-namespaced tool-name form; a
@@ -77,17 +77,18 @@ bare `mcp__codebase-memory__*` matcher never fires for a plugin-bundled server),
 upstream's own tool names.
 
 **Nothing cbm-related is committed to this repo.** `mcp/server.mjs` is a small Node proxy: on its
-first start it downloads the pinned release asset (37.6 MiB) from GitHub Releases, verifies its
-sha256 against the pin in `cbm-bundle.json`, extracts it, verifies the extracted 279.6 MiB binary's
-own sha256 against the pin too, and only then moves it into the cache with an atomic rename. It then
-spawns that binary once as a long-lived child and forwards every tool call to it, so all 15 upstream
-tools keep working unchanged. Both hashes must match or nothing is cached — a corrupted download or a
-hijacked mirror can never produce an executed binary. The download happens once per pinned version
-per cache root, is bounded by a 5-minute timeout, and is attempted at most once per server process:
-on an offline or firewalled host the server degrades silently instead of hanging your session.
+first start it downloads the latest release asset from GitHub Releases, verifies its sha256 against
+the release's own `checksums.txt`, extracts it, and only then moves it into the cache with an atomic
+rename. It then spawns that binary once as a long-lived child and forwards every tool call to it, so
+all 15 upstream tools keep working unchanged. The tarball's sha256 must match its `checksums.txt`
+entry or nothing is cached — enough to catch a corrupted or truncated download, though a
+`checksums.txt` served by the same origin as the asset is not an independent trust anchor. The
+download happens once per release per cache root, is bounded by a 5-minute timeout, and is attempted
+at most once per server process: on an offline or firewalled host the server degrades silently
+instead of hanging your session.
 
-**Download cache.** `${CLAUDE_PLUGIN_DATA}/cbm/<first-16-hex-of-binary-sha256>/codebase-memory-mcp`.
-It is content-addressed, so a version bump lands in a new directory and old ones are simply left
+**Download cache.** `${CLAUDE_PLUGIN_DATA}/cbm/<first-16-hex-of-asset-sha256>/codebase-memory-mcp`.
+It is content-addressed, so a new release lands in a new directory and old ones are simply left
 behind — there is no pruning. Reclaim the space by hand:
 
 ```bash
@@ -199,13 +200,12 @@ applies on macOS and Windows too, where every hook and bundled binary stays iner
 
 ## Maintenance
 
-The rtk release is pinned in `rtk-bundle.json` and installed at runtime into `~/.local/bin/rtk` by
-`hooks/rtk-install.mjs`. The repo-level `update-linux-token-efficiency` skill compares that pin
-against the latest upstream release and, on `apply`, recomputes `rtk-bundle.json` only — no binary
-is ever committed or replaced, matching the cbm paragraph below.
+rtk and cbm always install the **latest** upstream release, each verified against that release's own
+`checksums.txt` at download time — there is no committed version pin and no maintainer skill to
+refresh one. `hooks/rtk-install.mjs` provisions rtk into `~/.local/bin/rtk`, and `mcp/server.mjs`
+downloads and caches the cbm binary; neither commits or replaces an artifact in git.
 
-The cbm release is pinned in `cbm-bundle.json`, with the advertised tool list snapshotted in
-`cbm-tools.json`. The same `update-linux-token-efficiency` skill refreshes both via
-`update-cbm-bundle.sh`: it verifies the download against the release's own `checksums.txt`, probes the
-binary's `tools/list` for the snapshot, and rewrites only those two JSON files — no artifact is ever
-committed.
+The only hand-maintained cbm artifact is `cbm-tools.json`, a snapshot of the advertised tool list
+served on the MCP handshake so it never waits on a download. Call-time forwarding is name-agnostic,
+so a drift there costs advertisement, never a working call — refresh it by hand if upstream's tool
+set changes.

@@ -159,10 +159,12 @@ cache is a pure optimization, never a dependency.
 ## rtk install
 
 `hooks/rtk-install.mjs` is an async `SessionStart` `command` hook (`async: true`, no
-`asyncRewake`, `timeout: 20`) that provisions rtk into `~/.local/bin/rtk`. It reads the pin
-and, ONLY when `~/.local/bin/rtk` is absent, downloads the pinned asset, verifies
-`assetSha256`, extracts, verifies `binarySha256`, and atomically `rename`s the binary into
-`~/.local/bin/rtk` (temp dir on the SAME filesystem so the rename is atomic). Idempotency: a
+`asyncRewake`, `timeout: 20`) that provisions rtk into `~/.local/bin/rtk`. ONLY when
+`~/.local/bin/rtk` is absent, it fetches the release's `checksums.txt` and the tarball asset in
+parallel from the `releases/latest/download/` alias, verifies the downloaded tarball's sha256
+against its single `checksums.txt` entry, extracts, and atomically `rename`s the binary into
+`~/.local/bin/rtk` (temp dir on the SAME filesystem so the rename is atomic). The extracted binary
+is trusted, not re-hashed. Idempotency: a
 regular file or a symlink that still resolves is left untouched — a user's own rtk (including
 a stow/asdf/mise-style symlinked install) is never clobbered; a dangling/broken symlink at the
 target is cleared first so a stale leftover doesn't wedge the installer forever. One bounded
@@ -170,7 +172,7 @@ attempt (`DOWNLOAD_TIMEOUT_MS = 12000`, kept well under hooks.json's `timeout: 2
 hook so the `finally` cleanup still runs before a hard kill instead of leaving an orphaned
 `.rtk-install.*` scratch dir behind), fail-open (every failure logs one stderr line and the
 process exits 0), never inside the synchronous PreToolUse hook. Its download/verify/extract
-helpers (`hashFile`/`downloadToFile`/`findBinaries`) and its `usable`-path check live in
+helpers (`fetchExpectedSha`/`downloadToFile`/`findBinaries`) and its `usable`-path check live in
 `mcp/binary-fetch.mjs` / `mcp/cbm-context.mjs`'s `usablePath`, shared with `mcp/server.mjs`'s
 identical cbm provisioning rather than duplicated.
 
@@ -187,11 +189,11 @@ this plugin's own install, not a competing one) — see `PLUGIN_BIN_RTK` in that
 **Blast-radius / fail-open justification.** Writing into `~/.local/bin` is new external state
 beyond `${CLAUDE_PLUGIN_DATA}`, so the `rtk_enabled` toggle is deliberately fail-open — the
 same explicit exception to `.claude/rules/plugin-userconfig.md`'s state-creating clause that
-`cbm_enabled` documents, framed for the larger scope: the asset AND the extracted binary are
-sha256-verified against the committed pin before anything is placed; presence-only means a
+`cbm_enabled` documents, framed for the larger scope: the downloaded asset is sha256-verified
+against the release's own `checksums.txt` before anything is placed; presence-only means a
 user's own `~/.local/bin/rtk` is never overwritten; the write is atomic and bounded to one
 attempt; and it is fully reversible via `rm ~/.local/bin/rtk`. Worst case for an unwanted
-enable is one download of the pinned release and one file in `~/.local/bin` — no data loss,
+enable is one download of the latest release and one file in `~/.local/bin` — no data loss,
 no credential use, no repo mutation. **Do not "harmonize" this back to fail-closed.**
 
 ## userConfig
@@ -212,10 +214,10 @@ genuinely different from uninstalling. `context-mode` (below) deliberately has n
 it is always enabled, by explicit user decision, not an oversight.
 
 `cbm_enabled` is deliberately fail-open despite gating a state-creating action that now also reaches
-the **network**: enabling means one HTTPS GET of a 37.6 MiB release asset from GitHub Releases (once
-per pinned version per cache root) plus a ~280 MiB extraction and one background stdio process.
-Mitigations are structural, not conventional: the asset **and** the extracted binary are
-sha256-verified against the committed pin before anything enters the cache, the download is bounded
+the **network**: enabling means one HTTPS GET of the latest release asset from GitHub Releases (once
+per release per cache root) plus a ~280 MiB extraction and one background stdio process.
+Mitigations are structural, not conventional: the downloaded asset is sha256-verified against the
+release's own `checksums.txt` before anything enters the cache, the download is bounded
 by `DOWNLOAD_TIMEOUT_MS` (5 min) and attempted at most once per server process, a failure degrades
 silently (hook tools return `{}`, passthrough calls return `isError`) instead of blocking a session,
 and nothing is written outside `${CLAUDE_PLUGIN_DATA}/cbm`. Worst case for an unwanted enable is one
@@ -257,34 +259,17 @@ frontmatter that no `userConfig` value can drive (`${user_config.*}` placeholder
   literal `does not work` with a **singular** subject, because `manifest.bats` matches that string in
   both manifests.
 
-## Skill design (update-linux-token-efficiency)
-
-The maintainer skill lives at repo level in `.claude/skills/`, next to `create-plugin` and
-`update-cc-references` — it edits the git **working tree** (the committed binary), so running it
-from an installed plugin cache would be pointless.
-
-It carries `disable-model-invocation: true`: it downloads a ~10 MB executable from the network into
-a throwaway scratch dir to recompute the pin — an explicit destructive-side-effect exception to
-`.claude/rules/skill-invocation-control.md`'s model-invocable default.
-
-Download source is the upstream GitHub release; **verification is mandatory** against the release's
-own `checksums.txt` (plain `sha256sum` format) before any file is replaced — the script requires
-exactly one checksum entry per requested asset (an asset missing from, or duplicated in,
-`checksums.txt` fails closed) rather than trusting `--ignore-missing` to skip it silently. Version
-comparison is
-plain string equality between the pin's `rtkVersion` and `tag_name` minus a leading `v` — no semver
-ordering, so a retagged or yanked release conservatively reads as "update available". The script
-never commits, never bumps `plugin.json`, never opens a PR, and never writes a binary (pin-only).
-
 ## Novel-in-repo mechanics (deliberate, not convention)
 
 - **`spawnSync`'s `input` option** pipes the hook's stdin into the child. First use in this repo;
   chosen over an async `spawn` write loop because the repo uses `spawnSync` exclusively and a
   `PreToolUse` `updatedInput` hook must be synchronous anyway.
-- **`checksums.txt` artifact verification** on every download — no in-repo precedent.
-- **`jq`-based rewrite of `rtk-bundle.json`.** `bump-version.sh` deliberately avoids `jq` for its
-  JSON writes to preserve hand-maintained formatting; `rtk-bundle.json` is entirely machine-owned,
-  so `jq` is correct here.
+- **Runtime `checksums.txt` artifact verification** on every download — `hooks/rtk-install.mjs` and
+  `mcp/server.mjs` each fetch the release's own `checksums.txt` and verify the downloaded tarball's
+  sha256 against its single entry before extracting; no in-repo precedent.
+- **`XDG_CACHE_HOME` in the cbm cache fallback.** `mcp/cbm-context.mjs`'s `resolveBundleCache` honors
+  `XDG_CACHE_HOME` (→ `${XDG_CACHE_HOME}/claude-cbm`), inserted between the `${CLAUDE_PLUGIN_DATA}/cbm`
+  and `${HOME}/.cache/claude-cbm` branches of its fallback chain.
 - **Stubbed `curl` + env-overridable base URLs** (`RTK_RELEASE_BASE_URL`,
   `RTK_DOWNLOAD_BASE_URL`) give the bats suite a local fixture release tree — no network in tests.
 - **The literal-`${` rejection for cache paths.** `mcp/cbm-context.mjs`'s `resolveBundleCache`
@@ -334,16 +319,16 @@ never commits, never bumps `plugin.json`, never opens a PR, and never writes a b
 ## Tests
 
 `test/linux-token-efficiency/` splits by theme: `manifest.bats` (plugin.json / marketplace / CI
-matrix), `bundle.bats` (binary, pin, `.gitattributes`, index mode), `hook.bats` (hook behavior via a
-copy of the hook in a fake plugin tree with a stub `rtk`), `update-rtk-bundle.bats` (script exit-code
-contract), `skill.bats` (SKILL.md shape), `docs.bats` (docs/registration), plus
-`rtk-rewrite.test.mjs` (`node:test` unit coverage of the hook's exported helpers). The cbm proxy adds
-pin + snapshot + file-mode + `.mcp.json` verification (`cbm-bundle.bats`), server behavior on a
-fixture plugin tree with a fake MCP-speaking cbm binary and an ephemeral 127.0.0.1 release server
-(`cbm-server.bats`), the four hook tools driven as real `tools/call` requests plus the `hooks.json`
-wiring pins (`cbm-hooks.bats`), `node:test` coverage of the pure helpers (`cbm-context.test.mjs`), and
-the maintainer-script exit-code contract (`update-cbm-bundle.bats`) — every fixture is fabricated and
-few bytes; the real 279.6 MiB binary is never downloaded or extracted. context-mode adds
+matrix), `bundle.bats` (`bin/rtk` PATH-bridge wrapper, `.gitattributes`), `hook.bats` (hook behavior
+via a copy of the hook in a fake plugin tree with a stub `rtk`), `rtk-install.bats` (the
+checksums-verified installer against an ephemeral 127.0.0.1 release server), `docs.bats`
+(docs/registration), plus `rtk-rewrite.test.mjs` and `binary-fetch.test.mjs` (`node:test` unit
+coverage of the exported helpers). The cbm proxy adds snapshot + file-mode + `.mcp.json` verification
+(`cbm-bundle.bats`), server behavior on a fixture plugin tree with a fake MCP-speaking cbm binary and
+an ephemeral 127.0.0.1 release server (`cbm-server.bats`), the four hook tools driven as real
+`tools/call` requests plus the `hooks.json` wiring pins (`cbm-hooks.bats`), and `node:test` coverage
+of the pure helpers (`cbm-context.test.mjs`) — every fixture is fabricated and few bytes; the real
+279.6 MiB binary is never downloaded or extracted. context-mode adds
 `context-mode.bats`: the launcher's runtime selection against stubbed `bunx`/`npx` on an isolated
 PATH (the real runners are never invoked and the npm registry is never reached), the `.mcp.json`
 server entry, the verbatim `hooks/SessionStart.md` (first/last line, load-bearing literals, index
@@ -358,36 +343,37 @@ heading, the ≤ 40-line brevity cap, required directive tokens).
 **Why no committed binary or tarball.** cbm's extracted binary is 293,160,104 bytes (279.6 MiB) —
 above GitHub's **100 MiB** per-file limit — so it can never be committed. With a
 server that downloads on first start there is no reason to commit the 37.6 MiB archive either, so
-**nothing cbm-related is in git**: `bin/` holds only `context-mode-launch.sh`, and the two machine-owned JSON files
-`cbm-bundle.json` (the pin) and `cbm-tools.json` (the advertised tool list) are the whole artifact
-surface.
+**nothing cbm-related is in git**: `bin/` holds only `context-mode-launch.sh`, and the machine-owned
+`cbm-tools.json` (the advertised tool list) is the whole artifact surface.
 
-**One process model.** `mcp/server.mjs` owns the pin, the first-run download + verification +
+**One process model.** `mcp/server.mjs` owns the first-run download + verification +
 extraction, the warm cbm child, the four hook tools and the passthrough. Both the hook reads and the
 model's own `mcp__plugin_linux-token-efficiency_codebase-memory__*` calls go through the same child,
 so there is exactly one place
 that knows how to talk to cbm and one place that peels its result envelope. `mcp_tool` hooks
 therefore cost a round-trip, not a fresh Node process plus a fresh 279.6 MiB exec per event.
 
-**Verification discipline** (carried over verbatim from the deleted shell-script launcher): exactly one
-pin entry or fail closed; asset sha256 checked before extraction; exactly one `codebase-memory-mcp`
-inside the archive or fail closed; extracted-binary sha256 checked before the cache is touched;
-population by atomic `rename` into
-`${CBM_BUNDLE_CACHE}/<binarySha256[0:16]>/codebase-memory-mcp`. The layout is byte-identical to the
-old launcher's, so an existing warm cache is reused. Runtime verifies against the committed pin only
-and never fetches the release's `checksums.txt` — a checksum file served by the same origin as the
-asset would add no trust; `checksums.txt` is the maintainer script's business.
+**Verification discipline**: fetch the release's own `checksums.txt` and require exactly one entry for
+the asset or fail closed; the downloaded tarball's sha256 is checked against that entry before
+extraction; exactly one `codebase-memory-mcp` inside the archive or fail closed; the extracted binary
+is trusted, not re-hashed; population by atomic `rename` into
+`${CBM_BUNDLE_CACHE}/<assetSha256[0:16]>/codebase-memory-mcp`. Runtime fetches the release's own
+`checksums.txt` at download time and verifies the tarball against it — the reverse of the earlier
+committed-pin discipline; a `checksums.txt` served by the same origin as the asset is not an
+independent trust anchor, only same-origin corruption/truncation detection, the accepted trade for
+always tracking the latest release.
 
 **`CBM_BUNDLE_CACHE` is ours; `CBM_CACHE_DIR` is upstream's.** `CBM_CACHE_DIR` is cbm's own graph
 database root (upstream default `~/.cache/codebase-memory-mcp`), and upstream rejects a genuinely
 different canonical root while any cbm process is active. `server.mjs` never sets it — that is an
 invariant of the file, asserted by the bats suite — so server, hooks and manual CLI use all share
 upstream's default. The only variable the plugin sets is `CBM_BUNDLE_CACHE` (download-cache root,
-default `${CLAUDE_PLUGIN_DATA}/cbm`); `CBM_DOWNLOAD_BASE_URL` is only ever _read_ (same name, join
-shape and default as `update-cbm-bundle.sh`: `${base}/${releaseTag}/${asset}`, never reconstructed
-from a bare host — `upstreamRepo` in the pin is metadata only).
+default `${CLAUDE_PLUGIN_DATA}/cbm`); `CBM_DOWNLOAD_BASE_URL` is only ever _read_ (default
+`https://github.com/DeusData/codebase-memory-mcp/releases/latest/download`, the newest-release
+redirect alias, so `${base}/${asset}` and `${base}/checksums.txt` both resolve there — never
+reconstructed from a bare host).
 
-**Upstream result shapes** (read off the pinned v0.10.1 binary directly, which fixed three defects
+**Upstream result shapes** (read off the cbm binary directly, which fixed three defects
 the earlier CLI-based hooks shipped with):
 
 | Read                   | Real shape                                                                                                                                                                                           |
@@ -430,19 +416,18 @@ or empty — an empty PATH segment resolves to cwd. `${HOME:-}`, never a bare `~
 goes to stderr: stdout is the MCP stdio channel.
 
 **Pinned by hand.** `CONTEXT_MODE_SPEC="context-mode@1.0.169"` lives in the wrapper only — an exact
-version pin like every other dependency this plugin ships (`rtk-bundle.json` pins `0.45.0`,
-`cbm-bundle.json` pins `0.10.1`). `npx --yes`, never `-y` (repo convention,
-`plugins/universal-lint/hooks/lint-file.mjs:249`). `.claude/skills/update-linux-token-efficiency`
-does **NOT** cover this pin — it only knows `rtk-bundle.json` and `cbm-bundle.json` — so keeping it
-current is a manual edit and the pin can silently rot. A `context-mode-bundle.json` pin file was
+version pin, and now the only version this plugin pins: rtk and cbm always track the latest release,
+each verified against its own `checksums.txt` at download time. `npx --yes`, never `-y` (repo
+convention, `plugins/universal-lint/hooks/lint-file.mjs:249`). Nothing automates this pin, so keeping
+it current is a manual edit and the pin can silently rot. A `context-mode-bundle.json` pin file was
 rejected as YAGNI for one consumer with no automated updater.
 
-**Integrity delta vs `cbm_enabled` — read this before assuming a pin exists.** cbm's download is
-sha256-verified, both the release asset and the extracted binary, against a committed pin before
-anything enters a plugin-owned `${CLAUDE_PLUGIN_DATA}` cache. A registry fetch through `bunx` /
-`npx --yes` has **no** sha256 pin available at all, and it lands in the runtime's own global package
-cache, outside `${CLAUDE_PLUGIN_DATA}`. The version pin buys reproducibility, not integrity. Do not
-restate cbm's mitigation language for this server — the two are not equivalent.
+**Integrity delta vs `cbm_enabled`.** cbm's (and rtk's) download is sha256-verified against the
+release's own `checksums.txt` before anything enters a plugin-owned `${CLAUDE_PLUGIN_DATA}` cache —
+same-origin corruption/truncation detection, not an independent trust anchor. A registry fetch through
+`bunx` / `npx --yes` has **no** checksum verification available at all, and it lands in the runtime's
+own global package cache, outside `${CLAUDE_PLUGIN_DATA}`. The version pin buys reproducibility, not
+integrity. Do not restate cbm's mitigation language for this server — the two are not equivalent.
 
 **`ctx_execute` / `ctx_batch_execute` bypass `Bash` `PreToolUse` hooks.** This server hands the model
 a code- and shell-execution path that no `Bash` `PreToolUse` hook observes — not this plugin's own
