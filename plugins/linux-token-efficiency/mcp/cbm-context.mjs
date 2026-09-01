@@ -3,8 +3,8 @@
 // main(), no spawn, no stdin, no process.exit.
 //
 // Contract: every formatter returns a non-empty context string or null ("nothing to
-// say"); nothing here writes to stdout. Payload shapes were read off the pinned
-// codebase-memory-mcp v0.10.1 binary directly:
+// say"); nothing here writes to stdout. Payload shapes were read off the
+// codebase-memory-mcp binary directly:
 //   * every tools/call result is {content:[{type:"text",text:"<json>"}],isError:bool}
 //     and sometimes carries a parallel structuredContent -> unwrapToolResult().
 //   * search_graph with format:"json" returns {total,count,cols,groups:[{qn_prefix,
@@ -157,14 +157,18 @@ export function isCbmEnabled(value) {
 }
 
 /**
- * The plugin's own extraction-cache root (never cbm's CBM_CACHE_DIR graph root).
- * Never returns a path containing a literal `${`.
+ * The plugin's own extraction-cache root (never cbm's CBM_CACHE_DIR graph root). Fallback
+ * chain: CBM_BUNDLE_CACHE -> ${CLAUDE_PLUGIN_DATA}/cbm -> ${XDG_CACHE_HOME}/claude-cbm ->
+ * ${HOME}/.cache/claude-cbm -> ${TMPDIR:-/tmp}/claude-cbm-<uid>. Never returns a path
+ * containing a literal `${`.
  * @param {Record<string, string|undefined>} env
  * @returns {string}
  */
 export function resolveBundleCache(env) {
   if (usablePath(env.CBM_BUNDLE_CACHE)) return String(env.CBM_BUNDLE_CACHE).trim();
   if (usablePath(env.CLAUDE_PLUGIN_DATA)) return path.join(String(env.CLAUDE_PLUGIN_DATA).trim(), "cbm");
+  if (usablePath(env.XDG_CACHE_HOME)) return path.join(String(env.XDG_CACHE_HOME).trim(), "claude-cbm");
+  if (usablePath(env.HOME)) return path.join(String(env.HOME).trim(), ".cache", "claude-cbm");
   const tmp = usablePath(env.TMPDIR) ? String(env.TMPDIR).trim() : "/tmp";
   const uid = typeof process.getuid === "function" ? process.getuid() : 0;
   return path.join(tmp, `claude-cbm-${uid}`);
