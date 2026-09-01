@@ -9,11 +9,8 @@ common_setup() {
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
   PLUGIN="$REPO_ROOT/plugins/linux-token-efficiency"
   MANIFEST="$PLUGIN/.claude-plugin/plugin.json"
-  PIN="$PLUGIN/rtk-bundle.json"
   HOOKS="$PLUGIN/hooks/hooks.json"
   HOOK="$PLUGIN/hooks/rtk-rewrite.mjs"
-  SKILL_DIR="$REPO_ROOT/.claude/skills/update-linux-token-efficiency"
-  CBM_PIN="$PLUGIN/cbm-bundle.json"
   CBM_TOOLS="$PLUGIN/cbm-tools.json"
   CBM_SERVER="$PLUGIN/mcp/server.mjs"
   CBM_HELPERS="$PLUGIN/mcp/cbm-context.mjs"
@@ -103,7 +100,7 @@ rl.on("line", (line) => {
     send({
       jsonrpc: "2.0",
       id: msg.id,
-      result: { protocolVersion: "2025-11-25", capabilities: { tools: {} }, serverInfo: { name: "codebase-memory-mcp", version: "0.10.1-fake" } },
+      result: { protocolVersion: "2025-11-25", capabilities: { tools: {} }, serverInfo: { name: "codebase-memory-mcp", version: "0.0.0-fake" } },
     });
     return;
   }
@@ -140,16 +137,15 @@ FAKE_CBM
 }
 
 # make_cbm_server_fixture <dir> -- build a fixture plugin tree holding copies of the real
-# mcp/server.mjs + mcp/cbm-context.mjs + mcp/binary-fetch.mjs plus a FABRICATED
-# cbm-bundle.json / cbm-tools.json
-# whose binarySha256 is the fake binary's REAL sha256, so the production
-# content-addressed path ${CBM_BUNDLE_CACHE}/<binarySha256[0:16]>/codebase-memory-mcp
-# resolves to it. Getting that derivation wrong silently falls through to the download
-# path, so warm-path cases must additionally assert the request log is empty.
-# Also stages a few-byte release tree ($RELEASE_DIR/<tag>/<asset>) for the cold path.
+# mcp/server.mjs + mcp/cbm-context.mjs + mcp/binary-fetch.mjs plus a hand-maintained
+# cbm-tools.json snapshot. Stages a FLAT few-byte release tree ($RELEASE_DIR/<asset> +
+# $RELEASE_DIR/checksums.txt) served over the releases/latest/download/ alias. The server
+# keys its content-addressed cache on the checksums-derived asset sha (ASSET_SHA), so
+# warm_cbm_cache plants the fake binary under $CBM_CACHE/<ASSET_SHA[0:16]>/. Getting that
+# derivation wrong silently falls through to the download path, so warm-path cases must
+# additionally assert the asset tarball never appears in the request log.
 make_cbm_server_fixture() {
   local dir="$1"
-  FIXTURE_TAG="v9.9.9-fixture"
   FIXTURE_ASSET="codebase-memory-mcp-linux-amd64-portable.tar.gz"
   FIXTURE_SERVER="$dir/mcp/server.mjs"
   CBM_CACHE="$BATS_TEST_TMPDIR/cache"
@@ -157,40 +153,41 @@ make_cbm_server_fixture() {
   FAKE_PAYLOADS="$BATS_TEST_TMPDIR/fake-payloads.json"
   FAKE_BIN="$BATS_TEST_TMPDIR/pack/codebase-memory-mcp"
   RELEASE_DIR="$BATS_TEST_TMPDIR/release"
-
-  mkdir -p "$dir/mcp" "$RELEASE_DIR/$FIXTURE_TAG" "$CBM_CACHE"
+  mkdir -p "$dir/mcp" "$RELEASE_DIR" "$CBM_CACHE"
   cp "$CBM_SERVER" "$dir/mcp/server.mjs"
   cp "$CBM_HELPERS" "$dir/mcp/cbm-context.mjs"
   cp "$CBM_BINARY_FETCH" "$dir/mcp/binary-fetch.mjs"
   chmod +x "$dir/mcp/server.mjs"
-
   write_fake_cbm "$FAKE_BIN"
   printf 'fixture installer\n' > "$BATS_TEST_TMPDIR/pack/install.sh"
-  tar -czf "$RELEASE_DIR/$FIXTURE_TAG/$FIXTURE_ASSET" -C "$BATS_TEST_TMPDIR/pack" codebase-memory-mcp install.sh
+  tar -czf "$RELEASE_DIR/$FIXTURE_ASSET" -C "$BATS_TEST_TMPDIR/pack" codebase-memory-mcp install.sh
   FAKE_BIN_SHA="$(sha256sum < "$FAKE_BIN" | cut -d' ' -f1)"
-  local asset_sha
-  asset_sha="$(sha256sum < "$RELEASE_DIR/$FIXTURE_TAG/$FIXTURE_ASSET" | cut -d' ' -f1)"
-
-  jq -n --arg tag "$FIXTURE_TAG" --arg asset "$FIXTURE_ASSET" --arg a "$asset_sha" --arg b "$FAKE_BIN_SHA" \
-    '{cbmVersion:($tag|ltrimstr("v")), upstreamRepo:"DeusData/codebase-memory-mcp", releaseTag:$tag,
-      binaries:[{asset:$asset, assetSha256:$a, binarySha256:$b}]}' > "$dir/cbm-bundle.json"
-  jq -n --arg tag "$FIXTURE_TAG" \
-    '{cbmVersion:($tag|ltrimstr("v")),
-      tools:[{name:"list_projects", description:"fixture list_projects", inputSchema:{type:"object", additionalProperties:true}},
-             {name:"search_graph",  description:"fixture search_graph",  inputSchema:{type:"object", additionalProperties:true}}]}' \
-    > "$dir/cbm-tools.json"
-
+  ASSET_SHA="$(sha256sum < "$RELEASE_DIR/$FIXTURE_ASSET" | cut -d' ' -f1)"
+  write_cbm_checksums "$ASSET_SHA  $FIXTURE_ASSET"
+  jq -n '{tools:[{name:"list_projects", description:"fixture list_projects", inputSchema:{type:"object", additionalProperties:true}},
+                 {name:"search_graph",  description:"fixture search_graph",  inputSchema:{type:"object", additionalProperties:true}}]}' > "$dir/cbm-tools.json"
   : > "$FAKE_LOG"
   set_fake_payloads '{}'
-  CBM_DOWNLOAD_BASE_URL="http://127.0.0.1:1/releases/download" # unreachable unless a test starts one
+  CBM_DOWNLOAD_BASE_URL="http://127.0.0.1:1/releases/latest/download" # unreachable unless a test starts one
   CBM_RPC_ENV=()
   return 0
 }
 
+# write_cbm_checksums <line>... -- write a goreleaser-style checksums.txt into the release dir.
+write_cbm_checksums() { printf '%s\n' "$@" > "$RELEASE_DIR/checksums.txt"; }
+
+# refresh_asset_sha -- re-derive checksums.txt for the fixture asset's current bytes, so a
+# case exercising a LATER guard is not short-circuited by the asset-hash check.
+refresh_asset_sha() {
+  ASSET_SHA="$(sha256sum < "$RELEASE_DIR/$FIXTURE_ASSET" | cut -d' ' -f1)"
+  write_cbm_checksums "$ASSET_SHA  $FIXTURE_ASSET"
+}
+
 # warm_cbm_cache -- put the fake binary where the production content-addressed lookup
-# expects it, so the server never needs the network.
+# expects it (keyed on the checksums-derived asset sha), so the server never needs the
+# network for the tarball.
 warm_cbm_cache() {
-  local dir="$CBM_CACHE/${FAKE_BIN_SHA:0:16}"
+  local dir="$CBM_CACHE/${ASSET_SHA:0:16}"
   mkdir -p "$dir"
   cp "$FAKE_BIN" "$dir/codebase-memory-mcp"
   chmod +x "$dir/codebase-memory-mcp"
@@ -260,11 +257,11 @@ cbm_rpc_result() {
   printf '%s\n' "$CBM_RPC_STDOUT" | jq -c "select(.id == $1) | .result"
 }
 
-# start_release_server -- ephemeral 127.0.0.1 HTTP server over $RELEASE_DIR. It honours the
-# production path prefix (/releases/download/<tag>/<asset>) and is addressed by exporting
-# CBM_DOWNLOAD_BASE_URL=http://127.0.0.1:<port>/releases/download, so the production join
-# ${CBM_DOWNLOAD_BASE_URL}/${releaseTag}/${asset} is exercised verbatim with no test-only
-# URL shape. Every request path is appended to $RELEASE_LOG.
+# start_release_server -- ephemeral 127.0.0.1 HTTP server over the flat $RELEASE_DIR. It
+# honours the production path prefix (/releases/latest/download/<asset|checksums.txt>) and is
+# addressed by exporting CBM_DOWNLOAD_BASE_URL=http://127.0.0.1:<port>/releases/latest/download,
+# so the production join ${CBM_DOWNLOAD_BASE_URL}/${asset} (and .../checksums.txt) is exercised
+# verbatim with no test-only URL shape. Every request path is appended to $RELEASE_LOG.
 start_release_server() {
   local script="$BATS_TEST_TMPDIR/release-server.mjs" portfile="$BATS_TEST_TMPDIR/release-port" i
   RELEASE_LOG="$BATS_TEST_TMPDIR/release-requests.log"
@@ -277,7 +274,7 @@ import path from "node:path";
 const root = fs.realpathSync(process.env.RELEASE_ROOT);
 const server = http.createServer((req, res) => {
   fs.appendFileSync(process.env.RELEASE_LOG, `${req.url}\n`);
-  const rel = decodeURIComponent(String(req.url).replace(/^\/releases\/download\//, "").replace(/^\/+/, ""));
+  const rel = decodeURIComponent(String(req.url).replace(/^\/releases\/latest\/download\//, "").replace(/^\/+/, ""));
   const file = path.join(root, rel);
   if (!file.startsWith(root) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
     res.statusCode = 404;
@@ -296,7 +293,7 @@ RELEASE_SERVER
     sleep 0.1
   done
   [ -s "$portfile" ] || return 1
-  CBM_DOWNLOAD_BASE_URL="http://127.0.0.1:$(cat "$portfile")/releases/download"
+  CBM_DOWNLOAD_BASE_URL="http://127.0.0.1:$(cat "$portfile")/releases/latest/download"
   return 0
 }
 

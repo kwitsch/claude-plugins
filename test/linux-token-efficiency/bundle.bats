@@ -1,24 +1,13 @@
 #!/usr/bin/env bats
 
-# rtk-bundle.json pin + the removal of the vendored bin/rtk binary and its .gitattributes
-# markings. bin/rtk itself still exists, but only as a small committed PATH-bridge shell
-# wrapper (see hook.bats and CLAUDE.md) — never the vendored binary again.
+# The removal of the vendored bin/rtk binary and its .gitattributes markings. bin/rtk itself
+# still exists, but only as a small committed PATH-bridge shell wrapper (see hook.bats and
+# CLAUDE.md) — never the vendored binary again.
 
 load 'test_helper'
 
 setup() {
   common_setup
-}
-
-@test "rtk-bundle.json pins rtk 0.45.0 and the musl asset, with no binaries[].path" {
-  run jq -e '.rtkVersion == "0.45.0" and .upstreamRepo == "rtk-ai/rtk" and .releaseTag == "v0.45.0"' "$PIN"
-  assert_success
-  run jq -e '(.binaries | length) == 1 and .binaries[0].asset == "rtk-x86_64-unknown-linux-musl.tar.gz"' "$PIN"
-  assert_success
-  run jq -e '.binaries[0] | has("path") | not' "$PIN"
-  assert_success
-  run jq -e '.binaries[0].assetSha256 == "c4c036fbf181fc55ef329786c8c17e0d427972b053b825944d968a6aafef1ba4"' "$PIN"
-  assert_success
 }
 
 @test "bin/rtk is a small committed PATH-bridge wrapper, not the vendored binary" {

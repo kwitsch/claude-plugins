@@ -23,7 +23,7 @@ import {
   buildOutput,
 } from "../../plugins/linux-token-efficiency/mcp/cbm-context.mjs";
 
-// Recorded from the pinned v0.10.1 binary: search_graph with format:"json".
+// Recorded from the cbm binary: search_graph with format:"json".
 const SEARCH_JSON = {
   total: 2,
   count: 2,
@@ -43,7 +43,7 @@ const SEARCH_JSON = {
   has_more: false,
 };
 
-// Recorded from the pinned v0.10.1 binary: check_index_coverage with paths:[…].
+// Recorded from the cbm binary: check_index_coverage with paths:[…].
 const COVERAGE_GAP = {
   project: "app",
   signal: "ok",
@@ -93,6 +93,17 @@ test("resolveBundleCache: CBM_BUNDLE_CACHE wins, then CLAUDE_PLUGIN_DATA, never 
   assert.equal(out.includes("${"), false);
   assert.equal(out.startsWith(path.join("/tmpdir", "claude-cbm-")), true);
   assert.equal(resolveBundleCache({}).startsWith(path.join("/tmp", "claude-cbm-")), true);
+});
+
+test("resolveBundleCache: XDG_CACHE_HOME sits below CLAUDE_PLUGIN_DATA and above HOME/.cache", () => {
+  // CLAUDE_PLUGIN_DATA still wins over XDG_CACHE_HOME.
+  assert.equal(resolveBundleCache({ CLAUDE_PLUGIN_DATA: "/pd", XDG_CACHE_HOME: "/xdg" }), path.join("/pd", "cbm"));
+  // With no CLAUDE_PLUGIN_DATA, XDG_CACHE_HOME wins.
+  assert.equal(resolveBundleCache({ XDG_CACHE_HOME: "/xdg" }), path.join("/xdg", "claude-cbm"));
+  // A placeholder XDG_CACHE_HOME is rejected; HOME/.cache is the documented default.
+  assert.equal(resolveBundleCache({ XDG_CACHE_HOME: "${x}", HOME: "/home/u" }), path.join("/home/u", ".cache", "claude-cbm"));
+  // HOME/.cache sits above the TMPDIR last resort.
+  assert.equal(resolveBundleCache({ HOME: "/home/u", TMPDIR: "/tmpdir" }), path.join("/home/u", ".cache", "claude-cbm"));
 });
 
 test("resolveProjectCacheDir: a project-cache subdir of the bundle cache", () => {

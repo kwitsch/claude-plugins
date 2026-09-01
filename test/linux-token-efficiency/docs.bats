@@ -17,10 +17,12 @@ setup() {
   assert_success
 }
 
-@test "plugin README warns Linux-only and states the bundled rtk version" {
+@test "plugin README warns Linux-only and describes the latest checksums-verified release" {
   run grep -Fi 'linux' "$PLUGIN_README"
   assert_success
-  run grep -F '0.45.0' "$PLUGIN_README"
+  run grep -Fi 'latest' "$PLUGIN_README"
+  assert_success
+  run grep -F 'checksums.txt' "$PLUGIN_README"
   assert_success
 }
 
@@ -41,8 +43,6 @@ setup() {
 }
 
 @test "plugin CLAUDE.md carries the required sections" {
-  run grep -F '## Skill design (update-linux-token-efficiency)' "$PLUGIN_CLAUDE"
-  assert_success
   run grep -F '## userConfig' "$PLUGIN_CLAUDE"
   assert_success
   run grep -F '## Output style' "$PLUGIN_CLAUDE"
@@ -57,7 +57,7 @@ setup() {
 }
 
 @test "plugin CLAUDE.md documents the novel-in-repo mechanics" {
-  for token in 'spawnSync' 'checksums.txt' 'jq' 'curl'; do
+  for token in 'spawnSync' 'checksums.txt' 'curl'; do
     run grep -F "$token" "$PLUGIN_CLAUDE"
     assert_success
   done
@@ -73,9 +73,7 @@ setup() {
   assert_success
 }
 
-@test "plugin README documents the bundled cbm version, toggle and download cache" {
-  run grep -F '0.10.1' "$PLUGIN_README"
-  assert_success
+@test "plugin README documents the cbm toggle and download cache" {
   run grep -F 'cbm_enabled' "$PLUGIN_README"
   assert_success
   run grep -F 'only the literal value `false` disables' "$PLUGIN_README"

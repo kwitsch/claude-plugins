@@ -11,16 +11,17 @@
 // mcp__plugin_linux-token-efficiency_codebase-memory__<upstream tool> (the plugin-namespaced
 // tool-name form; a bare mcp__codebase-memory__* never fires for a plugin-bundled server).
 //
-// It is the ONLY component permitted to download or extract the pinned upstream binary
-// (asset + extracted binary both sha256-verified against cbm-bundle.json before anything
-// enters the cache, populated by atomic rename only). It NEVER sets CBM_CACHE_DIR — that is
-// cbm's own graph-database root; the plugin owns only CBM_BUNDLE_CACHE.
+// It is the ONLY component permitted to download or extract the upstream binary. It resolves
+// the LATEST release, verifying the tarball's sha256 against that release's own checksums.txt
+// (the tarball only; the extracted binary is trusted) before anything enters the cache,
+// populated by atomic rename into a checksums-derived content-addressed dir. It NEVER sets
+// CBM_CACHE_DIR — that is cbm's own graph-database root; the plugin owns only CBM_BUNDLE_CACHE.
 import process from "node:process";
 import readline from "node:readline";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { accessSync, chmodSync, constants as fsConstants, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { accessSync, chmodSync, constants as fsConstants, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { execFileSync, spawn } from "node:child_process";
 import {
   SYMBOL_LIMIT,
@@ -40,21 +41,23 @@ import {
   buildOutput,
   usablePath,
 } from "./cbm-context.mjs";
-import { hashFile, downloadToFile, findBinaries } from "./binary-fetch.mjs";
+import { downloadToFile, findBinaries, fetchExpectedSha } from "./binary-fetch.mjs";
 
 const SERVER_NAME = "codebase-memory"; // keep aligned with the .mcp.json key
 const SERVER_INFO = { name: SERVER_NAME, version: "0.1.0" };
-const DEFAULT_PROTOCOL = "2025-11-25"; // what the pinned v0.10.1 binary itself reports
+const DEFAULT_PROTOCOL = "2025-11-25"; // current stable MCP version cbm reports
 const BINARY_NAME = "codebase-memory-mcp";
 /** Per-child-call bound for hook tools: two of these plus a cold handshake plus margin is hooks.json's timeout 20. */
 const HOOK_CALL_TIMEOUT_MS = 4000;
 /** One bounded download attempt per server process — no retry storm on an offline host. */
 const DOWNLOAD_TIMEOUT_MS = 300000;
 const CHILD_MAX_RESTARTS = 3;
-/** Identical name, shape and default as update-cbm-bundle.sh: the value already contains
- *  the repo path and the releases/download segment, and is joined as
- *  ${base}/${releaseTag}/${asset}. Never reconstructed from a bare host. */
-const DEFAULT_DOWNLOAD_BASE_URL = "https://github.com/DeusData/codebase-memory-mcp/releases/download";
+const CBM_ASSET = "codebase-memory-mcp-linux-amd64-portable.tar.gz";
+/** The stable per-repo alias GitHub 302-redirects to the newest release's assets;
+ *  `${base}/${asset}` and `${base}/checksums.txt` both resolve there. `fetch` follows
+ *  redirects, so no tag-resolution step, no GitHub API call, no rate limit. Overridable
+ *  via CBM_DOWNLOAD_BASE_URL (test fixtures point it at 127.0.0.1). */
+const DEFAULT_DOWNLOAD_BASE_URL = "https://github.com/DeusData/codebase-memory-mcp/releases/latest/download";
 
 const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
 
@@ -68,42 +71,7 @@ function describe(error) {
   return String(error && error.message ? error.message : error);
 }
 
-// ---------------------------------------------------------------- pin and tool snapshot
-
-/**
- * The machine-owned version pin. Exactly one binaries[] entry is required — 0 or >1 is a
- * fail-closed startup error, mirroring the deleted shell-script launcher's "exactly one entry" rule.
- * @returns {{cbmVersion: string, releaseTag: string, asset: string, assetSha256: string, binarySha256: string}|null}
- */
-function readPin() {
-  const file = path.join(SERVER_DIR, "..", "cbm-bundle.json");
-  /** @type {any} */
-  let parsed;
-  try {
-    parsed = JSON.parse(readFileSync(file, "utf8"));
-  } catch (e) {
-    log(`unusable cbm-bundle.json (${file}): ${describe(e)}`);
-    return null;
-  }
-  const binaries = Array.isArray(parsed?.binaries) ? parsed.binaries : [];
-  if (binaries.length !== 1) {
-    log(`cbm-bundle.json must list exactly one binaries[] entry, found ${binaries.length}`);
-    return null;
-  }
-  const entry = binaries[0] ?? {};
-  const pin = {
-    cbmVersion: typeof parsed?.cbmVersion === "string" ? parsed.cbmVersion : "",
-    releaseTag: typeof parsed?.releaseTag === "string" ? parsed.releaseTag : "",
-    asset: typeof entry.asset === "string" ? entry.asset : "",
-    assetSha256: typeof entry.assetSha256 === "string" ? entry.assetSha256 : "",
-    binarySha256: typeof entry.binarySha256 === "string" ? entry.binarySha256 : "",
-  };
-  if (pin.cbmVersion === "" || pin.releaseTag === "" || pin.asset === "" || !/^[0-9a-f]{64}$/.test(pin.assetSha256) || !/^[0-9a-f]{64}$/.test(pin.binarySha256)) {
-    log("cbm-bundle.json is missing cbmVersion/releaseTag/asset/assetSha256/binarySha256");
-    return null;
-  }
-  return pin;
-}
+// ---------------------------------------------------------------------- tool snapshot
 
 // This proxy's own tool names — the single source of truth for the collision guard in
 // readToolSnapshot() below, and reused verbatim as each HOOK_TOOLS entry's `name` further
@@ -115,13 +83,13 @@ const HOOK_COVERAGE_CONTEXT_NAME = "hook_coverage_context";
 const HOOK_TOOL_NAMES = [HOOK_SESSION_CONTEXT_NAME, HOOK_SUBAGENT_CONTEXT_NAME, HOOK_SYMBOL_CONTEXT_NAME, HOOK_COVERAGE_CONTEXT_NAME];
 
 /**
- * The committed upstream tool-list snapshot, pinned to the same release as the binary. A
- * missing, unparsable or version-mismatched snapshot degrades to hook tools only — never a
- * startup failure, because call-time forwarding is name-agnostic anyway.
- * @param {string} cbmVersion
+ * The committed upstream tool-list snapshot, hand-maintained. A missing or unparsable
+ * snapshot degrades to hook tools only — never a startup failure, because call-time
+ * forwarding is name-agnostic anyway. No version gate: the runtime resolves latest
+ * itself, so there is no committed cbm version to compare against.
  * @returns {{name: string, description: string, inputSchema: any}[]}
  */
-function readToolSnapshot(cbmVersion) {
+function readToolSnapshot() {
   const file = path.join(SERVER_DIR, "..", "cbm-tools.json");
   /** @type {any} */
   let parsed;
@@ -129,10 +97,6 @@ function readToolSnapshot(cbmVersion) {
     parsed = JSON.parse(readFileSync(file, "utf8"));
   } catch (e) {
     log(`unusable cbm-tools.json (${file}): ${describe(e)}; advertising hook tools only`);
-    return [];
-  }
-  if (parsed?.cbmVersion !== cbmVersion) {
-    log(`cbm-tools.json pins ${String(parsed?.cbmVersion)} but cbm-bundle.json pins ${cbmVersion}; advertising hook tools only`);
     return [];
   }
   const tools = Array.isArray(parsed?.tools) ? parsed.tools : [];
@@ -168,12 +132,7 @@ if (os.platform() !== "linux" || os.arch() !== "x64") {
   log(`codebase-memory-mcp is Linux x86_64 only (host: ${os.platform()}/${os.arch()})`);
   process.exit(0);
 }
-const MAYBE_PIN = readPin();
-if (MAYBE_PIN === null) process.exit(0);
-// process.exit() is typed `any` here (no @types/node), so tsc cannot narrow MAYBE_PIN on
-// its own — the cast records what the guard above already proved.
-const PIN = /** @type {NonNullable<typeof MAYBE_PIN>} */ (MAYBE_PIN);
-const PASSTHROUGH_TOOLS = readToolSnapshot(PIN.cbmVersion);
+const PASSTHROUGH_TOOLS = readToolSnapshot();
 
 // ------------------------------------------------------------------- binary provisioning
 
@@ -182,9 +141,44 @@ let binaryPromise = null;
 /** Only ever true after both hashes verified and the atomic rename landed. */
 let binaryReady = false;
 
-/** @returns {string} */
-function cachedBinaryPath() {
-  return path.join(resolveBundleCache(process.env), PIN.binarySha256.slice(0, 16), BINARY_NAME);
+/** @type {string|null} Set by prepareBinary() once a verified binary is located. */
+let resolvedBinaryPath = null;
+
+/**
+ * The newest owned, executable codebase-memory-mcp among the immediate <sha>/ subdirs of
+ * `cacheRoot`, by mtime, or null. Offline fallback when checksums.txt is unreachable.
+ * ponytail: naive mtime scan of one shallow directory — fine for the handful of version
+ * dirs this ever holds; revisit only if the cache is expected to grow large.
+ * @param {string} cacheRoot
+ * @returns {string|null}
+ */
+function newestCachedBinary(cacheRoot) {
+  /** @type {{path: string, mtimeMs: number}[]} */
+  const found = [];
+  /** @type {any[]} */
+  let entries;
+  try {
+    entries = readdirSync(cacheRoot, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const candidate = path.join(cacheRoot, entry.name, BINARY_NAME);
+    try {
+      accessSync(candidate, fsConstants.X_OK);
+      if (!isOwnedByUs(candidate)) continue;
+      found.push({
+        path: candidate,
+        mtimeMs: statSync(candidate).mtimeMs,
+      });
+    } catch {
+      /* not a usable cached binary — skip */
+    }
+  }
+  if (found.length === 0) return null;
+  found.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return found[0].path;
 }
 
 /**
@@ -211,10 +205,10 @@ function ensureBinary() {
 
 /**
  * True when `p` doesn't exist yet, or exists and is owned by this process's uid and is
- * not a symlink. `cachedBinaryPath()` is derived from `PIN.binarySha256`, which is
- * committed (public) in cbm-bundle.json — on a shared host with the TMPDIR fallback
- * active (no CLAUDE_PLUGIN_DATA), that path is predictable to any local user, so the
- * fast path below must not trust a pre-existing file there on ownership alone.
+ * not a symlink. The cache dir is keyed on the checksums-derived asset sha, a public and
+ * guessable value — on a shared host with the TMPDIR fallback active (no CLAUDE_PLUGIN_DATA),
+ * that path is predictable to any local user, so the fast path below must not trust a
+ * pre-existing file there on ownership alone.
  * @param {string} p
  * @returns {boolean}
  */
@@ -230,50 +224,63 @@ function isOwnedByUs(p) {
 
 /** @returns {Promise<boolean>} */
 async function prepareBinary() {
-  const target = cachedBinaryPath();
+  const cacheRoot = resolveBundleCache(process.env);
+  const base = process.env.CBM_DOWNLOAD_BASE_URL || DEFAULT_DOWNLOAD_BASE_URL;
+  /** @type {string} */
+  let expectedSha;
   try {
-    // Fast path: the path is derived from the verified hash and only ever created after
-    // verification, so a warm start never re-hashes 279.6 MiB — but only once ownership
-    // confirms nobody else could have planted a file at this predictable path.
+    expectedSha = await fetchExpectedSha(`${base}/checksums.txt`, CBM_ASSET, DOWNLOAD_TIMEOUT_MS);
+  } catch (e) {
+    // Offline / unresolvable latest: reuse the newest owned cached binary, else fail closed.
+    const fallback = newestCachedBinary(cacheRoot);
+    if (fallback !== null) {
+      resolvedBinaryPath = fallback;
+      log(`latest unresolved (${describe(e)}); using cached ${fallback}`);
+      return true;
+    }
+    log(`latest unresolved and no cached binary: ${describe(e)}`);
+    return false;
+  }
+  const target = path.join(cacheRoot, expectedSha.slice(0, 16), BINARY_NAME);
+  // Fast path: keyed on the verified checksum and only ever created after verification, so
+  // a warm start never re-downloads — once ownership confirms nobody planted a file here.
+  try {
     accessSync(target, fsConstants.X_OK);
-    if (isOwnedByUs(target)) return true;
-    log(`cached binary at ${target} is not owned by this process; refusing to trust it, re-verifying`);
+    if (isOwnedByUs(target)) {
+      resolvedBinaryPath = target;
+      return true;
+    }
+    log(`cached binary at ${target} is not owned by this process; re-verifying`);
   } catch {
     // cold cache — fall through to the download path
   }
-  const cacheRoot = resolveBundleCache(process.env);
   mkdirSync(cacheRoot, { recursive: true, mode: 0o700 });
   const tmp = mkdtempSync(path.join(cacheRoot, ".tmp."));
   try {
-    const base = process.env.CBM_DOWNLOAD_BASE_URL || DEFAULT_DOWNLOAD_BASE_URL;
-    const url = `${base}/${PIN.releaseTag}/${PIN.asset}`;
-    const archive = path.join(tmp, PIN.asset);
-    log(`fetching ${url}`);
-    const assetSha = await downloadToFile(url, archive, DOWNLOAD_TIMEOUT_MS);
-    if (assetSha !== PIN.assetSha256) {
-      log(`asset sha256 mismatch for ${PIN.asset}; refusing to extract`);
+    const archive = path.join(tmp, CBM_ASSET);
+    log(`fetching ${base}/${CBM_ASSET}`);
+    const actualSha = await downloadToFile(`${base}/${CBM_ASSET}`, archive, DOWNLOAD_TIMEOUT_MS);
+    if (actualSha !== expectedSha) {
+      log(`asset sha256 mismatch for ${CBM_ASSET}; refusing to extract`);
       return false;
     }
     try {
       execFileSync("tar", ["-xzf", archive, "-C", tmp], { stdio: "ignore" });
     } catch (e) {
-      log(`failed to extract ${PIN.asset}: ${describe(e)}`);
+      log(`failed to extract ${CBM_ASSET}: ${describe(e)}`);
       return false;
     }
     const found = findBinaries(tmp, BINARY_NAME);
     if (found.length !== 1) {
-      log(`expected exactly one ${BINARY_NAME} inside ${PIN.asset}, found ${found.length}`);
+      log(`expected exactly one ${BINARY_NAME} inside ${CBM_ASSET}, found ${found.length}`);
       return false;
     }
     chmodSync(found[0], 0o755);
-    if ((await hashFile(found[0])) !== PIN.binarySha256) {
-      log("extracted binary does not match the pin; nothing cached");
-      return false;
-    }
     mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
     // Atomic inside the cache root, so two racing servers converge on the identical
     // verified file.
     renameSync(found[0], target);
+    resolvedBinaryPath = target;
     log(`prepared ${target}`);
     return true;
   } finally {
@@ -345,12 +352,13 @@ function notifyChild(conn, method) {
 /** @returns {Promise<ChildConn>} */
 async function startChild() {
   const ready = await ensureBinary();
-  if (!ready) throw new Error("pinned binary unavailable");
+  if (!ready) throw new Error("codebase-memory binary unavailable");
+  if (resolvedBinaryPath === null) throw new Error("binary path unresolved");
   if (childStarts >= CHILD_MAX_RESTARTS) throw new Error("child restart budget exhausted");
   childStarts += 1;
   // No CBM_CACHE_DIR (cbm's own graph root stays upstream's default) and no reinterpretation
   // of CBM_BUNDLE_CACHE for the child: it is ours, not cbm's.
-  const proc = spawn(cachedBinaryPath(), [], {
+  const proc = spawn(resolvedBinaryPath, [], {
     stdio: ["pipe", "pipe", "pipe"],
     env: { ...process.env },
   });
