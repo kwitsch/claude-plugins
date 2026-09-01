@@ -1,7 +1,8 @@
 #!/usr/bin/env bats
 
-# Committed cbm tarball + cbm-bundle.json pin + cbm-checksums.txt sidecar —
-# linux-token-efficiency. Never extracts the real 279.6 MiB binary.
+# Committed cbm artifacts — linux-token-efficiency: the hand-maintained cbm-tools.json
+# snapshot, the bin/ layout, .mcp.json wiring and mcp/ file modes. No version pin, no
+# vendored binary — the runtime resolves the latest release against its checksums.txt.
 
 load 'test_helper'
 
@@ -9,23 +10,8 @@ setup() {
   common_setup
 }
 
-@test "cbm-bundle.json pins codebase-memory-mcp 0.10.1 and the portable asset, with no committed path" {
-  run jq -e '.cbmVersion == "0.10.1" and .upstreamRepo == "DeusData/codebase-memory-mcp" and .releaseTag == "v0.10.1"' "$CBM_PIN"
-  assert_success
-  run jq -e '.releaseTag == "v" + .cbmVersion' "$CBM_PIN"
-  assert_success
-  run jq -e '(.binaries | length) == 1 and (.binaries[0] | has("path") | not) and .binaries[0].asset == "codebase-memory-mcp-linux-amd64-portable.tar.gz"' "$CBM_PIN"
-  assert_success
-  run jq -e '.binaries[0] | (.assetSha256 | test("^[0-9a-f]{64}$")) and (.binarySha256 | test("^[0-9a-f]{64}$"))' "$CBM_PIN"
-  assert_success
-  run jq -e '.binaries[0].assetSha256 == "97c6580a13d772d040e936584f3c5234586ab03f31a77354af8a763851a39a7f" and .binaries[0].binarySha256 == "3380cf3b868d749c63f564e7c6b81381a140942ec42253f785e158ab5144064f"' "$CBM_PIN"
-  assert_success
-}
-
-@test "cbm-tools.json is a 15-tool snapshot pinned to the same cbm version" {
+@test "cbm-tools.json is a 15-tool snapshot" {
   run jq empty "$CBM_TOOLS"
-  assert_success
-  run jq -e --slurpfile pin "$CBM_PIN" '.cbmVersion == $pin[0].cbmVersion' "$CBM_TOOLS"
   assert_success
   run jq -e '(.tools | length) == 15' "$CBM_TOOLS"
   assert_success
