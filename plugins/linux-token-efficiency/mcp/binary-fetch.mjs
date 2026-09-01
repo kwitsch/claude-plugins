@@ -1,8 +1,10 @@
 // mcp/binary-fetch.mjs — linux-token-efficiency: shared download/verify/extract helpers.
 // Imported, never executed: no shebang (mode 100644), no main(), no process.exit. Used by
-// both mcp/server.mjs (cbm) and hooks/rtk-install.mjs (rtk) — the two consumers share the
-// identical download-then-verify discipline (sha256 the stream while writing it, then
-// sha256 the extracted binary) but each owns its own pin shape, binary name and target path.
+// both mcp/server.mjs (cbm) and hooks/rtk-install.mjs (rtk). Both share one discipline:
+// fetch the release's checksums.txt (parseExpectedSha/fetchExpectedSha, exactly-one-entry
+// or fail closed), download the tarball while streaming its sha256 (downloadToFile), and
+// compare the two. The single verified tarball is trusted; the extracted binary is not
+// re-hashed. Each consumer owns its own asset name and target path.
 import path from "node:path";
 import { createReadStream, createWriteStream, readdirSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -64,4 +66,53 @@ export function findBinaries(dir, binaryName) {
   };
   walk(dir);
   return found;
+}
+
+/**
+ * Parse a goreleaser-style checksums.txt body and return the single expected sha256 for
+ * `assetName`. Throws (fails closed) on 0 or >1 matching lines or a malformed hash — the
+ * exactly-one-entry rule the maintainer scripts enforce with awk. Handles sha256sum's
+ * optional "*" binary-mode prefix on the filename field. Splits each line on a whitespace
+ * run (awk's default field split), NOT a fixed two-space split.
+ * @param {string} text
+ * @param {string} assetName
+ * @returns {string}
+ */
+export function parseExpectedSha(text, assetName) {
+  /** @type {string[]} */
+  const matches = [];
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed === "") continue;
+    const parts = trimmed.split(/\s+/);
+    if (parts.length < 2) continue;
+    const hash = parts[0];
+    const name = parts[1];
+    if (name === assetName || name === "*" + assetName) matches.push(hash);
+  }
+  if (matches.length !== 1) {
+    throw new Error(`checksums.txt must list exactly one entry for ${assetName}, found ${matches.length}`);
+  }
+  const hash = matches[0];
+  if (!/^[0-9a-f]{64}$/.test(hash)) {
+    throw new Error(`checksums.txt hash for ${assetName} is malformed`);
+  }
+  return hash;
+}
+
+/**
+ * Fetch a goreleaser-style checksums.txt and return the single expected sha256 for
+ * `assetName`. Thin fetch + delegate to parseExpectedSha; throws on a non-OK response. No
+ * extra headers — the download host is a CDN, not api.github.com.
+ * @param {string} url
+ * @param {string} assetName
+ * @param {number} timeoutMs
+ * @returns {Promise<string>}
+ */
+export async function fetchExpectedSha(url, assetName, timeoutMs) {
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!response.ok) throw new Error(`checksums fetch failed (${response.status}): ${url}`);
+  return parseExpectedSha(await response.text(), assetName);
 }
