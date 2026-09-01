@@ -22,7 +22,7 @@ git update-index --chmod=+x plugins/linux-token-efficiency/bin/context-mode-laun
 git ls-files -s plugins/linux-token-efficiency/bin/context-mode-launch.sh # must print 100755
 ```
 
-`hooks/SessionStart.md` and `hooks/subagent-nudge.md` are the deliberate exception: they stay
+`hooks/SessionStart.md` and `hooks/subagent-nudge.json` are the deliberate exception: they stay
 `100644` (both are `cat`-ed, not executed, and `.claude/rules/hooks-executable.md` globs only
 `hooks/*.sh` and `hooks/*.mjs`).
 
@@ -97,7 +97,7 @@ remaining cbm entries (`SubagentStart`, `PreToolUse` `Grep`/`Glob`, `PostToolUse
 bare `.mcp.json` key resolves to "not connected" on every fire) with an explicit `input` block each,
 because an omitted `input` delivers `{}` instead of the hook JSON, a second `SessionStart` entry
 that `cat`s `hooks/SessionStart.md`, a second `SubagentStart` entry that `cat`s
-`hooks/subagent-nudge.md` (both static files, see `## context-mode`), and a third `SessionStart`
+`hooks/subagent-nudge.json` (both static files, see `## context-mode`), and a third `SessionStart`
 entry (a `command` hook running `hooks/rtk-install.mjs`, async, no `asyncRewake`) that installs rtk
 into `~/.local/bin/rtk` — a plain `command` hook
 rather than a fifth cbm `mcp_tool`, since the nudge is generic subagent-behavior guidance plus
@@ -304,13 +304,23 @@ frontmatter that no `userConfig` value can drive (`${user_config.*}` placeholder
   untokenized argument. A `.mjs` reader exists
   only because it _transforms_ its input; static files that must not be transformed get a bare `cat`
   instead. `hooks-json-authoring.md` documents plain stdout reaching Claude with no JSON wrapper
-  specifically for `SessionStart`; extending that to `SubagentStart` here is by analogy (identical
-  `block_mechanism: "context_only"` classification in the event matrix, same "additional_context: true,
-  no blocking" contract) rather than an independently documented fact — re-verify if this hook is
-  ever seen to silently not land. USER DECISION: for purely static content, a `cat`-a-file hook is
-  preferred over a script that only ever emits the same hardcoded string — no interpreter startup, no
-  code to review for a string that never changes at runtime; `subagent-nudge.mjs` was replaced with
-  `subagent-nudge.md` + this `cat` entry for exactly that reason. See `## context-mode`.
+  specifically for `SessionStart`; through 0.5.x this plugin extended that to `SubagentStart` by
+  analogy (identical `block_mechanism: "context_only"` classification in the event matrix, same
+  "additional_context: true, no blocking" contract) rather than an independently documented fact,
+  flagged here to "re-verify if this hook is ever seen to silently not land." It was: subagents kept
+  narrating between tool calls with the nudge hook wired up. Root cause (`claude-code-hooks-reference`'s
+  exit-codes section) — the plain-stdout-reaches-Claude free pass is enumerated per-event and
+  `SubagentStart` is NOT on that list (only `UserPromptSubmit`/`UserPromptExpansion`/`SessionStart`/
+  `PostModelSwitch` are); a `SubagentStart` command hook's stdout goes to the debug log only, so the
+  `cat`-ed markdown never reached any subagent. Fixed by making the static file itself the required
+  JSON envelope (`hooks/subagent-nudge.json`: `{"hookSpecificOutput":{"hookEventName":"SubagentStart",
+"additionalContext":"..."}}`) rather than raw prose — `cat` still emits it unmodified, so the
+  USER DECISION below (prefer `cat`-ing a static file over a script that only emits a hardcoded
+  string — no interpreter startup, no code to review for a string that never changes at runtime) is
+  unaffected; only the file's content shape changed to match what `SubagentStart` actually delivers.
+  `subagent-nudge.mjs` was replaced with `subagent-nudge.md` for exactly that no-interpreter reason
+  before this correction, and `subagent-nudge.md` was in turn replaced with `subagent-nudge.json` here
+  — do not "fix" it back to a bare markdown file. See `## context-mode`.
 - **A `bin/` wrapper that launches an EXTERNAL npm package.** `bin/context-mode-launch.sh` execs
   `bunx`/`npx --yes` against a pinned published package spec rather than a local `.mjs` — the first
   such wrapper here; the three `bin/mjs-launch.sh` copies all exec a runtime against a bundled file.
@@ -332,8 +342,9 @@ of the pure helpers (`cbm-context.test.mjs`) — every fixture is fabricated and
 `context-mode.bats`: the launcher's runtime selection against stubbed `bunx`/`npx` on an isolated
 PATH (the real runners are never invoked and the npm registry is never reached), the `.mcp.json`
 server entry, the verbatim `hooks/SessionStart.md` (first/last line, load-bearing literals, index
-mode), the `SessionStart` `cat` wiring, the `hooks/subagent-nudge.md` content and its `SubagentStart`
-`cat` wiring, the PreToolUse/PostToolUse zero-nudge-hook tripwire and the
+mode), the `SessionStart` `cat` wiring, the `hooks/subagent-nudge.json` content (valid JSON,
+`hookSpecificOutput.hookEventName == "SubagentStart"`, `additionalContext` non-empty) and its
+`SubagentStart` `cat` wiring, the PreToolUse/PostToolUse zero-nudge-hook tripwire and the
 `.prettierignore`/`.coderabbit.yaml` verbatim guards. The forced output style adds `output-style.bats`
 (style presence, frontmatter keys read strictly between the real `---` fences, the exact first body
 heading, the ≤ 40-line brevity cap, required directive tokens).
@@ -482,7 +493,7 @@ codebase-memory features (bundled Linux binaries), but `bin/context-mode-launch.
 `bash` nor `cat` is on `PATH` by default on native Windows outside WSL or Git Bash, so both fail to
 start there. Purely additive documentation — no behavior changes as a result.
 
-**The `SubagentStart` nudge hook (`hooks/subagent-nudge.md`, `cat`-ed) is a separate, explicitly
+**The `SubagentStart` nudge hook (`hooks/subagent-nudge.json`, `cat`-ed) is a separate, explicitly
 user-requested addition — not part of the PreToolUse/PostToolUse analysis below.** It is a static
 file with two unrelated points: (1) subagents should not print narrative status text between tool
 calls, only their final report, and (2) subagents should prefer `context-mode`'s `ctx_*` tools —
@@ -500,6 +511,20 @@ file than by a script whose only job is to emit a hardcoded string — this was 
 a `subagent-nudge.mjs` script and changed to this file+`cat` shape for exactly that reason. See the
 `cat`-hook bullet under `## Novel-in-repo mechanics` for the `SessionStart`-vs-`SubagentStart`
 plain-stdout caveat.
+
+> Correction note (fixed after user report: subagents kept narrating despite this hook). The file
+> was originally `hooks/subagent-nudge.md` — raw prose, on the (flagged-as-unverified) assumption
+> that `SubagentStart` gets the same free plain-stdout-as-context pass `SessionStart` does. It
+> doesn't: `claude-code-hooks-reference`'s exit-codes section enumerates exactly which events get
+> that pass (`UserPromptSubmit`, `UserPromptExpansion`, `SessionStart`, `PostModelSwitch`) —
+> `SubagentStart` isn't one of them, so its command-hook stdout is written to the debug log only and
+> never reaches the subagent. The nudge hook fired on every subagent start and did nothing, silently,
+> for as long as it existed. Fixed by making the static file itself the required JSON envelope
+> (`hooks/subagent-nudge.json`: `{"hookSpecificOutput":{"hookEventName":"SubagentStart",
+"additionalContext":"..."}}`, per the event matrix's `SessionStart, Setup, SubagentStart` row) —
+> `cat` still emits it completely unmodified, so the USER DECISION above (a static file over a
+> script) still holds; only the file's content shape changed from prose to a pre-rendered JSON
+> payload. `hooks.json`'s wiring changed only its `args` filename.
 
 **Steering hooks (0.4.0) — a deliberate, user-directed REVISIT of the earlier zero-nudge decision,
 which rejected something different.** Through 0.3.0 this plugin added zero PreToolUse/PostToolUse

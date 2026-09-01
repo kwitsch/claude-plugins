@@ -167,9 +167,13 @@ cm_run() {
   [ "$output" = "$(cat "$ss")" ]
 }
 
-@test "hooks/subagent-nudge.md is a static file with both nudge points, tracked 100644" {
-  local nudge="$PLUGIN/hooks/subagent-nudge.md"
+@test "hooks/subagent-nudge.json is a static hookSpecificOutput payload with both nudge points, tracked 100644" {
+  local nudge="$PLUGIN/hooks/subagent-nudge.json"
   [ -s "$nudge" ]
+  run jq -e '.hookSpecificOutput.hookEventName == "SubagentStart"' "$nudge"
+  assert_success
+  run jq -e '.hookSpecificOutput.additionalContext | length > 0' "$nudge"
+  assert_success
   run grep -F 'final report' "$nudge"
   assert_success
   run grep -F 'context-mode' "$nudge"
@@ -177,22 +181,22 @@ cm_run() {
   run grep -F 'ctx_' "$nudge"
   assert_success
   # No exec bit: same rule as hooks/SessionStart.md.
-  run git -C "$REPO_ROOT" ls-files --stage -- plugins/linux-token-efficiency/hooks/subagent-nudge.md
+  run git -C "$REPO_ROOT" ls-files --stage -- plugins/linux-token-efficiency/hooks/subagent-nudge.json
   assert_success
-  assert_line --regexp '^100644 [0-9a-f]+ 0[[:space:]]+plugins/linux-token-efficiency/hooks/subagent-nudge\.md$'
+  assert_line --regexp '^100644 [0-9a-f]+ 0[[:space:]]+plugins/linux-token-efficiency/hooks/subagent-nudge\.json$'
 }
 
-@test "cat on subagent-nudge.md through an isolated PATH reproduces the file" {
-  local nudge="$PLUGIN/hooks/subagent-nudge.md"
+@test "cat on subagent-nudge.json through an isolated PATH reproduces the file" {
+  local nudge="$PLUGIN/hooks/subagent-nudge.json"
   run env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" cat "$nudge"
   assert_success
   [ "$output" = "$(cat "$nudge")" ]
 }
 
-@test "hooks.json wires subagent-nudge.md as a second SubagentStart cat entry" {
+@test "hooks.json wires subagent-nudge.json as a second SubagentStart cat entry" {
   run jq -e '(.hooks.SubagentStart | length) == 2' "$HOOKS"
   assert_success
-  run jq -e '.hooks.SubagentStart[1].hooks[0] == {type:"command", command:"cat", args:["${CLAUDE_PLUGIN_ROOT}/hooks/subagent-nudge.md"], timeout:5}' "$HOOKS"
+  run jq -e '.hooks.SubagentStart[1].hooks[0] == {type:"command", command:"cat", args:["${CLAUDE_PLUGIN_ROOT}/hooks/subagent-nudge.json"], timeout:5}' "$HOOKS"
   assert_success
   run jq -e '.hooks.SubagentStart[1] | (has("matcher") | not) and (.hooks | length) == 1' "$HOOKS"
   assert_success
