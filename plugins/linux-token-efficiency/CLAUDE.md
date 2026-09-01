@@ -288,9 +288,9 @@ frontmatter that no `userConfig` value can drive (`${user_config.*}` placeholder
   a working call.
 - **`mcp/` holds three hand-written files.** `server.mjs` imports `./cbm-context.mjs`, keeping ~350
   already-tested pure lines out of the transport file, and `./binary-fetch.mjs`, the
-  download/verify/extract helpers (`hashFile`/`downloadToFile`/`findBinaries`) shared with
+  download/verify/extract helpers (`fetchExpectedSha`/`downloadToFile`/`findBinaries`) shared with
   `hooks/rtk-install.mjs`'s rtk provisioning — `mcp/` stays the relocatable, zero-npm-dep unit that
-  both consumers import from, each keeping its own pin shape, binary name and target path.
+  both consumers import from, each keeping its own asset name, binary name and target path.
   `server.mjs` is also the repo's first **wrapper-less** MCP server
   (`command: ${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs`, no `bin/mjs-launch.sh`) — the written rule's
   default, knowingly divergent from the three other MCP plugins. Do not "fix" it toward that
@@ -385,7 +385,7 @@ the earlier CLI-based hooks shipped with):
 `coverage_lookup === "error"` and `status === "coverage_unavailable"` are checked **first** and mean
 silence: no signal is not evidence of a gap, and warning there would fire on every single `Read` in
 any repo without recorded coverage. Any unrecognized payload is silence too, so a future upstream
-reshape costs context, never correctness. Re-probe at the next pin bump.
+reshape costs context, never correctness. Re-probe whenever upstream cuts a new release.
 
 ## context-mode
 
