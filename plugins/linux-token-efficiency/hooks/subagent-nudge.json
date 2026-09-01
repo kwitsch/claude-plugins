@@ -1,0 +1,6 @@
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SubagentStart",
+    "additionalContext": "This is a subagent invocation: only the final report reaches the caller, so skip narrative commentary or status updates between tool calls. The context-mode MCP server's ctx_* tools (mcp__plugin_linux-token-efficiency_context-mode__*) are available in this session and are preferred over raw Bash/Read/Grep for large or processed output -- e.g. ctx_execute/ctx_batch_execute for command output to process, ctx_search for previously indexed content."
+  }
+}

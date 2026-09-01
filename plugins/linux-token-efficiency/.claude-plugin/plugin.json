@@ -1,6 +1,6 @@
 {
   "name": "linux-token-efficiency",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Installs the pinned rtk token-optimizing CLI proxy (https://github.com/rtk-ai/rtk) release into ~/.local/bin on first use (Linux x86_64) and routes Bash commands through it via a PreToolUse rewrite hook, ships codebase-memory-mcp (https://github.com/DeusData/codebase-memory-mcp) as a plugin-local proxy MCP server that downloads and sha256-verifies the pinned release on first start with four context-only graph hooks, and registers the external context-mode package (https://github.com/mksglu/context-mode) as the context-mode MCP stdio server through a bun-preferred bunx / npx --yes launcher, injecting upstream's own routing-rules document verbatim at every session start via a SessionStart cat hook and deny-steering WebFetch plus read-only Bash gather commands to its ctx_* tools via two PreToolUse steering hooks. LINUX ONLY: the bundled binaries are Linux executables, so on macOS, Windows or any other operating system this plugin does not work for the rtk and codebase-memory features, whose hooks no-op. The one OS-independent component is an always-on, forced terse output style (bullet-first, filler-free), which applies wherever the plugin is enabled.",
   "author": { "name": "Kwitsch" },
   "userConfig": {
