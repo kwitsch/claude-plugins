@@ -442,6 +442,18 @@ them into `assets=`. Never hand-edit the bundle or the sidecars.
 
 Packaging rationale (why this stays bundled and is not un-bundled): the plugin runs from a versioned plugin-cache copy with no ancestor `node_modules`, and `bin/mjs-launch.sh` execs `bun`/`node` with no install step — so `prettier` and its java/php/shell plugins (with their `web-tree-sitter`/`sh-syntax` wasm bindings), which are root devDependencies never present under `plugins/`, are only resolvable at runtime because `bun build` inlines them into this one file. Un-bundling to bare-specifier `.mjs` imports would fail to start for every real consumer; vendoring a full `node_modules` under `mcp/` is larger and more drift-prone than today's one file plus three wasm sidecars; a runtime `pnpm install` step breaks the repo's zero-install single-file launcher convention. The wasm-sidecar copy and the `sh-syntax __dirname` rewrite are consequences of bundling, not independent reasons to un-bundle. Reopen only if Claude Code's plugin-install model ever provisions `node_modules` at runtime.
 
+## Skill design (universal-format)
+
+`skills/universal-format/` adds the user-only `/universal-format:universal-format` command: a
+free-text file selector → colocated `format-files.mjs` driver. The driver imports `formatPre`,
+`formatPost`, `EXT_MAP`, `PRETTIER_LANGS` from `../../mcp/server.mjs` (the committed bundle —
+never hand-edited; namespace cast to `any` for typecheck) and reproduces the plugin's **full**
+on-write formatting: Prettier languages via `formatPre` (read content → persist the returned
+`updatedInput.content`), the 4 CLI languages via `formatPost` (reformats on disk itself). Per-file
+fail-open; always exits 0, the printed summary is the signal. `disable-model-invocation: true`
+(user-invoke-only); no `userConfig`. Invocation contract in
+`skills/universal-format/format-files.reference.md`.
+
 ## Tests
 
 `test/universal-format/` — split into one `.bats` file per language/tool
