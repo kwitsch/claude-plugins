@@ -8,6 +8,12 @@ Silently auto-formats source files around Write/Edit — Prettier languages befo
 /plugin install universal-format@kwitsch-plugins
 ```
 
+## Skills
+
+| Skill              | What it does                                                                                                                                                                       |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `universal-format` | User-invoked. Formats every file in a free-text selection ("all files in `src/`", "files changed in PR 123", or an explicit list) exactly as the always-on Write/Edit hooks would. |
+
 ## What it does
 
 Two `Write|Edit` hooks on a self-contained plugin-local MCP server, plus two more that react to
