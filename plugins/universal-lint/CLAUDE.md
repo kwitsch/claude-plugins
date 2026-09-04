@@ -378,6 +378,18 @@ own maintainers haven't decomposed this is unforced complexity.
 `universal-format` already rejects malformed JSON via its `prettier`/`biome`
 chain — format-only coverage is the honest answer for this file type.
 
+## Skill design (universal-lint)
+
+`skills/universal-lint/` adds the user-only `/universal-lint:universal-lint` command: a free-text
+file selector → colocated `lint-files.mjs` driver. The driver imports `lintFileHandler` (exported
+from `hooks/lint-file.mjs` — `main()` stays its sole hook entry point, and the export is the one
+additive change to that file) and calls it per file, collecting each
+`hookSpecificOutput.additionalContext` into one aggregated, read-only report. Importing the handler
+bypasses `main()`'s 5s debounce (which lives only in `main()`/`debounceGate`, not the handler), so
+no `UNIVERSAL_LINT_DEBOUNCE_MS` knob is used. Read-only — the driver never runs an autofix path.
+Per-file fail-open; always exits 0. `disable-model-invocation: true` (user-invoke-only); no
+`userConfig`. Invocation contract in `skills/universal-lint/lint-files.reference.md`.
+
 ## Tests
 
 `test/universal-lint/` — split into one `.bats` file per language/tool

@@ -916,7 +916,7 @@ export function resolveLintTarget(args) {
 
 // The lint_file tool handler. Returns {} on every guard failure / clean / skip (fail open).
 /** @param {PostToolUseHookInput} args @returns {HookResult} */
-function lintFileHandler(args) {
+export function lintFileHandler(args) {
   try {
     const resolved = resolveLintTarget(args);
     if (!resolved) return {};
