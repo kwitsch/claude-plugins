@@ -14,6 +14,7 @@ import {
   isToolAvailable,
   isExcludedPath,
   resolveLintTarget,
+  lintFileHandler,
   parseRtkPrefix,
   resolveTsconfig,
   looksLikeSolutionStyleTsconfig,
@@ -619,4 +620,8 @@ test("resolveLintTarget: a .rs file resolves like any other eligible extension",
   const dir = mkdtempSync(path.join(tmpdir(), "ul-rlt-"));
   writeFileSync(path.join(dir, "main.rs"), "fn main() {}\n");
   assert.equal(resolveLintTarget(mockResolveArgs(dir, "main.rs")), path.join(dir, "main.rs"));
+});
+
+test("lintFileHandler is exported (the universal-lint skill driver depends on it)", () => {
+  assert.equal(typeof lintFileHandler, "function");
 });
