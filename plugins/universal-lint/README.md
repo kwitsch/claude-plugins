@@ -8,6 +8,12 @@ Silently runs each language's standard linter (read-only — never autofixes) on
 /plugin install universal-lint@kwitsch-plugins
 ```
 
+## Skills
+
+| Skill            | What it does                                                                                                                                                                                                                |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `universal-lint` | User-invoked. Lints every file in a free-text selection ("all files in `src/`", "files changed in PR 123", or an explicit list) read-only, exactly as the Write/Edit hook would, and prints one aggregated findings report. |
+
 ## What it does
 
 An async PostToolUse `Write|Edit` command hook (no MCP server — the plugin has exactly one hook) runs the just-written file's standard linter, check-only, for ten languages. The linter runs when its CLI is on `PATH` — or, for `eslint`/`markdownlint-cli2`/`markdownlint`/`stylelint`, via the `npx` fallback (see below); an unavailable linter (no `PATH` CLI and no `npx` fallback), any crash or misconfiguration, an unsupported extension, a file outside the project, or a file under `node_modules/`/`vendor/`/`.git/` is a **silent no-op** — the hook never blocks or degrades the session, and it never modifies the file (that's `universal-format`'s job, not this plugin's — this plugin never passes `--fix`/`--format`/`--write` to anything). When (and only when) the linter reports real findings, the hook returns them as context (delivered on the next turn, since the hook runs asynchronously) so Claude can fix them itself.
