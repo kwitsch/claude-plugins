@@ -456,6 +456,11 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
 }
 
+@test "dispatch-task payload passes --skip-branch-check to build-task" {
+  run rg_or_grep -F -- '/taskflow:build-task --skip-branch-check' "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
 @test "plugin README lists dispatch-task in the Skills section" {
   run rg_or_grep -F '| `dispatch-task`' "$PLUGIN/README.md"
   [ "$status" -eq 0 ]
