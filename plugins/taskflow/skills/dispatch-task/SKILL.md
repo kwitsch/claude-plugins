@@ -24,10 +24,13 @@ feature-branch state into the dispatched run. Either way it is checked out on an
 auto-generated branch NAME, never literally the default branch or this session's branch by
 name — so the payload below has the new session cut a properly-named `feature/<slug>`
 branch as its own first action, before invoking `build-task`, regardless of which base it
-started from; skipping that would make `build-task`'s step 1 ("otherwise, stay on the
-current branch") fire on every dispatch and ship from the ugly auto-generated branch
-instead. This skill's own Bash calls still never touch `git` — that first action runs
-inside the new session, not here.
+started from. The payload also passes `--skip-branch-check` to `build-task`, so its
+step 1 trusts the freshly-cut `feature/<slug>` branch outright and skips its own
+clean-tree check and branch cut — instead of `build-task` comparing the branch name
+against the base and falling through to its "stay on the current branch" path. Cutting
+the branch first is still required so that name is already the pretty `feature/<slug>`
+build-task now trusts verbatim. This skill's own Bash calls still never touch `git` —
+that first action runs inside the new session, not here.
 
 `$task_description` may optionally start with `--model=<model>` and/or `--effort=<effort>`
 (any order, whitespace-separated) — parse and strip these before anything else; default
@@ -85,7 +88,7 @@ arrives via "Other") before doing anything else. Never guess a task.
    anything else:
      git checkout -b "feature/<same-3-6-word-english-slug-as-above>"
    Then invoke:
-   /taskflow:build-task <the literal, verbatim task text goes here — the actual task after
+   /taskflow:build-task --skip-branch-check <the literal, verbatim task text goes here — the actual task after
    stripping any --model=/--effort= prefix, not the raw string "$task_description" —
    substituted by you when you write this command, exactly as given>
    DISPATCH_TASK_PROMPT_EOF
@@ -98,10 +101,11 @@ arrives via "Other") before doing anything else. Never guess a task.
    so two same-second dispatches of the same task still get distinct names. The prompt is
    read back with direct command substitution — no temp file, so a dispatch that fails
    under `set -e` leaves nothing on disk to leak. The payload's actual task instruction is
-   exactly `/taskflow:build-task <task text>`: that skill binds the whole remainder of the
-   line to its own task-description argument verbatim, and — already on the correctly
-   named `feature/<slug>` branch by the time it runs — stays there per its own step 1 and
-   ships on its own. On failure (name collision, invalid `--model`/`--effort` value,
+   exactly `/taskflow:build-task --skip-branch-check <task text>`: that skill binds the whole
+   remainder of the line (after the flag) to its own task-description argument verbatim, and —
+   because `--skip-branch-check` is passed — skips its own step 1 branch check entirely,
+   trusting the `feature/<slug>` branch this skill just cut rather than re-deriving or
+   comparing it. On failure (name collision, invalid `--model`/`--effort` value,
    `claude` binary missing, launch failure, or the preliminary `git checkout -b` failing
    because that branch name is already taken), report the error as-is — never retry with
    `--force`.
