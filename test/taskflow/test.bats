@@ -250,6 +250,11 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
 }
 
+@test "build-task SKILL.md documents the --skip-branch-check prefix flag" {
+  run rg_or_grep -F -- '--skip-branch-check' "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
 @test "fix-applier applies and tests fixes per-fix before a single category commit" {
   run rg_or_grep -iF 'PER-FIX' "$AGENTS_DIR/fix-applier.md"
   [ "$status" -eq 0 ]
