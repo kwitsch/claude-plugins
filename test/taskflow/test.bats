@@ -421,6 +421,11 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
 }
 
+@test "CLAUDE.md documents the --skip-branch-check flag" {
+  run rg_or_grep -F -- '--skip-branch-check' "$PLUGIN/CLAUDE.md"
+  [ "$status" -eq 0 ]
+}
+
 @test "dispatch-task hardens the session name and any interpolated value" {
   run rg_or_grep -F 'RANDOM' "$DISPATCH/SKILL.md"
   [ "$status" -eq 0 ]

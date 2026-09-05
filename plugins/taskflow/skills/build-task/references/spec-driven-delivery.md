@@ -49,7 +49,11 @@ before assuming malformed content.
 
 ## Preconditions
 
-- Work branch checked out, `git status --porcelain` empty.
+- Work branch checked out, `git status --porcelain` empty. On the
+  `dispatch-task` path (where `build-task`'s step 1 check was skipped via
+  `--skip-branch-check`), these are guaranteed by dispatch-task's fresh
+  `claude --worktree` cut and its own `git checkout -b "feature/<slug>"`,
+  not by build-task's step 1.
 - Spec approved by the user and readable by subagents.
 - Worktree isolation branches from the repo's DEFAULT branch — the template
   compensates by hard-resetting every implementer to `BRANCH_NAME` first.
