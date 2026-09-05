@@ -136,7 +136,11 @@ reports the CLI's own session id. Load-bearing decisions:
   regardless of which base it started from. The payload's first instruction
   is now `git checkout -b "feature/<same-slug>"`, run by the new session
   itself (full `--permission-mode auto` tooling) — this skill's own Bash
-  calls still never touch `git`, see below.
+  calls still never touch `git`, see below. (As of `--skip-branch-check` —
+  see **Skipping build-task's branch check on dispatch** — the cut is still
+  required, but now so that `BRANCH_NAME` is already the pretty
+  `feature/<slug>` name build-task trusts verbatim, not to steer build-task's
+  now-skipped `current == BASE_BRANCH` comparison.)
 - **`worktree.baseRef` (CodeRabbit finding, PR #193 — this repo's own bundled
   `claude-code-knowledge` reference cache was stale on this exact setting;
   verified against the live `code.claude.com/docs/en/worktrees` doc before
@@ -208,6 +212,35 @@ no explicit checkout-path threading is needed for this to work. (A prior,
 unrelated finding about _bridge_/remote-control sessions defaulting subagent
 cwd to the primary root does not apply to this dispatch path — don't conflate
 the two.)
+
+## Skipping build-task's branch check on dispatch
+
+`dispatch-task` always passes `--skip-branch-check` in its
+`/taskflow:build-task …` payload, so `build-task`'s step 1 skips its
+`git status --porcelain` clean check and its cut/switch-to-`feature/<slug>`
+logic and trusts the already-checked-out branch (see `build-task/SKILL.md`
+step 1 for the exact skip path — it still determines `BASE_BRANCH` and
+captures `BRANCH_NAME` on both paths).
+
+The state is correct by construction on this path, so re-checking it is
+redundant: `claude --worktree` starts the worktree with a clean tree
+regardless of its base (see the "This skill's own Bash never touches `git`"
+bullet under **Skill design (dispatch-task)**), and the payload's own
+`git checkout -b "feature/<slug>"` runs before `build-task` is invoked — so
+`BRANCH_NAME` (`git branch --show-current`) is already the correct pretty
+name and the tree is already clean before step 1 runs.
+
+Why skip rather than let the redundant check run: under
+`--permission-mode auto` with nobody present (every `dispatch-task` run — see
+the **Unattended checkpoints** bullet), re-running the porcelain
+stop-and-report or the cut/switch logic against state it does not know the
+caller already set up correctly risks a conflicting decision the check should
+not be making at all — a stop-and-report on a tree it misreads, or a second
+branch cut over the one dispatch-task just made, with no one present to
+intervene. An explicit caller-passed flag removes the check instead of having
+`build-task` second-guess state it cannot verify. No dated failure transcript
+is claimed for this specific flag; this is a designed-against risk consistent
+with the **Unattended checkpoints** reasoning above.
 
 ## Fixed 2026-08-22: `build-task` hard-failed on every `dispatch-task` run
 

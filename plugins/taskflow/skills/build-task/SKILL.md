@@ -6,7 +6,7 @@ description: >-
   worktrees with per-wave merge, combined review, fix application), both
   executed by prebuilt Workflow scripts shipped with this skill. Human
   checkpoints: open design questions and spec approval, via AskUserQuestion.
-argument-hint: "[task-description]"
+argument-hint: "[--skip-branch-check] [task-description]"
 arguments: task_description
 allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash", "Workflow", "AskUserQuestion", "ToolSearch"]
 ---
@@ -41,6 +41,15 @@ message).
 
 > **User decisions go through `AskUserQuestion`** — fixed-choice and
 > open-ended alike; never plain prose that waits for a typed reply.
+
+`$task_description` may optionally start with `--skip-branch-check` (a bare
+boolean flag, no value) — parse and strip it before anything else; whatever
+remains (trimmed) is the actual task text used everywhere `$task_description`
+is referenced below. When present it makes step 1 trust the
+already-checked-out work branch and skip its clean-tree check and branch cut
+(see step 1). Callers that have already established the correct, clean work
+branch — notably `dispatch-task`, which always passes it — use this to avoid
+a redundant check.
 
 ## Plugin context
 
@@ -128,9 +137,15 @@ Every pipeline file is session-only, never a repository file:
 
 ## Steps
 
-1. **Branch.** `git status --porcelain` must be empty — stray state → stop
-   and report. Determine `BASE_BRANCH` once: short name from
-   `git symbolic-ref refs/remotes/origin/HEAD`, fallback `main`. If the
+1. **Branch.** When `--skip-branch-check` was passed (flag paragraph above),
+   skip the `git status --porcelain` clean check and the
+   cut/switch-to-`feature/<slug>` logic entirely — trust that the correct
+   work branch is already checked out. Still determine `BASE_BRANCH` (short
+   name from `git symbolic-ref refs/remotes/origin/HEAD`, fallback `main`)
+   and still capture `BRANCH_NAME` = `git branch --show-current`; both are
+   required by the delivery workflow (step 4).
+   Otherwise (flag absent): `git status --porcelain` must be empty — stray
+   state → stop and report. Determine `BASE_BRANCH` once as above. If the
    current branch IS the base branch, cut and switch to `feature/<slug>`.
    Otherwise — including when resumed inside an existing worktree that
    already has an open PR/MR for its branch — stay on the current branch, do

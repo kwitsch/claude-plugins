@@ -48,10 +48,10 @@ export -f rg_or_grep
   [ "$status" -eq 0 ]
 }
 
-@test "plugin.json version is 1.4.3" {
+@test "plugin.json version is 1.5.0" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "1.4.3" ]
+  [ "$output" = "1.5.0" ]
 }
 
 @test "marketplace entry exists for taskflow" {
@@ -250,6 +250,11 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
 }
 
+@test "build-task SKILL.md documents the --skip-branch-check prefix flag" {
+  run rg_or_grep -F -- '--skip-branch-check' "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
 @test "fix-applier applies and tests fixes per-fix before a single category commit" {
   run rg_or_grep -iF 'PER-FIX' "$AGENTS_DIR/fix-applier.md"
   [ "$status" -eq 0 ]
@@ -416,6 +421,11 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
 }
 
+@test "CLAUDE.md documents the --skip-branch-check flag" {
+  run rg_or_grep -F -- '--skip-branch-check' "$PLUGIN/CLAUDE.md"
+  [ "$status" -eq 0 ]
+}
+
 @test "dispatch-task hardens the session name and any interpolated value" {
   run rg_or_grep -F 'RANDOM' "$DISPATCH/SKILL.md"
   [ "$status" -eq 0 ]
@@ -448,6 +458,11 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   run rg_or_grep -F 'git checkout -b' "$DISPATCH/SKILL.md"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'feature/<' "$DISPATCH/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "dispatch-task payload passes --skip-branch-check to build-task" {
+  run rg_or_grep -F -- '/taskflow:build-task --skip-branch-check' "$DISPATCH/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
