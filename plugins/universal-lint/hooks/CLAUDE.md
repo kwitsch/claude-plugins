@@ -1,0 +1,377 @@
+# CLAUDE.md — universal-lint/hooks
+
+## Hook design (do not "fix" without reading this)
+
+- **PostToolUse `Write|Edit` → `command`: `command: "${CLAUDE_PLUGIN_ROOT}/hooks/lint-file.mjs"`, `timeout: 95`, `async: true`.** Invoked directly (no `node` prefix — repo convention for `.mjs` command hooks) once per Write/Edit, no persistent process. No `statusMessage` (silent). (Raised from 60 to 90 for `tsc` — see "TypeScript type-checking (`tsc`)" below; raised again 90→95 for the 5s debounce wait — see the Debounce bullet below.)
+- **Single-hook exception to the repo's `mcp_tool`-preferred default (see `.claude/rules/hooks-mcp-server.md`).** This plugin backs exactly one hook, so a persistent MCP stdio server (handshake, `tools/list`/`tools/call` framing) buys nothing a plain per-event script doesn't already give for free. `async: true` removes the one argument that would otherwise favor a server here (avoiding per-event process-spawn latency): the agentic loop doesn't wait for this hook either way. Safe specifically because linting never mutates the file — findings arriving as context one turn later (async's documented delivery timing) has no correctness cost. Compare `universal-format`, which stays synchronous for exactly the opposite reason.
+- **No `bin/mjs-launch.sh` wrapper, no `.mcp.json`.** Removed along with the MCP server (2026-07-24) — a direct `.mjs` command hook needs neither; this also means the script always runs under `node`, never `bun`, matching the repo's stated default for direct-invoked `.mjs` hooks.
+- **Debounce (per-file 5s idle window).** Each fresh async hook process writes a unique token (`Date.now()-pid-randomHex`) to a per-file marker under `tmpdir()/universal-lint-debounce/<sha256(resolvedAbsolutePath)>.mark` (atomic write: temp file + `renameSync`), waits `DEBOUNCE_MS` (5000 ms), then re-reads the marker and lints only if its token is still the newest. A later edit's process overwrites the token, so every older sleeping process bails (reset-on-edit) — N edits within the window produce N sleeping processes but only the last one spawns a linter (single-run). The window is the `DEBOUNCE_MS` constant, overridable only via the env var `UNIVERSAL_LINT_DEBOUNCE_MS` (test-only fast path — the bats suite runs at `0`; NOT a `userConfig`, not part of the hook input contract). Deliberately `tmpdir()`, not `${CLAUDE_PLUGIN_DATA}` like `tsBuildInfoPathFor`: markers are ephemeral session-scoped signalling files with no cross-update persistence need. Every debounce filesystem op fails open (runs the lint on error, never silently skips). No cleanup routine — markers are tiny and the OS reclaims `tmpdir()`. The `timeout` was raised 90→95 to absorb the 5s wait while preserving the existing lint-budget margin. **Accepted residual:** a lint already past the gate cannot be cancelled, so two edits spaced more than 5s apart with a lint slower than the gap can still overlap — strictly better than the prior every-edit overlap, not full in-flight cancellation (the rejected MCP-server design was the only way to cancel a running lint). The pre-existing accepted `--tsBuildInfoFile` race is now much rarer. **The single-hook `command`-hook exception (see `.claude/rules/hooks-mcp-server.md`) stays valid — this is still exactly one async `command` hook.**
+
+## No toggle (do not "fix" without reading this)
+
+This plugin declares no `userConfig` (2026-07-24, deliberate — see `.claude/rules/plugin-userconfig.md`'s exception list). Read-only linting IS the entire plugin; there is no other feature to gate, so disabling it is equivalent to uninstalling the plugin. Anyone who previously set `auto_lint: false` will find that setting silently ignored going forward — the only way to turn this off now is uninstalling the plugin.
+
+## Runtime behavior (`lint_file`)
+
+Guards, each failing to `{}` silently: `tool_response.success !== false` → resolved path inside `cwd` and passes `isExcludedPath` (not under `node_modules/`/`vendor/`/`.git/`, `.claude/worktrees/`, `.claude/agent-memory/`, or a `*.local.*` filename — see "Path exclusions" below) → extension in `EXT_MAP` → file exists → some chain tool on `PATH` (probes cached in-process for the process lifetime). Then: the first chain tool on `PATH` wins — no per-file style-conflict skip exists here (a linter doesn't need to reproduce exact output the way a formatter does, so there's nothing to conflict with). `buildArgv` appends checkstyle's `-c <resolved config>` and points the two Go entries at the edited file's **directory** rather than the file itself (`go vet`/`golangci-lint` are package-scoped tools). `spawnSync` (cwd = project cwd, 30s timeout, `maxBuffer` 10MB — well above the 1MB default, since a noisy linter's combined output is the payload, not a byproduct — stdout+stderr captured **never ignored**, unlike the formatter sibling, because the findings text itself is the payload). Success is decided by **classification, not a content diff** (the file is never modified): `classifyExit` per tool's documented exit-code contract for five of the six tools; `checkstyle` is the one exception, classified by `classifyCheckstyleOutput` instead, because its exit code counts only `error`-severity violations and the bundled default ruleset (and many real projects) run at `warning` severity — exit-code classification would silently miss real findings there. Issues found → truncated (`MAX_CONTEXT_CHARS = 4000` chars) `additionalContext`; clean, skip (crash/misconfig), or no candidate tool → `{}`.
+
+`eslint`, `markdownlint-cli2`, and `markdownlint` additionally fall back to
+`npx --yes <package> ...` when absent from `PATH` (all verified official npm
+packages; `npx` itself is assumed present since the plugin's own MCP server
+already requires node/npm). `yamllint` gets no npx fallback — it has no npm
+package at all (PyPI/pip only). No other chain tool gets an npx fallback —
+see `universal-format`'s `CLAUDE.md` for the npm-provenance research; the
+same conclusions apply here (`ruff`, `golangci-lint`, `go`, `ktlint`,
+`checkstyle` have no safe npm equivalent).
+
+`stylelint` (CSS/SCSS) joins the eslint/markdownlint npx-fallback group (its
+npm package name matches its single bin, same safe shape as `eslint`) but
+does **not** share the other eight tools' 0-clean/1-issues/else-skip exit
+contract: `0` clean, `2` a real lint problem, everything else (`1` fatal
+error, `64` invalid CLI usage, `78` invalid config) `skip` — verified
+against stylelint's own CLI docs (stylelint.io/user-guide/usage/cli).
+
+Known, accepted limitation for `.scss` (pre-existing, not new to the `.css`
+addition — verified empirically 2026-07-28): `args: []` passes no
+`customSyntax`, so stylelint parses `.scss` with its default CSS-only parser.
+stylelint removed automatic by-extension syntax inferral in v14 — SCSS needs
+an explicit `customSyntax` (e.g. `postcss-scss`, typically pulled in via
+`stylelint-config-standard-scss`), which is not bundled with stylelint and
+not something this plugin can add without a new dependency the target
+project may not have. In a project with a stylelint config but no SCSS-aware
+`customSyntax`, ordinary SCSS constructs (`//` comments, `$variables`,
+`&`-nesting, `#{...}` interpolation) can surface as bogus `CssSyntaxError`
+"issues" rather than real style violations. `.css` files are unaffected —
+plain CSS parses correctly under the default parser.
+
+`yamllint` (YAML) and `markdownlint-cli2`/`markdownlint` (Markdown) join the
+same 0-clean/1-issues/else-skip `classifyExit` contract as the five tools
+above. `yamllint` runs without `--strict`, so warnings-only findings don't
+surface — kept consistent with this plugin's existing `eslint` behavior
+(warnings don't affect its exit code either).
+
+When the resolved tool is on `PATH` **and** `rtk` is also on `PATH`, the tool
+runs through `rtk` instead of directly, for token-compacted findings text —
+`rtk` passes through the wrapped tool's real exit code unchanged (verified
+empirically for `ruff` and `eslint`), so `classifyExit`/
+`classifyCheckstyleOutput` need no awareness of it. Which tools `rtk`
+actually has a filter for is discovered dynamically per server lifetime via
+`rtk rewrite <tool> <tool's static args> "__RTK_PROBE__"` (cached per tool
+name) rather than hardcoded, since rtk gains/loses per-tool filters across
+releases; `checkstyle` and `ktlint` currently have none and always run
+directly. The probe keys off non-empty stdout, not the exact exit code
+(`rtk rewrite --help` claims 0/1 for supported/unsupported; observed
+behavior on 0.43.0 is 3/1).
+
+Both the direct-`PATH` rtk attempt and the npx-fallback rtk attempt below
+share one helper, `tryRtk(argv, spawnOpts)`: a spawn error or signal is
+always a failure (falls back to the un-accelerated call, so a broken `rtk`
+install can't silently disable linting), and — since a real lint tool
+legitimately exits non-zero when it finds issues (`rtk` passing that
+through is the success case, not a failure) — a **clean** non-zero exit is
+only treated as an `rtk`-internal failure when `stdout` is empty/
+whitespace-only. Real findings text always makes `stdout` non-empty, so this
+heuristic never misclassifies a genuine lint failure while still catching
+the case an untrusted exit-code-only check would miss: `rtk` itself failing
+(misconfigured, can't reach its backend/`npx`) with a clean non-zero exit
+and no findings text, which would otherwise be shown to the user as if it
+were a real lint finding.
+
+The npm-fallback path (taken when the tool itself is absent from `PATH` but
+npm-distributed) tries `rtk`'s own discovered verb first — the exact same
+`getRtkPrefix`/`tryRtk` mechanism as the on-`PATH` branch above, e.g.
+`rtk lint <argv>` for `eslint` — **not** a raw `rtk npx --yes <npmSpec>
+<argv>` wrap. This matters: empirically, wrapping `npx --yes <pkg>` with
+`rtk` does **not** get `rtk`'s compaction — the `--yes`/`-y` flag defeats
+`rtk`'s own package-name detection in its npx intelligent-routing, so
+`rtk npx --yes eslint <args>` produces byte-identical, unfiltered output to
+bare `npx --yes eslint <args>`. Calling `rtk`'s dedicated verb directly
+(`rtk lint <args>`, no npx involved in the argv at all) does compact, and
+works even when `eslint` itself is absent from `PATH` — `rtk` resolves it
+internally (verified: `rtk lint --version` succeeds and matches `npx eslint
+--version`'s own resolved version, with `eslint` absent from `PATH`).
+`markdownlint`'s own verb (`rtk markdownlint <argv>`) is a generic,
+unfiltered passthrough that requires the literal `markdownlint` binary on
+`PATH` — it does not npx-resolve like `eslint`'s `lint` verb does — so a
+missing binary makes this attempt fail (empty stdout, non-zero exit),
+`tryRtk` correctly recognizes that as an `rtk`-internal failure, and the
+code falls through to the bare `npx --yes <npmSpec> <argv>` fallback below.
+`markdownlint-cli2` has no `rtk` verb at all (`rtk rewrite markdownlint-cli2
+...` exits 1, unsupported) and always falls straight through. This rtk
+attempt is bounded by `RTK_NPX_ATTEMPT_TIMEOUT_MS` (5s), not the full
+`NPX_SPAWN_TIMEOUT_MS` (55s) the bare npx fallback still gets: reusing the
+full budget for both the rtk attempt and its fallback would let worst-case
+sequential wall time (~110s) exceed the `PostToolUse` hook's own 60s
+ceiling — a correctness bug caught during review. A stalled/slow `rtk` now
+simply gets skipped in favor of the guaranteed-correct bare `npx` call,
+which still gets its full legitimate cold-install budget; worst case
+(5s + 55s = 60s) matches the margin the direct-tool branch above already
+runs at (its own rtk attempt and fallback both share `SPAWN_TIMEOUT_MS` =
+30s, pre-existing and unchanged by this review).
+
+## Path exclusions (`isExcludedPath`)
+
+Beyond `node_modules`/`vendor`/`.git`, `isExcludedPath` also skips two Claude-Code-owned subtrees that can land inside `cwd` when a session's working directory is broad (e.g. `$HOME`, or a repo root that nests worktrees under itself): `.claude/worktrees/` (git worktrees the harness creates — gitignored via `.claude/.gitignore`'s `worktrees/` entry — never this session's own project content) and `.claude/agent-memory/` (this repo's own gitignored "Agent runtime artifacts — local only, never pushed" directory; the same class of thing is a reasonable default exclusion for any target repo). Any file whose basename contains the literal substring `.local.` (e.g. `settings.local.json`) is also skipped, matching `.claude/.gitignore`'s own `*.local.*` personal-override convention — checked regardless of directory, not just under `.claude/`.
+
+**Deliberately narrow — not a blanket `.claude/` exclusion.** This repo (and plenty of real projects) tracks legitimate content directly under `.claude/` — `rules/`, `agents/`, `skills/`, `settings.json` — that should keep getting linted like any other file. Only the two named subtrees are excluded; a `.claude/rules/*.md` edit still triggers `markdownlint`/`markdownlint-cli2` exactly as before.
+
+## TypeScript type-checking (`tsc`)
+
+`.ts`/`.tsx`/`.mts`/`.cts` files get a **second, independent** check beyond
+the existing `eslint` chain: a whole-project `tsc --noEmit` type-check. This
+is not a chain alternative (plain `.js`/`.jsx`/`.mjs`/`.cjs` never trigger
+it) — both `eslint` and `tsc` can report findings on the same edit, and both
+are surfaced together in one `additionalContext` (each finding's text is
+truncated independently at `MAX_CONTEXT_CHARS`, preserving the exact
+single-finding output format for every other language).
+
+tsc has no single-file mode with project context (confirmed: "When input
+files are specified on the command line, tsconfig.json files are ignored"),
+so the check necessarily runs the whole project via `-p <nearest
+tsconfig.json>`, found by walking up from the edited file to `cwd`
+(`resolveTsconfig`, same walk shape as `resolveCheckstyleConfig`). A
+**solution-style** tsconfig (`"references"` present, `"include"` absent, and
+`"files"` either absent or an empty array — `"files": []` is the TS
+handbook's own documented way to author one, so an empty array must not
+disqualify it) is explicitly detected and skipped
+(`looksLikeSolutionStyleTsconfig`) — confirmed empirically that such a
+tsconfig compiles/checks nothing and exits `0` even with a real type error
+in the referenced project, which would otherwise silently misreport
+"clean." The detection is an existence/pattern-only regex over
+comment-stripped text (`stripJsonComments`), not a full JSON/JSONC parse —
+tsconfig permits `//` and `/* */` comments and trailing commas, and real
+projects routinely put a comment like `// see project references` next to a
+key, which would otherwise false-positive-match the same regex. Deliberately
+unanchored (no line-start requirement) so it matches equally in compact
+single-line and pretty-printed JSON. A string _value_ containing the exact
+literal substring `"references":` would still false-match — accepted
+residual risk, since tsconfig.json's fixed schema has no free-text fields
+where that's realistic, unlike comments.
+
+To keep repeat full-project checks fast, the run adds `--incremental
+--tsBuildInfoFile <cache path>`, where the cache path lives under
+`${CLAUDE_PLUGIN_DATA}` (persistent, exported to hook processes — falls
+back to the OS temp dir, never `.`/cwd, on the unset case, so this plugin's
+"never writes into the repo" property holds either way), named by hashing
+the tsconfig's realpath (`tsBuildInfoPathFor`, mirroring
+`memory-enhancement`'s `flagPathFor` hash-suffix idiom). Verified
+empirically against this repo's own `tsconfig.json`: a cold run took 0.70s,
+the cached rerun 0.29s.
+
+`classifyExit`'s `"tsc"` case is 0-clean/1-or-2-issues/else-skip — verified
+**empirically**, not from documentation, and the contract has already
+flipped once across a `tsc` major version. Under tsc v6.0.3, a real type or
+syntax error under `--noEmit` exited `2`; only an invalid project path
+(nonexistent tsconfig) exited `1` — the _opposite_ of what the compiler's
+documented `ExitStatus` enum (`Success=0`,
+`DiagnosticsPresent_OutputsSkipped=1`, `_OutputsGenerated=2`) suggested.
+Under TypeScript 7.0's native ("tsgo") compiler (verified against 7.0.2,
+GA'd 2026-07-08), a real diagnostic under `--noEmit` instead exits `1`
+(matching the documented enum this time), but exit `1` is now _also_ used
+for genuine project/config-loading failures — a broken `extends` path, an
+invalid compiler-option value, a nonexistent tsconfig path (verified
+empirically: `TS5083`, `TS6046`, `TS5058`, all exit `1`) — no longer
+distinguishable from a real diagnostic by exit code alone. `classifyExit`
+therefore only answers "clean vs. worth a closer look"; `runTypeCheck` does
+a second, content-based pass on exit-`1` results specifically —
+`tscOutputHasSourceDiagnostic` checks (after stripping ANSI color codes,
+which the native compiler emits even when piped) whether the output
+contains a diagnostic anchored to an actual `.ts`/`.tsx`/`.mts`/`.cts`
+location (`<file>:<line>:<col>` or `<file>(<line>,<col>)`) rather than only
+to `tsconfig.json` itself or no location at all — a pure config-loading
+failure never anchors to a real source file, so this reliably tells "tsc
+actually checked project code and found a problem in it" apart from "tsc
+never got past loading the project." A config failure alongside a genuine
+source diagnostic (e.g. a broken `extends` _and_ a real type error in the
+checked file) still surfaces the real finding, since tsc reports both and
+the check only needs one true source location to fire. Exit `2` skips this
+extra check — it meant a real diagnostic both before and after the TS7
+change, so no disambiguation is needed there. Trust the live behavior, not
+the enum — re-verify whenever the installed `tsc` major version changes
+materially and findings stop surfacing.
+
+Discovery: `tsc` on `PATH` first (runs through the same `runLintTool`
+rtk-compaction attempt every other chain tool gets, keyed off the static
+probe args `--noEmit --incremental`), else `<cwd>/node_modules/.bin/tsc`
+(the common case — most projects only have `typescript` as a local
+devDependency) invoked directly with no rtk attempt (rtk's own tool
+database matches by well-known command name, not arbitrary absolute paths).
+**No `npx` fallback** — the `typescript` npm package ships two bins (`tsc`,
+`tsserver`) with neither matching the package name, so the existing
+`npx --yes <npmSpec> <argv>` single-positional idiom (verified correct only
+when package/bin name match or the package has exactly one bin) isn't
+guaranteed to resolve `tsc` correctly.
+
+`TSC_SPAWN_TIMEOUT_MS` (45s) is its own budget — smaller than
+`NPX_SPAWN_TIMEOUT_MS` (55s) so a stale async finding doesn't arrive too
+late to be useful, larger than `SPAWN_TIMEOUT_MS` (30s) since a
+full-project incremental check is slower than a single-file/directory
+tool. The hook's own `timeout` (`hooks.json`) is raised from 60 to 90 (then to 95 for the debounce wait — see "Hook design" above) to
+fit the common case (chain-tool up to 30s + tsc's 45s = 75s, 15s margin).
+That "30s"/"45s" framing is optimistic, not a hard ceiling: both phases
+reuse `runLintTool`, whose on-`PATH` branch tries `rtk` first and, if that
+attempt itself times out, falls through to a second direct spawn of the
+same tool at the same timeout — so a tool `rtk` claims to support but is
+slow/hangs on can cost up to 2x its nominal budget (chain-tool up to 60s;
+tsc's own on-`PATH` run up to 90s), not just the documented cold-npx-install
+path. This is pre-existing `runLintTool` behavior (predates this plugin's
+`tsc`/`stylelint` additions, and applies to every chain tool, not something
+specific to them) — reworking it is out of this scope. Accepted: whenever
+the combined wall time exceeds the hook's 90s ceiling — the documented
+cold-npx case, or this rtk-doubling case, or both compounding — the hook is
+simply killed and that turn's async finding(s) are silently lost
+(fail-open, not wrong: no incorrect result is ever surfaced), and the next
+edit's tsc run hits a warm cache regardless.
+
+Two overlapping hook processes editing `.ts` files in the same project in
+quick succession hash to the same `--tsBuildInfoFile` path and could
+interleave writes — accepted: the buildinfo is a performance cache, not a
+correctness input, so a corrupted file either makes tsc silently fall back
+to a full rebuild (self-healing) or exit non-`0`/`2` (falls into the "skip"
+bucket — a missed finding that turn, not a wrong one).
+
+## YAML/Markdown line-length guard (do not "fix" without reading this)
+
+Both `yamllint` and `markdownlint`/`markdownlint-cli2` enable a max-line-length
+rule (`line-length`, `MD013`) in their own bundled defaults — verified
+empirically: `yamllint`'s is `error` level at 80 chars (NOT `warning`, despite
+this hook running without `--strict`), and `MD013` defaults to `error` at 80
+chars in both markdownlint tools. Left alone, this hook would flag ordinary
+long lines in every YAML/Markdown file that has no project-level linter
+config of its own — noise the project never asked for. `buildArgv` guards
+against this: when (and only when) no project-level config for that tool
+exists, it injects a flag that disables just that one rule, leaving every
+other check (real syntax errors, other style rules) untouched. A project that
+_does_ have its own `.yamllint`/`markdownlint` config is never touched — its
+own line-length choice (enabled, disabled, or a custom max) always wins.
+
+- **yamllint**: `hasProjectYamllintConfig(cwd)` is a faithful port of
+  yamllint's own `find_project_config_filepath` (`yamllint/cli.py`): it starts
+  at the CLI's `cwd` — always this hook's `spawnSync` `cwd` (the project
+  root), regardless of which file is being linted, since yamllint has no
+  per-file config resolution — and walks upward, stopping once the walked dir
+  IS the user's home directory (checked there too) or the filesystem root.
+  When nothing is found, `-d "{extends: default, rules: {line-length:
+disable}}"` is passed — single-line flow-style YAML, not the equivalent
+  multi-line block form, so the whole value survives as one argv element
+  through `rtk`'s rewrite unchanged. `-d` overrides yamllint's own
+  project-config **and** user-global-config search entirely, so it is only
+  ever reached when `hasProjectYamllintConfig` found nothing.
+- **markdownlint-cli2 / markdownlint**: `hasProjectMarkdownlintConfig(fileDir)`
+  checks, walking from the edited file's directory up to the filesystem root,
+  for any of the filenames markdownlint-cli2's own `--help` documents under
+  "Configuration via:" (`.markdownlint-cli2.jsonc/.yaml/.cjs/.mjs`,
+  `.markdownlint.jsonc/.json/.yaml/.yml/.cjs/.mjs`) — verified empirically that
+  cli2 does **not** also read a `markdownlint-cli2` key from `package.json`.
+  When nothing is found, `--config <path>` points both tools (same flag name,
+  same JSON schema) at a **bundled, constant** file next to this script,
+  `hooks/markdownlint-no-line-length.json` (`{"MD013": false}`) — shipped as a
+  real file, not written at runtime, so it's reviewable in git and needs no
+  mkdir/write-failure handling.
+- Both walkers are deliberately **unbounded past `cwd`**, not stopped there
+  like `resolveCheckstyleConfig`/`resolveTsconfig`: yamllint's own search
+  starts at `cwd` and climbs to `$HOME`/root regardless (verified against its
+  source), and markdownlint-cli2's per-file config resolution walks past its
+  base directory into that directory's own ancestors too (verified against
+  its source, `enumerateParents`). Bounding either walker at `cwd` would risk
+  misdetecting "absent" for a real config living above the project root (a
+  workspace/monorepo case) — the opposite of what this guard exists to
+  prevent.
+- Neither `yamllint` nor `markdownlint`/`markdownlint-cli2` reads
+  `.editorconfig` at all (unlike `universal-format`'s `prettier`, which does)
+  — there is no second "did the project configure this another way" check to
+  make here, unlike the analogous `printWidth` guard in `universal-format`'s
+  `CLAUDE.md`.
+
+## PHP: phpstan/psalm and the vendor/bin gap
+
+`phpstan` (chain[0]) and `psalm` (chain[1]) are both file-scoped static analyzers -- real-bug-catching, not style-only (mirroring why `tsc` above exists independently of `eslint`'s style focus) -- and both PATH-only (Composer-distributed, no `npmSpec`).
+
+`phpstan`'s own docs only document exit code `0` = clean; every other code is not split cleanly between "real findings" and "phpstan itself failed" -- `classifyExit`'s `phpstan` case therefore accepts the same ambiguity already accepted for `go vet` above (any non-zero -> `issues`). Its default analysis level (0, used whenever the project has no `phpstan.neon`/`.dist`) only catches unknown classes/functions and wrong argument counts -- a `.php` file with no project phpstan config can go unreported even when genuinely flawed; this is real, not a bug, matching every other config-optional entry in this registry.
+
+`psalm` is used more precisely: its own docs fully document 0 clean / 1 problem running Psalm / 2 completed and found real issues, verified verbatim (psalm.dev/docs/running_psalm/command_line_usage). The missing-config case (no `psalm.xml` in the project) was confirmed directly from Psalm's own current source (`src/Psalm/Internal/CliUtils.php`): a normal invocation with no discoverable config prints "Could not locate a config XML file..." and calls `exit(1)` -- landing in this file's `skip` bucket, never `issues`, so a project without Psalm configured is silently skipped rather than surfacing Psalm's own missing-config error as a false finding.
+
+Known, accepted limitation (confirmed with the user at this feature's design stage): neither tool gets `vendor/bin/<tool>` discovery -- the PHP analogue of `tsc`'s own `node_modules/.bin/tsc` special case above. Most real PHP projects install these as local Composer dev-dependencies rather than globally on `PATH`, so this chain will silently no-op on a large fraction of real PHP repos until a global/PATH install is also present. A real gap, not solved now -- same restraint already shown by not generalizing `tsc`'s own special case to any other tool in this file.
+
+## Rust: cargo clippy/check, manifest targeting, and the clippy-component gap
+
+`.rs` files route to a `rust` chain of `cargo-clippy` (chain[0], the richer
+linter) → `cargo check` (chain[1], compile-only fallback). Both are
+`manifestPath` tools and both are PATH-only (rustup-distributed, no
+`npmSpec`).
+
+**Why probe `cargo-clippy`, not `cargo clippy`.** `onPath("cargo-clippy")`
+is true iff the clippy rustup component is installed. Probing bare `cargo`
+can't tell whether `cargo clippy` will work: a `cargo` on `PATH` without
+the clippy component makes `cargo clippy` exit non-zero with "no such
+command: clippy", which the coarse `0 clean / else issues` contract would
+misreport as a lint finding. Probing the shim binary directly makes chain
+selection fall through cleanly to `cargo check` when clippy is absent.
+
+**Why the clippy entry's `spawnAs` differs from its probed `name`.** The
+standalone `cargo-clippy` driver binary does **not** accept `--manifest-path`
+(that flag belongs to `cargo`/its `clippy` subcommand, not the raw driver
+`cargo clippy` invokes under the hood) — confirmed empirically (cargo
+1.97.1 / clippy 0.1.97): `cargo-clippy --manifest-path <path> -- -D warnings`
+fails with clap's own usage error (`error: unexpected argument '<path>'
+found` / `Usage: cargo check [OPTIONS]`), which the coarse `0 clean / else
+issues` contract below would otherwise misreport as a real lint finding on
+**every** edit. The `rust` chain's clippy entry therefore carries
+`spawnAs: { name: "cargo", args: ["clippy"] }`: `onPath`/`selectLintTool`
+still probe `tool.name` (`cargo-clippy`) as before, but `runLintTool` spawns
+`cargo clippy <buildArgv output>` instead — confirmed empirically that
+`cargo clippy --manifest-path <path> -- -D warnings` both accepts the flag
+and exits `101` on a real finding (`clippy::single_match`), same as `cargo
+check`'s own compile-error exit code. No other chain entry in this registry
+needs `spawnAs` — it exists solely for this probe-binary/run-command split.
+
+**Why `-- -D warnings`.** clippy's lints default to `warn` level, and plain
+`cargo clippy` exits 0 even when it prints warnings — the same
+warnings-don't-affect-exit-code pitfall already documented for
+`eslint`/`yamllint`. Passing `-D warnings` after the `--` separator promotes
+all warnings to errors so clippy's own exit code becomes a trustworthy
+clean/issues signal. It is additive and non-mutating (never
+`--fix`/`--format`/`--write`), and does not match the banned-flag regex.
+
+**Why `manifestPath` + `resolveCargoManifest`, not `targetsDir`.** `cargo
+clippy`/`cargo check` take no positional file-or-directory target — they
+operate on the crate/workspace discovered from `Cargo.toml`. `buildArgv`
+unconditionally appends a trailing positional for every other tool, which
+cargo would reject as an unrecognized argument. Instead, `manifestPath`
+resolves the nearest `Cargo.toml` (walking up from the edited file to `cwd`
+via the shared `walkUpToCwd`, existence-only, in `resolveCargoManifest`) and
+emits `--manifest-path <that path>` inserted before any `--` separator (so
+it stays a cargo option, not a rustc arg), with no trailing positional —
+correctly targeting the specific crate even in a multi-crate workspace. A
+`.rs` file outside any Cargo project (no manifest up to `cwd`) is a silent
+no-op, gated in `runChainLint` before spawning.
+
+**Coarse `0 clean / else issues` contract.** `classifyExit`'s shared
+`cargo-clippy`/`cargo` case is `0` clean, any non-zero `issues` (101 on a
+compile error) — the same accepted coarse contract already used for
+`go`/`phpstan`: a non-zero exit that is a tool malfunction rather than a
+finding is not cleanly separable by exit code, an accepted, documented
+limitation. `status === null` (timeout/signal) returns `skip` before the
+switch (fail-open).
+
+**No `npmSpec`.** Rust tooling is rustup-only; the `npx --yes` fallback has
+no valid Rust equivalent — same reasoning already applied to
+`go`/`ruff`/`golangci-lint`/`ktlint`/`checkstyle`.
+
+**`CARGO_SPAWN_TIMEOUT_MS` (45s).** cargo check/clippy compile the crate,
+slower than a single-file/dir tool (`SPAWN_TIMEOUT_MS`); its own budget
+mirrors `TSC_SPAWN_TIMEOUT_MS` and stays under the hook-level timeout
+backstop. A cold first build may exceed it, yielding a silent skip
+(fail-open); warm/incremental runs are fast.
+
+## JSON: not covered (do not "fix" without reading this)
+
+`.json` is intentionally absent from `EXT_MAP` — not a bug. No standalone,
+actively-maintained JSON linter has a clean exit-code contract: `jsonlint`
+(npm) has been dead since 2018; its actively-maintained successor
+`@prantlf/jsonlint` and `biome lint` both return the same exit code (1) for
+"invalid JSON" and "crashed/misconfigured," unlike every tool actually in
+this registry. Adding a checkstyle-style output-classifier for a tool whose
+own maintainers haven't decomposed this is unforced complexity.
+`universal-format` already rejects malformed JSON via its `prettier`/`biome`
+chain — format-only coverage is the honest answer for this file type.

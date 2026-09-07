@@ -262,8 +262,8 @@ setup() {
   assert_output --partial "rather than dispatching a separate merger"
 }
 @test "subagent-tracking feature-development row reflects wave-parallel dispatch, not pure sequential" {
-  RULE="$BATS_TEST_DIRNAME/../../.claude/rules/subagent-tracking.md"
-  run rg_or_grep 'coding-toolbox:feature-development' "$RULE"
+  RULE="$PLUGIN/CLAUDE.md"
+  run rg_or_grep -F '`feature-development` |' "$RULE"
   assert_success
   assert_output --partial "wave-parallel"
   assert_output --partial "orchestrator's own Bash"

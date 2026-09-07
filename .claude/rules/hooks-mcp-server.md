@@ -42,52 +42,15 @@ on the _next_ conversation turn — too late to prevent Claude from acting on st
 state in between). `universal-lint` (async — read-only, exactly one hook) is this
 repo's single-hook example.
 
-> Correction note (superseded 2026-08-08, updated for 0.13.0): `universal-format` was previously
-> listed here alongside `universal-lint` as a single-hook example. As of 0.9.0 it backed two
-> `mcp_tool` hooks, and as of 0.13.0 it backs FOUR (`format_pre` PreToolUse + `format_post`
-> PostToolUse + `cwd_changed` CwdChanged + `worktree_entered` PostToolUse:EnterWorktree) on its own
-> plugin-local MCP server, so it no longer qualifies for the single-hook exception — the warm
-> in-process prettier library the server keeps alive is exactly the "server stays warm" benefit
-> this exception says a single call site can't amortize. The `CwdChanged` entry is this repo's
-> first use of that event: it is `limited` in the event matrix only because its documented
-> `CLAUDE_ENV_FILE` purpose is unavailable to `mcp_tool`, while its use here — a pure side-effect
-> trigger with no decision and no context — is exactly what the matrix says works. It carries no
-> `matcher` (silently ignored on that event). `worktree_entered` was added because `CwdChanged` has
-> been observed to never fire when `EnterWorktree` switches a background-job session's cwd into a
-> worktree (real session transcript: zero `CwdChanged` events across a real `EnterWorktree` call),
-> which otherwise silently disables all formatting for the rest of such a session — see
-> `plugins/universal-format/CLAUDE.md`'s "Path exclusions" section.
-
-<!-- separate blockquote, not a continuation of the one above -->
-
-> Correction note (added 2026-08-08, updated for 0.12.0): `universal-format` is this repo's ONE
-> deliberate exception to "self-contained zero-dep `mcp/server.mjs`". As of 0.12.0 its
-> `plugins/universal-format/mcp/server.mjs` is a committed ~9.3 MB `bun build` bundle generated
-> from `src/universal-format-mcp/*.ts` with prettier and its `prettier-plugin-java`,
-> `@prettier/plugin-php` and `prettier-plugin-sh` plugins inlined, **plus three committed `.wasm`
-> sidecars in the same directory** (`web-tree-sitter.wasm`, 201,037 B; `tree-sitter-java_orchard.wasm`,
-> 447,925 B; and `main.wasm`, 2,388,278 B — sh-syntax's parser, all git mode `100644`) — copied
-> there by `build.mjs` because `new URL(name, import.meta.url)` (or, for sh-syntax's CJS
-> `__dirname`-relative lookup, an equivalent self-contained resolution — see `build.mjs`'s
-> `containShSyntaxDirname`) resolves to the bundle's own directory once everything is one file.
-> Rebuild: `pnpm run build:universal-format-mcp`; freshness of the
-> bundle AND the sidecars is gated by `test/universal-format/build-artifact.test.mjs` (`src=`,
-> `body=`, `plugins=`, `assets=`). The ONE invariant that no longer holds is "a single
-> self-contained file": the whole `mcp/` directory is the artifact, and it stays relocatable
-> (verified — it runs from a copy with no `node_modules` anywhere above it, under node and bun).
-> Every other invariant still holds: an executable `.mjs`, `#!/usr/bin/env node` on line 1, git
-> mode `100755`, runs under plain `node`, and no Bun-only API (`Bun.*`, `bun:*`,
-> `import.meta.require`) anywhere in the bundle. Do not hand-edit the bundle or the sidecars —
-> edit the TS sources and rebuild. Every other plugin's `mcp/server.mjs` stays hand-written and
-> dependency-free.
->
-> (added 2026-08-19, updated for 0.15.0) The "no Bun-only API" invariant (`Bun.*`, `bun:*`,
-> `import.meta.require`) is now machine-enforced by `test/universal-format/build-artifact.test.mjs`'s
-> no-`Bun.`-token / no-`bun:`-import assertions, not just prose. A benign
-> `process.versions.bun` read exists in `server.ts` (`detectRuntime`, module-local,
-> non-exported) purely to log `running under <node|bun>` on stderr at startup — it is a
-> plain property read off `node:process`, NOT a `Bun.*` property access, so the invariant
-> still holds.
+> `universal-format` no longer qualifies for the single-hook exception — as of 0.13.0 it backs
+> four `mcp_tool` hooks (`format_pre` PreToolUse, `format_post` PostToolUse, `cwd_changed`
+> CwdChanged, `worktree_entered` PostToolUse:EnterWorktree — the latter a fallback for
+> `CwdChanged` observed to never fire on `EnterWorktree`) on its own plugin-local MCP server, and
+> is this repo's ONE deliberate exception to "self-contained zero-dep `mcp/server.mjs`": a
+> committed `bun build` bundle plus three committed `.wasm` sidecars in the same directory
+> (`web-tree-sitter.wasm`, `tree-sitter-java_orchard.wasm`, and `main.wasm` — sh-syntax's parser),
+> with no Bun-only API anywhere in the bundle. See `plugins/universal-format/CLAUDE.md`'s "Built
+> artifact" and "Path exclusions" sections for the full rationale and history.
 
 Why the limits (documented Claude Code behavior):
 

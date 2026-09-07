@@ -242,86 +242,9 @@ intervene. An explicit caller-passed flag removes the check instead of having
 is claimed for this specific flag; this is a designed-against risk consistent
 with the **Unattended checkpoints** reasoning above.
 
-## Fixed 2026-08-22: `build-task` hard-failed on every `dispatch-task` run
+## Fixed-incident takeaways
 
-`SKILL.md`'s `## Plugin context` section used to capture the plugin root via
-a load-time shell injection — `` Plugin root: !`echo "$CLAUDE_PLUGIN_ROOT"` ``
-— rather than the bare `${CLAUDE_PLUGIN_ROOT}` pre-injection text
-substitution already used elsewhere in this same file (the fallback
-invocation step). Directly confirmed against real transcripts from several
-`dispatch-task`-launched runs: invoking the Skill tool for `taskflow:build-task`
-inside a worktree-isolated session (every `dispatch-task` run, by design)
-comes back with the exact same "too complex to verify that it stays inside
-the worktree" refusal `.claude/rules/script-authoring.md` already documents
-for worktree-isolated Bash-tool calls — as the tool_result for the `Skill`
-invocation itself, before step 1 ever executes. The precise static rule the
-guard applies isn't confirmed from harness source (this repo's own prior art
-on the Bash tool's out-of-worktree-path handling doesn't obviously predict
-it for a bare `echo $VAR`), but the practical effect is: this exact line, in
-this exact context, failed deterministically on every observed invocation —
-because the skill body doesn't change between retries, retrying reproduced
-the identical refusal every time, unlike a model-phrased Bash call that can
-just be retried differently. One observed session retried three times, gave
-up on the `Skill` tool entirely, and worked around it by manually
-`find`/`cat`-ing `SKILL.md` out of the plugin cache and following it as
-plain text; another retried until the user told it to stop. Fixed by
-switching the line to bare `${CLAUDE_PLUGIN_ROOT}`: no shell command runs at
-all, so whatever the guard's exact rule is, there is nothing left for it to
-refuse. Do not revert this to a `!`-injected form — see the same rule file's
-now-updated note.
-
-**Fixed 2026-08-23 (follow-up): the 2026-08-22 fix reintroduced the same
-failure through its own cautionary example.** The warning paragraph that fix
-added to `SKILL.md`'s `## Plugin context` section quoted the anti-pattern
-verbatim inside a double-backtick code span — but the load-time `!`-injection
-preprocessor does **not** respect markdown code spans: any
-exclamation-then-backtick sequence at line start or after whitespace is
-executed as a live shell injection, prose or not. Confirmed against the
-transcript of a fresh `dispatch-task` run on the fixed 1.4.1 cache
-(`taskflow-build-https-proxy-config-wizard-…`): the `Skill` tool_result was
-the identical worktree-guard refusal, before step 1 ever executed. Fixed by
-rewording the warning to describe the pattern without ever writing the
-two-character sequence, and hardening the bats tripwire from the old
-line-start anchor (which deliberately — and wrongly — excused the prose
-mention) to a zero-occurrence assertion over both `build-task` and
-`dispatch-task` skill bodies. Rule: **never write a literal
-exclamation-backtick sequence anywhere in any SKILL.md**, including examples,
-quotes, and code spans.
-
-A related, lower-severity finding from the same investigation: the harness's
-worktree-isolation guard also refuses some Bash-tool calls containing
-multi-statement/piped/command-substitution constructs unrelated to git,
-independent of this fix — this is nondeterministic (depends on how a given
-turn happens to phrase its own Bash call) and self-recovers in every
-observed case (the model retries with simpler, separate commands), unlike
-the deterministic `Plugin root:` failure above. Left unaddressed for now —
-no single prompt wording reliably prevents a model from ever writing a
-compound Bash call, and the observed cases did not block a pipeline.
-
-## Fixed 2026-09-07: `designer` conflated `openQuestions` with `keypoints` text
-
-Observed across a real `design-to-spec` run's designer calls: the model
-repeatedly failed schema validation on its `StructuredOutput` call by
-embedding `openQuestions` as literal `<openQuestions>...</openQuestions>`
-text (once even a stray `</invoke>` tag) inside the `keypoints` string field,
-instead of populating `openQuestions` as its own top-level array field. Four
-consecutive calls failed this way inside one `taskflow:designer` turn; the
-fifth gave up and emitted schema-valid but placeholder junk
-(`keypoints: "test"`, one open question `id: "q1"`/`question: "test?"`),
-which — being schema-valid — sailed straight into the pipeline undetected.
-Root cause: neither `agents/designer.md` nor
-`workflows/design-to-spec.workflow.js`'s designer prompt ever stated that
-`keypoints` and `openQuestions` are separate structured-output fields; both
-described `openQuestions` prose-only ("mirrored 1:1 with the structured
-output"), inviting the conflation. Fixed in two places: `designer.md` now
-states explicitly that `keypoints` and `openQuestions` are separate top-level
-fields and `openQuestions` must never be embedded as text/tags inside
-`keypoints`; the workflow's own final "Return structured output" instruction
-now says the same. Defense-in-depth: `runDesigner`'s retry condition
-(`hasContaminatedKeypoints`) now also retries when a schema-valid result's
-`keypoints` string still contains `<openQuestions` or `</invoke` — the same
-retry path a `null` result already got, so a `null`-only check no longer lets
-this exact garbage-but-valid shape through unnoticed.
+SKILL.md plugin-root capture and `!`-injection rules for this plugin's skills: see `.claude/rules/taskflow-skill-plugin-root-and-injection.md`. The designer's `keypoints`/`openQuestions` field-conflation fix: see `plugins/taskflow/workflows/CLAUDE.md`.
 
 ## Tests
 
@@ -342,7 +265,4 @@ dispatch-command literals.
 
 ## Linting
 
-`workflows/*.workflow.js` are excluded from the repo's `eslint.config.mjs`
-(root `ignores`) — Workflow-tool scripts run inside an implicit async
-wrapper, so top-level `await`/`return` are valid there but not parseable as a
-standalone ES module.
+See `plugins/taskflow/workflows/CLAUDE.md` for the `workflows/*.workflow.js` eslint exclusion.

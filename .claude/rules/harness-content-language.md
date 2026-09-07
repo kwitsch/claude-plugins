@@ -17,12 +17,3 @@ reads in the normal course of working the repo.
 
 This applies regardless of the language the request that produced the file
 was written in.
-
-## Verified compliant repo-wide
-
-2026-08-07: audited every `plugins/*/agents/*.md`, `plugins/*/workflows/**`,
-and `.claude/agents/*.md` file in the repo (umlaut/ß scan plus a German
-stopword sweep) — zero violations. The only prior instance (German comments
-in `plugins/taskflow/workflows/*.workflow.js`, shipped that way in the
-upstream plugin) was translated during that plugin's integration, which is
-what prompted this rule.
