@@ -337,8 +337,10 @@ definition.
 ${explorationBlock}
 
 ${extra}
-Return structured output: status, the Keypoints section verbatim, and
-openQuestions (empty array when decision-complete).`;
+Return structured output: status, the Keypoints section verbatim as the
+\`keypoints\` STRING field, and \`openQuestions\` as its OWN top-level array
+field (empty array when decision-complete) — never embedded as text/tags
+inside \`keypoints\`.`;
 
 const initialExtra = RESUME
   ? `## Prior draft\nRead the existing draft at ${DRAFT_PATH} — it is your
@@ -350,10 +352,22 @@ decisions later):\n${USER_INPUT}\n`
 
 const initialMode = RESUME ? "This is a RESUME run: continue a prior draft using the user's answers." : "This is a fresh run: produce the first complete draft.";
 
+// A schema-valid result can still be garbage: observed in production, the designer
+// sometimes fails to place openQuestions in its own structured-output field and
+// instead embeds it as literal `<openQuestions>...</openQuestions>` (even a stray
+// `</invoke>`) text inside the `keypoints` string — schema validation passes (it's
+// still just a string), but the result is unusable. Treat that shape as a failed
+// call, same as a null result, so it gets the same retry.
+/** @param {any} d @returns {boolean} */
+function hasContaminatedKeypoints(d) {
+  const kp = d && typeof d.keypoints === "string" ? d.keypoints : "";
+  return /<openQuestions|<\/invoke/i.test(kp);
+}
+
 async function runDesigner(mode, extra, label) {
   const opts = { label, phase: "Design", schema: DESIGN_RESULT, model: MODELS.designer, agentType: AGENTS.designer };
   let d = await agent(designerPrompt(mode, extra), opts);
-  if (d === null) d = await agent(designerPrompt(mode, extra), { ...opts, label: label + ":retry" });
+  if (d === null || hasContaminatedKeypoints(d)) d = await agent(designerPrompt(mode, extra), { ...opts, label: label + ":retry" });
   return d;
 }
 
