@@ -44,6 +44,7 @@ const PLUGIN_BIN_RTK = path.join(path.dirname(fileURLToPath(import.meta.url)), "
 const STDIN_CAP = 1024 * 1024; // same cap as coding-toolbox/hooks/encoding-guard.mjs
 const RTK_SPAWN_TIMEOUT_MS = 5000; // stays well under hooks.json's timeout: 10
 const RTK_MAX_OUTPUT_BYTES = 1024 * 1024; // spawnSync default is 1 MiB; pinned explicitly
+const GIT_WORKTREE_CHECK_TIMEOUT_MS = 2000; // two rev-parse calls; 5000 + 2*2000 stays under hooks.json's timeout: 10
 
 /**
  * userConfig toggle read (CLAUDE_PLUGIN_OPTION_AUTO_REWRITE), fail-open per
@@ -303,6 +304,48 @@ export function buildSteerDeny(classification) {
 }
 
 /**
+ * True when a rtk-rewritten command still carries a bare `git` token among its
+ * operands (e.g. `rtk git status`) -- the exact shape the harness's own
+ * worktree-isolation guard refuses outright in a linked worktree, because it cannot
+ * verify cwd/root through the opaque rtk wrapper the way it can for a direct
+ * `git ...` invocation. Whitespace-token match only, matching this file's other
+ * simple lexing (commandHead) rather than a full shell parse.
+ * @param {string} command
+ * @returns {boolean}
+ */
+export function hasGitOperand(command) {
+  return command.split(/\s+/).includes("git");
+}
+
+/**
+ * Whether cwd resolves inside a linked git worktree (a checkout whose git-dir lives
+ * elsewhere, shared with a main/other worktree) rather than the main worktree -- the
+ * same same-file (`-ef`) comparison coding-toolbox's fresh-pr/finish-pr SKILL.md
+ * `!`-injected git-context blocks already use in shell form. False (not detected as
+ * linked -- including any spawn/parse failure, or cwd not being a git repo at all) is
+ * always the safe default: the caller only special-cases the true branch, so
+ * "undetermined" falls back to today's existing rewrite behavior, never a new failure
+ * mode.
+ * @param {string|undefined} cwd
+ * @returns {boolean}
+ */
+export function isLinkedWorktree(cwd) {
+  const opts = { encoding: "utf8", timeout: GIT_WORKTREE_CHECK_TIMEOUT_MS, cwd: cwd || undefined };
+  try {
+    const gitDir = spawnSync("git", ["rev-parse", "--git-dir"], opts);
+    const commonDir = spawnSync("git", ["rev-parse", "--git-common-dir"], opts);
+    if (gitDir.error || gitDir.status !== 0 || gitDir.signal) return false;
+    if (commonDir.error || commonDir.status !== 0 || commonDir.signal) return false;
+    const base = cwd || process.cwd();
+    const a = realpathSync(path.resolve(base, String(gitDir.stdout).trim()));
+    const b = realpathSync(path.resolve(base, String(commonDir.stdout).trim()));
+    return a !== b;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * A string is usable as a home directory only when non-empty and free of an
  * uninterpolated `${` placeholder.
  * @param {string|undefined} value
@@ -474,6 +517,12 @@ function main() {
     // writing rtk's raw JSON through unchecked would do exactly that.
     if (typeof rewritten !== "string") return;
     if (rewritten === original) return; // nothing changed
+    // In a linked worktree, forwarding a rewrite that still names `git` (e.g. `rtk git
+    // status`) trips the harness's own worktree-isolation guard -- it refuses to run
+    // rtk with a git command among its operands because it can't verify cwd/root
+    // through the wrapper. Skip the rewrite there so the original `git ...` command
+    // runs directly instead, where the guard's own git-aware check applies normally.
+    if (hasGitOperand(rewritten) && isLinkedWorktree(typeof input.cwd === "string" ? input.cwd : undefined)) return;
     const output = buildUpdatedInput(toolInput, rewritten);
     process.stdout.write(JSON.stringify(output) + "\n");
   } catch {

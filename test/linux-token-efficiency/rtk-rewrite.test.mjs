@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { chmodSync, mkdtempSync, mkdirSync, writeFileSync, symlinkSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import os, { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -14,6 +15,8 @@ import {
   commandHead,
   classifyBashCommand,
   buildSteerDeny,
+  hasGitOperand,
+  isLinkedWorktree,
 } from "../../plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs";
 import { buildWebFetchDeny } from "../../plugins/linux-token-efficiency/hooks/webfetch-steer.mjs";
 
@@ -219,6 +222,33 @@ test("buildSteerDeny: deny with a copy-ready replacement per kind; null for stay
     assert.match(r?.hookSpecificOutput?.permissionDecisionReason ?? "", /[Dd]o not retry/);
     assert.equal("updatedInput" in (r?.hookSpecificOutput ?? {}), false);
   }
+});
+
+test("hasGitOperand: matches a bare `git` token, not a substring hit", () => {
+  assert.equal(hasGitOperand("rtk git status"), true);
+  assert.equal(hasGitOperand("rtk git log --oneline"), true);
+  assert.equal(hasGitOperand("rtk ls -la /tmp"), false);
+  assert.equal(hasGitOperand("rtk digital status"), false);
+  assert.equal(hasGitOperand("rtk github status"), false);
+});
+
+test("isLinkedWorktree: false for the main worktree and a non-repo path, true from inside a linked worktree", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "lte-worktree-"));
+  const main = path.join(root, "main");
+  mkdirSync(main, { recursive: true });
+  /** @param {string[]} args @param {string} cwd */
+  const git = (args, cwd) => execFileSync("git", args, { cwd, encoding: "utf8" });
+  git(["init", "-q", "."], main);
+  git(["config", "user.email", "a@a.com"], main);
+  git(["config", "user.name", "a"], main);
+  git(["commit", "-q", "--allow-empty", "-m", "init"], main);
+  const linked = path.join(root, "linked");
+  git(["worktree", "add", "-q", linked, "-b", "lte-test-branch"], main);
+
+  assert.equal(isLinkedWorktree(main), false);
+  assert.equal(isLinkedWorktree(linked), true);
+  assert.equal(isLinkedWorktree(root), false, "not a git repo at all");
+  assert.equal(isLinkedWorktree(undefined), false, "no cwd given");
 });
 
 test("buildWebFetchDeny: deny with the namespaced tool, the URL, the hostname source and the escape hatch", () => {
