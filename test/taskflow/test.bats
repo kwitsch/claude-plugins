@@ -48,10 +48,10 @@ export -f rg_or_grep
   [ "$status" -eq 0 ]
 }
 
-@test "plugin.json version is 1.5.0" {
+@test "plugin.json version is 1.5.1" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "1.5.0" ]
+  [ "$output" = "1.5.1" ]
 }
 
 @test "marketplace entry exists for taskflow" {
@@ -278,6 +278,20 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
 
 @test "the scout's proposed subsystems are deduped before the budget slice" {
   run rg_or_grep -F 'seenProposedNames' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+@test "the designer retries on a schema-valid but content-contaminated keypoints field, not just a null result" {
+  run rg_or_grep -F 'function hasContaminatedKeypoints' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'if (d === null || hasContaminatedKeypoints(d))' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+@test "the designer prompt and agent doc both disambiguate openQuestions as its own structured-output field" {
+  run rg_or_grep -F 'never embedded as text/tags' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'never write `openQuestions` as text or tags' "$AGENTS_DIR/designer.md"
   [ "$status" -eq 0 ]
 }
 

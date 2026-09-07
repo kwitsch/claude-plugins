@@ -44,7 +44,13 @@ workflow runs; a reader with only this file must be able to continue):
   every user answer (marked 'USER DECISION', binding, never reversed;
   translate the answer to English if it arrived in another language).
 - '## Open questions' — the currently open user-decidable questions, mirrored
-  1:1 with the structured output.
+  1:1 with the structured output's `openQuestions` field.
+
+Your structured output has `keypoints` and `openQuestions` as two SEPARATE
+top-level fields — never write `openQuestions` as text or tags
+(`<openQuestions>...`) inside the `keypoints` string. `keypoints` is the
+Keypoints section verbatim and nothing else; `openQuestions` is its own array
+parameter, one object per open question (empty array when decision-complete).
 
 Rules: one design doc = one implementable unit — if the task spans multiple
 independent units, decompose, design ONLY the first, list the rest under

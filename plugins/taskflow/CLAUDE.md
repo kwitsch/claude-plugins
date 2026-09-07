@@ -298,6 +298,31 @@ the deterministic `Plugin root:` failure above. Left unaddressed for now —
 no single prompt wording reliably prevents a model from ever writing a
 compound Bash call, and the observed cases did not block a pipeline.
 
+## Fixed 2026-09-07: `designer` conflated `openQuestions` with `keypoints` text
+
+Observed across a real `design-to-spec` run's designer calls: the model
+repeatedly failed schema validation on its `StructuredOutput` call by
+embedding `openQuestions` as literal `<openQuestions>...</openQuestions>`
+text (once even a stray `</invoke>` tag) inside the `keypoints` string field,
+instead of populating `openQuestions` as its own top-level array field. Four
+consecutive calls failed this way inside one `taskflow:designer` turn; the
+fifth gave up and emitted schema-valid but placeholder junk
+(`keypoints: "test"`, one open question `id: "q1"`/`question: "test?"`),
+which — being schema-valid — sailed straight into the pipeline undetected.
+Root cause: neither `agents/designer.md` nor
+`workflows/design-to-spec.workflow.js`'s designer prompt ever stated that
+`keypoints` and `openQuestions` are separate structured-output fields; both
+described `openQuestions` prose-only ("mirrored 1:1 with the structured
+output"), inviting the conflation. Fixed in two places: `designer.md` now
+states explicitly that `keypoints` and `openQuestions` are separate top-level
+fields and `openQuestions` must never be embedded as text/tags inside
+`keypoints`; the workflow's own final "Return structured output" instruction
+now says the same. Defense-in-depth: `runDesigner`'s retry condition
+(`hasContaminatedKeypoints`) now also retries when a schema-valid result's
+`keypoints` string still contains `<openQuestions` or `</invoke` — the same
+retry path a `null` result already got, so a `null`-only check no longer lets
+this exact garbage-but-valid shape through unnoticed.
+
 ## Tests
 
 ```bash
