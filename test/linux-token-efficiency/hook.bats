@@ -55,6 +55,27 @@ assert_json() {
   assert_success
 }
 
+# make_input_cwd <command> <cwd> [extra-tool_input-json-object] -- same as make_input,
+# but also sets the top-level `cwd` field isLinkedWorktree reads (make_input has none).
+make_input_cwd() {
+  local cmd="$1" cwd="$2" extra="${3:-}"
+  [ -n "$extra" ] || extra='{}'
+  jq -cn --arg cmd "$cmd" --arg cwd "$cwd" --argjson extra "$extra" \
+    '{hook_event_name:"PreToolUse", tool_name:"Bash", cwd:$cwd, tool_input:({command:$cmd} + $extra)}'
+}
+
+# make_worktree <repo-name> <branch-name> -- create a throwaway git repo under
+# BATS_TEST_TMPDIR plus one linked worktree off a fresh branch; echoes "<repo> <linked>".
+make_worktree() {
+  local repo="$BATS_TEST_TMPDIR/$1" linked="$BATS_TEST_TMPDIR/$1-wt"
+  git init -q "$repo"
+  git -C "$repo" config user.email a@a.com
+  git -C "$repo" config user.name a
+  git -C "$repo" commit -q --allow-empty -m init
+  git -C "$repo" worktree add -q "$linked" -b "$2"
+  printf '%s %s\n' "$repo" "$linked"
+}
+
 @test "happy path: rtk's rewritten command is forwarded verbatim" {
   rtk_stub "$LOCAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
   hook_run "$(make_input 'ls -la /tmp' '{"description":"list"}')"
@@ -267,6 +288,40 @@ EOF
   hook_run "$(make_input 'git status && git log --oneline -5 && git diff' '{"description":"list"}')"
   assert_success
   assert_json '.hookSpecificOutput | (.updatedInput.command == "rtk ls -la /tmp") and (has("permissionDecision") | not)'
+}
+
+@test "linked worktree: a git rewrite is withheld so the isolation guard never sees an rtk-wrapped git call" {
+  read -r repo linked <<< "$(make_worktree repo1 lte-hook-test-1)"
+  local rewrite='{"hookSpecificOutput":{"hookEventName":"PreToolUse","updatedInput":{"command":"rtk git status"}}}'
+  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$rewrite'"
+  hook_run "$(make_input_cwd 'git status' "$linked")"
+  assert_success
+  assert_output ''
+}
+
+@test "linked worktree: a non-git rewrite still applies (only git is guarded)" {
+  read -r repo linked <<< "$(make_worktree repo2 lte-hook-test-2)"
+  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
+  hook_run "$(make_input_cwd 'ls -la /tmp' "$linked" '{"description":"list"}')"
+  assert_success
+  assert_json '.hookSpecificOutput.updatedInput.command == "rtk ls -la /tmp"'
+}
+
+@test "main worktree (not linked): the git rewrite still applies" {
+  read -r repo linked <<< "$(make_worktree repo3 lte-hook-test-3)"
+  local rewrite='{"hookSpecificOutput":{"hookEventName":"PreToolUse","updatedInput":{"command":"rtk git status"}}}'
+  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$rewrite'"
+  hook_run "$(make_input_cwd 'git status' "$repo")"
+  assert_success
+  assert_json '.hookSpecificOutput.updatedInput.command == "rtk git status"'
+}
+
+@test "no cwd given: the git rewrite still applies (fail-open, matches pre-fix behavior)" {
+  local rewrite='{"hookSpecificOutput":{"hookEventName":"PreToolUse","updatedInput":{"command":"rtk git status"}}}'
+  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$rewrite'"
+  hook_run "$(make_input 'git status')"
+  assert_success
+  assert_json '.hookSpecificOutput.updatedInput.command == "rtk git status"'
 }
 
 @test "steer: a backgrounded gather command is never steered (ctx tools cannot background)" {

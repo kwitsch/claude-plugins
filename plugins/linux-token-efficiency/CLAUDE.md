@@ -69,6 +69,26 @@ unresolvable command), and when the resolved `rtk` is neither this plugin's mana
 `~/.local/bin/rtk` nor its own `bin/rtk` PATH-bridge wrapper (a global `rtk init -g` install owns
 the rewrite instead; never double-wire).
 
+**Linked-worktree guard on the git rewrite (fixed 2026-09-07).** A rewrite naming `git`
+among its operands (the common case: rtk turns `git status` into `rtk git status`) is
+withheld — the original, unmodified command is left to run in Bash — whenever `cwd`
+resolves inside a **linked** git worktree (`isLinkedWorktree`, the same `-ef`-equivalent
+`--git-dir`/`--git-common-dir` comparison `coding-toolbox`'s `fresh-pr`/`finish-pr` skills
+already use in shell form). Root cause: the harness's own worktree-isolation guard refuses
+outright to run rtk with a git command among its operands in a worktree-isolated session —
+it cannot verify cwd/root through the opaque rtk wrapper the way it can for a direct
+`git ...` invocation, so it blocks even an innocuous, correctly-scoped `rtk git status`.
+Since this repo's own dispatched agents/skills (`dispatch-agent`, `EnterWorktree`,
+`fresh-pr`'s `ci-watcher`/`pr-fixer`, taskflow's wave-parallel workers, …) routinely run
+git commands from inside a linked worktree, the rewrite was silently breaking every one of
+them — see [[reference_rtk_git_wrapper_isolation_guard_conflict]]. `hasGitOperand` is a
+plain whitespace-token check (`git` as a standalone token, not a substring), and
+`isLinkedWorktree` is fail-open like everything else in this file: any spawn/parse failure,
+or `cwd` not being a git repo at all, returns `false` and the pre-fix rewrite behavior
+applies unchanged. Only `git` is guarded — a rewrite for any other command (including `gh`/
+`glab`) still applies inside a linked worktree exactly as before; those were never observed
+to trip the isolation guard the way a bare `git` operand does.
+
 `updatedInput` is `{ ...tool_input, command: final }` — it replaces the **entire** input object, so
 constructing a fresh `{command, description}` would silently drop `timeout` / `run_in_background`
 and turn a backgrounded Bash call into a blocking one. `permissionDecision` is never emitted
