@@ -31,23 +31,17 @@ If a plugin has a `configure-*` skill, that skill must cover every option in `us
 
 ## Legacy exception
 
-One hook-only plugin predates this rule and declares no `userConfig` yet: `git-sign-key`.
+See `plugins/git-sign-key/CLAUDE.md` — one hook-only plugin predates this rule and declares no `userConfig` yet.
 
 ## Deliberate no-toggle exception
 
-`universal-lint` and `universal-format` (2026-07-24) intentionally ship no
-`userConfig` — unlike the legacy exception above, this is not a stopgap expected
-to eventually gain a toggle. The hook IS the entire plugin (read-only linting /
-auto-formatting is its one behavior); disabling that behavior is equivalent to
-uninstalling the plugin, so no separate on/off switch is offered. Do not "fix"
-this by re-adding a toggle — all three plugins' bats suites assert
-`userConfig`'s absence as a tripwire against exactly that.
-
-`taskflow` (2026-08-07) is the same case for a different reason: it ships two
-skills (`build-task`, `dispatch-task`) that only ever run on invocation —
-by the user directly, or (for `build-task`) by the model choosing to invoke
-it; `dispatch-task` carries `disable-model-invocation: true` since it launches
-an unattended background session. Neither runs from a hook or other
-unattended trigger, so there is no automatic/background behavior a toggle
-could suppress without being equivalent to disabling the plugin. No
-`userConfig` is declared.
+- `universal-lint` and `universal-format` (2026-07-24) intentionally ship no
+  `userConfig` — unlike the legacy exception above, this is not a stopgap
+  expected to eventually gain a toggle.
+- The hook IS the entire plugin (read-only linting / auto-formatting is its
+  one behavior); disabling that behavior is equivalent to uninstalling the
+  plugin, so no separate on/off switch is offered.
+- Do not "fix" this by re-adding a toggle — all three plugins' bats suites
+  assert `userConfig`'s absence as a tripwire against exactly that.
+- `taskflow` is the same case for a different reason — see
+  `plugins/taskflow/CLAUDE.md` for why.

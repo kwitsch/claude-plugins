@@ -7,11 +7,16 @@ paths:
 
 ## Hermetic
 
-No network in tests. Replace external CLIs with stub executables on an isolated `PATH`. Redirect `$HOME` to a temp dir when hooks read `~/…` paths (e.g. git-sign-key). Installer tests use `--print-*` modes or `CCTOOLS_SKIP_INSTALL=1` — never download.
+- No network in tests.
+- Replace external CLIs with stub executables on an isolated `PATH`.
+- Redirect `$HOME` to a temp dir when hooks read `~/…` paths (e.g. git-sign-key).
+- Installer tests use `--print-*` modes or `CCTOOLS_SKIP_INSTALL=1` — never download.
 
 ## Exit codes
 
-Contract-test script exit codes explicitly. Review scripts: missing CLI → 2, no login → 3, failure/hang → 4. Simulate hangs via `timeout`.
+- Contract-test script exit codes explicitly.
+- Simulate hangs via `timeout`.
+- coding-toolbox's specific review-script exit-code scheme (missing CLI → 2, no login → 3, failure/hang → 4) is documented in `test/coding-toolbox/CLAUDE.md` — it's implemented only by that plugin's own scripts, not a repo-wide contract. If a second plugin adopts the same scheme, re-generalize it back here.
 
 ## Data files
 
@@ -19,9 +24,9 @@ Larger case sets live in data files next to the suite (e.g. `coding-toolbox/enco
 
 ## Manifest assertions
 
-Pin plugin.json invariants in tests: for a plugin with `userConfig`, assert the exact sorted key list and count — extend the assertion when adding a toggle. Version declared only in `plugin.json`, never in `marketplace.json`.
-
-A hardcoded version-pin test (`plugin.json version is X.Y.Z`) is a rolling pin, not a one-off: every version bump rewrites that same test's name and expected value in the same commit as the bump (never deletes it — it's the CI safety net that catches a missed bump). See `.claude/rules/plugin-versioning.md`.
+- Pin plugin.json invariants in tests: for a plugin with `userConfig`, assert the exact sorted key list and count — extend the assertion when adding a toggle.
+- Version declared only in `plugin.json`, never in `marketplace.json`.
+- A hardcoded version-pin test (`plugin.json version is X.Y.Z`) is a rolling pin, not a one-off: every version bump rewrites that same test's name and expected value in the same commit as the bump (never deletes it — it's the CI safety net that catches a missed bump). See `.claude/rules/plugin-versioning.md`.
 
 ## Inline scripts
 
@@ -47,5 +52,5 @@ factory used by two unrelated groups) into one `test_helper.bash`, loaded by
 every split file via `load 'test_helper'`; each file still declares its own
 `setup() { common_setup; }` (bats has no cross-file `setup()`). A helper used by
 only one group stays in that group's own file — don't hoist it "for
-consistency." See `plugins/coding-toolbox/CLAUDE.md`'s `## Tests` section for
-a worked example, including the grouping rationale.
+consistency." See `test/coding-toolbox/CLAUDE.md` for a worked example,
+including the grouping rationale.

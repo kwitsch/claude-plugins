@@ -70,8 +70,8 @@ setup() {
   assert_success
   run rg_or_grep -F '"head"' "$PLUGIN/skills/dispatch-agent/SKILL.md"
   assert_success
-  run rg_or_grep -F 'worktree.baseRef' "$PLUGIN/CLAUDE.md"
+  run rg_or_grep -F 'worktree.baseRef' "$PLUGIN/skills/dispatch-agent/CLAUDE.md"
   assert_success
-  run rg_or_grep -F '"head"' "$PLUGIN/CLAUDE.md"
+  run rg_or_grep -F '"head"' "$PLUGIN/skills/dispatch-agent/CLAUDE.md"
   assert_success
 }
