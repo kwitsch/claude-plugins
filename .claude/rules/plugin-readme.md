@@ -3,9 +3,31 @@ paths:
   - "plugins/*/README.md"
 ---
 
-# Rule: plugin README structure
+# Rule: plugin README structure and sync
 
-## Section structure
+## Install section (must be first)
+
+Every `plugins/*/README.md` must have `## Install` as its **first section** (immediately after the title), containing a fenced code block with the install command for that plugin.
+
+**Required format** (replace `<plugin-name>` with the plugin's directory name):
+
+````markdown
+## Install
+
+```
+/plugin install <plugin-name>@kwitsch-plugins
+```
+````
+
+**Model:** root `README.md` `## Install` section.
+
+**After any Write or Edit to `plugins/*/README.md`:**
+
+1. Check that `## Install` is the first `##`-level heading after the title line
+2. Check that the section contains a fenced code block with `/plugin install <plugin-name>@kwitsch-plugins`
+3. If missing or wrong → add or fix before finishing the edit
+
+## Component sections
 
 Every `plugins/*/README.md` must list its components in dedicated tabular sections,
 per the templates below.
@@ -55,4 +77,20 @@ Include a `## Configuration` section with:
 
 Derive option keys + defaults from the plugin's `.claude-plugin/plugin.json` `userConfig` field.
 
-See `.claude/rules/plugin-readme-root-sync.md` for the separate root-README-sync procedure (same trigger, different rule file).
+## Root README sync
+
+When modifying any `plugins/*/README.md`, validate the corresponding row in the root `README.md` plugins table.
+
+**Table format:**
+
+```
+| [<plugin-name>](plugins/<plugin-name>/README.md) | one-line description |
+```
+
+**After any Write or Edit to `plugins/*/README.md`:**
+
+1. Read root `README.md` and locate the `## Plugins` table
+2. Find the row for this plugin (link target `plugins/<name>/README.md`)
+3. If row **missing** → add it with an accurate description derived from the plugin README
+4. If description **outdated or inaccurate** → update it to match the plugin's current functionality
+5. If row **correct** → no action needed
