@@ -73,4 +73,9 @@ A `confidence:"low"` CONFIRMED is still CONFIRMED, but flag it explicitly in `no
 surfaces low-confidence confirmations in its provenance report for human attention rather than treating
 them identically to high-confidence ones.
 
+**Workflow-tool dispatch:** when invoked through `agent()`'s `schema` option (Workflow mode), the tool-input
+schema the API enforces MUST be object-rooted — a bare top-level array is rejected outright. In that case
+your StructuredOutput call carries the same array under a `verdicts` key instead: `{"verdicts": [...]}`.
+This is a wire-shape difference only; every rule above (classification, verdicts, confidence) is unchanged.
+
 You never edit or write files. You classify and validate a diff; you return verdicts, nothing else.

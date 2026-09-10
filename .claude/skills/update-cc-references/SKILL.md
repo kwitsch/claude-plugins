@@ -200,11 +200,15 @@ an agent boundary as text — it is written to disk and passed forward as a path
   is at the local path `${diffPath}` — `Read` it — and classify every hunk itself, never from a
   pre-supplied label (same reasoning as Inline mode step 6-7: an authoring pass that mislabels its own
   contradicting hunk ADDITIVE must not let the gate silently pass it). Same one-dispatch-whole-file
-  discipline as Inline mode.
+  discipline as Inline mode. Also instruct it to report `hasAdditive: true/false` — whether the diff
+  contains any surviving ADDITIVE hunk beyond the bare `verified:` date-bump line — so the orchestrator
+  can detect a diff that is date-only (author found nothing to change) without a separate dispatch.
 - `revertPrompt(t, bad, diffPath)` — the diff is at `${diffPath}`; the revert agent `Read`s it to locate
   each hunk unambiguously (a bare quote/id alone can be paraphrased or ambiguous) and reverts exactly the
   non-CONFIRMED hunks; if `bad` covers every CONTRADICTING hunk and no ADDITIVE hunk survives, it reverts
-  the `verified` date bump too (the Workflow-mode equivalent of Inline mode step 8).
+  the `verified` date bump too (the Workflow-mode equivalent of Inline mode step 8). Also the target of a
+  zero-hunk dispatch (`bad: []`) when `hasAdditive` is false — it then reverts only the date bump, since
+  step 1's Read confirms there is nothing else in the diff to touch.
 
 ```js
 export const meta = {
@@ -238,21 +242,38 @@ const AuthorResultSchema = {
     changelog: { type: "string" },
   },
 };
-// Matches cc-reference-validator's own documented Output contract: a bare
-// JSON array, one entry per CONTRADICTING hunk — not an object wrapping it.
+// The agent() tool's schema option only accepts an OBJECT-ROOTED tool-input
+// schema — the API rejects any other root type outright, so a bare array
+// schema fails every dispatch before the subagent even starts (confirmed
+// live: every Verify-stage call errored with "root schema must declare
+// type: 'object'"). cc-reference-validator's own Output contract (a bare
+// JSON array for its default, unstructured invocation) is wrapped here
+// under a `verdicts` key to satisfy that constraint — see its "Workflow-tool
+// dispatch" note.
 const VerdictBatchSchema = {
-  type: "array",
-  items: {
-    type: "object",
-    required: ["hunk", "verdict"],
-    properties: {
-      hunk: { type: "string" },
-      verdict: { enum: ["CONFIRMED", "REJECTED", "UNVERIFIABLE"] },
-      quote: { type: "string" },
-      docPath: { type: "string" },
-      confidence: { enum: ["high", "medium", "low"] },
-      notes: { type: "string" },
+  type: "object",
+  required: ["verdicts", "hasAdditive"],
+  properties: {
+    verdicts: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["hunk", "verdict"],
+        properties: {
+          hunk: { type: "string" },
+          verdict: { enum: ["CONFIRMED", "REJECTED", "UNVERIFIABLE"] },
+          quote: { type: "string" },
+          docPath: { type: "string" },
+          confidence: { enum: ["high", "medium", "low"] },
+          notes: { type: "string" },
+        },
+      },
     },
+    // true iff the diff contains at least one ADDITIVE hunk beyond the bare `verified:` date
+    // bump — lets the orchestrator detect a diff that is date-only (no ADDITIVE, no CONTRADICTING)
+    // and route it to the revert stage so the date bump gets rolled back too (Inline mode step 8's
+    // equivalent) instead of silently standing as a no-op "change."
+    hasAdditive: { type: "boolean" },
   },
 };
 const RevertResultSchema = {
@@ -290,20 +311,30 @@ const results = await pipeline(
   // `Read`ing authored.diffPath (the `git diff HEAD -- <file>` output stage1 wrote to disk), the
   // same discipline that actually worked confirming ~120 hunks this session (fresh agents
   // classified independently rather than consuming the authoring agent's self-report).
+  // A pipeline stage callback only ever receives (prevResult, originalItem, index) — `authored`
+  // from stage 1 is NOT in scope inside stage 3's closure. Thread it forward explicitly by having
+  // stage 2 return {authored, verdicts} instead of the bare verdicts object.
   (authored, t) =>
     agent(classifyAndVerifyPrompt(authored.diffPath, scopedDocs(t)), {
       phase: "Verify",
       agentType: "cc-reference-validator",
       schema: VerdictBatchSchema,
-    }),
-  (verdicts, t, i) => {
-    // `verdicts` is the validator's bare array (VerdictBatchSchema), not an object — no `.verdicts`
-    // property to unwrap.
+    }).then((result) => ({
+      authored,
+      verdicts: (result && result.verdicts) || [],
+      hasAdditive: !!(result && result.hasAdditive),
+    })),
+  ({ authored, verdicts, hasAdditive }, t, i) => {
     const bad = verdicts.filter((v) => v.verdict !== "CONFIRMED");
     const lowConfidenceKept = verdicts.filter(
       (v) => v.verdict === "CONFIRMED" && v.confidence === "low",
     );
-    if (!bad.length)
+    // Zero CONTRADICTING hunks AND no surviving ADDITIVE hunk means the whole diff is just the
+    // `verified:` date bump — a genuine no-op the author found nothing to change. Route it through
+    // the revert stage with an empty `bad` list so it rolls back that date bump too (this is the
+    // Workflow-mode equivalent of Inline mode step 8 for the case where there was never any hunk
+    // to classify in the first place, not just the case where every classified hunk failed).
+    if (!bad.length && hasAdditive)
       return {
         target: t.name,
         changelog: authored.changelog,
@@ -335,8 +366,10 @@ return { results, docManifest };
 
 - `agentType: 'cc-reference-validator'` composes with `schema` per the `Workflow` tool's documented
   behavior.
-- Revert stage is a no-op (no dispatch) for any file with zero unconfirmed verdicts — the expected
-  common case (this session: 0/120 hunks needed reverting).
+- Revert stage is a no-op (no dispatch) only when a file has zero unconfirmed verdicts AND `hasAdditive`
+  is true (a real, confirmed change survived) — the expected common case (one prior session: 0/120 hunks
+  needed reverting). A file with zero unconfirmed verdicts but `hasAdditive: false` still dispatches a
+  revert (with an empty `bad` list) purely to roll back the date-only diff.
 - Dispatched agents receive absolute file paths (the reference file's path resolved against the known
   shared-worktree root; the doc manifest's absolute local paths) — this session's 8 parallel dispatches
   already proved this lands edits in the correct worktree.
