@@ -1,7 +1,7 @@
 # Claude Code Subagents / Agents — Authoring Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (Claude Code "Create custom subagents"; Agent SDK "Subagents in the SDK"), verified 2026-08-31.
+> (Claude Code "Create custom subagents"; Agent SDK "Subagents in the SDK"), verified 2026-09-10.
 > Apply when authoring, reviewing, or refactoring a subagent definition (`.claude/agents/*.md`).
 
 ## What a subagent is / when to choose it
@@ -32,7 +32,7 @@
 | statusline-setup  | Sonnet  | —                                               | auto, on `/statusline`                                                                                                                                                                    |
 | claude-code-guide | Haiku   | —                                               | auto, on questions about Claude Code features                                                                                                                                             |
 
-- version >= 2.1.198: Explore inherits the main conversation's model instead of always running on Haiku; on the Claude API the inherited model is capped at Opus (a session on a higher tier runs Explore on Opus; Sonnet/Haiku sessions keep Explore on that same model). On other providers (Amazon Bedrock, Google Cloud's Agent Platform, Microsoft Foundry, Claude Platform on AWS), Explore inherits the main model directly, uncapped. A user/project subagent literally named `Explore` overrides the built-in and keeps its own `model` field — set `model: haiku` there to keep exploration cheap.
+- version >= 2.1.198: Explore inherits the main conversation's model instead of always running on Haiku; on the Claude API the inherited model is capped at Opus (a session on a higher tier runs Explore on Opus; Sonnet/Haiku sessions keep Explore on that same model). On other providers (Amazon Bedrock, Google Cloud's Agent Platform, Microsoft Foundry, Claude Platform on AWS), Explore inherits the main model directly, uncapped — unless `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` forces every subagent onto one model (see Model resolution order). A user/project subagent literally named `Explore` overrides the built-in and keeps its own `model` field — set `model: haiku` there to keep exploration cheap.
 - Explore + Plan **skip CLAUDE.md and git status** (kept small). All other built-in + custom agents load both.
 - Block a built-in: `permissions.deny: ["Agent(Explore)"]`. Block all delegation: deny the `Agent` tool. version >= 2.1.198: `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS=1` removes only the built-in Explore/Plan subagents (Claude reads/explores directly instead). Headless/SDK: `CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS=1` removes every built-in type (supply only your own).
 - An Agent tool call that omits `subagent_type` falls back to `general-purpose`; it fails with `subagent_type is required` when the session has no `general-purpose` subagent (e.g. `CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS=1` removed it) to fall back on.
@@ -97,7 +97,7 @@ Required: `name`, `description`. Body = system prompt (subagent gets ONLY this +
 | `initialPrompt`   | auto-submitted first user turn when the agent runs as the main session agent (`--agent` or the `agent` setting); commands/skills processed; prepended to user prompt. Ignored when it is invoked as a subagent.                                                                                                                                                                                                                                                               |
 | `experimental`    | map of experimental options, subagent-file-only (not read from `--agents` JSON). version >= 2.1.248: its `cacheTtl` key sets the prompt-cache TTL (`5m` or `1h`) for this subagent's requests — write it nested inside `experimental`, not top-level; any other value is ignored, and `1h` is ignored while the subscription is on usage credits.                                                                                                                             |
 
-`--agents` JSON accepts the same fields (`experimental` excepted) plus `prompt` for the system prompt (= markdown body). Don't start a JSON key (agent name) with `-`.
+`--agents` JSON accepts `description`, `tools`, `disallowedTools`, `model`, `permissionMode`, `mcpServers`, `hooks`, `maxTurns`, `skills`, `initialPrompt`, `memory`, `effort`, `background`, `isolation` — NOT `color` or `experimental` — plus `prompt` for the system prompt (= markdown body). Don't start a JSON key (agent name) with `-`.
 
 - A subagent starts in the main conversation's cwd; `cd` doesn't persist between Bash/PowerShell calls within it and doesn't affect the main conversation's cwd. `isolation: worktree` gives it an isolated repo copy instead.
 - version >= 2.1.203: with `isolation: worktree`, the subagent's Bash/PowerShell commands run inside that worktree; a command whose cwd resolves to the main checkout instead (e.g. the worktree was removed mid-run) fails with an error. Earlier versions: such a command could silently run in the main checkout.
@@ -105,7 +105,7 @@ Required: `name`, `description`. Body = system prompt (subagent gets ONLY this +
 - version >= 2.1.216: Bash commands are also checked for content — redirecting git into the main checkout fails (`git -C`, `--git-dir`, `GIT_DIR`/`GIT_WORK_TREE`, or a leading `cd`), and a command too complex to check fails with an error telling Claude to split it into separate plain commands. Bash only; PowerShell gets the cwd check alone.
 - Monitor tool commands go through the same cwd and command-content checks as Bash commands when `isolation: worktree` is active.
 - When the main conversation itself runs isolated in a worktree, the same checks apply to the session and every subagent it spawns, including subagents without `isolation: worktree`.
-- Headless mode: `--append-subagent-system-prompt <text>` (v2.1.205+) appends to the end of every subagent's system prompt, including nested subagents — except a fork, which reuses the conversation's own prompt unaffected.
+- Headless mode: `--append-subagent-system-prompt <text>` (v2.1.205+) appends to the end of every subagent's system prompt, including nested subagents — except a fork, which reuses the conversation's own prompt unaffected. version >= 2.1.261: `--append-subagent-system-prompt-file <path>` reads the same text from a file instead, for text too long for the command line.
 
 Minimal example:
 
@@ -130,6 +130,8 @@ actionable feedback on quality, security, and best practices.
 - Each resolved value (per-invocation param, frontmatter, env var) is checked against org `availableModels`. On a blocked value: version >= 2.1.222: a blocked family alias (e.g. `opus`) substitutes the newest version of that family the allowlist permits (same substitution + provider-scope rules as `/model`) — earlier versions fell back to the main conversation's model even for a blocked family alias. For any other blocked value, or where family-alias substitution doesn't apply for the provider, or the allowlist permits no version of the family: falls back to the main conversation's model, EXCEPT that if `CLAUDE_CODE_SUBAGENT_MODEL` is set, that value is tried first under these same rules before falling back. Interactive sessions show a warning naming the requested + actual model for either substitution.
 - version >= 2.1.211: a per-invocation `model` param also applies when the subagent is resumed or sent a follow-up, so it stays on that model. Earlier versions: resuming dropped it and fell back to frontmatter `model`, else the main conversation's model.
 - version >= 2.1.198: subagent inherits the main conversation's extended-thinking setting (on stays on, off stays off) — no per-subagent thinking config. Earlier versions: subagents always ran with extended thinking disabled regardless of the main conversation's setting.
+- version >= 2.1.257: `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` makes `CLAUDE_CODE_SUBAGENT_MODEL` override every other source (frontmatter `model` including `inherit`, and any per-invocation `model` param) for every subagent, agent-team teammate, and Workflow-tool agent. Set `_FORCE` alone (without `CLAUDE_CODE_SUBAGENT_MODEL`) and everything instead runs on the main conversation's model. Two kinds still run on the main conversation's model regardless: a fork, and a skill run in a subagent with `model: inherit`. With only `_FORCE` set, the built-in Explore subagent keeps its own model cap (see Built-in subagents).
+- version >= 2.1.242: `/tasks` names the model each subagent is running on, adding its `effort` level on that row when the subagent's definition or forking skill sets one.
 
 ## Tool & capability control
 
@@ -157,12 +159,13 @@ actionable feedback on quality, security, and best practices.
 | `acceptEdits`       | auto-accept edits + common fs commands in cwd/additionalDirectories                                                                                                                        |
 | `auto`              | background classifier reviews commands + protected-dir writes                                                                                                                              |
 | `dontAsk`           | auto-deny prompts (explicit allows still work, EXCEPT `AskUserQuestion`, connector tools your org set to `ask`, and MCP tools marked `requiresUserInteraction` — denied even when allowed) |
-| `bypassPermissions` | skip prompts (DANGEROUS)                                                                                                                                                                   |
+| `bypassPermissions` | skip prompts (DANGEROUS); a subagent runs in this mode only when the parent session already does (version >= 2.1.267 — see below)                                                          |
 | `plan`              | read-only exploration                                                                                                                                                                      |
 
-- Parent `bypassPermissions`/`acceptEdits` takes precedence and cannot be overridden by the child. Parent `auto` → child inherits auto; child `permissionMode` ignored — classifier evaluates the subagent's tool calls with the parent session's same block/allow rules.
+- Parent `bypassPermissions`/`acceptEdits`/`auto` takes precedence: the subagent runs in that same mode and its own frontmatter `permissionMode` is ignored. Under `auto`, the classifier evaluates the subagent's tool calls with the parent session's same block/allow rules.
+- Parent `default`/`dontAsk`/`plan`: the subagent runs in its own frontmatter `permissionMode` — EXCEPT `bypassPermissions`. version >= 2.1.267: a subagent that declares `bypassPermissions` there keeps the parent session's mode instead (frontmatter `bypassPermissions` never elevates a subagent past the parent's actual mode). Earlier versions applied the frontmatter `bypassPermissions` mode regardless of the parent's mode.
 - `bypassPermissions` still prompts on explicit `ask` rules, connector tools your org set to `ask`, MCP tools marked `requiresUserInteraction`, root/home removals (`rm -rf /`), and the `isolatePeerMachines` approval for messages beyond this machine, but allows writes to protected dirs `.git`, `.config/git`, `.claude`, `.vscode`, `.idea`, `.husky`, `.cargo`, `.devcontainer`, `.yarn`, `.mvn` — use with extreme caution.
-- version >= 2.1.223: if `permissions.disableBypassPermissionsMode` disables bypass mode, a subagent's frontmatter `permissionMode: bypassPermissions` is ignored and it runs with the parent session's mode instead. Earlier versions applied the frontmatter mode regardless.
+- version >= 2.1.223: if `permissions.disableBypassPermissionsMode` disables bypass mode, a subagent's frontmatter `permissionMode: bypassPermissions` is ignored and it runs with the parent session's mode instead. Earlier versions applied the frontmatter mode regardless. v2.1.267 generalizes this: frontmatter `bypassPermissions` is now ignored whenever the parent isn't already in that mode, not only when `disableBypassPermissionsMode` is set.
 
 ## Conditional rules (finer than `tools`)
 
@@ -392,6 +395,10 @@ Agent SDK "Subagents in the SDK". Applies to the `agents` param passed to `query
 - v2.1.233 `claude plugin validate <dir>` checks an `agents` directory for frontmatter that fails to parse.
 - v2.1.235 (TS SDK 0.3.235 / Python SDK's bundled Claude Code) an Agent tool call with no `subagent_type` and no `general-purpose` fallback fails with `subagent_type is required: the general-purpose agent is not available in this session` (was: `Agent type 'general-purpose' not found`).
 - v2.1.238 an inline `mcpServers` entry in a project-scope (or `--add-dir`-scope) agent file loads only after that folder is trusted (was: loaded without a trust check).
+- v2.1.242 `/tasks` names the model (and `effort`, when set) a subagent is running on, per subagent row.
 - v2.1.246 a subagent that hits its `maxTurns` limit returns output marked partial, so Claude knows to resume it (was: no partial marking).
 - v2.1.248 `experimental.cacheTtl` (subagent-file frontmatter only) sets the prompt-cache TTL (`5m`/`1h`) for that subagent's requests.
 - v2.1.251 model resolution order changes: per-invocation `model` param, then frontmatter `model`, then `CLAUDE_CODE_SUBAGENT_MODEL`, then main conversation model (was: `CLAUDE_CODE_SUBAGENT_MODEL` first, overriding the per-invocation param and frontmatter including `model: inherit`).
+- v2.1.257 `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` forces every subagent/teammate/workflow agent onto `CLAUDE_CODE_SUBAGENT_MODEL` (or, set alone, onto the main conversation's model), overriding frontmatter `model` and any per-invocation value; forks and inherit-mode forked skills stay exempt.
+- v2.1.261 `--append-subagent-system-prompt-file <path>` reads the appended subagent system-prompt text from a file (was: command-line text only, since v2.1.205).
+- v2.1.267 a subagent's frontmatter `permissionMode: bypassPermissions` is ignored whenever the parent session isn't already in `bypassPermissions` (was: applied regardless of the parent's mode).
