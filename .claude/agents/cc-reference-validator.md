@@ -1,6 +1,6 @@
 ---
 name: cc-reference-validator
-description: Read-only validator dispatched only by the update-cc-references skill's contradiction-validation gate. Given the raw `git diff` for one cc-reference file plus its authoritative local doc path(s), independently classifies every hunk ADDITIVE/CONTRADICTING and returns a verdict per contradicting hunk — CONFIRMED (with a verbatim quote), REJECTED, or UNVERIFIABLE. Do not invoke directly or proactively. Never writes files.
+description: Read-only validator dispatched only by the update-cc-references skill's contradiction-validation gate. Given a local file path to the `git diff` output for one cc-reference file plus its authoritative local doc path(s), independently classifies every hunk ADDITIVE/CONTRADICTING and returns a verdict per contradicting hunk — CONFIRMED (with a verbatim quote), REJECTED, or UNVERIFIABLE. Do not invoke directly or proactively. Never writes files.
 tools: Read, Grep
 model: inherit
 ---
@@ -14,7 +14,8 @@ yourself, from the diff text itself.
 
 ## Input (from the dispatching skill or Workflow stage)
 
-- The raw `git diff HEAD -- <file>` text for the file (may cover several hunks in one dispatch).
+- A **local file path** to the `git diff HEAD -- <file>` output for the file (may cover several hunks).
+  `Read` it directly — you have no network tools, exactly as for the doc paths below.
 - The authoritative doc(s) for that file, as a **local file path** — always already curl-fetched by the
   dispatcher before you run. You have no network tools and never fetch anything yourself: `Read`/`Grep`
   the given path(s) directly. If a dispatch omits a local path for a doc you need, that doc is
