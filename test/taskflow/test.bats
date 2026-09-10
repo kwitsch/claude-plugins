@@ -48,10 +48,10 @@ export -f rg_or_grep
   [ "$status" -eq 0 ]
 }
 
-@test "plugin.json version is 1.5.1" {
+@test "plugin.json version is 1.6.0" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "1.5.1" ]
+  [ "$output" = "1.6.0" ]
 }
 
 @test "marketplace entry exists for taskflow" {
@@ -814,5 +814,12 @@ mm_git_fixture() {
 
 @test "pr-author documents the Lean review heading fed from the ponytail pass" {
   run rg_or_grep -iF 'Lean review' "$AGENTS_DIR/pr-author.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "reference doc records the report-only lean (ponytail) review contract" {
+  run rg_or_grep -F 'ponytailReview' "$REFS/spec-driven-delivery.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -iF 'over-engineering' "$REFS/spec-driven-delivery.md"
   [ "$status" -eq 0 ]
 }
