@@ -765,3 +765,28 @@ mm_git_fixture() {
   run rg_or_grep -F '11 static role prompts' "$PLUGIN/CLAUDE.md"
   [ "$status" -eq 0 ]
 }
+
+# --- ponytail design-phase enforcement ---
+
+@test "designer prompt embeds the ponytail reuse ladder and the never-trim carve-out" {
+  run rg_or_grep -iF 'reuse ladder' "$AGENTS_DIR/designer.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -iF 'stdlib' "$AGENTS_DIR/designer.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -iF 'No unrequested abstractions' "$AGENTS_DIR/designer.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'USER DECISION' "$AGENTS_DIR/designer.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "design-reviewer checklist includes the over-engineering (ponytail) item 8" {
+  run rg_or_grep -iF 'Over-engineering (ponytail)' "$AGENTS_DIR/design-reviewer.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -E '^8\.' "$AGENTS_DIR/design-reviewer.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "the spec-writer prompt carries the draft's lean/YAGNI decisions forward" {
+  run rg_or_grep -iF 'lean/YAGNI decisions forward' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+}
