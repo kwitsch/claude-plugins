@@ -62,6 +62,14 @@ returned markdown, not an HTML fallback page).
 - Plugins reference (schemas, CLI, component specs): `https://code.claude.com/docs/en/plugins-reference`
 - Supporting — marketplaces: `https://code.claude.com/docs/en/plugin-marketplaces`; dependencies: `https://code.claude.com/docs/en/plugin-dependencies`; hints: `https://code.claude.com/docs/en/plugin-hints`
 
+**`claude-code-plugins-lsp-reference.md`** (split from the plugins file — keep in sync when `plugins` is the target)
+
+- LSP servers section only, sourced from the same plugins/plugins-reference docs above. Linked from the plugins file's own "## LSP servers" pointer section.
+
+**`claude-code-plugins-marketplace-reference.md`** (split from the plugins file — keep in sync when `plugins` is the target)
+
+- marketplace.json schema, plugin dependencies, and plugin hints only, sourced from the marketplaces/dependencies/hints docs above. Linked from the plugins file's own "## Marketplace" pointer section.
+
 **`claude-code-memory-reference.md`**
 
 - Memory (CLAUDE.md files, imports, auto-memory): `https://code.claude.com/docs/en/memory`
@@ -98,7 +106,8 @@ invented ~30 non-existent settings.json keys; the same failure class as a prior 
 and `hook-handler-selection.md` and `claude-code-mcp-tool-hooks-reference.md`, the latter two per their
 conservative rules — preserve curated gotchas, never regenerate wholesale); `commands` →
 `claude-code-commands-reference.md`; `mcp` → `claude-code-mcp-reference.md` and `claude-code-mcp-managed-reference.md`;
-`plugins` → `claude-code-plugins-reference.md`; `memory` → `claude-code-memory-reference.md`; `settings`
+`plugins` → `claude-code-plugins-reference.md` and its two splits `claude-code-plugins-lsp-reference.md`
+and `claude-code-plugins-marketplace-reference.md`; `memory` → `claude-code-memory-reference.md`; `settings`
 → `claude-code-settings-reference.md`; `all`/empty → everything. Locate files with `Glob`
 (`plugins/claude-code-knowledge/skills/cc-reference/references/*.md`); if absent, create them there.
 (`skill-folder-structure.md` in that folder is a static convention doc — NOT a maintained target.)
