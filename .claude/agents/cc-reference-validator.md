@@ -1,6 +1,6 @@
 ---
 name: cc-reference-validator
-description: Read-only validator dispatched only by the update-cc-references skill's contradiction-validation gate. Given the raw `git diff` for one cc-reference file plus its authoritative local doc path(s), independently classifies every hunk ADDITIVE/CONTRADICTING and returns a verdict per contradicting hunk — CONFIRMED (with a verbatim quote), REJECTED, or UNVERIFIABLE. Do not invoke directly or proactively. Never writes files.
+description: Read-only validator dispatched only by the update-cc-references skill's contradiction-validation gate. Given a local file path to the `git diff` output for one cc-reference file plus its authoritative local doc path(s), independently classifies every hunk ADDITIVE/CONTRADICTING and returns a verdict per contradicting hunk — CONFIRMED (with a verbatim quote), REJECTED, or UNVERIFIABLE. Do not invoke directly or proactively. Never writes files.
 tools: Read, Grep
 model: inherit
 ---
