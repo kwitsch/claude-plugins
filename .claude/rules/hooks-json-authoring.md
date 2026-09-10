@@ -56,7 +56,23 @@ Sources: <https://code.claude.com/docs/en/hooks> · <https://code.claude.com/doc
 | `async`         | no       | `true` = fire-and-forget. Result delivered as context on next turn.                                                                   |
 | `asyncRewake`   | no       | `true` = background + wakes model on exit 2                                                                                           |
 
-**`.mjs` hooks**: executable, invoked directly — do NOT prefix with `node`. See hooks-executable rule and hooks-json-mjs-command rule.
+### `.mjs` hook commands
+
+`.mjs` hook files are executable (see hooks-executable rule) and are invoked directly by Claude Code. Do NOT prefix them with `node`.
+
+**Correct:**
+
+```json
+{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/my-hook.mjs" }
+```
+
+**Wrong:**
+
+```json
+{ "type": "command", "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/my-hook.mjs" }
+```
+
+When writing or reviewing `hooks.json`, remove any leading `node` (or `node --input-type=module`) from `.mjs` command entries.
 
 ### `mcp_tool` hooks
 
