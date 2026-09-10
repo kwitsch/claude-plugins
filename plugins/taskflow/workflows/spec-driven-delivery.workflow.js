@@ -721,6 +721,46 @@ const SCOPE_BLOCK =
   (scope.conventions || "(none noted)") +
   "\n";
 
+// ── Lean review (ponytail): over-engineering ONLY, report-only, independent
+//    of the correctness+cleanup review below. Not applied, not escalated.
+//    Kicked off now (only SCOPE_BLOCK/SPEC_PATH needed) so its latency
+//    overlaps the finder/verify/sweep/synthesis pipeline below instead of
+//    serializing after it — awaited later, where its result is used. ──
+const ponytailReviewPrompt =
+  NO_NARRATION +
+  "\n\n## Lean review — over-engineering only\n\n" +
+  SCOPE_BLOCK +
+  "\n" +
+  "Run the diff command above and review the CHANGE for over-engineering ONLY.\n" +
+  "Correctness bugs, security holes, and performance are OUT of scope — the\n" +
+  "combined review already covered those; do NOT re-report them here.\n\n" +
+  "The reuse ladder, in order: (1) is this piece needed at all; (2) a helper/\n" +
+  "util/type/pattern already in this codebase; (3) the stdlib; (4) a native\n" +
+  "platform feature; (5) an already-installed dependency — before any new code.\n" +
+  "Flag: reinvented stdlib, a dependency doing what the platform does, an\n" +
+  "abstraction/config/layer with one caller, dead flexibility, or code that\n" +
+  "could be shorter.\n\n" +
+  "The spec (" +
+  SPEC_PATH +
+  ") is USER-APPROVED: review HOW the change was\n" +
+  "built, never WHETHER an approved feature should exist — do not propose\n" +
+  "deleting spec-required functionality. Never flag input validation at trust\n" +
+  "boundaries, error handling that prevents data loss, security, accessibility,\n" +
+  "or a single smoke/assert self-check.\n\n" +
+  "One finding per object: {file, line?, tag, what, replacement}. Tags: delete\n" +
+  '(dead/speculative code, replacement ""), stdlib, native, yagni (one-caller\n' +
+  'abstraction/config), shrink (same logic, fewer lines). verdict: "net: -<N>\n' +
+  'lines possible." or, if nothing to cut, "Lean already. Ship."\n\n' +
+  "Structured output only.";
+
+const ponyOpts = {
+  label: "lean-review",
+  phase: "Review",
+  schema: PONYTAIL_REVIEW_SCHEMA,
+  model: MODELS.ponytailReviewer,
+};
+const ponytailPromise = agent(ponytailReviewPrompt, ponyOpts);
+
 const FINDER_PROMPT = (f) =>
   "## Review finder — assigned lens: " +
   f.label +
@@ -925,42 +965,10 @@ if (surviving.length > 0) {
       : "Synthesis skipped or unusable — verified findings returned ranked, unmerged.";
 }
 
-// ── Lean review (ponytail): over-engineering ONLY, report-only, independent
-//    of the correctness+cleanup review above. Not applied, not escalated. ──
-const ponytailReviewPrompt =
-  NO_NARRATION +
-  "\n\n## Lean review — over-engineering only\n\n" +
-  SCOPE_BLOCK +
-  "\n" +
-  "Run the diff command above and review the CHANGE for over-engineering ONLY.\n" +
-  "Correctness bugs, security holes, and performance are OUT of scope — the\n" +
-  "combined review already covered those; do NOT re-report them here.\n\n" +
-  "The reuse ladder, in order: (1) is this piece needed at all; (2) a helper/\n" +
-  "util/type/pattern already in this codebase; (3) the stdlib; (4) a native\n" +
-  "platform feature; (5) an already-installed dependency — before any new code.\n" +
-  "Flag: reinvented stdlib, a dependency doing what the platform does, an\n" +
-  "abstraction/config/layer with one caller, dead flexibility, or code that\n" +
-  "could be shorter.\n\n" +
-  "The spec (" +
-  SPEC_PATH +
-  ") is USER-APPROVED: review HOW the change was\n" +
-  "built, never WHETHER an approved feature should exist — do not propose\n" +
-  "deleting spec-required functionality. Never flag input validation at trust\n" +
-  "boundaries, error handling that prevents data loss, security, accessibility,\n" +
-  "or a single smoke/assert self-check.\n\n" +
-  "One finding per object: {file, line?, tag, what, replacement}. Tags: delete\n" +
-  '(dead/speculative code, replacement ""), stdlib, native, yagni (one-caller\n' +
-  'abstraction/config), shrink (same logic, fewer lines). verdict: "net: -<N>\n' +
-  'lines possible." or, if nothing to cut, "Lean already. Ship."\n\n' +
-  "Structured output only.";
-
-const ponyOpts = {
-  label: "lean-review",
-  phase: "Review",
-  schema: PONYTAIL_REVIEW_SCHEMA,
-  model: MODELS.ponytailReviewer,
-};
-let ponytail = await agent(ponytailReviewPrompt, ponyOpts);
+// ── Lean review (ponytail) result: kicked off right after SCOPE_BLOCK was
+//    built (above), overlapping its latency with the finder/verify/sweep/
+//    synthesis pipeline; awaited here where the result is actually used. ──
+let ponytail = await ponytailPromise;
 if (ponytail === null)
   ponytail = await agent(ponytailReviewPrompt, {
     ...ponyOpts,
