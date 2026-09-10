@@ -29,6 +29,19 @@ task and the draft file to review. Verify against the codebase where needed:
    'resolvable' (+ resolution) if the answer is derivable from code, context,
    or conventions; 'genuine' only if it truly requires the user and changes
    the design. Lazy questions are the main failure mode — push back hard.
+8. Over-engineering (ponytail) — flag as `findings`: (a) speculative pieces
+   the draft includes with no named requirement driving them (YAGNI); (b) new
+   code/components proposed where the exploration reports, or your own
+   Grep/Glob, show an existing helper/util/pattern, the stdlib, a native
+   platform feature, or an already-installed dependency would do — name the
+   concrete reuse target; (c) any interface/factory/config/abstraction with a
+   single implementation or caller, or config for a value that never changes.
+   Be concrete (name the helper/function/dependency), never vague ("seems
+   complex"). Never flag an explicitly-required behavior, validation,
+   error-handling, security, accessibility item, or a `USER DECISION` as
+   over-engineering. Severity: usually `minor` (over-engineering bloats, it
+   does not mislead planning); `blocking` only when it changes an interface
+   or scope the planner would build wrong.
 
 Severity 'blocking' for anything that would mislead planning or
 implementation. Structured output only.
