@@ -168,17 +168,39 @@ observed occasions, even when passed correctly); inline every value as a JS lite
 instead, exactly as `implementing.md`/`reviewing.md` do for their own scripts:
 
 - `urls` — the deduped URL list for every resolved target's mapped docs (from Source-of-truth mapping).
-- `scratchDir` — the scratch dir path (Fetch mechanism above).
-- `targets` — `[{name, files, docs}, ...]` for every resolved target file, from target resolution.
+- `scratchDir` — the scratch dir path (Fetch mechanism above). Per-file diffs are staged in its
+  `diffs/` subdir (`${scratchDir}/diffs/<name>.diff`), a sibling of the curl'd docs.
+- `targets` — `[{name, file, docs}, ...]`, ONE entry per resolved reference file, from target
+  resolution. `name` = the reference file's basename without `.md` (e.g. `claude-code-settings-reference`),
+  used verbatim as the diff filename `${name}.diff` (defensively sanitized
+  `name.replace(/[^A-Za-z0-9._-]/g, "_")` before use as a path); `file` = that reference file's
+  absolute path (singular — one file per author dispatch, matching the singular `AuthorResultSchema.file`);
+  `docs` = the subset of `urls` mapped to this file, used to build its per-file scoped manifest.
 
 Build the script text with these baked in (`const urls = ${JSON.stringify(urls)}`, etc.) before calling
 `Workflow`. Fill in `authorPrompt`/`classifyAndVerifyPrompt`/`revertPrompt` from the Inline-mode
 procedure above — same delta checklist, same harness-style rules, same version-tell — just executed by
-dispatched agents instead of the orchestrator itself. `authorPrompt` must instruct the agent to compute
-and return `rawDiff` (`git diff HEAD -- <file>`, via its own `Bash` access) alongside its changelog, and
-`classifyAndVerifyPrompt` must pass that `rawDiff` straight through — the validator classifies from the
-diff itself, never from a pre-supplied label (same reasoning as Inline mode step 6-7: an authoring pass
-that mislabels its own contradicting hunk ADDITIVE must not let the gate silently pass it).
+dispatched agents instead of the orchestrator itself. The per-file unified diff is the one payload large
+enough to overflow a Workflow handoff (40–180+ KB/file, ~476 KB across an `all` run), so it never crosses
+an agent boundary as text — it is written to disk and passed forward as a path, reusing the repo's
+`PLAN_PATH`/`DRAFT_PATH` "write the big artifact, hand forward only its path" pattern:
+
+- `authorPrompt(t, scopedDocs)` — read the scoped doc(s) and the current reference file, apply the
+  delta checklist, keep the body under 500 lines, update the `verified` date, then run
+  `mkdir -p "${scratchDir}/diffs" && git diff HEAD -- <absFile> > "${scratchDir}/diffs/<name>.diff"`
+  via its own `Bash` (NEVER the `Write` tool — Bash redirection keeps the diff byte-exact; the
+  `universal-format` PostToolUse hook matches only `Write|Edit`), and return `{file, diffPath, changelog}`
+  where `diffPath` is that written path and `changelog` is a short delta summary grouped by the checklist
+  categories. It must NOT return the diff text.
+- `classifyAndVerifyPrompt(diffPath, scopedDocs)` — tell `cc-reference-validator` the diff for this file
+  is at the local path `${diffPath}` — `Read` it — and classify every hunk itself, never from a
+  pre-supplied label (same reasoning as Inline mode step 6-7: an authoring pass that mislabels its own
+  contradicting hunk ADDITIVE must not let the gate silently pass it). Same one-dispatch-whole-file
+  discipline as Inline mode.
+- `revertPrompt(t, bad, diffPath)` — the diff is at `${diffPath}`; the revert agent `Read`s it to locate
+  each hunk unambiguously (a bare quote/id alone can be paraphrased or ambiguous) and reverts exactly the
+  non-CONFIRMED hunks; if `bad` covers every CONTRADICTING hunk and no ADDITIVE hunk survives, it reverts
+  the `verified` date bump too (the Workflow-mode equivalent of Inline mode step 8).
 
 ```js
 export const meta = {
@@ -197,7 +219,7 @@ export const meta = {
 // Inlined by the caller — NOT sourced from `args` (see note above):
 const urls = /* deduped URL array, as a JS literal */
 const scratchDir = /* scratch dir path, as a JS string literal */
-const targets = /* [{name, files, docs}, ...], as a JS array literal */
+const targets = /* [{name, file, docs}, ...], as a JS array literal */
 
 const ManifestSchema = {
   type: "object",
@@ -205,10 +227,10 @@ const ManifestSchema = {
 };
 const AuthorResultSchema = {
   type: "object",
-  required: ["file", "rawDiff", "changelog"],
+  required: ["file", "diffPath", "changelog"],
   properties: {
     file: { type: "string" },
-    rawDiff: { type: "string" },
+    diffPath: { type: "string" },
     changelog: { type: "string" },
   },
 };
@@ -239,6 +261,8 @@ const RevertResultSchema = {
   },
 };
 
+// Per-file unified diffs are staged on disk by each author agent under `${scratchDir}/diffs/<name>.diff`
+// and passed downstream as a path (never inline) — the one payload large enough to overflow a Workflow handoff.
 phase("Download");
 const docManifest = await agent(
   `curl these deduped URLs to local files under the given scratch dir (DOCTYPE-contamination check +
@@ -246,21 +270,24 @@ const docManifest = await agent(
    for every URL: ${JSON.stringify(urls)}. Scratch dir: ${scratchDir}.`,
   { schema: ManifestSchema },
 );
+// Scope each dispatch to only its file's own docs (not the whole manifest) — a small per-dispatch payload trim.
+const scopedDocs = (t) =>
+  Object.fromEntries(t.docs.map((u) => [u, docManifest[u]]));
 
 phase("Update");
 const results = await pipeline(
   targets,
   (t) =>
-    agent(authorPrompt(t, docManifest), {
+    agent(authorPrompt(t, scopedDocs(t)), {
       phase: "Update",
       schema: AuthorResultSchema,
     }),
-  // Stage 2 does NOT trust stage1's own hunk labels — it re-derives classification itself from
-  // authored.rawDiff (the `git diff HEAD -- <file>` text stage1 already computed and returned),
-  // the same discipline that actually worked confirming ~120 hunks this session (fresh agents
+  // Stage 2 does NOT trust stage1's own hunk labels — it re-derives classification itself by
+  // `Read`ing authored.diffPath (the `git diff HEAD -- <file>` output stage1 wrote to disk), the
+  // same discipline that actually worked confirming ~120 hunks this session (fresh agents
   // classified independently rather than consuming the authoring agent's self-report).
   (authored, t) =>
-    agent(classifyAndVerifyPrompt(authored.rawDiff, docManifest), {
+    agent(classifyAndVerifyPrompt(authored.diffPath, scopedDocs(t)), {
       phase: "Verify",
       agentType: "cc-reference-validator",
       schema: VerdictBatchSchema,
@@ -275,6 +302,8 @@ const results = await pipeline(
     if (!bad.length)
       return {
         target: t.name,
+        changelog: authored.changelog,
+        diffPath: authored.diffPath,
         reverted: [],
         dateReverted: false,
         lowConfidenceKept,
@@ -282,12 +311,17 @@ const results = await pipeline(
     // revertPrompt must also instruct: if `bad` covers every CONTRADICTING hunk and no ADDITIVE
     // hunk survives either, revert the `verified` date bump too (file nets to no real change) —
     // the Workflow-mode equivalent of Inline mode's step 8, which this path doesn't get for free.
-    // Pass authored.rawDiff through too — a hunk's bare quote/id alone can be ambiguous or
-    // paraphrased; the raw diff lets the revert agent locate the exact hunk unambiguously.
-    return agent(revertPrompt(t, bad, authored.rawDiff), {
+    // Pass authored.diffPath through too — a hunk's bare quote/id alone can be ambiguous or
+    // paraphrased; the diff file lets the revert agent locate the exact hunk unambiguously.
+    return agent(revertPrompt(t, bad, authored.diffPath), {
       phase: "Revert",
       schema: RevertResultSchema,
-    }).then((r) => ({ ...r, lowConfidenceKept }));
+    }).then((r) => ({
+      ...r,
+      changelog: authored.changelog,
+      diffPath: authored.diffPath,
+      lowConfidenceKept,
+    }));
   },
 );
 
@@ -303,12 +337,15 @@ return { results, docManifest };
   shared-worktree root; the doc manifest's absolute local paths) — this session's 8 parallel dispatches
   already proved this lands edits in the correct worktree.
 - After the `Workflow` call returns: aggregate `results` into the provenance report — `file · claim ·
-old → new · verdict · docPath/quote · action (kept/reverted)` — list every reverted/blocked item
-  explicitly, never drop one silently. Also list every `lowConfidenceKept` entry explicitly (a
-  `confidence:"low"` CONFIRMED is kept, not reverted, but flagged for human attention in the report — a
-  producer field the gate must not silently ignore). A thrown stage drops that one file to `null` (per
-  the tool's own semantics) — report it explicitly as "skipped: `<file>` (`<reason>`)," never silently
-  absorbed into "N files updated."
+old → new · verdict · docPath/quote · action (kept/reverted)`. Each `results` entry now carries
+  `changelog` and `diffPath`: use `changelog` for the per-file summary and `Read` `diffPath` for the
+  old→new diff detail (the diff files persist on disk under `${scratchDir}/diffs/` after the run, so read
+  them in this same session before any scratch cleanup). List every reverted/blocked item explicitly,
+  never drop one silently. Also list every `lowConfidenceKept` entry explicitly (a `confidence:"low"`
+  CONFIRMED is kept, not reverted, but flagged for human attention in the report — a producer field the
+  gate must not silently ignore). A thrown stage drops that one file to `null` (per the tool's own
+  semantics) — report it explicitly as "skipped: `<file>` (`<reason>`)," never silently absorbed into
+  "N files updated."
 
 ## Notes
 
