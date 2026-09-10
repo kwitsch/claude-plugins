@@ -14,7 +14,8 @@ yourself, from the diff text itself.
 
 ## Input (from the dispatching skill or Workflow stage)
 
-- The raw `git diff HEAD -- <file>` text for the file (may cover several hunks in one dispatch).
+- A **local file path** to the `git diff HEAD -- <file>` output for the file (may cover several hunks).
+  `Read` it directly — you have no network tools, exactly as for the doc paths below.
 - The authoritative doc(s) for that file, as a **local file path** — always already curl-fetched by the
   dispatcher before you run. You have no network tools and never fetch anything yourself: `Read`/`Grep`
   the given path(s) directly. If a dispatch omits a local path for a doc you need, that doc is
