@@ -175,7 +175,11 @@ instead, exactly as `implementing.md`/`reviewing.md` do for their own scripts:
   used verbatim as the diff filename `${name}.diff` (defensively sanitized
   `name.replace(/[^A-Za-z0-9._-]/g, "_")` before use as a path); `file` = that reference file's
   absolute path (singular — one file per author dispatch, matching the singular `AuthorResultSchema.file`);
-  `docs` = the subset of `urls` mapped to this file, used to build its per-file scoped manifest.
+  `docs` = the subset of `urls` mapped to this file, used to build its per-file scoped manifest —
+  **except** `claude-code-mcp-managed-reference.md`, whose `docs` must also include
+  `claude-code-mcp-reference.md`'s docs (the mcp + mcp-quickstart URLs): the Source-of-truth mapping's
+  "keep both in sync" note (above) means its author needs the sibling file's doc content visible, not
+  just its own, to catch cross-file drift.
 
 Build the script text with these baked in (`const urls = ${JSON.stringify(urls)}`, etc.) before calling
 `Workflow`. Fill in `authorPrompt`/`classifyAndVerifyPrompt`/`revertPrompt` from the Inline-mode
