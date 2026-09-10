@@ -119,6 +119,7 @@ const MODELS = {
   shipper: "haiku", // pure git/gh/glab procedure (merger analogue)
   ciMonitor: "haiku", // bounded poll + classification, read-only
   ciFixer: "sonnet", // diagnose + fix: judgment/coding, CI as the only safety net
+  ponytailReviewer: "sonnet", // over-engineering-only pass over the combined diff (report-only)
 };
 // ── Plugin agent types (namespace = plugin name; keep in sync on plugin
 //    rename). Verified: agentType = "<plugin>:<agents/-name>"; an unknown
@@ -306,6 +307,27 @@ const REPORT_SCHEMA = {
         },
       },
     },
+  },
+};
+const PONYTAIL_REVIEW_SCHEMA = {
+  type: "object",
+  required: ["findings", "verdict"],
+  properties: {
+    findings: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["file", "tag", "what", "replacement"],
+        properties: {
+          file: { type: "string" },
+          line: { type: "number" },
+          tag: { enum: ["delete", "stdlib", "native", "yagni", "shrink"] },
+          what: { type: "string" }, // what to cut
+          replacement: { type: "string" }, // what replaces it (or "" for delete)
+        },
+      },
+    },
+    verdict: { type: "string" }, // "net: -<N> lines possible." OR "Lean already. Ship."
   },
 };
 const APPLY_RESULT = {
@@ -903,6 +925,55 @@ if (surviving.length > 0) {
       : "Synthesis skipped or unusable — verified findings returned ranked, unmerged.";
 }
 
+// ── Lean review (ponytail): over-engineering ONLY, report-only, independent
+//    of the correctness+cleanup review above. Not applied, not escalated. ──
+const ponytailReviewPrompt =
+  NO_NARRATION +
+  "\n\n## Lean review — over-engineering only\n\n" +
+  SCOPE_BLOCK +
+  "\n" +
+  "Run the diff command above and review the CHANGE for over-engineering ONLY.\n" +
+  "Correctness bugs, security holes, and performance are OUT of scope — the\n" +
+  "combined review already covered those; do NOT re-report them here.\n\n" +
+  "The reuse ladder, in order: (1) is this piece needed at all; (2) a helper/\n" +
+  "util/type/pattern already in this codebase; (3) the stdlib; (4) a native\n" +
+  "platform feature; (5) an already-installed dependency — before any new code.\n" +
+  "Flag: reinvented stdlib, a dependency doing what the platform does, an\n" +
+  "abstraction/config/layer with one caller, dead flexibility, or code that\n" +
+  "could be shorter.\n\n" +
+  "The spec (" +
+  SPEC_PATH +
+  ") is USER-APPROVED: review HOW the change was\n" +
+  "built, never WHETHER an approved feature should exist — do not propose\n" +
+  "deleting spec-required functionality. Never flag input validation at trust\n" +
+  "boundaries, error handling that prevents data loss, security, accessibility,\n" +
+  "or a single smoke/assert self-check.\n\n" +
+  "One finding per object: {file, line?, tag, what, replacement}. Tags: delete\n" +
+  '(dead/speculative code, replacement ""), stdlib, native, yagni (one-caller\n' +
+  'abstraction/config), shrink (same logic, fewer lines). verdict: "net: -<N>\n' +
+  'lines possible." or, if nothing to cut, "Lean already. Ship."\n\n' +
+  "Structured output only.";
+
+const ponyOpts = {
+  label: "lean-review",
+  phase: "Review",
+  schema: PONYTAIL_REVIEW_SCHEMA,
+  model: MODELS.ponytailReviewer,
+};
+let ponytail = await agent(ponytailReviewPrompt, ponyOpts);
+if (ponytail === null)
+  ponytail = await agent(ponytailReviewPrompt, {
+    ...ponyOpts,
+    label: "lean-review:retry",
+  });
+const ponytailReview = ponytail
+  ? {
+      findings: Array.isArray(ponytail.findings) ? ponytail.findings : [],
+      verdict: ponytail.verdict || "",
+    }
+  : { findings: [], verdict: "not run" };
+log("Lean review: " + ponytailReview.findings.length + " over-engineering finding(s) — " + (ponytailReview.verdict || "n/a"));
+
 // ═════════════════════════════════════════════════════════════════════════════
 // PHASE 4 — APPLY  (apply fixes; NEVER apply reversesDecision)
 // ═════════════════════════════════════════════════════════════════════════════
@@ -958,6 +1029,7 @@ if (SHIP) {
     escalatedOpenItems: escalated.map((f) => f.summary),
     fixCommits: applyReport.commits,
     minorFindings: minorLedger.length,
+    ponytail: { count: ponytailReview.findings.length, verdict: ponytailReview.verdict },
   };
   const prOpts = { label: "pr-author", phase: "Ship", schema: PR_TEXT, model: MODELS.prAuthor, agentType: AGENTS.prAuthor };
   let prText = await agent(
@@ -1075,6 +1147,7 @@ return {
   taskResults: results,
   implementMinorFindings: minorLedger, // passed through unchanged to the PR step
   review: { ...reviewStats, summary: reviewSummary, findings },
+  ponytailReview, // {findings:[{file,line?,tag,what,replacement}], verdict} — report-only, NOT applied
   refuted: refuted.map((c) => ({ file: c.file, line: c.line, summary: c.summary })),
   applied: applyReport,
   escalatedToUser: escalated, // reversesDecision → the human decides after the workflow ends
