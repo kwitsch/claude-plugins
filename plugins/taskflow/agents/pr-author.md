@@ -23,9 +23,12 @@ Rules:
   checklists; leave items you cannot truthfully check unchecked.
 - No template → structure: Summary (what & why, from the spec keypoints —
   read the spec file for context), Changes (grouped by task/wave), Review
-  (review level, findings applied/skipped, minor findings), Open items
-  (escalated spec-reversing findings awaiting a human decision — list them
-  explicitly), Test evidence (commands the pipeline ran, from the summary).
+  (review level, findings applied/skipped, minor findings), Lean review
+  (over-engineering findings from the ponytail pass, if any — one line each:
+  `file:line`, what to cut, replacement; these are report-only, not applied),
+  Open items (escalated spec-reversing findings awaiting a human decision —
+  list them explicitly), Test evidence (commands the pipeline ran, from the
+  summary).
 - Title: derive from the branch's purpose; follow the repo's convention
   (inspect `git log --oneline` on the base for style, e.g. conventional
   commits); imperative, ≤72 chars.

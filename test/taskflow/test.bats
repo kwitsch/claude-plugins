@@ -790,3 +790,29 @@ mm_git_fixture() {
   run rg_or_grep -iF 'lean/YAGNI decisions forward' "$WORKFLOWS/design-to-spec.workflow.js"
   [ "$status" -eq 0 ]
 }
+
+# --- ponytail report-only lean review (delivery pipeline) ---
+
+@test "spec-driven-delivery defines the lean-review schema, sonnet model, and returns ponytailReview" {
+  run rg_or_grep -F 'PONYTAIL_REVIEW_SCHEMA' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'ponytailReviewer: "sonnet"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'ponytailReview' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'ponytail: {' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+@test "the lean-review step is scoped to over-engineering only and stays report-only" {
+  run rg_or_grep -F 'over-engineering ONLY' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  # report-only: the ponytail review is never routed to the fix applier
+  run bash -c "grep -n 'ponytail' '$WORKFLOWS/spec-driven-delivery.workflow.js' | grep -i 'applier' || true"
+  [ "$output" = "" ]
+}
+
+@test "pr-author documents the Lean review heading fed from the ponytail pass" {
+  run rg_or_grep -iF 'Lean review' "$AGENTS_DIR/pr-author.md"
+  [ "$status" -eq 0 ]
+}
