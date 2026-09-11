@@ -783,6 +783,42 @@ mm_git_fixture() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# §2 — Per-task test-evidence handoff to a session-scratch file
+# (implementer → reviewer).
+# ─────────────────────────────────────────────────────────────────────────────
+
+@test "IMPL_RESULT hands off testEvidencePath, not an inline testEvidence transcript" {
+  run rg_or_grep -F 'testEvidencePath: { type: "string" }' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F '"testEvidencePath", "deviations"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  # bare `testEvidence` is a substring of the new field — absence-check the exact
+  # OLD required-array + property strings instead of the bare token.
+  run rg_or_grep -F '"worktreePath", "testEvidence", "deviations"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -ne 0 ]
+  run rg_or_grep -F 'testEvidence: { type: "string" }' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -ne 0 ]
+}
+
+@test "implementer keeps its pinned prompt head and redirects test evidence to the derived path" {
+  run rg_or_grep -F 'implementerPrompt = (t) => `${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'tevPathFor' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'test-evidence-task-' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -iF 'Bash redirection' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+@test "reviewer reads test evidence from the file named by testEvidencePath" {
+  run rg_or_grep -F 'reviewerPrompt = (t, implReport) => `${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'named by testEvidencePath' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Documentation sync for the Ship merge-state remediation.
 # ─────────────────────────────────────────────────────────────────────────────
 
