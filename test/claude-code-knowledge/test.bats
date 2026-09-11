@@ -1175,3 +1175,272 @@ MDEOF
   run rg_or_grep -c "context-mode" "$PLUGIN/skills/cc-memory/SKILL.md"
   [ "$status" -eq 1 ]
 }
+
+# --- lsp-audit script (scripts/audit-lsp.mjs) ---
+# Hermetic: the audit script spawns no child process (pure fs), so tests call
+# the real `node` directly against temp project dirs under $BATS_TEST_TMPDIR.
+
+audit_script() { printf '%s' "$PLUGIN/skills/lsp-audit/scripts/audit-lsp.mjs"; }
+run_audit() { run node "$(audit_script)" "$@"; }
+
+@test "audit-lsp.mjs exists and passes node --check" {
+  local s; s="$(audit_script)"
+  [ -f "$s" ]
+  run node --check "$s"
+  [ "$status" -eq 0 ]
+}
+
+@test "audit-lsp.reference.md exists and documents the invocation" {
+  local r="$PLUGIN/skills/lsp-audit/scripts/audit-lsp.reference.md"
+  [ -f "$r" ]
+  run rg_or_grep -F 'audit-lsp.mjs' "$r"
+  [ "$status" -eq 0 ]
+}
+
+@test "lsp-map.json is valid JSON with the expected catalog shape" {
+  local m="$PLUGIN/skills/lsp-audit/scripts/lsp-map.json"
+  run jq empty "$m"
+  [ "$status" -eq 0 ]
+  # every value is an object carrying a "server" field, or a bare string alias
+  run jq -e 'all(.[]; (type=="object" and has("server")) or type=="string")' "$m"
+  [ "$status" -eq 0 ]
+}
+
+@test "audit mode: reports catalog proposals and unknowns for uncovered exts" {
+  local proj="$BATS_TEST_TMPDIR/p_audit"
+  mkdir -p "$proj"
+  printf 'x\n' > "$proj/a.py"
+  printf 'x\n' > "$proj/b.go"
+  printf 'x\n' > "$proj/c.md"
+  printf '{}\n' > "$proj/.lsp.json"
+  run_audit "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.proposals | map(select(.ext==".py" and .server=="pylsp")) | length == 1'
+  echo "$output" | jq -e '.proposals | map(select(.ext==".go" and .server=="gopls")) | length == 1'
+  echo "$output" | jq -e '.unknown   | map(select(.ext==".md")) | length == 1'
+}
+
+@test "--fix: writes pylsp + gopls blocks, no .md server, canonical 2-space+newline output" {
+  local proj="$BATS_TEST_TMPDIR/p_fix"
+  mkdir -p "$proj"
+  printf 'x\n' > "$proj/a.py"
+  printf 'x\n' > "$proj/b.go"
+  printf 'x\n' > "$proj/c.md"
+  printf '{}\n' > "$proj/.lsp.json"
+  run_audit "$proj" --fix
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.applied | index(".py") != null'
+  echo "$output" | jq -e '.applied | index(".go") != null'
+  local f="$proj/.lsp.json"
+  jq -e '.pylsp.extensionToLanguage[".py"] == "python"' "$f"
+  jq -e '.gopls.extensionToLanguage[".go"] == "go"' "$f"
+  # no server covers .md
+  jq -e 'any(.[]; (.extensionToLanguage // {}) | has(".md")) | not' "$f"
+  # on-disk text is exactly JSON.stringify(obj, null, 2) + "\n"
+  run node -e 'const fs=require("fs");const t=fs.readFileSync(process.argv[1],"utf8");process.exit(t===JSON.stringify(JSON.parse(t),null,2)+"\n"?0:1)' "$f"
+  [ "$status" -eq 0 ]
+}
+
+@test "--fix merges into an existing server (no duplicate block)" {
+  local proj="$BATS_TEST_TMPDIR/p_merge"
+  mkdir -p "$proj"
+  printf 'x\n' > "$proj/a.mjs"
+  cat > "$proj/.lsp.json" <<'JSON'
+{
+  "vtsls": {
+    "command": "npx",
+    "args": ["-y", "@vtsls/language-server@0.3.0", "--stdio"],
+    "extensionToLanguage": {
+      ".ts": "typescript"
+    },
+    "startupTimeout": 60000
+  }
+}
+JSON
+  run_audit "$proj" --fix
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.mergedIntoServers | index("vtsls") != null'
+  local f="$proj/.lsp.json"
+  jq -e '.vtsls.extensionToLanguage[".mjs"] == "javascript"' "$f"
+  jq -e '.vtsls.extensionToLanguage[".ts"]  == "typescript"' "$f"
+  # exactly one vtsls key (no duplicate server block)
+  jq -e '[keys[] | select(. == "vtsls")] | length == 1' "$f"
+}
+
+@test "new server block is scoped to only the applied extension, not catalog-family siblings" {
+  local proj="$BATS_TEST_TMPDIR/p_scoped"
+  mkdir -p "$proj"
+  printf 'x\n' > "$proj/a.css"
+  cat > "$proj/.lsp.json" <<'JSON'
+{
+  "othercss": {
+    "command": "x",
+    "args": [],
+    "extensionToLanguage": {
+      ".scss": "scss"
+    },
+    "startupTimeout": 60000
+  }
+}
+JSON
+  run_audit "$proj" --apply ".css"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.createdServers   | index("cssls") != null'
+  echo "$output" | jq -e '.conflictsSkipped == []'
+  local f="$proj/.lsp.json"
+  # cssls gets only .css — not .scss/.less, even though the catalog's cssls
+  # entry lists them as siblings and the project has neither of those files
+  jq -e '.cssls.extensionToLanguage | has(".css") and (has(".scss") | not) and (has(".less") | not)' "$f"
+  # existing server untouched
+  jq -e '.othercss.extensionToLanguage[".scss"] == "scss"' "$f"
+}
+
+@test "malformed .lsp.json: exit 1, file byte-for-byte unchanged, nothing written" {
+  local proj="$BATS_TEST_TMPDIR/p_bad"
+  mkdir -p "$proj"
+  printf 'x\n' > "$proj/a.py"
+  printf '%s' '{ not valid json' > "$proj/.lsp.json"
+  local before; before="$(cat "$proj/.lsp.json")"
+  run_audit "$proj" --fix
+  [ "$status" -eq 1 ]
+  [ "$(cat "$proj/.lsp.json")" = "$before" ]
+}
+
+@test "no .lsp.json: --fix creates a well-formed fresh file" {
+  local proj="$BATS_TEST_TMPDIR/p_fresh"
+  mkdir -p "$proj"
+  printf 'x\n' > "$proj/a.py"
+  [ ! -f "$proj/.lsp.json" ]
+  run_audit "$proj" --fix
+  [ "$status" -eq 0 ]
+  local f="$proj/.lsp.json"
+  [ -f "$f" ]
+  jq -e '.pylsp.extensionToLanguage[".py"] == "python"' "$f"
+  run node -e 'const fs=require("fs");const t=fs.readFileSync(process.argv[1],"utf8");process.exit(t===JSON.stringify(JSON.parse(t),null,2)+"\n"?0:1)' "$f"
+  [ "$status" -eq 0 ]
+}
+
+@test "--apply applies only the named extension" {
+  local proj="$BATS_TEST_TMPDIR/p_apply"
+  mkdir -p "$proj"
+  printf 'x\n' > "$proj/a.py"
+  printf 'x\n' > "$proj/b.go"
+  printf '{}\n' > "$proj/.lsp.json"
+  run_audit "$proj" --apply ".py"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.applied == [".py"]'
+  local f="$proj/.lsp.json"
+  jq -e '.pylsp.extensionToLanguage[".py"] == "python"' "$f"
+  jq -e 'has("gopls") | not' "$f"
+}
+
+@test "dotfile with only a leading dot is skipped (no extension)" {
+  local proj="$BATS_TEST_TMPDIR/p_dotfile"
+  mkdir -p "$proj"
+  printf 'x\n' > "$proj/.gitignore"
+  printf 'x\n' > "$proj/a.py"
+  printf '{}\n' > "$proj/.lsp.json"
+  run_audit "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '[.proposals[].ext, .unknown[].ext] | (index(".gitignore") == null) and (index("gitignore") == null)'
+}
+
+@test "pruned directories do not contribute extensions" {
+  local proj="$BATS_TEST_TMPDIR/p_prune"
+  mkdir -p "$proj/node_modules"
+  printf 'x\n' > "$proj/node_modules/foo.py"
+  printf '{}\n' > "$proj/.lsp.json"
+  run_audit "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '[.proposals[].ext] | index(".py") == null'
+}
+
+# --- lsp-audit orchestrator skill ---
+
+@test "lsp-audit SKILL.md exists" {
+  [ -f "$PLUGIN/skills/lsp-audit/SKILL.md" ]
+}
+
+@test "lsp-audit SKILL.md has name, description, argument-hint frontmatter" {
+  local f="$PLUGIN/skills/lsp-audit/SKILL.md"
+  run rg_or_grep -E '^name:[[:space:]]*lsp-audit' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -E '^description:' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -E '^argument-hint:' "$f"; [ "$status" -eq 0 ]
+}
+
+@test "lsp-audit is model-invocable (no disable-model-invocation)" {
+  run rg_or_grep -E '^disable-model-invocation:[[:space:]]*true' "$PLUGIN/skills/lsp-audit/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "lsp-audit runs inline (no context: fork)" {
+  run rg_or_grep -E '^context:[[:space:]]*fork' "$PLUGIN/skills/lsp-audit/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "lsp-audit gates via AskUserQuestion" {
+  run rg_or_grep -F 'AskUserQuestion' "$PLUGIN/skills/lsp-audit/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "lsp-audit allowed-tools include Bash, Read, AskUserQuestion" {
+  local f="$PLUGIN/skills/lsp-audit/SKILL.md"
+  run rg_or_grep -E '^allowed-tools:.*Bash' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -E '^allowed-tools:.*Read' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -E '^allowed-tools:.*AskUserQuestion' "$f"; [ "$status" -eq 0 ]
+}
+
+@test "lsp-audit carries the review-skip justification for unscoped Bash" {
+  run rg_or_grep -F 'review-skip(F1)' "$PLUGIN/skills/lsp-audit/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "lsp-audit has a Read step for audit-lsp.reference.md" {
+  run rg_or_grep -F 'audit-lsp.reference.md' "$PLUGIN/skills/lsp-audit/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "lsp-audit references its bundled script via CLAUDE_SKILL_DIR" {
+  run rg_or_grep -F '${CLAUDE_SKILL_DIR}/scripts/audit-lsp.mjs' "$PLUGIN/skills/lsp-audit/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "lsp-audit has no load-time !-injection trigger" {
+  run rg_or_grep -nE '!`' "$PLUGIN/skills/lsp-audit/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "lsp-audit points at the cc-reference LSP schema doc, not a local restatement" {
+  run rg_or_grep -F 'claude-code-plugins-lsp-reference.md' "$PLUGIN/skills/lsp-audit/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+# --- lsp-audit doc/manifest sync ---
+
+@test "plugin.json version was bumped for lsp-audit (minor, off 1.7.11)" {
+  run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
+  [ "$output" != "1.7.11" ]
+}
+
+@test "plugin.json description mentions lsp-audit" {
+  run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"lsp-audit"* ]]
+}
+
+@test "claude-code-knowledge CLAUDE.md boundary rule lists lsp-audit" {
+  run rg_or_grep -F 'lsp-audit' "$PLUGIN/CLAUDE.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "claude-code-knowledge README lists lsp-audit in the Skills table" {
+  run rg_or_grep -F '`lsp-audit`' "$PLUGIN/README.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "root README plugin row mentions lsp-audit" {
+  run rg_or_grep -F 'claude-code-knowledge](plugins/claude-code-knowledge/README.md)' "$REPO_ROOT/README.md"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"lsp-audit"* ]]
+}
