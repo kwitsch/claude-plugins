@@ -101,28 +101,28 @@ function coverage(config) {
 }
 
 /**
- * Load the bundled catalog and index it by extension, resolving string aliases
- * to their canonical server object.
+ * Load the bundled catalog and index it by extension. Built directly from
+ * each canonical server object's own extensionToLanguage map — the
+ * top-level string aliases in lsp-map.json (e.g. ".cjs": "vtsls") are a
+ * human-facing index into the file, not consulted here, so a new extension
+ * added only inside a server's extensionToLanguage map is picked up with no
+ * separate alias entry to keep in sync.
  * @returns {Map<string, { server: string, languageId: string, note: (string|null), canonical: any }>}
  */
 function loadCatalog() {
   const catalog = JSON.parse(readFileSync(new URL("./lsp-map.json", import.meta.url), "utf8"));
-  /** @type {Map<string, any>} */
-  const byServer = new Map();
-  for (const v of Object.values(catalog)) {
-    if (v && typeof v === "object") byServer.set(v.server, v);
-  }
   /** @type {Map<string, { server: string, languageId: string, note: (string|null), canonical: any }>} */
   const byExt = new Map();
-  for (const [ext, v] of Object.entries(catalog)) {
-    const canon = typeof v === "string" ? byServer.get(v) : v;
-    if (!canon || !canon.extensionToLanguage) continue;
-    byExt.set(ext, {
-      server: canon.server,
-      languageId: canon.extensionToLanguage[ext],
-      note: canon.note ?? null,
-      canonical: canon,
-    });
+  for (const canon of Object.values(catalog)) {
+    if (!canon || typeof canon !== "object" || !canon.extensionToLanguage) continue;
+    for (const [ext, languageId] of Object.entries(canon.extensionToLanguage)) {
+      byExt.set(ext, {
+        server: canon.server,
+        languageId: /** @type {string} */ (languageId),
+        note: canon.note ?? null,
+        canonical: canon,
+      });
+    }
   }
   return byExt;
 }
