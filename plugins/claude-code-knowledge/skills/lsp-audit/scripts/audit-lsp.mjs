@@ -67,8 +67,14 @@ function readLspJson(root) {
   if (!existsSync(p)) return { exists: false, config: {}, raw: "" };
   const raw = readFileSync(p, "utf8");
   const parsed = JSON.parse(raw); // throws -> caller exits 1
-  const config = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-  return { exists: true, config, raw };
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    // Valid JSON but not a plain object (array/string/number/null) is just as
+    // unusable as malformed JSON for our purposes: fail closed the same way,
+    // via the caller's existing malformed-JSON catch, instead of silently
+    // treating it as an empty config and overwriting it on --fix/--apply.
+    throw new Error(`expected a JSON object at the top level, got ${Array.isArray(parsed) ? "an array" : parsed === null ? "null" : `a ${typeof parsed}`}`);
+  }
+  return { exists: true, config: parsed, raw };
 }
 
 /**
@@ -187,6 +193,16 @@ function applyProposals(config, claimedBy, proposals, targetSet, catalog) {
     }
     if (!p.newServer) {
       const block = result[p.server];
+      // A structurally-invalid existing entry (string/number/null instead of
+      // a server-config object — silently skipped at LSP-runtime per the
+      // cc-reference doc, and tolerated the same way by coverage() above)
+      // must fail closed here too, not throw a raw TypeError mid-write.
+      if (!block || typeof block !== "object" || Array.isArray(block)) {
+        fail(`Malformed .lsp.json: existing "${p.server}" entry is not a server config object`);
+      }
+      if (block.extensionToLanguage != null && typeof block.extensionToLanguage !== "object") {
+        fail(`Malformed .lsp.json: existing "${p.server}.extensionToLanguage" is not an object`);
+      }
       block.extensionToLanguage ||= {};
       block.extensionToLanguage[p.ext] = p.languageId;
       if (!mergedIntoServers.includes(p.server)) mergedIntoServers.push(p.server);
@@ -271,7 +287,15 @@ function main() {
 
   const counts = scanExtensions(root);
   const { covered, claimedBy } = coverage(lsp.config);
-  const catalog = loadCatalog();
+
+  let catalog;
+  try {
+    catalog = loadCatalog();
+  } catch (err) {
+    fail(`Malformed bundled lsp-map.json catalog: ${/** @type {any} */ (err).message}`);
+    return;
+  }
+
   const { proposals, unknown } = buildPlan(counts, covered, lsp.config, catalog);
 
   if (mode === "audit") {
