@@ -1267,8 +1267,8 @@ JSON
   jq -e '[keys[] | select(. == "vtsls")] | length == 1' "$f"
 }
 
-@test "conflict rule: a new block drops an ext already claimed by another server" {
-  local proj="$BATS_TEST_TMPDIR/p_conflict"
+@test "new server block is scoped to only the applied extension, not catalog-family siblings" {
+  local proj="$BATS_TEST_TMPDIR/p_scoped"
   mkdir -p "$proj"
   printf 'x\n' > "$proj/a.css"
   cat > "$proj/.lsp.json" <<'JSON'
@@ -1286,9 +1286,11 @@ JSON
   run_audit "$proj" --apply ".css"
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.createdServers   | index("cssls") != null'
-  echo "$output" | jq -e '.conflictsSkipped | index(".scss") != null'
+  echo "$output" | jq -e '.conflictsSkipped == []'
   local f="$proj/.lsp.json"
-  jq -e '.cssls.extensionToLanguage | has(".css") and (has(".scss") | not)' "$f"
+  # cssls gets only .css — not .scss/.less, even though the catalog's cssls
+  # entry lists them as siblings and the project has neither of those files
+  jq -e '.cssls.extensionToLanguage | has(".css") and (has(".scss") | not) and (has(".less") | not)' "$f"
   # existing server untouched
   jq -e '.othercss.extensionToLanguage[".scss"] == "scss"' "$f"
 }

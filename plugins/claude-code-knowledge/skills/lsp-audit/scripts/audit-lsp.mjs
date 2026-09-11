@@ -210,26 +210,17 @@ function applyProposals(config, claimedBy, proposals, targetSet, catalog) {
     } else {
       if (!Object.prototype.hasOwnProperty.call(result, p.server)) {
         const canon = catalog.get(p.ext).canonical;
-        /** @type {Record<string, string>} */
-        const e2l = {};
-        for (const [sib, lang] of Object.entries(canon.extensionToLanguage)) {
-          const owner = claimedBy.get(sib);
-          if (owner && owner !== p.server) {
-            conflictsSkipped.push(sib); // first-registered-wins: inert, drop it
-            continue;
-          }
-          e2l[sib] = /** @type {string} */ (lang);
-        }
         result[p.server] = {
           command: canon.command,
           args: canon.args,
-          extensionToLanguage: e2l,
+          extensionToLanguage: {},
           startupTimeout: canon.startupTimeout,
         };
         createdServers.push(p.server);
       }
-      // A new-server block is written with the full canonical map, so a later
-      // proposal for the same server needs no further write — just mark applied.
+      // Scoped to exactly what was applied — never the catalog server's
+      // other sibling extensions the caller didn't target.
+      result[p.server].extensionToLanguage[p.ext] = p.languageId;
       applied.push(p.ext);
     }
   }

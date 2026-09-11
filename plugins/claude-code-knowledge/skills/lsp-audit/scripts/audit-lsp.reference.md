@@ -68,7 +68,7 @@
 
 - Additive-only: never removes, rewrites, or reorders an existing key; only inserts into `extensionToLanguage` maps or adds new top-level server blocks.
 - Coverage is computed across **every** server block's `extensionToLanguage` keys, not just top-level server-id names.
-- First-registered-wins: a newly created server block drops any extension already claimed by a different existing server (recorded in `conflictsSkipped`).
+- New server blocks are scoped to exactly the extension(s) actually applied — never pre-populated with other extensions from the same catalog server's family that the caller didn't target.
 - Output format is exactly `JSON.stringify(obj, null, 2) + "\n"` (2-space indent, trailing LF).
 - Directory prune denylist for the scan: `.git`, `node_modules`, `vendor`, `dist`, `build`, `.claude/worktrees`, `.claude/agent-memory`.
 - Extension extraction: last-dot split, lowercased; a file whose basename has no dot or only a leading dot has no extension and is skipped.
