@@ -48,10 +48,10 @@ export -f rg_or_grep
   [ "$status" -eq 0 ]
 }
 
-@test "plugin.json version is 1.5.2" {
+@test "plugin.json version is 1.6.1" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "1.5.2" ]
+  [ "$output" = "1.6.1" ]
 }
 
 @test "marketplace entry exists for taskflow" {
@@ -849,5 +849,70 @@ mm_git_fixture() {
   run rg_or_grep -F 'ship-ensure-mergeable.sh' "$PLUGIN/CLAUDE.md"
   [ "$status" -eq 0 ]
   run rg_or_grep -F '11 static role prompts' "$PLUGIN/CLAUDE.md"
+  [ "$status" -eq 0 ]
+}
+
+# --- ponytail design-phase enforcement ---
+
+@test "designer prompt embeds the ponytail reuse ladder and the never-trim carve-out" {
+  run rg_or_grep -iF 'reuse ladder' "$AGENTS_DIR/designer.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -iF 'stdlib' "$AGENTS_DIR/designer.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -iF 'No unrequested abstractions' "$AGENTS_DIR/designer.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'USER DECISION' "$AGENTS_DIR/designer.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "design-reviewer checklist includes the over-engineering (ponytail) item 8" {
+  run rg_or_grep -iF 'Over-engineering (ponytail)' "$AGENTS_DIR/design-reviewer.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -E '^8\.' "$AGENTS_DIR/design-reviewer.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "the spec-writer prompt carries the draft's lean/YAGNI decisions forward" {
+  run rg_or_grep -iF 'lean/YAGNI decisions forward' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+# --- ponytail report-only lean review (delivery pipeline) ---
+
+@test "spec-driven-delivery defines the lean-review schema, sonnet model, and returns ponytailReview" {
+  run rg_or_grep -F 'PONYTAIL_REVIEW_SCHEMA' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'ponytailReviewer: "sonnet"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'ponytailReview' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'ponytail: {' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+@test "the lean-review step is scoped to over-engineering only and stays report-only" {
+  run rg_or_grep -F 'over-engineering ONLY' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  # report-only: the ponytail review is never routed to the fix applier
+  run bash -c "grep -n 'ponytail' '$WORKFLOWS/spec-driven-delivery.workflow.js' | grep -i 'applier' || true"
+  [ "$output" = "" ]
+}
+
+@test "lean-review findings are independently verified and deduped against the combined review" {
+  run rg_or_grep -F 'verifyGroups(ponytailCandidates)' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'combinedLocs' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-author documents the Lean review heading fed from the ponytail pass" {
+  run rg_or_grep -iF 'Lean review' "$AGENTS_DIR/pr-author.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "reference doc records the report-only lean (ponytail) review contract" {
+  run rg_or_grep -F 'ponytailReview' "$REFS/spec-driven-delivery.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -iF 'over-engineering' "$REFS/spec-driven-delivery.md"
   [ "$status" -eq 0 ]
 }

@@ -203,8 +203,9 @@ USER_INPUT: ''}` (paths from the temp directory). Then by `status`:
       fix.
    2. Report one short summary: wave layout, per-task results (id, model,
       status), review level + findings applied / skipped / escalated, the
-      collected minor findings (implement per-task, review, design/spec),
-      the commit hashes from `applied.commits` plus any escalation commit,
-      and the `ship` outcome (PR/MR url, CI status; on `ci_failed`/`blocked`
-      state plainly what the human must pick up). Merging the PR/MR is not
-      this skill's job.
+      lean-review (`ponytailReview`) over-engineering findings (report-only,
+      not applied), the collected minor findings (implement per-task, review,
+      design/spec), the commit hashes from `applied.commits` plus any
+      escalation commit, and the `ship` outcome (PR/MR url, CI status; on
+      `ci_failed`/`blocked` state plainly what the human must pick up).
+      Merging the PR/MR is not this skill's job.
