@@ -812,6 +812,13 @@ mm_git_fixture() {
   [ "$output" = "" ]
 }
 
+@test "lean-review findings are independently verified and deduped against the combined review" {
+  run rg_or_grep -F 'verifyGroups(ponytailCandidates)' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'combinedLocs' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
 @test "pr-author documents the Lean review heading fed from the ponytail pass" {
   run rg_or_grep -iF 'Lean review' "$AGENTS_DIR/pr-author.md"
   [ "$status" -eq 0 ]

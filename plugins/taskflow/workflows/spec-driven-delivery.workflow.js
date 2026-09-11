@@ -721,11 +721,13 @@ const SCOPE_BLOCK =
   (scope.conventions || "(none noted)") +
   "\n";
 
-// ── Lean review (ponytail): over-engineering ONLY, report-only, independent
-//    of the correctness+cleanup review below. Not applied, not escalated.
-//    Kicked off now (only SCOPE_BLOCK/SPEC_PATH needed) so its latency
-//    overlaps the finder/verify/sweep/synthesis pipeline below instead of
-//    serializing after it — awaited later, where its result is used. ──
+// ── Lean review (ponytail): over-engineering ONLY, report-only, not applied,
+//    not escalated. Kicked off now (only SCOPE_BLOCK/SPEC_PATH needed) so its
+//    latency overlaps the finder/verify/sweep/synthesis pipeline below
+//    instead of serializing after it. Its raw claims are independently
+//    checked through the same group-verifier step as every other candidate,
+//    and deduped against the combined review's surviving findings, before
+//    being awaited/used below (see ponytailReview assembly). ──
 const ponytailReviewPrompt =
   NO_NARRATION +
   "\n\n## Lean review — over-engineering only\n\n" +
@@ -974,13 +976,28 @@ if (ponytail === null)
     ...ponyOpts,
     label: "lean-review:retry",
   });
-const ponytailReview = ponytail
-  ? {
-      findings: Array.isArray(ponytail.findings) ? ponytail.findings : [],
-      verdict: ponytail.verdict || "",
-    }
-  : { findings: [], verdict: "not run" };
-log("Lean review: " + ponytailReview.findings.length + " over-engineering finding(s) — " + (ponytailReview.verdict || "n/a"));
+const ponytailRaw = ponytail && Array.isArray(ponytail.findings) ? ponytail.findings : [];
+
+// Every raw claim goes through the same group verifier as every other review
+// candidate — no single-pass claim reaches the PR unchecked — then anything
+// at a location the combined review already covers is dropped, so the PR
+// never shows an unverified claim contradicting a verified one at the same spot.
+const ponytailCandidates = ingest(
+  ponytailRaw.map((f) => ({
+    ...f,
+    summary: "[" + f.tag + "] " + f.what + (f.replacement ? " -> " + f.replacement : ""),
+    failure_scenario: "Lean-review over-engineering claim — confirm the code is genuinely unused/replaceable as described.",
+  })),
+  ponytailRaw.length,
+  "ponytail",
+);
+const ponytailVerified = ponytailCandidates.length > 0 ? await verifyGroups(ponytailCandidates) : [];
+const combinedLocs = new Set(findings.map(loc));
+const ponytailFindings = ponytailVerified
+  .filter((c) => c.verdict !== "REFUTED" && !combinedLocs.has(loc(c)))
+  .map((c) => ({ file: c.file, line: c.line, tag: c.tag, what: c.what, replacement: c.replacement }));
+const ponytailReview = { findings: ponytailFindings, verdict: ponytail ? ponytail.verdict || "" : "not run" };
+log("Lean review: " + ponytailRaw.length + " raw → " + ponytailFindings.length + " verified & non-duplicate over-engineering finding(s) — " + (ponytailReview.verdict || "n/a"));
 
 // ═════════════════════════════════════════════════════════════════════════════
 // PHASE 4 — APPLY  (apply fixes; NEVER apply reversesDecision)
@@ -1155,7 +1172,7 @@ return {
   taskResults: results,
   implementMinorFindings: minorLedger, // passed through unchanged to the PR step
   review: { ...reviewStats, summary: reviewSummary, findings },
-  ponytailReview, // {findings:[{file,line?,tag,what,replacement}], verdict} — report-only, NOT applied
+  ponytailReview, // {findings:[{file,line?,tag,what,replacement}], verdict} — independently verified + deduped against the combined review, report-only, NOT applied
   refuted: refuted.map((c) => ({ file: c.file, line: c.line, summary: c.summary })),
   applied: applyReport,
   escalatedToUser: escalated, // reversesDecision → the human decides after the workflow ends

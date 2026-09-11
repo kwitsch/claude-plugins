@@ -11,8 +11,12 @@ The designer prompt states explicitly that `keypoints` and `openQuestions` are s
 `spec-driven-delivery.workflow.js`'s Review phase ends with a separate,
 report-only lean pass (`PONYTAIL_REVIEW_SCHEMA` → `ponytailReview`) that
 reuses the already-built `SCOPE_BLOCK`/`DIFF_CMD` and reports over-engineering
-ONLY — independent of the combined correctness+cleanup review, never fed to
-`fix-applier`, never escalated. `agents/designer.md` and
+ONLY. Its raw claims are independently verified through the same
+`verifyGroups` group-verifier step as every other review candidate, and any
+claim at the same location as a surviving combined correctness+cleanup
+finding is dropped (dedup) so the PR body never shows an unvetted claim next
+to — or contradicting — a verified one. Still never routed to fix
+application, never escalated. `agents/designer.md` and
 `agents/design-reviewer.md` embed ponytail's reuse ladder as static prose:
 ponytail is an external, non-allowlisted-marketplace plugin, so there is
 deliberately no runtime `Skill`/`dependencies` reference to it (the embedded
