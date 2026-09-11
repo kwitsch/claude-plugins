@@ -740,6 +740,49 @@ mm_git_fixture() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# §1 — PR/MR body handoff to a session-scratch file (pr-author → shipper).
+# ─────────────────────────────────────────────────────────────────────────────
+
+@test "workflow derives SCRATCH_DIR from PLAN_PATH by a pure string op" {
+  run rg_or_grep -F 'const SCRATCH_DIR = PLAN_PATH.slice(0, PLAN_PATH.lastIndexOf("/") + 1)' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+@test "PR_TEXT schema hands off bodyPath, not an inline body" {
+  run rg_or_grep -F 'bodyPath: { type: "string" }' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'required: ["title", "bodyPath"]' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  # word-boundary form: a plain -F "prText.body" would substring-match the
+  # surviving prText.bodyPath and never pass post-conversion.
+  run rg_or_grep -e 'prText\.body\b' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -ne 0 ]
+  run rg_or_grep -F '<<<BODY' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -ne 0 ]
+}
+
+@test "shipper reads the PR/MR body from a file, never retyping it" {
+  run rg_or_grep -F -- '--body-file' "$AGENTS_DIR/shipper.md"
+  [ "$status" -eq 0 ]
+  # capital -F reads the file byte-exactly; lowercase -f body= must be gone.
+  run rg_or_grep -F -- '-F body=@' "$AGENTS_DIR/shipper.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F -- '-f body=' "$AGENTS_DIR/shipper.md"
+  [ "$status" -ne 0 ]
+  run rg_or_grep -F -- '--description "$(cat' "$AGENTS_DIR/shipper.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-author writes the body to a file via redirection and returns bodyPath" {
+  run rg_or_grep -F 'bodyPath' "$AGENTS_DIR/pr-author.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -iF 'Bash redirection' "$AGENTS_DIR/pr-author.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'Return the title and body through the structured output schema' "$AGENTS_DIR/pr-author.md"
+  [ "$status" -ne 0 ]
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Documentation sync for the Ship merge-state remediation.
 # ─────────────────────────────────────────────────────────────────────────────
 

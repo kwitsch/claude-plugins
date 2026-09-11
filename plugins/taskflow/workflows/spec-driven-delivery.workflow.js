@@ -97,6 +97,11 @@ const { SPEC_PATH, PLAN_PATH, BRANCH_NAME, BASE_BRANCH, SHIP } = A;
 // would otherwise pass a bare truthiness check — treat it as absent, same as "".
 const PLUGIN_ROOT = A.PLUGIN_ROOT && !A.PLUGIN_ROOT.includes("${") ? A.PLUGIN_ROOT : "";
 
+// Session scratch dir = the directory already holding PLAN_PATH/SPEC_PATH
+// (build-task's <session scratchpad>/build-task/). Pure string op — the script
+// itself never touches the filesystem; agents do the writes.
+const SCRATCH_DIR = PLAN_PATH.slice(0, PLAN_PATH.lastIndexOf("/") + 1);
+
 // ── Model assignment by task difficulty ──────────────────────────────────────
 // Role profiles:
 //   PINNED_OPUS — high synthesis/judgment load (planning, final
@@ -327,8 +332,8 @@ const APPLY_RESULT = {
 
 const PR_TEXT = {
   type: "object",
-  required: ["title", "body"],
-  properties: { title: { type: "string" }, body: { type: "string" } },
+  required: ["title", "bodyPath"],
+  properties: { title: { type: "string" }, bodyPath: { type: "string" } },
 };
 const SHIP_RESULT = {
   type: "object",
@@ -959,6 +964,7 @@ if (SHIP) {
     fixCommits: applyReport.commits,
     minorFindings: minorLedger.length,
   };
+  const PR_BODY_PATH = SCRATCH_DIR + "pr-body.md";
   const prOpts = { label: "pr-author", phase: "Ship", schema: PR_TEXT, model: MODELS.prAuthor, agentType: AGENTS.prAuthor };
   let prText = await agent(
     "Write the PR/MR title and body for branch " +
@@ -975,12 +981,27 @@ if (SHIP) {
       PLAN_PATH +
       "\n" +
       "Template discovery, structure, title/language conventions per your agent\n" +
-      "definition. Structured output only.",
+      "definition.\n" +
+      "Write the complete PR/MR body to this absolute file using Bash redirection\n" +
+      "(a `cat > \"<path>\" <<'EOF' … EOF` heredoc — NEVER the Write or Edit tool; the\n" +
+      "universal-format hook reformats those): " +
+      PR_BODY_PATH +
+      "\n" +
+      "Return the title inline and bodyPath set to exactly that path (do not return\n" +
+      "the body text). Structured output only.",
     prOpts,
   );
   if (prText === null)
     prText = await agent(
-      "Retry. Write the PR/MR title and body for branch " + BRANCH_NAME + " → " + BASE_BRANCH + " from this summary per your agent definition:\n" + JSON.stringify(pipelineSummary),
+      "Retry. Write the PR/MR title and body for branch " +
+        BRANCH_NAME +
+        " → " +
+        BASE_BRANCH +
+        " from this summary per your agent definition:\n" +
+        JSON.stringify(pipelineSummary) +
+        "\nWrite the body to " +
+        PR_BODY_PATH +
+        " via Bash redirection (heredoc, never Write/Edit), then return bodyPath = that path with the title inline.",
       { ...prOpts, label: "pr-author:retry" },
     );
 
@@ -997,9 +1018,9 @@ if (SHIP) {
         "PR/MR title: " +
         prText.title +
         "\n" +
-        "PR/MR body:\n<<<BODY\n" +
-        prText.body +
-        "\nBODY\n" +
+        "PR/MR body file (absolute path, already written): " +
+        prText.bodyPath +
+        "\n" +
         "Mergeability script (absolute path): " +
         (PLUGIN_ROOT ? PLUGIN_ROOT + "/bin/ship-ensure-mergeable.sh" : "(none — skip the mergeability step and report mergeState 'unknown')") +
         "\n" +
