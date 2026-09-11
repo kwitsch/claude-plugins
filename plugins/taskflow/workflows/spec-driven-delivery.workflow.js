@@ -149,6 +149,16 @@ const AGENTS = {
 // so any prose between tool calls is wasted tokens no one reads.
 const NO_NARRATION = "No narrative text between tool calls — call tools silently and speak only in your final message (the report or structured output).";
 
+// Shared tail for every inline prompt below that has an agent write output to
+// an absolute scratch-file path via Bash redirection instead of the Write/Edit
+// tools (the implementer's test-evidence file, the PR-body prompt and its
+// retry) — universal-format's live-format hook reformats anything written
+// through Write/Edit, so content that must reach disk verbatim can't go
+// through them. Same wording as agents/pr-author.md's own copy of this rule
+// (that file is Markdown, not JS, so it can't import this constant — same
+// cross-file-type duplication NO_NARRATION already accepts against agents/*.md).
+const WRITE_VIA_BASH_NOT_WRITE_EDIT = "NEVER the Write or Edit tool; the universal-format hook reformats those";
+
 const IMPL_MODEL = { trivial: "haiku", standard: "sonnet", complex: PINNED_OPUS };
 const implModel = (t) => IMPL_MODEL[t.complexity] || "sonnet";
 const fixModel = (t) => (implModel(t) === "haiku" ? "sonnet" : implModel(t)); // fixing is never trivial; sonnet is enough for trivial tasks
@@ -504,8 +514,7 @@ as ONE commit following the repo's commit conventions (no co-author trailers,
 no generated-with footers). Touch nothing outside the task's scope.
 Write every test/verification command you run and its full output to the
 absolute file ${tevPathFor(t)} via Bash redirection (append with
-\`{ echo "\$ <cmd>"; <cmd>; } 2>&1 | tee -a "<path>"\`, or a heredoc — NEVER
-the Write or Edit tool; the universal-format hook reformats those).
+\`{ echo "\$ <cmd>"; <cmd>; } 2>&1 | tee -a "<path>"\`, or a heredoc — ${WRITE_VIA_BASH_NOT_WRITE_EDIT}).
 Before returning, run \`git branch --show-current\`,
 \`git rev-parse --show-toplevel\`, and \`git rev-parse HEAD\` and report their
 exact output, set testEvidencePath to that same absolute path, and report any
@@ -994,8 +1003,9 @@ if (SHIP) {
       "Template discovery, structure, title/language conventions per your agent\n" +
       "definition.\n" +
       "Write the complete PR/MR body to this absolute file using Bash redirection\n" +
-      "(a `cat > \"<path>\" <<'EOF' … EOF` heredoc — NEVER the Write or Edit tool; the\n" +
-      "universal-format hook reformats those): " +
+      "(a `cat > \"<path>\" <<'EOF' … EOF` heredoc — " +
+      WRITE_VIA_BASH_NOT_WRITE_EDIT +
+      "): " +
       PR_BODY_PATH +
       "\n" +
       "Return the title inline and bodyPath set to exactly that path (do not return\n" +
@@ -1012,7 +1022,9 @@ if (SHIP) {
         JSON.stringify(pipelineSummary) +
         "\nWrite the body to " +
         PR_BODY_PATH +
-        " via Bash redirection (heredoc, never Write/Edit), then return bodyPath = that path with the title inline.",
+        " via Bash redirection (heredoc — " +
+        WRITE_VIA_BASH_NOT_WRITE_EDIT +
+        "), then return bodyPath = that path with the title inline.",
       { ...prOpts, label: "pr-author:retry" },
     );
 
