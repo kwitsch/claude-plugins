@@ -54,10 +54,16 @@ export const meta = {
 };
 
 // ── Inputs via the `args` global (decoder with fail-fast guard) ─────────────
-// Expected: { SPEC_PATH, PLAN_PATH, BRANCH_NAME, BASE_BRANCH?, PLUGIN_ROOT? }
+// Expected: { SPEC_PATH, PLAN_PATH, BRANCH_NAME, SCRATCH_DIR, BASE_BRANCH?, PLUGIN_ROOT? }
 //   SPEC_PATH   — absolute path of the approved spec file
 //   PLAN_PATH   — absolute temp path for the plan (session scratch, never in the repo)
 //   BRANCH_NAME — current work branch (`git branch --show-current`)
+//   SCRATCH_DIR — absolute session-scratch directory (build-task's own
+//                 `<session scratchpad>/build-task/`), trailing slash included;
+//                 where pr-author/implementer write their scratch files
+//                 (pr-body.md, test-evidence-task-<id>.txt) for shipper/reviewer
+//                 to read back. Passed explicitly by build-task, not derived
+//                 from PLAN_PATH's directory.
 //   BASE_BRANCH — branch the work branch was cut from (default 'main')
 //   PLUGIN_ROOT — absolute plugin root (build-task injects $CLAUDE_PLUGIN_ROOT);
 //                 used to build the ship-ensure-mergeable.sh path handed to
@@ -89,18 +95,13 @@ function decodeArgs(required, defaults) {
   if (missing.length) return { __error: "missing required args: " + missing.join(", ") + " (got keys: " + Object.keys(a).join(", ") + ")" };
   return { ...defaults, ...a };
 }
-const A = decodeArgs(["SPEC_PATH", "PLAN_PATH", "BRANCH_NAME"], { BASE_BRANCH: "main", SHIP: true, PLUGIN_ROOT: "" });
+const A = decodeArgs(["SPEC_PATH", "PLAN_PATH", "BRANCH_NAME", "SCRATCH_DIR"], { BASE_BRANCH: "main", SHIP: true, PLUGIN_ROOT: "" });
 if (A.__error) return { stage: "args", error: A.__error };
-const { SPEC_PATH, PLAN_PATH, BRANCH_NAME, BASE_BRANCH, SHIP } = A;
+const { SPEC_PATH, PLAN_PATH, BRANCH_NAME, SCRATCH_DIR, BASE_BRANCH, SHIP } = A;
 // An unresolved substitution token (e.g. build-task read its own SKILL.md as
 // plain text instead of through the Skill tool) is a non-empty string that
 // would otherwise pass a bare truthiness check — treat it as absent, same as "".
 const PLUGIN_ROOT = A.PLUGIN_ROOT && !A.PLUGIN_ROOT.includes("${") ? A.PLUGIN_ROOT : "";
-
-// Session scratch dir = the directory already holding PLAN_PATH/SPEC_PATH
-// (build-task's <session scratchpad>/build-task/). Pure string op — the script
-// itself never touches the filesystem; agents do the writes.
-const SCRATCH_DIR = PLAN_PATH.slice(0, PLAN_PATH.lastIndexOf("/") + 1);
 
 // ── Model assignment by task difficulty ──────────────────────────────────────
 // Role profiles:

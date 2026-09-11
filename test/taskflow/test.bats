@@ -743,8 +743,15 @@ mm_git_fixture() {
 # §1 — PR/MR body handoff to a session-scratch file (pr-author → shipper).
 # ─────────────────────────────────────────────────────────────────────────────
 
-@test "workflow derives SCRATCH_DIR from PLAN_PATH by a pure string op" {
-  run rg_or_grep -F 'const SCRATCH_DIR = PLAN_PATH.slice(0, PLAN_PATH.lastIndexOf("/") + 1)' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+@test "workflow decodes SCRATCH_DIR as a required arg, not derived from PLAN_PATH" {
+  run rg_or_grep -F 'decodeArgs(["SPEC_PATH", "PLAN_PATH", "BRANCH_NAME", "SCRATCH_DIR"]' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'PLAN_PATH.slice(0, PLAN_PATH.lastIndexOf("/") + 1)' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -ne 0 ]
+}
+
+@test "build-task passes SCRATCH_DIR to the delivery workflow" {
+  run rg_or_grep -F 'SCRATCH_DIR' "$SKILL/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
