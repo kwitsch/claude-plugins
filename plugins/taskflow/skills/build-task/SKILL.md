@@ -179,7 +179,11 @@ USER_INPUT: ''}` (paths from the temp directory). Then by `status`:
    count as **approved** — this is the pipeline's one human checkpoint on the
    design.
 4. **Deliver.** Run the delivery workflow (invocation rules above) with args
-   `{SPEC_PATH, PLAN_PATH, BRANCH_NAME, BASE_BRANCH, PLUGIN_ROOT}` (add `SHIP: false`
+   `{SPEC_PATH, PLAN_PATH, BRANCH_NAME, BASE_BRANCH, PLUGIN_ROOT, SCRATCH_DIR}`
+   (`SCRATCH_DIR` is the same session-temp directory from "Session temp files"
+   above, trailing slash included — the delivery workflow's pr-author/
+   implementer agents write their own scratch files there for
+   shipper/reviewer to read back; add `SHIP: false`
    only if the user asked not to open a PR/MR). The workflow ships on its
    own — push, PR/MR create-or-update, CI watch with bounded fix rounds; the
    returned `ship` object carries url and CI outcome. On an error return

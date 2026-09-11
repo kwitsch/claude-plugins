@@ -54,10 +54,16 @@ export const meta = {
 };
 
 // ── Inputs via the `args` global (decoder with fail-fast guard) ─────────────
-// Expected: { SPEC_PATH, PLAN_PATH, BRANCH_NAME, BASE_BRANCH?, PLUGIN_ROOT? }
+// Expected: { SPEC_PATH, PLAN_PATH, BRANCH_NAME, SCRATCH_DIR, BASE_BRANCH?, PLUGIN_ROOT? }
 //   SPEC_PATH   — absolute path of the approved spec file
 //   PLAN_PATH   — absolute temp path for the plan (session scratch, never in the repo)
 //   BRANCH_NAME — current work branch (`git branch --show-current`)
+//   SCRATCH_DIR — absolute session-scratch directory (build-task's own
+//                 `<session scratchpad>/build-task/`), trailing slash included;
+//                 where pr-author/implementer write their scratch files
+//                 (pr-body.md, test-evidence-task-<id>.txt) for shipper/reviewer
+//                 to read back. Passed explicitly by build-task, not derived
+//                 from PLAN_PATH's directory.
 //   BASE_BRANCH — branch the work branch was cut from (default 'main')
 //   PLUGIN_ROOT — absolute plugin root (build-task injects $CLAUDE_PLUGIN_ROOT);
 //                 used to build the ship-ensure-mergeable.sh path handed to
@@ -89,9 +95,9 @@ function decodeArgs(required, defaults) {
   if (missing.length) return { __error: "missing required args: " + missing.join(", ") + " (got keys: " + Object.keys(a).join(", ") + ")" };
   return { ...defaults, ...a };
 }
-const A = decodeArgs(["SPEC_PATH", "PLAN_PATH", "BRANCH_NAME"], { BASE_BRANCH: "main", SHIP: true, PLUGIN_ROOT: "" });
+const A = decodeArgs(["SPEC_PATH", "PLAN_PATH", "BRANCH_NAME", "SCRATCH_DIR"], { BASE_BRANCH: "main", SHIP: true, PLUGIN_ROOT: "" });
 if (A.__error) return { stage: "args", error: A.__error };
-const { SPEC_PATH, PLAN_PATH, BRANCH_NAME, BASE_BRANCH, SHIP } = A;
+const { SPEC_PATH, PLAN_PATH, BRANCH_NAME, SCRATCH_DIR, BASE_BRANCH, SHIP } = A;
 // An unresolved substitution token (e.g. build-task read its own SKILL.md as
 // plain text instead of through the Skill tool) is a non-empty string that
 // would otherwise pass a bare truthiness check — treat it as absent, same as "".
@@ -145,6 +151,16 @@ const AGENTS = {
 // so any prose between tool calls is wasted tokens no one reads.
 const NO_NARRATION = "No narrative text between tool calls — call tools silently and speak only in your final message (the report or structured output).";
 
+// Shared tail for every inline prompt below that has an agent write output to
+// an absolute scratch-file path via Bash redirection instead of the Write/Edit
+// tools (the implementer's test-evidence file, the PR-body prompt and its
+// retry) — universal-format's live-format hook reformats anything written
+// through Write/Edit, so content that must reach disk verbatim can't go
+// through them. Same wording as agents/pr-author.md's own copy of this rule
+// (that file is Markdown, not JS, so it can't import this constant — same
+// cross-file-type duplication NO_NARRATION already accepts against agents/*.md).
+const WRITE_VIA_BASH_NOT_WRITE_EDIT = "NEVER the Write or Edit tool; the universal-format hook reformats those";
+
 const IMPL_MODEL = { trivial: "haiku", standard: "sonnet", complex: PINNED_OPUS };
 const implModel = (t) => IMPL_MODEL[t.complexity] || "sonnet";
 const fixModel = (t) => (implModel(t) === "haiku" ? "sonnet" : implModel(t)); // fixing is never trivial; sonnet is enough for trivial tasks
@@ -195,13 +211,13 @@ const CHECK_VERDICT = {
 };
 const IMPL_RESULT = {
   type: "object",
-  required: ["status", "commitHash", "branch", "worktreePath", "testEvidence", "deviations"],
+  required: ["status", "commitHash", "branch", "worktreePath", "testEvidencePath", "deviations"],
   properties: {
     status: { enum: ["done", "blocked"] },
     commitHash: { type: "string" },
     branch: { type: "string" }, // self-reported from its own worktree
     worktreePath: { type: "string" }, // ditto — never derived from tool side-channels
-    testEvidence: { type: "string" },
+    testEvidencePath: { type: "string" },
     deviations: { type: "string" },
   },
 };
@@ -349,8 +365,8 @@ const APPLY_RESULT = {
 
 const PR_TEXT = {
   type: "object",
-  required: ["title", "body"],
-  properties: { title: { type: "string" }, body: { type: "string" } },
+  required: ["title", "bodyPath"],
+  properties: { title: { type: "string" }, bodyPath: { type: "string" } },
 };
 const SHIP_RESULT = {
   type: "object",
@@ -500,6 +516,11 @@ function computeWaves(tasksIn) {
 const waves = computeWaves(tasks);
 log("Wave plan: " + waves.map((w, i) => i + 1 + ":[" + w.join(",") + "]").join(" "));
 
+// Per-task test-evidence file: t.id in the name so parallel-wave tasks never
+// collide (runTask runs concurrently via parallel()). Sanitize the interpolated
+// id (schema-typed number, but be defensive) — never the whole path, which
+// would mangle SCRATCH_DIR's separators.
+const tevPathFor = (t) => SCRATCH_DIR + "test-evidence-task-" + String(t.id).replace(/[^A-Za-z0-9._-]/g, "_") + ".txt";
 const implementerPrompt = (t) => `${NO_NARRATION}
 
 You are the implementer for exactly one plan
@@ -514,10 +535,14 @@ Work test-first: write the task's failing test, watch it fail, implement
 minimally, watch it pass, run the task's verification commands. Commit the task
 as ONE commit following the repo's commit conventions (no co-author trailers,
 no generated-with footers). Touch nothing outside the task's scope.
+Write every test/verification command you run and its full output to the
+absolute file ${tevPathFor(t)} via Bash redirection (append with
+\`{ echo "\$ <cmd>"; <cmd>; } 2>&1 | tee -a "<path>"\`, or a heredoc — ${WRITE_VIA_BASH_NOT_WRITE_EDIT}).
 Before returning, run \`git branch --show-current\`,
 \`git rev-parse --show-toplevel\`, and \`git rev-parse HEAD\` and report their
-exact output, plus test evidence (commands + output) and any deviation from
-the plan. Return through the structured output schema.`;
+exact output, set testEvidencePath to that same absolute path, and report any
+deviation from the plan inline in deviations. Return through the structured
+output schema.`;
 
 const reviewerPrompt = (t, implReport) => `${NO_NARRATION}
 
@@ -529,8 +554,9 @@ The commit lives on the branch named in the report — read it with
 \`git show <branch>\` / \`git log <branch>\` (refs are shared across worktrees;
 no checkout needed). Check spec/plan compliance against the task text and these
 global constraints, then correctness: ${constraints}
-Do not re-run tests the implementer already ran — the report carries the
-evidence. Return your verdict through the structured output schema.`;
+The test evidence is in the file named by testEvidencePath in the report — use
+the Read tool on it if you need it; do not re-run the tests the implementer
+already ran. Return your verdict through the structured output schema.`;
 
 const fixerPrompt = (t, findings, worktreePath, branch) => `${NO_NARRATION}
 
@@ -1056,6 +1082,7 @@ if (SHIP) {
     minorFindings: minorLedger.length,
     ponytail: { count: ponytailReview.findings.length, verdict: ponytailReview.verdict },
   };
+  const PR_BODY_PATH = SCRATCH_DIR + "pr-body.md";
   const prOpts = { label: "pr-author", phase: "Ship", schema: PR_TEXT, model: MODELS.prAuthor, agentType: AGENTS.prAuthor };
   let prText = await agent(
     "Write the PR/MR title and body for branch " +
@@ -1072,12 +1099,30 @@ if (SHIP) {
       PLAN_PATH +
       "\n" +
       "Template discovery, structure, title/language conventions per your agent\n" +
-      "definition. Structured output only.",
+      "definition.\n" +
+      "Write the complete PR/MR body to this absolute file using Bash redirection\n" +
+      "(a `cat > \"<path>\" <<'EOF' … EOF` heredoc — " +
+      WRITE_VIA_BASH_NOT_WRITE_EDIT +
+      "): " +
+      PR_BODY_PATH +
+      "\n" +
+      "Return the title inline and bodyPath set to exactly that path (do not return\n" +
+      "the body text). Structured output only.",
     prOpts,
   );
   if (prText === null)
     prText = await agent(
-      "Retry. Write the PR/MR title and body for branch " + BRANCH_NAME + " → " + BASE_BRANCH + " from this summary per your agent definition:\n" + JSON.stringify(pipelineSummary),
+      "Retry. Write the PR/MR title and body for branch " +
+        BRANCH_NAME +
+        " → " +
+        BASE_BRANCH +
+        " from this summary per your agent definition:\n" +
+        JSON.stringify(pipelineSummary) +
+        "\nWrite the body to " +
+        PR_BODY_PATH +
+        " via Bash redirection (heredoc — " +
+        WRITE_VIA_BASH_NOT_WRITE_EDIT +
+        "), then return bodyPath = that path with the title inline.",
       { ...prOpts, label: "pr-author:retry" },
     );
 
@@ -1094,9 +1139,9 @@ if (SHIP) {
         "PR/MR title: " +
         prText.title +
         "\n" +
-        "PR/MR body:\n<<<BODY\n" +
-        prText.body +
-        "\nBODY\n" +
+        "PR/MR body file (absolute path, already written): " +
+        prText.bodyPath +
+        "\n" +
         "Mergeability script (absolute path): " +
         (PLUGIN_ROOT ? PLUGIN_ROOT + "/bin/ship-ensure-mergeable.sh" : "(none — skip the mergeability step and report mergeState 'unknown')") +
         "\n" +
