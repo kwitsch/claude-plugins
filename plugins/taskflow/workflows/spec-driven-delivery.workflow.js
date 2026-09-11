@@ -199,13 +199,13 @@ const CHECK_VERDICT = {
 };
 const IMPL_RESULT = {
   type: "object",
-  required: ["status", "commitHash", "branch", "worktreePath", "testEvidence", "deviations"],
+  required: ["status", "commitHash", "branch", "worktreePath", "testEvidencePath", "deviations"],
   properties: {
     status: { enum: ["done", "blocked"] },
     commitHash: { type: "string" },
     branch: { type: "string" }, // self-reported from its own worktree
     worktreePath: { type: "string" }, // ditto — never derived from tool side-channels
-    testEvidence: { type: "string" },
+    testEvidencePath: { type: "string" },
     deviations: { type: "string" },
   },
 };
@@ -483,6 +483,11 @@ function computeWaves(tasksIn) {
 const waves = computeWaves(tasks);
 log("Wave plan: " + waves.map((w, i) => i + 1 + ":[" + w.join(",") + "]").join(" "));
 
+// Per-task test-evidence file: t.id in the name so parallel-wave tasks never
+// collide (runTask runs concurrently via parallel()). Sanitize the interpolated
+// id (schema-typed number, but be defensive) — never the whole path, which
+// would mangle SCRATCH_DIR's separators.
+const tevPathFor = (t) => SCRATCH_DIR + "test-evidence-task-" + String(t.id).replace(/[^A-Za-z0-9._-]/g, "_") + ".txt";
 const implementerPrompt = (t) => `${NO_NARRATION}
 
 You are the implementer for exactly one plan
@@ -497,10 +502,15 @@ Work test-first: write the task's failing test, watch it fail, implement
 minimally, watch it pass, run the task's verification commands. Commit the task
 as ONE commit following the repo's commit conventions (no co-author trailers,
 no generated-with footers). Touch nothing outside the task's scope.
+Write every test/verification command you run and its full output to the
+absolute file ${tevPathFor(t)} via Bash redirection (append with
+\`{ echo "\$ <cmd>"; <cmd>; } 2>&1 | tee -a "<path>"\`, or a heredoc — NEVER
+the Write or Edit tool; the universal-format hook reformats those).
 Before returning, run \`git branch --show-current\`,
 \`git rev-parse --show-toplevel\`, and \`git rev-parse HEAD\` and report their
-exact output, plus test evidence (commands + output) and any deviation from
-the plan. Return through the structured output schema.`;
+exact output, set testEvidencePath to that same absolute path, and report any
+deviation from the plan inline in deviations. Return through the structured
+output schema.`;
 
 const reviewerPrompt = (t, implReport) => `${NO_NARRATION}
 
@@ -512,8 +522,9 @@ The commit lives on the branch named in the report — read it with
 \`git show <branch>\` / \`git log <branch>\` (refs are shared across worktrees;
 no checkout needed). Check spec/plan compliance against the task text and these
 global constraints, then correctness: ${constraints}
-Do not re-run tests the implementer already ran — the report carries the
-evidence. Return your verdict through the structured output schema.`;
+The test evidence is in the file named by testEvidencePath in the report — use
+the Read tool on it if you need it; do not re-run the tests the implementer
+already ran. Return your verdict through the structured output schema.`;
 
 const fixerPrompt = (t, findings, worktreePath, branch) => `${NO_NARRATION}
 
