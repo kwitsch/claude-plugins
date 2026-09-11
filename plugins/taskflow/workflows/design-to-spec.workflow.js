@@ -459,6 +459,10 @@ English regardless of the draft's language (translate faithfully if needed)
 - Carry over EVERY decision, interface, constraint, and acceptance criterion
   from the draft — nothing dropped, nothing newly invented, no re-opened
   decisions ('USER DECISION' entries are immutable).
+- Carry the draft's lean/YAGNI decisions forward: do not reintroduce a
+  component, abstraction, or config the draft deliberately cut, and do not
+  drop a required piece. The spec adds no speculative scope (reinforces
+  "nothing newly invented" above).
 - Sections: Keypoints; Goal; Non-goals; Chosen approach (alternatives + why
   they lost, condensed); Detailed design (architecture, components, data flow,
   exact interfaces); Error handling; Testing strategy; Acceptance criteria
