@@ -1352,3 +1352,63 @@ JSON
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '[.proposals[].ext] | index(".py") == null'
 }
+
+# --- lsp-audit orchestrator skill ---
+
+@test "lsp-audit SKILL.md exists" {
+  [ -f "$PLUGIN/skills/lsp-audit/SKILL.md" ]
+}
+
+@test "lsp-audit SKILL.md has name, description, argument-hint frontmatter" {
+  local f="$PLUGIN/skills/lsp-audit/SKILL.md"
+  run rg_or_grep -E '^name:[[:space:]]*lsp-audit' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -E '^description:' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -E '^argument-hint:' "$f"; [ "$status" -eq 0 ]
+}
+
+@test "lsp-audit is model-invocable (no disable-model-invocation)" {
+  run rg_or_grep -E '^disable-model-invocation:[[:space:]]*true' "$PLUGIN/skills/lsp-audit/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "lsp-audit runs inline (no context: fork)" {
+  run rg_or_grep -E '^context:[[:space:]]*fork' "$PLUGIN/skills/lsp-audit/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "lsp-audit gates via AskUserQuestion" {
+  run rg_or_grep -F 'AskUserQuestion' "$PLUGIN/skills/lsp-audit/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "lsp-audit allowed-tools include Bash, Read, AskUserQuestion" {
+  local f="$PLUGIN/skills/lsp-audit/SKILL.md"
+  run rg_or_grep -E '^allowed-tools:.*Bash' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -E '^allowed-tools:.*Read' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -E '^allowed-tools:.*AskUserQuestion' "$f"; [ "$status" -eq 0 ]
+}
+
+@test "lsp-audit carries the review-skip justification for unscoped Bash" {
+  run rg_or_grep -F 'review-skip(F1)' "$PLUGIN/skills/lsp-audit/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "lsp-audit has a Read step for audit-lsp.reference.md" {
+  run rg_or_grep -F 'audit-lsp.reference.md' "$PLUGIN/skills/lsp-audit/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "lsp-audit references its bundled script via CLAUDE_SKILL_DIR" {
+  run rg_or_grep -F '${CLAUDE_SKILL_DIR}/scripts/audit-lsp.mjs' "$PLUGIN/skills/lsp-audit/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "lsp-audit has no load-time !-injection trigger" {
+  run rg_or_grep -nE '!`' "$PLUGIN/skills/lsp-audit/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "lsp-audit points at the cc-reference LSP schema doc, not a local restatement" {
+  run rg_or_grep -F 'claude-code-plugins-lsp-reference.md' "$PLUGIN/skills/lsp-audit/SKILL.md"
+  [ "$status" -eq 0 ]
+}
