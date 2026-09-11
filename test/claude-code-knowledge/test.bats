@@ -1412,3 +1412,33 @@ JSON
   run rg_or_grep -F 'claude-code-plugins-lsp-reference.md' "$PLUGIN/skills/lsp-audit/SKILL.md"
   [ "$status" -eq 0 ]
 }
+
+# --- lsp-audit doc/manifest sync ---
+
+@test "plugin.json version was bumped for lsp-audit (minor, off 1.7.11)" {
+  run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
+  [ "$output" != "1.7.11" ]
+}
+
+@test "plugin.json description mentions lsp-audit" {
+  run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"lsp-audit"* ]]
+}
+
+@test "claude-code-knowledge CLAUDE.md boundary rule lists lsp-audit" {
+  run rg_or_grep -F 'lsp-audit' "$PLUGIN/CLAUDE.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "claude-code-knowledge README lists lsp-audit in the Skills table" {
+  run rg_or_grep -F '`lsp-audit`' "$PLUGIN/README.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "root README plugin row mentions lsp-audit" {
+  run rg_or_grep -F 'claude-code-knowledge](plugins/claude-code-knowledge/README.md)' "$REPO_ROOT/README.md"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"lsp-audit"* ]]
+}
