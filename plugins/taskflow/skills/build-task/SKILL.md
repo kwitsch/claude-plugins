@@ -179,7 +179,11 @@ USER_INPUT: ''}` (paths from the temp directory). Then by `status`:
    count as **approved** — this is the pipeline's one human checkpoint on the
    design.
 4. **Deliver.** Run the delivery workflow (invocation rules above) with args
-   `{SPEC_PATH, PLAN_PATH, BRANCH_NAME, BASE_BRANCH, PLUGIN_ROOT}` (add `SHIP: false`
+   `{SPEC_PATH, PLAN_PATH, BRANCH_NAME, BASE_BRANCH, PLUGIN_ROOT, SCRATCH_DIR}`
+   (`SCRATCH_DIR` is the same session-temp directory from "Session temp files"
+   above, trailing slash included — the delivery workflow's pr-author/
+   implementer agents write their own scratch files there for
+   shipper/reviewer to read back; add `SHIP: false`
    only if the user asked not to open a PR/MR). The workflow ships on its
    own — push, PR/MR create-or-update, CI watch with bounded fix rounds; the
    returned `ship` object carries url and CI outcome. On an error return
@@ -199,8 +203,9 @@ USER_INPUT: ''}` (paths from the temp directory). Then by `status`:
       fix.
    2. Report one short summary: wave layout, per-task results (id, model,
       status), review level + findings applied / skipped / escalated, the
-      collected minor findings (implement per-task, review, design/spec),
-      the commit hashes from `applied.commits` plus any escalation commit,
-      and the `ship` outcome (PR/MR url, CI status; on `ci_failed`/`blocked`
-      state plainly what the human must pick up). Merging the PR/MR is not
-      this skill's job.
+      lean-review (`ponytailReview`) over-engineering findings (report-only,
+      not applied), the collected minor findings (implement per-task, review,
+      design/spec), the commit hashes from `applied.commits` plus any
+      escalation commit, and the `ship` outcome (PR/MR url, CI status; on
+      `ci_failed`/`blocked` state plainly what the human must pick up).
+      Merging the PR/MR is not this skill's job.

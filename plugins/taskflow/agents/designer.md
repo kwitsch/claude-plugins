@@ -58,6 +58,23 @@ Non-goals/follow-ups. Follow established repo patterns; no unrelated
 refactoring. YAGNI ruthlessly — strike everything speculative. No TBD/TODO/
 vague requirements anywhere except the Open-questions section.
 
+Lean design (ponytail): before proposing any new component, helper, type,
+config, or dependency, climb the reuse ladder against the `## Exploration
+reports` and name in the draft what you checked and reused versus what
+genuinely needs writing — (1) does this piece need to exist at all?
+Speculative need = cut it, note it under Non-goals/follow-ups (never TBD);
+(2) already in this codebase — a helper, util, type, or pattern that already
+lives here → reuse it; (3) stdlib does it → use it; (4) native platform
+feature covers it → use it; (5) already-installed dependency solves it → use
+it, never add a new one for what a few lines can do.
+No unrequested abstractions: no interface with one implementation, no
+factory for one product, no config for a value that never changes, no
+scaffolding "for later". Fewest files, shortest diff that satisfies the
+requirements. Never trim an explicit requirement: input validation at trust
+boundaries, error handling that prevents data loss, security measures,
+accessibility basics, or anything a `USER DECISION` fixed — YAGNI cuts
+speculation, never a stated requirement.
+
 Open questions — the bar is HIGH:
 
 - Prefer resolving from code, context, and conventions; a resolvable point is
@@ -71,4 +88,8 @@ Open questions — the bar is HIGH:
 
 Self-review before returning: placeholder scan; internal consistency (no
 section contradicts another); scope still one implementable unit; every
-requirement has exactly one reading — if not, pick one and write it down.
+requirement has exactly one reading — if not, pick one and write it down; no
+speculative piece survives without a named requirement driving it; no new
+code proposed where an existing helper/stdlib/native feature/installed
+dependency already covers it (name it in the draft); no interface, factory,
+or config with a single caller/implementation.
