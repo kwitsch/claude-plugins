@@ -7,7 +7,7 @@ The plugin ships these components:
 - `skills/cc-reference/` — the lookup skill + bundled reference files.
 - `skills/cc-review/` — the inline review orchestrator (dispatches `cc-reviewer`, gates fixes through AskUserQuestion).
 - `skills/cc-author/` — the inline authoring orchestrator (dispatches `cc-author-planner`, writes the returned files, gates the optional `cc-review` hand-off).
-- `skills/cc-memory/` — the inline project-memory audit-&-improve orchestrator (discovers every CLAUDE.md + `.claude/rules/*.md` file by default, reuses `cc-reviewer` with `component_type: memory`, grades them in a claude-md-improver-style report, surfaces leanness/scope-split recommendations, and gates fixes).
+- `skills/memory-audit/` — the inline project-memory audit-&-improve orchestrator (discovers every CLAUDE.md + `.claude/rules/*.md` file by default, reuses `cc-reviewer` with `component_type: memory`, grades them in a claude-md-improver-style report, surfaces leanness/scope-split recommendations, and gates fixes — auto-applying every fixable finding under `--fix`, or through an `AskUserQuestion` multi-select without it).
 - `skills/cc-compress/` — compresses a markdown memory/instruction file into caveman-style prose in place to cut future load tokens, backing up the original to session-temp storage for rollback. Adaptation of upstream `caveman-compress` (JuliusBrussee/caveman); the compression call itself runs via a zero-dep `scripts/compress.mjs` shelling out to `claude --print --model sonnet`, never in-context.
 - `skills/lsp-audit/` — audits a project's file extensions against its project-root `.lsp.json` and additively writes the missing LSP-server coverage a bundled catalog (`scripts/lsp-map.json`, 10 servers, resurrected from the deleted `init/lsp-repo-init` skill) recognizes; `--fix` auto-adds every catalog-resolvable entry, otherwise an `AskUserQuestion` multi-select picks which to add. All scan/diff/merge/safe-write logic lives in the zero-dep `scripts/audit-lsp.mjs` (additive-only, first-registered-wins, fail-closed on malformed JSON); the SKILL.md only orchestrates. Extensions with no catalog server are reported as manual to-dos, never guessed. Targets the project-root `.lsp.json` only. The catalog is operational data (like universal-lint's linter map), not duplicated `cc-reference` knowledge.
 - `agents/claude-code-expert.md` — the read-only Q&A expert (reroute target).
@@ -16,10 +16,17 @@ The plugin ships these components:
 - `hooks/hooks.json` + `mcp/server.mjs` + `.mcp.json` — the `claude-code-guide` reroute hook backend.
 
 Maintenance tooling lives at `.claude/skills/update-cc-references/` (repo root) and does NOT ship — the plugin loader reads only the plugin's own `skills/` directory. Adding further components requires a deliberate design decision. Its contradiction-validation gate dispatches the repo-root `.claude/agents/cc-reference-validator.md` read-only agent (also not shipped).
-The `cc-author`/`cc-memory`/`cc-author-planner` components were added by the
+The `cc-author`/`memory-audit`/`cc-author-planner` components were added by the
 2026-06-17 authoring-extension design; they extend the lookup→review pair into a
 lookup→author→review triad, all sourced from `cc-reference` (no duplicated
 reference files).
+
+2026-09-13: `cc-memory` was renamed to `memory-audit` (and gained a `--fix`
+auto-apply flag). The new name deliberately drops the plugin's `cc-*` skill-name
+prefix because the rename task fixed the target name as `memory-audit`; this is an
+intentional symmetry break, not an oversight — do not "restore" a `cc-` prefix.
+This line is the only place the old `cc-memory` name is retained, as rename
+provenance.
 
 ## Reference-file authoring style
 
@@ -52,6 +59,6 @@ repo-wide phase-out started in coding-toolbox (PR #112). `rtk` does not apply he
 files (`claude-code-expert`, `cc-author-planner`, `cc-reviewer`,
 `cc-reference`) fall back to WebFetch, a different problem domain `rtk`
 (a shell-command proxy) has no role in; the 2 shell-variant skills
-(`cc-review`, `cc-memory`) have no rtk-optimizable command — `cc-memory`'s
+(`cc-review`, `memory-audit`) have no rtk-optimizable command — `memory-audit`'s
 `find` call was tested directly and `rtk find` refuses it outright for
 using compound predicates (`-o`, `-not`).

@@ -1,4 +1,4 @@
-# cc-memory analysis workflow — script reference
+# memory-audit analysis workflow — script reference
 
 Read by `SKILL.md`'s step 3 ("Analyze files (Workflow)"). Runs the
 per-file `cc-reviewer` audit and the aggregation/grading pass that used to
@@ -23,7 +23,7 @@ in the script text you send — **never via the `args` parameter**
 
 ```js
 export const meta = {
-  name: 'cc-memory-analyze',
+  name: 'memory-audit-analyze',
   description: 'Audit each discovered memory file in parallel, then aggregate into a graded report',
   phases: [
     { title: 'Analyze', detail: 'one cc-reviewer per discovered file', model: 'sonnet' },
