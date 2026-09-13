@@ -1,12 +1,12 @@
 ---
-name: cc-memory
+name: memory-audit
 description: Audit and improve a project's memory files (every CLAUDE.md and .claude/rules/*.md) against the curated cc-reference memory rules — discover every CLAUDE.md and .claude/rules file, grade each, report quality, then with `--fix` auto-applies every fixable finding, or without `--fix` presents them via an `AskUserQuestion` multi-select and applies only the ones you pick. Use when the user asks to check, audit, improve, grade, or maintain CLAUDE.md / .claude/rules / project-memory files.
 argument-hint: [--fix] [optional repo path]
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, AskUserQuestion, Workflow, ToolSearch
 # review-skip(F1): unscoped Bash/Edit/Write is required — discovery runs against an arbitrary repo path and fixes Edit/Write arbitrary CLAUDE.md files; allowed-tools only pre-approves, never restricts.
 ---
 
-# cc-memory — audit & improve CLAUDE.md memory grounded in cc-reference
+# memory-audit — audit & improve CLAUDE.md memory grounded in cc-reference
 
 Audit every CLAUDE.md and `.claude/rules/*.md` file in `$ARGUMENTS` (default: the
 whole current project) against the curated `cc-reference` memory rules by dispatching
@@ -152,7 +152,7 @@ For each selected finding (all `uncovered: false` with a non-null
 an `Edit` call; `{ "full_content" }` → a `Write` call. Under `--fix`, every
 selectable action (`uncovered: false` with a non-null `suggested_fix`) is
 auto-applied; otherwise apply only what the user selected in §5. In neither mode
-does cc-memory auto-commit.
+does memory-audit auto-commit.
 
 ## 7. Report
 
