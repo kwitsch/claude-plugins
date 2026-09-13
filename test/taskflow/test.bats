@@ -8,6 +8,7 @@ setup() {
   PLUGIN="$REPO_ROOT/plugins/taskflow"
   SKILL="$PLUGIN/skills/build-task"
   DISPATCH="$PLUGIN/skills/dispatch-task"
+  CHANGES_AUDIT="$PLUGIN/skills/changes-audit"
   REFS="$SKILL/references"
   AGENTS_DIR="$PLUGIN/agents"
   WORKFLOWS="$PLUGIN/workflows"
@@ -500,6 +501,50 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
 @test "plugin README lists dispatch-task in the Skills section" {
   run rg_or_grep -F '| `dispatch-task`' "$PLUGIN/README.md"
   [ "$status" -eq 0 ]
+}
+
+# --- changes-audit skill ---
+
+@test "changes-audit SKILL.md exists and is non-empty" {
+  [ -s "$CHANGES_AUDIT/SKILL.md" ]
+}
+
+@test "changes-audit frontmatter: name, description, argument-hint; model-invocable; not forked" {
+  run rg_or_grep -E '^name:[[:space:]]*changes-audit' "$CHANGES_AUDIT/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -E '^description:' "$CHANGES_AUDIT/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -E '^argument-hint:' "$CHANGES_AUDIT/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -E '^disable-model-invocation:[[:space:]]*true' "$CHANGES_AUDIT/SKILL.md"
+  [ "$status" -ne 0 ]
+  run rg_or_grep -E '^context:[[:space:]]*fork' "$CHANGES_AUDIT/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "changes-audit allowed-tools includes Workflow, Agent, AskUserQuestion" {
+  run rg_or_grep -E '^allowed-tools:.*Workflow' "$CHANGES_AUDIT/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -E '^allowed-tools:.*Agent' "$CHANGES_AUDIT/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -E '^allowed-tools:.*AskUserQuestion' "$CHANGES_AUDIT/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "changes-audit parses --fix, invokes the review workflow, dispatches fix-applier" {
+  run rg_or_grep -F -- '--fix' "$CHANGES_AUDIT/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'AskUserQuestion' "$CHANGES_AUDIT/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'taskflow:changes-review' "$CHANGES_AUDIT/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'taskflow:fix-applier' "$CHANGES_AUDIT/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "changes-audit SKILL.md never contains a load-time exclamation-backtick sequence" {
+  run rg_or_grep -F '!`' "$CHANGES_AUDIT/SKILL.md"
+  [ "$status" -ne 0 ]
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
