@@ -48,10 +48,10 @@ export -f rg_or_grep
   [ "$status" -eq 0 ]
 }
 
-@test "plugin.json version is 1.6.0" {
+@test "plugin.json version is 1.6.1" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "1.6.0" ]
+  [ "$output" = "1.6.1" ]
 }
 
 @test "marketplace entry exists for taskflow" {
@@ -737,6 +737,92 @@ mm_git_fixture() {
 @test "the agent roster is still exactly 11 *.md files" {
   run bash -c "ls '$AGENTS_DIR'/*.md | wc -l | tr -d '[:space:]'"
   [ "$output" = "11" ]
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §1 — PR/MR body handoff to a session-scratch file (pr-author → shipper).
+# ─────────────────────────────────────────────────────────────────────────────
+
+@test "workflow decodes SCRATCH_DIR as a required arg, not derived from PLAN_PATH" {
+  run rg_or_grep -F 'decodeArgs(["SPEC_PATH", "PLAN_PATH", "BRANCH_NAME", "SCRATCH_DIR"]' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'PLAN_PATH.slice(0, PLAN_PATH.lastIndexOf("/") + 1)' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -ne 0 ]
+}
+
+@test "build-task passes SCRATCH_DIR to the delivery workflow" {
+  run rg_or_grep -F 'SCRATCH_DIR' "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "PR_TEXT schema hands off bodyPath, not an inline body" {
+  run rg_or_grep -F 'bodyPath: { type: "string" }' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'required: ["title", "bodyPath"]' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  # word-boundary form: a plain -F "prText.body" would substring-match the
+  # surviving prText.bodyPath and never pass post-conversion.
+  run rg_or_grep -e 'prText\.body\b' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -ne 0 ]
+  run rg_or_grep -F '<<<BODY' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -ne 0 ]
+}
+
+@test "shipper reads the PR/MR body from a file, never retyping it" {
+  run rg_or_grep -F -- '--body-file' "$AGENTS_DIR/shipper.md"
+  [ "$status" -eq 0 ]
+  # capital -F reads the file byte-exactly; lowercase -f body= must be gone.
+  run rg_or_grep -F -- '-F body=@' "$AGENTS_DIR/shipper.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F -- '-f body=' "$AGENTS_DIR/shipper.md"
+  [ "$status" -ne 0 ]
+  run rg_or_grep -F -- '--description "$(cat' "$AGENTS_DIR/shipper.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "pr-author writes the body to a file via redirection and returns bodyPath" {
+  run rg_or_grep -F 'bodyPath' "$AGENTS_DIR/pr-author.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -iF 'Bash redirection' "$AGENTS_DIR/pr-author.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'Return the title and body through the structured output schema' "$AGENTS_DIR/pr-author.md"
+  [ "$status" -ne 0 ]
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §2 — Per-task test-evidence handoff to a session-scratch file
+# (implementer → reviewer).
+# ─────────────────────────────────────────────────────────────────────────────
+
+@test "IMPL_RESULT hands off testEvidencePath, not an inline testEvidence transcript" {
+  run rg_or_grep -F 'testEvidencePath: { type: "string" }' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F '"testEvidencePath", "deviations"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  # bare `testEvidence` is a substring of the new field — absence-check the exact
+  # OLD required-array + property strings instead of the bare token.
+  run rg_or_grep -F '"worktreePath", "testEvidence", "deviations"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -ne 0 ]
+  run rg_or_grep -F 'testEvidence: { type: "string" }' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -ne 0 ]
+}
+
+@test "implementer keeps its pinned prompt head and redirects test evidence to the derived path" {
+  run rg_or_grep -F 'implementerPrompt = (t) => `${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'tevPathFor' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'test-evidence-task-' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -iF 'Bash redirection' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+@test "reviewer reads test evidence from the file named by testEvidencePath" {
+  run rg_or_grep -F 'reviewerPrompt = (t, implReport) => `${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'named by testEvidencePath' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
 }
 
 # ─────────────────────────────────────────────────────────────────────────────

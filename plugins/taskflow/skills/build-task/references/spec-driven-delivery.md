@@ -28,13 +28,14 @@ rename together with the plugin). An unknown type throws hard at dispatch
 
 ## Parameters (`args` object)
 
-| Key           | Type   | Required | Meaning                                                                                                                    |
-| :------------ | :----- | :------- | :------------------------------------------------------------------------------------------------------------------------- |
-| `SPEC_PATH`   | string | yes      | Absolute path of the user-approved spec file                                                                               |
-| `PLAN_PATH`   | string | yes      | Absolute temp path where the planner writes the plan (session scratch, never in the repo)                                  |
-| `BRANCH_NAME` | string | yes      | Current work branch (`git branch --show-current`)                                                                          |
-| `BASE_BRANCH` | string | no       | Branch the work branch was cut from. Default `main`. Drives the review diff `git diff <base>...HEAD`                       |
-| `SHIP`        | bool   | no       | Default `true`. Run the Ship stage (push, PR/MR create-or-update, CI watch + bounded fix rounds); `false` ends after Apply |
+| Key           | Type   | Required | Meaning                                                                                                                                                                                                                                         |
+| :------------ | :----- | :------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SPEC_PATH`   | string | yes      | Absolute path of the user-approved spec file                                                                                                                                                                                                    |
+| `PLAN_PATH`   | string | yes      | Absolute temp path where the planner writes the plan (session scratch, never in the repo)                                                                                                                                                       |
+| `BRANCH_NAME` | string | yes      | Current work branch (`git branch --show-current`)                                                                                                                                                                                               |
+| `SCRATCH_DIR` | string | yes      | Absolute session-scratch directory, trailing slash included (build-task's `<session scratchpad>/build-task/`) — where pr-author/implementer write scratch files (`pr-body.md`, `test-evidence-task-<id>.txt`) for shipper/reviewer to read back |
+| `BASE_BRANCH` | string | no       | Branch the work branch was cut from. Default `main`. Drives the review diff `git diff <base>...HEAD`                                                                                                                                            |
+| `SHIP`        | bool   | no       | Default `true`. Run the Ship stage (push, PR/MR create-or-update, CI watch + bounded fix rounds); `false` ends after Apply                                                                                                                      |
 
 Delivery format (primary/named-workflow invocation): the runtime may hand
 `args` to the script as a JSON STRING depending on the invocation path —
