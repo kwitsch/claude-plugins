@@ -1,7 +1,7 @@
 ---
 name: cc-memory
-description: Audit and improve a project's memory files (every CLAUDE.md and .claude/rules/*.md) against the curated cc-reference memory rules — discover every CLAUDE.md and .claude/rules file, grade each, report quality, then interactively apply the improvements you select. Use when the user asks to check, audit, improve, grade, or maintain CLAUDE.md / .claude/rules / project-memory files.
-argument-hint: [optional repo path]
+description: Audit and improve a project's memory files (every CLAUDE.md and .claude/rules/*.md) against the curated cc-reference memory rules — discover every CLAUDE.md and .claude/rules file, grade each, report quality, then with `--fix` auto-applies every fixable finding, or without `--fix` presents them via an `AskUserQuestion` multi-select and applies only the ones you pick. Use when the user asks to check, audit, improve, grade, or maintain CLAUDE.md / .claude/rules / project-memory files.
+argument-hint: [--fix] [optional repo path]
 allowed-tools: Bash, Read, Grep, Glob, Edit, Write, Agent, AskUserQuestion, Workflow, ToolSearch
 # review-skip(F1): unscoped Bash/Edit/Write is required — discovery runs against an arbitrary repo path and fixes Edit/Write arbitrary CLAUDE.md files; allowed-tools only pre-approves, never restricts.
 ---
@@ -26,7 +26,11 @@ writer.**
 > free-text prompts may be asked inline, but prefer `AskUserQuestion` whenever the
 > choices can be enumerated.
 
-## 1. Resolve the scope
+## 1. Parse arguments & resolve scope
+
+`$ARGUMENTS` may contain the bare flag `--fix` (no value) and/or a repo path.
+Parse and strip `--fix` first; set `$FIX` = present/absent. Whatever non-flag
+text remains, trimmed, is the scope (default: the whole current project).
 
 The scope is `$ARGUMENTS` when given, otherwise the **whole current project**
 (repository root). Either way the audited set is the project's full memory surface
@@ -43,7 +47,7 @@ supplied interactively.)
 ```bash
 ROOT="${1:-.}"
 find "$ROOT" -type f \( -name CLAUDE.md -o -path '*/.claude/rules/*.md' \) \
-  -not -path '*/.git/*' 2>/dev/null | sort
+  -not -path '*/.git/*' 2> /dev/null | sort
 ```
 
 Each output line is a memory file — a `CLAUDE.md` or a `.claude/rules/*.md` rule
@@ -104,6 +108,11 @@ Any file with `failed: true` is noted as failed instead of graded.
 
 ## 5. Gate via AskUserQuestion
 
+When `$FIX` is set, skip this `AskUserQuestion` gate entirely and treat every
+file's **selectable actions** (the same eligibility rule: `uncovered: false` with a
+non-null `suggested_fix`) as selected; proceed straight to §6 with that full set.
+The interactive flow below applies only when `$FIX` is absent.
+
 Present each file's **selectable actions** — its fixable findings (`uncovered: false`
 with a non-null `suggested_fix`) — for selection via `AskUserQuestion`, the same way
 `cc-review` does. `AskUserQuestion` hard caps: at most **4 tabs** per call, each tab
@@ -140,8 +149,10 @@ manual-to-do finding). `uncovered: true` findings remain informational notes.
 
 For each selected finding (all `uncovered: false` with a non-null
 `suggested_fix`), apply its `suggested_fix`: `{ "old_string", "new_string" }` →
-an `Edit` call; `{ "full_content" }` → a `Write` call. Apply nothing the user did
-not select. cc-memory does **not** auto-commit.
+an `Edit` call; `{ "full_content" }` → a `Write` call. Under `--fix`, every
+selectable action (`uncovered: false` with a non-null `suggested_fix`) is
+auto-applied; otherwise apply only what the user selected in §5. In neither mode
+does cc-memory auto-commit.
 
 ## 7. Report
 

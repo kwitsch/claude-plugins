@@ -597,6 +597,24 @@ reroute_call() {
   [ "$status" -eq 0 ]
 }
 
+@test "cc-memory argument-hint carries --fix" {
+  run rg_or_grep -F 'argument-hint: [--fix]' "$PLUGIN/skills/cc-memory/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "cc-memory --fix branch is additive (auto-apply branch coexists with AskUserQuestion)" {
+  local f="$PLUGIN/skills/cc-memory/SKILL.md"
+  run rg_or_grep -F -- '--fix' "$f";        [ "$status" -eq 0 ]
+  run rg_or_grep -F '$FIX' "$f";            [ "$status" -eq 0 ]
+  run rg_or_grep -F 'AskUserQuestion' "$f"; [ "$status" -eq 0 ]
+}
+
+@test "cc-memory eligibility predicate survives in SKILL.md gate/apply prose" {
+  local f="$PLUGIN/skills/cc-memory/SKILL.md"
+  run rg_or_grep -F 'uncovered: false' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'suggested_fix' "$f";    [ "$status" -eq 0 ]
+}
+
 @test "cc-memory analysis-workflow.md dispatch prompt asks reviewer for leanness/split findings" {
   local f="$PLUGIN/skills/cc-memory/analysis-workflow.md"
   run rg_or_grep -F 'leanness' "$f";            [ "$status" -eq 0 ]
