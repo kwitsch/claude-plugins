@@ -104,7 +104,7 @@ export -f rg_or_grep
 # --- workflows/ ---
 
 @test "both workflow scripts exist and declare export const meta" {
-  for f in design-to-spec.workflow.js spec-driven-delivery.workflow.js; do
+  for f in design-to-spec.workflow.js spec-driven-delivery.workflow.js changes-review.workflow.js; do
     [ -s "$WORKFLOWS/$f" ]
     run rg_or_grep -F 'export const meta = {' "$WORKFLOWS/$f"
     [ "$status" -eq 0 ]
@@ -116,10 +116,12 @@ export -f rg_or_grep
   [ "$status" -eq 0 ]
   run rg_or_grep -E "name:[[:space:]]*[\"']spec-driven-delivery[\"']" "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
+  run rg_or_grep -E "name:[[:space:]]*[\"']changes-review[\"']" "$WORKFLOWS/changes-review.workflow.js"
+  [ "$status" -eq 0 ]
 }
 
 @test "workflow scripts guard args via a decodeArgs fail-fast" {
-  for f in design-to-spec.workflow.js spec-driven-delivery.workflow.js; do
+  for f in design-to-spec.workflow.js spec-driven-delivery.workflow.js changes-review.workflow.js; do
     run rg_or_grep -F 'function decodeArgs' "$WORKFLOWS/$f"
     [ "$status" -eq 0 ]
     run rg_or_grep -E "stage:[[:space:]]*[\"']args[\"']" "$WORKFLOWS/$f"
@@ -128,7 +130,7 @@ export -f rg_or_grep
 }
 
 @test "workflow scripts contain no leftover German comments" {
-  for f in design-to-spec.workflow.js spec-driven-delivery.workflow.js; do
+  for f in design-to-spec.workflow.js spec-driven-delivery.workflow.js changes-review.workflow.js; do
     run rg_or_grep -cE '[äöüßÄÖÜ]' "$WORKFLOWS/$f"
     [ "$status" -ne 0 ] || [ "$output" -eq 0 ]
     # ASCII-only German (no diacritics, e.g. "// wenn ..."): scan comment text
@@ -139,7 +141,7 @@ export -f rg_or_grep
 }
 
 @test "every agentType referenced by the workflows has a matching agents/*.md file" {
-  for f in design-to-spec.workflow.js spec-driven-delivery.workflow.js; do
+  for f in design-to-spec.workflow.js spec-driven-delivery.workflow.js changes-review.workflow.js; do
     for name in $(rg_or_grep -oE "taskflow:[a-z-]+" "$WORKFLOWS/$f" | sed 's/taskflow://' | sort -u); do
       [ -f "$AGENTS_DIR/$name.md" ]
     done
@@ -157,6 +159,12 @@ export -f rg_or_grep
   done
   for p in 'planCheckerPrompt = `${NO_NARRATION}' 'implementerPrompt = (t) => `${NO_NARRATION}' 'reviewerPrompt = (t, implReport) => `${NO_NARRATION}' 'fixerPrompt = (t, findings, worktreePath, branch) => `${NO_NARRATION}' 'NO_NARRATION +'; do
     run rg_or_grep -F "$p" "$WORKFLOWS/spec-driven-delivery.workflow.js"
+    [ "$status" -eq 0 ]
+  done
+  run rg_or_grep -F 'const NO_NARRATION' "$WORKFLOWS/changes-review.workflow.js"
+  [ "$status" -eq 0 ]
+  for p in 'NO_NARRATION +' 'schema: SCOPE_SCHEMA' 'schema: REPORT_SCHEMA' 'ponytailReviewPrompt ='; do
+    run rg_or_grep -F "$p" "$WORKFLOWS/changes-review.workflow.js"
     [ "$status" -eq 0 ]
   done
 }
@@ -912,6 +920,23 @@ mm_git_fixture() {
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'combinedLocs' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
+}
+
+@test "changes-review workflow is review-only (no apply/ship/spec) and returns review + ponytailReview" {
+  run rg_or_grep -F 'export const meta = {' "$WORKFLOWS/changes-review.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'stage: "done"' "$WORKFLOWS/changes-review.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'ponytailReview' "$WORKFLOWS/changes-review.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'const PINNED_OPUS = "claude-opus-4-8"' "$WORKFLOWS/changes-review.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'synthesizer: PINNED_OPUS' "$WORKFLOWS/changes-review.workflow.js"
+  [ "$status" -eq 0 ]
+  for absent in 'phase("Apply")' 'phase("Ship")' 'escalatedToUser' 'SPEC_PATH' 'taskflow:changes-review'; do
+    run rg_or_grep -F "$absent" "$WORKFLOWS/changes-review.workflow.js"
+    [ "$status" -ne 0 ]
+  done
 }
 
 @test "pr-author documents the Lean review heading fed from the ponytail pass" {
