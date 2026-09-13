@@ -992,7 +992,7 @@ const ponytailCandidates = ingest(
   "ponytail",
 );
 const ponytailVerified = ponytailCandidates.length > 0 ? await verifyGroups(ponytailCandidates) : [];
-const combinedLocs = new Set(findings.map(loc));
+const combinedLocs = new Set(surviving.map(loc));
 const ponytailFindings = ponytailVerified
   .filter((c) => c.verdict !== "REFUTED" && !combinedLocs.has(loc(c)))
   .map((c) => ({ file: c.file, line: c.line, tag: c.tag, what: c.what, replacement: c.replacement }));
@@ -1054,7 +1054,7 @@ if (SHIP) {
     escalatedOpenItems: escalated.map((f) => f.summary),
     fixCommits: applyReport.commits,
     minorFindings: minorLedger.length,
-    ponytail: { count: ponytailReview.findings.length, verdict: ponytailReview.verdict },
+    ponytail: { findings: ponytailReview.findings, verdict: ponytailReview.verdict },
   };
   const prOpts = { label: "pr-author", phase: "Ship", schema: PR_TEXT, model: MODELS.prAuthor, agentType: AGENTS.prAuthor };
   let prText = await agent(
