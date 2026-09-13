@@ -667,6 +667,7 @@ const LEVEL = tasks.some((t) => t.complexity === "complex") || tasks.length > 4 
 const DIFF_CMD = "git diff " + BASE_BRANCH + "...HEAD";
 const P = LEVEL === "max" ? { correctnessAngles: 5, perAngle: 8, maxFindings: 15, sweep: true } : { correctnessAngles: 3, perAngle: 6, maxFindings: 10, sweep: false };
 const SWEEP_MAX = 8;
+const PONYTAIL_MAX = 8;
 
 // ── Lens catalog, verdict ladder & sweep focus live in the plugin agents
 //    'review-finder' and 'review-verifier'; only the labels stay here. ──
@@ -876,7 +877,6 @@ if (P.sweep) {
 const surviving = verified.filter((c) => c.verdict !== "REFUTED");
 const refuted = verified.filter((c) => c.verdict === "REFUTED");
 log("Verify done: " + verified.length + " verified → " + surviving.length + " kept, " + refuted.length + " refuted");
-const reviewStats = { level: LEVEL, finders: FINDERS.length, candidates: candidatesSeen, verifierAgents, verified: verified.length, refuted: refuted.length };
 
 let findings = [];
 let reviewSummary = "No findings survived verification.";
@@ -988,7 +988,7 @@ const ponytailCandidates = ingest(
     summary: "[" + f.tag + "] " + f.what + (f.replacement ? " -> " + f.replacement : ""),
     failure_scenario: "Lean-review over-engineering claim — confirm the code is genuinely unused/replaceable as described.",
   })),
-  ponytailRaw.length,
+  PONYTAIL_MAX,
   "ponytail",
 );
 const ponytailVerified = ponytailCandidates.length > 0 ? await verifyGroups(ponytailCandidates) : [];
@@ -998,6 +998,10 @@ const ponytailFindings = ponytailVerified
   .map((c) => ({ file: c.file, line: c.line, tag: c.tag, what: c.what, replacement: c.replacement }));
 const ponytailReview = { findings: ponytailFindings, verdict: ponytail ? ponytail.verdict || "" : "not run" };
 log("Lean review: " + ponytailRaw.length + " raw → " + ponytailFindings.length + " verified & non-duplicate over-engineering finding(s) — " + (ponytailReview.verdict || "n/a"));
+
+// Built here (not right after the main verify pass) so verifierAgents also
+// counts the lean-review pass's own verifyGroups(ponytailCandidates) call above.
+const reviewStats = { level: LEVEL, finders: FINDERS.length, candidates: candidatesSeen, verifierAgents, verified: verified.length, refuted: refuted.length };
 
 // ═════════════════════════════════════════════════════════════════════════════
 // PHASE 4 — APPLY  (apply fixes; NEVER apply reversesDecision)
