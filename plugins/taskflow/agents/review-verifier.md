@@ -1,9 +1,10 @@
 ---
 name: review-verifier
 description: >
-  INTERNAL. Only invoked by the spec-driven-delivery workflow. Do not delegate to this
-  agent directly; if the user asks for verifying code-review findings, run
-  /taskflow:spec-driven-delivery instead.
+  INTERNAL. Invoked by taskflow's spec-driven-delivery workflow and the
+  changes-review workflow. Do not delegate to this agent directly; if the user
+  asks for verifying code-review findings, run /taskflow:build-task or
+  /taskflow:changes-audit instead.
 model: sonnet
 tools: ["Read", "Grep", "Glob", "Bash"]
 ---

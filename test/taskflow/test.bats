@@ -213,6 +213,15 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   done
 }
 
+@test "the three review agents name changes-audit as a second entry point and stay INTERNAL" {
+  for a in review-finder review-verifier fix-applier; do
+    run rg_or_grep -F 'INTERNAL' "$AGENTS_DIR/$a.md"
+    [ "$status" -eq 0 ]
+    run rg_or_grep -F 'changes-audit' "$AGENTS_DIR/$a.md"
+    [ "$status" -eq 0 ]
+  done
+}
+
 @test "all agent files forbid narrative text between tool calls" {
   for a in $AGENT_NAMES; do
     run rg_or_grep -F 'No narrative text between tool calls' "$AGENTS_DIR/$a.md"
