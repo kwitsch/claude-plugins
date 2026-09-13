@@ -1,6 +1,6 @@
 # taskflow
 
-Spec-driven design & delivery pipeline for Claude Code, packaged as a plugin. `/taskflow:build-task` orchestrates two dynamic workflows: `design-to-spec` (explore, draft, review, spec) and `spec-driven-delivery` (plan, wave-parallel implement in isolated worktrees, per-wave merge, combined review, fix application).
+Spec-driven design & delivery pipeline for Claude Code, packaged as a plugin. `/taskflow:build-task` orchestrates two dynamic workflows: `design-to-spec` (explore, draft, review, spec) and `spec-driven-delivery` (plan, wave-parallel implement in isolated worktrees, per-wave merge, combined review, fix application). `/taskflow:changes-audit` (`skills/changes-audit/`) runs the same combined review standalone over a branch diff — no plan/spec/ship — then optionally applies the findings (`--fix` auto-applies all, otherwise an `AskUserQuestion` multi-select applies your picks).
 
 ## Install
 
@@ -12,19 +12,21 @@ Requires Claude Code v2.1.154+ (dynamic workflows). On Pro plans, enable Dynamic
 
 ## Skills
 
-| Skill           | What it does                                                                                                                                                                                            |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `build-task`    | Orchestrator: branch handling, `AskUserQuestion` checkpoints (open design questions, spec approval, escalated review fixes), final report. Invokes the two workflows below.                             |
-| `dispatch-task` | Hands the described task to a new worktree-isolated background session (`claude --worktree … --bg`, `sonnet`/`xhigh` by default, `--model=`/`--effort=` overridable) that runs `build-task` unattended. |
+| Skill           | What it does                                                                                                                                                                                                                                                                                                 |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `build-task`    | Orchestrator: branch handling, `AskUserQuestion` checkpoints (open design questions, spec approval, escalated review fixes), final report. Invokes the two workflows below.                                                                                                                                  |
+| `dispatch-task` | Hands the described task to a new worktree-isolated background session (`claude --worktree … --bg`, `sonnet`/`xhigh` by default, `--model=`/`--effort=` overridable) that runs `build-task` unattended.                                                                                                      |
+| `changes-audit` | Runs the `changes-review` workflow over the current branch's committed diff, then applies findings by re-dispatching `fix-applier`: `--fix` auto-applies every finding, otherwise an `AskUserQuestion` multi-select applies only your picks. Report-only lean (over-engineering) findings are never applied. |
 
 ## Workflows
 
 Both live in the plugin-root `workflows/` directory and are auto-discovered — no manifest field needed — so the skill invokes them by name, namespaced as `/taskflow:<name>`. Both read their inputs from the `args` global (structured object); a `decodeArgs` guard fails fast with `stage: 'args'` if a run is launched without input. Per-workflow usage references (parameters, exit contract, behavior) live in `skills/build-task/references/`.
 
-| Workflow               | Purpose                                                                                                                                                                                         |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `design-to-spec`       | Explore → Draft design → Design review → Write spec → Spec review. Exits `complete` or `user_input_required` (resumable via draft file + answers).                                              |
-| `spec-driven-delivery` | Plan → wave-parallel Implement (always isolated worktrees, per-wave merge by a dedicated merger agent) → combined Review → fix application → Ship (push, PR/MR, CI watch + bounded fix rounds). |
+| Workflow               | Purpose                                                                                                                                                                                                                                                                      |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `design-to-spec`       | Explore → Draft design → Design review → Write spec → Spec review. Exits `complete` or `user_input_required` (resumable via draft file + answers).                                                                                                                           |
+| `spec-driven-delivery` | Plan → wave-parallel Implement (always isolated worktrees, per-wave merge by a dedicated merger agent) → combined Review → fix application → Ship (push, PR/MR, CI watch + bounded fix rounds).                                                                              |
+| `changes-review`       | Standalone combined Review over a branch diff — correctness angles + cleanup lenses, independently verified, plus a report-only lean pass. No plan/spec/apply/ship. Invoked by the `changes-audit` skill (not `build-task`); returns verified `findings` + `ponytailReview`. |
 
 ## Agents
 
@@ -52,7 +54,8 @@ taskflow/
 │   └── plugin.json                        # name, version, metadata
 ├── workflows/                             # auto-discovered (default location)
 │   ├── design-to-spec.workflow.js
-│   └── spec-driven-delivery.workflow.js
+│   ├── spec-driven-delivery.workflow.js
+│   └── changes-review.workflow.js
 ├── agents/                                # auto-discovered (default location)
 │   ├── planner.md          ├── designer.md         ├── design-reviewer.md
 │   ├── review-finder.md    ├── review-verifier.md  ├── worktree-merger.md
@@ -66,8 +69,10 @@ taskflow/
     │   └── references/
     │       ├── design-to-spec.md          # parameters + exit contract
     │       └── spec-driven-delivery.md    # parameters + exit contract
-    └── dispatch-task/
-        └── SKILL.md                       # background-session dispatch
+    ├── dispatch-task/
+    │   └── SKILL.md                       # background-session dispatch
+    └── changes-audit/
+        └── SKILL.md                       # standalone review + optional apply
 ```
 
 ## Usage

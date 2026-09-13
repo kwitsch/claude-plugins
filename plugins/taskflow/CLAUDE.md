@@ -6,11 +6,12 @@ The plugin ships these components:
 
 - `skills/build-task/` — the inline orchestrator skill. Branch handling, `AskUserQuestion` checkpoints, invokes the two workflows below by name, applies escalated review fixes.
 - `skills/dispatch-task/` — one-step skill that dispatches `build-task` into a worktree-isolated background session. Self-contained by requirement: no reference to any other plugin, its own copy of the `claude --worktree … --bg` mechanics.
-- `workflows/design-to-spec.workflow.js` + `workflows/spec-driven-delivery.workflow.js` — the two dynamic Workflow-tool scripts that do the heavy lifting. Auto-discovered from the plugin-root `workflows/` directory (no manifest field needed); run namespaced as `/taskflow:design-to-spec` / `/taskflow:spec-driven-delivery`.
-- `agents/*.md` — 11 static role prompts (`planner`, `designer`, `design-reviewer`, `review-finder`, `review-verifier`, `worktree-merger`, `fix-applier`, `pr-author`, `shipper`, `ci-monitor`, `ci-fixer`), dispatched by the workflows via `agentType: 'taskflow:<name>'`. INTERNAL — each agent's own description says not to delegate to it directly.
+- `skills/changes-audit/` — standalone audit skill. Runs the `changes-review` workflow over the branch diff, then owns apply: `--fix` auto-applies every finding, otherwise an `AskUserQuestion` multi-select applies the picks — both by re-dispatching `fix-applier` (findings carry no patch text). Model-invocable, runs inline (depth 0). No PR/merge step.
+- `workflows/design-to-spec.workflow.js` + `workflows/spec-driven-delivery.workflow.js` + `workflows/changes-review.workflow.js` — the dynamic Workflow-tool scripts that do the heavy lifting. Auto-discovered from the plugin-root `workflows/` directory (no manifest field needed); run namespaced as `/taskflow:design-to-spec` / `/taskflow:spec-driven-delivery` / `/taskflow:changes-review`. The `AGENTS` map (namespace = plugin name) lives in each workflow script; `changes-review` carries only the finder/verifier subset (it never dispatches `fix-applier`).
+- `agents/*.md` — 11 static role prompts (`planner`, `designer`, `design-reviewer`, `review-finder`, `review-verifier`, `worktree-merger`, `fix-applier`, `pr-author`, `shipper`, `ci-monitor`, `ci-fixer`), dispatched by the workflows via `agentType: 'taskflow:<name>'`. INTERNAL — each agent's own description says not to delegate to it directly. `review-finder`, `review-verifier`, and `fix-applier` now each have two entry points — `spec-driven-delivery` and `changes-review`/`changes-audit` — reflected in their frontmatter descriptions.
 - `bin/ship-ensure-mergeable.sh` — the plugin's first `bin/` script (Ship merge-state remediation): shipper runs it before the ci-monitor loop to auto-update a `behind` branch or auto-resolve `-X ours`-clean conflicts so CI actually starts. Zero-dep bash, `chmod +x`. No new agent — the 11-agent roster is unchanged.
 
-Renaming the plugin requires updating the `AGENTS` map's namespace prefix in both workflow scripts to match.
+Renaming the plugin requires updating the `AGENTS` map's namespace prefix in each workflow script to match.
 
 Every one of the 11 agent files also carries the identical, verbatim rule "No
 narrative text between tool calls — call tools silently and speak only in
@@ -20,18 +21,19 @@ between tool calls is pure wasted tokens no one reads; only the last message
 (plain text or the schema-forced structured output) is ever consumed. Add it
 to any new agent file too.
 
-Both workflow scripts also dispatch several roles with a **fully inline
+Each workflow script also dispatches several roles with a **fully inline
 prompt and no `agentType`** at all (so no plugin agents/_.md system prompt
 backs them): design-to-spec's scout, codebase explorer
 (`agentType: "Explore"`, the built-in agent — a foreign system prompt this
 plugin doesn't own, so only the per-call prompt text can carry the rule),
 spec writer, and spec reviewer; spec-driven-delivery's
 plan checker, per-task implementer, per-task reviewer, per-task fixer, the
-Review phase's scope-gathering agent, and its synthesizer. Each script
-defines its own `const NO_NARRATION = "…"` (identical wording to the
-agents/_.md rule) right after its `AGENTS` map, and every one of those inline
-prompts is prefixed with it. Add the same prefix to any new inline
-(non-`agentType`) prompt in either script.
+Review phase's scope-gathering agent, and its synthesizer; changes-review's
+scope-gathering agent, its synthesizer, and its lean (ponytail) review pass.
+Each script defines its own `const NO_NARRATION = "…"` (identical wording to
+the agents/_.md rule) right after its `AGENTS` map, and every one of those
+inline prompts is prefixed with it. Add the same prefix to any new inline
+(non-`agentType`) prompt in any workflow script.
 
 ## `workflows/` is a documented plugin component
 
@@ -73,6 +75,7 @@ of them, nothing else:
 - `workflows/spec-driven-delivery.workflow.js` → `MODELS.planner`,
   `MODELS.synthesizer`, and `IMPL_MODEL.complex` (the per-task-complexity tier
   that `implModel()`/`fixModel()` resolve for `complexity === "complex"` tasks)
+- `workflows/changes-review.workflow.js` → `MODELS.synthesizer`
 - `agents/designer.md` and `agents/planner.md` frontmatter `model:`
 
 The `MODELS` object at the top of each workflow script is still the single

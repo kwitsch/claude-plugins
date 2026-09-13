@@ -49,10 +49,10 @@ export -f rg_or_grep
   [ "$status" -eq 0 ]
 }
 
-@test "plugin.json version is 1.6.1" {
+@test "plugin.json version is 1.7.0" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "1.6.1" ]
+  [ "$output" = "1.7.0" ]
 }
 
 @test "marketplace entry exists for taskflow" {
@@ -799,6 +799,33 @@ mm_git_fixture() {
 @test "the agent roster is still exactly 11 *.md files" {
   run bash -c "ls '$AGENTS_DIR'/*.md | wc -l | tr -d '[:space:]'"
   [ "$output" = "11" ]
+}
+
+@test "plugin README and layout document the changes-audit skill and changes-review workflow" {
+  run rg_or_grep -F '| `changes-audit`' "$PLUGIN/README.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F '| `changes-review`' "$PLUGIN/README.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'skills/changes-audit/' "$PLUGIN/README.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'changes-review.workflow.js' "$PLUGIN/README.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "CLAUDE.md boundary rule and Opus-pin list cover changes-review and changes-audit" {
+  run rg_or_grep -F 'changes-review.workflow.js' "$PLUGIN/CLAUDE.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'skills/changes-audit/' "$PLUGIN/CLAUDE.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F '11 static role prompts' "$PLUGIN/CLAUDE.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "marketplace and root README mention the changes-audit entry point" {
+  run rg_or_grep -F 'changes-audit' "$MARKET"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'changes-audit' "$REPO_ROOT/README.md"
+  [ "$status" -eq 0 ]
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
