@@ -547,58 +547,76 @@ reroute_call() {
   [ "$status" -eq 0 ]
 }
 
-# --- cc-memory orchestrator skill ---
+# --- memory-audit orchestrator skill ---
 
-@test "cc-memory SKILL.md exists" {
-  [ -f "$PLUGIN/skills/cc-memory/SKILL.md" ]
+@test "memory-audit SKILL.md exists" {
+  [ -f "$PLUGIN/skills/memory-audit/SKILL.md" ]
 }
 
-@test "cc-memory SKILL.md has name and argument-hint frontmatter" {
-  run rg_or_grep -E '^name:[[:space:]]*cc-memory' "$PLUGIN/skills/cc-memory/SKILL.md"
+@test "memory-audit SKILL.md has name and argument-hint frontmatter" {
+  run rg_or_grep -E '^name:[[:space:]]*memory-audit' "$PLUGIN/skills/memory-audit/SKILL.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -E '^argument-hint:' "$PLUGIN/skills/cc-memory/SKILL.md"
+  run rg_or_grep -E '^argument-hint:' "$PLUGIN/skills/memory-audit/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
-@test "cc-memory runs inline (NOT context: fork)" {
-  run rg_or_grep -E '^context:[[:space:]]*fork' "$PLUGIN/skills/cc-memory/SKILL.md"
+@test "memory-audit runs inline (NOT context: fork)" {
+  run rg_or_grep -E '^context:[[:space:]]*fork' "$PLUGIN/skills/memory-audit/SKILL.md"
   [ "$status" -ne 0 ]
 }
 
-@test "cc-memory reuses cc-reviewer with component_type memory" {
-  run rg_or_grep -F 'cc-reviewer' "$PLUGIN/skills/cc-memory/SKILL.md"
+@test "memory-audit reuses cc-reviewer with component_type memory" {
+  run rg_or_grep -F 'cc-reviewer' "$PLUGIN/skills/memory-audit/SKILL.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -E 'component_type:[[:space:]]*memory' "$PLUGIN/skills/cc-memory/SKILL.md"
-  [ "$status" -eq 0 ]
-}
-
-@test "cc-memory SKILL.md points at analysis-workflow.md" {
-  run rg_or_grep -F '${CLAUDE_SKILL_DIR}/analysis-workflow.md' "$PLUGIN/skills/cc-memory/SKILL.md"
+  run rg_or_grep -E 'component_type:[[:space:]]*memory' "$PLUGIN/skills/memory-audit/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
-@test "cc-memory gates application through AskUserQuestion" {
-  run rg_or_grep -F 'AskUserQuestion' "$PLUGIN/skills/cc-memory/SKILL.md"
+@test "memory-audit SKILL.md points at analysis-workflow.md" {
+  run rg_or_grep -F '${CLAUDE_SKILL_DIR}/analysis-workflow.md' "$PLUGIN/skills/memory-audit/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
-@test "cc-memory discovery is runtime Bash, not load-time !-injection" {
-  run rg_or_grep -nE '!`' "$PLUGIN/skills/cc-memory/SKILL.md"
+@test "memory-audit gates application through AskUserQuestion" {
+  run rg_or_grep -F 'AskUserQuestion' "$PLUGIN/skills/memory-audit/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "memory-audit discovery is runtime Bash, not load-time !-injection" {
+  run rg_or_grep -nE '!`' "$PLUGIN/skills/memory-audit/SKILL.md"
   [ "$status" -ne 0 ]
 }
 
-@test "cc-memory is model-invocable (no disable-model-invocation)" {
-  run rg_or_grep -E '^disable-model-invocation:[[:space:]]*true' "$PLUGIN/skills/cc-memory/SKILL.md"
+@test "memory-audit is model-invocable (no disable-model-invocation)" {
+  run rg_or_grep -E '^disable-model-invocation:[[:space:]]*true' "$PLUGIN/skills/memory-audit/SKILL.md"
   [ "$status" -ne 0 ]
 }
 
-@test "cc-memory is cc-reference-grounded" {
-  run rg_or_grep -F 'cc-reference' "$PLUGIN/skills/cc-memory/SKILL.md"
+@test "memory-audit is cc-reference-grounded" {
+  run rg_or_grep -F 'cc-reference' "$PLUGIN/skills/memory-audit/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
-@test "cc-memory analysis-workflow.md dispatch prompt asks reviewer for leanness/split findings" {
-  local f="$PLUGIN/skills/cc-memory/analysis-workflow.md"
+@test "memory-audit argument-hint carries --fix" {
+  run rg_or_grep -F 'argument-hint: [--fix]' "$PLUGIN/skills/memory-audit/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "memory-audit --fix branch is additive (auto-apply branch coexists with AskUserQuestion)" {
+  local f="$PLUGIN/skills/memory-audit/SKILL.md"
+  run rg_or_grep -F -- '--fix' "$f";        [ "$status" -eq 0 ]
+  run rg_or_grep -F '$FIX' "$f";            [ "$status" -eq 0 ]
+  run rg_or_grep -F 'AskUserQuestion' "$f"; [ "$status" -eq 0 ]
+}
+
+@test "memory-audit eligibility predicate survives in SKILL.md gate/apply prose" {
+  local f="$PLUGIN/skills/memory-audit/SKILL.md"
+  run rg_or_grep -F 'uncovered: false' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'suggested_fix' "$f";    [ "$status" -eq 0 ]
+}
+
+@test "memory-audit analysis-workflow.md dispatch prompt asks reviewer for leanness/split findings" {
+  local f="$PLUGIN/skills/memory-audit/analysis-workflow.md"
   run rg_or_grep -F 'leanness' "$f";            [ "$status" -eq 0 ]
   run rg_or_grep -F 'splittab' "$f";            [ "$status" -eq 0 ]
   run rg_or_grep -F '.claude/rules/' "$f";      [ "$status" -eq 0 ]
@@ -607,15 +625,15 @@ reroute_call() {
   run rg_or_grep -iF 'never `high`' "$f";       [ "$status" -eq 0 ]
 }
 
-@test "cc-memory report has claude-md-improver-style summary + per-file blocks" {
-  local f="$PLUGIN/skills/cc-memory/SKILL.md"
+@test "memory-audit report has claude-md-improver-style summary + per-file blocks" {
+  local f="$PLUGIN/skills/memory-audit/SKILL.md"
   run rg_or_grep -F '### Summary' "$f";                  [ "$status" -eq 0 ]
   run rg_or_grep -F 'Recommended actions' "$f";          [ "$status" -eq 0 ]
   run rg_or_grep -iF 'files needing update' "$f";        [ "$status" -eq 0 ]
 }
 
-@test "cc-memory default scope discovers CLAUDE.md and .claude/rules files" {
-  local f="$PLUGIN/skills/cc-memory/SKILL.md"
+@test "memory-audit default scope discovers CLAUDE.md and .claude/rules files" {
+  local f="$PLUGIN/skills/memory-audit/SKILL.md"
   run rg_or_grep -F "name CLAUDE.md -o -path '*/.claude/rules/*.md'" "$f"; [ "$status" -eq 0 ]
   run rg_or_grep -F '.claude/rules/*.md' "$f";                            [ "$status" -eq 0 ]
 }
@@ -626,14 +644,14 @@ reroute_call() {
   [[ "$output" == *"author"* ]]
 }
 
-# --- cc-memory analysis-workflow (Workflow refactor) ---
+# --- memory-audit analysis-workflow (Workflow refactor) ---
 
-@test "cc-memory analysis-workflow.md reference file exists and is non-empty" {
-  [ -s "$PLUGIN/skills/cc-memory/analysis-workflow.md" ]
+@test "memory-audit analysis-workflow.md reference file exists and is non-empty" {
+  [ -s "$PLUGIN/skills/memory-audit/analysis-workflow.md" ]
 }
 
-@test "cc-memory analysis-workflow.md defines the Workflow script (Analyze + Aggregate phases, schemas, computeGrade backfill)" {
-  local f="$PLUGIN/skills/cc-memory/analysis-workflow.md"
+@test "memory-audit analysis-workflow.md defines the Workflow script (Analyze + Aggregate phases, schemas, computeGrade backfill)" {
+  local f="$PLUGIN/skills/memory-audit/analysis-workflow.md"
   run rg_or_grep -F "phase('Analyze')" "$f";     [ "$status" -eq 0 ]
   run rg_or_grep -F "phase('Aggregate')" "$f";    [ "$status" -eq 0 ]
   run rg_or_grep -F 'FINDINGS_SCHEMA' "$f";       [ "$status" -eq 0 ]
@@ -642,24 +660,48 @@ reroute_call() {
   run rg_or_grep -iF 'Agent-tool fallback' "$f";  [ "$status" -eq 0 ]
 }
 
-@test "cc-memory analysis-workflow.md pins both agent() call sites to sonnet" {
-  local f="$PLUGIN/skills/cc-memory/analysis-workflow.md"
+@test "memory-audit analysis-workflow.md pins both agent() call sites to sonnet" {
+  local f="$PLUGIN/skills/memory-audit/analysis-workflow.md"
   run rg_or_grep -F "schema: FINDINGS_SCHEMA, model: 'sonnet'" "$f";  [ "$status" -eq 0 ]
   run rg_or_grep -F "schema: AGGREGATE_SCHEMA, model: 'sonnet'" "$f"; [ "$status" -eq 0 ]
 }
 
-@test "cc-memory analysis-workflow.md backfill keeps manual to-dos and computes summary in code" {
-  local f="$PLUGIN/skills/cc-memory/analysis-workflow.md"
+@test "memory-audit analysis-workflow.md backfill keeps manual to-dos and computes summary in code" {
+  local f="$PLUGIN/skills/memory-audit/analysis-workflow.md"
   run rg_or_grep -F 'recommendedActions: covered.map(f => f.recommendation)' "$f"; [ "$status" -eq 0 ]
   run rg_or_grep -F 'const filesNeedingUpdate =' "$f";                            [ "$status" -eq 0 ]
   run rg_or_grep -F 'const filesFailed =' "$f";                                   [ "$status" -eq 0 ]
   run rg_or_grep -F "label: 'aggregate:retry'" "$f";                              [ "$status" -eq 0 ]
 }
 
-@test "plugin.json version was bumped for cc-memory Workflow refactor (patch)" {
+@test "plugin.json version was bumped for memory-audit rename + --fix (minor, off 1.7.11)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" != "1.7.3" ]
+  [ "$output" != "1.7.11" ]
+}
+
+# --- memory-audit doc/manifest sync ---
+
+@test "plugin.json description mentions memory-audit" {
+  run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"memory-audit"* ]]
+}
+
+@test "claude-code-knowledge CLAUDE.md lists memory-audit" {
+  run rg_or_grep -F 'memory-audit' "$PLUGIN/CLAUDE.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "claude-code-knowledge README lists memory-audit in the Skills table" {
+  run rg_or_grep -F '`memory-audit`' "$PLUGIN/README.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "root README plugin row mentions memory-audit" {
+  run rg_or_grep -F 'claude-code-knowledge](plugins/claude-code-knowledge/README.md)' "$REPO_ROOT/README.md"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"memory-audit"* ]]
 }
 
 # --- cc-reference-validator agent (read-only contradiction validator) ---
@@ -1170,9 +1212,9 @@ MDEOF
   [ "$status" -eq 1 ]
 }
 
-@test "cc-memory skill has no context-mode reference" {
-  [ -f "$PLUGIN/skills/cc-memory/SKILL.md" ]
-  run rg_or_grep -c "context-mode" "$PLUGIN/skills/cc-memory/SKILL.md"
+@test "memory-audit skill has no context-mode reference" {
+  [ -f "$PLUGIN/skills/memory-audit/SKILL.md" ]
+  run rg_or_grep -c "context-mode" "$PLUGIN/skills/memory-audit/SKILL.md"
   [ "$status" -eq 1 ]
 }
 
