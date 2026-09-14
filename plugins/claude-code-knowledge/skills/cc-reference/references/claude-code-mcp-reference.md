@@ -1,7 +1,7 @@
 # Claude Code MCP — Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (MCP overview, MCP quickstart, Managed MCP), verified 2026-09-10.
+> (MCP overview, MCP quickstart, Managed MCP), verified 2026-09-14.
 > Apply when configuring, authoring, or troubleshooting MCP servers in Claude Code.
 
 ## What MCP is / when to use
@@ -305,7 +305,7 @@ claude mcp add --env KEY=value --transport stdio <name> -- <command>
 ### `claude mcp add-json`
 
 ```bash
-claude mcp add-json <name> '{"type":"ws","url":"wss://example.com/socket"}'
+claude mcp add-json my-server '{"type":"ws","url":"wss://example.com/socket"}'
 ```
 
 - Accepts full JSON server entry; use for WebSocket or complex configs.
@@ -457,6 +457,7 @@ mcp__github__*
 
 - Warning when any MCP tool output exceeds 10,000 tokens.
 - `MAX_MCP_OUTPUT_TOKENS` env var raises the cap; default 25,000. Applies to tools without their own declared limit; image-returning tools always subject to it.
+- Over the limit (no image content): Claude Code persists the result to a file under the session's `tool-results` directory in `~/.claude/projects/` and replaces it in the conversation with a message naming that file path — Claude reads the file when it needs the content.
 - Server authors: set `_meta["anthropic/maxResultSizeChars"]` in a tool's `tools/list` entry to raise that tool's persist-to-disk threshold for text content, up to a 500,000-char ceiling (independent of `MAX_MCP_OUTPUT_TOKENS`). Over-threshold results without the annotation are persisted to disk and replaced with a file reference.
 
 ## Timeouts (env)

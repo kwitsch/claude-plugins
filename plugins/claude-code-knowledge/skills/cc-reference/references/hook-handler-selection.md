@@ -1,7 +1,7 @@
 # Claude Code — Hook Handler Selection
 
 <!-- AGENT-FACING REFERENCE. Not prose. Optimize for lookup + decision, not readability. -->
-<!-- Source: code.claude.com/docs/en/hooks + code.claude.com/docs/en/hooks-guide. Verified 2026-09-10. Re-verify against docs if version differs. -->
+<!-- Source: code.claude.com/docs/en/hooks + code.claude.com/docs/en/hooks-guide. Verified 2026-09-14. Re-verify against docs if version differs. -->
 <!-- Scope: choosing the `type` of a hook handler. Not about when hooks vs CLAUDE.md vs skills. -->
 
 ## Handler types
@@ -20,7 +20,7 @@
 2. **Event is `SessionStart` or `Setup`**
    → `command`. Only `command` + `mcp_tool` are supported on these events, and MCP servers are usually NOT yet connected when they fire → `mcp_tool` returns "not connected" on first run. Use `mcp_tool` here only if first-run miss is acceptable.
 
-3. **Decision needs LLM judgment**
+3. **Decision needs LLM judgment, AND event supports it** (see "prompt/agent availability" below)
    - semantic check, no file access needed (e.g. "did Claude finish all tasks?", Stop/SubagentStop) → `prompt` (default 30s).
    - needs to explore code (Read/Grep/Glob) before deciding → `agent` (default 60s, capped at 50 tool-use turns, experimental, slower). Adds model latency + token cost; do not use on hot paths.
 
@@ -35,6 +35,16 @@
 
 7. **Logic lives off-host / shared language-agnostic service / soft only**
    → `http`.
+
+## prompt/agent availability (which events allow rule 3 at all)
+
+| coverage                              | events                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| all 5 types                           | `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PostToolBatch`, `PermissionRequest`, `PermissionDenied`, `Stop`, `SubagentStop`, `TaskCreated`, `TaskCompleted`, `TeammateIdle`, `UserPromptSubmit`, `UserPromptExpansion`                                                                                |
+| `command`/`http`/`mcp_tool` only      | `ConfigChange`, `CwdChanged`, `DirectoryAdded`, `Elicitation`, `ElicitationResult`, `FileChanged`, `InstructionsLoaded`, `MessageDisplay`, `Notification`, `PostCompact`, `PostModelSwitch`, `PreCompact`, `PreModelSwitch`, `SessionEnd`, `StopFailure`, `SubagentStart`, `WorktreeCreate`, `WorktreeRemove` |
+| `command`/`mcp_tool` only (no `http`) | `SessionStart`, `Setup` (see rule 2)                                                                                                                                                                                                                                                                          |
+
+`PermissionDenied` prompt/agent hooks run but their output is always discarded (only a `command` hook can return `hookSpecificOutput.retry`).
 
 ## Type comparison
 

@@ -1,7 +1,7 @@
 # Claude Code MCP — Managed / Enterprise Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (Managed MCP), verified 2026-09-10.
+> (Managed MCP), verified 2026-09-14.
 > Apply when deploying or troubleshooting enterprise MCP restrictions (`managed-mcp.json`,
 > allowlists/denylists). See `claude-code-mcp-reference.md` for general MCP config/auth/naming.
 
@@ -87,6 +87,18 @@ Entry validation — Claude Code drops (with a `/status` notice) any entry that 
 - `deniedMcpServers` applies to provided servers, including a user's own denylist entries, so a user can block one for themselves; provided servers need no `allowedMcpServers` entry (see `How a server is evaluated`).
 - Users cannot edit or remove a provided server (`claude mcp remove` reports it's organization-provided) but can turn one off for themselves in `/mcp`, listed under **Managed MCPs**; `/mcp` and `claude mcp get` show only its URL host and header names, never header values.
 - Claude Code doesn't read this key in the Claude Desktop app's Code tab on a third-party deployment or in its Cowork sessions — those supply and lock their own MCP servers.
+- Claude Code reads `managedMcpServers` from the one managed source it selects (see `How Claude Code combines managed sources`). When that source sets `managedSourcesBehavior: "merge"`, Claude Code instead provides the servers from every admin source, and a name collision between two sources resolves whole to the higher-ranked source's entry (no field-level merge).
+- Without `managed-mcp.json` also deployed, per-run flags keep their ordinary meaning against provided servers: a user's `--mcp-config` entry under the same name replaces the provided one for that run and is checked against `allowedMcpServers`; `--strict-mcp-config` leaves provided servers out along with every other configured server. With `managed-mcp.json` deployed, both flags instead behave as under "exclusive control" above.
+
+### When provided servers connect
+
+Timing follows server-managed settings' fetch/caching behavior when `managedMcpServers` arrives that way:
+
+- **Cached-settings machine**: Claude Code withholds the cached copy of the key until the server confirms settings for the session, and waits for that confirmation before loading any MCP servers. If confirmation fails, the session continues without the provided servers and `/status` reports them as withheld.
+- **First launch, nothing cached**: an interactive session that starts before settings arrive connects the provided servers as soon as they do; a `claude -p` run that has already started can finish without them.
+- **Gateway sign-in**: the policy loads before the session starts, so neither case above delays or skips provided servers.
+
+Edits to the key reach an already-running interactive session without a restart: adding a server connects it once the updated settings arrive; changing an entry reconnects that session to the new definition; removing a server disconnects it once the session reads the change (a non-interactive `-p` run keeps a removed server until it ends).
 
 ## Allowlists and denylists
 

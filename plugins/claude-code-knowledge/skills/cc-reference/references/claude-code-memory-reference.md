@@ -1,7 +1,7 @@
 # Claude Code Memory — Authoring Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (How Claude remembers your project), verified 2026-08-31.
+> (How Claude remembers your project), verified 2026-09-14.
 > Apply when authoring or editing CLAUDE.md files or configuring auto memory.
 
 ## CLAUDE.md: what & when
@@ -202,6 +202,7 @@ paths:
 - Glob treats `[` as the start of a bracket expression (`[abc]`). A pattern whose `[` cannot be read as a bracket expression (e.g. `photos [2024/**`) is invalid: it matches nothing while the rule's other patterns keep working. Escape a literal `[` — `photos \[2024/**`.
 - User-level rules: `~/.claude/rules/` — apply to every project on the machine; loaded **before** project rules, so project rules win.
 - Share across projects with symlinks (directories or individual files); circular symlinks are detected and handled gracefully.
+- A symlink under `.claude/rules/` whose **target** resolves outside the working directory is treated like an external import: the linked rules don't load until you approve external imports for the project, and once approved only the ones without a `paths` field load. Claude Code asks for that approval only when a project memory file imports a file outside the working directory with `@path` — a symlink alone doesn't trigger the dialog. To load shared rules with no approval step, keep them in `~/.claude/rules/` instead (applies to every project on the machine).
 - Debug: the `InstructionsLoaded` hook (`/en/hooks#instructionsloaded`) logs which instruction files load, when, and why — useful for path-specific/lazy-loaded rules.
 
 ## Quick add & editing
