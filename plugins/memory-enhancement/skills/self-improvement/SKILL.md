@@ -1,6 +1,6 @@
 ---
 name: self-improvement
-description: Reflect on this session's own tool calls and reasoning to find concrete, non-obvious ways the task could have been solved faster or more efficiently, report a plain-English summary to the user, and save durable lessons as feedback memory (deduped against existing entries) so future sessions benefit. Runs inline over the conversation already in context -- never forks, since an isolated subagent has no session history to reflect on. Trigger on an explicit ask for a retro/efficiency review of the current session, or right after wrapping up a nontrivial multi-step task -- not on trivial one-liners with nothing to learn from.
+description: Reflects on this session's own tool calls and reasoning to find concrete, non-obvious ways the task could have been solved faster or more efficiently, reports a plain-English summary to the user, and saves durable lessons as feedback memory (deduped against existing entries) so future sessions benefit. Runs inline over the conversation already in context -- never forks, since an isolated subagent has no session history to reflect on. Trigger on an explicit ask for a retro/efficiency review of the current session, or right after wrapping up a nontrivial multi-step task -- not on trivial one-liners with nothing to learn from.
 allowed-tools: Read, Write, Edit
 ---
 
