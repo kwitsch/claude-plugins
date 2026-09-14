@@ -8,6 +8,7 @@ setup() {
   PLUGIN="$REPO_ROOT/plugins/taskflow"
   SKILL="$PLUGIN/skills/build-task"
   DISPATCH="$PLUGIN/skills/dispatch-task"
+  CHANGES_AUDIT="$PLUGIN/skills/changes-audit"
   REFS="$SKILL/references"
   AGENTS_DIR="$PLUGIN/agents"
   WORKFLOWS="$PLUGIN/workflows"
@@ -48,10 +49,10 @@ export -f rg_or_grep
   [ "$status" -eq 0 ]
 }
 
-@test "plugin.json version is 1.6.1" {
+@test "plugin.json version is 1.7.0" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "1.6.1" ]
+  [ "$output" = "1.7.0" ]
 }
 
 @test "marketplace entry exists for taskflow" {
@@ -104,7 +105,7 @@ export -f rg_or_grep
 # --- workflows/ ---
 
 @test "both workflow scripts exist and declare export const meta" {
-  for f in design-to-spec.workflow.js spec-driven-delivery.workflow.js; do
+  for f in design-to-spec.workflow.js spec-driven-delivery.workflow.js changes-review.workflow.js; do
     [ -s "$WORKFLOWS/$f" ]
     run rg_or_grep -F 'export const meta = {' "$WORKFLOWS/$f"
     [ "$status" -eq 0 ]
@@ -116,10 +117,12 @@ export -f rg_or_grep
   [ "$status" -eq 0 ]
   run rg_or_grep -E "name:[[:space:]]*[\"']spec-driven-delivery[\"']" "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
+  run rg_or_grep -E "name:[[:space:]]*[\"']changes-review[\"']" "$WORKFLOWS/changes-review.workflow.js"
+  [ "$status" -eq 0 ]
 }
 
 @test "workflow scripts guard args via a decodeArgs fail-fast" {
-  for f in design-to-spec.workflow.js spec-driven-delivery.workflow.js; do
+  for f in design-to-spec.workflow.js spec-driven-delivery.workflow.js changes-review.workflow.js; do
     run rg_or_grep -F 'function decodeArgs' "$WORKFLOWS/$f"
     [ "$status" -eq 0 ]
     run rg_or_grep -E "stage:[[:space:]]*[\"']args[\"']" "$WORKFLOWS/$f"
@@ -128,7 +131,7 @@ export -f rg_or_grep
 }
 
 @test "workflow scripts contain no leftover German comments" {
-  for f in design-to-spec.workflow.js spec-driven-delivery.workflow.js; do
+  for f in design-to-spec.workflow.js spec-driven-delivery.workflow.js changes-review.workflow.js; do
     run rg_or_grep -cE '[äöüßÄÖÜ]' "$WORKFLOWS/$f"
     [ "$status" -ne 0 ] || [ "$output" -eq 0 ]
     # ASCII-only German (no diacritics, e.g. "// wenn ..."): scan comment text
@@ -139,7 +142,7 @@ export -f rg_or_grep
 }
 
 @test "every agentType referenced by the workflows has a matching agents/*.md file" {
-  for f in design-to-spec.workflow.js spec-driven-delivery.workflow.js; do
+  for f in design-to-spec.workflow.js spec-driven-delivery.workflow.js changes-review.workflow.js; do
     for name in $(rg_or_grep -oE "taskflow:[a-z-]+" "$WORKFLOWS/$f" | sed 's/taskflow://' | sort -u); do
       [ -f "$AGENTS_DIR/$name.md" ]
     done
@@ -157,6 +160,12 @@ export -f rg_or_grep
   done
   for p in 'planCheckerPrompt = `${NO_NARRATION}' 'implementerPrompt = (t) => `${NO_NARRATION}' 'reviewerPrompt = (t, implReport) => `${NO_NARRATION}' 'fixerPrompt = (t, findings, worktreePath, branch) => `${NO_NARRATION}' 'NO_NARRATION +'; do
     run rg_or_grep -F "$p" "$WORKFLOWS/spec-driven-delivery.workflow.js"
+    [ "$status" -eq 0 ]
+  done
+  run rg_or_grep -F 'const NO_NARRATION' "$WORKFLOWS/changes-review.workflow.js"
+  [ "$status" -eq 0 ]
+  for p in 'NO_NARRATION +' 'schema: SCOPE_SCHEMA' 'schema: REPORT_SCHEMA' 'ponytailReviewPrompt ='; do
+    run rg_or_grep -F "$p" "$WORKFLOWS/changes-review.workflow.js"
     [ "$status" -eq 0 ]
   done
 }
@@ -209,6 +218,15 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
 @test "all agent files are marked INTERNAL, not for direct delegation" {
   for a in $AGENT_NAMES; do
     run rg_or_grep -F 'INTERNAL' "$AGENTS_DIR/$a.md"
+    [ "$status" -eq 0 ]
+  done
+}
+
+@test "the three review agents name changes-audit as a second entry point and stay INTERNAL" {
+  for a in review-finder review-verifier fix-applier; do
+    run rg_or_grep -F 'INTERNAL' "$AGENTS_DIR/$a.md"
+    [ "$status" -eq 0 ]
+    run rg_or_grep -F 'changes-audit' "$AGENTS_DIR/$a.md"
     [ "$status" -eq 0 ]
   done
 }
@@ -485,6 +503,50 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
 }
 
+# --- changes-audit skill ---
+
+@test "changes-audit SKILL.md exists and is non-empty" {
+  [ -s "$CHANGES_AUDIT/SKILL.md" ]
+}
+
+@test "changes-audit frontmatter: name, description, argument-hint; model-invocable; not forked" {
+  run rg_or_grep -E '^name:[[:space:]]*changes-audit' "$CHANGES_AUDIT/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -E '^description:' "$CHANGES_AUDIT/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -E '^argument-hint:' "$CHANGES_AUDIT/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -E '^disable-model-invocation:[[:space:]]*true' "$CHANGES_AUDIT/SKILL.md"
+  [ "$status" -ne 0 ]
+  run rg_or_grep -E '^context:[[:space:]]*fork' "$CHANGES_AUDIT/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "changes-audit allowed-tools includes Workflow, Agent, AskUserQuestion" {
+  run rg_or_grep -E '^allowed-tools:.*Workflow' "$CHANGES_AUDIT/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -E '^allowed-tools:.*Agent' "$CHANGES_AUDIT/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -E '^allowed-tools:.*AskUserQuestion' "$CHANGES_AUDIT/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "changes-audit parses --fix, invokes the review workflow, dispatches fix-applier" {
+  run rg_or_grep -F -- '--fix' "$CHANGES_AUDIT/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'AskUserQuestion' "$CHANGES_AUDIT/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'taskflow:changes-review' "$CHANGES_AUDIT/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'taskflow:fix-applier' "$CHANGES_AUDIT/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "changes-audit SKILL.md never contains a load-time exclamation-backtick sequence" {
+  run rg_or_grep -F '!`' "$CHANGES_AUDIT/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # bin/ship-ensure-mergeable.sh — hermetic exit-code / mergeState contract.
 # Stubs gh/glab (canned JSON, call recording); real git for the conflict path.
@@ -739,6 +801,33 @@ mm_git_fixture() {
   [ "$output" = "11" ]
 }
 
+@test "plugin README and layout document the changes-audit skill and changes-review workflow" {
+  run rg_or_grep -F '| `changes-audit`' "$PLUGIN/README.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F '| `changes-review`' "$PLUGIN/README.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'skills/changes-audit/' "$PLUGIN/README.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'changes-review.workflow.js' "$PLUGIN/README.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "CLAUDE.md boundary rule and Opus-pin list cover changes-review and changes-audit" {
+  run rg_or_grep -F 'changes-review.workflow.js' "$PLUGIN/CLAUDE.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'skills/changes-audit/' "$PLUGIN/CLAUDE.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F '11 static role prompts' "$PLUGIN/CLAUDE.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "marketplace and root README mention the changes-audit entry point" {
+  run rg_or_grep -F 'changes-audit' "$MARKET"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'changes-audit' "$REPO_ROOT/README.md"
+  [ "$status" -eq 0 ]
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # §1 — PR/MR body handoff to a session-scratch file (pr-author → shipper).
 # ─────────────────────────────────────────────────────────────────────────────
@@ -903,6 +992,23 @@ mm_git_fixture() {
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'combinedLocs' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
+}
+
+@test "changes-review workflow is review-only (no apply/ship/spec) and returns review + ponytailReview" {
+  run rg_or_grep -F 'export const meta = {' "$WORKFLOWS/changes-review.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'stage: "done"' "$WORKFLOWS/changes-review.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'ponytailReview' "$WORKFLOWS/changes-review.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'const PINNED_OPUS = "claude-opus-4-8"' "$WORKFLOWS/changes-review.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'synthesizer: PINNED_OPUS' "$WORKFLOWS/changes-review.workflow.js"
+  [ "$status" -eq 0 ]
+  for absent in 'phase("Apply")' 'phase("Ship")' 'escalatedToUser' 'SPEC_PATH' 'taskflow:changes-review'; do
+    run rg_or_grep -F "$absent" "$WORKFLOWS/changes-review.workflow.js"
+    [ "$status" -ne 0 ]
+  done
 }
 
 @test "pr-author documents the Lean review heading fed from the ponytail pass" {
