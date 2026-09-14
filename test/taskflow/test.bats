@@ -49,10 +49,10 @@ export -f rg_or_grep
   [ "$status" -eq 0 ]
 }
 
-@test "plugin.json version is 1.7.0" {
+@test "plugin.json version is 1.7.1" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "1.7.0" ]
+  [ "$output" = "1.7.1" ]
 }
 
 @test "marketplace entry exists for taskflow" {
