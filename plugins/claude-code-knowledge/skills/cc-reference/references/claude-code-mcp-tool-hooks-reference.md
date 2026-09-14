@@ -1,6 +1,6 @@
 # Claude Code mcp_tool hooks reference
 
-<!-- verified 2026-08-31 · CURATED: doc-derived + hard-won gotchas. The server-name
+<!-- verified 2026-09-14 · CURATED: doc-derived + hard-won gotchas. The server-name
      namespacing rule below is now documented (code.claude.com/docs/en/hooks §MCP tool
      hook fields; code.claude.com/docs/en/mcp §Plugin-provided MCP servers) — preserve
      it on any refresh regardless; never regenerate this file wholesale. -->
@@ -16,18 +16,29 @@ Five hook types exist: `command`, `http`, `mcp_tool`, `prompt`, `agent`. This ta
 covers the `mcp_tool` vs `command` split; for `http`/`prompt`/`agent` see
 `hook-handler-selection.md`.
 
-| Situation                                                                                                                                                            | Handler                                                                   |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Non-blocking, mid-session (`PreToolUse`/`PostToolUse`/`Stop`/`SubagentStop`/`Elicitation`/`ElicitationResult`/…): inject context, observe, reuse a live runtime/deps | **`mcp_tool`** (preferred)                                                |
-| Fires before the server connects (`SessionStart`, `Setup`)                                                                                                           | command (`.mjs`) — server not up yet → `mcp_tool` fails open on first run |
-| Fail-closed hard gate (must deny/abort, needs exit 2)                                                                                                                | command — `mcp_tool` has no exit-2 path, fails open if server down        |
-| Must hard-deny an MCP server elicitation (`Elicitation` exit-2 = deny; `ElicitationResult` exit-2 = block/decline)                                                   | command — `mcp_tool` can only soft-deny via returned JSON                 |
-| Must-fire side-effect (snapshot, state-write other hooks read)                                                                                                       | command — `mcp_tool` silently no-ops when the server is down              |
+| Situation                                                                                                                                                            | Handler                                                                                            |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Non-blocking, mid-session (`PreToolUse`/`PostToolUse`/`Stop`/`SubagentStop`/`Elicitation`/`ElicitationResult`/…): inject context, observe, reuse a live runtime/deps | **`mcp_tool`** (preferred)                                                                         |
+| Fires before the server connects (`SessionStart` at launch, `Setup`)                                                                                                 | command (`.mjs`) — server not up yet → `mcp_tool` hooks are skipped outright, not just failed open |
+| Fail-closed hard gate (must deny/abort, needs exit 2)                                                                                                                | command — `mcp_tool` has no exit-2 path, fails open if server down                                 |
+| Must hard-deny an MCP server elicitation (`Elicitation` exit-2 = deny; `ElicitationResult` exit-2 = block/decline)                                                   | command — `mcp_tool` can only soft-deny via returned JSON                                          |
+| Must-fire side-effect (snapshot, state-write other hooks read)                                                                                                       | command — `mcp_tool` silently no-ops when the server is down                                       |
 
 `mcp_tool` requires an **already-connected** server; the hook never triggers a
-connection flow. `SessionStart` and `Setup` do accept `mcp_tool` hooks, but servers
-typically aren't connected yet when they fire, so expect "not connected" errors on
-those events.
+connection flow. `SessionStart` and `Setup` do accept `mcp_tool` hooks, but Claude
+Code **skips them outright** (never calls the tool) whenever servers aren't yet
+available:
+
+- **`Setup`** always fires before servers are available → its `mcp_tool` hooks are
+  skipped on every run.
+- **`SessionStart` at launch** (incl. `--continue`/`--resume`) → servers aren't up
+  yet → skipped, with `mcp_tool hooks are not available for the 'SessionStart' hook
+event (no MCP client context)` in the debug log.
+- **`SessionStart` mid-session** (after `/clear` or compaction) → servers are
+  already connected by then → its `mcp_tool` hooks **do** run.
+
+For anything a session needs from its first turn, use a `command` hook on
+`SessionStart`/`Setup` instead — it runs at launch regardless.
 
 **Fail-open is two-fold:** a _non-blocking error_ (execution continues regardless)
 occurs both when the named server is **not connected** AND when the tool returns
@@ -118,3 +129,6 @@ plugins/<name>/
 - version >= 2.1.251: `PreModelSwitch`/`PostModelSwitch` events exist and accept
   `mcp_tool` hooks (command/http/mcp_tool only — no `prompt`/`agent` on either); the
   `mcp_tool` timeout default of 30 s applies to both, same as `UserPromptSubmit`.
+- `SessionStart`/`Setup` skip semantics confirmed verbatim in the official docs'
+  MCP tool hook fields section (2026-09-14 refresh): a mid-session `SessionStart`
+  (post `/clear` or compaction) does run `mcp_tool` hooks, unlike the at-launch fire.

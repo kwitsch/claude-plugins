@@ -1,7 +1,7 @@
 # Claude Code Skills — Authoring Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (Skill authoring best practices + Claude Code Skills + Agent Skills overview + Agent SDK skills), verified 2026-09-10.
+> (Skill authoring best practices + Claude Code Skills + Agent Skills overview + Agent SDK skills), verified 2026-09-14.
 > Apply when authoring, reviewing, or refactoring a `SKILL.md`.
 
 ## What a skill is / when to choose it
@@ -221,7 +221,8 @@ Skills follow the [Agent Skills](https://agentskills.io) open standard; Claude C
 ### Synced skills (claude.ai)
 
 - `CLAUDE_CODE_SYNC_SKILLS=1` + a non-interactive (`-p`) run downloads the skills enabled for your claude.ai account into `~/.claude/skills/synced/`; ordinary local sessions load them from there afterward without re-syncing (rerun the sync command after changing account skills). `CLAUDE_CODE_SYNC_SKILLS_WAIT_TIMEOUT_MS` controls how long that run waits for the sync before answering its prompt. `synced` is a reserved folder name (any capitalization) at every skills location — Claude Code skips a skill you author there. v2.1.227+ (pre-v2.1.227: a `synced` folder loaded as an ordinary skill).
-- Name clash with any other command (built-in, bundled skill, local-level skill, plugin skill, `.claude/commands/` file, MCP prompt) → the synced skill is skipped and the other command runs, even a built-in/bundled name that's currently unavailable (e.g. bundled skills disabled). Name comparison ignores case/spacing/invisible chars and normalizes compatibility forms (fullwidth letters, dash variants); a look-alike letter from another alphabet counts as a different name. `/skills` and `/context` label synced skills `claude.ai sync`. (Name-comparison checks + labels require v2.1.228+.)
+- Invoke by full name `/anthropic-skills:<name>` or short name `/<name>`. v2.1.269+: both forms work (short name only when nothing else claims it). Pre-v2.1.269: a synced skill had only the short name — no `/anthropic-skills:<name>` fallback existed yet.
+- Name clash with any other command (built-in, bundled skill, local-level skill, plugin skill, `.claude/commands/` file, MCP prompt) → the synced skill is skipped and the other command runs, even a built-in/bundled name that's currently unavailable (e.g. bundled skills disabled); the synced skill still runs via its full name `/anthropic-skills:<name>`. Name comparison ignores case/spacing/invisible chars and normalizes compatibility forms (fullwidth letters, dash variants); a look-alike letter from another alphabet counts as a different name. `/skills` and `/context` label synced skills `claude.ai sync`. (Name-comparison checks + labels require v2.1.228+.)
 - Frontmatter is honored normally (an `allowed-tools` grant goes through the normal permission flow), but display text (e.g. `description`) is sanitized: control characters stripped, angle brackets escaped so it can't imitate internal formatting. Requires v2.1.228+.
 - Body handling varies by session: cloud session → behaves like a local skill (isolated container). Cowork desktop session → behaves like a local skill except every `!` command line is replaced by the `disableSkillShellExecution` placeholder. Any other local session → `!` commands don't run (reach Claude as literal text, or that placeholder if the setting is on), `@` file references aren't attached, and `${CLAUDE_PROJECT_DIR}`/`${CLAUDE_SESSION_ID}` aren't substituted (literal text). Requires v2.1.228+.
 
@@ -240,6 +241,7 @@ Skills follow the [Agent Skills](https://agentskills.io) open standard; Claude C
 
 - **Build evals first.** 1) run task without skill, log failures; 2) create ≥3 scenarios; 3) baseline; 4) write minimal instructions to pass; 5) iterate vs baseline. (No built-in runner; eval JSON = `skills`, `query`, `files`, `expected_behavior`.)
 - **Eval automation:** the `skill-creator` plugin (`/plugin install skill-creator@claude-plugins-official`) automates the baseline-comparison loop — stores cases in `evals/evals.json`, spawns a subagent per case, writes `grading.json` + `benchmark.json` (with-skill vs without), runs blind A/B version comparison, tunes `description`/`when_to_use` by measuring should-trigger/should-not-trigger hit rates, and opens an HTML review viewer for qualitative feedback. It is a plugin, not a built-in runner.
+- **For a plugin-shipped skill**, `claude plugin eval` is the built-in alternative: runs each prompt in an isolated session with and without the plugin, scores against graders you write (or it generates), and exits non-zero below a threshold — gate CI on it. Its eval format is separate from skill-creator's `evals/evals.json` and the two aren't interchangeable. A `tool_used: Skill` grader measures trigger rate directly — rerun after each `description` edit to confirm it still fires on the right prompts.
 - **Claude A / Claude B loop:** Claude A authors/refines; fresh Claude B uses it on real tasks; observe B's behavior; bring specifics back to A. Claude understands the skill format natively — no special "writing-skills" skill needed.
 - Observe: unexpected exploration paths, missed reference links, over-relied sections (→ inline them), ignored files (→ remove or signal better). `name`+`description` are the most critical levers.
 

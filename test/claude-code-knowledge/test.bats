@@ -1155,7 +1155,7 @@ MDEOF
 @test "plugin.json version was bumped for cc-reference docs refresh (patch)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" != "1.7.10" ]
+  [ "$output" != "1.8.0" ]
 }
 
 @test "plugin.json description mentions cc-compress" {

@@ -1,7 +1,7 @@
 # Claude Code Subagents / Agents — Authoring Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (Claude Code "Create custom subagents"; Agent SDK "Subagents in the SDK"), verified 2026-09-10.
+> (Claude Code "Create custom subagents"; Agent SDK "Subagents in the SDK"), verified 2026-09-14.
 > Apply when authoring, reviewing, or refactoring a subagent definition (`.claude/agents/*.md`).
 
 ## What a subagent is / when to choose it
@@ -191,7 +191,7 @@ skills:
 ```
 
 - Injects FULL content of each skill at startup. Controls preloading, NOT access: the agent can still discover/invoke project/user/plugin skills via the Skill tool. To forbid skills entirely: omit `Skill` from `tools` or add to `disallowedTools`.
-- Cannot preload skills with `disable-model-invocation: true` — preloading draws from the same set Claude may invoke (missing/disabled → skipped + debug warning). version >= 2.1.215: this also covers the bundled `/verify` and `/code-review` skills (user-only, so not preloadable).
+- Cannot preload skills with `disable-model-invocation: true` — preloading draws from the same set Claude may invoke (missing/disabled → skipped + debug warning). This includes the bundled `/verify` skill (user-only, so not preloadable). The current docs no longer list `/code-review` alongside `/verify` here — treat it as model-invocable again (matches the live `code-review` skill entry in this session's own skill list, which carries no user-only marking).
 - Inverse of skill `context: fork` (which injects skill content into the agent you name).
 
 ## Persistent memory
@@ -231,6 +231,7 @@ skills:
 - version >= 2.1.211: a background subagent's results reach Claude as a completion notification in a later turn; Claude waits for it before reporting results, and answers "still running" if asked for progress first. Earlier versions: Claude sometimes reported results for a background subagent that had not finished.
 - version >= 2.1.232: when a background subagent finishes successfully, its panel row is removed immediately and a footer hint (`/tasks to see subagents`) appears for 30 s; failed/stopped subagents keep their row for 30 s. Before v2.1.232: every completed subagent kept its row for 30 s with no footer hint. Completed subagents stay listed in `/tasks` (marked done, sorted below running work) for the same 30 s window (was: stayed listed until session cleanup since v2.1.208; before v2.1.208: left immediately).
 - Claude picks fg/bg by task; you can say "run in the background" or press **Ctrl+B**. Disable all bg: `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` — it takes precedence over fork mode and keeps subagents in the foreground.
+- Answering a background subagent's surfaced permission prompt with a choice that outlives that one call (e.g. a session-long grant) applies to the WHOLE session, including your main conversation — not scoped to the asking subagent.
 
 ## API errors in subagents (≥ v2.1.199)
 

@@ -1,7 +1,7 @@
 # Claude Code Plugins — Marketplace Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (Plugin marketplaces, Plugin dependencies, Plugin hints), verified 2026-09-10.
+> (Plugin marketplaces, Plugin dependencies, Plugin hints), verified 2026-09-14.
 > Split out of claude-code-plugins-reference.md to keep that file under its line budget;
 > linked from that file's "## Marketplace" pointer.
 
@@ -184,6 +184,35 @@ claude plugin validate ./plugins/my-plugin # validates a plugin: plugin.json + s
 - Pair `strictKnownMarketplaces` with `disableSideloadFlags` to also reject `--add-dir`/`--mcp`/`--agent` CLI flags.
 - `pluginSuggestionMarketplaces`: allowlist for which marketplaces' plugins appear as contextual install suggestions.
 - Restrictions checked before any network/filesystem op: on marketplace add and on plugin install/update/refresh/auto-update. A marketplace added before policy was configured and whose source no longer matches is blocked.
+
+## Distribute through organization settings
+
+**Organization settings > Plugins** (Team/Enterprise admin console) syncs a marketplace org-wide via the Claude GitHub App / the org's GitHub Enterprise App — a different mechanism from `strictKnownMarketplaces`/`extraKnownMarketplaces` above.
+
+- Marketplace repo must be private or internal (read through the GitHub App, not the user's own git credentials).
+- Each plugin `source` must be `github`, `url`, `git-subdir`, or a relative path starting with `./`. A bare-name source resolved via `metadata.pluginRoot` is rejected as unsupported — write the full `./plugins/...` path instead.
+- A plugin source can be private only if: (a) a `github.com` source under the same owner as the marketplace repo, or (b) a source on the org's GHE host with the GHE App installed on that repo. Every other source is fetched without credentials and must be public.
+- To ship a private plugin, commit it inside the marketplace repo and reference it by relative path — org sync packages it, so users need no separate repo access.
+- **No top-level `bin/` directory** in any plugin distributed this way: org sync rejects that plugin with `Plugin contains a top-level bin/ directory` (and still syncs the rest of the marketplace); a direct upload in the admin console gets the same rejection. Put executables under another dir (e.g. `scripts/`) and reference via `${CLAUDE_PLUGIN_ROOT}/scripts/<name>`.
+
+## Require a marketplace for your team
+
+Add to a project's `.claude/settings.json` so Claude Code registers the marketplace for teammates once they trust the folder, no separate prompt — and optionally pre-enable specific plugins:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "company-tools": { "source": { "source": "github", "repo": "your-org/claude-plugins" } }
+  },
+  "enabledPlugins": { "code-formatter@company-tools": true }
+}
+```
+
+A `directory`/`file` source with a relative path resolves against the repo's main checkout, even when run from a git worktree — all worktrees share one marketplace location. Marketplace state itself is stored once per user in `~/.claude/plugins/known_marketplaces.json`, not per project.
+
+## Release channels
+
+Two marketplaces pointing at different `ref`s/`sha`s of the same plugin repo act as e.g. "stable"/"latest" channels; assign one marketplace per user group via per-group endpoint-managed settings or a Claude apps gateway policy. Each channel must resolve to a **different version**: with an explicit `version` it must differ per pinned ref, or — left unset — rely on the distinct resolved commit SHAs; two refs that resolve to the same version string are treated as identical and the update is skipped.
 
 ## Environment variables (marketplace-related)
 
