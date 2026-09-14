@@ -11,9 +11,10 @@ user.signingkey='<abs-key>' -c commit.gpgsign=true` right after `git` token
   bypassed — without it git hands on-disk key path to that program, which can't
   read it, forced-signed commit fails.
 - `hooks/check-sign-key.sh` (SessionStart): warns (static JSON) when key missing
-  (setup steps) OR when existing key passphrase-encrypted
-  (`ssh-keygen -y -f key -P '' </dev/null` stderr matches `passphrase`/`decrypt`)
-  — only `ssh-keygen` needed; dummy/invalid file stays silent.
+  (setup steps) OR when an existing key can't be used for non-interactive signing —
+  passphrase-encrypted or unsafe file permissions
+  (`ssh-keygen -y -f key -P '' </dev/null` stderr matches `passphrase`/`decrypt`/
+  `ermission`/`too open`) — only `ssh-keygen` needed; dummy/invalid file stays silent.
 - Scanner (replaces old first-`git commit` `case`): `_rewrite` walks
   command char-by-char tracking single/double-quote and backslash state,
   rewrites **every** `git` at **unquoted command position** — start of
