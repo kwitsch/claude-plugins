@@ -1,6 +1,6 @@
 ---
 name: finish-pr
-description: Use to finalize an existing PR/MR for the current branch before merge — aborts if none exists, rebases it onto its base and force-pushes when the base has moved ahead, marks a draft PR/MR ready for review, enables GitLab's "delete source branch on merge" when the upstream is GitLab and it isn't already on, and reconciles the PR/MR's title and description against the actual diff.
+description: Finalizes an existing PR/MR for the current branch before merge — aborts if none exists, rebases it onto its base and force-pushes when the base has moved ahead, marks a draft PR/MR ready for review, enables GitLab's "delete source branch on merge" when the upstream is GitLab and it isn't already on, and reconciles the PR/MR's title and description against the actual diff.
 allowed-tools: ["AskUserQuestion", "Bash(git:*)", "Bash(bash:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(jq:*)"]
 ---
 

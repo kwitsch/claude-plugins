@@ -1,6 +1,6 @@
 ---
 name: bump-version
-description: Use to bump a project's semantic version (major, minor, or patch) in its detected version file — a Claude Code plugin's .claude-plugin/plugin.json, package.json, composer.json, pom.xml, or a plain VERSION file — and sync the matching lock file (npm/composer) when present.
+description: Bumps a project's semantic version (major, minor, or patch) in its detected version file — a Claude Code plugin's .claude-plugin/plugin.json, package.json, composer.json, pom.xml, or a plain VERSION file — and syncs the matching lock file (npm/composer) when present.
 argument-hint: "<major|minor|patch>"
 allowed-tools: ["Bash(bash:*)", "Bash(cd:*)", "Bash(mktemp:*)", "Bash(export:*)"]
 ---

@@ -1,9 +1,9 @@
 ---
 name: fresh-work
 description: >-
-  Use when starting a new unit of work (feature, fix, or refactor) from a one-line
-  description: classify the work, cut a branch via fresh-branch, dispatch to the
-  matching pipeline skill (debugging or feature-development), and finish by
+  Starts a new unit of work (feature, fix, or refactor) from a one-line
+  description: classifies the work, cuts a branch via fresh-branch, dispatches to
+  the matching pipeline skill (debugging or feature-development), and finishes by
   opening a PR/MR via fresh-pr. No dependencies outside coding-toolbox.
 argument-hint: "[work-description]"
 arguments: work_description
