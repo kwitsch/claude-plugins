@@ -29,7 +29,13 @@ provided. Otherwise run `mktemp -d -t cc-compress-XXXXXX` once and reuse that
 same directory for every `cc-compress` call in this session. Never place the
 backup next to the source file.
 
-## 3. Run the script
+## 3. Read scripts/compress.mjs.reference.md
+
+Read `scripts/compress.mjs.reference.md` (colocated with the script) for the
+script's invocation contract — the positional arguments, the `--confirmed`
+flag, and the exit codes.
+
+## 4. Run the script
 
 ```bash
 node ${CLAUDE_SKILL_DIR}/scripts/compress.mjs "<absolute-filepath>" "<backup-root>"
@@ -39,9 +45,7 @@ The script itself checks git recoverability (tracked-and-clean means
 `git checkout -- <file>` is a second rollback path alongside the session-temp
 backup) before touching anything.
 
-Exit codes: `0` = success or clean skip (not a markdown file); `1` = usage
-error, refusal (sensitive filename, empty file, existing/concurrent backup), or
-I/O failure; `2` = compression failed validation after retries; `3` = the
+Exit codes: per `scripts/compress.mjs.reference.md`'s table. `3` means the
 target is untracked or has uncommitted changes, so the session-temp backup
 would be the _only_ rollback path — nothing was touched yet.
 
@@ -53,7 +57,7 @@ Validation and retries happen entirely on in-memory text — the source file is
 written at most once, only after a valid result exists, so every non-zero exit
 (besides a resolved exit 3) leaves it byte-for-byte untouched.
 
-## 4. Report
+## 5. Report
 
 - **Success:** state the compressed file path and the printed backup path
   plainly — the backup is the rollback source (copy its content back over the
