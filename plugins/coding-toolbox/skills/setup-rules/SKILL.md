@@ -1,6 +1,6 @@
 ---
 name: setup-rules
-description: Install, refresh, or remove coding-toolbox's user-level rules — a copy of the golden-rules content and a tool-routing table for rtk/bun/ripgrep/codebase-memory — as always-on ~/.claude/rules/coding-toolbox-*.md files, applying to every project on this machine. Accepts a verbatim argument (e.g. "update tools rule") to apply directly, skipping the interactive prompts.
+description: Installs, refreshes, or removes coding-toolbox's user-level rules — a copy of the golden-rules content and a tool-routing table for rtk/bun/ripgrep/codebase-memory — as always-on ~/.claude/rules/coding-toolbox-*.md files, applying to every project on this machine. Accepts a verbatim argument (e.g. "update tools rule") to apply directly, skipping the interactive prompts.
 argument-hint: "[install|update|remove] [rules|tools|both]"
 disable-model-invocation: true
 allowed-tools: ["AskUserQuestion", "Read", "Write", "Bash(mkdir:*)", "Bash(cp:*)", "Bash(rm:*)", "Bash(cat:*)", "Bash(bash:*)", "Bash(mktemp:*)"]

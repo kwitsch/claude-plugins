@@ -2,13 +2,13 @@
 
 ## Skill design (`fresh-branch`)
 
-2026-07-25: the embedded script extracted to a standalone
-`fresh-branch.sh` + colocated `fresh-branch.reference.md` per
-`.claude/rules/script-authoring.md`'s updated convention.
+The bash logic lives in a standalone `fresh-branch.sh` + colocated
+`fresh-branch.reference.md`, per `.claude/rules/script-authoring.md`'s
+convention for substantial skill scripts.
 
-Single synchronous bash script (now a standalone file, no MCP server, no
-subagent), self-detecting worktree state via `git
-rev-parse --git-dir` vs `--git-common-dir`. Supports a custom base/upstream
+Single synchronous bash script (no MCP server, no subagent),
+self-detecting worktree state via `git rev-parse --git-dir` vs
+`--git-common-dir`. Supports a custom base/upstream
 and a branch+base pair. Auto-stashes (`git stash push -u`) and pops
 unconditionally around both paths, including the refresh-only path (now
 universal for zero-argument invocations, not just inside a worktree —

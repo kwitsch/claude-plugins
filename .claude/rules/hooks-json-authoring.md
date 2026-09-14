@@ -98,7 +98,7 @@ is documented in the **hooks-mcp-server** rule.
 ```json
 {
   "type": "mcp_tool",
-  "server": "<name>-hooks",
+  "server": "plugin:<plugin-name>:<name>-hooks",
   "tool": "<tool>"
 }
 ```

@@ -6,7 +6,7 @@
 (`scaffold.bats`, `core.bats`, `go.bats`, `checkstyle.bats`,
 `truncation.bats`, `npx-fallback.bats`, `rtk.bats`, `yaml.bats`,
 `markdown.bats`, `stylelint.bats`, `tsc.bats`, `php.bats`, `rust.bats`,
-`debounce.bats`), mirroring
+`debounce.bats`, `skill.bats`), mirroring
 `test/coding-toolbox/`'s split. `test_helper.bash` holds what's shared
 across files (`common_setup`, `rg_or_grep`, `make_stub`, `rec_stub`,
 `lint_file_call`); `rtk_stub` stays local to `rtk.bats`, the only file that

@@ -1,6 +1,6 @@
 ---
 name: fresh-pr
-description: Use when branch work should become a pull/merge request without a code-review-rounds step — commits pending work, rebases onto an updated base, pushes, opens or refreshes a PR/MR (GitHub and GitLab), then drives it to CI-green (and, if CodeRabbit participates, all its review threads resolved) via this plugin's own ci-watcher/pr-fixer agents. Self-contained — every script/agent used here lives in this plugin.
+description: Turns branch work into a pull/merge request without a code-review-rounds step — commits pending work, rebases onto an updated base, pushes, opens or refreshes a PR/MR (GitHub and GitLab), then drives it to CI-green (and, if CodeRabbit participates, all its review threads resolved) via this plugin's own ci-watcher/pr-fixer agents. Self-contained — every script/agent used here lives in this plugin.
 argument-hint: "[--base <branch>]"
 allowed-tools:
   ["Agent", "AskUserQuestion", "Bash(git:*)", "Bash(gh:*)", "Bash(glab:*)", "Bash(jq:*)", "Bash(bash:*)", "Bash(mktemp:*)", "ToolSearch", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TaskStop"]
@@ -52,7 +52,7 @@ Self-contained: every script/agent used here lives in `coding-toolbox`.
    ref:
 
    ```bash
-   git fetch origin "$base:$base" 2>/dev/null || true
+   git fetch origin "$base:$base" 2> /dev/null || true
    ```
 
 4. **Abort with a clear message if:**

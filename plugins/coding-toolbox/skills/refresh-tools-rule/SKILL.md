@@ -1,6 +1,6 @@
 ---
 name: refresh-tools-rule
-description: Refresh coding-toolbox's user-level tool-routing rule (~/.claude/rules/coding-toolbox-tools.md) from currently-detected rtk/bun/ripgrep/codebase-memory-mcp, but ONLY if that file already exists. Never installs it. Model-invocable — safe for another skill (e.g. memory-enhancement's dream) to call autonomously, since it can only ever refresh an existing file's content, never create or remove one.
+description: Refreshes coding-toolbox's user-level tool-routing rule (~/.claude/rules/coding-toolbox-tools.md) from currently-detected rtk/bun/ripgrep/codebase-memory-mcp, but ONLY if that file already exists. Never installs it. Model-invocable — safe for another skill (e.g. memory-enhancement's dream) to call autonomously, since it can only ever refresh an existing file's content, never create or remove one.
 allowed-tools: ["Read", "Bash(cat:*)", "Bash(mktemp:*)", "Bash(mv:*)"]
 ---
 

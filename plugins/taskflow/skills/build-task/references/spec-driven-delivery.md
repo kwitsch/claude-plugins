@@ -4,6 +4,14 @@ Delivery pipeline for an APPROVED spec: Plan → wave-parallel Implement (every
 implementer in its own isolated worktree, each wave merged by a dedicated
 merger agent) → combined Review → fix application.
 
+## Contents
+
+- [Invocation](#invocation)
+- [Parameters (`args` object)](#parameters-args-object)
+- [Preconditions](#preconditions)
+- [Result (exit contract)](#result-exit-contract)
+- [Behavior notes](#behavior-notes)
+
 ## Invocation
 
 **Primary:** run the plugin workflow with `Workflow({name: "taskflow:spec-driven-delivery", args})`
