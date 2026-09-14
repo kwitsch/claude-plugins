@@ -1,9 +1,10 @@
 ---
 name: fix-applier
 description: >
-  INTERNAL. Only invoked by the spec-driven-delivery workflow. Do not delegate to this
-  agent directly; if the user asks for applying review fixes, run
-  /taskflow:spec-driven-delivery instead.
+  INTERNAL. Invoked by taskflow's spec-driven-delivery workflow (its Apply
+  phase) and the changes-audit skill. Do not delegate to this agent directly;
+  if the user asks for applying review fixes, run /taskflow:build-task or
+  /taskflow:changes-audit instead.
 model: sonnet
 ---
 
@@ -41,5 +42,7 @@ Rules:
   commit that also carries good ones. Repo commit conventions, no co-author
   trailers.
 
-Return through the structured output schema: applied indexes, skipped
-{index, reason}, and the commit hash(es).
+Return `{applied, skipped, commits}` — `applied` the applied indexes, `skipped`
+the `{index, reason}` entries, `commits` the commit hash(es) — through the
+structured-output schema when your runtime provides one (workflow dispatch),
+otherwise as that JSON object in your final message (direct skill dispatch).
