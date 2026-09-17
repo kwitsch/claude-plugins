@@ -113,7 +113,7 @@ if (RESUME && !USER_INPUT) return { status: "error", stage: "args", error: "RESU
 // can arrive JSON-string-encoded. A set flag with no absolute REPO_PATH fails
 // loud (an empty repo_path would make explore_repository search the tool
 // server's own cwd — silent wrong results).
-const USE_EXPLORE_TOOL = (EXPLORE_TOOL_AVAILABLE === true || EXPLORE_TOOL_AVAILABLE === "true") && typeof REPO_PATH === "string" && REPO_PATH.trim() !== "";
+const USE_EXPLORE_TOOL = (EXPLORE_TOOL_AVAILABLE === true || EXPLORE_TOOL_AVAILABLE === "true") && typeof REPO_PATH === "string" && REPO_PATH.trim().startsWith("/");
 if ((EXPLORE_TOOL_AVAILABLE === true || EXPLORE_TOOL_AVAILABLE === "true") && !USE_EXPLORE_TOOL)
   return { status: "error", stage: "args", error: "EXPLORE_TOOL_AVAILABLE=true requires a non-empty absolute REPO_PATH" };
 
