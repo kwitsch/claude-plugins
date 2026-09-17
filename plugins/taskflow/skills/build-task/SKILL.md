@@ -141,9 +141,15 @@ Every pipeline file is session-only, never a repository file:
    skip the `git status --porcelain` clean check and the
    cut/switch-to-`feature/<slug>` logic entirely — trust that the correct
    work branch is already checked out. Still determine `BASE_BRANCH` (short
-   name from `git symbolic-ref refs/remotes/origin/HEAD`, fallback `main`)
-   and still capture `BRANCH_NAME` = `git branch --show-current`; both are
-   required by the delivery workflow (step 4).
+   name from `git symbolic-ref refs/remotes/origin/HEAD`, fallback `main`),
+   still capture `BRANCH_NAME` = `git branch --show-current`, and still
+   capture `REPO_PATH` = `git rev-parse --show-toplevel` (absolute repo
+   root) — all three are required downstream: `BASE_BRANCH`/`BRANCH_NAME` by
+   the delivery workflow (step 4), `REPO_PATH` by the design workflow
+   (step 2). Capture `REPO_PATH` on this branch too: `dispatch-task` always
+   passes `--skip-branch-check`, so omitting it here would thread an empty
+   `REPO_PATH` and trip the design workflow's fail-loud `stage:'args'` guard
+   whenever the repo-explorer tool is present.
    Otherwise (flag absent): `git status --porcelain` must be empty — stray
    state → stop and report. Determine `BASE_BRANCH` once as above. If the
    current branch IS the base branch, cut and switch to `feature/<slug>`.
@@ -151,15 +157,25 @@ Every pipeline file is session-only, never a repository file:
    already has an open PR/MR for its branch — stay on the current branch, do
    not cut a new one and do not switch elsewhere; the pipeline (and Ship's
    create-or-update, step 4) continues on it and updates that PR/MR. Either
-   way, capture `BRANCH_NAME` = `git branch --show-current`.
-2. **Design.** Run the design workflow (invocation rules above) with args
+   way, capture `BRANCH_NAME` = `git branch --show-current` and `REPO_PATH` =
+   `git rev-parse --show-toplevel` (absolute repo root, required by the design
+   workflow, step 2).
+2. **Design.** First probe once whether the repo-explorer MCP tool is
+   connected: `ToolSearch(query: "select:mcp__repo-explorer-mcp__explore_repository")`
+   — the tool's schema present in the result ⇒ `EXPLORE_TOOL_AVAILABLE = true`,
+   absent ⇒ `false`. Compute this once per `build-task` invocation and reuse the
+   same value for the initial call and every resume re-run below (a value held
+   in this running skill — never written to a file; no cross-run caching). Then
+   run the design workflow (invocation rules above) with args
    `{TASK: $task_description, DRAFT_PATH, SPEC_PATH, RESUME: false,
-USER_INPUT: ''}` (paths from the temp directory). Then by `status`:
+USER_INPUT: '', EXPLORE_TOOL_AVAILABLE, REPO_PATH}` (paths from the temp
+   directory; `REPO_PATH` from step 1). Then by `status`:
    - `user_input_required` → one `AskUserQuestion` call covering the returned
      `questions` (their `options` verbatim as choices; free text arrives via
      "Other"; use `whyItMatters` as the question context). Re-run the
-     workflow with args `RESUME: true`, the **same** `DRAFT_PATH`, and
-     `USER_INPUT` = the answers as `[{id, answer}]`. Repeat this bullet
+     workflow with args `RESUME: true`, the **same** `DRAFT_PATH`,
+     `USER_INPUT` = the answers as `[{id, answer}]`, and the same
+     `EXPLORE_TOOL_AVAILABLE` + `REPO_PATH` as the initial call. Repeat this bullet
      until `complete` or `error` — new genuine questions after a resume are
      expected, not a failure.
    - `error` → surface `stage`, `error`, and `draftPath`, then stop.
@@ -173,8 +189,9 @@ USER_INPUT: ''}` (paths from the temp directory). Then by `status`:
    needs changes** (specific corrections arrive via "Other"). "No" picked
    without detail → one clarifying `AskUserQuestion` round for what should
    change; never guess. With corrections in hand → re-run the design workflow
-   with `RESUME = true` and `USER_INPUT` = the corrections (the workflow
-   records them as binding USER DECISIONs and rewrites draft + spec), then
+   with `RESUME = true`, `USER_INPUT` = the corrections, and the same
+   `EXPLORE_TOOL_AVAILABLE` + `REPO_PATH` as before (the workflow records the
+   corrections as binding USER DECISIONs and rewrites draft + spec), then
    re-ask this step from the new keypoints. Only after "Yes" does the spec
    count as **approved** — this is the pipeline's one human checkpoint on the
    design.

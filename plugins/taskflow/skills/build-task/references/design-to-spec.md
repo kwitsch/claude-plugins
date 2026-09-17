@@ -29,15 +29,18 @@ rename together with the plugin). An unknown type throws hard at dispatch
 
 ## Parameters (`args` object)
 
-| Key          | Type    | Required | Meaning                                                                                                                                          |
-| :----------- | :------ | :------- | :----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TASK`       | string  | yes      | The design task / work description                                                                                                               |
-| `DRAFT_PATH` | string  | yes      | Absolute path of the draft file — the single persistent state between runs; same path on every resume                                            |
-| `SPEC_PATH`  | string  | yes      | Absolute target path of the spec (input contract of `/taskflow:spec-driven-delivery`)                                                            |
-| `RESUME`     | boolean | no       | `false` (default) on the first run; `true` when restarting with an existing draft + answers                                                      |
-| `USER_INPUT` | string  | no       | `''` (default) on the first run; on resume: the answers to the previously returned questions — BINDING. Recommended shape: JSON `[{id, answer}]` |
+| Key                      | Type    | Required | Meaning                                                                                                                                                                                                                                              |
+| :----------------------- | :------ | :------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TASK`                   | string  | yes      | The design task / work description                                                                                                                                                                                                                   |
+| `DRAFT_PATH`             | string  | yes      | Absolute path of the draft file — the single persistent state between runs; same path on every resume                                                                                                                                                |
+| `SPEC_PATH`              | string  | yes      | Absolute target path of the spec (input contract of `/taskflow:spec-driven-delivery`)                                                                                                                                                                |
+| `RESUME`                 | boolean | no       | `false` (default) on the first run; `true` when restarting with an existing draft + answers                                                                                                                                                          |
+| `USER_INPUT`             | string  | no       | `''` (default) on the first run; on resume: the answers to the previously returned questions — BINDING. Recommended shape: JSON `[{id, answer}]`                                                                                                     |
+| `EXPLORE_TOOL_AVAILABLE` | boolean | no       | `false` (default). When `true`, the Explore phase's per-subsystem explorers call `mcp__repo-explorer-mcp__explore_repository` (default subagent) instead of the built-in Explore agent; absent/`false` ⇒ built-in Explore agent (unchanged behavior) |
+| `REPO_PATH`              | string  | no       | `''` (default). Absolute repo root (`git rev-parse --show-toplevel`), passed as the tool's `repo_path`. **Required when `EXPLORE_TOOL_AVAILABLE` is `true`**                                                                                         |
 
-Guards: missing required keys or `RESUME: true` without `USER_INPUT` return
+Guards: missing required keys, `RESUME: true` without `USER_INPUT`, or
+`EXPLORE_TOOL_AVAILABLE: true` with an empty `REPO_PATH` return
 `status: 'error', stage: 'args'` before any agent is dispatched.
 
 Delivery format (primary/named-workflow invocation): the runtime may hand
@@ -80,12 +83,12 @@ repeats until `complete` or `error`.
 
 ### `status: 'error'`
 
-| `stage`   | Meaning                                                            | Action                                                         |
-| :-------- | :----------------------------------------------------------------- | :------------------------------------------------------------- |
-| `args`    | Invocation malformed (no/missing args, RESUME without USER_INPUT)  | Fix the call — do not debug the pipeline                       |
-| `Explore` | Scout or all explorers returned null                               | Retry once; then surface                                       |
-| `Design`  | Designer blocked, or blocking findings survived the revision round | Surface `error` + `draftPath` (draft preserved for inspection) |
-| `Spec`    | Spec writer blocked, or blocking findings survived the fix round   | Surface `error` + `draftPath`                                  |
+| `stage`   | Meaning                                                                                                                        | Action                                                         |
+| :-------- | :----------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------- |
+| `args`    | Invocation malformed (no/missing args, RESUME without USER_INPUT, or `EXPLORE_TOOL_AVAILABLE: true` with an empty `REPO_PATH`) | Fix the call — do not debug the pipeline                       |
+| `Explore` | Scout or all explorers returned null                                                                                           | Retry once; then surface                                       |
+| `Design`  | Designer blocked, or blocking findings survived the revision round                                                             | Surface `error` + `draftPath` (draft preserved for inspection) |
+| `Spec`    | Spec writer blocked, or blocking findings survived the fix round                                                               | Surface `error` + `draftPath`                                  |
 
 ## Behavior notes
 
