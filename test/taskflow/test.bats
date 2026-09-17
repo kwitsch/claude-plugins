@@ -158,6 +158,12 @@ export -f rg_or_grep
     run rg_or_grep -F "$p" "$WORKFLOWS/design-to-spec.workflow.js"
     [ "$status" -eq 0 ]
   done
+  # design-to-spec's MCP-path explorer prompt must exist, carry the NO_NARRATION
+  # prefix, and name the repo-explorer tool + its params (conditional Explore path).
+  for p in 'exploreToolPrompt = (' ') => `${NO_NARRATION}\n\nYou are a read-only codebase explorer' 'mcp__repo-explorer-mcp__explore_repository' 'response_format' 'EXPLORE_TOOL_AVAILABLE'; do
+    run rg_or_grep -F "$p" "$WORKFLOWS/design-to-spec.workflow.js"
+    [ "$status" -eq 0 ]
+  done
   for p in 'planCheckerPrompt = `${NO_NARRATION}' 'implementerPrompt = (t) => `${NO_NARRATION}' 'reviewerPrompt = (t, implReport) => `${NO_NARRATION}' 'fixerPrompt = (t, findings, worktreePath, branch) => `${NO_NARRATION}' 'NO_NARRATION +'; do
     run rg_or_grep -F "$p" "$WORKFLOWS/spec-driven-delivery.workflow.js"
     [ "$status" -eq 0 ]
