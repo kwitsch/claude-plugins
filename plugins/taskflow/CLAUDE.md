@@ -23,10 +23,14 @@ to any new agent file too.
 
 Each workflow script also dispatches several roles with a **fully inline
 prompt and no `agentType`** at all (so no plugin agents/_.md system prompt
-backs them): design-to-spec's scout, codebase explorer
-(`agentType: "Explore"`, the built-in agent — a foreign system prompt this
-plugin doesn't own, so only the per-call prompt text can carry the rule),
-spec writer, and spec reviewer; spec-driven-delivery's
+backs them): design-to-spec's scout; its codebase explorer — **conditional**:
+when the repo-explorer MCP tool is absent, the built-in `agentType: "Explore"`
+agent (a foreign system prompt this plugin doesn't own, so only the per-call
+prompt text can carry the rule) via `explorerPrompt`; when that tool is
+present (`USE_EXPLORE_TOOL`), a `NO_NARRATION`-prefixed inline
+`exploreToolPrompt` with **no** `agentType`, so the default subagent reaches
+the session MCP tool via ToolSearch — spec writer, and spec reviewer;
+spec-driven-delivery's
 plan checker, per-task implementer, per-task reviewer, per-task fixer, the
 Review phase's scope-gathering agent, and its synthesizer; changes-review's
 scope-gathering agent, its synthesizer, and its lean (ponytail) review pass.
