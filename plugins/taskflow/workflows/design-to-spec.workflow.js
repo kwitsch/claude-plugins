@@ -335,10 +335,10 @@ exact — file paths and symbol names, not prose generalities; write markdown,
 not raw JSON. If the tool's retrieval_confidence is low, add a one-line
 confidence caveat. Structured output only.`;
 
-const exploreOpts = (s) =>
-  USE_EXPLORE_TOOL
-    ? { label: "explore:" + s.name, phase: "Explore", schema: EXPLORE_SCHEMA, model: MODELS.explorer }
-    : { label: "explore:" + s.name, phase: "Explore", schema: EXPLORE_SCHEMA, model: MODELS.explorer, agentType: "Explore" };
+const exploreOpts = (s) => {
+  const base = { label: "explore:" + s.name, phase: "Explore", schema: EXPLORE_SCHEMA, model: MODELS.explorer };
+  return USE_EXPLORE_TOOL ? base : { ...base, agentType: "Explore" };
+};
 const pickPrompt = (s) => (USE_EXPLORE_TOOL ? exploreToolPrompt(s) : explorerPrompt(s));
 const exploreOuts =
   subsystems.length === 0
