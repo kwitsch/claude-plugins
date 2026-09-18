@@ -1486,3 +1486,90 @@ JSON
   [ "$status" -eq 0 ]
   [[ "$output" == *"lsp-audit"* ]]
 }
+
+# --- repository-audit orchestrator skill ---
+
+@test "repository-audit SKILL.md exists" {
+  [ -f "$PLUGIN/skills/repository-audit/SKILL.md" ]
+}
+
+@test "repository-audit SKILL.md has name, description, argument-hint frontmatter" {
+  local f="$PLUGIN/skills/repository-audit/SKILL.md"
+  run rg_or_grep -E '^name:[[:space:]]*repository-audit' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -E '^description:' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -E '^argument-hint:' "$f"; [ "$status" -eq 0 ]
+}
+
+@test "repository-audit argument-hint begins with [--fix]" {
+  run rg_or_grep -E '^argument-hint:[[:space:]]*\[--fix\]' "$PLUGIN/skills/repository-audit/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "repository-audit runs inline (no context: fork)" {
+  run rg_or_grep -E '^context:[[:space:]]*fork' "$PLUGIN/skills/repository-audit/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "repository-audit is model-invocable (no disable-model-invocation)" {
+  run rg_or_grep -E '^disable-model-invocation:[[:space:]]*true' "$PLUGIN/skills/repository-audit/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "repository-audit has no load-time !-injection trigger" {
+  run rg_or_grep -nE '!`' "$PLUGIN/skills/repository-audit/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
+@test "repository-audit carries the AskUserQuestion mandate" {
+  run rg_or_grep -F 'AskUserQuestion' "$PLUGIN/skills/repository-audit/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "repository-audit allowed-tools include Bash, Read, Skill, AskUserQuestion" {
+  local f="$PLUGIN/skills/repository-audit/SKILL.md"
+  run rg_or_grep -E '^allowed-tools:.*Bash' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -E '^allowed-tools:.*Read' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -E '^allowed-tools:.*Skill' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -E '^allowed-tools:.*AskUserQuestion' "$f"; [ "$status" -eq 0 ]
+}
+
+@test "repository-audit carries the review-skip justification for unscoped Bash" {
+  run rg_or_grep -F 'review-skip(F1)' "$PLUGIN/skills/repository-audit/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "repository-audit invokes both nested audits by qualified name" {
+  local f="$PLUGIN/skills/repository-audit/SKILL.md"
+  run rg_or_grep -F 'claude-code-knowledge:lsp-audit' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'claude-code-knowledge:memory-audit' "$f"; [ "$status" -eq 0 ]
+}
+
+# --- repository-audit doc/manifest sync ---
+
+@test "plugin.json version was bumped for repository-audit (minor, off 1.8.3)" {
+  run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
+  [ "$output" != "1.8.3" ]
+}
+
+@test "plugin.json description mentions repository-audit" {
+  run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"repository-audit"* ]]
+}
+
+@test "claude-code-knowledge CLAUDE.md boundary rule lists repository-audit" {
+  run rg_or_grep -F 'repository-audit' "$PLUGIN/CLAUDE.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "claude-code-knowledge README lists repository-audit in the Skills table" {
+  run rg_or_grep -F '`repository-audit`' "$PLUGIN/README.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "root README plugin row mentions repository-audit" {
+  run rg_or_grep -F 'claude-code-knowledge](plugins/claude-code-knowledge/README.md)' "$REPO_ROOT/README.md"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"repository-audit"* ]]
+}
