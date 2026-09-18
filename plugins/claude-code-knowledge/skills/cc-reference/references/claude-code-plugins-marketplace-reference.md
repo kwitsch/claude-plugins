@@ -1,7 +1,7 @@
 # Claude Code Plugins — Marketplace Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (Plugin marketplaces, Plugin dependencies, Plugin hints), verified 2026-09-14.
+> (Plugin marketplaces, Plugin dependencies, Plugin hints), verified 2026-09-18.
 > Split out of claude-code-plugins-reference.md to keep that file under its line budget;
 > linked from that file's "## Marketplace" pointer.
 
@@ -16,6 +16,8 @@
 | `plugins` | array  | List of plugin entries                                                                                                                                                                                                                                                                                          |
 
 Reserved marketplace names (Anthropic official; cannot be used by third parties): `claude-code-marketplace`, `claude-code-plugins`, `claude-plugins-official`, `claude-plugins-community`, `claude-community`, `anthropic-marketplace`, `anthropic-plugins`, `agent-skills`, `anthropic-agent-skills`, `knowledge-work-plugins`, `life-sciences`, `claude-for-legal`, `claude-for-financial-services`, `financial-services-plugins`, `first-party-plugins`, `healthcare`, `claude-tag-plugins` (version >= 2.1.265; earlier versions left it unreserved). Impersonating names (e.g. `official-claude-plugins`) also blocked. Checked on every marketplace load, not only on add — version >= 2.1.205: a marketplace already registered under a name that later became reserved stops loading (`registered from an untrusted source`); remove + re-add under a different name (earlier versions kept it loading). Anthropic's own: `claude-plugins-official` (curated by Anthropic; auto-registered on first interactive launch, non-interactive scripts add it explicitly via `claude plugin marketplace add anthropics/claude-plugins-official`) and `claude-community` (public community catalog; add source `anthropics/claude-plugins-community`, install as `<plugin>@claude-community`).
+
+Separately, a marketplace `name` can never be `npm`, `pip`, `uv`, `cargo`, `github`, or `gh` in any casing — collides with package-manager tooling names, not the reserved-names table above. version >= 2.1.275 required for this check.
 
 ### Optional top-level fields
 
@@ -181,6 +183,8 @@ claude plugin validate ./plugins/my-plugin # validates a plugin: plugin.json + s
 
 - `blockedMarketplaces`: deny-list; same source types. version >= 2.1.232: when user adds an `https://` URL that Claude Code clones (bare github.com/gitlab.com URL), Claude Code also checks it against `url` entries in `blockedMarketplaces`; comparison ignores the `.git` suffix and any `#ref` the user appends.
 - `strictKnownMarketplaces` matches the marketplace source, not entries inside it — a `command`-sourced plugin from an allowed marketplace still installs. To block command sources too, set `disableCommandPluginSources`.
+- Empty-array lockdown (`strictKnownMarketplaces: []`) doesn't cover plugins synced from a user's claude.ai account (those download directly, not via a marketplace); set `syncClaudeAiPlugins: false` in managed settings, or disable Skills for the org on claude.ai, to also stop them.
+- A marketplace hosted on claude.ai is matched by host: a `hostPattern` entry matching `claude.ai` governs it in both `strictKnownMarketplaces` and `blockedMarketplaces`; on the allowlist such an entry does NOT admit a member's own personal claude.ai uploads. version >= 2.1.273 required.
 - Pair `strictKnownMarketplaces` with `disableSideloadFlags` to also reject `--add-dir`/`--mcp`/`--agent` CLI flags.
 - `pluginSuggestionMarketplaces`: allowlist for which marketplaces' plugins appear as contextual install suggestions.
 - Restrictions checked before any network/filesystem op: on marketplace add and on plugin install/update/refresh/auto-update. A marketplace added before policy was configured and whose source no longer matches is blocked.
@@ -276,6 +280,7 @@ Prompt frequency limits:
 ```bash
 # Marketplace management
 claude plugin marketplace add <source> [--scope user|project|local] [--sparse <paths...>]
+claude plugin marketplace add --claudeai <name>  # add a marketplace hosted on claude.ai, by the name from `marketplace list`'s "From claude.ai:" section; refuses --scope/--sparse (version >= 2.1.273)
 claude plugin marketplace list [--json]          # --json: name, source, installLocation, source-specific fields (repo/url/path), ref when pinned
 claude plugin marketplace remove <name> [--scope ...]
 claude plugin marketplace update [name]
@@ -291,6 +296,7 @@ claude plugin tag [--push] [--remote <remote>] [--dry-run]  # tags {name}--v{ver
 ```
 
 - `marketplace add`: version >= 2.1.196: a host without scheme (e.g. `gitlab.example.com/team/plugins`) is rejected as invalid; add `https://` or `./` prefix.
+- `marketplace list --json`: an added claude.ai marketplace has no local clone, so its entry carries `marketplaceId`/`organizationUuid` in place of `installLocation`. The text (non-JSON) listing appends a `From claude.ai:` section naming marketplaces available to sync but not yet added; `--json` omits that section (version >= 2.1.273).
 - `marketplace remove` without `--scope` removes from ALL editable scopes and uninstalls plugins from it.
 - `marketplace update` against a seed-managed marketplace fails (read-only); skipped when updating all.
 - `plugin install --yes`: accepts command-source command string non-interactively.

@@ -1,7 +1,7 @@
 # Claude Code Memory — Authoring Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (How Claude remembers your project), verified 2026-09-14.
+> (How Claude remembers your project), verified 2026-09-18.
 > Apply when authoring or editing CLAUDE.md files or configuring auto memory.
 
 ## CLAUDE.md: what & when
@@ -132,6 +132,8 @@ Default path: `~/.claude/projects/<project>/memory/` where `<project>` is derive
 ```
 
 Value must be an absolute path or start with `~/`. Read from **any** settings scope (user/project/local/policy/`--settings`). When set in a project's `.claude/settings.json` or `.claude/settings.local.json`, honored only after the workspace trust dialog is accepted (same gate as hooks).
+
+- While `permissions.blockReadsOutsideWorkingDirectories` is on, Claude Code loads no auto memory from — and saves none to — a directory that a repository-supplied settings file points `autoMemoryDirectory` at, wherever that directory sits.
 
 ### Enable / disable
 
