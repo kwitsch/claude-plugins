@@ -45,7 +45,9 @@
 //
 // Model assignment by difficulty:
 //   scout     haiku   — classify complexity/subsystems
-//   explorer  sonnet  — read-only codebase exploration (agentType 'Explore')
+//   explorer  sonnet  — read-only codebase exploration; conditional dispatch:
+//                     built-in agentType 'Explore' (repo-explorer tool absent)
+//                     OR default subagent calling explore_repository (present)
 //   designer  claude-opus-4-8 — design, trade-offs, decisions (highest judgment
 //                     load; Opus tier pinned — see CLAUDE.md "Model assignment")
 //   designRev sonnet  — consistency/scope/placeholder gate + question validation
@@ -64,12 +66,18 @@ export const meta = {
 };
 
 // ── Inputs via the `args` global (decoder with fail-fast guard) ─────────────
-// Expected: { TASK, DRAFT_PATH, SPEC_PATH, RESUME?, USER_INPUT? }
+// Expected: { TASK, DRAFT_PATH, SPEC_PATH, RESUME?, USER_INPUT?,
+//             EXPLORE_TOOL_AVAILABLE?, REPO_PATH? }
 //   TASK       — design task / work description
 //   DRAFT_PATH — absolute path of the draft file (persisted between runs)
 //   SPEC_PATH  — absolute target path of the spec (input for spec-driven-delivery)
 //   RESUME     — false on the first run; true when restarting with draft + answers
 //   USER_INPUT — '' on the first run; otherwise the answers to the open questions
+//   EXPLORE_TOOL_AVAILABLE — optional; true ⇒ the per-subsystem explorers call
+//                the repo-explorer MCP tool (default subagent) instead of the
+//                built-in Explore agent. Requires a non-empty REPO_PATH.
+//   REPO_PATH  — optional; absolute repo root (git rev-parse --show-toplevel),
+//                threaded from build-task; required when EXPLORE_TOOL_AVAILABLE.
 function decodeArgs(required, defaults) {
   let a = typeof args === "undefined" ? null : args;
   // The runtime delivers args as a JSON STRING instead of an object depending
@@ -96,10 +104,18 @@ function decodeArgs(required, defaults) {
   if (missing.length) return { __error: "missing required args: " + missing.join(", ") + " (got keys: " + Object.keys(a).join(", ") + ")" };
   return { ...defaults, ...a };
 }
-const A = decodeArgs(["TASK", "DRAFT_PATH", "SPEC_PATH"], { RESUME: false, USER_INPUT: "" });
+const A = decodeArgs(["TASK", "DRAFT_PATH", "SPEC_PATH"], { RESUME: false, USER_INPUT: "", EXPLORE_TOOL_AVAILABLE: false, REPO_PATH: "" });
 if (A.__error) return { status: "error", stage: "args", error: A.__error };
-const { TASK, DRAFT_PATH, SPEC_PATH, RESUME, USER_INPUT } = A;
+const { TASK, DRAFT_PATH, SPEC_PATH, RESUME, USER_INPUT, EXPLORE_TOOL_AVAILABLE, REPO_PATH } = A;
 if (RESUME && !USER_INPUT) return { status: "error", stage: "args", error: "RESUME=true requires USER_INPUT (the answers to the previously returned questions)" };
+// Availability is decided once in build-task/SKILL.md and threaded in (see
+// .claude/rules/script-authoring.md §4). Accept the "true" string too — args
+// can arrive JSON-string-encoded. A set flag with no absolute REPO_PATH fails
+// loud (an empty repo_path would make explore_repository search the tool
+// server's own cwd — silent wrong results).
+const USE_EXPLORE_TOOL = (EXPLORE_TOOL_AVAILABLE === true || EXPLORE_TOOL_AVAILABLE === "true") && typeof REPO_PATH === "string" && REPO_PATH.trim().startsWith("/");
+if ((EXPLORE_TOOL_AVAILABLE === true || EXPLORE_TOOL_AVAILABLE === "true") && !USE_EXPLORE_TOOL)
+  return { status: "error", stage: "args", error: "EXPLORE_TOOL_AVAILABLE=true requires a non-empty absolute REPO_PATH" };
 
 const MODELS = {
   scout: "haiku", // pure classification — deliberately small
@@ -228,6 +244,7 @@ const SPEC_REVIEW = {
 // PHASE 1 — EXPLORE  (scout → 1..N read-only explorers)
 // ═════════════════════════════════════════════════════════════════════════════
 phase("Explore");
+log("Explore path: " + (USE_EXPLORE_TOOL ? "repo-explorer MCP tool" : "Explore agent"));
 
 const resumeNote = RESUME
   ? `\nRESUME RUN: a prior draft exists at ${DRAFT_PATH}. Read it first and scope
@@ -291,19 +308,44 @@ design must match, recent related commits, constraints and pitfalls you can
 see in the code. Dense and exact — file paths and symbol names, not prose
 generalities. Structured output only.`;
 
-const exploreOpts = (s) => ({
-  label: "explore:" + s.name,
-  phase: "Explore",
-  schema: EXPLORE_SCHEMA,
-  model: MODELS.explorer,
-  agentType: "Explore",
-});
+const exploreToolPrompt = (s) => `${NO_NARRATION}\n\nYou are a read-only codebase explorer (never edit anything). Task being
+designed:\n${TASK}\n${resumeNote}\n
+Your assigned area: ${s.name} — ${s.focus}
+Find code locations with the repository-exploration MCP tool:
+1. Load it: ToolSearch(query: "select:mcp__repo-explorer-mcp__explore_repository").
+2. Call mcp__repo-explorer-mcp__explore_repository with:
+   - repo_path: "${REPO_PATH}"   (absolute repo root — use exactly this value)
+   - query: an ENGLISH question about your area (translate the area/focus if
+     needed), naming the exact identifier, symbol, or file path you are after
+   - scope_hint: null
+   - max_results: null
+   - response_format: "detailed"
+   Use ONE call per distinct question; issue another call only for a genuinely
+   different question, never to re-fetch a location already returned.
+3. If the tool is unavailable or returns an error, fall back to Read/Grep/Glob
+   yourself and still produce the report — never return empty for a recoverable
+   failure.
+4. The tool does NOT cover git history: run \`git log --oneline -n 15\` (and,
+   when useful, scoped to the area's paths) via Bash yourself for recent
+   related commits.
+Report for the designer: relevant files (exact paths), existing patterns and
+conventions to follow, the real flow end to end, key signatures/interfaces the
+design must match, recent related commits, constraints and pitfalls. Dense and
+exact — file paths and symbol names, not prose generalities; write markdown,
+not raw JSON. If the tool's retrieval_confidence is low, add a one-line
+confidence caveat. Structured output only.`;
+
+const exploreOpts = (s) => {
+  const base = { label: "explore:" + s.name, phase: "Explore", schema: EXPLORE_SCHEMA, model: MODELS.explorer };
+  return USE_EXPLORE_TOOL ? base : { ...base, agentType: "Explore" };
+};
+const pickPrompt = (s) => (USE_EXPLORE_TOOL ? exploreToolPrompt(s) : explorerPrompt(s));
 const exploreOuts =
   subsystems.length === 0
     ? []
     : subsystems.length > 1
-      ? await parallel(subsystems.map((s) => () => agent(explorerPrompt(s), exploreOpts(s))))
-      : [await agent(explorerPrompt(subsystems[0]), exploreOpts(subsystems[0]))];
+      ? await parallel(subsystems.map((s) => () => agent(pickPrompt(s), exploreOpts(s))))
+      : [await agent(pickPrompt(subsystems[0]), exploreOpts(subsystems[0]))];
 
 const sections = [];
 for (let i = 0; i < exploreOuts.length; i++) {

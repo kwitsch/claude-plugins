@@ -49,10 +49,10 @@ export -f rg_or_grep
   [ "$status" -eq 0 ]
 }
 
-@test "plugin.json version is 1.7.1" {
+@test "plugin.json version is 1.8.0" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "1.7.1" ]
+  [ "$output" = "1.8.0" ]
 }
 
 @test "marketplace entry exists for taskflow" {
@@ -155,6 +155,12 @@ export -f rg_or_grep
   run rg_or_grep -F 'const NO_NARRATION' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
   for p in 'scoutPrompt = `${NO_NARRATION}' '`${NO_NARRATION}\n\nYou are a read-only codebase explorer' 'specWriterPrompt = (revision) => `${NO_NARRATION}' 'specReviewerPrompt = `${NO_NARRATION}'; do
+    run rg_or_grep -F "$p" "$WORKFLOWS/design-to-spec.workflow.js"
+    [ "$status" -eq 0 ]
+  done
+  # design-to-spec's MCP-path explorer prompt must exist, carry the NO_NARRATION
+  # prefix, and name the repo-explorer tool + its params (conditional Explore path).
+  for p in 'exploreToolPrompt = (' ') => `${NO_NARRATION}\n\nYou are a read-only codebase explorer' 'mcp__repo-explorer-mcp__explore_repository' 'response_format' 'EXPLORE_TOOL_AVAILABLE'; do
     run rg_or_grep -F "$p" "$WORKFLOWS/design-to-spec.workflow.js"
     [ "$status" -eq 0 ]
   done

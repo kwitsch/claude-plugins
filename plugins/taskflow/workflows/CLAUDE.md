@@ -23,3 +23,20 @@ routed to fix application, never escalated. `agents/designer.md` and
 ponytail is an external, non-allowlisted-marketplace plugin, so there is
 deliberately no runtime `Skill`/`dependencies` reference to it (the embedded
 phrasing can drift from upstream — that is the accepted, required trade-off).
+
+## Conditional Explore path (design-to-spec)
+
+`design-to-spec.workflow.js`'s per-subsystem explorers run one of two ways,
+selected by the module-level `USE_EXPLORE_TOOL` boolean derived from the
+`EXPLORE_TOOL_AVAILABLE` + `REPO_PATH` args: when true, a `NO_NARRATION`-prefixed
+inline `exploreToolPrompt` (no `agentType`, default subagent) that calls the
+`mcp__repo-explorer-mcp__explore_repository` MCP tool; when false, the
+byte-identical built-in `agentType: "Explore"` path via `explorerPrompt`. Both
+branches return the same `EXPLORE_SCHEMA` `{report}`, so the `sections`
+aggregation, `explorationBlock`, and the designer prompt are untouched.
+**Availability detection lives once in `build-task/SKILL.md`** (a `ToolSearch`
+probe + `git rev-parse --show-toplevel`, threaded in via `args`, per
+`.claude/rules/script-authoring.md` §4 "Inject before query") — the workflow
+script never self-probes and never re-queries per subsystem. The scout pass
+stays on `agentType: "Explore"` regardless: it is a coarse classify-only survey
+(complexity + 1-4 subsystem names), not code-location finding.
