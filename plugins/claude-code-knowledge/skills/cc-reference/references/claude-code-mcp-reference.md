@@ -1,7 +1,7 @@
 # Claude Code MCP — Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (MCP overview, MCP quickstart, Managed MCP), verified 2026-09-14.
+> (MCP overview, MCP quickstart, Managed MCP), verified 2026-09-18.
 > Apply when configuring, authoring, or troubleshooting MCP servers in Claude Code.
 
 ## What MCP is / when to use
@@ -200,6 +200,14 @@ Expansion applies in: `command`, `args`, `env`, `url`, `headers`.
   }
 }
 ```
+
+### Credential variables that read as empty
+
+- In a remote server's `url` and `headers` only, a `${VAR}` reference to a credential-like name expands to empty instead of its value — stops a project `.mcp.json` or a plugin from forwarding your credentials to a server it names. Covered: Claude Code's own (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`), your cloud provider's (`AWS_BEARER_TOKEN_BEDROCK`), and other environment credentials (`HTTPS_PROXY`, `NPM_TOKEN`). `"Bearer ${ANTHROPIC_AUTH_TOKEN}"` sends `Bearer` with no token — usually a `401`. A covered name reads as empty whether or not it's set; a `${VAR:-default}` fallback on it is ignored too.
+- A provider base URL var (e.g. `ANTHROPIC_BASE_URL`) still expands normally unless its own value embeds a credential (e.g. a username:password in the URL).
+- A name outside the covered set (e.g. `API_KEY`) expands as written — copy a covered credential into a differently-named var to pass it through.
+- Claude Code logs a referenced covered variable to a `never expanded toward a remote server` debug-log line (`claude --debug-file /tmp/claude-debug.log`).
+- version >= 2.1.268: a server's `/mcp` detail view shows a `${VAR}` reference in its URL/command by name, not its resolved value — same as `claude mcp list`/`get` output (local/project/user scope only). A server from `managedMcpServers` shows the URL's host only on these surfaces instead.
 
 ### Root-level schema combinators
 
@@ -418,8 +426,8 @@ mcp__github__*
 ## MCP client runtime (v1/v2)
 
 - Two runtimes: v1 (MCP TypeScript SDK 1.x) and v2 (SDK 2.0, adds MCP protocol revision 2026-07-28). Picked once per session start, kept until exit.
-- version >= 2.1.232: v2 is the default. v1 still used when: running on Amazon Bedrock / Claude Platform on AWS / Google Cloud's Agent Platform / Microsoft Foundry (unless a host embedding Claude Code sets `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST`); signed in through a Claude apps gateway; or feature-flag fetching is off.
-- On v2: negotiates the newer protocol revision automatically with HTTP and claude.ai-connector servers; with stdio servers only when `MCP_PROTOCOL_NEGOTIATION=auto` (default `legacy`, which keeps the earlier handshake — where v1 is used by default, pinning `v2` alone doesn't make Claude Code ask, set `auto` too). `list_changed` notifications from a server on the newer revision arrive over a stream Claude Code holds open, instead of polling.
+- version >= 2.1.232: v2 is the default in a session that fetches feature flags. version >= 2.1.274: v2 also becomes the default in a session that doesn't fetch feature flags — Amazon Bedrock / Claude Platform on AWS / Google Cloud's Agent Platform / Microsoft Foundry sessions (unless a host embedding Claude Code sets `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST`), sessions signed in through a Claude apps gateway, and sessions with telemetry/feature-flag fetching off (e.g. `DISABLE_TELEMETRY`). Before 2.1.274 those sessions used v1.
+- On v2: negotiates the newer protocol revision automatically with HTTP servers, and with claude.ai-connector servers only in a session that fetches feature flags; with stdio servers, and with connector servers in a session that doesn't fetch feature flags, only when `MCP_PROTOCOL_NEGOTIATION=auto` (default `legacy`, which keeps the earlier handshake — where v1 is used by default, pinning `v2` alone doesn't make Claude Code ask, set `auto` too). `list_changed` notifications from a server on the newer revision arrive over a stream Claude Code holds open, instead of polling.
 - A channel server (`claude/channel` capability) that negotiates the newer revision on v2 is NOT registered as a channel — that revision can't carry channel messages; leave `MCP_PROTOCOL_NEGOTIATION` unset/`legacy` to keep channel servers on the earlier handshake.
 - v2 fails an OAuth sign-in whose authorization response names an unexpected issuer.
 - Notification-stream reopening (v2, newer-revision servers): closes again within 10s → reopens up to 3× then stops for that connection; stays open >10s then closes (common for serverless hosts) → after 5 reopens in an hour, waits ~6h before the next. Until it reopens, tools/prompts/resources stay at their last-fetched state; reconnect the server from `/mcp` to refresh sooner.
@@ -541,3 +549,5 @@ mcp__github__*
 | 2.1.246    | `--strict-mcp-config` skips the approval wait for project-scoped servers it isn't loading anyway (was: still waited, stalling background/non-interactive startup); moving the session with `/cd` connects/disconnects plugin MCP servers for the new directory's enabled plugins without needing `/reload-plugins`                                                                                                                                                                                                                                                                                                                                     |
 | 2.1.259    | A server provided via the managed `managedMcpServers` setting outranks local/project/user/plugin/connector scope on a duplicate (matched by endpoint)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | 2.1.265    | `claude mcp add --transport http` auto-switches to SSE when the server doesn't accept HTTP (was: pass `--transport sse` explicitly)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| 2.1.268    | A local/project/user-scope server's `/mcp` detail view shows a `${VAR}` reference by name rather than its resolved value, matching `claude mcp list`/`get`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| 2.1.274    | The v2 MCP client runtime becomes the default in sessions that don't fetch feature flags too (Bedrock/AWS/GCAP/Foundry, Claude-apps-gateway sign-in, telemetry/feature-flags off) — previously those stayed on v1 even after 2.1.232                                                                                                                                                                                                                                                                                                                                                                                                                   |
