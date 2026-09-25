@@ -58,9 +58,7 @@ per the templates below.
 
 A plugin may pin the Model cell to a literal model ID instead of a bare alias
 only as a documented, dated exception recorded in that plugin's own
-`CLAUDE.md` (e.g. taskflow's Opus-tier pin to `claude-opus-4-8` — see
-`plugins/taskflow/CLAUDE.md`'s "Model assignment" section). Absent such a
-recorded exception, use the bare alias.
+`CLAUDE.md`. Absent such a recorded exception, use the bare alias.
 
 ### Configuration (if a `configure-*` skill exists)
 
