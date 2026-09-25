@@ -149,9 +149,8 @@ const MAX_OPEN_QUESTIONS = 4; // AskUserQuestion limit of the orchestrator
 // ── Schemas ──────────────────────────────────────────────────────────────────
 const SCOUT_SCHEMA = {
   type: "object",
-  required: ["complexity", "subsystems", "difficulty"],
+  required: ["subsystems", "difficulty"],
   properties: {
-    complexity: { enum: ["simple", "complex"] },
     difficulty: { enum: ["simple", "complex", "hardest"] },
     subsystems: {
       type: "array",
@@ -258,13 +257,10 @@ re-explore what the draft already covers with evidence.`
 
 const scoutPrompt = `${NO_NARRATION}\n\nYou are a read-only scout. Task to be designed:\n${TASK}\n${resumeNote}\n
 Survey the repository just enough to answer:
-1. complexity — 'simple' (single subsystem, tightly-scoped, one clearly correct
-   approach) or 'complex' (spans multiple independent files/subsystems, more
-   than one genuinely competing approach, or scope still unclear).
-2. subsystems — the 1-${MAX_PARALLEL_EXPLORES} areas an explorer should each dig
-   into (name + one-line focus: what to find there). For 'simple', return
-   exactly one subsystem covering the whole task.
-3. difficulty — how much design judgment the task needs, independent of how
+1. subsystems — the 1-${MAX_PARALLEL_EXPLORES} areas an explorer should each dig
+   into (name + one-line focus: what to find there). For a single-subsystem
+   task, return exactly one subsystem covering the whole task.
+2. difficulty — how much design judgment the task needs, independent of how
    many subsystems it touches: 'simple' (one clearly correct approach, low
    judgment), 'complex' (multiple subsystems or genuinely competing
    approaches), or 'hardest' (deep cross-cutting design, many competing
@@ -285,7 +281,7 @@ if (!scout)
     error: "scout returned no result",
   };
 
-const DESIGNER_MODEL = designerModel(scout.difficulty);
+let DESIGNER_MODEL = designerModel(scout.difficulty);
 
 // Dedup WITHIN this single scout response (trim+lowercase exact-match key) — a
 // duplicate name in one call would otherwise burn a budget slot on exploring
@@ -307,7 +303,7 @@ const proposed =
     : [];
 const subsystems = proposed.slice(0, MAX_PARALLEL_EXPLORES);
 if (subsystems.length === 0) subsystems.push({ name: "whole task", focus: TASK });
-log("Scout: " + scout.complexity + " / difficulty " + scout.difficulty + " (designer: " + DESIGNER_MODEL + "), " + subsystems.length + " exploration target(s)");
+log("Scout: difficulty " + scout.difficulty + " (designer: " + DESIGNER_MODEL + "), " + subsystems.length + " exploration target(s)");
 
 const explorerPrompt = (s) =>
   `${NO_NARRATION}\n\nYou are a read-only codebase explorer (never edit anything). Task being
@@ -417,10 +413,21 @@ function hasContaminatedKeypoints(d) {
   return /<openQuestions|<\/invoke/i.test(kp);
 }
 
+// DESIGNER_MODEL can be downgraded permanently for the rest of this run: an
+// account/session without Fable access throws on dispatch rather than
+// returning null, so a 'hardest' task must not be stuck retrying 'fable'.
 async function runDesigner(mode, extra, label) {
-  const opts = { label, phase: "Design", schema: DESIGN_RESULT, model: DESIGNER_MODEL, agentType: AGENTS.designer };
-  let d = await agent(designerPrompt(mode, extra), opts);
-  if (d === null || hasContaminatedKeypoints(d)) d = await agent(designerPrompt(mode, extra), { ...opts, label: label + ":retry" });
+  const opts = () => ({ label, phase: "Design", schema: DESIGN_RESULT, model: DESIGNER_MODEL, agentType: AGENTS.designer });
+  let d;
+  try {
+    d = await agent(designerPrompt(mode, extra), opts());
+  } catch (e) {
+    if (DESIGNER_MODEL !== "fable") throw e;
+    log("designer dispatch on fable failed (" + e.message + ") — falling back to opus for the rest of this run");
+    DESIGNER_MODEL = "opus";
+    d = await agent(designerPrompt(mode, extra), { ...opts(), label: label + ":fable-fallback" });
+  }
+  if (d === null || hasContaminatedKeypoints(d)) d = await agent(designerPrompt(mode, extra), { ...opts(), label: label + ":retry" });
   return d;
 }
 

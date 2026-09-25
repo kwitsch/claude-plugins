@@ -32,19 +32,19 @@ Both live in the plugin-root `workflows/` directory and are auto-discovered — 
 
 Static role prompts (rules, lens catalog, verdict ladder, git procedures), dispatched by the workflows via `agentType`; models set in frontmatter.
 
-| Agent             | Model                                  | Role                                                                                                                                             |
-| ----------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `designer`        | opus (sonnet/opus/fable by difficulty) | Writes/revises the design draft — approach, trade-offs, decisions.                                                                               |
-| `design-reviewer` | sonnet                                 | Read-only: placeholders, consistency, scope, ambiguity, question validation.                                                                     |
-| `planner`         | opus (sonnet/opus/fable by difficulty) | Turns an approved spec into a dense, machine-executable implementation plan.                                                                     |
-| `review-finder`   | sonnet                                 | Reviews one assigned lens (5 correctness angles + 5 cleanup lenses) over a diff.                                                                 |
-| `review-verifier` | sonnet                                 | Independently verifies review candidates — CONFIRMED / PLAUSIBLE / REFUTED.                                                                      |
-| `worktree-merger` | haiku                                  | Merges approved task branches into the work branch in order, worktree cleanup.                                                                   |
-| `fix-applier`     | sonnet                                 | Applies pre-verified review fixes by category, with a test-run safety gate.                                                                      |
-| `pr-author`       | sonnet                                 | Writes the PR/MR title and body from the pipeline summary and repo template.                                                                     |
-| `shipper`         | haiku                                  | Pushes, creates-or-updates the PR/MR, then auto-updates/auto-resolves its merge-state before CI monitoring. Never force-pushes or merges the PR. |
-| `ci-monitor`      | haiku                                  | Read-only bounded CI poll and classification (`passed`/`failed`/`running`/`none`).                                                               |
-| `ci-fixer`        | sonnet                                 | Classifies flaky/infra vs. code-caused vs. base-broken CI failures and fixes in scope.                                                           |
+| Agent             | Model  | Role                                                                                                                                                          |
+| ----------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `designer`        | opus   | Writes/revises the design draft — approach, trade-offs, decisions. Workflow dispatch picks sonnet/opus/fable per run by difficulty — see CLAUDE.md.           |
+| `design-reviewer` | sonnet | Read-only: placeholders, consistency, scope, ambiguity, question validation.                                                                                  |
+| `planner`         | opus   | Turns an approved spec into a dense, machine-executable implementation plan. Workflow dispatch picks sonnet/opus/fable per run by difficulty — see CLAUDE.md. |
+| `review-finder`   | sonnet | Reviews one assigned lens (5 correctness angles + 5 cleanup lenses) over a diff.                                                                              |
+| `review-verifier` | sonnet | Independently verifies review candidates — CONFIRMED / PLAUSIBLE / REFUTED.                                                                                   |
+| `worktree-merger` | haiku  | Merges approved task branches into the work branch in order, worktree cleanup.                                                                                |
+| `fix-applier`     | sonnet | Applies pre-verified review fixes by category, with a test-run safety gate.                                                                                   |
+| `pr-author`       | sonnet | Writes the PR/MR title and body from the pipeline summary and repo template.                                                                                  |
+| `shipper`         | haiku  | Pushes, creates-or-updates the PR/MR, then auto-updates/auto-resolves its merge-state before CI monitoring. Never force-pushes or merges the PR.              |
+| `ci-monitor`      | haiku  | Read-only bounded CI poll and classification (`passed`/`failed`/`running`/`none`).                                                                            |
+| `ci-fixer`        | sonnet | Classifies flaky/infra vs. code-caused vs. base-broken CI failures and fixes in scope.                                                                        |
 
 ## Layout
 

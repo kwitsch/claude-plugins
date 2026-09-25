@@ -449,9 +449,24 @@ spec at ${SPEC_PATH} and the plan at ${PLAN_PATH}. Verify:
 Severity 'blocking' for anything that would mislead an implementer or corrupt
 wave scheduling; 'minor' otherwise. Structured output only.`;
 
+// PLANNER_MODEL can be downgraded permanently for the rest of this run: an
+// account/session without Fable access throws on dispatch rather than
+// returning null, so a 'hardest' spec must not be stuck retrying 'fable'.
+async function callPlanner(prompt, label) {
+  const opts = () => ({ label, phase: "Plan", schema: PLAN_RESULT, model: PLANNER_MODEL, agentType: AGENTS.planner });
+  try {
+    return await agent(prompt, opts());
+  } catch (e) {
+    if (PLANNER_MODEL !== "fable") throw e;
+    log("planner dispatch on fable failed (" + e.message + ") — falling back to opus for the rest of this run");
+    PLANNER_MODEL = "opus";
+    return await agent(prompt, { ...opts(), label: label + ":fable-fallback" });
+  }
+}
+
 async function makePlan() {
-  let plan = await agent(plannerPrompt(null), { label: "plan", phase: "Plan", schema: PLAN_RESULT, model: PLANNER_MODEL, agentType: AGENTS.planner });
-  if (plan === null) plan = await agent(plannerPrompt(null), { label: "plan:retry", phase: "Plan", schema: PLAN_RESULT, model: PLANNER_MODEL, agentType: AGENTS.planner });
+  let plan = await callPlanner(plannerPrompt(null), "plan");
+  if (plan === null) plan = await callPlanner(plannerPrompt(null), "plan:retry");
   if (plan === null || plan.status === "blocked") return { plan: null, reason: plan ? plan.detail : "planner returned null twice" };
 
   let check = await agent(planCheckerPrompt, { label: "plan-check", phase: "Plan", schema: CHECK_VERDICT, model: MODELS.planChecker });
@@ -459,7 +474,7 @@ async function makePlan() {
     const blocking = check.findings.filter((f) => f.severity === "blocking");
     if (blocking.length) {
       log("Plan check: " + blocking.length + " blocking finding(s) — one revision round");
-      plan = await agent(plannerPrompt(JSON.stringify(blocking)), { label: "plan:revise", phase: "Plan", schema: PLAN_RESULT, model: PLANNER_MODEL, agentType: AGENTS.planner });
+      plan = await callPlanner(plannerPrompt(JSON.stringify(blocking)), "plan:revise");
       if (plan === null || plan.status === "blocked") return { plan: null, reason: "planner failed during revision" };
       check = await agent(planCheckerPrompt, { label: "plan-recheck", phase: "Plan", schema: CHECK_VERDICT, model: MODELS.planChecker });
       if (check && !check.approved && check.findings.some((f) => f.severity === "blocking")) {
@@ -478,7 +493,7 @@ const classify = await agent(classifyPrompt, {
   model: "haiku",
   agentType: "Explore",
 });
-const PLANNER_MODEL = plannerModel(classify && classify.difficulty);
+let PLANNER_MODEL = plannerModel(classify && classify.difficulty);
 log("Plan difficulty: " + (classify ? classify.difficulty : "unknown") + " (planner: " + PLANNER_MODEL + ")");
 const planned = await makePlan();
 if (!planned.plan) return { stage: "Plan", error: planned.reason };

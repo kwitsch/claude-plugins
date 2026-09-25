@@ -356,11 +356,18 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
 }
 
 @test "design-to-spec scout schema carries a 3-tier difficulty enum driving the designer model" {
-  run rg_or_grep -F 'required: ["complexity", "subsystems", "difficulty"]' "$WORKFLOWS/design-to-spec.workflow.js"
+  run rg_or_grep -F 'required: ["subsystems", "difficulty"]' "$WORKFLOWS/design-to-spec.workflow.js"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'difficulty: { enum: ["simple", "complex", "hardest"] }' "$WORKFLOWS/design-to-spec.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'const DESIGNER_MODEL = designerModel(scout.difficulty)' "$WORKFLOWS/design-to-spec.workflow.js"
+  run rg_or_grep -F 'let DESIGNER_MODEL = designerModel(scout.difficulty)' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+@test "design-to-spec designer dispatch falls back from fable to opus on a throw" {
+  run rg_or_grep -F 'if (DESIGNER_MODEL !== "fable") throw e;' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'DESIGNER_MODEL = "opus";' "$WORKFLOWS/design-to-spec.workflow.js"
   [ "$status" -eq 0 ]
 }
 
@@ -377,7 +384,14 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'agentType: "Explore"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'const PLANNER_MODEL = plannerModel(classify && classify.difficulty)' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'let PLANNER_MODEL = plannerModel(classify && classify.difficulty)' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+@test "spec-driven-delivery planner dispatch falls back from fable to opus on a throw" {
+  run rg_or_grep -F 'if (PLANNER_MODEL !== "fable") throw e;' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'PLANNER_MODEL = "opus";' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
 }
 
