@@ -48,8 +48,9 @@
 //   explorer  sonnet  — read-only codebase exploration; conditional dispatch:
 //                     built-in agentType 'Explore' (repo-explorer tool absent)
 //                     OR default subagent calling explore_repository (present)
-//   designer  claude-opus-4-8 — design, trade-offs, decisions (highest judgment
-//                     load; Opus tier pinned — see CLAUDE.md "Model assignment")
+//   designer  sonnet|opus|fable — design, trade-offs, decisions (highest
+//                     judgment load); model chosen per run from the scout's
+//                     `difficulty` verdict (DESIGN_MODEL), default opus
 //   designRev sonnet  — consistency/scope/placeholder gate + question validation
 //   specWriter sonnet — approved draft → spec (transformation, decisions stand)
 //   specRev   sonnet  — completeness/unambiguity gate
@@ -120,11 +121,13 @@ if ((EXPLORE_TOOL_AVAILABLE === true || EXPLORE_TOOL_AVAILABLE === "true") && !U
 const MODELS = {
   scout: "haiku", // pure classification — deliberately small
   explorer: "sonnet",
-  designer: "claude-opus-4-8", // pinned — see CLAUDE.md "Model assignment"
   designReview: "sonnet",
   specWriter: "sonnet", // 1:1 transformation, no new decisions
   specReview: "sonnet", // document comparison draft↔spec
 };
+// Designer model is chosen per run from the scout's difficulty verdict.
+const DESIGN_MODEL = { simple: "sonnet", complex: "opus", hardest: "fable" };
+const designerModel = (d) => DESIGN_MODEL[d] || "opus";
 // ── Plugin agent types (namespace = plugin name; keep in sync on rename).
 //    An unknown type throws hard — this script assumes the taskflow plugin
 //    agents are installed; the static role prompts live there.
@@ -146,9 +149,10 @@ const MAX_OPEN_QUESTIONS = 4; // AskUserQuestion limit of the orchestrator
 // ── Schemas ──────────────────────────────────────────────────────────────────
 const SCOUT_SCHEMA = {
   type: "object",
-  required: ["complexity", "subsystems"],
+  required: ["complexity", "subsystems", "difficulty"],
   properties: {
     complexity: { enum: ["simple", "complex"] },
+    difficulty: { enum: ["simple", "complex", "hardest"] },
     subsystems: {
       type: "array",
       items: {
@@ -260,6 +264,11 @@ Survey the repository just enough to answer:
 2. subsystems — the 1-${MAX_PARALLEL_EXPLORES} areas an explorer should each dig
    into (name + one-line focus: what to find there). For 'simple', return
    exactly one subsystem covering the whole task.
+3. difficulty — how much design judgment the task needs, independent of how
+   many subsystems it touches: 'simple' (one clearly correct approach, low
+   judgment), 'complex' (multiple subsystems or genuinely competing
+   approaches), or 'hardest' (deep cross-cutting design, many competing
+   approaches, high uncertainty).
 Do not design anything. Structured output only.`;
 
 const scout = await agent(scoutPrompt, {
@@ -275,6 +284,8 @@ if (!scout)
     stage: "Explore",
     error: "scout returned no result",
   };
+
+const DESIGNER_MODEL = designerModel(scout.difficulty);
 
 // Dedup WITHIN this single scout response (trim+lowercase exact-match key) — a
 // duplicate name in one call would otherwise burn a budget slot on exploring
@@ -296,7 +307,7 @@ const proposed =
     : [];
 const subsystems = proposed.slice(0, MAX_PARALLEL_EXPLORES);
 if (subsystems.length === 0) subsystems.push({ name: "whole task", focus: TASK });
-log("Scout: " + scout.complexity + ", " + subsystems.length + " exploration target(s)");
+log("Scout: " + scout.complexity + " / difficulty " + scout.difficulty + " (designer: " + DESIGNER_MODEL + "), " + subsystems.length + " exploration target(s)");
 
 const explorerPrompt = (s) =>
   `${NO_NARRATION}\n\nYou are a read-only codebase explorer (never edit anything). Task being
@@ -407,7 +418,7 @@ function hasContaminatedKeypoints(d) {
 }
 
 async function runDesigner(mode, extra, label) {
-  const opts = { label, phase: "Design", schema: DESIGN_RESULT, model: MODELS.designer, agentType: AGENTS.designer };
+  const opts = { label, phase: "Design", schema: DESIGN_RESULT, model: DESIGNER_MODEL, agentType: AGENTS.designer };
   let d = await agent(designerPrompt(mode, extra), opts);
   if (d === null || hasContaminatedKeypoints(d)) d = await agent(designerPrompt(mode, extra), { ...opts, label: label + ":retry" });
   return d;

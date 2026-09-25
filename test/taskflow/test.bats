@@ -205,13 +205,13 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   done
 }
 
-@test "all agent files declare a model; only designer and planner carry the Opus pin" {
+@test "all agent files declare a model; designer and planner on opus, the rest sonnet/haiku" {
   for a in $AGENT_NAMES; do
     run rg_or_grep -E '^model:' "$AGENTS_DIR/$a.md"
     [ "$status" -eq 0 ]
     case "$a" in
       designer | planner)
-        run rg_or_grep -E '^model: claude-opus-4-8$' "$AGENTS_DIR/$a.md"
+        run rg_or_grep -E '^model: opus$' "$AGENTS_DIR/$a.md"
         ;;
       *)
         run rg_or_grep -E '^model: (sonnet|haiku)$' "$AGENTS_DIR/$a.md"
@@ -328,25 +328,56 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
 }
 
-# --- Model assignment: Opus-tier pin (see plugins/taskflow/CLAUDE.md) ---
+# --- Model assignment: unpinned family aliases + difficulty classifier ---
 
-@test "designer, planner, synthesizer and the complex impl tier are pinned to claude-opus-4-8" {
-  run rg_or_grep -F 'designer: "claude-opus-4-8"' "$WORKFLOWS/design-to-spec.workflow.js"
+@test "workflow model tiers are unpinned to bare aliases with the classifier maps present" {
+  run rg_or_grep -F 'const DESIGN_MODEL = { simple: "sonnet", complex: "opus", hardest: "fable" }' "$WORKFLOWS/design-to-spec.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'const PINNED_OPUS = "claude-opus-4-8"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'const designerModel = (d) => DESIGN_MODEL[d] || "opus"' "$WORKFLOWS/design-to-spec.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'planner: PINNED_OPUS' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'model: DESIGNER_MODEL' "$WORKFLOWS/design-to-spec.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'synthesizer: PINNED_OPUS' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'const PINNED_OPUS' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -ne 0 ]
+  run rg_or_grep -F 'synthesizer: "opus"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'complex: PINNED_OPUS' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'complex: "opus"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'const PLAN_MODEL = { simple: "sonnet", complex: "opus", hardest: "fable" }' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'const plannerModel = (d) => PLAN_MODEL[d] || "opus"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'model: PLANNER_MODEL' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'const PINNED_OPUS' "$WORKFLOWS/changes-review.workflow.js"
+  [ "$status" -ne 0 ]
+  run rg_or_grep -F 'synthesizer: "opus"' "$WORKFLOWS/changes-review.workflow.js"
   [ "$status" -eq 0 ]
 }
 
-@test "both workflow scripts' comment blocks name the pinned model ID" {
-  run rg_or_grep -F 'claude-opus-4-8' "$WORKFLOWS/design-to-spec.workflow.js"
+@test "design-to-spec scout schema carries a 3-tier difficulty enum driving the designer model" {
+  run rg_or_grep -F 'required: ["complexity", "subsystems", "difficulty"]' "$WORKFLOWS/design-to-spec.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'claude-opus-4-8' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'difficulty: { enum: ["simple", "complex", "hardest"] }' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'const DESIGNER_MODEL = designerModel(scout.difficulty)' "$WORKFLOWS/design-to-spec.workflow.js"
+  [ "$status" -eq 0 ]
+}
+
+@test "spec-driven-delivery runs a haiku spec classifier before makePlan and resolves the planner model from it" {
+  run rg_or_grep -F 'required: ["difficulty"]' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'difficulty: { enum: ["simple", "complex", "hardest"] }' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'classifyPrompt = `${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'label: "classify"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'model: "haiku"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'agentType: "Explore"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'const PLANNER_MODEL = plannerModel(classify && classify.difficulty)' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
 }
 
@@ -359,46 +390,41 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
 }
 
-@test "CLAUDE.md's Model assignment section records the Opus pin as a dated exception and keeps aliases as the rule" {
+@test "CLAUDE.md's Model assignment section drops the Opus pin and documents the classifier" {
   section="$BATS_TEST_TMPDIR/model-assignment.md"
   awk '/^## Model assignment$/{f=1;next} /^## /{f=0} f' "$PLUGIN/CLAUDE.md" > "$section"
   [ -s "$section" ]
   run rg_or_grep -F 'claude-opus-4-8' "$section"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -iF 'exception' "$section"
-  [ "$status" -eq 0 ]
+  [ "$status" -ne 0 ]
   run rg_or_grep -F '2026-08-12' "$section"
-  [ "$status" -eq 0 ]
+  [ "$status" -ne 0 ]
+  run rg_or_grep -iF 'exception' "$section"
+  [ "$status" -ne 0 ]
   run rg_or_grep -F '`sonnet`/`haiku`' "$section"
   [ "$status" -eq 0 ]
+  run rg_or_grep -F 'fable' "$section"
+  [ "$status" -eq 0 ]
 }
 
-@test "README Agents table and both workflow references quote the pinned model ID, not the opus alias" {
+@test "README Agents table and both workflow references drop the pinned model ID for classifier phrasing" {
   run rg_or_grep -F 'claude-opus-4-8' "$PLUGIN/README.md"
-  [ "$status" -eq 0 ]
+  [ "$status" -ne 0 ]
   run rg_or_grep -F 'claude-opus-4-8' "$REFS/design-to-spec.md"
-  [ "$status" -eq 0 ]
+  [ "$status" -ne 0 ]
   run rg_or_grep -F 'claude-opus-4-8' "$REFS/spec-driven-delivery.md"
+  [ "$status" -ne 0 ]
+  run rg_or_grep -F 'fable' "$PLUGIN/README.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F '`opus` alias' "$REFS/design-to-spec.md"
-  [ "$status" -ne 0 ]
-  run rg_or_grep -F '`opus` alias' "$REFS/spec-driven-delivery.md"
-  [ "$status" -ne 0 ]
+  run rg_or_grep -F 'fable' "$REFS/design-to-spec.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'fable' "$REFS/spec-driven-delivery.md"
+  [ "$status" -eq 0 ]
 }
 
-@test "no bare opus alias survives anywhere in the plugin outside CLAUDE.md's exception prose" {
-  # Plain grep: --exclude has no rg_or_grep equivalent. Match only a standalone
-  # `opus` token (not part of a hyphenated model ID like `claude-opus-4-8`) —
-  # filtering out whole lines that merely CONTAIN `claude-opus-4-8` would also
-  # hide a bare `opus` alias coexisting on that same line (CodeRabbit finding,
-  # PR #193).
-  run bash -c "grep -rnE '(^|[^[:alnum:]_-])opus([^[:alnum:]_-]|\$)' '$PLUGIN' --exclude=CLAUDE.md || true"
+@test "no claude-opus-4-8 pin survives anywhere in the plugin" {
+  run bash -c "grep -rn 'claude-opus-4-8' '$PLUGIN' || true"
   [ "$status" -eq 0 ]
   [ "$output" = "" ]
-  # CLAUDE.md keeps exactly the exception prose that names the alias.
-  run bash -c "grep -cw 'opus' '$PLUGIN/CLAUDE.md'"
-  [ "$status" -eq 0 ]
-  [ "$output" -ge 2 ]
 }
 
 # --- dispatch-task skill ---
@@ -1007,9 +1033,7 @@ mm_git_fixture() {
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'ponytailReview' "$WORKFLOWS/changes-review.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'const PINNED_OPUS = "claude-opus-4-8"' "$WORKFLOWS/changes-review.workflow.js"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F 'synthesizer: PINNED_OPUS' "$WORKFLOWS/changes-review.workflow.js"
+  run rg_or_grep -F 'synthesizer: "opus"' "$WORKFLOWS/changes-review.workflow.js"
   [ "$status" -eq 0 ]
   for absent in 'phase("Apply")' 'phase("Ship")' 'escalatedToUser' 'SPEC_PATH' 'taskflow:changes-review'; do
     run rg_or_grep -F "$absent" "$WORKFLOWS/changes-review.workflow.js"

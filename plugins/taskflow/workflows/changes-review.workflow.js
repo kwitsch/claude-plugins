@@ -82,16 +82,15 @@ if (A.__error) return { stage: "args", error: A.__error };
 const { BASE_BRANCH } = A;
 
 // ── Model assignment ─────────────────────────────────────────────────────────
-// Bare aliases except the pinned Opus tier — see plugins/taskflow/CLAUDE.md
-// "Model assignment". Only the Review-phase roles are needed here; fix-applier
-// is NOT dispatched from this script (the changes-audit skill owns apply), so
-// there is no applier entry.
-const PINNED_OPUS = "claude-opus-4-8"; // single source for every Opus-tier pin in this file
+// Bare family aliases — see plugins/taskflow/CLAUDE.md "Model assignment".
+// Only the Review-phase roles are needed here; fix-applier is NOT dispatched
+// from this script (the changes-audit skill owns apply), so there is no
+// applier entry.
 const MODELS = {
   scope: "haiku", // list diff, collect CLAUDE.md
   finder: "sonnet", // review finder (angles + lenses)
   verifier: "sonnet", // independent per-finding verification
-  synthesizer: PINNED_OPUS, // ranking, dedupe (pinned) — see CLAUDE.md Opus-pin list
+  synthesizer: "opus", // ranking, dedupe
   ponytailReviewer: "sonnet", // over-engineering-only pass over the diff (report-only)
 };
 // Plugin agent types (namespace = plugin name; keep in sync on plugin rename).
