@@ -64,28 +64,36 @@ automatic.)
 
 ## Model assignment
 
-Sonnet- and Haiku-tier roles use bare aliases (`sonnet`/`haiku` — each floats
-to the newest model in that family). That is still the rule: pinned IDs caused
-problems in practice and were removed in favor of aliases across the board
-(commit `c66f3ea`).
+No model tier is pinned. Every role floats on its family alias
+(`haiku`/`sonnet`/`opus`/`fable` — each resolves to the newest model in that
+family). Pinned IDs caused problems in practice and were removed in favor of
+aliases across the board (`sonnet`/`haiku` were always bare; the Opus tier
+returned to the bare `opus` alias in this change).
 
-**Opus tier is a deliberate, narrow exception as of 2026-08-12:** every
-Opus-tier value is pinned to `claude-opus-4-8` because the `opus` alias
-currently resolves to Opus 5, which has severe latency problems. Revisit and
-return these to the bare `opus` alias once that is fixed. Pinned entries — all
-of them, nothing else:
+The two highest-judgment authoring roles pick their model per run from a
+difficulty classification (`simple → sonnet`, `complex → opus`, `hardest →
+fable`; resolver default on any miss is `opus`):
 
-- `workflows/design-to-spec.workflow.js` → `MODELS.designer`
-- `workflows/spec-driven-delivery.workflow.js` → `MODELS.planner`,
-  `MODELS.synthesizer`, and `IMPL_MODEL.complex` (the per-task-complexity tier
-  that `implModel()`/`fixModel()` resolve for `complexity === "complex"` tasks)
-- `workflows/changes-review.workflow.js` → `MODELS.synthesizer`
-- `agents/designer.md` and `agents/planner.md` frontmatter `model:`
+- **designer** (`workflows/design-to-spec.workflow.js`) — the existing haiku
+  `scout` returns a `difficulty` field (`SCOUT_SCHEMA`); `DESIGN_MODEL` /
+  `designerModel()` resolve `DESIGNER_MODEL`, passed to the designer's
+  `agent()` call.
+- **planner** (`workflows/spec-driven-delivery.workflow.js`) — a small haiku
+  spec classifier (`CLASSIFY_SCHEMA`, `agentType: "Explore"`) runs before
+  `makePlan()`; `PLAN_MODEL` / `plannerModel()` resolve `PLANNER_MODEL`, used
+  in all three planner dispatches.
 
-The `MODELS` object at the top of each workflow script is still the single
-place to change an assignment; agent frontmatter `model:` fields must be kept
-in sync with the corresponding workflow's default when an agent is also invoked
-directly outside its workflow's normal path.
+Not classifier-driven (bare `opus`, fixed): `MODELS.synthesizer` in
+`workflows/spec-driven-delivery.workflow.js` and
+`workflows/changes-review.workflow.js`, and `IMPL_MODEL.complex` (the
+per-task-complexity tier that `implModel()`/`fixModel()` resolve for
+`complexity === "complex"` tasks).
+
+Agent frontmatter `model:` (`agents/designer.md`, `agents/planner.md`) is the
+bare `opus` default for a direct out-of-workflow invocation; the workflow's
+per-run `agent()` `model` option overrides it (same precedence as
+`implModel(t)`). The `MODELS` object at the top of each workflow script is
+still the single place to change a fixed assignment.
 
 ## Skill design (dispatch-task)
 
@@ -264,11 +272,12 @@ The suite is structural: plugin manifest invariants (no `userConfig`), the
 all 11 agents (including the least-privilege `tools:` allowlist on the 4
 read-only-declared agents: `design-reviewer`, `review-finder`,
 `review-verifier`, `ci-monitor`), both
-`workflows/*.workflow.js` files' `export const meta` shape, the Opus-tier pin
-(all four `MODELS`/`IMPL_MODEL` values, both agent frontmatter fields, the
-comment blocks, the four docs, plus a whole-plugin sweep for a surviving bare
-`opus`), and `dispatch-task`'s frontmatter, self-containment tripwire and
-dispatch-command literals.
+`workflows/*.workflow.js` files' `export const meta` shape, the unpinned model
+surface (bare-`opus` `synthesizer`/`IMPL_MODEL.complex` assignments, both agent
+frontmatters on `opus`, the `DESIGN_MODEL`/`PLAN_MODEL` classifier maps and
+their `difficulty` schema fields, plus a whole-plugin sweep for any surviving
+pinned model ID), and `dispatch-task`'s frontmatter, self-containment
+tripwire and dispatch-command literals.
 
 ## Linting
 

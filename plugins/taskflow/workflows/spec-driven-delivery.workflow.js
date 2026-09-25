@@ -13,10 +13,11 @@
 //   2. Every wave is merged into the work branch at the end by a SEPARATE
 //      merge agent (git merge --no-ff, task-id order).
 //   3. Model assignment by difficulty: the planner assigns each task a
-//      complexity ∈ trivial|standard|complex → haiku|sonnet|claude-opus-4-8;
-//      roles with a fixed difficulty profile use the value from MODELS below
-//      (bare aliases, except the pinned Opus tier — see CLAUDE.md
-//      "Model assignment").
+//      complexity ∈ trivial|standard|complex → haiku|sonnet|opus; roles with a
+//      fixed difficulty profile use the value from MODELS below (all bare
+//      family aliases). The planner itself is not fixed — a small haiku
+//      classifier reads the spec and picks sonnet|opus|fable per run
+//      (PLAN_MODEL / CLASSIFY_SCHEMA), default opus on a miss.
 //   4. Review fixes are applied within the workflow by an apply agent;
 //      findings with reversesDecision are NEVER applied, only reported (no
 //      AskUserQuestion is possible inside a workflow script).
@@ -105,21 +106,20 @@ const PLUGIN_ROOT = A.PLUGIN_ROOT && !A.PLUGIN_ROOT.includes("${") ? A.PLUGIN_RO
 
 // ── Model assignment by task difficulty ──────────────────────────────────────
 // Role profiles:
-//   PINNED_OPUS — high synthesis/judgment load (planning, final
-//                 prioritization); pinned — see CLAUDE.md "Model assignment"
+//   opus   — high synthesis/judgment load (final prioritization / synthesizer)
 //   sonnet — writing/checking code with context understanding (default)
 //   haiku  — mechanical/deterministic (gathering scope, git merge sequence)
 // Per-task scaling: complexity from the plan → implModel().
-const PINNED_OPUS = "claude-opus-4-8"; // single source for every Opus-tier pin in this file
+// Planner: not fixed — a haiku classifier reads the spec and picks
+// sonnet|opus|fable per run (PLAN_MODEL / plannerModel), default opus.
 const MODELS = {
-  planner: PINNED_OPUS, // spec → complete plan; highest leverage in the process (pinned)
   planChecker: "sonnet", // coverage/consistency gate before Implement
   taskReviewer: "sonnet", // per-task diff review
   merger: "haiku", // pure git command sequence, no judgment load
   scope: "haiku", // list diff, collect CLAUDE.md
   finder: "sonnet", // review finder (angles + lenses)
   verifier: "sonnet", // independent per-finding verification
-  synthesizer: PINNED_OPUS, // ranking, dedupe, reversesDecision judgment (pinned)
+  synthesizer: "opus", // ranking, dedupe, reversesDecision judgment
   applier: "sonnet", // apply pre-verified fixes — test gate as safety net
   prAuthor: "sonnet", // faithful writing from structured inputs + repo template
   shipper: "haiku", // pure git/gh/glab procedure (merger analogue)
@@ -127,6 +127,9 @@ const MODELS = {
   ciFixer: "sonnet", // diagnose + fix: judgment/coding, CI as the only safety net
   ponytailReviewer: "sonnet", // over-engineering-only pass over the combined diff (report-only)
 };
+// Planner model is chosen per run from a haiku spec-difficulty classifier.
+const PLAN_MODEL = { simple: "sonnet", complex: "opus", hardest: "fable" };
+const plannerModel = (d) => PLAN_MODEL[d] || "opus";
 // ── Plugin agent types (namespace = plugin name; keep in sync on plugin
 //    rename). Verified: agentType = "<plugin>:<agents/-name>"; an unknown
 //    type throws hard ("agent type 'X' not found. Available agents: …") —
@@ -161,7 +164,7 @@ const NO_NARRATION = "No narrative text between tool calls — call tools silent
 // cross-file-type duplication NO_NARRATION already accepts against agents/*.md).
 const WRITE_VIA_BASH_NOT_WRITE_EDIT = "NEVER the Write or Edit tool; the universal-format hook reformats those";
 
-const IMPL_MODEL = { trivial: "haiku", standard: "sonnet", complex: PINNED_OPUS };
+const IMPL_MODEL = { trivial: "haiku", standard: "sonnet", complex: "opus" };
 const implModel = (t) => IMPL_MODEL[t.complexity] || "sonnet";
 const fixModel = (t) => (implModel(t) === "haiku" ? "sonnet" : implModel(t)); // fixing is never trivial; sonnet is enough for trivial tasks
 // Per-task review gate follows task complexity: trivial → haiku, standard/complex → sonnet.
@@ -190,6 +193,11 @@ const PLAN_RESULT = {
     constraints: { type: "string", description: "the plan's ## Global Constraints, verbatim" },
     tasks: { type: "array", items: TASK_ITEM },
   },
+};
+const CLASSIFY_SCHEMA = {
+  type: "object",
+  required: ["difficulty"],
+  properties: { difficulty: { enum: ["simple", "complex", "hardest"] } },
 };
 const CHECK_VERDICT = {
   type: "object",
@@ -442,8 +450,8 @@ Severity 'blocking' for anything that would mislead an implementer or corrupt
 wave scheduling; 'minor' otherwise. Structured output only.`;
 
 async function makePlan() {
-  let plan = await agent(plannerPrompt(null), { label: "plan", phase: "Plan", schema: PLAN_RESULT, model: MODELS.planner, agentType: AGENTS.planner });
-  if (plan === null) plan = await agent(plannerPrompt(null), { label: "plan:retry", phase: "Plan", schema: PLAN_RESULT, model: MODELS.planner, agentType: AGENTS.planner });
+  let plan = await agent(plannerPrompt(null), { label: "plan", phase: "Plan", schema: PLAN_RESULT, model: PLANNER_MODEL, agentType: AGENTS.planner });
+  if (plan === null) plan = await agent(plannerPrompt(null), { label: "plan:retry", phase: "Plan", schema: PLAN_RESULT, model: PLANNER_MODEL, agentType: AGENTS.planner });
   if (plan === null || plan.status === "blocked") return { plan: null, reason: plan ? plan.detail : "planner returned null twice" };
 
   let check = await agent(planCheckerPrompt, { label: "plan-check", phase: "Plan", schema: CHECK_VERDICT, model: MODELS.planChecker });
@@ -451,7 +459,7 @@ async function makePlan() {
     const blocking = check.findings.filter((f) => f.severity === "blocking");
     if (blocking.length) {
       log("Plan check: " + blocking.length + " blocking finding(s) — one revision round");
-      plan = await agent(plannerPrompt(JSON.stringify(blocking)), { label: "plan:revise", phase: "Plan", schema: PLAN_RESULT, model: MODELS.planner, agentType: AGENTS.planner });
+      plan = await agent(plannerPrompt(JSON.stringify(blocking)), { label: "plan:revise", phase: "Plan", schema: PLAN_RESULT, model: PLANNER_MODEL, agentType: AGENTS.planner });
       if (plan === null || plan.status === "blocked") return { plan: null, reason: "planner failed during revision" };
       check = await agent(planCheckerPrompt, { label: "plan-recheck", phase: "Plan", schema: CHECK_VERDICT, model: MODELS.planChecker });
       if (check && !check.approved && check.findings.some((f) => f.severity === "blocking")) {
@@ -462,6 +470,16 @@ async function makePlan() {
   return { plan };
 }
 
+const classifyPrompt = `${NO_NARRATION}\n\nYou are a read-only difficulty classifier. Read the approved spec at ${SPEC_PATH}. Judge how much planning judgment it needs: 'simple' (single subsystem, one clearly correct decomposition), 'complex' (multiple subsystems or competing sequencing/approach choices), or 'hardest' (deep cross-cutting plan, many interacting tasks, high uncertainty). Do not plan anything. Structured output only.`;
+const classify = await agent(classifyPrompt, {
+  label: "classify",
+  phase: "Plan",
+  schema: CLASSIFY_SCHEMA,
+  model: "haiku",
+  agentType: "Explore",
+});
+const PLANNER_MODEL = plannerModel(classify && classify.difficulty);
+log("Plan difficulty: " + (classify ? classify.difficulty : "unknown") + " (planner: " + PLANNER_MODEL + ")");
 const planned = await makePlan();
 if (!planned.plan) return { stage: "Plan", error: planned.reason };
 const tasks = planned.plan.tasks;
