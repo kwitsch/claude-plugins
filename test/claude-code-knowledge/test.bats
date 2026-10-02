@@ -1422,6 +1422,110 @@ JSON
   cmp "$BATS_TEST_TMPDIR/manifest.before" "$d/.claude-plugin/plugin.json"
 }
 
+@test "--fix migrates a root .lsp.json into the lsp plugin and removes it" {
+  local proj="$BATS_TEST_TMPDIR/p_mig"
+  mkdir -p "$proj"
+  printf 'x\n' > "$proj/a.ts"
+  printf 'x\n' > "$proj/a.py"
+  cat > "$proj/.lsp.json" <<'JSON'
+{
+  "vtsls": {
+    "command": "npx",
+    "args": ["-y", "@vtsls/language-server@0.3.0", "--stdio"],
+    "extensionToLanguage": {
+      ".ts": "typescript"
+    },
+    "startupTimeout": 60000
+  }
+}
+JSON
+  run_audit "$proj" --fix
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.migratedFromRoot == true'
+  echo "$output" | jq -e '.wrote == true'
+  [ ! -e "$proj/.lsp.json" ]
+  local f="$proj/.claude/skills/lsp/.lsp.json"
+  jq -e '.vtsls.extensionToLanguage[".ts"] == "typescript"' "$f"
+  jq -e '.pylsp.extensionToLanguage[".py"] == "python"' "$f"
+  jq -e '.name == "lsp"' "$proj/.claude/skills/lsp/.claude-plugin/plugin.json"
+}
+
+@test "--fix with nothing to add still migrates the root file byte-identically" {
+  local proj="$BATS_TEST_TMPDIR/p_mig_same"
+  mkdir -p "$proj"
+  printf 'x\n' > "$proj/a.py"
+  node -e 'const c={pylsp:{command:"pylsp",args:[],extensionToLanguage:{".py":"python"},startupTimeout:60000},jsonls:{command:"vscode-json-languageserver",args:["--stdio"],extensionToLanguage:{".json":"json"},startupTimeout:60000}};process.stdout.write(JSON.stringify(c,null,2)+"\n")' > "$proj/.lsp.json"
+  cp "$proj/.lsp.json" "$BATS_TEST_TMPDIR/root.same.before"
+  run_audit "$proj" --fix
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.applied == []'
+  echo "$output" | jq -e '.migratedFromRoot == true'
+  [ ! -e "$proj/.lsp.json" ]
+  cmp "$BATS_TEST_TMPDIR/root.same.before" "$proj/.claude/skills/lsp/.lsp.json"
+}
+
+@test "audit mode with a root .lsp.json is read-only and reports legacyRootLspJson" {
+  local proj="$BATS_TEST_TMPDIR/p_mig_audit"
+  mkdir -p "$proj"
+  printf 'x\n' > "$proj/a.py"
+  cat > "$proj/.lsp.json" <<'JSON'
+{ "pylsp": { "command": "pylsp", "args": [], "extensionToLanguage": { ".py": "python" }, "startupTimeout": 60000 } }
+JSON
+  cp "$proj/.lsp.json" "$BATS_TEST_TMPDIR/root.audit.before"
+  run_audit "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.legacyRootLspJson == true'
+  echo "$output" | jq -e '.lspJsonExists == false'
+  echo "$output" | jq -e '[.proposals[].ext] | index(".py") == null'
+  cmp "$BATS_TEST_TMPDIR/root.audit.before" "$proj/.lsp.json"
+  [ ! -e "$proj/.claude/skills/lsp" ]
+}
+
+@test "a malformed root .lsp.json fails closed: nothing written, root untouched" {
+  local proj="$BATS_TEST_TMPDIR/p_mig_bad"
+  mkdir -p "$proj"
+  printf 'x\n' > "$proj/a.py"
+  printf '%s' '{ not valid json' > "$proj/.lsp.json"
+  cp "$proj/.lsp.json" "$BATS_TEST_TMPDIR/root.bad.before"
+  run_audit "$proj" --fix
+  [ "$status" -eq 1 ]
+  cmp "$BATS_TEST_TMPDIR/root.bad.before" "$proj/.lsp.json"
+  [ ! -e "$proj/.claude/skills/lsp" ]
+}
+
+@test "a shared server id with differing blocks fails closed, both files unchanged" {
+  local proj="$BATS_TEST_TMPDIR/p_mig_conflict"
+  local d="$proj/.claude/skills/lsp"
+  mkdir -p "$d"
+  printf 'x\n' > "$proj/a.ts"
+  printf '%s\n' '{"vtsls":{"command":"npx","args":["-y","@vtsls/language-server@0.3.0","--stdio"],"extensionToLanguage":{".ts":"typescript"},"startupTimeout":60000}}' > "$proj/.lsp.json"
+  printf '%s\n' '{"vtsls":{"command":"npx","args":["-y","@vtsls/language-server@0.3.0","--stdio"],"extensionToLanguage":{".mjs":"javascript"},"startupTimeout":60000}}' > "$d/.lsp.json"
+  cp "$proj/.lsp.json" "$BATS_TEST_TMPDIR/root.conflict.before"
+  cp "$d/.lsp.json" "$BATS_TEST_TMPDIR/plugin.conflict.before"
+  run_audit "$proj" --fix
+  [ "$status" -eq 1 ]
+  cmp "$BATS_TEST_TMPDIR/root.conflict.before" "$proj/.lsp.json"
+  cmp "$BATS_TEST_TMPDIR/plugin.conflict.before" "$d/.lsp.json"
+}
+
+@test "--apply with an empty list only migrates the root .lsp.json" {
+  local proj="$BATS_TEST_TMPDIR/p_mig_only"
+  mkdir -p "$proj"
+  printf 'x\n' > "$proj/a.py"
+  printf 'x\n' > "$proj/b.go"
+  cat > "$proj/.lsp.json" <<'JSON'
+{ "pylsp": { "command": "pylsp", "args": [], "extensionToLanguage": { ".py": "python" }, "startupTimeout": 60000 } }
+JSON
+  run_audit "$proj" --apply ""
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.applied == []'
+  echo "$output" | jq -e '.migratedFromRoot == true'
+  [ ! -e "$proj/.lsp.json" ]
+  local f="$proj/.claude/skills/lsp/.lsp.json"
+  jq -e '.pylsp.extensionToLanguage[".py"] == "python"' "$f"
+  jq -e 'has("gopls") | not' "$f"
+}
+
 # --- lsp-audit orchestrator skill ---
 
 @test "lsp-audit SKILL.md exists" {
