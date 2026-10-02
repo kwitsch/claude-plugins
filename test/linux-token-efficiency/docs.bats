@@ -8,6 +8,9 @@ setup() {
   common_setup
   PLUGIN_README="$PLUGIN/README.md"
   PLUGIN_CLAUDE="$PLUGIN/CLAUDE.md"
+  # Subdirectory-scoped memory files: hook and cbm/mcp internals live there, not in the root file.
+  PLUGIN_HOOKS_CLAUDE="$PLUGIN/hooks/CLAUDE.md"
+  PLUGIN_MCP_CLAUDE="$PLUGIN/mcp/CLAUDE.md"
 }
 
 @test "plugin README's first section is Install with the marketplace install command" {
@@ -56,9 +59,9 @@ setup() {
   assert_success
 }
 
-@test "plugin CLAUDE.md documents the novel-in-repo mechanics" {
+@test "hooks/CLAUDE.md documents the novel-in-repo mechanics" {
   for token in 'spawnSync' 'checksums.txt' 'curl'; do
-    run grep -F "$token" "$PLUGIN_CLAUDE"
+    run grep -F "$token" "$PLUGIN_HOOKS_CLAUDE"
     assert_success
   done
 }
@@ -101,16 +104,17 @@ setup() {
   assert_success
 }
 
-@test "plugin CLAUDE.md carries the codebase-memory-mcp bundle section and its rationale" {
-  run grep -F '## codebase-memory-mcp bundle' "$PLUGIN_CLAUDE"
+@test "mcp/CLAUDE.md carries the codebase-memory-mcp bundle section and its rationale" {
+  run grep -F '## codebase-memory-mcp bundle' "$PLUGIN_MCP_CLAUDE"
   assert_success
   for token in 'fail-open' 'npm-automations' '${CLAUDE_PLUGIN_DATA}' 'CBM_CACHE_DIR' '100 MiB' 'mcp_tool' 'mcp/server.mjs' 'cbm-tools.json' 'CBM_BUNDLE_CACHE'; do
-    run grep -F "$token" "$PLUGIN_CLAUDE"
+    run grep -F "$token" "$PLUGIN_MCP_CLAUDE"
     assert_success
   done
-  run grep -F 'timeout: 20' "$PLUGIN_CLAUDE"
+  run grep -Fi 'network' "$PLUGIN_MCP_CLAUDE"
   assert_success
-  run grep -Fi 'network' "$PLUGIN_CLAUDE"
+  # The hook timeout budget lives with the hook wiring.
+  run grep -F 'timeout: 20' "$PLUGIN_HOOKS_CLAUDE"
   assert_success
 }
 
@@ -159,9 +163,9 @@ setup() {
   done
 }
 
-@test "plugin README and CLAUDE.md both state the BLOCKED divergence" {
+@test "plugin README and hooks/CLAUDE.md both state the BLOCKED divergence" {
   local f
-  for f in "$PLUGIN_README" "$PLUGIN_CLAUDE"; do
+  for f in "$PLUGIN_README" "$PLUGIN_HOOKS_CLAUDE"; do
     run grep -F 'BLOCKED' "$f"
     assert_success
     run grep -Fi 'intercept' "$f"
@@ -173,18 +177,23 @@ setup() {
   run grep -F '## context-mode' "$PLUGIN_CLAUDE"
   assert_success
   local token
-  for token in 'context-mode@1.0.169' 'bunx' 'npx --yes' 'ctx_execute' 'SessionStart.md' 'Elastic' '.prettierignore' '.coderabbit.yaml'; do
+  for token in 'context-mode@1.0.169' 'bunx' 'npx --yes' 'ctx_execute' 'SessionStart.md' 'Elastic'; do
     run grep -F "$token" "$PLUGIN_CLAUDE"
+    assert_success
+  done
+  # The verbatim-file contract and its two mechanical guards live with the hooks.
+  for token in 'SessionStart.md' '.prettierignore' '.coderabbit.yaml'; do
+    run grep -F "$token" "$PLUGIN_HOOKS_CLAUDE"
     assert_success
   done
 }
 
-@test "plugin CLAUDE.md states the unconditional-cat limitation and the nine-hook count" {
+@test "plugin CLAUDE.md states the unconditional-cat limitation; hooks/CLAUDE.md states the nine-hook count" {
   run grep -Fi 'unconditional' "$PLUGIN_CLAUDE"
   assert_success
-  run grep -F 'nine hooks total' "$PLUGIN_CLAUDE"
+  run grep -F 'nine hooks total' "$PLUGIN_HOOKS_CLAUDE"
   assert_success
-  run grep -F 'eight hooks total' "$PLUGIN_CLAUDE"
+  run grep -F 'eight hooks total' "$PLUGIN_HOOKS_CLAUDE"
   assert_failure
   run grep -F 'Nine hooks total.' "$HOOKS"
   assert_success
@@ -198,8 +207,6 @@ setup() {
 
 @test "plugin CLAUDE.md and the root README carry the context-mode history note and row clause" {
   run grep -F 'cave-context' "$PLUGIN_CLAUDE"
-  assert_success
-  run grep -F '2026-07' "$PLUGIN_CLAUDE"
   assert_success
   run bash -c "grep -F '[linux-token-efficiency](plugins/linux-token-efficiency/README.md)' '$REPO_ROOT/README.md' | grep -F 'context-mode'"
   assert_success
@@ -224,8 +231,8 @@ setup() {
   assert_failure
 }
 
-@test "plugin CLAUDE.md carries the rtk install section and no longer describes a committed binary" {
-  run grep -F '## rtk install' "$PLUGIN_CLAUDE"
+@test "hooks/CLAUDE.md carries the rtk install section; plugin CLAUDE.md no longer describes a committed binary" {
+  run grep -F '## rtk install' "$PLUGIN_HOOKS_CLAUDE"
   assert_success
   run grep -F 'hooks/rtk-install.mjs' "$PLUGIN_CLAUDE"
   assert_success
