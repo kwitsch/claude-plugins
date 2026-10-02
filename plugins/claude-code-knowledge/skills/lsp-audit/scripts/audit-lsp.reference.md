@@ -29,6 +29,7 @@
   "root": "/abs/path",
   "lspJsonExists": true,
   "legacyRootLspJson": false,
+  "pluginManifestMissing": false,
   "covered": [".js", ".ts", ".sh"],
   "proposals": [
     {
@@ -45,7 +46,7 @@
 }
 ```
 
-`lspJsonExists` refers to the plugin `.lsp.json` (`<project-root>/.claude/skills/lsp/.lsp.json`). `legacyRootLspJson` is `true` when a legacy `<project-root>/.lsp.json` exists. `covered`, `proposals` and `unknown` are computed against the merged base config (plugin servers plus legacy root servers).
+`lspJsonExists` refers to the plugin `.lsp.json` (`<project-root>/.claude/skills/lsp/.lsp.json`). `legacyRootLspJson` is `true` when a legacy `<project-root>/.lsp.json` exists. `pluginManifestMissing` is `true` when the plugin `.lsp.json` exists but `.claude-plugin/plugin.json` does not, so Claude Code does not load it yet. `covered`, `proposals` and `unknown` are computed against the merged base config (plugin servers plus legacy root servers).
 
 ## Output — apply mode (`--fix` / `--apply`)
 
@@ -81,4 +82,6 @@
 - When `<project-root>` is itself a plugin (it has `.claude-plugin/plugin.json`), its root `.lsp.json` is live plugin config: it is not treated as legacy, so it is never read as base config, migrated, or deleted (`legacyRootLspJson` is `false`).
 - A plugin `.lsp.json` that resolves (symlink) to the same file as the legacy root `.lsp.json` fails closed in every mode, since the final delete would remove the only real copy.
 - If the final delete of the legacy root file fails (for example a read-only directory), the run exits 1 after the plugin files were written and the error says so; its config is already in the plugin, so delete the root file manually.
-- `wrote` means the plugin `.lsp.json` was written. `migratedFromRoot` means the legacy root file was merged and deleted.
+- If the plugin `.lsp.json` exists but the manifest does not (`pluginManifestMissing`), any write mode creates the manifest even when `applied` is empty and no legacy root file exists; the `.lsp.json` itself is then left untouched.
+- If `<project-root>/.claude/skills/lsp/` already holds a `SKILL.md` and no `.claude-plugin/plugin.json`, the run fails closed in every mode (exit 1, nothing written): adding the manifest would turn the user's plain skill into a plugin and stop it loading.
+- `wrote` means a plugin file (`.lsp.json` or the manifest) was written. `migratedFromRoot` means the legacy root file was merged and deleted.

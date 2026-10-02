@@ -1245,6 +1245,7 @@ run_audit() { run node "$(audit_script)" "$@"; }
   run rg_or_grep -F '.claude-plugin/plugin.json' "$r"; [ "$status" -eq 0 ]
   run rg_or_grep -F 'legacyRootLspJson' "$r"; [ "$status" -eq 0 ]
   run rg_or_grep -F 'migratedFromRoot' "$r"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'pluginManifestMissing' "$r"; [ "$status" -eq 0 ]
   run rg_or_grep -F 'only migrates a legacy root file' "$r"; [ "$status" -eq 0 ]
 }
 
@@ -1429,6 +1430,42 @@ JSON
   echo "$output" | jq -e '.wrote == true'
   jq -e '.pylsp.extensionToLanguage[".py"] == "python"' "$d/.lsp.json"
   cmp "$BATS_TEST_TMPDIR/manifest.before" "$d/.claude-plugin/plugin.json"
+}
+
+@test "a plugin .lsp.json without a manifest is reported and repaired without rewriting the .lsp.json" {
+  local proj="$BATS_TEST_TMPDIR/p_repair"
+  local d="$proj/.claude/skills/lsp"
+  mkdir -p "$d"
+  printf 'x\n' > "$proj/a.py"
+  printf '{ "keep":   {"command":"x","extensionToLanguage":{".zz":"zz"}} }\n' > "$d/.lsp.json"
+  cp "$d/.lsp.json" "$BATS_TEST_TMPDIR/lsp.before"
+  run_audit "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.pluginManifestMissing == true'
+  [ ! -e "$d/.claude-plugin" ]
+  run_audit "$proj" --apply ""
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.wrote == true and .applied == [] and .migratedFromRoot == false'
+  jq -e '.name == "lsp"' "$d/.claude-plugin/plugin.json"
+  cmp "$BATS_TEST_TMPDIR/lsp.before" "$d/.lsp.json"
+  run_audit "$proj"
+  echo "$output" | jq -e '.pluginManifestMissing == false'
+}
+
+@test "a plain skill at .claude/skills/lsp fails closed in every mode and is left untouched" {
+  local proj="$BATS_TEST_TMPDIR/p_plainskill"
+  local d="$proj/.claude/skills/lsp"
+  mkdir -p "$d"
+  printf 'x\n' > "$proj/a.py"
+  printf -- '---\nname: lsp\n---\n' > "$d/SKILL.md"
+  printf '{}\n' > "$d/.lsp.json"
+  for mode in "" "--fix"; do
+    run_audit "$proj" $mode
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"plain skill"* ]]
+  done
+  [ ! -e "$d/.claude-plugin" ]
+  [ "$(cat "$d/.lsp.json")" = "{}" ]
 }
 
 @test "--fix migrates a root .lsp.json into the lsp plugin and removes it" {
@@ -1671,6 +1708,7 @@ JSON
   local f="$PLUGIN/skills/lsp-audit/SKILL.md"
   run rg_or_grep -F 'legacyRootLspJson' "$f"; [ "$status" -eq 0 ]
   run rg_or_grep -F 'migratedFromRoot' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'pluginManifestMissing' "$f"; [ "$status" -eq 0 ]
   run rg_or_grep -F 'apply ""' "$f"; [ "$status" -eq 0 ]
   run rg_or_grep -F 'lsp@skills-dir' "$f"; [ "$status" -eq 0 ]
 }

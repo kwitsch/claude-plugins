@@ -57,9 +57,11 @@ or deleted, and stop.
 ## 4. Short-circuit when there is nothing to do
 
 When `legacyRootLspJson` is true, never short-circuit — a root `.lsp.json` is
-waiting to be migrated; continue to step 5 or step 6.
+waiting to be migrated; continue to step 5 or step 6. Likewise when
+`pluginManifestMissing` is true — the plugin `.lsp.json` has no manifest and is
+never loaded until the script creates it.
 
-When `legacyRootLspJson` is false: if the scan found no extensions, or every
+When both are false: if the scan found no extensions, or every
 extension is already covered, or `proposals` is empty and `unknown` is empty —
 say so plainly and stop without writing anything. If `proposals` is empty but
 `unknown` is non-empty, report the unknown extensions as manual to-dos and stop.
@@ -95,8 +97,9 @@ written but the root file could not be deleted) and stop.
      when more than 4 tabs are needed. If a tab would have only one option, add an
      explicit `Skip this group` filler so every tab has at least 2 options.
 3. Apply exactly the selected extensions (comma-separated, no spaces). When the
-   migration was accepted but nothing was picked, pass the empty list, which
-   migrates the root file and adds nothing:
+   migration was accepted but nothing was picked, or only `pluginManifestMissing`
+   is pending (creating a missing manifest needs no confirmation), pass the empty
+   list, which migrates the root file and adds nothing:
 
        node ${CLAUDE_SKILL_DIR}/scripts/audit-lsp.mjs "$ROOT" --apply ".py,.go,.css"
        node ${CLAUDE_SKILL_DIR}/scripts/audit-lsp.mjs "$ROOT" --apply ""
@@ -107,8 +110,8 @@ written but the root file could not be deleted) and stop.
    printed error as is (it says when the plugin files were already written but
    the root file could not be deleted) and stop.
 
-4. If nothing was picked and no migration is pending, report that no entry was
-   added and stop.
+4. If nothing was picked and no migration or missing manifest is pending, report
+   that no entry was added and stop.
 
 ## 7. Report
 

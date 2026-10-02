@@ -323,6 +323,13 @@ function main() {
   if (legacy.exists && plugin.exists && realpathSync(legacyLsp) === realpathSync(pluginLsp)) {
     fail(`${pluginLsp} resolves to the same file as ${legacyLsp} — replace the link with a regular file; nothing written`);
   }
+  // A folder that holds a plain skill (SKILL.md, no manifest) stops loading as that
+  // skill once the manifest is added, so refuse before anything is read or written.
+  if (!existsSync(manifest) && existsSync(join(pluginDir, "SKILL.md"))) {
+    fail(`${pluginDir} already holds a plain skill (SKILL.md) without .claude-plugin/plugin.json — creating the lsp plugin there would stop that skill loading; rename it; nothing written`);
+  }
+  // An existing plugin .lsp.json without a manifest is never loaded; write modes create the manifest.
+  const manifestMissing = plugin.exists && !existsSync(manifest);
   const base = legacy.exists ? mergeLegacyRoot(plugin.config, legacy.config, legacyLsp, pluginLsp) : plugin.config;
 
   const counts = scanExtensions(root);
@@ -345,6 +352,7 @@ function main() {
           root,
           lspJsonExists: plugin.exists,
           legacyRootLspJson: legacy.exists,
+          pluginManifestMissing: manifestMissing,
           covered: [...covered].sort(),
           proposals,
           unknown,
@@ -361,10 +369,12 @@ function main() {
   const { result, applied, createdServers, mergedIntoServers, conflictsSkipped } = applyProposals(base, claimedBy, proposals, validExt, catalog);
 
   const needsWrite = applied.length > 0 || legacy.exists;
-  if (needsWrite) {
-    // Order matters: manifest dir -> manifest (only if absent) -> .lsp.json -> readback -> delete legacy root (last).
+  if (needsWrite || manifestMissing) {
     mkdirSync(dirname(manifest), { recursive: true });
     if (!existsSync(manifest)) writeFileSync(manifest, JSON.stringify(MANIFEST, null, 2) + "\n");
+  }
+  if (needsWrite) {
+    // Order matters: manifest (above) -> .lsp.json -> readback -> delete legacy root (last).
     const trailing = !plugin.exists || plugin.raw.endsWith("\n") ? "\n" : "";
     writeFileSync(pluginLsp, JSON.stringify(result, null, 2) + trailing);
     // Readback verification: re-parse and confirm every applied ext resolves.
@@ -398,7 +408,7 @@ function main() {
         createdServers,
         mergedIntoServers,
         conflictsSkipped: [...new Set(conflictsSkipped)],
-        wrote: needsWrite,
+        wrote: needsWrite || manifestMissing,
         migratedFromRoot: legacy.exists, // every write mode that reaches here has migrated and deleted the root file
       },
       null,
