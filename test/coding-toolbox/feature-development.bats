@@ -262,7 +262,7 @@ setup() {
   assert_output --partial "rather than dispatching a separate merger"
 }
 @test "subagent-tracking feature-development row reflects wave-parallel dispatch, not pure sequential" {
-  RULE="$PLUGIN/CLAUDE.md"
+  RULE="$REPO_ROOT/.claude/rules/coding-toolbox-subagent-reconciliation.md"
   run rg_or_grep -F '`feature-development` |' "$RULE"
   assert_success
   assert_output --partial "wave-parallel"

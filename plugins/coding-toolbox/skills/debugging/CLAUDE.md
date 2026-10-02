@@ -2,10 +2,7 @@
 
 ## Skill design (`debugging`)
 
-- Split out of `fresh-work` 2026-07-24 (was its fix path, steps 4-5).
-- Single-step skill: `skills/debugging/SKILL.md` + `references/debugging.md`, moved verbatim — only its Exit section's wording changed, since PR is no longer this skill's own next step.
-- Methodology: root-cause investigation → pattern analysis → hypothesis/testing → failing-test-first implementation → verify, all on the branch `fresh-work` already cut.
-- Lineage: adapted via the original `fresh-work` from an external systematic-debugging methodology; see git history for the source.
+- Runs on the branch `fresh-work` already cut; this skill never cuts or opens anything itself.
 - No `Task*` ledger: a single linear methodology, not a multi-agent orchestrator with a dispatch batch to reconcile.
-- `allowed-tools` carries no `Skill`/`Agent`/`Workflow`: this skill never opens the PR itself (that stays `fresh-work`'s job, invoked after this skill returns) and never dispatches subagents.
-- `AskUserQuestion` stays absent from `allowed-tools` (its one call site — the 3-or-more-attempts escalation, architecture-in-question — stays deliberate, same rationale as `fresh-work`'s own absence).
+- `allowed-tools` carries no `Skill`/`Agent`/`Workflow`: opening the PR stays `fresh-work`'s job (after this skill returns), and no subagents are dispatched.
+- `AskUserQuestion` stays absent from `allowed-tools`: its one call site (the 3-or-more-failed-attempts "architecture in question" escalation in `references/debugging.md`) is meant to stay deliberate, not blanket-approved — same rationale as `fresh-work`'s own absence.
