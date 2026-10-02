@@ -66,23 +66,27 @@ function scanExtensions(root) {
 }
 
 /**
- * Read and parse a .lsp.json file. Throws on malformed JSON so the caller can
- * fail closed. A missing file is not an error (returns an empty config).
+ * Read and parse a .lsp.json file. Exits 1 (fails closed) on unreadable or
+ * malformed content. A missing file is not an error (returns an empty config).
  * @param {string} file absolute path of a .lsp.json
  * @returns {{ exists: boolean, config: Record<string, any>, raw: string }}
  */
 function readLspJson(file) {
   if (!existsSync(file)) return { exists: false, config: {}, raw: "" };
-  const raw = readFileSync(file, "utf8");
-  const parsed = JSON.parse(raw); // throws -> caller exits 1
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    // Valid JSON but not a plain object (array/string/number/null) is just as
-    // unusable as malformed JSON for our purposes: fail closed the same way,
-    // via the caller's existing malformed-JSON catch, instead of silently
-    // treating it as an empty config and overwriting it on --fix/--apply.
-    throw new Error(`expected a JSON object at the top level, got ${Array.isArray(parsed) ? "an array" : parsed === null ? "null" : `a ${typeof parsed}`}`);
+  try {
+    const raw = readFileSync(file, "utf8");
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      // Valid JSON but not a plain object (array/string/number/null) is just as
+      // unusable as malformed JSON for our purposes: fail closed the same way
+      // instead of silently treating it as an empty config and overwriting it
+      // on --fix/--apply.
+      throw new Error(`expected a JSON object at the top level, got ${Array.isArray(parsed) ? "an array" : parsed === null ? "null" : `a ${typeof parsed}`}`);
+    }
+    return { exists: true, config: parsed, raw };
+  } catch (err) {
+    return fail(`Malformed .lsp.json at ${file}: ${/** @type {any} */ (err).message}`);
   }
-  return { exists: true, config: parsed, raw };
 }
 
 /**
@@ -98,8 +102,9 @@ function readLspJson(file) {
  * @returns {Record<string, any>}
  */
 function mergeLegacyRoot(pluginConfig, legacyConfig, legacyPath, pluginPath) {
-  /** @type {Record<string, any>} */
-  const clone = JSON.parse(JSON.stringify(pluginConfig));
+  // Shallow copy is enough: the merged result is only read until applyProposals
+  // deep-clones it before mutating.
+  const clone = { ...pluginConfig };
   for (const [server, block] of Object.entries(legacyConfig)) {
     if (!Object.prototype.hasOwnProperty.call(clone, server)) {
       clone[server] = block;
@@ -305,25 +310,11 @@ function main() {
   const manifest = join(pluginDir, ".claude-plugin", "plugin.json");
   const legacyLsp = join(root, ".lsp.json");
 
-  let plugin;
-  try {
-    plugin = readLspJson(pluginLsp);
-  } catch (err) {
-    fail(`Malformed .lsp.json at ${pluginLsp}: ${/** @type {any} */ (err).message}`);
-    return;
-  }
+  const plugin = readLspJson(pluginLsp);
 
   // A root that is itself a plugin loads its own root .lsp.json, so that file is
   // live plugin config, not a legacy file to migrate and delete.
-  let legacy = { exists: false, config: /** @type {Record<string, any>} */ ({}), raw: "" };
-  if (!existsSync(join(root, ".claude-plugin", "plugin.json"))) {
-    try {
-      legacy = readLspJson(legacyLsp);
-    } catch (err) {
-      fail(`Malformed .lsp.json at ${legacyLsp}: ${/** @type {any} */ (err).message}`);
-      return;
-    }
-  }
+  const legacy = existsSync(join(root, ".claude-plugin", "plugin.json")) ? { exists: false, config: /** @type {Record<string, any>} */ ({}), raw: "" } : readLspJson(legacyLsp);
 
   // Both files are read before anything else happens. Conflicts fail closed
   // here, in every mode (audit included), so audit and write runs always agree.
@@ -369,8 +360,6 @@ function main() {
   const validExt = new Set(mode === "fix" ? proposals.map((p) => p.ext) : applyExts.filter((t) => EXT_TOKEN.test(t) && proposals.some((p) => p.ext === t)));
   const { result, applied, createdServers, mergedIntoServers, conflictsSkipped } = applyProposals(base, claimedBy, proposals, validExt, catalog);
 
-  let wrote = false;
-  let migratedFromRoot = false;
   const needsWrite = applied.length > 0 || legacy.exists;
   if (needsWrite) {
     // Order matters: manifest dir -> manifest (only if absent) -> .lsp.json -> readback -> delete legacy root (last).
@@ -387,22 +376,18 @@ function main() {
       return;
     }
     const backCovered = coverage(back).covered;
-    for (const ext of applied) {
+    // `covered` already holds every pre-existing ext (plugin and legacy root).
+    for (const ext of [...covered, ...applied]) {
       if (!backCovered.has(ext)) fail(`Post-write assertion failed: ${ext} not resolvable after write`);
     }
     if (legacy.exists) {
-      for (const ext of coverage(legacy.config).covered) {
-        if (!backCovered.has(ext)) fail(`Post-write assertion failed: legacy ${ext} not resolvable after write`);
-      }
       try {
         unlinkSync(legacyLsp); // final action: only reached after the verified plugin write
       } catch (err) {
         fail(`Wrote ${pluginLsp} but could not delete ${legacyLsp}: ${/** @type {any} */ (err).message} — its config is already in the plugin; delete the root file manually`);
         return;
       }
-      migratedFromRoot = true;
     }
-    wrote = true;
   }
 
   process.stdout.write(
@@ -413,8 +398,8 @@ function main() {
         createdServers,
         mergedIntoServers,
         conflictsSkipped: [...new Set(conflictsSkipped)],
-        wrote,
-        migratedFromRoot,
+        wrote: needsWrite,
+        migratedFromRoot: legacy.exists, // every write mode that reaches here has migrated and deleted the root file
       },
       null,
       2,
