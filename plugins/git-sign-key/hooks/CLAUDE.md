@@ -1,45 +1,30 @@
 # CLAUDE.md — git-sign-key/hooks
 
-## Behavior
+Event wiring, injected flag set and control flow live in `hooks.json` and the header comments of `sign-commits.sh` / `check-sign-key.sh`. Only rationale and pitfalls are kept here.
 
-- `hooks/sign-commits.sh` (PreToolUse, matcher `Bash`): when `~/.claude/sign.key`
-  exists, inserts `-c gpg.format=ssh -c gpg.ssh.program=ssh-keygen -c
-user.signingkey='<abs-key>' -c commit.gpgsign=true` right after `git` token
-  of every commit invocation, returns via `hookSpecificOutput.updatedInput`
-  (`permissionDecision: allow`). `gpg.ssh.program=ssh-keygen` pins built-in
-  signer so custom global `gpg.ssh.program` (1Password `op-ssh-sign`, etc.)
-  bypassed — without it git hands on-disk key path to that program, which can't
-  read it, forced-signed commit fails.
-- `hooks/check-sign-key.sh` (SessionStart): warns (static JSON) when key missing
-  (setup steps) OR when an existing key can't be used for non-interactive signing —
-  passphrase-encrypted or unsafe file permissions
-  (`ssh-keygen -y -f key -P '' </dev/null` stderr matches `passphrase`/`decrypt`/
-  `ermission`/`too open`) — only `ssh-keygen` needed; dummy/invalid file stays silent.
-- Scanner: `_rewrite` walks
-  command char-by-char tracking single/double-quote and backslash state,
-  rewrites **every** `git` at **unquoted command position** — start of
-  string or after unquoted separator (`_is_cmd_start`: `;`&`|`(`{`` ` ``/
-newline) via a `cmd_pos` flag. Quote-awareness is what stops a separator
-*inside* a quoted commit message/arg (e.g. `-m "fix; git commit later"`) from
-being mistaken for a command position — that case would otherwise inject flags
-into the literal and still pass `bash -n`. This signs all real commits in
-`a && b` and inside `$(…)`/backticks, and leaves quoted text untouched.
-`_is_commit_invocation` walks global options (`-C <path>`/`-c k=v` consume a
-value token; `--long[=v]` don't; bare `-`/`--` reject) to the `commit`
-subcommand, requiring a right boundary (whitespace/`;`&`|`)`}`<`>`` ` ``/end)
-so `commit-tree`/`committed` are excluded.
-- Guards: flags built by concatenation (not `${var/.../...}`) so `&`/`\` in
-  `$HOME` stay literal; path single-quoted so spaces survive; `bash -n` fails
-  open on broken syntax. Idempotent via `MARKER=user.signingkey='<key>'` (the
-  distinctive injected flag — matching just `gpg.ssh.program` would skip a real
-  commit where the user pinned ssh-keygen themselves); an already-wired command
-  sets `ALREADY=1` and is skipped. `_rewrite` writes the global `REWRITTEN` (no
-  command substitution, so trailing newlines survive).
-- Pure-bash scanner (no `grep`); `local s=$1; local n=${#s}` is split so `${#s}`
-  isn't expanded before `s` is bound under `set -u`.
-- Fail-open everywhere: missing key, non-commit/non-string command, no jq/node,
-  or unparseable input all exit 0 with no output — the hook never blocks a
-  commit. (Once the key is present, `commit.gpgsign=true` means git itself
-  fails the commit if signing can't complete — see the README.)
-- JSON read/emit prefers `jq` (`.tool_input.command | strings`), falls back to
-  `node`; SessionStart needs neither (static JSON).
+## `sign-commits.sh` (PreToolUse, `Bash`)
+
+- Injects the signing flags right after the `git` token of every commit invocation when `~/.claude/sign.key` exists; returns them via `hookSpecificOutput.updatedInput` (`permissionDecision: allow`).
+- Pin `gpg.ssh.program=ssh-keygen`:
+  - A custom global `gpg.ssh.program` (1Password `op-ssh-sign`, etc.) would otherwise receive the on-disk key path, which it cannot read.
+  - With `commit.gpgsign=true` forced, that makes the commit fail.
+- Keep the scanner (`_rewrite`) quote-aware:
+  - It rewrites every `git` at an unquoted command position, so `a && b` and `$(…)`/backticks are signed and quoted text is left untouched.
+  - A separator inside a quoted arg (e.g. `-m "fix; git commit later"`) must not count as a command position — that would inject flags into the literal and still pass `bash -n`.
+- `_is_commit_invocation` skips global options (`-C <path>`, `-c k=v`, `--long`) to reach the subcommand and requires a right boundary after `commit`, so `commit-tree`/`committed` never match.
+- Idempotency via `MARKER=user.signingkey='<key>'`; an already-wired command sets `ALREADY=1` and is skipped.
+  - The marker is the signing-key flag, not `gpg.ssh.program`: matching the latter would skip a real commit where the user pinned ssh-keygen themselves.
+- Build the flag string by concatenation, not `${var/.../...}`, so `&`/`\` in `$HOME` stay literal; single-quote the key path so spaces survive.
+- `_rewrite` writes the global `REWRITTEN` instead of using command substitution, so trailing newlines survive.
+- Pure bash (no `grep`). `local s=$1; local n=${#s}` stays split so `${#s}` is not expanded before `s` is bound under `set -u`.
+- JSON is read via `jq` (`.tool_input.command | strings`), falling back to `node`.
+
+## `check-sign-key.sh` (SessionStart)
+
+- Warns via static JSON (needs neither `jq` nor `node`) when the key is missing, or when an existing key cannot sign non-interactively (passphrase-encrypted or unsafe permissions).
+- Warns only on positive `ssh-keygen` stderr signals, so a dummy/invalid key file stays silent.
+
+## Fail-open stance
+
+- Missing key, non-commit or non-string command, no `jq`/`node`, unparseable input, or a rewrite that fails `bash -n` all exit 0 with no output — the hook never blocks a commit.
+- Once the key is present, `commit.gpgsign=true` means git itself fails the commit if signing cannot complete (see the README).
