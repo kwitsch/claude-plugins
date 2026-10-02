@@ -404,9 +404,9 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
 }
 
-@test "CLAUDE.md's Model assignment section drops the Opus pin and documents the classifier" {
+@test "workflows/CLAUDE.md's Model assignment section drops the Opus pin and documents the classifier" {
   section="$BATS_TEST_TMPDIR/model-assignment.md"
-  awk '/^## Model assignment$/{f=1;next} /^## /{f=0} f' "$PLUGIN/CLAUDE.md" > "$section"
+  awk '/^## Model assignment$/{f=1;next} /^## /{f=0} f' "$WORKFLOWS/CLAUDE.md" > "$section"
   [ -s "$section" ]
   run rg_or_grep -F 'claude-opus-4-8' "$section"
   [ "$status" -ne 0 ]
@@ -466,8 +466,8 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
 }
 
-@test "dispatch-task skill dir is self-contained (no cross-plugin references)" {
-  run bash -c "grep -riE 'coding-toolbox|dispatch-agent|superpowers|branch-management' '$DISPATCH'"
+@test "dispatch-task skill dir is self-contained (no cross-plugin references; CLAUDE.md dev notes excluded)" {
+  run bash -c "grep -riE --exclude=CLAUDE.md 'coding-toolbox|dispatch-agent|superpowers|branch-management' '$DISPATCH'"
   [ "$status" -eq 1 ]
 }
 
@@ -488,19 +488,19 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
 }
 
-@test "dispatch-task and CLAUDE.md document worktree.baseRef instead of assuming the default branch unconditionally" {
+@test "dispatch-task and its CLAUDE.md document worktree.baseRef instead of assuming the default branch unconditionally" {
   run rg_or_grep -F 'worktree.baseRef' "$DISPATCH/SKILL.md"
   [ "$status" -eq 0 ]
   run rg_or_grep -F '"head"' "$DISPATCH/SKILL.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'worktree.baseRef' "$PLUGIN/CLAUDE.md"
+  run rg_or_grep -F 'worktree.baseRef' "$DISPATCH/CLAUDE.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F '"head"' "$PLUGIN/CLAUDE.md"
+  run rg_or_grep -F '"head"' "$DISPATCH/CLAUDE.md"
   [ "$status" -eq 0 ]
 }
 
-@test "CLAUDE.md documents the --skip-branch-check flag" {
-  run rg_or_grep -F -- '--skip-branch-check' "$PLUGIN/CLAUDE.md"
+@test "dispatch-task/CLAUDE.md documents the --skip-branch-check flag" {
+  run rg_or_grep -F -- '--skip-branch-check' "$DISPATCH/CLAUDE.md"
   [ "$status" -eq 0 ]
 }
 
@@ -980,7 +980,7 @@ mm_git_fixture() {
   [ "$status" -eq 0 ]
 }
 
-@test "CLAUDE.md notes the first bin/ script without changing the 11-agent roster" {
+@test "CLAUDE.md documents bin/ship-ensure-mergeable.sh alongside the 11-agent roster" {
   run rg_or_grep -F 'ship-ensure-mergeable.sh' "$PLUGIN/CLAUDE.md"
   [ "$status" -eq 0 ]
   run rg_or_grep -F '11 static role prompts' "$PLUGIN/CLAUDE.md"
