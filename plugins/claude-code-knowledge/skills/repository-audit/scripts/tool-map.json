@@ -1,0 +1,29 @@
+{
+  "node": {
+    "files": ["package.json", "package-lock.json", ".nvmrc", ".node-version"],
+    "commands": ["node", "npm", "npx", "corepack"]
+  },
+  "pnpm": {
+    "files": ["pnpm-lock.yaml", "pnpm-workspace.yaml"],
+    "commands": ["pnpm", "pnpx"]
+  },
+  "yarn": { "files": ["yarn.lock", ".yarnrc.yml"], "commands": ["yarn"] },
+  "bun": {
+    "files": ["bun.lock", "bun.lockb", "bunfig.toml"],
+    "commands": ["bun", "bunx"]
+  },
+  "cargo": {
+    "files": ["Cargo.toml", "rust-toolchain", "rust-toolchain.toml"],
+    "commands": ["cargo", "rustc", "rustup"]
+  },
+  "rust-analyzer": { "files": [], "commands": ["rust-analyzer"] },
+  "go": { "files": ["go.mod", "go.work"], "commands": ["go"] },
+  "gopls": { "files": [], "commands": ["gopls"] },
+  "uv": { "files": ["uv.lock"], "commands": ["uv", "uvx"] },
+  "python3": {
+    "files": ["pyproject.toml", "requirements.txt", "Pipfile", "setup.py"],
+    "commands": ["python", "python3"]
+  },
+  "pylsp": { "files": [], "commands": ["pylsp"] },
+  "lua-language-server": { "files": [], "commands": ["lua-language-server"] }
+}

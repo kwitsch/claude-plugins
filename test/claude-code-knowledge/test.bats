@@ -1680,3 +1680,105 @@ rustup_proxy_fixture() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"present: rust-analyzer"* ]]
 }
+
+# --- repository-audit tool detection (scripts/detect-tools.mjs) ---
+# Hermetic: the detector spawns no child process (pure fs), so tests call the
+# real `node` directly against temp project dirs under $BATS_TEST_TMPDIR.
+
+detect_script() { printf '%s' "$PLUGIN/skills/repository-audit/scripts/detect-tools.mjs"; }
+run_detect() { run node "$(detect_script)" "$@"; }
+
+# detect_fixture <dir> — package.json, pnpm-lock.yaml and sub/Cargo.toml signal
+# files; a root .lsp.json using gopls and npx; a root .mcp.json using docker,
+# git, curl and a project-local ${CLAUDE_PLUGIN_ROOT} launcher path.
+detect_fixture() {
+  mkdir -p "$1/sub"
+  printf '{}\n' > "$1/package.json"
+  printf 'lockfileVersion: 9.0\n' > "$1/pnpm-lock.yaml"
+  printf '[package]\n' > "$1/sub/Cargo.toml"
+  printf '%s\n' '{"gopls":{"command":"gopls"},"ts":{"command":"npx"}}' > "$1/.lsp.json"
+  printf '%s\n' '{"mcpServers":{"d":{"command":"docker"},"g":{"command":"git"},"c":{"command":"curl"},"x":{"command":"${CLAUDE_PLUGIN_ROOT}/bin/x"}}}' > "$1/.mcp.json"
+}
+
+@test "detect-tools.mjs exists and passes node --check" {
+  local s; s="$(detect_script)"
+  [ -f "$s" ]
+  run node --check "$s"
+  [ "$status" -eq 0 ]
+}
+
+@test "tool-map.json is valid JSON with the expected catalog shape" {
+  local m="$PLUGIN/skills/repository-audit/scripts/tool-map.json"
+  run jq empty "$m"
+  [ "$status" -eq 0 ]
+  run jq -e 'all(.[]; (.files|type=="array") and (.commands|type=="array") and all(.files[], .commands[]; type=="string"))' "$m"
+  [ "$status" -eq 0 ]
+  run jq -e '[.[].commands[]] | length == (unique|length)' "$m"
+  [ "$status" -eq 0 ]
+  run jq -e '[.[].commands[]] | any(. == "git" or . == "bash" or . == "sh" or . == "curl" or . == "claude") | not' "$m"
+  [ "$status" -eq 0 ]
+}
+
+@test "detection: signal files and config commands map to catalog tools and manual to-dos" {
+  local proj="$BATS_TEST_TMPDIR/p_detect"
+  detect_fixture "$proj"
+  run_detect "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '[.tools[].id] == ["node","pnpm","cargo","gopls"]'
+  echo "$output" | jq -e '.tools[] | select(.id=="cargo") | .evidence | index("sub/Cargo.toml") != null'
+  echo "$output" | jq -e '(.tools[] | select(.id=="node") | .evidence) == ["package.json", ".lsp.json: npx"]'
+  echo "$output" | jq -e '.manual | map(.command) == ["docker"]'
+  echo "$output" | jq -e '.skillExists == false'
+  # git, curl (assumed present) and the path command appear nowhere
+  echo "$output" | jq -e '[.tools, .manual | .. | strings | select(test("git|curl|CLAUDE_PLUGIN_ROOT"))] | length == 0'
+}
+
+@test "detection: command names outside the token regex are dropped; lookups are Map-only" {
+  local proj="$BATS_TEST_TMPDIR/p_tokens"
+  mkdir -p "$proj"
+  local long; long="$(printf 'a%.0s' {1..65})"
+  jq -n --arg long "$long" '{mcpServers: {a: {command: "x`id`"}, b: {command: "a b"}, c: {command: $long}, d: {command: "constructor"}}}' > "$proj/.mcp.json"
+  run_detect "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.tools == []'
+  echo "$output" | jq -e '.manual | map(.command) == ["constructor"]'
+}
+
+@test "detection: pruned directories contribute nothing" {
+  local proj="$BATS_TEST_TMPDIR/p_tprune"
+  mkdir -p "$proj/node_modules/x" "$proj/.claude/worktrees/w"
+  printf 'module x\n' > "$proj/node_modules/x/go.mod"
+  printf '[package]\n' > "$proj/.claude/worktrees/w/Cargo.toml"
+  run_detect "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.tools == [] and .manual == []'
+}
+
+@test "detection: an empty project reports nothing, in the canonical JSON format" {
+  local proj="$BATS_TEST_TMPDIR/p_empty"
+  mkdir -p "$proj"
+  run_detect "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.tools == [] and .manual == [] and .skillExists == false'
+  node "$(detect_script)" "$proj" > "$BATS_TEST_TMPDIR/out.json"
+  run node -e 'const t=require("fs").readFileSync(process.argv[1],"utf8");process.exit(t===JSON.stringify(JSON.parse(t),null,2)+"\n"?0:1)' "$BATS_TEST_TMPDIR/out.json"
+  [ "$status" -eq 0 ]
+}
+
+@test "detection: malformed .mcp.json or non-object .lsp.json exits 1 and --write creates nothing" {
+  local proj="$BATS_TEST_TMPDIR/p_badcfg"
+  mkdir -p "$proj"
+  printf '{}\n' > "$proj/package.json"
+  printf '%s' '{ not valid json' > "$proj/.mcp.json"
+  run_detect "$proj"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Malformed"*".mcp.json"* ]]
+  run_detect "$proj" --write
+  [ "$status" -eq 1 ]
+  [ ! -e "$proj/.claude/skills" ]
+  rm "$proj/.mcp.json"
+  printf '[]\n' > "$proj/.lsp.json"
+  run_detect "$proj"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Malformed"*".lsp.json"*"an array"* ]]
+}
