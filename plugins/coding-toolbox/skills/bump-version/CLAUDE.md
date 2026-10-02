@@ -2,12 +2,9 @@
 
 ## Skill design (`bump-version`)
 
-2026-07-25: `bump-version.sh` extracted to a standalone file +
-colocated `bump-version.reference.md` doc per
-`.claude/rules/script-authoring.md`'s updated convention — the
-heredoc-to-temp-file / `PART`/`SCRATCHPAD_DIR` placeholder-substitution
-workaround this section used to describe no longer applies, the file
-has real argv.
+`bump-version.sh` is a standalone file with a colocated
+`bump-version.reference.md` per `.claude/rules/script-authoring.md`; it takes
+real argv (no heredoc-to-temp-file / placeholder-substitution workaround).
 
 `bump-version.sh` detects exactly one
 version file per
@@ -56,7 +53,7 @@ composability with those is preserved by keeping this skill's blast radius
 to file edits only. The one temp file the script itself creates (the
 lock-sync log, via its own internal `mktemp` call) is routed into the
 session scratchpad the same TMPDIR-propagation way as `fresh-pr`'s
-`ci-watcher` dispatch above — an `export TMPDIR=` line the caller sets
+`ci-watcher` dispatch (see `plugins/coding-toolbox/skills/fresh-pr/CLAUDE.md`) — an `export TMPDIR=` line the caller sets
 before running the script, needing no change to the script itself.
 
 **Marketplace-plugin support (`0.24.0`).** The cascade gained one new candidate,

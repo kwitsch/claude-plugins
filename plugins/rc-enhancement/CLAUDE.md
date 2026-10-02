@@ -15,5 +15,5 @@ BATS_LIB_PATH="$PWD/node_modules" pnpm exec bats test/rc-enhancement/
 ```
 
 The version-pin test is a **rolling pin**: it asserts the exact
-`plugin.json` version (`0.1.0`). Any future version bump MUST update that
+`plugin.json` version. Any future version bump MUST update that
 assertion in the same commit, or CI turns red.

@@ -44,17 +44,17 @@ Sources: <https://code.claude.com/docs/en/hooks> · <https://code.claude.com/doc
 
 ## Hook command fields
 
-| Field           | Required | Notes                                                                                                                                 |
-| --------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `type`          | yes      | `command` `http` `mcp_tool` `prompt` `agent`                                                                                          |
-| `command`       | yes      | Executable or shell string                                                                                                            |
-| `args`          | no       | Exec form when present (no shell). Omit for shell form (pipes, `&&`).                                                                 |
-| `if`            | no       | Permission-rule syntax filter — only on tool events. One rule per handler, no `&&`/`\|\|`. Example: `"Bash(git *)"` or `"Edit(*.ts)"` |
-| `timeout`       | no       | Seconds. Default: 600 (command/http/mcp_tool), 30 (prompt), 60 (agent)                                                                |
-| `statusMessage` | no       | Spinner text while hook runs                                                                                                          |
-| `shell`         | no       | `bash` or `powershell` (shell form only)                                                                                              |
-| `async`         | no       | `true` = fire-and-forget. Result delivered as context on next turn.                                                                   |
-| `asyncRewake`   | no       | `true` = background + wakes model on exit 2                                                                                           |
+| Field           | Required | Notes                                                                                                                                               |
+| --------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type`          | yes      | `command` `http` `mcp_tool` `prompt` `agent`                                                                                                        |
+| `command`       | yes      | Executable or shell string                                                                                                                          |
+| `args`          | no       | Exec form when present (no shell). Omit for shell form (pipes, `&&`).                                                                               |
+| `if`            | no       | Permission-rule syntax filter — only on tool events. One rule per handler, no `&&`/`\|\|`. Example: `"Bash(git *)"` or `"Edit(*.ts)"`               |
+| `timeout`       | no       | Seconds. Default: 600 (command/http/mcp_tool; 30 on UserPromptSubmit/PreModelSwitch/PostModelSwitch, 10 on MessageDisplay), 30 (prompt), 60 (agent) |
+| `statusMessage` | no       | Spinner text while hook runs                                                                                                                        |
+| `shell`         | no       | `bash` or `powershell` (shell form only)                                                                                                            |
+| `async`         | no       | `true` = fire-and-forget. Result delivered as context on next turn.                                                                                 |
+| `asyncRewake`   | no       | `true` = background + wakes model on exit 2                                                                                                         |
 
 ### `.mjs` hook commands
 
@@ -120,7 +120,7 @@ is documented in the **hooks-mcp-server** rule.
 | `SubagentStop`       | agent type name                      | Yes              | Prevents subagent stopping (exit 2 or `decision: "block"`) |
 | `PreCompact`         | `manual` `auto`                      | Yes              | Block compaction                                           |
 | `PostCompact`        | `manual` `auto`                      | No               |                                                            |
-| `FileChanged`        | —                                    | No               | Async file watch events                                    |
+| `FileChanged`        | `\|`-split literal filenames         | No               | Async file watch events                                    |
 | `CwdChanged`         | —                                    | No               |                                                            |
 
 **MCP tools** match as `mcp__<server>__<tool>`. Use `mcp__server__.*` to match all tools from a server.

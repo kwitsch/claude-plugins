@@ -8,11 +8,8 @@ paths:
 # Rule: Claude Code type definitions in types/cc-types.d.ts
 
 `types/cc-types.d.ts` is the single source of truth for Claude Code API shapes used
-in `.mjs` files:
-
-- Hook event inputs: `HookCommonInput`, `ToolHookInput`
-- Hook outputs: `HookResult`, `HookSpecificOutput`
-- Tool results: `CompressResult`, `GitInfo`
+in `.mjs` files (hook event inputs, hook outputs, tool results). Read the file for the
+current interface list.
 
 ## When to extend
 

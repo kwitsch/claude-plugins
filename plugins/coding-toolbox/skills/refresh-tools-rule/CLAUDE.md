@@ -3,10 +3,9 @@
 ## Skill design (`refresh-tools-rule`)
 
 2026-07-10: split out of the `setup-rules` design during `fresh-work`'s
-Review step. The original plan for `dream`'s tools-rule sync (see
-`memory-enhancement/CLAUDE.md`) was to drop `disable-model-invocation` from
-`setup-rules` itself so `dream` could call it directly with the verbatim mode
-above (`args: "update tools rule"`) — a genuine "single source of truth"
+Review step. The original plan for `dream`'s tools-rule sync was to drop `disable-model-invocation` from
+`setup-rules` itself so `dream` could call it directly with
+`args: "update tools rule"` — a genuine "single source of truth"
 option the user picked at the `fresh-work` intent-confirmation gate. An
 altitude review during the same pipeline's Review step flagged the real cost:
 that would open _every_ verb this skill supports — including destructive
@@ -35,6 +34,6 @@ header, the `Detected on this machine…` line, the table's own `| Task |
 Prefer | Why |` header/divider) is still written out in both skills — small,
 stable, and not worth extracting; only the row content that actually changes
 when a tool is added or reworded lives in the one shared file.
-`memory-enhancement:dream`'s optional Phase 5 is this skill's only caller so
-far, invoking it with no arguments (there is nothing to choose — the one
+No skill calls it yet; `memory-enhancement:dream` is the intended caller, and
+any caller invokes it with no arguments (there is nothing to choose — the one
 action is always "refresh if installed, else no-op").

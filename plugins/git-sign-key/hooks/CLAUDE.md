@@ -15,7 +15,7 @@ user.signingkey='<abs-key>' -c commit.gpgsign=true` right after `git` token
   passphrase-encrypted or unsafe file permissions
   (`ssh-keygen -y -f key -P '' </dev/null` stderr matches `passphrase`/`decrypt`/
   `ermission`/`too open`) — only `ssh-keygen` needed; dummy/invalid file stays silent.
-- Scanner (replaces old first-`git commit` `case`): `_rewrite` walks
+- Scanner: `_rewrite` walks
   command char-by-char tracking single/double-quote and backslash state,
   rewrites **every** `git` at **unquoted command position** — start of
   string or after unquoted separator (`_is_cmd_start`: `;`&`|`(`{`` ` ``/

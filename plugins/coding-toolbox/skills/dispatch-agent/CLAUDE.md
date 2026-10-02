@@ -62,7 +62,7 @@ each session to read its prompt. `allowed-tools` carries `Bash`/`AskUserQuestion
 2026-08-19**: step 1's Bash call is a compound script (`set -e`, a
 `name="…-$(date +%s)-$RANDOM"` assignment whose command substitution is not a known-safe
 leading assignment, then `claude … --bg`), and the permission matcher splits on separators and
-requires every sub-command to be covered independently (`.claude/rules` → the settings
+requires every sub-command to be covered independently (cc-reference → the settings
 reference's "Per-tool specifiers": "matches each subcommand independently") — so
 `Bash(claude:*)` alone never auto-approved the dispatch, and it stalled on a permission prompt
 (or was denied) with nobody present to answer. An earlier revision of this doc called that

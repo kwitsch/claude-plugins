@@ -24,8 +24,8 @@ since the skill body doesn't change. `dispatch-agent` here uses the
 identical `claude --worktree ... --bg` mechanism, and `fresh-work`/
 `feature-development`/`finish-pr` are all freely model-invocable (no
 `disable-model-invocation`), so the same exposure applied to any dispatched
-session that went on to invoke one of them — see `taskflow/CLAUDE.md`'s own
-"Fixed 2026-08-22" section for the full transcript evidence. `setup-rules`/
+session that went on to invoke one of them — see `.claude/rules/taskflow-skill-plugin-root-and-injection.md`
+for the taskflow-side rule. `setup-rules`/
 `refresh-tools-rule`/`setup-explore` carry the lower-risk fenced-block form
 of the same pattern (all three are user-only wizards, never invoked from an
 automated dispatch path) — fixed for consistency, not from an observed

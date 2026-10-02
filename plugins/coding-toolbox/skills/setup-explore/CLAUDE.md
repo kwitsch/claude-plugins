@@ -2,11 +2,9 @@
 
 ## Skill design (`setup-explore`)
 
-Added the same day the plugin-level `explore` agent + `reroute_explore` hook
-(above) were removed — that hook's own "known, accepted collision risk"
-section had documented that a user-level `~/.claude/agents/explore.md` would
-be silently hijacked by the reroute; this skill installs exactly that file,
-so keeping both would have defeated the point. Installs
+Do not add a plugin-level `explore` agent or `reroute_explore` hook: it would
+silently hijack the user-level `~/.claude/agents/explore.md` this skill
+installs. Installs
 `~/.claude/agents/explore.md` (user-level, applies to every project on this
 machine — same scope as `setup-rules`' managed files) from one of two
 bundled `references/` variants — `explore.initial-haiku.md` (plain, no MCP
@@ -17,7 +15,7 @@ the same idiom `refresh-tools-rule` Step 1 already uses for the same tool.
 Byte-exact `cp` of the chosen file (never re-typed, same rationale as
 `setup-rules`' `golden-rules.md` copy), written via `mktemp` + `mv` in the
 target directory for an atomic, symlink-safe replace, with the `mv` gated on
-the `cp` succeeding (2026-07-26, CodeRabbit finding on this PR — an unguarded
+the `cp` succeeding (an unguarded
 `mv` would replace a working install with the empty temp file) — the write
 half of
 `refresh-tools-rule`'s own hardening, minus its existence-gate: unlike that

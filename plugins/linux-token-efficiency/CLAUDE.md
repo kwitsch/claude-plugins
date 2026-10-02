@@ -81,7 +81,7 @@ it cannot verify cwd/root through the opaque rtk wrapper the way it can for a di
 Since this repo's own dispatched agents/skills (`dispatch-agent`, `EnterWorktree`,
 `fresh-pr`'s `ci-watcher`/`pr-fixer`, taskflow's wave-parallel workers, …) routinely run
 git commands from inside a linked worktree, the rewrite was silently breaking every one of
-them — see [[reference_rtk_git_wrapper_isolation_guard_conflict]]. `hasGitOperand` is a
+them. `hasGitOperand` is a
 plain whitespace-token check (`git` as a standalone token, not a substring), and
 `isLinkedWorktree` is fail-open like everything else in this file: any spawn/parse failure,
 or `cwd` not being a git repo at all, returns `false` and the pre-fix rewrite behavior
@@ -218,8 +218,8 @@ no credential use, no repo mutation. **Do not "harmonize" this back to fail-clos
 
 ## userConfig
 
-Three toggles, one per gated feature: boolean `auto_rewrite`, boolean `cbm_enabled` and boolean
-`steer_enabled`, all `default: true`. `steer_enabled` gates ONLY the two deny-steers
+Four toggles, one per gated feature: boolean `auto_rewrite`, boolean `cbm_enabled`, boolean
+`rtk_enabled` (the network-install gate, see `## rtk install`) and boolean `steer_enabled`, all `default: true`. `steer_enabled` gates ONLY the two deny-steers
 (`rtk-rewrite.mjs`'s steer branch and `webfetch-steer.mjs`), never the rtk rewrite — it exists as
 the escape hatch for a context-mode server that is down or misbehaving, since a deny pointing at
 an unavailable `ctx_*` tool would otherwise strand the model (a command hook cannot check MCP
@@ -374,7 +374,7 @@ heading, the ≤ 40-line brevity cap, required directive tokens).
 **Why no committed binary or tarball.** cbm's extracted binary is 293,160,104 bytes (279.6 MiB) —
 above GitHub's **100 MiB** per-file limit — so it can never be committed. With a
 server that downloads on first start there is no reason to commit the 37.6 MiB archive either, so
-**nothing cbm-related is in git**: `bin/` holds only `context-mode-launch.sh`, and the machine-owned
+**nothing cbm-related is in git**: `bin/` holds only `context-mode-launch.sh` and the `rtk` PATH-bridge wrapper (neither is cbm-related), and the machine-owned
 `cbm-tools.json` (the advertised tool list) is the whole artifact surface.
 
 **One process model.** `mcp/server.mjs` owns the first-run download + verification +

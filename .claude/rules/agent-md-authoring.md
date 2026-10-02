@@ -1,6 +1,7 @@
 ---
 paths:
   - "plugins/*/agents/*.md"
+  - ".claude/agents/*.md"
 ---
 
 # Rule: agent .md authoring reference
@@ -35,6 +36,7 @@ NOT the full Claude Code system prompt. No conversation history.
 | `skills`          | No       | Skills to preload into context at startup (full content, not just description). Skills with `disable-model-invocation: true` are NOT preloaded.                                                                                   |
 | `initialPrompt`   | No       | Auto-submitted first user turn only when the agent runs as the **main session agent** (`--agent`/`agent` setting). **Ignored when invoked as a subagent** — has no effect in a plugin `agents/*.md` file used only as a subagent. |
 | `memory`          | No       | Persistent cross-session memory scope: `user` `project` `local`.                                                                                                                                                                  |
+| `omitClaudeMd`    | No       | v2.1.271+: `true` = launch this subagent without the user/project/local CLAUDE.md files (managed policy still loads). Ignored when the agent runs as the main session agent.                                                      |
 | `background`      | No       | `true` = always run as background task. Omitted → Claude decides (v2.1.198+: background by default, foreground only when the result is needed immediately).                                                                       |
 | `effort`          | No       | `low` `medium` `high` `xhigh` `max` — overrides session effort level.                                                                                                                                                             |
 | `isolation`       | No       | `worktree` = isolated git worktree (branched from default branch).                                                                                                                                                                |

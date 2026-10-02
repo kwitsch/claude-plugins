@@ -17,8 +17,8 @@ Guards, each failing to `{}` silently: `tool_response.success !== false` → res
 
 `eslint`, `markdownlint-cli2`, and `markdownlint` additionally fall back to
 `npx --yes <package> ...` when absent from `PATH` (all verified official npm
-packages; `npx` itself is assumed present since the plugin's own MCP server
-already requires node/npm). `yamllint` gets no npx fallback — it has no npm
+packages; `npx` itself is assumed present since the hook already runs
+under node). `yamllint` gets no npx fallback — it has no npm
 package at all (PyPI/pip only). No other chain tool gets an npx fallback —
 see `universal-format`'s `CLAUDE.md` for the npm-provenance research; the
 same conclusions apply here (`ruff`, `golangci-lint`, `go`, `ktlint`,
@@ -55,7 +55,7 @@ runs through `rtk` instead of directly, for token-compacted findings text —
 `rtk` passes through the wrapped tool's real exit code unchanged (verified
 empirically for `ruff` and `eslint`), so `classifyExit`/
 `classifyCheckstyleOutput` need no awareness of it. Which tools `rtk`
-actually has a filter for is discovered dynamically per server lifetime via
+actually has a filter for is discovered dynamically per hook process via
 `rtk rewrite <tool> <tool's static args> "__RTK_PROBE__"` (cached per tool
 name) rather than hardcoded, since rtk gains/loses per-tool filters across
 releases; `checkstyle` and `ktlint` currently have none and always run
