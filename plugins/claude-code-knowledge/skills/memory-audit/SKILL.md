@@ -158,5 +158,7 @@ does memory-audit auto-commit.
 
 Summarize per file: grade, which findings were applied, which were skipped, which
 are manual to-dos (`suggested_fix: null` — including leanness/scope-split
-recommendations with their candidate target), which findings are uncovered, and
+recommendations with their candidate target; list each as one
+`<id> · <path> · <recommendation>` line so a calling skill such as
+`repository-audit` can offer them), which findings are uncovered, and
 any file whose reviewer failed.

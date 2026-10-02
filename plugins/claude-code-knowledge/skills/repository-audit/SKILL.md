@@ -1,9 +1,9 @@
 ---
 name: repository-audit
-description: Run a full repository audit of a project's Claude Code setup end to end — first flag whether the baseline memory files (a root CLAUDE.md and a .claude/rules/ directory) exist, then run the existing lsp-audit LSP-coverage pass and the memory-audit memory-quality pass in sequence (forwarding the same --fix flag and repo path), then detect the development tools the repository uses (runtimes, package managers, LSP servers — git, bash, curl and Claude Code are assumed present) and offer to create a project-level init-dev-environment skill that installs them at user level into ~/.local/bin (--fix creates it without asking), and fold all four passes into one combined report with Structure, LSP audit, Memory audit, and Dev environment sections. Reuses lsp-audit and memory-audit verbatim via the Skill tool rather than re-implementing them; the phase-1 structure check is report-only and never writes. Use when the user asks to audit, check, or fix a repository's Claude Code memory structure or dev-environment setup, or to run a full repository audit.
+description: Run a full repository audit of a project's Claude Code setup end to end — first flag whether the baseline memory files (a root CLAUDE.md and a .claude/rules/ directory) exist, then run the existing lsp-audit LSP-coverage pass and the memory-audit memory-quality pass in sequence (forwarding the same --fix flag and repo path), offer the manual to-dos memory-audit returns (leanness trims, scope-split moves) for selection via AskUserQuestion (--fix applies them all), then detect the development tools the repository uses (runtimes, package managers, LSP servers — git, bash, curl and Claude Code are assumed present) and offer to create a project-level init-dev-environment skill that installs them at user level into ~/.local/bin (--fix creates it without asking), and fold all four passes into one combined report with Structure, LSP audit, Memory audit, and Dev environment sections. Reuses lsp-audit and memory-audit verbatim via the Skill tool rather than re-implementing them; the phase-1 structure check is report-only and never writes. Use when the user asks to audit, check, or fix a repository's Claude Code memory structure or dev-environment setup, or to run a full repository audit.
 argument-hint: [--fix] [optional repo path]
-allowed-tools: Bash, Read, Skill, AskUserQuestion
-# review-skip(F1): unscoped Bash is required — the structure check runs test against an arbitrary repo root supplied at runtime, and scripts/detect-tools.mjs scans that root and, on confirmation, writes its .claude/skills/init-dev-environment/; allowed-tools only pre-approves, never restricts. No Write/Edit: the only file creation this skill performs itself goes through scripts/detect-tools.mjs; the nested lsp-audit/memory-audit own their own writes under their own frontmatter.
+allowed-tools: Bash, Read, Edit, Write, Skill, AskUserQuestion
+# review-skip(F1): unscoped Bash/Edit/Write is required — the structure check runs test against an arbitrary repo root supplied at runtime, scripts/detect-tools.mjs scans that root and, on confirmation, writes its .claude/skills/init-dev-environment/, and step 4 applies selected memory-audit manual tasks to arbitrary CLAUDE.md/.claude/rules files; allowed-tools only pre-approves, never restricts. Edit/Write are used only for those manual tasks; the other file creation this skill performs itself goes through scripts/detect-tools.mjs; the nested lsp-audit/memory-audit own their own writes under their own frontmatter.
 ---
 
 # repository-audit — full Claude Code repository audit
@@ -15,7 +15,8 @@ detect the repository's development tools and offer to generate a
 project-level `init-dev-environment` skill that installs them, and fold all
 four passes into one combined report. This skill reuses `lsp-audit` and
 `memory-audit` verbatim via the `Skill` tool — it adds the structure-presence
-check, the tool-detection phase (whose scanning and file writing live in
+check, the manual-task gate for `memory-audit`'s to-dos (step 4), the
+tool-detection phase (whose scanning and file writing live in
 `scripts/detect-tools.mjs`), and the orchestration/report wrapper. **This skill
 runs inline (depth 0)** — it drives two nested inline skills in the same turn
 (each may raise its own `AskUserQuestion` gate) and raises its own step-6 gate;
@@ -54,8 +55,9 @@ report it as a manual to-do pointing at this plugin's own `cc-author` skill for
 grounded creation — never auto-generate content for it. Phase 1 has no `--fix`
 behavior of its own (missing files are never created even when `$FIX` is set) and
 raises no phase-1 `AskUserQuestion` gate; `$FIX` propagates forward into the
-two nested audits (steps 3–4) and also confirms the step-6 init-dev-environment
-creation gate. No `Write`/`Edit` is used here.
+two nested audits (steps 3–4), also confirms the step-4 manual-task gate, and
+confirms the step-6 init-dev-environment creation gate. No `Write`/`Edit` is
+used here.
 
 If `$ROOT` does not resolve to an existing directory at all, say so explicitly
 and stop before steps 3–6 (the two nested skills and the tool-detection phase)
@@ -78,6 +80,33 @@ After step 3's inline flow fully resolves, invoke skill
 `claude-code-knowledge:memory-audit` the same way, with `args` set to
 `--fix $ROOT` when `$FIX` is set, else `$ROOT`. Sequential only — never dispatch
 steps 3 and 4 concurrently or interleaved.
+
+### Offer memory-audit's manual tasks
+
+`memory-audit` leaves some findings as manual to-dos (`suggested_fix: null`) —
+leanness trims and scope-split moves, each with a candidate target — and applies
+none of them. Once its inline flow fully resolves, collect them from its step-7
+report (one `<id> · <path> · <recommendation>` line each). Only covered findings
+qualify; `uncovered` findings and files that failed to analyze stay
+informational, never selectable. Skip this subsection when no qualifying to-do
+exists or `memory-audit` did not run.
+
+- **`$FIX` set** — skip the `AskUserQuestion` gate; treat every collected to-do
+  as selected.
+- **`$FIX` absent** — present them via `AskUserQuestion` (`multiSelect: true`),
+  chunked as `memory-audit` §5 does: one tab per ≤4 to-dos of a single file, ≤4
+  tabs per call, option labels beginning with the finding `id`, plus a
+  `"Skip this group"` option on a single-to-do tab. Apply only what the user
+  selects.
+
+Apply each selected to-do against the file's **current** content (re-`Read` it
+first — `memory-audit` may have edited it): a trim via `Edit`; a split by moving
+the named section verbatim into the candidate target — a subdirectory
+`CLAUDE.md`, or a `.claude/rules/*.md` file with a `paths:` frontmatter glob,
+created via `Write` or appended via `Edit` — then removing it from the source.
+Stay inside `$ROOT`. When a to-do has no concrete target or the move would not
+apply cleanly, do not guess — leave it undone and report it as skipped. Never
+auto-commit.
 
 ## 5. Read scripts/detect-tools.reference.md
 
@@ -145,7 +174,8 @@ Emit one final report with exactly four named sections, in this order:
 2. **LSP audit** — carry forward `lsp-audit`'s already-emitted report content
    from step 3.
 3. **Memory audit** — carry forward `memory-audit`'s already-emitted report
-   content from step 4.
+   content from step 4, plus the manual-task outcome: which manual to-dos were
+   applied, skipped, or declined.
 4. **Dev environment** — the step-6 findings and outcome: each detected tool id
    with its `evidence`; every `manual` entry as a manual to-do; and the outcome
    — created (with the path and next steps, including the restart note when
