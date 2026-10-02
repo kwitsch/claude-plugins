@@ -1573,3 +1573,110 @@ JSON
   [ "$status" -eq 0 ]
   [[ "$output" == *"repository-audit"* ]]
 }
+
+# --- init-dev-environment template (templates/init-dev-environment/install.sh) ---
+# Hermetic: install.sh runs under env -i on the MOCKBIN PATH with the isolated
+# HOME and an explicit TMPDIR. No real curl is ever on that PATH, so a recipe
+# that would hit the network fails fast instead. Stub bodies use $TMPDIR and
+# $HOME, never $BATS_TEST_TMPDIR (env -i wipes it from stub processes).
+
+install_sh() { printf '%s' "$PLUGIN/skills/repository-audit/templates/init-dev-environment/install.sh"; }
+
+# run_install_sh <arg>... — run install.sh on the isolated MOCKBIN PATH/HOME/TMPDIR.
+run_install_sh() {
+  run env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" "$MOCKBIN/bash" "$(install_sh)" "$@"
+}
+
+# link_tools <name>... — symlink extra host binaries into MOCKBIN for one test.
+link_tools() {
+  local t src
+  for t in "$@"; do
+    src="$(command -v "$t")" && ln -sf "$src" "$MOCKBIN/$t"
+  done
+}
+
+# rustup_proxy_fixture — like rustup's real ~/.cargo/bin/rust-analyzer proxy,
+# the stub exists without the component and exits 1 until $TMPDIR/ra.component
+# exists; plus a ~/.cargo/bin/cargo stub that exits 0.
+rustup_proxy_fixture() {
+  local cb="$HOME/.cargo/bin"
+  mkdir -p "$cb"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    'if [ ! -e "$TMPDIR/ra.component" ]; then echo "error: Unknown binary rust-analyzer in official toolchain" >&2; exit 1; fi' \
+    'echo "rust-analyzer 1.0.0"' > "$cb/rust-analyzer"
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "$cb/cargo"
+  chmod +x "$cb/rust-analyzer" "$cb/cargo"
+}
+
+@test "install.sh passes bash -n" {
+  run bash -n "$(install_sh)"
+  [ "$status" -eq 0 ]
+}
+
+@test "install.sh never uses sudo or touches shell rc files on a non-comment line" {
+  [ -f "$(install_sh)" ]
+  run bash -c "grep -v '^[[:space:]]*#' \"\$1\" | grep -nE 'sudo|\\.bashrc|\\.bash_profile|\\.zshrc|\\.profile'" _ "$(install_sh)"
+  [ "$status" -ne 0 ]
+}
+
+@test "install.sh --dry-run reports present and missing tools and installs nothing" {
+  run_install_sh --dry-run node pnpm
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"present: node"* ]]
+  [[ "$output" == *"missing: pnpm"* ]]
+  [ ! -e "$HOME/.local" ]
+}
+
+@test "install.sh: an unknown tool id prints FAILED (unknown tool id) and exits 1" {
+  run_install_sh nope
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAILED: nope (unknown tool id)"* ]]
+}
+
+@test "install.sh installs pnpm via npm --prefix ~/.local and prints the PATH note" {
+  link_tools mkdir chmod
+  make_stub npm \
+    'echo "$*" >> "$TMPDIR/npm.args"' \
+    'printf "%s\n" "#!/usr/bin/env bash" > "$HOME/.local/bin/pnpm"' \
+    'chmod +x "$HOME/.local/bin/pnpm"'
+  run_install_sh pnpm
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"present: node"* ]]
+  [[ "$output" == *"installed: pnpm"* ]]
+  [[ "$output" == *"note:"* ]]
+  grep -qxF "install -g --prefix $HOME/.local pnpm" "$BATS_TEST_TMPDIR/npm.args"
+}
+
+@test "install.sh prints FAILED and exits 1 when the pnpm recipe fails" {
+  link_tools mkdir
+  make_stub npm 'exit 1'
+  run_install_sh pnpm
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAILED: pnpm"* ]]
+}
+
+@test "install.sh --dry-run treats a bare rustup rust-analyzer proxy as missing (D21)" {
+  rustup_proxy_fixture
+  run_install_sh --dry-run rust-analyzer
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"missing: rust-analyzer"* ]]
+  [[ "$output" != *"present: rust-analyzer"* ]]
+  [ ! -e "$BATS_TEST_TMPDIR/rustup.args" ]
+}
+
+@test "install.sh adds the rust-analyzer component over the rustup proxy, then dry-run agrees (D21)" {
+  rustup_proxy_fixture
+  printf '%s\n' '#!/usr/bin/env bash' 'echo "$*" >> "$TMPDIR/rustup.args"' ': > "$TMPDIR/ra.component"' > "$HOME/.cargo/bin/rustup"
+  chmod +x "$HOME/.cargo/bin/rustup"
+  link_tools mkdir ln
+  run_install_sh rust-analyzer
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"present: cargo"* ]]
+  [[ "$output" == *"installed: rust-analyzer"* ]]
+  [ "$(cat "$BATS_TEST_TMPDIR/rustup.args")" = "component add rust-analyzer" ]
+  [ -L "$HOME/.local/bin/rust-analyzer" ]
+  [ "$(readlink "$HOME/.local/bin/rust-analyzer")" = "$HOME/.cargo/bin/rust-analyzer" ]
+  run_install_sh --dry-run rust-analyzer
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"present: rust-analyzer"* ]]
+}
