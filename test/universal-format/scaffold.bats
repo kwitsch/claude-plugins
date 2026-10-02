@@ -167,8 +167,8 @@ setup() {
   assert_failure
 }
 
-@test "plugin.json version is 0.17.0" {
-  run jq -e '.version == "0.17.0"' "$PLUGIN/.claude-plugin/plugin.json"
+@test "plugin.json version is 0.17.1" {
+  run jq -e '.version == "0.17.1"' "$PLUGIN/.claude-plugin/plugin.json"
   assert_success
 }
 
@@ -235,7 +235,7 @@ setup() {
   assert_failure
   run rg_or_grep -q -F "3-tier resolver" "$PLUGIN/CLAUDE.md"
   assert_failure
-  run rg_or_grep -q -F "Bundled prettier (no resolver)" "$PLUGIN/CLAUDE.md"
+  run rg_or_grep -q -F "Bundled prettier (no resolver)" "$REPO_ROOT/src/universal-format-mcp/CLAUDE.md"
   assert_success
   run rg_or_grep -q -F "Built artifact (do not edit" "$PLUGIN/CLAUDE.md"
   assert_success
@@ -269,14 +269,14 @@ setup() {
   assert_failure
 }
 
-@test "the three global docs describe the artifact as a bundle plus three committed .wasm sidecars" {
+@test "the plugin CLAUDE.md describes the artifact as a bundle plus three committed .wasm sidecars; the three global docs point to it" {
   local f
+  for f in web-tree-sitter.wasm tree-sitter-java_orchard.wasm main.wasm; do
+    run rg_or_grep -q -F "$f" "$PLUGIN/CLAUDE.md"
+    assert_success
+  done
   for f in "$REPO_ROOT/CLAUDE.md" "$REPO_ROOT/plugins/CLAUDE.md" "$REPO_ROOT/.claude/rules/hooks-mcp-server.md"; do
-    run rg_or_grep -q -F "web-tree-sitter.wasm" "$f"
-    assert_success
-    run rg_or_grep -q -F "tree-sitter-java_orchard.wasm" "$f"
-    assert_success
-    run rg_or_grep -q -F "main.wasm" "$f"
+    run rg_or_grep -q -F "plugins/universal-format/CLAUDE.md" "$f"
     assert_success
   done
 }
@@ -287,11 +287,9 @@ setup() {
 @test "docs describe the ignore cache and the third mcp_tool hook, not the stale no-op claim" {
   run rg_or_grep -q -F "no-op today" "$PLUGIN/CLAUDE.md"
   assert_failure
-  run rg_or_grep -q -F "Ignore-file caching is event-driven" "$PLUGIN/CLAUDE.md"
+  run rg_or_grep -q -F "Ignore-file caching is event-driven" "$REPO_ROOT/src/universal-format-mcp/CLAUDE.md"
   assert_success
   run rg_or_grep -q -F "cwd_changed" "$PLUGIN/CLAUDE.md"
-  assert_success
-  run rg_or_grep -q -F "cwd_changed" "$REPO_ROOT/.claude/rules/hooks-mcp-server.md"
   assert_success
   run rg_or_grep -q -F "CwdChanged" "$PLUGIN/README.md"
   assert_success
