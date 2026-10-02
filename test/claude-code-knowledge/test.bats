@@ -1782,3 +1782,89 @@ detect_fixture() {
   [ "$status" -eq 1 ]
   [[ "$output" == *"Malformed"*".lsp.json"*"an array"* ]]
 }
+
+# --- init-dev-environment generation (detect-tools.mjs --write, SKILL.md.tmpl) ---
+
+@test "detect-tools.reference.md exists and documents the script and its bundled templates" {
+  local r="$PLUGIN/skills/repository-audit/scripts/detect-tools.reference.md"
+  [ -f "$r" ]
+  run rg_or_grep -F 'detect-tools.mjs' "$r"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'install.sh' "$r"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'Bundled templates' "$r"; [ "$status" -eq 0 ]
+}
+
+@test "--write creates the init-dev-environment skill atomically (0755, byte-identical install.sh)" {
+  local proj="$BATS_TEST_TMPDIR/p_write"
+  detect_fixture "$proj"
+  [ ! -e "$proj/.claude" ]
+  run_detect "$proj" --write
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.wrote == true and .skillsDirCreated == true'
+  local d="$proj/.claude/skills/init-dev-environment"
+  [ -f "$d/SKILL.md" ]
+  [ -f "$d/install.sh" ]
+  cmp "$d/install.sh" "$(install_sh)"
+  rg_or_grep -qF 'name: init-dev-environment' "$d/SKILL.md"
+  rg_or_grep -qF 'install.sh --dry-run node pnpm cargo gopls' "$d/SKILL.md"
+  rg_or_grep -qF '(install manually): docker' "$d/SKILL.md"
+  run rg_or_grep -F '@@' "$d/SKILL.md"; [ "$status" -ne 0 ]
+  run rg_or_grep -nE '!`' "$d/SKILL.md"; [ "$status" -ne 0 ]
+  run node -e 'process.stdout.write((require("fs").statSync(process.argv[1]).mode & 0o777).toString(8))' "$d"
+  [ "$output" = "755" ]
+  run bash -c 'ls -d "$1"/.claude/.init-dev-environment-* "$1"/.claude/skills/.init-dev-environment-* 2>/dev/null' _ "$proj"
+  [ -z "$output" ]
+}
+
+@test "--write next to an existing .claude/skills reports skillsDirCreated false" {
+  local proj="$BATS_TEST_TMPDIR/p_write_existing"
+  detect_fixture "$proj"
+  mkdir -p "$proj/.claude/skills/other"
+  run_detect "$proj" --write
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.wrote == true and .skillsDirCreated == false'
+  [ -f "$proj/.claude/skills/init-dev-environment/SKILL.md" ]
+}
+
+@test "--write never overwrites an existing init-dev-environment directory" {
+  local proj="$BATS_TEST_TMPDIR/p_write_kept"
+  detect_fixture "$proj"
+  mkdir -p "$proj/.claude/skills/init-dev-environment"
+  printf 'hand edit\n' > "$proj/.claude/skills/init-dev-environment/SKILL.md"
+  run_detect "$proj" --write
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.skillExists == true and .wrote == false and .skillsDirCreated == false'
+  [ "$(cat "$proj/.claude/skills/init-dev-environment/SKILL.md")" = "hand edit" ]
+  [ ! -e "$proj/.claude/skills/init-dev-environment/install.sh" ]
+}
+
+@test "--write with no detected tools writes nothing" {
+  local proj="$BATS_TEST_TMPDIR/p_write_none"
+  mkdir -p "$proj"
+  run_detect "$proj" --write
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.tools == [] and .wrote == false and .skillsDirCreated == false'
+  [ ! -e "$proj/.claude" ]
+}
+
+@test "SKILL.md.tmpl: frontmatter, model-invocable, inline, no bang-backtick or plugin-root token" {
+  local t="$PLUGIN/skills/repository-audit/templates/init-dev-environment/SKILL.md.tmpl"
+  [ -f "$t" ]
+  run rg_or_grep -E '^name:[[:space:]]*init-dev-environment$' "$t"; [ "$status" -eq 0 ]
+  run rg_or_grep -E '^description:' "$t"; [ "$status" -eq 0 ]
+  run rg_or_grep -E '^description:.*: ' "$t"; [ "$status" -ne 0 ]
+  run rg_or_grep -E '^disable-model-invocation:[[:space:]]*true' "$t"; [ "$status" -ne 0 ]
+  run rg_or_grep -E '^context:[[:space:]]*fork' "$t"; [ "$status" -ne 0 ]
+  run rg_or_grep -nE '!`' "$t"; [ "$status" -ne 0 ]
+  run rg_or_grep -F 'CLAUDE_PLUGIN_ROOT' "$t"; [ "$status" -ne 0 ]
+  run rg_or_grep -F 'AskUserQuestion' "$t"; [ "$status" -eq 0 ]
+  run rg_or_grep -F '@@TOOLS@@' "$t"; [ "$status" -eq 0 ]
+}
+
+@test "tool-map.json ids each have an install_<id> recipe in install.sh" {
+  local m="$PLUGIN/skills/repository-audit/scripts/tool-map.json" s id fn
+  s="$(install_sh)"
+  for id in $(jq -r 'keys_unsorted[]' "$m"); do
+    fn="install_${id//-/_}"
+    rg_or_grep -qE "^${fn}\(\)" "$s" || { echo "missing recipe: $fn"; return 1; }
+  done
+}

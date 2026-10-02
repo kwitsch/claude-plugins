@@ -2,10 +2,13 @@
 // Detect the development tools (runtimes, package managers, LSP servers) a
 // project uses, from catalog signal-file basenames anywhere in the pruned tree
 // and from the bare command names in the project-root .lsp.json / .mcp.json,
-// against the bundled tool-map.json catalog. Zero-dep and read-only.
-// Diagnostics go to stderr; stdout carries only the JSON result object.
+// against the bundled tool-map.json catalog. Zero-dep. Audit mode is
+// read-only; --write renders the bundled init-dev-environment templates into
+// <root>/.claude/skills/init-dev-environment/ atomically, only when that
+// directory is absent. Diagnostics go to stderr; stdout carries only the JSON
+// result object.
 
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, mkdtempSync, chmodSync, renameSync, rmSync } from "node:fs";
 import { resolve, join, basename, relative } from "node:path";
 
 const PRUNE_NAMES = new Set([".git", "node_modules", "vendor", "dist", "build"]);
@@ -171,6 +174,47 @@ function detect(root) {
 }
 
 /**
+ * Fill the SKILL.md template. Function replacers keep `$&`/`$1` literal.
+ * @param {string} template
+ * @param {string[]} ids
+ * @param {{ command: string }[]} manual
+ * @returns {string}
+ */
+function render(template, ids, manual) {
+  return template.replaceAll("@@TOOLS@@", () => ids.join(" ")).replaceAll("@@MANUAL@@", () => (manual.length ? manual.map((m) => m.command).join(", ") : "none"));
+}
+
+/**
+ * Write <root>/.claude/skills/init-dev-environment/ atomically: both templates
+ * are read first, the skill is built in a same-filesystem temp dir outside the
+ * watched skills dir, chmod 0755 (mkdtemp creates 0700), then renamed into
+ * place. On any failure after mkdtemp the temp dir is removed and the error
+ * rethrown, so no partial skill directory is ever left.
+ * @param {string} root
+ * @param {string[]} ids
+ * @param {{ command: string }[]} manual
+ * @returns {boolean} skillsDirCreated — true when this call created <root>/.claude/skills
+ */
+function writeSkill(root, ids, manual) {
+  const skillTemplate = readFileSync(new URL("../templates/init-dev-environment/SKILL.md.tmpl", import.meta.url), "utf8");
+  const installer = readFileSync(new URL("../templates/init-dev-environment/install.sh", import.meta.url));
+  const skillsDir = join(root, ".claude", "skills");
+  const skillsDirCreated = !existsSync(skillsDir);
+  mkdirSync(skillsDir, { recursive: true });
+  const tmp = mkdtempSync(join(root, ".claude", ".init-dev-environment-"));
+  try {
+    writeFileSync(join(tmp, "SKILL.md"), render(skillTemplate, ids, manual));
+    writeFileSync(join(tmp, "install.sh"), installer);
+    chmodSync(tmp, 0o755);
+    renameSync(tmp, join(skillsDir, "init-dev-environment"));
+  } catch (err) {
+    rmSync(tmp, { recursive: true, force: true });
+    throw err;
+  }
+  return skillsDirCreated;
+}
+
+/**
  * Print an error to stderr and exit 1.
  * @param {string} msg
  * @returns {never}
@@ -187,8 +231,10 @@ function main() {
   const argv = process.argv.slice(2);
   /** @type {string | null} */
   let rootArg = null;
+  let write = false;
   for (const a of argv) {
-    if (!a.startsWith("--") && rootArg === null) rootArg = a;
+    if (a === "--write") write = true;
+    else if (!a.startsWith("--") && rootArg === null) rootArg = a;
   }
   const root = resolve(rootArg ?? ".");
   const skillDir = join(root, ".claude", "skills", "init-dev-environment");
@@ -205,6 +251,24 @@ function main() {
   const skillExists = existsSync(skillDir);
   /** @type {Record<string, any>} */
   const out = { root, tools: found.tools, manual: found.manual, skillDir, skillExists };
+  if (write) {
+    const wrote = found.tools.length > 0 && !skillExists;
+    let skillsDirCreated = false;
+    if (wrote) {
+      try {
+        skillsDirCreated = writeSkill(
+          root,
+          found.tools.map((t) => t.id),
+          found.manual,
+        );
+      } catch (err) {
+        fail(`Failed to write ${skillDir}: ${/** @type {any} */ (err).message}`);
+        return;
+      }
+    }
+    out.wrote = wrote;
+    out.skillsDirCreated = skillsDirCreated;
+  }
   process.stdout.write(JSON.stringify(out, null, 2) + "\n");
 }
 
