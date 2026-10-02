@@ -263,9 +263,9 @@ Validate marketplace
 
 ```
 What LSP servers provide
-Scopes                                 # plugin-scoped vs project-scoped (undocumented)
+Scopes                                 # plugin-scoped only; project-root .lsp.json not loaded; skills-dir trust
 Server entry schema
-Example (project-root .lsp.json)
+Example (plugin-scoped .lsp.json)
 Official LSP plugins
 ```
 

@@ -1,17 +1,26 @@
 #!/usr/bin/env node
-// Audit a project's file extensions against its project-root .lsp.json and,
-// on --fix/--apply, additively write missing LSP-server coverage. Zero-dep.
+// Audit a project's file extensions against <root>/.claude/skills/lsp/.lsp.json
+// (the .lsp.json of the project-scope `lsp` skills-dir plugin) and, on
+// --fix/--apply, additively write missing LSP-server coverage plus the plugin
+// manifest on first write. A legacy <root>/.lsp.json is merged in as base
+// config. Zero-dep.
 // Additive-only (never removes/reorders existing keys), respects the LSP
 // "first server registered wins" rule, preserves 2-space + trailing newline,
-// and fails closed (writes nothing, exit 1) on a malformed .lsp.json. All work
-// happens in memory; the file is written at most once, as the final action.
+// and fails closed (writes nothing, exit 1) on a malformed or conflicting
+// .lsp.json. All work happens in memory and every file is written at most
+// once. The legacy root file is deleted only after the plugin write passes
+// readback, as the final action.
 // Diagnostics go to stderr; stdout carries only the JSON result object.
 
-import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
-import { resolve, join, basename } from "node:path";
+import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, unlinkSync, realpathSync } from "node:fs";
+import { resolve, join, basename, dirname } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 const PRUNE_NAMES = new Set([".git", "node_modules", "vendor", "dist", "build"]);
 const EXT_TOKEN = /^\.[A-Za-z0-9]+$/;
+// Written only when absent (never overwritten) so `.claude/skills/lsp/` loads
+// as the `lsp@skills-dir` plugin.
+const MANIFEST = { name: "lsp", description: "Project LSP server configuration, maintained by claude-code-knowledge:lsp-audit." };
 
 /**
  * Recursively collect lowercased file-extension -> file count, pruning the
@@ -57,24 +66,53 @@ function scanExtensions(root) {
 }
 
 /**
- * Read and parse <root>/.lsp.json. Throws on malformed JSON so the caller can
- * fail closed. A missing file is not an error (returns an empty config).
- * @param {string} root
+ * Read and parse a .lsp.json file. Exits 1 (fails closed) on unreadable or
+ * malformed content. A missing file is not an error (returns an empty config).
+ * @param {string} file absolute path of a .lsp.json
  * @returns {{ exists: boolean, config: Record<string, any>, raw: string }}
  */
-function readLspJson(root) {
-  const p = join(root, ".lsp.json");
-  if (!existsSync(p)) return { exists: false, config: {}, raw: "" };
-  const raw = readFileSync(p, "utf8");
-  const parsed = JSON.parse(raw); // throws -> caller exits 1
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    // Valid JSON but not a plain object (array/string/number/null) is just as
-    // unusable as malformed JSON for our purposes: fail closed the same way,
-    // via the caller's existing malformed-JSON catch, instead of silently
-    // treating it as an empty config and overwriting it on --fix/--apply.
-    throw new Error(`expected a JSON object at the top level, got ${Array.isArray(parsed) ? "an array" : parsed === null ? "null" : `a ${typeof parsed}`}`);
+function readLspJson(file) {
+  if (!existsSync(file)) return { exists: false, config: {}, raw: "" };
+  try {
+    const raw = readFileSync(file, "utf8");
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      // Valid JSON but not a plain object (array/string/number/null) is just as
+      // unusable as malformed JSON for our purposes: fail closed the same way
+      // instead of silently treating it as an empty config and overwriting it
+      // on --fix/--apply.
+      throw new Error(`expected a JSON object at the top level, got ${Array.isArray(parsed) ? "an array" : parsed === null ? "null" : `a ${typeof parsed}`}`);
+    }
+    return { exists: true, config: parsed, raw };
+  } catch (err) {
+    return fail(`Malformed .lsp.json at ${file}: ${/** @type {any} */ (err).message}`);
   }
-  return { exists: true, config: parsed, raw };
+}
+
+/**
+ * Merge a legacy project-root .lsp.json into the plugin config. Plugin servers
+ * keep their order and root-only servers are appended, so at runtime the
+ * plugin's blocks register first (first-registered-wins). A server id present
+ * in both must be deep-equal (object key order ignored), otherwise fail closed (the root
+ * file is deleted after a write, so a silent drop would lose data).
+ * @param {Record<string, any>} pluginConfig
+ * @param {Record<string, any>} legacyConfig
+ * @param {string} legacyPath
+ * @param {string} pluginPath
+ * @returns {Record<string, any>}
+ */
+function mergeLegacyRoot(pluginConfig, legacyConfig, legacyPath, pluginPath) {
+  // Shallow copy is enough: the merged result is only read until applyProposals
+  // deep-clones it before mutating.
+  const clone = { ...pluginConfig };
+  for (const [server, block] of Object.entries(legacyConfig)) {
+    if (!Object.prototype.hasOwnProperty.call(clone, server)) {
+      clone[server] = block;
+    } else if (!isDeepStrictEqual(clone[server], block)) {
+      fail(`Conflicting "${server}" server in both ${legacyPath} and ${pluginPath} — reconcile manually; nothing written`);
+    }
+  }
+  return clone;
 }
 
 /**
@@ -267,17 +305,35 @@ function main() {
     }
   }
   const root = resolve(rootArg);
+  const pluginDir = join(root, ".claude", "skills", "lsp");
+  const pluginLsp = join(pluginDir, ".lsp.json");
+  const manifest = join(pluginDir, ".claude-plugin", "plugin.json");
+  const legacyLsp = join(root, ".lsp.json");
 
-  let lsp;
-  try {
-    lsp = readLspJson(root);
-  } catch (err) {
-    fail(`Malformed .lsp.json at ${join(root, ".lsp.json")}: ${/** @type {any} */ (err).message}`);
-    return;
+  const plugin = readLspJson(pluginLsp);
+
+  // A root that is itself a plugin loads its own root .lsp.json, so that file is
+  // live plugin config, not a legacy file to migrate and delete.
+  const legacy = existsSync(join(root, ".claude-plugin", "plugin.json")) ? { exists: false, config: /** @type {Record<string, any>} */ ({}), raw: "" } : readLspJson(legacyLsp);
+
+  // Both files are read before anything else happens. Conflicts fail closed
+  // here, in every mode (audit included), so audit and write runs always agree.
+  // A plugin file that is a link to the root file would make the final delete
+  // remove the only real copy.
+  if (legacy.exists && plugin.exists && realpathSync(legacyLsp) === realpathSync(pluginLsp)) {
+    fail(`${pluginLsp} resolves to the same file as ${legacyLsp} — replace the link with a regular file; nothing written`);
   }
+  // A folder that holds a plain skill (SKILL.md, no manifest) stops loading as that
+  // skill once the manifest is added, so refuse before anything is read or written.
+  if (!existsSync(manifest) && existsSync(join(pluginDir, "SKILL.md"))) {
+    fail(`${pluginDir} already holds a plain skill (SKILL.md) without .claude-plugin/plugin.json — creating the lsp plugin there would stop that skill loading; rename it; nothing written`);
+  }
+  // An existing plugin .lsp.json without a manifest is never loaded; write modes create the manifest.
+  const manifestMissing = plugin.exists && !existsSync(manifest);
+  const base = legacy.exists ? mergeLegacyRoot(plugin.config, legacy.config, legacyLsp, pluginLsp) : plugin.config;
 
   const counts = scanExtensions(root);
-  const { covered, claimedBy } = coverage(lsp.config);
+  const { covered, claimedBy } = coverage(base);
 
   let catalog;
   try {
@@ -287,14 +343,16 @@ function main() {
     return;
   }
 
-  const { proposals, unknown } = buildPlan(counts, covered, lsp.config, catalog);
+  const { proposals, unknown } = buildPlan(counts, covered, base, catalog);
 
   if (mode === "audit") {
     process.stdout.write(
       JSON.stringify(
         {
           root,
-          lspJsonExists: lsp.exists,
+          lspJsonExists: plugin.exists,
+          legacyRootLspJson: legacy.exists,
+          pluginManifestMissing: manifestMissing,
           covered: [...covered].sort(),
           proposals,
           unknown,
@@ -308,26 +366,38 @@ function main() {
   }
 
   const validExt = new Set(mode === "fix" ? proposals.map((p) => p.ext) : applyExts.filter((t) => EXT_TOKEN.test(t) && proposals.some((p) => p.ext === t)));
-  const { result, applied, createdServers, mergedIntoServers, conflictsSkipped } = applyProposals(lsp.config, claimedBy, proposals, validExt, catalog);
+  const { result, applied, createdServers, mergedIntoServers, conflictsSkipped } = applyProposals(base, claimedBy, proposals, validExt, catalog);
 
-  let wrote = false;
-  if (applied.length > 0) {
-    const trailing = !lsp.exists || lsp.raw.endsWith("\n") ? "\n" : "";
-    const p = join(root, ".lsp.json");
-    writeFileSync(p, JSON.stringify(result, null, 2) + trailing);
+  const needsWrite = applied.length > 0 || legacy.exists;
+  if (needsWrite || manifestMissing) {
+    mkdirSync(dirname(manifest), { recursive: true });
+    if (!existsSync(manifest)) writeFileSync(manifest, JSON.stringify(MANIFEST, null, 2) + "\n");
+  }
+  if (needsWrite) {
+    // Order matters: manifest (above) -> .lsp.json -> readback -> delete legacy root (last).
+    const trailing = !plugin.exists || plugin.raw.endsWith("\n") ? "\n" : "";
+    writeFileSync(pluginLsp, JSON.stringify(result, null, 2) + trailing);
     // Readback verification: re-parse and confirm every applied ext resolves.
     let back;
     try {
-      back = JSON.parse(readFileSync(p, "utf8"));
+      back = JSON.parse(readFileSync(pluginLsp, "utf8"));
     } catch (err) {
       fail(`Readback parse failed after write: ${/** @type {any} */ (err).message}`);
       return;
     }
     const backCovered = coverage(back).covered;
-    for (const ext of applied) {
+    // `covered` already holds every pre-existing ext (plugin and legacy root).
+    for (const ext of [...covered, ...applied]) {
       if (!backCovered.has(ext)) fail(`Post-write assertion failed: ${ext} not resolvable after write`);
     }
-    wrote = true;
+    if (legacy.exists) {
+      try {
+        unlinkSync(legacyLsp); // final action: only reached after the verified plugin write
+      } catch (err) {
+        fail(`Wrote ${pluginLsp} but could not delete ${legacyLsp}: ${/** @type {any} */ (err).message} — its config is already in the plugin; delete the root file manually`);
+        return;
+      }
+    }
   }
 
   process.stdout.write(
@@ -338,7 +408,8 @@ function main() {
         createdServers,
         mergedIntoServers,
         conflictsSkipped: [...new Set(conflictsSkipped)],
-        wrote,
+        wrote: needsWrite || manifestMissing,
+        migratedFromRoot: legacy.exists, // every write mode that reaches here has migrated and deleted the root file
       },
       null,
       2,

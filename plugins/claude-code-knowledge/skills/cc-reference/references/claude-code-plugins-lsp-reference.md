@@ -12,16 +12,12 @@
 
 ## Scopes
 
-| Scope          | File location              | Notes                                                                                                                               |
-| -------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Plugin-scoped  | `<plugin-root>/.lsp.json`  | Auto-discovered; `lspServers` in `plugin.json` (`.json` path \| inline map of name to config \| array of either) **merges** with it |
-| Project-scoped | `<project-root>/.lsp.json` | Loaded for all sessions in that project; **not documented in official docs** (observed behavior); same format as plugin-scoped      |
+| Scope         | File location             | Notes                                                                                                              |
+| ------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Plugin-scoped | `<plugin-root>/.lsp.json` | Auto-discovered; override via `lspServers` in `plugin.json` (string \| array \| object — path(s) or inline config) |
 
-Plugin-scoped load order: `.lsp.json` at the plugin root first, then each `lspServers` entry in order. A server name declared later replaces an earlier one.
-
-Project-scoped `.lsp.json` is analogous to project-scoped `.mcp.json` — it requires per-user trust before loading.
-
-For skills-directory plugins installed at project scope (`<cwd>/.claude/skills/`), LSP servers start only after the user accepts the workspace trust dialog. Personal-scope skills-dir plugins have no such restriction.
+- A project-root `.lsp.json` is not loaded by Claude Code — never author one. For project-local LSP config, wrap it in a project-scope skills-directory plugin: `<cwd>/.claude/skills/<name>/.claude-plugin/plugin.json` (`{"name": "<name>"}`) + `<cwd>/.claude/skills/<name>/.lsp.json`. It loads as `<name>@skills-dir`; see `claude-code-plugins-reference.md` "Skills-directory plugins".
+- For skills-directory plugins installed at project scope (`<cwd>/.claude/skills/`), LSP servers start only after the user accepts the workspace trust dialog. Personal-scope skills-dir plugins have no such restriction.
 
 ## Server entry schema
 
@@ -60,7 +56,7 @@ Three path variables are interpolated in LSP server fields within plugin context
 | `${CLAUDE_PLUGIN_DATA}` | Persistent directory that survives plugin updates (`~/.claude/plugins/data/{id}/`) |
 | `${CLAUDE_PROJECT_DIR}` | The project root                                                                   |
 
-All three resolve in `command`, `args`, `env`, and `workspaceFolder`, and are also exported to the server process environment. `${user_config.KEY}` is substituted in LSP server config. Project-root `.lsp.json` has no path variable substitution.
+All three resolve in `command`, `args`, `env`, and `workspaceFolder`.
 
 ## Conflict and failure behavior
 
@@ -82,7 +78,7 @@ Send log output to **stderr, not stdout**. Claude Code reads a server's stdout a
 
 Claude Code disconnects a server that exceeds either limit or writes non-protocol output to stdout, and counts the disconnect as a crash for `restartOnCrash` and `maxRestarts`. With `--debug`, Claude Code writes an error naming the cause to the debug log.
 
-## Example (project-root `.lsp.json`)
+## Example (plugin-scoped `.lsp.json`)
 
 ```json
 {

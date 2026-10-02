@@ -65,6 +65,7 @@ returned markdown, not an HTML fallback page).
 **`claude-code-plugins-lsp-reference.md`** (split from the plugins file — keep in sync when `plugins` is the target)
 
 - LSP servers section only, sourced from the same plugins/plugins-reference docs above. Linked from the plugins file's own "## LSP servers" pointer section.
+- Preserve the curated `## Scopes` directive that a project-root `.lsp.json` is not loaded (a maintainer fact; the official docs document only plugin-scoped `.lsp.json`) — never re-add a project-root scope row.
 
 **`claude-code-plugins-marketplace-reference.md`** (split from the plugins file — keep in sync when `plugins` is the target)
 

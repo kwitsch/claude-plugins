@@ -1239,6 +1239,16 @@ run_audit() { run node "$(audit_script)" "$@"; }
   [ "$status" -eq 0 ]
 }
 
+@test "audit-lsp.reference.md documents the plugin target, legacy migration and new output keys" {
+  local r="$PLUGIN/skills/lsp-audit/scripts/audit-lsp.reference.md"
+  run rg_or_grep -F '.claude/skills/lsp/.lsp.json' "$r"; [ "$status" -eq 0 ]
+  run rg_or_grep -F '.claude-plugin/plugin.json' "$r"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'legacyRootLspJson' "$r"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'migratedFromRoot' "$r"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'pluginManifestMissing' "$r"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'only migrates a legacy root file' "$r"; [ "$status" -eq 0 ]
+}
+
 @test "lsp-map.json is valid JSON with the expected catalog shape" {
   local m="$PLUGIN/skills/lsp-audit/scripts/lsp-map.json"
   run jq empty "$m"
@@ -1250,13 +1260,15 @@ run_audit() { run node "$(audit_script)" "$@"; }
 
 @test "audit mode: reports catalog proposals and unknowns for uncovered exts" {
   local proj="$BATS_TEST_TMPDIR/p_audit"
-  mkdir -p "$proj"
+  local f="$proj/.claude/skills/lsp/.lsp.json"
+  mkdir -p "${f%/*}"
   printf 'x\n' > "$proj/a.py"
   printf 'x\n' > "$proj/b.go"
   printf 'x\n' > "$proj/c.md"
-  printf '{}\n' > "$proj/.lsp.json"
+  printf '{}\n' > "$f"
   run_audit "$proj"
   [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.lspJsonExists == true'
   echo "$output" | jq -e '.proposals | map(select(.ext==".py" and .server=="pylsp")) | length == 1'
   echo "$output" | jq -e '.proposals | map(select(.ext==".go" and .server=="gopls")) | length == 1'
   echo "$output" | jq -e '.unknown   | map(select(.ext==".md")) | length == 1'
@@ -1264,16 +1276,16 @@ run_audit() { run node "$(audit_script)" "$@"; }
 
 @test "--fix: writes pylsp + gopls blocks, no .md server, canonical 2-space+newline output" {
   local proj="$BATS_TEST_TMPDIR/p_fix"
-  mkdir -p "$proj"
+  local f="$proj/.claude/skills/lsp/.lsp.json"
+  mkdir -p "${f%/*}"
   printf 'x\n' > "$proj/a.py"
   printf 'x\n' > "$proj/b.go"
   printf 'x\n' > "$proj/c.md"
-  printf '{}\n' > "$proj/.lsp.json"
+  printf '{}\n' > "$f"
   run_audit "$proj" --fix
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.applied | index(".py") != null'
   echo "$output" | jq -e '.applied | index(".go") != null'
-  local f="$proj/.lsp.json"
   jq -e '.pylsp.extensionToLanguage[".py"] == "python"' "$f"
   jq -e '.gopls.extensionToLanguage[".go"] == "go"' "$f"
   # no server covers .md
@@ -1285,9 +1297,10 @@ run_audit() { run node "$(audit_script)" "$@"; }
 
 @test "--fix merges into an existing server (no duplicate block)" {
   local proj="$BATS_TEST_TMPDIR/p_merge"
-  mkdir -p "$proj"
+  local f="$proj/.claude/skills/lsp/.lsp.json"
+  mkdir -p "${f%/*}"
   printf 'x\n' > "$proj/a.mjs"
-  cat > "$proj/.lsp.json" <<'JSON'
+  cat > "$f" <<'JSON'
 {
   "vtsls": {
     "command": "npx",
@@ -1302,7 +1315,6 @@ JSON
   run_audit "$proj" --fix
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.mergedIntoServers | index("vtsls") != null'
-  local f="$proj/.lsp.json"
   jq -e '.vtsls.extensionToLanguage[".mjs"] == "javascript"' "$f"
   jq -e '.vtsls.extensionToLanguage[".ts"]  == "typescript"' "$f"
   # exactly one vtsls key (no duplicate server block)
@@ -1311,9 +1323,10 @@ JSON
 
 @test "new server block is scoped to only the applied extension, not catalog-family siblings" {
   local proj="$BATS_TEST_TMPDIR/p_scoped"
-  mkdir -p "$proj"
+  local f="$proj/.claude/skills/lsp/.lsp.json"
+  mkdir -p "${f%/*}"
   printf 'x\n' > "$proj/a.css"
-  cat > "$proj/.lsp.json" <<'JSON'
+  cat > "$f" <<'JSON'
 {
   "othercss": {
     "command": "x",
@@ -1329,7 +1342,6 @@ JSON
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.createdServers   | index("cssls") != null'
   echo "$output" | jq -e '.conflictsSkipped == []'
-  local f="$proj/.lsp.json"
   # cssls gets only .css — not .scss/.less, even though the catalog's cssls
   # entry lists them as siblings and the project has neither of those files
   jq -e '.cssls.extensionToLanguage | has(".css") and (has(".scss") | not) and (has(".less") | not)' "$f"
@@ -1339,49 +1351,56 @@ JSON
 
 @test "malformed .lsp.json: exit 1, file byte-for-byte unchanged, nothing written" {
   local proj="$BATS_TEST_TMPDIR/p_bad"
-  mkdir -p "$proj"
+  local f="$proj/.claude/skills/lsp/.lsp.json"
+  mkdir -p "${f%/*}"
   printf 'x\n' > "$proj/a.py"
-  printf '%s' '{ not valid json' > "$proj/.lsp.json"
-  local before; before="$(cat "$proj/.lsp.json")"
+  printf '%s' '{ not valid json' > "$f"
+  local before; before="$(cat "$f")"
   run_audit "$proj" --fix
   [ "$status" -eq 1 ]
-  [ "$(cat "$proj/.lsp.json")" = "$before" ]
+  [ "$(cat "$f")" = "$before" ]
+  [ ! -e "$proj/.claude/skills/lsp/.claude-plugin" ]
 }
 
 @test "no .lsp.json: --fix creates a well-formed fresh file" {
   local proj="$BATS_TEST_TMPDIR/p_fresh"
+  local f="$proj/.claude/skills/lsp/.lsp.json"
+  local m="$proj/.claude/skills/lsp/.claude-plugin/plugin.json"
   mkdir -p "$proj"
   printf 'x\n' > "$proj/a.py"
-  [ ! -f "$proj/.lsp.json" ]
+  [ ! -e "$proj/.claude" ]
   run_audit "$proj" --fix
   [ "$status" -eq 0 ]
-  local f="$proj/.lsp.json"
   [ -f "$f" ]
   jq -e '.pylsp.extensionToLanguage[".py"] == "python"' "$f"
   run node -e 'const fs=require("fs");const t=fs.readFileSync(process.argv[1],"utf8");process.exit(t===JSON.stringify(JSON.parse(t),null,2)+"\n"?0:1)' "$f"
   [ "$status" -eq 0 ]
+  jq -e '.name == "lsp"' "$m"
+  jq -e '.description == "Project LSP server configuration, maintained by claude-code-knowledge:lsp-audit."' "$m"
+  [ ! -e "$proj/.lsp.json" ]
 }
 
 @test "--apply applies only the named extension" {
   local proj="$BATS_TEST_TMPDIR/p_apply"
-  mkdir -p "$proj"
+  local f="$proj/.claude/skills/lsp/.lsp.json"
+  mkdir -p "${f%/*}"
   printf 'x\n' > "$proj/a.py"
   printf 'x\n' > "$proj/b.go"
-  printf '{}\n' > "$proj/.lsp.json"
+  printf '{}\n' > "$f"
   run_audit "$proj" --apply ".py"
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.applied == [".py"]'
-  local f="$proj/.lsp.json"
   jq -e '.pylsp.extensionToLanguage[".py"] == "python"' "$f"
   jq -e 'has("gopls") | not' "$f"
 }
 
 @test "dotfile with only a leading dot is skipped (no extension)" {
   local proj="$BATS_TEST_TMPDIR/p_dotfile"
-  mkdir -p "$proj"
+  local f="$proj/.claude/skills/lsp/.lsp.json"
+  mkdir -p "${f%/*}"
   printf 'x\n' > "$proj/.gitignore"
   printf 'x\n' > "$proj/a.py"
-  printf '{}\n' > "$proj/.lsp.json"
+  printf '{}\n' > "$f"
   run_audit "$proj"
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '[.proposals[].ext, .unknown[].ext] | (index(".gitignore") == null) and (index("gitignore") == null)'
@@ -1389,12 +1408,235 @@ JSON
 
 @test "pruned directories do not contribute extensions" {
   local proj="$BATS_TEST_TMPDIR/p_prune"
-  mkdir -p "$proj/node_modules"
+  local f="$proj/.claude/skills/lsp/.lsp.json"
+  mkdir -p "$proj/node_modules" "${f%/*}"
   printf 'x\n' > "$proj/node_modules/foo.py"
-  printf '{}\n' > "$proj/.lsp.json"
+  printf '{}\n' > "$f"
   run_audit "$proj"
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '[.proposals[].ext] | index(".py") == null'
+}
+
+@test "an existing plugin manifest is never overwritten" {
+  local proj="$BATS_TEST_TMPDIR/p_manifest"
+  local d="$proj/.claude/skills/lsp"
+  mkdir -p "$d/.claude-plugin"
+  printf 'x\n' > "$proj/a.py"
+  printf '{}\n' > "$d/.lsp.json"
+  printf '{"name":"lsp","description":"custom"}' > "$d/.claude-plugin/plugin.json"
+  cp "$d/.claude-plugin/plugin.json" "$BATS_TEST_TMPDIR/manifest.before"
+  run_audit "$proj" --fix
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.wrote == true'
+  jq -e '.pylsp.extensionToLanguage[".py"] == "python"' "$d/.lsp.json"
+  cmp "$BATS_TEST_TMPDIR/manifest.before" "$d/.claude-plugin/plugin.json"
+}
+
+@test "a plugin .lsp.json without a manifest is reported and repaired without rewriting the .lsp.json" {
+  local proj="$BATS_TEST_TMPDIR/p_repair"
+  local d="$proj/.claude/skills/lsp"
+  mkdir -p "$d"
+  printf 'x\n' > "$proj/a.py"
+  printf '{ "keep":   {"command":"x","extensionToLanguage":{".zz":"zz"}} }\n' > "$d/.lsp.json"
+  cp "$d/.lsp.json" "$BATS_TEST_TMPDIR/lsp.before"
+  run_audit "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.pluginManifestMissing == true'
+  [ ! -e "$d/.claude-plugin" ]
+  run_audit "$proj" --apply ""
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.wrote == true and .applied == [] and .migratedFromRoot == false'
+  jq -e '.name == "lsp"' "$d/.claude-plugin/plugin.json"
+  cmp "$BATS_TEST_TMPDIR/lsp.before" "$d/.lsp.json"
+  run_audit "$proj"
+  echo "$output" | jq -e '.pluginManifestMissing == false'
+}
+
+@test "a plain skill at .claude/skills/lsp fails closed in every mode and is left untouched" {
+  local proj="$BATS_TEST_TMPDIR/p_plainskill"
+  local d="$proj/.claude/skills/lsp"
+  mkdir -p "$d"
+  printf 'x\n' > "$proj/a.py"
+  printf -- '---\nname: lsp\n---\n' > "$d/SKILL.md"
+  printf '{}\n' > "$d/.lsp.json"
+  for mode in "" "--fix"; do
+    run_audit "$proj" $mode
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"plain skill"* ]]
+  done
+  [ ! -e "$d/.claude-plugin" ]
+  [ "$(cat "$d/.lsp.json")" = "{}" ]
+}
+
+@test "--fix migrates a root .lsp.json into the lsp plugin and removes it" {
+  local proj="$BATS_TEST_TMPDIR/p_mig"
+  mkdir -p "$proj"
+  printf 'x\n' > "$proj/a.ts"
+  printf 'x\n' > "$proj/a.py"
+  cat > "$proj/.lsp.json" <<'JSON'
+{
+  "vtsls": {
+    "command": "npx",
+    "args": ["-y", "@vtsls/language-server@0.3.0", "--stdio"],
+    "extensionToLanguage": {
+      ".ts": "typescript"
+    },
+    "startupTimeout": 60000
+  }
+}
+JSON
+  run_audit "$proj" --fix
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.migratedFromRoot == true'
+  echo "$output" | jq -e '.wrote == true'
+  [ ! -e "$proj/.lsp.json" ]
+  local f="$proj/.claude/skills/lsp/.lsp.json"
+  jq -e '.vtsls.extensionToLanguage[".ts"] == "typescript"' "$f"
+  jq -e '.pylsp.extensionToLanguage[".py"] == "python"' "$f"
+  jq -e '.name == "lsp"' "$proj/.claude/skills/lsp/.claude-plugin/plugin.json"
+}
+
+@test "--fix with nothing to add still migrates the root file byte-identically" {
+  local proj="$BATS_TEST_TMPDIR/p_mig_same"
+  mkdir -p "$proj"
+  printf 'x\n' > "$proj/a.py"
+  node -e 'const c={pylsp:{command:"pylsp",args:[],extensionToLanguage:{".py":"python"},startupTimeout:60000},jsonls:{command:"vscode-json-languageserver",args:["--stdio"],extensionToLanguage:{".json":"json"},startupTimeout:60000}};process.stdout.write(JSON.stringify(c,null,2)+"\n")' > "$proj/.lsp.json"
+  cp "$proj/.lsp.json" "$BATS_TEST_TMPDIR/root.same.before"
+  run_audit "$proj" --fix
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.applied == []'
+  echo "$output" | jq -e '.migratedFromRoot == true'
+  [ ! -e "$proj/.lsp.json" ]
+  cmp "$BATS_TEST_TMPDIR/root.same.before" "$proj/.claude/skills/lsp/.lsp.json"
+}
+
+@test "audit mode with a root .lsp.json is read-only and reports legacyRootLspJson" {
+  local proj="$BATS_TEST_TMPDIR/p_mig_audit"
+  mkdir -p "$proj"
+  printf 'x\n' > "$proj/a.py"
+  cat > "$proj/.lsp.json" <<'JSON'
+{ "pylsp": { "command": "pylsp", "args": [], "extensionToLanguage": { ".py": "python" }, "startupTimeout": 60000 } }
+JSON
+  cp "$proj/.lsp.json" "$BATS_TEST_TMPDIR/root.audit.before"
+  run_audit "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.legacyRootLspJson == true'
+  echo "$output" | jq -e '.lspJsonExists == false'
+  echo "$output" | jq -e '[.proposals[].ext] | index(".py") == null'
+  cmp "$BATS_TEST_TMPDIR/root.audit.before" "$proj/.lsp.json"
+  [ ! -e "$proj/.claude/skills/lsp" ]
+}
+
+@test "a malformed root .lsp.json fails closed: nothing written, root untouched" {
+  local proj="$BATS_TEST_TMPDIR/p_mig_bad"
+  mkdir -p "$proj"
+  printf 'x\n' > "$proj/a.py"
+  printf '%s' '{ not valid json' > "$proj/.lsp.json"
+  cp "$proj/.lsp.json" "$BATS_TEST_TMPDIR/root.bad.before"
+  run_audit "$proj" --fix
+  [ "$status" -eq 1 ]
+  cmp "$BATS_TEST_TMPDIR/root.bad.before" "$proj/.lsp.json"
+  [ ! -e "$proj/.claude/skills/lsp" ]
+}
+
+@test "a shared server id with differing blocks fails closed, both files unchanged" {
+  local proj="$BATS_TEST_TMPDIR/p_mig_conflict"
+  local d="$proj/.claude/skills/lsp"
+  mkdir -p "$d"
+  printf 'x\n' > "$proj/a.ts"
+  printf '%s\n' '{"vtsls":{"command":"npx","args":["-y","@vtsls/language-server@0.3.0","--stdio"],"extensionToLanguage":{".ts":"typescript"},"startupTimeout":60000}}' > "$proj/.lsp.json"
+  printf '%s\n' '{"vtsls":{"command":"npx","args":["-y","@vtsls/language-server@0.3.0","--stdio"],"extensionToLanguage":{".mjs":"javascript"},"startupTimeout":60000}}' > "$d/.lsp.json"
+  cp "$proj/.lsp.json" "$BATS_TEST_TMPDIR/root.conflict.before"
+  cp "$d/.lsp.json" "$BATS_TEST_TMPDIR/plugin.conflict.before"
+  run_audit "$proj" --fix
+  [ "$status" -eq 1 ]
+  cmp "$BATS_TEST_TMPDIR/root.conflict.before" "$proj/.lsp.json"
+  cmp "$BATS_TEST_TMPDIR/plugin.conflict.before" "$d/.lsp.json"
+}
+
+@test "--apply with an empty list only migrates the root .lsp.json" {
+  local proj="$BATS_TEST_TMPDIR/p_mig_only"
+  mkdir -p "$proj"
+  printf 'x\n' > "$proj/a.py"
+  printf 'x\n' > "$proj/b.go"
+  cat > "$proj/.lsp.json" <<'JSON'
+{ "pylsp": { "command": "pylsp", "args": [], "extensionToLanguage": { ".py": "python" }, "startupTimeout": 60000 } }
+JSON
+  run_audit "$proj" --apply ""
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.applied == []'
+  echo "$output" | jq -e '.migratedFromRoot == true'
+  [ ! -e "$proj/.lsp.json" ]
+  local f="$proj/.claude/skills/lsp/.lsp.json"
+  jq -e '.pylsp.extensionToLanguage[".py"] == "python"' "$f"
+  jq -e 'has("gopls") | not' "$f"
+}
+
+@test "a root that is itself a plugin keeps its own .lsp.json (not legacy, never deleted)" {
+  local proj="$BATS_TEST_TMPDIR/p_plugin_root"
+  mkdir -p "$proj/.claude-plugin"
+  printf '{"name":"x"}\n' > "$proj/.claude-plugin/plugin.json"
+  printf 'x\n' > "$proj/a.py"
+  cat > "$proj/.lsp.json" <<'JSON'
+{ "pylsp": { "command": "pylsp", "args": [], "extensionToLanguage": { ".py": "python" }, "startupTimeout": 60000 } }
+JSON
+  cp "$proj/.lsp.json" "$BATS_TEST_TMPDIR/root.pluginroot.before"
+  run_audit "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.legacyRootLspJson == false'
+  run_audit "$proj" --fix
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.migratedFromRoot == false'
+  cmp "$BATS_TEST_TMPDIR/root.pluginroot.before" "$proj/.lsp.json"
+}
+
+@test "a shared server id differing only in key order is not a conflict" {
+  local proj="$BATS_TEST_TMPDIR/p_mig_order"
+  local d="$proj/.claude/skills/lsp"
+  mkdir -p "$d"
+  printf 'x\n' > "$proj/a.ts"
+  printf '%s\n' '{"vtsls":{"command":"npx","args":["-y","@vtsls/language-server@0.3.0","--stdio"],"extensionToLanguage":{".ts":"typescript"},"startupTimeout":60000}}' > "$proj/.lsp.json"
+  printf '%s\n' '{"vtsls":{"startupTimeout":60000,"extensionToLanguage":{".ts":"typescript"},"args":["-y","@vtsls/language-server@0.3.0","--stdio"],"command":"npx"}}' > "$d/.lsp.json"
+  run_audit "$proj" --fix
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.migratedFromRoot == true'
+  [ ! -e "$proj/.lsp.json" ]
+  jq -e '.vtsls.extensionToLanguage[".ts"] == "typescript"' "$d/.lsp.json"
+}
+
+@test "a failing root-file delete exits 1 with a clean diagnostic, plugin files kept" {
+  [ "$(id -u)" -ne 0 ] || skip "root ignores directory permissions"
+  local proj="$BATS_TEST_TMPDIR/p_unlink_fail"
+  local d="$proj/.claude/skills/lsp"
+  mkdir -p "$d/.claude-plugin"
+  printf 'x\n' > "$proj/a.py"
+  printf '{}\n' > "$d/.lsp.json"
+  printf '{"name":"lsp"}\n' > "$d/.claude-plugin/plugin.json"
+  cat > "$proj/.lsp.json" <<'JSON'
+{ "pylsp": { "command": "pylsp", "args": [], "extensionToLanguage": { ".py": "python" }, "startupTimeout": 60000 } }
+JSON
+  chmod 555 "$proj"
+  run_audit "$proj" --fix
+  chmod 755 "$proj"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"could not delete"* ]]
+  [[ "$output" != *"at Object."* ]]
+  jq -e '.pylsp.extensionToLanguage[".py"] == "python"' "$d/.lsp.json"
+}
+
+@test "a plugin .lsp.json symlinked to the root file fails closed, root file kept" {
+  local proj="$BATS_TEST_TMPDIR/p_symlink"
+  local d="$proj/.claude/skills/lsp"
+  mkdir -p "$d"
+  printf 'x\n' > "$proj/a.py"
+  cat > "$proj/.lsp.json" <<'JSON'
+{ "pylsp": { "command": "pylsp", "args": [], "extensionToLanguage": { ".py": "python" }, "startupTimeout": 60000 } }
+JSON
+  cp "$proj/.lsp.json" "$BATS_TEST_TMPDIR/root.symlink.before"
+  ln -s ../../../.lsp.json "$d/.lsp.json"
+  run_audit "$proj" --fix
+  [ "$status" -eq 1 ]
+  cmp "$BATS_TEST_TMPDIR/root.symlink.before" "$proj/.lsp.json"
 }
 
 # --- lsp-audit orchestrator skill ---
@@ -1457,12 +1699,43 @@ JSON
   [ "$status" -eq 0 ]
 }
 
+@test "lsp-audit SKILL.md targets the project-scope lsp plugin path" {
+  run rg_or_grep -F '.claude/skills/lsp' "$PLUGIN/skills/lsp-audit/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "lsp-audit SKILL.md gates the legacy root migration on legacyRootLspJson" {
+  local f="$PLUGIN/skills/lsp-audit/SKILL.md"
+  run rg_or_grep -F 'legacyRootLspJson' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'migratedFromRoot' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'pluginManifestMissing' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'apply ""' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'lsp@skills-dir' "$f"; [ "$status" -eq 0 ]
+}
+
 # --- lsp-audit doc/manifest sync ---
 
 @test "plugin.json version was bumped for lsp-audit (minor, off 1.7.11)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
   [ "$output" != "1.7.11" ]
+}
+
+@test "plugin.json version was bumped for lsp-audit plugin target (minor, off 1.9.0)" {
+  run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
+  [ "$output" != "1.9.0" ]
+}
+
+@test "lsp-audit docs and manifest describe the project-scope lsp plugin target" {
+  run rg_or_grep -F '.claude/skills/lsp' "$PLUGIN/CLAUDE.md"; [ "$status" -eq 0 ]
+  run rg_or_grep -F '.claude/skills/lsp' "$PLUGIN/README.md"; [ "$status" -eq 0 ]
+  run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *".claude/skills/lsp/"* ]]
+  [[ "$output" == *"lsp-audit"* ]]
+  [[ "$output" == *"repository-audit"* ]]
+  [[ "$output" == *"(CC docs read: "* ]]
 }
 
 @test "plugin.json description mentions lsp-audit" {
@@ -1485,6 +1758,27 @@ JSON
   run rg_or_grep -F 'claude-code-knowledge](plugins/claude-code-knowledge/README.md)' "$REPO_ROOT/README.md"
   [ "$status" -eq 0 ]
   [[ "$output" == *"lsp-audit"* ]]
+}
+
+# --- cc-reference LSP docs: no project-root scope ---
+
+@test "LSP reference documents no project-root scope and keeps one not-loaded directive" {
+  local f="$REFS/claude-code-plugins-lsp-reference.md"
+  run rg_or_grep -F 'Project-scoped' "$f"; [ "$status" -ne 0 ]
+  run rg_or_grep -F 'has no path variable substitution' "$f"; [ "$status" -ne 0 ]
+  run rg_or_grep -F 'is not loaded by Claude Code' "$f"; [ "$status" -eq 0 ]
+}
+
+@test "cc-reference SKILL.md LSP index carries no project-root scope or example" {
+  run rg_or_grep -F 'project-scoped (undocumented' "$SKILL/SKILL.md"; [ "$status" -ne 0 ]
+  run rg_or_grep -F 'Example (project-root' "$SKILL/SKILL.md"; [ "$status" -ne 0 ]
+  run rg_or_grep -F 'Example (plugin-scoped .lsp.json)' "$SKILL/SKILL.md"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'project-root .lsp.json not loaded' "$SKILL/SKILL.md"; [ "$status" -eq 0 ]
+}
+
+@test "update-cc-references preserves the LSP not-loaded directive" {
+  run rg_or_grep -F 'project-root `.lsp.json` is not loaded' "$MAINT"
+  [ "$status" -eq 0 ]
 }
 
 # --- repository-audit orchestrator skill ---
