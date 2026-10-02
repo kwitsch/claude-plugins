@@ -1,6 +1,6 @@
 # Claude Code mcp_tool hooks reference
 
-<!-- verified 2026-09-14 · CURATED: doc-derived + hard-won gotchas. The server-name
+<!-- verified 2026-10-02 · CURATED: doc-derived + hard-won gotchas. The server-name
      namespacing rule below is now documented (code.claude.com/docs/en/hooks §MCP tool
      hook fields; code.claude.com/docs/en/mcp §Plugin-provided MCP servers) — preserve
      it on any refresh regardless; never regenerate this file wholesale. -->
@@ -24,8 +24,9 @@ covers the `mcp_tool` vs `command` split; for `http`/`prompt`/`agent` see
 | Must hard-deny an MCP server elicitation (`Elicitation` exit-2 = deny; `ElicitationResult` exit-2 = block/decline)                                                   | command — `mcp_tool` can only soft-deny via returned JSON                                          |
 | Must-fire side-effect (snapshot, state-write other hooks read)                                                                                                       | command — `mcp_tool` silently no-ops when the server is down                                       |
 
-`mcp_tool` requires an **already-connected** server; the hook never triggers a
-connection flow. `SessionStart` and `Setup` do accept `mcp_tool` hooks, but Claude
+`mcp_tool` needs a **connected** server at call time; the hook never starts an
+OAuth flow (authenticate the server from `/mcp` first). `SessionStart` and `Setup`
+do accept `mcp_tool` hooks, but Claude
 Code **skips them outright** (never calls the tool) whenever servers aren't yet
 available:
 
@@ -39,6 +40,15 @@ event (no MCP client context)` in the debug log.
 
 For anything a session needs from its first turn, use a `command` hook on
 `SessionStart`/`Setup` instead — it runs at launch regardless.
+
+**Server still connecting** (any other event):
+
+- Events where a hook can block or change the result (e.g. `PreToolUse`, `Stop`):
+  Claude Code waits for the connecting server before calling the tool — at most
+  `MCP_TIMEOUT` and within the hook's own `timeout`.
+- Observational events (e.g. `Notification`, `SessionEnd`): no wait.
+- A server in `cached` status (shown in `/mcp`) connects when the hook calls its tool.
+- Still not connected at call time → non-blocking error, execution continues.
 
 **Fail-open is two-fold:** a _non-blocking error_ (execution continues regardless)
 occurs both when the named server is **not connected** AND when the tool returns
@@ -54,10 +64,16 @@ a valid hook-decision JSON (see _Output contract_), never `isError`.
 | `tool`   | yes      | Tool to call on that server                                                                                                                                                                                       |
 | `input`  | no       | Arguments object; string values support `${path}` substitution from the hook JSON (e.g. `${tool_input.file_path}`, `${session_id}`, `${cwd}`). Omit → the tool receives the full hook event JSON as its arguments |
 
-Common fields apply (`if`, `statusMessage`, and `timeout`). Default `timeout` is 600 s
-for most events; `UserPromptSubmit`, `PreModelSwitch`, and `PostModelSwitch` lower the
-default to 30 s; `MessageDisplay` lowers it to 10 s. Set the field explicitly when you
-need a different value.
+Common fields apply (`if`, `statusMessage`, and `timeout`). `if` is evaluated only on
+`PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest`, and
+`PermissionDenied`; on any other event a hook with `if` set never runs. Default
+`timeout` is 600 s for most events; `UserPromptSubmit`, `PreModelSwitch`, and
+`PostModelSwitch` lower the default to 30 s; `MessageDisplay` lowers it to 10 s. Set the
+field explicitly when you need a different value.
+
+A hook that reaches `timeout` is canceled and its output discarded. On `PreToolUse` the
+tool call then continues through the normal permission flow — a stalled `mcp_tool` hook
+is not a gate. On `PreModelSwitch` a timeout blocks the model switch.
 
 ## Server name — the namespacing rule (gotcha)
 
@@ -77,7 +93,8 @@ necessarily the key you wrote in config.
 Hook-tool _matchers_ (a different surface) use the sanitized tool name
 `mcp__plugin_<plugin>_<server-key>__<tool>` (chars outside `[A-Za-z0-9_-]` → `_`;
 hyphens preserved, e.g. `mcp__plugin_my-plugin_database-tools__query`); the `server`
-field uses the colon-form connected name.
+field uses the colon-form connected name. A matcher written against the bare server key
+(e.g. `mcp__database-tools__.*`) never fires for a plugin-bundled server.
 
 ## Output contract
 
@@ -92,6 +109,12 @@ emit exit code 2.
   identically (full-replace before the tool runs).
 - Self-contained servers should return both `content:[{type:"text",text:JSON}]`
   (the parsed surface) and `structuredContent` (the same object).
+- Parse rule (same as command-hook stdout on exit 0): text that starts with `{` and ends
+  with `}` is parsed as JSON; JSON-shaped text that fails to parse or fails schema
+  validation is a non-blocking error (version >= 2.1.248; earlier versions treated it as
+  plain text); any other text is plain text, added as context only on
+  `UserPromptSubmit`, `UserPromptExpansion`, `SessionStart`, and `PostModelSwitch`
+  (debug log only elsewhere).
 - Soft-block only: on block-capable events it can return `permissionDecision:"deny"`
   / `decision:"block"`, but if the server is down it **fails open** (no block).
 
@@ -118,8 +141,10 @@ plugins/<name>/
   form does not match a plugin-bundled server.
 - `agent` hook type added (5th type alongside `command`, `http`, `mcp_tool`, `prompt`);
   spawns an agentic verifier with tool access. Supported on the same events as
-  `prompt` (see support-matrix in `claude-code-hooks-reference.md`).
-  Not supported on `SessionStart`, `Setup`, `MessageDisplay`, or other async-only events.
+  `prompt` except `PermissionRequest`, where an `agent` hook is skipped and the
+  permission flow proceeds unchanged (see support-matrix in `claude-code-hooks-reference.md`).
+  Not supported on `SessionStart`, `Setup`, `MessageDisplay`, or any event the docs list
+  as `command`/`http`/`mcp_tool`-only (e.g. `Notification`, `SessionEnd`, `PreCompact`).
 - `Elicitation` and `ElicitationResult` events added: fire during MCP server elicitation
   flows. `mcp_tool` hooks can fire on both and soft-deny via returned JSON. Command hooks
   with exit 2 hard-deny: `Elicitation` exit-2 = deny the elicitation; `ElicitationResult`

@@ -1,7 +1,7 @@
 # Claude Code Plugins — LSP Servers Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (Plugins reference — LSP servers section), verified 2026-08-18.
+> (Plugins reference — LSP servers section), verified 2026-10-02.
 > Split out of claude-code-plugins-reference.md to keep that file under its line budget;
 > linked from that file's "## LSP servers" pointer.
 
@@ -12,10 +12,12 @@
 
 ## Scopes
 
-| Scope          | File location              | Notes                                                                                                                          |
-| -------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Plugin-scoped  | `<plugin-root>/.lsp.json`  | Auto-discovered; override via `lspServers` in `plugin.json` (string \| array \| object — path(s) or inline config)             |
-| Project-scoped | `<project-root>/.lsp.json` | Loaded for all sessions in that project; **not documented in official docs** (observed behavior); same format as plugin-scoped |
+| Scope          | File location              | Notes                                                                                                                               |
+| -------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Plugin-scoped  | `<plugin-root>/.lsp.json`  | Auto-discovered; `lspServers` in `plugin.json` (`.json` path \| inline map of name to config \| array of either) **merges** with it |
+| Project-scoped | `<project-root>/.lsp.json` | Loaded for all sessions in that project; **not documented in official docs** (observed behavior); same format as plugin-scoped      |
+
+Plugin-scoped load order: `.lsp.json` at the plugin root first, then each `lspServers` entry in order. A server name declared later replaces an earlier one.
 
 Project-scoped `.lsp.json` is analogous to project-scoped `.mcp.json` — it requires per-user trust before loading.
 
@@ -23,30 +25,30 @@ For skills-directory plugins installed at project scope (`<cwd>/.claude/skills/`
 
 ## Server entry schema
 
-Top-level keys are arbitrary server identifiers. Each value is a server config object.
+Top-level keys are arbitrary server identifiers. Each value is a server config object. Each config is a **strict object**: an unknown key is an error, fails `claude plugin validate`, and the plugin does not load.
 
 ### Required fields
 
-| Field                 | Description                                                                                           |
-| --------------------- | ----------------------------------------------------------------------------------------------------- |
-| `command`             | The LSP binary to execute (must be in `PATH`); `${CLAUDE_PLUGIN_ROOT}` interpolated in plugin context |
-| `extensionToLanguage` | Maps file extensions (e.g. `.ts`) to LSP language identifiers (e.g. `typescript`)                     |
+| Field                 | Description                                                                                                                                                                 |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `command`             | The LSP binary to execute (must be in `PATH`); no spaces unless the value starts with `/` — put arguments in `args`; `${CLAUDE_PLUGIN_ROOT}` interpolated in plugin context |
+| `extensionToLanguage` | Maps file extensions (e.g. `.ts`) to LSP language identifiers (e.g. `typescript`); at least one entry; keys start with a dot                                                |
 
 ### Optional fields
 
-| Field                   | Description                                                                                                                                                          |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `args`                  | Command-line arguments for the LSP server                                                                                                                            |
-| `transport`             | Communication transport: `stdio` (default) or `socket`. Claude Code accepts `socket` but runs every server over stdio, so stdout protocol rules apply to all servers |
-| `env`                   | Environment variables to set when starting the server                                                                                                                |
-| `initializationOptions` | Options passed to the server during initialization                                                                                                                   |
-| `settings`              | Settings passed via `workspace/didChangeConfiguration`                                                                                                               |
-| `workspaceFolder`       | Workspace folder path for the server                                                                                                                                 |
-| `startupTimeout`        | Max time to wait for server startup (ms)                                                                                                                             |
-| `shutdownTimeout`       | Max time to wait for graceful shutdown (ms). When timeout elapses, Claude Code terminates the process. When unset, no timeout applies. Requires v2.1.205+            |
-| `restartOnCrash`        | Whether to restart the server after a crash. Defaults to `true`. Set `false` to leave a crashed server stopped. Requires v2.1.205+                                   |
-| `maxRestarts`           | Maximum number of restart attempts before giving up                                                                                                                  |
-| `diagnostics`           | Whether to push diagnostics into Claude's context after edits (default `true`); set `false` to keep code navigation but suppress automatic diagnostic injection      |
+| Field                   | Description                                                                                                                                                                 |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `args`                  | Command-line arguments for the LSP server                                                                                                                                   |
+| `transport`             | Communication transport: `stdio` (default) or `socket`. Claude Code accepts `socket` but runs every server over stdio, so stdout protocol rules apply to all servers        |
+| `env`                   | Environment variables to set when starting the server                                                                                                                       |
+| `initializationOptions` | Options passed to the server during initialization                                                                                                                          |
+| `settings`              | Settings passed via `workspace/didChangeConfiguration`                                                                                                                      |
+| `workspaceFolder`       | Workspace folder path for the server                                                                                                                                        |
+| `startupTimeout`        | Max time to wait for server startup (ms, positive integer)                                                                                                                  |
+| `shutdownTimeout`       | Max time to wait for graceful shutdown (ms, positive integer). When timeout elapses, Claude Code terminates the process. When unset, no timeout applies. Requires v2.1.205+ |
+| `restartOnCrash`        | Whether to restart the server after a crash. Defaults to `true`. Set `false` to leave a crashed server stopped. Requires v2.1.205+                                          |
+| `maxRestarts`           | Maximum number of restart attempts before giving up (zero or more)                                                                                                          |
+| `diagnostics`           | Whether to push diagnostics into Claude's context after edits (default `true`); set `false` to keep code navigation but suppress automatic diagnostic injection             |
 
 **Version note**: `shutdownTimeout` and `restartOnCrash` require v2.1.205+. Before v2.1.205, the schema accepted both fields but setting either caused Claude Code to skip that LSP server entirely at startup — reason visible only in `claude --debug` output.
 
@@ -58,13 +60,18 @@ Three path variables are interpolated in LSP server fields within plugin context
 | `${CLAUDE_PLUGIN_DATA}` | Persistent directory that survives plugin updates (`~/.claude/plugins/data/{id}/`) |
 | `${CLAUDE_PROJECT_DIR}` | The project root                                                                   |
 
-All three resolve in `command`, `args`, `env`, and `workspaceFolder`. Project-root `.lsp.json` has no path variable substitution.
+All three resolve in `command`, `args`, `env`, and `workspaceFolder`, and are also exported to the server process environment. `${user_config.KEY}` is substituted in LSP server config. Project-root `.lsp.json` has no path variable substitution.
 
 ## Conflict and failure behavior
 
 **Multiple servers for the same extension**: when more than one enabled LSP server declares the same file extension in `extensionToLanguage` (from one plugin or different plugins), the first server registered handles that extension and the others never start. The `/plugin` interface shows a warning naming the active plugin's server.
 
 **Servers that fail to initialize**: Claude Code skips a server whose configuration is invalid (e.g. missing `command` or `extensionToLanguage`); other configured servers still start. Run `claude --debug` to see why a server was skipped. A skipped server does not claim its file extensions, so another valid server declaring the same extension (same or different plugin) still handles those files.
+
+## Path validation
+
+- Every `lspServers` path must resolve inside the plugin root and must exist. A path that escapes the root (usually via `..`) or does not exist does not load; the `/plugin` Errors tab shows `<component> path escapes plugin directory: <path>` or `<component> path not found: <path>`.
+- `claude plugin validate` checking `lspServers` paths (also `outputStyles`, `monitors`, `themes`) requires v2.1.283+.
 
 ## Stdout/stderr requirement
 
