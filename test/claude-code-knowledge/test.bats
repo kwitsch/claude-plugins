@@ -2211,6 +2211,20 @@ detect_fixture() {
   echo "$output" | jq -e '[.tools[].id] == ["python3"]'
 }
 
+@test "detection: LSP server commands in the lsp plugin's .lsp.json (.claude/skills/lsp/) count" {
+  local proj="$BATS_TEST_TMPDIR/p_lspplugin"
+  mkdir -p "$proj/.claude/skills/lsp"
+  printf '%s\n' '{"go":{"command":"gopls"},"py":{"command":"pylsp"}}' > "$proj/.claude/skills/lsp/.lsp.json"
+  run_detect "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '[.tools[].id] == ["gopls","pylsp"]'
+  echo "$output" | jq -e '(.tools[] | select(.id=="gopls") | .evidence) == [".claude/skills/lsp/.lsp.json: gopls"]'
+  printf '%s' '{ not valid' > "$proj/.claude/skills/lsp/.lsp.json"
+  run_detect "$proj"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Malformed"*".lsp.json"* ]]
+}
+
 @test "detection: an empty project reports nothing, in the canonical JSON format" {
   local proj="$BATS_TEST_TMPDIR/p_empty"
   mkdir -p "$proj"

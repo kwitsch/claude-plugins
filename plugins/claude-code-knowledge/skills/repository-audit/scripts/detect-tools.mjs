@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Detect the development tools (runtimes, package managers, LSP servers) a
 // project uses, from catalog signal-file basenames anywhere in the pruned tree
-// and from the bare command names in the project-root .lsp.json / .mcp.json,
+// and from the bare command names in the project-root .mcp.json and .lsp.json
+// (legacy) and the .lsp.json of the project's lsp plugin (.claude/skills/lsp/,
+// where lsp-audit writes the LSP servers),
 // against the bundled tool-map.json catalog. Zero-dep. Audit mode is
 // read-only; --write renders the bundled init-dev-environment templates into
 // <root>/.claude/skills/init-dev-environment/ atomically, only when that
@@ -115,9 +117,11 @@ function readJsonObject(path) {
 }
 
 /**
- * Bare command names from the project-root .lsp.json (every server block's
- * `command`) and .mcp.json (every `mcpServers.*.command`). Root only; entries
- * without a string `command` (e.g. http/sse servers) are skipped.
+ * Bare command names from .lsp.json (every server block's `command`) at the
+ * project root (legacy) and in the lsp plugin lsp-audit writes
+ * (.claude/skills/lsp/), and from the root .mcp.json (every
+ * `mcpServers.*.command`). Fixed paths, never searched for; entries without a
+ * string `command` (e.g. http/sse servers) are skipped.
  * @param {string} root
  * @returns {{ command: string, source: string }[]}
  */
@@ -132,8 +136,10 @@ function configCommands(root) {
   const take = (block, source) => {
     if (block && typeof block === "object" && !Array.isArray(block) && typeof block.command === "string") out.push({ command: block.command, source });
   };
-  const lsp = readJsonObject(join(root, ".lsp.json"));
-  if (lsp) for (const block of Object.values(lsp)) take(block, ".lsp.json");
+  for (const source of [".lsp.json", ".claude/skills/lsp/.lsp.json"]) {
+    const lsp = readJsonObject(join(root, source));
+    if (lsp) for (const block of Object.values(lsp)) take(block, source);
+  }
   const mcp = readJsonObject(join(root, ".mcp.json"));
   const servers = mcp ? mcp.mcpServers : null;
   if (servers && typeof servers === "object" && !Array.isArray(servers)) for (const block of Object.values(servers)) take(block, ".mcp.json");
