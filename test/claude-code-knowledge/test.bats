@@ -1832,6 +1832,24 @@ JSON
   [ "$status" -eq 0 ]
 }
 
+@test "repository-audit allowed-tools include Edit and Write for manual-task application" {
+  local f="$PLUGIN/skills/repository-audit/SKILL.md"
+  run rg_or_grep -E '^allowed-tools:.*Edit' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -E '^allowed-tools:.*Write' "$f"; [ "$status" -eq 0 ]
+}
+
+@test "repository-audit offers memory-audit manual tasks via AskUserQuestion, auto-selected under --fix" {
+  local f="$PLUGIN/skills/repository-audit/SKILL.md"
+  run rg_or_grep -F '## 5. Offer memory-audit' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -F '`$FIX` set' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'multiSelect: true' "$f"; [ "$status" -eq 0 ]
+}
+
+@test "memory-audit report lists manual to-dos as id · path · recommendation lines" {
+  run rg_or_grep -F '<id> · <path> · <recommendation>' "$PLUGIN/skills/memory-audit/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
 @test "repository-audit invokes both nested audits by qualified name" {
   local f="$PLUGIN/skills/repository-audit/SKILL.md"
   run rg_or_grep -F 'claude-code-knowledge:lsp-audit' "$f"; [ "$status" -eq 0 ]
@@ -1844,6 +1862,12 @@ JSON
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
   [ "$output" != "1.8.3" ]
+}
+
+@test "plugin.json version was bumped for repository-audit manual-task selection (minor, off 1.10.0)" {
+  run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
+  [ "$output" != "1.10.0" ]
 }
 
 @test "plugin.json description mentions repository-audit" {
