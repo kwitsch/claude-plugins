@@ -245,6 +245,28 @@ EOF
   grep -q "^$PROJ add left-pad@\^2.0.0\$" "$CALLLOG"
 }
 
+@test "pnpm-lock.yaml and package-lock.json both present -> pnpm wins, npm never invoked" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  make_npm_stub 0 "ok"
+  make_pnpm_stub 0 "ok"
+  PROJ="$BATS_TEST_TMPDIR/proj-both"; mkdir -p "$PROJ"
+  : > "$PROJ/package-lock.json"; : > "$PROJ/pnpm-lock.yaml"
+  cat > "$PROJ/package.json" <<'EOF'
+{
+  "name": "x",
+  "version": "1.0.0",
+  "dependencies": {
+    "left-pad": "^2.0.0"
+  }
+}
+EOF
+  run edit_hook "true" "$PROJ/package.json" '"left-pad": "^1.0.0"' '"left-pad": "^2.0.0"'
+  assert_success
+  [ -z "$output" ]
+  grep -q "^$PROJ add left-pad@\^2.0.0\$" "$CALLLOG"
+  ! grep -q "^$PROJ install" "$CALLLOG"
+}
+
 @test "a pnpm-lock.yaml directory falls back to bare pnpm install (not npm) on Write" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   make_pnpm_stub 0 "ok"
