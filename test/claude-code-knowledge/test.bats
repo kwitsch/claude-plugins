@@ -1840,7 +1840,7 @@ JSON
 
 @test "repository-audit offers memory-audit manual tasks via AskUserQuestion, auto-selected under --fix" {
   local f="$PLUGIN/skills/repository-audit/SKILL.md"
-  run rg_or_grep -F '## 5. Offer memory-audit' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -F "### Offer memory-audit" "$f"; [ "$status" -eq 0 ]
   run rg_or_grep -F '`$FIX` set' "$f"; [ "$status" -eq 0 ]
   run rg_or_grep -F 'multiSelect: true' "$f"; [ "$status" -eq 0 ]
 }
@@ -1890,4 +1890,517 @@ JSON
   run rg_or_grep -F 'claude-code-knowledge](plugins/claude-code-knowledge/README.md)' "$REPO_ROOT/README.md"
   [ "$status" -eq 0 ]
   [[ "$output" == *"repository-audit"* ]]
+}
+
+# --- init-dev-environment template (templates/init-dev-environment/install.sh) ---
+# Hermetic: install.sh runs under env -i on the MOCKBIN PATH with the isolated
+# HOME and an explicit TMPDIR. No real curl is ever on that PATH, so a recipe
+# that would hit the network fails fast instead. Stub bodies use $TMPDIR and
+# $HOME, never $BATS_TEST_TMPDIR (env -i wipes it from stub processes).
+
+install_sh() { printf '%s' "$PLUGIN/skills/repository-audit/templates/init-dev-environment/install.sh"; }
+
+# run_install_sh <arg>... — run install.sh on the isolated MOCKBIN PATH/HOME/TMPDIR.
+run_install_sh() {
+  run env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" "$MOCKBIN/bash" "$(install_sh)" "$@"
+}
+
+# link_tools <name>... — symlink extra host binaries into MOCKBIN for one test.
+link_tools() {
+  local t src
+  for t in "$@"; do
+    src="$(command -v "$t")" && ln -sf "$src" "$MOCKBIN/$t"
+  done
+}
+
+# rustup_proxy_fixture — like rustup's real ~/.cargo/bin/rust-analyzer proxy,
+# the stub exists without the component and exits 1 until $TMPDIR/ra.component
+# exists; plus a ~/.cargo/bin/cargo stub that exits 0.
+rustup_proxy_fixture() {
+  local cb="$HOME/.cargo/bin"
+  mkdir -p "$cb"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    'if [ ! -e "$TMPDIR/ra.component" ]; then echo "error: Unknown binary rust-analyzer in official toolchain" >&2; exit 1; fi' \
+    'echo "rust-analyzer 1.0.0"' > "$cb/rust-analyzer"
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "$cb/cargo"
+  chmod +x "$cb/rust-analyzer" "$cb/cargo"
+}
+
+@test "install.sh passes bash -n" {
+  run bash -n "$(install_sh)"
+  [ "$status" -eq 0 ]
+}
+
+@test "install.sh never uses sudo or touches shell rc files on a non-comment line" {
+  [ -f "$(install_sh)" ]
+  run bash -c "grep -v '^[[:space:]]*#' \"\$1\" | grep -nE 'sudo|\\.bashrc|\\.bash_profile|\\.zshrc|\\.profile'" _ "$(install_sh)"
+  [ "$status" -ne 0 ]
+}
+
+@test "install.sh --dry-run reports present and missing tools and installs nothing" {
+  run_install_sh --dry-run node pnpm
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"present: node"* ]]
+  [[ "$output" == *"missing: pnpm"* ]]
+  [[ "$output" != *"note:"* ]]
+  [ ! -e "$HOME/.local" ]
+}
+
+@test "install.sh --dry-run notes a present tool reachable only via the dirs it appended to PATH" {
+  mkdir -p "$HOME/.local/bin"
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "$HOME/.local/bin/pnpm"
+  chmod +x "$HOME/.local/bin/pnpm"
+  run_install_sh --dry-run node pnpm
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"present: pnpm"* ]]
+  [[ "$output" == *"note: not on PATH"*" pnpm;"* ]]
+  [[ "$output" != *" node;"* ]]
+}
+
+@test "install.sh honours --dry-run in any argument position and installs nothing" {
+  link_tools mkdir
+  make_stub npm 'echo "$*" >> "$TMPDIR/npm.args"'
+  run_install_sh node pnpm --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"present: node"* ]]
+  [[ "$output" == *"missing: pnpm"* ]]
+  [[ "$output" != *"unknown tool id"* ]]
+  [ ! -e "$BATS_TEST_TMPDIR/npm.args" ]
+  [ ! -e "$HOME/.local" ]
+}
+
+@test "install.sh: an unknown tool id prints FAILED (unknown tool id) and exits 1" {
+  run_install_sh nope
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAILED: nope (unknown tool id)"* ]]
+}
+
+@test "install.sh installs pnpm via npm --prefix ~/.local and prints the PATH note" {
+  link_tools mkdir chmod
+  make_stub npm \
+    'echo "$*" >> "$TMPDIR/npm.args"' \
+    'printf "%s\n" "#!/usr/bin/env bash" > "$HOME/.local/bin/pnpm"' \
+    'chmod +x "$HOME/.local/bin/pnpm"'
+  run_install_sh pnpm
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"present: node"* ]]
+  [[ "$output" == *"installed: pnpm"* ]]
+  [[ "$output" == *"note:"* ]]
+  grep -qxF "install -g --prefix $HOME/.local pnpm" "$BATS_TEST_TMPDIR/npm.args"
+}
+
+@test "install.sh prints FAILED and exits 1 when the pnpm recipe fails" {
+  link_tools mkdir
+  make_stub npm 'exit 1'
+  run_install_sh pnpm
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAILED: pnpm"* ]]
+}
+
+@test "install.sh names npm when node is present without npm and the pnpm recipe cannot run" {
+  link_tools mkdir
+  run_install_sh pnpm
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"present: node"* ]]
+  [[ "$output" == *"npm not found"* ]]
+  [[ "$output" == *"FAILED: pnpm"* ]]
+}
+
+@test "install.sh --dry-run treats a bare rustup rust-analyzer proxy as missing (D21)" {
+  rustup_proxy_fixture
+  run_install_sh --dry-run rust-analyzer
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"missing: rust-analyzer"* ]]
+  [[ "$output" != *"present: rust-analyzer"* ]]
+  [ ! -e "$BATS_TEST_TMPDIR/rustup.args" ]
+}
+
+@test "install.sh adds the rust-analyzer component over the rustup proxy, then dry-run agrees (D21)" {
+  rustup_proxy_fixture
+  printf '%s\n' '#!/usr/bin/env bash' 'echo "$*" >> "$TMPDIR/rustup.args"' ': > "$TMPDIR/ra.component"' > "$HOME/.cargo/bin/rustup"
+  chmod +x "$HOME/.cargo/bin/rustup"
+  link_tools mkdir ln
+  run_install_sh rust-analyzer
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"present: cargo"* ]]
+  [[ "$output" == *"installed: rust-analyzer"* ]]
+  [ "$(cat "$BATS_TEST_TMPDIR/rustup.args")" = "component add rust-analyzer" ]
+  [ -L "$HOME/.local/bin/rust-analyzer" ]
+  [ "$(readlink "$HOME/.local/bin/rust-analyzer")" = "$HOME/.cargo/bin/rust-analyzer" ]
+  run_install_sh --dry-run rust-analyzer
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"present: rust-analyzer"* ]]
+}
+
+@test "install.sh --dry-run treats a rustup cargo proxy without a toolchain as missing" {
+  local cb="$HOME/.cargo/bin"
+  mkdir -p "$cb"
+  printf '%s\n' '#!/usr/bin/env bash' 'echo "error: rustup could not choose a version of cargo to run" >&2' 'exit 1' > "$cb/cargo"
+  chmod +x "$cb/cargo"
+  run_install_sh --dry-run cargo
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"missing: cargo"* ]]
+  [[ "$output" != *"present: cargo"* ]]
+}
+
+@test "install.sh bootstraps rustup before the rust-analyzer component when only a distro cargo exists" {
+  link_tools mkdir mktemp rm
+  make_stub cargo 'exit 0'
+  make_stub curl 'echo "$*" >> "$TMPDIR/curl.args"' 'exit 1'
+  run_install_sh rust-analyzer
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"present: cargo"* ]]
+  [[ "$output" == *"FAILED: rust-analyzer"* ]]
+  grep -qF "https://sh.rustup.rs" "$BATS_TEST_TMPDIR/curl.args"
+}
+
+@test "install.sh runs nothing and links nothing when the rustup download fails" {
+  link_tools mkdir mktemp rm ln sh
+  make_stub curl 'exit 1'
+  run_install_sh cargo
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAILED: cargo"* ]]
+  [ ! -L "$HOME/.local/bin/cargo" ]
+}
+
+@test "install.sh installs uv by running the downloaded script with UV_INSTALL_DIR set" {
+  link_tools mkdir mktemp rm chmod sh
+  printf '%s\n' 'mkdir -p "$UV_INSTALL_DIR"' 'printf "#!/usr/bin/env bash\n" > "$UV_INSTALL_DIR/uv"' 'chmod +x "$UV_INSTALL_DIR/uv"' > "$BATS_TEST_TMPDIR/uv-install.sh"
+  make_stub curl \
+    'echo "$*" >> "$TMPDIR/curl.args"' \
+    'while [ $# -gt 0 ]; do [ "$1" = "-o" ] && out=$2; shift; done' \
+    'cat "$TMPDIR/uv-install.sh" > "$out"'
+  run_install_sh uv
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"installed: uv"* ]]
+  grep -qF "https://astral.sh/uv/install.sh" "$BATS_TEST_TMPDIR/curl.args"
+  [ -x "$HOME/.local/bin/uv" ]
+}
+
+@test "install.sh installs yarn as a corepack shim in ~/.local/bin, not Classic via npm" {
+  link_tools mkdir chmod
+  make_stub npm 'echo "$*" >> "$TMPDIR/npm.args"'
+  make_stub corepack \
+    'echo "$*" >> "$TMPDIR/corepack.args"' \
+    'printf "%s\n" "#!/usr/bin/env bash" > "$HOME/.local/bin/yarn"' \
+    'chmod +x "$HOME/.local/bin/yarn"'
+  run_install_sh yarn
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"installed: yarn"* ]]
+  [ "$(cat "$BATS_TEST_TMPDIR/corepack.args")" = "enable --install-directory $HOME/.local/bin yarn" ]
+  [ ! -e "$BATS_TEST_TMPDIR/npm.args" ]
+}
+
+@test "install.sh fetches corepack through npm when it is missing, then enables the yarn shim" {
+  link_tools mkdir chmod
+  printf '%s\n' '#!/usr/bin/env bash' 'echo "$*" >> "$TMPDIR/corepack.args"' 'printf "#!/usr/bin/env bash\n" > "$HOME/.local/bin/yarn"' 'chmod +x "$HOME/.local/bin/yarn"' > "$BATS_TEST_TMPDIR/corepack.sh"
+  make_stub npm \
+    'echo "$*" >> "$TMPDIR/npm.args"' \
+    'cat "$TMPDIR/corepack.sh" > "$HOME/.local/bin/corepack"' \
+    'chmod +x "$HOME/.local/bin/corepack"'
+  run_install_sh yarn
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"installed: yarn"* ]]
+  [ "$(cat "$BATS_TEST_TMPDIR/npm.args")" = "install -g --prefix $HOME/.local corepack" ]
+  [ "$(cat "$BATS_TEST_TMPDIR/corepack.args")" = "enable --install-directory $HOME/.local/bin yarn" ]
+}
+
+@test "install.sh node honours a numeric .nvmrc pin, falls back to the newest LTS, and fails on an unmatched pin" {
+  local proj="$BATS_TEST_TMPDIR/p_node" d
+  d="$proj/.claude/skills/init-dev-environment"
+  mkdir -p "$d"
+  cp "$(install_sh)" "$d/install.sh"
+  {
+    printf 'version\tdate\tfiles\tnpm\tv8\tuv\tzlib\topenssl\tmodules\tlts\tsecurity\n'
+    printf '%s\t2024-01-01\tf\tn\tv\tu\tz\to\tm\t%s\t-\n' v22.5.0 - v20.11.1 Iron v18.19.1 Hydrogen v18.19.0 Hydrogen
+  } > "$BATS_TEST_TMPDIR/index.tab"
+  link_tools mkdir uname tr awk mktemp rm dirname
+  rm -f "$MOCKBIN/node"
+  make_stub curl 'case "$*" in *index.tab*) cat "$TMPDIR/index.tab" ;; *) echo "$*" >> "$TMPDIR/curl.args"; exit 1 ;; esac'
+  printf 'v18\n' > "$proj/.nvmrc"
+  run env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" "$MOCKBIN/bash" "$d/install.sh" node
+  [ "$status" -eq 1 ]
+  grep -qF "https://nodejs.org/dist/v18.19.1/node-v18.19.1-" "$BATS_TEST_TMPDIR/curl.args"
+  rm -f "$BATS_TEST_TMPDIR/curl.args"
+  printf 'lts/*\n' > "$proj/.nvmrc"
+  run env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" "$MOCKBIN/bash" "$d/install.sh" node
+  [ "$status" -eq 1 ]
+  grep -qF "https://nodejs.org/dist/v20.11.1/node-v20.11.1-" "$BATS_TEST_TMPDIR/curl.args"
+  rm -f "$BATS_TEST_TMPDIR/curl.args"
+  printf '99\n' > "$proj/.nvmrc"
+  run env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" "$MOCKBIN/bash" "$d/install.sh" node
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"no Node release matches the project's pin: 99"* ]]
+  [[ "$output" == *"FAILED: node"* ]]
+  [ ! -e "$BATS_TEST_TMPDIR/curl.args" ]
+}
+
+# --- repository-audit tool detection (scripts/detect-tools.mjs) ---
+# Hermetic: the detector spawns no child process (pure fs), so tests call the
+# real `node` directly against temp project dirs under $BATS_TEST_TMPDIR.
+
+detect_script() { printf '%s' "$PLUGIN/skills/repository-audit/scripts/detect-tools.mjs"; }
+run_detect() { run node "$(detect_script)" "$@"; }
+
+# detect_fixture <dir> — package.json, pnpm-lock.yaml and sub/Cargo.toml signal
+# files; a root .lsp.json using gopls and npx; a root .mcp.json using docker,
+# git, curl and a project-local ${CLAUDE_PLUGIN_ROOT} launcher path.
+detect_fixture() {
+  mkdir -p "$1/sub"
+  printf '{}\n' > "$1/package.json"
+  printf 'lockfileVersion: 9.0\n' > "$1/pnpm-lock.yaml"
+  printf '[package]\n' > "$1/sub/Cargo.toml"
+  printf '%s\n' '{"gopls":{"command":"gopls"},"ts":{"command":"npx"}}' > "$1/.lsp.json"
+  printf '%s\n' '{"mcpServers":{"d":{"command":"docker"},"g":{"command":"git"},"c":{"command":"curl"},"x":{"command":"${CLAUDE_PLUGIN_ROOT}/bin/x"}}}' > "$1/.mcp.json"
+}
+
+@test "detect-tools.mjs exists and passes node --check" {
+  local s; s="$(detect_script)"
+  [ -f "$s" ]
+  run node --check "$s"
+  [ "$status" -eq 0 ]
+}
+
+@test "tool-map.json is valid JSON with the expected catalog shape" {
+  local m="$PLUGIN/skills/repository-audit/scripts/tool-map.json"
+  run jq empty "$m"
+  [ "$status" -eq 0 ]
+  run jq -e 'all(.[]; (.files|type=="array") and (.commands|type=="array") and all(.files[], .commands[]; type=="string"))' "$m"
+  [ "$status" -eq 0 ]
+  run jq -e '[.[].commands[]] | length == (unique|length)' "$m"
+  [ "$status" -eq 0 ]
+  run jq -e '[.[].commands[]] | any(. == "git" or . == "bash" or . == "sh" or . == "curl" or . == "claude") | not' "$m"
+  [ "$status" -eq 0 ]
+}
+
+@test "detection: signal files and config commands map to catalog tools and manual to-dos" {
+  local proj="$BATS_TEST_TMPDIR/p_detect"
+  detect_fixture "$proj"
+  run_detect "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '[.tools[].id] == ["node","pnpm","cargo","gopls"]'
+  echo "$output" | jq -e '.tools[] | select(.id=="cargo") | .evidence | index("sub/Cargo.toml") != null'
+  echo "$output" | jq -e '(.tools[] | select(.id=="node") | .evidence) == ["package.json", ".lsp.json: npx"]'
+  echo "$output" | jq -e '.manual | map(.command) == ["docker"]'
+  echo "$output" | jq -e '.skillExists == false'
+  # git, curl (assumed present) and the path command appear nowhere
+  echo "$output" | jq -e '[.tools, .manual | .. | strings | select(test("git|curl|CLAUDE_PLUGIN_ROOT"))] | length == 0'
+}
+
+@test "detection: command names outside the token regex are dropped; lookups are Map-only" {
+  local proj="$BATS_TEST_TMPDIR/p_tokens"
+  mkdir -p "$proj"
+  local long; long="$(printf 'a%.0s' {1..65})"
+  jq -n --arg long "$long" '{mcpServers: {a: {command: "x`id`"}, b: {command: "a b"}, c: {command: $long}, d: {command: "constructor"}}}' > "$proj/.mcp.json"
+  run_detect "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.tools == []'
+  echo "$output" | jq -e '.manual | map(.command) == ["constructor"]'
+}
+
+@test "detection: pruned directories contribute nothing" {
+  local proj="$BATS_TEST_TMPDIR/p_tprune"
+  mkdir -p "$proj/node_modules/x" "$proj/.claude/worktrees/w"
+  printf 'module x\n' > "$proj/node_modules/x/go.mod"
+  printf '[package]\n' > "$proj/.claude/worktrees/w/Cargo.toml"
+  run_detect "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.tools == [] and .manual == []'
+}
+
+@test "detection: virtualenv, tox and build-output directories contribute nothing" {
+  local proj="$BATS_TEST_TMPDIR/p_venv"
+  mkdir -p "$proj/.venv/lib/jup" "$proj/venv/x" "$proj/target/y" "$proj/.tox/py3" "$proj/src/site-packages/z"
+  printf '{}\n' > "$proj/.venv/lib/jup/package.json"
+  printf '{}\n' > "$proj/venv/x/package.json"
+  printf '[package]\n' > "$proj/target/y/Cargo.toml"
+  printf 'x\n' > "$proj/.tox/py3/requirements.txt"
+  printf '{}\n' > "$proj/src/site-packages/z/package.json"
+  printf 'x\n' > "$proj/requirements.txt"
+  run_detect "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '[.tools[].id] == ["python3"]'
+}
+
+@test "detection: a python launcher command maps to python, python3 to python3" {
+  local proj="$BATS_TEST_TMPDIR/p_pylauncher"
+  mkdir -p "$proj"
+  printf '%s\n' '{"mcpServers":{"a":{"command":"python"}}}' > "$proj/.mcp.json"
+  run_detect "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '[.tools[].id] == ["python"]'
+  printf '%s\n' '{"mcpServers":{"a":{"command":"python3"}}}' > "$proj/.mcp.json"
+  run_detect "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '[.tools[].id] == ["python3"]'
+}
+
+@test "detection: LSP server commands in the lsp plugin's .lsp.json (.claude/skills/lsp/) count" {
+  local proj="$BATS_TEST_TMPDIR/p_lspplugin"
+  mkdir -p "$proj/.claude/skills/lsp"
+  printf '%s\n' '{"go":{"command":"gopls"},"py":{"command":"pylsp"}}' > "$proj/.claude/skills/lsp/.lsp.json"
+  run_detect "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '[.tools[].id] == ["gopls","pylsp"]'
+  echo "$output" | jq -e '(.tools[] | select(.id=="gopls") | .evidence) == [".claude/skills/lsp/.lsp.json: gopls"]'
+  printf '%s' '{ not valid' > "$proj/.claude/skills/lsp/.lsp.json"
+  run_detect "$proj"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Malformed"*".lsp.json"* ]]
+}
+
+@test "detection: an empty project reports nothing, in the canonical JSON format" {
+  local proj="$BATS_TEST_TMPDIR/p_empty"
+  mkdir -p "$proj"
+  run_detect "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.tools == [] and .manual == [] and .skillExists == false'
+  node "$(detect_script)" "$proj" > "$BATS_TEST_TMPDIR/out.json"
+  run node -e 'const t=require("fs").readFileSync(process.argv[1],"utf8");process.exit(t===JSON.stringify(JSON.parse(t),null,2)+"\n"?0:1)' "$BATS_TEST_TMPDIR/out.json"
+  [ "$status" -eq 0 ]
+}
+
+@test "detection: malformed .mcp.json or non-object .lsp.json exits 1 and --write creates nothing" {
+  local proj="$BATS_TEST_TMPDIR/p_badcfg"
+  mkdir -p "$proj"
+  printf '{}\n' > "$proj/package.json"
+  printf '%s' '{ not valid json' > "$proj/.mcp.json"
+  run_detect "$proj"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Malformed"*".mcp.json"* ]]
+  run_detect "$proj" --write
+  [ "$status" -eq 1 ]
+  [ ! -e "$proj/.claude/skills" ]
+  rm "$proj/.mcp.json"
+  printf '[]\n' > "$proj/.lsp.json"
+  run_detect "$proj"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Malformed"*".lsp.json"*"an array"* ]]
+}
+
+# --- init-dev-environment generation (detect-tools.mjs --write, SKILL.md.tmpl) ---
+
+@test "detect-tools.reference.md exists and documents the script and its bundled templates" {
+  local r="$PLUGIN/skills/repository-audit/scripts/detect-tools.reference.md"
+  [ -f "$r" ]
+  run rg_or_grep -F 'detect-tools.mjs' "$r"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'install.sh' "$r"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'Bundled templates' "$r"; [ "$status" -eq 0 ]
+}
+
+@test "--write creates the init-dev-environment skill atomically (0755, byte-identical install.sh)" {
+  local proj="$BATS_TEST_TMPDIR/p_write"
+  detect_fixture "$proj"
+  [ ! -e "$proj/.claude" ]
+  run_detect "$proj" --write
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.wrote == true and .skillsDirCreated == true'
+  local d="$proj/.claude/skills/init-dev-environment"
+  [ -f "$d/SKILL.md" ]
+  [ -f "$d/install.sh" ]
+  cmp "$d/install.sh" "$(install_sh)"
+  rg_or_grep -qF 'name: init-dev-environment' "$d/SKILL.md"
+  rg_or_grep -qF 'install.sh --dry-run node pnpm cargo gopls' "$d/SKILL.md"
+  rg_or_grep -qF '(install manually): docker' "$d/SKILL.md"
+  run rg_or_grep -F '@@' "$d/SKILL.md"; [ "$status" -ne 0 ]
+  run rg_or_grep -nE '!`' "$d/SKILL.md"; [ "$status" -ne 0 ]
+  run node -e 'process.stdout.write((require("fs").statSync(process.argv[1]).mode & 0o777).toString(8))' "$d"
+  [ "$output" = "755" ]
+  run bash -c 'ls -d "$1"/.claude/.init-dev-environment-* "$1"/.claude/skills/.init-dev-environment-* 2>/dev/null' _ "$proj"
+  [ -z "$output" ]
+}
+
+@test "--write next to an existing .claude/skills reports skillsDirCreated false" {
+  local proj="$BATS_TEST_TMPDIR/p_write_existing"
+  detect_fixture "$proj"
+  mkdir -p "$proj/.claude/skills/other"
+  run_detect "$proj" --write
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.wrote == true and .skillsDirCreated == false'
+  [ -f "$proj/.claude/skills/init-dev-environment/SKILL.md" ]
+}
+
+@test "--write never overwrites an existing init-dev-environment directory" {
+  local proj="$BATS_TEST_TMPDIR/p_write_kept"
+  detect_fixture "$proj"
+  mkdir -p "$proj/.claude/skills/init-dev-environment"
+  printf 'hand edit\n' > "$proj/.claude/skills/init-dev-environment/SKILL.md"
+  run_detect "$proj" --write
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.skillExists == true and .wrote == false and .skillsDirCreated == false'
+  [ "$(cat "$proj/.claude/skills/init-dev-environment/SKILL.md")" = "hand edit" ]
+  [ ! -e "$proj/.claude/skills/init-dev-environment/install.sh" ]
+}
+
+@test "--write with no detected tools writes nothing" {
+  local proj="$BATS_TEST_TMPDIR/p_write_none"
+  mkdir -p "$proj"
+  run_detect "$proj" --write
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.tools == [] and .wrote == false and .skillsDirCreated == false'
+  [ ! -e "$proj/.claude" ]
+}
+
+@test "SKILL.md.tmpl: frontmatter, model-invocable, inline, no bang-backtick or plugin-root token" {
+  local t="$PLUGIN/skills/repository-audit/templates/init-dev-environment/SKILL.md.tmpl"
+  [ -f "$t" ]
+  run rg_or_grep -E '^name:[[:space:]]*init-dev-environment$' "$t"; [ "$status" -eq 0 ]
+  run rg_or_grep -E '^description:' "$t"; [ "$status" -eq 0 ]
+  run rg_or_grep -E '^description:.*: ' "$t"; [ "$status" -ne 0 ]
+  run rg_or_grep -E '^disable-model-invocation:[[:space:]]*true' "$t"; [ "$status" -ne 0 ]
+  run rg_or_grep -E '^context:[[:space:]]*fork' "$t"; [ "$status" -ne 0 ]
+  run rg_or_grep -nE '!`' "$t"; [ "$status" -ne 0 ]
+  run rg_or_grep -F 'CLAUDE_PLUGIN_ROOT' "$t"; [ "$status" -ne 0 ]
+  run rg_or_grep -F 'AskUserQuestion' "$t"; [ "$status" -eq 0 ]
+  run rg_or_grep -F '@@TOOLS@@' "$t"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'run_in_background' "$t"; [ "$status" -eq 0 ]
+}
+
+@test "tool-map.json ids each have an install_<id> recipe in install.sh" {
+  local m="$PLUGIN/skills/repository-audit/scripts/tool-map.json" s id fn
+  s="$(install_sh)"
+  for id in $(jq -r 'keys_unsorted[]' "$m"); do
+    fn="install_${id//-/_}"
+    rg_or_grep -qE "^${fn}\(\)" "$s" || { echo "missing recipe: $fn"; return 1; }
+  done
+}
+
+# --- repository-audit tool-detection phase (SKILL.md steps 5-7) ---
+
+@test "repository-audit wires the tool-detection phase and the Dev environment report section" {
+  local f="$PLUGIN/skills/repository-audit/SKILL.md" tok
+  for tok in 'init-dev-environment' 'detect-tools.reference.md' '${CLAUDE_SKILL_DIR}/scripts/detect-tools.mjs' '--write' 'skillExists' 'skillsDirCreated' 'Dev environment'; do
+    rg_or_grep -qF -- "$tok" "$f" || { echo "missing: $tok"; return 1; }
+  done
+  [ "$(wc -l < "$f")" -lt 500 ]
+}
+
+# --- init-dev-environment doc/manifest sync ---
+
+@test "plugin.json version was bumped for init-dev-environment (minor, off 1.9.0)" {
+  run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
+  [ "$output" != "1.9.0" ]
+}
+
+@test "plugin.json description mentions init-dev-environment" {
+  run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"init-dev-environment"* ]]
+}
+
+@test "claude-code-knowledge CLAUDE.md boundary rule mentions init-dev-environment" {
+  run rg_or_grep -F 'init-dev-environment' "$PLUGIN/CLAUDE.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "claude-code-knowledge README mentions init-dev-environment" {
+  run rg_or_grep -F 'init-dev-environment' "$PLUGIN/README.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "root README plugin row mentions init-dev-environment" {
+  run rg_or_grep -F 'claude-code-knowledge](plugins/claude-code-knowledge/README.md)' "$REPO_ROOT/README.md"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"init-dev-environment"* ]]
 }
