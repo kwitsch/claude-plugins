@@ -2,14 +2,17 @@
 // Audit a project's file extensions against <root>/.claude/skills/lsp/.lsp.json
 // (the .lsp.json of the project-scope `lsp` skills-dir plugin) and, on
 // --fix/--apply, additively write missing LSP-server coverage plus the plugin
-// manifest on first write. Zero-dep.
+// manifest on first write. A legacy <root>/.lsp.json is merged in as base
+// config. Zero-dep.
 // Additive-only (never removes/reorders existing keys), respects the LSP
 // "first server registered wins" rule, preserves 2-space + trailing newline,
-// and fails closed (writes nothing, exit 1) on a malformed .lsp.json. All work
-// happens in memory; each file is written at most once, as the final actions.
+// and fails closed (writes nothing, exit 1) on a malformed or conflicting
+// .lsp.json. All work happens in memory and every file is written at most
+// once. The legacy root file is deleted only after the plugin write passes
+// readback, as the final action.
 // Diagnostics go to stderr; stdout carries only the JSON result object.
 
-import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, unlinkSync } from "node:fs";
 import { resolve, join, basename, dirname } from "node:path";
 
 const PRUNE_NAMES = new Set([".git", "node_modules", "vendor", "dist", "build"]);
@@ -79,6 +82,31 @@ function readLspJson(file) {
     throw new Error(`expected a JSON object at the top level, got ${Array.isArray(parsed) ? "an array" : parsed === null ? "null" : `a ${typeof parsed}`}`);
   }
   return { exists: true, config: parsed, raw };
+}
+
+/**
+ * Merge a legacy project-root .lsp.json into the plugin config. Plugin servers
+ * keep their order and root-only servers are appended, so at runtime the
+ * plugin's blocks register first (first-registered-wins). A server id present
+ * in both must be JSON.stringify-identical, otherwise fail closed (the root
+ * file is deleted after a write, so a silent drop would lose data).
+ * @param {Record<string, any>} pluginConfig
+ * @param {Record<string, any>} legacyConfig
+ * @param {string} legacyPath
+ * @param {string} pluginPath
+ * @returns {Record<string, any>}
+ */
+function mergeLegacyRoot(pluginConfig, legacyConfig, legacyPath, pluginPath) {
+  /** @type {Record<string, any>} */
+  const clone = JSON.parse(JSON.stringify(pluginConfig));
+  for (const [server, block] of Object.entries(legacyConfig)) {
+    if (!Object.prototype.hasOwnProperty.call(clone, server)) {
+      clone[server] = block;
+    } else if (JSON.stringify(clone[server]) !== JSON.stringify(block)) {
+      fail(`Conflicting "${server}" server in both ${legacyPath} and ${pluginPath} — reconcile manually; nothing written`);
+    }
+  }
+  return clone;
 }
 
 /**
@@ -274,6 +302,7 @@ function main() {
   const pluginDir = join(root, ".claude", "skills", "lsp");
   const pluginLsp = join(pluginDir, ".lsp.json");
   const manifest = join(pluginDir, ".claude-plugin", "plugin.json");
+  const legacyLsp = join(root, ".lsp.json");
 
   let plugin;
   try {
@@ -283,8 +312,20 @@ function main() {
     return;
   }
 
+  let legacy;
+  try {
+    legacy = readLspJson(legacyLsp);
+  } catch (err) {
+    fail(`Malformed .lsp.json at ${legacyLsp}: ${/** @type {any} */ (err).message}`);
+    return;
+  }
+
+  // Both files are read before anything else happens. Conflicts fail closed
+  // here, in every mode (audit included), so audit and write runs always agree.
+  const base = legacy.exists ? mergeLegacyRoot(plugin.config, legacy.config, legacyLsp, pluginLsp) : plugin.config;
+
   const counts = scanExtensions(root);
-  const { covered, claimedBy } = coverage(plugin.config);
+  const { covered, claimedBy } = coverage(base);
 
   let catalog;
   try {
@@ -294,7 +335,7 @@ function main() {
     return;
   }
 
-  const { proposals, unknown } = buildPlan(counts, covered, plugin.config, catalog);
+  const { proposals, unknown } = buildPlan(counts, covered, base, catalog);
 
   if (mode === "audit") {
     process.stdout.write(
@@ -302,6 +343,7 @@ function main() {
         {
           root,
           lspJsonExists: plugin.exists,
+          legacyRootLspJson: legacy.exists,
           covered: [...covered].sort(),
           proposals,
           unknown,
@@ -315,11 +357,13 @@ function main() {
   }
 
   const validExt = new Set(mode === "fix" ? proposals.map((p) => p.ext) : applyExts.filter((t) => EXT_TOKEN.test(t) && proposals.some((p) => p.ext === t)));
-  const { result, applied, createdServers, mergedIntoServers, conflictsSkipped } = applyProposals(plugin.config, claimedBy, proposals, validExt, catalog);
+  const { result, applied, createdServers, mergedIntoServers, conflictsSkipped } = applyProposals(base, claimedBy, proposals, validExt, catalog);
 
   let wrote = false;
-  if (applied.length > 0) {
-    // Order matters: manifest dir -> manifest (only if absent) -> .lsp.json -> readback.
+  let migratedFromRoot = false;
+  const needsWrite = applied.length > 0 || legacy.exists;
+  if (needsWrite) {
+    // Order matters: manifest dir -> manifest (only if absent) -> .lsp.json -> readback -> delete legacy root (last).
     mkdirSync(dirname(manifest), { recursive: true });
     if (!existsSync(manifest)) writeFileSync(manifest, JSON.stringify(MANIFEST, null, 2) + "\n");
     const trailing = !plugin.exists || plugin.raw.endsWith("\n") ? "\n" : "";
@@ -336,6 +380,13 @@ function main() {
     for (const ext of applied) {
       if (!backCovered.has(ext)) fail(`Post-write assertion failed: ${ext} not resolvable after write`);
     }
+    if (legacy.exists) {
+      for (const ext of coverage(legacy.config).covered) {
+        if (!backCovered.has(ext)) fail(`Post-write assertion failed: legacy ${ext} not resolvable after write`);
+      }
+      unlinkSync(legacyLsp); // final action: only reached after the verified plugin write
+      migratedFromRoot = true;
+    }
     wrote = true;
   }
 
@@ -348,6 +399,7 @@ function main() {
         mergedIntoServers,
         conflictsSkipped: [...new Set(conflictsSkipped)],
         wrote,
+        migratedFromRoot,
       },
       null,
       2,
