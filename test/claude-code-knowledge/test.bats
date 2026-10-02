@@ -1638,6 +1638,28 @@ JSON
   [[ "$output" == *"lsp-audit"* ]]
 }
 
+# --- cc-reference LSP docs: no project-root scope ---
+
+@test "LSP reference documents no project-root scope and keeps one not-loaded directive" {
+  local f="$REFS/claude-code-plugins-lsp-reference.md"
+  run rg_or_grep -F 'Project-scoped' "$f"; [ "$status" -ne 0 ]
+  run rg_or_grep -F 'has no path variable substitution' "$f"; [ "$status" -ne 0 ]
+  run rg_or_grep -F 'is not loaded by Claude Code' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'verified 2026-08-18' "$f"; [ "$status" -eq 0 ]
+}
+
+@test "cc-reference SKILL.md LSP index carries no project-root scope or example" {
+  run rg_or_grep -F 'project-scoped (undocumented' "$SKILL/SKILL.md"; [ "$status" -ne 0 ]
+  run rg_or_grep -F 'Example (project-root' "$SKILL/SKILL.md"; [ "$status" -ne 0 ]
+  run rg_or_grep -F 'Example (plugin-scoped .lsp.json)' "$SKILL/SKILL.md"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'project-root .lsp.json not loaded' "$SKILL/SKILL.md"; [ "$status" -eq 0 ]
+}
+
+@test "update-cc-references preserves the LSP not-loaded directive" {
+  run rg_or_grep -F 'project-root `.lsp.json` is not loaded' "$MAINT"
+  [ "$status" -eq 0 ]
+}
+
 # --- repository-audit orchestrator skill ---
 
 @test "repository-audit SKILL.md exists" {
