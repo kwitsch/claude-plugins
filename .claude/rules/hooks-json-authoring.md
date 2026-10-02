@@ -3,9 +3,9 @@ paths:
   - "plugins/*/hooks/hooks.json"
 ---
 
-# Rule: hooks.json authoring reference
+# Rule: hooks.json authoring (repo conventions)
 
-Sources: <https://code.claude.com/docs/en/hooks> · <https://code.claude.com/docs/en/plugins>
+Repo-specific conventions only. For the generic reference — events and matchers, stdin JSON, JSON output, exit codes — use the cc-reference hooks skill or <https://code.claude.com/docs/en/hooks> · <https://code.claude.com/docs/en/plugins>.
 
 ## File structure
 
@@ -40,21 +40,20 @@ Sources: <https://code.claude.com/docs/en/hooks> · <https://code.claude.com/doc
 | `${CLAUDE_PLUGIN_DATA}` | Persistent data dir — survives plugin updates. Use for deps and runtime state.         |
 | `${CLAUDE_PROJECT_DIR}` | Project's `.claude/` parent directory.                                                 |
 
-**Use exec form** (`"args": []`) when referencing path variables — each element is passed verbatim, no shell tokenization, so paths with spaces or special characters work without quoting. Omit `args` when you need pipes or `&&`.
+## Exec form vs shell form
 
-## Hook command fields
+- **Exec form** (`command` + `args: []`): each element is passed verbatim — no shell tokenization, so paths with spaces or special characters work without quoting. Use it when passing arguments (`"args": ["--session-start-hook"]`), when the target is not executable (`"command": "cat", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/SessionStart.md"]`), and whenever a hook references `${user_config.*}` (exec-form only, v2.1.207+; a shell-form reference errors instead of running).
+- **Shell form** (no `args`): needed for pipes and `&&`. Double-quote every path placeholder (`bash "${CLAUDE_PLUGIN_ROOT}/hooks/x.sh"`).
+- **Accepted exception:** a bare executable `.mjs` path as the whole `command`, no `args` — the repo convention for `.mjs` hooks (next section). Do not "fix" it to exec form.
 
-| Field           | Required | Notes                                                                                                                                               |
-| --------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `type`          | yes      | `command` `http` `mcp_tool` `prompt` `agent`                                                                                                        |
-| `command`       | yes      | Executable or shell string                                                                                                                          |
-| `args`          | no       | Exec form when present (no shell). Omit for shell form (pipes, `&&`).                                                                               |
-| `if`            | no       | Permission-rule syntax filter — only on tool events. One rule per handler, no `&&`/`\|\|`. Example: `"Bash(git *)"` or `"Edit(*.ts)"`               |
-| `timeout`       | no       | Seconds. Default: 600 (command/http/mcp_tool; 30 on UserPromptSubmit/PreModelSwitch/PostModelSwitch, 10 on MessageDisplay), 30 (prompt), 60 (agent) |
-| `statusMessage` | no       | Spinner text while hook runs                                                                                                                        |
-| `shell`         | no       | `bash` or `powershell` (shell form only)                                                                                                            |
-| `async`         | no       | `true` = fire-and-forget. Result delivered as context on next turn.                                                                                 |
-| `asyncRewake`   | no       | `true` = background + wakes model on exit 2                                                                                                         |
+## Command-hook fields
+
+- `type`: `command` `http` `mcp_tool` `prompt` `agent`.
+- `command` (required): executable or shell string. `args`: see above.
+- `if`: permission-rule syntax filter — only on tool events. One rule per handler, no `&&`/`||`. Example: `"Bash(git *)"` or `"Edit(*.ts)"`.
+- `timeout`: seconds. Default 600 (command/http/mcp_tool; 30 on UserPromptSubmit/PreModelSwitch/PostModelSwitch, 10 on MessageDisplay), 30 (prompt), 60 (agent).
+- `async`: `true` = fire-and-forget; result delivered as context on the next turn. `asyncRewake`: `true` = background + wakes the model on exit 2.
+- `shell`: `bash` or `powershell` (shell form only). `statusMessage`: spinner text.
 
 ### `.mjs` hook commands
 
@@ -76,24 +75,7 @@ When writing or reviewing `hooks.json`, remove any leading `node` (or `node --in
 
 ### `mcp_tool` hooks
 
-A `mcp_tool` hook calls a tool on an **already-connected** MCP server instead of
-running a command. Fields (besides the common ones): `server` (required — name
-of a configured, connected MCP server; the hook never triggers a connection
-flow) and `tool` (required — the tool to call).
-
-Two consequences: it needs the server **already connected** (so it can't serve
-the _pre-connect_ events `SessionStart`/`Setup` — on first run the server is not
-up and the hook **fails open**, a silent no-op), and it expresses any decision
-**only via returned JSON**, never exit code 2. So it can _soft_-block on
-block-capable events but cannot be a fail-closed hard gate. It fires fine for
-mid-session events well beyond `PreToolUse`/`PostToolUse` — `Stop`,
-`SubagentStop`, `PostToolUseFailure`, `PreCompact`, `ConfigChange`, etc. are all
-`full`. Choose the handler with the **hooks-mcp-server** decision tree and the
-per-event **hooks-mcp-tool-event-matrix** reference; the preferred shape (a
-self-contained plugin-local `mcp/server.mjs` invoked **directly** as the `.mcp.json`
-`command` — an executable `.mjs` (`#!/usr/bin/env node`, `100755`), node-only, no
-wrapper; an optional bun-preferred `bin/mjs-launch.sh` fallback remains documented)
-is documented in the **hooks-mcp-server** rule.
+Fields: `server` (required — the **runtime-namespaced** name `plugin:<plugin-name>:<name>-hooks`, not the bare `.mcp.json` key) and `tool` (required). Set an explicit `input` too (omitting it delivers `arguments: {}`). Choose command vs `mcp_tool` and see the pre-connect fail-open, soft-block-only and `input` details in the **hooks-mcp-server** rule and the per-event **hooks-mcp-tool-event-matrix**.
 
 ```json
 {
@@ -103,116 +85,15 @@ is documented in the **hooks-mcp-server** rule.
 }
 ```
 
-## Events reference
+## Output pitfalls
 
-| Event                | Matcher support                      | Can block        | Notes                                                      |
-| -------------------- | ------------------------------------ | ---------------- | ---------------------------------------------------------- |
-| `SessionStart`       | `startup` `resume` `clear` `compact` | No               | Load context; set `sessionTitle`; `reloadSkills: true`     |
-| `PreToolUse`         | tool name                            | **Yes** (exit 2) | Can allow/deny/modify tool input                           |
-| `PostToolUse`        | tool name                            | No               | Tool already ran; stderr shown to Claude                   |
-| `PostToolUseFailure` | tool name                            | No               | Tool already failed                                        |
-| `PostToolBatch`      | — (ignored)                          | Yes              | Stops loop before next model call                          |
-| `PermissionRequest`  | tool name                            | Yes              | Override permission dialog                                 |
-| `PermissionDenied`   | tool name                            | No               | Use `hookSpecificOutput.retry: true` to allow retry        |
-| `UserPromptSubmit`   | — (ignored)                          | Yes              | Blocks prompt; erases it on block                          |
-| `Stop`               | —                                    | Yes              | Prevents Claude stopping                                   |
-| `SubagentStart`      | agent type name                      | No               | Notification only                                          |
-| `SubagentStop`       | agent type name                      | Yes              | Prevents subagent stopping (exit 2 or `decision: "block"`) |
-| `PreCompact`         | `manual` `auto`                      | Yes              | Block compaction                                           |
-| `PostCompact`        | `manual` `auto`                      | No               |                                                            |
-| `FileChanged`        | `\|`-split literal filenames         | No               | Async file watch events                                    |
-| `CwdChanged`         | —                                    | No               |                                                            |
-
-**MCP tools** match as `mcp__<server>__<tool>`. Use `mcp__server__.*` to match all tools from a server.
-
-## stdin JSON (common fields)
-
-```json
-{
-  "session_id": "abc123",
-  "transcript_path": "/.../.claude/projects/.../session.jsonl",
-  "cwd": "/project/root",
-  "permission_mode": "default",
-  "hook_event_name": "PreToolUse",
-  "tool_name": "Write",
-  "tool_input": { "file_path": "/path/to/file", "content": "..." },
-  "tool_response": { "filePath": "...", "success": true }
-}
-```
-
-`tool_response` only present in `PostToolUse`. `agent_id` + `agent_type` present when running inside a subagent.
-
-## JSON output
-
-### Universal fields (all events)
-
-```json
-{
-  "continue": false, // stops Claude entirely; takes precedence over event decisions
-  "stopReason": "...", // shown to USER (not Claude) when continue: false
-  "suppressOutput": false, // hide stdout from transcript (still in debug log)
-  "systemMessage": "..." // warning shown to user
-}
-```
-
-### PreToolUse — control tool execution
-
-```json
-{
-  "hookSpecificOutput": {
-    "hookEventName": "PreToolUse",
-    "permissionDecision": "allow|deny|ask|defer",
-    "permissionDecisionReason": "shown to user (allow/ask) or to Claude (deny)",
-    "updatedInput": { "file_path": "...", "content": "..." },
-    "additionalContext": "injected into Claude context (ignored when decision is deny)"
-  }
-}
-```
-
-`updatedInput` replaces the **entire** input object — include unchanged fields too.
-
-### PostToolUse / Stop — inject context or block
-
-```json
-{
-  "decision": "block",
-  "reason": "Shown to Claude as feedback",
-  "hookSpecificOutput": {
-    "hookEventName": "PostToolUse",
-    "additionalContext": "Injected into Claude's context"
-  }
-}
-```
-
-### SessionStart — load context
-
-```json
-{
-  "hookSpecificOutput": {
-    "hookEventName": "SessionStart",
-    "additionalContext": "Context injected for this session",
-    "sessionTitle": "my-feature-branch",
-    "reloadSkills": true
-  }
-}
-```
-
-Plain stdout also reaches Claude for SessionStart (no JSON wrapper needed for context-only hooks).
-
-## Exit codes
-
-| Code           | Meaning                                            |
-| -------------- | -------------------------------------------------- |
-| 0              | Success                                            |
-| 2              | Block (for blockable events)                       |
-| other non-zero | Failure — stderr shown per event (see table above) |
+- `PreToolUse` `updatedInput` replaces the **entire** input object — include unchanged fields too.
+- Plain stdout reaches Claude only on `UserPromptSubmit`, `UserPromptExpansion`, `SessionStart` and `PostModelSwitch`; every other event needs a JSON envelope (`hookSpecificOutput.additionalContext`).
 
 ## Best practices
 
 - **Fail open**: exit 0 with no output on unexpected input — never strand the user.
-- **Parse only what you need**: `tool_response` can be large; extract fields with `jq`.
 - **`if` filter early**: use `if` on the handler to avoid spawning the process for unrelated tool calls.
 - **Keep SessionStart hooks fast**: they run on every session.
 - **`async` for side effects**: test runs, linting, notifications — don't block the agentic loop for work that doesn't need to gate the next tool call.
-- **`jq` primary, `node`/`python3` fallback**: consistent with existing hooks in this repo. Fail open when neither available.
-- **Exec form for plugin paths**: `"args": []` prevents tokenization surprises on paths with spaces.
+- **Shell hooks**: `jq` primary, `node`/`python3` fallback, consistent with existing hooks in this repo; fail open when neither is available. `tool_response` can be large — extract only the fields you need.

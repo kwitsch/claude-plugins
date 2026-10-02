@@ -114,12 +114,10 @@ setup() {
   assert_success
 }
 
-@test "root README and plugins/CLAUDE.md rows mention the cbm bundle" {
+@test "root README row mentions the cbm bundle" {
   run grep -F '[linux-token-efficiency](plugins/linux-token-efficiency/README.md)' "$REPO_ROOT/README.md"
   assert_success
   run bash -c "grep -F '[linux-token-efficiency](plugins/linux-token-efficiency/README.md)' '$REPO_ROOT/README.md' | grep -F 'codebase-memory-mcp'"
-  assert_success
-  run grep -F 'codebase-memory-mcp' "$REPO_ROOT/plugins/CLAUDE.md"
   assert_success
 }
 
@@ -137,14 +135,18 @@ setup() {
   assert_output '0'
 }
 
-@test "plugins/CLAUDE.md describes this plugin's mcp/ directory and both bin/ entries" {
-  run bash -c "grep -F 'linux-token-efficiency' '$REPO_ROOT/plugins/CLAUDE.md' | grep -F 'mcp/'"
+@test "plugin CLAUDE.md describes this plugin's mcp/ directory and both bin/ entries; plugins/CLAUDE.md bin/ row points to it" {
+  run grep -F 'mcp/server.mjs' "$PLUGIN_CLAUDE"
+  assert_success
+  # The plugin-specific bin/ contents live here, not in plugins/CLAUDE.md.
+  run grep -F 'context-mode-launch.sh' "$PLUGIN_CLAUDE"
+  assert_success
+  run grep -F 'bin/rtk' "$PLUGIN_CLAUDE"
+  assert_success
+  run bash -c "grep -F '| \`bin/\`' '$REPO_ROOT/plugins/CLAUDE.md' | grep -F 'plugins/linux-token-efficiency/CLAUDE.md'"
   assert_success
   run bash -c "grep -F '| \`bin/\`' '$REPO_ROOT/plugins/CLAUDE.md' | grep -Fi 'tarball'"
   assert_failure
-  # The bin/ row must no longer claim an rtk-only bin/.
-  run bash -c "grep -F '| \`bin/\`' '$REPO_ROOT/plugins/CLAUDE.md' | grep -F 'context-mode-launch.sh'"
-  assert_success
   run bash -c "grep -F '| \`bin/\`' '$REPO_ROOT/plugins/CLAUDE.md' | grep -Fi 'holds only that'"
   assert_failure
 }

@@ -21,12 +21,6 @@ Every `plugins/*/README.md` must have `## Install` as its **first section** (imm
 
 **Model:** root `README.md` `## Install` section.
 
-**After any Write or Edit to `plugins/*/README.md`:**
-
-1. Check that `## Install` is the first `##`-level heading after the title line
-2. Check that the section contains a fenced code block with `/plugin install <plugin-name>@kwitsch-plugins`
-3. If missing or wrong → add or fix before finishing the edit
-
 ## Component sections
 
 Every `plugins/*/README.md` must list its components in dedicated tabular sections,
@@ -85,10 +79,9 @@ When modifying any `plugins/*/README.md`, validate the corresponding row in the 
 | [<plugin-name>](plugins/<plugin-name>/README.md) | one-line description |
 ```
 
-**After any Write or Edit to `plugins/*/README.md`:**
+The row's description is derived from the plugin README and kept accurate to the plugin's current functionality.
 
-1. Read root `README.md` and locate the `## Plugins` table
-2. Find the row for this plugin (link target `plugins/<name>/README.md`)
-3. If row **missing** → add it with an accurate description derived from the plugin README
-4. If description **outdated or inaccurate** → update it to match the plugin's current functionality
-5. If row **correct** → no action needed
+## Before finishing a README edit, verify
+
+- `## Install` is the first `##` heading after the title and its fenced block holds `/plugin install <plugin-name>@kwitsch-plugins`.
+- The root `README.md` `## Plugins` table has a row for this plugin (link target `plugins/<name>/README.md`) whose description is still accurate — add or update it if missing or outdated.

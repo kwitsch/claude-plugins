@@ -106,9 +106,7 @@ Rules:
 
 ## Best practices
 
-- **description first**: put the key use case at the start — listing truncates at 1,536 chars.
 - **Token cost**: skill content stays in context across all turns once loaded → every line recurs. Keep body concise; state what to do, not how or why.
 - **context: fork** only for skills with explicit task instructions; guidelines without a task produce no meaningful output from the subagent.
 - **allowed-tools**: scope tightly — broad grants apply as long as the skill is active.
 - **Subagents inherit no history**: pass all required context explicitly in the skill body or via `$ARGUMENTS`.
-- **Plugin command naming**: command is `/<plugin-name>:<skill-dir-name>`. `name` frontmatter is ignored for command resolution in `skills/` subdirectories; only used in skill listings.

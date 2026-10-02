@@ -86,22 +86,15 @@ policy]` (the skill/command still loads). Handle that placeholder
   bash ${CLAUDE_SKILL_DIR}/<script-name>.sh <args>
   ```
 
-  `${CLAUDE_SKILL_DIR}` is a **pre-injection text substitution** applied to
-  the skill's own body before the model reads it — not a live shell
-  environment variable (`$CLAUDE_PLUGIN_ROOT`/`$CLAUDE_SKILL_DIR` are
-  confirmed empty inside an actual Bash-tool subprocess). Proven shipped in
-  this repo: `plugins/claude-code-knowledge/skills/cc-compress/SKILL.md` —
+  `${CLAUDE_SKILL_DIR}` (or `${CLAUDE_PLUGIN_ROOT}`) is a **pre-injection text
+  substitution** applied to the skill's own body before the model reads it — not
+  a live shell environment variable (both are empty inside a Bash-tool
+  subprocess). Precedent: `plugins/claude-code-knowledge/skills/cc-compress/SKILL.md` —
   `node ${CLAUDE_SKILL_DIR}/scripts/compress.mjs "<absolute-filepath>" "<backup-root>"`.
-  Do not use `!`-injected `$CLAUDE_PLUGIN_ROOT`/`$CLAUDE_SKILL_DIR` for this
-  — that idiom has been observed rendering empty in this repo, and (2026-08-22,
-  `plugins/taskflow/skills/build-task/SKILL.md`) observed making the _entire
-  Skill invocation itself_ fail outright — deterministically, on every retry
-  — when the invoking session is worktree-isolated (every session a
-  `dispatch-task`/`dispatch-agent`-style skill launches into `claude
---worktree ... --bg`). Prefer the bare `${...}` form everywhere this value
-  is needed, including inside plain prose, not only inside a fenced command
-  the model runs — `build-task/SKILL.md` already relies on bare
-  `${CLAUDE_PLUGIN_ROOT}` prose elsewhere in that same file.
+  Never use `!`-injected `$CLAUDE_PLUGIN_ROOT`/`$CLAUDE_SKILL_DIR` for this: it
+  renders empty and fails the whole Skill invocation in a worktree-isolated
+  session. Prefer the bare form everywhere the value is needed, including plain
+  prose. See `.claude/rules/taskflow-skill-plugin-root-and-injection.md`.
 
 - **Exception — load-time `!`-injection blocks:** the mechanism above is
   proven only for Bash-tool-invoked scripts (the model reads the
