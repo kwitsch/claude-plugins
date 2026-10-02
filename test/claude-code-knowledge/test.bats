@@ -1595,6 +1595,19 @@ JSON
   [ "$status" -eq 0 ]
 }
 
+@test "lsp-audit SKILL.md targets the project-scope lsp plugin path" {
+  run rg_or_grep -F '.claude/skills/lsp' "$PLUGIN/skills/lsp-audit/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "lsp-audit SKILL.md gates the legacy root migration on legacyRootLspJson" {
+  local f="$PLUGIN/skills/lsp-audit/SKILL.md"
+  run rg_or_grep -F 'legacyRootLspJson' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'migratedFromRoot' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'apply ""' "$f"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'lsp@skills-dir' "$f"; [ "$status" -eq 0 ]
+}
+
 # --- lsp-audit doc/manifest sync ---
 
 @test "plugin.json version was bumped for lsp-audit (minor, off 1.7.11)" {
