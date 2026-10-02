@@ -99,6 +99,13 @@ test("detectPackageManager: yarn.lock -> yarn", () => {
   assert.equal(detectPackageManager(dir)?.name, "yarn");
 });
 
+test("detectPackageManager: pnpm-lock.yaml and package-lock.json both present -> pnpm wins", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "pm-both-"));
+  writeFileSync(path.join(dir, "package-lock.json"), "");
+  writeFileSync(path.join(dir, "pnpm-lock.yaml"), "");
+  assert.equal(detectPackageManager(dir)?.name, "pnpm");
+});
+
 test("pathWithLocalBin: appends ~/.local/bin after the inherited PATH", () => {
   const origPath = process.env.PATH;
   process.env.PATH = "/usr/bin";

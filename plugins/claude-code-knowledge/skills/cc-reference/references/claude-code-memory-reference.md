@@ -1,7 +1,7 @@
 # Claude Code Memory — Authoring Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (How Claude remembers your project), verified 2026-09-18.
+> (How Claude remembers your project), verified 2026-10-02.
 > Apply when authoring or editing CLAUDE.md files or configuring auto memory.
 
 ## CLAUDE.md: what & when
@@ -11,10 +11,12 @@
 - Add to it when: Claude repeats a mistake a second time; a code review catches something Claude should've known about the codebase; you retype a correction/clarification you already gave last session; or a new teammate would need the same context to be productive.
 - Do NOT use it as a scratchpad or project log; keep it to directives Claude must hold every session.
 - Run `/init` to generate a starting CLAUDE.md automatically; Claude analyzes the codebase and creates build commands, test instructions, and project conventions it discovers. If a CLAUDE.md already exists, `/init` suggests improvements rather than overwriting. `/init` reads Cursor rules (`.cursor/rules/` or `.cursorrules`) and Copilot rules (`.github/copilot-instructions.md`) and incorporates relevant parts.
-- `CLAUDE_CODE_NEW_INIT=1`: enables interactive multi-phase `/init` — asks which artifacts to set up (CLAUDE.md/skills/hooks), explores via subagent, asks follow-ups, presents a reviewable proposal before writing. Only under this flag does `/init` additionally read `AGENTS.md`, `.devin/rules/`, `.windsurf/rules/` or `.windsurfrules`, and `.clinerules`; choosing its personal option creates `CLAUDE.local.md` and adds it to `.gitignore` for you.
+- `CLAUDE_CODE_NEW_INIT=1` (set in the shell or the `env` block of a settings file; only changes how `/init` runs, so it may stay set): enables interactive multi-phase `/init` — asks which artifacts to set up (CLAUDE.md/skills/hooks), explores via subagent, asks follow-ups, presents a reviewable proposal before writing. Only under this flag does `/init` additionally read `AGENTS.md`, `.devin/rules/`, `.windsurf/rules/` or `.windsurfrules`, and `.clinerules`; choosing its personal option creates `CLAUDE.local.md` and adds it to `.gitignore` for you.
 - Target **under 200 lines** per CLAUDE.md file — longer files consume more context and reduce adherence. Over-long files → move instructions into path-scoped rules or trim content not needed every session; `@path` imports help organization but do NOT reduce context.
 - Claude Code loads a CLAUDE.md file **up to 4 MiB** in full; a larger file is skipped entirely (not loaded at all).
 - version >= 2.1.206: the `/doctor` checkup proposes trims for a checked-in CLAUDE.md — it cuts content Claude can derive from the codebase (directory layouts, dependency lists, architecture overviews) and keeps pitfalls, rationale, and conventions that differ from tool defaults.
+- Size warnings: one instruction file over the recommended length → warning at startup and in `/status`. Files each within that length but adding up past a combined limit at session start → also a warning. Each CLAUDE.md, rules file, and `@path` import counts as a separate file.
+- version >= 2.1.283: `/doctor prompt-audit [path]` audits instruction files for outdated/conflicting content (instructions written for older models, references to nonexistent files/commands, contradicting files); report-only until you ask Claude to apply the proposed edits. Default scope: CLAUDE.md, CLAUDE.local.md, AGENTS.md, plus rules, skills, commands, subagents, and output styles under `.claude/` and `~/.claude/`; pass a path to audit one file or directory (e.g. `/doctor prompt-audit .claude/skills/deploy`). Runs through the bundled `/claude-api` skill → unavailable while that skill is turned off in `skillOverrides` or via `disableBundledSkills`.
 - CLAUDE.md instructions are context, not enforced configuration. To block an action regardless of Claude's decision, use a `PreToolUse` hook instead.
 - CLAUDE.md content is delivered as a **user message after the system prompt**, not part of the system prompt — no guarantee of strict compliance, especially for vague/conflicting instructions.
 - For system-prompt-level instructions, use `--append-system-prompt` (must be passed every invocation; suited to scripts/automation, not interactive use).
@@ -36,7 +38,7 @@ Files load in the order below (broadest to most specific); a later entry wins on
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
 | **Managed policy** | Linux/WSL: `/etc/claude-code/CLAUDE.md`; macOS: `/Library/Application Support/ClaudeCode/CLAUDE.md`; Windows: `C:\Program Files\ClaudeCode\CLAUDE.md` | All users on machine       |
 | **User**           | `~/.claude/CLAUDE.md`                                                                                                                                 | Just you (all projects)    |
-| **Project**        | `./CLAUDE.md` or `./.claude/CLAUDE.md`                                                                                                                | Team (via source control)  |
+| **Project**        | `./CLAUDE.md` or `./.claude/CLAUDE.md` (see AGENTS.md section for when `./AGENTS.md` loads instead of or alongside them)                              | Team (via source control)  |
 | **Local project**  | `./CLAUDE.local.md` (add to `.gitignore`)                                                                                                             | Just you (current project) |
 
 - CLAUDE.md and CLAUDE.local.md files **in the directory hierarchy above the working directory** load in full at launch.
@@ -53,7 +55,7 @@ Files load in the order below (broadest to most specific); a later entry wins on
 ### User-level rules
 
 - `~/.claude/rules/` applies to every project on the machine.
-- Loaded before project rules → project rules take higher priority.
+- Loaded before project rules → a project rule appears later in context than a user rule. Neither set overrides the other: if a user rule and a project rule conflict, Claude may follow either → keep them consistent.
 
 ## Imports (@path syntax, recursion depth, home-dir imports)
 
@@ -62,6 +64,7 @@ Files load in the order below (broadest to most specific); a later entry wins on
 - Relative paths resolve relative to the **importing file**, not the working directory.
 - Imported files are expanded and loaded into context at launch (not on demand). Imports do NOT reduce context — imported files load at launch.
 - Recursive imports are allowed; **maximum depth: 4 hops**.
+- Path containing spaces → put a backslash before each space (`@Design\ Docs/api-conventions.md`). Unescaped, the path ends at the first space (even when the import is alone on its line). A quoted path is not imported at all, with or without backslashes.
 - Import parsing **skips Markdown code spans and fenced code blocks**. Wrap a path in backticks (`` `@README` ``) to keep it literal; `@README` outside backticks imports.
 - A gitignored `CLAUDE.local.md` exists only in the worktree where it was created → to share personal instructions across git worktrees of the same repo, import from the home directory:
 
@@ -76,9 +79,73 @@ Files load in the order below (broadest to most specific); a later entry wins on
 
 ### AGENTS.md
 
-- Claude Code reads `CLAUDE.md`, **not** `AGENTS.md`.
-- To reuse an existing `AGENTS.md`: create a `CLAUDE.md` that imports it (`@AGENTS.md`) — add Claude-specific instructions below the import. Or symlink (`ln -s AGENTS.md CLAUDE.md`) if no Claude-specific content is needed.
-- On Windows symlinks need Administrator/Developer Mode → use the `@AGENTS.md` import instead.
+- version >= 2.1.277: Claude Code reads `AGENTS.md` directly as project instructions (no `CLAUDE.md`, import, or setting needed). Default behavior by repository contents:
+
+| Repository has                                                                | Claude reads                                  |
+| ----------------------------------------------------------------------------- | --------------------------------------------- |
+| `AGENTS.md`, no `CLAUDE.md`/`CLAUDE.local.md` in working directory or above   | `AGENTS.md`                                   |
+| `AGENTS.md` and a `CLAUDE.md`/`CLAUDE.local.md` in working directory or above | `CLAUDE.md` files only                        |
+| `CLAUDE.md` that already imports `AGENTS.md` (`@AGENTS.md`)                   | `CLAUDE.md`, with `AGENTS.md` included via it |
+
+- Counts as "has a CLAUDE.md" (so `AGENTS.md` is NOT read): `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` in working directory or any directory above it. Does NOT count (keeps loading alongside `AGENTS.md`): `~/.claude/CLAUDE.md`, managed `CLAUDE.md`, `.claude/rules/` files.
+- A `CLAUDE.local.md` added in an `AGENTS.md`-only project stops Claude reading `AGENTS.md` → set **Project instructions** to `claude-md-and-agents-md` to keep both.
+- What gets read when none count: at session start, every `AGENTS.md` and `.claude/AGENTS.md` in working directory and above (interactive session shows a line like `no CLAUDE.md found; AGENTS.md loaded: <path>`); in subdirectories, a subdirectory's `AGENTS.md` when Claude opens a file there with the Read tool and that subdirectory has none of the three `CLAUDE.md` files. `@path` imports inside it expand, `claudeMdExcludes` applies, and subagents that skip project instructions skip it too. Not read: `AGENTS.local.md`, `AGENTS.override.md`, anything under `.agents/`.
+
+#### Project instructions setting
+
+Set in `/config` (**Project instructions**) or via `pluginConfigs` under the built-in `agents-md` plugin ID in `~/.claude/settings.json`, a `--settings` file, or managed settings. Ignored in project and local settings files. Applies from the next message and in every new session.
+
+```json
+{
+  "pluginConfigs": {
+    "agents-md@builtin": {
+      "options": { "instructionFiles": "claude-md-and-agents-md" }
+    }
+  }
+}
+```
+
+| Value                     | What Claude reads                                                                                                                                                                                                                                     |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `claude-md-or-agents-md`  | Default. `CLAUDE.md` files, or `AGENTS.md` files when no `CLAUDE.md`/`CLAUDE.local.md` in working directory or above                                                                                                                                  |
+| `claude-md-and-agents-md` | `CLAUDE.md` and `AGENTS.md` together, each directory's `CLAUDE.md` files first then its `AGENTS.md`; an `AGENTS.md` already loaded (imported/symlinked by `CLAUDE.md`) is skipped, not read twice                                                     |
+| `claude-md`               | `CLAUDE.md` files only                                                                                                                                                                                                                                |
+| `managed-only`            | Only managed `CLAUDE.md` and auto memory at launch; project/local/user `CLAUDE.md`, `.claude/rules/`, and every `AGENTS.md` left out. Subdirectory `CLAUDE.md`/`.claude/rules/` files and path-scoped rules still load when Claude reads a file there |
+
+#### When AGENTS.md support is unavailable
+
+Claude reads `CLAUDE.md` files only, and **Project instructions** is absent from `/config`, when:
+
+- Claude Code version is before v2.1.277.
+- The built-in `agents-md` plugin is disabled in `/plugin`.
+- In some cases, the first session after upgrading from v2.1.276 or earlier (read from the next session on).
+- Before v2.1.281, some sessions (e.g. Amazon Bedrock, telemetry disabled) read `CLAUDE.md` files only → update.
+
+In those sessions import `AGENTS.md` from a `CLAUDE.md` (below).
+
+#### AGENTS.md vs CLAUDE.md behavior
+
+| Aspect                                                                   | `CLAUDE.md`                                 | `AGENTS.md` read through the setting                                                   |
+| ------------------------------------------------------------------------ | ------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `InstructionsLoaded` hooks                                               | Fire                                        | Don't fire (they do fire for an `AGENTS.md` that a `CLAUDE.md` imports or symlinks to) |
+| `--add-dir` dirs with `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD` set | Their `CLAUDE.md` loads                     | Their `AGENTS.md` doesn't load                                                         |
+| `@path` import of a file outside the working directory                   | Claude asks you to approve external imports | Loads only if external imports were already approved for the project, no prompt        |
+
+- version >= 2.1.280: `/memory` and `/context` list an `AGENTS.md` that Claude read directly. Before v2.1.280 they didn't → ask Claude what its project instructions say.
+
+#### Remove an earlier AGENTS.md workaround
+
+- `CLAUDE.md` containing `@AGENTS.md`: may stay (never reads twice, whichever value is set). Delete the `CLAUDE.md` if it holds nothing else; keep it if some sessions can't load `AGENTS.md` directly.
+- `CLAUDE.md` that tells Claude in words to read `AGENTS.md`: Claude sees it only if it decides to open the file → delete the `CLAUDE.md`, or replace the sentence with an `@AGENTS.md` import.
+- `CLAUDE.md` symlinked to `AGENTS.md`: nothing needed, or delete the symlink (content read once either way).
+- `SessionStart` hook that prints `AGENTS.md`: remove it (adds a second copy once Claude reads `AGENTS.md` directly).
+
+#### Share one file with other coding tools
+
+- Use when the project also has a `CLAUDE.md`, **Project instructions** is `claude-md`, or the session can't load `AGENTS.md`: create a `CLAUDE.md` that imports it (`@AGENTS.md`) — add Claude-specific instructions below the import (Claude reads the imported file first). Or symlink (`ln -s AGENTS.md CLAUDE.md`) if no Claude-specific content is needed.
+- Symlink constraints: Claude reads `CLAUDE.md` through the link, but Edit/Write refuse to write through a symlink and direct Claude to edit the link target (`AGENTS.md`).
+- Windows (anyone on the repo): use the `@AGENTS.md` import. Symlinks need Administrator/Developer Mode, and Git checks a committed symlink out as a plain-text file unless `core.symlinks` is enabled, leaving a one-line `CLAUDE.md` in place of your instructions.
+- Confirm in the next session with `/context` → `CLAUDE.md` under **Memory files**.
 - version >= 2.1.213: `/import` brings a supported coding agent's configuration into Claude Code — appends a one-time copy of instruction files such as `AGENTS.md` to the matching CLAUDE.md and carries over MCP servers, commands, subagents, and skills.
 
 ## Auto memory
@@ -137,8 +204,9 @@ Value must be an absolute path or start with `~/`. Read from **any** settings sc
 
 ### Enable / disable
 
-- On by default.
+- On by default in local sessions. Outside Claude Tag sessions, a session in a self-hosted environment runs with auto memory **off** by default.
 - Toggle via `/memory` → auto memory toggle in session; the toggle writes `autoMemoryEnabled` to **user** settings (`~/.claude/settings.json`).
+- The toggle turns auto memory off but cannot turn it back on in a background session or in a session another Claude Code session started (e.g. Claude running `claude` through its Bash tool). There the toggle reads `off · can't be turned on here; use a session started outside Claude Code` → run `claude` directly in a terminal and use the `/memory` toggle in that session.
 - To disable for a single project, set `autoMemoryEnabled` in that project's settings:
 
 ```json
@@ -189,6 +257,13 @@ paths:
 - All API endpoints must include input validation
 ```
 
+- Rule frontmatter: `paths` is the only field Claude Code reads from a rule; any other field is ignored without an error. Frontmatter is removed before the rule loads into context.
+
+| Field   | Required | Description                                                                           |
+| ------- | -------- | ------------------------------------------------------------------------------------- |
+| `paths` | No       | Glob patterns scoping the rule to matching files. YAML list or comma-separated string |
+
+- Unparseable YAML between the `---` markers → frontmatter is ignored and the rule loads as if it had no `paths` (unconditional). Run `claude --debug` to see the parse error.
 - version >= 2.1.198: path matching also works when Claude reaches a file through a **symlinked path** to the project directory (e.g. a symlinked checkout).
 - Glob patterns in `paths`; brace expansion matches multiple extensions:
 
@@ -202,9 +277,10 @@ paths:
 
 - Multiple patterns per rule are allowed. Brace-expansion budget: each brace group multiplies the expanded pattern count (`src/*.{ts,tsx}` → 2; `{a,b}/{c,d}/*.{ts,tsx}` → 8). A rule's whole `paths` list shares **one budget of 1,000 expanded patterns and 4 MiB**; brace-free patterns do not count against it. A pattern that would exceed the budget is used unexpanded, and its literal braces then match no files.
 - Glob treats `[` as the start of a bracket expression (`[abc]`). A pattern whose `[` cannot be read as a bracket expression (e.g. `photos [2024/**`) is invalid: it matches nothing while the rule's other patterns keep working. Escape a literal `[` — `photos \[2024/**`.
-- User-level rules: `~/.claude/rules/` — apply to every project on the machine; loaded **before** project rules, so project rules win.
+- User-level rules: `~/.claude/rules/` — apply to every project on the machine; loaded **before** project rules (project rule appears later in context), but neither set overrides the other; conflicting rules → Claude may follow either.
 - Share across projects with symlinks (directories or individual files); circular symlinks are detected and handled gracefully.
 - A symlink under `.claude/rules/` whose **target** resolves outside the working directory is treated like an external import: the linked rules don't load until you approve external imports for the project, and once approved only the ones without a `paths` field load. Claude Code asks for that approval only when a project memory file imports a file outside the working directory with `@path` — a symlink alone doesn't trigger the dialog. To load shared rules with no approval step, keep them in `~/.claude/rules/` instead (applies to every project on the machine).
+- A `.claude/rules/` or `CLAUDE.md` symlink pointing at a network path (UNC share `\\server\share`, or a path under `/net` or `/Network`) → linked instructions don't load; Claude Code doesn't follow the link because looking up such a path can contact the named host. `\\wsl$` paths don't count as network paths.
 - Debug: the `InstructionsLoaded` hook (`/en/hooks#instructionsloaded`) logs which instruction files load, when, and why — useful for path-specific/lazy-loaded rules.
 
 ## Quick add & editing
@@ -223,6 +299,16 @@ paths:
 - When you see "Saved 2 memories" or "Recalled 2 memories" in the interface, Claude is actively updating or reading `~/.claude/projects/<project>/memory/`.
 - Terminal editors (e.g. Vim) take over the terminal until you exit. version >= 2.1.216: a GUI editor (e.g. VS Code) opens the file in a separate window and the session stays usable while it is open.
 
+## Troubleshooting
+
+- Claude not following CLAUDE.md → check in order: `/context` **Memory files** list shows the file; file sits in a location loaded for the session; instructions are specific; no conflicting instructions across CLAUDE.md files; your instruction doesn't compete with built-in Claude Code guidance.
+- Competing built-in guidance: if CLAUDE.md sets commit or pull request rules, turn off the built-in ones with `includeGitInstructions` and set the attribution text with `attribution`.
+- Instruction that must run at a fixed point (before every commit, after each file edit) → write it as a hook, not CLAUDE.md. Hooks run as shell commands at lifecycle events regardless of what Claude decides.
+- `AGENTS.md` not loading → (1) a `CLAUDE.md`/`.claude/CLAUDE.md`/`CLAUDE.local.md` in working directory or above (other than `~/.claude/CLAUDE.md`) wins unless **Project instructions** is `claude-md-and-agents-md`; (2) `claude --version` must be v2.1.277 or later (v2.1.281 or later for Bedrock/telemetry-disabled sessions); (3) `/config` **Project instructions** must not be `claude-md` or `managed-only` (setting absent → session can't load `AGENTS.md`). Confirm via `/memory` path list.
+- Unknown auto memory contents → `/memory` → open auto memory folder; plain markdown, edit/delete freely.
+- Instruction lost after `/compact` → given only in conversation, in a nested CLAUDE.md not yet reloaded, or in a path-scoped rule that hasn't matched a file since → write conversation-only instructions into CLAUDE.md.
+- `--append-system-prompt` for system-prompt-level instructions; passed at launch, suited to scripts/automation.
+
 ## Version notes
 
 | Version gate       | Note                                                                                                                                           |
@@ -235,9 +321,15 @@ paths:
 | version >= 2.1.214 | `modified` ISO 8601 write-time frontmatter field added to memory files that already have frontmatter                                           |
 | version >= 2.1.234 | `CLAUDE_CODE_PROJECT_DIR_NAME` (set alongside `CLAUDE_CONFIG_DIR`) fixes the auto-memory `<project>` directory name regardless of launch repo  |
 | version >= 2.1.239 | `claudeMdExcludes` pattern matches a symlinked rule by either its `.claude/rules/` path or its link target                                     |
+| version >= 2.1.277 | `AGENTS.md` read directly as project instructions (default `claude-md-or-agents-md`); `Project instructions` setting in `/config`              |
+| version >= 2.1.280 | `/memory` and `/context` list an `AGENTS.md` that Claude read directly                                                                         |
+| version >= 2.1.281 | Bedrock/telemetry-disabled sessions also read `AGENTS.md` directly                                                                             |
+| version >= 2.1.283 | `/doctor prompt-audit` audits instruction files (runs through the bundled `/claude-api` skill)                                                 |
 | before v2.1.207    | One invalid `[` pattern in a rule's `paths` made the Read tool fail for every file the rule was evaluated against, instead of matching nothing |
 | before v2.1.211    | `MEMORY.md` limit check measured the raw file, so frontmatter/HTML comments could trigger the error even when the loaded content fit           |
 | before v2.1.211    | On-demand rules (path-scoped rules, rules in nested `.claude/rules/`) loaded even when `project` was excluded from `--setting-sources`         |
 | before v2.1.216    | `/memory` waited for the opened file to be closed before responding; from v2.1.216 it returns immediately for GUI editors                      |
 | before v2.1.217    | A `paths` value with many brace groups stalled or crashed the CLI at startup                                                                   |
 | before v2.1.239    | A `claudeMdExcludes` pattern excluded a symlinked rule only when it matched the link target, not the file's own `.claude/rules/` path          |
+| before v2.1.280    | `/memory` and `/context` didn't list an `AGENTS.md` that Claude read directly                                                                  |
+| before v2.1.281    | Some sessions (Amazon Bedrock, telemetry disabled) read `CLAUDE.md` files only, not `AGENTS.md`                                                |
