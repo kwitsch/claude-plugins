@@ -46,9 +46,10 @@ link() {
 # the post-install check, so both always agree.
 present() {
   case "$1" in
-    # rustup ships a ~/.cargo/bin/rust-analyzer proxy that exists without the
-    # component and exits non-zero, so command -v is not enough
-    rust-analyzer) rust-analyzer --version > /dev/null 2>&1 ;;
+    # rustup ships ~/.cargo/bin proxies for cargo, rustc and rust-analyzer that
+    # exist without a toolchain / the component and exit non-zero, so command -v
+    # is not enough
+    cargo | rustc | rust-analyzer) "$1" --version > /dev/null 2>&1 ;;
     *) command -v "$1" > /dev/null 2>&1 ;;
   esac
 }
@@ -94,11 +95,32 @@ ensure() { # <id>: present | missing (dry-run) | installed | FAILED
 # parity check and the no-sudo grep; upgrade path: a base-URL override plus a
 # local node:http fixture server, as in rtk-install.bats.
 
+# A numeric .nvmrc / .node-version pin ("18", "v18.19", "20.11.1") at the project
+# root, three levels above this script (<root>/.claude/skills/<skill>/); anything
+# else (lts/*, node, no file) means no pin.
+node_pin() {
+  local root p f
+  root=$(cd "$(dirname -- "$0")/../../.." 2> /dev/null && pwd) || return 0
+  for f in .nvmrc .node-version; do
+    p=""
+    [ -r "$root/$f" ] && { read -r p < "$root/$f" || :; }
+    p=${p//[[:space:]]/}
+    p=${p#v}
+    case "$p" in '' | *[!0-9.]*) ;; *) echo "$p" && return 0 ;; esac
+  done
+}
+
 install_node() {
-  local a v f tmp rc d="$HOME/.local/share/node"
+  local a v f tmp rc pin d="$HOME/.local/share/node"
   a=$(arch) || return 1
-  v=$(curl -fsSL https://nodejs.org/dist/index.tab | awk -F'\t' 'NR>1 && $10!="-" {print $1; exit}')
-  [ -n "$v" ] || return 1
+  pin=$(node_pin)
+  # index.tab lists releases newest first: the first release matching the pin
+  # (or, without one, the first LTS) wins
+  v=$(curl -fsSL https://nodejs.org/dist/index.tab | awk -F'\t' -v pin="$pin" 'NR>1 && (pin=="" ? $10!="-" : ($1==("v" pin) || index($1, "v" pin ".")==1)) {print $1; exit}')
+  if [ -z "$v" ]; then
+    [ -z "$pin" ] || echo "no Node release matches the project's pin: $pin" >&2
+    return 1
+  fi
   f="node-$v-$(os)-$a.tar.gz"
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/ide.XXXXXX") || return 1
   TMPD=$tmp
@@ -122,18 +144,44 @@ need_npm() {
 
 install_pnpm() { ensure node && need_npm && npm install -g --prefix "$HOME/.local" pnpm; }
 
-install_yarn() { ensure node && need_npm && npm install -g --prefix "$HOME/.local" yarn; }
+# A corepack yarn shim runs Classic and Berry projects alike (each project's
+# packageManager field picks the version); `npm install -g yarn` would only
+# give Classic 1.x, which refuses to run in a Berry project. corepack ships
+# with node < 25, so fetch it through npm when it is missing.
+install_yarn() {
+  ensure node && need_npm \
+    && { command -v corepack > /dev/null 2>&1 || npm install -g --prefix "$HOME/.local" corepack; } \
+    && corepack enable --install-directory "$BIN" yarn
+}
+
+# <url> <interpreter> [arg...]: run a downloaded installer script. It goes
+# through a temp file, not a pipe, so a failed or truncated download never
+# reaches the interpreter. Leading VAR=value assignments reach the script.
+fetch_run() {
+  local url=$1 sh=$2 s rc
+  shift 2
+  s=$(mktemp "${TMPDIR:-/tmp}/ide.XXXXXX") || return 1
+  TMPD=$s
+  curl --proto '=https' --tlsv1.2 -fsSL -o "$s" "$url" && "$sh" "$s" "$@"
+  rc=$?
+  rm -f "$s"
+  return "$rc"
+}
 
 # bun's installer puts the binary in $BUN_INSTALL/bin and skips every rc-file
 # edit when `command -v bun` resolves (it does: PATH includes ~/.local/bin).
-install_bun() { curl -fsSL https://bun.sh/install | BUN_INSTALL="$HOME/.local" bash; }
+install_bun() { BUN_INSTALL="$HOME/.local" fetch_run https://bun.sh/install bash; }
 
 install_cargo() {
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path \
+  fetch_run https://sh.rustup.rs sh -y --no-modify-path \
     && link "$CARGO_BIN/cargo" && link "$CARGO_BIN/rustc" && link "$CARGO_BIN/rustup"
 }
 
-install_rust_analyzer() { ensure cargo && rustup component add rust-analyzer && link "$CARGO_BIN/rust-analyzer"; }
+# `rustup component add` needs rustup itself: a distro cargo alone has none
+install_rust_analyzer() {
+  ensure cargo && { command -v rustup > /dev/null 2>&1 || install_cargo; } \
+    && rustup component add rust-analyzer && link "$CARGO_BIN/rust-analyzer"
+}
 
 # GOROOT gets its own directory: ~/.local/share/go is the common XDG GOPATH, and
 # GOROOT must never be mixed into a GOPATH tree.
@@ -157,9 +205,12 @@ install_go() {
 
 install_gopls() { ensure go && GOBIN="$BIN" go install golang.org/x/tools/gopls@latest; }
 
-install_uv() { curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$BIN" UV_NO_MODIFY_PATH=1 sh; }
+install_uv() { UV_INSTALL_DIR="$BIN" UV_NO_MODIFY_PATH=1 fetch_run https://astral.sh/uv/install.sh sh; }
 
+# --default links both `python` and `python3`
 install_python3() { ensure uv && UV_PYTHON_BIN_DIR="$BIN" uv python install --default; }
+
+install_python() { install_python3; }
 
 install_pylsp() { ensure uv && UV_TOOL_BIN_DIR="$BIN" uv tool install python-lsp-server; }
 

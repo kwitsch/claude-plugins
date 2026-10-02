@@ -22,8 +22,9 @@
   "uv": { "files": ["uv.lock"], "commands": ["uv", "uvx"] },
   "python3": {
     "files": ["pyproject.toml", "requirements.txt", "Pipfile", "setup.py"],
-    "commands": ["python", "python3"]
+    "commands": ["python3"]
   },
+  "python": { "files": [], "commands": ["python"] },
   "pylsp": { "files": [], "commands": ["pylsp"] },
   "lua-language-server": { "files": [], "commands": ["lua-language-server"] }
 }

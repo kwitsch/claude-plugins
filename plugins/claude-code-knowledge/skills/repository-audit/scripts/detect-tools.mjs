@@ -11,7 +11,10 @@
 import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, mkdtempSync, chmodSync, renameSync, rmSync, rmdirSync } from "node:fs";
 import { resolve, join, basename, relative } from "node:path";
 
-const PRUNE_NAMES = new Set([".git", "node_modules", "vendor", "dist", "build"]);
+// audit-lsp.mjs's denylist plus virtualenv, cache and build-output directories:
+// third-party packages in them ship their own package.json / requirements.txt,
+// which would read as a project signal.
+const PRUNE_NAMES = new Set([".git", "node_modules", "vendor", "dist", "build", ".venv", "venv", ".tox", "site-packages", "target"]);
 const ASSUMED_PRESENT = new Set(["git", "bash", "sh", "curl", "claude"]);
 // Trust-boundary filter for repo-supplied command names: 1-64 characters, so
 // paths, ${...} variables, spaces, backticks and $(...) never pass.
@@ -45,7 +48,7 @@ function loadCatalog() {
 }
 
 /**
- * Walk the tree (same prune rules as audit-lsp.mjs) and collect, per tool id,
+ * Walk the tree (prune rules: see PRUNE_NAMES) and collect, per tool id,
  * the root-relative paths of regular files whose basename is a catalog signal.
  * Symlinks are never followed: Dirent isDirectory()/isFile() are false for them.
  * @param {string} root absolute project root

@@ -1714,6 +1714,109 @@ rustup_proxy_fixture() {
   [[ "$output" == *"present: rust-analyzer"* ]]
 }
 
+@test "install.sh --dry-run treats a rustup cargo proxy without a toolchain as missing" {
+  local cb="$HOME/.cargo/bin"
+  mkdir -p "$cb"
+  printf '%s\n' '#!/usr/bin/env bash' 'echo "error: rustup could not choose a version of cargo to run" >&2' 'exit 1' > "$cb/cargo"
+  chmod +x "$cb/cargo"
+  run_install_sh --dry-run cargo
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"missing: cargo"* ]]
+  [[ "$output" != *"present: cargo"* ]]
+}
+
+@test "install.sh bootstraps rustup before the rust-analyzer component when only a distro cargo exists" {
+  link_tools mkdir mktemp rm
+  make_stub cargo 'exit 0'
+  make_stub curl 'echo "$*" >> "$TMPDIR/curl.args"' 'exit 1'
+  run_install_sh rust-analyzer
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"present: cargo"* ]]
+  [[ "$output" == *"FAILED: rust-analyzer"* ]]
+  grep -qF "https://sh.rustup.rs" "$BATS_TEST_TMPDIR/curl.args"
+}
+
+@test "install.sh runs nothing and links nothing when the rustup download fails" {
+  link_tools mkdir mktemp rm ln sh
+  make_stub curl 'exit 1'
+  run_install_sh cargo
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAILED: cargo"* ]]
+  [ ! -L "$HOME/.local/bin/cargo" ]
+}
+
+@test "install.sh installs uv by running the downloaded script with UV_INSTALL_DIR set" {
+  link_tools mkdir mktemp rm chmod sh
+  printf '%s\n' 'mkdir -p "$UV_INSTALL_DIR"' 'printf "#!/usr/bin/env bash\n" > "$UV_INSTALL_DIR/uv"' 'chmod +x "$UV_INSTALL_DIR/uv"' > "$BATS_TEST_TMPDIR/uv-install.sh"
+  make_stub curl \
+    'echo "$*" >> "$TMPDIR/curl.args"' \
+    'while [ $# -gt 0 ]; do [ "$1" = "-o" ] && out=$2; shift; done' \
+    'cat "$TMPDIR/uv-install.sh" > "$out"'
+  run_install_sh uv
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"installed: uv"* ]]
+  grep -qF "https://astral.sh/uv/install.sh" "$BATS_TEST_TMPDIR/curl.args"
+  [ -x "$HOME/.local/bin/uv" ]
+}
+
+@test "install.sh installs yarn as a corepack shim in ~/.local/bin, not Classic via npm" {
+  link_tools mkdir chmod
+  make_stub npm 'echo "$*" >> "$TMPDIR/npm.args"'
+  make_stub corepack \
+    'echo "$*" >> "$TMPDIR/corepack.args"' \
+    'printf "%s\n" "#!/usr/bin/env bash" > "$HOME/.local/bin/yarn"' \
+    'chmod +x "$HOME/.local/bin/yarn"'
+  run_install_sh yarn
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"installed: yarn"* ]]
+  [ "$(cat "$BATS_TEST_TMPDIR/corepack.args")" = "enable --install-directory $HOME/.local/bin yarn" ]
+  [ ! -e "$BATS_TEST_TMPDIR/npm.args" ]
+}
+
+@test "install.sh fetches corepack through npm when it is missing, then enables the yarn shim" {
+  link_tools mkdir chmod
+  printf '%s\n' '#!/usr/bin/env bash' 'echo "$*" >> "$TMPDIR/corepack.args"' 'printf "#!/usr/bin/env bash\n" > "$HOME/.local/bin/yarn"' 'chmod +x "$HOME/.local/bin/yarn"' > "$BATS_TEST_TMPDIR/corepack.sh"
+  make_stub npm \
+    'echo "$*" >> "$TMPDIR/npm.args"' \
+    'cat "$TMPDIR/corepack.sh" > "$HOME/.local/bin/corepack"' \
+    'chmod +x "$HOME/.local/bin/corepack"'
+  run_install_sh yarn
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"installed: yarn"* ]]
+  [ "$(cat "$BATS_TEST_TMPDIR/npm.args")" = "install -g --prefix $HOME/.local corepack" ]
+  [ "$(cat "$BATS_TEST_TMPDIR/corepack.args")" = "enable --install-directory $HOME/.local/bin yarn" ]
+}
+
+@test "install.sh node honours a numeric .nvmrc pin, falls back to the newest LTS, and fails on an unmatched pin" {
+  local proj="$BATS_TEST_TMPDIR/p_node" d
+  d="$proj/.claude/skills/init-dev-environment"
+  mkdir -p "$d"
+  cp "$(install_sh)" "$d/install.sh"
+  {
+    printf 'version\tdate\tfiles\tnpm\tv8\tuv\tzlib\topenssl\tmodules\tlts\tsecurity\n'
+    printf '%s\t2024-01-01\tf\tn\tv\tu\tz\to\tm\t%s\t-\n' v22.5.0 - v20.11.1 Iron v18.19.1 Hydrogen v18.19.0 Hydrogen
+  } > "$BATS_TEST_TMPDIR/index.tab"
+  link_tools mkdir uname tr awk mktemp rm dirname
+  rm -f "$MOCKBIN/node"
+  make_stub curl 'case "$*" in *index.tab*) cat "$TMPDIR/index.tab" ;; *) echo "$*" >> "$TMPDIR/curl.args"; exit 1 ;; esac'
+  printf 'v18\n' > "$proj/.nvmrc"
+  run env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" "$MOCKBIN/bash" "$d/install.sh" node
+  [ "$status" -eq 1 ]
+  grep -qF "https://nodejs.org/dist/v18.19.1/node-v18.19.1-" "$BATS_TEST_TMPDIR/curl.args"
+  rm -f "$BATS_TEST_TMPDIR/curl.args"
+  printf 'lts/*\n' > "$proj/.nvmrc"
+  run env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" "$MOCKBIN/bash" "$d/install.sh" node
+  [ "$status" -eq 1 ]
+  grep -qF "https://nodejs.org/dist/v20.11.1/node-v20.11.1-" "$BATS_TEST_TMPDIR/curl.args"
+  rm -f "$BATS_TEST_TMPDIR/curl.args"
+  printf '99\n' > "$proj/.nvmrc"
+  run env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" "$MOCKBIN/bash" "$d/install.sh" node
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"no Node release matches the project's pin: 99"* ]]
+  [[ "$output" == *"FAILED: node"* ]]
+  [ ! -e "$BATS_TEST_TMPDIR/curl.args" ]
+}
+
 # --- repository-audit tool detection (scripts/detect-tools.mjs) ---
 # Hermetic: the detector spawns no child process (pure fs), so tests call the
 # real `node` directly against temp project dirs under $BATS_TEST_TMPDIR.
@@ -1785,6 +1888,33 @@ detect_fixture() {
   run_detect "$proj"
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.tools == [] and .manual == []'
+}
+
+@test "detection: virtualenv, tox and build-output directories contribute nothing" {
+  local proj="$BATS_TEST_TMPDIR/p_venv"
+  mkdir -p "$proj/.venv/lib/jup" "$proj/venv/x" "$proj/target/y" "$proj/.tox/py3" "$proj/src/site-packages/z"
+  printf '{}\n' > "$proj/.venv/lib/jup/package.json"
+  printf '{}\n' > "$proj/venv/x/package.json"
+  printf '[package]\n' > "$proj/target/y/Cargo.toml"
+  printf 'x\n' > "$proj/.tox/py3/requirements.txt"
+  printf '{}\n' > "$proj/src/site-packages/z/package.json"
+  printf 'x\n' > "$proj/requirements.txt"
+  run_detect "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '[.tools[].id] == ["python3"]'
+}
+
+@test "detection: a python launcher command maps to python, python3 to python3" {
+  local proj="$BATS_TEST_TMPDIR/p_pylauncher"
+  mkdir -p "$proj"
+  printf '%s\n' '{"mcpServers":{"a":{"command":"python"}}}' > "$proj/.mcp.json"
+  run_detect "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '[.tools[].id] == ["python"]'
+  printf '%s\n' '{"mcpServers":{"a":{"command":"python3"}}}' > "$proj/.mcp.json"
+  run_detect "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '[.tools[].id] == ["python3"]'
 }
 
 @test "detection: an empty project reports nothing, in the canonical JSON format" {
