@@ -1868,3 +1868,13 @@ detect_fixture() {
     rg_or_grep -qE "^${fn}\(\)" "$s" || { echo "missing recipe: $fn"; return 1; }
   done
 }
+
+# --- repository-audit tool-detection phase (SKILL.md steps 5-7) ---
+
+@test "repository-audit wires the tool-detection phase and the Dev environment report section" {
+  local f="$PLUGIN/skills/repository-audit/SKILL.md" tok
+  for tok in 'init-dev-environment' 'detect-tools.reference.md' '${CLAUDE_SKILL_DIR}/scripts/detect-tools.mjs' '--write' 'skillExists' 'skillsDirCreated' 'Dev environment'; do
+    rg_or_grep -qF -- "$tok" "$f" || { echo "missing: $tok"; return 1; }
+  done
+  [ "$(wc -l < "$f")" -lt 500 ]
+}
