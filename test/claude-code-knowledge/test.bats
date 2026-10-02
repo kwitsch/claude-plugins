@@ -1878,3 +1878,33 @@ detect_fixture() {
   done
   [ "$(wc -l < "$f")" -lt 500 ]
 }
+
+# --- init-dev-environment doc/manifest sync ---
+
+@test "plugin.json version was bumped for init-dev-environment (minor, off 1.9.0)" {
+  run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
+  [ "$output" != "1.9.0" ]
+}
+
+@test "plugin.json description mentions init-dev-environment" {
+  run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"init-dev-environment"* ]]
+}
+
+@test "claude-code-knowledge CLAUDE.md boundary rule mentions init-dev-environment" {
+  run rg_or_grep -F 'init-dev-environment' "$PLUGIN/CLAUDE.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "claude-code-knowledge README mentions init-dev-environment" {
+  run rg_or_grep -F 'init-dev-environment' "$PLUGIN/README.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "root README plugin row mentions init-dev-environment" {
+  run rg_or_grep -F 'claude-code-knowledge](plugins/claude-code-knowledge/README.md)' "$REPO_ROOT/README.md"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"init-dev-environment"* ]]
+}
