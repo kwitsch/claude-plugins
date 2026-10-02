@@ -8,7 +8,7 @@
 // directory is absent. Diagnostics go to stderr; stdout carries only the JSON
 // result object.
 
-import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, mkdtempSync, chmodSync, renameSync, rmSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, mkdtempSync, chmodSync, renameSync, rmSync, rmdirSync } from "node:fs";
 import { resolve, join, basename, relative } from "node:path";
 
 const PRUNE_NAMES = new Set([".git", "node_modules", "vendor", "dist", "build"]);
@@ -201,14 +201,24 @@ function writeSkill(root, ids, manual) {
   const skillsDir = join(root, ".claude", "skills");
   const skillsDirCreated = !existsSync(skillsDir);
   mkdirSync(skillsDir, { recursive: true });
-  const tmp = mkdtempSync(join(root, ".claude", ".init-dev-environment-"));
+  let tmp = "";
   try {
+    tmp = mkdtempSync(join(root, ".claude", ".init-dev-environment-"));
     writeFileSync(join(tmp, "SKILL.md"), render(skillTemplate, ids, manual));
     writeFileSync(join(tmp, "install.sh"), installer);
     chmodSync(tmp, 0o755);
     renameSync(tmp, join(skillsDir, "init-dev-environment"));
   } catch (err) {
-    rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmSync(tmp, { recursive: true, force: true });
+    // Undo the skills dir this call created, so a retry still reports
+    // skillsDirCreated (rmdir only removes an empty directory).
+    if (skillsDirCreated) {
+      try {
+        rmdirSync(skillsDir);
+      } catch {
+        // not empty or already gone: leave it
+      }
+    }
     throw err;
   }
   return skillsDirCreated;

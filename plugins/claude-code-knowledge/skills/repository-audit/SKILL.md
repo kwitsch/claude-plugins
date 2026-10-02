@@ -105,7 +105,11 @@ object to stdout (the audit schema in the reference). Parse it, then:
   generated skill could install).
 - **`skillExists` is true** — no question, nothing written. Record "`<skillDir>`
   already exists, left untouched. To regenerate it from the current detection,
-  delete that directory and run repository-audit again."
+  delete that directory and run repository-audit again." Also `Read`
+  `<skillDir>/SKILL.md` and compare its `description` tool list with the
+  detected `tools` ids — an earlier run's generated `install.sh` or lsp-audit's
+  additions can add a tool the existing skill lacks. Name every detected id it
+  does not list as missing from the existing skill (still nothing written).
 - **Otherwise, gate.** When `$FIX` is set, skip the question entirely and treat
   it as confirmed. Otherwise ask one `AskUserQuestion` — single-select, header
   `Dev env`, question "Create a project-level init-dev-environment skill that
@@ -146,7 +150,7 @@ Emit one final report with exactly four named sections, in this order:
    with its `evidence`; every `manual` entry as a manual to-do; and the outcome
    — created (with the path and next steps, including the restart note when
    `skillsDirCreated` is true), skipped by the user, already exists (left
-   untouched), nothing installable detected, or failed (with the error).
+   untouched, naming any detected tool it lacks), nothing installable detected, or failed (with the error).
 
 This is a recap/wrapper, not a re-derivation — no structured data crosses the
 inline nested-skill boundary, so the LSP audit and Memory audit sections are

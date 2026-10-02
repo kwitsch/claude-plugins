@@ -1624,6 +1624,30 @@ rustup_proxy_fixture() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"present: node"* ]]
   [[ "$output" == *"missing: pnpm"* ]]
+  [[ "$output" != *"note:"* ]]
+  [ ! -e "$HOME/.local" ]
+}
+
+@test "install.sh --dry-run notes a present tool reachable only via the dirs it appended to PATH" {
+  mkdir -p "$HOME/.local/bin"
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "$HOME/.local/bin/pnpm"
+  chmod +x "$HOME/.local/bin/pnpm"
+  run_install_sh --dry-run node pnpm
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"present: pnpm"* ]]
+  [[ "$output" == *"note: not on PATH"*" pnpm;"* ]]
+  [[ "$output" != *" node;"* ]]
+}
+
+@test "install.sh honours --dry-run in any argument position and installs nothing" {
+  link_tools mkdir
+  make_stub npm 'echo "$*" >> "$TMPDIR/npm.args"'
+  run_install_sh node pnpm --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"present: node"* ]]
+  [[ "$output" == *"missing: pnpm"* ]]
+  [[ "$output" != *"unknown tool id"* ]]
+  [ ! -e "$BATS_TEST_TMPDIR/npm.args" ]
   [ ! -e "$HOME/.local" ]
 }
 
@@ -1652,6 +1676,15 @@ rustup_proxy_fixture() {
   make_stub npm 'exit 1'
   run_install_sh pnpm
   [ "$status" -eq 1 ]
+  [[ "$output" == *"FAILED: pnpm"* ]]
+}
+
+@test "install.sh names npm when node is present without npm and the pnpm recipe cannot run" {
+  link_tools mkdir
+  run_install_sh pnpm
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"present: node"* ]]
+  [[ "$output" == *"npm not found"* ]]
   [[ "$output" == *"FAILED: pnpm"* ]]
 }
 
@@ -1858,6 +1891,7 @@ detect_fixture() {
   run rg_or_grep -F 'CLAUDE_PLUGIN_ROOT' "$t"; [ "$status" -ne 0 ]
   run rg_or_grep -F 'AskUserQuestion' "$t"; [ "$status" -eq 0 ]
   run rg_or_grep -F '@@TOOLS@@' "$t"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'run_in_background' "$t"; [ "$status" -eq 0 ]
 }
 
 @test "tool-map.json ids each have an install_<id> recipe in install.sh" {

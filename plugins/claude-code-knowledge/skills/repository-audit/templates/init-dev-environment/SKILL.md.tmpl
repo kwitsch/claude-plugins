@@ -43,13 +43,23 @@ On `Cancel`, report the step-1 plan and stop without installing.
 
 ## 3. Install
 
+Run with the Bash tool, passing a raised `timeout` (600000 ms) or
+`run_in_background` — the toolchain downloads can exceed the default two-minute
+limit and a killed installer stops mid-chain:
+
     bash ${CLAUDE_SKILL_DIR}/install.sh @@TOOLS@@
+
+If it still times out, rerun the same command: tools that are already usable
+are skipped.
 
 ## 4. Report
 
 Report every output line (`present:`, `installed:`, `FAILED:`), quoting the
 installer's error output for each failed tool. Exit code 1 means at least one
-tool failed. If a `note:` line says `~/.local/bin` is not on PATH, tell the user
-to add it to their shell profile — never edit shell startup files.
+tool failed. If a `note:` line lists tools that are not on PATH (found only via
+`~/.local/bin`, `~/.cargo/bin` or `~/.bun/bin`), tell the user to add those
+directories to their shell profile — never edit shell startup files. This note
+also appears when a tool is already installed but off the user's PATH, so the
+Plan step's `present:` lines alone do not prove the shell can find it.
 
 Not installed by this skill (install manually): @@MANUAL@@
