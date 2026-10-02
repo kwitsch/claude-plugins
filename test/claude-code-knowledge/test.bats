@@ -1239,6 +1239,15 @@ run_audit() { run node "$(audit_script)" "$@"; }
   [ "$status" -eq 0 ]
 }
 
+@test "audit-lsp.reference.md documents the plugin target, legacy migration and new output keys" {
+  local r="$PLUGIN/skills/lsp-audit/scripts/audit-lsp.reference.md"
+  run rg_or_grep -F '.claude/skills/lsp/.lsp.json' "$r"; [ "$status" -eq 0 ]
+  run rg_or_grep -F '.claude-plugin/plugin.json' "$r"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'legacyRootLspJson' "$r"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'migratedFromRoot' "$r"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'only migrates a legacy root file' "$r"; [ "$status" -eq 0 ]
+}
+
 @test "lsp-map.json is valid JSON with the expected catalog shape" {
   local m="$PLUGIN/skills/lsp-audit/scripts/lsp-map.json"
   run jq empty "$m"
