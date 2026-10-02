@@ -1,17 +1,22 @@
 #!/usr/bin/env node
-// Audit a project's file extensions against its project-root .lsp.json and,
-// on --fix/--apply, additively write missing LSP-server coverage. Zero-dep.
+// Audit a project's file extensions against <root>/.claude/skills/lsp/.lsp.json
+// (the .lsp.json of the project-scope `lsp` skills-dir plugin) and, on
+// --fix/--apply, additively write missing LSP-server coverage plus the plugin
+// manifest on first write. Zero-dep.
 // Additive-only (never removes/reorders existing keys), respects the LSP
 // "first server registered wins" rule, preserves 2-space + trailing newline,
 // and fails closed (writes nothing, exit 1) on a malformed .lsp.json. All work
-// happens in memory; the file is written at most once, as the final action.
+// happens in memory; each file is written at most once, as the final actions.
 // Diagnostics go to stderr; stdout carries only the JSON result object.
 
-import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
-import { resolve, join, basename } from "node:path";
+import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync } from "node:fs";
+import { resolve, join, basename, dirname } from "node:path";
 
 const PRUNE_NAMES = new Set([".git", "node_modules", "vendor", "dist", "build"]);
 const EXT_TOKEN = /^\.[A-Za-z0-9]+$/;
+// Written only when absent (never overwritten) so `.claude/skills/lsp/` loads
+// as the `lsp@skills-dir` plugin.
+const MANIFEST = { name: "lsp", description: "Project LSP server configuration, maintained by claude-code-knowledge:lsp-audit." };
 
 /**
  * Recursively collect lowercased file-extension -> file count, pruning the
@@ -57,15 +62,14 @@ function scanExtensions(root) {
 }
 
 /**
- * Read and parse <root>/.lsp.json. Throws on malformed JSON so the caller can
+ * Read and parse a .lsp.json file. Throws on malformed JSON so the caller can
  * fail closed. A missing file is not an error (returns an empty config).
- * @param {string} root
+ * @param {string} file absolute path of a .lsp.json
  * @returns {{ exists: boolean, config: Record<string, any>, raw: string }}
  */
-function readLspJson(root) {
-  const p = join(root, ".lsp.json");
-  if (!existsSync(p)) return { exists: false, config: {}, raw: "" };
-  const raw = readFileSync(p, "utf8");
+function readLspJson(file) {
+  if (!existsSync(file)) return { exists: false, config: {}, raw: "" };
+  const raw = readFileSync(file, "utf8");
   const parsed = JSON.parse(raw); // throws -> caller exits 1
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     // Valid JSON but not a plain object (array/string/number/null) is just as
@@ -267,17 +271,20 @@ function main() {
     }
   }
   const root = resolve(rootArg);
+  const pluginDir = join(root, ".claude", "skills", "lsp");
+  const pluginLsp = join(pluginDir, ".lsp.json");
+  const manifest = join(pluginDir, ".claude-plugin", "plugin.json");
 
-  let lsp;
+  let plugin;
   try {
-    lsp = readLspJson(root);
+    plugin = readLspJson(pluginLsp);
   } catch (err) {
-    fail(`Malformed .lsp.json at ${join(root, ".lsp.json")}: ${/** @type {any} */ (err).message}`);
+    fail(`Malformed .lsp.json at ${pluginLsp}: ${/** @type {any} */ (err).message}`);
     return;
   }
 
   const counts = scanExtensions(root);
-  const { covered, claimedBy } = coverage(lsp.config);
+  const { covered, claimedBy } = coverage(plugin.config);
 
   let catalog;
   try {
@@ -287,14 +294,14 @@ function main() {
     return;
   }
 
-  const { proposals, unknown } = buildPlan(counts, covered, lsp.config, catalog);
+  const { proposals, unknown } = buildPlan(counts, covered, plugin.config, catalog);
 
   if (mode === "audit") {
     process.stdout.write(
       JSON.stringify(
         {
           root,
-          lspJsonExists: lsp.exists,
+          lspJsonExists: plugin.exists,
           covered: [...covered].sort(),
           proposals,
           unknown,
@@ -308,17 +315,19 @@ function main() {
   }
 
   const validExt = new Set(mode === "fix" ? proposals.map((p) => p.ext) : applyExts.filter((t) => EXT_TOKEN.test(t) && proposals.some((p) => p.ext === t)));
-  const { result, applied, createdServers, mergedIntoServers, conflictsSkipped } = applyProposals(lsp.config, claimedBy, proposals, validExt, catalog);
+  const { result, applied, createdServers, mergedIntoServers, conflictsSkipped } = applyProposals(plugin.config, claimedBy, proposals, validExt, catalog);
 
   let wrote = false;
   if (applied.length > 0) {
-    const trailing = !lsp.exists || lsp.raw.endsWith("\n") ? "\n" : "";
-    const p = join(root, ".lsp.json");
-    writeFileSync(p, JSON.stringify(result, null, 2) + trailing);
+    // Order matters: manifest dir -> manifest (only if absent) -> .lsp.json -> readback.
+    mkdirSync(dirname(manifest), { recursive: true });
+    if (!existsSync(manifest)) writeFileSync(manifest, JSON.stringify(MANIFEST, null, 2) + "\n");
+    const trailing = !plugin.exists || plugin.raw.endsWith("\n") ? "\n" : "";
+    writeFileSync(pluginLsp, JSON.stringify(result, null, 2) + trailing);
     // Readback verification: re-parse and confirm every applied ext resolves.
     let back;
     try {
-      back = JSON.parse(readFileSync(p, "utf8"));
+      back = JSON.parse(readFileSync(pluginLsp, "utf8"));
     } catch (err) {
       fail(`Readback parse failed after write: ${/** @type {any} */ (err).message}`);
       return;

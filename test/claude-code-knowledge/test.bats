@@ -1250,13 +1250,15 @@ run_audit() { run node "$(audit_script)" "$@"; }
 
 @test "audit mode: reports catalog proposals and unknowns for uncovered exts" {
   local proj="$BATS_TEST_TMPDIR/p_audit"
-  mkdir -p "$proj"
+  local f="$proj/.claude/skills/lsp/.lsp.json"
+  mkdir -p "${f%/*}"
   printf 'x\n' > "$proj/a.py"
   printf 'x\n' > "$proj/b.go"
   printf 'x\n' > "$proj/c.md"
-  printf '{}\n' > "$proj/.lsp.json"
+  printf '{}\n' > "$f"
   run_audit "$proj"
   [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.lspJsonExists == true'
   echo "$output" | jq -e '.proposals | map(select(.ext==".py" and .server=="pylsp")) | length == 1'
   echo "$output" | jq -e '.proposals | map(select(.ext==".go" and .server=="gopls")) | length == 1'
   echo "$output" | jq -e '.unknown   | map(select(.ext==".md")) | length == 1'
@@ -1264,16 +1266,16 @@ run_audit() { run node "$(audit_script)" "$@"; }
 
 @test "--fix: writes pylsp + gopls blocks, no .md server, canonical 2-space+newline output" {
   local proj="$BATS_TEST_TMPDIR/p_fix"
-  mkdir -p "$proj"
+  local f="$proj/.claude/skills/lsp/.lsp.json"
+  mkdir -p "${f%/*}"
   printf 'x\n' > "$proj/a.py"
   printf 'x\n' > "$proj/b.go"
   printf 'x\n' > "$proj/c.md"
-  printf '{}\n' > "$proj/.lsp.json"
+  printf '{}\n' > "$f"
   run_audit "$proj" --fix
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.applied | index(".py") != null'
   echo "$output" | jq -e '.applied | index(".go") != null'
-  local f="$proj/.lsp.json"
   jq -e '.pylsp.extensionToLanguage[".py"] == "python"' "$f"
   jq -e '.gopls.extensionToLanguage[".go"] == "go"' "$f"
   # no server covers .md
@@ -1285,9 +1287,10 @@ run_audit() { run node "$(audit_script)" "$@"; }
 
 @test "--fix merges into an existing server (no duplicate block)" {
   local proj="$BATS_TEST_TMPDIR/p_merge"
-  mkdir -p "$proj"
+  local f="$proj/.claude/skills/lsp/.lsp.json"
+  mkdir -p "${f%/*}"
   printf 'x\n' > "$proj/a.mjs"
-  cat > "$proj/.lsp.json" <<'JSON'
+  cat > "$f" <<'JSON'
 {
   "vtsls": {
     "command": "npx",
@@ -1302,7 +1305,6 @@ JSON
   run_audit "$proj" --fix
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.mergedIntoServers | index("vtsls") != null'
-  local f="$proj/.lsp.json"
   jq -e '.vtsls.extensionToLanguage[".mjs"] == "javascript"' "$f"
   jq -e '.vtsls.extensionToLanguage[".ts"]  == "typescript"' "$f"
   # exactly one vtsls key (no duplicate server block)
@@ -1311,9 +1313,10 @@ JSON
 
 @test "new server block is scoped to only the applied extension, not catalog-family siblings" {
   local proj="$BATS_TEST_TMPDIR/p_scoped"
-  mkdir -p "$proj"
+  local f="$proj/.claude/skills/lsp/.lsp.json"
+  mkdir -p "${f%/*}"
   printf 'x\n' > "$proj/a.css"
-  cat > "$proj/.lsp.json" <<'JSON'
+  cat > "$f" <<'JSON'
 {
   "othercss": {
     "command": "x",
@@ -1329,7 +1332,6 @@ JSON
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.createdServers   | index("cssls") != null'
   echo "$output" | jq -e '.conflictsSkipped == []'
-  local f="$proj/.lsp.json"
   # cssls gets only .css — not .scss/.less, even though the catalog's cssls
   # entry lists them as siblings and the project has neither of those files
   jq -e '.cssls.extensionToLanguage | has(".css") and (has(".scss") | not) and (has(".less") | not)' "$f"
@@ -1339,49 +1341,56 @@ JSON
 
 @test "malformed .lsp.json: exit 1, file byte-for-byte unchanged, nothing written" {
   local proj="$BATS_TEST_TMPDIR/p_bad"
-  mkdir -p "$proj"
+  local f="$proj/.claude/skills/lsp/.lsp.json"
+  mkdir -p "${f%/*}"
   printf 'x\n' > "$proj/a.py"
-  printf '%s' '{ not valid json' > "$proj/.lsp.json"
-  local before; before="$(cat "$proj/.lsp.json")"
+  printf '%s' '{ not valid json' > "$f"
+  local before; before="$(cat "$f")"
   run_audit "$proj" --fix
   [ "$status" -eq 1 ]
-  [ "$(cat "$proj/.lsp.json")" = "$before" ]
+  [ "$(cat "$f")" = "$before" ]
+  [ ! -e "$proj/.claude/skills/lsp/.claude-plugin" ]
 }
 
 @test "no .lsp.json: --fix creates a well-formed fresh file" {
   local proj="$BATS_TEST_TMPDIR/p_fresh"
+  local f="$proj/.claude/skills/lsp/.lsp.json"
+  local m="$proj/.claude/skills/lsp/.claude-plugin/plugin.json"
   mkdir -p "$proj"
   printf 'x\n' > "$proj/a.py"
-  [ ! -f "$proj/.lsp.json" ]
+  [ ! -e "$proj/.claude" ]
   run_audit "$proj" --fix
   [ "$status" -eq 0 ]
-  local f="$proj/.lsp.json"
   [ -f "$f" ]
   jq -e '.pylsp.extensionToLanguage[".py"] == "python"' "$f"
   run node -e 'const fs=require("fs");const t=fs.readFileSync(process.argv[1],"utf8");process.exit(t===JSON.stringify(JSON.parse(t),null,2)+"\n"?0:1)' "$f"
   [ "$status" -eq 0 ]
+  jq -e '.name == "lsp"' "$m"
+  jq -e '.description == "Project LSP server configuration, maintained by claude-code-knowledge:lsp-audit."' "$m"
+  [ ! -e "$proj/.lsp.json" ]
 }
 
 @test "--apply applies only the named extension" {
   local proj="$BATS_TEST_TMPDIR/p_apply"
-  mkdir -p "$proj"
+  local f="$proj/.claude/skills/lsp/.lsp.json"
+  mkdir -p "${f%/*}"
   printf 'x\n' > "$proj/a.py"
   printf 'x\n' > "$proj/b.go"
-  printf '{}\n' > "$proj/.lsp.json"
+  printf '{}\n' > "$f"
   run_audit "$proj" --apply ".py"
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.applied == [".py"]'
-  local f="$proj/.lsp.json"
   jq -e '.pylsp.extensionToLanguage[".py"] == "python"' "$f"
   jq -e 'has("gopls") | not' "$f"
 }
 
 @test "dotfile with only a leading dot is skipped (no extension)" {
   local proj="$BATS_TEST_TMPDIR/p_dotfile"
-  mkdir -p "$proj"
+  local f="$proj/.claude/skills/lsp/.lsp.json"
+  mkdir -p "${f%/*}"
   printf 'x\n' > "$proj/.gitignore"
   printf 'x\n' > "$proj/a.py"
-  printf '{}\n' > "$proj/.lsp.json"
+  printf '{}\n' > "$f"
   run_audit "$proj"
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '[.proposals[].ext, .unknown[].ext] | (index(".gitignore") == null) and (index("gitignore") == null)'
@@ -1389,12 +1398,28 @@ JSON
 
 @test "pruned directories do not contribute extensions" {
   local proj="$BATS_TEST_TMPDIR/p_prune"
-  mkdir -p "$proj/node_modules"
+  local f="$proj/.claude/skills/lsp/.lsp.json"
+  mkdir -p "$proj/node_modules" "${f%/*}"
   printf 'x\n' > "$proj/node_modules/foo.py"
-  printf '{}\n' > "$proj/.lsp.json"
+  printf '{}\n' > "$f"
   run_audit "$proj"
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '[.proposals[].ext] | index(".py") == null'
+}
+
+@test "an existing plugin manifest is never overwritten" {
+  local proj="$BATS_TEST_TMPDIR/p_manifest"
+  local d="$proj/.claude/skills/lsp"
+  mkdir -p "$d/.claude-plugin"
+  printf 'x\n' > "$proj/a.py"
+  printf '{}\n' > "$d/.lsp.json"
+  printf '{"name":"lsp","description":"custom"}' > "$d/.claude-plugin/plugin.json"
+  cp "$d/.claude-plugin/plugin.json" "$BATS_TEST_TMPDIR/manifest.before"
+  run_audit "$proj" --fix
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.wrote == true'
+  jq -e '.pylsp.extensionToLanguage[".py"] == "python"' "$d/.lsp.json"
+  cmp "$BATS_TEST_TMPDIR/manifest.before" "$d/.claude-plugin/plugin.json"
 }
 
 # --- lsp-audit orchestrator skill ---
