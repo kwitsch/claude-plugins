@@ -1616,6 +1616,23 @@ JSON
   [ "$output" != "1.7.11" ]
 }
 
+@test "plugin.json version was bumped for lsp-audit plugin target (minor, off 1.9.0)" {
+  run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
+  [ "$output" != "1.9.0" ]
+}
+
+@test "lsp-audit docs and manifest describe the project-scope lsp plugin target" {
+  run rg_or_grep -F '.claude/skills/lsp' "$PLUGIN/CLAUDE.md"; [ "$status" -eq 0 ]
+  run rg_or_grep -F '.claude/skills/lsp' "$PLUGIN/README.md"; [ "$status" -eq 0 ]
+  run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *".claude/skills/lsp/"* ]]
+  [[ "$output" == *"lsp-audit"* ]]
+  [[ "$output" == *"repository-audit"* ]]
+  [[ "$output" == *"(CC docs read: 2026-09-18)"* ]]
+}
+
 @test "plugin.json description mentions lsp-audit" {
   run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
