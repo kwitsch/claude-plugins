@@ -73,7 +73,8 @@ and deletes it with no confirmation, because `--fix` is the consent:
     node ${CLAUDE_SKILL_DIR}/scripts/audit-lsp.mjs "$ROOT" --fix
 
 Parse the apply-summary JSON, then go to Report. If the script exits non-zero,
-report its printed error and that nothing was written or deleted.
+report its printed error as is (it says when the plugin files were already
+written but the root file could not be deleted) and stop.
 
 ## 6. Interactive path (no --fix)
 
@@ -103,7 +104,8 @@ report its printed error and that nothing was written or deleted.
    The extension tokens are catalog-derived (each matches `^\.[A-Za-z0-9]+$`),
    never raw user free-text; the script re-validates each token. Parse the
    apply-summary JSON, then go to Report. If the script exits non-zero, report its
-   printed error and that nothing was written or deleted.
+   printed error as is (it says when the plugin files were already written but
+   the root file could not be deleted) and stop.
 
 4. If nothing was picked and no migration is pending, report that no entry was
    added and stop.

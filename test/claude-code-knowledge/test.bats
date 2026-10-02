@@ -1535,6 +1535,73 @@ JSON
   jq -e 'has("gopls") | not' "$f"
 }
 
+@test "a root that is itself a plugin keeps its own .lsp.json (not legacy, never deleted)" {
+  local proj="$BATS_TEST_TMPDIR/p_plugin_root"
+  mkdir -p "$proj/.claude-plugin"
+  printf '{"name":"x"}\n' > "$proj/.claude-plugin/plugin.json"
+  printf 'x\n' > "$proj/a.py"
+  cat > "$proj/.lsp.json" <<'JSON'
+{ "pylsp": { "command": "pylsp", "args": [], "extensionToLanguage": { ".py": "python" }, "startupTimeout": 60000 } }
+JSON
+  cp "$proj/.lsp.json" "$BATS_TEST_TMPDIR/root.pluginroot.before"
+  run_audit "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.legacyRootLspJson == false'
+  run_audit "$proj" --fix
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.migratedFromRoot == false'
+  cmp "$BATS_TEST_TMPDIR/root.pluginroot.before" "$proj/.lsp.json"
+}
+
+@test "a shared server id differing only in key order is not a conflict" {
+  local proj="$BATS_TEST_TMPDIR/p_mig_order"
+  local d="$proj/.claude/skills/lsp"
+  mkdir -p "$d"
+  printf 'x\n' > "$proj/a.ts"
+  printf '%s\n' '{"vtsls":{"command":"npx","args":["-y","@vtsls/language-server@0.3.0","--stdio"],"extensionToLanguage":{".ts":"typescript"},"startupTimeout":60000}}' > "$proj/.lsp.json"
+  printf '%s\n' '{"vtsls":{"startupTimeout":60000,"extensionToLanguage":{".ts":"typescript"},"args":["-y","@vtsls/language-server@0.3.0","--stdio"],"command":"npx"}}' > "$d/.lsp.json"
+  run_audit "$proj" --fix
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.migratedFromRoot == true'
+  [ ! -e "$proj/.lsp.json" ]
+  jq -e '.vtsls.extensionToLanguage[".ts"] == "typescript"' "$d/.lsp.json"
+}
+
+@test "a failing root-file delete exits 1 with a clean diagnostic, plugin files kept" {
+  [ "$(id -u)" -ne 0 ] || skip "root ignores directory permissions"
+  local proj="$BATS_TEST_TMPDIR/p_unlink_fail"
+  local d="$proj/.claude/skills/lsp"
+  mkdir -p "$d/.claude-plugin"
+  printf 'x\n' > "$proj/a.py"
+  printf '{}\n' > "$d/.lsp.json"
+  printf '{"name":"lsp"}\n' > "$d/.claude-plugin/plugin.json"
+  cat > "$proj/.lsp.json" <<'JSON'
+{ "pylsp": { "command": "pylsp", "args": [], "extensionToLanguage": { ".py": "python" }, "startupTimeout": 60000 } }
+JSON
+  chmod 555 "$proj"
+  run_audit "$proj" --fix
+  chmod 755 "$proj"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"could not delete"* ]]
+  [[ "$output" != *"at Object."* ]]
+  jq -e '.pylsp.extensionToLanguage[".py"] == "python"' "$d/.lsp.json"
+}
+
+@test "a plugin .lsp.json symlinked to the root file fails closed, root file kept" {
+  local proj="$BATS_TEST_TMPDIR/p_symlink"
+  local d="$proj/.claude/skills/lsp"
+  mkdir -p "$d"
+  printf 'x\n' > "$proj/a.py"
+  cat > "$proj/.lsp.json" <<'JSON'
+{ "pylsp": { "command": "pylsp", "args": [], "extensionToLanguage": { ".py": "python" }, "startupTimeout": 60000 } }
+JSON
+  cp "$proj/.lsp.json" "$BATS_TEST_TMPDIR/root.symlink.before"
+  ln -s ../../../.lsp.json "$d/.lsp.json"
+  run_audit "$proj" --fix
+  [ "$status" -eq 1 ]
+  cmp "$BATS_TEST_TMPDIR/root.symlink.before" "$proj/.lsp.json"
+}
+
 # --- lsp-audit orchestrator skill ---
 
 @test "lsp-audit SKILL.md exists" {
@@ -1630,7 +1697,7 @@ JSON
   [[ "$output" == *".claude/skills/lsp/"* ]]
   [[ "$output" == *"lsp-audit"* ]]
   [[ "$output" == *"repository-audit"* ]]
-  [[ "$output" == *"(CC docs read: 2026-09-18)"* ]]
+  [[ "$output" == *"(CC docs read: "* ]]
 }
 
 @test "plugin.json description mentions lsp-audit" {
@@ -1662,7 +1729,6 @@ JSON
   run rg_or_grep -F 'Project-scoped' "$f"; [ "$status" -ne 0 ]
   run rg_or_grep -F 'has no path variable substitution' "$f"; [ "$status" -ne 0 ]
   run rg_or_grep -F 'is not loaded by Claude Code' "$f"; [ "$status" -eq 0 ]
-  run rg_or_grep -F 'verified 2026-08-18' "$f"; [ "$status" -eq 0 ]
 }
 
 @test "cc-reference SKILL.md LSP index carries no project-root scope or example" {

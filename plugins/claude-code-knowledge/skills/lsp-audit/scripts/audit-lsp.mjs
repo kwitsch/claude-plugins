@@ -12,8 +12,9 @@
 // readback, as the final action.
 // Diagnostics go to stderr; stdout carries only the JSON result object.
 
-import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, unlinkSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, unlinkSync, realpathSync } from "node:fs";
 import { resolve, join, basename, dirname } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 const PRUNE_NAMES = new Set([".git", "node_modules", "vendor", "dist", "build"]);
 const EXT_TOKEN = /^\.[A-Za-z0-9]+$/;
@@ -88,7 +89,7 @@ function readLspJson(file) {
  * Merge a legacy project-root .lsp.json into the plugin config. Plugin servers
  * keep their order and root-only servers are appended, so at runtime the
  * plugin's blocks register first (first-registered-wins). A server id present
- * in both must be JSON.stringify-identical, otherwise fail closed (the root
+ * in both must be deep-equal (object key order ignored), otherwise fail closed (the root
  * file is deleted after a write, so a silent drop would lose data).
  * @param {Record<string, any>} pluginConfig
  * @param {Record<string, any>} legacyConfig
@@ -102,7 +103,7 @@ function mergeLegacyRoot(pluginConfig, legacyConfig, legacyPath, pluginPath) {
   for (const [server, block] of Object.entries(legacyConfig)) {
     if (!Object.prototype.hasOwnProperty.call(clone, server)) {
       clone[server] = block;
-    } else if (JSON.stringify(clone[server]) !== JSON.stringify(block)) {
+    } else if (!isDeepStrictEqual(clone[server], block)) {
       fail(`Conflicting "${server}" server in both ${legacyPath} and ${pluginPath} — reconcile manually; nothing written`);
     }
   }
@@ -312,16 +313,25 @@ function main() {
     return;
   }
 
-  let legacy;
-  try {
-    legacy = readLspJson(legacyLsp);
-  } catch (err) {
-    fail(`Malformed .lsp.json at ${legacyLsp}: ${/** @type {any} */ (err).message}`);
-    return;
+  // A root that is itself a plugin loads its own root .lsp.json, so that file is
+  // live plugin config, not a legacy file to migrate and delete.
+  let legacy = { exists: false, config: /** @type {Record<string, any>} */ ({}), raw: "" };
+  if (!existsSync(join(root, ".claude-plugin", "plugin.json"))) {
+    try {
+      legacy = readLspJson(legacyLsp);
+    } catch (err) {
+      fail(`Malformed .lsp.json at ${legacyLsp}: ${/** @type {any} */ (err).message}`);
+      return;
+    }
   }
 
   // Both files are read before anything else happens. Conflicts fail closed
   // here, in every mode (audit included), so audit and write runs always agree.
+  // A plugin file that is a link to the root file would make the final delete
+  // remove the only real copy.
+  if (legacy.exists && plugin.exists && realpathSync(legacyLsp) === realpathSync(pluginLsp)) {
+    fail(`${pluginLsp} resolves to the same file as ${legacyLsp} — replace the link with a regular file; nothing written`);
+  }
   const base = legacy.exists ? mergeLegacyRoot(plugin.config, legacy.config, legacyLsp, pluginLsp) : plugin.config;
 
   const counts = scanExtensions(root);
@@ -384,7 +394,12 @@ function main() {
       for (const ext of coverage(legacy.config).covered) {
         if (!backCovered.has(ext)) fail(`Post-write assertion failed: legacy ${ext} not resolvable after write`);
       }
-      unlinkSync(legacyLsp); // final action: only reached after the verified plugin write
+      try {
+        unlinkSync(legacyLsp); // final action: only reached after the verified plugin write
+      } catch (err) {
+        fail(`Wrote ${pluginLsp} but could not delete ${legacyLsp}: ${/** @type {any} */ (err).message} — its config is already in the plugin; delete the root file manually`);
+        return;
+      }
       migratedFromRoot = true;
     }
     wrote = true;

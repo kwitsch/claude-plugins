@@ -76,6 +76,9 @@
 - Output format is exactly `JSON.stringify(obj, null, 2) + "\n"` (2-space indent, trailing LF).
 - Directory prune denylist for the scan: `.git`, `node_modules`, `vendor`, `dist`, `build`, `.claude/worktrees`, `.claude/agent-memory`.
 - Extension extraction: last-dot split, lowercased; a file whose basename has no dot or only a leading dot has no extension and is skipped.
-- The base config is the plugin file's servers in order, followed by each legacy-root server id the plugin lacks. A server id present in both must be `JSON.stringify`-identical, or the run fails closed (in every mode, audit included).
+- The base config is the plugin file's servers in order, followed by each legacy-root server id the plugin lacks. A server id present in both must be deep-equal (object key order ignored), or the run fails closed (in every mode, audit included).
 - A write mode writes when `applied` is non-empty or a legacy root file exists. The order is: create `.claude/skills/lsp/.claude-plugin/` -> `plugin.json` if absent -> `.lsp.json` -> readback (every applied ext and every legacy-root ext resolves) -> delete `<project-root>/.lsp.json`, last.
+- When `<project-root>` is itself a plugin (it has `.claude-plugin/plugin.json`), its root `.lsp.json` is live plugin config: it is not treated as legacy, so it is never read as base config, migrated, or deleted (`legacyRootLspJson` is `false`).
+- A plugin `.lsp.json` that resolves (symlink) to the same file as the legacy root `.lsp.json` fails closed in every mode, since the final delete would remove the only real copy.
+- If the final delete of the legacy root file fails (for example a read-only directory), the run exits 1 after the plugin files were written and the error says so; its config is already in the plugin, so delete the root file manually.
 - `wrote` means the plugin `.lsp.json` was written. `migratedFromRoot` means the legacy root file was merged and deleted.
