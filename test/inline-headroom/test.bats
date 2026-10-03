@@ -19,13 +19,27 @@ setup() {
   assert_success
 }
 
-@test "userConfig declares exactly the two boolean feature toggles, both default true" {
-  run jq -e '(.userConfig | keys) == ["cache_aligner_enabled","effort_routing_enabled"]' "$MANIFEST"
+@test "userConfig declares exactly the three boolean feature toggles, all default true" {
+  run jq -e '(.userConfig | keys) == ["cache_aligner_enabled","effort_routing_enabled","storage_enabled"]' "$MANIFEST"
   assert_success
-  run jq -e '(.userConfig | length) == 2' "$MANIFEST"
+  run jq -e '(.userConfig | length) == 3' "$MANIFEST"
   assert_success
-  run jq -e '[.userConfig[] | select(.type == "boolean" and .default == true and (.title | length > 0) and (.description | length > 0))] | length == 2' "$MANIFEST"
+  run jq -e '[.userConfig[] | select(.type == "boolean" and .default == true and (.title | length > 0) and (.description | length > 0))] | length == 3' "$MANIFEST"
   assert_success
+}
+
+@test ".mcp.json registers the storage server directly with the fail-closed toggle env" {
+  run jq -e '. == {"mcpServers":{"storage":{"command":"${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs","env":{"INLINE_HEADROOM_STORAGE_ENABLED":"${user_config.storage_enabled}"}}}}' "$PLUGIN/.mcp.json"
+  assert_success
+}
+
+# core.fileMode = false in this repo, so `[ -x ]` passes even when git recorded 100644 — assert the index.
+@test "mcp/server.mjs is an executable node program in the git index (100755)" {
+  run git -C "$REPO_ROOT" ls-files --stage -- plugins/inline-headroom/mcp/server.mjs
+  assert_success
+  assert_line --regexp '^100755 [0-9a-f]+ 0[[:space:]]+plugins/inline-headroom/mcp/server\.mjs$'
+  run head -n1 "$PLUGIN/mcp/server.mjs"
+  assert_output '#!/usr/bin/env node'
 }
 
 @test "hooks.json is exactly the mods module list" {

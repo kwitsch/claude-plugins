@@ -21,7 +21,9 @@ faithfully to upstream semantics.
 
 ## Configuration options
 
-Both levers are on by default. Only a literal `false` disables one. Set them via
+All three options are on by default. For the two levers only a literal `false`
+disables one; `storage_enabled` is fail-closed, so anything but a literal `true`
+turns storage off. Set them via
 `/plugin -> installed -> inline-headroom -> Configure options`, or in
 `settings.json`:
 
@@ -31,17 +33,19 @@ Both levers are on by default. Only a literal `false` disables one. Set them via
     "inline-headroom": {
       "options": {
         "effort_routing_enabled": false,
-        "cache_aligner_enabled": true
+        "cache_aligner_enabled": true,
+        "storage_enabled": true
       }
     }
   }
 }
 ```
 
-| Option                   | Default | Effect / Value                                                                                    |
-| ------------------------ | ------- | ------------------------------------------------------------------------------------------------- |
-| `effort_routing_enabled` | `true`  | Lower effort to `low` on main-loop steps that only resume after successful tool results.          |
-| `cache_aligner_enabled`  | `true`  | Flag volatile values in the `shared` system-prompt sections and log prompt-cache hit-ratio drops. |
+| Option                   | Default | Effect / Value                                                                                                                                    |
+| ------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `effort_routing_enabled` | `true`  | Lower effort to `low` on main-loop steps that only resume after successful tool results.                                                          |
+| `cache_aligner_enabled`  | `true`  | Flag volatile values in the `shared` system-prompt sections and log prompt-cache hit-ratio drops.                                                 |
+| `storage_enabled`        | `true`  | Run the host-wide SQLite storage service behind the `storage` MCP tools (see [Storage](#storage)). Fail-closed: only a literal `true` enables it. |
 
 ## `/headroom`
 
@@ -58,6 +62,40 @@ The volatile line reads `none` when no shared section holds a volatile value. Th
 pane docks beside the transcript in fullscreen at 110+ columns and otherwise sits
 above the prompt. It takes the keyboard when the prompt is empty: Esc closes it,
 and Ctrl+X then X always does. While it stays open it redraws whenever the stats change.
+
+## Storage
+
+A persistent JSON key-value store that later inline-headroom features will build
+on. Nothing in the mod uses it yet, so `/headroom` stats still reset on reload.
+It is the MCP server `storage` (connected as `plugin:inline-headroom:storage`)
+with four tools:
+
+| Tool             | What it does                                                                       |
+| ---------------- | ---------------------------------------------------------------------------------- |
+| `kv_get`         | Read the JSON value stored under a key.                                            |
+| `kv_set`         | Store a JSON value under a key (at most 1 MiB serialized, keys at most 512 chars). |
+| `kv_delete`      | Delete a key.                                                                      |
+| `storage_status` | Report the service pid, protocol and schema version.                               |
+
+- **One background process per host.** The first tool call starts a detached
+  service process that every session shares. It is the only process that opens
+  the database. It exits after 10 idle minutes and starts again on the next call.
+- **Files** live in the plugin data directory
+  (`~/.claude/plugins/data/<plugin-id>/`), which survives plugin updates:
+  `storage.db` (plus `storage.db-wal` while the service runs), `storage.sock`
+  (an owner-only socket that exists only while the service runs) and
+  `service.log` (fatal service errors only).
+- **Requires Node >= 22.13** (`node:sqlite`). On an older Node the tools return
+  an error that points at `service.log`.
+- **Linux, macOS and WSL2 only.** The service listens on a Unix domain socket,
+  so on native Windows every storage tool returns an "unsupported" error.
+- **Local filesystem only.** SQLite file locks are unreliable on network
+  filesystems (NFS/SMB, WSL `/mnt/c`). The plugin data directory is local in
+  every supported setup.
+- **Other readers are locked out.** While the service runs it holds an
+  exclusive lock, so even a read-only `sqlite3 storage.db` reports "database is
+  locked". To inspect the database, wait for the idle exit or send SIGTERM to
+  the pid that `storage_status` reports.
 
 ## Notes & limitations
 

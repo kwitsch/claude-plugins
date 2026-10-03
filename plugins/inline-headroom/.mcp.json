@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "storage": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs",
+      "env": {
+        "INLINE_HEADROOM_STORAGE_ENABLED": "${user_config.storage_enabled}"
+      }
+    }
+  }
+}
