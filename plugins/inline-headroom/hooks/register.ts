@@ -41,9 +41,15 @@ export const register: Register = (on, options) => {
     // Observe AFTER the tool ran. Subagent calls are ignored; under parallel
     // calls the flag is sticky, so a single error disables the next clamp.
     on("tool.call", async (_$, e, next) => {
-      const r = await next(e);
-      if (!e.agentId && isToolError(r)) toolErrored = true;
-      return r;
+      try {
+        const r = await next(e);
+        if (!e.agentId && isToolError(r)) toolErrored = true;
+        return r;
+      } catch (err) {
+        // A tool that throws instead of returning an error result is still a failure.
+        if (!e.agentId) toolErrored = true;
+        throw err;
+      }
     });
   }
 
