@@ -49,7 +49,8 @@ turns storage off. Set them via
 
 ## `/headroom`
 
-Prints the session's stats:
+Opens a **Headroom** pane with the session's stats. Nothing is printed to the
+transcript, so the stats never enter the model's context:
 
 ```
 effort routing: on · main-loop steps 12 · clamped 7
@@ -57,7 +58,10 @@ cache aligner: on · last hit 94% · drops 1
 volatile shared values: env uuid 123e4567-e89…
 ```
 
-The volatile line reads `none` when no shared section holds a volatile value.
+The volatile line reads `none` when no shared section holds a volatile value. The
+pane docks beside the transcript in fullscreen at 110+ columns and otherwise sits
+above the prompt. It takes the keyboard when the prompt is empty: Esc closes it,
+and Ctrl+X then X always does. While it stays open it redraws whenever the stats change.
 
 ## Storage
 
@@ -97,7 +101,7 @@ with four tools:
 
 - **Effort switching can cost cache re-writes.** Upstream headroom removed effort
   routing after measuring about $0.0007 saved per mechanical turn against roughly
-  $0.011 of cache re-writes per switch. Watch the `drops` count in `/headroom` and
+  $0.011 of cache re-writes per switch. Watch the `drops` count in the `/headroom` pane and
   the `cache drop` log lines; set `effort_routing_enabled` to `false` if clamps
   coincide with drops.
 - **Stats reset on reload.** Counters live in module memory and reset when the mod
