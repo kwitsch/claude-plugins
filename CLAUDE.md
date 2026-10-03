@@ -16,7 +16,7 @@ Claude Code plugin marketplace.
 pnpm install --frozen-lockfile
 
 # run plugin bats suite
-BATS_LIB_PATH="$PWD/node_modules" pnpm exec bats test/ < name > /
+BATS_LIB_PATH="$PWD/node_modules" pnpm exec bats test/<name>/
 
 # type-check .mjs files (plugins/, test/)
 pnpm run typecheck
