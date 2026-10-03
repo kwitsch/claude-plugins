@@ -14,18 +14,29 @@ setup() {
   assert_success
 }
 
-@test "plugin.json version is 0.1.0" {
-  run jq -e '.version == "0.1.0"' "$MANIFEST"
+@test "plugin.json version is 0.2.0" {
+  run jq -e '.version == "0.2.0"' "$MANIFEST"
   assert_success
 }
 
-@test "userConfig declares exactly the two boolean feature toggles, both default true" {
-  run jq -e '(.userConfig | keys) == ["cache_aligner_enabled","effort_routing_enabled"]' "$MANIFEST"
+@test "userConfig declares exactly the three boolean feature toggles, all default true" {
+  run jq -e '(.userConfig | keys) == ["cache_aligner_enabled","effort_routing_enabled","storage_enabled"]' "$MANIFEST"
   assert_success
-  run jq -e '(.userConfig | length) == 2' "$MANIFEST"
+  run jq -e '(.userConfig | length) == 3' "$MANIFEST"
   assert_success
-  run jq -e '[.userConfig[] | select(.type == "boolean" and .default == true and (.title | length > 0) and (.description | length > 0))] | length == 2' "$MANIFEST"
+  run jq -e '[.userConfig[] | select(.type == "boolean" and .default == true and (.title | length > 0) and (.description | length > 0))] | length == 3' "$MANIFEST"
   assert_success
+}
+
+@test ".mcp.json registers the storage server directly with the fail-closed toggle env" {
+  run jq -e '. == {"mcpServers":{"storage":{"command":"${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs","env":{"INLINE_HEADROOM_STORAGE_ENABLED":"${user_config.storage_enabled}"}}}}' "$PLUGIN/.mcp.json"
+  assert_success
+}
+
+@test "mcp/server.mjs is executable with a node shebang" {
+  [ -x "$PLUGIN/mcp/server.mjs" ]
+  run head -n1 "$PLUGIN/mcp/server.mjs"
+  assert_output '#!/usr/bin/env node'
 }
 
 @test "hooks.json is exactly the mods module list" {

@@ -1,7 +1,7 @@
 {
   "name": "inline-headroom",
-  "version": "0.1.0",
-  "description": "Headroom-style levers inside Claude Code as a mod: clamp-only effort routing after successful tool results, and a detector-only CacheAligner that flags volatile system-prompt content and cache-hit drops.",
+  "version": "0.2.0",
+  "description": "Headroom-style levers inside Claude Code as a mod: clamp-only effort routing after successful tool results, and a detector-only CacheAligner that flags volatile system-prompt content and cache-hit drops. Ships a host-wide SQLite storage MCP server for persistent plugin data.",
   "author": { "name": "Kwitsch" },
   "userConfig": {
     "cache_aligner_enabled": {
@@ -14,6 +14,12 @@
       "type": "boolean",
       "title": "Effort routing",
       "description": "Lower thinking effort to low on main-loop steps that only resume after successful tool results. Never raises or injects effort. Note: an effort switch may invalidate prompt cache.",
+      "default": true
+    },
+    "storage_enabled": {
+      "type": "boolean",
+      "title": "Persistent storage",
+      "description": "Run the host-wide SQLite storage service (one background process per host; data in the plugin data directory, kept across updates). Fail-closed: only true enables it.",
       "default": true
     }
   }
