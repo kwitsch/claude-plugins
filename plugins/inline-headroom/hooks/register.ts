@@ -1,5 +1,6 @@
 import type { Register } from "claude-code";
 import { cacheHitRatio, clampEffort, findVolatile, isCacheDrop, isToolError } from "./policy.mjs";
+import type { VolatileFinding } from "./policy.mjs";
 
 // Module state: resets on hot reload and on an options change (the engine
 // reloads the module). Accepted for 0.1.0; $.state persistence is a follow-up.
@@ -9,7 +10,7 @@ const stats = {
   clamped: 0,
   cacheDrops: 0,
   lastHit: undefined as number | undefined,
-  volatile: [] as { id: string; kind: string; sample: string }[],
+  volatile: [] as VolatileFinding[],
 };
 
 const pct = (n: number | undefined): string => (n === undefined ? "–" : `${Math.round(n * 100)}%`);
