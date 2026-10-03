@@ -81,12 +81,21 @@ Invariants for `mcp/server.mjs`:
 - `storage_enabled` is fail-closed (only the trimmed literal `"true"` enables)
   under the state-creating exception of `.claude/rules/plugin-userconfig.md`.
   Disabled means `tools/list` is `[]` and no file or process is created.
-- The front-end retries only `ENOENT`/`ECONNREFUSED` (nothing was sent), so a
-  write is never applied twice.
+- The front-end retries `ENOENT`/`ECONNREFUSED`/`ECONNRESET` and a reply-less
+  close (a service shutting down). Every op is idempotent, so a retry is safe
+  (`kv_delete` may report `deleted:false` if the first attempt had applied). The
+  60 s failure cool-down gates only spawning: a live service is always tried first.
+- The service shuts down (idle or SIGTERM) by closing its listener and draining
+  accepted connections for at most 1 s before releasing the DB lock. A lost
+  election logs one line to `service.log` only when no live service answers.
 - `PROTOCOL` (an integer, now `1`) must be bumped on any op or schema change. A
   newer front-end SIGTERMs an older service; an older front-end refuses a newer
-  one. `MIGRATIONS` is append-only and additive: never edit, reorder or remove an
-  entry. `migrate` refuses a schema newer than the code.
+  one. A service whose plugin version (read from `plugin.json`, never a literal)
+  is older than the front-end's is also retired after answering, so a service-side
+  fix without a `PROTOCOL` bump still takes effect. A pid is only signalled when
+  `/proc/<pid>/cmdline` (where `/proc` exists) shows a `server.mjs --service`
+  process. `MIGRATIONS` is append-only and additive once released: never edit,
+  reorder or remove a released entry. `migrate` refuses a schema newer than the code.
 - `execOp` is the single trust boundary: keys 1–512 chars, values at most
   1 MiB serialized JSON, requests at most 2 MiB.
 

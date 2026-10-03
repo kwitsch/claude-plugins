@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { once } from "node:events";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -10,7 +11,7 @@ import readline from "node:readline";
 import { DatabaseSync } from "node:sqlite";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { MIGRATIONS, PROTOCOL, execOp, isStorageEnabled, migrate, resolveStorage } from "../../plugins/inline-headroom/mcp/server.mjs";
+import { MIGRATIONS, PROTOCOL, VERSION, compareVersions, execOp, isStorageEnabled, isStorageService, migrate, resolveStorage } from "../../plugins/inline-headroom/mcp/server.mjs";
 
 const SERVER = fileURLToPath(new URL("../../plugins/inline-headroom/mcp/server.mjs", import.meta.url));
 const IT = { timeout: 30000 };
@@ -67,6 +68,20 @@ test("execOp round-trips set/get/overwrite/delete and rejects invalid keys, valu
   assert.throws(() => execOp(db, "kv_set", { key: "k", value: "x".repeat(1048576) }), /value must be/);
   assert.throws(() => execOp(db, "kv_list", { key: "k" }), /unknown op: kv_list/);
   db.close();
+});
+
+test("VERSION comes from plugin.json and compareVersions orders dotted versions numerically", () => {
+  const manifest = JSON.parse(readFileSync(new URL("../../plugins/inline-headroom/.claude-plugin/plugin.json", import.meta.url), "utf8"));
+  assert.equal(VERSION, manifest.version);
+  assert.ok(compareVersions("0.2.0", "0.10.0") < 0);
+  assert.ok(compareVersions("1.0.0", "0.9.9") > 0);
+  assert.equal(compareVersions("1.2", "1.2.0"), 0);
+  assert.equal(compareVersions(undefined, "0.0.0"), 0);
+});
+
+test("isStorageService refuses insane pids and processes that are not a server.mjs --service", () => {
+  for (const pid of [undefined, "5", 0, 1, -3, 1.5, NaN]) assert.equal(isStorageService(pid), false, String(pid));
+  assert.equal(isStorageService(process.pid), !existsSync("/proc/self/cmdline")); // the test runner is no service
 });
 
 // ------------------------------------------------------------------ integration helpers
@@ -177,12 +192,15 @@ function sandbox(t) {
    * @returns {Promise<any>} the fake's ChildProcess, once it listens
    */
   const fakeService = async (protocol) => {
+    // Looks like a real service to isStorageService: a server.mjs run with --service.
     const script = `
-      const net = require("node:net");
-      const [sock, protocol] = process.argv.slice(1);
+      import net from "node:net";
+      const [, , , sock, protocol] = process.argv;
       net.createServer((c) => c.once("data", () => c.end(JSON.stringify({ protocol: Number(protocol), pid: process.pid, error: "protocol mismatch" }) + "\\n")))
         .listen(sock, () => process.stdout.write("ready\\n"));`;
-    const fake = spawn(process.execPath, ["-e", script, path.join(dir, "storage.sock"), String(protocol)], { stdio: ["ignore", "pipe", "inherit"] });
+    mkdirSync(path.join(dir, "fake"), { recursive: true });
+    writeFileSync(path.join(dir, "fake", "server.mjs"), script);
+    const fake = spawn(process.execPath, [path.join(dir, "fake", "server.mjs"), "--service", path.join(dir, "storage.sock"), String(protocol)], { stdio: ["ignore", "pipe", "inherit"] });
     fakes.push(fake);
     await once(fake.stdout, "data");
     return fake;
@@ -213,7 +231,7 @@ test("five concurrent front-ends share one service that locks out every other DB
   const results = await Promise.all(Array.from({ length: 5 }, () => box.frontEnd().call("storage_status")));
   const pids = new Set(results.map((r) => r.structuredContent.pid));
   assert.equal(pids.size, 1);
-  assert.deepEqual(results[0].structuredContent, { pid: [...pids][0], protocol: PROTOCOL, schemaVersion: MIGRATIONS.length, dataDir: box.dir });
+  assert.deepEqual(results[0].structuredContent, { pid: [...pids][0], protocol: PROTOCOL, version: VERSION, schemaVersion: MIGRATIONS.length, dataDir: box.dir });
   const reader = new DatabaseSync(box.db);
   try {
     assert.throws(
@@ -245,6 +263,35 @@ test("an older-protocol service is SIGTERMed and replaced; the request runs on t
   assert.deepEqual((await fe.call("kv_get", { key: "k" })).structuredContent, { found: false });
   await exited;
   assert.equal((await fe.call("storage_status")).structuredContent.protocol, PROTOCOL);
+});
+
+test("a foreign process holding storage.db fails the call and leaves a line in service.log", IT, async (/** @type {any} */ t) => {
+  const box = sandbox(t);
+  const foreign = new DatabaseSync(box.db);
+  foreign.exec("PRAGMA locking_mode=EXCLUSIVE; BEGIN EXCLUSIVE");
+  try {
+    const res = await box.frontEnd().call("kv_get", { key: "k" });
+    assert.equal(res.isError, true);
+    assert.match(res.content[0].text, /did not start|service\.log/);
+    assert.match(readFileSync(path.join(box.dir, "service.log"), "utf8"), /locked by another process/);
+  } finally {
+    foreign.close();
+  }
+});
+
+test("a service shutting down drains the connection it already accepted", IT, async (/** @type {any} */ t) => {
+  const box = sandbox(t);
+  const fe = box.frontEnd();
+  const pid = (await fe.call("storage_status")).structuredContent.pid;
+  const conn = net.connect(box.sock);
+  await once(conn, "connect");
+  process.kill(pid, "SIGTERM");
+  await sleep(100);
+  conn.write(JSON.stringify({ protocol: PROTOCOL, op: "storage_status", args: {} }) + "\n");
+  const [chunk] = await once(conn, "data");
+  assert.equal(JSON.parse(String(chunk)).result.pid, pid);
+  await waitDead(pid);
+  assert.equal((await fe.call("kv_get", { key: "k" })).isError, undefined); // the next call respawns
 });
 
 test("a newer-protocol service is refused and left running", IT, async (/** @type {any} */ t) => {
