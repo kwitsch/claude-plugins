@@ -20,3 +20,7 @@ node_modules/
 
 # headroom MCP memory store — local only, never pushed.
 .headroom/
+
+# Mods engine-generated typings + tsconfig, written into .claude-plugin/types/
+# at every `claude --plugin-dir` load — local only, never pushed.
+plugins/*/.claude-plugin/types/

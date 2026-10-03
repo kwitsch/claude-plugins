@@ -107,6 +107,16 @@
       },
       "category": "productivity",
       "tags": ["hooks", "session-start", "remote-control", "askuserquestion"]
+    },
+    {
+      "name": "inline-headroom",
+      "source": "./plugins/inline-headroom",
+      "description": "Headroom-style levers inside Claude Code as a mod: clamp-only effort routing after successful tool results, and a detector-only CacheAligner that flags volatile system-prompt content and cache-hit drops.",
+      "author": {
+        "name": "Kwitsch"
+      },
+      "category": "productivity",
+      "tags": ["mods", "hooks", "token-efficiency", "prompt-cache", "effort"]
     }
   ]
 }
