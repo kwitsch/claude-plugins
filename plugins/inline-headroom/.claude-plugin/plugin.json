@@ -1,0 +1,20 @@
+{
+  "name": "inline-headroom",
+  "version": "0.1.0",
+  "description": "Headroom-style levers inside Claude Code as a mod: clamp-only effort routing after successful tool results, and a detector-only CacheAligner that flags volatile system-prompt content and cache-hit drops.",
+  "author": { "name": "Kwitsch" },
+  "userConfig": {
+    "cache_aligner_enabled": {
+      "type": "boolean",
+      "title": "CacheAligner",
+      "description": "Flag volatile values (UUID, ISO-8601, JWT, hex hash) in the cacheable system-prompt sections and log prompt-cache hit-ratio drops. Never rewrites the prompt.",
+      "default": true
+    },
+    "effort_routing_enabled": {
+      "type": "boolean",
+      "title": "Effort routing",
+      "description": "Lower thinking effort to low on main-loop steps that only resume after successful tool results. Never raises or injects effort. Note: an effort switch may invalidate prompt cache.",
+      "default": true
+    }
+  }
+}
