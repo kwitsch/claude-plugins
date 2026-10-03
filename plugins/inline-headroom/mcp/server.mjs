@@ -14,7 +14,6 @@
 // PROTOCOL must be bumped on any op or schema change. MIGRATIONS is append-only and additive:
 // never edit, reorder or remove an entry.
 import process from "node:process";
-import readline from "node:readline";
 import net from "node:net";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -41,6 +40,9 @@ const MAX_KEY_LENGTH = 512;
 const MAX_SOCKET_PATH_BYTES = 103; // macOS sun_path limit; Linux allows 107
 const SQLITE_BUSY = 5;
 const SELF = fileURLToPath(import.meta.url);
+// SQLite stores a lone UTF-16 surrogate as U+FFFD, so distinct keys would collapse to one row: reject them.
+// (String#isWellFormed is not in the tsconfig's ES2022 lib.)
+const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
 
 const KEY_SCHEMA = { type: "string", minLength: 1, maxLength: MAX_KEY_LENGTH };
 const KEY_INPUT = { type: "object", properties: { key: KEY_SCHEMA }, required: ["key"], additionalProperties: false };
@@ -123,7 +125,7 @@ export function migrate(db) {
  */
 export function execOp(db, op, args) {
   const key = args.key;
-  if (typeof key !== "string" || key.length < 1 || key.length > MAX_KEY_LENGTH) throw new Error("key must be a non-empty string of at most 512 characters");
+  if (typeof key !== "string" || key.length < 1 || LONE_SURROGATE.test(key) || [...key].length > MAX_KEY_LENGTH) throw new Error("key must be a non-empty string of at most 512 characters");
   switch (op) {
     case "kv_get": {
       const row = db.prepare("SELECT value FROM kv WHERE key = ?").get(key);
@@ -198,7 +200,13 @@ function spawnService(storage) {
   // failed start). Upgrade path: rotate it if it ever grows noticeably.
   const fd = openSync(storage.log, "a", 0o600);
   try {
-    child = spawn(process.execPath, [SELF, "--service", storage.dataDir], { detached: true, stdio: ["ignore", "ignore", fd] });
+    // --disable-warning: node:sqlite's ExperimentalWarning (Node 22) would otherwise land in service.log on every start.
+    // cwd: a long-lived daemon must not pin the caller's project dir (it would block an umount).
+    child = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", SELF, "--service", storage.dataDir], {
+      detached: true,
+      stdio: ["ignore", "ignore", fd],
+      cwd: storage.dataDir,
+    });
   } finally {
     closeSync(fd);
   }
@@ -228,6 +236,8 @@ function spawnService(storage) {
  */
 async function callService(op, args) {
   if (!ENABLED) throw new Error("storage is disabled (userConfig storage_enabled is not true)");
+  // The transport is a path-based Unix socket; native-Windows listen() would need a \\.\pipe\ name instead.
+  if (process.platform === "win32") throw new Error("storage is unsupported on native Windows (it needs a Unix domain socket); use WSL2");
   if (Date.now() < coolDownUntil) throw new Error(coolDownReason);
   const storage = resolveStorage(process.env.CLAUDE_PLUGIN_DATA);
   const deadline = Date.now() + START_TIMEOUT_MS;
@@ -305,8 +315,8 @@ function startServer() {
     }
   };
 
-  const rl = readline.createInterface({ input: process.stdin });
-  rl.on("line", (/** @type {string} */ line) => {
+  /** @param {string} line */
+  const onLine = (line) => {
     const trimmed = line.trim();
     if (trimmed === "") return;
     /** @type {any} */
@@ -321,8 +331,20 @@ function startServer() {
       process.stderr.write(`[${SERVER_NAME}] handler crash: ${e?.stack ?? e}\n`);
       if (msg?.id !== undefined) fail(msg.id, -32603, `internal error: ${e?.message ?? e}`);
     });
+  };
+
+  // Frame on "\n" only: readline also splits on U+2028/U+2029 (Node >= 24), which JSON.stringify
+  // leaves raw inside strings, so a request carrying one would be cut into unparseable fragments.
+  let buf = "";
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (/** @type {string} */ chunk) => {
+    buf += chunk;
+    for (let nl = buf.indexOf("\n"); nl !== -1; nl = buf.indexOf("\n")) {
+      onLine(buf.slice(0, nl));
+      buf = buf.slice(nl + 1);
+    }
   });
-  rl.on("close", () => process.exit(0));
+  process.stdin.on("end", () => process.exit(0));
 }
 
 // ------------------------------------------------------------------ service

@@ -83,6 +83,8 @@ with four tools:
   `service.log` (fatal service errors only).
 - **Requires Node >= 22.13** (`node:sqlite`). On an older Node the tools return
   an error that points at `service.log`.
+- **Linux, macOS and WSL2 only.** The service listens on a Unix domain socket,
+  so on native Windows every storage tool returns an "unsupported" error.
 - **Local filesystem only.** SQLite file locks are unreliable on network
   filesystems (NFS/SMB, WSL `/mnt/c`). The plugin data directory is local in
   every supported setup.

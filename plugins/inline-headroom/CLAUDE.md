@@ -71,6 +71,10 @@ Invariants for `mcp/server.mjs`:
 - Front-end stdout carries JSON-RPC only; the per-call debug log is gated by
   `MCP_HOOK_DEBUG`. The service never writes stdout; its stderr is
   `${CLAUDE_PLUGIN_DATA}/service.log`.
+- Linux, macOS and WSL2 only: the service socket is a path-based Unix socket, so
+  `callService` refuses on `win32` (native Windows is a spec non-goal; its
+  `net.listen` would need a `\\.\pipe\` name). `storage_enabled` still defaults to
+  `true` there; calls just return the "unsupported" error.
 - Data lives only under `CLAUDE_PLUGIN_DATA` (`storage.db`, `storage.sock`,
   `service.log`). There is no fallback directory: an unset, blank or
   uninterpolated value refuses storage.

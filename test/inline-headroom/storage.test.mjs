@@ -56,6 +56,13 @@ test("execOp round-trips set/get/overwrite/delete and rejects invalid keys, valu
   assert.deepEqual(execOp(db, "kv_get", { key: "stats/s1" }), { found: false });
   assert.throws(() => execOp(db, "kv_get", { key: "" }), /key must be/);
   assert.throws(() => execOp(db, "kv_get", { key: "k".repeat(513) }), /key must be/);
+  // lone surrogates would collapse onto U+FFFD in SQLite; a valid astral pair is fine
+  assert.throws(() => execOp(db, "kv_set", { key: "\ud800", value: 1 }), /key must be/);
+  assert.throws(() => execOp(db, "kv_get", { key: "a\udfff" }), /key must be/);
+  assert.deepEqual(execOp(db, "kv_set", { key: "😀", value: 1 }), { ok: true });
+  // maxLength counts code points (as in the advertised JSON Schema), not UTF-16 units
+  assert.deepEqual(execOp(db, "kv_set", { key: "😀".repeat(512), value: 1 }), { ok: true });
+  assert.throws(() => execOp(db, "kv_get", { key: "😀".repeat(513) }), /key must be/);
   assert.throws(() => execOp(db, "kv_set", { key: "k", value: undefined }), /value must be/);
   assert.throws(() => execOp(db, "kv_set", { key: "k", value: "x".repeat(1048576) }), /value must be/);
   assert.throws(() => execOp(db, "kv_list", { key: "k" }), /unknown op: kv_list/);
