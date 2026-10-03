@@ -3,7 +3,7 @@
 Mods-API plugin (the repo's first): one TypeScript function-hooks module, no
 skills/agents/command hooks. Two levers, each behind a boolean `userConfig`
 toggle (`effort_routing_enabled`, `cache_aligner_enabled`, both `default: true`,
-only literal `false` disables), plus the `/headroom` stats command.
+only literal `false` disables), plus the `/headroom` command, which opens a stats pane.
 
 ## Layout
 
@@ -44,6 +44,19 @@ every version bump rewrites its name and expected value in the same commit.
 - `PromptComposeSection.scope` is `'shared' | 'session'`; `prompt.compose` returns
   `{ sections }` and this mod returns `next(e)`'s result unchanged.
 - `turn.step` result `usage` may be `null`.
+- `command.run` returning `{}` prints no transcript row and records no model
+  context (`CommandRunResult.text` absent).
+- `$.ui.open(PaneOpenArgs)` resolves to `UiOpenResult`
+  (`{ isPlaced: true } | { isPlaced: false, reason }`). `focus`/`closeOnEscape`
+  accept only `true`. One pane per id, and re-opening retitles it.
+- The `ui.render` matcher `{ component: "Pane", requestId }` selects only that
+  pane and scopes `$.ui.invalidate("ui.render")` to it. Elements come from
+  `$.ui.resolve(e)` as plain function calls (`Box({...})`, `Text({ children: [...] })`),
+  so the module stays `.ts` without JSX.
+- Test kit: `$.ui.open` needs an `on("ui.open", ...)` stub answering
+  `{ value: { isPlaced: true } }`, registered before the test's first `$` call.
+  The kit answers `$.ui.invalidate` itself. Panes are asserted with
+  `$.ui.mount(...)` and `find({ type: "Text", text })`.
 
 ## Effort-routing caveat
 
