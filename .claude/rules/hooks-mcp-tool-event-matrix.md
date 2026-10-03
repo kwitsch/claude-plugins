@@ -1,28 +1,25 @@
 ---
 paths:
   - "plugins/*/hooks/hooks.json"
-doc_type: claude_code_knowledge
-topic: hook_handler.mcp_tool.event_compatibility
-schema_version: 1
-parse_priority: machine_first
-human_readability: secondary
-last_verified: 2026-06-13
-sources:
-  official_hooks_reference: https://code.claude.com/docs/en/hooks
-  changelog: https://code.claude.com/docs/en/release-notes
-  issue_24788: https://github.com/anthropics/claude-code/issues/24788
-  issue_34713: https://github.com/anthropics/claude-code/issues/34713
-  community_introduced_version: https://github.com/luongnv89/claude-howto/blob/main/06-hooks/README.md
-confidence_levels: [documented, inferred, community, unverified]
-status_values: [full, limited]
 ---
 
+<!-- Inert metadata (Claude Code reads only `paths`; block comments are stripped from context):
+doc_type: claude_code_knowledge · topic: hook_handler.mcp_tool.event_compatibility · schema_version: 1
+parse_priority: machine_first · confidence_levels: documented | inferred | community | unverified · status_values: full | limited
+sources: official hooks reference https://code.claude.com/docs/en/hooks · release notes https://code.claude.com/docs/en/release-notes
+· issues anthropics/claude-code#24788, #34713 · community (introduced-version claim) https://github.com/luongnv89/claude-howto/blob/main/06-hooks/README.md -->
+
 # Claude Code Hook Handler `type:"mcp_tool"` — Event Compatibility Matrix
+
+Last verified: 2026-10-03 — event set, `status`, block mechanism, `additional_context` and timeout of every row
+reconciled against cc-reference (`claude-code-hooks-reference.md`, `claude-code-mcp-tool-hooks-reference.md`,
+both verified 2026-10-02). `GLOBAL_MECHANICS.input_omitted_default` is a live observation on 2.1.226, not re-checked since.
 
 PURPOSE: Decide, per hook event, whether the `mcp_tool` handler is fully usable
 (`full`) or constrained (`limited`), and why. Optimized for harness/agent parsing.
 The canonical machine-readable record is the `events` array in the JSON block under
 `## CANONICAL_SPEC`. All prose is derived from that block; on conflict, the JSON wins.
+Derive the full/limited event lists by filtering `events` on `status` (no separate lists are kept).
 
 > Repo note: this file is the canonical per-event reference cited by
 > `.claude/rules/hooks-mcp-server.md`. When choosing a handler type, lean only on
@@ -36,8 +33,8 @@ The canonical machine-readable record is the `events` array in the JSON block un
   "handler_type": "mcp_tool",
   "required_fields": ["server", "tool"],
   "optional_fields": ["input"],
-  "input_omitted_default": "EMPTY OBJECT {} -- NOT the full hook JSON. Live-verified on 2.1.226 (universal-format 0.14.1 incident: patched a live plugin-cache server.mjs to log raw params.arguments, confirmed {} for a real Write call). The official docs never actually documented full-JSON-passthrough as the default; treat omission of \"input\" as 'this tool gets nothing'.",
-  "input_omitted_default_confidence": "documented (empirically, via live instrumentation) as of 2026-08-09; the official hooks reference does not state the omitted-input default explicitly either way",
+  "input_omitted_default": "EMPTY OBJECT {} -- NOT the full hook JSON. Live-verified on 2.1.226 (universal-format 0.14.1 incident: patched a live plugin-cache server.mjs to log raw params.arguments, confirmed {} for a real Write call). cc-reference's mcp_tool hook-fields table states the opposite (omitted input => the tool receives the full hook event JSON); live behavior on 2.1.226 differs, so ALWAYS set \"input\" explicitly and treat omission as 'this tool gets nothing'.",
+  "input_omitted_default_confidence": "observed live on 2.1.226 (instrumented server, 2026-08-09); contradicts the full-event-JSON passthrough stated by cc-reference; not re-verified on later versions",
   "input_substitution": "string values support ${path} from hook JSON input, e.g. ${tool_input.file_path}, ${hook_event_name}, ${prompt}",
   "input_substitution_type_preservation": "NOT documented/verified. Assume every substituted value is a STRING even when the source field is a boolean/number/object (e.g. ${tool_input.replace_all} likely renders as the literal string \"true\"/\"false\", not a JS boolean) -- a consuming handler must tolerate the string-coerced form for any non-string field it needs. See plugins/universal-format/CLAUDE.md's \"Explicit hook input\" note for a worked fix.",
   "introduced_version": "2.1.118",
@@ -52,7 +49,12 @@ The canonical machine-readable record is the `events` array in the JSON block un
   "triggers_oauth_or_connect_flow": false,
   "timeout_default_s": 600,
   "timeout_override_userpromptsubmit_s": 30,
+  "timeout_override_premodelswitch_s": 30,
+  "timeout_override_postmodelswitch_s": 30,
   "timeout_override_messagedisplay_s": 10,
+  "timeout_override_sessionend_s": 1.5,
+  "timeout_override_sessionend_note": "1.5s default for the whole session-exit budget (/clear and /resume switches too); timeouts on plugin-provided hooks do NOT raise it",
+  "timeout_behavior": "hook canceled, output discarded, never blocks (PreToolUse proceeds through the normal permission flow) -- EXCEPT PreModelSwitch: a timeout BLOCKS the model switch (version >= 2.1.251)",
   "env_file_access": false,
   "env_file_note": "CLAUDE_ENV_FILE is command-hook only; mcp_tool cannot persist env vars",
   "if_field_scope": ["PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest", "PermissionDenied"],
@@ -66,7 +68,8 @@ KEY_INVARIANT: `mcp_tool` can express a decision ONLY via JSON it returns as tex
 It cannot emit exit code 2. Therefore:
 
 - Events whose block path is JSON (top-level `decision` or `hookSpecificOutput`) => `mcp_tool` can block => `full`.
-- Events whose ONLY granular block path is exit code 2 => `mcp_tool` cannot do the granular block; at best `{"continue": false}` (coarse, stops the whole turn/agent) => `limited`.
+- Events whose ONLY block path is exit code 2 (`TaskCompleted`, `TeammateIdle`, `WorktreeCreate`) => `mcp_tool` cannot block => `limited`.
+- `{"continue": false}` is NOT a substitute block: it stops the whole turn/agent/teammate (the opposite of keep-working on `TeammateIdle`), and is ignored on `TaskCreated` and on a `TaskCompleted` fired by `TaskUpdate`.
 
 ## CANONICAL_SPEC
 
@@ -92,38 +95,27 @@ It cannot emit exit code 2. Therefore:
     {"event": "SubagentStart",       "category": "lifecycle",   "supported": true, "status": "full",    "block_capable": false,    "block_mechanism": "context_only", "additional_context": true, "rewrite": null, "timeout_s": 600, "trigger": "manual", "limitation": null, "confidence": "documented"},
     {"event": "Notification",        "category": "side_effect", "supported": true, "status": "full",    "block_capable": false,    "block_mechanism": "none", "additional_context": false, "rewrite": null, "timeout_s": 600, "trigger": "manual", "limitation": null, "confidence": "documented"},
     {"event": "PostCompact",         "category": "side_effect", "supported": true, "status": "full",    "block_capable": false,    "block_mechanism": "none", "additional_context": false, "rewrite": null, "timeout_s": 600, "trigger": "manual", "limitation": null, "confidence": "documented"},
-    {"event": "SessionEnd",          "category": "side_effect", "supported": true, "status": "full",    "block_capable": false,    "block_mechanism": "none", "additional_context": false, "rewrite": null, "timeout_s": 600, "trigger": "auto", "limitation": null, "confidence": "documented"},
-    {"event": "WorktreeRemove",      "category": "side_effect", "supported": true, "status": "full",    "block_capable": false,    "block_mechanism": "none", "additional_context": false, "rewrite": null, "timeout_s": 600, "trigger": "manual", "limitation": null, "confidence": "documented"},
+    {"event": "SessionEnd",          "category": "side_effect", "supported": true, "status": "full",    "block_capable": false,    "block_mechanism": "none", "additional_context": false, "rewrite": null, "timeout_s": 1.5, "trigger": "auto", "limitation": null, "confidence": "documented", "note": "default timeout is 1.5s, not 600s, and plugin-provided hook timeouts do not raise it -- keep the MCP call fast"},
+    {"event": "WorktreeRemove",      "category": "side_effect", "supported": true, "status": "full",    "block_capable": false,    "block_mechanism": "none (exit-code-only contract: non-zero fails removal, which mcp_tool cannot do; the hook itself must delete the dir)", "additional_context": false, "rewrite": null, "timeout_s": 600, "trigger": "manual", "limitation": null, "confidence": "documented"},
     {"event": "InstructionsLoaded",  "category": "side_effect", "supported": true, "status": "full",    "block_capable": false,    "block_mechanism": "none (async observability)", "additional_context": false, "rewrite": null, "timeout_s": 600, "trigger": "auto", "limitation": null, "confidence": "documented"},
+    {"event": "DirectoryAdded",      "category": "side_effect", "supported": true, "status": "full",    "block_capable": false,    "block_mechanism": "none (the add already completed; systemMessage still surfaces: slash_command -> Claude context next turn, register_repo_root -> debug log only)", "additional_context": false, "rewrite": null, "timeout_s": 600, "trigger": "manual", "limitation": null, "confidence": "documented", "note": "runs async, the session does not wait; fires for /add-dir and SDK register_repo_root only (not the --add-dir startup flag)"},
+    {"event": "TaskCreated",         "category": "task",        "supported": true, "status": "full",    "block_capable": true,     "block_mechanism": "json:decision=block (cancels + rolls back/deletes the task, reason returned to Claude as the tool error); continue:false is IGNORED for this event", "additional_context": false, "rewrite": null, "timeout_s": 600, "trigger": "semi", "limitation": null, "confidence": "documented", "note": "does not fire in a session without the Task tools"},
+    {"event": "PostModelSwitch",     "category": "model",       "supported": true, "status": "full",    "block_capable": false,    "block_mechanism": "context_only (additionalContext or plain text, delivered with the next request; if not finished within 5s of that request it attaches to the following one)", "additional_context": true, "rewrite": null, "timeout_s": 30, "trigger": "manual", "limitation": null, "confidence": "documented", "note": "version >= 2.1.251; 30s timeout is the only constraint; also fires after Claude-Code-initiated changes (auto fallback, resume-restore, opusplan plan-mode switches); several switches before the next request deliver only the last one's output"},
 
-    {"event": "SessionStart",        "category": "lifecycle",   "supported": true, "status": "limited", "block_capable": false,    "block_mechanism": "context_only", "additional_context": true, "rewrite": null, "timeout_s": 600, "trigger": "auto", "limitation": "servers usually not connected yet on first run => expect not-connected non-blocking error; no CLAUDE_ENV_FILE access", "confidence": "documented"},
-    {"event": "Setup",               "category": "lifecycle",   "supported": true, "status": "limited", "block_capable": false,    "block_mechanism": "context_only", "additional_context": true, "rewrite": null, "timeout_s": 600, "trigger": "manual", "limitation": "fires before a session/servers exist (--init/--maintenance) => server almost certainly not connected; no CLAUDE_ENV_FILE access", "confidence": "documented"},
+    {"event": "SessionStart",        "category": "lifecycle",   "supported": true, "status": "limited", "block_capable": false,    "block_mechanism": "context_only", "additional_context": true, "rewrite": null, "timeout_s": 600, "trigger": "auto", "limitation": "mcp_tool hooks are SKIPPED outright at launch (incl. --continue/--resume; no MCP client yet) and run only on later fires (/clear, compaction) => use a command hook for anything needed at launch; no CLAUDE_ENV_FILE access", "confidence": "documented"},
+    {"event": "Setup",               "category": "lifecycle",   "supported": true, "status": "limited", "block_capable": false,    "block_mechanism": "none (all JSON output incl. additionalContext is discarded on Setup)", "additional_context": false, "rewrite": null, "timeout_s": 600, "trigger": "manual", "limitation": "mcp_tool hooks on Setup are ALWAYS skipped: it fires before servers are available (--init/--maintenance) and only command hooks run => use a command hook; no CLAUDE_ENV_FILE access for mcp_tool", "confidence": "documented"},
     {"event": "UserPromptSubmit",    "category": "turn",        "supported": true, "status": "limited", "block_capable": true,     "block_mechanism": "json:decision=block + additionalContext", "additional_context": true, "rewrite": "none (context only)", "timeout_s": 30, "trigger": "auto", "limitation": "functionally full, but timeout reduced to 30s and the hook blocks model processing; an MCP round-trip on every prompt is a latency/cost choice", "confidence": "documented"},
     {"event": "MessageDisplay",      "category": "display",     "supported": true, "status": "limited", "block_capable": false,    "block_mechanism": "json:hookSpecificOutput.displayContent (display-only)", "additional_context": false, "rewrite": "displayContent", "timeout_s": 10, "trigger": "manual", "limitation": "10s timeout, runs per streamed line-batch, display-only => MCP round-trip per batch is impractical", "confidence": "documented"},
-    {"event": "CwdChanged",          "category": "side_effect", "supported": true, "status": "limited", "block_capable": false,    "block_mechanism": "none", "additional_context": false, "rewrite": null, "timeout_s": 600, "trigger": "semi", "limitation": "primary documented purpose is reactive env management via CLAUDE_ENV_FILE, which mcp_tool cannot use; works only as a side-effect trigger", "confidence": "documented"},
-    {"event": "FileChanged",         "category": "side_effect", "supported": true, "status": "limited", "block_capable": false,    "block_mechanism": "none", "additional_context": false, "rewrite": null, "timeout_s": 600, "trigger": "manual", "limitation": "same CLAUDE_ENV_FILE gap as CwdChanged; usable as a reaction trigger only", "confidence": "documented"},
+    {"event": "PreModelSwitch",      "category": "model",       "supported": true, "status": "limited", "block_capable": true,     "block_mechanism": "json:hookSpecificOutput.permissionDecision(allow|deny|ask) or top-level decision=block (ask is honored only by interactive /model, a refusal on every other surface)", "additional_context": false, "rewrite": null, "timeout_s": 30, "trigger": "manual", "limitation": "functionally full, but the timeout is reduced to 30s and a timeout BLOCKS the model switch (the one event where timeout acts like exit 2): a slow or stalled MCP call can deny a legitimate /model switch, while a not-connected server is only a non-blocking error; version >= 2.1.251", "confidence": "documented"},
+    {"event": "CwdChanged",          "category": "side_effect", "supported": true, "status": "limited", "block_capable": false,    "block_mechanism": "none (cannot block the cd; only the documented JSON watchPaths return)", "additional_context": false, "rewrite": null, "timeout_s": 600, "trigger": "semi", "limitation": "primary documented purpose is reactive env management via CLAUDE_ENV_FILE, which mcp_tool cannot use; otherwise a side-effect trigger (plus the JSON watchPaths return)", "confidence": "documented"},
+    {"event": "FileChanged",         "category": "side_effect", "supported": true, "status": "limited", "block_capable": false,    "block_mechanism": "none (cannot block the change; only the documented JSON watchPaths return)", "additional_context": false, "rewrite": null, "timeout_s": 600, "trigger": "manual", "limitation": "same CLAUDE_ENV_FILE gap as CwdChanged; a reaction trigger (plus the JSON watchPaths return)", "confidence": "documented"},
     {"event": "StopFailure",         "category": "turn",        "supported": true, "status": "limited", "block_capable": false,    "block_mechanism": "none", "additional_context": false, "rewrite": null, "timeout_s": 600, "trigger": "manual", "limitation": "output and exit code are ignored (true for all handler types); mcp_tool can only fire as a side-effect, returns nothing usable", "confidence": "documented"},
-    {"event": "TaskCreated",         "category": "task",        "supported": true, "status": "limited", "block_capable": "coarse", "block_mechanism": "exit2 (granular rollback) UNAVAILABLE; only json:continue=false (stops whole turn)", "additional_context": false, "rewrite": null, "timeout_s": 600, "trigger": "semi", "limitation": "granular task-creation rollback needs exit code 2, which mcp_tool cannot emit; only the coarse continue:false stop is possible", "confidence": "inferred"},
-    {"event": "TaskCompleted",       "category": "task",        "supported": true, "status": "limited", "block_capable": "coarse", "block_mechanism": "exit2 UNAVAILABLE; only json:continue=false", "additional_context": false, "rewrite": null, "timeout_s": 600, "trigger": "semi", "limitation": "same as TaskCreated: no granular block, only coarse continue:false", "confidence": "inferred"},
-    {"event": "TeammateIdle",        "category": "task",        "supported": true, "status": "limited", "block_capable": "coarse", "block_mechanism": "exit2 UNAVAILABLE; only json:continue=false", "additional_context": false, "rewrite": null, "timeout_s": 600, "trigger": "manual", "limitation": "granular keep-working block needs exit2; mcp_tool only has coarse continue:false; requires agent teams", "confidence": "inferred"},
+    {"event": "TaskCompleted",       "category": "task",        "supported": true, "status": "limited", "block_capable": false,    "block_mechanism": "exit2 (prevent completion) UNAVAILABLE; json:continue=false stops the teammate entirely and is IGNORED when TaskUpdate triggered the event", "additional_context": false, "rewrite": null, "timeout_s": 600, "trigger": "semi", "limitation": "preventing completion needs exit code 2, which mcp_tool cannot emit; continue:false is no substitute (it stops the teammate, and is ignored when TaskUpdate marked the task done)", "confidence": "documented"},
+    {"event": "TeammateIdle",        "category": "task",        "supported": true, "status": "limited", "block_capable": false,    "block_mechanism": "exit2 (keep working) UNAVAILABLE; json:continue=false stops the teammate entirely (the opposite of keep-working)", "additional_context": false, "rewrite": null, "timeout_s": 600, "trigger": "manual", "limitation": "keep-working needs exit code 2, which mcp_tool cannot emit; its only decision field, continue:false, stops the teammate instead; requires agent teams", "confidence": "documented"},
     {"event": "WorktreeCreate",      "category": "lifecycle",   "supported": true, "status": "limited", "block_capable": "uncertain", "block_mechanism": "command:stdout path / http:worktreePath; any non-zero exit aborts creation", "additional_context": false, "rewrite": null, "timeout_s": 600, "trigger": "manual", "limitation": "drives creation via returned path + exit-code failure; mcp_tool failure is non-blocking so it cannot abort creation, and reliable path return via the text-as-stdout channel is unconfirmed", "confidence": "unverified"}
   ]
 }
 ```
-
-## DERIVED_LISTS
-
-### LIST_1_FULL (problemlos)
-
-PreToolUse, PostToolUse, PostToolUseFailure, PostToolBatch, PermissionRequest,
-PermissionDenied, UserPromptExpansion, Stop, SubagentStop, ConfigChange, PreCompact,
-Elicitation, ElicitationResult, SubagentStart, Notification, PostCompact, SessionEnd,
-WorktreeRemove, InstructionsLoaded.
-
-### LIST_2_LIMITED (mit Einschränkung => siehe `limitation` im CANONICAL_SPEC)
-
-SessionStart, Setup, UserPromptSubmit, MessageDisplay, CwdChanged, FileChanged,
-StopFailure, TaskCreated, TaskCompleted, TeammateIdle, WorktreeCreate.
 
 ## VALIDATION_FLAGS
 
@@ -150,9 +142,9 @@ StopFailure, TaskCreated, TaskCompleted, TeammateIdle, WorktreeCreate.
     },
     {
       "id": "task_block_granularity",
-      "claim": "mcp_tool cannot granularly block TaskCreated/TaskCompleted/TeammateIdle/WorktreeCreate",
-      "status": "inferred",
-      "detail": "Logically derived from (a) mcp_tool has no exit-code path and (b) these events' granular block path is exit code 2. Not stated verbatim in docs. Target of the test harness."
+      "claim": "mcp_tool block capability on the task/worktree events: TaskCreated blocks via decision:block; TaskCompleted/TeammateIdle only via exit 2; WorktreeCreate via any non-zero exit",
+      "status": "partly_documented",
+      "detail": "Task rows re-derived from cc-reference's decision-control table: TaskCreated takes exit 2 or decision:block (continue:false ignored); TaskCompleted/TeammateIdle take exit 2 or continue:false, which stops the teammate rather than keeping it working and is ignored for a TaskUpdate-triggered TaskCompleted. mcp_tool has no exit-2 path, so those two stay limited; no live mcp_tool run on any of these events exists. WorktreeCreate stays unverified: cc-reference documents only the command (stdout path) and http (hookSpecificOutput.worktreePath) return channels, and mcp_tool's text-as-stdout path return is untested."
     },
     {
       "id": "alt_context_gap",
@@ -166,10 +158,15 @@ StopFailure, TaskCreated, TaskCompleted, TeammateIdle, WorktreeCreate.
 
 ## AGENT_USAGE_NOTES
 
-- Treat `confidence: inferred|unverified` rows as hypotheses; verify with the harness
-  (`mcp-tool-hook-harness`, scenarios `emit_continue_false` for task events,
-  `emit_pretool_deny`/`emit_block`/`emit_context` for tool/turn events).
+- Treat `confidence: inferred|unverified` rows as hypotheses; verify live (no dedicated
+  harness exists in this repo): point a throwaway `mcp_tool` hook at a minimal stdio MCP
+  server whose tool returns the candidate JSON (`{"continue":false}`,
+  `{"decision":"block","reason":"x"}`, a `hookSpecificOutput` object), then read the
+  outcome in the debug log (`claude --debug-file <path>`, or `/debug` mid-session;
+  `CLAUDE_CODE_DEBUG_LOG_LEVEL=verbose` for matcher detail) and the `/hooks` browser.
 - For any hard allow/deny enforcement, do NOT use `mcp_tool`; use the permission
   system or a `command` hook with exit code 2.
-- For `SessionStart`/`Setup`, gate logic on a connectivity check and tolerate the
-  first-run not-connected error.
+- For `SessionStart`/`Setup`, do NOT rely on `mcp_tool` for anything needed at launch:
+  Claude Code skips `mcp_tool` hooks there outright (always on `Setup`; on `SessionStart`
+  at launch incl. `--continue`/`--resume`, they only run on later fires such as `/clear`
+  or compaction). Use a `command` hook.

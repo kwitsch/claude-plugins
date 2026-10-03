@@ -2,29 +2,28 @@
 
 ## Boundary rule
 
-The plugin ships these components:
+The plugin ships these components (mechanics live in each `SKILL.md` / agent file):
 
-- `skills/cc-reference/` — the lookup skill + bundled reference files.
-- `skills/cc-review/` — the inline review orchestrator (dispatches `cc-reviewer`, gates fixes through AskUserQuestion).
-- `skills/cc-author/` — the inline authoring orchestrator (dispatches `cc-author-planner`, writes the returned files, gates the optional `cc-review` hand-off).
-- `skills/memory-audit/` — the inline project-memory audit-&-improve orchestrator (discovers every CLAUDE.md + `.claude/rules/*.md` file by default, reuses `cc-reviewer` with `component_type: memory`, grades them in a claude-md-improver-style report, surfaces leanness/scope-split recommendations, and gates fixes — auto-applying every fixable finding under `--fix`, or through an `AskUserQuestion` multi-select without it).
-- `skills/cc-compress/` — compresses a markdown memory/instruction file into caveman-style prose in place to cut future load tokens, backing up the original to session-temp storage for rollback. Adaptation of upstream `caveman-compress` (JuliusBrussee/caveman); the compression call itself runs via a zero-dep `scripts/compress.mjs` shelling out to `claude --print --model sonnet`, never in-context.
-- `skills/lsp-audit/` — audits a project's file extensions against the `.lsp.json` of the project's project-scope skills-dir plugin `lsp` (`<project-root>/.claude/skills/lsp/`, created with a minimal `.claude-plugin/plugin.json` on first write) and additively writes the missing LSP-server coverage a bundled catalog (`scripts/lsp-map.json`, 10 servers, resurrected from the deleted `init/lsp-repo-init` skill) recognizes; `--fix` auto-adds every catalog-resolvable entry, otherwise an `AskUserQuestion` multi-select picks which to add. All scan/diff/merge/safe-write logic lives in the zero-dep `scripts/audit-lsp.mjs` (additive-only, first-registered-wins, fail-closed on malformed JSON); the SKILL.md only orchestrates. Extensions with no catalog server are reported as manual to-dos, never guessed. Writes only under `<project-root>/.claude/skills/lsp/`, with one deletion outside it: a legacy project-root `.lsp.json` (no longer loaded by Claude Code; a root that is itself a plugin keeps its own) is merged in as the starting config and deleted after the plugin write is verified — automatically under `--fix`, after an `AskUserQuestion` confirmation otherwise. The catalog is operational data (like universal-lint's linter map), not duplicated `cc-reference` knowledge.
-- `skills/repository-audit/` — the inline full-repository-audit orchestrator (un-prefixed like `lsp-audit`/`memory-audit`, the same intentional prefix-drop): runs a report-only root structure check for `CLAUDE.md` + `.claude/rules/`, then dispatches `lsp-audit` then `memory-audit` via the `Skill` tool (sequential, forwarding the resolved `--fix`/scope), then offers the manual to-dos `memory-audit` returns (`suggested_fix: null` — leanness trims, scope-split moves) for selection via `AskUserQuestion` and applies the selected ones itself via `Edit`/`Write` (`--fix` selects all), then detects the repository's development tools (runtimes, package managers, LSP servers) via the zero-dep `scripts/detect-tools.mjs` and its `scripts/tool-map.json` catalog and offers to generate a project-level `init-dev-environment` skill from `templates/init-dev-environment/` (a SKILL template plus a static bash `install.sh`), and folds all four passes into one combined report (Structure, LSP audit, Memory audit, Dev environment). The phase-1 structure check never writes — missing baseline files become manual to-dos pointing at `cc-author`; the tools phase writes only `<ROOT>/.claude/skills/init-dev-environment/`, only when absent, via the script; `--fix` propagates into the two nested audits and also confirms creating the init-dev-environment skill.
-- `agents/claude-code-expert.md` — the read-only Q&A expert (reroute target).
-- `agents/cc-reviewer.md` — the read-only parameterized review worker dispatched by `cc-review`.
-- `agents/cc-author-planner.md` — the read-only authoring planner dispatched by `cc-author`; composes component content strictly from `cc-reference` and returns JSON, never writes.
-- `hooks/hooks.json` + `mcp/server.mjs` + `.mcp.json` — the `claude-code-guide` reroute hook backend.
+- `skills/cc-reference/` — lookup skill + bundled reference files.
+- `skills/cc-review/` — inline review orchestrator; dispatches `cc-reviewer`.
+- `skills/cc-author/` — inline authoring orchestrator; dispatches `cc-author-planner`.
+- `skills/memory-audit/` — inline project-memory audit-and-improve orchestrator; reuses `cc-reviewer` with `component_type: memory`.
+- `skills/cc-compress/` — compresses a memory/instruction file in place via `scripts/compress.mjs`; adaptation of upstream `caveman-compress` (JuliusBrussee/caveman).
+- `skills/lsp-audit/` — adds missing LSP coverage to the project-scope `lsp` plugin (`<project-root>/.claude/skills/lsp/`); see `skills/lsp-audit/CLAUDE.md`.
+- `skills/repository-audit/` — inline full-audit orchestrator: structure check, `lsp-audit`, `memory-audit`, dev-tool detection offering an `init-dev-environment` skill; see `skills/repository-audit/CLAUDE.md`.
+- `agents/claude-code-expert.md` — read-only Q&A expert (reroute target).
+- `agents/cc-reviewer.md` — read-only review worker dispatched by `cc-review`.
+- `agents/cc-author-planner.md` — read-only authoring planner dispatched by `cc-author`; never writes.
+- `hooks/hooks.json` + `mcp/server.mjs` + `.mcp.json` — `claude-code-guide` reroute hook backend; see `mcp/CLAUDE.md`.
 
-Maintenance tooling lives at `.claude/skills/update-cc-references/` (repo root) and does NOT ship — the plugin loader reads only the plugin's own `skills/` directory. Adding further components requires a deliberate design decision. Its contradiction-validation gate dispatches the repo-root `.claude/agents/cc-reference-validator.md` read-only agent (also not shipped).
-The `cc-author`/`memory-audit`/`cc-author-planner` components were added by the
-2026-06-17 authoring-extension design; they extend the lookup→review pair into a
-lookup→author→review triad, all sourced from `cc-reference` (no duplicated
-reference files).
+Constraints:
 
-`memory-audit`'s name deliberately drops the plugin's `cc-*` skill-name prefix —
-this is an intentional symmetry break, not an oversight; do not "restore" a `cc-`
-prefix.
+- Adding further components requires a deliberate design decision.
+- Maintenance tooling (`.claude/skills/update-cc-references/` and the `.claude/agents/cc-reference-validator.md` agent its validation gate dispatches) lives at the repo root and does NOT ship — the plugin loader reads only the plugin's own directories.
+- `cc-author`/`memory-audit`/`cc-author-planner` extend the lookup→review pair into lookup→author→review, all sourced from `cc-reference` — no duplicated reference files.
+- `claude-code-expert` answers only from `cc-reference` — never from training memory; it reaches live docs only through `cc-reference`'s WebFetch fallback.
+- `memory-audit`, `lsp-audit` and `repository-audit` deliberately drop the `cc-*` skill-name prefix — an intentional symmetry break, not an oversight; do not "restore" a `cc-` prefix.
+- The `lsp-audit` catalog (`scripts/lsp-map.json`) is operational data (like `universal-lint`'s linter map), not duplicated `cc-reference` knowledge.
 
 ## Reference-file authoring style
 
@@ -46,15 +45,7 @@ BATS_LIB_PATH="$PWD/node_modules" pnpm exec bats test/claude-code-knowledge/
 
 The suite is structural: it checks the plugin manifest, the cc-reference skill shape, the reference files under `references/` (incl. the `references/` layout convention + `skill-folder-structure.md`), the expert agent, the mcp_tool reroute server, and that the update-cc-references maintenance skill is present but user-only.
 
-## Expert agent + reroute hook
+## rtk does not apply
 
-- `agents/claude-code-expert.md` — read-only agent (model haiku; tools `Skill, Read, Grep, WebFetch, WebSearch`; no write tools). Its sole knowledge source is the `cc-reference` skill; it must never answer from training memory.
-- `hooks/hooks.json` + `mcp/server.mjs` + `.mcp.json` — `PreToolUse` (matcher `Agent|Task`) **`mcp_tool`** hook (server `plugin:claude-code-knowledge:claude-code-knowledge-hooks` — the runtime-namespaced name from `claude mcp list`, NOT the bare `.mcp.json` key, else "MCP server not connected"; tool `reroute_guide`) that rewrites `tool_input.subagent_type` from `claude-code-guide` to `claude-code-knowledge:claude-code-expert` via `permissionDecision:"allow"` + `updatedInput` (returned as the tool's text output → parsed as the hook decision). No-op for any other subagent; fail-open if the server is unconnected (the guide just runs un-rerouted); loop-safe. `mcp_tool` is the repo-preferred type for non-blocking mid-loop PreToolUse hooks (`.claude/rules/hooks-mcp-server.md`). The server is self-contained, zero-dep, `chmod +x` (bun-preferred, node fallback).
-- Boundary: the only MCP server is this hook backend; there is no runtime doc cache. The agent reaches live docs only through cc-reference's WebFetch fallback.
-
-`rtk` does not apply here: the 4 fetch-variant files (`claude-code-expert`,
-`cc-author-planner`, `cc-reviewer`, `cc-reference`) fall back to WebFetch, a
-different problem domain `rtk` (a shell-command proxy) has no role in; the 2
-shell-variant skills (`cc-review`, `memory-audit`) have no rtk-optimizable
-command — `memory-audit`'s `find` call was tested directly and `rtk find`
-refuses it outright for using compound predicates (`-o`, `-not`).
+- The fetch-variant components (`claude-code-expert`, `cc-author-planner`, `cc-reviewer`, `cc-reference`) fall back to WebFetch — a problem domain `rtk` (a shell-command proxy) has no role in.
+- The shell-variant skills (`cc-review`, `memory-audit`) have no rtk-optimizable command: `memory-audit`'s `find` call was tested directly and `rtk find` refuses it outright for its compound predicates (`-o`, `-not`).

@@ -2,132 +2,66 @@
 
 ## Package manager detection (shared design, both hooks)
 
-Both hooks decide which package manager to invoke from whichever lockfile is
-present (`detectPackageManager`, duplicated verbatim in each hook file — same
-self-contained-process convention as this plugin's existing `truncate`/`ctx`
-duplication): `pnpm-lock.yaml` → pnpm, `yarn.lock` → yarn, `package-lock.json` →
-npm, checked in that order so a project mid-migration (multiple lockfiles briefly
-coexisting — the exact scenario this repo's own npm→pnpm migration produced)
-prefers the newer lockfile over npm's. `npm-install-on-package-change` additionally
-falls back to npm when no lockfile exists at all yet (first-ever install right
-after `package.json` is created — matches this hook's original, npm-only
-behavior).
+- `detectPackageManager` selects the manager from the lockfile present (order in the source: pnpm, yarn, npm).
+  - pnpm-over-npm priority is deliberate: a project mid-migration, with several lockfiles briefly coexisting, prefers the newer lockfile over npm's. `test/npm-automations` pins it.
+  - No lockfile: `npm-install-on-package-change` falls back to npm (first-ever install right after `package.json` is created); `npm-ci-on-worktree` stays a silent no-op.
+- `detectPackageManager`, `pathWithLocalBin`, `truncate` and `ctx` are duplicated verbatim in each hook file — each command hook is a fully self-contained process, so do not extract a shared module.
+- `pathWithLocalBin` appends `~/.local/bin` to the spawned process's `PATH`.
+  - Why: standalone/corepack pnpm and yarn installs land there, and a non-login command-hook `PATH` may lack it. Same gap the bun-preferred `mjs-launch.sh` works around (`.claude/rules/hooks-mcp-server.md`, template `.claude/skills/create-plugin/templates/mjs-launch.sh.tmpl`).
+  - Append, never prepend: the inherited `PATH` wins, so a stale `~/.local/bin` binary can never shadow a canonical one. Same rule as the `mjs-launch.sh` wrappers of `coding-toolbox` and `universal-format`.
+- Fail open, exit 0 on every branch: only a real install failure (truncated stdout+stderr), the manager's binary missing from `PATH`, or (install hook) giving up on a contended lock emits `additionalContext`. Guard misses and the hook's own timeout kill stay silent.
 
-Both hooks also append `~/.local/bin` to the spawned process's `PATH`
-(`pathWithLocalBin`, also duplicated) — standalone/corepack installs of pnpm and
-yarn commonly land there, and a non-login/non-interactive `PATH` inherited by a
-command-hook subprocess may not include it. Same PATH gap the bun-preferred
-`mjs-launch.sh` wrapper works around for bun (see
-`.claude/rules/hooks-mcp-server.md`); appended, not prepended, so the inherited
-`PATH` always wins and a stale `~/.local/bin` binary can never shadow a canonical
-one earlier on `PATH` — same rtk/PATH-review finding already applied to
-`coding-toolbox`'s and `universal-format`'s `bin/mjs-launch.sh` wrappers. If the
-detected manager's binary still isn't found (`ENOENT`), the hook reports
-`<manager> not found on PATH` exactly like the original npm-only message.
+## Toggles (shared, both hooks)
+
+- Each hook is gated by its own `userConfig` boolean, read from a `CLAUDE_PLUGIN_OPTION_<KEY>` env var; only the literal `"false"` disables.
+- The fail-open default is deliberate, not an oversight.
+  - The hooks create state (`node_modules`, network I/O), so `.claude/rules/plugin-userconfig.md` would normally require fail-closed. Fail-open was chosen explicitly over that default.
+  - Worst case of the toggle never resolving is an unwanted background install, not data loss.
+  - Do not flip it to fail-closed.
+- The toggle comes from the env var, not a `${user_config.*}` placeholder in `hooks.json`'s `args`: the placeholder hard-errors when the plugin was never explicitly configured via `/plugin manage`.
+- The env-var route is not live-confirmed for this command-hook subprocess type. Only an MCP server process was observed without it (a different subprocess kind); cc-reference documents hook processes as receiving it.
+  - If it is never populated, the hook resolves to "enabled" — no worse than the placeholder's hard error.
+  - Accepted gap: a user who explicitly sets `false` and finds it silently unhonored should prompt fixing this properly.
+  - The fix to reach for: route the toggle through a plugin-local MCP server's `.mcp.json` `env` field, a confirmed-working alternative (precedent: `coding-toolbox`'s `worktree_refresh` hook).
 
 ## Hook design (`npm-ci-on-worktree`)
 
-Moved verbatim from `coding-toolbox` (same design, same tests) — centralizing
-npm-lifecycle hooks in one plugin rather than bundling them into
-`coding-toolbox`'s worktree/PR-focused scope.
-
-`PostToolUse` → `command`, matcher `EnterWorktree`, `timeout: 300`, `async: true`.
-Fires after every successful `EnterWorktree` call. Checks `<cwd>` (`cwd` is the
-hook's live session working directory, not a fixed project root) for a lockfile
-via the shared detection above; if found, runs that manager's lockfile-frozen
-clean-install equivalent of `npm ci` via `spawnSync`: `npm ci`, `pnpm install
---frozen-lockfile`, or `yarn install --frozen-lockfile` (yarn classic's flag; yarn
-berry only deprecated it in favor of `--immutable` as of 2026, not removed it, so
-one flag still covers both generations). Silent on success and on every guard miss
-(disabled, no `cwd`, no lockfile, killed by its own timeout); a real install
-failure surfaces truncated stdout+stderr as `additionalContext`, and the manager's
-binary missing from `PATH` gets a one-line note.
-
-**Fail-open toggle is deliberate**, not an oversight: a state-creating action
-(`npm ci` writes `node_modules`, does network I/O) would normally default to
-fail-closed per `plugin-userconfig.md`, but this was explicitly chosen at the
-feature's original design gate (in `coding-toolbox`) — worst case of the env-var
-route never resolving is an unwanted background `npm ci`, not data loss.
-
-**Reads `CLAUDE_PLUGIN_OPTION_NPM_CI_ON_WORKTREE`, not a `${user_config.*}`
-placeholder in `hooks.json`'s `args`** — the placeholder route hard-errors when
-the plugin has never been explicitly configured via `/plugin manage`. The env-var
-route is unverified for this specific command-hook subprocess type (only
-confirmed absent on a long-lived MCP server process, a different subprocess
-kind) but fails open to "enabled" if it's never populated — no worse than the
-placeholder's hard-error, and an accepted, documented gap: a user who
-explicitly sets `false` and finds it silently unhonored should prompt fixing
-this properly (e.g. routing the toggle through a plugin-local MCP server's
-`.mcp.json` `env` field instead, a confirmed-working alternative — see
-`coding-toolbox`'s `worktree_refresh` hook for that precedent).
-
-No monorepo/nested-workspace lockfile walk (root of the entered worktree only)
-and no concurrency guard against two overlapping `EnterWorktree` calls into the
-same directory (`npm ci` is safe to re-run — a clean wipe+reinstall from the
-lockfile, so the worst case is wasted work, not corruption). The hook trusts
-the `PostToolUse` event's `cwd` field as-is, with no cross-check against
-`EnterWorktree`'s own reported path — an accepted, unaddressed risk carried
-over unchanged from the original design.
+- Runs the detected manager's lockfile-frozen equivalent of `npm ci` in the hook input's `cwd` — the live session working directory after `EnterWorktree`, not a fixed project root.
+- yarn uses classic's `--frozen-lockfile`. Yarn berry deprecated it in favor of `--immutable` but did not remove it, so one flag covers both generations.
+- Scope is the entered directory's lockfile only: no monorepo / nested-workspace lockfile walk.
+- No concurrency guard against overlapping `EnterWorktree` calls into the same directory. Re-running a frozen install is safe, so the worst case is wasted work, not corruption.
+- Trusts the `PostToolUse` event's `cwd` as-is, with no cross-check against `EnterWorktree`'s own reported path — an accepted, unaddressed risk.
 
 ## Hook design (`npm-install-on-package-change`)
 
-`PostToolUse` → `command`, matcher `Write|Edit`, `timeout: 300`, `async: true`.
-Dispatches on any file named `package.json` (checked via `tool_input.file_path`,
-the same in-code path-filtering idiom `universal-lint`'s `lint-file.mjs` uses,
-rather than the `hooks.json` `if` field).
+### Trigger
 
-**Reconstructs the pre-edit file from the Edit tool's own `old_string`/
-`new_string`** (a plain string replace, no git dependency) rather than diffing
-against `git show HEAD:<path>` — a git-based diff breaks whenever the file has
-pending uncommitted changes stacked before this edit, which is ordinary mid-session
-state. Only trusted when `new_string` is unique in the post-edit content (single,
-unambiguous replace target) — this also safely degrades a `replace_all: true` edit
-(whose `new_string` then appears more than once) to the bare-install fallback
-instead of reconstructing a wrong "old" version. `Write` has no prior content in
-`tool_input` at all, so it always falls back too. There is no `MultiEdit` tool in
-the current toolset (verified empty on grep across this repo and this session's own
-tool/deferred-tool lists) — only `Edit` and `Write` are handled.
+- Dispatches on any file named `package.json`, filtered in code via `tool_input.file_path` (the idiom `universal-lint`'s `lint-file.mjs` uses) rather than the `hooks.json` `if` field.
+- Only `Edit` and `Write` are handled; the current toolset has no `MultiEdit`.
 
-**Runs an install scoped to only the changed/added
-`dependencies`/`devDependencies`/`optionalDependencies` specs** — a version-only (or
-`scripts`/`description`/etc.) edit triggers no install call at all, directly
-satisfying the "don't unnecessarily bump dependencies" ask. `installArgsFor` maps
-specs to each manager's verb: npm keeps `install <spec>...` (its `add` alias also
-works, but `install` was the original, verified behavior); pnpm/yarn use `add
-<spec>...` — `install` (no args) does not accept package specs for either. Verified
-experimentally: `npm install <name>@<range>` (npm 11.16.0) and `pnpm add
-<name>@<range>` (pnpm 11.20.0), for a name already declared anywhere in
-`package.json`, both update that entry **in place** — neither moves it into
-`dependencies`. Since every spec here is read back from the file's own _current_
-state (already written to the correct section by the edit itself before this hook
-ever runs), a single flat `<manager> <verb> <spec>...` call is safe; no
-per-field-grouped invocations are needed. `peerDependencies` is deliberately
-excluded (none of the three managers install these directly the same way); removed
-dependencies are not uninstalled (out of scope, matches "kleinstmöglichstes install"
-— smallest reasonable action, not a full reconciliation).
+### Pre-edit reconstruction
 
-**Filesystem lock serializes concurrent installs in the same directory.** Unlike
-the sibling `npm-ci-on-worktree` hook (fires at most once per `EnterWorktree`),
-`Write|Edit` can fire on the same `package.json` repeatedly in quick succession,
-and each firing is a fresh async OS process with no shared in-memory state — two
-overlapping install runs in one directory can race on `node_modules`/the
-lockfile. `acquireLock` takes an exclusive lock (atomic `open(..., "wx")` on a lock
-file in the OS temp dir, keyed by a hash of the target directory via `lockPathFor`
-— deliberately outside the project tree, so it's never visible to `git status`/
-`git add -A` and never lingers in a tracked directory after a crash) before
-spawning the install; if already held, it busy-waits (bounded, synchronous — this process
-is already async from the harness's
-perspective, so blocking it costs nothing), then proceeds once free. The lock wait
-and the install call share **one** budget, not one each: the handler computes
-a single deadline (`Date.now() + timeoutMs`) up front, hands `acquireLock` whatever
-remains, then hands the install whatever remains after that (floored at 1 ms — `spawnSync`
-reads `timeout: 0` as _no_ timeout) — two full budgets could together overrun
-`hooks.json`'s own 300 s timeout and get this process killed mid-install. A lock older than
-`LOCK_STALE_MS` (10 minutes) is treated as abandoned (e.g. a crashed prior process)
-and reclaimed. The lock is always released in a `finally` block, including on install
-failure/timeout — a hard `SIGKILL` of this process is the one case that can leave a
-stale lock behind, bounded by `LOCK_STALE_MS` before a later edit reclaims it;
-accepted trade-off for correctness over latency.
+- Rebuilds the pre-edit file from the Edit tool's own `old_string`/`new_string` (a plain string replace, no git dependency).
+- Not `git show HEAD:<path>`: a git-based diff breaks whenever uncommitted changes are stacked before this edit, which is ordinary mid-session state.
+- Trusted only when `new_string` is unique in the post-edit content. A `replace_all: true` edit (`new_string` then appears more than once) degrades to the bare-install fallback instead of reconstructing a wrong "old" version.
+- `Write` carries no prior content in `tool_input`, so it always falls back too.
 
-**Same fail-open toggle convention as the sibling hook** — `CLAUDE_PLUGIN_OPTION_
-NPM_INSTALL_ON_PACKAGE_CHANGE`, only the literal `"false"` disables.
+### Scoped install
+
+- Installs only the changed/added `dependencies`/`devDependencies`/`optionalDependencies` specs. An edit touching none of them (`version`, `scripts`, `description`, …) triggers no install call, satisfying "don't unnecessarily bump dependencies".
+- `installArgsFor` verb per manager: npm `install <spec>...`; pnpm/yarn `add <spec>...`, since their bare `install` does not accept package specs.
+- One flat `<manager> <verb> <spec>...` call is safe; no per-field-grouped invocations.
+  - Every spec is read back from the file's current state, already in the correct section.
+  - Verified for npm and pnpm: installing a name already declared anywhere in `package.json` updates that entry in place and never moves it into `dependencies`.
+- `peerDependencies` is deliberately excluded: the managers do not install these directly the same way.
+- Removed dependencies are not uninstalled — out of scope; the hook takes the smallest reasonable action, not a full reconciliation.
+
+### Filesystem lock
+
+- Why a lock: unlike the sibling hook (at most once per `EnterWorktree`), `Write|Edit` can fire on the same `package.json` repeatedly in quick succession. Each firing is a fresh async OS process with no shared state, and overlapping installs in one directory race on `node_modules`/the lockfile.
+- The lock file lives in the OS temp dir, keyed by a hash of the target directory — deliberately outside the project tree, so it is never visible to `git status`/`git add -A` and never lingers in a tracked directory after a crash.
+- Waiting is bounded and synchronous: the process is already async from the harness's perspective, so blocking costs nothing.
+- Lock wait and install share one deadline budget, not one each: two full budgets could together overrun `hooks.json`'s own 300 s timeout and get the process killed mid-install.
+- A lock older than `LOCK_STALE_MS` is treated as abandoned (crashed prior process) and reclaimed.
+- The lock is always released in a `finally` block, including on install failure/timeout.
+- Accepted trade-off (correctness over latency): a hard `SIGKILL` is the one case that leaves a stale lock, bounded by `LOCK_STALE_MS` before a later edit reclaims it.

@@ -21,9 +21,8 @@ Do **not** add a `version` field to marketplace.json plugin entries. `plugin.jso
 
 ## marketplace.json sources
 
-Sources must use the full relative path `./plugins/<name>`. Two broken alternatives:
+Sources must use the full relative path `./plugins/<name>`. Do not use a bare plugin name or `metadata.pluginRoot`:
 
-- `metadata.pluginRoot` — documented but non-functional: Claude Code ignores it for `./` sources during install/update (anthropics/claude-code#61224).
-- Bare plugin name — triggers unsupported-source-type error (anthropics/claude-code#64431).
-
-Reintroduce `metadata.pluginRoot` only after issue #61224 is resolved.
+- `metadata.pluginRoot` (Claude Code >= 2.1.239) is only prepended to bare-name sources and is ignored for sources that already start with `./`.
+- A bare-name source resolved through it is rejected as unsupported when the marketplace is synced via Organization settings; the full `./plugins/<name>` path works everywhere.
+- Upstream reports of `pluginRoot` misbehaving (anthropics/claude-code#61224, #64431) are unverified against current versions — treat them as reported upstream, not as established behavior.

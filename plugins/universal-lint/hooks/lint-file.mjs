@@ -26,10 +26,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 
-const SPAWN_TIMEOUT_MS = 30000; // inner linter timeout; hook-level timeout:60 is the backstop
-const NPX_SPAWN_TIMEOUT_MS = 55000; // cold npx install can exceed SPAWN_TIMEOUT_MS; stay under the hook's 60s ceiling
+const SPAWN_TIMEOUT_MS = 30000; // inner linter timeout; the hook-level timeout (hooks.json: 95 = 5s debounce wait + 90s lint budget) is the backstop
+const NPX_SPAWN_TIMEOUT_MS = 55000; // cold npx install can exceed SPAWN_TIMEOUT_MS; stay inside the 90s lint budget (hooks.json timeout 95 minus the 5s debounce wait)
 // eslint-disable-next-line max-len -- long line is the literal explanatory comment
-const RTK_NPX_ATTEMPT_TIMEOUT_MS = 5000; // bounds the rtk-wrapped npx attempt so a stalled rtk can't consume the bare-npx fallback's cold-install budget too -- worst-case sequential total (this + NPX_SPAWN_TIMEOUT_MS) stays at the hook's 60s ceiling, the same margin the direct-tool branch below already runs at
+const RTK_NPX_ATTEMPT_TIMEOUT_MS = 5000; // bounds the rtk-wrapped npx attempt so a stalled rtk can't consume the bare-npx fallback's cold-install budget too -- worst-case sequential total (this + NPX_SPAWN_TIMEOUT_MS = 60s) stays well inside the 90s lint budget (hooks.json timeout 95 minus the 5s debounce wait; two full NPX budgets would total 110s and blow it), the same worst case the direct-tool branch below already runs at (rtk attempt + fallback = 2 x SPAWN_TIMEOUT_MS)
 const MAX_CONTEXT_CHARS = 4000; // cap on the additionalContext findings text
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024; // spawnSync's 1MB default truncates a noisy linter's output as ENOBUFS
 const TSC_SPAWN_TIMEOUT_MS = 45000; // full-project incremental type-check: slower

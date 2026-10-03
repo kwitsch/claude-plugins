@@ -16,7 +16,7 @@ paths:
 
 - Contract-test script exit codes explicitly.
 - Simulate hangs via `timeout`.
-- coding-toolbox's specific review-script exit-code scheme (missing CLI → 2, no login → 3, failure/hang → 4) is documented in `test/coding-toolbox/CLAUDE.md` — it's implemented only by that plugin's own scripts, not a repo-wide contract. If a second plugin adopts the same scheme, re-generalize it back here.
+- There is no repo-wide exit-code scheme; each script's own documented contract (its colocated `.reference.md` or header comment) is the one to test.
 
 ## Data files
 

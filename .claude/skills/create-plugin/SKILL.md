@@ -118,7 +118,7 @@ Stub each chosen component:
   `plugins/<name>/hooks/`, then cover it with behavioral tests in Step 5.
 
 - **hooks (mcp kind)** → scaffold three files (see `.claude/rules/hooks-mcp-server.md` for the full reference content):
-  - `plugins/<name>/mcp/server.mjs` — the self-contained zero-dep MCP stdio server (set `SERVER_NAME = "<name>-hooks"`). Copy it verbatim from the hooks-mcp-server rule, then `chmod +x plugins/<name>/mcp/server.mjs`.
+  - `plugins/<name>/mcp/server.mjs` — the self-contained zero-dep MCP stdio server (set `SERVER_NAME = "<name>-hooks"`). Copy `${CLAUDE_SKILL_DIR}/templates/mcp-server.mjs.tmpl` verbatim, then `chmod +x plugins/<name>/mcp/server.mjs`. (An optional bun-preferred `bin/mjs-launch.sh` wrapper template sits beside it as `mjs-launch.sh.tmpl` — only for plugins that need bun runtime selection; see the rule's wrapper section.)
   - `plugins/<name>/.mcp.json` — registers `"<name>-hooks"` → `${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs`.
   - `plugins/<name>/hooks/hooks.json` — a `PostToolUse` `mcp_tool` handler (`server: "<name>-hooks"`, `tool: "example_context"`).
 
@@ -284,7 +284,7 @@ Add entry to `plugins` array in `.claude-plugin/marketplace.json`. Preserve exis
 }
 ```
 
-Use full `./plugins/<name>` path — `metadata.pluginRoot` documented but broken in Claude Code (anthropics/claude-code#61224/#64431); reintroduce after upstream fix. No `version` field — `plugin.json` is single source of truth (CI fails if marketplace entry declares one). Omit `category`/`tags` if not provided. `name` and `source` only required fields.
+Use full `./plugins/<name>` path — never bare names or `metadata.pluginRoot` (see `.claude/rules/plugin-versioning.md`). No `version` field — `plugin.json` is single source of truth (CI fails if marketplace entry declares one). Omit `category`/`tags` if not provided. `name` and `source` only required fields.
 
 ## Step 7 — Verify (mirror the CI)
 

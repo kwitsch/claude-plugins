@@ -10,13 +10,15 @@ paths:
 
 Sources: <https://code.claude.com/docs/en/hooks#mcp-tool-hook-fields> ·
 per-event compatibility table: `.claude/rules/hooks-mcp-tool-event-matrix.md`
+· copy-paste templates: `.claude/skills/create-plugin/templates/` (`mcp-server.mjs.tmpl`, `mjs-launch.sh.tmpl`)
 
 For a **new** hook, prefer implementing it as a tool on a plugin-local MCP server
 and registering the hook with `type: "mcp_tool"` — **for mid-session,
 non-blocking hooks**. A command hook is required only in the four cases below; pick
 with the decision tree, then confirm the event's row in the
 [event matrix](./hooks-mcp-tool-event-matrix.md) (lean on `confidence: documented`
-rows only).
+rows only). New or rewritten command hooks are Node ES modules (`.mjs`), not shell
+scripts; existing `.sh` hooks stay until rewritten.
 
 ## Decision tree
 
@@ -42,15 +44,9 @@ on the _next_ conversation turn — too late to prevent Claude from acting on st
 state in between). `universal-lint` (async — read-only, exactly one hook) is this
 repo's single-hook example.
 
-> `universal-format` no longer qualifies for the single-hook exception — as of 0.13.0 it backs
-> four `mcp_tool` hooks (`format_pre` PreToolUse, `format_post` PostToolUse, `cwd_changed`
-> CwdChanged, `worktree_entered` PostToolUse:EnterWorktree — the latter a fallback for
-> `CwdChanged` observed to never fire on `EnterWorktree`) on its own plugin-local MCP server, and
-> is this repo's ONE deliberate exception to "self-contained zero-dep `mcp/server.mjs`": a
-> committed `bun build` bundle plus three committed `.wasm` sidecars in the same directory
-> (`web-tree-sitter.wasm`, `tree-sitter-java_orchard.wasm`, and `main.wasm` — sh-syntax's parser),
-> with no Bun-only API anywhere in the bundle. See `plugins/universal-format/CLAUDE.md`'s "Built
-> artifact" and "Path exclusions" sections for the full rationale and history.
+`universal-format` is the one deliberate exception to the self-contained zero-dep
+`mcp/server.mjs` shape (a committed `bun build` bundle plus committed `.wasm` sidecars)
+— see `plugins/universal-format/CLAUDE.md`.
 
 Why the limits (documented Claude Code behavior):
 
@@ -59,7 +55,8 @@ Why the limits (documented Claude Code behavior):
   events (`SessionStart`, `Setup`) genuinely can't rely on it. Mid-session
   lifecycle events (`PreCompact`, `ConfigChange`, `Stop`, `SubagentStop`, …) are
   `full` in the matrix — connectivity is **not** the reason to keep them command
-  hooks.
+  hooks (`ConfigChange` stays a command hook for the fail-open-sensitive
+  side-effect reason).
 - `mcp_tool` expresses a decision **only via the JSON it returns as tool text** —
   it cannot emit exit code 2. On block-capable events it can do a _soft_ block
   (`permissionDecision: "deny"` / `decision: "block"`), but if the server is down
@@ -67,19 +64,9 @@ Why the limits (documented Claude Code behavior):
 - Because the failure mode is non-blocking, an `mcp_tool` hook standing in for a
   must-fire side-effect (snapshot, state-write) silently no-ops when the server is
   down. Keep those as command hooks even though the event itself is `full`.
-
-> Correction note (superseded reasoning): an earlier version of this rule grouped
-> `SessionEnd`/`UserPromptSubmit`/`PreCompact` with `SessionStart` as
-> "early-lifecycle, server not connected." Per the event matrix that is inaccurate —
-> only `SessionStart`/`Setup` have the pre-connect problem. `PreCompact` and
-> `SessionEnd` are mid/late-session and `full`; `UserPromptSubmit` is limited by
-> timeout/latency, not connectivity. Keep `ConfigChange` as a command hook for the
-> _fail-open-sensitive side-effect_ reason, not a connectivity one. `PreCompact` is
-> no longer a must-stay-command-hook case: it is `full` in the event matrix, so an
-> `mcp_tool` hook works mid-session with the server reliably connected. A
-> fail-open-sensitive `PreCompact` side-effect (e.g. a resume snapshot) failing
-> open when the server is momentarily down at compact time is then an accepted
-> trade-off, not an oversight.
+- Accepted trade-off: a fail-open-sensitive `PreCompact` side-effect (e.g. a resume
+  snapshot) on `mcp_tool` failing open when the server is momentarily down at compact
+  time is not an oversight.
 
 ## Plugin layout
 
@@ -93,11 +80,9 @@ plugins/<name>/
 
 `server.mjs` is invoked **directly** as the `.mcp.json` `command` — an executable
 `.mjs` (`#!/usr/bin/env node`, `100755`), node-only, no runtime-selection wrapper.
-(A plugin that genuinely needs bun-preferred selection MAY use the optional
-`bin/mjs-launch.sh` wrapper documented at the end of this rule.) The reference
-blocks below use the concrete name `example-hooks` so they work as a verbatim copy —
-**rename `example-hooks` to your plugin's `<name>-hooks` across `.mcp.json`,
-`hooks/hooks.json`, and `server.mjs` (its `SERVER_NAME`).**
+Start from `.claude/skills/create-plugin/templates/mcp-server.mjs.tmpl`: it uses the
+concrete name `example-hooks` — **rename it to your plugin's `<name>-hooks` across
+`.mcp.json`, `hooks/hooks.json`, and `server.mjs` (its `SERVER_NAME`).**
 
 **`server` value in `hooks.json` — use the runtime-namespaced name, NOT the bare
 `.mcp.json` key.** A plugin's MCP server connects under
@@ -147,165 +132,33 @@ to MCP-server spawning.
 (required). Common fields apply (`if`, `timeout` default 600, `statusMessage`).
 
 **`input` is REQUIRED in practice, despite being schema-optional — omitting it means
-the tool receives a literal empty `arguments: {}`, NOT the full hook event JSON.**
-Live-verified on Claude Code 2.1.226 (see `hooks-mcp-tool-event-matrix.md`'s
-`GLOBAL_MECHANICS.input_omitted_default` and `plugins/universal-format/CLAUDE.md`'s
-0.14.1 fix): a `format_pre`/`format_post` hook with no `input` field fired
-successfully (`exitCode: 0`) on every real Write/Edit but its handler always saw
-`args` as `{}`, silently no-opping every guard clause that reads `tool_input`/`cwd`/etc.
-The reference `server.mjs` below and its comment `// args is the hook event JSON`
-describes what the handler receives ONLY when the hook explicitly reconstructs that
-shape via an `input` field with `${...}` placeholders — build one explicitly for any
-new `mcp_tool` hook; do not rely on implicit passthrough. Substitution is
-**string-only** (see the event matrix's `input_substitution_type_preservation`): a
-placeholder resolving to a boolean/object in the source hook JSON arrives as a
-stringified value (`"true"`/`"false"`), so a handler comparing against a literal
-`true`/`false` must also accept the string form for any such field.
+the tool receives a literal empty `arguments: {}`, NOT the full hook event JSON.** A
+hook without `input` still fires successfully (`exitCode: 0`) but its handler sees
+`{}` and silently no-ops every guard clause that reads `tool_input`/`cwd`/etc.
+(live-verified on Claude Code 2.1.226; see `hooks-mcp-tool-event-matrix.md`'s
+`GLOBAL_MECHANICS.input_omitted_default`). Build `input` explicitly with `${...}`
+placeholders for every new `mcp_tool` hook; never rely on implicit passthrough.
+Substitution is **string-only** (see the event matrix's
+`input_substitution_type_preservation`): a placeholder resolving to a
+boolean/object in the source hook JSON arrives as a stringified value
+(`"true"`/`"false"`), so a handler comparing against a literal `true`/`false` must
+also accept the string form for any such field. `plugins/universal-format/CLAUDE.md`'s
+"Explicit hook input" section is the worked example.
 
 ## `bin/mjs-launch.sh` (OPTIONAL bun-preferred wrapper — not the default)
 
-This wrapper is an **optional fallback** for a plugin that genuinely needs
-bun-preferred runtime selection; the canonical shape is the direct-`.mjs` `command`
-shown above. It carries known edge-case issues (empty PATH segment, lingering signal
-forwarder); prefer the direct-`.mjs` form. No LSP plugin ships one anymore;
-`claude-code-knowledge`, `coding-toolbox`, and `universal-format` use it (their own
-PATH line deviates from the template below — appending `~/.local/bin`/`~/.bun/bin`
-instead of prepending them, per a correctness finding on
-`universal-lint`/`universal-format`'s own rtk/PATH review — see each plugin's
-CLAUDE.md). `universal-lint` dropped its MCP server on 2026-07-24 and carries no
-wrapper; `universal-format` re-introduced a wrapper-launched MCP server in 0.9.0 (two
-hooks on a warm in-process prettier server). Copy the template below if you need it.
-Prefers bun; falls back to node; errors if neither is available. All messages go to
-stderr (stdout is the MCP stdio channel).
-
-```bash
-#!/usr/bin/env bash
-# mjs-launch.sh — runtime launcher for this plugin's local .mjs program(s).
-# Prefers bun; falls back to node; errors if neither is available.
-# stdout MUST stay clean (stdio MCP channel); all messages → stderr.
-# Non-interactive PATH often lacks ~/.local/bin and ~/.bun/bin; prepend them.
-# Use ${HOME}, never ~. No empty PATH segment.
-set -euo pipefail
-export PATH="${HOME:-}/.local/bin:${HOME:-}/.bun/bin${PATH:+:${PATH}}"
-
-if [ "$#" -eq 0 ]; then
-  echo "mjs-launch.sh: missing argument (expected a .mjs script path)" >&2
-  exit 64
-fi
-
-if command -v bun > /dev/null 2>&1; then exec bun "$@"; fi
-if command -v node > /dev/null 2>&1; then exec node "$@"; fi
-echo "mjs-launch.sh: neither bun nor node is available. Install Node.js or Bun." >&2
-exit 1
-```
-
-## `mcp/server.mjs` (reference, self-contained, zero-dep)
-
-`chmod +x` it — it is invoked **directly** as the `.mcp.json` `command`, so it MUST
-have the executable bit (`git ls-tree` shows 100755) and a `#!/usr/bin/env node`
-shebang. `server.mjs` is a plain Node program — no inline bun re-exec shim. Pure
-built-ins; runs identically under node (and under bun if used via the optional wrapper). With
-`MCP_HOOK_DEBUG` set, the tool logs each `tools/call` to stderr (handy for
-confirming the hook contract). Replace `example-hooks` / the example tool with
-your plugin's names.
-
-```js
-#!/usr/bin/env node
-// Self-contained, zero-dependency MCP stdio server (Node built-ins only).
-// Invoked directly as the .mcp.json command (#!/usr/bin/env node; node-only, no wrapper).
-// Transport: newline-delimited JSON-RPC 2.0. stdout = JSON-RPC only; logs → stderr.
-import process from "node:process";
-import readline from "node:readline";
-
-const SERVER_NAME = "example-hooks"; // the server's self-reported name; keep aligned with the .mcp.json key
-const SERVER_INFO = { name: SERVER_NAME, version: "0.1.0" };
-const DEFAULT_PROTOCOL = "2025-11-25"; // current stable MCP version; only used if client omits protocolVersion
-
-startServer();
-
-function startServer() {
-  const TOOLS = [
-    {
-      name: "example_context",
-      description: "Example PostToolUse hook: inject context after a tool runs.",
-      inputSchema: { type: "object", additionalProperties: true },
-      handler(args) {
-        // TODO(plugin author): replace with real logic. `args` is the hook event JSON.
-        return {
-          hookSpecificOutput: {
-            hookEventName: args?.hook_event_name ?? "PostToolUse",
-            additionalContext: `context from ${SERVER_NAME}`,
-          },
-        };
-      },
-    },
-  ];
-  const findTool = (name) => TOOLS.find((t) => t.name === name);
-  const send = (msg) => process.stdout.write(JSON.stringify(msg) + "\n");
-  const ok = (id, result) => send({ jsonrpc: "2.0", id, result });
-  const fail = (id, code, message) => send({ jsonrpc: "2.0", id, error: { code, message } });
-
-  const handle = (msg) => {
-    const { id, method, params } = msg;
-    switch (method) {
-      case "initialize":
-        return ok(id, {
-          protocolVersion: params?.protocolVersion ?? DEFAULT_PROTOCOL,
-          capabilities: { tools: {} },
-          serverInfo: SERVER_INFO,
-        });
-      case "notifications/initialized":
-      case "notifications/cancelled":
-        return;
-      case "ping":
-        return ok(id, {});
-      case "tools/list":
-        return ok(id, {
-          tools: TOOLS.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
-        });
-      case "tools/call": {
-        const tool = findTool(params?.name);
-        if (!tool) return fail(id, -32602, `unknown tool: ${params?.name}`);
-        if (process.env.MCP_HOOK_DEBUG) {
-          process.stderr.write(`[${SERVER_NAME}] tools/call ${params?.name} args=${JSON.stringify(params?.arguments)}\n`);
-        }
-        let result;
-        try {
-          result = tool.handler(params?.arguments ?? {});
-        } catch (e) {
-          return fail(id, -32603, `tool error: ${e?.message ?? e}`);
-        }
-        return ok(id, {
-          content: [{ type: "text", text: JSON.stringify(result) }],
-          structuredContent: result,
-        });
-      }
-      default:
-        if (id === undefined) return;
-        return fail(id, -32601, `method not found: ${method}`);
-    }
-  };
-
-  const rl = readline.createInterface({ input: process.stdin });
-  rl.on("line", (line) => {
-    const trimmed = line.trim();
-    if (!trimmed) return;
-    let msg;
-    try {
-      msg = JSON.parse(trimmed);
-    } catch {
-      process.stderr.write(`[${SERVER_NAME}] non-JSON line ignored\n`);
-      return;
-    }
-    try {
-      handle(msg);
-    } catch (e) {
-      process.stderr.write(`[${SERVER_NAME}] handler crash: ${e?.stack ?? e}\n`);
-    }
-  });
-  rl.on("close", () => process.exit(0));
-}
-```
+- Use only when a plugin genuinely needs bun-preferred runtime selection; the
+  canonical shape is the direct-`.mjs` `command` shown above. Template:
+  `.claude/skills/create-plugin/templates/mjs-launch.sh.tmpl` (prefers bun, falls
+  back to node, errors if neither; all messages to stderr because stdout is the MCP
+  stdio channel; prepends `~/.local/bin`/`~/.bun/bin` to PATH).
+- `.mcp.json` shape with the wrapper: `command: ${CLAUDE_PLUGIN_ROOT}/bin/mjs-launch.sh`,
+  `args: ["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"]`.
+- Known caveats: empty PATH segment, lingering signal forwarder.
+- A plugin whose wrapper deviates from the template (e.g. appending the user dirs
+  instead of prepending them) documents that in its own `CLAUDE.md`.
+- Do not "restore" a wrapper for a plugin that intentionally invokes its `.mjs`
+  directly.
 
 ## Gotchas
 
@@ -316,19 +169,12 @@ function startServer() {
   and `node` must be on the PATH Claude Code launches MCP servers with. A
   non-executable / shebang-less server silently fails to start, and the `mcp_tool`
   hook then fails open. `server.mjs` contains no re-exec shim.
-- **Optional bun wrapper:** if a plugin uses the optional `bin/mjs-launch.sh`, the
-  wrapper (not `server.mjs`) is what Claude Code exec's and must be `chmod +x`; it
-  prepends `~/.local/bin` and `~/.bun/bin` to PATH (uses `${HOME}`, never `~`, and
-  avoids empty PATH segments), then `exec bun "$@"` if bun is found,
-  `exec node "$@"` otherwise. It is not the default — see the caveats above.
+- **Optional bun wrapper:** with `bin/mjs-launch.sh`, the wrapper (not `server.mjs`)
+  is what Claude Code exec's and must be `chmod +x`; use `${HOME}`, never `~`, and
+  avoid empty PATH segments.
 - **Debug logging:** the per-`tools/call` stderr log is gated behind
   `MCP_HOOK_DEBUG` so production hooks stay quiet; set it to confirm the contract.
 - **Native Windows:** a `#!/usr/bin/env node` server shebang resolves on native
   Windows via the Node launcher; the optional `bin/mjs-launch.sh` wrapper's
   `#!/usr/bin/env bash` shebang would need a shell/`.exe` shim. WSL2 / Linux / macOS
   are fine either way.
-- **Direct-`.mjs` is the default:** invoke the executable `.mjs`
-  (`#!/usr/bin/env node` + `chmod +x` / `100755`) directly as the `command` — this is
-  the canonical shape. The optional `bin/mjs-launch.sh` wrapper is only for plugins that need
-  bun-preferred runtime selection. Do not "restore" a wrapper for a plugin that
-  intentionally invokes its `.mjs` directly.

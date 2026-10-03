@@ -4,281 +4,48 @@
 
 The plugin ships these components:
 
-- `skills/build-task/` — the inline orchestrator skill. Branch handling, `AskUserQuestion` checkpoints, invokes the two workflows below by name, applies escalated review fixes.
-- `skills/dispatch-task/` — one-step skill that dispatches `build-task` into a worktree-isolated background session. Self-contained by requirement: no reference to any other plugin, its own copy of the `claude --worktree … --bg` mechanics.
+- `skills/build-task/` — inline orchestrator skill. Owns branch handling and `AskUserQuestion` checkpoints, invokes the design and delivery workflows by name, applies escalated review fixes.
+- `skills/dispatch-task/` — one-step skill that dispatches `build-task` into a worktree-isolated background session. Self-contained by requirement: no reference to any other plugin, its own copy of the `claude --worktree … --bg` mechanics. Design notes: `skills/dispatch-task/CLAUDE.md`.
 - `skills/changes-audit/` — standalone audit skill. Runs the `changes-review` workflow over the branch diff, then owns apply: `--fix` auto-applies every finding, otherwise an `AskUserQuestion` multi-select applies the picks — both by re-dispatching `fix-applier` (findings carry no patch text). Model-invocable, runs inline (depth 0). No PR/merge step.
-- `workflows/design-to-spec.workflow.js` + `workflows/spec-driven-delivery.workflow.js` + `workflows/changes-review.workflow.js` — the dynamic Workflow-tool scripts that do the heavy lifting. Auto-discovered from the plugin-root `workflows/` directory (no manifest field needed); run namespaced as `/taskflow:design-to-spec` / `/taskflow:spec-driven-delivery` / `/taskflow:changes-review`. The `AGENTS` map (namespace = plugin name) lives in each workflow script; `changes-review` carries only the finder/verifier subset (it never dispatches `fix-applier`).
-- `agents/*.md` — 11 static role prompts (`planner`, `designer`, `design-reviewer`, `review-finder`, `review-verifier`, `worktree-merger`, `fix-applier`, `pr-author`, `shipper`, `ci-monitor`, `ci-fixer`), dispatched by the workflows via `agentType: 'taskflow:<name>'`. INTERNAL — each agent's own description says not to delegate to it directly. `review-finder`, `review-verifier`, and `fix-applier` now each have two entry points — `spec-driven-delivery` and `changes-review`/`changes-audit` — reflected in their frontmatter descriptions.
-- `bin/ship-ensure-mergeable.sh` — the plugin's first `bin/` script (Ship merge-state remediation): shipper runs it before the ci-monitor loop to auto-update a `behind` branch or auto-resolve `-X ours`-clean conflicts so CI actually starts. Zero-dep bash, `chmod +x`. No new agent — the 11-agent roster is unchanged.
+- `workflows/design-to-spec.workflow.js` + `workflows/spec-driven-delivery.workflow.js` + `workflows/changes-review.workflow.js` — the Workflow-tool scripts that do the heavy lifting; run namespaced as `/taskflow:<name>`.
+  - The `AGENTS` map (namespace = plugin name) lives in each script; `changes-review` carries only the finder/verifier subset (it never dispatches `fix-applier`).
+  - Renaming the plugin requires updating the `AGENTS` namespace prefix in each script.
+- `agents/*.md` — 11 static role prompts dispatched by the workflows via `agentType: 'taskflow:<name>'`. INTERNAL: each agent's description says not to delegate to it directly. `review-finder`, `review-verifier` and `fix-applier` have two entry points (`spec-driven-delivery` and `changes-review`/`changes-audit`); their frontmatter descriptions say so.
+- `bin/ship-ensure-mergeable.sh` — Ship merge-state remediation: `shipper` runs it before the ci-monitor loop to auto-update a `behind` branch or auto-resolve `-X ours`-clean conflicts so CI actually starts. Zero-dep bash, `chmod +x`.
 
-Renaming the plugin requires updating the `AGENTS` map's namespace prefix in each workflow script to match.
+## Agent files and no-narration
 
-Every one of the 11 agent files also carries the identical, verbatim rule "No
-narrative text between tool calls — call tools silently and speak only in
-your final message (the report or structured output)." as its first paragraph
-after frontmatter — these agents run headless inside a Workflow, so any prose
-between tool calls is pure wasted tokens no one reads; only the last message
-(plain text or the schema-forced structured output) is ever consumed. Add it
-to any new agent file too.
-
-Each workflow script also dispatches several roles with a **fully inline
-prompt and no `agentType`** at all (so no plugin agents/_.md system prompt
-backs them): design-to-spec's scout; its codebase explorer — **conditional**:
-when the repo-explorer MCP tool is absent, the built-in `agentType: "Explore"`
-agent (a foreign system prompt this plugin doesn't own, so only the per-call
-prompt text can carry the rule) via `explorerPrompt`; when that tool is
-present (`USE_EXPLORE_TOOL`), a `NO_NARRATION`-prefixed inline
-`exploreToolPrompt` with **no** `agentType`, so the default subagent reaches
-the session MCP tool via ToolSearch — spec writer, and spec reviewer;
-spec-driven-delivery's
-plan checker, per-task implementer, per-task reviewer, per-task fixer, the
-Review phase's scope-gathering agent, and its synthesizer; changes-review's
-scope-gathering agent, its synthesizer, and its lean (ponytail) review pass.
-Each script defines its own `const NO_NARRATION = "…"` (identical wording to
-the agents/_.md rule) right after its `AGENTS` map, and every one of those
-inline prompts is prefixed with it. Add the same prefix to any new inline
-(non-`agentType`) prompt in any workflow script.
-
-## `workflows/` is a documented plugin component
-
-This is the first plugin in the repo to ship a `workflows/` directory. It is
-a real, documented Claude Code plugin component (auto-discovered like
-`skills/`/`agents/`; see the curated `claude-code-plugins-reference.md`) —
-`plugins/CLAUDE.md`'s structure table just predated it and now carries a
-`workflows/` row (added alongside this plugin). Treat this plugin's use of
-the directory as the standard, not an exception.
+- Every `agents/*.md` starts, right after frontmatter, with the identical verbatim "No narrative text between tool calls" paragraph. Copy it from an existing agent into any new one.
+- Why: agents run headless inside a Workflow, so prose between tool calls is wasted tokens; only the final message (report or schema-forced output) is consumed.
+- Inline workflow prompts carry the same rule as a `NO_NARRATION` prefix — see `workflows/CLAUDE.md`.
 
 ## userConfig
 
-No `userConfig` in `plugin.json` — deliberate, see the `taskflow` entry in
-`.claude/rules/plugin-userconfig.md`'s no-toggle exceptions: `build-task` only
-ever runs on invocation — by the user directly, or by the model choosing to
-invoke it. `dispatch-task` carries `disable-model-invocation: true` (added
-2026-08-12 — it launches an unattended, `--permission-mode auto` background
-session, so only an explicit user invocation may start one, never the
-model's own judgment). Neither skill ever runs from a hook or other
-unattended trigger, so there is no automatic/background behavior for a
-toggle to suppress. (`dispatch-task` itself launches an unattended
-background session once invoked, but the invocation that starts it is never
-automatic.)
+No `userConfig` in `plugin.json` — deliberate; see the `taskflow` entry in `.claude/rules/plugin-userconfig.md`'s no-toggle exceptions.
 
-## Model assignment
-
-No model tier is pinned. Every role floats on its family alias
-(`haiku`/`sonnet`/`opus`/`fable` — each resolves to the newest model in that
-family). Pinned IDs caused problems in practice and were removed in favor of
-aliases across the board (`sonnet`/`haiku` were always bare; the Opus tier
-returned to the bare `opus` alias in this change).
-
-The two highest-judgment authoring roles pick their model per run from a
-difficulty classification (`simple → sonnet`, `complex → opus`, `hardest →
-fable`; resolver default on any miss is `opus`):
-
-- **designer** (`workflows/design-to-spec.workflow.js`) — the existing haiku
-  `scout` returns a `difficulty` field (`SCOUT_SCHEMA`); `DESIGN_MODEL` /
-  `designerModel()` resolve `DESIGNER_MODEL`, passed to the designer's
-  `agent()` call.
-- **planner** (`workflows/spec-driven-delivery.workflow.js`) — a small haiku
-  spec classifier (`CLASSIFY_SCHEMA`, `agentType: "Explore"`) runs before
-  `makePlan()`; `PLAN_MODEL` / `plannerModel()` resolve `PLANNER_MODEL`, used
-  in all three planner dispatches.
-
-Not classifier-driven (bare `opus`, fixed): `MODELS.synthesizer` in
-`workflows/spec-driven-delivery.workflow.js` and
-`workflows/changes-review.workflow.js`, and `IMPL_MODEL.complex` (the
-per-task-complexity tier that `implModel()`/`fixModel()` resolve for
-`complexity === "complex"` tasks).
-
-Agent frontmatter `model:` (`agents/designer.md`, `agents/planner.md`) is the
-bare `opus` default for a direct out-of-workflow invocation; the workflow's
-per-run `agent()` `model` option overrides it (same precedence as
-`implModel(t)`). The `MODELS` object at the top of each workflow script is
-still the single place to change a fixed assignment.
-
-## Skill design (dispatch-task)
-
-`skills/dispatch-task/SKILL.md` is a one-step skill: it dispatches
-`/taskflow:build-task <task text>` into a new worktree-isolated background
-session (`claude --worktree <name> --model "sonnet" --effort "xhigh"
---permission-mode auto --bg`, both overridable via `--model=`/`--effort=`) and
-reports the CLI's own session id. Load-bearing decisions:
-
-- **A deliberate fork of `coding-toolbox:dispatch-agent`, not a call into it.**
-  taskflow carries its own inline copy of the dispatch mechanics so the plugin
-  gains no cross-plugin dependency and keeps working when that plugin is not
-  installed. The cost is accepted and permanent: neither copy inherits the
-  other's future fixes. A bats tripwire greps `skills/dispatch-task/` for
-  references to any other plugin and must find none — do not "deduplicate" this
-  by calling the other skill.
-- **`disable-model-invocation: true`** (added 2026-08-12): this skill launches
-  an unattended, full-`--permission-mode auto` background session — per
-  `.claude/rules/skill-invocation-control.md`'s "explicit reason" carve-out
-  (deploy/destructive-side-effect skills stay user-only), only an explicit
-  user invocation may start one, never the model's own judgment.
-- **`--model=`/`--effort=` overrides (2026-08-30, was fixed `sonnet`/`medium`).**
-  dispatch-task now accepts the same optional `--model=`/`--effort=` override flags as
-  `coding-toolbox:dispatch-agent`, both defaulting `sonnet`/`xhigh`; the resolved values are
-  validated against `^[A-Za-z0-9._-]+$` before substitution, so no override can skip the
-  check. The default effort rose `medium`→`xhigh` for parity with dispatch-agent. (The
-  cross-plugin naming here is allowed — this bullet lives in the plugin-root CLAUDE.md; the
-  self-containment tripwire only scans the skill dir.)
-- **`--permission-mode auto` always**, and the task text always travels inside a
-  quoted heredoc read back by direct command substitution — no temp file, so a
-  dispatch failing under `set -e` leaves nothing on disk to leak.
-- **Reverted 2026-08-19: back to the fixed `DISPATCH_TASK_PROMPT_EOF`
-  delimiter.** The 2026-08-12 "fresh delimiter per invocation" mandate (invent
-  a ≥20-character token verified absent from the task text, reproduce it
-  identically in the open and close lines) was itself the launch-failure bug:
-  the model had to write the invented token identically **twice**, and any
-  mismatch left the heredoc unterminated, so the `$(cat <<'…' … )"` command
-  substitution broke and the background job either failed to start or launched
-  with a mangled/empty prompt. The theoretical exposure it closed — a task
-  containing a line exactly equal to `DISPATCH_TASK_PROMPT_EOF` — is
-  vanishingly unlikely and is the same residual risk `coding-toolbox:dispatch-agent`
-  has always accepted with its own fixed delimiter; the single-quoted heredoc
-  already blocks all shell expansion of the task text. Reliability of a
-  fixed, always-matching terminator wins over guarding that corner.
-- **Fixed 2026-08-12: the payload cuts its own `feature/<slug>` branch first.**
-  `claude --worktree` bases the new worktree on `origin/<default branch>` —
-  unless this project's `worktree.baseRef` setting is `"head"` (not the
-  default `"fresh"`), in which case it bases it on the dispatching session's
-  own current `HEAD` instead (see the `worktree.baseRef` bullet below). Either
-  way it checks the worktree out under an auto-generated branch NAME, never
-  literally the base branch by name — `build-task`'s step 1 only cuts
-  `feature/<slug>` when the current branch name equals `BASE_BRANCH` exactly,
-  so without this fix the "otherwise, stay on the current branch" path fired
-  on every dispatch and shipped from the ugly auto-generated branch instead,
-  regardless of which base it started from. The payload's first instruction
-  is now `git checkout -b "feature/<same-slug>"`, run by the new session
-  itself (full `--permission-mode auto` tooling) — this skill's own Bash
-  calls still never touch `git`, see below. (As of `--skip-branch-check` —
-  see **Skipping build-task's branch check on dispatch** — the cut is still
-  required, but now so that `BRANCH_NAME` is already the pretty
-  `feature/<slug>` name build-task trusts verbatim, not to steer build-task's
-  now-skipped `current == BASE_BRANCH` comparison.)
-- **`worktree.baseRef` (CodeRabbit finding, PR #193 — this repo's own bundled
-  `claude-code-knowledge` reference cache was stale on this exact setting;
-  verified against the live `code.claude.com/docs/en/worktrees` doc before
-  fixing).** `claude --worktree`'s base is controlled by the `worktree.baseRef`
-  setting (`settings.json`), default `"fresh"` (branch from the repo's default
-  branch on `origin`). A project that sets it to `"head"` instead gets every
-  new worktree — `--worktree`, `EnterWorktree`, and subagent `isolation:
-worktree` alike — branched from local `HEAD` where it runs, carrying
-  unpushed commits/feature-branch state. This skill does not, and should not,
-  try to override or second-guess that project-level choice; it only needs to
-  document the conditional behavior accurately (this doc and `SKILL.md` used
-  to claim the default-branch base unconditionally) rather than assume
-  `"fresh"`. The `feature/<slug>` branch-cut fix above already behaves
-  correctly under either mode without any further code change.
-- **Unattended checkpoints:** `build-task` funnels every human decision through
-  `AskUserQuestion`, so a dispatched run may pause at one with nobody present.
-  The skill's report step says so and points at `claude attach <id>`; the
-  dispatched prompt itself is the bare command plus the task text, with no
-  autonomy nudging added.
-- **This skill's own Bash never touches `git`:** `claude --worktree` starts the
-  worktree with a clean tree regardless of its base (`origin/<default
-branch>` or local `HEAD` per `worktree.baseRef` above), which already
-  satisfies `build-task`'s clean-`git status` precondition (the `git checkout
--b` runs in the _dispatched_ session, not here).
-- **`allowed-tools` is bare `Bash` (widened 2026-08-19), not `Bash(claude:*)`.**
-  Step 1's Bash call is a compound script — `set -e`, a
-  `name="…-$(date +%s)-$RANDOM"` assignment (its `$(date …)` command
-  substitution is not a known-safe leading assignment), `[[ "$name" =~ … ]]`,
-  then `claude … --bg`. The Bash permission matcher splits on separators and
-  requires every sub-command to be covered independently (see the settings
-  reference's "Per-tool specifiers"), so a narrow `Bash(claude:*)` never
-  auto-approved the dispatch and it stalled on a permission prompt / was
-  denied with nobody present — the actual "background job doesn't start"
-  failure. Bare `Bash` matches the pipeline skills `build-task` /
-  `feature-development`; task-text safety comes from the single-quoted heredoc,
-  not the tool matcher, so widening adds no real exposure. `coding-toolbox:dispatch-agent`
-  carried the identical latent gap and was widened in the same change.
+- `build-task` runs only on invocation (user, or the model choosing it); `dispatch-task` is `disable-model-invocation: true`, so only an explicit user invocation starts it.
+- Neither skill ever runs from a hook or other unattended trigger, so there is no automatic behavior for a toggle to suppress. `dispatch-task` launches an unattended session once invoked, but the invocation itself is never automatic.
 
 ## Generated pipeline artifacts are always English
 
-The draft/spec/plan files the designer, spec writer, and planner write
-(`draft-<slug>.md`, `spec-<slug>.md`, `plan-<slug>.md`, per `SKILL.md`'s
-Session temp files section) are always written in English, regardless of
-`$task_description`'s language — enforced by an explicit instruction in
-`agents/designer.md`, `agents/planner.md`, and the inline spec-writer prompt
-in `workflows/design-to-spec.workflow.js` (there is no dedicated agent file
-for the spec writer). These files are read only by other agents in the
-pipeline, never shown to the user directly, so a consistent working language
-matters more than mirroring the request's language. This does not extend to
-the final human-facing report the orchestrator gives the user (`SKILL.md`
-step 5) or to reviewer finding text, neither of which are addressed here.
+- The draft/spec/plan files the designer, spec writer and planner write (`draft-<slug>.md`, `spec-<slug>.md`, `plan-<slug>.md`) are always English, regardless of `$task_description`'s language.
+- Enforced by an explicit instruction in `agents/designer.md`, `agents/planner.md` and the inline spec-writer prompt in `workflows/design-to-spec.workflow.js` (the spec writer has no agent file).
+- Why: only other pipeline agents read these files, so a consistent working language beats mirroring the request.
+- Does not extend to the final human-facing report (`SKILL.md` step 5) or to reviewer finding text.
 
 ## Resuming inside an existing worktree/PR
 
-`SKILL.md` step 1 only cuts a new `feature/<slug>` branch when the current
-branch IS the base branch; otherwise it stays on the current branch,
-including when build-task is invoked inside an already-checked-out worktree
-that has an open PR/MR for its branch — Ship's create-or-update (`shipper.md`,
-via `gh pr view <branch>`) then updates that PR/MR rather than opening a new
-one. `fix-applier.md` and `worktree-merger.md` correspondingly check "is the
-named work/merge-target branch checked out here" (`git branch
---show-current`), never "is this the primary repo root, not a worktree" —
-the latter would incorrectly abort (fix-applier) or silently merge into the
-wrong branch (worktree-merger) in exactly this resumed-worktree case.
-Verified 2026-08-07: a non-isolated `agent()`/Agent-tool dispatch from a
-worktree-isolated session correctly resolves `pwd` and `git
-rev-parse --show-toplevel` to that worktree, not the primary repo root — so
-no explicit checkout-path threading is needed for this to work. (A prior,
-unrelated finding about _bridge_/remote-control sessions defaulting subagent
-cwd to the primary root does not apply to this dispatch path — don't conflate
-the two.)
+- `build-task` step 1 cuts a new `feature/<slug>` only when the current branch IS the base branch; otherwise it stays on the current branch, including an already-checked-out worktree with an open PR/MR.
+- Ship's create-or-update (`shipper.md`, via `gh pr view <branch>`) then updates that PR/MR instead of opening a new one.
+- `fix-applier.md` and `worktree-merger.md` check "is the named work/merge-target branch checked out here" (`git branch --show-current`), never "is this the primary repo root, not a worktree" — the latter would wrongly abort (fix-applier) or silently merge into the wrong branch (worktree-merger) in this case.
+- A non-isolated `agent()`/Agent-tool dispatch from a worktree-isolated session resolves `pwd` and `git rev-parse --show-toplevel` to that worktree, so no checkout-path threading is needed. The bridge/remote-control cwd-defaults-to-primary-root behavior is a different path; do not conflate the two.
 
-## Skipping build-task's branch check on dispatch
+## Scoped notes elsewhere
 
-`dispatch-task` always passes `--skip-branch-check` in its
-`/taskflow:build-task …` payload, so `build-task`'s step 1 skips its
-`git status --porcelain` clean check and its cut/switch-to-`feature/<slug>`
-logic and trusts the already-checked-out branch (see `build-task/SKILL.md`
-step 1 for the exact skip path — it still determines `BASE_BRANCH` and
-captures `BRANCH_NAME` on both paths).
-
-The state is correct by construction on this path, so re-checking it is
-redundant: `claude --worktree` starts the worktree with a clean tree
-regardless of its base (see the "This skill's own Bash never touches `git`"
-bullet under **Skill design (dispatch-task)**), and the payload's own
-`git checkout -b "feature/<slug>"` runs before `build-task` is invoked — so
-`BRANCH_NAME` (`git branch --show-current`) is already the correct pretty
-name and the tree is already clean before step 1 runs.
-
-Why skip rather than let the redundant check run: under
-`--permission-mode auto` with nobody present (every `dispatch-task` run — see
-the **Unattended checkpoints** bullet), re-running the porcelain
-stop-and-report or the cut/switch logic against state it does not know the
-caller already set up correctly risks a conflicting decision the check should
-not be making at all — a stop-and-report on a tree it misreads, or a second
-branch cut over the one dispatch-task just made, with no one present to
-intervene. An explicit caller-passed flag removes the check instead of having
-`build-task` second-guess state it cannot verify. No dated failure transcript
-is claimed for this specific flag; this is a designed-against risk consistent
-with the **Unattended checkpoints** reasoning above.
-
-## Fixed-incident takeaways
-
-SKILL.md plugin-root capture and `!`-injection rules for this plugin's skills: see `.claude/rules/taskflow-skill-plugin-root-and-injection.md`. The designer's `keypoints`/`openQuestions` field-conflation fix: see `plugins/taskflow/workflows/CLAUDE.md`.
+- Model assignment, `NO_NARRATION` on inline prompts, the designer's `keypoints`/`openQuestions` separation, the `workflows/*.workflow.js` eslint exclusion: `workflows/CLAUDE.md`.
+- `dispatch-task` design decisions, `worktree.baseRef`, why the payload passes `--skip-branch-check`: `skills/dispatch-task/CLAUDE.md`.
+- SKILL.md plugin-root capture and `!`-injection rules: `.claude/rules/taskflow-skill-plugin-root-and-injection.md`.
 
 ## Tests
 
-```bash
-BATS_LIB_PATH="$PWD/node_modules" pnpm exec bats test/taskflow/
-```
-
-The suite is structural: plugin manifest invariants (no `userConfig`), the
-`build-task` skill frontmatter + reference files, presence and frontmatter of
-all 11 agents (including the least-privilege `tools:` allowlist on the 4
-read-only-declared agents: `design-reviewer`, `review-finder`,
-`review-verifier`, `ci-monitor`), both
-`workflows/*.workflow.js` files' `export const meta` shape, the unpinned model
-surface (bare-`opus` `synthesizer`/`IMPL_MODEL.complex` assignments, both agent
-frontmatters on `opus`, the `DESIGN_MODEL`/`PLAN_MODEL` classifier maps and
-their `difficulty` schema fields, plus a whole-plugin sweep for any surviving
-pinned model ID), and `dispatch-task`'s frontmatter, self-containment
-tripwire and dispatch-command literals.
-
-## Linting
-
-See `plugins/taskflow/workflows/CLAUDE.md` for the `workflows/*.workflow.js` eslint exclusion.
+- Suite: `test/taskflow/` (structural). It pins literal strings of these CLAUDE.md files — grep `test/taskflow/` before renaming or moving a section.
