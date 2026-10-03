@@ -33,8 +33,11 @@ setup() {
   assert_success
 }
 
-@test "mcp/server.mjs is executable with a node shebang" {
-  [ -x "$PLUGIN/mcp/server.mjs" ]
+# core.fileMode = false in this repo, so `[ -x ]` passes even when git recorded 100644 — assert the index.
+@test "mcp/server.mjs is an executable node program in the git index (100755)" {
+  run git -C "$REPO_ROOT" ls-files --stage -- plugins/inline-headroom/mcp/server.mjs
+  assert_success
+  assert_line --regexp '^100755 [0-9a-f]+ 0[[:space:]]+plugins/inline-headroom/mcp/server\.mjs$'
   run head -n1 "$PLUGIN/mcp/server.mjs"
   assert_output '#!/usr/bin/env node'
 }

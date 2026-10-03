@@ -50,10 +50,10 @@ const TOOLS = [
   { name: "kv_get", description: "inline-headroom persistent storage: read the JSON value stored under key", inputSchema: KEY_INPUT },
   {
     name: "kv_set",
-    description: "inline-headroom persistent storage: store a JSON value under key (max 1 MiB)",
+    description: `inline-headroom persistent storage: store a JSON value under key (max ${MAX_VALUE_BYTES / 2 ** 20} MiB)`,
     inputSchema: {
       type: "object",
-      properties: { key: KEY_SCHEMA, value: { description: "any JSON value, at most 1 MiB serialized" } },
+      properties: { key: KEY_SCHEMA, value: { description: `any JSON value, at most ${MAX_VALUE_BYTES / 2 ** 20} MiB serialized` } },
       required: ["key", "value"],
       additionalProperties: false,
     },
@@ -125,7 +125,8 @@ export function migrate(db) {
  */
 export function execOp(db, op, args) {
   const key = args.key;
-  if (typeof key !== "string" || key.length < 1 || LONE_SURROGATE.test(key) || [...key].length > MAX_KEY_LENGTH) throw new Error("key must be a non-empty string of at most 512 characters");
+  if (typeof key !== "string" || key.length < 1 || LONE_SURROGATE.test(key) || [...key].length > MAX_KEY_LENGTH)
+    throw new Error(`key must be a non-empty string of at most ${MAX_KEY_LENGTH} characters`);
   switch (op) {
     case "kv_get": {
       const row = db.prepare("SELECT value FROM kv WHERE key = ?").get(key);
@@ -138,7 +139,7 @@ export function execOp(db, op, args) {
       } catch {
         /* cyclic or BigInt: not serializable */
       }
-      if (text === "" || Buffer.byteLength(text) > MAX_VALUE_BYTES) throw new Error("value must be JSON-serializable and at most 1048576 bytes");
+      if (text === "" || Buffer.byteLength(text) > MAX_VALUE_BYTES) throw new Error(`value must be JSON-serializable and at most ${MAX_VALUE_BYTES} bytes`);
       db.prepare("INSERT INTO kv(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, text);
       return { ok: true };
     }
