@@ -171,3 +171,29 @@ test("(i) /headroom opens the headroom pane and prints nothing", async ($, on) =
   expect(opened.length).toBe(1);
   expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true });
 });
+
+test("(j) an open headroom pane redraws when a step or a compose changes the stats", async ($, on) => {
+  const st = bottomStep(on);
+  on("prompt.compose", async () => ({
+    sections: [{ id: "env", text: "Session 123e4567-e89b-12d3-a456-426614174000 started.", scope: "shared" as const }],
+  }));
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  expect(await ui.find({ type: "Text", text: /main-loop steps 0/ })).toBeDefined();
+  expect(await ui.find({ type: "Text", text: /volatile shared values: none/ })).toBeDefined();
+  await step($, 0, "high");
+  expect(st.seen).toBe("high");
+  expect(await ui.find({ type: "Text", text: /main-loop steps 1/ })).toBeDefined();
+  await $.prompt.compose({ model: MODEL, promptModel: MODEL, surfaces: ["terminal"], tools: ["Read"], outputStyle: null, traits: [] });
+  expect(await ui.find({ type: "Text", text: /env uuid/ })).toBeDefined();
+  await ui.unmount();
+});
+
+test("(k) a failed step still redraws the open headroom pane", async ($, on) => {
+  on("turn.step", async function* () {
+    throw new Error("API error");
+  });
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  await expect(step($, 0, "high")).rejects.toThrow(); // the kit rethrows a failing bottom hook as a HooksError
+  expect(await ui.find({ type: "Text", text: /main-loop steps 1/ })).toBeDefined();
+  await ui.unmount();
+});

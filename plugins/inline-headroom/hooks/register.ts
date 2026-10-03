@@ -65,31 +65,35 @@ export const register: Register = (on, options) => {
   on("turn.step", async function* ($, e, next) {
     if (e.agentId) return yield* next(e);
     stats.steps += 1;
-    let ev = e;
-    // ponytail: mid-turn user input (a queued command) arriving at index > 0 is
-    // still treated as mechanical; detect it via a prompt/queue event if that matters.
-    if (effortOn && e.index > 0 && !toolErrored) {
-      const to = clampEffort(e.effort);
-      if (to !== undefined) {
-        ev = { ...e, effort: to };
-        stats.clamped += 1;
-      }
-    }
-    toolErrored = false; // consumed per step; index 0 resets it too
-    const result = yield* next(ev);
-    if (cacheOn && result?.usage) {
-      const hit = cacheHitRatio(result.usage);
-      if (hit !== undefined) {
-        if (isCacheDrop(stats.lastHit, hit)) {
-          stats.cacheDrops += 1;
-          const ids = [...new Set(stats.volatile.map((v) => v.id))];
-          $.ui.log(`cache drop ${pct(stats.lastHit)} → ${pct(hit)} (wrote ${result.usage.cache_creation_input_tokens} tok)` + (ids.length ? ` · volatile: ${ids.join(", ")}` : ""));
+    try {
+      let ev = e;
+      // ponytail: mid-turn user input (a queued command) arriving at index > 0 is
+      // still treated as mechanical; detect it via a prompt/queue event if that matters.
+      if (effortOn && e.index > 0 && !toolErrored) {
+        const to = clampEffort(e.effort);
+        if (to !== undefined) {
+          ev = { ...e, effort: to };
+          stats.clamped += 1;
         }
-        stats.lastHit = hit;
       }
+      toolErrored = false; // consumed per step; index 0 resets it too
+      const result = yield* next(ev);
+      if (cacheOn && result?.usage) {
+        const hit = cacheHitRatio(result.usage);
+        if (hit !== undefined) {
+          if (isCacheDrop(stats.lastHit, hit)) {
+            stats.cacheDrops += 1;
+            const ids = [...new Set(stats.volatile.map((v) => v.id))];
+            $.ui.log(`cache drop ${pct(stats.lastHit)} → ${pct(hit)} (wrote ${result.usage.cache_creation_input_tokens} tok)` + (ids.length ? ` · volatile: ${ids.join(", ")}` : ""));
+          }
+          stats.lastHit = hit;
+        }
+      }
+      return result;
+    } finally {
+      // also on a failed or aborted step: steps/clamped moved before it
+      $.ui.invalidate("ui.render"); // redraw an open /headroom pane with the new stats
     }
-    $.ui.invalidate("ui.render"); // redraw an open /headroom pane with the new stats
-    return result;
   });
 
   if (cacheOn) {
