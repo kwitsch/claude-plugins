@@ -32,7 +32,7 @@ BATS_LIB_PATH="$PWD/node_modules" pnpm exec bats test/inline-headroom/
 claude plugin validate plugins/inline-headroom && claude plugin test plugins/inline-headroom # local only
 ```
 
-The bats version-pin test (`plugin.json version is 0.1.0`) is a rolling pin:
+The bats version-pin test (`plugin.json version is 0.2.0`) is a rolling pin:
 every version bump rewrites its name and expected value in the same commit.
 
 ## Verified Claude Code 2.1.288 shapes relied on
