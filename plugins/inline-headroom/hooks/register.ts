@@ -14,6 +14,7 @@ const stats = {
 };
 
 const pct = (n: number | undefined): string => (n === undefined ? "–" : `${Math.round(n * 100)}%`);
+const PANE = "headroom"; // the /headroom pane's id (1-64 of letters, digits, _ and -)
 
 export const register: Register = (on, options) => {
   const effortOn = options.effort_routing_enabled !== false;
@@ -27,15 +28,22 @@ export const register: Register = (on, options) => {
     return next(e);
   });
 
-  on("command.run", { command: "headroom" }, async () => {
+  on("command.run", { command: "headroom" }, async ($) => {
+    await $.ui.open({ id: PANE, title: "Headroom", focus: true, closeOnEscape: true });
+    return {}; // print nothing: no transcript line, nothing in the model's context
+  });
+
+  on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
+    const { Box, Text } = $.ui.resolve(e);
     const volatile = stats.volatile.map((v) => `${v.id} ${v.kind} ${v.sample}`).join(", ") || "none";
-    return {
-      text: [
-        `effort routing: ${effortOn ? "on" : "off"} · main-loop steps ${stats.steps} · clamped ${stats.clamped}`,
-        `cache aligner: ${cacheOn ? "on" : "off"} · last hit ${pct(stats.lastHit)} · drops ${stats.cacheDrops}`,
-        `volatile shared values: ${volatile}`,
-      ].join("\n"),
-    };
+    return Box({
+      flexDirection: "column",
+      children: [
+        Text({ children: [`effort routing: ${effortOn ? "on" : "off"} · main-loop steps ${stats.steps} · clamped ${stats.clamped}`] }),
+        Text({ children: [`cache aligner: ${cacheOn ? "on" : "off"} · last hit ${pct(stats.lastHit)} · drops ${stats.cacheDrops}`] }),
+        Text({ children: [`volatile shared values: ${volatile}`] }),
+      ],
+    });
   });
 
   if (effortOn) {
@@ -80,14 +88,16 @@ export const register: Register = (on, options) => {
         stats.lastHit = hit;
       }
     }
+    $.ui.invalidate("ui.render"); // redraw an open /headroom pane with the new stats
     return result;
   });
 
   if (cacheOn) {
     // Detector only (upstream CacheAligner): the composed prompt is returned untouched.
-    on("prompt.compose", async (_$, e, next) => {
+    on("prompt.compose", async ($, e, next) => {
       const r = await next(e);
       stats.volatile = findVolatile(r.sections);
+      $.ui.invalidate("ui.render");
       return r;
     });
   }
