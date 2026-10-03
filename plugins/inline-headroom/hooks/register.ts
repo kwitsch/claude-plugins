@@ -3,7 +3,7 @@ import { cacheHitRatio, clampEffort, findVolatile, isCacheDrop, isToolError } fr
 import type { VolatileFinding } from "./policy.mjs";
 
 // Module state: resets on hot reload and on an options change (the engine
-// reloads the module). Accepted for 0.1.0; $.state persistence is a follow-up.
+// reloads the module). Accepted for now; $.state persistence is a follow-up.
 let toolErrored = false; // any main-loop tool error since the last main-loop step
 const stats = {
   steps: 0,
@@ -28,22 +28,24 @@ export const register: Register = (on, options) => {
     return next(e);
   });
 
+  // One row per finding, so a long list wraps per row instead of one clipped line.
+  const lines = (): string[] => [
+    `effort routing: ${effortOn ? "on" : "off"} · main-loop steps ${stats.steps} · clamped ${stats.clamped}`,
+    `cache aligner: ${cacheOn ? "on" : "off"} · last hit ${pct(stats.lastHit)} · drops ${stats.cacheDrops}`,
+    stats.volatile.length ? "volatile shared values:" : "volatile shared values: none",
+    ...stats.volatile.map((v) => `  ${v.id} ${v.kind} ${v.sample}`),
+  ];
+
   on("command.run", { command: "headroom" }, async ($) => {
-    await $.ui.open({ id: PANE, title: "Headroom", focus: true, closeOnEscape: true });
-    return {}; // print nothing: no transcript line, nothing in the model's context
+    const r = await $.ui.open({ id: PANE, title: "Headroom", focus: true, closeOnEscape: true });
+    // Pane placed: print nothing (no transcript line, nothing in the model's context).
+    // Not placed (headless/SDK, narrow terminal): fall back to the plain text.
+    return r.isPlaced ? {} : { text: lines().join("\n") };
   });
 
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e);
-    const volatile = stats.volatile.map((v) => `${v.id} ${v.kind} ${v.sample}`).join(", ") || "none";
-    return Box({
-      flexDirection: "column",
-      children: [
-        Text({ children: [`effort routing: ${effortOn ? "on" : "off"} · main-loop steps ${stats.steps} · clamped ${stats.clamped}`] }),
-        Text({ children: [`cache aligner: ${cacheOn ? "on" : "off"} · last hit ${pct(stats.lastHit)} · drops ${stats.cacheDrops}`] }),
-        Text({ children: [`volatile shared values: ${volatile}`] }),
-      ],
-    });
+    return Box({ flexDirection: "column", children: lines().map((s) => Text({ children: [s] })) });
   });
 
   if (effortOn) {

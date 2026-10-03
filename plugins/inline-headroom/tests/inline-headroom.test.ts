@@ -172,6 +172,13 @@ test("(i) /headroom opens the headroom pane and prints nothing", async ($, on) =
   expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true });
 });
 
+test("(i2) /headroom falls back to the stats text when the pane is not placed", async ($, on) => {
+  on("ui.open", async () => ({ value: { isPlaced: false as const, reason: "no surface" } }));
+  const out = await $.command.run({ command: "headroom" });
+  expect(out.text).toMatch(/effort routing: on/);
+  expect(out.text).toMatch(/volatile shared values: none/);
+});
+
 test("(j) an open headroom pane redraws when a step or a compose changes the stats", async ($, on) => {
   const st = bottomStep(on);
   on("prompt.compose", async () => ({
