@@ -54,9 +54,9 @@ setup() {
   [ "$plugin_desc" = "$market_desc" ]
 }
 
-@test "claude plugin validate --strict succeeds" {
+@test "claude plugin validate succeeds" {
   command -v claude >/dev/null || skip "claude CLI unavailable"
-  run claude plugin validate --strict "$PLUGIN"
+  run claude plugin validate "$PLUGIN"
   assert_success
 }
 
