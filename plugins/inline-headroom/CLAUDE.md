@@ -3,10 +3,22 @@
 Mods-API plugin (the repo's first): one TypeScript function-hooks module, no
 skills/agents/command hooks. Two levers, each behind a boolean `userConfig`
 toggle (`effort_routing_enabled`, `cache_aligner_enabled`, both `default: true`,
-only literal `false` disables), plus the `/headroom` stats command.
+only literal `false` disables), plus the `/headroom` stats command. It also
+ships a host-wide SQLite storage MCP server behind the fail-closed
+`storage_enabled` toggle (see `## Storage server`); nothing in the mod uses it yet.
 
 ## Layout
 
+- `.mcp.json` — registers `mcp/server.mjs` directly (no wrapper, no args) under
+  the key `storage`, with env `INLINE_HEADROOM_STORAGE_ENABLED` =
+  `${user_config.storage_enabled}`. `CLAUDE_PLUGIN_DATA` gets no `env` entry:
+  Claude Code exports it to stdio MCP servers.
+- `mcp/server.mjs` — the storage server: one zero-dep executable `.mjs`
+  (`100755`, `#!/usr/bin/env node`) with two modes, the per-session stdio MCP
+  front-end and the detached `--service <dataDir>` singleton. Its pure exports
+  (`isStorageEnabled`, `resolveStorage`, `migrate`, `execOp`, `PROTOCOL`,
+  `MIGRATIONS`) are tested by `test/inline-headroom/storage.test.mjs`; an
+  `isMainModule()` guard keeps that import free of side effects.
 - `hooks/hooks.json` — exactly `{"modules": ["./register.ts"]}`.
 - `hooks/register.ts` — every hook and every `$` use, typed via
   `import type { Register } from 'claude-code'`. No `any`, no `import()` (a module
@@ -27,13 +39,61 @@ only literal `false` disables), plus the `/headroom` stats command.
 ## Tests
 
 ```bash
-pnpm run test:unit # policy.mjs (CI)
+# CI (Node 24): policy.mjs and the storage server (test/inline-headroom/*.test.mjs)
+pnpm run test:unit
+# CI: manifest and wiring only
 BATS_LIB_PATH="$PWD/node_modules" pnpm exec bats test/inline-headroom/
-claude plugin validate plugins/inline-headroom && claude plugin test plugins/inline-headroom # local only
+# local only
+claude plugin validate plugins/inline-headroom && claude plugin test plugins/inline-headroom
 ```
 
-The bats version-pin test (`plugin.json version is 0.1.0`) is a rolling pin:
+Every test that needs `node:sqlite` or spawns processes lives in
+`storage.test.mjs`: the CI bats job runs on the runner's default Node without
+`setup-node`. Its cleanup SIGTERMs every `--service` process for its temp data
+dir, so no daemon outlives the suite.
+
+The bats version-pin test (`plugin.json version is 0.2.0`) is a rolling pin:
 every version bump rewrites its name and expected value in the same commit.
+
+## Storage server
+
+Invariants for `mcp/server.mjs`:
+
+- Node built-ins only (`node:` imports), no npm dependency, no bundling, one file.
+- No static `node:sqlite` import. Only `--service` mode loads it via
+  `await import("node:sqlite")`, so the front-end starts on any Node. Storage
+  needs Node >= 22.13; Bun lacks `node:sqlite`, so there is no
+  `bin/mjs-launch.sh`.
+- All SQLite access happens in the `--service` process. It holds `storage.db`
+  under `PRAGMA locking_mode=EXCLUSIVE` + `journal_mode=WAL` from start to exit.
+  That lock is the host-wide election: a second service gets `SQLITE_BUSY` and
+  exits 0. Only the lock holder unlinks a stale `storage.sock` and listens.
+- Front-end stdout carries JSON-RPC only; the per-call debug log is gated by
+  `MCP_HOOK_DEBUG`. The service never writes stdout; its stderr is
+  `${CLAUDE_PLUGIN_DATA}/service.log`.
+- Data lives only under `CLAUDE_PLUGIN_DATA` (`storage.db`, `storage.sock`,
+  `service.log`). There is no fallback directory: an unset, blank or
+  uninterpolated value refuses storage.
+- `storage_enabled` is fail-closed (only the trimmed literal `"true"` enables)
+  under the state-creating exception of `.claude/rules/plugin-userconfig.md`.
+  Disabled means `tools/list` is `[]` and no file or process is created.
+- The front-end retries only `ENOENT`/`ECONNREFUSED` (nothing was sent), so a
+  write is never applied twice.
+- `PROTOCOL` (an integer, now `1`) must be bumped on any op or schema change. A
+  newer front-end SIGTERMs an older service; an older front-end refuses a newer
+  one. `MIGRATIONS` is append-only and additive: never edit, reorder or remove an
+  entry. `migrate` refuses a schema newer than the code.
+- `execOp` is the single trust boundary: keys 1–512 chars, values at most
+  1 MiB serialized JSON, requests at most 2 MiB.
+
+Key naming convention for consumers (documented, not enforced): a `<feature>/`
+prefix, e.g. `stats/<sessionId>`. A feature that needs a table, `kv_list` or a
+query adds a new `MIGRATIONS` entry and op plus a `PROTOCOL` bump.
+
+Deviation from `.claude/rules/hooks-mcp-server.md`: the `.mcp.json` key is
+`storage`, not `<name>-hooks`, because this server backs no `mcp_tool` hook and
+`hooks.json` never references it. The first consumer must verify
+`$.mcp.connect("storage")` from the mod live.
 
 ## Verified Claude Code 2.1.288 shapes relied on
 
