@@ -45,6 +45,7 @@ jobs:
 
   unit_and_typecheck:
     runs-on: ubuntu-latest
+    timeout-minutes: 10 # a hung unit test otherwise runs to the 6h job limit
     permissions:
       contents: read
     steps:

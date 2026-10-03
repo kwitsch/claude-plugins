@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const ARTIFACT = path.join(REPO_ROOT, "plugins", "universal-format", "mcp", "server.mjs");
 
+const SERVER_EXIT_TIMEOUT_MS = 30000; // normal run takes ~0.6s
+
 // Spawn the built server under `runtime`, close stdin so readline hits EOF and the server exits
 // on its own (rl.on("close", () => process.exit(0))), then collect stdout + stderr.
 /** @param {string} runtime @returns {Promise<{stdout: string, stderr: string, code: number|null}>} */
@@ -19,8 +21,19 @@ function runServer(runtime) {
     let stderr = "";
     child.stdout.on("data", (/** @type {Buffer} */ d) => (stdout += d.toString()));
     child.stderr.on("data", (/** @type {Buffer} */ d) => (stderr += d.toString()));
-    child.on("error", reject);
-    child.on("close", (/** @type {number | null} */ code) => resolve({ stdout, stderr, code }));
+    // A server that ignores stdin EOF would otherwise hang until the CI job limit (seen once on CI).
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error(`server did not exit within ${SERVER_EXIT_TIMEOUT_MS}ms of stdin EOF; stderr: ${JSON.stringify(stderr)}`));
+    }, SERVER_EXIT_TIMEOUT_MS);
+    child.on("error", (/** @type {Error} */ e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    child.on("close", (/** @type {number | null} */ code) => {
+      clearTimeout(timer);
+      resolve({ stdout, stderr, code });
+    });
     child.stdin.end(); // EOF -> readline "close" -> process.exit(0)
   });
 }
