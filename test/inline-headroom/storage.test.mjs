@@ -12,6 +12,7 @@ import { DatabaseSync } from "node:sqlite";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { MIGRATIONS, PROTOCOL, VERSION, compareVersions, execOp, isStorageEnabled, isStorageService, migrate, resolveStorage } from "../../plugins/inline-headroom/mcp/server.mjs";
+import { zeroCounters } from "../../plugins/inline-headroom/hooks/policy.mjs";
 
 const SERVER = fileURLToPath(new URL("../../plugins/inline-headroom/mcp/server.mjs", import.meta.url));
 const IT = { timeout: 30000 };
@@ -130,6 +131,13 @@ test("stats ops validate writer, days, rows and counters before writing anything
   assert.deepEqual(execOp(db, "stats_put", ok), { ok: true, purged: 0 });
   assert.throws(() => execOp(db, "kv_get", {}), /key must be/);
   assert.throws(() => execOp(db, /** @type {any} */ (7), {}), /unknown op: 7/);
+  db.close();
+});
+
+test("stats_sum answers the persisted counters in policy.mjs order, so STATS_KEYS and COUNTER_KEYS cannot drift", () => {
+  const db = new DatabaseSync(":memory:");
+  migrate(db);
+  assert.deepEqual(Object.keys(execOp(db, "stats_sum", { since: "2026-01-01" })), Object.keys(zeroCounters()));
   db.close();
 });
 

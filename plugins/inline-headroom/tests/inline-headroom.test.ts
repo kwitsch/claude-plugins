@@ -1,5 +1,6 @@
-import { expect, test, type TestBody } from "claude-code/testing";
+import { expect, mock, test, type TestBody } from "claude-code/testing";
 import type { TurnStepInput } from "claude-code";
+import { dayKey, windowStart } from "../hooks/policy.mjs";
 
 type Engine = Parameters<TestBody>[0];
 type On = Parameters<TestBody>[1];
@@ -11,8 +12,12 @@ type Usage = {
   model: string;
 };
 type StepState = { seen: unknown; usage: Usage | null };
+type StorageCall = { tool: string; args: Record<string, unknown> };
 
 const MODEL = "claude-sonnet-5-5";
+const NOW = Date.UTC(2026, 9, 3, 12);
+// What stats_sum answers in the pane tests: cache hit 900 / 1000 = 90%.
+const SUMS = { steps: 5, clamped: 2, cache_drops: 1, input_tokens: 100, cache_read_input_tokens: 900, cache_creation_input_tokens: 0 };
 
 // What Claude Code passes to a ui.render hook for the /headroom pane, apart from the surface
 const PANE = {
@@ -54,6 +59,19 @@ function bottomStep(on: On): StepState {
     };
   });
   return st;
+}
+
+// Stands for the storage MCP server: records every call; `answer`'s value is the tool's result, an Error an error result.
+function stubStorage(on: On, answer: (tool: string, args: Record<string, unknown>) => unknown): StorageCall[] {
+  const calls: StorageCall[] = [];
+  on("mcp.connect", async () => ({ value: { isConnected: true as const, server: "plugin:inline-headroom:storage" } }));
+  on("mcp.call", async (_$, e) => {
+    calls.push({ tool: e.tool, args: e.args });
+    const result = answer(e.tool, e.args);
+    if (result instanceof Error) return { value: { content: [{ type: "text", text: result.message }], isError: true } };
+    return { value: { content: [{ type: "text", text: JSON.stringify(result) }], isError: false, structuredContent: result } };
+  });
+  return calls;
 }
 
 async function step($: Engine, index: number, effort: TurnStepInput["effort"], agentId?: string): Promise<void> {
@@ -175,6 +193,7 @@ test("(i) /headroom opens the headroom pane and prints nothing", async ($, on) =
 test("(i2) /headroom falls back to the stats text when the pane is not placed", async ($, on) => {
   on("ui.open", async () => ({ value: { isPlaced: false as const, reason: "no surface" } }));
   const out = await $.command.run({ command: "headroom" });
+  expect(out.text).toMatch(/showing: Session/);
   expect(out.text).toMatch(/effort routing: on/);
   expect(out.text).toMatch(/volatile shared values: none/);
 });
@@ -202,5 +221,49 @@ test("(k) a failed step still redraws the open headroom pane", async ($, on) => 
   const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
   await expect(step($, 0, "high")).rejects.toThrow(); // the kit rethrows a failing bottom hook as a HooksError
   expect(await ui.find({ type: "Text", text: /main-loop steps 1/ })).toBeDefined();
+  await ui.unmount();
+});
+
+test("(l) the pane opens on Session and a button switches to a labelled aggregate view", async ($, on) => {
+  const clock = mock.clock(on, { now: NOW });
+  const calls = stubStorage(on, () => SUMS);
+  on("ui.open", async () => ({ value: { isPlaced: true as const } }));
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  expect(await ui.find({ type: "Text", text: /showing: Session/ })).toBeDefined();
+  expect(await ui.find({ type: "Text", text: /main-loop steps 0/ })).toBeDefined();
+  expect(await ui.findAll({ type: "Button" })).toHaveLength(4);
+  await ui.press({ key: "7d" }); // resolves once the async onPress settled
+  const today = dayKey(clock.now());
+  expect(await ui.find({ type: "Text", text: `showing: 7 days (${windowStart(today, 7)} – ${today})` })).toBeDefined();
+  expect(await ui.find({ type: "Text", text: /main-loop steps 5 · clamped 2/ })).toBeDefined();
+  expect(await ui.find({ type: "Text", text: /cache hit 90% · drops 1/ })).toBeDefined();
+  expect(calls).toEqual([{ tool: "stats_sum", args: { since: windowStart(today, 7) } }]);
+  await ui.press({ key: "session" });
+  expect(await ui.find({ type: "Text", text: /showing: Session/ })).toBeDefined();
+  await ui.press({ key: "day" });
+  expect(await ui.find({ type: "Text", text: `showing: Today (${today})` })).toBeDefined();
+  await $.command.run({ command: "headroom" }); // every /headroom opens on Session
+  expect(await ui.find({ type: "Text", text: /showing: Session/ })).toBeDefined();
+  await ui.unmount();
+});
+
+test("(n) storage_enabled false: the aggregate views say storage is off and nothing is written", { options: { storage_enabled: false } }, async ($, on) => {
+  const calls = stubStorage(on, () => SUMS);
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  await ui.press({ key: "30d" });
+  expect(await ui.find({ type: "Text", text: /showing: 30 days/ })).toBeDefined();
+  expect(await ui.find({ type: "Text", text: /storage is off/ })).toBeDefined();
+  await ui.press({ key: "session" });
+  expect(await ui.find({ type: "Text", text: /main-loop steps 0/ })).toBeDefined();
+  await ui.unmount();
+  expect(calls).toEqual([]);
+});
+
+test("(o) a storage error result shows as storage unavailable", async ($, on) => {
+  mock.clock(on, { now: NOW });
+  stubStorage(on, () => new Error("inline-headroom storage: storage is disabled (userConfig storage_enabled is not true)"));
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  await ui.press({ key: "day" });
+  expect(await ui.find({ type: "Text", text: /storage unavailable: inline-headroom storage: storage is disabled/ })).toBeDefined();
   await ui.unmount();
 });

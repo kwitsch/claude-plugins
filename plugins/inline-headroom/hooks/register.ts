@@ -1,10 +1,11 @@
-import type { Register } from "claude-code";
-import { cacheHitRatio, clampEffort, findVolatile, isCacheDrop, isToolError } from "./policy.mjs";
-import type { VolatileFinding } from "./policy.mjs";
+import type { EngineInterface, Register } from "claude-code";
+import { VIEWS, cacheHitRatio, clampEffort, dayKey, findVolatile, isCacheDrop, isToolError, viewTitle, windowStart } from "./policy.mjs";
+import type { Counters, View, VolatileFinding } from "./policy.mjs";
 
 // Module state: resets on hot reload and on an options change (the engine
 // reloads the module). Accepted for now; $.state persistence is a follow-up.
 let toolErrored = false; // any main-loop tool error since the last main-loop step
+// The Session view: this session's counters, in memory.
 const stats = {
   steps: 0,
   clamped: 0,
@@ -12,13 +13,44 @@ const stats = {
   lastHit: undefined as number | undefined,
   volatile: [] as VolatileFinding[],
 };
+let view: View = "session"; // the pane's view; every /headroom resets it
+type Sums = { view: View; today: string; data?: Counters; error?: string };
+let sums: Sums | undefined; // the last aggregate view's totals, fetched outside render
 
 const pct = (n: number | undefined): string => (n === undefined ? "–" : `${Math.round(n * 100)}%`);
 const PANE = "headroom"; // the /headroom pane's id (1-64 of letters, digits, _ and -)
+const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+// The engine refuses $.<noun> as a bare value, so same-file helpers take the whole $.
+// Resolves the op's result; rejects with the server's message on a refusal or an error result.
+const callStorage = async ($: EngineInterface, tool: string, args: Record<string, unknown>): Promise<unknown> => {
+  const c = await $.mcp.connect("storage");
+  if (!c.isConnected) throw new Error(c.message);
+  const r = await $.mcp.call(c.server, tool, args);
+  if (r.isError) throw new Error(r.content[0]?.text ?? "storage call failed");
+  // structuredContent is documented only for tools with an outputSchema; the text block carries the same JSON.
+  return r.structuredContent ?? JSON.parse(r.content[0]?.text ?? "null");
+};
+
+// Fetches one aggregate view's sums into `sums`; a result that arrives after the view changed is dropped.
+const loadSums = async ($: EngineInterface, now: number, v: View): Promise<void> => {
+  const today = dayKey(now);
+  if (sums?.view !== v) sums = { view: v, today }; // loading (a refresh keeps the old numbers on screen)
+  let next: Sums;
+  try {
+    const span = VIEWS.find((x) => x.id === v)?.days ?? 1;
+    next = { view: v, today, data: (await callStorage($, "stats_sum", { since: windowStart(today, span) })) as Counters };
+  } catch (err) {
+    next = { view: v, today, error: message(err) };
+  }
+  if (view === v) sums = next;
+};
 
 export const register: Register = (on, options) => {
   const effortOn = options.effort_routing_enabled !== false;
   const cacheOn = options.cache_aligner_enabled !== false;
+  // Fail-closed like the server; unset means the manifest default (true).
+  const storageOn = options.storage_enabled === true;
 
   on("session.start", async ($, e, next) => {
     await $.command.register({
@@ -29,23 +61,58 @@ export const register: Register = (on, options) => {
   });
 
   // One row per finding, so a long list wraps per row instead of one clipped line.
-  const lines = (): string[] => [
+  const sessionLines = (): string[] => [
     `effort routing: ${effortOn ? "on" : "off"} · main-loop steps ${stats.steps} · clamped ${stats.clamped}`,
     `cache aligner: ${cacheOn ? "on" : "off"} · last hit ${pct(stats.lastHit)} · drops ${stats.cacheDrops}`,
     stats.volatile.length ? "volatile shared values:" : "volatile shared values: none",
     ...stats.volatile.map((v) => `  ${v.id} ${v.kind} ${v.sample}`),
   ];
 
+  // Today / 7 days / 30 days: totals across every session on this host, read from storage.
+  const aggregateLines = (): string[] => {
+    if (!storageOn) return ["storage is off (storage_enabled is not true): only the Session view is kept"];
+    if (sums?.view !== view) return ["loading…"];
+    if (sums.error !== undefined) return [`storage unavailable: ${sums.error}`];
+    if (!sums.data) return ["loading…"];
+    const d = sums.data;
+    return [`main-loop steps ${d.steps} · clamped ${d.clamped}`, `cache hit ${pct(cacheHitRatio(d))} · drops ${d.cache_drops}`];
+  };
+
   on("command.run", { command: "headroom" }, async ($) => {
+    view = "session"; // every /headroom opens on the default view
+    $.ui.invalidate("ui.render"); // an already-open pane redraws on it
     const r = await $.ui.open({ id: PANE, title: "Headroom", focus: true, closeOnEscape: true });
     // Pane placed: print nothing (no transcript line, nothing in the model's context).
-    // Not placed (headless/SDK, narrow terminal): fall back to the plain text.
-    return r.isPlaced ? {} : { text: lines().join("\n") };
+    // Not placed (headless/SDK, narrow terminal): fall back to the plain text, always the Session view.
+    return r.isPlaced ? {} : { text: [`showing: ${viewTitle("session")}`, ...sessionLines()].join("\n") };
   });
 
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
-    const { Box, Text } = $.ui.resolve(e);
-    return Box({ flexDirection: "column", children: lines().map((s) => Text({ children: [s] })) });
+    const { Box, Button, Text } = $.ui.resolve(e);
+    // Every way to press a Button raises the same onPress; the active view's label is drawn at full strength.
+    const switcher = Box({
+      flexDirection: "row",
+      gap: 2,
+      flexWrap: "wrap",
+      children: VIEWS.map((v, i) =>
+        Button({
+          key: v.id,
+          label: v.label,
+          hotkey: String(i + 1),
+          plain: true,
+          dimColor: v.id !== view,
+          onPress: async () => {
+            view = v.id;
+            $.ui.invalidate("ui.render");
+            if (v.id === "session" || !storageOn) return;
+            await loadSums($, await $.clock.now(), v.id);
+            $.ui.invalidate("ui.render");
+          },
+        }),
+      ),
+    });
+    const rows = [`showing: ${viewTitle(view, sums?.view === view ? sums.today : undefined)}`, ...(view === "session" ? sessionLines() : aggregateLines())];
+    return Box({ flexDirection: "column", children: [switcher, ...rows.map((s) => Text({ children: [s] }))] });
   });
 
   if (effortOn) {
