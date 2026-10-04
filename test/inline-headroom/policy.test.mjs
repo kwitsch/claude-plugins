@@ -1,6 +1,22 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CACHE_DROP_THRESHOLD, EFFORT_ORDER, MAX_FINDINGS, cacheHitRatio, clampEffort, findVolatile, isCacheDrop, isToolError } from "../../plugins/inline-headroom/hooks/policy.mjs";
+import {
+  CACHE_DROP_THRESHOLD,
+  EFFORT_ORDER,
+  MAX_FINDINGS,
+  RETAIN_DAYS,
+  VIEWS,
+  cacheHitRatio,
+  clampEffort,
+  dayKey,
+  findVolatile,
+  foldPending,
+  isCacheDrop,
+  isToolError,
+  viewTitle,
+  windowStart,
+  zeroCounters,
+} from "../../plugins/inline-headroom/hooks/policy.mjs";
 
 const UUID = "123e4567-e89b-12d3-a456-426614174000";
 const ISO = "2026-10-03T12:00:00Z";
@@ -17,6 +33,12 @@ test("constants match the spec", () => {
   assert.deepEqual([...EFFORT_ORDER], ["low", "medium", "high", "xhigh", "max"]);
   assert.equal(MAX_FINDINGS, 10);
   assert.equal(CACHE_DROP_THRESHOLD, 0.6);
+  assert.deepEqual(
+    VIEWS.map((v) => v.id),
+    ["session", "day", "7d", "30d"],
+  );
+  assert.equal(RETAIN_DAYS, 30);
+  assert.ok(RETAIN_DAYS >= Math.max(...VIEWS.map((v) => v.days)));
 });
 
 test("clampEffort lowers every level above low to low", () => {
@@ -112,4 +134,59 @@ test("isCacheDrop only fires when crossing the threshold from at-or-above to bel
   assert.equal(isCacheDrop(0.9, 0.1), true);
   assert.equal(isCacheDrop(0.5, 0.1), false);
   assert.equal(isCacheDrop(0.9, 0.7), false);
+});
+
+test("dayKey is the local calendar day for an explicit UTC offset", () => {
+  assert.equal(dayKey(Date.UTC(2026, 9, 3, 23, 30), -120), "2026-10-04");
+  assert.equal(dayKey(Date.UTC(2026, 9, 3, 23, 30), 0), "2026-10-03");
+  assert.equal(dayKey(Date.UTC(2026, 9, 3, 0, 30), 60), "2026-10-02");
+});
+
+test("dayKey defaults to this runtime's offset at that instant", () => {
+  const ms = Date.UTC(2026, 9, 3, 12);
+  assert.equal(dayKey(ms), dayKey(ms, new Date(ms).getTimezoneOffset()));
+});
+
+test("windowStart counts calendar days back with today included, across leap day, year end and DST", () => {
+  assert.equal(windowStart("2026-10-03", 1), "2026-10-03");
+  assert.equal(windowStart("2026-10-03", 7), "2026-09-27");
+  assert.equal(windowStart("2026-10-03", 30), "2026-09-04");
+  assert.equal(windowStart("2024-03-01", 2), "2024-02-29");
+  assert.equal(windowStart("2026-01-03", 7), "2025-12-28");
+  assert.equal(windowStart("2026-03-30", 2), "2026-03-29");
+});
+
+test("viewTitle names the view and, given today, its date range", () => {
+  assert.equal(viewTitle("session"), "Session");
+  assert.equal(viewTitle("session", "2026-10-03"), "Session");
+  assert.equal(viewTitle("day"), "Today");
+  assert.equal(viewTitle("day", "2026-10-03"), "Today (2026-10-03)");
+  assert.equal(viewTitle("7d"), "7 days");
+  assert.equal(viewTitle("7d", "2026-10-03"), "7 days (2026-09-27 – 2026-10-03)");
+  assert.equal(viewTitle("30d"), "30 days");
+  assert.equal(viewTitle("30d", "2026-10-03"), "30 days (2026-09-04 – 2026-10-03)");
+});
+
+test("foldPending adds pending into today's row, zeroes pending in place and returns copies", () => {
+  /** @type {Record<string, import("../../plugins/inline-headroom/hooks/policy.mjs").Counters>} */
+  const days = {};
+  const pending = zeroCounters();
+  pending.steps = 2;
+  pending.input_tokens = 100;
+  assert.deepEqual(foldPending(days, pending, "2026-10-03", "2026-09-04"), [{ day: "2026-10-03", ...zeroCounters(), steps: 2, input_tokens: 100 }]);
+  assert.deepEqual(pending, zeroCounters());
+  pending.steps = 3;
+  pending.cache_drops = 1;
+  const rows = foldPending(days, pending, "2026-10-03", "2026-09-04");
+  assert.deepEqual(rows, [{ day: "2026-10-03", ...zeroCounters(), steps: 5, cache_drops: 1, input_tokens: 100 }]);
+  days["2026-10-03"].steps = 99;
+  assert.equal(rows[0].steps, 5);
+});
+
+test("foldPending drops days before purgeBefore and after today, keeping the window", () => {
+  /** @type {Record<string, import("../../plugins/inline-headroom/hooks/policy.mjs").Counters>} */
+  const days = { "2026-09-03": zeroCounters(), "2026-09-04": zeroCounters(), "2026-10-02": zeroCounters(), "2026-10-04": zeroCounters() };
+  const rows = foldPending(days, zeroCounters(), "2026-10-03", "2026-09-04");
+  assert.deepEqual(Object.keys(days).sort(), ["2026-09-04", "2026-10-02", "2026-10-03"]);
+  assert.deepEqual(rows.map((r) => r.day).sort(), ["2026-09-04", "2026-10-02", "2026-10-03"]);
 });
