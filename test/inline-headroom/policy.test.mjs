@@ -13,6 +13,7 @@ import {
   foldPending,
   isCacheDrop,
   isToolError,
+  toCount,
   viewTitle,
   windowStart,
   zeroCounters,
@@ -165,6 +166,13 @@ test("viewTitle names the view and, given today, its date range", () => {
   assert.equal(viewTitle("7d", "2026-10-03"), "7 days (2026-09-27 – 2026-10-03)");
   assert.equal(viewTitle("30d"), "30 days");
   assert.equal(viewTitle("30d", "2026-10-03"), "30 days (2026-09-04 – 2026-10-03)");
+});
+
+test("toCount keeps non-negative safe integers and turns everything else into 0", () => {
+  assert.equal(toCount(0), 0);
+  assert.equal(toCount(42), 42);
+  assert.equal(toCount(Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER);
+  for (const bad of [undefined, null, NaN, Infinity, -1, 1.5, 2 ** 53, "7"]) assert.equal(toCount(bad), 0, String(bad));
 });
 
 test("foldPending adds pending into today's row, zeroes pending in place and returns copies", () => {

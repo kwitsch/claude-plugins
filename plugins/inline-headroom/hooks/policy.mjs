@@ -108,6 +108,17 @@ export function isCacheDrop(prev, hit) {
   return prev !== undefined && prev >= CACHE_DROP_THRESHOLD && hit < CACHE_DROP_THRESHOLD;
 }
 
+/**
+ * A usage field as a persistable counter delta: a non-negative safe integer, else 0. One missing or
+ * odd field (undefined, NaN, a fraction) must not poison the running totals, because the server
+ * rejects every stats_put that carries such a row.
+ * @param {unknown} n
+ * @returns {number}
+ */
+export function toCount(n) {
+  return typeof n === "number" && Number.isSafeInteger(n) && n >= 0 ? n : 0;
+}
+
 /** @returns {Counters} all six counters at 0 */
 export function zeroCounters() {
   return /** @type {Counters} */ (Object.fromEntries(COUNTER_KEYS.map((k) => [k, 0])));

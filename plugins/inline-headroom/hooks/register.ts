@@ -1,5 +1,5 @@
 import type { EngineInterface, Register } from "claude-code";
-import { RETAIN_DAYS, VIEWS, cacheHitRatio, clampEffort, dayKey, findVolatile, foldPending, isCacheDrop, isToolError, viewTitle, windowStart, zeroCounters } from "./policy.mjs";
+import { RETAIN_DAYS, VIEWS, cacheHitRatio, clampEffort, dayKey, findVolatile, foldPending, isCacheDrop, isToolError, toCount, viewTitle, windowStart, zeroCounters } from "./policy.mjs";
 import type { Counters, View, VolatileFinding } from "./policy.mjs";
 
 // Module state resets on hot reload and on an options change (the engine reloads the module).
@@ -18,7 +18,7 @@ const pending: Counters = zeroCounters(); // counter deltas since the last fold
 const days: Record<string, Counters> = {}; // this writer's per-day totals that may still need writing
 let flushing: Promise<void> = Promise.resolve(); // serializes stats_put: a newer snapshot always lands after an older one
 let view: View = "session"; // the pane's view; every /headroom resets it
-type Sums = { view: View; today: string; data?: Counters; error?: string };
+type Sums = { view: View; today?: string; data?: Counters; error?: string };
 let sums: Sums | undefined; // the last aggregate view's totals, fetched outside render
 
 const pct = (n: number | undefined): string => (n === undefined ? "–" : `${Math.round(n * 100)}%`);
@@ -106,11 +106,22 @@ export const register: Register = (on, options) => {
           plain: true,
           dimColor: v.id !== view,
           onPress: async () => {
-            view = v.id;
-            $.ui.invalidate("ui.render");
-            if (v.id === "session" || !storageOn) return;
-            await loadSums($, await $.clock.now(), v.id);
-            $.ui.invalidate("ui.render");
+            // Nobody awaits this handler, so it must never reject (an unhandled rejection can be fatal).
+            try {
+              view = v.id;
+              $.ui.invalidate("ui.render");
+              if (v.id === "session" || !storageOn) return;
+              await loadSums($, await $.clock.now(), v.id);
+              $.ui.invalidate("ui.render");
+            } catch (err) {
+              // The clock or an invalidate failed outside loadSums' own error handling: say why instead of "loading…".
+              if (view === v.id) sums = { view: v.id, error: message(err) };
+              try {
+                $.ui.invalidate("ui.render");
+              } catch {
+                // $ itself is refused: nothing is left to redraw with
+              }
+            }
           },
         }),
       ),
@@ -155,9 +166,9 @@ export const register: Register = (on, options) => {
       const result = yield* next(ev);
       if (cacheOn && result?.usage) {
         const u = result.usage;
-        pending.input_tokens += u.input_tokens;
-        pending.cache_read_input_tokens += u.cache_read_input_tokens;
-        pending.cache_creation_input_tokens += u.cache_creation_input_tokens;
+        pending.input_tokens += toCount(u.input_tokens);
+        pending.cache_read_input_tokens += toCount(u.cache_read_input_tokens);
+        pending.cache_creation_input_tokens += toCount(u.cache_creation_input_tokens);
         const hit = cacheHitRatio(result.usage);
         if (hit !== undefined) {
           if (isCacheDrop(stats.lastHit, hit)) {

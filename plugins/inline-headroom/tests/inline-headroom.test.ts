@@ -250,7 +250,9 @@ test("(l) the pane opens on Session and a button switches to a labelled aggregat
 });
 
 test("(n) storage_enabled false: the aggregate views say storage is off and nothing is written", { options: { storage_enabled: false } }, async ($, on) => {
+  const clock = mock.clock(on, { now: NOW });
   const calls = stubStorage(on, () => SUMS);
+  bottomStep(on);
   on("turn.complete", async () => ({ text: "" }));
   const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
   await ui.press({ key: "30d" });
@@ -259,7 +261,9 @@ test("(n) storage_enabled false: the aggregate views say storage is off and noth
   await ui.press({ key: "session" });
   expect(await ui.find({ type: "Text", text: /main-loop steps 0/ })).toBeDefined();
   await ui.unmount();
+  await step($, 0, "high");
   await $.turn.complete(DONE);
+  await clock.advance(0); // a write would run unawaited here, as in (m)
   expect(calls).toEqual([]);
 });
 
@@ -269,6 +273,14 @@ test("(o) a storage error result shows as storage unavailable", async ($, on) =>
   const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
   await ui.press({ key: "day" });
   expect(await ui.find({ type: "Text", text: /storage unavailable: inline-headroom storage: storage is disabled/ })).toBeDefined();
+  await ui.unmount();
+});
+
+test("(s) a clock failure in a button press shows as storage unavailable instead of loading forever", async ($, on) => {
+  stubStorage(on, () => SUMS);
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  await ui.press({ key: "7d" });
+  expect(await ui.find({ type: "Text", text: /storage unavailable: / })).toBeDefined();
   await ui.unmount();
 });
 
@@ -298,6 +310,37 @@ test("(m) a main-loop turn.complete writes today's absolute row; a failed write 
   expect(calls[1].args.rows).toEqual([{ ...row, steps: 2 }]);
 });
 
+test("(r) a usage with a missing token field still writes integer counters", async ($, on) => {
+  const clock = mock.clock(on, { now: NOW });
+  const calls = stubStorage(on, () => ({ ok: true, purged: 0 }));
+  const st = bottomStep(on);
+  on("turn.complete", async () => ({ text: "" }));
+  const { cache_read_input_tokens: _missing, ...partial } = usageAt(0.5);
+  st.usage = partial as unknown as Usage; // a provider shape without one field
+  await step($, 0, "high");
+  await $.turn.complete(DONE);
+  await clock.advance(0);
+  expect(calls).toHaveLength(1);
+  expect(calls[0].args.rows).toEqual([{ day: dayKey(clock.now()), steps: 1, clamped: 0, cache_drops: 0, input_tokens: 500, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }]);
+});
+
+test("(q) a main-loop turn.complete refreshes the open aggregate view after the write", async ($, on) => {
+  const clock = mock.clock(on, { now: NOW });
+  let sums = SUMS;
+  stubStorage(on, (tool) => (tool === "stats_sum" ? sums : { ok: true, purged: 0 }));
+  bottomStep(on);
+  on("turn.complete", async () => ({ text: "" }));
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  await ui.press({ key: "day" });
+  expect(await ui.find({ type: "Text", text: /main-loop steps 5 · clamped 2/ })).toBeDefined();
+  sums = { ...SUMS, steps: 6 }; // what the service sums once this turn's row is written
+  await step($, 0, "high");
+  await $.turn.complete(DONE);
+  await clock.advance(0); // the write and the refresh run unawaited after the hook returned
+  expect(await ui.find({ type: "Text", text: /main-loop steps 6 · clamped 2/ })).toBeDefined();
+  await ui.unmount();
+});
+
 test("(p) session.end starts the Session view over and drains a started write", async ($, on) => {
   const clock = mock.clock(on, { now: NOW });
   const calls = stubStorage(on, () => ({ ok: true, purged: 0 }));
@@ -306,7 +349,13 @@ test("(p) session.end starts the Session view over and drains a started write", 
   on("session.end", async (_$, e) => ({ sessionId: e.sessionId }));
   await step($, 0, "high");
   await $.turn.complete(DONE);
-  const ended = $.session.end({ reason: "clear", sessionId: "s1", resume: { id: "s1" } });
+  let settled = false;
+  const ended = $.session.end({ reason: "clear", sessionId: "s1", resume: { id: "s1" } }).then(() => {
+    settled = true;
+  });
+  // The write cannot run until the clock advances, so session.end must still be waiting on it.
+  for (let i = 0; i < 50; i++) await Promise.resolve(); // let every hook that needs no clock finish
+  expect(settled).toBe(false);
   await clock.advance(0);
   await ended;
   const ui = await $.ui.mount({ ...PANE, surface: "terminal" });

@@ -106,16 +106,20 @@ views. It is the MCP server `storage` (connected as
 - **`/headroom` persistence.** At the end of each main-loop turn the mod writes
   its counters to the `stats` table: one row per local day and module load (a
   hot reload starts a new row). Every write deletes the rows older than 30 days.
-- **One background process per host.** The first tool call starts a detached
-  service process that every session shares. It is the only process that opens
-  the database. It exits after 10 idle minutes and starts again on the next call.
+- **One background process per host.** The first tool call, or the first
+  main-loop turn that ends while `storage_enabled` is on (the `/headroom` write),
+  starts a detached service process that every session shares. It is the only
+  process that opens the database. It exits after 10 idle minutes and starts
+  again on the next call.
 - **Files** live in the plugin data directory
   (`~/.claude/plugins/data/<plugin-id>/`), which survives plugin updates:
   `storage.db` (plus `storage.db-wal` while the service runs), `storage.sock`
   (an owner-only socket that exists only while the service runs) and
   `service.log` (fatal service errors only).
 - **Requires Node >= 22.13** (`node:sqlite`). On an older Node the tools return
-  an error that points at `service.log`.
+  an error that points at `service.log`, and the per-turn `/headroom` write
+  retries the start (one `service.log` line per attempt, at most once a minute
+  per session); set `storage_enabled` to `false` to stop it.
 - **Linux, macOS and WSL2 only.** The service listens on a Unix domain socket,
   so on native Windows every storage tool returns an "unsupported" error.
 - **Local filesystem only.** SQLite file locks are unreliable on network

@@ -105,7 +105,10 @@ Invariants for `mcp/server.mjs`:
   apply to `kv_*` ops only: keys 1–512 chars, values at most 1 MiB serialized
   JSON. The stats ops validate real calendar days (`isDay`), the writer
   (`^[A-Za-z0-9_-]{1,64}$`) and counters (non-negative safe integers), and
-  `stats_put` takes at most 31 rows. Accepted exposure: the model can call
+  `stats_put` takes at most 31 rows. `stats_sum` reads its `SUM` as BigInt: a sum of
+  safe-integer rows can pass 2**53, which a plain `node:sqlite` read rejects with
+  `ERR_OUT_OF_RANGE` (it answers Numbers, so past 2**53 they are approximate).
+  Accepted exposure: the model can call
   `stats_put` directly and overwrite any writer's row for a day, and since the
   purge is global and the caller picks `purgeBefore` (e.g. `9999-12-31`), it can
   delete every writer's rows. Same class as `kv_set`/`kv_delete`; the service is

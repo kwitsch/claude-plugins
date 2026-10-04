@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { once } from "node:events";
 import net from "node:net";
@@ -96,6 +96,10 @@ test("stats_put replaces absolute rows per day and writer, stats_sum totals ever
   // a counter past 2**31 round-trips unchanged
   put("wc", [{ ...row("2026-10-05", 0), steps: 3e9 }]);
   assert.equal(sum("2026-10-05").steps, 3e9);
+  // two rows at the safe-integer ceiling pass validation, and their sum (past 2**53) still reads back
+  put("wd", [{ ...row("2026-10-06", 0), steps: 2 ** 53 - 1 }]);
+  put("we", [{ ...row("2026-10-06", 0), steps: 2 ** 53 - 1 }]);
+  assert.equal(sum("2026-10-06").steps, 2 ** 54 - 2);
   db.close();
 });
 
@@ -164,6 +168,15 @@ test("execOp round-trips set/get/overwrite/delete and rejects invalid keys, valu
   assert.throws(() => execOp(db, "kv_set", { key: "k", value: "x".repeat(1048576) }), /value must be/);
   assert.throws(() => execOp(db, "kv_list", { key: "k" }), /unknown op: kv_list/);
   db.close();
+});
+
+test("a failed --service start logs one line, and the stack only under MCP_HOOK_DEBUG", () => {
+  /** @param {Record<string, string>} env */
+  const run = (env) => spawnSync(process.execPath, [SERVER, "--service", ""], { env: { ...process.env, MCP_HOOK_DEBUG: "", ...env }, encoding: "utf8" });
+  const quiet = run({});
+  assert.equal(quiet.status, 1);
+  assert.equal(quiet.stderr, "[storage] CLAUDE_PLUGIN_DATA is unset or unresolved; storage unavailable\n");
+  assert.match(run({ MCP_HOOK_DEBUG: "1" }).stderr, /\n\s+at resolveStorage/);
 });
 
 test("VERSION comes from plugin.json and compareVersions orders dotted versions numerically", () => {

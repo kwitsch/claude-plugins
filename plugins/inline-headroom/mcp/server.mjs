@@ -291,7 +291,11 @@ export function execOp(db, op, args) {
     }
     case "stats_sum": {
       if (!isDay(args.since)) throw new Error("since must be a YYYY-MM-DD day");
-      const row = db.prepare(STATS_SUM_SQL).get(args.since);
+      // BigInt reads: a SUM past 2**53 (each row only passes the safe-integer check) makes a plain read throw
+      // ERR_OUT_OF_RANGE, which would leave the window unreadable until its rows age out.
+      const sumStmt = db.prepare(STATS_SUM_SQL);
+      sumStmt.setReadBigInts(true);
+      const row = sumStmt.get(args.since);
       // A plain object: .get() returns a null-prototype one.
       return Object.fromEntries(STATS_KEYS.map((k) => [k, Number(row[k])]));
     }
@@ -347,8 +351,9 @@ function roundTrip(sockPath, msg) {
  */
 function spawnService(storage) {
   mkdirSync(storage.dataDir, { recursive: true, mode: 0o700 });
-  // ponytail: service.log is never rotated; it only gets fatal service errors (about a line per
-  // failed start). Upgrade path: rotate it if it ever grows noticeably.
+  // ponytail: service.log is never rotated; it only gets fatal service errors (one line per failed
+  // start, and the mod's per-turn stats write can trigger one per session every FAILURE_COOLDOWN_MS
+  // on a host that cannot run the service). Upgrade path: rotate it if it ever grows noticeably.
   const fd = openSync(storage.log, "a", 0o600);
   try {
     // --disable-warning: node:sqlite's ExperimentalWarning (Node 22) would otherwise land in service.log on every start.
@@ -652,7 +657,8 @@ function isMainModule() {
 if (isMainModule()) {
   if (process.argv[2] === "--service") {
     runService(process.argv[3]).catch((e) => {
-      process.stderr.write(`[storage] ${e?.stack ?? e}\n`);
+      // One line per failed start (the mod's per-turn write can trigger one every cool-down); the stack only when debugging.
+      process.stderr.write(`[storage] ${(process.env.MCP_HOOK_DEBUG ? e?.stack : e?.message) ?? e}\n`);
       process.exit(1);
     });
   } else {
