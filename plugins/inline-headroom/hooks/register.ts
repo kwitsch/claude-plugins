@@ -1,9 +1,9 @@
 import type { EngineInterface, Register } from "claude-code";
-import { VIEWS, cacheHitRatio, clampEffort, dayKey, findVolatile, isCacheDrop, isToolError, viewTitle, windowStart } from "./policy.mjs";
+import { RETAIN_DAYS, VIEWS, cacheHitRatio, clampEffort, dayKey, findVolatile, foldPending, isCacheDrop, isToolError, viewTitle, windowStart, zeroCounters } from "./policy.mjs";
 import type { Counters, View, VolatileFinding } from "./policy.mjs";
 
-// Module state: resets on hot reload and on an options change (the engine
-// reloads the module). Accepted for now; $.state persistence is a follow-up.
+// Module state resets on hot reload and on an options change (the engine reloads the module).
+// Persisted totals survive: each load writes its own rows under a new WRITER.
 let toolErrored = false; // any main-loop tool error since the last main-loop step
 // The Session view: this session's counters, in memory.
 const stats = {
@@ -13,6 +13,10 @@ const stats = {
   lastHit: undefined as number | undefined,
   volatile: [] as VolatileFinding[],
 };
+const WRITER = Math.random().toString(36).slice(2).padEnd(8, "0"); // this module instance's stats rows
+const pending: Counters = zeroCounters(); // counter deltas since the last fold
+const days: Record<string, Counters> = {}; // this writer's per-day totals that may still need writing
+let flushing: Promise<void> = Promise.resolve(); // serializes stats_put: a newer snapshot always lands after an older one
 let view: View = "session"; // the pane's view; every /headroom resets it
 type Sums = { view: View; today: string; data?: Counters; error?: string };
 let sums: Sums | undefined; // the last aggregate view's totals, fetched outside render
@@ -134,6 +138,7 @@ export const register: Register = (on, options) => {
   on("turn.step", async function* ($, e, next) {
     if (e.agentId) return yield* next(e);
     stats.steps += 1;
+    pending.steps += 1;
     try {
       let ev = e;
       // ponytail: mid-turn user input (a queued command) arriving at index > 0 is
@@ -143,15 +148,21 @@ export const register: Register = (on, options) => {
         if (to !== undefined) {
           ev = { ...e, effort: to };
           stats.clamped += 1;
+          pending.clamped += 1;
         }
       }
       toolErrored = false; // consumed per step; index 0 resets it too
       const result = yield* next(ev);
       if (cacheOn && result?.usage) {
+        const u = result.usage;
+        pending.input_tokens += u.input_tokens;
+        pending.cache_read_input_tokens += u.cache_read_input_tokens;
+        pending.cache_creation_input_tokens += u.cache_creation_input_tokens;
         const hit = cacheHitRatio(result.usage);
         if (hit !== undefined) {
           if (isCacheDrop(stats.lastHit, hit)) {
             stats.cacheDrops += 1;
+            pending.cache_drops += 1;
             const ids = [...new Set(stats.volatile.map((v) => v.id))];
             $.ui.log(`cache drop ${pct(stats.lastHit)} → ${pct(hit)} (wrote ${result.usage.cache_creation_input_tokens} tok)` + (ids.length ? ` · volatile: ${ids.join(", ")}` : ""));
           }
@@ -163,6 +174,47 @@ export const register: Register = (on, options) => {
       // also on a failed or aborted step: steps/clamped moved before it
       $.ui.invalidate("ui.render"); // redraw an open /headroom pane with the new stats
     }
+  });
+
+  if (storageOn) {
+    on("turn.complete", async ($, e, next) => {
+      const r = await next(e);
+      if (e.agentId) return r; // subagent turns carry no main-loop steps
+      const now = await $.clock.now();
+      const today = dayKey(now);
+      const purgeBefore = windowStart(today, RETAIN_DAYS);
+      const rows = foldPending(days, pending, today, purgeBefore);
+      // Not awaited: a cold service start (up to 3 s) never delays the turn's end.
+      flushing = flushing
+        .then(async () => {
+          try {
+            await callStorage($, "stats_put", { writer: WRITER, rows, purgeBefore });
+          } catch {
+            return; // days keeps every total: the next turn rewrites them
+          }
+          for (const d of Object.keys(days)) if (d < today) delete days[d]; // final rows, written
+          if (view === "session") return;
+          await loadSums($, now, view);
+          $.ui.invalidate("ui.render");
+        })
+        // The chain must never reject: a rejected `flushing` would skip every later flush for the
+        // module's life. A throw after the write (loadSums, invalidate, or `$` refused once the
+        // hook has returned) only loses this one pane refresh.
+        .catch(() => {});
+      return r;
+    });
+  }
+
+  // /clear and resume go on in this process under a new session id: the Session view starts over.
+  // Persisted totals and pending deltas are session-agnostic and carry on.
+  on("session.end", async ($, e, next) => {
+    Object.assign(stats, { steps: 0, clamped: 0, cacheDrops: 0, lastHit: undefined, volatile: [] });
+    $.ui.invalidate("ui.render");
+    const r = await next(e);
+    // A headless run exits after this chain: let a started stats_put finish. `flushing` never
+    // rejects, and the engine's ~1.5 s end bound cuts the wait; core's end step already ran.
+    await flushing;
+    return r;
   });
 
   if (cacheOn) {
