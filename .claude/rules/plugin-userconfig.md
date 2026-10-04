@@ -41,7 +41,8 @@ See `plugins/git-sign-key/CLAUDE.md` — one hook-only plugin predates this rule
 - The hook IS the entire plugin (read-only linting / auto-formatting is its
   one behavior); disabling that behavior is equivalent to uninstalling the
   plugin, so no separate on/off switch is offered.
-- Do not "fix" this by re-adding a toggle — all three plugins' bats suites
-  assert `userConfig`'s absence as a tripwire against exactly that.
+- Do not "fix" this by re-adding a toggle — the bats suites of `universal-lint`,
+  `universal-format` and `taskflow` assert `userConfig`'s absence as a tripwire
+  against exactly that.
 - `taskflow` is the same case for a different reason — see
   `plugins/taskflow/CLAUDE.md` for why.

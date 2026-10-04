@@ -9,7 +9,7 @@ paths:
 
 All `.sh` and `.mjs` files under `plugins/*/hooks/`, and the self-contained MCP server `.mjs` under `plugins/*/mcp/`, MUST have the executable bit set. Claude Code silently skips non-executable hook files, and a non-executable `mcp/server.mjs` fails to start — so its `mcp_tool` hook then fails open.
 
-**After creating or writing any file under `plugins/*/hooks/` or `plugins/*/mcp/*.mjs`, immediately run:**
+**After creating or writing any `.sh`/`.mjs` file under `plugins/*/hooks/` or any `plugins/*/mcp/*.mjs`, immediately run:**
 
 ```bash
 chmod +x <file>
