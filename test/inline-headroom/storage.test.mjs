@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { once } from "node:events";
 import net from "node:net";
@@ -12,9 +12,20 @@ import { DatabaseSync } from "node:sqlite";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { MIGRATIONS, PROTOCOL, VERSION, compareVersions, execOp, isStorageEnabled, isStorageService, migrate, resolveStorage } from "../../plugins/inline-headroom/mcp/server.mjs";
+import { zeroCounters } from "../../plugins/inline-headroom/hooks/policy.mjs";
 
 const SERVER = fileURLToPath(new URL("../../plugins/inline-headroom/mcp/server.mjs", import.meta.url));
 const IT = { timeout: 30000 };
+const STATS_KEYS = ["steps", "clamped", "cache_drops", "input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"];
+
+/**
+ * Six counters in stats column order, stepping by `d` from `first`: distinct per field, so a
+ * column-order drift changes every sum.
+ * @param {number} first
+ * @param {number} d
+ * @returns {Record<string, number>}
+ */
+const seq = (first, d) => Object.fromEntries(STATS_KEYS.map((k, i) => [k, first + i * d]));
 
 // ------------------------------------------------------------------ unit
 
@@ -39,9 +50,98 @@ test("migrate brings a fresh DB to MIGRATIONS.length, is idempotent and refuses 
   assert.equal(migrate(db), MIGRATIONS.length);
   assert.equal(db.prepare("PRAGMA user_version").get().user_version, MIGRATIONS.length);
   assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'kv'").get());
+  assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'stats'").get());
   assert.equal(migrate(db), MIGRATIONS.length);
   db.exec(`PRAGMA user_version = ${MIGRATIONS.length + 1}`);
   assert.throws(() => migrate(db), /newer/);
+  db.close();
+});
+
+test("migrate upgrades a v1 database to v2 and keeps its kv rows", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec(MIGRATIONS[0]);
+  db.exec("PRAGMA user_version = 1");
+  db.prepare("INSERT INTO kv(key, value) VALUES (?, ?)").run("notes/s1", "42");
+  assert.equal(migrate(db), 2);
+  assert.deepEqual({ ...db.prepare("SELECT key, value FROM kv").get() }, { key: "notes/s1", value: "42" });
+  assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'stats'").get());
+  db.close();
+});
+
+test("stats_put replaces absolute rows per day and writer, stats_sum totals every writer from since on, the purge drops older days", () => {
+  const db = new DatabaseSync(":memory:");
+  migrate(db);
+  /** @param {string} writer @param {Record<string, unknown>[]} rows @param {string} [purgeBefore] */
+  const put = (writer, rows, purgeBefore = "2026-01-01") => execOp(db, "stats_put", { writer, rows, purgeBefore });
+  /** @param {string} since */
+  const sum = (since) => execOp(db, "stats_sum", { since });
+  /** @param {string} day @param {number} base */
+  const row = (day, base) => ({ day, ...seq(base + 1, 1) });
+  const a = [row("2026-10-01", 0), row("2026-10-02", 10), row("2026-10-03", 100)];
+  const b = [row("2026-10-01", 1000), row("2026-10-03", 10000)];
+  assert.deepEqual(put("wa", a), { ok: true, purged: 0 });
+  assert.deepEqual(put("wb", b), { ok: true, purged: 0 });
+  assert.deepEqual(sum("2026-10-01"), seq(11115, 5));
+  assert.deepEqual(sum("2026-10-02"), seq(10113, 3));
+  assert.deepEqual(sum("2026-10-03"), seq(10102, 2));
+  assert.deepEqual(sum("2026-10-04"), seq(0, 0));
+  // idempotent: a replay changes nothing; a bigger snapshot of the same (day, writer) replaces, never adds
+  put("wa", a);
+  assert.deepEqual(sum("2026-10-01"), seq(11115, 5));
+  put("wa", [row("2026-10-03", 200)]);
+  assert.deepEqual(sum("2026-10-03"), seq(10202, 2));
+  // the purge is global: every writer's rows before purgeBefore go, later ones stay
+  assert.deepEqual(put("wb", [row("2026-10-03", 10000)], "2026-10-02"), { ok: true, purged: 2 });
+  assert.deepEqual(sum("2026-01-01"), seq(10213, 3));
+  // a counter past 2**31 round-trips unchanged
+  put("wc", [{ ...row("2026-10-05", 0), steps: 3e9 }]);
+  assert.equal(sum("2026-10-05").steps, 3e9);
+  // two rows at the safe-integer ceiling pass validation, and their sum (past 2**53) still reads back
+  put("wd", [{ ...row("2026-10-06", 0), steps: 2 ** 53 - 1 }]);
+  put("we", [{ ...row("2026-10-06", 0), steps: 2 ** 53 - 1 }]);
+  assert.equal(sum("2026-10-06").steps, 2 ** 54 - 2);
+  db.close();
+});
+
+test("stats ops validate writer, days, rows and counters before writing anything", () => {
+  const db = new DatabaseSync(":memory:");
+  migrate(db);
+  const row = { day: "2026-10-03", ...seq(1, 1) };
+  const ok = { writer: "w1", rows: [row], purgeBefore: "2026-09-04" };
+  const missing = Object.fromEntries(Object.entries(row).filter(([k]) => k !== "cache_creation_input_tokens"));
+  /** @type {[Record<string, unknown>, RegExp][]} */
+  const bad = [
+    [{ ...ok, writer: "" }, /writer must be/],
+    [{ ...ok, writer: "a b" }, /writer must be/],
+    [{ ...ok, writer: "w".repeat(65) }, /writer must be/],
+    [{ ...ok, purgeBefore: "2026-1-03" }, /purgeBefore must be/],
+    [{ ...ok, purgeBefore: "2026-02-30" }, /purgeBefore must be/],
+    [{ ...ok, rows: "x" }, /rows must hold 1-31 rows/],
+    [{ ...ok, rows: [] }, /rows must hold 1-31 rows/],
+    [{ ...ok, rows: Array.from({ length: 32 }, () => row) }, /rows must hold 1-31 rows/],
+    [{ ...ok, rows: [missing] }, /each row needs/],
+    [{ ...ok, rows: [null] }, /each row needs/],
+    [{ ...ok, rows: [[]] }, /each row needs/],
+    [{ ...ok, rows: [{ ...row, steps: -1 }] }, /each row needs/],
+    [{ ...ok, rows: [{ ...row, steps: 1.5 }] }, /each row needs/],
+    [{ ...ok, rows: [{ ...row, steps: "7" }] }, /each row needs/],
+    [{ ...ok, rows: [{ ...row, steps: 2 ** 53 }] }, /each row needs/],
+    [{ ...ok, rows: [row, { ...row, day: "2026-13-45" }] }, /each row needs/],
+  ];
+  for (const [args, re] of bad) assert.throws(() => execOp(db, "stats_put", args), re, JSON.stringify(args).slice(0, 120));
+  assert.throws(() => execOp(db, "stats_sum", { since: "2026-02-30" }), /since must be/);
+  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM stats").get().n, 0); // a failed validation wrote nothing
+  // stats ops need no key; kv ops still do; a non-string op is an unknown op, not a TypeError
+  assert.deepEqual(execOp(db, "stats_put", ok), { ok: true, purged: 0 });
+  assert.throws(() => execOp(db, "kv_get", {}), /key must be/);
+  assert.throws(() => execOp(db, /** @type {any} */ (7), {}), /unknown op: 7/);
+  db.close();
+});
+
+test("stats_sum answers the persisted counters in policy.mjs order, so STATS_KEYS and COUNTER_KEYS cannot drift", () => {
+  const db = new DatabaseSync(":memory:");
+  migrate(db);
+  assert.deepEqual(Object.keys(execOp(db, "stats_sum", { since: "2026-01-01" })), Object.keys(zeroCounters()));
   db.close();
 });
 
@@ -68,6 +168,15 @@ test("execOp round-trips set/get/overwrite/delete and rejects invalid keys, valu
   assert.throws(() => execOp(db, "kv_set", { key: "k", value: "x".repeat(1048576) }), /value must be/);
   assert.throws(() => execOp(db, "kv_list", { key: "k" }), /unknown op: kv_list/);
   db.close();
+});
+
+test("a failed --service start logs one line, and the stack only under MCP_HOOK_DEBUG", () => {
+  /** @param {Record<string, string>} env */
+  const run = (env) => spawnSync(process.execPath, [SERVER, "--service", ""], { env: { ...process.env, MCP_HOOK_DEBUG: "", ...env }, encoding: "utf8" });
+  const quiet = run({});
+  assert.equal(quiet.status, 1);
+  assert.equal(quiet.stderr, "[storage] CLAUDE_PLUGIN_DATA is unset or unresolved; storage unavailable\n");
+  assert.match(run({ MCP_HOOK_DEBUG: "1" }).stderr, /\n\s+at resolveStorage/);
 });
 
 test("VERSION comes from plugin.json and compareVersions orders dotted versions numerically", () => {
@@ -211,19 +320,30 @@ function sandbox(t) {
 
 // ------------------------------------------------------------------ integration
 
-test("tools/list advertises the four tools; a value set through one front-end is read through another", IT, async (/** @type {any} */ t) => {
+test("tools/list advertises the six tools; a value set through one front-end is read through another", IT, async (/** @type {any} */ t) => {
   const box = sandbox(t);
   const a = box.frontEnd();
   assert.equal((await a.request("initialize", { protocolVersion: "2025-11-25" })).result.serverInfo.name, "storage");
   const list = await a.request("tools/list");
   assert.deepEqual(
     list.result.tools.map((/** @type {any} */ tool) => tool.name),
-    ["kv_get", "kv_set", "kv_delete", "storage_status"],
+    ["kv_get", "kv_set", "kv_delete", "stats_put", "stats_sum", "storage_status"],
   );
   assert.deepEqual((await a.call("kv_set", { key: "stats/s1", value: { n: 1 } })).structuredContent, { ok: true });
   const b = box.frontEnd();
   assert.deepEqual((await b.call("kv_get", { key: "stats/s1" })).structuredContent, { found: true, value: { n: 1 } });
   assert.equal(typeof (await b.call("storage_status")).structuredContent.pid, "number");
+});
+
+test("stats_put through one front-end is summed through another, as structuredContent and as JSON text", IT, async (/** @type {any} */ t) => {
+  const box = sandbox(t);
+  const a = box.frontEnd();
+  const rows = [{ day: "2026-10-03", ...seq(1, 1) }];
+  assert.deepEqual((await a.call("stats_put", { writer: "w1", rows, purgeBefore: "2026-09-04" })).structuredContent, { ok: true, purged: 0 });
+  const b = box.frontEnd();
+  const res = await b.call("stats_sum", { since: "2026-09-27" });
+  assert.deepEqual(res.structuredContent, seq(1, 1));
+  assert.deepEqual(JSON.parse(res.content[0].text), seq(1, 1));
 });
 
 test("five concurrent front-ends share one service that locks out every other DB reader", IT, async (/** @type {any} */ t) => {
