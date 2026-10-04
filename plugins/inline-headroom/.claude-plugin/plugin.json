@@ -1,6 +1,6 @@
 {
   "name": "inline-headroom",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Headroom-style levers inside Claude Code as a mod: clamp-only effort routing after successful tool results, and a detector-only CacheAligner that flags volatile system-prompt content and cache-hit drops. Ships a host-wide SQLite storage MCP server for persistent plugin data.",
   "author": { "name": "Kwitsch" },
   "userConfig": {
