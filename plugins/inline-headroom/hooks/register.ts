@@ -28,7 +28,7 @@ const message = (err: unknown): string => (err instanceof Error ? err.message : 
 // The engine refuses $.<noun> as a bare value, so same-file helpers take the whole $.
 // Resolves the op's result; rejects with the server's message on a refusal or an error result.
 const callStorage = async ($: EngineInterface, tool: string, args: Record<string, unknown>): Promise<unknown> => {
-  const c = await $.mcp.connect("storage");
+  const c = await $.mcp.connect("plugin:inline-headroom:storage"); // a plugin's server is namespaced, not the bare .mcp.json key
   if (!c.isConnected) throw new Error(c.message);
   const r = await $.mcp.call(c.server, tool, args);
   if (r.isError) throw new Error(r.content[0]?.text ?? "storage call failed");
@@ -53,8 +53,8 @@ const loadSums = async ($: EngineInterface, now: number, v: View): Promise<void>
 export const register: Register = (on, options) => {
   const effortOn = options.effort_routing_enabled !== false;
   const cacheOn = options.cache_aligner_enabled !== false;
-  // Fail-closed like the server; unset means the manifest default (true).
-  const storageOn = options.storage_enabled === true;
+  // Unset means the manifest default (true), like the sibling toggles; the server stays fail-closed.
+  const storageOn = options.storage_enabled !== false;
 
   on("session.start", async ($, e, next) => {
     await $.command.register({
@@ -191,10 +191,18 @@ export const register: Register = (on, options) => {
     on("turn.complete", async ($, e, next) => {
       const r = await next(e);
       if (e.agentId) return r; // subagent turns carry no main-loop steps
-      const now = await $.clock.now();
-      const today = dayKey(now);
-      const purgeBefore = windowStart(today, RETAIN_DAYS);
-      const rows = foldPending(days, pending, today, purgeBefore);
+      let now: number;
+      let today: string;
+      let purgeBefore: string;
+      let rows: ReturnType<typeof foldPending>;
+      try {
+        now = await $.clock.now();
+        today = dayKey(now);
+        purgeBefore = windowStart(today, RETAIN_DAYS);
+        rows = foldPending(days, pending, today, purgeBefore);
+      } catch {
+        return r; // stats are a side feature: a bad clock never costs the turn's result
+      }
       // Not awaited: a cold service start (up to 3 s) never delays the turn's end.
       flushing = flushing
         .then(async () => {

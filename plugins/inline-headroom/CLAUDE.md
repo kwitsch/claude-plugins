@@ -137,7 +137,7 @@ row and a hot reload (a new `WRITER`) never shrinks a stored total. Today /
 Deviation from `.claude/rules/hooks-mcp-server.md`: the `.mcp.json` key is
 `storage`, not `<name>-hooks`, because this server backs no `mcp_tool` hook and
 `hooks.json` never references it. `/headroom` persistence is the first mod-side
-consumer; `$.mcp.connect("storage")` from the mod stays under Not yet
+consumer; `$.mcp.connect("plugin:inline-headroom:storage")` from the mod stays under Not yet
 live-verified until a live run confirms it.
 
 ## Verified Claude Code 2.1.288 shapes relied on
@@ -188,7 +188,7 @@ Shipped on kit and typings evidence only. The user-run live check in the PR
 moves each confirmed entry into the section above and records any failure here;
 delete this heading once it is empty.
 
-- Mod-side `$.mcp.connect("storage")` from the real engine.
+- Mod-side `$.mcp.connect("plugin:inline-headroom:storage")` from the real engine.
 - Whether `structuredContent` is forwarded for a tool without `outputSchema`
   (the mod falls back to the JSON text block either way).
 - A pane Button `hotkey` honoured while the pane holds the focus (click and
