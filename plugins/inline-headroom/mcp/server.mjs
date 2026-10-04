@@ -41,9 +41,22 @@ const SERVER_NAME = "storage"; // keep aligned with the .mcp.json key
 const SERVER_INFO = { name: SERVER_NAME, version: VERSION };
 const DEFAULT_PROTOCOL = "2025-11-25"; // MCP version; only used if the client omits protocolVersion
 /** Front-end <-> service wire protocol. Bump on any op or schema change. */
-export const PROTOCOL = 1;
+export const PROTOCOL = 2;
 /** Append-only schema migrations; entry i takes PRAGMA user_version from i to i+1. */
-export const MIGRATIONS = ["CREATE TABLE kv (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT"];
+export const MIGRATIONS = [
+  "CREATE TABLE kv (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT",
+  `CREATE TABLE stats (
+    day TEXT NOT NULL,
+    writer TEXT NOT NULL,
+    steps INTEGER NOT NULL,
+    clamped INTEGER NOT NULL,
+    cache_drops INTEGER NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    cache_read_input_tokens INTEGER NOT NULL,
+    cache_creation_input_tokens INTEGER NOT NULL,
+    PRIMARY KEY (day, writer)
+  ) STRICT`,
+];
 const START_TIMEOUT_MS = 3000;
 const POLL_MS = 50;
 const SPAWN_RETRY_MS = 500;
@@ -60,9 +73,20 @@ const ELECTION_PROBE_MS = 300;
 // SQLite stores a lone UTF-16 surrogate as U+FFFD, so distinct keys would collapse to one row: reject them.
 // (String#isWellFormed is not in the tsconfig's ES2022 lib.)
 const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+// The persisted /headroom counters in stats column order. hooks/policy.mjs COUNTER_KEYS repeats them
+// (this file stays import-free); test/inline-headroom/storage.test.mjs pins both orders.
+const STATS_KEYS = ["steps", "clamped", "cache_drops", "input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"];
+const MAX_STATS_ROWS = 31; // one stats_put transaction's bound; the mod sends at most the 30 days of its window
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const WRITER_RE = /^[A-Za-z0-9_-]{1,64}$/;
+// Built once from STATS_KEYS, so the column order and the binding order cannot drift.
+const STATS_PUT_SQL = `INSERT OR REPLACE INTO stats(day, writer, ${STATS_KEYS.join(", ")}) VALUES (${["day", "writer", ...STATS_KEYS].map(() => "?").join(", ")})`;
+const STATS_SUM_SQL = `SELECT ${STATS_KEYS.map((k) => `COALESCE(SUM(${k}), 0) AS ${k}`).join(", ")} FROM stats WHERE day >= ?`;
 
 const KEY_SCHEMA = { type: "string", minLength: 1, maxLength: MAX_KEY_LENGTH };
 const KEY_INPUT = { type: "object", properties: { key: KEY_SCHEMA }, required: ["key"], additionalProperties: false };
+const DAY_SCHEMA = { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" };
+const COUNT_SCHEMA = { type: "integer", minimum: 0 };
 const TOOLS = [
   { name: "kv_get", description: "inline-headroom persistent storage: read the JSON value stored under key", inputSchema: KEY_INPUT },
   {
@@ -76,6 +100,35 @@ const TOOLS = [
     },
   },
   { name: "kv_delete", description: "inline-headroom persistent storage: delete key", inputSchema: KEY_INPUT },
+  {
+    name: "stats_put",
+    description: "inline-headroom persistent storage: replace one writer's /headroom stats rows (one per local day) and delete every row before purgeBefore",
+    inputSchema: {
+      type: "object",
+      properties: {
+        writer: { type: "string", pattern: "^[A-Za-z0-9_-]{1,64}$" },
+        purgeBefore: DAY_SCHEMA,
+        rows: {
+          type: "array",
+          minItems: 1,
+          maxItems: MAX_STATS_ROWS,
+          items: {
+            type: "object",
+            properties: { day: DAY_SCHEMA, ...Object.fromEntries(STATS_KEYS.map((k) => [k, COUNT_SCHEMA])) },
+            required: ["day", ...STATS_KEYS],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["writer", "rows", "purgeBefore"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "stats_sum",
+    description: "inline-headroom persistent storage: sum the /headroom stats of every writer from day since (YYYY-MM-DD, inclusive) on",
+    inputSchema: { type: "object", properties: { since: DAY_SCHEMA }, required: ["since"], additionalProperties: false },
+  },
   {
     name: "storage_status",
     description: "inline-headroom persistent storage: service pid, protocol and schema version",
@@ -170,7 +223,18 @@ export function migrate(db) {
 }
 
 /**
- * Runs one data op: the single trust boundary, validating every key and value.
+ * True for a real calendar day written as YYYY-MM-DD (rejects 2026-02-30, 2026-13-45).
+ * @param {unknown} s
+ * @returns {boolean}
+ */
+function isDay(s) {
+  if (typeof s !== "string" || !DAY_RE.test(s)) return false;
+  const t = Date.parse(`${s}T00:00:00Z`);
+  return !Number.isNaN(t) && new Date(t).toISOString().startsWith(s);
+}
+
+/**
+ * Runs one data op: the single trust boundary, validating every key, value, day, writer and counter.
  * @param {any} db a node:sqlite DatabaseSync
  * @param {string} op
  * @param {Record<string, unknown>} args
@@ -178,8 +242,11 @@ export function migrate(db) {
  */
 export function execOp(db, op, args) {
   const key = args.key;
-  if (typeof key !== "string" || key.length < 1 || LONE_SURROGATE.test(key) || [...key].length > MAX_KEY_LENGTH)
-    throw new Error(`key must be a non-empty string of at most ${MAX_KEY_LENGTH} characters`);
+  // typeof: a raw socket client may send a non-string op, which must reach "unknown op", not a TypeError.
+  if (typeof op === "string" && op.startsWith("kv_")) {
+    if (typeof key !== "string" || key.length < 1 || LONE_SURROGATE.test(key) || [...key].length > MAX_KEY_LENGTH)
+      throw new Error(`key must be a non-empty string of at most ${MAX_KEY_LENGTH} characters`);
+  }
   switch (op) {
     case "kv_get": {
       const row = db.prepare("SELECT value FROM kv WHERE key = ?").get(key);
@@ -198,6 +265,36 @@ export function execOp(db, op, args) {
     }
     case "kv_delete":
       return { deleted: Number(db.prepare("DELETE FROM kv WHERE key = ?").run(key).changes) > 0 };
+    case "stats_put": {
+      const { writer, purgeBefore, rows } = args;
+      if (typeof writer !== "string" || !WRITER_RE.test(writer)) throw new Error("writer must be 1-64 of letters, digits, _ and -");
+      if (!isDay(purgeBefore)) throw new Error("purgeBefore must be a YYYY-MM-DD day");
+      if (!Array.isArray(rows) || rows.length < 1 || rows.length > MAX_STATS_ROWS) throw new Error(`rows must hold 1-${MAX_STATS_ROWS} rows`);
+      // Load-bearing, not left to the table: STRICT coerces the string "7" into an INTEGER column and accepts 2**53.
+      for (const row of rows) {
+        const valid = row !== null && typeof row === "object" && !Array.isArray(row) && isDay(row.day) && STATS_KEYS.every((k) => Number.isSafeInteger(row[k]) && row[k] >= 0);
+        if (!valid) throw new Error(`each row needs a YYYY-MM-DD day and non-negative integer ${STATS_KEYS.join(", ")}`);
+      }
+      db.exec("BEGIN");
+      try {
+        const put = db.prepare(STATS_PUT_SQL);
+        for (const row of rows) put.run(row.day, writer, ...STATS_KEYS.map((k) => row[k]));
+        // ponytail: the purge trusts the caller's day and is global across writers, so a writer whose clock
+        // runs ahead purges early. Upgrade path: clamp purgeBefore to the newest stored day if skew ever matters.
+        const purged = Number(db.prepare("DELETE FROM stats WHERE day < ?").run(purgeBefore).changes);
+        db.exec("COMMIT");
+        return { ok: true, purged };
+      } catch (e) {
+        db.exec("ROLLBACK");
+        throw e;
+      }
+    }
+    case "stats_sum": {
+      if (!isDay(args.since)) throw new Error("since must be a YYYY-MM-DD day");
+      const row = db.prepare(STATS_SUM_SQL).get(args.since);
+      // A plain object: .get() returns a null-prototype one.
+      return Object.fromEntries(STATS_KEYS.map((k) => [k, Number(row[k])]));
+    }
     default:
       throw new Error(`unknown op: ${op}`);
   }
@@ -284,7 +381,8 @@ function spawnService(storage) {
 /**
  * Sends one op to the host-wide service, spawning it when none listens. Retried: ENOENT/ECONNREFUSED/
  * ECONNRESET (nothing was sent) and a reply-less close (a service shutting down). Every op is idempotent
- * (kv_delete may report deleted:false when the first attempt had already applied), so a retry is safe.
+ * (stats_put replaces absolute rows and purges by date; kv_delete may report deleted:false when the first
+ * attempt had already applied), so a retry is safe.
  * A failure cool-down only gates spawning: a live service is always tried first.
  * @param {string} op
  * @param {Record<string, unknown>} args
