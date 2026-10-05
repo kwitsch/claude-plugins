@@ -168,7 +168,7 @@ live-verified until a live run confirms it.
 - `turn.complete` input carries `agentId?` (absent on the main loop) and a
   required `reason`; `next(e)` resolves `{ text }`.
 - `$.mcp.connect(key)` never rejects: it resolves `{ isConnected: true, server }`
-  or `{ isConnected: false, reason, message }`. Verified on 2.1.289: `key` is the
+  or `{ isConnected: false, reason, message }`. Read from the 2.1.289 engine binary (no live run yet): `key` is the
   bare key from this plugin's own `.mcp.json` (`"storage"`), not the
   `plugin:<name>:<key>` form, which is for `mcp_tool` hook `server` fields and
   for `$.mcp.call`. The engine namespaces the key itself; the resolved `server`
