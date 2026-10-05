@@ -56,7 +56,7 @@ Every test that needs `node:sqlite` or spawns processes lives in
 `setup-node`. Its cleanup SIGTERMs every `--service` process for its temp data
 dir, so no daemon outlives the suite.
 
-The bats version-pin test (`plugin.json version is 0.3.0`) is a rolling pin:
+The bats version-pin test (`plugin.json version is 0.3.1`) is a rolling pin:
 every version bump rewrites its name and expected value in the same commit.
 
 ## Storage server
@@ -137,7 +137,7 @@ row and a hot reload (a new `WRITER`) never shrinks a stored total. Today /
 Deviation from `.claude/rules/hooks-mcp-server.md`: the `.mcp.json` key is
 `storage`, not `<name>-hooks`, because this server backs no `mcp_tool` hook and
 `hooks.json` never references it. `/headroom` persistence is the first mod-side
-consumer; `$.mcp.connect("plugin:inline-headroom:storage")` from the mod stays under Not yet
+consumer; `$.mcp.connect("storage")` from the mod stays under Not yet
 live-verified until a live run confirms it.
 
 ## Verified Claude Code 2.1.288 shapes relied on
@@ -168,10 +168,18 @@ live-verified until a live run confirms it.
 - `turn.complete` input carries `agentId?` (absent on the main loop) and a
   required `reason`; `next(e)` resolves `{ text }`.
 - `$.mcp.connect(key)` never rejects: it resolves `{ isConnected: true, server }`
-  or `{ isConnected: false, reason, message }`. `$.mcp.call(server, tool, args)`
-  resolves `{ content, isError, structuredContent? }`; `structuredContent` is typed
-  only for tools with an `outputSchema`. Kit stubs: `on("mcp.connect", ...)` and
-  `on("mcp.call", ...)` answering `{ value: ... }`.
+  or `{ isConnected: false, reason, message }`. Read from the 2.1.289 engine binary (no live run yet): `key` is the
+  bare key from this plugin's own `.mcp.json` (`"storage"`), not the
+  `plugin:<name>:<key>` form, which is for `mcp_tool` hook `server` fields and
+  for `$.mcp.call`. The engine namespaces the key itself; the resolved `server`
+  is the namespaced name `$.mcp.call` takes. An unknown key resolves
+  `{ isConnected: false, reason: "unlisted", message }` with the message
+  `This plugin's manifest lists no MCP server named "<key>".`
+  `$.mcp.call(server, tool, args)` resolves
+  `{ content, isError, structuredContent? }`; `structuredContent` is typed only
+  for tools with an `outputSchema`. Kit stubs: `on("mcp.connect", ...)` and
+  `on("mcp.call", ...)` answering `{ value: ... }`; the connect stub must answer
+  only for the bare key, as `stubStorage` does.
 - `claude plugin validate` refuses `$.mcp` (any `$.<noun>`) as a bare value; a
   same-file helper taking the whole `$: EngineInterface` validates, and its calls
   are listed as `$.mcp.call (via callStorage)`.
@@ -188,7 +196,7 @@ Shipped on kit and typings evidence only. The user-run live check in the PR
 moves each confirmed entry into the section above and records any failure here;
 delete this heading once it is empty.
 
-- Mod-side `$.mcp.connect("plugin:inline-headroom:storage")` from the real engine.
+- Mod-side `$.mcp.connect("storage")` from the real engine.
 - Whether `structuredContent` is forwarded for a tool without `outputSchema`
   (the mod falls back to the JSON text block either way).
 - A pane Button `hotkey` honoured while the pane holds the focus (click and

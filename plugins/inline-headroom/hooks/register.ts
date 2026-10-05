@@ -28,7 +28,7 @@ const message = (err: unknown): string => (err instanceof Error ? err.message : 
 // The engine refuses $.<noun> as a bare value, so same-file helpers take the whole $.
 // Resolves the op's result; rejects with the server's message on a refusal or an error result.
 const callStorage = async ($: EngineInterface, tool: string, args: Record<string, unknown>): Promise<unknown> => {
-  const c = await $.mcp.connect("plugin:inline-headroom:storage"); // a plugin's server is namespaced, not the bare .mcp.json key
+  const c = await $.mcp.connect("storage"); // the key in this plugin's .mcp.json; the engine namespaces it and returns the namespaced `server` that `call` takes
   if (!c.isConnected) throw new Error(c.message);
   const r = await $.mcp.call(c.server, tool, args);
   if (r.isError) throw new Error(r.content[0]?.text ?? "storage call failed");
