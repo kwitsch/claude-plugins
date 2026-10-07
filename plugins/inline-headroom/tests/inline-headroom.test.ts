@@ -63,10 +63,26 @@ function bottomStep(on: On): StepState {
   return st;
 }
 
-// Stands for the storage MCP server: records every call; `answer`'s value is the tool's result, an Error an error result.
+// Stands for the storage MCP server: connect answers only for the bare key `storage`, like the engine;
+// records every call; `answer`'s value is the tool's result, an Error an error result.
 function stubStorage(on: On, answer: (tool: string, args: Record<string, unknown>) => unknown): StorageCall[] {
   const calls: StorageCall[] = [];
-  on("mcp.connect", async () => ({ value: { isConnected: true as const, server: "plugin:inline-headroom:storage" } }));
+  on("mcp.connect", async (_$, e) =>
+    e.server === "storage"
+      ? {
+          value: {
+            isConnected: true as const,
+            server: "plugin:inline-headroom:storage",
+          },
+        }
+      : {
+          value: {
+            isConnected: false as const,
+            reason: "unlisted" as const,
+            message: `This plugin's manifest lists no MCP server named "${e.server}".`,
+          },
+        },
+  );
   on("mcp.call", async (_$, e) => {
     calls.push({ tool: e.tool, args: e.args });
     const result = answer(e.tool, e.args);
