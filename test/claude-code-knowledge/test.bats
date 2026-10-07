@@ -2433,6 +2433,44 @@ detect_fixture() {
   grep -qxF '    bash ${CLAUDE_SKILL_DIR}/install.sh --dry-run node' "$d/SKILL.md"
 }
 
+@test "--add exits 1 on malformed config or a failed replace, leaving the skill untouched and no temp dir" {
+  local proj="$BATS_TEST_TMPDIR/p_add_fail"
+  local d="$BATS_TEST_TMPDIR/p_add_fail/.claude/skills/init-dev-environment"
+  mkdir -p "$proj"
+  printf '{}\n' > "$proj/package.json"
+  run_detect "$proj" --write
+  [ "$status" -eq 0 ]
+  detect_fixture "$proj"
+  local before; before="$(cat "$d/SKILL.md")"
+  # malformed .mcp.json: detect() throws before any write
+  cp "$proj/.mcp.json" "$BATS_TEST_TMPDIR/mcp.good"
+  printf '%s' '{ not valid json' > "$proj/.mcp.json"
+  run_detect "$proj" --add pnpm
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Malformed"*".mcp.json"* ]]
+  [ "$(cat "$d/SKILL.md")" = "$before" ]
+  cp "$BATS_TEST_TMPDIR/mcp.good" "$proj/.mcp.json"
+  # malformed .lsp.json (non-object) fails the same way
+  printf '[]\n' > "$proj/.lsp.json"
+  run_detect "$proj" --add pnpm
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Malformed"*".lsp.json"* ]]
+  [ "$(cat "$d/SKILL.md")" = "$before" ]
+  printf '%s\n' '{"gopls":{"command":"gopls"}}' > "$proj/.lsp.json"
+  # replace failure: install.sh is swapped first, so a non-empty directory in
+  # its place fails the first rename and SKILL.md must stay as it was
+  rm "$d/install.sh"
+  mkdir -p "$d/install.sh"
+  printf 'x\n' > "$d/install.sh/blocker"
+  run_detect "$proj" --add pnpm
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Failed to update"* ]]
+  [ "$(cat "$d/SKILL.md")" = "$before" ]
+  [ -f "$d/install.sh/blocker" ]
+  run bash -c 'ls -d "$1"/.claude/.init-dev-environment-* "$1"/.claude/skills/.init-dev-environment-* 2>/dev/null' _ "$proj"
+  [ -z "$output" ]
+}
+
 @test "SKILL.md.tmpl: frontmatter, model-invocable, inline, no bang-backtick or plugin-root token" {
   local t="$PLUGIN/skills/repository-audit/templates/init-dev-environment/SKILL.md.tmpl"
   [ -f "$t" ]
