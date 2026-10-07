@@ -2341,6 +2341,76 @@ detect_fixture() {
   [ ! -e "$proj/.claude" ]
 }
 
+@test "--add extends an existing skill with only the confirmed missing ids, byte-identical to a fresh generation" {
+  local proj="$BATS_TEST_TMPDIR/p_add" fresh="$BATS_TEST_TMPDIR/p_add_fresh"
+  local d="$BATS_TEST_TMPDIR/p_add/.claude/skills/init-dev-environment"
+  mkdir -p "$proj"
+  printf '{}\n' > "$proj/package.json"
+  printf 'lockfileVersion: 9.0\n' > "$proj/pnpm-lock.yaml"
+  run_detect "$proj" --write
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.wrote == true and .missingTools == null'
+  run_detect "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.skillExists == true and .missingTools == []'
+  detect_fixture "$proj"
+  printf 'old\n' > "$d/install.sh"
+  printf 'keep\n' > "$d/notes.md"
+  run_detect "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.missingTools == ["cargo","gopls"]'
+  run_detect "$proj" --add "gopls,yarn,docker,node,constructor"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.added == ["gopls"]'
+  rg_or_grep -qF 'install.sh --dry-run node pnpm gopls' "$d/SKILL.md"
+  cmp "$d/install.sh" "$(install_sh)"
+  [ "$(cat "$d/notes.md")" = "keep" ]
+  run bash -c 'ls -d "$1"/.claude/.init-dev-environment-* "$1"/.claude/skills/.init-dev-environment-* 2>/dev/null' _ "$proj"
+  [ -z "$output" ]
+  run rg_or_grep -F '@@' "$d/SKILL.md"; [ "$status" -ne 0 ]
+  run_detect "$proj" --add cargo
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.added == ["cargo"]'
+  run_detect "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.missingTools == []'
+  detect_fixture "$fresh"
+  run_detect "$fresh" --write
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.wrote == true'
+  cmp "$d/SKILL.md" "$fresh/.claude/skills/init-dev-environment/SKILL.md"
+}
+
+@test "--add leaves an unreadable or absent skill untouched" {
+  local proj="$BATS_TEST_TMPDIR/p_add_kept"
+  local d="$BATS_TEST_TMPDIR/p_add_kept/.claude/skills/init-dev-environment"
+  local injected='    bash ${CLAUDE_SKILL_DIR}/install.sh --dry-run node $(id)'
+  detect_fixture "$proj"
+  mkdir -p "$d"
+  printf 'hand edit\n' > "$d/SKILL.md"
+  run_detect "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.skillExists == true and .missingTools == null'
+  run_detect "$proj" --add "node,cargo"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.added == []'
+  [ "$(cat "$d/SKILL.md")" = "hand edit" ]
+  [ ! -e "$d/install.sh" ]
+  printf '%s\n' "$injected" > "$d/SKILL.md"
+  run_detect "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.missingTools == null'
+  run_detect "$proj" --add node
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.added == []'
+  [ "$(cat "$d/SKILL.md")" = "$injected" ]
+  rm -rf "$d"
+  run_detect "$proj" --add node
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.added == [] and .skillExists == false'
+  [ ! -e "$d" ]
+}
+
 @test "SKILL.md.tmpl: frontmatter, model-invocable, inline, no bang-backtick or plugin-root token" {
   local t="$PLUGIN/skills/repository-audit/templates/init-dev-environment/SKILL.md.tmpl"
   [ -f "$t" ]
