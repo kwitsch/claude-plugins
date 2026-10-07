@@ -2355,6 +2355,7 @@ detect_fixture() {
   echo "$output" | jq -e '.skillExists == true and .missingTools == []'
   detect_fixture "$proj"
   printf 'old\n' > "$d/install.sh"
+  chmod 755 "$d/install.sh"
   printf 'keep\n' > "$d/notes.md"
   run_detect "$proj"
   [ "$status" -eq 0 ]
@@ -2364,6 +2365,8 @@ detect_fixture() {
   echo "$output" | jq -e '.added == ["gopls"]'
   rg_or_grep -qF 'install.sh --dry-run node pnpm gopls' "$d/SKILL.md"
   cmp "$d/install.sh" "$(install_sh)"
+  run node -e 'process.stdout.write((require("fs").statSync(process.argv[1]).mode & 0o777).toString(8))' "$d/install.sh"
+  [ "$output" = "755" ]
   [ "$(cat "$d/notes.md")" = "keep" ]
   run bash -c 'ls -d "$1"/.claude/.init-dev-environment-* "$1"/.claude/skills/.init-dev-environment-* 2>/dev/null' _ "$proj"
   [ -z "$output" ]
@@ -2409,6 +2412,25 @@ detect_fixture() {
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '.added == [] and .skillExists == false'
   [ ! -e "$d" ]
+}
+
+@test "--add does not swallow a following flag or project-root path as its id list" {
+  local proj="$BATS_TEST_TMPDIR/p_add_argv"
+  local d="$BATS_TEST_TMPDIR/p_add_argv/.claude/skills/init-dev-environment"
+  mkdir -p "$proj"
+  printf '{}\n' > "$proj/package.json"
+  run_detect "$proj" --write
+  [ "$status" -eq 0 ]
+  detect_fixture "$proj"
+  # `--add <root>`: the path stays the project root, the list is empty
+  run_detect --add "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e --arg r "$proj" '.root == $r and .missingTools == ["pnpm","cargo","gopls"] and .added == []'
+  # `<root> --add --write`: --write is still parsed as a flag
+  run_detect "$proj" --add --write
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.added == [] and .wrote == false and .skillsDirCreated == false'
+  grep -qxF '    bash ${CLAUDE_SKILL_DIR}/install.sh --dry-run node' "$d/SKILL.md"
 }
 
 @test "SKILL.md.tmpl: frontmatter, model-invocable, inline, no bang-backtick or plugin-root token" {

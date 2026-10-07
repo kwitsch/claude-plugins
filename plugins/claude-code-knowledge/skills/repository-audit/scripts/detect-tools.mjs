@@ -11,7 +11,7 @@
 // install.sh with the listed detected tools it lacks added. Diagnostics go to
 // stderr; stdout carries only the JSON result object.
 
-import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, mkdtempSync, chmodSync, renameSync, rmSync, rmdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, mkdtempSync, chmodSync, renameSync, rmSync, rmdirSync, statSync } from "node:fs";
 import { resolve, join, basename, relative } from "node:path";
 
 // audit-lsp.mjs's denylist plus virtualenv, cache and build-output directories:
@@ -226,7 +226,8 @@ function skillToolIds(skillDir, catalogIds) {
  * directory is absent, the temp dir is chmod 0755 (mkdtemp creates 0700) and
  * renamed into place. When it exists, install.sh and then SKILL.md are renamed
  * over the existing files one at a time (a directory rename cannot replace a
- * non-empty directory); other files in it and its mode are kept. On any
+ * non-empty directory), each keeping the mode of the file it replaces; other
+ * files in the directory and its mode are kept. On any
  * failure after mkdtemp the temp dir is removed and the error rethrown, so no
  * partial skill directory is ever left.
  * @param {string} root
@@ -250,9 +251,19 @@ function writeSkill(root, ids, manual) {
     if (replace) {
       // A directory rename cannot replace a non-empty directory: swap file by
       // file, installer first, so a failure in between leaves the newer
-      // installer (a recipe superset) under the older tool list.
-      renameSync(join(tmp, "install.sh"), join(skillDir, "install.sh"));
-      renameSync(join(tmp, "SKILL.md"), join(skillDir, "SKILL.md"));
+      // installer (a recipe superset) under the older tool list. A replaced
+      // file keeps its existing mode (e.g. a committed 0755 install.sh).
+      /**
+       * @param {string} name
+       * @returns {void}
+       */
+      const swap = (name) => {
+        const dest = join(skillDir, name);
+        if (existsSync(dest)) chmodSync(join(tmp, name), statSync(dest).mode & 0o7777);
+        renameSync(join(tmp, name), dest);
+      };
+      swap("install.sh");
+      swap("SKILL.md");
       rmSync(tmp, { recursive: true, force: true });
     } else {
       chmodSync(tmp, 0o755);
@@ -297,12 +308,17 @@ function main() {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--write") write = true;
-    else if (a === "--add")
-      addIds = (argv[++i] || "")
+    else if (a === "--add") {
+      // The id list never starts with "--" or holds a "/", so a following flag
+      // or project-root path is left for the loop instead of being swallowed.
+      const next = argv[i + 1] ?? "";
+      const isList = !next.startsWith("--") && !next.includes("/");
+      if (isList) i++;
+      addIds = (isList ? next : "")
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
-    else if (!a.startsWith("--") && rootArg === null) rootArg = a;
+    } else if (!a.startsWith("--") && rootArg === null) rootArg = a;
   }
   const root = resolve(rootArg ?? ".");
   const skillDir = join(root, ".claude", "skills", "init-dev-environment");
