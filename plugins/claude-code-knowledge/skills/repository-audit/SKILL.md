@@ -175,15 +175,14 @@ Only for the `skillExists`-true case with a non-empty `missingTools`.
 
 - **`$FIX` set** — skip the `AskUserQuestion` gate; treat every `missingTools`
   id as confirmed.
-- **`$FIX` absent** — ask one `AskUserQuestion` question per `missingTools` id,
-  single-select (`multiSelect: false`), header `Dev tool`, at most 4 questions
-  per call, successive calls in `missingTools` order. Question: "Add <id>
-  (detected in <its `evidence`, comma-separated>) to the existing
-  init-dev-environment skill?" Options:
-  - `Add` — "Rewrites the skill's SKILL.md and install.sh from the current
-    template with this tool added; hand edits to those two files are replaced.
-    Installs nothing now."
-  - `Skip` — "Leave this tool out." (record: declined by the user)
+- **`$FIX` absent** — present the `missingTools` ids via `AskUserQuestion`
+  (`multiSelect: true`), chunked as step 4's gate does: one tab per ≤4 ids,
+  ≤4 tabs per call, header `Dev tool`, plus a `"Skip this group"` option on a
+  single-id tab. Each option label begins with the tool id; its description
+  names the detected `evidence` and states that the skill's SKILL.md and
+  install.sh are rewritten from the current template, so hand edits to those two
+  files are replaced, and that nothing is installed now. A selected id is
+  confirmed; an unselected one is declined (record: declined by the user).
 
 When no id is confirmed, run nothing and record the declined ids. Otherwise run
 the confirmed ids, comma-separated with no spaces, and parse the JSON:

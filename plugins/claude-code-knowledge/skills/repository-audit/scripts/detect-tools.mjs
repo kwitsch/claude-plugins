@@ -223,24 +223,24 @@ function skillToolIds(skillDir, catalogIds) {
  * Write <root>/.claude/skills/init-dev-environment/ from the bundled
  * templates. Both templates are read first and the files are built in a
  * same-filesystem temp dir outside the watched skills dir. When the skill
- * directory is absent, the temp dir is chmod 0755 (mkdtemp creates 0700) and
- * renamed into place. When it exists, install.sh and then SKILL.md are renamed
+ * directory is created (`replace` false), the temp dir is chmod 0755 (mkdtemp
+ * creates 0700) and renamed into place. When it is updated (`replace` true), install.sh and then SKILL.md are renamed
  * over the existing files one at a time (a directory rename cannot replace a
  * non-empty directory), each keeping the mode of the file it replaces; other
  * files in the directory and its mode are kept. On any
- * failure after mkdtemp the temp dir is removed and the error rethrown, so no
- * partial skill directory is ever left.
+ * failure after mkdtemp the temp dir is removed and the error rethrown, so a
+ * create never leaves a partial skill directory.
  * @param {string} root
  * @param {string[]} ids
  * @param {{ command: string }[]} manual
+ * @param {boolean} replace true (--add) swaps files into the existing skill directory; false (--write) renames a fresh directory into place, which fails if one appeared meanwhile
  * @returns {boolean} skillsDirCreated — true when this call created <root>/.claude/skills
  */
-function writeSkill(root, ids, manual) {
+function writeSkill(root, ids, manual, replace) {
   const skillTemplate = readFileSync(new URL("../templates/init-dev-environment/SKILL.md.tmpl", import.meta.url), "utf8");
   const installer = readFileSync(new URL("../templates/init-dev-environment/install.sh", import.meta.url));
   const skillsDir = join(root, ".claude", "skills");
   const skillDir = join(skillsDir, "init-dev-environment");
-  const replace = existsSync(skillDir);
   const skillsDirCreated = !existsSync(skillsDir);
   mkdirSync(skillsDir, { recursive: true });
   let tmp = "";
@@ -346,6 +346,7 @@ function main() {
           root,
           found.tools.map((t) => t.id),
           found.manual,
+          false,
         );
       } catch (err) {
         fail(`Failed to write ${skillDir}: ${/** @type {any} */ (err).message}`);
@@ -365,6 +366,7 @@ function main() {
           root,
           found.ids.filter((id) => keep.has(id)),
           found.manual,
+          true,
         );
       } catch (err) {
         fail(`Failed to update ${skillDir}: ${/** @type {any} */ (err).message}`);

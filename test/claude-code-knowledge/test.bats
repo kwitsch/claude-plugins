@@ -2499,7 +2499,7 @@ detect_fixture() {
 
 @test "repository-audit wires the tool-detection phase and the Dev environment report section" {
   local f="$PLUGIN/skills/repository-audit/SKILL.md" tok
-  for tok in 'init-dev-environment' 'detect-tools.reference.md' '${CLAUDE_SKILL_DIR}/scripts/detect-tools.mjs' '--write' '--add' 'skillExists' 'missingTools' 'skillsDirCreated' 'Dev environment' 'Dev tool' 'multiSelect: false'; do
+  for tok in 'init-dev-environment' 'detect-tools.reference.md' '${CLAUDE_SKILL_DIR}/scripts/detect-tools.mjs' '--write' '--add' 'skillExists' 'missingTools' 'skillsDirCreated' 'Dev environment' 'Dev tool' 'multiSelect: true'; do
     rg_or_grep -qF -- "$tok" "$f" || { echo "missing: $tok"; return 1; }
   done
   [ "$(wc -l < "$f")" -lt 500 ]
