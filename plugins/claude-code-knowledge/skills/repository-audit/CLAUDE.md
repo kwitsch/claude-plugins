@@ -6,7 +6,7 @@ Mechanics live in `SKILL.md` and `scripts/detect-tools.reference.md` (script con
 
 - Reuse `lsp-audit` and `memory-audit` verbatim via the `Skill` tool, sequentially; never re-implement their logic here.
 - The structure check is report-only. Its presence bar (root `CLAUDE.md`, `.claude/rules/`) is this skill's own policy, not drawn from `cc-reference`; a missing item becomes a manual to-do pointing at `cc-author`, never auto-generated content.
-- `Edit`/`Write` are used only to apply the `memory-audit` manual to-dos (`suggested_fix: null` — leanness trims, scope-split moves) the user selects via `AskUserQuestion` (`--fix` selects all). The only other file creation goes through `scripts/detect-tools.mjs --write`, which writes only `<ROOT>/.claude/skills/init-dev-environment/` and only when it is absent.
+- `Edit`/`Write` are used only to apply the `memory-audit` manual to-dos (`suggested_fix: null` — leanness trims, scope-split moves) the user selects via `AskUserQuestion` (`--fix` selects all). The only other file writes go through `scripts/detect-tools.mjs`. `--write` creates `<ROOT>/.claude/skills/init-dev-environment/` only when it is absent. `--add <ids>` rewrites only that directory's `SKILL.md` and `install.sh`, only when its tool list is readable, and only to add confirmed detected tools it lacks (never removing one).
 - Never run the generated `install.sh` from this skill.
 
 ## Catalog and template coupling
