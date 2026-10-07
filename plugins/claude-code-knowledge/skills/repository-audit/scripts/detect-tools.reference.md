@@ -56,23 +56,7 @@
 
 ## Output — `--add` mode
 
-```json
-{
-  "root": "/abs/path",
-  "tools": [
-    { "id": "node", "evidence": ["package.json"] },
-    { "id": "cargo", "evidence": ["Cargo.toml"] },
-    { "id": "gopls", "evidence": [".lsp.json: gopls"] }
-  ],
-  "manual": [],
-  "skillDir": "/abs/path/.claude/skills/init-dev-environment",
-  "skillExists": true,
-  "missingTools": ["cargo", "gopls"],
-  "added": ["gopls"]
-}
-```
-
-`added` is the ids written, in catalog order; empty means nothing was written (no skill, an unreadable tool list, nothing missing, or no requested id in `missingTools`). `skillExists` and `missingTools` report the state before the write. With both `--write` and `--add`, both are evaluated against the same pre-write state — `--write` needs `skillExists` false, `--add` a readable existing skill — so at most one of them writes, and the output carries both sets of fields.
+The audit-mode JSON plus one field, `added` (e.g. `"added": ["gopls"]`). `added` is the ids written, in catalog order; empty means nothing was written (no skill, an unreadable tool list, nothing missing, or no requested id in `missingTools`). `skillExists` and `missingTools` report the state before the write. With both `--write` and `--add`, both are evaluated against the same pre-write state — `--write` needs `skillExists` false, `--add` a readable existing skill — so at most one of them writes, and the output carries both sets of fields.
 
 ## Exit codes
 
