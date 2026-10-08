@@ -1,5 +1,4 @@
 ---
-description: Convention for skill invocation control — configure-* skills are user-only; all other skills default to user + model invocable.
 paths:
   - "plugins/*/skills/**/SKILL.md"
   - "plugins/*/SKILL.md"

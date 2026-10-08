@@ -1,6 +1,6 @@
 # CLAUDE.md — coding-toolbox skill: fresh-pr
 
-`SKILL.md`, `agents/ci-watcher.md`, `agents/pr-fixer.md`, `bin/ci-watch.sh` and `rebase.reference.md` are canonical for behavior; this file keeps only rationale and pitfalls.
+`SKILL.md` and `rebase.reference.md` (this dir) plus the plugin-root `agents/ci-watcher.md`, `agents/pr-fixer.md` and `bin/ci-watch.sh` are canonical for behavior; this file keeps only rationale and pitfalls.
 
 ## Skill design (`fresh-pr`)
 

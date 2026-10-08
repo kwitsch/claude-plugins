@@ -10,7 +10,7 @@ Scope: `mcp/server.mjs`, `mcp/cbm-context.mjs`, `mcp/binary-fetch.mjs` and the p
   - It is the repo's first **wrapper-less** MCP server (`command: ${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs`, no `bin/mjs-launch.sh`): the written rule's default, knowingly divergent from the other MCP plugins. Do not "fix" it toward that precedent.
   - Only the transport skeleton (`send`/`ok`/`fail` + method dispatch) and the per-call timeout idiom have precedent in the repo; child spawn, handshake and id remapping are original.
   - `tools/list` is served from the committed `cbm-tools.json` snapshot, so the MCP handshake never waits on a download. Call-time forwarding is name-agnostic: a drifted snapshot costs advertisement, never a working call.
-- `cbm-context.mjs` (`100644`, non-executable helper module) — ~350 pure, unit-tested lines kept out of the transport file (project resolution/cache, result peeling, formatters, `usablePath`, `resolveBundleCache`).
+- `cbm-context.mjs` (`100644`, non-executable helper module) — pure, unit-tested code kept out of the transport file (project resolution/cache, result peeling, formatters, `usablePath`, `resolveBundleCache`).
 - `binary-fetch.mjs` — the download/verify/extract helpers (`fetchExpectedSha`/`downloadToFile`/`findBinaries`) shared with `hooks/rtk-install.mjs`. `mcp/` stays the relocatable, zero-npm-dep unit both consumers import; each keeps its own asset name, binary name and target path.
 - `cbm-tools.json` is machine-owned.
 
