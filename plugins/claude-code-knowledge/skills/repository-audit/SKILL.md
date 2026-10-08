@@ -1,9 +1,9 @@
 ---
 name: repository-audit
-description: Run a full repository audit of a project's Claude Code setup end to end — first flag whether the baseline memory files (a root CLAUDE.md and a .claude/rules/ directory) exist, then run the existing lsp-audit LSP-coverage pass and the memory-audit memory-quality pass in sequence (forwarding the same --fix flag and repo path), offer the manual to-dos memory-audit returns (leanness trims, scope-split moves) for selection via AskUserQuestion (--fix applies them all), then detect the development tools the repository uses (runtimes, package managers, LSP servers — git, bash, curl and Claude Code are assumed present) and offer to create a project-level init-dev-environment skill that installs them at user level into ~/.local/bin (--fix creates it without asking), and fold all four passes into one combined report with Structure, LSP audit, Memory audit, and Dev environment sections. Reuses lsp-audit and memory-audit verbatim via the Skill tool rather than re-implementing them; the phase-1 structure check is report-only and never writes. Use when the user asks to audit, check, or fix a repository's Claude Code memory structure or dev-environment setup, or to run a full repository audit.
+description: Run a full repository audit of a project's Claude Code setup end to end — first flag whether the baseline memory files (a root CLAUDE.md and a .claude/rules/ directory) exist, then run the existing lsp-audit LSP-coverage pass and the memory-audit memory-quality pass in sequence (forwarding the same --fix flag and repo path), offer the manual to-dos memory-audit returns (leanness trims, scope-split moves) for selection via AskUserQuestion (--fix applies them all), then detect the development tools the repository uses (runtimes, package managers, LSP servers — git, bash, curl and Claude Code are assumed present) and offer to create a project-level init-dev-environment skill that installs them at user level into ~/.local/bin (--fix creates it without asking) — or, when that skill already exists, offer per tool to add each detected tool it lacks (--fix adds them all) — and fold all four passes into one combined report with Structure, LSP audit, Memory audit, and Dev environment sections. Reuses lsp-audit and memory-audit verbatim via the Skill tool rather than re-implementing them; the phase-1 structure check is report-only and never writes. Use when the user asks to audit, check, or fix a repository's Claude Code memory structure or dev-environment setup, or to run a full repository audit.
 argument-hint: [--fix] [optional repo path]
 allowed-tools: Bash, Read, Edit, Write, Skill, AskUserQuestion
-# review-skip(F1): unscoped Bash/Edit/Write is required — the structure check runs test against an arbitrary repo root supplied at runtime, scripts/detect-tools.mjs scans that root and, on confirmation, writes its .claude/skills/init-dev-environment/, and step 4 applies selected memory-audit manual tasks to arbitrary CLAUDE.md/.claude/rules files; allowed-tools only pre-approves, never restricts. Edit/Write are used only for those manual tasks; the other file creation this skill performs itself goes through scripts/detect-tools.mjs; the nested lsp-audit/memory-audit own their own writes under their own frontmatter.
+# review-skip(F1): unscoped Bash/Edit/Write is required — the structure check runs test against an arbitrary repo root supplied at runtime, scripts/detect-tools.mjs scans that root and, on confirmation, writes or extends its .claude/skills/init-dev-environment/, and step 4 applies selected memory-audit manual tasks to arbitrary CLAUDE.md/.claude/rules files; allowed-tools only pre-approves, never restricts. Edit/Write are used only for those manual tasks; the other file creation this skill performs itself goes through scripts/detect-tools.mjs; the nested lsp-audit/memory-audit own their own writes under their own frontmatter.
 ---
 
 # repository-audit — full Claude Code repository audit
@@ -19,7 +19,7 @@ check, the manual-task gate for `memory-audit`'s to-dos (step 4), the
 tool-detection phase (whose scanning and file writing live in
 `scripts/detect-tools.mjs`), and the orchestration/report wrapper. **This skill
 runs inline (depth 0)** — it drives two nested inline skills in the same turn
-(each may raise its own `AskUserQuestion` gate) and raises its own step-6 gate;
+(each may raise its own `AskUserQuestion` gate) and raises its own step-6 gates;
 never run it as `context: fork`.
 
 > **Ask the user via `AskUserQuestion`.** When this skill needs a decision from
@@ -56,8 +56,8 @@ grounded creation — never auto-generate content for it. Phase 1 has no `--fix`
 behavior of its own (missing files are never created even when `$FIX` is set) and
 raises no phase-1 `AskUserQuestion` gate; `$FIX` propagates forward into the
 two nested audits (steps 3–4), also confirms the step-4 manual-task gate, and
-confirms the step-6 init-dev-environment creation gate. No `Write`/`Edit` is
-used here.
+confirms both step-6 init-dev-environment gates (creating the skill, and adding
+detected tools an existing one lacks). No `Write`/`Edit` is used here.
 
 If `$ROOT` does not resolve to an existing directory at all, say so explicitly
 and stop before steps 3–6 (the two nested skills and the tool-detection phase)
@@ -111,7 +111,7 @@ auto-commit.
 ## 5. Read scripts/detect-tools.reference.md
 
 Read `scripts/detect-tools.reference.md` (colocated with the script) for the
-script's invocation contract — the audit and `--write` modes, the
+script's invocation contract — the audit, `--write` and `--add` modes, the
 `<project-root>` positional, the output-JSON schemas, and the exit codes. Per
 its table.
 
@@ -132,13 +132,18 @@ object to stdout (the audit schema in the reference). Parse it, then:
   the assumed-present git, bash, curl, Claude Code" plus every `manual` entry as
   a manual to-do (this covers the manual-only case too — there is nothing the
   generated skill could install).
-- **`skillExists` is true** — no question, nothing written. Record "`<skillDir>`
-  already exists, left untouched. To regenerate it from the current detection,
-  delete that directory and run repository-audit again." Also `Read`
-  `<skillDir>/SKILL.md` and compare its `description` tool list with the
-  detected `tools` ids — an earlier run's generated `install.sh` or lsp-audit's
-  additions can add a tool the existing skill lacks. Name every detected id it
-  does not list as missing from the existing skill (still nothing written).
+- **`skillExists` is true** — the script has already compared the existing
+  skill's tool list (its `install.sh --dry-run <ids>` line) with the detected
+  `tools`:
+  - **`missingTools` is null** — the list could not be read (hand-edited, or not
+    generated by repository-audit). No question, nothing written. Record
+    "`<skillDir>` exists but its tool list could not be read, left untouched. To
+    regenerate it from the current detection, delete that directory and run
+    repository-audit again."
+  - **`missingTools` is empty** — no question, nothing written. Record
+    "`<skillDir>` already covers every detected tool."
+  - **Otherwise** — offer each missing tool as described in "Add tools missing
+    from the existing skill" below.
 - **Otherwise, gate.** When `$FIX` is set, skip the question entirely and treat
   it as confirmed. Otherwise ask one `AskUserQuestion` — single-select, header
   `Dev env`, question "Create a project-level init-dev-environment skill that
@@ -164,6 +169,34 @@ If confirmed, run the write and parse its JSON:
 
 Never run the generated `install.sh` from this skill.
 
+### Add tools missing from the existing skill
+
+Only for the `skillExists`-true case with a non-empty `missingTools`.
+
+- **`$FIX` set** — skip the `AskUserQuestion` gate; treat every `missingTools`
+  id as confirmed.
+- **`$FIX` absent** — present the `missingTools` ids via `AskUserQuestion`
+  (`multiSelect: true`), chunked as step 4's gate does: one tab per ≤4 ids,
+  ≤4 tabs per call, header `Dev tool`, plus a `"Skip this group"` option on a
+  single-id tab. Each option label begins with the tool id; its description
+  names the detected `evidence` and states that the skill's SKILL.md and
+  install.sh are rewritten from the current template, so hand edits to those two
+  files are replaced, and that nothing is installed now. A selected id is
+  confirmed; an unselected one is declined (record: declined by the user).
+
+When no id is confirmed, run nothing and record the declined ids. Otherwise run
+the confirmed ids, comma-separated with no spaces, and parse the JSON:
+
+    node ${CLAUDE_SKILL_DIR}/scripts/detect-tools.mjs "$ROOT" --add "<id>,<id>"
+
+- **`added` is non-empty** — record "extended with <added ids>", plus any
+  declined ids, and the next step: review and commit the directory, then run
+  `/init-dev-environment` to install the new tools.
+- **A confirmed id is absent from `added`** (the tree changed between the two
+  calls) — record it as no longer missing.
+- **Non-zero exit** — record the error. Per the reference, a failure between
+  the two file swaps leaves the refreshed `install.sh` under the old tool list.
+
 ## 7. Combined report
 
 Emit one final report with exactly four named sections, in this order:
@@ -179,8 +212,10 @@ Emit one final report with exactly four named sections, in this order:
 4. **Dev environment** — the step-6 findings and outcome: each detected tool id
    with its `evidence`; every `manual` entry as a manual to-do; and the outcome
    — created (with the path and next steps, including the restart note when
-   `skillsDirCreated` is true), skipped by the user, already exists (left
-   untouched, naming any detected tool it lacks), nothing installable detected, or failed (with the error).
+   `skillsDirCreated` is true), skipped by the user, extended with the added
+   tool ids (naming any declined), already covers every detected tool, existing
+   skill's tool list unreadable (left untouched), nothing installable detected,
+   or failed (with the error).
 
 This is a recap/wrapper, not a re-derivation — no structured data crosses the
 inline nested-skill boundary, so the LSP audit and Memory audit sections are

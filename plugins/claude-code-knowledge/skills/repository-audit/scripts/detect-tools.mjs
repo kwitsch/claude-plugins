@@ -7,10 +7,11 @@
 // against the bundled tool-map.json catalog. Zero-dep. Audit mode is
 // read-only; --write renders the bundled init-dev-environment templates into
 // <root>/.claude/skills/init-dev-environment/ atomically, only when that
-// directory is absent. Diagnostics go to stderr; stdout carries only the JSON
-// result object.
+// directory is absent; --add <ids> re-renders an existing skill's SKILL.md and
+// install.sh with the listed detected tools it lacks added. Diagnostics go to
+// stderr; stdout carries only the JSON result object.
 
-import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, mkdtempSync, chmodSync, renameSync, rmSync, rmdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, mkdtempSync, chmodSync, renameSync, rmSync, rmdirSync, statSync } from "node:fs";
 import { resolve, join, basename, relative } from "node:path";
 
 // audit-lsp.mjs's denylist plus virtualenv, cache and build-output directories:
@@ -149,9 +150,10 @@ function configCommands(root) {
 /**
  * Classify signal files and config commands into catalog tools and manual
  * to-dos. Evidence is unique, in insertion order (signal files first, then
- * config commands), capped at EVIDENCE_CAP.
+ * config commands), capped at EVIDENCE_CAP. Also returns the catalog ids in
+ * catalog key order.
  * @param {string} root
- * @returns {{ tools: { id: string, evidence: string[] }[], manual: { command: string, evidence: string[] }[] }}
+ * @returns {{ tools: { id: string, evidence: string[] }[], manual: { command: string, evidence: string[] }[], ids: string[] }}
  */
 function detect(root) {
   const { fileIndex, commandIndex, ids } = loadCatalog();
@@ -179,7 +181,7 @@ function detect(root) {
   }
   const tools = ids.filter((id) => toolEvidence.has(id)).map((id) => ({ id, evidence: toolEvidence.get(id) || [] }));
   const manual = [...manualEvidence.keys()].sort().map((command) => ({ command, evidence: manualEvidence.get(command) || [] }));
-  return { tools, manual };
+  return { tools, manual, ids };
 }
 
 /**
@@ -194,20 +196,51 @@ function render(template, ids, manual) {
 }
 
 /**
- * Write <root>/.claude/skills/init-dev-environment/ atomically: both templates
- * are read first, the skill is built in a same-filesystem temp dir outside the
- * watched skills dir, chmod 0755 (mkdtemp creates 0700), then renamed into
- * place. On any failure after mkdtemp the temp dir is removed and the error
- * rethrown, so no partial skill directory is ever left.
+ * The tool ids an existing init-dev-environment skill installs, read from the
+ * first `install.sh --dry-run <ids>` line of its SKILL.md. null when SKILL.md
+ * cannot be read, has no such line, or lists any token that is not a catalog
+ * id — a hand-edited list is never guessed at, nor re-rendered into the
+ * skill's shell command lines.
+ * @param {string} skillDir
+ * @param {string[]} catalogIds
+ * @returns {string[] | null}
+ */
+function skillToolIds(skillDir, catalogIds) {
+  let text;
+  try {
+    text = readFileSync(join(skillDir, "SKILL.md"), "utf8");
+  } catch {
+    return null;
+  }
+  const m = /install\.sh --dry-run ([^\n]*)/.exec(text);
+  if (!m) return null;
+  const known = new Set(catalogIds);
+  const listed = m[1].trim().split(/\s+/);
+  return listed.every((id) => known.has(id)) ? listed : null;
+}
+
+/**
+ * Write <root>/.claude/skills/init-dev-environment/ from the bundled
+ * templates. Both templates are read first and the files are built in a
+ * same-filesystem temp dir outside the watched skills dir. When the skill
+ * directory is created (`replace` false), the temp dir is chmod 0755 (mkdtemp
+ * creates 0700) and renamed into place. When it is updated (`replace` true), install.sh and then SKILL.md are renamed
+ * over the existing files one at a time (a directory rename cannot replace a
+ * non-empty directory), each keeping the mode of the file it replaces; other
+ * files in the directory and its mode are kept. On any
+ * failure after mkdtemp the temp dir is removed and the error rethrown, so a
+ * create never leaves a partial skill directory.
  * @param {string} root
  * @param {string[]} ids
  * @param {{ command: string }[]} manual
+ * @param {boolean} replace true (--add) swaps files into the existing skill directory; false (--write) renames a fresh directory into place, which fails if one appeared meanwhile
  * @returns {boolean} skillsDirCreated — true when this call created <root>/.claude/skills
  */
-function writeSkill(root, ids, manual) {
+function writeSkill(root, ids, manual, replace) {
   const skillTemplate = readFileSync(new URL("../templates/init-dev-environment/SKILL.md.tmpl", import.meta.url), "utf8");
   const installer = readFileSync(new URL("../templates/init-dev-environment/install.sh", import.meta.url));
   const skillsDir = join(root, ".claude", "skills");
+  const skillDir = join(skillsDir, "init-dev-environment");
   const skillsDirCreated = !existsSync(skillsDir);
   mkdirSync(skillsDir, { recursive: true });
   let tmp = "";
@@ -215,8 +248,27 @@ function writeSkill(root, ids, manual) {
     tmp = mkdtempSync(join(root, ".claude", ".init-dev-environment-"));
     writeFileSync(join(tmp, "SKILL.md"), render(skillTemplate, ids, manual));
     writeFileSync(join(tmp, "install.sh"), installer);
-    chmodSync(tmp, 0o755);
-    renameSync(tmp, join(skillsDir, "init-dev-environment"));
+    if (replace) {
+      // A directory rename cannot replace a non-empty directory: swap file by
+      // file, installer first, so a failure in between leaves the newer
+      // installer (a recipe superset) under the older tool list. A replaced
+      // file keeps its existing mode (e.g. a committed 0755 install.sh).
+      /**
+       * @param {string} name
+       * @returns {void}
+       */
+      const swap = (name) => {
+        const dest = join(skillDir, name);
+        if (existsSync(dest)) chmodSync(join(tmp, name), statSync(dest).mode & 0o7777);
+        renameSync(join(tmp, name), dest);
+      };
+      swap("install.sh");
+      swap("SKILL.md");
+      rmSync(tmp, { recursive: true, force: true });
+    } else {
+      chmodSync(tmp, 0o755);
+      renameSync(tmp, skillDir);
+    }
   } catch (err) {
     if (tmp) rmSync(tmp, { recursive: true, force: true });
     // Undo the skills dir this call created, so a retry still reports
@@ -251,9 +303,22 @@ function main() {
   /** @type {string | null} */
   let rootArg = null;
   let write = false;
-  for (const a of argv) {
+  /** @type {string[] | null} */
+  let addIds = null;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
     if (a === "--write") write = true;
-    else if (!a.startsWith("--") && rootArg === null) rootArg = a;
+    else if (a === "--add") {
+      // The id list never starts with "--" or holds a "/", so a following flag
+      // or project-root path is left for the loop instead of being swallowed.
+      const next = argv[i + 1] ?? "";
+      const isList = !next.startsWith("--") && !next.includes("/");
+      if (isList) i++;
+      addIds = (isList ? next : "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    } else if (!a.startsWith("--") && rootArg === null) rootArg = a;
   }
   const root = resolve(rootArg ?? ".");
   const skillDir = join(root, ".claude", "skills", "init-dev-environment");
@@ -268,8 +333,10 @@ function main() {
   }
 
   const skillExists = existsSync(skillDir);
+  const listed = skillExists ? skillToolIds(skillDir, found.ids) : null;
+  const missingTools = listed ? found.tools.map((t) => t.id).filter((id) => !listed.includes(id)) : null;
   /** @type {Record<string, any>} */
-  const out = { root, tools: found.tools, manual: found.manual, skillDir, skillExists };
+  const out = { root, tools: found.tools, manual: found.manual, skillDir, skillExists, missingTools };
   if (write) {
     const wrote = found.tools.length > 0 && !skillExists;
     let skillsDirCreated = false;
@@ -279,6 +346,7 @@ function main() {
           root,
           found.tools.map((t) => t.id),
           found.manual,
+          false,
         );
       } catch (err) {
         fail(`Failed to write ${skillDir}: ${/** @type {any} */ (err).message}`);
@@ -287,6 +355,25 @@ function main() {
     }
     out.wrote = wrote;
     out.skillsDirCreated = skillsDirCreated;
+  }
+  if (addIds) {
+    const requested = new Set(addIds);
+    const added = (missingTools || []).filter((id) => requested.has(id));
+    if (added.length) {
+      const keep = new Set([...(listed || []), ...added]);
+      try {
+        writeSkill(
+          root,
+          found.ids.filter((id) => keep.has(id)),
+          found.manual,
+          true,
+        );
+      } catch (err) {
+        fail(`Failed to update ${skillDir}: ${/** @type {any} */ (err).message}`);
+        return;
+      }
+    }
+    out.added = added;
   }
   process.stdout.write(JSON.stringify(out, null, 2) + "\n");
 }
