@@ -227,7 +227,7 @@ test("(i) /headroom opens the headroom pane and prints nothing", async ($, on) =
   const out = await $.command.run({ command: "headroom" });
   expect(out.text).toBeUndefined();
   expect(opened.length).toBe(1);
-  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true });
+  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 14 });
 });
 
 test("(i2) /headroom falls back to the stats tables as text when the pane is not placed", async ($, on) => {
@@ -316,7 +316,7 @@ test("(n) storage_enabled false: the storage rows say storage is off and nothing
   await $.command.run({ command: "headroom" });
   const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
   expect(await ui.find({ type: "Text", text: /storage is off/ })).toBeDefined();
-  expect(await ui.find({ type: "Text", text: /^–$/ })).toBeDefined();
+  expect(await ui.findAll({ type: "Text", text: /^–$/ })).toHaveLength(13); // 3 storage rows x 2 columns x 2 tables, plus the session hit (no tokens counted)
   await clock.advance(30_000); // no refresh timer runs with storage off
   await ui.unmount();
   await step($, 0, "high");

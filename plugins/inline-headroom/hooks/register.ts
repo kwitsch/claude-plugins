@@ -37,6 +37,7 @@ let loading: Promise<void> | undefined; // the fetch in flight: a tick never sta
 let poll: Timer | undefined; // the open pane's 10 s refresh
 
 const PANE = "headroom"; // the /headroom pane's id (1-64 of letters, digits, _ and -)
+const PANE_ROWS = 14; // body height asked for when seated inline: two 5-row tables, two gaps, the volatile header, the storage note
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 // Moves one counter in the session row and in the deltas still to persist.
@@ -98,7 +99,7 @@ export const register: Register = (on, options) => {
   const volatileLines = (): string[] => [stats.volatile.length ? "volatile shared values:" : "volatile shared values: none", ...stats.volatile.map((v) => `  ${v.id} ${v.kind} ${v.sample}`)];
 
   on("command.run", { command: "headroom" }, async ($) => {
-    const r = await $.ui.open({ id: PANE, title: "Headroom", focus: true, closeOnEscape: true });
+    const r = await $.ui.open({ id: PANE, title: "Headroom", focus: true, closeOnEscape: true, rows: PANE_ROWS });
     if (r.isPlaced) {
       // Pane placed: print nothing (no transcript line, nothing in the model's context).
       if (storageOn) {
