@@ -108,15 +108,23 @@ export const register: Register = (on, options) => {
     !storageOn ? "storage is off (storage_enabled is not true): only the session row is kept" : sums?.error === undefined ? undefined : `storage unavailable: ${sums.error}`;
   // No note means the numbers are still loading ("…"); a note means they never will come ("–").
   // The session row shows its last step's hit ratio; the storage rows are token-weighted over their windows.
-  const tables = (): string[][][] => statsTables([{ ...session, hit: stats.lastHit }, ...(sums?.data ?? [])], note() === undefined ? "…" : "–");
-  // One row per finding, so a long list wraps per row instead of one clipped line.
-  const volatileLines = (): string[] => [stats.volatile.length ? "volatile shared values:" : "volatile shared values: none", ...stats.volatile.map((v) => `  ${v.id} ${v.kind} ${v.sample}`)];
+  // Each table is shown only while the lever it counts is on; the storage rows sit in both.
+  const tables = (): string[][][] => {
+    const [effort, cache] = statsTables([{ ...session, hit: stats.lastHit }, ...(sums?.data ?? [])], note() === undefined ? "…" : "–");
+    return [...(effortOn ? [effort] : []), ...(cacheOn ? [cache] : [])];
+  };
+  // One row per finding, so a long list wraps per row instead of one clipped line. The list belongs to the cache aligner.
+  const volatileLines = (): string[] =>
+    !cacheOn ? [] : [stats.volatile.length ? "volatile shared values:" : "volatile shared values: none", ...stats.volatile.map((v) => `  ${v.id} ${v.kind} ${v.sample}`)];
+  // With both levers off there is nothing to show, so nothing is read from storage either.
+  const idle = (): string | undefined => (effortOn || cacheOn ? undefined : "effort routing and cache aligner are off: nothing to show");
+  const rowsShown = storageOn && idle() === undefined;
 
   on("command.run", { command: "headroom" }, async ($) => {
     const r = await $.ui.open({ id: PANE, title: "Headroom", focus: true, closeOnEscape: true, rows: PANE_ROWS });
     if (r.isPlaced) {
       // Pane placed: print nothing (no transcript line, nothing in the model's context).
-      if (storageOn) {
+      if (rowsShown) {
         poll?.cancel(); // re-opening an open pane restarts its refresh instead of stacking a second one
         poll = undefined;
         arm($);
@@ -124,13 +132,15 @@ export const register: Register = (on, options) => {
       return {};
     }
     // Not placed (headless/SDK, narrow terminal): the same tables as text, read from storage once.
-    if (storageOn) await refresh($);
+    const off = idle();
+    if (off !== undefined) return { text: off };
+    if (rowsShown) await refresh($);
     const n = note();
     return { text: [tables().map(tableText).join("\n\n"), ...(n === undefined ? [] : [n]), ...volatileLines()].join("\n") };
   });
 
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
-    if (storageOn) arm($); // a hot reload leaves the pane open with no timer: its first redraw re-arms the refresh
+    if (rowsShown) arm($); // a hot reload leaves the pane open with no timer: its first redraw re-arms the refresh
     const { Box, Text } = $.ui.resolve(e);
     // Box cells, not padded text: the columns line up on every surface, proportional fonts included.
     const table = (rows: string[][]) =>
@@ -149,6 +159,8 @@ export const register: Register = (on, options) => {
           }),
         ),
       });
+    const off = idle();
+    if (off !== undefined) return Box({ flexDirection: "column", children: [Text({ dimColor: true, children: [off] })] });
     const n = note();
     return Box({
       flexDirection: "column",

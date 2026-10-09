@@ -491,3 +491,41 @@ test("(x) a failed refresh keeps the last numbers under the storage note", async
   expect(await cell(ui, "17")).toBeDefined(); // the 7-day steps from the last good fetch
   await ui.unmount();
 });
+
+test("(y) the effort routing table is shown only while effort_routing_enabled is on", { options: { effort_routing_enabled: false } }, async ($, on) => {
+  const clock = mock.clock(on, { now: NOW });
+  stubWindows(on, () => windowSums(dayKey(NOW)));
+  on("ui.open", async () => ({ value: { isPlaced: true as const } }));
+  await $.command.run({ command: "headroom" });
+  await clock.settle();
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  expect(await ui.find({ type: "Text", text: /^effort routing$/ })).toBeUndefined();
+  expect(await ui.find({ type: "Text", text: /^cache aligner$/ })).toBeDefined();
+  await ui.unmount();
+});
+
+test("(z) the cache aligner table and the volatile list are shown only while cache_aligner_enabled is on", { options: { cache_aligner_enabled: false } }, async ($, on) => {
+  const clock = mock.clock(on, { now: NOW });
+  stubWindows(on, () => windowSums(dayKey(NOW)));
+  on("ui.open", async () => ({ value: { isPlaced: true as const } }));
+  await $.command.run({ command: "headroom" });
+  await clock.settle();
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  expect(await ui.find({ type: "Text", text: /^cache aligner$/ })).toBeUndefined();
+  expect(await ui.find({ type: "Text", text: /^effort routing$/ })).toBeDefined();
+  expect(await ui.find({ type: "Text", text: /^volatile shared values/ })).toBeUndefined();
+  await ui.unmount();
+});
+
+test("(aa) with both levers off the pane says so, and reads nothing from storage", { options: { effort_routing_enabled: false, cache_aligner_enabled: false } }, async ($, on) => {
+  const clock = mock.clock(on, { now: NOW });
+  const calls = stubWindows(on, () => windowSums(dayKey(NOW)));
+  on("ui.open", async () => ({ value: { isPlaced: true as const } }));
+  await $.command.run({ command: "headroom" });
+  await clock.advance(30_000); // no refresh timer runs
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  expect(await ui.find({ type: "Text", text: /^effort routing and cache aligner are off/ })).toBeDefined();
+  expect(await ui.find({ type: "Text", text: /^effort routing$/ })).toBeUndefined();
+  expect(calls).toHaveLength(0);
+  await ui.unmount();
+});

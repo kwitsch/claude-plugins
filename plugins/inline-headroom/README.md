@@ -72,6 +72,10 @@ volatile shared values: none
   live. `today`, `7 days` and `30 days` are rolling windows of local calendar
   days that include today: totals across all sessions on this host, read from
   [storage](#storage) when the pane opens and every 10 s while it stays open.
+- **Tables follow their levers.** `effort routing` is shown only while
+  `effort_routing_enabled` is on. `cache aligner` and the volatile list are shown
+  only while `cache_aligner_enabled` is on. With both off the pane says so and
+  reads nothing from storage.
 - **`hit`** is the cache hit ratio (cache reads / all input tokens). The
   `session` row shows its last step's ratio; the storage rows show the
   token-weighted ratio over their window. It reads `–` while no tokens were
