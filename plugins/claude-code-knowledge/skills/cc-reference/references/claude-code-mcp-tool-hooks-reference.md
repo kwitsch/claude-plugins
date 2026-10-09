@@ -1,6 +1,6 @@
 # Claude Code mcp_tool hooks reference
 
-<!-- verified 2026-10-02 · CURATED: doc-derived + hard-won gotchas. The server-name
+<!-- verified 2026-10-09 · CURATED: doc-derived + hard-won gotchas. The server-name
      namespacing rule below is now documented (code.claude.com/docs/en/hooks §MCP tool
      hook fields; code.claude.com/docs/en/mcp §Plugin-provided MCP servers) — preserve
      it on any refresh regardless; never regenerate this file wholesale. -->
@@ -16,13 +16,13 @@ Five hook types exist: `command`, `http`, `mcp_tool`, `prompt`, `agent`. This ta
 covers the `mcp_tool` vs `command` split; for `http`/`prompt`/`agent` see
 `hook-handler-selection.md`.
 
-| Situation                                                                                                                                                            | Handler                                                                                            |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Non-blocking, mid-session (`PreToolUse`/`PostToolUse`/`Stop`/`SubagentStop`/`Elicitation`/`ElicitationResult`/…): inject context, observe, reuse a live runtime/deps | **`mcp_tool`** (preferred)                                                                         |
-| Fires before the server connects (`SessionStart` at launch, `Setup`)                                                                                                 | command (`.mjs`) — server not up yet → `mcp_tool` hooks are skipped outright, not just failed open |
-| Fail-closed hard gate (must deny/abort, needs exit 2)                                                                                                                | command — `mcp_tool` has no exit-2 path, fails open if server down                                 |
-| Must hard-deny an MCP server elicitation (`Elicitation` exit-2 = deny; `ElicitationResult` exit-2 = block/decline)                                                   | command — `mcp_tool` can only soft-deny via returned JSON                                          |
-| Must-fire side-effect (snapshot, state-write other hooks read)                                                                                                       | command — `mcp_tool` silently no-ops when the server is down                                       |
+| Situation                                                                                                                                                            | Handler                                                                                                    |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Non-blocking, mid-session (`PreToolUse`/`PostToolUse`/`Stop`/`SubagentStop`/`Elicitation`/`ElicitationResult`/…): inject context, observe, reuse a live runtime/deps | **`mcp_tool`** (preferred)                                                                                 |
+| Fires before the server connects (`SessionStart` at launch, `Setup`)                                                                                                 | command (`.mjs`) — server not up yet → `mcp_tool` hooks are skipped outright, not just failed open         |
+| Fail-closed hard gate (must deny/abort, needs exit 2)                                                                                                                | command — `mcp_tool` has no exit-2 path, fails open if server down                                         |
+| Must decline an MCP server elicitation even if the hook backend is down (`Elicitation` exit-2 = decline; `ElicitationResult` exit-2 = block/decline)                 | command — `mcp_tool` declines only via returned JSON (see _Output contract_) and fails open if server down |
+| Must-fire side-effect (snapshot, state-write other hooks read)                                                                                                       | command — `mcp_tool` silently no-ops when the server is down                                               |
 
 `mcp_tool` needs a **connected** server at call time; the hook never starts an
 OAuth flow (authenticate the server from `/mcp` first). `SessionStart` and `Setup`
@@ -55,6 +55,10 @@ occurs both when the named server is **not connected** AND when the tool returns
 `isError: true`. So a tool that signals an error cannot block — to deny/abort, return
 a valid hook-decision JSON (see _Output contract_), never `isError`.
 
+`onFailure: "block"` (version >= v2.1.295) turns a failed or timed-out hook into a block,
+but it is a `command`/`http` field only — the `mcp_tool` field table has no `onFailure`,
+so an `mcp_tool` hook has no fail-closed option.
+
 ## Hook fields
 
 | Field    | Required | Notes                                                                                                                                                                                                             |
@@ -68,8 +72,9 @@ Common fields apply (`if`, `statusMessage`, and `timeout`). `if` is evaluated on
 `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest`, and
 `PermissionDenied`; on any other event a hook with `if` set never runs. Default
 `timeout` is 600 s for most events; `UserPromptSubmit`, `PreModelSwitch`, and
-`PostModelSwitch` lower the default to 30 s; `MessageDisplay` lowers it to 10 s. Set the
-field explicitly when you need a different value.
+`PostModelSwitch` lower the default to 30 s; `MessageDisplay` lowers it to 10 s;
+`SessionEnd` hooks share a 1.5 s budget, raised to a longer per-hook `timeout` (up to
+60 s). Set the field explicitly when you need a different value.
 
 A hook that reaches `timeout` is canceled and its output discarded. On `PreToolUse` the
 tool call then continues through the normal permission flow — a stalled `mcp_tool` hook
@@ -94,7 +99,10 @@ Hook-tool _matchers_ (a different surface) use the sanitized tool name
 `mcp__plugin_<plugin>_<server-key>__<tool>` (chars outside `[A-Za-z0-9_-]` → `_`;
 hyphens preserved, e.g. `mcp__plugin_my-plugin_database-tools__query`); the `server`
 field uses the colon-form connected name. A matcher written against the bare server key
-(e.g. `mcp__database-tools__.*`) never fires for a plugin-bundled server.
+(e.g. `mcp__database-tools__.*`) never fires for a plugin-bundled server. A handler's
+`if` field takes the same scoped tool name. A server-wide matcher needs the trailing
+`.*` (`mcp__plugin_my-plugin_database-tools__.*`); without it the matcher is an exact
+string and matches no tool.
 
 ## Output contract
 
@@ -112,11 +120,20 @@ emit exit code 2.
 - Parse rule (same as command-hook stdout on exit 0): text that starts with `{` and ends
   with `}` is parsed as JSON; JSON-shaped text that fails to parse or fails schema
   validation is a non-blocking error (version >= 2.1.248; earlier versions treated it as
-  plain text); any other text is plain text, added as context only on
-  `UserPromptSubmit`, `UserPromptExpansion`, `SessionStart`, and `PostModelSwitch`
-  (debug log only elsewhere).
+  plain text); any other text is plain text — text starting with `{` but not ending
+  with `}`, a JSON array, and a quoted JSON string included. Multi-line output where each
+  line parses as JSON on its own is plain text too, unless a line is a hook-output object
+  that sets a field (then the whole output is a parse failure). Plain text is added as
+  context only on `UserPromptSubmit`, `UserPromptExpansion`, `SessionStart`, and
+  `PostModelSwitch` (debug log only elsewhere); text that failed to parse is not added.
 - Soft-block only: on block-capable events it can return `permissionDecision:"deny"`
   / `decision:"block"`, but if the server is down it **fails open** (no block).
+- `Elicitation`/`ElicitationResult`: output is read like exit-0 stdout, so return
+  `{"hookSpecificOutput":{"hookEventName":"Elicitation","action":"decline"}}` (or
+  `"cancel"`; `"accept"` with `content`) to answer or decline. A top-level
+  `decision:"block"` also declines. `ElicitationResult` hooks do not run when an
+  `Elicitation` hook answered the request. `reason`, `systemMessage`, and `continue`
+  are discarded on both events.
 
 ## Self-contained plugin server pattern
 
@@ -146,11 +163,15 @@ plugins/<name>/
   Not supported on `SessionStart`, `Setup`, `MessageDisplay`, or any event the docs list
   as `command`/`http`/`mcp_tool`-only (e.g. `Notification`, `SessionEnd`, `PreCompact`).
 - `Elicitation` and `ElicitationResult` events added: fire during MCP server elicitation
-  flows. `mcp_tool` hooks can fire on both and soft-deny via returned JSON. Command hooks
-  with exit 2 hard-deny: `Elicitation` exit-2 = deny the elicitation; `ElicitationResult`
-  exit-2 = block the response (action becomes decline). On both events, an exit-2 hook's
-  `hookSpecificOutput` is ignored (mcp_tool can't emit exit-2 anyway, so mcp_tool can only
-  soft-deny these events).
+  flows. `mcp_tool` hooks can fire on both and decline via returned JSON (`hookSpecificOutput`
+  `action`, or top-level `decision:"block"`; the server then receives `decline`). Command
+  hooks with exit 2 also decline: `Elicitation` exit-2 = decline the elicitation;
+  `ElicitationResult` exit-2 = block the response (action becomes decline). On both events,
+  an exit-2 hook's `hookSpecificOutput` is ignored (mcp_tool can't emit exit-2 anyway, and
+  fails open if its server is down). A top-level `decision` on these events was ignored
+  from v2.1.105 until the fix in v2.1.284.
+- version >= v2.1.295: `onFailure: "block"` exists, as a `command`/`http` hook field only
+  (not `mcp_tool`).
 - version >= 2.1.251: `PreModelSwitch`/`PostModelSwitch` events exist and accept
   `mcp_tool` hooks (command/http/mcp_tool only — no `prompt`/`agent` on either); the
   `mcp_tool` timeout default of 30 s applies to both, same as `UserPromptSubmit`.

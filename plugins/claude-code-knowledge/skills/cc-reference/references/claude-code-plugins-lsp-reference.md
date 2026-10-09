@@ -1,7 +1,7 @@
 # Claude Code Plugins — LSP Servers Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (Plugins reference — LSP servers section), verified 2026-10-02.
+> (Plugins reference — LSP servers section), verified 2026-10-09.
 > Split out of claude-code-plugins-reference.md to keep that file under its line budget;
 > linked from that file's "## LSP servers" pointer.
 
@@ -12,10 +12,11 @@
 
 ## Scopes
 
-| Scope         | File location             | Notes                                                                                                              |
-| ------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Plugin-scoped | `<plugin-root>/.lsp.json` | Auto-discovered; override via `lspServers` in `plugin.json` (string \| array \| object — path(s) or inline config) |
+| Scope         | File location             | Notes                                                                                                                                                                       |
+| ------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Plugin-scoped | `<plugin-root>/.lsp.json` | Auto-discovered; extend via `lspServers` in `plugin.json` (string \| array \| object — `.json` path(s) or inline config); merges with the default file, does not replace it |
 
+- Load order: `<plugin-root>/.lsp.json` first, then each `lspServers` declaration in order; a server name declared later replaces an earlier one.
 - A project-root `.lsp.json` is not loaded by Claude Code — never author one. For project-local LSP config, wrap it in a project-scope skills-directory plugin: `<cwd>/.claude/skills/<name>/.claude-plugin/plugin.json` (`{"name": "<name>"}`) + `<cwd>/.claude/skills/<name>/.lsp.json`. It loads as `<name>@skills-dir`; see `claude-code-plugins-reference.md` "Skills-directory plugins".
 - For skills-directory plugins installed at project scope (`<cwd>/.claude/skills/`), LSP servers start only after the user accepts the workspace trust dialog. Personal-scope skills-dir plugins have no such restriction.
 
@@ -42,11 +43,12 @@ Top-level keys are arbitrary server identifiers. Each value is a server config o
 | `workspaceFolder`       | Workspace folder path for the server                                                                                                                                        |
 | `startupTimeout`        | Max time to wait for server startup (ms, positive integer)                                                                                                                  |
 | `shutdownTimeout`       | Max time to wait for graceful shutdown (ms, positive integer). When timeout elapses, Claude Code terminates the process. When unset, no timeout applies. Requires v2.1.205+ |
+| `requestTimeout`        | Max time to wait for the server to answer a request (ms, positive integer). Defaults to `60000` — a request the server never answers fails after 60 s. Requires v2.1.288+   |
 | `restartOnCrash`        | Whether to restart the server after a crash. Defaults to `true`. Set `false` to leave a crashed server stopped. Requires v2.1.205+                                          |
 | `maxRestarts`           | Maximum number of restart attempts before giving up (zero or more)                                                                                                          |
 | `diagnostics`           | Whether to push diagnostics into Claude's context after edits (default `true`); set `false` to keep code navigation but suppress automatic diagnostic injection             |
 
-**Version note**: `shutdownTimeout` and `restartOnCrash` require v2.1.205+. Before v2.1.205, the schema accepted both fields but setting either caused Claude Code to skip that LSP server entirely at startup — reason visible only in `claude --debug` output.
+**Version note**: `shutdownTimeout` and `restartOnCrash` require v2.1.205+. Before v2.1.205, the schema accepted both fields but setting either caused Claude Code to skip that LSP server entirely at startup — reason visible only in `claude --debug` output. `requestTimeout` requires v2.1.288+.
 
 Three path variables are interpolated in LSP server fields within plugin context:
 
@@ -56,7 +58,9 @@ Three path variables are interpolated in LSP server fields within plugin context
 | `${CLAUDE_PLUGIN_DATA}` | Persistent directory that survives plugin updates (`~/.claude/plugins/data/{id}/`) |
 | `${CLAUDE_PROJECT_DIR}` | The project root                                                                   |
 
-All three resolve in `command`, `args`, `env`, and `workspaceFolder`.
+All three resolve in `command`, `args`, `env`, and `workspaceFolder`, and are exported to the server process environment.
+
+`${user_config.KEY}` is also substituted in LSP server config.
 
 ## Conflict and failure behavior
 
