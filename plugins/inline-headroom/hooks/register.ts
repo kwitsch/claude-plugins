@@ -59,14 +59,18 @@ const callStorage = async ($: EngineInterface, tool: string, args: Record<string
 
 // Reads the storage rows into `sums` and redraws the pane. Never rejects: a tick's caller does not await it.
 const loadSums = async ($: EngineInterface): Promise<void> => {
+  let fetched: typeof sums;
   try {
     const today = dayKey(await $.clock.now()); // read per fetch, so the rows roll over at midnight
     // VIEWS[0] is the session row, kept in memory; the rest are storage windows.
     const totals = await Promise.all(VIEWS.slice(1).map((v) => callStorage($, "stats_sum", { since: windowStart(today, v.days) })));
-    sums = { data: totals as Counters[] }; // a refresh keeps the old numbers on screen until this lands
+    fetched = { data: totals as Counters[] }; // a refresh keeps the old numbers on screen until this lands
   } catch (err) {
-    sums = { error: message(err) }; // the clock or storage failed: say why instead of "…" forever
+    fetched = { error: message(err) }; // the clock or storage failed: say why instead of "…" forever
   }
+  const same = JSON.stringify(fetched) === JSON.stringify(sums);
+  sums = fetched;
+  if (same) return; // an idle session's totals repeat every tick: no redraw for them
   try {
     $.ui.invalidate("ui.render");
   } catch {
@@ -94,7 +98,8 @@ export const register: Register = (on, options) => {
   // The storage rows' state when they hold no numbers: off, or the last fetch's error.
   const note = (): string | undefined =>
     !storageOn ? "storage is off (storage_enabled is not true): only the session row is kept" : sums?.error === undefined ? undefined : `storage unavailable: ${sums.error}`;
-  const tables = (): string[][][] => statsTables([session, ...(sums?.data ?? [])], storageOn && sums?.error === undefined ? "…" : "–");
+  // No note means the numbers are still loading ("…"); a note means they never will come ("–").
+  const tables = (): string[][][] => statsTables([session, ...(sums?.data ?? [])], note() === undefined ? "…" : "–");
   // One row per finding, so a long list wraps per row instead of one clipped line.
   const volatileLines = (): string[] => [stats.volatile.length ? "volatile shared values:" : "volatile shared values: none", ...stats.volatile.map((v) => `  ${v.id} ${v.kind} ${v.sample}`)];
 

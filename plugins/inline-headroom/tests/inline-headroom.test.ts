@@ -98,6 +98,14 @@ function stubStorage(on: On, answer: (tool: string, args: Record<string, unknown
   return calls;
 }
 
+// stubStorage for the pane tests: stats_sum answers `windows()` per window start (read per call, so a test can change it), every write answers ok.
+function stubWindows(on: On, windows: () => Record<string, typeof SUMS>): StorageCall[] {
+  return stubStorage(on, (tool, args) => (tool === "stats_sum" ? windows()[String(args.since)] : { ok: true, purged: 0 }));
+}
+
+// One pane cell by its exact text: an unanchored string is a substring match ("1" also finds 17).
+const cell = (ui: Awaited<ReturnType<Engine["ui"]["mount"]>>, text: string) => ui.find({ type: "Text", text: new RegExp(`^${text}$`) });
+
 async function step($: Engine, index: number, effort: TurnStepInput["effort"], agentId?: string): Promise<void> {
   const input: TurnStepInput = {
     turnId: "t1",
@@ -213,8 +221,8 @@ test("(h) a cache-hit drop from 90% to 10% is counted", { options: { effort_rout
   st.usage = usageAt(0.1);
   await step($, 1, "high");
   const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
-  expect(await ui.find({ type: "Text", text: /^50%$/ })).toBeDefined(); // the session hit, token-weighted: 1000 cache reads / 2000 input tokens
-  expect(await ui.find({ type: "Text", text: /^1$/ })).toBeDefined(); // drops: effort routing is off, so no clamped cell reads 1
+  expect(await cell(ui, "50%")).toBeDefined(); // the session hit, token-weighted: 1000 cache reads / 2000 input tokens
+  expect(await cell(ui, "1")).toBeDefined(); // drops: effort routing is off, so no clamped cell reads 1
   await ui.unmount();
 });
 
@@ -233,7 +241,7 @@ test("(i) /headroom opens the headroom pane and prints nothing", async ($, on) =
 test("(i2) /headroom falls back to the stats tables as text when the pane is not placed", async ($, on) => {
   const clock = mock.clock(on, { now: NOW });
   const today = dayKey(NOW);
-  stubStorage(on, (tool, args) => (tool === "stats_sum" ? windowSums(today)[String(args.since)] : { ok: true, purged: 0 }));
+  stubWindows(on, () => windowSums(today));
   on("ui.open", async () => ({ value: { isPlaced: false as const, reason: "no surface" } }));
   const run = $.command.run({ command: "headroom" });
   await clock.settle(); // lets the one storage read finish
@@ -254,11 +262,11 @@ test("(j) an open headroom pane redraws when a step or a compose changes the sta
     sections: [{ id: "env", text: "Session 123e4567-e89b-12d3-a456-426614174000 started.", scope: "shared" as const }],
   }));
   const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
-  expect(await ui.find({ type: "Text", text: /^1$/ })).toBeUndefined();
+  expect(await cell(ui, "1")).toBeUndefined();
   expect(await ui.find({ type: "Text", text: /volatile shared values: none/ })).toBeDefined();
   await step($, 0, "high");
   expect(st.seen).toBe("high");
-  expect(await ui.find({ type: "Text", text: /^1$/ })).toBeDefined(); // the session row's steps
+  expect(await cell(ui, "1")).toBeDefined(); // the session row's steps
   await $.prompt.compose({ model: MODEL, promptModel: MODEL, surfaces: ["terminal"], tools: ["Read"], outputStyle: null, traits: [] });
   expect(await ui.find({ type: "Text", text: /env uuid/ })).toBeDefined();
   await ui.unmount();
@@ -270,7 +278,7 @@ test("(k) a failed step still redraws the open headroom pane", async ($, on) => 
   });
   const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
   await expect(step($, 0, "high")).rejects.toThrow(); // the kit rethrows a failing bottom hook as a HooksError
-  expect(await ui.find({ type: "Text", text: /^1$/ })).toBeDefined(); // the session row's steps moved before the failure
+  expect(await cell(ui, "1")).toBeDefined(); // the session row's steps moved before the failure
   await ui.unmount();
 });
 
@@ -278,18 +286,18 @@ test("(l) /headroom fills the tables at once and refreshes them every 10 s while
   const clock = mock.clock(on, { now: NOW });
   const today = dayKey(NOW);
   let w = windowSums(today);
-  const calls = stubStorage(on, (tool, args) => (tool === "stats_sum" ? w[String(args.since)] : { ok: true, purged: 0 }));
+  const calls = stubWindows(on, () => w);
   on("ui.open", async () => ({ value: { isPlaced: true as const } }));
   await $.command.run({ command: "headroom" });
   await clock.settle(); // the first fetch runs unawaited after the hook returned
   const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
-  expect(await ui.find({ type: "Text", text: /^5$/ })).toBeDefined();
-  expect(await ui.find({ type: "Text", text: /^17$/ })).toBeDefined();
-  expect(await ui.find({ type: "Text", text: /^41$/ })).toBeDefined();
-  expect(await ui.find({ type: "Text", text: /^9$/ })).toBeDefined();
-  expect(await ui.find({ type: "Text", text: /^23$/ })).toBeDefined();
-  expect(await ui.find({ type: "Text", text: /^75%$/ })).toBeDefined();
-  expect(await ui.find({ type: "Text", text: /^11$/ })).toBeDefined();
+  expect(await cell(ui, "5")).toBeDefined();
+  expect(await cell(ui, "17")).toBeDefined();
+  expect(await cell(ui, "41")).toBeDefined();
+  expect(await cell(ui, "9")).toBeDefined();
+  expect(await cell(ui, "23")).toBeDefined();
+  expect(await cell(ui, "75%")).toBeDefined();
+  expect(await cell(ui, "11")).toBeDefined();
   expect(await ui.findAll({ type: "Button" })).toHaveLength(0);
   // the three calls run in parallel: compare in window order, not arrival order
   const bySince = (a: StorageCall, b: StorageCall): number => String(a.args.since).localeCompare(String(b.args.since));
@@ -303,7 +311,7 @@ test("(l) /headroom fills the tables at once and refreshes them every 10 s while
   w = { ...w, [windowStart(today, 7)]: { ...SUMS, steps: 18, clamped: 9, cache_drops: 3 } }; // what the service sums once a turn's row is written
   await clock.advance(1);
   expect(calls).toHaveLength(6);
-  expect(await ui.find({ type: "Text", text: /^18$/ })).toBeDefined();
+  expect(await cell(ui, "18")).toBeDefined();
   await ui.unmount();
 });
 
@@ -401,7 +409,7 @@ test("(p) session.end starts the session row over and drains a started write", a
   await clock.advance(0);
   await ended;
   const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
-  expect(await ui.find({ type: "Text", text: /^1$/ })).toBeUndefined(); // steps was 1 before the reset; nothing else reads 1
+  expect(await cell(ui, "1")).toBeUndefined(); // steps was 1 before the reset; nothing else reads 1
   await ui.unmount();
   expect(calls.filter((c) => c.tool === "stats_put")).toHaveLength(1);
 });
@@ -409,7 +417,7 @@ test("(p) session.end starts the session row over and drains a started write", a
 test("(t) a second /headroom never stacks the refresh, and closing the pane stops it", { plugins: [closer] }, async ($, on) => {
   const clock = mock.clock(on, { now: NOW });
   const today = dayKey(NOW);
-  const calls = stubStorage(on, (tool, args) => (tool === "stats_sum" ? windowSums(today)[String(args.since)] : { ok: true, purged: 0 }));
+  const calls = stubWindows(on, () => windowSums(today));
   on("ui.open", async () => ({ value: { isPlaced: true as const } }));
   on("ui.close", async () => ({ value: undefined })); // the bottom of the close chain: the pane closes
   await $.command.run({ command: "headroom" });
@@ -425,10 +433,27 @@ test("(t) a second /headroom never stacks the refresh, and closing the pane stop
   expect(calls).toHaveLength(9);
 });
 
+test("(v) a refresh that finds unchanged totals does not redraw the pane", async ($, on) => {
+  const clock = mock.clock(on, { now: NOW });
+  const today = dayKey(NOW);
+  stubWindows(on, () => windowSums(today));
+  let redraws = 0;
+  on("ui.invalidate", async () => {
+    redraws++;
+    return { value: undefined };
+  });
+  on("ui.open", async () => ({ value: { isPlaced: true as const } }));
+  await $.command.run({ command: "headroom" });
+  await clock.settle();
+  expect(redraws).toBe(1); // the first numbers
+  await clock.advance(10_000);
+  expect(redraws).toBe(1); // the same numbers again
+});
+
 test("(u) a refused close keeps the refresh running", { plugins: [closer] }, async ($, on) => {
   const clock = mock.clock(on, { now: NOW });
   const today = dayKey(NOW);
-  const calls = stubStorage(on, (tool, args) => (tool === "stats_sum" ? windowSums(today)[String(args.since)] : { ok: true, purged: 0 }));
+  const calls = stubWindows(on, () => windowSums(today));
   on("ui.open", async () => ({ value: { isPlaced: true as const } }));
   on("ui.close", async () => ({ deny: "kept by test" })); // a hook beneath keeps the pane open
   await $.command.run({ command: "headroom" });
