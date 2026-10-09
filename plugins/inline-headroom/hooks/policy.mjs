@@ -6,7 +6,6 @@
 /** @typedef {'low'|'medium'|'high'|'xhigh'|'max'} Effort */
 /** @typedef {'uuid'|'iso8601'|'jwt'|'hex_hash'} VolatileKind */
 /** @typedef {{id: string, kind: VolatileKind, sample: string}} VolatileFinding */
-/** @typedef {'session'|'day'|'7d'|'30d'} View */
 /** @typedef {{steps: number, clamped: number, cache_drops: number, input_tokens: number, cache_read_input_tokens: number, cache_creation_input_tokens: number}} Counters */
 
 export const EFFORT_ORDER = /** @type {const} */ (["low", "medium", "high", "xhigh", "max"]);

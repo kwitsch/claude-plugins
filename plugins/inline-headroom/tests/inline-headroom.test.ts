@@ -1,4 +1,4 @@
-import { expect, mock, test, type TestBody } from "claude-code/testing";
+import { expect, mock, test, type Plugin, type TestBody } from "claude-code/testing";
 import type { TurnStepInput } from "claude-code";
 import { dayKey, windowStart } from "../hooks/policy.mjs";
 
@@ -18,6 +18,12 @@ const MODEL = "claude-sonnet-5-5";
 const NOW = Date.UTC(2026, 9, 3, 12);
 // What stats_sum answers in the pane tests: cache hit 900 / 1000 = 90%.
 const SUMS = { steps: 5, clamped: 2, cache_drops: 1, input_tokens: 100, cache_read_input_tokens: 900, cache_creation_input_tokens: 0 };
+// What stats_sum answers per window start in the pane tests: distinct numbers, so each cell is findable by its text.
+const windowSums = (today: string): Record<string, typeof SUMS> => ({
+  [today]: { ...SUMS, steps: 5, clamped: 2 }, // hit 90%, drops 1
+  [windowStart(today, 7)]: { ...SUMS, steps: 17, clamped: 9, cache_drops: 3 },
+  [windowStart(today, 30)]: { ...SUMS, steps: 41, clamped: 23, cache_drops: 11, cache_read_input_tokens: 300 }, // hit 75%
+});
 // A main-loop turn that ended with an answer.
 const DONE = { answer: "", durationMs: 1, isAborted: false, turnId: "t1", reason: "answer" as const };
 
@@ -111,6 +117,21 @@ async function readOk($: Engine, on: On): Promise<void> {
   await $.tool.call({ tool: "Read", file_path: "README.md" });
 }
 
+// Closes the pane the way Esc does, from a plugin: a test's own $ has no ui.close. Self-contained: the kit loads register on its own.
+const closer: Plugin = {
+  name: "closer",
+  register(on) {
+    on("command.run", { command: "closer" }, async ($) => {
+      try {
+        await $.ui.close({ id: "headroom" });
+      } catch {
+        // (u): a refused close rejects here
+      }
+      return {};
+    });
+  },
+};
+
 test("(a) index 1 after a successful tool call lowers high to low", async ($, on) => {
   const st = bottomStep(on);
   await readOk($, on);
@@ -185,14 +206,15 @@ test("(g) prompt.compose is read-only and the headroom pane shows shared volatil
   }
 });
 
-test("(h) a cache-hit drop from 90% to 10% is counted", async ($, on) => {
+test("(h) a cache-hit drop from 90% to 10% is counted", { options: { effort_routing_enabled: false } }, async ($, on) => {
   const st = bottomStep(on);
   st.usage = usageAt(0.9);
   await step($, 0, "high");
   st.usage = usageAt(0.1);
   await step($, 1, "high");
   const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
-  expect(await ui.find({ type: "Text", text: /drops 1/ })).toBeDefined();
+  expect(await ui.find({ type: "Text", text: /^50%$/ })).toBeDefined(); // the session hit, token-weighted: 1000 cache reads / 2000 input tokens
+  expect(await ui.find({ type: "Text", text: /^1$/ })).toBeDefined(); // drops: effort routing is off, so no clamped cell reads 1
   await ui.unmount();
 });
 
@@ -208,12 +230,22 @@ test("(i) /headroom opens the headroom pane and prints nothing", async ($, on) =
   expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true });
 });
 
-test("(i2) /headroom falls back to the stats text when the pane is not placed", async ($, on) => {
+test("(i2) /headroom falls back to the stats tables as text when the pane is not placed", async ($, on) => {
+  const clock = mock.clock(on, { now: NOW });
+  const today = dayKey(NOW);
+  stubStorage(on, (tool, args) => (tool === "stats_sum" ? windowSums(today)[String(args.since)] : { ok: true, purged: 0 }));
   on("ui.open", async () => ({ value: { isPlaced: false as const, reason: "no surface" } }));
-  const out = await $.command.run({ command: "headroom" });
-  expect(out.text).toMatch(/showing: Session/);
-  expect(out.text).toMatch(/effort routing: on/);
+  const run = $.command.run({ command: "headroom" });
+  await clock.settle(); // lets the one storage read finish
+  const out = await run;
+  expect(out.text).toMatch(/^effort routing\s+steps\s+clamped$/m);
+  expect(out.text).toMatch(/^7 days\s+17\s+9$/m);
+  expect(out.text).toMatch(/^cache aligner\s+hit\s+drops$/m);
+  expect(out.text).toMatch(/^30 days\s+75%\s+11$/m);
   expect(out.text).toMatch(/volatile shared values: none/);
+  expect(out.text).not.toMatch(/showing:/);
+  expect(out.text).not.toMatch(/: on\b/);
+  expect(out.text).not.toMatch(/: off\b/);
 });
 
 test("(j) an open headroom pane redraws when a step or a compose changes the stats", async ($, on) => {
@@ -222,11 +254,11 @@ test("(j) an open headroom pane redraws when a step or a compose changes the sta
     sections: [{ id: "env", text: "Session 123e4567-e89b-12d3-a456-426614174000 started.", scope: "shared" as const }],
   }));
   const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
-  expect(await ui.find({ type: "Text", text: /main-loop steps 0/ })).toBeDefined();
+  expect(await ui.find({ type: "Text", text: /^1$/ })).toBeUndefined();
   expect(await ui.find({ type: "Text", text: /volatile shared values: none/ })).toBeDefined();
   await step($, 0, "high");
   expect(st.seen).toBe("high");
-  expect(await ui.find({ type: "Text", text: /main-loop steps 1/ })).toBeDefined();
+  expect(await ui.find({ type: "Text", text: /^1$/ })).toBeDefined(); // the session row's steps
   await $.prompt.compose({ model: MODEL, promptModel: MODEL, surfaces: ["terminal"], tools: ["Read"], outputStyle: null, traits: [] });
   expect(await ui.find({ type: "Text", text: /env uuid/ })).toBeDefined();
   await ui.unmount();
@@ -238,66 +270,77 @@ test("(k) a failed step still redraws the open headroom pane", async ($, on) => 
   });
   const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
   await expect(step($, 0, "high")).rejects.toThrow(); // the kit rethrows a failing bottom hook as a HooksError
-  expect(await ui.find({ type: "Text", text: /main-loop steps 1/ })).toBeDefined();
+  expect(await ui.find({ type: "Text", text: /^1$/ })).toBeDefined(); // the session row's steps moved before the failure
   await ui.unmount();
 });
 
-test("(l) the pane opens on Session and a button switches to a labelled aggregate view", async ($, on) => {
+test("(l) /headroom fills the tables at once and refreshes them every 10 s while open", async ($, on) => {
   const clock = mock.clock(on, { now: NOW });
-  const calls = stubStorage(on, () => SUMS);
+  const today = dayKey(NOW);
+  let w = windowSums(today);
+  const calls = stubStorage(on, (tool, args) => (tool === "stats_sum" ? w[String(args.since)] : { ok: true, purged: 0 }));
   on("ui.open", async () => ({ value: { isPlaced: true as const } }));
+  await $.command.run({ command: "headroom" });
+  await clock.settle(); // the first fetch runs unawaited after the hook returned
   const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
-  expect(await ui.find({ type: "Text", text: /showing: Session/ })).toBeDefined();
-  expect(await ui.find({ type: "Text", text: /main-loop steps 0/ })).toBeDefined();
-  expect(await ui.findAll({ type: "Button" })).toHaveLength(4);
-  await ui.press({ key: "7d" }); // resolves once the async onPress settled
-  const today = dayKey(clock.now());
-  expect(await ui.find({ type: "Text", text: `showing: 7 days (${windowStart(today, 7)} – ${today})` })).toBeDefined();
-  expect(await ui.find({ type: "Text", text: /main-loop steps 5 · clamped 2/ })).toBeDefined();
-  expect(await ui.find({ type: "Text", text: /cache hit 90% · drops 1/ })).toBeDefined();
-  expect(calls).toEqual([{ tool: "stats_sum", args: { since: windowStart(today, 7) } }]);
-  await ui.press({ key: "session" });
-  expect(await ui.find({ type: "Text", text: /showing: Session/ })).toBeDefined();
-  await ui.press({ key: "day" });
-  expect(await ui.find({ type: "Text", text: `showing: Today (${today})` })).toBeDefined();
-  await $.command.run({ command: "headroom" }); // every /headroom opens on Session
-  expect(await ui.find({ type: "Text", text: /showing: Session/ })).toBeDefined();
+  expect(await ui.find({ type: "Text", text: /^5$/ })).toBeDefined();
+  expect(await ui.find({ type: "Text", text: /^17$/ })).toBeDefined();
+  expect(await ui.find({ type: "Text", text: /^41$/ })).toBeDefined();
+  expect(await ui.find({ type: "Text", text: /^9$/ })).toBeDefined();
+  expect(await ui.find({ type: "Text", text: /^23$/ })).toBeDefined();
+  expect(await ui.find({ type: "Text", text: /^75%$/ })).toBeDefined();
+  expect(await ui.find({ type: "Text", text: /^11$/ })).toBeDefined();
+  expect(await ui.findAll({ type: "Button" })).toHaveLength(0);
+  // the three calls run in parallel: compare in window order, not arrival order
+  const bySince = (a: StorageCall, b: StorageCall): number => String(a.args.since).localeCompare(String(b.args.since));
+  expect([...calls].sort(bySince)).toEqual([
+    { tool: "stats_sum", args: { since: windowStart(today, 30) } },
+    { tool: "stats_sum", args: { since: windowStart(today, 7) } },
+    { tool: "stats_sum", args: { since: today } },
+  ]);
+  await clock.advance(9_999);
+  expect(calls).toHaveLength(3);
+  w = { ...w, [windowStart(today, 7)]: { ...SUMS, steps: 18, clamped: 9, cache_drops: 3 } }; // what the service sums once a turn's row is written
+  await clock.advance(1);
+  expect(calls).toHaveLength(6);
+  expect(await ui.find({ type: "Text", text: /^18$/ })).toBeDefined();
   await ui.unmount();
 });
 
-test("(n) storage_enabled false: the aggregate views say storage is off and nothing is written", { options: { storage_enabled: false } }, async ($, on) => {
+test("(n) storage_enabled false: the storage rows say storage is off and nothing is read or written", { options: { storage_enabled: false } }, async ($, on) => {
   const clock = mock.clock(on, { now: NOW });
   const calls = stubStorage(on, () => SUMS);
   bottomStep(on);
   on("turn.complete", async () => ({ text: "" }));
+  on("ui.open", async () => ({ value: { isPlaced: true as const } }));
+  await $.command.run({ command: "headroom" });
   const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
-  await ui.press({ key: "30d" });
-  expect(await ui.find({ type: "Text", text: /showing: 30 days/ })).toBeDefined();
   expect(await ui.find({ type: "Text", text: /storage is off/ })).toBeDefined();
-  await ui.press({ key: "session" });
-  expect(await ui.find({ type: "Text", text: /main-loop steps 0/ })).toBeDefined();
+  expect(await ui.find({ type: "Text", text: /^–$/ })).toBeDefined();
+  await clock.advance(30_000); // no refresh timer runs with storage off
   await ui.unmount();
   await step($, 0, "high");
   await $.turn.complete(DONE);
-  await clock.advance(0); // a write would run unawaited here, as in (m)
+  await clock.settle(); // a write would run unawaited here, as in (m)
   expect(calls).toEqual([]);
 });
 
 test("(o) a storage error result shows as storage unavailable", async ($, on) => {
-  mock.clock(on, { now: NOW });
+  const clock = mock.clock(on, { now: NOW });
   stubStorage(on, () => new Error("inline-headroom storage: storage is disabled (userConfig storage_enabled is not true)"));
+  on("ui.open", async () => ({ value: { isPlaced: true as const } }));
+  await $.command.run({ command: "headroom" });
+  await clock.settle();
   const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
-  await ui.press({ key: "day" });
   expect(await ui.find({ type: "Text", text: /storage unavailable: inline-headroom storage: storage is disabled/ })).toBeDefined();
   await ui.unmount();
 });
 
-test("(s) a clock failure in a button press shows as storage unavailable instead of loading forever", async ($, on) => {
+test("(s) a clock failure shows as storage unavailable instead of loading forever", async ($, on) => {
   stubStorage(on, () => SUMS);
-  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
-  await ui.press({ key: "7d" });
-  expect(await ui.find({ type: "Text", text: /storage unavailable: / })).toBeDefined();
-  await ui.unmount();
+  on("ui.open", async () => ({ value: { isPlaced: false as const, reason: "no surface" } }));
+  const out = await $.command.run({ command: "headroom" }); // no mock.clock: the kit refuses $.clock.now()
+  expect(out.text).toMatch(/storage unavailable: /);
 });
 
 test("(m) a main-loop turn.complete writes today's absolute row; a failed write is rewritten with the new totals", async ($, on) => {
@@ -340,24 +383,7 @@ test("(r) a usage with a missing token field still writes integer counters", asy
   expect(calls[0].args.rows).toEqual([{ day: dayKey(clock.now()), steps: 1, clamped: 0, cache_drops: 0, input_tokens: 500, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }]);
 });
 
-test("(q) a main-loop turn.complete refreshes the open aggregate view after the write", async ($, on) => {
-  const clock = mock.clock(on, { now: NOW });
-  let sums = SUMS;
-  stubStorage(on, (tool) => (tool === "stats_sum" ? sums : { ok: true, purged: 0 }));
-  bottomStep(on);
-  on("turn.complete", async () => ({ text: "" }));
-  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
-  await ui.press({ key: "day" });
-  expect(await ui.find({ type: "Text", text: /main-loop steps 5 · clamped 2/ })).toBeDefined();
-  sums = { ...SUMS, steps: 6 }; // what the service sums once this turn's row is written
-  await step($, 0, "high");
-  await $.turn.complete(DONE);
-  await clock.advance(0); // the write and the refresh run unawaited after the hook returned
-  expect(await ui.find({ type: "Text", text: /main-loop steps 6 · clamped 2/ })).toBeDefined();
-  await ui.unmount();
-});
-
-test("(p) session.end starts the Session view over and drains a started write", async ($, on) => {
+test("(p) session.end starts the session row over and drains a started write", async ($, on) => {
   const clock = mock.clock(on, { now: NOW });
   const calls = stubStorage(on, () => ({ ok: true, purged: 0 }));
   bottomStep(on);
@@ -375,7 +401,40 @@ test("(p) session.end starts the Session view over and drains a started write", 
   await clock.advance(0);
   await ended;
   const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
-  expect(await ui.find({ type: "Text", text: /main-loop steps 0/ })).toBeDefined();
+  expect(await ui.find({ type: "Text", text: /^1$/ })).toBeUndefined(); // steps was 1 before the reset; nothing else reads 1
   await ui.unmount();
   expect(calls.filter((c) => c.tool === "stats_put")).toHaveLength(1);
+});
+
+test("(t) a second /headroom never stacks the refresh, and closing the pane stops it", { plugins: [closer] }, async ($, on) => {
+  const clock = mock.clock(on, { now: NOW });
+  const today = dayKey(NOW);
+  const calls = stubStorage(on, (tool, args) => (tool === "stats_sum" ? windowSums(today)[String(args.since)] : { ok: true, purged: 0 }));
+  on("ui.open", async () => ({ value: { isPlaced: true as const } }));
+  on("ui.close", async () => ({ value: undefined })); // the bottom of the close chain: the pane closes
+  await $.command.run({ command: "headroom" });
+  await clock.settle();
+  expect(calls).toHaveLength(3);
+  await $.command.run({ command: "headroom" }); // re-open: fetches at once and restarts the timer
+  await clock.settle();
+  expect(calls).toHaveLength(6);
+  await clock.advance(10_000);
+  expect(calls).toHaveLength(9); // one timer ticked, not two (12)
+  await $.command.run({ command: "closer" });
+  await clock.advance(30_000);
+  expect(calls).toHaveLength(9);
+});
+
+test("(u) a refused close keeps the refresh running", { plugins: [closer] }, async ($, on) => {
+  const clock = mock.clock(on, { now: NOW });
+  const today = dayKey(NOW);
+  const calls = stubStorage(on, (tool, args) => (tool === "stats_sum" ? windowSums(today)[String(args.since)] : { ok: true, purged: 0 }));
+  on("ui.open", async () => ({ value: { isPlaced: true as const } }));
+  on("ui.close", async () => ({ deny: "kept by test" })); // a hook beneath keeps the pane open
+  await $.command.run({ command: "headroom" });
+  await clock.settle();
+  expect(calls).toHaveLength(3);
+  await $.command.run({ command: "closer" });
+  await clock.advance(10_000);
+  expect(calls).toHaveLength(6);
 });

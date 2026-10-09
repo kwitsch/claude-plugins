@@ -1,15 +1,30 @@
-import type { EngineInterface, Register } from "claude-code";
-import { RETAIN_DAYS, VIEWS, cacheHitRatio, clampEffort, dayKey, findVolatile, foldPending, isCacheDrop, isToolError, toCount, viewTitle, windowStart, zeroCounters } from "./policy.mjs";
-import type { Counters, View, VolatileFinding } from "./policy.mjs";
+import type { EngineInterface, Register, Timer } from "claude-code";
+import {
+  CELL_WIDTHS,
+  RETAIN_DAYS,
+  VIEWS,
+  cacheHitRatio,
+  clampEffort,
+  dayKey,
+  findVolatile,
+  foldPending,
+  isCacheDrop,
+  isToolError,
+  pct,
+  statsTables,
+  tableText,
+  toCount,
+  windowStart,
+  zeroCounters,
+} from "./policy.mjs";
+import type { Counters, VolatileFinding } from "./policy.mjs";
 
 // Module state resets on hot reload and on an options change (the engine reloads the module).
 // Persisted totals survive: each load writes its own rows under a new WRITER.
 let toolErrored = false; // any main-loop tool error since the last main-loop step
-// The Session view: this session's counters, in memory.
+// The session row: this session's counters, in memory.
+const session: Counters = zeroCounters();
 const stats = {
-  steps: 0,
-  clamped: 0,
-  cacheDrops: 0,
   lastHit: undefined as number | undefined,
   volatile: [] as VolatileFinding[],
 };
@@ -17,13 +32,18 @@ const WRITER = Math.random().toString(36).slice(2).padEnd(8, "0"); // this modul
 const pending: Counters = zeroCounters(); // counter deltas since the last fold
 const days: Record<string, Counters> = {}; // this writer's per-day totals that may still need writing
 let flushing: Promise<void> = Promise.resolve(); // serializes stats_put: a newer snapshot always lands after an older one
-let view: View = "session"; // the pane's view; every /headroom resets it
-type Sums = { view: View; today?: string; data?: Counters; error?: string };
-let sums: Sums | undefined; // the last aggregate view's totals, fetched outside render
+let sums: { data?: Counters[]; error?: string } | undefined; // the today / 7 days / 30 days totals (VIEWS order after session), fetched outside render
+let loading: Promise<void> | undefined; // the fetch in flight: a tick never stacks on a slow stats_sum (a cold service start takes up to 3 s)
+let poll: Timer | undefined; // the open pane's 10 s refresh
 
-const pct = (n: number | undefined): string => (n === undefined ? "–" : `${Math.round(n * 100)}%`);
 const PANE = "headroom"; // the /headroom pane's id (1-64 of letters, digits, _ and -)
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+// Moves one counter in the session row and in the deltas still to persist.
+const count = (k: keyof Counters, n = 1): void => {
+  session[k] += n;
+  pending[k] += n;
+};
 
 // The engine refuses $.<noun> as a bare value, so same-file helpers take the whole $.
 // Resolves the op's result; rejects with the server's message on a refusal or an error result.
@@ -36,19 +56,25 @@ const callStorage = async ($: EngineInterface, tool: string, args: Record<string
   return r.structuredContent ?? JSON.parse(r.content[0]?.text ?? "null");
 };
 
-// Fetches one aggregate view's sums into `sums`; a result that arrives after the view changed is dropped.
-const loadSums = async ($: EngineInterface, now: number, v: View): Promise<void> => {
-  const today = dayKey(now);
-  if (sums?.view !== v) sums = { view: v, today }; // loading (a refresh keeps the old numbers on screen)
-  let next: Sums;
+// Reads the storage rows into `sums` and redraws the pane. Never rejects: a tick's caller does not await it.
+const loadSums = async ($: EngineInterface): Promise<void> => {
   try {
-    const span = VIEWS.find((x) => x.id === v)?.days ?? 1;
-    next = { view: v, today, data: (await callStorage($, "stats_sum", { since: windowStart(today, span) })) as Counters };
+    const today = dayKey(await $.clock.now()); // read per fetch, so the rows roll over at midnight
+    // VIEWS[0] is the session row, kept in memory; the rest are storage windows.
+    const totals = await Promise.all(VIEWS.slice(1).map((v) => callStorage($, "stats_sum", { since: windowStart(today, v.days) })));
+    sums = { data: totals as Counters[] }; // a refresh keeps the old numbers on screen until this lands
   } catch (err) {
-    next = { view: v, today, error: message(err) };
+    sums = { error: message(err) }; // the clock or storage failed: say why instead of "…" forever
   }
-  if (view === v) sums = next;
+  try {
+    $.ui.invalidate("ui.render");
+  } catch {
+    // $ itself is refused: nothing is left to redraw with
+  }
 };
+
+// A call made while a fetch runs joins it instead of starting another: the engine re-arms every period at callback start, so a slow fetch would overlap the next tick.
+const refresh = ($: EngineInterface): Promise<void> => (loading ??= loadSums($).finally(() => (loading = undefined)));
 
 export const register: Register = (on, options) => {
   const effortOn = options.effort_routing_enabled !== false;
@@ -64,70 +90,70 @@ export const register: Register = (on, options) => {
     return next(e);
   });
 
+  // The storage rows' state when they hold no numbers: off, or the last fetch's error.
+  const note = (): string | undefined =>
+    !storageOn ? "storage is off (storage_enabled is not true): only the session row is kept" : sums?.error === undefined ? undefined : `storage unavailable: ${sums.error}`;
+  const tables = (): string[][][] => statsTables([session, ...(sums?.data ?? [])], storageOn && sums?.error === undefined ? "…" : "–");
   // One row per finding, so a long list wraps per row instead of one clipped line.
-  const sessionLines = (): string[] => [
-    `effort routing: ${effortOn ? "on" : "off"} · main-loop steps ${stats.steps} · clamped ${stats.clamped}`,
-    `cache aligner: ${cacheOn ? "on" : "off"} · last hit ${pct(stats.lastHit)} · drops ${stats.cacheDrops}`,
-    stats.volatile.length ? "volatile shared values:" : "volatile shared values: none",
-    ...stats.volatile.map((v) => `  ${v.id} ${v.kind} ${v.sample}`),
-  ];
-
-  // Today / 7 days / 30 days: totals across every session on this host, read from storage.
-  const aggregateLines = (): string[] => {
-    if (!storageOn) return ["storage is off (storage_enabled is not true): only the Session view is kept"];
-    if (sums?.view !== view) return ["loading…"];
-    if (sums.error !== undefined) return [`storage unavailable: ${sums.error}`];
-    if (!sums.data) return ["loading…"];
-    const d = sums.data;
-    return [`main-loop steps ${d.steps} · clamped ${d.clamped}`, `cache hit ${pct(cacheHitRatio(d))} · drops ${d.cache_drops}`];
-  };
+  const volatileLines = (): string[] => [stats.volatile.length ? "volatile shared values:" : "volatile shared values: none", ...stats.volatile.map((v) => `  ${v.id} ${v.kind} ${v.sample}`)];
 
   on("command.run", { command: "headroom" }, async ($) => {
-    view = "session"; // every /headroom opens on the default view
-    $.ui.invalidate("ui.render"); // an already-open pane redraws on it
     const r = await $.ui.open({ id: PANE, title: "Headroom", focus: true, closeOnEscape: true });
-    // Pane placed: print nothing (no transcript line, nothing in the model's context).
-    // Not placed (headless/SDK, narrow terminal): fall back to the plain text, always the Session view.
-    return r.isPlaced ? {} : { text: [`showing: ${viewTitle("session")}`, ...sessionLines()].join("\n") };
+    if (r.isPlaced) {
+      // Pane placed: print nothing (no transcript line, nothing in the model's context).
+      if (storageOn) {
+        poll?.cancel(); // re-opening an open pane restarts its refresh instead of stacking a second one
+        void refresh($); // the first numbers now, not after 10 s
+        poll = $.clock.every(10_000, () => void refresh($));
+      }
+      return {};
+    }
+    // Not placed (headless/SDK, narrow terminal): the same tables as text, read from storage once.
+    if (storageOn) await refresh($);
+    const n = note();
+    return { text: [tables().map(tableText).join("\n\n"), ...(n === undefined ? [] : [n]), ...volatileLines()].join("\n") };
   });
 
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
-    const { Box, Button, Text } = $.ui.resolve(e);
-    // Every way to press a Button raises the same onPress; the active view's label is drawn at full strength.
-    const switcher = Box({
-      flexDirection: "row",
-      gap: 2,
-      flexWrap: "wrap",
-      children: VIEWS.map((v, i) =>
-        Button({
-          key: v.id,
-          label: v.label,
-          hotkey: String(i + 1),
-          plain: true,
-          dimColor: v.id !== view,
-          onPress: async () => {
-            // Nobody awaits this handler, so it must never reject (an unhandled rejection can be fatal).
-            try {
-              view = v.id;
-              $.ui.invalidate("ui.render");
-              if (v.id === "session" || !storageOn) return;
-              await loadSums($, await $.clock.now(), v.id);
-              $.ui.invalidate("ui.render");
-            } catch (err) {
-              // The clock or an invalidate failed outside loadSums' own error handling: say why instead of "loading…".
-              if (view === v.id) sums = { view: v.id, error: message(err) };
-              try {
-                $.ui.invalidate("ui.render");
-              } catch {
-                // $ itself is refused: nothing is left to redraw with
-              }
-            }
-          },
-        }),
-      ),
+    const { Box, Text } = $.ui.resolve(e);
+    // Box cells, not padded text: the columns line up on every surface, proportional fonts included.
+    const table = (rows: string[][]) =>
+      Box({
+        flexDirection: "column",
+        children: rows.map((row, j) =>
+          Box({
+            flexDirection: "row",
+            children: row.map((s, i) =>
+              Box({
+                width: CELL_WIDTHS[i],
+                justifyContent: i ? "flex-end" : "flex-start",
+                children: [Text({ bold: j === 0, children: [s] })],
+              }),
+            ),
+          }),
+        ),
+      });
+    const n = note();
+    return Box({
+      flexDirection: "column",
+      gap: 1,
+      children: [
+        ...tables().map((t) => table(t)),
+        ...(n === undefined ? [] : [Text({ dimColor: true, children: [n] })]),
+        Box({ flexDirection: "column", children: volatileLines().map((s) => Text({ children: [s] })) }),
+      ],
     });
-    const rows = [`showing: ${viewTitle(view, sums?.view === view ? sums.today : undefined)}`, ...(view === "session" ? sessionLines() : aggregateLines())];
-    return Box({ flexDirection: "column", children: [switcher, ...rows.map((s) => Text({ children: [s] }))] });
+  });
+
+  // The refresh runs only while the pane is open: Esc, Ctrl+X X and $.ui.close all raise ui.close (an unload close skips the opener's hooks).
+  on("ui.close", { id: PANE }, async (_$, e, next) => {
+    const r = await next(e);
+    // { deny }: a hook beneath kept the pane open, so its refresh keeps running too.
+    if (r.deny === undefined) {
+      poll?.cancel();
+      poll = undefined;
+    }
+    return r;
   });
 
   if (effortOn) {
@@ -148,8 +174,7 @@ export const register: Register = (on, options) => {
 
   on("turn.step", async function* ($, e, next) {
     if (e.agentId) return yield* next(e);
-    stats.steps += 1;
-    pending.steps += 1;
+    count("steps");
     try {
       let ev = e;
       // ponytail: mid-turn user input (a queued command) arriving at index > 0 is
@@ -158,22 +183,20 @@ export const register: Register = (on, options) => {
         const to = clampEffort(e.effort);
         if (to !== undefined) {
           ev = { ...e, effort: to };
-          stats.clamped += 1;
-          pending.clamped += 1;
+          count("clamped");
         }
       }
       toolErrored = false; // consumed per step; index 0 resets it too
       const result = yield* next(ev);
       if (cacheOn && result?.usage) {
         const u = result.usage;
-        pending.input_tokens += toCount(u.input_tokens);
-        pending.cache_read_input_tokens += toCount(u.cache_read_input_tokens);
-        pending.cache_creation_input_tokens += toCount(u.cache_creation_input_tokens);
+        count("input_tokens", toCount(u.input_tokens));
+        count("cache_read_input_tokens", toCount(u.cache_read_input_tokens));
+        count("cache_creation_input_tokens", toCount(u.cache_creation_input_tokens));
         const hit = cacheHitRatio(result.usage);
         if (hit !== undefined) {
           if (isCacheDrop(stats.lastHit, hit)) {
-            stats.cacheDrops += 1;
-            pending.cache_drops += 1;
+            count("cache_drops");
             const ids = [...new Set(stats.volatile.map((v) => v.id))];
             $.ui.log(`cache drop ${pct(stats.lastHit)} → ${pct(hit)} (wrote ${result.usage.cache_creation_input_tokens} tok)` + (ids.length ? ` · volatile: ${ids.join(", ")}` : ""));
           }
@@ -191,13 +214,11 @@ export const register: Register = (on, options) => {
     on("turn.complete", async ($, e, next) => {
       const r = await next(e);
       if (e.agentId) return r; // subagent turns carry no main-loop steps
-      let now: number;
       let today: string;
       let purgeBefore: string;
       let rows: ReturnType<typeof foldPending>;
       try {
-        now = await $.clock.now();
-        today = dayKey(now);
+        today = dayKey(await $.clock.now());
         purgeBefore = windowStart(today, RETAIN_DAYS);
         rows = foldPending(days, pending, today, purgeBefore);
       } catch {
@@ -212,22 +233,18 @@ export const register: Register = (on, options) => {
             return; // days keeps every total: the next turn rewrites them
           }
           for (const d of Object.keys(days)) if (d < today) delete days[d]; // final rows, written
-          if (view === "session") return;
-          await loadSums($, now, view);
-          $.ui.invalidate("ui.render");
         })
-        // The chain must never reject: a rejected `flushing` would skip every later flush for the
-        // module's life. A throw after the write (loadSums, invalidate, or `$` refused once the
-        // hook has returned) only loses this one pane refresh.
+        // The chain must never reject: a rejected `flushing` would skip every later flush for the module's life.
         .catch(() => {});
       return r;
     });
   }
 
-  // /clear and resume go on in this process under a new session id: the Session view starts over.
+  // /clear and resume go on in this process under a new session id: the session row starts over.
   // Persisted totals and pending deltas are session-agnostic and carry on.
   on("session.end", async ($, e, next) => {
-    Object.assign(stats, { steps: 0, clamped: 0, cacheDrops: 0, lastHit: undefined, volatile: [] });
+    Object.assign(session, zeroCounters());
+    Object.assign(stats, { lastHit: undefined, volatile: [] });
     $.ui.invalidate("ui.render");
     const r = await next(e);
     // A headless run exits after this chain: let a started stats_put finish. `flushing` never
