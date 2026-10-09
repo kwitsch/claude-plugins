@@ -209,7 +209,7 @@ test("(g) prompt.compose is read-only and the headroom pane shows shared volatil
   for (const surface of ["terminal", "desktop"] as const) {
     const ui = await $.ui.mount({ ...PANE, surface });
     expect(await ui.find({ type: "Text", text: /env uuid/ })).toBeDefined();
-    expect(await ui.find({ type: "Text", text: /clock/ })).toBeUndefined();
+    expect(await ui.find({ type: "Text", text: /^ {2}clock / })).toBeUndefined(); // the session-scope section is not listed (a storage note may name clock.now)
     await ui.unmount();
   }
 });
@@ -221,7 +221,7 @@ test("(h) a cache-hit drop from 90% to 10% is counted", { options: { effort_rout
   st.usage = usageAt(0.1);
   await step($, 1, "high");
   const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
-  expect(await cell(ui, "50%")).toBeDefined(); // the session hit, token-weighted: 1000 cache reads / 2000 input tokens
+  expect(await cell(ui, "10%")).toBeDefined(); // the session hit: the last step's ratio, not the token-weighted 50%
   expect(await cell(ui, "1")).toBeDefined(); // drops: effort routing is off, so no clamped cell reads 1
   await ui.unmount();
 });
@@ -462,4 +462,32 @@ test("(u) a refused close keeps the refresh running", { plugins: [closer] }, asy
   await $.command.run({ command: "closer" });
   await clock.advance(10_000);
   expect(calls).toHaveLength(6);
+});
+
+test("(w) a pane left open with no timer (after a hot reload) re-arms its refresh on the first redraw", async ($, on) => {
+  const clock = mock.clock(on, { now: NOW });
+  const today = dayKey(NOW);
+  const calls = stubWindows(on, () => windowSums(today));
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" }); // no command.run: no timer was started
+  await clock.settle();
+  expect(calls).toHaveLength(3); // the first redraw fetched the rows
+  await clock.advance(10_000);
+  expect(calls).toHaveLength(6);
+  await ui.unmount();
+});
+
+test("(x) a failed refresh keeps the last numbers under the storage note", async ($, on) => {
+  const clock = mock.clock(on, { now: NOW });
+  const today = dayKey(NOW);
+  let fail = false;
+  stubStorage(on, (tool, args) => (fail ? new Error("database is locked") : tool === "stats_sum" ? windowSums(today)[String(args.since)] : { ok: true, purged: 0 }));
+  on("ui.open", async () => ({ value: { isPlaced: true as const } }));
+  await $.command.run({ command: "headroom" });
+  await clock.settle();
+  fail = true;
+  await clock.advance(10_000);
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  expect(await ui.find({ type: "Text", text: /^storage unavailable: / })).toBeDefined();
+  expect(await cell(ui, "17")).toBeDefined(); // the 7-day steps from the last good fetch
+  await ui.unmount();
 });

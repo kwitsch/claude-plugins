@@ -72,12 +72,15 @@ volatile shared values: none
   live. `today`, `7 days` and `30 days` are rolling windows of local calendar
   days that include today: totals across all sessions on this host, read from
   [storage](#storage) when the pane opens and every 10 s while it stays open.
-- **`hit`** is the token-weighted cache hit (cache reads / all input tokens),
-  the `session` row included. It reads `–` while no tokens were counted.
+- **`hit`** is the cache hit ratio (cache reads / all input tokens). The
+  `session` row shows its last step's ratio; the storage rows show the
+  token-weighted ratio over their window. It reads `–` while no tokens were
+  counted.
 - **Storage rows:** they read `…` until their first numbers arrive, and a
   refresh keeps the old numbers on screen until it lands. With storage off
-  they read `–` and the pane says so; when storage fails they read `–` and the
-  pane shows `storage unavailable: <reason>`.
+  they read `–` and the pane says so. When a refresh fails, the rows keep their
+  last numbers and the pane shows `storage unavailable: <reason>` (`–` if there
+  were none). Closing the pane forgets them, so a reopened pane starts at `…`.
 - **Volatile shared values** are listed below the tables, for this session
   only, one `<id> <kind> <sample>` line per value (for example
   `env uuid 123e4567-e89…`). The list reads `none` when no shared section
@@ -108,6 +111,7 @@ rows. It is the MCP server `storage` (connected as
 - **`/headroom` persistence.** At the end of each main-loop turn the mod writes
   its counters to the `stats` table: one row per local day and module load (a
   hot reload starts a new row). Every write deletes the rows older than 30 days.
+  An open `/headroom` pane re-reads the storage rows right after that write.
 - **One background process per host.** The first tool call, the first
   main-loop turn that ends while `storage_enabled` is on (the `/headroom` write),
   or opening `/headroom` (it reads on open and every 10 s while open) starts a

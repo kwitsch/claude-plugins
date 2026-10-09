@@ -5,7 +5,7 @@ import {
   EFFORT_ORDER,
   MAX_FINDINGS,
   RETAIN_DAYS,
-  VIEWS,
+  ROWS,
   cacheHitRatio,
   clampEffort,
   dayKey,
@@ -36,15 +36,15 @@ test("constants match the spec", () => {
   assert.equal(MAX_FINDINGS, 10);
   assert.equal(CACHE_DROP_THRESHOLD, 0.6);
   assert.deepEqual(
-    VIEWS.map((v) => v.id),
-    ["session", "day", "7d", "30d"],
-  );
-  assert.deepEqual(
-    VIEWS.map((v) => v.label),
+    ROWS.map((v) => v.label),
     ["session", "today", "7 days", "30 days"],
   );
+  assert.deepEqual(
+    ROWS.map((v) => v.days),
+    [0, 1, 7, 30],
+  );
   assert.equal(RETAIN_DAYS, 30);
-  assert.ok(RETAIN_DAYS >= Math.max(...VIEWS.map((v) => v.days)));
+  assert.ok(RETAIN_DAYS >= Math.max(...ROWS.map((v) => v.days)));
 });
 
 test("clampEffort lowers every level above low to low", () => {
@@ -188,6 +188,7 @@ test("statsTables builds both tables, with blank for rows without counters", () 
     ],
   ]);
   assert.equal(statsTables([zeroCounters()], "–")[1][1][1], "–"); // no tokens: no hit ratio
+  assert.equal(statsTables([{ ...c, hit: 0.1 }], "…")[1][1][1], "10%"); // a row's own hit wins over the token-weighted one
 });
 
 test("tableText pads the label column and right-aligns the values", () => {

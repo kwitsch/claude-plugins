@@ -2,7 +2,7 @@ import type { EngineInterface, Register, Timer } from "claude-code";
 import {
   CELL_WIDTHS,
   RETAIN_DAYS,
-  VIEWS,
+  ROWS,
   cacheHitRatio,
   clampEffort,
   dayKey,
@@ -32,7 +32,7 @@ const WRITER = Math.random().toString(36).slice(2).padEnd(8, "0"); // this modul
 const pending: Counters = zeroCounters(); // counter deltas since the last fold
 const days: Record<string, Counters> = {}; // this writer's per-day totals that may still need writing
 let flushing: Promise<void> = Promise.resolve(); // serializes stats_put: a newer snapshot always lands after an older one
-let sums: { data?: Counters[]; error?: string } | undefined; // the today / 7 days / 30 days totals (VIEWS order after session), fetched outside render
+let sums: { data?: Counters[]; error?: string } | undefined; // the today / 7 days / 30 days totals (ROWS order after session), fetched outside render
 let loading: Promise<void> | undefined; // the fetch in flight: a tick never stacks on a slow stats_sum (a cold service start takes up to 3 s)
 let poll: Timer | undefined; // the open pane's 10 s refresh
 
@@ -62,11 +62,12 @@ const loadSums = async ($: EngineInterface): Promise<void> => {
   let fetched: typeof sums;
   try {
     const today = dayKey(await $.clock.now()); // read per fetch, so the rows roll over at midnight
-    // VIEWS[0] is the session row, kept in memory; the rest are storage windows.
-    const totals = await Promise.all(VIEWS.slice(1).map((v) => callStorage($, "stats_sum", { since: windowStart(today, v.days) })));
+    // The session row (days 0) is kept in memory; the rest are storage windows.
+    const totals = await Promise.all(ROWS.filter((r) => r.days > 0).map((r) => callStorage($, "stats_sum", { since: windowStart(today, r.days) })));
     fetched = { data: totals as Counters[] }; // a refresh keeps the old numbers on screen until this lands
   } catch (err) {
-    fetched = { error: message(err) }; // the clock or storage failed: say why instead of "…" forever
+    // The clock or storage failed: keep the last good numbers under the note, say why instead of "…" forever.
+    fetched = { data: sums?.data, error: message(err) };
   }
   const same = JSON.stringify(fetched) === JSON.stringify(sums);
   sums = fetched;
@@ -80,6 +81,13 @@ const loadSums = async ($: EngineInterface): Promise<void> => {
 
 // A call made while a fetch runs joins it instead of starting another: the engine re-arms every period at callback start, so a slow fetch would overlap the next tick.
 const refresh = ($: EngineInterface): Promise<void> => (loading ??= loadSums($).finally(() => (loading = undefined)));
+
+// Starts the open pane's 10 s refresh unless one runs: the command and the first redraw after a hot reload both call it.
+const arm = ($: EngineInterface): void => {
+  if (poll !== undefined) return;
+  void refresh($); // the first numbers now, not after 10 s
+  poll = $.clock.every(10_000, () => void refresh($));
+};
 
 export const register: Register = (on, options) => {
   const effortOn = options.effort_routing_enabled !== false;
@@ -99,7 +107,8 @@ export const register: Register = (on, options) => {
   const note = (): string | undefined =>
     !storageOn ? "storage is off (storage_enabled is not true): only the session row is kept" : sums?.error === undefined ? undefined : `storage unavailable: ${sums.error}`;
   // No note means the numbers are still loading ("…"); a note means they never will come ("–").
-  const tables = (): string[][][] => statsTables([session, ...(sums?.data ?? [])], note() === undefined ? "…" : "–");
+  // The session row shows its last step's hit ratio; the storage rows are token-weighted over their windows.
+  const tables = (): string[][][] => statsTables([{ ...session, hit: stats.lastHit }, ...(sums?.data ?? [])], note() === undefined ? "…" : "–");
   // One row per finding, so a long list wraps per row instead of one clipped line.
   const volatileLines = (): string[] => [stats.volatile.length ? "volatile shared values:" : "volatile shared values: none", ...stats.volatile.map((v) => `  ${v.id} ${v.kind} ${v.sample}`)];
 
@@ -109,8 +118,8 @@ export const register: Register = (on, options) => {
       // Pane placed: print nothing (no transcript line, nothing in the model's context).
       if (storageOn) {
         poll?.cancel(); // re-opening an open pane restarts its refresh instead of stacking a second one
-        void refresh($); // the first numbers now, not after 10 s
-        poll = $.clock.every(10_000, () => void refresh($));
+        poll = undefined;
+        arm($);
       }
       return {};
     }
@@ -121,6 +130,7 @@ export const register: Register = (on, options) => {
   });
 
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
+    if (storageOn) arm($); // a hot reload leaves the pane open with no timer: its first redraw re-arms the refresh
     const { Box, Text } = $.ui.resolve(e);
     // Box cells, not padded text: the columns line up on every surface, proportional fonts included.
     const table = (rows: string[][]) =>
@@ -158,6 +168,7 @@ export const register: Register = (on, options) => {
     if (r.deny === undefined) {
       poll?.cancel();
       poll = undefined;
+      sums = undefined; // a reopened pane shows "…" until fresh numbers land, not the last session's
     }
     return r;
   });
@@ -239,6 +250,7 @@ export const register: Register = (on, options) => {
             return; // days keeps every total: the next turn rewrites them
           }
           for (const d of Object.keys(days)) if (d < today) delete days[d]; // final rows, written
+          if (poll !== undefined) void refresh($); // an open pane shows the rows just written, not at its next tick
         })
         // The chain must never reject: a rejected `flushing` would skip every later flush for the module's life.
         .catch(() => {});

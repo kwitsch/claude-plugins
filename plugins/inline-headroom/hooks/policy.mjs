@@ -7,16 +7,17 @@
 /** @typedef {'uuid'|'iso8601'|'jwt'|'hex_hash'} VolatileKind */
 /** @typedef {{id: string, kind: VolatileKind, sample: string}} VolatileFinding */
 /** @typedef {{steps: number, clamped: number, cache_drops: number, input_tokens: number, cache_read_input_tokens: number, cache_creation_input_tokens: number}} Counters */
+/** @typedef {Counters & {hit?: number}} Row hit: the ratio to show in place of the token-weighted one (the session row shows its last step's) */
 
 export const EFFORT_ORDER = /** @type {const} */ (["low", "medium", "high", "xhigh", "max"]);
 export const CACHE_DROP_THRESHOLD = 0.6;
 export const MAX_FINDINGS = 10;
 /** The /headroom table rows, top to bottom. `days`: the rolling window, today included; 0 = this session, in memory. */
-export const VIEWS = /** @type {const} */ ([
-  { id: "session", label: "session", days: 0 },
-  { id: "day", label: "today", days: 1 },
-  { id: "7d", label: "7 days", days: 7 },
-  { id: "30d", label: "30 days", days: 30 },
+export const ROWS = /** @type {const} */ ([
+  { label: "session", days: 0 },
+  { label: "today", days: 1 },
+  { label: "7 days", days: 7 },
+  { label: "30 days", days: 30 },
 ]);
 /** Table column widths in cells: the row label, then each value column. */
 export const CELL_WIDTHS = /** @type {const} */ ([16, 8, 8]);
@@ -177,9 +178,9 @@ export function foldPending(days, pending, today, purgeBefore) {
 }
 
 /**
- * The /headroom tables as rows of cells. Each table starts with its header row (heading, then the column names), then one row per VIEWS entry.
+ * The /headroom tables as rows of cells. Each table starts with its header row (heading, then the column names), then one row per ROWS entry.
  * A row without counters (still loading, storage off or failing) shows `blank` in every value cell.
- * @param {readonly (Counters|undefined)[]} counters one per VIEWS entry, in VIEWS order
+ * @param {readonly (Row|undefined)[]} counters one per ROWS entry, in ROWS order
  * @param {string} blank
  * @returns {string[][][]}
  */
@@ -187,17 +188,20 @@ export function statsTables(counters, blank) {
   /**
    * @param {string} heading
    * @param {string[]} columns
-   * @param {(c: Counters) => string[]} cells
+   * @param {(c: Row) => string[]} cells
    * @returns {string[][]}
    */
   const table = (heading, columns, cells) => [
     [heading, ...columns],
-    ...VIEWS.map((v, i) => {
+    ...ROWS.map((v, i) => {
       const c = counters[i];
       return [v.label, ...(c ? cells(c) : columns.map(() => blank))];
     }),
   ];
-  return [table("effort routing", ["steps", "clamped"], (c) => [String(c.steps), String(c.clamped)]), table("cache aligner", ["hit", "drops"], (c) => [pct(cacheHitRatio(c)), String(c.cache_drops)])];
+  return [
+    table("effort routing", ["steps", "clamped"], (c) => [String(c.steps), String(c.clamped)]),
+    table("cache aligner", ["hit", "drops"], (c) => [pct(c.hit ?? cacheHitRatio(c)), String(c.cache_drops)]),
+  ];
 }
 
 /**

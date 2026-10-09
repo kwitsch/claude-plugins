@@ -211,6 +211,8 @@ delete this heading once it is empty.
   (fallback: `await flushing` inside the hook).
 - `$.clock.every` started in a `command.run` hook keeps firing with that hook's
   `$` after the hook returned (the 10 s pane refresh).
+- `$.clock.every` started in a `ui.render` hook (the re-arm after a hot reload)
+  keeps firing with that hook's `$` after the hook returned.
 - The mod's `ui.close` hook (matcher `{ id }`) runs on Esc and Ctrl+X X, so
   closing the pane stops the refresh.
 
