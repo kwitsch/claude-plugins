@@ -56,7 +56,7 @@ Every test that needs `node:sqlite` or spawns processes lives in
 `setup-node`. Its cleanup SIGTERMs every `--service` process for its temp data
 dir, so no daemon outlives the suite.
 
-The bats version-pin test (`plugin.json version is 0.3.1`) is a rolling pin:
+The bats version-pin test (`plugin.json version is 0.4.0`) is a rolling pin:
 every version bump rewrites its name and expected value in the same commit.
 
 ## Storage server
