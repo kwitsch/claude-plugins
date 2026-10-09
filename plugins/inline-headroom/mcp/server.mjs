@@ -352,8 +352,8 @@ function roundTrip(sockPath, msg) {
 function spawnService(storage) {
   mkdirSync(storage.dataDir, { recursive: true, mode: 0o700 });
   // ponytail: service.log is never rotated; it only gets fatal service errors (one line per failed
-  // start, and the mod's per-turn stats write can trigger one per session every FAILURE_COOLDOWN_MS
-  // on a host that cannot run the service). Upgrade path: rotate it if it ever grows noticeably.
+  // start, and the mod's per-turn stats write or an open /headroom pane's refresh can trigger one per
+  // session every FAILURE_COOLDOWN_MS on a host that cannot run the service). Upgrade path: rotate it if it ever grows noticeably.
   const fd = openSync(storage.log, "a", 0o600);
   try {
     // --disable-warning: node:sqlite's ExperimentalWarning (Node 22) would otherwise land in service.log on every start.
