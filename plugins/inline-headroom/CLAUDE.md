@@ -130,8 +130,8 @@ load (`WRITER` in `register.ts`); the counter columns are `steps`, `clamped`,
 `cache_creation_input_tokens`, the order `STATS_KEYS` (`server.mjs`) and
 `COUNTER_KEYS` (`policy.mjs`) share and a storage test pins. Rows hold absolute
 totals and a writer only replaces its own, so concurrent sessions never share a
-row and a hot reload (a new `WRITER`) never shrinks a stored total. Today /
-7 days / 30 days are `stats_sum` from `windowStart(today, n)` on; every
+row and a hot reload (a new `WRITER`) never shrinks a stored total. The today /
+7 days / 30 days rows are `stats_sum` from `windowStart(today, n)` on; every
 `stats_put` deletes the rows before `windowStart(today, 30)`.
 
 Deviation from `.claude/rules/hooks-mcp-server.md`: the `.mcp.json` key is
@@ -161,7 +161,13 @@ live-verified until a live run confirms it.
 - Test kit: `$.ui.open` needs an `on("ui.open", ...)` stub answering
   `{ value: { isPlaced: true } }`, registered before the test's first `$` call.
   The kit answers `$.ui.invalidate` itself. Panes are asserted with
-  `$.ui.mount(...)` and `find({ type: "Text", text })`.
+  `$.ui.mount(...)` and `find({ type: "Text", text })`; a string `text` is a
+  substring match (`"1"` also finds `17`), so anchor a regex (`/^17$/`) to
+  find one cell. A test's own `$` has no `ui.close`: a test closes a pane
+  through an inline helper plugin (`test(name, { plugins: [closer] }, ...)`)
+  whose command calls `$.ui.close({ id })`, plus a mandatory bottom
+  `on("ui.close", ...)` stub answering `{ value: undefined }` or `{ deny }`
+  (without one the kit fails with `no implementation for ui.close`).
 - `session.end` input is `{ reason, sessionId, resume: { id } }` and `next(e)`
   resolves `{ sessionId }`; `reason: "clear"` is a `/clear` (the process goes on
   under a new session id).
@@ -183,12 +189,14 @@ live-verified until a live run confirms it.
 - `claude plugin validate` refuses `$.mcp` (any `$.<noun>`) as a bare value; a
   same-file helper taking the whole `$: EngineInterface` validates, and its calls
   are listed as `$.mcp.call (via callStorage)`.
-- `Button` `key`/`label`/`hotkey`/`plain`/`dimColor`/`onPress` and `Box`
-  `gap`/`flexWrap` mount and validate in a Pane; a mount's `ui.press({ key })`
-  resolves once an async `onPress` has settled.
+- `Box` `flexDirection`/`width`/`justifyContent`/`gap` and `Text`
+  `bold`/`dimColor` mount and validate in a Pane.
 - Test kit: `$.clock.now()` needs `mock.clock(on, { now })` (from
   `claude-code/testing`). The `$` calls the unawaited flush chain makes after
   `turn.complete` returned run once the test calls `clock.advance(0)`.
+  `clock.advance(ms)` fires a module's `$.clock.every` periods exactly on the
+  boundary (`advance(9_999)` fires none of a 10 s period, a further
+  `advance(1)` fires one).
 
 ## Not yet live-verified (kit only)
 
@@ -199,10 +207,12 @@ delete this heading once it is empty.
 - Mod-side `$.mcp.connect("storage")` from the real engine.
 - Whether `structuredContent` is forwarded for a tool without `outputSchema`
   (the mod falls back to the JSON text block either way).
-- A pane Button `hotkey` honoured while the pane holds the focus (click and
-  Tab+Enter are the fallback).
 - `$` honoured by the real engine after a `turn.complete` hook returned
   (fallback: `await flushing` inside the hook).
+- `$.clock.every` started in a `command.run` hook keeps firing with that hook's
+  `$` after the hook returned (the 10 s pane refresh).
+- The mod's `ui.close` hook (matcher `{ id }`) runs on Esc and Ctrl+X X, so
+  closing the pane stops the refresh.
 
 ## Effort-routing caveat
 
