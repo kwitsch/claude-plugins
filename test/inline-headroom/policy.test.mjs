@@ -13,8 +13,9 @@ import {
   foldPending,
   isCacheDrop,
   isToolError,
+  statsTables,
+  tableText,
   toCount,
-  viewTitle,
   windowStart,
   zeroCounters,
 } from "../../plugins/inline-headroom/hooks/policy.mjs";
@@ -37,6 +38,10 @@ test("constants match the spec", () => {
   assert.deepEqual(
     VIEWS.map((v) => v.id),
     ["session", "day", "7d", "30d"],
+  );
+  assert.deepEqual(
+    VIEWS.map((v) => v.label),
+    ["session", "today", "7 days", "30 days"],
   );
   assert.equal(RETAIN_DAYS, 30);
   assert.ok(RETAIN_DAYS >= Math.max(...VIEWS.map((v) => v.days)));
@@ -157,15 +162,42 @@ test("windowStart counts calendar days back with today included, across leap day
   assert.equal(windowStart("2026-03-30", 2), "2026-03-29");
 });
 
-test("viewTitle names the view and, given today, its date range", () => {
-  assert.equal(viewTitle("session"), "Session");
-  assert.equal(viewTitle("session", "2026-10-03"), "Session");
-  assert.equal(viewTitle("day"), "Today");
-  assert.equal(viewTitle("day", "2026-10-03"), "Today (2026-10-03)");
-  assert.equal(viewTitle("7d"), "7 days");
-  assert.equal(viewTitle("7d", "2026-10-03"), "7 days (2026-09-27 – 2026-10-03)");
-  assert.equal(viewTitle("30d"), "30 days");
-  assert.equal(viewTitle("30d", "2026-10-03"), "30 days (2026-09-04 – 2026-10-03)");
+test("statsTables builds both tables, with blank for rows without counters", () => {
+  const c = {
+    ...zeroCounters(),
+    steps: 12,
+    clamped: 7,
+    cache_drops: 1,
+    input_tokens: 60,
+    cache_read_input_tokens: 940,
+  };
+  assert.deepEqual(statsTables([c, c, undefined, undefined], "…"), [
+    [
+      ["effort routing", "steps", "clamped"],
+      ["session", "12", "7"],
+      ["today", "12", "7"],
+      ["7 days", "…", "…"],
+      ["30 days", "…", "…"],
+    ],
+    [
+      ["cache aligner", "hit", "drops"],
+      ["session", "94%", "1"],
+      ["today", "94%", "1"],
+      ["7 days", "…", "…"],
+      ["30 days", "…", "…"],
+    ],
+  ]);
+  assert.equal(statsTables([zeroCounters()], "–")[1][1][1], "–"); // no tokens: no hit ratio
+});
+
+test("tableText pads the label column and right-aligns the values", () => {
+  assert.equal(
+    tableText([
+      ["effort routing", "steps", "clamped"],
+      ["7 days", "340", "120"],
+    ]),
+    "effort routing     steps clamped\n7 days               340     120",
+  );
 });
 
 test("toCount keeps non-negative safe integers and turns everything else into 0", () => {

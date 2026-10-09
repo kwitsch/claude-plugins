@@ -12,14 +12,16 @@
 export const EFFORT_ORDER = /** @type {const} */ (["low", "medium", "high", "xhigh", "max"]);
 export const CACHE_DROP_THRESHOLD = 0.6;
 export const MAX_FINDINGS = 10;
-/** Pane views in hotkey order (1-4). `days`: the rolling window, today included; 0 = this session, in memory. */
+/** The /headroom table rows, top to bottom. `days`: the rolling window, today included; 0 = this session, in memory. */
 export const VIEWS = /** @type {const} */ ([
-  { id: "session", label: "Session", days: 0 },
-  { id: "day", label: "Today", days: 1 },
+  { id: "session", label: "session", days: 0 },
+  { id: "day", label: "today", days: 1 },
   { id: "7d", label: "7 days", days: 7 },
   { id: "30d", label: "30 days", days: 30 },
 ]);
-/** Persisted days kept: the longest view's window, never less. */
+/** Table column widths in cells: the row label, then each value column. */
+export const CELL_WIDTHS = /** @type {const} */ ([16, 8, 8]);
+/** Persisted days kept: the longest row's window, never less. */
 export const RETAIN_DAYS = 30;
 
 const TOKEN_SPLIT = /[\s"'`()<>[\]{},;]+/;
@@ -100,6 +102,15 @@ export function cacheHitRatio(usage) {
 }
 
 /**
+ * A ratio as a whole percentage, "–" when there is none.
+ * @param {number|undefined} n
+ * @returns {string}
+ */
+export function pct(n) {
+  return n === undefined ? "–" : `${Math.round(n * 100)}%`;
+}
+
+/**
  * @param {number|undefined} prev
  * @param {number} hit
  * @returns {boolean}
@@ -146,21 +157,6 @@ export function windowStart(day, days) {
 }
 
 /**
- * The pane header's view name: "Session"; "Today (2026-10-03)"; "7 days (2026-09-27 – 2026-10-03)".
- * Without `today` an aggregate view reads as its label alone.
- * @param {View} view
- * @param {string} [today] YYYY-MM-DD
- * @returns {string}
- */
-export function viewTitle(view, today) {
-  const { label, days } = VIEWS.find((v) => v.id === view) ?? VIEWS[0];
-  // days 0 first: windowStart(today, 0) would be tomorrow
-  if (days === 0 || today === undefined) return label;
-  if (days === 1) return `${label} (${today})`;
-  return `${label} (${windowStart(today, days)} – ${today})`;
-}
-
-/**
  * Adds `pending` to `days[today]` (creating it), zeroes `pending` in place, drops every day outside
  * [purgeBefore, today], and returns each remaining day as a stats_put row (copies, so later folds
  * never change a queued write). Mutates `days` and `pending`.
@@ -179,4 +175,37 @@ export function foldPending(days, pending, today, purgeBefore) {
   // Days after today go too, so a clock moved backwards never grows a stats_put past the window.
   for (const day of Object.keys(days)) if (day < purgeBefore || day > today) delete days[day];
   return Object.entries(days).map(([day, c]) => ({ day, ...c }));
+}
+
+/**
+ * The /headroom tables as rows of cells. Each table starts with its header row (heading, then the column names), then one row per VIEWS entry.
+ * A row without counters (still loading, storage off or failing) shows `blank` in every value cell.
+ * @param {readonly (Counters|undefined)[]} counters one per VIEWS entry, in VIEWS order
+ * @param {string} blank
+ * @returns {string[][][]}
+ */
+export function statsTables(counters, blank) {
+  /**
+   * @param {string} heading
+   * @param {string[]} columns
+   * @param {(c: Counters) => string[]} cells
+   * @returns {string[][]}
+   */
+  const table = (heading, columns, cells) => [
+    [heading, ...columns],
+    ...VIEWS.map((v, i) => {
+      const c = counters[i];
+      return [v.label, ...(c ? cells(c) : columns.map(() => blank))];
+    }),
+  ];
+  return [table("effort routing", ["steps", "clamped"], (c) => [String(c.steps), String(c.clamped)]), table("cache aligner", ["hit", "drops"], (c) => [pct(cacheHitRatio(c)), String(c.cache_drops)])];
+}
+
+/**
+ * One table as plain text: the label column padded on the right, the value columns right-aligned.
+ * @param {readonly (readonly string[])[]} rows
+ * @returns {string}
+ */
+export function tableText(rows) {
+  return rows.map((r) => r.map((s, i) => (i ? s.padStart(CELL_WIDTHS[i]) : s.padEnd(CELL_WIDTHS[i]))).join("")).join("\n");
 }
