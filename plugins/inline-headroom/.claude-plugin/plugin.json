@@ -1,7 +1,7 @@
 {
   "name": "inline-headroom",
-  "version": "0.5.0",
-  "description": "Headroom-style levers inside Claude Code as a mod: clamp-only effort routing after successful tool results, and a detector-only CacheAligner that flags volatile system-prompt content and cache-hit drops. Ships a host-wide SQLite storage MCP server for persistent plugin data.",
+  "version": "0.6.0",
+  "description": "Headroom-style levers inside Claude Code as a mod: clamp-only effort routing after successful tool results, a detector-only CacheAligner that flags volatile system-prompt content and cache-hit drops, and a SmartCrusher that compresses large JSON arrays in tool results. Ships a host-wide SQLite storage MCP server for persistent plugin data.",
   "author": { "name": "Kwitsch" },
   "userConfig": {
     "cache_aligner_enabled": {
@@ -20,6 +20,12 @@
       "type": "boolean",
       "title": "Subagent effort routing",
       "description": "Also lower thinking effort to low on subagent and Workflow-agent steps that only resume after that agent's successful tool results. Only active while effort routing is on. Overrides effort set on purpose (agent frontmatter, Agent tool or Workflow effort), and each subagent may pay its own prompt-cache re-write per switch.",
+      "default": true
+    },
+    "smart_crusher_enabled": {
+      "type": "boolean",
+      "title": "SmartCrusher",
+      "description": "Compress large JSON arrays in successful Bash and MCP tool results (headroom SmartCrusher): keeps first/last, error, outlier, anomaly and query-relevant rows; dropped rows stay retrievable via headroom_retrieve while the mod is loaded. Never rewrites error results.",
       "default": true
     },
     "storage_enabled": {
