@@ -107,10 +107,11 @@ const PLUGIN_ROOT = A.PLUGIN_ROOT && !A.PLUGIN_ROOT.includes("${") ? A.PLUGIN_RO
 // ── Model assignment by task difficulty ──────────────────────────────────────
 // Role profiles:
 //   opus   — high synthesis/judgment load (final prioritization / synthesizer)
-//   sonnet — plan phase only (planChecker; planner tier via PLAN_MODEL)
+//   sonnet — plan-phase gate (planChecker; planner tier via PLAN_MODEL) and the
+//            recall/judgment-critical roles: review finder/verifier, lean pass,
+//            fix application, CI fixing
 //   haiku  — default for every other role: coding, per-task review (sonnet for
-//            complex tasks), review finding/verification, fix application,
-//            shipping, git/scope steps
+//            complex tasks), merging, shipping, CI monitoring, git/scope steps
 // Per-task scaling: complexity from the plan → implModel().
 // Planner: not fixed — a haiku classifier reads the spec and picks
 // sonnet|opus|fable per run (PLAN_MODEL / plannerModel), default opus.
@@ -118,15 +119,15 @@ const MODELS = {
   planChecker: "sonnet", // coverage/consistency gate before Implement (plan phase stays off haiku)
   merger: "haiku", // pure git command sequence, no judgment load
   scope: "haiku", // list diff, collect CLAUDE.md
-  finder: "haiku", // review finder (angles + lenses)
-  verifier: "haiku", // independent per-finding verification
+  finder: "sonnet", // review finder (angles + lenses)
+  verifier: "sonnet", // independent per-finding verification
   synthesizer: "opus", // ranking, dedupe, reversesDecision judgment
-  applier: "haiku", // apply pre-verified fixes — test gate as safety net
+  applier: "sonnet", // apply pre-verified fixes — test gate as safety net
   prAuthor: "haiku", // faithful writing from structured inputs + repo template
   shipper: "haiku", // pure git/gh/glab procedure (merger analogue)
   ciMonitor: "haiku", // bounded poll + classification, read-only
-  ciFixer: "haiku", // diagnose + fix: judgment/coding, CI as the only safety net
-  ponytailReviewer: "haiku", // over-engineering-only pass over the combined diff (report-only)
+  ciFixer: "sonnet", // diagnose + fix: judgment/coding, CI as the only safety net
+  ponytailReviewer: "sonnet", // over-engineering-only pass over the combined diff (report-only)
 };
 // Planner model is chosen per run from a haiku spec-difficulty classifier.
 const PLAN_MODEL = { simple: "sonnet", complex: "opus", hardest: "fable" };

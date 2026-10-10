@@ -205,7 +205,7 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   done
 }
 
-@test "all agent files declare a model; designer and planner on opus, design-reviewer on sonnet, the rest haiku" {
+@test "all agent files declare a model; designer and planner on opus, design-reviewer and the recall-critical roles on sonnet, the rest haiku" {
   for a in $AGENT_NAMES; do
     run rg_or_grep -E '^model:' "$AGENTS_DIR/$a.md"
     [ "$status" -eq 0 ]
@@ -213,7 +213,7 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
       designer | planner)
         run rg_or_grep -E '^model: opus$' "$AGENTS_DIR/$a.md"
         ;;
-      design-reviewer)
+      design-reviewer | review-finder | review-verifier | fix-applier | ci-fixer)
         run rg_or_grep -E '^model: sonnet$' "$AGENTS_DIR/$a.md"
         ;;
       *)
@@ -407,7 +407,9 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'planChecker: "sonnet"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'finder: "haiku"' "$WORKFLOWS/changes-review.workflow.js"
+  run rg_or_grep -F 'finder: "sonnet"' "$WORKFLOWS/changes-review.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'applier: "sonnet"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
 }
 
@@ -1021,10 +1023,10 @@ mm_git_fixture() {
 
 # --- ponytail report-only lean review (delivery pipeline) ---
 
-@test "spec-driven-delivery defines the lean-review schema, haiku model, and returns ponytailReview" {
+@test "spec-driven-delivery defines the lean-review schema, sonnet model, and returns ponytailReview" {
   run rg_or_grep -F 'PONYTAIL_REVIEW_SCHEMA' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'ponytailReviewer: "haiku"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'ponytailReviewer: "sonnet"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'ponytailReview' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]

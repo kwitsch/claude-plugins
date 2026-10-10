@@ -88,10 +88,10 @@ const { BASE_BRANCH } = A;
 // applier entry.
 const MODELS = {
   scope: "haiku", // list diff, collect CLAUDE.md
-  finder: "haiku", // review finder (angles + lenses)
-  verifier: "haiku", // independent per-finding verification
+  finder: "sonnet", // review finder (angles + lenses)
+  verifier: "sonnet", // independent per-finding verification
   synthesizer: "opus", // ranking, dedupe
-  ponytailReviewer: "haiku", // over-engineering-only pass over the diff (report-only)
+  ponytailReviewer: "sonnet", // over-engineering-only pass over the diff (report-only)
 };
 // Plugin agent types (namespace = plugin name; keep in sync on plugin rename).
 const AGENTS = {

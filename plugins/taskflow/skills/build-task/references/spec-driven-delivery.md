@@ -104,10 +104,12 @@ is a planning defect to surface, not a git problem to solve.
 - The per-task review gate runs on the `haiku` alias for `trivial` and
   `standard` tasks and on the `sonnet` alias for `complex` tasks; depth comes
   from the combined Review phase, never from the per-task gate.
-  `haiku` is the default for every role outside the design and plan phases
-  (finder, verifier, fix applier, per-task fixer, lean review, PR author, CI
-  fixer), except the `opus` synthesizer and `complex`-task implementer/fixer;
-  the plan-check gate stays on the `sonnet` alias.
+  `haiku` is the default for every role outside the design and plan phases.
+  Exceptions: `sonnet` for the finder, verifier, fix applier, lean review and
+  CI fixer (recall/judgment-critical) and for the per-task review of `complex`
+  tasks; `opus` for the synthesizer and `complex`-task implementer; the
+  plan-check gate stays on `sonnet`; the per-task fixer reuses the
+  implementer's model.
 - Every implementer runs with `isolation: 'worktree'` — no direct commits on
   the work branch, even for single-task waves.
 - Each wave is merged by a separate merger agent (`git merge --no-ff`, task-id
@@ -123,7 +125,7 @@ is a planning defect to surface, not a git problem to solve.
   conflicts with a `git merge -X ours`, non-force, bailing to `blocked` on
   conflicts `-X ours` cannot cleanly resolve), reporting `mergeState`;
   `ci-monitor` (`haiku`, read-only) waits bounded
-  (~5 min per round, max 6 rounds) and classifies; `ci-fixer` (`haiku`
+  (~5 min per round, max 6 rounds) and classifies; `ci-fixer` (`sonnet`
   alias) classifies flaky/infra (one rerun) vs code-caused (minimal in-scope
   fix, one commit, plain push) vs base-broken (blocked), max 2 fix rounds.
   The stage never merges the PR/MR itself, never force-pushes, never
@@ -131,7 +133,7 @@ is a planning defect to surface, not a git problem to solve.
 - Fix application skips and reports anything that would change intended
   behavior, contradict the spec, or break the test run — see `applied.skipped`.
 - The Review phase ends with a separate, report-only **lean review**
-  (ponytail): a `haiku` pass over the same review diff that reports
+  (ponytail): a `sonnet` pass over the same review diff that reports
   over-engineering ONLY (reinvented stdlib, one-caller abstractions, dead
   flexibility, shrinkable code — tags `delete`/`stdlib`/`native`/`yagni`/
   `shrink`). Its raw claims are independently verified through the same
