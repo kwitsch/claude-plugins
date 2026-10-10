@@ -175,6 +175,8 @@ Deviations from upstream:
   keys come first (a JS object rule).
 - The tool-digest marker is omitted: the mod rewrites each result once, at
   `tool.call`.
+- A document that loses no row passes through with its exact bytes; upstream
+  also minifies a pretty-printed one.
 - `crushQuery` counts only user messages with text toward its last five: a
   Claude Code tool result is a user message with empty text, so upstream's
   count would drop the user's request after five tool calls.

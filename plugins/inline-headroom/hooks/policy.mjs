@@ -1355,29 +1355,11 @@ function processValue(v, depth, query, acc) {
 }
 
 /**
- * Upstream has_json_insignificant_whitespace: whitespace outside string literals (pretty-printed JSON).
- * @param {string} s valid JSON
- * @returns {boolean}
- */
-function hasInsignificantWhitespace(s) {
-  let inString = false;
-  let escaped = false;
-  for (const ch of s.trim()) {
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (ch === "\\") escaped = true;
-      else if (ch === '"') inString = false;
-    } else if (ch === '"') inString = true;
-    else if (ch === " " || ch === "\n" || ch === "\r" || ch === "\t") return true;
-  }
-  return false;
-}
-
-/**
  * SmartCrusher over one JSON document (upstream smart_crush_content without compaction): dict arrays lose rows
  * to a `{"_ccr_dropped":"<<ccr:HASH N_rows_offloaded>>"}` sentinel and the result is compact JSON. Undefined means
  * pass the text through: at most CRUSH_MIN_CHARS, not a JSON object or array, a number, -0 or duplicate key JSON.parse
- * cannot keep, unchanged compact input, or output that is not shorter.
+ * cannot keep, no row dropped, or output that is not shorter. Deviation: upstream also minifies a pretty-printed
+ * document that lost no rows; here such a result keeps its original bytes.
  * @param {string} text
  * @param {string} query the conversation context (crushQuery), "" for none
  * @returns {CrushOutcome|undefined}
@@ -1394,7 +1376,7 @@ export function crushJson(text, query) {
   /** @type {{ rowsDropped: number, offloaded: [string, string][] }} */
   const acc = { rowsDropped: 0, offloaded: [] };
   const out = processValue(value, 0, query, acc);
-  if (out === value && !hasInsignificantWhitespace(text)) return undefined; // keep the original bytes
+  if (out === value) return undefined; // nothing dropped: keep the original bytes
   const s = JSON.stringify(out);
   return s.length < text.trim().length ? { text: s, ...acc } : undefined;
 }

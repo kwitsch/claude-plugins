@@ -190,9 +190,9 @@ rows. It is the MCP server `storage` (connected as
   Workflow-agent results, other plugins' tool calls, error and denied results,
   `headroom_retrieve` itself, this plugin's own storage tools and every other
   built-in tool (Read, WebFetch, …) are never rewritten.
-- **Pretty JSON arrives minified.** Even when no row is dropped, pretty-printed
-  JSON is re-serialized compactly, as upstream does, so `cat file.json` or
-  `jq .` output reaches the model compact, with numbers in their shortest form.
+- **A crushed result arrives minified.** When rows are dropped, the whole
+  document is re-serialized compactly, with numbers in their shortest form. A
+  result that loses no row keeps its exact bytes (upstream minifies it too).
   Use Read for a file's exact text, for example before editing it.
 - **Dropped rows are retrievable while the mod is loaded.** The last 1000
   crushed arrays stay in memory; a hot reload, an options change or a new

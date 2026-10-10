@@ -363,12 +363,9 @@ test("crushJson still crushes numbers that survive the round trip and keys that 
   assert.ok(crushJson(`[${body},${extra}]`, ""));
 });
 
-test("crushJson minifies pretty JSON whose arrays all stay within K, dropping nothing", () => {
+test("crushJson passes pretty JSON through when no row is dropped", () => {
   const doc = { groups: Array.from({ length: 6 }, (_, g) => ({ name: `group ${g}`, rows: Array.from({ length: 8 }, (_, i) => ({ id: i, note: "kept as is" })) })) };
-  const r = crushText(JSON.stringify(doc, null, 2));
-  assert.equal(r.text, JSON.stringify(doc));
-  assert.equal(r.rowsDropped, 0);
-  assert.deepEqual(r.offloaded, []);
+  assert.equal(crushJson(JSON.stringify(doc, null, 2), ""), undefined);
 });
 
 test("crushJson keeps the error row among 1000 near-identical rows and ends the array with a CCR sentinel", () => {
@@ -414,10 +411,7 @@ test("crushJson keeps a row the query names that an empty query drops", () => {
 
 test("crushJson never samples unique entities without a signal", () => {
   const rows = Array.from({ length: 100 }, (_, i) => ({ id: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`, title: `Gardening tip number ${String(i).padStart(3, "0")} for spring beds` }));
-  const r = crushText(JSON.stringify(rows, null, 2)); // minified only
-  assert.equal(r.rowsDropped, 0);
-  assert.ok(!r.text.includes("_ccr_dropped"));
-  assert.deepEqual(r.out, rows);
+  assert.equal(crushJson(JSON.stringify(rows, null, 2), ""), undefined);
 });
 
 test("crushJson keeps the K - 3 top-scored search results", () => {
