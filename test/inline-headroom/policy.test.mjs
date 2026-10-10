@@ -13,6 +13,7 @@ import {
   cacheHitRatio,
   clampEffort,
   computeOptimalK,
+  crushJson,
   crushQuery,
   dayKey,
   findVolatile,
@@ -301,4 +302,161 @@ test("crushQuery walks back from the last message, stops after the 5th user mess
   ];
   assert.equal(crushQuery(messages), '{"command":"cat data.json"} u5 {"file_path":"a.json"} u4 u3 {"command":"ls"} u1');
   assert.equal(crushQuery([]), "");
+});
+
+const SENTINEL = /^<<ccr:([0-9a-f]{12}) (\d+)_rows_offloaded>>$/;
+// 200 rows that only differ by id, one with an error status: crushable, K = 15.
+const STATUS_ROWS = Array.from({ length: 200 }, (_, i) => ({ id: i, status: i === 150 ? "error" : "ok", note: "same text" }));
+
+/**
+ * crushJson over `text`, its output parsed back; throws when the text passes through.
+ * @param {string} text
+ * @param {string} [query]
+ */
+function crushText(text, query = "") {
+  const r = crushJson(text, query);
+  if (!r) throw new Error("expected crushJson to rewrite the document");
+  return { ...r, out: JSON.parse(r.text) };
+}
+
+/**
+ * crushText over `value` as compact JSON.
+ * @param {unknown} value
+ * @param {string} [query]
+ */
+const crush = (value, query = "") => crushText(JSON.stringify(value), query);
+
+/**
+ * The kept rows' ids, without the CCR sentinel.
+ * @param {{ id?: unknown, _ccr_dropped?: string }[]} rows
+ */
+const keptIds = (rows) => rows.filter((r) => !("_ccr_dropped" in r)).map((r) => r.id);
+
+test("crushJson passes through what it cannot or need not crush", () => {
+  const rows = Array.from({ length: 40 }, (_, i) => ({ id: i, status: "ok", note: "the same note on every row" }));
+  assert.ok(crushJson(JSON.stringify(rows), "")); // crushable as it is: the guards below are what stop it
+  const body = JSON.stringify(rows).slice(1, -1);
+  for (const text of [
+    "{" + "x".repeat(900), // invalid JSON
+    JSON.stringify("x".repeat(900)), // a JSON scalar
+    JSON.stringify(rows.slice(0, 10)), // 800 chars or less
+    `[${body},{"id":12345678901234567890}]`, // an integer JSON.parse would round
+    `[${body},{"id":1e400}]`, // a number JSON.parse turns into Infinity
+    JSON.stringify({ text: "x".repeat(900) }), // an unchanged compact object
+    JSON.stringify({ rows: rows.slice(0, 4).map((r) => ({ ...r, note: "y".repeat(300) })) }), // fewer than 5 rows are never crushed
+  ])
+    assert.equal(crushJson(text, ""), undefined, text.slice(0, 60));
+});
+
+test("crushJson minifies pretty JSON whose arrays all stay within K, dropping nothing", () => {
+  const doc = { groups: Array.from({ length: 6 }, (_, g) => ({ name: `group ${g}`, rows: Array.from({ length: 8 }, (_, i) => ({ id: i, note: "kept as is" })) })) };
+  const r = crushText(JSON.stringify(doc, null, 2));
+  assert.equal(r.text, JSON.stringify(doc));
+  assert.equal(r.rowsDropped, 0);
+  assert.deepEqual(r.offloaded, []);
+});
+
+test("crushJson keeps the error row among 1000 near-identical rows and ends the array with a CCR sentinel", () => {
+  const rows = Array.from({ length: 1000 }, (_, i) => (i === 998 ? { id: i, status: "ERROR", msg: "FATAL: boom" } : { id: i, status: "ok", msg: "all good" }));
+  const r = crush(rows);
+  const [, hash, n] = SENTINEL.exec(r.out.at(-1)._ccr_dropped) ?? [];
+  assert.ok(keptIds(r.out).includes(998));
+  assert.ok(r.out.length - 1 <= 16, String(r.out.length));
+  assert.equal(Number(n), 1000 - (r.out.length - 1));
+  assert.equal(r.rowsDropped, Number(n));
+  assert.deepEqual(r.offloaded, [[hash, JSON.stringify(rows)]]);
+});
+
+test("crushJson keeps a row holding a rare field", () => {
+  const rows = Array.from({ length: 21 }, (_, i) => ({ id: i, kind: "common", note: "the same note on every row", ...(i === 20 ? { rare_extra_field: "x" } : {}) }));
+  const r = crush(rows);
+  assert.ok(r.rowsDropped > 0);
+  assert.ok(keptIds(r.out).includes(20));
+});
+
+test("crushJson keeps rows with rare status values, and flags none when values are uniform", () => {
+  const held = [10, 30, 50, 70, 90];
+  const dominant = crush(Array.from({ length: 100 }, (_, i) => ({ id: i, status: held.includes(i) ? "held" : "ok" })));
+  for (const i of held) assert.ok(keptIds(dominant.out).includes(i), String(i));
+  // 60 info, 25 warn, 15 distinct codes: the top two values cover 85%, so all 15 codes are rare.
+  const bimodal = crush(Array.from({ length: 100 }, (_, i) => ({ id: i, level: i < 60 ? "info" : i < 85 ? "warn" : `e${i - 85}` })));
+  for (let i = 85; i < 100; i++) assert.ok(keptIds(bimodal.out).includes(i), String(i));
+  // 50 values twice each: no rare value, so no signal, and the unique ids make the array unsafe to sample.
+  assert.equal(crushJson(JSON.stringify(Array.from({ length: 100 }, (_, i) => ({ id: i, code: `c${Math.floor(i / 2)}` }))), ""), undefined);
+});
+
+test("crushJson keeps a numeric anomaly more than 2 sigma from the mean", () => {
+  const r = crush(Array.from({ length: 60 }, (_, i) => ({ id: i, value: i === 37 ? 1000 : 10 + (i % 3), note: "steady" })));
+  assert.ok(r.rowsDropped > 0);
+  assert.ok(keptIds(r.out).includes(37));
+});
+
+test("crushJson keeps a row the query names that an empty query drops", () => {
+  const rows = Array.from({ length: 60 }, (_, i) => ({ id: 48200 + i, title: `row ${i} alpha beta gamma`, status: i === 5 ? "failed" : "ok" }));
+  assert.ok(!keptIds(crush(rows).out).includes(48213));
+  assert.ok(keptIds(crush(rows, "show me 48213").out).includes(48213));
+});
+
+test("crushJson never samples unique entities without a signal", () => {
+  const rows = Array.from({ length: 100 }, (_, i) => ({ id: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`, title: `Gardening tip number ${String(i).padStart(3, "0")} for spring beds` }));
+  const r = crushText(JSON.stringify(rows, null, 2)); // minified only
+  assert.equal(r.rowsDropped, 0);
+  assert.ok(!r.text.includes("_ccr_dropped"));
+  assert.deepEqual(r.out, rows);
+});
+
+test("crushJson keeps the K - 3 top-scored search results", () => {
+  const rows = Array.from({ length: 40 }, (_, i) => ({ id: i, score: Math.round((1 - i * 0.02) * 100) / 100, title: `result ${i} about topic` }));
+  assert.deepEqual(
+    keptIds(crush(rows).out),
+    Array.from({ length: 12 }, (_, i) => i),
+  );
+});
+
+test("crushJson keeps the rows around a time series change point", () => {
+  const rows = Array.from({ length: 60 }, (_, i) => ({ id: i, ts: `2026-10-01T00:${String(i).padStart(2, "0")}:00Z`, value: i < 50 ? 10 : 50, note: `reading ${i} from sensor alpha` }));
+  const kept = keptIds(crush(rows).out);
+  for (let i = 47; i <= 51; i++) assert.ok(kept.includes(i), String(i));
+});
+
+test("crushJson samples log rows by cluster and keeps every error-level row", () => {
+  const messages = ["started job", "finished job", "retrying job", "queued job"];
+  const rows = Array.from({ length: 60 }, (_, i) => ({
+    id: i,
+    level: i % 20 === 7 ? "error" : i % 2 ? "info" : "warn",
+    message: messages[i % 4],
+    detail: `request ${i} handled by worker pool with trace abc${i}`,
+  }));
+  const r = crush(rows);
+  assert.ok(r.rowsDropped > 0);
+  for (const i of [7, 27, 47]) assert.ok(keptIds(r.out).includes(i), String(i));
+});
+
+test("crushJson keeps every object key, crushes nested and stringified dict arrays, and leaves depth 50 alone", () => {
+  const nested = crush({ meta: { source: "api", page: 1 }, rows: STATUS_ROWS });
+  assert.deepEqual(Object.keys(nested.out), ["meta", "rows"]);
+  assert.deepEqual(nested.out.meta, { source: "api", page: 1 });
+  assert.match(nested.out.rows.at(-1)._ccr_dropped, SENTINEL);
+  const stringified = crush({ payload: JSON.stringify(STATUS_ROWS) });
+  assert.equal(typeof stringified.out.payload, "string");
+  assert.match(JSON.parse(stringified.out.payload).at(-1)._ccr_dropped, SENTINEL);
+  /**
+   * @param {number} depth
+   * @returns {unknown} STATUS_ROWS under `depth` objects
+   */
+  const wrap = (depth) => (depth === 0 ? STATUS_ROWS : { inner: wrap(depth - 1) });
+  assert.ok(crushJson(JSON.stringify(wrap(49)), ""));
+  assert.equal(crushJson(JSON.stringify(wrap(50)), ""), undefined);
+});
+
+test('crushJson keeps a "__proto__" key as an own data property', () => {
+  const r = crushText(`{"__proto__":{"x":1},"rows":${JSON.stringify(STATUS_ROWS)}}`);
+  assert.ok(r.text.startsWith('{"__proto__":{"x":1},"rows":['));
+  assert.ok(Object.hasOwn(r.out, "__proto__"));
+  assert.equal(Object.getPrototypeOf(r.out), Object.prototype);
+});
+
+test("crushJson is deterministic", () => {
+  const text = JSON.stringify({ rows: STATUS_ROWS });
+  assert.equal(crushJson(text, "status 150")?.text, crushJson(text, "status 150")?.text);
 });
