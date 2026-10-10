@@ -15,10 +15,12 @@ import {
   computeOptimalK,
   crushJson,
   crushQuery,
+  crushToolResult,
   dayKey,
   findVolatile,
   foldPending,
   isCacheDrop,
+  isCrushCandidate,
   isToolError,
   statsTables,
   stepEffort,
@@ -459,4 +461,80 @@ test('crushJson keeps a "__proto__" key as an own data property', () => {
 test("crushJson is deterministic", () => {
   const text = JSON.stringify({ rows: STATUS_ROWS });
   assert.equal(crushJson(text, "status 150")?.text, crushJson(text, "status 150")?.text);
+});
+
+const BIG = JSON.stringify(STATUS_ROWS);
+
+/**
+ * crushToolResult with an empty query; throws when the result is not rewritten.
+ * @param {string} tool
+ * @param {unknown} result
+ */
+function crushTool(tool, result) {
+  const c = crushToolResult(tool, result, "");
+  if (!c) throw new Error(`expected the ${tool} result to be crushed`);
+  return c;
+}
+
+test("crushToolResult rewrites a candidate Bash result's stdout and nothing else", () => {
+  const result = { stdout: BIG, stderr: "", interrupted: false, noOutputExpected: false };
+  assert.equal(isCrushCandidate("Bash", result), true);
+  const c = crushTool("Bash", result);
+  const { stdout, ...rest } = c.result;
+  assert.deepEqual(rest, { stderr: "", interrupted: false, noOutputExpected: false });
+  assert.equal(typeof stdout, "string");
+  const rows = JSON.parse(String(stdout));
+  assert.match(rows.at(-1)._ccr_dropped, SENTINEL);
+  assert.equal(c.rowsDropped, 200 - (rows.length - 1));
+  assert.equal(c.charsSaved, BIG.length - String(stdout).length);
+  assert.equal(c.offloaded.length, 1);
+  assert.equal(result.stdout, BIG); // the input is not mutated
+});
+
+test("Bash results that are not one whole inline JSON document are never candidates", () => {
+  const ok = { stdout: BIG, stderr: "", interrupted: false };
+  for (const extra of [
+    { interrupted: true },
+    { isImage: true },
+    { backgroundTaskId: "b1" },
+    { timedOutAfterMs: 120000 },
+    { persistedOutputPath: "/tmp/out.txt" },
+    { rawOutputPath: "/tmp/raw.txt" },
+    { stderr: "warn" },
+    { structuredContent: [{ type: "text", text: "x" }] },
+    { stdout: "x".repeat(900) },
+  ]) {
+    assert.equal(isCrushCandidate("Bash", { ...ok, ...extra }), false, Object.keys(extra)[0]);
+    assert.equal(crushToolResult("Bash", { ...ok, ...extra }, ""), undefined, Object.keys(extra)[0]);
+  }
+});
+
+test("crushToolResult rewrites only an MCP result's JSON text blocks", () => {
+  const image = { type: "image", data: "x", mimeType: "image/png" };
+  const small = { type: "text", text: "[1,2,3]" };
+  const json = { type: "text", text: BIG };
+  const result = { content: [json, image, small], isError: false };
+  const c = crushTool("mcp__srv__list", result);
+  const content = /** @type {{ text?: string }[]} */ (c.result.content);
+  assert.equal(c.result.isError, false);
+  assert.match(JSON.parse(String(content[0].text)).at(-1)._ccr_dropped, SENTINEL);
+  assert.equal(content[1], image);
+  assert.equal(content[2], small);
+  assert.equal(json.text, BIG); // the input is not mutated
+});
+
+test("MCP errors, structured results, headroom_retrieve, the mod's storage tools and built-ins are never candidates", () => {
+  const result = { content: [{ type: "text", text: BIG }] };
+  assert.equal(isCrushCandidate("mcp__srv__list", result), true);
+  for (const [tool, r] of /** @type {[string, unknown][]} */ ([
+    ["mcp__srv__list", { ...result, structuredContent: { rows: [] } }],
+    ["mcp__srv__list", { ...result, isError: true }],
+    [RETRIEVE_TOOL, result],
+    ["mcp__plugin_inline-headroom_storage__kv_get", result],
+    ["Read", result],
+    ["mcp__srv__list", { content: BIG }],
+  ])) {
+    assert.equal(isCrushCandidate(tool, r), false, tool);
+    assert.equal(crushToolResult(tool, r, ""), undefined, tool);
+  }
 });

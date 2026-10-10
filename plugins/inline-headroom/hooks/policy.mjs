@@ -10,6 +10,7 @@
 /** @typedef {Counters & {hit?: number}} Row hit: the ratio to show in place of the token-weighted one (the session row shows its last step's) */
 /** @typedef {{ role: 'user'|'assistant', text: string, toolUses: readonly { input: Record<string, unknown> }[] }} QueryMessage the SessionMessage fields crushQuery reads */
 /** @typedef {{ text: string, rowsDropped: number, offloaded: [string, string][] }} CrushOutcome a crushed document: compact text, rows lost, [hash, original array JSON] per crushed array */
+/** @typedef {{ result: Record<string, unknown>, rowsDropped: number, charsSaved: number, offloaded: [string, string][] }} ToolCrush a crushed tool result and what it saved */
 /**
  * One dict-array field (upstream FieldStats); the numeric statistics are absent when not finite.
  * @typedef {{ name: string, type: string, unique: number, ratio: number, min?: number, max?: number, mean?: number, variance?: number, changePoints: number[], avgLen?: number }} FieldStats
@@ -91,6 +92,9 @@ const ANCHOR_HOST_RE = /\b[a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z0-9][-a-zA-Z0-9]*(?:\
 const ANCHOR_QUOTED_RE = /['"]([^'"]{1,50})['"]/g;
 const ANCHOR_EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g;
 const BM25_TOKEN_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\b\d{4,}\b|[a-z0-9_]+/g;
+const MCP_TOOL_RE = /^mcp__.+__.+$/;
+// The mod's own storage tools are never crushed: a kv_get → edit → kv_set would write the row loss back to storage.db.
+const OWN_STORAGE_PREFIX = "mcp__plugin_inline-headroom_storage__";
 
 /**
  * Clamp-only: returns `target` only when `current` is a known effort level
@@ -1339,4 +1343,92 @@ export function crushJson(text, query) {
   if (out === value && !hasInsignificantWhitespace(text)) return undefined; // keep the original bytes
   const s = JSON.stringify(out);
   return s.length < text.trim().length ? { text: s, ...acc } : undefined;
+}
+
+/**
+ * @param {string} s
+ * @returns {boolean} more than CRUSH_MIN_CHARS and starts like a JSON object or array
+ */
+function looksLikeJsonDoc(s) {
+  return s.length > CRUSH_MIN_CHARS && /^[{[]/.test(s.trimStart());
+}
+
+/**
+ * @param {unknown} b
+ * @returns {b is { type: "text", text: string }} an MCP text content block
+ */
+function isTextBlock(b) {
+  return isRecord(b) && b.type === "text" && typeof b.text === "string";
+}
+
+/**
+ * Whether a successful tool.call result is one the crusher may rewrite. Bash: stdout that is one whole inline JSON
+ * document, with empty stderr, not interrupted, an image, backgrounded, timed out, offloaded to a file, or
+ * structured. MCP (`mcp__<server>__<tool>`, never headroom_retrieve or the mod's own storage tools): a
+ * non-error `content` array without structuredContent, holding a JSON text block. Nothing else.
+ * @param {string} tool
+ * @param {unknown} result tool.call's `result`
+ * @returns {boolean}
+ */
+export function isCrushCandidate(tool, result) {
+  if (!isRecord(result)) return false;
+  if (tool === "Bash") {
+    const { stdout, stderr, structuredContent } = result;
+    return (
+      typeof stdout === "string" &&
+      (stderr === undefined || (typeof stderr === "string" && stderr.trim() === "")) &&
+      result.interrupted !== true &&
+      !result.isImage &&
+      result.backgroundTaskId === undefined &&
+      result.timedOutAfterMs === undefined &&
+      result.rawOutputPath === undefined &&
+      result.persistedOutputPath === undefined &&
+      !(Array.isArray(structuredContent) && structuredContent.length > 0) &&
+      looksLikeJsonDoc(stdout)
+    );
+  }
+  return (
+    MCP_TOOL_RE.test(tool) &&
+    tool !== RETRIEVE_TOOL &&
+    !tool.startsWith(OWN_STORAGE_PREFIX) &&
+    result.isError !== true &&
+    Array.isArray(result.content) &&
+    result.structuredContent == null &&
+    result.content.some((b) => isTextBlock(b) && looksLikeJsonDoc(b.text))
+  );
+}
+
+/**
+ * Crushes a candidate tool result: Bash's `stdout`, or each MCP JSON text block. Every other field and block is
+ * kept as is. Undefined when it is no candidate or nothing got shorter.
+ * @param {string} tool
+ * @param {unknown} result tool.call's `result`
+ * @param {string} query the conversation context (crushQuery)
+ * @returns {ToolCrush|undefined}
+ */
+export function crushToolResult(tool, result, query) {
+  if (!isCrushCandidate(tool, result)) return undefined;
+  const r = /** @type {Record<string, unknown>} */ (result);
+  /** @type {ToolCrush} */
+  const c = { result: r, rowsDropped: 0, charsSaved: 0, offloaded: [] };
+  /** @param {string} text */
+  const crush = (text) => {
+    const out = crushJson(text, query);
+    if (!out) return text;
+    c.rowsDropped += out.rowsDropped;
+    c.charsSaved += text.length - out.text.length;
+    c.offloaded.push(...out.offloaded);
+    return out.text;
+  };
+  if (tool === "Bash") c.result = { ...r, stdout: crush(/** @type {string} */ (r.stdout)) };
+  else
+    c.result = {
+      ...r,
+      content: /** @type {unknown[]} */ (r.content).map((b) => {
+        if (!isTextBlock(b)) return b;
+        const text = crush(b.text);
+        return text === b.text ? b : { ...b, text };
+      }),
+    };
+  return c.charsSaved > 0 ? c : undefined;
 }
