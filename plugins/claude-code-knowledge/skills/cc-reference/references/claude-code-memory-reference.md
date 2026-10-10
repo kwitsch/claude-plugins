@@ -1,7 +1,7 @@
 # Claude Code Memory — Authoring Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (How Claude remembers your project), verified 2026-10-02.
+> (How Claude remembers your project), verified 2026-10-09.
 > Apply when authoring or editing CLAUDE.md files or configuring auto memory.
 
 ## CLAUDE.md: what & when
@@ -42,15 +42,23 @@ Files load in the order below (broadest to most specific); a later entry wins on
 | **Local project**  | `./CLAUDE.local.md` (add to `.gitignore`)                                                                                                             | Just you (current project) |
 
 - CLAUDE.md and CLAUDE.local.md files **in the directory hierarchy above the working directory** load in full at launch.
-- Files **in subdirectories** load on demand when Claude reads files in those directories.
+- Files **in subdirectories** (`CLAUDE.md` and `CLAUDE.local.md`) load on demand, once Claude reads, writes, or edits another file in that subdirectory. Reading includes viewing a single file with a Bash command that counts as a read, such as `cat` or `head`. Files inside a worktree under `.claude/worktrees/`: see `/en/worktrees#isolate-subagents-with-worktrees`.
 - Load ordering: Claude walks up the directory tree from cwd, concatenating all discovered files (not overriding). Ordered filesystem-root → cwd, so files closest to launch dir are read **last**. Within each directory, `CLAUDE.local.md` is appended **after** `CLAUDE.md`.
 - Managed policy CLAUDE.md **cannot be excluded** by `claudeMdExcludes` — always loads.
-- `claudeMd` key in `managed-settings.json` injects CLAUDE.md content directly; honored only in managed/policy scope. Setting it in user, project, or local settings has no effect.
+- `claudeMd` key in `managed-settings.json` injects CLAUDE.md content directly instead of deploying a separate file; scope = every session on the machine, every repository; precedence = same as a managed CLAUDE.md file (loads before user and project CLAUDE.md); honored only in managed/policy scope. Setting it in user, project, or local settings has no effect.
+
+```json
+{
+  "claudeMd": "Always run `make lint` before committing.\nNever push directly to main."
+}
+```
+
 - `claudeMdExcludes` skips files by path or glob (matched against absolute paths); configurable at **any** settings layer (user/project/local/managed); arrays merge across layers. Put it in `.claude/settings.local.json` to keep the exclusion local to your machine.
 - version >= 2.1.239: to exclude a `.claude/rules/` file reached through a symlink, a pattern matching **either** the file's path under `.claude/rules/` **or** its link target excludes it (before v2.1.239, only a pattern matching the link target worked).
 - `--add-dir` directories do NOT load their CLAUDE.md by default. Set `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` to load `CLAUDE.md`, `.claude/CLAUDE.md`, `.claude/rules/*.md`, `CLAUDE.local.md` from them (`CLAUDE.local.md` skipped if `local` is excluded from `--setting-sources`).
 - Compaction: project-root CLAUDE.md **survives `/compact`** — re-read from disk and re-injected. Nested subdirectory CLAUDE.md files and rules with `paths:` frontmatter are NOT re-injected automatically; they reload next time Claude reads a file in that subdirectory or a file matching the rule's patterns. An instruction missing after compaction was either given only in conversation (never written to a file), lives in a nested CLAUDE.md that hasn't reloaded yet, or is a path-scoped rule that hasn't matched a file since — put conversation-only instructions into a CLAUDE.md to make them persist.
-- Debug: run `/context` and read the list under **Memory files** to confirm a CLAUDE.md/CLAUDE.local.md file actually loaded in the session — a file missing there is invisible to Claude that session. `/memory` lists memory-file _locations_ and opens them for editing; `/context` is the load check.
+- Debug: run `/context` and read the list under **Memory files** to confirm a CLAUDE.md/CLAUDE.local.md file actually loaded at launch — a file missing there is invisible to Claude that session. `/memory` lists memory-file _locations_ and opens them for editing; `/context` is the load check.
+- A subdirectory CLAUDE.md does NOT appear under **Memory files** (loads on demand, not at launch). When it loads, a `Loaded` line with its path appears in the terminal. To test a new one: create it from your shell (not by asking Claude to write it), then ask Claude to read a file in that subdirectory.
 
 ### User-level rules
 
@@ -93,17 +101,20 @@ Files load in the order below (broadest to most specific); a later entry wins on
 
 #### Project instructions setting
 
-Set in `/config` (**Project instructions**) or via `pluginConfigs` under the built-in `agents-md` plugin ID in `~/.claude/settings.json`, a `--settings` file, or managed settings. Ignored in project and local settings files. Applies from the next message and in every new session.
+Set in `/config` (**Project instructions**) or via `pluginConfigs` under `cc-plugin-agents-md@builtin` (the built-in plugin that reads `AGENTS.md`) in `~/.claude/settings.json`, a `--settings` file, or managed settings. Ignored in project and local settings files. Applies from the next message and in every new session.
 
 ```json
 {
   "pluginConfigs": {
-    "agents-md@builtin": {
+    "cc-plugin-agents-md@builtin": {
       "options": { "instructionFiles": "claude-md-and-agents-md" }
     }
   }
 }
 ```
+
+- version >= 2.1.285: Claude Code reads an entry under either `cc-plugin-agents-md@builtin` or `agents-md@builtin`.
+- Before v2.1.285 the plugin ID was `agents-md@builtin`, and an entry under `cc-plugin-agents-md@builtin` was ignored → when earlier versions also read the settings file, use `agents-md@builtin` there.
 
 | Value                     | What Claude reads                                                                                                                                                                                                                                     |
 | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -117,7 +128,7 @@ Set in `/config` (**Project instructions**) or via `pluginConfigs` under the bui
 Claude reads `CLAUDE.md` files only, and **Project instructions** is absent from `/config`, when:
 
 - Claude Code version is before v2.1.277.
-- The built-in `agents-md` plugin is disabled in `/plugin`.
+- The built-in plugin that reads `AGENTS.md` is disabled in `/plugin`.
 - In some cases, the first session after upgrading from v2.1.276 or earlier (read from the next session on).
 - Before v2.1.281, some sessions (e.g. Amazon Bedrock, telemetry disabled) read `CLAUDE.md` files only → update.
 
@@ -176,7 +187,7 @@ Default path: `~/.claude/projects/<project>/memory/` where `<project>` is derive
 
 ```text
 ~/.claude/projects/<project>/memory/
-├── MEMORY.md           # concise index; loaded into every session
+├── MEMORY.md           # index, one line per memory; loaded into every session
 ├── user_role.md        # one memory (type: user)
 ├── feedback_testing.md # one memory (type: feedback)
 └── ...                 # any other topic files Claude creates
@@ -188,7 +199,7 @@ Default path: `~/.claude/projects/<project>/memory/` where `<project>` is derive
 - This 200-line/25 KB limit applies **only to `MEMORY.md`**. CLAUDE.md files load in full up to **4 MiB**; a larger file is skipped entirely (shorter files still produce better adherence).
 - version >= 2.1.210: after each write to `MEMORY.md`, Claude Code measures the file against the 200-line/25 KB read limits. Near a limit → Claude is reminded to shorten it (one line per entry, detail into topic files, merge or drop stale entries). Over a limit → the write still succeeds, but Claude Code returns an error telling Claude to rewrite the index, because everything past the limit is dropped on the next load.
 - version >= 2.1.211: the limit check measures only the content that loads — YAML frontmatter and block-level HTML comments are stripped before the index loads, so they do not count toward the limits.
-- version >= 2.1.214: when Claude writes a memory file that begins with YAML frontmatter, Claude Code records the write time in a `modified` frontmatter field (ISO 8601). Any file that already has frontmatter gets the field on its next write, including files created on earlier versions; Claude Code never adds frontmatter to a file that has none.
+- version >= 2.1.214: when Claude writes a memory file that begins with YAML frontmatter, Claude Code records the write time in a `modified` frontmatter field (ISO 8601). Any file that already has frontmatter gets the field on its next write, including files created on earlier versions; Claude Code never adds frontmatter to a file that has none. The timestamp shows how current the fact is, to you and to Claude when it reads the memory back.
 - Topic files (e.g., `user_role.md`) are **not** loaded at startup; Claude reads them on demand with its standard file tools.
 - Override storage path with `autoMemoryDirectory` in settings:
 
@@ -244,7 +255,7 @@ Value must be an absolute path or start with `~/`. Read from **any** settings sc
 - Rules without a `paths` frontmatter field load unconditionally at launch and apply to all files, at the same priority as `.claude/CLAUDE.md`.
 - Project rules are skipped when `project` is excluded from `--setting-sources` (see Version notes).
 - Rules load every session, or when matching files are opened. For task-specific instructions that need not sit in context permanently, use a **skill** instead — skills load only on invocation or when Claude judges them relevant to the prompt.
-- Rules with `paths` load only when Claude works with matching files (trigger on read of a matching file, not on every tool use):
+- Rules with `paths` load only when Claude works with matching files: trigger = Read, Write, or Edit tool on a matching file, or viewing a single matching file with a Bash command that counts as a read (such as `cat` or `head`); not every tool use:
 
 ```markdown
 ---
@@ -279,7 +290,7 @@ paths:
 - Glob treats `[` as the start of a bracket expression (`[abc]`). A pattern whose `[` cannot be read as a bracket expression (e.g. `photos [2024/**`) is invalid: it matches nothing while the rule's other patterns keep working. Escape a literal `[` — `photos \[2024/**`.
 - User-level rules: `~/.claude/rules/` — apply to every project on the machine; loaded **before** project rules (project rule appears later in context), but neither set overrides the other; conflicting rules → Claude may follow either.
 - Share across projects with symlinks (directories or individual files); circular symlinks are detected and handled gracefully.
-- A symlink under `.claude/rules/` whose **target** resolves outside the working directory is treated like an external import: the linked rules don't load until you approve external imports for the project, and once approved only the ones without a `paths` field load. Claude Code asks for that approval only when a project memory file imports a file outside the working directory with `@path` — a symlink alone doesn't trigger the dialog. To load shared rules with no approval step, keep them in `~/.claude/rules/` instead (applies to every project on the machine).
+- A symlink under `.claude/rules/` whose **target** resolves outside the working directory is treated like an external import: the linked rules don't load until you approve external imports for the project, and once approved only the ones without a `paths` field load. Claude Code asks for that approval once per project, in a dialog at the start of an interactive session; the dialog lists the linked rule files alongside any external `@path` imports. To load shared rules with no approval step, keep them in `~/.claude/rules/` instead (applies to every project on the machine).
 - A `.claude/rules/` or `CLAUDE.md` symlink pointing at a network path (UNC share `\\server\share`, or a path under `/net` or `/Network`) → linked instructions don't load; Claude Code doesn't follow the link because looking up such a path can contact the named host. `\\wsl$` paths don't count as network paths.
 - Debug: the `InstructionsLoaded` hook (`/en/hooks#instructionsloaded`) logs which instruction files load, when, and why — useful for path-specific/lazy-loaded rules.
 
@@ -301,7 +312,7 @@ paths:
 
 ## Troubleshooting
 
-- Claude not following CLAUDE.md → check in order: `/context` **Memory files** list shows the file; file sits in a location loaded for the session; instructions are specific; no conflicting instructions across CLAUDE.md files; your instruction doesn't compete with built-in Claude Code guidance.
+- Claude not following CLAUDE.md → check in order: `/context` **Memory files** list shows the file (a subdirectory CLAUDE.md is absent there — loads on demand; look for the terminal `Loaded` line instead); file sits in a location loaded for the session; instructions are specific; no conflicting instructions across CLAUDE.md files; your instruction doesn't compete with built-in Claude Code guidance.
 - Competing built-in guidance: if CLAUDE.md sets commit or pull request rules, turn off the built-in ones with `includeGitInstructions` and set the attribution text with `attribution`.
 - Instruction that must run at a fixed point (before every commit, after each file edit) → write it as a hook, not CLAUDE.md. Hooks run as shell commands at lifecycle events regardless of what Claude decides.
 - `AGENTS.md` not loading → (1) a `CLAUDE.md`/`.claude/CLAUDE.md`/`CLAUDE.local.md` in working directory or above (other than `~/.claude/CLAUDE.md`) wins unless **Project instructions** is `claude-md-and-agents-md`; (2) `claude --version` must be v2.1.277 or later (v2.1.281 or later for Bedrock/telemetry-disabled sessions); (3) `/config` **Project instructions** must not be `claude-md` or `managed-only` (setting absent → session can't load `AGENTS.md`). Confirm via `/memory` path list.
@@ -325,6 +336,8 @@ paths:
 | version >= 2.1.280 | `/memory` and `/context` list an `AGENTS.md` that Claude read directly                                                                         |
 | version >= 2.1.281 | Bedrock/telemetry-disabled sessions also read `AGENTS.md` directly                                                                             |
 | version >= 2.1.283 | `/doctor prompt-audit` audits instruction files (runs through the bundled `/claude-api` skill)                                                 |
+| version >= 2.1.285 | `pluginConfigs` entry for the built-in AGENTS.md plugin read under either `cc-plugin-agents-md@builtin` or `agents-md@builtin`                 |
+| before v2.1.285    | Built-in AGENTS.md plugin ID was `agents-md@builtin`; an entry under `cc-plugin-agents-md@builtin` was ignored                                 |
 | before v2.1.207    | One invalid `[` pattern in a rule's `paths` made the Read tool fail for every file the rule was evaluated against, instead of matching nothing |
 | before v2.1.211    | `MEMORY.md` limit check measured the raw file, so frontmatter/HTML comments could trigger the error even when the loaded content fit           |
 | before v2.1.211    | On-demand rules (path-scoped rules, rules in nested `.claude/rules/`) loaded even when `project` was excluded from `--setting-sources`         |
