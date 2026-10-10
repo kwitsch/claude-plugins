@@ -167,9 +167,12 @@ Deviations from upstream:
   mods module is not known to load node built-ins, and a refused import would
   unload every lever.
 - `compute_optimal_k`'s zlib tier is skipped (it can only raise K by 20%).
-- A document holding a non-finite number or an integer beyond 2^53 is passed
-  through (`JSON.parse` would corrupt it). Number lexemes are re-rendered
-  (`1.50` → `1.5`), and integer-like object keys come first (a JS object rule).
+- A document holding a number whose double prints as another decimal (more than
+  17 significant digits, an integer beyond 2^53, an overflow to `Infinity`), a
+  `-0` or a duplicate object key is passed through (`JSON.parse` then
+  `JSON.stringify` would corrupt it; `isLossy` scans the text for each). Number
+  lexemes that survive are re-rendered (`1.50` → `1.5`), and integer-like object
+  keys come first (a JS object rule).
 - The tool-digest marker is omitted: the mod rewrites each result once, at
   `tool.call`.
 - JS regex `\b` is ASCII-only where Rust's is Unicode, and lengths count UTF-16
@@ -189,9 +192,10 @@ Wiring in `register.ts`:
   all of: `smart_crusher_enabled`; `retrieveReady` (this module load registered
   the tool under `RETRIEVE_TOOL`); no `e.agentId` (the tool is not known to be
   callable in subagents); `next.origin.plugin === "engine"` (the model's own
-  call, never another plugin's `$.tool.call`); and `isCrushCandidate` (Bash
-  stdout or MCP JSON text blocks, never `headroom_retrieve` or the mod's own
-  `mcp__plugin_inline-headroom_storage__*` tools).
+  call, never another plugin's `$.tool.call`; a missing `origin` fails open);
+  and `isCrushCandidate` (Bash stdout or MCP JSON text blocks that parse, so the
+  transcript fetch is paid only for real JSON, never `headroom_retrieve` or the
+  mod's own `mcp__plugin_inline-headroom_storage__*` tools).
 - A rewrite is a new `{ result }` that carries `next`'s `context` over
   unchanged (user decision); every passthrough returns `r` itself, and
   anything thrown after the error check returns `r` (fail open).

@@ -136,9 +136,10 @@ export const register: Register = (on, options) => {
     });
     if (crusherOn) {
       try {
-        retrieveReady = (await $.tool.register(RETRIEVE_SPEC)).tool === RETRIEVE_TOOL;
+        // Sticky within a module load: a later session.start that fails or answers another name leaves an earlier registration usable.
+        retrieveReady ||= (await $.tool.register(RETRIEVE_SPEC)).tool === RETRIEVE_TOOL;
       } catch {
-        retrieveReady = false; // no retrieval tool → never drop rows
+        // no registration in this module load → retrieveReady stays false and no rows are dropped
       }
     }
     return next(e);
@@ -259,7 +260,7 @@ export const register: Register = (on, options) => {
         failed(e.agentId);
         return r; // errors and denies are never rewritten
       }
-      if (!crusherOn || !retrieveReady || e.agentId || next.origin.plugin !== "engine" || !isCrushCandidate(e.tool, r.result)) return r;
+      if (!crusherOn || !retrieveReady || e.agentId || next.origin?.plugin !== "engine" || !isCrushCandidate(e.tool, r.result)) return r;
       try {
         let query = "";
         try {

@@ -1244,14 +1244,53 @@ function crushDictArray(items, query) {
 }
 
 /**
- * True when JSON.parse could not keep a number exactly: a non-finite value, or an integer beyond 2^53.
+ * A number lexeme as sign, significant digits and a power of ten, so two spellings of one decimal compare equal.
+ * @param {string} lexeme
+ * @returns {string|undefined} undefined when it is not a decimal ("Infinity")
+ */
+function canonNumber(lexeme) {
+  const m = /^(-?)(\d+)(?:\.(\d+))?(?:e([+-]?\d+))?$/i.exec(lexeme);
+  if (!m) return undefined;
+  const frac = m[3] ?? "";
+  const digits = (m[2] + frac).replace(/^0+/, "");
+  const sig = digits.replace(/0+$/, "");
+  return sig === "" ? "0" : `${m[1]}${sig}e${Number(m[4] ?? 0) - frac.length + digits.length - sig.length}`;
+}
+
+/**
  * @param {unknown} v
+ * @returns {number} the object keys at every depth of `v`
+ */
+function countKeys(v) {
+  const children = Array.isArray(v) ? v : isRecord(v) ? Object.values(v) : [];
+  let n = isRecord(v) ? Object.keys(v).length : 0;
+  for (const c of children) n += countKeys(c);
+  return n;
+}
+
+/**
+ * True when JSON.stringify(value) would not say what `text` says: a number whose double prints as another decimal
+ * (more than 17 significant digits, an integer past 2^53, an overflow to Infinity), a -0, or a duplicate object key.
+ * @param {string} text valid JSON
+ * @param {unknown} value JSON.parse(text)
  * @returns {boolean}
  */
-function hasUnsafeNumber(v) {
-  if (typeof v === "number") return !Number.isFinite(v) || (Number.isInteger(v) && !Number.isSafeInteger(v));
-  if (Array.isArray(v)) return v.some(hasUnsafeNumber);
-  return isRecord(v) && Object.values(v).some(hasUnsafeNumber);
+function isLossy(text, value) {
+  let keys = 0; // key tokens in the text: more than the parsed objects hold means a later duplicate won
+  const token = /"[^"\\]*(?:\\.[^"\\]*)*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
+  const colon = /\s*:/y;
+  for (let m = token.exec(text); m !== null; m = token.exec(text)) {
+    const lexeme = m[0];
+    if (lexeme[0] === '"') {
+      colon.lastIndex = token.lastIndex;
+      if (colon.test(text)) keys++;
+    } else {
+      if (lexeme[0] === "-" && Number(lexeme) === 0) return true;
+      // Up to 15 characters without an exponent hold at most 15 digits, which survive the decimal -> double -> decimal trip.
+      if ((lexeme.length > 15 || /e/i.test(lexeme)) && canonNumber(lexeme) !== canonNumber(String(Number(lexeme)))) return true;
+    }
+  }
+  return keys !== countKeys(value);
 }
 
 /**
@@ -1275,7 +1314,7 @@ function processValue(v, depth, query, acc) {
     } catch {
       return v;
     }
-    if (typeof parsed !== "object" || parsed === null || hasUnsafeNumber(parsed)) return v;
+    if (typeof parsed !== "object" || parsed === null || isLossy(v, parsed)) return v;
     const out = processValue(parsed, depth + 1, query, acc);
     return out === parsed ? v : JSON.stringify(out);
   }
@@ -1322,8 +1361,8 @@ function hasInsignificantWhitespace(s) {
 /**
  * SmartCrusher over one JSON document (upstream smart_crush_content without compaction): dict arrays lose rows
  * to a `{"_ccr_dropped":"<<ccr:HASH N_rows_offloaded>>"}` sentinel and the result is compact JSON. Undefined means
- * pass the text through: at most CRUSH_MIN_CHARS, not a JSON object or array, a number JSON.parse cannot keep,
- * unchanged compact input, or output that is not shorter.
+ * pass the text through: at most CRUSH_MIN_CHARS, not a JSON object or array, a number, -0 or duplicate key JSON.parse
+ * cannot keep, unchanged compact input, or output that is not shorter.
  * @param {string} text
  * @param {string} query the conversation context (crushQuery), "" for none
  * @returns {CrushOutcome|undefined}
@@ -1336,7 +1375,7 @@ export function crushJson(text, query) {
   } catch {
     return undefined;
   }
-  if (typeof value !== "object" || value === null || hasUnsafeNumber(value)) return undefined;
+  if (typeof value !== "object" || value === null || isLossy(text, value)) return undefined;
   /** @type {{ rowsDropped: number, offloaded: [string, string][] }} */
   const acc = { rowsDropped: 0, offloaded: [] };
   const out = processValue(value, 0, query, acc);
@@ -1346,11 +1385,18 @@ export function crushJson(text, query) {
 }
 
 /**
+ * A candidate parses, so a build log that starts with "[" never costs the hook a transcript fetch.
  * @param {string} s
- * @returns {boolean} more than CRUSH_MIN_CHARS and starts like a JSON object or array
+ * @returns {boolean} more than CRUSH_MIN_CHARS and a JSON object or array
  */
 function looksLikeJsonDoc(s) {
-  return s.length > CRUSH_MIN_CHARS && /^[{[]/.test(s.trimStart());
+  if (s.length <= CRUSH_MIN_CHARS || !/^[{[]/.test(s.trimStart())) return false;
+  try {
+    JSON.parse(s);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

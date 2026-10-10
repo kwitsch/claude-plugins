@@ -344,10 +344,21 @@ test("crushJson passes through what it cannot or need not crush", () => {
     JSON.stringify(rows.slice(0, 10)), // 800 chars or less
     `[${body},{"id":12345678901234567890}]`, // an integer JSON.parse would round
     `[${body},{"id":1e400}]`, // a number JSON.parse turns into Infinity
+    `[${body},{"amount":1234567.89012345678901}]`, // a decimal with more than 17 significant digits
+    `[${body},{"neg":-0}]`, // JSON.stringify prints -0 as 0
+    `[${body},{"a":1,"a":2}]`, // a duplicate key: the first value would vanish
+    String.raw`[${body},{"u":1,"u":2}]`, // a duplicate through an escape
     JSON.stringify({ text: "x".repeat(900) }), // an unchanged compact object
     JSON.stringify({ rows: rows.slice(0, 4).map((r) => ({ ...r, note: "y".repeat(300) })) }), // fewer than 5 rows are never crushed
   ])
     assert.equal(crushJson(text, ""), undefined, text.slice(0, 60));
+});
+
+test("crushJson still crushes numbers that survive the round trip and keys that merely look alike", () => {
+  const rows = Array.from({ length: 40 }, (_, i) => ({ id: i, status: "ok", note: "the same note on every row" }));
+  const body = JSON.stringify(rows).slice(1, -1);
+  const extra = String.raw`{"a":1.5,"b":0.1234567890123456,"c":1e21,"d":9007199254740992,"e":"x\":1,\"x\":2","a ":3,"f":0.0}`;
+  assert.ok(crushJson(`[${body},${extra}]`, ""));
 });
 
 test("crushJson minifies pretty JSON whose arrays all stay within K, dropping nothing", () => {
@@ -503,6 +514,8 @@ test("Bash results that are not one whole inline JSON document are never candida
     { stderr: "warn" },
     { structuredContent: [{ type: "text", text: "x" }] },
     { stdout: "x".repeat(900) },
+    { stdout: "[ 10%] Building CXX object foo.o\n".repeat(40) }, // starts with "[" but is a build log
+    { stdout: "{" + "x".repeat(900) }, // starts with "{" but does not parse
   ]) {
     assert.equal(isCrushCandidate("Bash", { ...ok, ...extra }), false, Object.keys(extra)[0]);
     assert.equal(crushToolResult("Bash", { ...ok, ...extra }, ""), undefined, Object.keys(extra)[0]);
