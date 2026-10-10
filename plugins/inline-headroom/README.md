@@ -14,14 +14,14 @@ faithfully to upstream semantics.
 
 ## What it does
 
-| Lever          | Upstream mapping                                           | Behavior                                                                                                                                                                                                                                                                                               |
-| -------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Effort routing | headroom effort routing (structural success-vs-error rule) | On a main-loop model step after index 0 whose preceding tool results were all successful, lowers thinking effort to `low`. Clamp-only: never raises effort, never injects one, leaves numeric or absent effort alone, ignores subagents. Any tool error or deny since the last step keeps full effort. |
-| CacheAligner   | headroom CacheAligner (detector only)                      | Scans the cacheable `shared` system-prompt sections for UUID, ISO-8601, JWT and 32/40/64-hex values and logs a line whenever the prompt-cache hit ratio drops from at least 60% to below 60% between steps. Never rewrites or reorders the prompt.                                                     |
+| Lever          | Upstream mapping                                           | Behavior                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| -------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Effort routing | headroom effort routing (structural success-vs-error rule) | On a main-loop model step after index 0 whose preceding tool results were all successful, lowers thinking effort to `low`; with `subagent_effort_routing_enabled` on, each subagent and Workflow agent gets the same rule on its own steps, tracked per agent. Clamp-only: never raises effort, never injects one, leaves numeric or absent effort alone. Any tool error or deny since that loop's last step keeps full effort. |
+| CacheAligner   | headroom CacheAligner (detector only)                      | Scans the cacheable `shared` system-prompt sections for UUID, ISO-8601, JWT and 32/40/64-hex values and logs a line whenever the prompt-cache hit ratio drops from at least 60% to below 60% between steps. Never rewrites or reorders the prompt.                                                                                                                                                                              |
 
 ## Configuration options
 
-All three options are on by default. For the two levers only a literal `false`
+All four options are on by default. For the lever toggles only a literal `false`
 disables one; `storage_enabled` is fail-closed, so anything but a literal `true`
 turns storage off. Set them via
 `/plugin -> installed -> inline-headroom -> Configure options`, or in
@@ -33,6 +33,7 @@ turns storage off. Set them via
     "inline-headroom": {
       "options": {
         "effort_routing_enabled": false,
+        "subagent_effort_routing_enabled": true,
         "cache_aligner_enabled": true,
         "storage_enabled": true
       }
@@ -41,11 +42,12 @@ turns storage off. Set them via
 }
 ```
 
-| Option                   | Default | Effect / Value                                                                                                                                    |
-| ------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `effort_routing_enabled` | `true`  | Lower effort to `low` on main-loop steps that only resume after successful tool results.                                                          |
-| `cache_aligner_enabled`  | `true`  | Flag volatile values in the `shared` system-prompt sections and log prompt-cache hit-ratio drops.                                                 |
-| `storage_enabled`        | `true`  | Run the host-wide SQLite storage service behind the `storage` MCP tools (see [Storage](#storage)). Fail-closed: only a literal `true` enables it. |
+| Option                            | Default | Effect / Value                                                                                                                                                                                                                                    |
+| --------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `effort_routing_enabled`          | `true`  | Lower effort to `low` on main-loop steps that only resume after successful tool results.                                                                                                                                                          |
+| `subagent_effort_routing_enabled` | `true`  | Apply the same clamp to each subagent and Workflow agent, per agent. Only active while `effort_routing_enabled` is on. Overrides effort set on purpose (agent frontmatter, Agent tool, Workflow); see [Notes & limitations](#notes--limitations). |
+| `cache_aligner_enabled`           | `true`  | Flag volatile values in the `shared` system-prompt sections and log prompt-cache hit-ratio drops.                                                                                                                                                 |
+| `storage_enabled`                 | `true`  | Run the host-wide SQLite storage service behind the `storage` MCP tools (see [Storage](#storage)). Fail-closed: only a literal `true` enables it.                                                                                                 |
 
 ## `/headroom`
 
@@ -55,6 +57,7 @@ transcript, so the stats never enter the model's context:
 ```
 effort routing     steps clamped
 session               12       7
+subagents              4       2
 today                 40      15
 7 days               340     120
 30 days             1200     400
@@ -69,13 +72,18 @@ volatile shared values: none
 ```
 
 - **Rows:** `session` is this session's counters, kept in memory and redrawn
-  live. `today`, `7 days` and `30 days` are rolling windows of local calendar
-  days that include today: totals across all sessions on this host, read from
-  [storage](#storage) when the pane opens and every 10 s while it stays open.
+  live. `subagents` counts this session's subagent and Workflow-agent steps and
+  clamps, in memory only (never persisted). `today`, `7 days` and `30 days` are
+  rolling windows of local calendar days that include today: totals across all
+  sessions on this host, read from [storage](#storage) when the pane opens and
+  every 10 s while it stays open. `session`, `today`, `7 days` and `30 days`
+  count main-loop steps only.
 - **Tables follow their levers.** `effort routing` is shown only while
-  `effort_routing_enabled` is on. `cache aligner` and the volatile list are shown
-  only while `cache_aligner_enabled` is on. With both off the pane says so and
-  reads nothing from storage.
+  `effort_routing_enabled` is on, and its `subagents` row only while both
+  `effort_routing_enabled` and `subagent_effort_routing_enabled` are on.
+  `cache aligner` and the volatile list are shown only while
+  `cache_aligner_enabled` is on. With both off the pane says so and reads
+  nothing from storage.
 - **`hit`** is the cache hit ratio (cache reads / all input tokens). The
   `session` row shows its last step's ratio; the storage rows show the
   token-weighted ratio over their window. It reads `–` while no tokens were
@@ -94,7 +102,7 @@ volatile shared values: none
 
 The pane docks beside the transcript in fullscreen at 110+ columns and otherwise sits
 above the prompt. It takes the keyboard when the prompt is empty: Esc closes it,
-and Ctrl+X then X always does. While it stays open the session row redraws whenever the stats change, and the other rows refresh every 10 s.
+and Ctrl+X then X always does. While it stays open the `session` and `subagents` rows redraw whenever the stats change, and the other rows refresh every 10 s.
 
 ## Storage
 
@@ -148,9 +156,18 @@ rows. It is the MCP server `storage` (connected as
   routing after measuring about $0.0007 saved per mechanical turn against roughly
   $0.011 of cache re-writes per switch. Watch the `drops` count in the `/headroom` pane and
   the `cache drop` log lines; set `effort_routing_enabled` to `false` if clamps
-  coincide with drops.
-- **The session row resets; persisted totals stay.** The session row lives in
-  module memory and starts over on a hot reload, an options change and `/clear`.
+  coincide with drops. Each subagent pays its own re-write on a switch, and
+  `drops` and the `cache drop` log follow the main loop only; set
+  `subagent_effort_routing_enabled` to `false` to keep subagents at full effort
+  while the main loop is still clamped.
+- **Subagent effort routing overrides deliberate effort.** The clamp cannot tell
+  an effort set in agent frontmatter, the Agent tool `effort` parameter or a
+  Workflow `effort` option from a default one; set
+  `subagent_effort_routing_enabled` to `false` if agents depend on their
+  configured effort.
+- **The session rows reset; persisted totals stay.** The `session` and
+  `subagents` rows live in module memory and start over on a hot reload, an
+  options change and `/clear`.
   The today / 7 days / 30 days rows keep their totals, but a turn cut off by a
   reload or a crash before it ends is not persisted.
 - **Updating from 0.2.0 needs a session restart.** The storage protocol is now 2:
