@@ -197,8 +197,9 @@ rows. It is the MCP server `storage` (connected as
 - **Dropped rows are retrievable while the mod is loaded.** The last 1000
   crushed arrays (at most 16 million characters in all) stay in memory; a hot reload, an options change or a new
   process loses them, and `headroom_retrieve` then answers with an error naming
-  the hash (re-run the tool instead). The first `headroom_retrieve` call may ask
-  for permission like any other tool. A read-modify-write over another MCP
+  the hash (re-run the tool instead). `headroom_retrieve` never asks for
+  permission: the mod answers it before Claude Code's permission check, and it
+  only reads what this session's own tool calls returned. A read-modify-write over another MCP
   server's JSON should fetch the whole value first.
 - **Crush counts are not persisted.** The `smart crusher` table has only its
   `session` row; the today / 7 days / 30 days rows hold no crusher numbers,

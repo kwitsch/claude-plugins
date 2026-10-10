@@ -232,6 +232,23 @@ Wiring in `register.ts`:
   likewise has one hook, which observes effort errors, answers
   `headroom_retrieve` and runs the SmartCrusher, registered while
   `effort_routing_enabled` or `smart_crusher_enabled` is on.
+- Live-run on 2.1.296 (headless `claude -p --plugin-dir … --setting-sources project`,
+  a stdio MCP test server via `--mcp-config`, stream-json transcript as evidence):
+  - Core resolves an MCP tool's `tool.call` to `{ ref, result, text }` where
+    `result` is the content-block array itself (`[{ type: "text", text }]`),
+    not `{ content: [...] }` (that is `$.mcp.call`'s shape). The typings leave
+    an MCP tool's `result` as `unknown`.
+  - The model's own calls carry `next.origin` `{ plugin: "engine", tier: "core" }`.
+  - A hook-rewritten Bash `{ result }` and MCP content array pass core's
+    validation and reach the model as the crushed JSON (200 rows → 15 + the CCR
+    sentinel).
+  - `$.tool.register` resolves to `mcp__inline-headroom__headroom_retrieve`; the
+    tool is deferred (the model loads it through ToolSearch), its call reaches
+    the matcher-less `tool.call` hook, and the `{ result: string }` answer
+    reaches the model as text.
+  - `headroom_retrieve` raises no permission prompt: the hook answers before
+    core's permission step runs (`--permission-mode default` without an allow
+    rule records no denial).
 - Read from the typings (`claude-code.d.ts`), not live-run:
   - `tool.call` resolves to one of three `ToolCallResult` variants: `{ deny }`,
     an answered `{ result, context?, ref?, text? }`, or
@@ -327,17 +344,6 @@ delete this heading once it is empty.
   entry lives until `session.end`).
 - A background session's main loop carries no `agentId` (if it does, its steps
   follow the subagent toggle and count in the `subagents` row).
-- An MCP tool's core `result` in `tool.call` is `{ content: McpContentBlock[], … }`
-  (otherwise the guard never matches and MCP results pass through).
-- A hook-rewritten Bash `{ result }` passes core's validation and reaches the
-  model as the crushed stdout.
-- The real engine resolves `$.tool.register` to
-  `mcp__inline-headroom__headroom_retrieve`, routes the model's call through
-  the `tool.call` chain to the matcher-less hook, and the `{ result: string }`
-  answer reaches the model as text.
-- `next.origin.plugin === "engine"` for the model's own tool calls (otherwise
-  nothing is crushed).
-- Whether the first `headroom_retrieve` call raises a permission prompt.
 
 ## Effort-routing caveat
 
