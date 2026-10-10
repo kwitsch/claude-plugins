@@ -398,23 +398,17 @@ test("(r) a usage with a missing token field still writes integer counters", asy
   expect(calls[0].args.rows).toEqual([{ day: dayKey(clock.now()), steps: 1, clamped: 0, cache_drops: 0, input_tokens: 500, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }]);
 });
 
-test("(p) session.end starts the session row over and drains a started write", async ($, on) => {
-  const clock = mock.clock(on, { now: NOW });
+test("(p) turn.complete finishes its write before it resolves, and session.end starts the session row over", async ($, on) => {
+  mock.clock(on, { now: NOW });
   const calls = stubStorage(on, () => ({ ok: true, purged: 0 }));
   bottomStep(on);
   on("turn.complete", async () => ({ text: "" }));
   on("session.end", async (_$, e) => ({ sessionId: e.sessionId }));
   await step($, 0, "high");
   await $.turn.complete(DONE);
-  let settled = false;
-  const ended = $.session.end({ reason: "clear", sessionId: "s1", resume: { id: "s1" } }).then(() => {
-    settled = true;
-  });
-  // The write cannot run until the clock advances, so session.end must still be waiting on it.
-  for (let i = 0; i < 50; i++) await Promise.resolve(); // let every hook that needs no clock finish
-  expect(settled).toBe(false);
-  await clock.advance(0);
-  await ended;
+  // Awaited inside the hook: core asks permission for a storage call raised after the hook returned.
+  expect(calls.filter((c) => c.tool === "stats_put")).toHaveLength(1);
+  await $.session.end({ reason: "clear", sessionId: "s1", resume: { id: "s1" } });
   const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
   expect(await cell(ui, "1")).toBeUndefined(); // steps was 1 before the reset; nothing else reads 1
   await ui.unmount();
@@ -433,14 +427,16 @@ test("(t) a second /headroom never stacks the refresh, and closing the pane stop
   await $.command.run({ command: "headroom" }); // re-open: fetches at once and restarts the timer
   await clock.settle();
   expect(calls).toHaveLength(6);
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" }); // a tick fetches through the pane's render
   await clock.advance(10_000);
   expect(calls).toHaveLength(9); // one timer ticked, not two (12)
   await $.command.run({ command: "closer" });
   await clock.advance(30_000);
   expect(calls).toHaveLength(9);
+  await ui.unmount();
 });
 
-test("(v) a refresh that finds unchanged totals does not redraw the pane", async ($, on) => {
+test("(v) a refresh that finds unchanged totals does not redraw the pane again", async ($, on) => {
   const clock = mock.clock(on, { now: NOW });
   const today = dayKey(NOW);
   stubWindows(on, () => windowSums(today));
@@ -454,7 +450,7 @@ test("(v) a refresh that finds unchanged totals does not redraw the pane", async
   await clock.settle();
   expect(redraws).toBe(1); // the first numbers
   await clock.advance(10_000);
-  expect(redraws).toBe(1); // the same numbers again
+  expect(redraws).toBe(2); // the tick's own redraw, which fetches; the same numbers add none
 });
 
 test("(u) a refused close keeps the refresh running", { plugins: [closer] }, async ($, on) => {
@@ -466,9 +462,11 @@ test("(u) a refused close keeps the refresh running", { plugins: [closer] }, asy
   await $.command.run({ command: "headroom" });
   await clock.settle();
   expect(calls).toHaveLength(3);
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" }); // a tick fetches through the pane's render
   await $.command.run({ command: "closer" });
   await clock.advance(10_000);
   expect(calls).toHaveLength(6);
+  await ui.unmount();
 });
 
 test("(w) a pane left open with no timer (after a hot reload) re-arms its refresh on the first redraw", async ($, on) => {

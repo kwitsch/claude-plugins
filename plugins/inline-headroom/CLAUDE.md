@@ -141,8 +141,18 @@ row and a hot reload (a new `WRITER`) never shrinks a stored total. The today /
 Deviation from `.claude/rules/hooks-mcp-server.md`: the `.mcp.json` key is
 `storage`, not `<name>-hooks`, because this server backs no `mcp_tool` hook and
 `hooks.json` never references it. `/headroom` persistence is the first mod-side
-consumer; `$.mcp.connect("storage")` from the mod stays under Not yet
-live-verified until a live run confirms it.
+consumer.
+
+Every mod-side storage call must be awaited by a running hook of this module
+(live on 2.1.296): core routes `$.mcp.call` through `$.tool.call` and its
+permission check, although the typings promise no prompt. A plugin's own hooks
+see a call it raises only while one of its hooks runs; a call raised after the
+hook returned (an unawaited chain, a `$.clock.every` callback) skips them, so
+in `default` mode the user gets a permission dialog per call and a headless
+session denies it. In-frame, the module's `tool.check` hook allows it
+(`isOwnStorageCall`). Hence: `turn.complete` awaits its `stats_put`,
+`command.run` awaits the first `stats_sum`, and a refresh tick only sets
+`stale` and redraws, so the `ui.render` hook fetches.
 
 ## SmartCrusher
 
@@ -312,11 +322,38 @@ Wiring in `register.ts`:
 - `Box` `flexDirection`/`width`/`justifyContent`/`gap` and `Text`
   `bold`/`dimColor` mount and validate in a Pane.
 - Test kit: `$.clock.now()` needs `mock.clock(on, { now })` (from
-  `claude-code/testing`). The `$` calls the unawaited flush chain makes after
-  `turn.complete` returned run once the test calls `clock.advance(0)`.
-  `clock.advance(ms)` fires a module's `$.clock.every` periods exactly on the
-  boundary (`advance(9_999)` fires none of a 10 s period, a further
-  `advance(1)` fires one).
+  `claude-code/testing`). `clock.advance(ms)` fires a module's `$.clock.every`
+  periods exactly on the boundary (`advance(9_999)` fires none of a 10 s
+  period, a further `advance(1)` fires one). A refresh tick fetches through the
+  pane's render, so a test that counts tick fetches mounts the pane.
+- Live-run on 2.1.296 for the earlier levers (headless `claude -p`, an
+  interactive session in tmux, a `claude --bg` session, a throwaway probe mod;
+  evidence: `--debug-file` logs and, for effort, the `/v1/messages` request
+  bodies through a local pass-through proxy):
+  - `$.mcp.connect("storage")` connects from the mod by the bare key.
+  - `structuredContent` is not forwarded for a tool without `outputSchema`
+    (the storage tools have none): `callStorage` reads the JSON text block.
+  - The storage permission rules under `## Storage server`.
+  - `$.clock.every` started in `command.run`, or in `ui.render` after a hot
+    reload, keeps firing with that hook's `$` after the hook returned.
+  - The `ui.close` hook (matcher `{ id }`) runs on Esc and on Ctrl+X X, and the
+    refresh stops.
+  - A file change under `--plugin-dir` hot-reloads the module with the pane
+    still open; the first redraw re-arms the refresh.
+  - Agent-tool subagents raise `turn.step`, `tool.call` and `turn.complete`
+    with one stable `agentId`, and `index` restarts at 0 per agent.
+    `turn.complete` fires with `reason: "aborted"` for a background agent
+    stopped with TaskStop.
+  - Core sends the lowered `effort` (`output_config.effort`) for main-loop and
+    subagent steps.
+  - A `claude --bg` session's main loop carries no `agentId`.
+  - The built-in `cc-plugin-sec-default` skips every user-tier hook on
+    `prompt.compose`, `prompt.section` and `prompt.context` (debug log:
+    `prompt.compose bypassed by cc-plugin-sec-default (tier user)`), and
+    `prompt.compose` is gone from the 2.1.296 typings. The cache aligner's
+    volatile list therefore stays empty for an installed plugin; the pane says
+    `unavailable` while no `prompt.compose` reached the module (`composeSeen`).
+    Its cache-drop counting reads `turn.step` usage and still works.
 
 ## Not yet live-verified (kit only)
 
@@ -324,26 +361,8 @@ Shipped on kit and typings evidence only. The user-run live check in the PR
 moves each confirmed entry into the section above and records any failure here;
 delete this heading once it is empty.
 
-- Mod-side `$.mcp.connect("storage")` from the real engine.
-- Whether `structuredContent` is forwarded for a tool without `outputSchema`
-  (the mod falls back to the JSON text block either way).
-- `$` honoured by the real engine after a `turn.complete` hook returned
-  (fallback: `await flushing` inside the hook).
-- `$.clock.every` started in a `command.run` hook keeps firing with that hook's
-  `$` after the hook returned (the 10 s pane refresh).
-- `$.clock.every` started in a `ui.render` hook (the re-arm after a hot reload)
-  keeps firing with that hook's `$` after the hook returned.
-- The mod's `ui.close` hook (matcher `{ id }`) runs on Esc and Ctrl+X X, so
-  closing the pane stops the refresh.
-- Agent-tool subagents and Workflow agents raise `turn.step`, `tool.call` and
-  `turn.complete` with their `agentId`, stable across that agent's steps, with
-  `index` restarting at 0 per agent turn.
-- The engine honours a lowered `effort` returned from a subagent `turn.step`
-  hook.
-- `turn.complete` fires for an aborted or killed subagent (otherwise its error
-  entry lives until `session.end`).
-- A background session's main loop carries no `agentId` (if it does, its steps
-  follow the subagent toggle and count in the `subagents` row).
+- Workflow agents (only Agent-tool subagents were live-run) raise `turn.step`,
+  `tool.call` and `turn.complete` with a stable `agentId`.
 
 ## Effort-routing caveat
 

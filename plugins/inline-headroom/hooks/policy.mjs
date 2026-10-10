@@ -40,8 +40,10 @@ export const CELL_WIDTHS = /** @type {const} */ ([16, 8, 8]);
 export const RETAIN_DAYS = 30;
 /** The name register.ts registers the retrieval tool under. */
 export const RETRIEVE_NAME = "headroom_retrieve";
+/** This plugin's name, as `next.origin.plugin` reads it for the mod's own `$` calls. */
+export const PLUGIN = "inline-headroom";
 /** headroom_retrieve's full name: the tool.register op serves a mod tool as `mcp__<plugin>__<name>`. */
-export const RETRIEVE_TOOL = `mcp__inline-headroom__${RETRIEVE_NAME}`;
+export const RETRIEVE_TOOL = `mcp__${PLUGIN}__${RETRIEVE_NAME}`;
 /** A JSON document is crushed only above this many characters (upstream min_tokens_to_crush 200 × 4 chars per token: the mod has no tokenizer). */
 export const CRUSH_MIN_CHARS = 800;
 /** Offloaded originals kept for headroom_retrieve, oldest evicted first (upstream CCR DEFAULT_CAPACITY). */
@@ -98,7 +100,19 @@ const ANCHOR_EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g;
 const BM25_TOKEN_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\b\d{4,}\b|[a-z0-9_]+/g;
 const MCP_TOOL_RE = /^mcp__.+__.+$/;
 // The mod's own storage tools are never crushed: a kv_get → edit → kv_set would write the row loss back to storage.db.
-const OWN_STORAGE_PREFIX = "mcp__plugin_inline-headroom_storage__";
+const OWN_STORAGE_PREFIX = `mcp__plugin_${PLUGIN}_storage__`;
+
+/**
+ * Whether a tool.check decides this mod's own storage call: `$.mcp.call` reaches core's permission step as a
+ * `$.tool.call` (live on 2.1.296, although the typings promise no prompt), so without an allow rule a headless
+ * session denies every `/headroom` write and an interactive one asks. The model's own storage calls are not covered.
+ * @param {string} originPlugin `next.origin.plugin`
+ * @param {string} tool
+ * @returns {boolean}
+ */
+export function isOwnStorageCall(originPlugin, tool) {
+  return originPlugin === PLUGIN && tool.startsWith(OWN_STORAGE_PREFIX);
+}
 
 /**
  * Clamp-only: returns `target` only when `current` is a known effort level

@@ -136,6 +136,12 @@ rows. It is the MCP server `storage` (connected as
   its counters to the `stats` table: one row per local day and module load (a
   hot reload starts a new row). Every write deletes the rows older than 30 days.
   An open `/headroom` pane re-reads the storage rows right after that write.
+  The turn ends once the write lands (milliseconds; up to about 3 s when it has
+  to start the service).
+- **No permission prompts.** Claude Code checks a plugin's own MCP calls like
+  tool calls; the mod allows its own storage calls itself, so neither the turn's
+  write nor the pane's reads ask, in any permission mode. The model's own calls
+  to the storage tools still go through your permission rules.
 - **One background process per host.** The first tool call, the first
   main-loop turn that ends while `storage_enabled` is on (the `/headroom` write),
   or opening `/headroom` (it reads on open and every 10 s while open) starts a

@@ -22,6 +22,7 @@ import {
   foldPending,
   isCacheDrop,
   isCrushCandidate,
+  isOwnStorageCall,
   isToolError,
   statsTables,
   stepEffort,
@@ -62,6 +63,14 @@ test("constants match the spec", () => {
   assert.equal(CCR_CAPACITY, 1000);
   assert.deepEqual([...ERROR_KEYWORDS], ["error", "exception", "failed", "failure", "critical", "fatal", "crash", "panic", "abort", "timeout", "denied", "rejected"]);
   assert.ok(ERROR_KEYWORDS.every((k) => k === k.toLowerCase()));
+});
+
+test("isOwnStorageCall allows only this mod's own calls to its storage tools", () => {
+  assert.equal(isOwnStorageCall("inline-headroom", "mcp__plugin_inline-headroom_storage__stats_put"), true);
+  assert.equal(isOwnStorageCall("engine", "mcp__plugin_inline-headroom_storage__stats_put"), false); // the model's own call
+  assert.equal(isOwnStorageCall("other-plugin", "mcp__plugin_inline-headroom_storage__kv_set"), false);
+  assert.equal(isOwnStorageCall("inline-headroom", "mcp__plugin_other_storage__kv_set"), false);
+  assert.equal(isOwnStorageCall("inline-headroom", "Bash"), false);
 });
 
 test("clampEffort lowers every level above low to low", () => {

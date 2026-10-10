@@ -13,6 +13,7 @@ import {
   foldPending,
   isCacheDrop,
   isCrushCandidate,
+  isOwnStorageCall,
   isToolError,
   pct,
   statsTables,
@@ -49,6 +50,7 @@ let flushing: Promise<void> = Promise.resolve(); // serializes stats_put: a newe
 let sums: { data?: Counters[]; error?: string } | undefined; // the today / 7 days / 30 days totals (ROWS order after session), fetched outside render
 let loading: Promise<void> | undefined; // the fetch in flight: a tick never stacks on a slow stats_sum (a cold service start takes up to 3 s)
 let poll: Timer | undefined; // the open pane's 10 s refresh
+let stale = false; // the refresh ticked: the pane's next render fetches the storage rows
 let paneOpen = false; // the /headroom pane has rendered and not closed since: subagent steps redraw only then
 
 const PANE = "headroom"; // the /headroom pane's id (1-64 of letters, digits, _ and -)
@@ -91,7 +93,10 @@ const callStorage = async ($: EngineInterface, tool: string, args: Record<string
   return r.structuredContent ?? JSON.parse(r.content[0]?.text ?? "null");
 };
 
-// Reads the storage rows into `sums` and redraws the pane. Never rejects: a tick's caller does not await it.
+// Reads the storage rows into `sums` and redraws the pane. Never rejects.
+// Every storage call is awaited by a running hook: core checks $.mcp.call like a tool call, and this mod's tool.check
+// sees, and allows, only calls raised while one of its hooks runs. A call made after its hook returned (a clock
+// callback, an unawaited chain) skips the mod's own hooks, so a session in default mode asks and a headless one denies.
 const loadSums = async ($: EngineInterface): Promise<void> => {
   let fetched: typeof sums;
   try {
@@ -117,10 +122,13 @@ const loadSums = async ($: EngineInterface): Promise<void> => {
 const refresh = ($: EngineInterface): Promise<void> => (loading ??= loadSums($).finally(() => (loading = undefined)));
 
 // Starts the open pane's 10 s refresh unless one runs: the command and the first redraw after a hot reload both call it.
+// A tick only marks the rows stale and redraws; the render hook fetches them (see loadSums).
 const arm = ($: EngineInterface): void => {
   if (poll !== undefined) return;
-  void refresh($); // the first numbers now, not after 10 s
-  poll = $.clock.every(10_000, () => void refresh($));
+  poll = $.clock.every(10_000, () => {
+    stale = true;
+    $.ui.invalidate("ui.render");
+  });
 };
 
 export const register: Register = (on, options) => {
@@ -193,6 +201,7 @@ export const register: Register = (on, options) => {
         poll?.cancel(); // re-opening an open pane restarts its refresh instead of stacking a second one
         poll = undefined;
         arm($);
+        await refresh($); // the first numbers now, inside this hook (see loadSums)
       }
       return {};
     }
@@ -206,7 +215,13 @@ export const register: Register = (on, options) => {
 
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
     paneOpen = true;
-    if (rowsShown) arm($); // a hot reload leaves the pane open with no timer: its first redraw re-arms the refresh
+    if (rowsShown) {
+      arm($); // a hot reload leaves the pane open with no timer: its first redraw re-arms the refresh
+      if (stale || sums === undefined) {
+        stale = false;
+        await refresh($); // a tick or a reloaded pane: fetch inside this hook (see loadSums)
+      }
+    }
     const { Box, Text } = $.ui.resolve(e);
     // Box cells, not padded text: the columns line up on every surface, proportional fonts included.
     const table = (rows: string[][]) =>
@@ -358,6 +373,11 @@ export const register: Register = (on, options) => {
     }
   });
 
+  if (storageOn) {
+    // The mod's own storage calls need no permission rule: core checks $.mcp.call like a tool call (see isOwnStorageCall).
+    on("tool.check", async (_$, e, next) => (isOwnStorageCall(next.origin.plugin, e.tool) ? { decision: "allow" as const, reason: "inline-headroom's own /headroom storage call" } : next(e)));
+  }
+
   // One turn.complete hook for both jobs: the engine refuses a second turn.complete without a matcher in one module.
   if (storageOn || subOn) {
     on("turn.complete", async ($, e, next) => {
@@ -375,7 +395,7 @@ export const register: Register = (on, options) => {
       } catch {
         return r; // stats are a side feature: a bad clock never costs the turn's result
       }
-      // Not awaited: a cold service start (up to 3 s) never delays the turn's end.
+      // Awaited below, so the storage calls run inside this hook (see loadSums); a cold service start (up to 3 s) delays the turn's end.
       flushing = flushing
         .then(async () => {
           try {
@@ -384,10 +404,11 @@ export const register: Register = (on, options) => {
             return; // days keeps every total: the next turn rewrites them
           }
           for (const d of Object.keys(days)) if (d < today) delete days[d]; // final rows, written
-          if (poll !== undefined) void refresh($); // an open pane shows the rows just written, not at its next tick
+          if (poll !== undefined) await refresh($); // an open pane shows the rows just written, not at its next tick
         })
         // The chain must never reject: a rejected `flushing` would skip every later flush for the module's life.
         .catch(() => {});
+      await flushing;
       return r;
     });
   }
@@ -402,8 +423,8 @@ export const register: Register = (on, options) => {
     Object.assign(stats, { lastHit: undefined, volatile: [] });
     $.ui.invalidate("ui.render");
     const r = await next(e);
-    // A headless run exits after this chain: let a started stats_put finish. `flushing` never
-    // rejects, and the engine's ~1.5 s end bound cuts the wait; core's end step already ran.
+    // A turn cut off before its turn.complete hook finished may leave a stats_put running: let it finish.
+    // `flushing` never rejects, and the engine's ~1.5 s end bound cuts the wait; core's end step already ran.
     await flushing;
     return r;
   });
