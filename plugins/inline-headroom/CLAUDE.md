@@ -194,7 +194,8 @@ Wiring in `register.ts`:
 - The module's one matcher-less `tool.call` hook (registered while
   `effort_routing_enabled` or `smart_crusher_enabled` is on) observes effort
   errors first, answers `mcp__inline-headroom__headroom_retrieve` itself from
-  the in-memory `offloaded` `Map` (1000 entries, oldest evicted, no TTL;
+  the in-memory `offloaded` `Map` (1000 entries and `CCR_MAX_CHARS` characters,
+  oldest evicted, no TTL; upstream caps by count only;
   `session.start` registers the tool), and then crushes.
 - A result where `isToolError(r)` is true is never rewritten. A crush needs
   all of: `smart_crusher_enabled`; `retrieveReady` (this module load registered

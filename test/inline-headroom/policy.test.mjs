@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   CACHE_DROP_THRESHOLD,
   CCR_CAPACITY,
+  CCR_MAX_CHARS,
   CRUSH_MIN_CHARS,
   EFFORT_ORDER,
   ERROR_KEYWORDS,
@@ -273,6 +274,20 @@ test("storeOffloaded evicts the oldest entry beyond CCR_CAPACITY", () => {
   assert.equal(store.size, CCR_CAPACITY);
   assert.equal(store.has("h0"), false);
   assert.equal(store.get(`h${CCR_CAPACITY}`), `[${CCR_CAPACITY}]`);
+});
+
+test("storeOffloaded evicts the oldest entries beyond CCR_MAX_CHARS", () => {
+  /** @type {Map<string, string>} */
+  const store = new Map();
+  const third = "x".repeat(Math.floor(CCR_MAX_CHARS / 3));
+  storeOffloaded(store, [
+    ["a", third],
+    ["b", third],
+    ["c", third],
+  ]);
+  assert.deepEqual([...store.keys()], ["a", "b", "c"]); // exactly at the cap: all kept
+  storeOffloaded(store, [["d", "[1]"]]);
+  assert.deepEqual([...store.keys()], ["b", "c", "d"]);
 });
 
 test("storeOffloaded moves a re-put hash to the newest position, so it outlives older ones", () => {

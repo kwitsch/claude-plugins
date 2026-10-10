@@ -46,6 +46,8 @@ export const RETRIEVE_TOOL = `mcp__inline-headroom__${RETRIEVE_NAME}`;
 export const CRUSH_MIN_CHARS = 800;
 /** Offloaded originals kept for headroom_retrieve, oldest evicted first (upstream CCR DEFAULT_CAPACITY). */
 export const CCR_CAPACITY = 1000;
+/** Characters of offloaded originals kept in all (about 32 MB as UTF-16), oldest evicted first. Deviation: upstream caps by count only. */
+export const CCR_MAX_CHARS = 16_000_000;
 /** Upstream ERROR_KEYWORDS: a row whose lowercased JSON holds one is never dropped. */
 export const ERROR_KEYWORDS = /** @type {const} */ (["error", "exception", "failed", "failure", "critical", "fatal", "crash", "panic", "abort", "timeout", "denied", "rejected"]);
 
@@ -435,7 +437,7 @@ export function computeOptimalK(itemStrings) {
 
 /**
  * Stores offloaded originals for headroom_retrieve: a re-put moves its hash to the newest position, and the
- * oldest entries go once the store holds more than CCR_CAPACITY. Mutates `store`.
+ * oldest entries go while the store holds more than CCR_CAPACITY entries or CCR_MAX_CHARS characters. Mutates `store`.
  * shortcut: no idle TTL (upstream: 30 min); add one with a time argument from register.ts if memory becomes a concern.
  * @param {Map<string, string>} store hash → original array JSON, oldest first
  * @param {readonly [string, string][]} entries
@@ -446,9 +448,12 @@ export function storeOffloaded(store, entries) {
     store.delete(hash);
     store.set(hash, json);
   }
-  for (const hash of store.keys()) {
-    if (store.size <= CCR_CAPACITY) break;
+  let chars = 0;
+  for (const json of store.values()) chars += json.length;
+  for (const [hash, json] of store) {
+    if (store.size <= CCR_CAPACITY && chars <= CCR_MAX_CHARS) break;
     store.delete(hash);
+    chars -= json.length;
   }
 }
 
