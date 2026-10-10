@@ -403,7 +403,7 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'merger: "haiku"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'trivial: "haiku", standard: "haiku"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'const implModel = (t) => (t.complexity === "complex" ? "opus" : "haiku");' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'planChecker: "sonnet"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]

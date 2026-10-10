@@ -169,8 +169,7 @@ const NO_NARRATION = "No narrative text between tool calls — call tools silent
 // cross-file-type duplication NO_NARRATION already accepts against agents/*.md).
 const WRITE_VIA_BASH_NOT_WRITE_EDIT = "NEVER the Write or Edit tool; the universal-format hook reformats those";
 
-const IMPL_MODEL = { trivial: "haiku", standard: "haiku", complex: "opus" };
-const implModel = (t) => IMPL_MODEL[t.complexity] || "haiku";
+const implModel = (t) => (t.complexity === "complex" ? "opus" : "haiku");
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
 const TASK_ITEM = {
