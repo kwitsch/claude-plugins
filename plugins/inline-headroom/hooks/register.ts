@@ -4,7 +4,6 @@ import {
   RETAIN_DAYS,
   ROWS,
   cacheHitRatio,
-  clampEffort,
   dayKey,
   findVolatile,
   foldPending,
@@ -12,6 +11,7 @@ import {
   isToolError,
   pct,
   statsTables,
+  stepEffort,
   tableText,
   toCount,
   windowStart,
@@ -37,9 +37,10 @@ let flushing: Promise<void> = Promise.resolve(); // serializes stats_put: a newe
 let sums: { data?: Counters[]; error?: string } | undefined; // the today / 7 days / 30 days totals (ROWS order after session), fetched outside render
 let loading: Promise<void> | undefined; // the fetch in flight: a tick never stacks on a slow stats_sum (a cold service start takes up to 3 s)
 let poll: Timer | undefined; // the open pane's 10 s refresh
+let paneOpen = false; // the /headroom pane has rendered and not closed since: subagent steps redraw only then
 
 const PANE = "headroom"; // the /headroom pane's id (1-64 of letters, digits, _ and -)
-const PANE_ROWS = 15; // body height asked for when seated inline: a 6-row and a 5-row table, two gaps, the volatile header, the storage note
+const PANE_ROWS = 15; // body height asked for when seated inline: a 6-row and a 5-row table, two gaps, the volatile header, the storage note (one less without the subagents row)
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 // Moves one counter in the session row and in the deltas still to persist.
@@ -127,7 +128,7 @@ export const register: Register = (on, options) => {
   const rowsShown = storageOn && idle() === undefined;
 
   on("command.run", { command: "headroom" }, async ($) => {
-    const r = await $.ui.open({ id: PANE, title: "Headroom", focus: true, closeOnEscape: true, rows: PANE_ROWS });
+    const r = await $.ui.open({ id: PANE, title: "Headroom", focus: true, closeOnEscape: true, rows: subOn ? PANE_ROWS : PANE_ROWS - 1 });
     if (r.isPlaced) {
       // Pane placed: print nothing (no transcript line, nothing in the model's context).
       if (rowsShown) {
@@ -146,6 +147,7 @@ export const register: Register = (on, options) => {
   });
 
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
+    paneOpen = true;
     if (rowsShown) arm($); // a hot reload leaves the pane open with no timer: its first redraw re-arms the refresh
     const { Box, Text } = $.ui.resolve(e);
     // Box cells, not padded text: the columns line up on every surface, proportional fonts included.
@@ -184,6 +186,7 @@ export const register: Register = (on, options) => {
     const r = await next(e);
     // { deny }: a hook beneath kept the pane open, so its refresh keeps running too.
     if (r.deny === undefined) {
+      paneOpen = false;
       poll?.cancel();
       poll = undefined;
       sums = undefined; // a reopened pane shows "…" until fresh numbers land, not the last session's
@@ -216,38 +219,31 @@ export const register: Register = (on, options) => {
     if (id) {
       if (!subOn) return yield* next(e); // today's behaviour: subagent steps untouched
       subagents.steps++;
-      try {
-        let ev = e;
-        // Same rule as the main loop, per agent: index 0 is the agent's own prompt step.
-        if (e.index > 0 && !agentErrored.has(id)) {
-          const to = clampEffort(e.effort);
-          if (to !== undefined) {
-            ev = { ...e, effort: to };
-            subagents.clamped++;
-          }
-        }
-        agentErrored.delete(id); // consumed per step, like the main-loop flag
-        // No cache-aligner accounting: a subagent's prompt cache is not the main loop's.
-        return yield* next(ev);
-      } finally {
+      // Same rule as the main loop, per agent: index 0 is the agent's own prompt step.
+      const to = stepEffort(e.index, agentErrored.has(id), e.effort);
+      if (to !== undefined) subagents.clamped++;
+      agentErrored.delete(id); // consumed per step, like the main-loop flag
+      // Both counters moved before the step runs, so the redraw needs no finally. Only an open pane redraws:
+      // a Workflow fan-out would otherwise pay an invalidate per step.
+      if (paneOpen) {
         try {
-          $.ui.invalidate("ui.render"); // the subagents row moved, also on a failed step
+          $.ui.invalidate("ui.render");
         } catch {
           // a refused $ never replaces the step's result: subagent steps passed straight through before this feature
         }
       }
+      // No cache-aligner accounting: a subagent's prompt cache is not the main loop's.
+      return yield* next(to === undefined ? e : { ...e, effort: to });
     }
     count("steps");
     try {
       let ev = e;
       // ponytail: mid-turn user input (a queued command) arriving at index > 0 is
       // still treated as mechanical; detect it via a prompt/queue event if that matters.
-      if (effortOn && e.index > 0 && !toolErrored) {
-        const to = clampEffort(e.effort);
-        if (to !== undefined) {
-          ev = { ...e, effort: to };
-          count("clamped");
-        }
+      const to = effortOn ? stepEffort(e.index, toolErrored, e.effort) : undefined;
+      if (to !== undefined) {
+        ev = { ...e, effort: to };
+        count("clamped");
       }
       toolErrored = false; // consumed per step; index 0 resets it too
       const result = yield* next(ev);
