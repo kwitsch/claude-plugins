@@ -76,7 +76,7 @@ Consume only this return — never re-derive state from transcript output.
 
 | Field                    | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | :----------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `plan`                   | `{path, tasks: [{id, title, complexity, model}]}` — model per task from complexity (trivial→haiku, standard→sonnet, complex→`opus`); planner model chosen per run by a difficulty classifier (`sonnet`/`opus`/`fable`); synthesizer on `opus`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `plan`                   | `{path, tasks: [{id, title, complexity, model}]}` — model per task from complexity (trivial→haiku, standard→haiku, complex→`opus`); planner model chosen per run by a difficulty classifier (`sonnet`/`opus`/`fable`); synthesizer on `opus`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `waves`                  | Wave layout, e.g. `[[1,2],[3]]` — file-overlap ∪ consumes→produces ∪ conservative fallback                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `taskResults`            | Per task: `{id, status, branch, worktreePath, minor}`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `implementMinorFindings` | Non-blocking per-task review findings — pass through to the final report/PR                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
@@ -101,19 +101,18 @@ is a planning defect to surface, not a git problem to solve.
 
 ## Behavior notes
 
-- The per-task review gate follows task complexity: `trivial` → `haiku`,
-  `standard`/`complex` → `sonnet` alias; depth comes from the combined
-  Review phase, never from the per-task gate. Recall-critical roles (finder,
-  verifier), the plan-check gate, and the fix applier all stay on the
-  `sonnet` alias (fix applier: pre-verified findings, test gate as safety
-  net).
+- The per-task review gate runs on the `haiku` alias for every complexity;
+  depth comes from the combined Review phase, never from the per-task gate.
+  `haiku` is the default for every role outside the design and plan phases
+  (finder, verifier, fix applier, per-task fixer, lean review, PR author, CI
+  fixer); the plan-check gate stays on the `sonnet` alias.
 - Every implementer runs with `isolation: 'worktree'` — no direct commits on
   the work branch, even for single-task waves.
 - Each wave is merged by a separate merger agent (`git merge --no-ff`, task-id
   order, worktree cleanup before branch delete).
 - Review depth auto-scales: any `complex` task or >4 tasks → `max` level
   (5 correctness angles + 5 cleanup lenses + gap sweep, cap 15), else `high`.
-- Ship stage roles: `pr-author` (`sonnet` alias) writes a faithful
+- Ship stage roles: `pr-author` (`haiku` alias) writes a faithful
   title/body from the pipeline summary (repo template respected, escalated
   findings listed as open items); `shipper` (`haiku`) pushes (NEVER force),
   creates-or-updates the PR/MR idempotently, then runs
@@ -122,7 +121,7 @@ is a planning defect to surface, not a git problem to solve.
   conflicts with a `git merge -X ours`, non-force, bailing to `blocked` on
   conflicts `-X ours` cannot cleanly resolve), reporting `mergeState`;
   `ci-monitor` (`haiku`, read-only) waits bounded
-  (~5 min per round, max 6 rounds) and classifies; `ci-fixer` (`sonnet`
+  (~5 min per round, max 6 rounds) and classifies; `ci-fixer` (`haiku`
   alias) classifies flaky/infra (one rerun) vs code-caused (minimal in-scope
   fix, one commit, plain push) vs base-broken (blocked), max 2 fix rounds.
   The stage never merges the PR/MR itself, never force-pushes, never
@@ -130,7 +129,7 @@ is a planning defect to surface, not a git problem to solve.
 - Fix application skips and reports anything that would change intended
   behavior, contradict the spec, or break the test run — see `applied.skipped`.
 - The Review phase ends with a separate, report-only **lean review**
-  (ponytail): a `sonnet` pass over the same review diff that reports
+  (ponytail): a `haiku` pass over the same review diff that reports
   over-engineering ONLY (reinvented stdlib, one-caller abstractions, dead
   flexibility, shrinkable code — tags `delete`/`stdlib`/`native`/`yagni`/
   `shrink`). Its raw claims are independently verified through the same
