@@ -2,12 +2,18 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   CACHE_DROP_THRESHOLD,
+  CCR_CAPACITY,
+  CRUSH_MIN_CHARS,
   EFFORT_ORDER,
+  ERROR_KEYWORDS,
   MAX_FINDINGS,
   RETAIN_DAYS,
+  RETRIEVE_TOOL,
   ROWS,
   cacheHitRatio,
   clampEffort,
+  computeOptimalK,
+  crushQuery,
   dayKey,
   findVolatile,
   foldPending,
@@ -15,6 +21,7 @@ import {
   isToolError,
   statsTables,
   stepEffort,
+  storeOffloaded,
   tableText,
   toCount,
   windowStart,
@@ -46,6 +53,11 @@ test("constants match the spec", () => {
   );
   assert.equal(RETAIN_DAYS, 30);
   assert.ok(RETAIN_DAYS >= Math.max(...ROWS.map((v) => v.days)));
+  assert.equal(RETRIEVE_TOOL, "mcp__inline-headroom__headroom_retrieve");
+  assert.equal(CRUSH_MIN_CHARS, 800);
+  assert.equal(CCR_CAPACITY, 1000);
+  assert.deepEqual([...ERROR_KEYWORDS], ["error", "exception", "failed", "failure", "critical", "fatal", "crash", "panic", "abort", "timeout", "denied", "rejected"]);
+  assert.ok(ERROR_KEYWORDS.every((k) => k === k.toLowerCase()));
 });
 
 test("clampEffort lowers every level above low to low", () => {
@@ -238,4 +250,55 @@ test("foldPending drops days before purgeBefore and after today, keeping the win
   const rows = foldPending(days, zeroCounters(), "2026-10-03", "2026-09-04");
   assert.deepEqual(Object.keys(days).sort(), ["2026-09-04", "2026-10-02", "2026-10-03"]);
   assert.deepEqual(rows.map((r) => r.day).sort(), ["2026-09-04", "2026-10-02", "2026-10-03"]);
+});
+
+test("computeOptimalK keeps every row up to 8, 3 for redundant rows and at most 15 otherwise", () => {
+  assert.equal(computeOptimalK(["a", "b", "c", "d", "e"]), 5);
+  assert.equal(computeOptimalK(Array.from({ length: 30 }, () => "abc")), 3);
+  assert.equal(computeOptimalK(Array.from({ length: 20 }, (_, i) => `unique item number ${i} with some long content`)), 15);
+  const k = computeOptimalK(Array.from({ length: 30 }, (_, i) => `item content ${i}`));
+  assert.ok(k >= 3 && k <= 15, String(k));
+});
+
+test("storeOffloaded evicts the oldest entry beyond CCR_CAPACITY", () => {
+  /** @type {Map<string, string>} */
+  const store = new Map();
+  storeOffloaded(
+    store,
+    Array.from({ length: CCR_CAPACITY + 1 }, (_, i) => /** @type {[string, string]} */ ([`h${i}`, `[${i}]`])),
+  );
+  assert.equal(store.size, CCR_CAPACITY);
+  assert.equal(store.has("h0"), false);
+  assert.equal(store.get(`h${CCR_CAPACITY}`), `[${CCR_CAPACITY}]`);
+});
+
+test("storeOffloaded moves a re-put hash to the newest position, so it outlives older ones", () => {
+  /** @type {Map<string, string>} */
+  const store = new Map();
+  storeOffloaded(
+    store,
+    Array.from({ length: CCR_CAPACITY }, (_, i) => /** @type {[string, string]} */ ([`h${i}`, "[]"])),
+  );
+  storeOffloaded(store, [["h0", "[0]"]]);
+  assert.equal([...store.keys()].at(-1), "h0");
+  storeOffloaded(store, [["new", "[1]"]]);
+  assert.equal(store.get("h0"), "[0]");
+  assert.equal(store.has("h1"), false);
+});
+
+test("crushQuery walks back from the last message, stops after the 5th user message and adds tool-call input JSON", () => {
+  /** @type {import("../../plugins/inline-headroom/hooks/policy.mjs").QueryMessage[]} */
+  const messages = [
+    { role: "user", text: "too old", toolUses: [] },
+    { role: "user", text: "u1", toolUses: [] },
+    { role: "assistant", text: "a1", toolUses: [{ input: { command: "ls" } }] },
+    { role: "user", text: "", toolUses: [] }, // tool results only: counts, adds no text
+    { role: "user", text: "u3", toolUses: [] },
+    { role: "user", text: "u4", toolUses: [] },
+    { role: "assistant", text: "", toolUses: [{ input: { file_path: "a.json" } }] },
+    { role: "user", text: "u5", toolUses: [] },
+    { role: "assistant", text: "in flight", toolUses: [{ input: { command: "cat data.json" } }] },
+  ];
+  assert.equal(crushQuery(messages), '{"command":"cat data.json"} u5 {"file_path":"a.json"} u4 u3 {"command":"ls"} u1');
+  assert.equal(crushQuery([]), "");
 });
