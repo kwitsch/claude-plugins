@@ -636,7 +636,7 @@ async function runTask(t) {
         implReport +
         ". Fix report: " +
         fix;
-      const reOpts = { label: "re-review:" + t.id, phase: "Implement", schema: VERDICT, model: MODELS.taskReviewer };
+      const reOpts = { ...revOpts, label: "re-review:" + t.id };
       review = await agent(reviewerPrompt(t, reReport), reOpts);
       if (review === null) review = await agent(reviewerPrompt(t, reReport), { ...reOpts, label: reOpts.label + ":retry" });
     }
