@@ -111,7 +111,7 @@
     {
       "name": "inline-headroom",
       "source": "./plugins/inline-headroom",
-      "description": "Headroom-style levers inside Claude Code as a mod: clamp-only effort routing after successful tool results, and a detector-only CacheAligner that flags volatile system-prompt content and cache-hit drops. Ships a host-wide SQLite storage MCP server for persistent plugin data.",
+      "description": "Headroom-style levers inside Claude Code as a mod: clamp-only effort routing after successful tool results, a detector-only CacheAligner that flags volatile system-prompt content and cache-hit drops, and a SmartCrusher that compresses large JSON arrays in tool results. Ships a host-wide SQLite storage MCP server for persistent plugin data.",
       "author": {
         "name": "Kwitsch"
       },
