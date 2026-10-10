@@ -14,17 +14,17 @@ setup() {
   assert_success
 }
 
-@test "plugin.json version is 0.4.0" {
-  run jq -e '.version == "0.4.0"' "$MANIFEST"
+@test "plugin.json version is 0.5.0" {
+  run jq -e '.version == "0.5.0"' "$MANIFEST"
   assert_success
 }
 
-@test "userConfig declares exactly the three boolean feature toggles, all default true" {
-  run jq -e '(.userConfig | keys) == ["cache_aligner_enabled","effort_routing_enabled","storage_enabled"]' "$MANIFEST"
+@test "userConfig declares exactly the four boolean feature toggles, all default true" {
+  run jq -e '(.userConfig | keys) == ["cache_aligner_enabled","effort_routing_enabled","storage_enabled","subagent_effort_routing_enabled"]' "$MANIFEST"
   assert_success
-  run jq -e '(.userConfig | length) == 3' "$MANIFEST"
+  run jq -e '(.userConfig | length) == 4' "$MANIFEST"
   assert_success
-  run jq -e '[.userConfig[] | select(.type == "boolean" and .default == true and (.title | length > 0) and (.description | length > 0))] | length == 3' "$MANIFEST"
+  run jq -e '[.userConfig[] | select(.type == "boolean" and .default == true and (.title | length > 0) and (.description | length > 0))] | length == 4' "$MANIFEST"
   assert_success
 }
 

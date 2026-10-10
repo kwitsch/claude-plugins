@@ -120,9 +120,14 @@ async function step($: Engine, index: number, effort: TurnStepInput["effort"], a
   }
 }
 
-async function readOk($: Engine, on: On): Promise<void> {
+// One Read call, from the main loop or (with agentId) from that subagent.
+async function callRead($: Engine, agentId?: string): Promise<void> {
+  await $.tool.call({ tool: "Read", file_path: "README.md", ...(agentId === undefined ? {} : { agentId }) });
+}
+
+async function readOk($: Engine, on: On, agentId?: string): Promise<void> {
   on("tool.call", () => ({ result: "file contents" }));
-  await $.tool.call({ tool: "Read", file_path: "README.md" });
+  await callRead($, agentId);
 }
 
 // Closes the pane the way Esc does, from a plugin: a test's own $ has no ui.close. Self-contained: the kit loads register on its own.
@@ -161,11 +166,11 @@ test("(c) a tool error keeps high on the next step", async ($, on) => {
   expect(st.seen).toBe("high");
 });
 
-test("(d) a subagent step keeps high", async ($, on) => {
+test("(d) a subagent step after its successful tool call lowers high to low", async ($, on) => {
   const st = bottomStep(on);
-  await readOk($, on);
+  await readOk($, on, "agent-1");
   await step($, 1, "high", "agent-1");
-  expect(st.seen).toBe("high");
+  expect(st.seen).toBe("low");
 });
 
 test("(e) effort_routing_enabled false keeps high", { options: { effort_routing_enabled: false } }, async ($, on) => {
@@ -235,7 +240,7 @@ test("(i) /headroom opens the headroom pane and prints nothing", async ($, on) =
   const out = await $.command.run({ command: "headroom" });
   expect(out.text).toBeUndefined();
   expect(opened.length).toBe(1);
-  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 14 });
+  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 15 });
 });
 
 test("(i2) /headroom falls back to the stats tables as text when the pane is not placed", async ($, on) => {
@@ -358,6 +363,7 @@ test("(m) a main-loop turn.complete writes today's absolute row; a failed write 
   bottomStep(on);
   on("turn.complete", async () => ({ text: "" }));
   await step($, 0, "high");
+  await step($, 1, "high", "a1"); // a subagent step: counted in the subagents row, never persisted
   await $.turn.complete({ ...DONE, agentId: "a1" }); // a subagent turn writes nothing
   await $.turn.complete(DONE);
   await clock.advance(0); // the write runs unawaited after the hook returned
@@ -528,4 +534,87 @@ test("(aa) with both levers off the pane says so, and reads nothing from storage
   expect(await ui.find({ type: "Text", text: /^effort routing$/ })).toBeUndefined();
   expect(calls).toHaveLength(0);
   await ui.unmount();
+});
+
+test(
+  "(ab) subagent_effort_routing_enabled false keeps subagent steps at high and hides the subagents row",
+  { options: { subagent_effort_routing_enabled: false, storage_enabled: false } },
+  async ($, on) => {
+    const st = bottomStep(on);
+    on("ui.open", async () => ({ value: { isPlaced: false as const, reason: "no surface" } }));
+    await readOk($, on);
+    await step($, 1, "high", "agent-1");
+    expect(st.seen).toBe("high");
+    await step($, 1, "high");
+    expect(st.seen).toBe("low"); // the main loop is still clamped
+    const out = await $.command.run({ command: "headroom" });
+    expect(out.text).toMatch(/^effort routing\s+steps\s+clamped$/m);
+    expect(out.text).not.toMatch(/^subagents/m);
+  },
+);
+
+test("(ac) effort_routing_enabled false keeps subagent steps at high too", { options: { effort_routing_enabled: false } }, async ($, on) => {
+  const st = bottomStep(on);
+  await readOk($, on, "agent-1");
+  await step($, 1, "high", "agent-1");
+  expect(st.seen).toBe("high");
+});
+
+test("(ad) a subagent's index 0 keeps high", async ($, on) => {
+  const st = bottomStep(on);
+  await step($, 0, "high", "agent-1");
+  expect(st.seen).toBe("high");
+});
+
+test("(ae) a subagent's tool error keeps only that agent at high until its next step", async ($, on) => {
+  const st = bottomStep(on);
+  on("tool.call", (_$, e) => (e.agentId === "a1" ? { isError: true as const, result: "boom" } : { result: "ok" }));
+  await callRead($, "a1");
+  await callRead($, "a2");
+  await callRead($);
+  await step($, 1, "high", "a1");
+  expect(st.seen).toBe("high");
+  await step($, 1, "high", "a2");
+  expect(st.seen).toBe("low");
+  await step($, 1, "high");
+  expect(st.seen).toBe("low");
+  await step($, 2, "high", "a1");
+  expect(st.seen).toBe("low"); // the error was consumed by a1's previous step
+});
+
+test("(af) a main-loop tool error does not keep a subagent at high", async ($, on) => {
+  const st = bottomStep(on);
+  on("tool.call", (_$, e) => (e.agentId ? { result: "ok" } : { isError: true as const, result: "boom" }));
+  await callRead($);
+  await step($, 1, "high", "a1");
+  expect(st.seen).toBe("low");
+  await step($, 1, "high");
+  expect(st.seen).toBe("high");
+});
+
+for (const storage_enabled of [true, false]) {
+  test(`(ag) a finished agent's turn.complete drops its error (storage ${storage_enabled ? "on" : "off"})`, { options: { storage_enabled } }, async ($, on) => {
+    const st = bottomStep(on);
+    on("turn.complete", async () => ({ text: "" }));
+    on("tool.call", (_$, e) => (e.agentId === "a1" ? { isError: true as const, result: "boom" } : { result: "ok" }));
+    await callRead($, "a1");
+    await $.turn.complete({ ...DONE, agentId: "a1" }); // the storage hook returns before any clock read for an agent turn
+    await step($, 1, "high", "a1");
+    expect(st.seen).toBe("low");
+  });
+}
+
+test("(ah) the subagents row counts this session's subagent steps and clamps, and session.end starts it over", { options: { storage_enabled: false } }, async ($, on) => {
+  bottomStep(on);
+  on("tool.call", () => ({ result: "ok" }));
+  on("ui.open", async () => ({ value: { isPlaced: false as const, reason: "no surface" } }));
+  on("session.end", async (_$, e) => ({ sessionId: e.sessionId }));
+  await step($, 0, "high", "a1");
+  await step($, 1, "high", "a1");
+  const before = await $.command.run({ command: "headroom" });
+  expect(before.text).toMatch(/^subagents\s+2\s+1$/m);
+  expect(before.text).toMatch(/^session\s+0\s+0$/m); // subagent steps never count in the main-loop session row
+  await $.session.end({ reason: "clear", sessionId: "s1", resume: { id: "s1" } });
+  const after = await $.command.run({ command: "headroom" });
+  expect(after.text).toMatch(/^subagents\s+0\s+0$/m);
 });

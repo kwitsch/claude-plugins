@@ -14,6 +14,7 @@ import {
   isCacheDrop,
   isToolError,
   statsTables,
+  stepEffort,
   tableText,
   toCount,
   windowStart,
@@ -63,6 +64,13 @@ test("clampEffort never raises, never injects, skips numeric and unknown", () =>
 test("clampEffort honours an explicit target", () => {
   assert.equal(clampEffort("max", "medium"), "medium");
   assert.equal(clampEffort("low", "medium"), undefined);
+});
+
+test("stepEffort clamps only a mechanical step: after index 0, no tool error", () => {
+  assert.equal(stepEffort(1, false, "xhigh"), "low");
+  assert.equal(stepEffort(0, false, "xhigh"), undefined);
+  assert.equal(stepEffort(1, true, "xhigh"), undefined);
+  assert.equal(stepEffort(1, false, "low"), undefined);
 });
 
 test("isToolError: isError true or a deny string is an error", () => {

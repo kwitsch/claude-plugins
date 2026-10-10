@@ -4,7 +4,6 @@ import {
   RETAIN_DAYS,
   ROWS,
   cacheHitRatio,
-  clampEffort,
   dayKey,
   findVolatile,
   foldPending,
@@ -12,6 +11,7 @@ import {
   isToolError,
   pct,
   statsTables,
+  stepEffort,
   tableText,
   toCount,
   windowStart,
@@ -22,6 +22,8 @@ import type { Counters, VolatileFinding } from "./policy.mjs";
 // Module state resets on hot reload and on an options change (the engine reloads the module).
 // Persisted totals survive: each load writes its own rows under a new WRITER.
 let toolErrored = false; // any main-loop tool error since the last main-loop step
+const agentErrored = new Set<string>(); // subagents with a tool error since their own last step; an entry ends with that agent's turn
+const subagents = { steps: 0, clamped: 0 }; // this session's subagent steps: in memory only, never persisted (the stats schema stays main-loop)
 // The session row: this session's counters, in memory.
 const session: Counters = zeroCounters();
 const stats = {
@@ -35,9 +37,10 @@ let flushing: Promise<void> = Promise.resolve(); // serializes stats_put: a newe
 let sums: { data?: Counters[]; error?: string } | undefined; // the today / 7 days / 30 days totals (ROWS order after session), fetched outside render
 let loading: Promise<void> | undefined; // the fetch in flight: a tick never stacks on a slow stats_sum (a cold service start takes up to 3 s)
 let poll: Timer | undefined; // the open pane's 10 s refresh
+let paneOpen = false; // the /headroom pane has rendered and not closed since: subagent steps redraw only then
 
 const PANE = "headroom"; // the /headroom pane's id (1-64 of letters, digits, _ and -)
-const PANE_ROWS = 14; // body height asked for when seated inline: two 5-row tables, two gaps, the volatile header, the storage note
+const PANE_ROWS = 15; // body height asked for when seated inline: a 6-row and a 5-row table, two gaps, the volatile header, the storage note (one less without the subagents row)
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 // Moves one counter in the session row and in the deltas still to persist.
@@ -91,6 +94,8 @@ const arm = ($: EngineInterface): void => {
 
 export const register: Register = (on, options) => {
   const effortOn = options.effort_routing_enabled !== false;
+  // Subagent and Workflow-agent steps: their own toggle, active only while effort routing is on.
+  const subOn = effortOn && options.subagent_effort_routing_enabled !== false;
   const cacheOn = options.cache_aligner_enabled !== false;
   // Unset means the manifest default (true), like the sibling toggles; the server stays fail-closed.
   const storageOn = options.storage_enabled !== false;
@@ -111,6 +116,8 @@ export const register: Register = (on, options) => {
   // Each table is shown only while the lever it counts is on; the storage rows sit in both.
   const tables = (): string[][][] => {
     const [effort, cache] = statsTables([{ ...session, hit: stats.lastHit }, ...(sums?.data ?? [])], note() === undefined ? "…" : "–");
+    // Under the session row: this session's subagent steps, kept in memory only.
+    if (subOn) effort.splice(2, 0, ["subagents", String(subagents.steps), String(subagents.clamped)]);
     return [...(effortOn ? [effort] : []), ...(cacheOn ? [cache] : [])];
   };
   // One row per finding, so a long list wraps per row instead of one clipped line. The list belongs to the cache aligner.
@@ -121,7 +128,7 @@ export const register: Register = (on, options) => {
   const rowsShown = storageOn && idle() === undefined;
 
   on("command.run", { command: "headroom" }, async ($) => {
-    const r = await $.ui.open({ id: PANE, title: "Headroom", focus: true, closeOnEscape: true, rows: PANE_ROWS });
+    const r = await $.ui.open({ id: PANE, title: "Headroom", focus: true, closeOnEscape: true, rows: subOn ? PANE_ROWS : PANE_ROWS - 1 });
     if (r.isPlaced) {
       // Pane placed: print nothing (no transcript line, nothing in the model's context).
       if (rowsShown) {
@@ -140,6 +147,7 @@ export const register: Register = (on, options) => {
   });
 
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
+    paneOpen = true;
     if (rowsShown) arm($); // a hot reload leaves the pane open with no timer: its first redraw re-arms the refresh
     const { Box, Text } = $.ui.resolve(e);
     // Box cells, not padded text: the columns line up on every surface, proportional fonts included.
@@ -178,6 +186,7 @@ export const register: Register = (on, options) => {
     const r = await next(e);
     // { deny }: a hook beneath kept the pane open, so its refresh keeps running too.
     if (r.deny === undefined) {
+      paneOpen = false;
       poll?.cancel();
       poll = undefined;
       sums = undefined; // a reopened pane shows "…" until fresh numbers land, not the last session's
@@ -186,34 +195,55 @@ export const register: Register = (on, options) => {
   });
 
   if (effortOn) {
-    // Observe AFTER the tool ran. Subagent calls are ignored; under parallel
-    // calls the flag is sticky, so a single error disables the next clamp.
+    // Observe AFTER the tool ran. A failure keeps full effort on the next step of the loop that made the call:
+    // the main loop's flag, or that subagent's entry. Under parallel calls the flag is sticky.
+    const failed = (agentId: string | undefined): void => {
+      if (!agentId) toolErrored = true;
+      else if (subOn) agentErrored.add(agentId);
+    };
     on("tool.call", async (_$, e, next) => {
       try {
         const r = await next(e);
-        if (!e.agentId && isToolError(r)) toolErrored = true;
+        if (isToolError(r)) failed(e.agentId);
         return r;
       } catch (err) {
         // A tool that throws instead of returning an error result is still a failure.
-        if (!e.agentId) toolErrored = true;
+        failed(e.agentId);
         throw err;
       }
     });
   }
 
   on("turn.step", async function* ($, e, next) {
-    if (e.agentId) return yield* next(e);
+    const id = e.agentId;
+    if (id) {
+      if (!subOn) return yield* next(e); // today's behaviour: subagent steps untouched
+      subagents.steps++;
+      // Same rule as the main loop, per agent: index 0 is the agent's own prompt step.
+      const to = stepEffort(e.index, agentErrored.has(id), e.effort);
+      if (to !== undefined) subagents.clamped++;
+      agentErrored.delete(id); // consumed per step, like the main-loop flag
+      // Both counters moved before the step runs, so the redraw needs no finally. Only an open pane redraws:
+      // a Workflow fan-out would otherwise pay an invalidate per step.
+      if (paneOpen) {
+        try {
+          $.ui.invalidate("ui.render");
+        } catch {
+          // a refused $ never replaces the step's result: subagent steps passed straight through before this feature
+        }
+      }
+      // No cache-aligner accounting: a subagent's prompt cache is not the main loop's.
+      return yield* next(to === undefined ? e : { ...e, effort: to });
+    }
     count("steps");
     try {
       let ev = e;
       // ponytail: mid-turn user input (a queued command) arriving at index > 0 is
       // still treated as mechanical; detect it via a prompt/queue event if that matters.
-      if (effortOn && e.index > 0 && !toolErrored) {
-        const to = clampEffort(e.effort);
-        if (to !== undefined) {
-          ev = { ...e, effort: to };
-          count("clamped");
-        }
+      const to = effortOn ? stepEffort(e.index, toolErrored, e.effort) : undefined;
+      if (to !== undefined) {
+        ev = { ...e, effort: to };
+        count("clamped");
       }
       toolErrored = false; // consumed per step; index 0 resets it too
       const result = yield* next(ev);
@@ -239,10 +269,13 @@ export const register: Register = (on, options) => {
     }
   });
 
-  if (storageOn) {
+  // One turn.complete hook for both jobs: the engine refuses a second turn.complete without a matcher in one module.
+  if (storageOn || subOn) {
     on("turn.complete", async ($, e, next) => {
+      // An agent's error entry ends with its turn, also with storage off or a throwing chain. A no-op while subOn is off: the Set stays empty.
+      if (e.agentId) agentErrored.delete(e.agentId);
       const r = await next(e);
-      if (e.agentId) return r; // subagent turns carry no main-loop steps
+      if (!storageOn || e.agentId) return r; // subagent turns carry no main-loop steps
       let today: string;
       let purgeBefore: string;
       let rows: ReturnType<typeof foldPending>;
@@ -274,6 +307,8 @@ export const register: Register = (on, options) => {
   // Persisted totals and pending deltas are session-agnostic and carry on.
   on("session.end", async ($, e, next) => {
     Object.assign(session, zeroCounters());
+    Object.assign(subagents, { steps: 0, clamped: 0 });
+    agentErrored.clear(); // an aborted agent whose turn.complete never came
     Object.assign(stats, { lastHit: undefined, volatile: [] });
     $.ui.invalidate("ui.render");
     const r = await next(e);
