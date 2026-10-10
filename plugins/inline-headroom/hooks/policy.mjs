@@ -38,8 +38,10 @@ export const ROWS = /** @type {const} */ ([
 export const CELL_WIDTHS = /** @type {const} */ ([16, 8, 8]);
 /** Persisted days kept: the longest row's window, never less. */
 export const RETAIN_DAYS = 30;
+/** The name register.ts registers the retrieval tool under. */
+export const RETRIEVE_NAME = "headroom_retrieve";
 /** headroom_retrieve's full name: the tool.register op serves a mod tool as `mcp__<plugin>__<name>`. */
-export const RETRIEVE_TOOL = "mcp__inline-headroom__headroom_retrieve";
+export const RETRIEVE_TOOL = `mcp__inline-headroom__${RETRIEVE_NAME}`;
 /** A JSON document is crushed only above this many characters (upstream min_tokens_to_crush 200 × 4 chars per token: the mod has no tokenizer). */
 export const CRUSH_MIN_CHARS = 800;
 /** Offloaded originals kept for headroom_retrieve, oldest evicted first (upstream CCR DEFAULT_CAPACITY). */

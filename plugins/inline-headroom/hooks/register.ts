@@ -2,6 +2,7 @@ import type { EngineInterface, Register, Timer } from "claude-code";
 import {
   CELL_WIDTHS,
   RETAIN_DAYS,
+  RETRIEVE_NAME,
   RETRIEVE_TOOL,
   ROWS,
   cacheHitRatio,
@@ -51,7 +52,7 @@ const PANE = "headroom"; // the /headroom pane's id (1-64 of letters, digits, _ 
 const PANE_ROWS = 15; // body height asked for when seated inline: a 6-row and a 5-row table, two gaps, the volatile header, the storage note (one less without the subagents row; three more with the smart crusher table: its two rows and a gap)
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 const RETRIEVE_SPEC = {
-  name: "headroom_retrieve",
+  name: RETRIEVE_NAME,
   description:
     "Retrieve original uncompressed content that was compressed to save tokens. Use this when you need more data than what's shown in compressed tool results. The hash is in compression markers like <<ccr:abc123def456 40_rows_offloaded>>.",
   inputSchema: {
