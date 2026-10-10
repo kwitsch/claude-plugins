@@ -49,6 +49,18 @@ export function clampEffort(current, target = "low") {
 }
 
 /**
+ * The routing rule shared by the main loop and every subagent: a mechanical
+ * step (after index 0, no tool error since the loop's last step) is clamped.
+ * @param {number} index the step's index in its loop (0 = the ask step)
+ * @param {boolean} errored a tool error since that loop's last step
+ * @param {unknown} effort the step's current effort
+ * @returns {Effort|undefined} the lowered effort, or undefined to leave it
+ */
+export function stepEffort(index, errored, effort) {
+  return index > 0 && !errored ? clampEffort(effort) : undefined;
+}
+
+/**
  * A tool.call result is a failure when it is errored or denied.
  * @param {Record<string, unknown>} result
  * @returns {boolean}

@@ -2,11 +2,13 @@
 
 Mods-API plugin (the repo's first): one TypeScript function-hooks module, no
 skills/agents/command hooks. Two levers, each behind a boolean `userConfig`
-toggle (`effort_routing_enabled`, `cache_aligner_enabled`, both `default: true`,
-only literal `false` disables), plus the `/headroom` stats command. It also
-ships a host-wide SQLite storage MCP server behind the fail-closed
-`storage_enabled` toggle (see `## Storage server`); the mod persists `/headroom`
-counters in it.
+toggle (`effort_routing_enabled`, `cache_aligner_enabled`), plus
+`subagent_effort_routing_enabled`, which extends effort routing to subagent and
+Workflow-agent steps and is active only while `effort_routing_enabled` is on
+(all three `default: true`, only literal `false` disables), plus the
+`/headroom` stats command. It also ships a host-wide SQLite storage MCP server
+behind the fail-closed `storage_enabled` toggle (see `## Storage server`); the
+mod persists `/headroom` counters in it.
 
 ## Layout
 
@@ -56,7 +58,7 @@ Every test that needs `node:sqlite` or spawns processes lives in
 `setup-node`. Its cleanup SIGTERMs every `--service` process for its temp data
 dir, so no daemon outlives the suite.
 
-The bats version-pin test (`plugin.json version is 0.4.0`) is a rolling pin:
+The bats version-pin test (`plugin.json version is 0.5.0`) is a rolling pin:
 every version bump rewrites its name and expected value in the same commit.
 
 ## Storage server
@@ -151,6 +153,12 @@ live-verified until a live run confirms it.
 - `turn.step` result `usage` may be `null`.
 - `command.run` returning `{}` prints no transcript row and records no model
   context (`CommandRunResult.text` absent).
+- One hook per event without a matcher. Verified on 2.1.296, not 2.1.288: a
+  module with a second matcher-less `on("turn.complete")` fails both
+  `claude plugin validate` and `claude plugin test`, with the error
+  `registered twice without a matcher`. The subagent error cleanup therefore
+  shares the one `turn.complete` hook with the storage write, registered while
+  `storage_enabled` or `subagent_effort_routing_enabled` is on.
 - `$.ui.open(PaneOpenArgs)` resolves to `UiOpenResult`
   (`{ isPlaced: true } | { isPlaced: false, reason }`). `focus`/`closeOnEscape`
   accept only `true`. One pane per id, and re-opening retitles it.
@@ -215,14 +223,32 @@ delete this heading once it is empty.
   keeps firing with that hook's `$` after the hook returned.
 - The mod's `ui.close` hook (matcher `{ id }`) runs on Esc and Ctrl+X X, so
   closing the pane stops the refresh.
+- Agent-tool subagents and Workflow agents raise `turn.step`, `tool.call` and
+  `turn.complete` with their `agentId`, stable across that agent's steps, with
+  `index` restarting at 0 per agent turn.
+- The engine honours a lowered `effort` returned from a subagent `turn.step`
+  hook.
+- `turn.complete` fires for an aborted or killed subagent (otherwise its error
+  entry lives until `session.end`).
+- A background session's main loop carries no `agentId` (if it does, its steps
+  follow the subagent toggle and count in the `subagents` row).
 
 ## Effort-routing caveat
 
 Upstream headroom removed effort routing after measurement (~$0.0007 saved per
 mechanical turn vs ~$0.011 cache re-write per effort switch). `effort_routing_enabled`
-still defaults to `true` per `.claude/rules/plugin-userconfig.md`; the separate
-toggle, the per-step `cache drop` log and the `/headroom` drop count are how a user
-measures whether it pays off.
+still defaults to `true` per `.claude/rules/plugin-userconfig.md`; the
+`effort_routing_enabled` toggle, the per-step `cache drop` log and the
+`/headroom` drop count are how a user measures whether it pays off. The
+`cache drop` log and the drop count cover the main loop only.
+
+`subagent_effort_routing_enabled` (default `true`, active only with
+`effort_routing_enabled`) applies the same clamp per `agentId`. It is a separate
+toggle (user decision) because the clamp overrides deliberately set effort
+(agent frontmatter `effort`, Agent tool `effort` param, Workflow `effort`
+option) and each subagent pays its own cache re-write on the switch, which
+`/headroom` does not measure. Its counters live in memory only (the `subagents`
+row); the persisted `stats` schema stays main-loop.
 
 ## Releases
 
