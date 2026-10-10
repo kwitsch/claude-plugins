@@ -2,16 +2,21 @@ import type { EngineInterface, Register, Timer } from "claude-code";
 import {
   CELL_WIDTHS,
   RETAIN_DAYS,
+  RETRIEVE_TOOL,
   ROWS,
   cacheHitRatio,
+  crushQuery,
+  crushToolResult,
   dayKey,
   findVolatile,
   foldPending,
   isCacheDrop,
+  isCrushCandidate,
   isToolError,
   pct,
   statsTables,
   stepEffort,
+  storeOffloaded,
   tableText,
   toCount,
   windowStart,
@@ -24,6 +29,9 @@ import type { Counters, VolatileFinding } from "./policy.mjs";
 let toolErrored = false; // any main-loop tool error since the last main-loop step
 const agentErrored = new Set<string>(); // subagents with a tool error since their own last step; an entry ends with that agent's turn
 const subagents = { steps: 0, clamped: 0 }; // this session's subagent steps: in memory only, never persisted (the stats schema stays main-loop)
+const crush = { dropped: 0, saved: 0 }; // this session's SmartCrusher savings: in memory only, never persisted (the stats schema has no columns for them)
+let retrieveReady = false; // session.start registered headroom_retrieve under its expected name in this module load
+const offloaded = new Map<string, string>(); // CCR hash → original array JSON, oldest first (storeOffloaded evicts)
 // The session row: this session's counters, in memory.
 const session: Counters = zeroCounters();
 const stats = {
@@ -40,8 +48,28 @@ let poll: Timer | undefined; // the open pane's 10 s refresh
 let paneOpen = false; // the /headroom pane has rendered and not closed since: subagent steps redraw only then
 
 const PANE = "headroom"; // the /headroom pane's id (1-64 of letters, digits, _ and -)
-const PANE_ROWS = 15; // body height asked for when seated inline: a 6-row and a 5-row table, two gaps, the volatile header, the storage note (one less without the subagents row)
+const PANE_ROWS = 15; // body height asked for when seated inline: a 6-row and a 5-row table, two gaps, the volatile header, the storage note (one less without the subagents row; three more with the smart crusher table: its two rows and a gap)
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+const RETRIEVE_SPEC = {
+  name: "headroom_retrieve",
+  description:
+    "Retrieve original uncompressed content that was compressed to save tokens. Use this when you need more data than what's shown in compressed tool results. The hash is in compression markers like <<ccr:abc123def456 40_rows_offloaded>>.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      hash: {
+        type: "string",
+        description: "Hash key from the compression marker (e.g. 'abc123def456' from <<ccr:abc123def456 40_rows_offloaded>>)",
+      },
+    },
+    required: ["hash"],
+  },
+};
+// headroom_retrieve's answer: the original array JSON, or a deny the model reads as a failed call.
+const retrieve = (hash: unknown) => {
+  const original = typeof hash === "string" ? offloaded.get(hash) : undefined;
+  return original === undefined ? { deny: `headroom_retrieve: no crushed content under hash ${String(hash)} (evicted, or the mod reloaded)` } : { result: original };
+};
 
 // Moves one counter in the session row and in the deltas still to persist.
 const count = (k: keyof Counters, n = 1): void => {
@@ -97,14 +125,22 @@ export const register: Register = (on, options) => {
   // Subagent and Workflow-agent steps: their own toggle, active only while effort routing is on.
   const subOn = effortOn && options.subagent_effort_routing_enabled !== false;
   const cacheOn = options.cache_aligner_enabled !== false;
+  const crusherOn = options.smart_crusher_enabled !== false;
   // Unset means the manifest default (true), like the sibling toggles; the server stays fail-closed.
   const storageOn = options.storage_enabled !== false;
 
   on("session.start", async ($, e, next) => {
     await $.command.register({
       name: "headroom",
-      description: "inline-headroom stats: effort clamps, cache-hit drops, volatile prompt values",
+      description: "inline-headroom stats: effort clamps, cache-hit drops, volatile prompt values, smart-crusher savings",
     });
+    if (crusherOn) {
+      try {
+        retrieveReady = (await $.tool.register(RETRIEVE_SPEC)).tool === RETRIEVE_TOOL;
+      } catch {
+        retrieveReady = false; // no retrieval tool → never drop rows
+      }
+    }
     return next(e);
   });
 
@@ -118,17 +154,23 @@ export const register: Register = (on, options) => {
     const [effort, cache] = statsTables([{ ...session, hit: stats.lastHit }, ...(sums?.data ?? [])], note() === undefined ? "…" : "–");
     // Under the session row: this session's subagent steps, kept in memory only.
     if (subOn) effort.splice(2, 0, ["subagents", String(subagents.steps), String(subagents.clamped)]);
-    return [...(effortOn ? [effort] : []), ...(cacheOn ? [cache] : [])];
+    // Session only: persisting the crush counters needs new stats columns and a storage PROTOCOL bump (deferred).
+    const crusher = [
+      ["smart crusher", "dropped", "saved"],
+      ["session", String(crush.dropped), String(crush.saved)],
+    ];
+    return [...(effortOn ? [effort] : []), ...(cacheOn ? [cache] : []), ...(crusherOn ? [crusher] : [])];
   };
   // One row per finding, so a long list wraps per row instead of one clipped line. The list belongs to the cache aligner.
   const volatileLines = (): string[] =>
     !cacheOn ? [] : [stats.volatile.length ? "volatile shared values:" : "volatile shared values: none", ...stats.volatile.map((v) => `  ${v.id} ${v.kind} ${v.sample}`)];
-  // With both levers off there is nothing to show, so nothing is read from storage either.
-  const idle = (): string | undefined => (effortOn || cacheOn ? undefined : "effort routing and cache aligner are off: nothing to show");
-  const rowsShown = storageOn && idle() === undefined;
+  // With all three levers off there is nothing to show, so nothing is read from storage either.
+  const idle = (): string | undefined => (effortOn || cacheOn || crusherOn ? undefined : "effort routing, cache aligner and smart crusher are off: nothing to show");
+  // Storage backs only the effort routing and cache aligner tables.
+  const rowsShown = storageOn && (effortOn || cacheOn);
 
   on("command.run", { command: "headroom" }, async ($) => {
-    const r = await $.ui.open({ id: PANE, title: "Headroom", focus: true, closeOnEscape: true, rows: subOn ? PANE_ROWS : PANE_ROWS - 1 });
+    const r = await $.ui.open({ id: PANE, title: "Headroom", focus: true, closeOnEscape: true, rows: (subOn ? PANE_ROWS : PANE_ROWS - 1) + (crusherOn ? 3 : 0) });
     if (r.isPlaced) {
       // Pane placed: print nothing (no transcript line, nothing in the model's context).
       if (rowsShown) {
@@ -194,22 +236,46 @@ export const register: Register = (on, options) => {
     return r;
   });
 
-  if (effortOn) {
+  // One tool.call hook without a matcher for every job: the engine refuses a second one in one module (see CLAUDE.md).
+  // It observes failures for effort routing, answers headroom_retrieve, and crushes large JSON results.
+  if (effortOn || crusherOn) {
     // Observe AFTER the tool ran. A failure keeps full effort on the next step of the loop that made the call:
     // the main loop's flag, or that subagent's entry. Under parallel calls the flag is sticky.
     const failed = (agentId: string | undefined): void => {
+      if (!effortOn) return;
       if (!agentId) toolErrored = true;
       else if (subOn) agentErrored.add(agentId);
     };
-    on("tool.call", async (_$, e, next) => {
+    on("tool.call", async ($, e, next) => {
+      let r: Awaited<ReturnType<typeof next>>;
       try {
-        const r = await next(e);
-        if (isToolError(r)) failed(e.agentId);
-        return r;
+        // headroom_retrieve is answered here (a call no hook answers fails); every other call runs beneath.
+        r = e.tool === RETRIEVE_TOOL ? retrieve((e as Record<string, unknown>).hash) : await next(e);
       } catch (err) {
-        // A tool that throws instead of returning an error result is still a failure.
-        failed(e.agentId);
+        failed(e.agentId); // a tool that throws instead of returning an error result is still a failure
         throw err;
+      }
+      if (isToolError(r)) {
+        failed(e.agentId);
+        return r; // errors and denies are never rewritten
+      }
+      if (!crusherOn || !retrieveReady || e.agentId || next.origin.plugin !== "engine" || !isCrushCandidate(e.tool, r.result)) return r;
+      try {
+        let query = "";
+        try {
+          query = crushQuery(await $.session.messages());
+        } catch {
+          // crush without query signals, as upstream does with no context
+        }
+        const c = crushToolResult(e.tool, r.result, query);
+        if (!c) return r;
+        storeOffloaded(offloaded, c.offloaded);
+        crush.dropped += c.rowsDropped;
+        crush.saved += c.charsSaved;
+        // A new object: no ref/text, so core re-validates and re-maps it. Other hooks' reminder context is carried over (U1).
+        return { result: c.result, ...(r.context === undefined ? {} : { context: r.context }) };
+      } catch {
+        return r; // fail open: never break the tool path
       }
     });
   }
@@ -308,6 +374,7 @@ export const register: Register = (on, options) => {
   on("session.end", async ($, e, next) => {
     Object.assign(session, zeroCounters());
     Object.assign(subagents, { steps: 0, clamped: 0 });
+    Object.assign(crush, { dropped: 0, saved: 0 });
     agentErrored.clear(); // an aborted agent whose turn.complete never came
     Object.assign(stats, { lastHit: undefined, volatile: [] });
     $.ui.invalidate("ui.render");
