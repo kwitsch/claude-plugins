@@ -8,6 +8,7 @@
 /** @typedef {{id: string, kind: VolatileKind, sample: string}} VolatileFinding */
 /** @typedef {{steps: number, clamped: number, cache_drops: number, input_tokens: number, cache_read_input_tokens: number, cache_creation_input_tokens: number}} Counters */
 /** @typedef {Counters & {hit?: number}} Row hit: the ratio to show in place of the token-weighted one (the session row shows its last step's) */
+/** @typedef {{ role: 'user'|'assistant', text: string, toolUses: readonly { input: Record<string, unknown> }[] }} QueryMessage the SessionMessage fields crushQuery reads */
 
 export const EFFORT_ORDER = /** @type {const} */ (["low", "medium", "high", "xhigh", "max"]);
 export const CACHE_DROP_THRESHOLD = 0.6;
@@ -23,6 +24,14 @@ export const ROWS = /** @type {const} */ ([
 export const CELL_WIDTHS = /** @type {const} */ ([16, 8, 8]);
 /** Persisted days kept: the longest row's window, never less. */
 export const RETAIN_DAYS = 30;
+/** headroom_retrieve's full name: the tool.register op serves a mod tool as `mcp__<plugin>__<name>`. */
+export const RETRIEVE_TOOL = "mcp__inline-headroom__headroom_retrieve";
+/** A JSON document is crushed only above this many characters (upstream min_tokens_to_crush 200 × 4 chars per token: the mod has no tokenizer). */
+export const CRUSH_MIN_CHARS = 800;
+/** Offloaded originals kept for headroom_retrieve, oldest evicted first (upstream CCR DEFAULT_CAPACITY). */
+export const CCR_CAPACITY = 1000;
+/** Upstream ERROR_KEYWORDS: a row whose lowercased JSON holds one is never dropped. */
+export const ERROR_KEYWORDS = /** @type {const} */ (["error", "exception", "failed", "failure", "critical", "fatal", "crash", "panic", "abort", "timeout", "denied", "rejected"]);
 
 const TOKEN_SPLIT = /[\s"'`()<>[\]{},;]+/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -34,6 +43,17 @@ const HEX_LENGTHS = new Set([32, 40, 64]);
 // repeated on purpose; test/inline-headroom/storage.test.mjs pins both orders.
 const COUNTER_KEYS = /** @type {const} */ (["steps", "clamped", "cache_drops", "input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"]);
 const DAY_MS = 86400000;
+// SmartCrusher defaults: upstream SmartCrusherConfig::default() and compute_optimal_k's min_k.
+const MAX_ITEMS_AFTER_CRUSH = 15;
+const MIN_K = 3;
+// CJK code point ranges (kana, ideographs, Hangul), as upstream's is_cjk_char.
+const CJK_RANGES = [
+  [0x3040, 0x30ff],
+  [0x3400, 0x4dbf],
+  [0x4e00, 0x9fff],
+  [0xac00, 0xd7af],
+  [0xf900, 0xfaff],
+];
 
 /**
  * Clamp-only: returns `target` only when `current` is a known effort level
@@ -223,4 +243,188 @@ export function statsTables(counters, blank) {
  */
 export function tableText(rows) {
   return rows.map((r) => r.map((s, i) => (i ? s.padStart(CELL_WIDTHS[i]) : s.padEnd(CELL_WIDTHS[i]))).join("")).join("\n");
+}
+
+// SmartCrusher: a port of headroom's dict-array lossy path (crates/headroom-core/src/transforms/smart_crusher).
+
+/**
+ * Two 32-bit lanes of a cyrb53-style hash over UTF-16 code units: the pure-JS stand-in for upstream's
+ * MD5 (simhash grams) and SHA-256 (CCR hash), since a mods module is not known to load node:crypto.
+ * @param {string} s
+ * @returns {[number, number]} two unsigned 32-bit lanes
+ */
+function hash64(s) {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
+  h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
+  h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return [h1 >>> 0, h2 >>> 0];
+}
+
+/**
+ * @param {number} x a 32-bit integer
+ * @returns {number} its set bits
+ */
+function popcount(x) {
+  x -= (x >>> 1) & 0x55555555;
+  x = (x & 0x33333333) + ((x >>> 2) & 0x33333333);
+  return Math.imul((x + (x >>> 4)) & 0x0f0f0f0f, 0x01010101) >>> 24;
+}
+
+/**
+ * Upstream simhash: every lowercased 4-code-point gram (the whole string when it has 3 or fewer) votes ±1 per hash bit.
+ * @param {string} text
+ * @returns {[number, number]} the 64-bit fingerprint as two 32-bit halves
+ */
+function simhash(text) {
+  const cps = Array.from(text.toLowerCase());
+  const votes = new Array(64).fill(0);
+  const grams = cps.length <= 3 ? 1 : cps.length - 3;
+  for (let i = 0; i < grams; i++) {
+    const [a, b] = hash64(cps.slice(i, i + 4).join(""));
+    for (let j = 0; j < 32; j++) {
+      votes[j] += (a >>> j) & 1 ? 1 : -1;
+      votes[j + 32] += (b >>> j) & 1 ? 1 : -1;
+    }
+  }
+  let lo = 0;
+  let hi = 0;
+  for (let j = 0; j < 32; j++) {
+    if (votes[j] > 0) lo |= 1 << j;
+    if (votes[j + 32] > 0) hi |= 1 << j;
+  }
+  return [lo, hi];
+}
+
+/**
+ * Upstream count_unique_simhash: greedy clusters of fingerprints within Hamming distance 3.
+ * @param {readonly string[]} items
+ * @returns {number}
+ */
+function countUniqueSimhash(items) {
+  /** @type {[number, number][]} */
+  const reps = [];
+  for (const s of items) {
+    const [lo, hi] = simhash(s);
+    if (!reps.some(([a, b]) => popcount(lo ^ a) + popcount(hi ^ b) <= 3)) reps.push([lo, hi]);
+  }
+  return reps.length;
+}
+
+/**
+ * Upstream compute_unique_bigram_curve: the running count of unique lowercased word bigrams
+ * (a lone word pairs with "", a spaceless CJK word yields character bigrams, an empty item counts once).
+ * @param {readonly string[]} items
+ * @returns {number[]}
+ */
+function bigramCurve(items) {
+  /** @type {Set<string>} */
+  const seen = new Set();
+  /** @param {readonly string[]} xs */
+  const pairs = (xs) => {
+    for (let j = 0; j < xs.length - 1; j++) seen.add(JSON.stringify([xs[j], xs[j + 1]]));
+  };
+  return items.map((item) => {
+    const words = item.toLowerCase().split(/\s+/).filter(Boolean);
+    if (words.length >= 2) pairs(words);
+    else if (words.length === 1) {
+      const cps = Array.from(words[0]);
+      const cjk = cps.some((c) => {
+        const x = c.codePointAt(0) ?? 0;
+        return CJK_RANGES.some(([lo, hi]) => x >= lo && x <= hi);
+      });
+      if (cps.length >= 2 && cjk) pairs(cps);
+      else seen.add(JSON.stringify([words[0], ""]));
+    } else seen.add(JSON.stringify(["", ""]));
+    return seen.size;
+  });
+}
+
+/**
+ * Upstream find_knee (Kneedle): 1 + the index farthest above the diagonal; undefined under 0.05 or below 3 points.
+ * @param {readonly number[]} curve
+ * @returns {number|undefined}
+ */
+function findKnee(curve) {
+  const n = curve.length;
+  if (n < 3) return undefined;
+  const yMin = curve[0];
+  const yRange = curve[n - 1] - yMin;
+  if (Math.abs(yRange) < Number.EPSILON) return 1;
+  let maxDiff = -1;
+  let knee = 0;
+  for (let i = 0; i < n; i++) {
+    const diff = (curve[i] - yMin) / yRange - i / (n - 1);
+    if (diff > maxDiff) {
+      maxDiff = diff;
+      knee = i;
+    }
+  }
+  return maxDiff < 0.05 ? undefined : knee + 1;
+}
+
+/**
+ * Upstream compute_optimal_k (bias 1, min_k 3, max_k 15): how many rows a dict array keeps, from simhash
+ * diversity and the knee of its bigram coverage curve.
+ * @param {readonly string[]} itemStrings each row's compact JSON
+ * @returns {number}
+ */
+export function computeOptimalK(itemStrings) {
+  const n = itemStrings.length;
+  if (n <= 8) return n;
+  const unique = countUniqueSimhash(itemStrings);
+  if (unique <= 3) return Math.min(Math.max(MIN_K, unique), MAX_ITEMS_AFTER_CRUSH);
+  const diversity = unique / n;
+  const floor = Math.max(MIN_K, Math.floor(n * (0.3 + 0.7 * diversity)));
+  let knee = findKnee(bigramCurve(itemStrings));
+  if (knee === undefined) knee = floor;
+  else if (diversity > 0.7) knee = Math.max(knee, floor);
+  // shortcut: upstream's tier 3 (a zlib ratio check that can raise K by 20%) is skipped; add it once a node:zlib import is live-verified in a mods module.
+  return Math.max(MIN_K, Math.min(Math.max(MIN_K, knee), MAX_ITEMS_AFTER_CRUSH));
+}
+
+/**
+ * Stores offloaded originals for headroom_retrieve: a re-put moves its hash to the newest position, and the
+ * oldest entries go once the store holds more than CCR_CAPACITY. Mutates `store`.
+ * shortcut: no idle TTL (upstream: 30 min); add one with a time argument from register.ts if memory becomes a concern.
+ * @param {Map<string, string>} store hash → original array JSON, oldest first
+ * @param {readonly [string, string][]} entries
+ * @returns {void}
+ */
+export function storeOffloaded(store, entries) {
+  for (const [hash, json] of entries) {
+    store.delete(hash);
+    store.set(hash, json);
+  }
+  for (const hash of store.keys()) {
+    if (store.size <= CCR_CAPACITY) break;
+    store.delete(hash);
+  }
+}
+
+/**
+ * The crusher's query (upstream _extract_context_from_messages): newest first, the text of the last five
+ * user messages (every user message counts, tool-result-only ones too) and each assistant tool call's input JSON.
+ * @param {readonly QueryMessage[]} messages chronological, as the session.messages op returns them
+ * @returns {string}
+ */
+export function crushQuery(messages) {
+  /** @type {string[]} */
+  const parts = [];
+  let users = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role === "user") {
+      if (m.text) parts.push(m.text);
+      if (++users >= 5) break;
+    } else for (const u of m.toolUses) parts.push(JSON.stringify(u.input));
+  }
+  return parts.join(" ");
 }
