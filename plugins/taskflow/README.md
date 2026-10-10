@@ -15,7 +15,7 @@ Requires Claude Code v2.1.154+ (dynamic workflows). On Pro plans, enable Dynamic
 | Skill           | What it does                                                                                                                                                                                                                                                                                                 |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `build-task`    | Orchestrator: branch handling, `AskUserQuestion` checkpoints (open design questions, spec approval, escalated review fixes), final report. Invokes the two workflows below.                                                                                                                                  |
-| `dispatch-task` | Hands the described task to a new worktree-isolated background session (`claude --worktree … --bg`, `sonnet`/`xhigh` by default, `--model=`/`--effort=` overridable) that runs `build-task` unattended.                                                                                                      |
+| `dispatch-task` | Hands the described task to a new worktree-isolated background session (`claude --worktree … --bg`, `haiku`/`xhigh` by default, `--model=`/`--effort=` overridable) that runs `build-task` unattended.                                                                                                       |
 | `changes-audit` | Runs the `changes-review` workflow over the current branch's committed diff, then applies findings by re-dispatching `fix-applier`: `--fix` auto-applies every finding, otherwise an `AskUserQuestion` multi-select applies only your picks. Report-only lean (over-engineering) findings are never applied. |
 
 ## Workflows
@@ -37,14 +37,14 @@ Static role prompts (rules, lens catalog, verdict ladder, git procedures), dispa
 | `designer`        | opus   | Writes/revises the design draft — approach, trade-offs, decisions. Workflow dispatch picks sonnet/opus/fable per run by difficulty — see CLAUDE.md.           |
 | `design-reviewer` | sonnet | Read-only: placeholders, consistency, scope, ambiguity, question validation.                                                                                  |
 | `planner`         | opus   | Turns an approved spec into a dense, machine-executable implementation plan. Workflow dispatch picks sonnet/opus/fable per run by difficulty — see CLAUDE.md. |
-| `review-finder`   | sonnet | Reviews one assigned lens (5 correctness angles + 5 cleanup lenses) over a diff.                                                                              |
-| `review-verifier` | sonnet | Independently verifies review candidates — CONFIRMED / PLAUSIBLE / REFUTED.                                                                                   |
+| `review-finder`   | haiku  | Reviews one assigned lens (5 correctness angles + 5 cleanup lenses) over a diff.                                                                              |
+| `review-verifier` | haiku  | Independently verifies review candidates — CONFIRMED / PLAUSIBLE / REFUTED.                                                                                   |
 | `worktree-merger` | haiku  | Merges approved task branches into the work branch in order, worktree cleanup.                                                                                |
-| `fix-applier`     | sonnet | Applies pre-verified review fixes by category, with a test-run safety gate.                                                                                   |
-| `pr-author`       | sonnet | Writes the PR/MR title and body from the pipeline summary and repo template.                                                                                  |
+| `fix-applier`     | haiku  | Applies pre-verified review fixes by category, with a test-run safety gate.                                                                                   |
+| `pr-author`       | haiku  | Writes the PR/MR title and body from the pipeline summary and repo template.                                                                                  |
 | `shipper`         | haiku  | Pushes, creates-or-updates the PR/MR, then auto-updates/auto-resolves its merge-state before CI monitoring. Never force-pushes or merges the PR.              |
 | `ci-monitor`      | haiku  | Read-only bounded CI poll and classification (`passed`/`failed`/`running`/`none`).                                                                            |
-| `ci-fixer`        | sonnet | Classifies flaky/infra vs. code-caused vs. base-broken CI failures and fixes in scope.                                                                        |
+| `ci-fixer`        | haiku  | Classifies flaky/infra vs. code-caused vs. base-broken CI failures and fixes in scope.                                                                        |
 
 ## Layout
 

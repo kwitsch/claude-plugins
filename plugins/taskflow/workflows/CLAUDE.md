@@ -6,6 +6,8 @@
 
 No model tier is pinned: every role floats on its family alias (`haiku`/`sonnet`/`opus`/`fable`, each resolving to the newest model in that family). Pinned IDs caused problems in practice and were removed across the board (`sonnet`/`haiku` were always bare). Do not reintroduce a pinned ID; the bats suite sweeps the whole plugin for one.
 
+`haiku` is the default tier: every fixed role in `MODELS` and the per-task implementer/reviewer/fixer run on it, apart from the design phase (`design-to-spec.workflow.js` keeps its assignments — its `sonnet` explorer, design reviewer, spec writer and spec reviewer, plus `agents/design-reviewer.md`, stay on `sonnet`) and the plan phase (`MODELS.planChecker` stays on `sonnet`). The designer and planner pick their model per run, as below.
+
 The two highest-judgment authoring roles pick their model per run from a difficulty classification (`simple → sonnet`, `complex → opus`, `hardest → fable`; the resolver default on any miss is `opus`):
 
 - **designer** (`design-to-spec.workflow.js`): the haiku `scout` returns a `difficulty` field (`SCOUT_SCHEMA`); `DESIGN_MODEL` / `designerModel()` resolve `DESIGNER_MODEL`, passed to the designer's `agent()` call.
@@ -14,7 +16,7 @@ The two highest-judgment authoring roles pick their model per run from a difficu
 Fixed bare `opus`, not classifier-driven:
 
 - `MODELS.synthesizer` in `spec-driven-delivery.workflow.js` and `changes-review.workflow.js`.
-- `IMPL_MODEL.complex` — the per-task-complexity tier that `implModel()` / `fixModel()` resolve for `complexity === "complex"` tasks.
+- `IMPL_MODEL.complex` — the per-task-complexity tier that `implModel()` resolves (the per-task fixer reuses the implementer's model) for `complexity === "complex"` tasks.
 
 Agent frontmatter `model:` (`agents/designer.md`, `agents/planner.md`) is the bare `opus` default for a direct out-of-workflow invocation; the workflow's per-run `agent()` `model` option overrides it (same precedence as `implModel(t)`). The `MODELS` object at the top of each workflow script is the single place to change a fixed assignment.
 
