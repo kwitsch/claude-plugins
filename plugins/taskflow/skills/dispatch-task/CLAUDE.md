@@ -24,7 +24,7 @@ This file may name other plugins; the bats self-containment tripwire excludes `C
 
 ## `--model=` / `--effort=`
 
-- Same optional overrides as `coding-toolbox:dispatch-agent`; defaults `haiku` / `xhigh` (diverges from `dispatch-agent`'s `sonnet` default).
+- Same optional overrides as `coding-toolbox:dispatch-agent`; defaults `sonnet` / `xhigh`, same as `dispatch-agent`.
 - The resolved values are validated against `^[A-Za-z0-9._-]+$` before substitution, so no override skips the check.
 
 ## Task text and heredoc

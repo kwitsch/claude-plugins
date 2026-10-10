@@ -3,7 +3,7 @@ name: dispatch-task
 description: >-
   Kicks off this plugin's build-task pipeline for a described task in a new,
   worktree-isolated background Claude Code session (`claude --worktree ... --bg`, model
-  `haiku`, effort `xhigh` by default, both overridable via optional `--model=`/`--effort=`
+  `sonnet`, effort `xhigh` by default, both overridable via optional `--model=`/`--effort=`
   flags) — so the current session does not have to stay and babysit the run. Use to hand off
   a full design-and-delivery task and keep working. Self-contained: depends on no other plugin.
 argument-hint: "[--model=<model>] [--effort=<effort>] [task-description]"
@@ -34,7 +34,7 @@ that first action runs inside the new session, not here.
 
 `$task_description` may optionally start with `--model=<model>` and/or `--effort=<effort>`
 (any order, whitespace-separated) — parse and strip these before anything else; default
-`model` to `haiku` and `effort` to `xhigh` when either is not given. Whatever remains
+`model` to `sonnet` and `effort` to `xhigh` when either is not given. Whatever remains
 (trimmed) is the actual task text. If that task text is empty after trimming, ask via
 `AskUserQuestion` (2-3 illustrative example task descriptions as options; the real one
 arrives via "Other") before doing anything else. Never guess a task.
@@ -51,7 +51,7 @@ arrives via "Other") before doing anything else. Never guess a task.
    fixed overhead, leaving **at most 32 characters for the slug itself** — keep it well
    under that (e.g. 3-4 short words) rather than pushing right up against the limit.
    Before building the command below, validate the resolved `model` and `effort` values
-   (whether parsed from `--model=`/`--effort=` or the `haiku`/`xhigh` defaults) match
+   (whether parsed from `--model=`/`--effort=` or the `sonnet`/`xhigh` defaults) match
    `^[A-Za-z0-9._-]+$` — safe bare tokens only, no quotes, `$()`, backticks, or whitespace.
    Either one failing this check → stop and report; never substitute an unvalidated value
    into the command below, and never strip/sanitize it yourself. The script itself re-checks
