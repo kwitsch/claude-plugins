@@ -186,7 +186,7 @@ test("windowStart counts calendar days back with today included, across leap day
   assert.equal(windowStart("2026-03-30", 2), "2026-03-29");
 });
 
-test("statsTables builds both tables, with blank for rows without counters", () => {
+test("statsTables builds every table, with blank for rows without counters", () => {
   const c = {
     ...zeroCounters(),
     steps: 12,
@@ -210,7 +210,19 @@ test("statsTables builds both tables, with blank for rows without counters", () 
       ["7 days", "…", "…"],
       ["30 days", "…", "…"],
     ],
+    [
+      ["smart crusher", "dropped", "saved"],
+      ["session", "0", "0"],
+    ],
   ]);
+  // The in-memory rows: subagents right under the effort session row, the crusher's session counts.
+  const [effort, , crusher] = statsTables([c], "…", { subagents: { steps: 4, clamped: 3 }, crush: { dropped: 40, saved: 1200 } });
+  assert.deepEqual(effort.slice(1, 4), [
+    ["session", "12", "7"],
+    ["subagents", "4", "3"],
+    ["today", "…", "…"],
+  ]);
+  assert.deepEqual(crusher[1], ["session", "40", "1200"]);
   assert.equal(statsTables([zeroCounters()], "–")[1][1][1], "–"); // no tokens: no hit ratio
   assert.equal(statsTables([{ ...c, hit: 0.1 }], "…")[1][1][1], "10%"); // a row's own hit wins over the token-weighted one
 });

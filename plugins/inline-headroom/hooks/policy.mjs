@@ -256,28 +256,38 @@ export function foldPending(days, pending, today, purgeBefore) {
 
 /**
  * The /headroom tables as rows of cells. Each table starts with its header row (heading, then the column names), then one row per ROWS entry.
- * A row without counters (still loading, storage off or failing) shows `blank` in every value cell.
+ * A row without counters (still loading, storage off or failing) shows `blank` in every value cell. The in-memory session-only
+ * counters add a `subagents` row under effort routing's session row, and the smart crusher table, which has only a session row.
  * @param {readonly (Row|undefined)[]} counters one per ROWS entry, in ROWS order
  * @param {string} blank
- * @returns {string[][][]}
+ * @param {{ subagents?: { steps: number, clamped: number }, crush?: { dropped: number, saved: number } }} [memory]
+ * @returns {string[][][]} effort routing, cache aligner, smart crusher
  */
-export function statsTables(counters, blank) {
+export function statsTables(counters, blank, memory = {}) {
+  const { subagents, crush = { dropped: 0, saved: 0 } } = memory;
   /**
    * @param {string} heading
    * @param {string[]} columns
    * @param {(c: Row) => string[]} cells
+   * @param {string[][]} [underSession] rows right under the session row
    * @returns {string[][]}
    */
-  const table = (heading, columns, cells) => [
+  const table = (heading, columns, cells, underSession = []) => [
     [heading, ...columns],
-    ...ROWS.map((v, i) => {
+    ...ROWS.flatMap((v, i) => {
       const c = counters[i];
-      return [v.label, ...(c ? cells(c) : columns.map(() => blank))];
+      const row = [v.label, ...(c ? cells(c) : columns.map(() => blank))];
+      return v.days === 0 ? [row, ...underSession] : [row];
     }),
   ];
+  const session = ROWS.find((v) => v.days === 0)?.label ?? "session";
   return [
-    table("effort routing", ["steps", "clamped"], (c) => [String(c.steps), String(c.clamped)]),
+    table("effort routing", ["steps", "clamped"], (c) => [String(c.steps), String(c.clamped)], subagents ? [["subagents", String(subagents.steps), String(subagents.clamped)]] : []),
     table("cache aligner", ["hit", "drops"], (c) => [pct(c.hit ?? cacheHitRatio(c)), String(c.cache_drops)]),
+    [
+      ["smart crusher", "dropped", "saved"],
+      [session, String(crush.dropped), String(crush.saved)],
+    ],
   ];
 }
 

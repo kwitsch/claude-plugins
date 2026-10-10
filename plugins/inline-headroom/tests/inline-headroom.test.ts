@@ -240,7 +240,8 @@ test("(i) /headroom opens the headroom pane and prints nothing", async ($, on) =
   const out = await $.command.run({ command: "headroom" });
   expect(out.text).toBeUndefined();
   expect(opened.length).toBe(1);
-  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 18 });
+  // 6 + 5 + 2 table rows, the storage note, the volatile header and four gaps.
+  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 19 });
 });
 
 test("(i2) /headroom falls back to the stats tables as text when the pane is not placed", async ($, on) => {
@@ -770,6 +771,42 @@ test(
     expect(await ui.find({ type: "Text", text: /^effort routing$/ })).toBeUndefined();
     expect(await ui.find({ type: "Text", text: /are off: nothing to show/ })).toBeUndefined();
     expect(calls).toHaveLength(0);
+    await ui.unmount();
+  },
+);
+
+test("(sc11) a crush redraws an open /headroom pane", { options: { storage_enabled: false } }, async ($, on) => {
+  let redraws = 0;
+  on("ui.invalidate", async () => {
+    redraws++;
+    return { value: undefined };
+  });
+  on("ui.open", async () => ({ value: { isPlaced: true as const } }));
+  on("tool.call", () => OK_BASH);
+  await startCrusher(on, $);
+  await $.command.run({ command: "headroom" });
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  const before = redraws;
+  expect(crushedRows(stdoutOf(await callBash($))).rows.length).toBeLessThan(200);
+  expect(redraws).toBe(before + 1);
+  await ui.unmount();
+});
+
+test(
+  "(sc12) with only the crusher on, the pane asks for its own height and shows no storage note",
+  { options: { effort_routing_enabled: false, cache_aligner_enabled: false, storage_enabled: false } },
+  async ($, on) => {
+    const opened: { rows?: number }[] = [];
+    on("ui.open", async (_$, e) => {
+      opened.push(e);
+      return { value: { isPlaced: true as const } };
+    });
+    await startCrusher(on, $);
+    await $.command.run({ command: "headroom" });
+    expect(opened[0].rows).toBe(3); // the crusher table's 2 rows, the empty volatile block and the gap between
+    const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+    expect(await ui.find({ type: "Text", text: /^smart crusher$/ })).toBeDefined();
+    expect(await ui.find({ type: "Text", text: /storage is off/ })).toBeUndefined();
     await ui.unmount();
   },
 );

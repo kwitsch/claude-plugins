@@ -49,7 +49,6 @@ let poll: Timer | undefined; // the open pane's 10 s refresh
 let paneOpen = false; // the /headroom pane has rendered and not closed since: subagent steps redraw only then
 
 const PANE = "headroom"; // the /headroom pane's id (1-64 of letters, digits, _ and -)
-const PANE_ROWS = 15; // body height asked for when seated inline: a 6-row and a 5-row table, two gaps, the volatile header, the storage note (one less without the subagents row; three more with the smart crusher table: its two rows and a gap)
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 const RETRIEVE_SPEC = {
   name: RETRIEVE_NAME,
@@ -146,21 +145,24 @@ export const register: Register = (on, options) => {
     return next(e);
   });
 
-  // The storage rows' state when they hold no numbers: off, or the last fetch's error.
+  // Storage backs only the effort routing and cache aligner tables.
+  const storageTables = effortOn || cacheOn;
+  const rowsShown = storageOn && storageTables;
+  // The storage rows' state when they hold no numbers: off, or the last fetch's error. None without a storage-backed table.
   const note = (): string | undefined =>
-    !storageOn ? "storage is off (storage_enabled is not true): only the session row is kept" : sums?.error === undefined ? undefined : `storage unavailable: ${sums.error}`;
+    !storageTables
+      ? undefined
+      : !storageOn
+        ? "storage is off (storage_enabled is not true): only the session row is kept"
+        : sums?.error === undefined
+          ? undefined
+          : `storage unavailable: ${sums.error}`;
   // No note means the numbers are still loading ("…"); a note means they never will come ("–").
   // The session row shows its last step's hit ratio; the storage rows are token-weighted over their windows.
   // Each table is shown only while the lever it counts is on; the storage rows sit in both.
+  // The subagents row and the crusher counts are session-only: persisting them needs new stats columns and a storage PROTOCOL bump (deferred).
   const tables = (): string[][][] => {
-    const [effort, cache] = statsTables([{ ...session, hit: stats.lastHit }, ...(sums?.data ?? [])], note() === undefined ? "…" : "–");
-    // Under the session row: this session's subagent steps, kept in memory only.
-    if (subOn) effort.splice(2, 0, ["subagents", String(subagents.steps), String(subagents.clamped)]);
-    // Session only: persisting the crush counters needs new stats columns and a storage PROTOCOL bump (deferred).
-    const crusher = [
-      ["smart crusher", "dropped", "saved"],
-      ["session", String(crush.dropped), String(crush.saved)],
-    ];
+    const [effort, cache, crusher] = statsTables([{ ...session, hit: stats.lastHit }, ...(sums?.data ?? [])], note() === undefined ? "…" : "–", { subagents: subOn ? subagents : undefined, crush });
     return [...(effortOn ? [effort] : []), ...(cacheOn ? [cache] : []), ...(crusherOn ? [crusher] : [])];
   };
   // One row per finding, so a long list wraps per row instead of one clipped line. The list belongs to the cache aligner.
@@ -168,11 +170,16 @@ export const register: Register = (on, options) => {
     !cacheOn ? [] : [stats.volatile.length ? "volatile shared values:" : "volatile shared values: none", ...stats.volatile.map((v) => `  ${v.id} ${v.kind} ${v.sample}`)];
   // With all three levers off there is nothing to show, so nothing is read from storage either.
   const idle = (): string | undefined => (effortOn || cacheOn || crusherOn ? undefined : "effort routing, cache aligner and smart crusher are off: nothing to show");
-  // Storage backs only the effort routing and cache aligner tables.
-  const rowsShown = storageOn && (effortOn || cacheOn);
+  // Body height asked for when seated inline, mirroring the render: every table, a line for the storage note
+  // wherever one can show, the volatile lines, and a gap between each.
+  const paneRows = (): number => {
+    if (idle() !== undefined) return 1; // the one "nothing to show" line
+    const blocks = [...tables().map((t) => t.length), ...(storageTables ? [1] : []), volatileLines().length];
+    return blocks.reduce((a, b) => a + b, 0) + blocks.length - 1;
+  };
 
   on("command.run", { command: "headroom" }, async ($) => {
-    const r = await $.ui.open({ id: PANE, title: "Headroom", focus: true, closeOnEscape: true, rows: (subOn ? PANE_ROWS : PANE_ROWS - 1) + (crusherOn ? 3 : 0) });
+    const r = await $.ui.open({ id: PANE, title: "Headroom", focus: true, closeOnEscape: true, rows: paneRows() });
     if (r.isPlaced) {
       // Pane placed: print nothing (no transcript line, nothing in the model's context).
       if (rowsShown) {
@@ -274,6 +281,13 @@ export const register: Register = (on, options) => {
         storeOffloaded(offloaded, c.offloaded);
         crush.dropped += c.rowsDropped;
         crush.saved += c.charsSaved;
+        if (paneOpen) {
+          try {
+            $.ui.invalidate("ui.render"); // redraw an open /headroom pane's smart crusher row now
+          } catch {
+            // a refused $ never costs the crushed result
+          }
+        }
         // A new object: no ref/text, so core re-validates and re-maps it. Other hooks' reminder context is carried over (U1).
         return { result: c.result, ...(r.context === undefined ? {} : { context: r.context }) };
       } catch {
