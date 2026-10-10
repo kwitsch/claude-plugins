@@ -4,7 +4,7 @@ description: >
   INTERNAL. Only invoked by the spec-driven-delivery workflow. Do not delegate to this
   agent directly; if the user asks for fixing a red CI run, run
   /taskflow:spec-driven-delivery instead.
-model: sonnet
+model: haiku
 ---
 
 No narrative text between tool calls — call tools silently and speak only in
