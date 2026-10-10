@@ -404,6 +404,8 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'planChecker: "sonnet"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
+  run rg_or_grep -F 'finder: "haiku"' "$WORKFLOWS/changes-review.workflow.js"
+  [ "$status" -eq 0 ]
 }
 
 @test "workflows/CLAUDE.md's Model assignment section drops the Opus pin and documents the classifier" {
