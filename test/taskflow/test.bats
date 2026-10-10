@@ -400,7 +400,9 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'merger: "haiku"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'trivial: "haiku", standard: "sonnet"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'trivial: "haiku", standard: "haiku"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'planChecker: "sonnet"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
 }
 
@@ -1014,10 +1016,10 @@ mm_git_fixture() {
 
 # --- ponytail report-only lean review (delivery pipeline) ---
 
-@test "spec-driven-delivery defines the lean-review schema, sonnet model, and returns ponytailReview" {
+@test "spec-driven-delivery defines the lean-review schema, haiku model, and returns ponytailReview" {
   run rg_or_grep -F 'PONYTAIL_REVIEW_SCHEMA' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'ponytailReviewer: "sonnet"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'ponytailReviewer: "haiku"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'ponytailReview' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
