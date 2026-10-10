@@ -1,6 +1,6 @@
 {
   "name": "inline-headroom",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Headroom-style levers inside Claude Code as a mod: clamp-only effort routing after successful tool results, and a detector-only CacheAligner that flags volatile system-prompt content and cache-hit drops. Ships a host-wide SQLite storage MCP server for persistent plugin data.",
   "author": { "name": "Kwitsch" },
   "userConfig": {
@@ -14,6 +14,12 @@
       "type": "boolean",
       "title": "Effort routing",
       "description": "Lower thinking effort to low on main-loop steps that only resume after successful tool results. Never raises or injects effort. Note: an effort switch may invalidate prompt cache.",
+      "default": true
+    },
+    "subagent_effort_routing_enabled": {
+      "type": "boolean",
+      "title": "Subagent effort routing",
+      "description": "Also lower thinking effort to low on subagent and Workflow-agent steps that only resume after that agent's successful tool results. Only active while effort routing is on. Overrides effort set on purpose (agent frontmatter, Agent tool or Workflow effort), and each subagent may pay its own prompt-cache re-write per switch.",
       "default": true
     },
     "storage_enabled": {
