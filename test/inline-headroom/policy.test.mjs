@@ -432,6 +432,20 @@ test("crushJson keeps the rows around a time series change point", () => {
   for (let i = 47; i <= 51; i++) assert.ok(kept.includes(i), String(i));
 });
 
+test("crushJson maps a change point past null values back to its row", () => {
+  // 10 leading nulls: the shift sits at row 50 but at index 40 of the non-null values.
+  const rows = Array.from({ length: 60 }, (_, i) => ({
+    id: i,
+    ts: `2026-10-01T00:${String(i).padStart(2, "0")}:00Z`,
+    value: i < 10 ? null : i < 50 ? 10 : 50,
+    note: `reading ${i} from sensor alpha`,
+  }));
+  const kept = keptIds(crush(rows).out);
+  // The null rows take part of the K budget, so only the window's start is asserted, and no row around index 40.
+  assert.ok(kept.includes(48) && kept.includes(49), String(kept));
+  assert.ok(!kept.some((i) => typeof i === "number" && i >= 38 && i <= 42), String(kept));
+});
+
 test("crushJson samples log rows by cluster and keeps every error-level row", () => {
   const messages = ["started job", "finished job", "retrying job", "queued job"];
   const rows = Array.from({ length: 60 }, (_, i) => ({

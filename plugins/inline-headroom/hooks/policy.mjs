@@ -608,7 +608,16 @@ function analyzeField(name, items) {
   f.unique = new Set(values.map(pyStr)).size;
   f.ratio = f.unique / values.length;
   if (f.type === "numeric") {
-    const nums = /** @type {number[]} */ (nonNull.filter((v) => typeof v === "number" && Number.isFinite(v)));
+    /** @type {number[]} */
+    const nums = [];
+    /** @type {number[]} */
+    const rows = [];
+    values.forEach((v, i) => {
+      if (typeof v === "number" && Number.isFinite(v)) {
+        nums.push(v);
+        rows.push(i);
+      }
+    });
     let min = Infinity;
     let max = -Infinity;
     for (const x of nums) {
@@ -617,8 +626,10 @@ function analyzeField(name, items) {
     }
     const m = mean(nums);
     const variance = nums.length > 1 ? sampleVariance(nums) : 0;
-    // Upstream resets the whole numeric block when any statistic is not finite.
-    if (m !== undefined && variance !== undefined && Number.isFinite(min) && Number.isFinite(max)) Object.assign(f, { min, max, mean: m, variance, changePoints: changePoints(nums) });
+    // Upstream resets the whole numeric block when any statistic is not finite. Change points are mapped from
+    // `nums` (nulls and non-numbers skipped) back to row indices, which the planners index by.
+    if (m !== undefined && variance !== undefined && Number.isFinite(min) && Number.isFinite(max))
+      Object.assign(f, { min, max, mean: m, variance, changePoints: changePoints(nums).map((k) => rows[k]) });
     else f.variance = 0;
   } else if (f.type === "string") {
     f.avgLen = mean(/** @type {string[]} */ (nonNull.filter((v) => typeof v === "string")).map((s) => Array.from(s).length));
