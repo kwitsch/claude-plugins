@@ -636,7 +636,9 @@ async function runTask(t) {
         implReport +
         ". Fix report: " +
         fix;
-      review = await agent(reviewerPrompt(t, reReport), { label: "re-review:" + t.id, phase: "Implement", schema: VERDICT, model: MODELS.taskReviewer });
+      const reOpts = { label: "re-review:" + t.id, phase: "Implement", schema: VERDICT, model: MODELS.taskReviewer };
+      review = await agent(reviewerPrompt(t, reReport), reOpts);
+      if (review === null) review = await agent(reviewerPrompt(t, reReport), { ...reOpts, label: reOpts.label + ":retry" });
     }
   }
   const blockingLeft = !review || (!review.approved && review.findings.some((f) => f.severity !== "minor"));

@@ -105,7 +105,8 @@ is a planning defect to surface, not a git problem to solve.
   depth comes from the combined Review phase, never from the per-task gate.
   `haiku` is the default for every role outside the design and plan phases
   (finder, verifier, fix applier, per-task fixer, lean review, PR author, CI
-  fixer); the plan-check gate stays on the `sonnet` alias.
+  fixer), except the `opus` synthesizer and `complex`-task implementer/fixer;
+  the plan-check gate stays on the `sonnet` alias.
 - Every implementer runs with `isolation: 'worktree'` — no direct commits on
   the work branch, even for single-task waves.
 - Each wave is merged by a separate merger agent (`git merge --no-ff`, task-id
