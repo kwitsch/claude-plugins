@@ -230,7 +230,11 @@ export const register: Register = (on, options) => {
         // No cache-aligner accounting: a subagent's prompt cache is not the main loop's.
         return yield* next(ev);
       } finally {
-        $.ui.invalidate("ui.render"); // the subagents row moved, also on a failed step
+        try {
+          $.ui.invalidate("ui.render"); // the subagents row moved, also on a failed step
+        } catch {
+          // a refused $ never replaces the step's result: subagent steps passed straight through before this feature
+        }
       }
     }
     count("steps");

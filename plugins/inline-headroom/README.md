@@ -32,7 +32,7 @@ turns storage off. Set them via
   "pluginConfigs": {
     "inline-headroom": {
       "options": {
-        "effort_routing_enabled": false,
+        "effort_routing_enabled": true,
         "subagent_effort_routing_enabled": true,
         "cache_aligner_enabled": true,
         "storage_enabled": true

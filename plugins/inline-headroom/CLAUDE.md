@@ -153,11 +153,12 @@ live-verified until a live run confirms it.
 - `turn.step` result `usage` may be `null`.
 - `command.run` returning `{}` prints no transcript row and records no model
   context (`CommandRunResult.text` absent).
-- One hook per event without a matcher: `claude plugin validate` and the kit
-  (2.1.296) refuse a module that registers `on("turn.complete")` twice without a
-  matcher. The subagent error cleanup therefore shares the one `turn.complete`
-  hook with the storage write, registered while `storage_enabled` or
-  `subagent_effort_routing_enabled` is on.
+- One hook per event without a matcher. Verified on 2.1.296, not 2.1.288: a
+  module with a second matcher-less `on("turn.complete")` fails both
+  `claude plugin validate` and `claude plugin test`, with the error
+  `registered twice without a matcher`. The subagent error cleanup therefore
+  shares the one `turn.complete` hook with the storage write, registered while
+  `storage_enabled` or `subagent_effort_routing_enabled` is on.
 - `$.ui.open(PaneOpenArgs)` resolves to `UiOpenResult`
   (`{ isPlaced: true } | { isPlaced: false, reason }`). `focus`/`closeOnEscape`
   accept only `true`. One pane per id, and re-opening retitles it.
