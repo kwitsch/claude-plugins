@@ -2,16 +2,23 @@ import type { EngineInterface, Register, Timer } from "claude-code";
 import {
   CELL_WIDTHS,
   RETAIN_DAYS,
+  RETRIEVE_NAME,
+  RETRIEVE_TOOL,
   ROWS,
   cacheHitRatio,
+  crushQuery,
+  crushToolResult,
   dayKey,
   findVolatile,
   foldPending,
   isCacheDrop,
+  isCrushCandidate,
+  isOwnStorageCall,
   isToolError,
   pct,
   statsTables,
   stepEffort,
+  storeOffloaded,
   tableText,
   toCount,
   windowStart,
@@ -24,12 +31,18 @@ import type { Counters, VolatileFinding } from "./policy.mjs";
 let toolErrored = false; // any main-loop tool error since the last main-loop step
 const agentErrored = new Set<string>(); // subagents with a tool error since their own last step; an entry ends with that agent's turn
 const subagents = { steps: 0, clamped: 0 }; // this session's subagent steps: in memory only, never persisted (the stats schema stays main-loop)
+const crush = { dropped: 0, saved: 0 }; // this session's SmartCrusher savings: in memory only, never persisted (the stats schema has no columns for them)
+let retrieveReady = false; // session.start registered headroom_retrieve under its expected name in this module load
+const offloaded = new Map<string, string>(); // CCR hash → original array JSON, oldest first (storeOffloaded evicts)
 // The session row: this session's counters, in memory.
 const session: Counters = zeroCounters();
 const stats = {
   lastHit: undefined as number | undefined,
   volatile: [] as VolatileFinding[],
 };
+// A prompt.compose reached this module load. Claude Code 2.1.296's built-in security plugin skips every user-tier hook on
+// prompt.compose, prompt.section and prompt.context, so an installed plugin never sees one there (live-verified).
+let composeSeen = false;
 const WRITER = Math.random().toString(36).slice(2).padEnd(8, "0"); // this module instance's stats rows
 const pending: Counters = zeroCounters(); // counter deltas since the last fold
 const days: Record<string, Counters> = {}; // this writer's per-day totals that may still need writing
@@ -37,11 +50,31 @@ let flushing: Promise<void> = Promise.resolve(); // serializes stats_put: a newe
 let sums: { data?: Counters[]; error?: string } | undefined; // the today / 7 days / 30 days totals (ROWS order after session), fetched outside render
 let loading: Promise<void> | undefined; // the fetch in flight: a tick never stacks on a slow stats_sum (a cold service start takes up to 3 s)
 let poll: Timer | undefined; // the open pane's 10 s refresh
+let stale = false; // the refresh ticked: the pane's next render fetches the storage rows
 let paneOpen = false; // the /headroom pane has rendered and not closed since: subagent steps redraw only then
 
 const PANE = "headroom"; // the /headroom pane's id (1-64 of letters, digits, _ and -)
-const PANE_ROWS = 15; // body height asked for when seated inline: a 6-row and a 5-row table, two gaps, the volatile header, the storage note (one less without the subagents row)
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+const RETRIEVE_SPEC = {
+  name: RETRIEVE_NAME,
+  description:
+    "Retrieve original uncompressed content that was compressed to save tokens. Use this when you need more data than what's shown in compressed tool results. The hash is in compression markers like <<ccr:abc123def456 40_rows_offloaded>>.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      hash: {
+        type: "string",
+        description: "Hash key from the compression marker (e.g. 'abc123def456' from <<ccr:abc123def456 40_rows_offloaded>>)",
+      },
+    },
+    required: ["hash"],
+  },
+};
+// headroom_retrieve's answer: the original array JSON, or a deny the model reads as a failed call.
+const retrieve = (hash: unknown) => {
+  const original = typeof hash === "string" ? offloaded.get(hash) : undefined;
+  return original === undefined ? { deny: `headroom_retrieve: no crushed content under hash ${String(hash)} (evicted, or the mod reloaded)` } : { result: original };
+};
 
 // Moves one counter in the session row and in the deltas still to persist.
 const count = (k: keyof Counters, n = 1): void => {
@@ -60,7 +93,10 @@ const callStorage = async ($: EngineInterface, tool: string, args: Record<string
   return r.structuredContent ?? JSON.parse(r.content[0]?.text ?? "null");
 };
 
-// Reads the storage rows into `sums` and redraws the pane. Never rejects: a tick's caller does not await it.
+// Reads the storage rows into `sums` and redraws the pane. Never rejects.
+// Every storage call is awaited by a running hook: core checks $.mcp.call like a tool call, and this mod's tool.check
+// sees, and allows, only calls raised while one of its hooks runs. A call made after its hook returned (a clock
+// callback, an unawaited chain) skips the mod's own hooks, so a session in default mode asks and a headless one denies.
 const loadSums = async ($: EngineInterface): Promise<void> => {
   let fetched: typeof sums;
   try {
@@ -86,10 +122,13 @@ const loadSums = async ($: EngineInterface): Promise<void> => {
 const refresh = ($: EngineInterface): Promise<void> => (loading ??= loadSums($).finally(() => (loading = undefined)));
 
 // Starts the open pane's 10 s refresh unless one runs: the command and the first redraw after a hot reload both call it.
+// A tick only marks the rows stale and redraws; the render hook fetches them (see loadSums).
 const arm = ($: EngineInterface): void => {
   if (poll !== undefined) return;
-  void refresh($); // the first numbers now, not after 10 s
-  poll = $.clock.every(10_000, () => void refresh($));
+  poll = $.clock.every(10_000, () => {
+    stale = true;
+    $.ui.invalidate("ui.render");
+  });
 };
 
 export const register: Register = (on, options) => {
@@ -97,44 +136,72 @@ export const register: Register = (on, options) => {
   // Subagent and Workflow-agent steps: their own toggle, active only while effort routing is on.
   const subOn = effortOn && options.subagent_effort_routing_enabled !== false;
   const cacheOn = options.cache_aligner_enabled !== false;
+  const crusherOn = options.smart_crusher_enabled !== false;
   // Unset means the manifest default (true), like the sibling toggles; the server stays fail-closed.
   const storageOn = options.storage_enabled !== false;
 
   on("session.start", async ($, e, next) => {
     await $.command.register({
       name: "headroom",
-      description: "inline-headroom stats: effort clamps, cache-hit drops, volatile prompt values",
+      description: "inline-headroom stats: effort clamps, cache-hit drops, volatile prompt values, smart-crusher savings",
     });
+    if (crusherOn) {
+      try {
+        // Sticky within a module load: a later session.start that fails or answers another name leaves an earlier registration usable.
+        retrieveReady ||= (await $.tool.register(RETRIEVE_SPEC)).tool === RETRIEVE_TOOL;
+      } catch {
+        // no registration in this module load → retrieveReady stays false and no rows are dropped
+      }
+    }
     return next(e);
   });
 
-  // The storage rows' state when they hold no numbers: off, or the last fetch's error.
+  // Storage backs only the effort routing and cache aligner tables.
+  const storageTables = effortOn || cacheOn;
+  const rowsShown = storageOn && storageTables;
+  // The storage rows' state when they hold no numbers: off, or the last fetch's error. None without a storage-backed table.
   const note = (): string | undefined =>
-    !storageOn ? "storage is off (storage_enabled is not true): only the session row is kept" : sums?.error === undefined ? undefined : `storage unavailable: ${sums.error}`;
+    !storageTables
+      ? undefined
+      : !storageOn
+        ? "storage is off (storage_enabled is not true): only the session row is kept"
+        : sums?.error === undefined
+          ? undefined
+          : `storage unavailable: ${sums.error}`;
   // No note means the numbers are still loading ("…"); a note means they never will come ("–").
   // The session row shows its last step's hit ratio; the storage rows are token-weighted over their windows.
   // Each table is shown only while the lever it counts is on; the storage rows sit in both.
+  // The subagents row and the crusher counts are session-only: persisting them needs new stats columns and a storage PROTOCOL bump (deferred).
   const tables = (): string[][][] => {
-    const [effort, cache] = statsTables([{ ...session, hit: stats.lastHit }, ...(sums?.data ?? [])], note() === undefined ? "…" : "–");
-    // Under the session row: this session's subagent steps, kept in memory only.
-    if (subOn) effort.splice(2, 0, ["subagents", String(subagents.steps), String(subagents.clamped)]);
-    return [...(effortOn ? [effort] : []), ...(cacheOn ? [cache] : [])];
+    const [effort, cache, crusher] = statsTables([{ ...session, hit: stats.lastHit }, ...(sums?.data ?? [])], note() === undefined ? "…" : "–", { subagents: subOn ? subagents : undefined, crush });
+    return [...(effortOn ? [effort] : []), ...(cacheOn ? [cache] : []), ...(crusherOn ? [crusher] : [])];
   };
   // One row per finding, so a long list wraps per row instead of one clipped line. The list belongs to the cache aligner.
   const volatileLines = (): string[] =>
-    !cacheOn ? [] : [stats.volatile.length ? "volatile shared values:" : "volatile shared values: none", ...stats.volatile.map((v) => `  ${v.id} ${v.kind} ${v.sample}`)];
-  // With both levers off there is nothing to show, so nothing is read from storage either.
-  const idle = (): string | undefined => (effortOn || cacheOn ? undefined : "effort routing and cache aligner are off: nothing to show");
-  const rowsShown = storageOn && idle() === undefined;
+    !cacheOn
+      ? []
+      : !composeSeen
+        ? ["volatile shared values: unavailable (Claude Code keeps plugins out of the system-prompt hooks)"]
+        : [stats.volatile.length ? "volatile shared values:" : "volatile shared values: none", ...stats.volatile.map((v) => `  ${v.id} ${v.kind} ${v.sample}`)];
+  // With all three levers off there is nothing to show, so nothing is read from storage either.
+  const idle = (): string | undefined => (effortOn || cacheOn || crusherOn ? undefined : "effort routing, cache aligner and smart crusher are off: nothing to show");
+  // Body height asked for when seated inline, mirroring the render: every table, a line for the storage note
+  // wherever one can show, the volatile lines, and a gap between each.
+  const paneRows = (): number => {
+    if (idle() !== undefined) return 1; // the one "nothing to show" line
+    const blocks = [...tables().map((t) => t.length), ...(storageTables ? [1] : []), volatileLines().length];
+    return blocks.reduce((a, b) => a + b, 0) + blocks.length - 1;
+  };
 
   on("command.run", { command: "headroom" }, async ($) => {
-    const r = await $.ui.open({ id: PANE, title: "Headroom", focus: true, closeOnEscape: true, rows: subOn ? PANE_ROWS : PANE_ROWS - 1 });
+    const r = await $.ui.open({ id: PANE, title: "Headroom", focus: true, closeOnEscape: true, rows: paneRows() });
     if (r.isPlaced) {
       // Pane placed: print nothing (no transcript line, nothing in the model's context).
       if (rowsShown) {
         poll?.cancel(); // re-opening an open pane restarts its refresh instead of stacking a second one
         poll = undefined;
         arm($);
+        await refresh($); // the first numbers now, inside this hook (see loadSums)
       }
       return {};
     }
@@ -148,7 +215,13 @@ export const register: Register = (on, options) => {
 
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
     paneOpen = true;
-    if (rowsShown) arm($); // a hot reload leaves the pane open with no timer: its first redraw re-arms the refresh
+    if (rowsShown) {
+      arm($); // a hot reload leaves the pane open with no timer: its first redraw re-arms the refresh
+      if (stale || sums === undefined) {
+        stale = false;
+        await refresh($); // a tick or a reloaded pane: fetch inside this hook (see loadSums)
+      }
+    }
     const { Box, Text } = $.ui.resolve(e);
     // Box cells, not padded text: the columns line up on every surface, proportional fonts included.
     const table = (rows: string[][]) =>
@@ -194,22 +267,53 @@ export const register: Register = (on, options) => {
     return r;
   });
 
-  if (effortOn) {
+  // One tool.call hook without a matcher for every job: the engine refuses a second one in one module (see CLAUDE.md).
+  // It observes failures for effort routing, answers headroom_retrieve, and crushes large JSON results.
+  if (effortOn || crusherOn) {
     // Observe AFTER the tool ran. A failure keeps full effort on the next step of the loop that made the call:
     // the main loop's flag, or that subagent's entry. Under parallel calls the flag is sticky.
     const failed = (agentId: string | undefined): void => {
+      if (!effortOn) return;
       if (!agentId) toolErrored = true;
       else if (subOn) agentErrored.add(agentId);
     };
-    on("tool.call", async (_$, e, next) => {
+    on("tool.call", async ($, e, next) => {
+      let r: Awaited<ReturnType<typeof next>>;
       try {
-        const r = await next(e);
-        if (isToolError(r)) failed(e.agentId);
-        return r;
+        // headroom_retrieve is answered here (a call no hook answers fails); every other call runs beneath.
+        r = e.tool === RETRIEVE_TOOL ? retrieve((e as Record<string, unknown>).hash) : await next(e);
       } catch (err) {
-        // A tool that throws instead of returning an error result is still a failure.
-        failed(e.agentId);
+        failed(e.agentId); // a tool that throws instead of returning an error result is still a failure
         throw err;
+      }
+      if (isToolError(r)) {
+        failed(e.agentId);
+        return r; // errors and denies are never rewritten
+      }
+      if (!crusherOn || !retrieveReady || e.agentId || next.origin?.plugin !== "engine" || !isCrushCandidate(e.tool, r.result)) return r;
+      try {
+        let query = "";
+        try {
+          query = crushQuery(await $.session.messages());
+        } catch {
+          // crush without query signals, as upstream does with no context
+        }
+        const c = crushToolResult(e.tool, r.result, query);
+        if (!c) return r;
+        storeOffloaded(offloaded, c.offloaded);
+        crush.dropped += c.rowsDropped;
+        crush.saved += c.charsSaved;
+        if (paneOpen) {
+          try {
+            $.ui.invalidate("ui.render"); // redraw an open /headroom pane's smart crusher row now
+          } catch {
+            // a refused $ never costs the crushed result
+          }
+        }
+        // A new object: no ref/text, so core re-validates and re-maps it. Other hooks' reminder context is carried over (U1).
+        return { result: c.result, ...(r.context === undefined ? {} : { context: r.context }) };
+      } catch {
+        return r; // fail open: never break the tool path
       }
     });
   }
@@ -269,6 +373,11 @@ export const register: Register = (on, options) => {
     }
   });
 
+  if (storageOn) {
+    // The mod's own storage calls need no permission rule: core checks $.mcp.call like a tool call (see isOwnStorageCall).
+    on("tool.check", async (_$, e, next) => (isOwnStorageCall(next.origin.plugin, e.tool) ? { decision: "allow" as const, reason: "inline-headroom's own /headroom storage call" } : next(e)));
+  }
+
   // One turn.complete hook for both jobs: the engine refuses a second turn.complete without a matcher in one module.
   if (storageOn || subOn) {
     on("turn.complete", async ($, e, next) => {
@@ -286,7 +395,7 @@ export const register: Register = (on, options) => {
       } catch {
         return r; // stats are a side feature: a bad clock never costs the turn's result
       }
-      // Not awaited: a cold service start (up to 3 s) never delays the turn's end.
+      // Awaited below, so the storage calls run inside this hook (see loadSums); a cold service start (up to 3 s) delays the turn's end.
       flushing = flushing
         .then(async () => {
           try {
@@ -295,10 +404,11 @@ export const register: Register = (on, options) => {
             return; // days keeps every total: the next turn rewrites them
           }
           for (const d of Object.keys(days)) if (d < today) delete days[d]; // final rows, written
-          if (poll !== undefined) void refresh($); // an open pane shows the rows just written, not at its next tick
+          if (poll !== undefined) await refresh($); // an open pane shows the rows just written, not at its next tick
         })
         // The chain must never reject: a rejected `flushing` would skip every later flush for the module's life.
         .catch(() => {});
+      await flushing;
       return r;
     });
   }
@@ -308,12 +418,13 @@ export const register: Register = (on, options) => {
   on("session.end", async ($, e, next) => {
     Object.assign(session, zeroCounters());
     Object.assign(subagents, { steps: 0, clamped: 0 });
+    Object.assign(crush, { dropped: 0, saved: 0 });
     agentErrored.clear(); // an aborted agent whose turn.complete never came
     Object.assign(stats, { lastHit: undefined, volatile: [] });
     $.ui.invalidate("ui.render");
     const r = await next(e);
-    // A headless run exits after this chain: let a started stats_put finish. `flushing` never
-    // rejects, and the engine's ~1.5 s end bound cuts the wait; core's end step already ran.
+    // A turn cut off before its turn.complete hook finished may leave a stats_put running: let it finish.
+    // `flushing` never rejects, and the engine's ~1.5 s end bound cuts the wait; core's end step already ran.
     await flushing;
     return r;
   });
@@ -322,6 +433,7 @@ export const register: Register = (on, options) => {
     // Detector only (upstream CacheAligner): the composed prompt is returned untouched.
     on("prompt.compose", async ($, e, next) => {
       const r = await next(e);
+      composeSeen = true;
       stats.volatile = findVolatile(r.sections);
       $.ui.invalidate("ui.render");
       return r;

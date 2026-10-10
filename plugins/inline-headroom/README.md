@@ -1,10 +1,11 @@
 # inline-headroom
 
 Headroom-style levers inside Claude Code as a mod: clamp-only effort routing
-after successful tool results, and a detector-only CacheAligner that flags
-volatile system-prompt content and cache-hit drops. Ports two
-"output/caching" levers of [headroom](https://github.com/headroomlabs-ai/headroom)
-faithfully to upstream semantics.
+after successful tool results, a detector-only CacheAligner that flags
+volatile system-prompt content and cache-hit drops, and a SmartCrusher that
+compresses large JSON arrays in tool results. Ports three levers of
+[headroom](https://github.com/headroomlabs-ai/headroom) faithfully to upstream
+semantics.
 
 ## Install
 
@@ -14,14 +15,15 @@ faithfully to upstream semantics.
 
 ## What it does
 
-| Lever          | Upstream mapping                                           | Behavior                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| -------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Effort routing | headroom effort routing (structural success-vs-error rule) | On a main-loop model step after index 0 whose preceding tool results were all successful, lowers thinking effort to `low`; with `subagent_effort_routing_enabled` on, each subagent and Workflow agent gets the same rule on its own steps, tracked per agent. Clamp-only: never raises effort, never injects one, leaves numeric or absent effort alone. Any tool error or deny since that loop's last step keeps full effort. |
-| CacheAligner   | headroom CacheAligner (detector only)                      | Scans the cacheable `shared` system-prompt sections for UUID, ISO-8601, JWT and 32/40/64-hex values and logs a line whenever the prompt-cache hit ratio drops from at least 60% to below 60% between steps. Never rewrites or reorders the prompt.                                                                                                                                                                              |
+| Lever          | Upstream mapping                                           | Behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| -------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Effort routing | headroom effort routing (structural success-vs-error rule) | On a main-loop model step after index 0 whose preceding tool results were all successful, lowers thinking effort to `low`; with `subagent_effort_routing_enabled` on, each subagent and Workflow agent gets the same rule on its own steps, tracked per agent. Clamp-only: never raises effort, never injects one, leaves numeric or absent effort alone. Any tool error or deny since that loop's last step keeps full effort.                                                                                                                                                                                                                                                                                               |
+| CacheAligner   | headroom CacheAligner (detector only)                      | Scans the cacheable `shared` system-prompt sections for UUID, ISO-8601, JWT and 32/40/64-hex values and logs a line whenever the prompt-cache hit ratio drops from at least 60% to below 60% between steps. Never rewrites or reorders the prompt.                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| SmartCrusher   | headroom SmartCrusher (dict-array lossy path)              | Rewrites a successful main-loop Bash result whose stdout is one JSON document, and each JSON text block of an MCP result, when it is longer than 800 characters. An array of 5 or more objects keeps at most an adaptive K (3 to 15) rows plus every error row, structural outlier and numeric anomaly: its first and last rows, the rows around change points, top-scored search results, one or two rows per log message cluster, and rows matching the conversation. Arrays of unique entities with no such signal stay whole. An array that lost rows ends with `{"_ccr_dropped":"<<ccr:HASH N_rows_offloaded>>"}`; the `headroom_retrieve` tool returns its original rows. Error and denied results are never rewritten. |
 
 ## Configuration options
 
-All four options are on by default. For the lever toggles only a literal `false`
+All five options are on by default. For the lever toggles only a literal `false`
 disables one; `storage_enabled` is fail-closed, so anything but a literal `true`
 turns storage off. Set them via
 `/plugin -> installed -> inline-headroom -> Configure options`, or in
@@ -35,6 +37,7 @@ turns storage off. Set them via
         "effort_routing_enabled": true,
         "subagent_effort_routing_enabled": true,
         "cache_aligner_enabled": true,
+        "smart_crusher_enabled": true,
         "storage_enabled": true
       }
     }
@@ -47,6 +50,7 @@ turns storage off. Set them via
 | `effort_routing_enabled`          | `true`  | Lower effort to `low` on main-loop steps that only resume after successful tool results.                                                                                                                                                          |
 | `subagent_effort_routing_enabled` | `true`  | Apply the same clamp to each subagent and Workflow agent, per agent. Only active while `effort_routing_enabled` is on. Overrides effort set on purpose (agent frontmatter, Agent tool, Workflow); see [Notes & limitations](#notes--limitations). |
 | `cache_aligner_enabled`           | `true`  | Flag volatile values in the `shared` system-prompt sections and log prompt-cache hit-ratio drops.                                                                                                                                                 |
+| `smart_crusher_enabled`           | `true`  | Compress large JSON arrays in successful main-loop Bash and MCP tool results; dropped rows stay retrievable with `headroom_retrieve` while the mod is loaded (see [Notes & limitations](#notes--limitations)).                                    |
 | `storage_enabled`                 | `true`  | Run the host-wide SQLite storage service behind the `storage` MCP tools (see [Storage](#storage)). Fail-closed: only a literal `true` enables it.                                                                                                 |
 
 ## `/headroom`
@@ -68,7 +72,10 @@ today                91%       2
 7 days               91%       4
 30 days              90%       9
 
-volatile shared values: none
+smart crusher    dropped   saved
+session              120   45210
+
+volatile shared values: unavailable (Claude Code keeps plugins out of the system-prompt hooks)
 ```
 
 - **Rows:** `session` is this session's counters, kept in memory and redrawn
@@ -77,13 +84,18 @@ volatile shared values: none
   rolling windows of local calendar days that include today: totals across all
   sessions on this host, read from [storage](#storage) when the pane opens and
   every 10 s while it stays open. `session`, `today`, `7 days` and `30 days`
-  count main-loop steps only.
+  count main-loop steps only. `smart crusher` has only a `session` row, in
+  memory only: `dropped` counts the array rows this session's crushes replaced
+  with a retrieval marker, `saved` the characters they removed from tool
+  results.
 - **Tables follow their levers.** `effort routing` is shown only while
   `effort_routing_enabled` is on, and its `subagents` row only while both
   `effort_routing_enabled` and `subagent_effort_routing_enabled` are on.
   `cache aligner` and the volatile list are shown only while
-  `cache_aligner_enabled` is on. With both off the pane says so and reads
-  nothing from storage.
+  `cache_aligner_enabled` is on, and `smart crusher` only while
+  `smart_crusher_enabled` is on. With all three levers off the pane says so.
+  Storage is read only while the `effort routing` or `cache aligner` table is
+  shown.
 - **`hit`** is the cache hit ratio (cache reads / all input tokens). The
   `session` row shows its last step's ratio; the storage rows show the
   token-weighted ratio over their window. It reads `–` while no tokens were
@@ -102,7 +114,7 @@ volatile shared values: none
 
 The pane docks beside the transcript in fullscreen at 110+ columns and otherwise sits
 above the prompt. It takes the keyboard when the prompt is empty: Esc closes it,
-and Ctrl+X then X always does. While it stays open the `session` and `subagents` rows redraw whenever the stats change, and the other rows refresh every 10 s.
+and Ctrl+X then X always does. While it stays open the `session`, `subagents` and `smart crusher` rows redraw whenever the stats change, and the other rows refresh every 10 s.
 
 ## Storage
 
@@ -124,6 +136,12 @@ rows. It is the MCP server `storage` (connected as
   its counters to the `stats` table: one row per local day and module load (a
   hot reload starts a new row). Every write deletes the rows older than 30 days.
   An open `/headroom` pane re-reads the storage rows right after that write.
+  The turn ends once the write lands (milliseconds; up to about 3 s when it has
+  to start the service).
+- **No permission prompts.** Claude Code checks a plugin's own MCP calls like
+  tool calls; the mod allows its own storage calls itself, so neither the turn's
+  write nor the pane's reads ask, in any permission mode. The model's own calls
+  to the storage tools still go through your permission rules.
 - **One background process per host.** The first tool call, the first
   main-loop turn that ends while `storage_enabled` is on (the `/headroom` write),
   or opening `/headroom` (it reads on open and every 10 s while open) starts a
@@ -152,6 +170,11 @@ rows. It is the MCP server `storage` (connected as
 
 ## Notes & limitations
 
+- **The volatile-value list is unavailable on Claude Code 2.1.296.** Its built-in
+  security plugin keeps installed plugins out of the system-prompt hooks, so the
+  CacheAligner never sees the prompt and the pane says `unavailable`. Its
+  cache-hit drop counting (`hit`, `drops`, the `cache drop` log) still works.
+
 - **Effort switching can cost cache re-writes.** Upstream headroom removed effort
   routing after measuring about $0.0007 saved per mechanical turn against roughly
   $0.011 of cache re-writes per switch. Watch the `drops` count in the `/headroom` pane and
@@ -165,11 +188,38 @@ rows. It is the MCP server `storage` (connected as
   Workflow `effort` option from a default one; set
   `subagent_effort_routing_enabled` to `false` if agents depend on their
   configured effort.
-- **The session rows reset; persisted totals stay.** The `session` and
-  `subagents` rows live in module memory and start over on a hot reload, an
-  options change and `/clear`.
+- **The session rows reset; persisted totals stay.** The `session`,
+  `subagents` and `smart crusher` rows live in module memory and start over on
+  a hot reload, an options change and `/clear`.
   The today / 7 days / 30 days rows keep their totals, but a turn cut off by a
   reload or a crash before it ends is not persisted.
+- **SmartCrusher rewrites only large JSON the model asked for in the main
+  loop.** It crushes a successful Bash result whose stdout is one JSON document
+  (with empty stderr, and not interrupted, an image, backgrounded, timed out or
+  saved to a file because it was too large) and the JSON text blocks of an MCP
+  result, when they are longer than 800 characters. Subagent and
+  Workflow-agent results, other plugins' tool calls, error and denied results,
+  `headroom_retrieve` itself, this plugin's own storage tools and every other
+  built-in tool (Read, WebFetch, …) are never rewritten.
+- **A crushed result arrives minified.** When rows are dropped, the whole
+  document is re-serialized compactly, with numbers in their shortest form. A
+  result that loses no row keeps its exact bytes (upstream minifies it too).
+  Use Read for a file's exact text, for example before editing it.
+- **Dropped rows are retrievable while the mod is loaded.** The last 1000
+  crushed arrays (at most 16 million characters in all) stay in memory; a hot reload, an options change or a new
+  process loses them, and `headroom_retrieve` then answers with an error naming
+  the hash (re-run the tool instead). `headroom_retrieve` never asks for
+  permission: the mod answers it before Claude Code's permission check, and it
+  only reads what this session's own tool calls returned. A read-modify-write over another MCP
+  server's JSON should fetch the whole value first.
+- **Crush counts are not persisted.** The `smart crusher` table has only its
+  `session` row; the today / 7 days / 30 days rows hold no crusher numbers,
+  because storing them needs new stats columns and a storage protocol bump.
+- **Deferred SmartCrusher parts.** Upstream's lossless compaction (table and
+  CSV rendering), the string, number and mixed-array crushers (those arrays
+  keep every element), opaque-blob substitution (`<<ccr:HASH,KIND,SIZE>>`), the
+  zlib check of the adaptive row count and the embedding relevance scorer
+  (stubbed upstream too) are not ported.
 - **Updating from 0.2.0 needs a session restart.** The storage protocol is now 2:
   a session still running 0.2.0 gets "restart this session" from every storage
   tool until it restarts. Downgrading to 0.2.0 after this update leaves storage

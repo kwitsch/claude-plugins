@@ -1,6 +1,6 @@
 import { expect, mock, test, type Plugin, type TestBody } from "claude-code/testing";
 import type { TurnStepInput } from "claude-code";
-import { dayKey, windowStart } from "../hooks/policy.mjs";
+import { RETRIEVE_TOOL, dayKey, windowStart } from "../hooks/policy.mjs";
 
 type Engine = Parameters<TestBody>[0];
 type On = Parameters<TestBody>[1];
@@ -240,7 +240,8 @@ test("(i) /headroom opens the headroom pane and prints nothing", async ($, on) =
   const out = await $.command.run({ command: "headroom" });
   expect(out.text).toBeUndefined();
   expect(opened.length).toBe(1);
-  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 15 });
+  // 6 + 5 + 2 table rows, the storage note, the volatile header and four gaps.
+  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 19 });
 });
 
 test("(i2) /headroom falls back to the stats tables as text when the pane is not placed", async ($, on) => {
@@ -255,7 +256,7 @@ test("(i2) /headroom falls back to the stats tables as text when the pane is not
   expect(out.text).toMatch(/^7 days\s+17\s+9$/m);
   expect(out.text).toMatch(/^cache aligner\s+hit\s+drops$/m);
   expect(out.text).toMatch(/^30 days\s+75%\s+11$/m);
-  expect(out.text).toMatch(/volatile shared values: none/);
+  expect(out.text).toMatch(/volatile shared values: unavailable/); // no prompt.compose reached the mod
   expect(out.text).not.toMatch(/showing:/);
   expect(out.text).not.toMatch(/: on\b/);
   expect(out.text).not.toMatch(/: off\b/);
@@ -268,7 +269,7 @@ test("(j) an open headroom pane redraws when a step or a compose changes the sta
   }));
   const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
   expect(await cell(ui, "1")).toBeUndefined();
-  expect(await ui.find({ type: "Text", text: /volatile shared values: none/ })).toBeDefined();
+  expect(await ui.find({ type: "Text", text: /volatile shared values: unavailable/ })).toBeDefined(); // until a compose reaches the mod
   await step($, 0, "high");
   expect(st.seen).toBe("high");
   expect(await cell(ui, "1")).toBeDefined(); // the session row's steps
@@ -397,23 +398,17 @@ test("(r) a usage with a missing token field still writes integer counters", asy
   expect(calls[0].args.rows).toEqual([{ day: dayKey(clock.now()), steps: 1, clamped: 0, cache_drops: 0, input_tokens: 500, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }]);
 });
 
-test("(p) session.end starts the session row over and drains a started write", async ($, on) => {
-  const clock = mock.clock(on, { now: NOW });
+test("(p) turn.complete finishes its write before it resolves, and session.end starts the session row over", async ($, on) => {
+  mock.clock(on, { now: NOW });
   const calls = stubStorage(on, () => ({ ok: true, purged: 0 }));
   bottomStep(on);
   on("turn.complete", async () => ({ text: "" }));
   on("session.end", async (_$, e) => ({ sessionId: e.sessionId }));
   await step($, 0, "high");
   await $.turn.complete(DONE);
-  let settled = false;
-  const ended = $.session.end({ reason: "clear", sessionId: "s1", resume: { id: "s1" } }).then(() => {
-    settled = true;
-  });
-  // The write cannot run until the clock advances, so session.end must still be waiting on it.
-  for (let i = 0; i < 50; i++) await Promise.resolve(); // let every hook that needs no clock finish
-  expect(settled).toBe(false);
-  await clock.advance(0);
-  await ended;
+  // Awaited inside the hook: core asks permission for a storage call raised after the hook returned.
+  expect(calls.filter((c) => c.tool === "stats_put")).toHaveLength(1);
+  await $.session.end({ reason: "clear", sessionId: "s1", resume: { id: "s1" } });
   const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
   expect(await cell(ui, "1")).toBeUndefined(); // steps was 1 before the reset; nothing else reads 1
   await ui.unmount();
@@ -432,14 +427,16 @@ test("(t) a second /headroom never stacks the refresh, and closing the pane stop
   await $.command.run({ command: "headroom" }); // re-open: fetches at once and restarts the timer
   await clock.settle();
   expect(calls).toHaveLength(6);
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" }); // a tick fetches through the pane's render
   await clock.advance(10_000);
   expect(calls).toHaveLength(9); // one timer ticked, not two (12)
   await $.command.run({ command: "closer" });
   await clock.advance(30_000);
   expect(calls).toHaveLength(9);
+  await ui.unmount();
 });
 
-test("(v) a refresh that finds unchanged totals does not redraw the pane", async ($, on) => {
+test("(v) a refresh that finds unchanged totals does not redraw the pane again", async ($, on) => {
   const clock = mock.clock(on, { now: NOW });
   const today = dayKey(NOW);
   stubWindows(on, () => windowSums(today));
@@ -453,7 +450,7 @@ test("(v) a refresh that finds unchanged totals does not redraw the pane", async
   await clock.settle();
   expect(redraws).toBe(1); // the first numbers
   await clock.advance(10_000);
-  expect(redraws).toBe(1); // the same numbers again
+  expect(redraws).toBe(2); // the tick's own redraw, which fetches; the same numbers add none
 });
 
 test("(u) a refused close keeps the refresh running", { plugins: [closer] }, async ($, on) => {
@@ -465,9 +462,11 @@ test("(u) a refused close keeps the refresh running", { plugins: [closer] }, asy
   await $.command.run({ command: "headroom" });
   await clock.settle();
   expect(calls).toHaveLength(3);
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" }); // a tick fetches through the pane's render
   await $.command.run({ command: "closer" });
   await clock.advance(10_000);
   expect(calls).toHaveLength(6);
+  await ui.unmount();
 });
 
 test("(w) a pane left open with no timer (after a hot reload) re-arms its refresh on the first redraw", async ($, on) => {
@@ -523,18 +522,22 @@ test("(z) the cache aligner table and the volatile list are shown only while cac
   await ui.unmount();
 });
 
-test("(aa) with both levers off the pane says so, and reads nothing from storage", { options: { effort_routing_enabled: false, cache_aligner_enabled: false } }, async ($, on) => {
-  const clock = mock.clock(on, { now: NOW });
-  const calls = stubWindows(on, () => windowSums(dayKey(NOW)));
-  on("ui.open", async () => ({ value: { isPlaced: true as const } }));
-  await $.command.run({ command: "headroom" });
-  await clock.advance(30_000); // no refresh timer runs
-  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
-  expect(await ui.find({ type: "Text", text: /^effort routing and cache aligner are off/ })).toBeDefined();
-  expect(await ui.find({ type: "Text", text: /^effort routing$/ })).toBeUndefined();
-  expect(calls).toHaveLength(0);
-  await ui.unmount();
-});
+test(
+  "(aa) with all three levers off the pane says so, and reads nothing from storage",
+  { options: { effort_routing_enabled: false, cache_aligner_enabled: false, smart_crusher_enabled: false } },
+  async ($, on) => {
+    const clock = mock.clock(on, { now: NOW });
+    const calls = stubWindows(on, () => windowSums(dayKey(NOW)));
+    on("ui.open", async () => ({ value: { isPlaced: true as const } }));
+    await $.command.run({ command: "headroom" });
+    await clock.advance(30_000); // no refresh timer runs
+    const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+    expect(await ui.find({ type: "Text", text: /^effort routing, cache aligner and smart crusher are off/ })).toBeDefined();
+    expect(await ui.find({ type: "Text", text: /^effort routing$/ })).toBeUndefined();
+    expect(calls).toHaveLength(0);
+    await ui.unmount();
+  },
+);
 
 test(
   "(ab) subagent_effort_routing_enabled false keeps subagent steps at high and hides the subagents row",
@@ -617,4 +620,204 @@ test("(ah) the subagents row counts this session's subagent steps and clamps, an
   await $.session.end({ reason: "clear", sessionId: "s1", resume: { id: "s1" } });
   const after = await $.command.run({ command: "headroom" });
   expect(after.text).toMatch(/^subagents\s+0\s+0$/m);
+});
+
+// A large JSON document on Bash stdout: 200 rows that differ only by id, one with an error status.
+const BIG = JSON.stringify(Array.from({ length: 200 }, (_, i) => ({ id: i, status: i === 150 ? "error" : "ok", note: "same text" })));
+const OK_BASH = { result: { stdout: BIG, stderr: "", interrupted: false } };
+const SENTINEL = /^<<ccr:([0-9a-f]{12}) (\d+)_rows_offloaded>>$/;
+// The smart crusher table in /headroom's text fallback: its session row's dropped and saved cells.
+const CRUSHER_ROW = /^smart crusher\s+dropped\s+saved\nsession\s+(\d+)\s+(\d+)$/m;
+
+// Raises session.start, which registers headroom_retrieve, with the ops it needs stubbed: tool.register answers
+// `registeredAs` and records each spec. Call it after the test's other stubs: the kit refuses on() once $ was called.
+async function startCrusher(on: On, $: Engine, registeredAs: string = RETRIEVE_TOOL): Promise<unknown[]> {
+  const registered: unknown[] = [];
+  on("command.register", async (_$, e) => ({ value: { command: e.name } }));
+  on("tool.register", async (_$, e) => {
+    registered.push(e);
+    return { value: { tool: registeredAs } };
+  });
+  on("session.messages", async () => ({ value: [{ role: "user" as const, text: "", toolUses: [] }] }));
+  on("session.start", async (_$, e) => ({ cwd: e.cwd }));
+  await $.session.start({ cwd: "/tmp", surface: "terminal", isInteractive: true });
+  return registered;
+}
+
+// One Bash call, from the main loop or (with agentId) from that subagent; the test's bottom tool.call stub answers it.
+async function callBash($: Engine, agentId?: string) {
+  return $.tool.call({ tool: "Bash", command: "cat rows.json", ...(agentId === undefined ? {} : { agentId }) });
+}
+
+// A Bash call's stdout, whatever variant the call resolved to.
+const stdoutOf = (out: { result?: unknown }): unknown => (out.result as { stdout?: unknown } | undefined)?.stdout;
+
+// The rows a crushed stdout holds, and its sentinel's hash and dropped-row count.
+function crushedRows(stdout: unknown): { rows: Record<string, unknown>[]; hash: string; dropped: number } {
+  const rows = JSON.parse(String(stdout)) as Record<string, unknown>[];
+  const [, hash = "", dropped = "0"] = SENTINEL.exec(String(rows.at(-1)?._ccr_dropped)) ?? [];
+  return { rows, hash, dropped: Number(dropped) };
+}
+
+test("(sc1) a main-loop Bash JSON result is crushed, and /headroom counts the session's savings", { options: { storage_enabled: false } }, async ($, on) => {
+  on("ui.open", async () => ({ value: { isPlaced: false as const, reason: "no surface" } }));
+  on("tool.call", () => ({ ...OK_BASH, text: "raw" }));
+  const registered = await startCrusher(on, $);
+  const out = await callBash($);
+  const result = out.result as { stdout: string; stderr: string; interrupted: boolean };
+  const { rows, dropped } = crushedRows(result.stdout);
+  expect(registered).toHaveLength(1);
+  expect(rows.length).toBeLessThan(200);
+  expect(rows.some((row) => row.status === "error")).toBe(true);
+  expect(dropped).toBe(200 - (rows.length - 1));
+  expect(result.stderr).toBe("");
+  expect(result.interrupted).toBe(false);
+  expect(out.text).toBeUndefined(); // a hook's own result: core re-maps it
+  const [, n, saved] = CRUSHER_ROW.exec((await $.command.run({ command: "headroom" })).text ?? "") ?? [];
+  expect(Number(n)).toBe(dropped);
+  expect(Number(saved)).toBeGreaterThan(0);
+});
+
+test("(sc2) headroom_retrieve returns the original rows, and an unknown hash is a denied call", async ($, on) => {
+  const st = bottomStep(on);
+  on("tool.call", () => OK_BASH);
+  await startCrusher(on, $);
+  const { hash } = crushedRows(stdoutOf(await callBash($)));
+  expect((await $.tool.call({ tool: RETRIEVE_TOOL, hash })).result).toBe(BIG);
+  const miss = await $.tool.call({ tool: RETRIEVE_TOOL, hash: "000000000000" });
+  expect(typeof miss.deny).toBe("string");
+  await step($, 1, "high");
+  expect(st.seen).toBe("high"); // the effort observer counted the deny as a failed call
+});
+
+test("(sc3) error and deny results come back untouched", async ($, on) => {
+  const st = bottomStep(on);
+  let answer: { isError: true; result: unknown } | { deny: string } = { isError: true, result: OK_BASH.result };
+  on("tool.call", () => answer);
+  await startCrusher(on, $);
+  expect(await callBash($)).toEqual({ isError: true, result: OK_BASH.result });
+  await step($, 1, "high");
+  expect(st.seen).toBe("high");
+  answer = { deny: "no" };
+  expect(await callBash($)).toEqual({ deny: "no" });
+});
+
+test("(sc4) smart_crusher_enabled false registers no tool, crushes nothing and hides the table", { options: { smart_crusher_enabled: false, storage_enabled: false } }, async ($, on) => {
+  const st = bottomStep(on);
+  on("ui.open", async () => ({ value: { isPlaced: false as const, reason: "no surface" } }));
+  on("tool.call", () => OK_BASH);
+  const registered = await startCrusher(on, $);
+  expect(stdoutOf(await callBash($))).toBe(BIG);
+  expect(registered).toHaveLength(0);
+  await step($, 1, "high");
+  expect(st.seen).toBe("low"); // effort routing still clamps after the successful call
+  expect((await $.command.run({ command: "headroom" })).text).not.toMatch(/^smart crusher/m);
+});
+
+test("(sc5) an MCP result gets only its JSON text block rewritten", async ($, on) => {
+  const image = { type: "image", data: "x", mimeType: "image/png" };
+  // Core resolves an MCP call to the content-block array itself (live-verified on 2.1.296).
+  on("tool.call", () => ({ result: [{ type: "text", text: BIG }, image] }));
+  await startCrusher(on, $);
+  const out = await $.tool.call({ tool: "mcp__srv__list" });
+  const content = out.result as { text?: string }[];
+  expect(crushedRows(content[0].text).rows.length).toBeLessThan(200);
+  expect(content[1]).toEqual(image);
+});
+
+test("(sc6) a subagent's Bash result is not crushed, and its effort routing is unchanged", async ($, on) => {
+  const st = bottomStep(on);
+  on("tool.call", () => OK_BASH);
+  await startCrusher(on, $);
+  expect(stdoutOf(await callBash($, "a1"))).toBe(BIG);
+  await step($, 1, "high", "a1");
+  expect(st.seen).toBe("low");
+});
+
+test("(sc7) no rows are dropped when headroom_retrieve registered under another name", async ($, on) => {
+  on("tool.call", () => OK_BASH);
+  await startCrusher(on, $, "mcp__other__headroom_retrieve");
+  expect(stdoutOf(await callBash($))).toBe(BIG);
+});
+
+test("(sc8) a crushed result keeps the reminder context other hooks set", async ($, on) => {
+  let answer: typeof OK_BASH & { context?: string[] } = { ...OK_BASH, context: ["reminder from another hook"] };
+  on("tool.call", () => answer);
+  await startCrusher(on, $);
+  const withContext = await callBash($);
+  expect(crushedRows(stdoutOf(withContext)).rows.length).toBeLessThan(200);
+  expect(withContext.context).toEqual(["reminder from another hook"]);
+  answer = OK_BASH;
+  const without = await callBash($);
+  expect(crushedRows(stdoutOf(without)).rows.length).toBeLessThan(200);
+  expect(without.context).toBeUndefined();
+});
+
+test(
+  "(sc9) with only the crusher on, its hook still runs and the pane shows its table without reading storage",
+  { options: { effort_routing_enabled: false, cache_aligner_enabled: false } },
+  async ($, on) => {
+    const clock = mock.clock(on, { now: NOW });
+    const calls = stubWindows(on, () => windowSums(dayKey(NOW)));
+    on("ui.open", async () => ({ value: { isPlaced: true as const } }));
+    on("tool.call", () => OK_BASH);
+    await startCrusher(on, $);
+    expect(crushedRows(stdoutOf(await callBash($))).rows.length).toBeLessThan(200);
+    await $.command.run({ command: "headroom" });
+    await clock.advance(30_000); // no refresh timer runs
+    const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+    expect(await ui.find({ type: "Text", text: /^smart crusher$/ })).toBeDefined();
+    expect(await ui.find({ type: "Text", text: /^effort routing$/ })).toBeUndefined();
+    expect(await ui.find({ type: "Text", text: /are off: nothing to show/ })).toBeUndefined();
+    expect(calls).toHaveLength(0);
+    await ui.unmount();
+  },
+);
+
+test("(sc11) a crush redraws an open /headroom pane", { options: { storage_enabled: false } }, async ($, on) => {
+  let redraws = 0;
+  on("ui.invalidate", async () => {
+    redraws++;
+    return { value: undefined };
+  });
+  on("ui.open", async () => ({ value: { isPlaced: true as const } }));
+  on("tool.call", () => OK_BASH);
+  await startCrusher(on, $);
+  await $.command.run({ command: "headroom" });
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  const before = redraws;
+  expect(crushedRows(stdoutOf(await callBash($))).rows.length).toBeLessThan(200);
+  expect(redraws).toBe(before + 1);
+  await ui.unmount();
+});
+
+test(
+  "(sc12) with only the crusher on, the pane asks for its own height and shows no storage note",
+  { options: { effort_routing_enabled: false, cache_aligner_enabled: false, storage_enabled: false } },
+  async ($, on) => {
+    const opened: { rows?: number }[] = [];
+    on("ui.open", async (_$, e) => {
+      opened.push(e);
+      return { value: { isPlaced: true as const } };
+    });
+    await startCrusher(on, $);
+    await $.command.run({ command: "headroom" });
+    expect(opened[0].rows).toBe(3); // the crusher table's 2 rows, the empty volatile block and the gap between
+    const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+    expect(await ui.find({ type: "Text", text: /^smart crusher$/ })).toBeDefined();
+    expect(await ui.find({ type: "Text", text: /storage is off/ })).toBeUndefined();
+    await ui.unmount();
+  },
+);
+
+test("(sc10) session.end starts the smart crusher row over", { options: { storage_enabled: false } }, async ($, on) => {
+  on("ui.open", async () => ({ value: { isPlaced: false as const, reason: "no surface" } }));
+  on("session.end", async (_$, e) => ({ sessionId: e.sessionId }));
+  on("tool.call", () => OK_BASH);
+  await startCrusher(on, $);
+  await callBash($);
+  const [, before] = CRUSHER_ROW.exec((await $.command.run({ command: "headroom" })).text ?? "") ?? [];
+  expect(Number(before)).toBeGreaterThan(0);
+  await $.session.end({ reason: "clear", sessionId: "s1", resume: { id: "s1" } });
+  expect((await $.command.run({ command: "headroom" })).text).toMatch(/^smart crusher\s+dropped\s+saved\nsession\s+0\s+0$/m);
 });

@@ -1,12 +1,13 @@
 # CLAUDE.md — inline-headroom
 
 Mods-API plugin (the repo's first): one TypeScript function-hooks module, no
-skills/agents/command hooks. Two levers, each behind a boolean `userConfig`
-toggle (`effort_routing_enabled`, `cache_aligner_enabled`), plus
-`subagent_effort_routing_enabled`, which extends effort routing to subagent and
-Workflow-agent steps and is active only while `effort_routing_enabled` is on
-(all three `default: true`, only literal `false` disables), plus the
-`/headroom` stats command. It also ships a host-wide SQLite storage MCP server
+skills/agents/command hooks. Three levers, each behind a boolean `userConfig`
+toggle (`effort_routing_enabled`, `cache_aligner_enabled`,
+`smart_crusher_enabled`), plus `subagent_effort_routing_enabled`, which extends
+effort routing to subagent and Workflow-agent steps and is active only while
+`effort_routing_enabled` is on (all four `default: true`, only literal `false`
+disables), plus the `/headroom` stats command and the SmartCrusher's
+`headroom_retrieve` tool. It also ships a host-wide SQLite storage MCP server
 behind the fail-closed `storage_enabled` toggle (see `## Storage server`); the
 mod persists `/headroom` counters in it.
 
@@ -33,7 +34,8 @@ mod persists `/headroom` counters in it.
   helpers in `register.ts` take the whole `$` typed `EngineInterface`.
   It is `.mjs` (not `.ts`) so the root toolchain covers it in CI:
   `tsconfig.json` (`plugins/**/*.mjs`), ESLint, and `node --test` via
-  `test/inline-headroom/policy.test.mjs`.
+  `test/inline-headroom/policy.test.mjs`. It also holds the SmartCrusher port
+  (see `## SmartCrusher`).
 - `tests/inline-headroom.test.ts` — hook-wiring tests for `claude plugin test`.
   Local only: CI runners have no `claude` CLI; `test/inline-headroom/test.bats`
   runs `claude plugin validate` and `claude plugin test` when `claude`
@@ -58,7 +60,7 @@ Every test that needs `node:sqlite` or spawns processes lives in
 `setup-node`. Its cleanup SIGTERMs every `--service` process for its temp data
 dir, so no daemon outlives the suite.
 
-The bats version-pin test (`plugin.json version is 0.5.0`) is a rolling pin:
+The bats version-pin test (`plugin.json version is 0.6.0`) is a rolling pin:
 every version bump rewrites its name and expected value in the same commit.
 
 ## Storage server
@@ -139,8 +141,86 @@ row and a hot reload (a new `WRITER`) never shrinks a stored total. The today /
 Deviation from `.claude/rules/hooks-mcp-server.md`: the `.mcp.json` key is
 `storage`, not `<name>-hooks`, because this server backs no `mcp_tool` hook and
 `hooks.json` never references it. `/headroom` persistence is the first mod-side
-consumer; `$.mcp.connect("storage")` from the mod stays under Not yet
-live-verified until a live run confirms it.
+consumer.
+
+Every mod-side storage call must be awaited by a running hook of this module
+(live on 2.1.296): core routes `$.mcp.call` through `$.tool.call` and its
+permission check, although the typings promise no prompt. A plugin's own hooks
+see a call it raises only while one of its hooks runs; a call raised after the
+hook returned (an unawaited chain, a `$.clock.every` callback) skips them, so
+in `default` mode the user gets a permission dialog per call and a headless
+session denies it. In-frame, the module's `tool.check` hook allows it
+(`isOwnStorageCall`). Hence: `turn.complete` awaits its `stats_put`,
+`command.run` awaits the first `stats_sum`, and a refresh tick only sets
+`stale` and redraws, so the `ui.render` hook fetches.
+
+## SmartCrusher
+
+A port of upstream headroom's dict-array lossy path
+(`crates/headroom-core/src/transforms/smart_crusher/`, read 2026-10-10) into
+`hooks/policy.mjs`: adaptive K (`computeOptimalK`: simhash diversity plus the
+Kneedle knee of the bigram coverage curve, 3 to 15 rows), the analyzer (field
+stats, pattern, the crushability gate and the strategy), the four planners
+(smart sample, top N, cluster sample, time series), the anchor selector, the
+must-keep sets (error keywords, structural outliers, numeric anomalies, change
+points), query anchors with BM25-boosted relevance (`crushQuery` builds the
+query from `$.session.messages()`), and prioritization. Upstream's defaults are
+module constants, with no config object: 5 rows to analyze, at most 15 kept,
+variance threshold 2, relevance threshold 0.3, depth 50, and `CRUSH_MIN_CHARS`
+800 (200 tokens at 4 chars per token).
+
+Deviations from upstream:
+
+- A pure-JS two-lane `hash64` replaces MD5 (simhash grams) and SHA-256 (the
+  12-hex CCR hash); dedup and cluster keys are the sorted-key JSON and the
+  50-code-point prefix themselves. `node:crypto` and `node:zlib` stay out: a
+  mods module is not known to load node built-ins, and a refused import would
+  unload every lever.
+- `compute_optimal_k`'s zlib tier is skipped (it can only raise K by 20%).
+- A document holding a number whose double prints as another decimal (more than
+  17 significant digits, an integer beyond 2^53, an overflow to `Infinity`), a
+  `-0` or a duplicate object key is passed through (`JSON.parse` then
+  `JSON.stringify` would corrupt it; `isLossy` scans the text for each). Number
+  lexemes that survive are re-rendered (`1.50` → `1.5`), and integer-like object
+  keys come first (a JS object rule).
+- The tool-digest marker is omitted: the mod rewrites each result once, at
+  `tool.call`.
+- A query token or anchor found in more than half the rows is ignored
+  (`isSelective`); upstream counts it, so a key name in the query marks every
+  row relevant and the crush degrades to the head rows.
+- A document that loses no row passes through with its exact bytes; upstream
+  also minifies a pretty-printed one.
+- `crushQuery` counts only user messages with text toward its last five: a
+  Claude Code tool result is a user message with empty text, so upstream's
+  count would drop the user's request after five tool calls.
+- JS regex `\b` is ASCII-only where Rust's is Unicode, and lengths count UTF-16
+  code units where upstream counts UTF-8 bytes (length score, quoted anchors).
+- Deferred: lossless compaction, the string, number and mixed-array crushers,
+  opaque-blob CCR, TOIN / `preserve_fields`, `factor_out_constants`,
+  `include_summaries` and the embedding scorer (stubbed upstream too).
+
+Wiring in `register.ts`:
+
+- The module's one matcher-less `tool.call` hook (registered while
+  `effort_routing_enabled` or `smart_crusher_enabled` is on) observes effort
+  errors first, answers `mcp__inline-headroom__headroom_retrieve` itself from
+  the in-memory `offloaded` `Map` (1000 entries and `CCR_MAX_CHARS` characters,
+  oldest evicted, no TTL; upstream caps by count only;
+  `session.start` registers the tool), and then crushes.
+- A result where `isToolError(r)` is true is never rewritten. A crush needs
+  all of: `smart_crusher_enabled`; `retrieveReady` (this module load registered
+  the tool under `RETRIEVE_TOOL`); no `e.agentId` (the tool is not known to be
+  callable in subagents); `next.origin.plugin === "engine"` (the model's own
+  call, never another plugin's `$.tool.call`; a missing `origin` fails open);
+  and `isCrushCandidate` (Bash stdout or MCP JSON text blocks that parse, so the
+  transcript fetch is paid only for real JSON, never `headroom_retrieve` or the
+  mod's own `mcp__plugin_inline-headroom_storage__*` tools).
+- A rewrite is a new `{ result }` that carries `next`'s `context` over
+  unchanged (user decision); every passthrough returns `r` itself, and
+  anything thrown after the error check returns `r` (fail open).
+- The `smart crusher` table's `crush.dropped` and `crush.saved` are
+  session-only and reset on `session.end`. Persisting them needs new `stats`
+  columns, a `MIGRATIONS` entry and a `PROTOCOL` 2 → 3 bump, so it is deferred.
 
 ## Verified Claude Code 2.1.288 shapes relied on
 
@@ -158,7 +238,49 @@ live-verified until a live run confirms it.
   `claude plugin validate` and `claude plugin test`, with the error
   `registered twice without a matcher`. The subagent error cleanup therefore
   shares the one `turn.complete` hook with the storage write, registered while
-  `storage_enabled` or `subagent_effort_routing_enabled` is on.
+  `storage_enabled` or `subagent_effort_routing_enabled` is on. `tool.call`
+  likewise has one hook, which observes effort errors, answers
+  `headroom_retrieve` and runs the SmartCrusher, registered while
+  `effort_routing_enabled` or `smart_crusher_enabled` is on.
+- Live-run on 2.1.296 (headless `claude -p --plugin-dir … --setting-sources project`,
+  a stdio MCP test server via `--mcp-config`, stream-json transcript as evidence):
+  - Core resolves an MCP tool's `tool.call` to `{ ref, result, text }` where
+    `result` is the content-block array itself (`[{ type: "text", text }]`),
+    not `{ content: [...] }` (that is `$.mcp.call`'s shape). The typings leave
+    an MCP tool's `result` as `unknown`.
+  - The model's own calls carry `next.origin` `{ plugin: "engine", tier: "core" }`.
+  - A hook-rewritten Bash `{ result }` and MCP content array pass core's
+    validation and reach the model as the crushed JSON (200 rows → 15 + the CCR
+    sentinel).
+  - `$.tool.register` resolves to `mcp__inline-headroom__headroom_retrieve`; the
+    tool is deferred (the model loads it through ToolSearch), its call reaches
+    the matcher-less `tool.call` hook, and the `{ result: string }` answer
+    reaches the model as text.
+  - `headroom_retrieve` raises no permission prompt: the hook answers before
+    core's permission step runs (`--permission-mode default` without an allow
+    rule records no denial).
+- Read from the typings (`claude-code.d.ts`), not live-run:
+  - `tool.call` resolves to one of three `ToolCallResult` variants: `{ deny }`,
+    an answered `{ result, context?, ref?, text? }`, or
+    `{ isError: true, result, text?, ref?, context? }`.
+  - Core validates a hook's own `{ result }` against the tool's output schema
+    and maps it for the model with the tool's own mapper; `ref` and `text` are
+    absent on it. `context` (`readonly string[]`, other hooks' reminder text) is
+    "kept whole from `next`", but the typings do not say core restores it on a
+    hook's own `{ result }`, so the crusher carries `r.context` over itself.
+  - The Bash record has `stdout`, `stderr`, `interrupted`, `isImage?`,
+    `backgroundTaskId?`, `timedOutAfterMs?` (set when the command hit its
+    timeout and was backgrounded), `rawOutputPath?`, `persistedOutputPath?` and
+    `structuredContent?`; the candidate guard reads each.
+  - `$.tool.register` in the first `session.start` (which is awaited) is listed
+    by turn one; a reload's `session.start` registers again; `/clear` fires
+    none.
+  - The test kit's `$` is engine-origin (`next.origin.plugin === "engine"`).
+- Test kit: every `on(...)` stub must be registered before the test's first `$`
+  call; a later one throws `on("<event>") after the test first called $`. The
+  crusher tests stub `command.register`, `tool.register` and `session.messages`
+  (answering `{ value }`) plus a bottom `session.start`, then fire
+  `$.session.start({ cwd, surface, isInteractive })`.
 - `$.ui.open(PaneOpenArgs)` resolves to `UiOpenResult`
   (`{ isPlaced: true } | { isPlaced: false, reason }`). `focus`/`closeOnEscape`
   accept only `true`. One pane per id, and re-opening retitles it.
@@ -200,11 +322,38 @@ live-verified until a live run confirms it.
 - `Box` `flexDirection`/`width`/`justifyContent`/`gap` and `Text`
   `bold`/`dimColor` mount and validate in a Pane.
 - Test kit: `$.clock.now()` needs `mock.clock(on, { now })` (from
-  `claude-code/testing`). The `$` calls the unawaited flush chain makes after
-  `turn.complete` returned run once the test calls `clock.advance(0)`.
-  `clock.advance(ms)` fires a module's `$.clock.every` periods exactly on the
-  boundary (`advance(9_999)` fires none of a 10 s period, a further
-  `advance(1)` fires one).
+  `claude-code/testing`). `clock.advance(ms)` fires a module's `$.clock.every`
+  periods exactly on the boundary (`advance(9_999)` fires none of a 10 s
+  period, a further `advance(1)` fires one). A refresh tick fetches through the
+  pane's render, so a test that counts tick fetches mounts the pane.
+- Live-run on 2.1.296 for the earlier levers (headless `claude -p`, an
+  interactive session in tmux, a `claude --bg` session, a throwaway probe mod;
+  evidence: `--debug-file` logs and, for effort, the `/v1/messages` request
+  bodies through a local pass-through proxy):
+  - `$.mcp.connect("storage")` connects from the mod by the bare key.
+  - `structuredContent` is not forwarded for a tool without `outputSchema`
+    (the storage tools have none): `callStorage` reads the JSON text block.
+  - The storage permission rules under `## Storage server`.
+  - `$.clock.every` started in `command.run`, or in `ui.render` after a hot
+    reload, keeps firing with that hook's `$` after the hook returned.
+  - The `ui.close` hook (matcher `{ id }`) runs on Esc and on Ctrl+X X, and the
+    refresh stops.
+  - A file change under `--plugin-dir` hot-reloads the module with the pane
+    still open; the first redraw re-arms the refresh.
+  - Agent-tool subagents raise `turn.step`, `tool.call` and `turn.complete`
+    with one stable `agentId`, and `index` restarts at 0 per agent.
+    `turn.complete` fires with `reason: "aborted"` for a background agent
+    stopped with TaskStop.
+  - Core sends the lowered `effort` (`output_config.effort`) for main-loop and
+    subagent steps.
+  - A `claude --bg` session's main loop carries no `agentId`.
+  - The built-in `cc-plugin-sec-default` skips every user-tier hook on
+    `prompt.compose`, `prompt.section` and `prompt.context` (debug log:
+    `prompt.compose bypassed by cc-plugin-sec-default (tier user)`), and
+    `prompt.compose` is gone from the 2.1.296 typings. The cache aligner's
+    volatile list therefore stays empty for an installed plugin; the pane says
+    `unavailable` while no `prompt.compose` reached the module (`composeSeen`).
+    Its cache-drop counting reads `turn.step` usage and still works.
 
 ## Not yet live-verified (kit only)
 
@@ -212,26 +361,8 @@ Shipped on kit and typings evidence only. The user-run live check in the PR
 moves each confirmed entry into the section above and records any failure here;
 delete this heading once it is empty.
 
-- Mod-side `$.mcp.connect("storage")` from the real engine.
-- Whether `structuredContent` is forwarded for a tool without `outputSchema`
-  (the mod falls back to the JSON text block either way).
-- `$` honoured by the real engine after a `turn.complete` hook returned
-  (fallback: `await flushing` inside the hook).
-- `$.clock.every` started in a `command.run` hook keeps firing with that hook's
-  `$` after the hook returned (the 10 s pane refresh).
-- `$.clock.every` started in a `ui.render` hook (the re-arm after a hot reload)
-  keeps firing with that hook's `$` after the hook returned.
-- The mod's `ui.close` hook (matcher `{ id }`) runs on Esc and Ctrl+X X, so
-  closing the pane stops the refresh.
-- Agent-tool subagents and Workflow agents raise `turn.step`, `tool.call` and
-  `turn.complete` with their `agentId`, stable across that agent's steps, with
-  `index` restarting at 0 per agent turn.
-- The engine honours a lowered `effort` returned from a subagent `turn.step`
-  hook.
-- `turn.complete` fires for an aborted or killed subagent (otherwise its error
-  entry lives until `session.end`).
-- A background session's main loop carries no `agentId` (if it does, its steps
-  follow the subagent toggle and count in the `subagents` row).
+- Workflow agents (only Agent-tool subagents were live-run) raise `turn.step`,
+  `tool.call` and `turn.complete` with a stable `agentId`.
 
 ## Effort-routing caveat
 
