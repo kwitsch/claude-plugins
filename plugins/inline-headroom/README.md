@@ -75,7 +75,7 @@ today                91%       2
 smart crusher    dropped   saved
 session              120   45210
 
-volatile shared values: none
+volatile shared values: unavailable (Claude Code keeps plugins out of the system-prompt hooks)
 ```
 
 - **Rows:** `session` is this session's counters, kept in memory and redrawn
@@ -163,6 +163,11 @@ rows. It is the MCP server `storage` (connected as
   the pid that `storage_status` reports.
 
 ## Notes & limitations
+
+- **The volatile-value list is unavailable on Claude Code 2.1.296.** Its built-in
+  security plugin keeps installed plugins out of the system-prompt hooks, so the
+  CacheAligner never sees the prompt and the pane says `unavailable`. Its
+  cache-hit drop counting (`hit`, `drops`, the `cache drop` log) still works.
 
 - **Effort switching can cost cache re-writes.** Upstream headroom removed effort
   routing after measuring about $0.0007 saved per mechanical turn against roughly

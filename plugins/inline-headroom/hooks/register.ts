@@ -39,6 +39,9 @@ const stats = {
   lastHit: undefined as number | undefined,
   volatile: [] as VolatileFinding[],
 };
+// A prompt.compose reached this module load. Claude Code 2.1.296's built-in security plugin skips every user-tier hook on
+// prompt.compose, prompt.section and prompt.context, so an installed plugin never sees one there (live-verified).
+let composeSeen = false;
 const WRITER = Math.random().toString(36).slice(2).padEnd(8, "0"); // this module instance's stats rows
 const pending: Counters = zeroCounters(); // counter deltas since the last fold
 const days: Record<string, Counters> = {}; // this writer's per-day totals that may still need writing
@@ -167,7 +170,11 @@ export const register: Register = (on, options) => {
   };
   // One row per finding, so a long list wraps per row instead of one clipped line. The list belongs to the cache aligner.
   const volatileLines = (): string[] =>
-    !cacheOn ? [] : [stats.volatile.length ? "volatile shared values:" : "volatile shared values: none", ...stats.volatile.map((v) => `  ${v.id} ${v.kind} ${v.sample}`)];
+    !cacheOn
+      ? []
+      : !composeSeen
+        ? ["volatile shared values: unavailable (Claude Code keeps plugins out of the system-prompt hooks)"]
+        : [stats.volatile.length ? "volatile shared values:" : "volatile shared values: none", ...stats.volatile.map((v) => `  ${v.id} ${v.kind} ${v.sample}`)];
   // With all three levers off there is nothing to show, so nothing is read from storage either.
   const idle = (): string | undefined => (effortOn || cacheOn || crusherOn ? undefined : "effort routing, cache aligner and smart crusher are off: nothing to show");
   // Body height asked for when seated inline, mirroring the render: every table, a line for the storage note
@@ -405,6 +412,7 @@ export const register: Register = (on, options) => {
     // Detector only (upstream CacheAligner): the composed prompt is returned untouched.
     on("prompt.compose", async ($, e, next) => {
       const r = await next(e);
+      composeSeen = true;
       stats.volatile = findVolatile(r.sections);
       $.ui.invalidate("ui.render");
       return r;

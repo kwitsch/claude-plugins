@@ -256,7 +256,7 @@ test("(i2) /headroom falls back to the stats tables as text when the pane is not
   expect(out.text).toMatch(/^7 days\s+17\s+9$/m);
   expect(out.text).toMatch(/^cache aligner\s+hit\s+drops$/m);
   expect(out.text).toMatch(/^30 days\s+75%\s+11$/m);
-  expect(out.text).toMatch(/volatile shared values: none/);
+  expect(out.text).toMatch(/volatile shared values: unavailable/); // no prompt.compose reached the mod
   expect(out.text).not.toMatch(/showing:/);
   expect(out.text).not.toMatch(/: on\b/);
   expect(out.text).not.toMatch(/: off\b/);
@@ -269,7 +269,7 @@ test("(j) an open headroom pane redraws when a step or a compose changes the sta
   }));
   const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
   expect(await cell(ui, "1")).toBeUndefined();
-  expect(await ui.find({ type: "Text", text: /volatile shared values: none/ })).toBeDefined();
+  expect(await ui.find({ type: "Text", text: /volatile shared values: unavailable/ })).toBeDefined(); // until a compose reaches the mod
   await step($, 0, "high");
   expect(st.seen).toBe("high");
   expect(await cell(ui, "1")).toBeDefined(); // the session row's steps
