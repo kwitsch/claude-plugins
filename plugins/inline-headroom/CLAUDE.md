@@ -175,6 +175,9 @@ Deviations from upstream:
   keys come first (a JS object rule).
 - The tool-digest marker is omitted: the mod rewrites each result once, at
   `tool.call`.
+- `crushQuery` counts only user messages with text toward its last five: a
+  Claude Code tool result is a user message with empty text, so upstream's
+  count would drop the user's request after five tool calls.
 - JS regex `\b` is ASCII-only where Rust's is Unicode, and lengths count UTF-16
   code units where upstream counts UTF-8 bytes (length score, quoted anchors).
 - Deferred: lossless compaction, the string, number and mixed-array crushers,

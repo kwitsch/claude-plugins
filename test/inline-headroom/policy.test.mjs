@@ -289,20 +289,22 @@ test("storeOffloaded moves a re-put hash to the newest position, so it outlives 
   assert.equal(store.has("h1"), false);
 });
 
-test("crushQuery walks back from the last message, stops after the 5th user message and adds tool-call input JSON", () => {
+test("crushQuery walks back from the last message, stops after the 5th user message with text and adds tool-call input JSON", () => {
   /** @type {import("../../plugins/inline-headroom/hooks/policy.mjs").QueryMessage[]} */
   const messages = [
     { role: "user", text: "too old", toolUses: [] },
     { role: "user", text: "u1", toolUses: [] },
+    { role: "user", text: "u2", toolUses: [] },
     { role: "assistant", text: "a1", toolUses: [{ input: { command: "ls" } }] },
-    { role: "user", text: "", toolUses: [] }, // tool results only: counts, adds no text
+    { role: "user", text: "", toolUses: [] }, // tool results only: neither counts nor adds text
+    { role: "user", text: "", toolUses: [] },
     { role: "user", text: "u3", toolUses: [] },
     { role: "user", text: "u4", toolUses: [] },
     { role: "assistant", text: "", toolUses: [{ input: { file_path: "a.json" } }] },
     { role: "user", text: "u5", toolUses: [] },
     { role: "assistant", text: "in flight", toolUses: [{ input: { command: "cat data.json" } }] },
   ];
-  assert.equal(crushQuery(messages), '{"command":"cat data.json"} u5 {"file_path":"a.json"} u4 u3 {"command":"ls"} u1');
+  assert.equal(crushQuery(messages), '{"command":"cat data.json"} u5 {"file_path":"a.json"} u4 u3 {"command":"ls"} u2 u1');
   assert.equal(crushQuery([]), "");
 });
 

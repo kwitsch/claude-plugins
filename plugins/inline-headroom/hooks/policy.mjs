@@ -454,7 +454,8 @@ export function storeOffloaded(store, entries) {
 
 /**
  * The crusher's query (upstream _extract_context_from_messages): newest first, the text of the last five
- * user messages (every user message counts, tool-result-only ones too) and each assistant tool call's input JSON.
+ * user messages with text and each assistant tool call's input JSON. Deviation: upstream counts every user message,
+ * but a Claude Code tool result is a user message with empty text, so the real request would age out after five calls.
  * @param {readonly QueryMessage[]} messages chronological, as the session.messages op returns them
  * @returns {string}
  */
@@ -465,7 +466,8 @@ export function crushQuery(messages) {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
     if (m.role === "user") {
-      if (m.text) parts.push(m.text);
+      if (!m.text) continue;
+      parts.push(m.text);
       if (++users >= 5) break;
     } else for (const u of m.toolUses) parts.push(JSON.stringify(u.input));
   }
