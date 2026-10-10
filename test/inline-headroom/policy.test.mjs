@@ -403,6 +403,14 @@ test("crushJson keeps a numeric anomaly more than 2 sigma from the mean", () => 
   assert.ok(keptIds(r.out).includes(37));
 });
 
+test("crushJson ignores query terms and anchors found in most rows", () => {
+  const rows = Array.from({ length: 200 }, (_, i) => ({ id: 48200 + i, title: `row ${i} alpha beta gamma`, status: i === 5 ? "failed" : "ok", host: "api.example.com" }));
+  const kept = keptIds(crush(rows, "row alpha status ok 48313 api.example.com").out);
+  assert.ok(kept.includes(48313), String(kept));
+  // A non-selective term would mark every row relevant and collapse the kept rows to the head.
+  assert.deepEqual(kept, keptIds(crush(rows, "48313").out));
+});
+
 test("crushJson keeps a row the query names that an empty query drops", () => {
   const rows = Array.from({ length: 60 }, (_, i) => ({ id: 48200 + i, title: `row ${i} alpha beta gamma`, status: i === 5 ? "failed" : "ok" }));
   assert.ok(!keptIds(crush(rows).out).includes(48213));

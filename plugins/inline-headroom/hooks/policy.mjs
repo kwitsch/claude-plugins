@@ -1044,7 +1044,17 @@ function queryAnchors(text) {
 }
 
 /**
- * Upstream item_matches_anchors: rows whose lowercased Python repr contains a query anchor.
+ * Whether a term found in `hits` of `n` rows singles rows out. Deviation: upstream counts any match, so a term in
+ * every row (a key name, a shared host) marks every row relevant and the crush degrades to the head rows; here,
+ * as where classic BM25's idf turns non-positive, a term in more than half the rows is ignored.
+ * @param {number} hits
+ * @param {number} n
+ * @returns {boolean}
+ */
+const isSelective = (hits, n) => hits * 2 <= n;
+
+/**
+ * Upstream item_matches_anchors: rows whose lowercased Python repr contains a selective query anchor.
  * @param {readonly Record<string, unknown>[]} items
  * @param {string} query
  * @returns {number[]}
@@ -1052,15 +1062,18 @@ function queryAnchors(text) {
 function anchorRows(items, query) {
   const anchors = [...queryAnchors(query)];
   if (!anchors.length) return [];
-  return items.flatMap((o, i) => {
+  const hits = items.map((o) => {
     const repr = pythonRepr(o).toLowerCase();
-    return anchors.some((a) => repr.includes(a)) ? [i] : [];
+    return anchors.filter((a) => repr.includes(a));
   });
+  const selective = new Set(anchors.filter((a) => isSelective(hits.filter((h) => h.includes(a)).length, items.length)));
+  return hits.flatMap((h, i) => (h.some((a) => selective.has(a)) ? [i] : []));
 }
 
 /**
  * Upstream HybridScorer::score_batch without embeddings (BM25 k1 1.5, b 0.75, ln 2 idf, normalized by 10, +0.3 for a
- * matched token of 8+ chars), then the BM25-only boost: a match scores at least 0.3, two or more add 0.2.
+ * matched token of 8+ chars), then the BM25-only boost: a match scores at least 0.3, two or more add 0.2. Only
+ * selective query tokens (isSelective) count as matches.
  * @param {readonly string[]} docs each row's compact JSON
  * @param {string} query
  * @returns {number[]} one score per row, 0..1
@@ -1072,8 +1085,8 @@ function relevanceScores(docs, query) {
   const qf = new Map();
   for (const t of tokens(query)) qf.set(t, (qf.get(t) ?? 0) + 1);
   if (!qf.size) return docs.map(() => 0);
-  const terms = [...qf.keys()].sort();
   const all = docs.map(tokens);
+  const terms = [...qf.keys()].sort().filter((t) => isSelective(all.filter((d) => d.includes(t)).length, docs.length));
   const avg = all.reduce((a, d) => a + d.length, 0) / Math.max(docs.length, 1);
   return all.map((doc) => {
     if (!doc.length) return 0;

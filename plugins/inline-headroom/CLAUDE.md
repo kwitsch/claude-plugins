@@ -175,6 +175,9 @@ Deviations from upstream:
   keys come first (a JS object rule).
 - The tool-digest marker is omitted: the mod rewrites each result once, at
   `tool.call`.
+- A query token or anchor found in more than half the rows is ignored
+  (`isSelective`); upstream counts it, so a key name in the query marks every
+  row relevant and the crush degrades to the head rows.
 - A document that loses no row passes through with its exact bytes; upstream
   also minifies a pretty-printed one.
 - `crushQuery` counts only user messages with text toward its last five: a
