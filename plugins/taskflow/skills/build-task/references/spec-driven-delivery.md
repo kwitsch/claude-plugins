@@ -76,7 +76,7 @@ Consume only this return — never re-derive state from transcript output.
 
 | Field                    | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | :----------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `plan`                   | `{path, tasks: [{id, title, complexity, model}]}` — model per task from complexity (trivial→haiku, standard→sonnet, complex→`opus`); planner model chosen per run by a difficulty classifier (`sonnet`/`opus`/`fable`); synthesizer on `opus`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `plan`                   | `{path, tasks: [{id, title, complexity, model}]}` — model per task from complexity (trivial→haiku, standard→haiku, complex→`opus`); planner model chosen per run by a difficulty classifier (`sonnet`/`opus`/`fable`); synthesizer on `opus`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `waves`                  | Wave layout, e.g. `[[1,2],[3]]` — file-overlap ∪ consumes→produces ∪ conservative fallback                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `taskResults`            | Per task: `{id, status, branch, worktreePath, minor}`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `implementMinorFindings` | Non-blocking per-task review findings — pass through to the final report/PR                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
@@ -101,19 +101,22 @@ is a planning defect to surface, not a git problem to solve.
 
 ## Behavior notes
 
-- The per-task review gate follows task complexity: `trivial` → `haiku`,
-  `standard`/`complex` → `sonnet` alias; depth comes from the combined
-  Review phase, never from the per-task gate. Recall-critical roles (finder,
-  verifier), the plan-check gate, and the fix applier all stay on the
-  `sonnet` alias (fix applier: pre-verified findings, test gate as safety
-  net).
+- The per-task review gate runs on the `haiku` alias for `trivial` and
+  `standard` tasks and on the `sonnet` alias for `complex` tasks; depth comes
+  from the combined Review phase, never from the per-task gate.
+  `haiku` is the default for every role outside the design and plan phases.
+  Exceptions: `sonnet` for the finder, verifier, fix applier, lean review and
+  CI fixer (recall/judgment-critical) and for the per-task review of `complex`
+  tasks; `opus` for the synthesizer and `complex`-task implementer; the
+  plan-check gate stays on `sonnet`; the per-task fixer reuses the
+  implementer's model.
 - Every implementer runs with `isolation: 'worktree'` — no direct commits on
   the work branch, even for single-task waves.
 - Each wave is merged by a separate merger agent (`git merge --no-ff`, task-id
   order, worktree cleanup before branch delete).
 - Review depth auto-scales: any `complex` task or >4 tasks → `max` level
   (5 correctness angles + 5 cleanup lenses + gap sweep, cap 15), else `high`.
-- Ship stage roles: `pr-author` (`sonnet` alias) writes a faithful
+- Ship stage roles: `pr-author` (`haiku` alias) writes a faithful
   title/body from the pipeline summary (repo template respected, escalated
   findings listed as open items); `shipper` (`haiku`) pushes (NEVER force),
   creates-or-updates the PR/MR idempotently, then runs

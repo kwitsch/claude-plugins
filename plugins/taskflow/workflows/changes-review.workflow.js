@@ -82,7 +82,7 @@ if (A.__error) return { stage: "args", error: A.__error };
 const { BASE_BRANCH } = A;
 
 // ── Model assignment ─────────────────────────────────────────────────────────
-// Bare family aliases — see plugins/taskflow/CLAUDE.md "Model assignment".
+// Bare family aliases — see workflows/CLAUDE.md "Model assignment".
 // Only the Review-phase roles are needed here; fix-applier is NOT dispatched
 // from this script (the changes-audit skill owns apply), so there is no
 // applier entry.

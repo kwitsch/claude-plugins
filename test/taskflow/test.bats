@@ -49,10 +49,10 @@ export -f rg_or_grep
   [ "$status" -eq 0 ]
 }
 
-@test "plugin.json version is 1.9.0" {
+@test "plugin.json version is 1.10.0" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "1.9.0" ]
+  [ "$output" = "1.10.0" ]
 }
 
 @test "marketplace entry exists for taskflow" {
@@ -205,7 +205,7 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   done
 }
 
-@test "all agent files declare a model; designer and planner on opus, the rest sonnet/haiku" {
+@test "all agent files declare a model; designer and planner on opus, design-reviewer and the recall-critical roles on sonnet, the rest haiku" {
   for a in $AGENT_NAMES; do
     run rg_or_grep -E '^model:' "$AGENTS_DIR/$a.md"
     [ "$status" -eq 0 ]
@@ -213,8 +213,11 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
       designer | planner)
         run rg_or_grep -E '^model: opus$' "$AGENTS_DIR/$a.md"
         ;;
+      design-reviewer | review-finder | review-verifier | fix-applier | ci-fixer)
+        run rg_or_grep -E '^model: sonnet$' "$AGENTS_DIR/$a.md"
+        ;;
       *)
-        run rg_or_grep -E '^model: (sonnet|haiku)$' "$AGENTS_DIR/$a.md"
+        run rg_or_grep -E '^model: haiku$' "$AGENTS_DIR/$a.md"
         ;;
     esac
     [ "$status" -eq 0 ]
@@ -400,7 +403,13 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'merger: "haiku"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'trivial: "haiku", standard: "sonnet"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run rg_or_grep -F 'const implModel = (t) => (t.complexity === "complex" ? "opus" : "haiku");' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'planChecker: "sonnet"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'finder: "sonnet"' "$WORKFLOWS/changes-review.workflow.js"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'applier: "sonnet"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
 }
 

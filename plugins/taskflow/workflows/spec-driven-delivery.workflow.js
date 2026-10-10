@@ -13,7 +13,7 @@
 //   2. Every wave is merged into the work branch at the end by a SEPARATE
 //      merge agent (git merge --no-ff, task-id order).
 //   3. Model assignment by difficulty: the planner assigns each task a
-//      complexity ∈ trivial|standard|complex → haiku|sonnet|opus; roles with a
+//      complexity ∈ trivial|standard|complex → haiku|haiku|opus; roles with a
 //      fixed difficulty profile use the value from MODELS below (all bare
 //      family aliases). The planner itself is not fixed — a small haiku
 //      classifier reads the spec and picks sonnet|opus|fable per run
@@ -107,21 +107,23 @@ const PLUGIN_ROOT = A.PLUGIN_ROOT && !A.PLUGIN_ROOT.includes("${") ? A.PLUGIN_RO
 // ── Model assignment by task difficulty ──────────────────────────────────────
 // Role profiles:
 //   opus   — high synthesis/judgment load (final prioritization / synthesizer)
-//   sonnet — writing/checking code with context understanding (default)
-//   haiku  — mechanical/deterministic (gathering scope, git merge sequence)
+//   sonnet — plan-phase gate (planChecker; planner tier via PLAN_MODEL) and the
+//            recall/judgment-critical roles: review finder/verifier, lean pass,
+//            fix application, CI fixing
+//   haiku  — default for every other role: coding, per-task review (sonnet for
+//            complex tasks), merging, shipping, CI monitoring, git/scope steps
 // Per-task scaling: complexity from the plan → implModel().
 // Planner: not fixed — a haiku classifier reads the spec and picks
 // sonnet|opus|fable per run (PLAN_MODEL / plannerModel), default opus.
 const MODELS = {
-  planChecker: "sonnet", // coverage/consistency gate before Implement
-  taskReviewer: "sonnet", // per-task diff review
+  planChecker: "sonnet", // coverage/consistency gate before Implement (plan phase stays off haiku)
   merger: "haiku", // pure git command sequence, no judgment load
   scope: "haiku", // list diff, collect CLAUDE.md
   finder: "sonnet", // review finder (angles + lenses)
   verifier: "sonnet", // independent per-finding verification
   synthesizer: "opus", // ranking, dedupe, reversesDecision judgment
   applier: "sonnet", // apply pre-verified fixes — test gate as safety net
-  prAuthor: "sonnet", // faithful writing from structured inputs + repo template
+  prAuthor: "haiku", // faithful writing from structured inputs + repo template
   shipper: "haiku", // pure git/gh/glab procedure (merger analogue)
   ciMonitor: "haiku", // bounded poll + classification, read-only
   ciFixer: "sonnet", // diagnose + fix: judgment/coding, CI as the only safety net
@@ -130,6 +132,9 @@ const MODELS = {
 // Planner model is chosen per run from a haiku spec-difficulty classifier.
 const PLAN_MODEL = { simple: "sonnet", complex: "opus", hardest: "fable" };
 const plannerModel = (d) => PLAN_MODEL[d] || "opus";
+// Per-task diff review: sonnet only for complex tasks; depth comes from the combined Review phase.
+const TASK_REVIEW_MODEL = { trivial: "haiku", standard: "haiku", complex: "sonnet" };
+const reviewModel = (t) => TASK_REVIEW_MODEL[t.complexity] || "haiku";
 // ── Plugin agent types (namespace = plugin name; keep in sync on plugin
 //    rename). Verified: agentType = "<plugin>:<agents/-name>"; an unknown
 //    type throws hard ("agent type 'X' not found. Available agents: …") —
@@ -164,12 +169,7 @@ const NO_NARRATION = "No narrative text between tool calls — call tools silent
 // cross-file-type duplication NO_NARRATION already accepts against agents/*.md).
 const WRITE_VIA_BASH_NOT_WRITE_EDIT = "NEVER the Write or Edit tool; the universal-format hook reformats those";
 
-const IMPL_MODEL = { trivial: "haiku", standard: "sonnet", complex: "opus" };
-const implModel = (t) => IMPL_MODEL[t.complexity] || "sonnet";
-const fixModel = (t) => (implModel(t) === "haiku" ? "sonnet" : implModel(t)); // fixing is never trivial; sonnet is enough for trivial tasks
-// Per-task review gate follows task complexity: trivial → haiku, standard/complex → sonnet.
-// Depth comes from the combined review phase, not this gate.
-const reviewModel = (t) => (t.complexity === "trivial" ? "haiku" : t.complexity === "complex" ? MODELS.taskReviewer : "sonnet");
+const implModel = (t) => (t.complexity === "complex" ? "opus" : "haiku");
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
 const TASK_ITEM = {
@@ -628,7 +628,7 @@ async function runTask(t) {
   if (review && !review.approved) {
     const blocking = review.findings.filter((f) => f.severity !== "minor");
     if (blocking.length) {
-      const fix = await agent(fixerPrompt(t, blocking, impl.worktreePath, impl.branch), { label: "fix:" + t.id, phase: "Implement", model: fixModel(t) });
+      const fix = await agent(fixerPrompt(t, blocking, impl.worktreePath, impl.branch), { label: "fix:" + t.id, phase: "Implement", model });
       const reReport =
         "Post-fix re-review. Branch: " +
         impl.branch +
@@ -639,7 +639,9 @@ async function runTask(t) {
         implReport +
         ". Fix report: " +
         fix;
-      review = await agent(reviewerPrompt(t, reReport), { label: "re-review:" + t.id, phase: "Implement", schema: VERDICT, model: reviewModel(t) });
+      const reOpts = { ...revOpts, label: "re-review:" + t.id };
+      review = await agent(reviewerPrompt(t, reReport), reOpts);
+      if (review === null) review = await agent(reviewerPrompt(t, reReport), { ...reOpts, label: reOpts.label + ":retry" });
     }
   }
   const blockingLeft = !review || (!review.approved && review.findings.some((f) => f.severity !== "minor"));
