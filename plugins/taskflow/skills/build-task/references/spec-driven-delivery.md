@@ -101,8 +101,9 @@ is a planning defect to surface, not a git problem to solve.
 
 ## Behavior notes
 
-- The per-task review gate runs on the `haiku` alias for every complexity;
-  depth comes from the combined Review phase, never from the per-task gate.
+- The per-task review gate runs on the `haiku` alias for `trivial` and
+  `standard` tasks and on the `sonnet` alias for `complex` tasks; depth comes
+  from the combined Review phase, never from the per-task gate.
   `haiku` is the default for every role outside the design and plan phases
   (finder, verifier, fix applier, per-task fixer, lean review, PR author, CI
   fixer), except the `opus` synthesizer and `complex`-task implementer/fixer;

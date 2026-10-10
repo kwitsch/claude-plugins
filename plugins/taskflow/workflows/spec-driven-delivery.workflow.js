@@ -108,14 +108,14 @@ const PLUGIN_ROOT = A.PLUGIN_ROOT && !A.PLUGIN_ROOT.includes("${") ? A.PLUGIN_RO
 // Role profiles:
 //   opus   — high synthesis/judgment load (final prioritization / synthesizer)
 //   sonnet — plan phase only (planChecker; planner tier via PLAN_MODEL)
-//   haiku  — default for every other role: coding, per-task review, review
-//            finding/verification, fix application, shipping, git/scope steps
+//   haiku  — default for every other role: coding, per-task review (sonnet for
+//            complex tasks), review finding/verification, fix application,
+//            shipping, git/scope steps
 // Per-task scaling: complexity from the plan → implModel().
 // Planner: not fixed — a haiku classifier reads the spec and picks
 // sonnet|opus|fable per run (PLAN_MODEL / plannerModel), default opus.
 const MODELS = {
   planChecker: "sonnet", // coverage/consistency gate before Implement (plan phase stays off haiku)
-  taskReviewer: "haiku", // per-task diff review, every complexity — depth comes from the combined Review phase
   merger: "haiku", // pure git command sequence, no judgment load
   scope: "haiku", // list diff, collect CLAUDE.md
   finder: "haiku", // review finder (angles + lenses)
@@ -131,6 +131,9 @@ const MODELS = {
 // Planner model is chosen per run from a haiku spec-difficulty classifier.
 const PLAN_MODEL = { simple: "sonnet", complex: "opus", hardest: "fable" };
 const plannerModel = (d) => PLAN_MODEL[d] || "opus";
+// Per-task diff review: sonnet only for complex tasks; depth comes from the combined Review phase.
+const TASK_REVIEW_MODEL = { trivial: "haiku", standard: "haiku", complex: "sonnet" };
+const reviewModel = (t) => TASK_REVIEW_MODEL[t.complexity] || "haiku";
 // ── Plugin agent types (namespace = plugin name; keep in sync on plugin
 //    rename). Verified: agentType = "<plugin>:<agents/-name>"; an unknown
 //    type throws hard ("agent type 'X' not found. Available agents: …") —
@@ -619,7 +622,7 @@ async function runTask(t) {
     return { id: t.id, status: "failed", reason: "implementer blocked: " + impl.deviations, branch: impl.branch, worktreePath: impl.worktreePath };
   }
   const implReport = JSON.stringify(impl);
-  const revOpts = { label: "review:" + t.id, phase: "Implement", schema: VERDICT, model: MODELS.taskReviewer };
+  const revOpts = { label: "review:" + t.id, phase: "Implement", schema: VERDICT, model: reviewModel(t) };
   let review = await agent(reviewerPrompt(t, implReport), revOpts);
   if (review === null) review = await agent(reviewerPrompt(t, implReport), { ...revOpts, label: "review:" + t.id + ":retry" });
   if (review && !review.approved) {

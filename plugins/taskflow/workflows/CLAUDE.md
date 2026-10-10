@@ -6,7 +6,7 @@
 
 No model tier is pinned: every role floats on its family alias (`haiku`/`sonnet`/`opus`/`fable`, each resolving to the newest model in that family). Pinned IDs caused problems in practice and were removed across the board (`sonnet`/`haiku` were always bare). Do not reintroduce a pinned ID; the bats suite sweeps the whole plugin for one.
 
-`haiku` is the default tier: every fixed role in `MODELS` and the per-task implementer/reviewer/fixer run on it, apart from the design phase (`design-to-spec.workflow.js` keeps its assignments — its `sonnet` explorer, design reviewer, spec writer and spec reviewer, plus `agents/design-reviewer.md`, stay on `sonnet`) the plan phase (`MODELS.planChecker` stays on `sonnet`), and the fixed `opus` roles listed below (`MODELS.synthesizer`, `IMPL_MODEL.complex`). The designer and planner pick their model per run, as below.
+`haiku` is the default tier: every fixed role in `MODELS` and the per-task implementer/fixer run on it (the per-task reviewer runs on it for `trivial`/`standard` tasks and on `sonnet` for `complex` ones, `reviewModel()`), apart from the design phase (`design-to-spec.workflow.js` keeps its assignments — its `sonnet` explorer, design reviewer, spec writer and spec reviewer, plus `agents/design-reviewer.md`, stay on `sonnet`) the plan phase (`MODELS.planChecker` stays on `sonnet`), and the fixed `opus` roles listed below (`MODELS.synthesizer`, `IMPL_MODEL.complex`). The designer and planner pick their model per run, as below.
 
 The two highest-judgment authoring roles pick their model per run from a difficulty classification (`simple → sonnet`, `complex → opus`, `hardest → fable`; the resolver default on any miss is `opus`):
 
