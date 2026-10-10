@@ -5,7 +5,7 @@ description: >
   phase) and the changes-audit skill. Do not delegate to this agent directly;
   if the user asks for applying review fixes, run /taskflow:build-task or
   /taskflow:changes-audit instead.
-model: sonnet
+model: haiku
 ---
 
 No narrative text between tool calls — call tools silently and speak only in

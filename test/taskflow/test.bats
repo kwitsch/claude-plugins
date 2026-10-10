@@ -205,7 +205,7 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   done
 }
 
-@test "all agent files declare a model; designer and planner on opus, the rest sonnet/haiku" {
+@test "all agent files declare a model; designer and planner on opus, design-reviewer on sonnet, the rest haiku" {
   for a in $AGENT_NAMES; do
     run rg_or_grep -E '^model:' "$AGENTS_DIR/$a.md"
     [ "$status" -eq 0 ]
@@ -213,8 +213,11 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
       designer | planner)
         run rg_or_grep -E '^model: opus$' "$AGENTS_DIR/$a.md"
         ;;
+      design-reviewer)
+        run rg_or_grep -E '^model: sonnet$' "$AGENTS_DIR/$a.md"
+        ;;
       *)
-        run rg_or_grep -E '^model: (sonnet|haiku)$' "$AGENTS_DIR/$a.md"
+        run rg_or_grep -E '^model: haiku$' "$AGENTS_DIR/$a.md"
         ;;
     esac
     [ "$status" -eq 0 ]

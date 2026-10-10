@@ -5,7 +5,7 @@ description: >
   changes-review workflow. Do not delegate to this agent directly; if the user
   asks for verifying code-review findings, run /taskflow:build-task or
   /taskflow:changes-audit instead.
-model: sonnet
+model: haiku
 tools: ["Read", "Grep", "Glob", "Bash"]
 ---
 
