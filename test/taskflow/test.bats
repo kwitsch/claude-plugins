@@ -478,8 +478,8 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 1 ]
 }
 
-@test "dispatch-task supports --model/--effort overrides, defaults sonnet/xhigh, and forces permission-mode auto" {
-  for pat in 'claude --worktree' '--bg' '--model=<model>' '--effort=<effort>' 'sonnet' 'xhigh' '--permission-mode auto'; do
+@test "dispatch-task supports --model/--effort overrides, defaults haiku/xhigh, and forces permission-mode auto" {
+  for pat in 'claude --worktree' '--bg' '--model=<model>' '--effort=<effort>' 'haiku' 'xhigh' '--permission-mode auto'; do
     run rg_or_grep -F -- "$pat" "$DISPATCH/SKILL.md"
     [ "$status" -eq 0 ]
   done
