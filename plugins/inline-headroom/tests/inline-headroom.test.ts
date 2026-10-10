@@ -718,10 +718,11 @@ test("(sc4) smart_crusher_enabled false registers no tool, crushes nothing and h
 
 test("(sc5) an MCP result gets only its JSON text block rewritten", async ($, on) => {
   const image = { type: "image", data: "x", mimeType: "image/png" };
-  on("tool.call", () => ({ result: { content: [{ type: "text", text: BIG }, image] } }));
+  // Core resolves an MCP call to the content-block array itself (live-verified on 2.1.296).
+  on("tool.call", () => ({ result: [{ type: "text", text: BIG }, image] }));
   await startCrusher(on, $);
   const out = await $.tool.call({ tool: "mcp__srv__list" });
-  const content = (out.result as { content: { text?: string }[] }).content;
+  const content = out.result as { text?: string }[];
   expect(crushedRows(content[0].text).rows.length).toBeLessThan(200);
   expect(content[1]).toEqual(image);
 });

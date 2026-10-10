@@ -10,7 +10,7 @@
 /** @typedef {Counters & {hit?: number}} Row hit: the ratio to show in place of the token-weighted one (the session row shows its last step's) */
 /** @typedef {{ role: 'user'|'assistant', text: string, toolUses: readonly { input: Record<string, unknown> }[] }} QueryMessage the SessionMessage fields crushQuery reads */
 /** @typedef {{ text: string, rowsDropped: number, offloaded: [string, string][] }} CrushOutcome a crushed document: compact text, rows lost, [hash, original array JSON] per crushed array */
-/** @typedef {{ result: Record<string, unknown>, rowsDropped: number, charsSaved: number, offloaded: [string, string][] }} ToolCrush a crushed tool result and what it saved */
+/** @typedef {{ result: Record<string, unknown> | unknown[], rowsDropped: number, charsSaved: number, offloaded: [string, string][] }} ToolCrush a crushed tool result and what it saved */
 /**
  * One dict-array field (upstream FieldStats); the numeric statistics are absent when not finite.
  * @typedef {{ name: string, type: string, unique: number, ratio: number, min?: number, max?: number, mean?: number, variance?: number, changePoints: number[], avgLen?: number }} FieldStats
@@ -1435,15 +1435,15 @@ function isTextBlock(b) {
 /**
  * Whether a successful tool.call result is one the crusher may rewrite. Bash: stdout that is one whole inline JSON
  * document, with empty stderr, not interrupted, an image, backgrounded, timed out, offloaded to a file, or
- * structured. MCP (`mcp__<server>__<tool>`, never headroom_retrieve or the mod's own storage tools): a
- * non-error `content` array without structuredContent, holding a JSON text block. Nothing else.
+ * structured. MCP (`mcp__<server>__<tool>`, never headroom_retrieve or the mod's own storage tools): core's result is
+ * the content-block array itself (live-verified on 2.1.296), holding a JSON text block. Nothing else.
  * @param {string} tool
  * @param {unknown} result tool.call's `result`
  * @returns {boolean}
  */
 export function isCrushCandidate(tool, result) {
-  if (!isRecord(result)) return false;
   if (tool === "Bash") {
+    if (!isRecord(result)) return false;
     const { stdout, stderr, structuredContent } = result;
     return (
       typeof stdout === "string" &&
@@ -1458,15 +1458,7 @@ export function isCrushCandidate(tool, result) {
       looksLikeJsonDoc(stdout)
     );
   }
-  return (
-    MCP_TOOL_RE.test(tool) &&
-    tool !== RETRIEVE_TOOL &&
-    !tool.startsWith(OWN_STORAGE_PREFIX) &&
-    result.isError !== true &&
-    Array.isArray(result.content) &&
-    result.structuredContent == null &&
-    result.content.some((b) => isTextBlock(b) && looksLikeJsonDoc(b.text))
-  );
+  return MCP_TOOL_RE.test(tool) && tool !== RETRIEVE_TOOL && !tool.startsWith(OWN_STORAGE_PREFIX) && Array.isArray(result) && result.some((b) => isTextBlock(b) && looksLikeJsonDoc(b.text));
 }
 
 /**
@@ -1479,9 +1471,8 @@ export function isCrushCandidate(tool, result) {
  */
 export function crushToolResult(tool, result, query) {
   if (!isCrushCandidate(tool, result)) return undefined;
-  const r = /** @type {Record<string, unknown>} */ (result);
   /** @type {ToolCrush} */
-  const c = { result: r, rowsDropped: 0, charsSaved: 0, offloaded: [] };
+  const c = { result: [], rowsDropped: 0, charsSaved: 0, offloaded: [] };
   /** @param {string} text */
   const crush = (text) => {
     const out = crushJson(text, query);
@@ -1491,15 +1482,14 @@ export function crushToolResult(tool, result, query) {
     c.offloaded.push(...out.offloaded);
     return out.text;
   };
-  if (tool === "Bash") c.result = { ...r, stdout: crush(/** @type {string} */ (r.stdout)) };
-  else
-    c.result = {
-      ...r,
-      content: /** @type {unknown[]} */ (r.content).map((b) => {
-        if (!isTextBlock(b)) return b;
-        const text = crush(b.text);
-        return text === b.text ? b : { ...b, text };
-      }),
-    };
+  if (tool === "Bash") {
+    const r = /** @type {Record<string, unknown>} */ (result);
+    c.result = { ...r, stdout: crush(/** @type {string} */ (r.stdout)) };
+  } else
+    c.result = /** @type {unknown[]} */ (result).map((b) => {
+      if (!isTextBlock(b)) return b;
+      const text = crush(b.text);
+      return text === b.text ? b : { ...b, text };
+    });
   return c.charsSaved > 0 ? c : undefined;
 }

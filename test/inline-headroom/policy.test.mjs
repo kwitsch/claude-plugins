@@ -536,7 +536,7 @@ test("crushToolResult rewrites a candidate Bash result's stdout and nothing else
   const result = { stdout: BIG, stderr: "", interrupted: false, noOutputExpected: false };
   assert.equal(isCrushCandidate("Bash", result), true);
   const c = crushTool("Bash", result);
-  const { stdout, ...rest } = c.result;
+  const { stdout, ...rest } = /** @type {Record<string, unknown>} */ (c.result);
   assert.deepEqual(rest, { stderr: "", interrupted: false, noOutputExpected: false });
   assert.equal(typeof stdout, "string");
   const rows = JSON.parse(String(stdout));
@@ -571,26 +571,26 @@ test("crushToolResult rewrites only an MCP result's JSON text blocks", () => {
   const image = { type: "image", data: "x", mimeType: "image/png" };
   const small = { type: "text", text: "[1,2,3]" };
   const json = { type: "text", text: BIG };
-  const result = { content: [json, image, small], isError: false };
-  const c = crushTool("mcp__srv__list", result);
-  const content = /** @type {{ text?: string }[]} */ (c.result.content);
-  assert.equal(c.result.isError, false);
+  // Core's MCP result is the content-block array itself (live-verified).
+  const c = crushTool("mcp__srv__list", [json, image, small]);
+  const content = /** @type {{ text?: string }[]} */ (c.result);
+  assert.equal(content.length, 3);
   assert.match(JSON.parse(String(content[0].text)).at(-1)._ccr_dropped, SENTINEL);
   assert.equal(content[1], image);
   assert.equal(content[2], small);
   assert.equal(json.text, BIG); // the input is not mutated
 });
 
-test("MCP errors, structured results, headroom_retrieve, the mod's storage tools and built-ins are never candidates", () => {
-  const result = { content: [{ type: "text", text: BIG }] };
+test("non-array MCP results, headroom_retrieve, the mod's storage tools and built-ins are never candidates", () => {
+  const result = [{ type: "text", text: BIG }];
   assert.equal(isCrushCandidate("mcp__srv__list", result), true);
   for (const [tool, r] of /** @type {[string, unknown][]} */ ([
-    ["mcp__srv__list", { ...result, structuredContent: { rows: [] } }],
-    ["mcp__srv__list", { ...result, isError: true }],
+    ["mcp__srv__list", { content: result }], // the $.mcp.call shape, not what tool.call resolves
+    ["mcp__srv__list", BIG],
+    ["mcp__srv__list", [{ type: "text", text: "x".repeat(900) }]],
     [RETRIEVE_TOOL, result],
     ["mcp__plugin_inline-headroom_storage__kv_get", result],
     ["Read", result],
-    ["mcp__srv__list", { content: BIG }],
   ])) {
     assert.equal(isCrushCandidate(tool, r), false, tool);
     assert.equal(crushToolResult(tool, r, ""), undefined, tool);
