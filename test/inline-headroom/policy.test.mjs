@@ -3128,3 +3128,39 @@ test("splitRelevance stays bounded on an unclosed multi-line JSON span with a 16
   splitRelevance(text, query, true);
   assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0} ms`);
 });
+test("review fixes: log, search, config, diff and HTML edge cases", () => {
+  // a date-led CSV selects no log line: the compressor declines instead of leaving only a marker
+  const csv = Array.from({ length: 80 }, (_, i) => `2026-03-${String((i % 28) + 1).padStart(2, "0")},${i * 3}`).join("\n");
+  assert.equal(compressLog(csv), undefined);
+  // compiler diagnostics keep every row and code-frame line
+  const diag = Array.from({ length: 80 }, (_, i) => `src/f${i % 20}.c:${i + 1}:5: error: bad ${i}\n  code\n  ^`).join("\n");
+  assert.equal(compressSearch(diag, ""), undefined);
+  // a markdown document of headings and bullets is no YAML config
+  const md = Array.from({ length: 12 }, (_, i) => `## Section ${i}\n\n- name: a${i}\n- id: ${i}\n  - one\n`).join("\n");
+  assert.equal(detectContentType(md), "text");
+  // multi-commit log keeps each commit header; a quoted non-ASCII path starts its own file
+  const body = Array.from({ length: 30 }, (_, i) => ` ctx ${i}`).join("\n");
+  /** @type {(name: string, q?: boolean) => string} */
+  const file = (name, q) => {
+    const [a, b] = q ? [`"a/${name}"`, `"b/${name}"`] : [`a/${name}`, `b/${name}`];
+    return `diff --git ${a} ${b}\n--- ${a}\n+++ ${b}\n@@ -1,31 +1,31 @@\n${body}\n-old\n+new`;
+  };
+  const log = [1, 2, 3].map((n) => `commit abcdef${n}0\nAuthor: A <a@b>\n\n    message ${n}\n\n${file("f.txt")}\n`).join("\n");
+  const logOut = compressDiff(log, "")?.text ?? "";
+  for (const n of [1, 2, 3]) assert.ok(logOut.includes(`    message ${n}`));
+  const three = [file("a.txt"), file("f\\303\\274r.txt", true), file("c.txt")].join("\n");
+  assert.ok(compressDiff(three, "")?.text.includes("[3 files changed, +3 -3 lines]"));
+  // link targets are entity-decoded
+  assert.ok(extractHtml(`<p><a href="https://e.com/a?b=1&amp;c=2">link</a></p>`.repeat(30))?.text.includes("(https://e.com/a?b=1&c=2)"));
+});
+
+test("review fixes: Edit and Write snippets stay verbatim; time-prefixed lines are no line numbers for dedup", () => {
+  const rows = Array.from({ length: 30 }, (_, i) => `${i + 1}\t  line ${i} of the snippet that is long enough. Another sentence.`);
+  const snippet = `The file x.md has been updated. Here's the result of running \`cat -n\` on a snippet:\n${rows.join("\n")}`;
+  for (const tool of ["Edit", "Write"]) assert.equal(route(snippet, only({ textcrush: true, split: true }), tool, "snippet line"), undefined);
+  const a = ["10:15:03 service started ok", "11:16:04 worker connected ok", "12:17:05 queue drained ok"].join("\n");
+  const b = ["14:15:03 service started ok", "15:16:04 worker connected ok", "16:17:05 queue drained ok"].join("\n");
+  const states = new Map();
+  dedupBlock(states, "", a, false);
+  assert.equal(dedupBlock(states, "", b, false), undefined);
+});

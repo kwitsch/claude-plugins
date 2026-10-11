@@ -209,7 +209,8 @@ const SCAN_BUDGET_FLOOR = 4096;
 const DEDUP_MIN_LINES = 3;
 const DEDUP_MIN_CHARS = 40;
 const DEDUP_MAX_ANCHOR_CANDIDATES = 16;
-const DEDUP_LINENO_RE = /^([1-9]\d*)(:|\t)([\s\S]*)$/;
+// Deviation: a `:` separator must not be followed by a digit (`10:15:03`, `8080:80`), where the leading integer is a time or port, not a line number.
+const DEDUP_LINENO_RE = /^([1-9]\d*)(:(?!\d)|\t)([\s\S]*)$/;
 const DEDUP_TRIVIAL = new Set(["return", "pass", "else:", "try:", "except:", "finally:", "break", "continue", "});", "})", "],", "),", '"""', "'''", "..."]);
 // shortcut: about a 1M-token context at 4 chars per token; older content has left the model's window. Raise it if long sessions stop folding.
 /** Indexed dedup characters kept across all conversations, least recently appended conversation dropped first. Deviation: upstream rebuilds per request and needs no cap. */
@@ -233,6 +234,9 @@ const LINE_BREAK_RE = /\r\n|[\n\r\v\f\x1c-\x1e\x85\u{2028}\u{2029}]/u;
 // Upstream lossless_compaction.py _TIMESTAMP_ROW_RE: a timestamped log row is never a grep line.
 const TIMESTAMP_ROW_RE = /^\s*\[?(?:\d{4}-\d{2}-\d{2}[ T]\d{1,2}:\d{2}|\d{2}\/\d{2}\/\d{2,4}[ T]\d{1,2}:\d{2}|[A-Z][a-z]{2}\s+\d{1,2}\s+\d{1,2}:\d{2}|\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?(?:\s|\]|$))/;
 const SEARCH_LINE_RE = /^[^\s:]+:\d+:/;
+// Compiler and linter diagnostics (`f.c:3:5: error:`, `f.py:3: warning:`, `f.py:3:1: F401 `, `f.py:3:0: C0114:`) share grep's
+// `path:N:` shape; compressSearch declines them, as its selection would drop errors and every code-frame line.
+const DIAGNOSTIC_ROW_RE = /^[^\s:]+:\d+(?::\d+)?:\s+(?:(?:fatal error|error|warning|note)\b|[A-Z]{1,4}\d{2,5}\b)/;
 const GREP_COLON_DASH_RE = /^[^\s:]+:\d+-/;
 const GREP_CONTEXT_RE = /^([^\s:]+?)-\d+-/;
 // Structured config: upstream content_detector.py _CONFIG_*/_TOML_*/_YAML_* patterns (_INI_ASSIGN_RE is the isIniAssign scanner).
@@ -243,6 +247,7 @@ const YAML_KEY_RE = /^\s*(?:-\s+)?(?:[\w./-]+|"[^"]+"|'[^']+')\s*:(?:\s|$)/;
 const YAML_LIST_RE = /^\s*-\s+\S/;
 const YAML_DOC_RE = /^---\s*$|^\.\.\.\s*$/;
 const CONFIG_COMMENT_RE = /^\s*[#;]/;
+const MARKDOWN_HEADING_RE = /^#{2,6}\s+\S/;
 const INI_KEY_CHAR_RE = /[\w.\-@ ]/;
 // What the TOML flavor check accepts as a value (it stands in for tomllib): strings, numbers, booleans, dates/times, arrays, tables.
 const TOML_STRING_RE = /^(?:"(?:[^"\\]|\\.)*"|'[^']*')\s*(?:#.*)?$/;
@@ -3037,6 +3042,8 @@ export function configFlavor(text, head) {
       if (tail.length && yamlTail / tail.length < 0.3) return undefined;
       break;
     }
+  // Deviation: a markdown `##` heading is no neutral comment; Tier 2 would delete every heading of a document.
+  if (nonEmpty.some((ln) => MARKDOWN_HEADING_RE.test(ln))) return undefined;
   const keys = body.filter((ln) => YAML_KEY_RE.test(ln)).length;
   const lists = body.filter((ln) => YAML_LIST_RE.test(ln) && !YAML_KEY_RE.test(ln)).length;
   const docs = body.filter((ln) => YAML_DOC_RE.test(ln.trim())).length;
@@ -3299,7 +3306,7 @@ export function extractHtml(text) {
     else if (name === "a") {
       if (!t.close && href === undefined) {
         const m = HTML_HREF_RE.exec(text.slice(lt, t.end));
-        const target = m ? (m[1] ?? m[2] ?? m[3] ?? "") : "";
+        const target = m ? decodeEntities(m[1] ?? m[2] ?? m[3] ?? "") : "";
         if (target !== "" && !target.startsWith("#") && !/^\s*javascript:/i.test(target)) {
           href = target;
           put("[");
@@ -4206,6 +4213,8 @@ export function compressLog(text) {
   const scan = scanPytestSummary(lines);
   const all = parseLogLines(lines, scan.entries);
   const selected = selectLogLines(all, scan, { left: SCAN_BUDGET_PER_CHAR * text.length + SCAN_BUDGET_FLOOR });
+  // Deviation: a log with no error, warning, summary or trace line selects nothing; a marker alone would hide all of it.
+  if (selected.length === 0) return undefined;
   const hash = contentHash(text);
   const out = `${formatLogOutput(selected, all, scan.entries)}\n[${lines.length} lines compressed to ${selected.length}${omittedDescriptor(all, selected)}. Retrieve original: hash=${hash}]`;
   return out.length < text.length ? { text: out, offloaded: [[hash, text]] } : undefined;
@@ -4523,7 +4532,8 @@ export function foldSearch(text) {
  * `[N matches compressed to M. Retrieve original: hash=H]` with the input stored under H. Lines that do not parse are dropped,
  * as upstream. Deviations: the retrieval line is always added ("Retrieve original", no match-count or ratio gate), the hash is
  * contentHash, context words are capped (contextWords) and CJK query bigrams are not added, and the parse's path checks and
- * the simhash count are budgeted (an exhausted parse declines). Undefined when nothing parses or the result is not shorter.
+ * the simhash count are budgeted (an exhausted parse declines), and a text holding a compiler or linter diagnostic row
+ * (DIAGNOSTIC_ROW_RE) declines. Undefined when nothing parses or the result is not shorter.
  * @param {string} text
  * @param {string} query the conversation context (crushQuery), "" for none
  * @returns {{ text: string, offloaded: [string, string][] }|undefined}
@@ -4536,6 +4546,7 @@ export function compressSearch(text, query) {
   for (const raw of text.split("\n")) {
     const line = raw.trim();
     if (!line) continue;
+    if (DIAGNOSTIC_ROW_RE.test(line)) return undefined;
     const m = parseMatchLine(line, budget);
     if (budget.left < 0) return undefined;
     if (!m) continue;
@@ -4607,7 +4618,7 @@ export function compressSearch(text, query) {
 /** @typedef {{ header: string, lines: string[], additions: number, deletions: number, score: number }} DiffHunk one hunk: its header, body lines, counts and relevance */
 /**
  * One file section: its header, `---`/`+++` lines (or ""), hunks, binary/new/deleted flags and rename lines (upstream DiffFile).
- * @typedef {{ header: string, oldFile: string, newFile: string, hunks: DiffHunk[], binary: boolean, added: boolean, deleted: boolean, renames: string[] }} DiffFile
+ * @typedef {{ header: string, prefix: string[], oldFile: string, newFile: string, hunks: DiffHunk[], binary: boolean, added: boolean, deleted: boolean, renames: string[] }} DiffFile
  */
 
 // Upstream DiffCompressorConfig::default() (min_lines_for_ccr gates the whole compression) and its score constants.
@@ -4635,16 +4646,23 @@ const DIFF_PRIORITY_RES = [
  * @returns {boolean}
  */
 function isDiffHeader(line) {
+  // Deviation: a path holding a non-ASCII or special byte is quoted (`"a/f\303\274r.txt"`).
+  if (line.startsWith('diff --git "a/') || (line.startsWith("diff --git a/") && line.includes(' "b/'))) return line.lastIndexOf(' "b/') > 14;
   if (line.startsWith("diff --git a/")) return line.lastIndexOf(" b/", line.length - 4) >= 14;
   return (line.startsWith("diff --combined ") && line.length > 16) || (line.startsWith("diff --cc ") && line.length > 10);
 }
+
+// A commit line of a multi-commit patch series (`commit <sha>`, optionally decorated).
+const DIFF_COMMIT_RE = /^commit [0-9a-f]{7,64}(?: \(.*\))?$/;
 
 /**
  * Upstream parse_diff: lines before the first header are kept verbatim; mode, rename and binary lines set their flags (and fall
  * through, as upstream); `---`/`+++` lines and hunk headers are taken whole; inside a hunk `+` and `-` lines (not `+++`/`---`)
  * count, and every line is kept. Other header lines outside a hunk (`index`, `old mode`, `new mode`) are dropped, as upstream.
+ * Deviation: a `commit <sha>` line after a file starts a commit header, kept with its Author, Date and message lines as the
+ * next file's `prefix` (or in `post` when no file follows), so a multi-commit log keeps every commit's header.
  * @param {readonly string[]} lines
- * @returns {{ pre: string[], files: DiffFile[] }}
+ * @returns {{ pre: string[], files: DiffFile[], post: string[] }}
  */
 function parseDiff(lines) {
   /** @type {string[]} */
@@ -4655,6 +4673,8 @@ function parseDiff(lines) {
   let file;
   /** @type {DiffHunk|undefined} */
   let hunk;
+  /** @type {string[]|undefined} */
+  let commit; // the commit header being collected after a file
   const closeHunk = () => {
     if (hunk && file) file.hunks.push(hunk);
     hunk = undefined;
@@ -4663,22 +4683,32 @@ function parseDiff(lines) {
     if (isDiffHeader(line)) {
       closeHunk();
       if (file) files.push(file);
-      file = { header: line, oldFile: "", newFile: "", hunks: [], binary: false, added: false, deleted: false, renames: [] };
+      file = { header: line, prefix: commit ?? [], oldFile: "", newFile: "", hunks: [], binary: false, added: false, deleted: false, renames: [] };
+      commit = undefined;
       continue;
     }
     if (!file) {
       pre.push(line);
       continue;
     }
+    if (commit) {
+      commit.push(line);
+      continue;
+    }
+    if (DIFF_COMMIT_RE.test(line)) {
+      closeHunk();
+      commit = [line];
+      continue;
+    }
     if (line.startsWith("new file mode")) file.added = true;
     else if (line.startsWith("deleted file mode")) file.deleted = true;
     else if (line.startsWith("rename ") || line.startsWith("similarity ") || line.startsWith("copy ") || line.startsWith("dissimilarity ")) file.renames.push(line);
     else if (DIFF_BINARY_RE.test(line)) file.binary = true;
-    if (line === "--- /dev/null" || (line.startsWith("--- a/") && line.length > 6)) {
+    if (line === "--- /dev/null" || (line.startsWith("--- a/") && line.length > 6) || line.startsWith('--- "a/')) {
       file.oldFile = line;
       continue;
     }
-    if (line === "+++ /dev/null" || (line.startsWith("+++ b/") && line.length > 6)) {
+    if (line === "+++ /dev/null" || (line.startsWith("+++ b/") && line.length > 6) || line.startsWith('+++ "b/')) {
       file.newFile = line;
       continue;
     }
@@ -4694,7 +4724,7 @@ function parseDiff(lines) {
   }
   closeHunk();
   if (file) files.push(file);
-  return { pre, files };
+  return { pre, files, post: commit ?? [] };
 }
 
 /**
@@ -4793,7 +4823,7 @@ export function foldDiff(text) {
 export function compressDiff(text, query) {
   const lines = text.split("\n"); // "\n" only: a "\r" stays on its line, as upstream
   if (lines.length < DIFF_MIN_LINES) return undefined;
-  const { pre, files: parsed } = parseDiff(lines);
+  const { pre, files: parsed, post } = parseDiff(lines);
   if (!parsed.length) return undefined;
   const changes = (/** @type {DiffFile} */ f) => f.hunks.reduce((a, h) => a + h.additions + h.deletions, 0);
   const files =
@@ -4818,6 +4848,7 @@ export function compressDiff(text, query) {
     }
     const hunks = selectHunks(f.hunks).map(reduceContext);
     omitted += f.hunks.length - hunks.length;
+    for (const l of f.prefix) out.push(l);
     out.push(f.header);
     for (const l of f.renames) out.push(l);
     if (f.added) out.push("new file mode 100644");
@@ -4833,6 +4864,7 @@ export function compressDiff(text, query) {
       for (const l of h.lines) out.push(l);
     }
   }
+  for (const l of post) out.push(l);
   out.push(`[${files.length} files changed, +${adds} -${dels} lines${omitted > 0 ? `, ${omitted} hunks omitted` : ""}]`);
   const hash = contentHash(text);
   const result = `${out.join("\n")}\n[${lines.length} lines compressed to ${out.length}. Retrieve original: hash=${hash}]`;
@@ -5272,7 +5304,8 @@ function isProtectedTool(tool) {
   return tool === RETRIEVE_NAME || tool.endsWith(RETRIEVE_SUFFIX) || tool.startsWith(OWN_STORAGE_PREFIX);
 }
 
-const READ_TOOL = "Read";
+// Tools whose results the model reads back verbatim to build its next Edit: a Read file, an Edit/Write `cat -n` snippet.
+const VERBATIM_TOOLS = new Set(["Read", "Edit", "Write", "NotebookEdit"]);
 
 /**
  * A tool_result block whose texts are never rewritten (dedup still indexes them): an error, or a protected tool's row.
@@ -5296,7 +5329,7 @@ function isProtectedBlock(block, tool) {
  * @returns {boolean}
  */
 export function wantsQuery(content, tool, levers = { crush: true }) {
-  const prose = !!(levers.search || levers.diff || levers.textcrush || levers.split) && tool !== READ_TOOL;
+  const prose = !!(levers.search || levers.diff || levers.textcrush || levers.split) && !VERBATIM_TOOLS.has(tool);
   return content.some(
     (b) => isRecord(b) && b.type === "tool_result" && !isProtectedBlock(b, tool) && resultTexts(b).some((t) => (!!levers.crush && looksLikeJsonDoc(t)) || (prose && t.length >= ROUTE_MIN_CHARS)),
   );
@@ -5354,7 +5387,7 @@ function rewriteRow(content, tool, levers, query) {
   // A lever some route runs ahead of the elider is on, so a text's label can change what runs (every one but dedup and the elider).
   const routed = !!(levers.crush || levers.compact || levers.config || levers.extract || levers.log || levers.search || levers.diff || levers.textcrush || levers.split);
   // A Read result: the model needs its verbatim lines for the next Edit's old_string.
-  const verbatimTool = tool === READ_TOOL;
+  const verbatimTool = VERBATIM_TOOLS.has(tool);
   /**
    * Books a router compressor's adopted rewrite (its lossy step's or its fold's) in its table and returns the rewritten text.
    * @param {{ texts: number, saved: number }} slot
@@ -5365,7 +5398,7 @@ function rewriteRow(content, tool, levers, query) {
   const adopt = (slot, from, r) => {
     slot.texts += 1;
     slot.saved += from.length - r.text.length;
-    acc.offloaded.push(...r.offloaded);
+    for (const o of r.offloaded) acc.offloaded.push(o);
     return r.text;
   };
   let changed = false;
@@ -5411,7 +5444,7 @@ function rewriteRow(content, tool, levers, query) {
             acc.compact.saved += toCompact;
             acc.crush.dropped += c.rowsDropped;
             acc.crush.saved += saved - toCompact;
-            acc.offloaded.push(...c.offloaded);
+            for (const o of c.offloaded) acc.offloaded.push(o);
             next = c.text;
           }
         } else if (step === "config" && levers.config && spans.length === 0) {
@@ -5419,7 +5452,7 @@ function rewriteRow(content, tool, levers, query) {
           if (k) {
             acc.config.texts += 1;
             acc.config.saved += cur.length - k.text.length;
-            acc.offloaded.push(...k.offloaded);
+            for (const o of k.offloaded) acc.offloaded.push(o);
             next = k.text;
           }
         } else if (step === "extract" && levers.extract && spans.length === 0) {
@@ -5427,7 +5460,7 @@ function rewriteRow(content, tool, levers, query) {
           if (x) {
             acc.extract.pages += 1;
             acc.extract.saved += cur.length - x.text.length;
-            acc.offloaded.push(...x.offloaded);
+            for (const o of x.offloaded) acc.offloaded.push(o);
             next = x.text;
           }
         } else if (step === "log" && levers.log && fresh && spans.length === 0) {
@@ -5464,7 +5497,7 @@ function rewriteRow(content, tool, levers, query) {
           if (d) {
             acc.elide.lines += d.lines;
             acc.elide.saved += cur.length - d.text.length;
-            acc.offloaded.push(...d.offloaded);
+            for (const o of d.offloaded) acc.offloaded.push(o);
             next = d.text;
           }
         }
@@ -5491,7 +5524,7 @@ function rewriteRow(content, tool, levers, query) {
       if (!f) return text;
       acc.dedup.spans += f.spans;
       acc.dedup.saved += text.length - f.text.length;
-      acc.folded.push(...f.offloaded);
+      for (const o of f.offloaded) acc.folded.push(o);
       return f.text;
     };
     const c = b.content;

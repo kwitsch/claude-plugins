@@ -829,6 +829,9 @@ Deviations:
 - The anchor is quoted with `JSON.stringify` (always double quotes) instead of
   Python `repr`. It is truncated by code points, as upstream does.
 - A line number beyond `Number.MAX_SAFE_INTEGER` is treated as non-numbered.
+- A `:` separator directly followed by a digit (`10:15:03 …`, `8080:80`) is not a
+  line number: the leading integer is a time or port, so such lines match
+  exactly.
 - JS `\d` is ASCII-only where Python's `str` regex `\d` is Unicode.
 - Lengths count UTF-16 units.
 

@@ -435,7 +435,12 @@ export const register: Register = (on, options) => {
         }
       }
       // next exactly once, its answer relayed unchanged: the engine skips a hook that answers another row.
-      return next({ ...e, message: { ...e.message, content: rw.content } });
+      try {
+        return await next({ ...e, message: { ...e.message, content: rw.content } });
+      } catch (err) {
+        dropCorpus(e.agentId ?? ""); // the row was never stored: what this call indexed names a result the model never got
+        throw err;
+      }
     });
   }
 
