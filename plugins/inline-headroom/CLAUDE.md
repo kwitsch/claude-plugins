@@ -204,6 +204,10 @@ Deviations from upstream:
 - `crushQuery` counts only user messages with text toward its last five: a
   Claude Code tool result is a user message with empty text, so upstream's
   count would drop the user's request after five tool calls.
+- `crushQuery` keeps at most `CRUSH_QUERY_INPUT_CHARS` (16,384) characters of
+  assistant tool-call input JSON in all, newest first; upstream has no cap. A
+  subagent has one user message, so its walk would otherwise stringify every
+  input back to the agent's start on each JSON result (O(n²) over its life).
 - JS regex `\b` is ASCII-only where Rust's is Unicode, and lengths count UTF-16
   code units where upstream counts UTF-8 bytes (length score, quoted anchors).
 - Deferred: lossless compaction, the string, number and mixed-array crushers,

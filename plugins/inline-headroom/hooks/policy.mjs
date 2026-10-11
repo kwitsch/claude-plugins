@@ -71,6 +71,8 @@ export const PLUGIN = "inline-headroom";
 export const RETRIEVE_TOOL = `mcp__${PLUGIN}__${RETRIEVE_NAME}`;
 /** A JSON document is crushed only above this many characters (upstream min_tokens_to_crush 200 × 4 chars per token: the mod has no tokenizer). */
 export const CRUSH_MIN_CHARS = 800;
+/** Characters of assistant tool-call input JSON the crusher's query keeps in all, newest first (a deviation: upstream has no cap). */
+export const CRUSH_QUERY_INPUT_CHARS = 16_384;
 /** Offloaded originals kept for headroom_retrieve, oldest evicted first (upstream CCR DEFAULT_CAPACITY). */
 export const CCR_CAPACITY = 1000;
 /** Characters of offloaded originals kept in all (about 32 MB as UTF-16), oldest evicted first. Deviation: upstream caps by count only. */
@@ -555,6 +557,8 @@ export function retrieveKey(hash) {
  * The crusher's query (upstream _extract_context_from_messages): newest first, the text of the last five
  * user messages with text and each assistant tool call's input JSON. Deviation: upstream counts every user message,
  * but a Claude Code tool result is a user message with empty text, so the real request would age out after five calls.
+ * Deviation: the tool-call inputs keep at most CRUSH_QUERY_INPUT_CHARS characters in all, newest first. A subagent has
+ * one user message, so the walk would otherwise stringify every input back to its start on each JSON result.
  * @param {readonly QueryMessage[]} messages chronological, as the session.messages op returns them
  * @returns {string}
  */
@@ -562,13 +566,20 @@ export function crushQuery(messages) {
   /** @type {string[]} */
   const parts = [];
   let users = 0;
+  let budget = CRUSH_QUERY_INPUT_CHARS;
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
     if (m.role === "user") {
       if (!m.text) continue;
       parts.push(m.text);
       if (++users >= 5) break;
-    } else for (const u of m.toolUses) parts.push(JSON.stringify(u.input));
+    } else
+      for (const u of m.toolUses) {
+        if (budget <= 0) break;
+        const input = JSON.stringify(u.input).slice(0, budget);
+        budget -= input.length;
+        parts.push(input);
+      }
   }
   return parts.join(" ");
 }

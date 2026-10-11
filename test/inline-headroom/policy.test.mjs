@@ -5,6 +5,7 @@ import {
   CCR_CAPACITY,
   CCR_MAX_CHARS,
   CRUSH_MIN_CHARS,
+  CRUSH_QUERY_INPUT_CHARS,
   DEDUP_MAX_CHARS,
   EFFORT_ORDER,
   ERROR_KEYWORDS,
@@ -386,6 +387,18 @@ test("crushQuery walks back from the last message, stops after the 5th user mess
   ];
   assert.equal(crushQuery(messages), '{"command":"cat data.json"} u5 {"file_path":"a.json"} u4 u3 {"command":"ls"} u2 u1');
   assert.equal(crushQuery([]), "");
+});
+
+test("crushQuery keeps at most CRUSH_QUERY_INPUT_CHARS of tool-call input, newest first, and still reaches the request", () => {
+  /** @param {string} c */
+  const write = (c) =>
+    /** @type {import("../../plugins/inline-headroom/hooks/policy.mjs").QueryMessage} */ ({ role: "assistant", text: "", toolUses: [{ input: { content: c.repeat(CRUSH_QUERY_INPUT_CHARS) } }] });
+  // A subagent: one user message, then more tool-call input than the cap.
+  const query = crushQuery([{ role: "user", text: "find the failing tests", toolUses: [] }, write("a"), write("b"), write("c")]);
+  assert.equal(query.length, CRUSH_QUERY_INPUT_CHARS + " find the failing tests".length);
+  assert.ok(query.startsWith('{"content":"ccc')); // the newest input fills the budget
+  assert.ok(!query.includes("bbb") && !query.includes("aaa")); // older inputs are skipped, not stringified
+  assert.ok(query.endsWith(" find the failing tests")); // the request itself is still the last part
 });
 
 const SENTINEL = /^<<ccr:([0-9a-f]{12}) (\d+)_rows_offloaded>>$/;
