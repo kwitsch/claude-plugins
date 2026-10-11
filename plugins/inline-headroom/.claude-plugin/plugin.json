@@ -52,10 +52,16 @@
       "description": "Shorten long, nearly space-free lines (minified JS/CSS, base64, RSC payloads) in tool results to their head and tail once they add up to 2000+ characters (headroom dense line elider); the original stays retrievable via headroom_retrieve while the mod is loaded. Never rewrites error results.",
       "default": true
     },
+    "html_extractor_enabled": {
+      "type": "boolean",
+      "title": "HTML extractor",
+      "description": "Turn HTML tool results (web pages) into markdown-like text (headings, lists, links, tables) without scripts, styles, navigation, footers and other boilerplate, a bounded stand-in for headroom's trafilatura extractor; the original page stays retrievable via headroom_retrieve while the mod is loaded. Never rewrites error results.",
+      "default": true
+    },
     "subagent_compression_enabled": {
       "type": "boolean",
       "title": "Subagent compression",
-      "description": "Also apply the SmartCrusher, lossless compaction, cross-turn dedup, the dense line elider and the config compressor to subagent and Workflow-agent tool results. Only active while one of them is on. An agent type whose tool list leaves out headroom_retrieve cannot get the originals back.",
+      "description": "Also apply the SmartCrusher, lossless compaction, cross-turn dedup, the dense line elider, the config compressor and the HTML extractor to subagent and Workflow-agent tool results. Only active while one of them is on. An agent type whose tool list leaves out headroom_retrieve cannot get the originals back.",
       "default": true
     },
     "storage_enabled": {

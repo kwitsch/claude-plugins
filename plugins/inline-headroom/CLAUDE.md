@@ -1,16 +1,16 @@
 # CLAUDE.md — inline-headroom
 
 Mods-API plugin (the repo's first): one TypeScript function-hooks module, no
-skills/agents/command hooks. Seven levers, each behind a boolean `userConfig`
+skills/agents/command hooks. Eight levers, each behind a boolean `userConfig`
 toggle (`effort_routing_enabled`, `cache_aligner_enabled`,
 `smart_crusher_enabled`, `lossless_compaction_enabled`,
 `cross_turn_dedup_enabled`, `dense_line_elider_enabled`,
-`config_compressor_enabled`), plus `subagent_effort_routing_enabled`, which
-extends effort routing to subagent and Workflow-agent steps and is active only
-while `effort_routing_enabled` is on, and `subagent_compression_enabled`, which
-extends the five compression levers to subagent and Workflow-agent tool results
-and is active only while one of them is on (all nine `default: true`, only
-literal `false` disables), plus the
+`config_compressor_enabled`, `html_extractor_enabled`), plus
+`subagent_effort_routing_enabled`, which extends effort routing to subagent and
+Workflow-agent steps and is active only while `effort_routing_enabled` is on,
+and `subagent_compression_enabled`, which extends the six compression levers to
+subagent and Workflow-agent tool results and is active only while one of them
+is on (all ten `default: true`, only literal `false` disables), plus the
 `/headroom` stats command and the compression levers' `headroom_retrieve` tool.
 It also ships a host-wide SQLite storage MCP server behind the fail-closed
 `storage_enabled` toggle (see `## Storage server`); the mod persists
@@ -41,7 +41,8 @@ It also ships a host-wide SQLite storage MCP server behind the fail-closed
   `tsconfig.json` (`plugins/**/*.mjs`), ESLint, and `node --test` via
   `test/inline-headroom/policy.test.mjs`. It also holds the content router and
   the SmartCrusher (with its lossless compaction stage), cross-turn dedup,
-  dense line elider and config compressor ports (see their sections).
+  dense line elider, config compressor and HTML extractor ports (see their
+  sections).
 - `tests/inline-headroom.test.ts` — hook-wiring tests for `claude plugin test`.
   Local only: CI runners have no `claude` CLI; `test/inline-headroom/test.bats`
   runs `claude plugin validate` and `claude plugin test` when `claude`
@@ -289,8 +290,9 @@ Wiring in `register.ts`, shared by every compression lever:
   request read one form (prompt-cache safe). `rewriteToolResults` (pure, in
   `policy.mjs`) labels each text with `detectContentType`, runs that type's
   `ROUTES` steps (crush then elide for `json_array`, config then elide for
-  `structured_config`, elide for every other type), then deduplicates a
-  single-text result (see `## Content router`).
+  `structured_config`, extract then elide on the extraction for `html`, elide
+  for every other type), then deduplicates a single-text result (see
+  `## Content router`).
 - Gates, each passing the row through with `next(e)`: `retrieveReady` (this
   module load registered the tool under `RETRIEVE_TOOL`; a marker must never
   name a missing tool), `origin.kind === "tool"`, and a subagent row
@@ -316,9 +318,9 @@ Wiring in `register.ts`, shared by every compression lever:
 - Every dropped original goes to an in-memory `Map` through `storeOffloaded`
   (1000 entries and `CCR_MAX_CHARS` characters each, oldest evicted, no TTL;
   upstream caps by count only), in two stores so dedup churn never evicts a
-  sole copy: `offloaded` holds the crusher's, the elider's and the config
-  compressor's originals, which exist nowhere else, and `folded` holds dedup
-  runs, whose earlier copy is still
+  sole copy: `offloaded` holds the crusher's, the elider's, the config
+  compressor's and the HTML extractor's originals, which exist nowhere else,
+  and `folded` holds dedup runs, whose earlier copy is still
   in the transcript until a compaction. `storeOffloaded` never evicts an entry
   of the batch it was just given (a row's markers always resolve, even when it
   folds more than 1000 runs), so a store may sit over a cap until its next call
@@ -550,6 +552,14 @@ INI) that the config compressor rewrites is no longer elided, as upstream
 leaves CONFIG out of `_DENSE_ELIDE_AFTER`; with `config_compressor_enabled`
 off, or when the compressor declines, the elider runs on it exactly as before.
 
+Behaviour change (0.7.0): an HTML text the HTML extractor rewrites is elided as
+its extraction (the elider runs after the extractor, upstream's
+`_DENSE_ELIDE_AFTER` HTML member), so a dense line inside the page's text is
+cut there and the page's markup never reaches the elider; the elider's
+retrieval line then follows the extractor's, and its stored original is the
+extraction. With `html_extractor_enabled` off, or when the extractor declines,
+the elider runs on the page exactly as before.
+
 ## Config compressor
 
 A port of upstream headroom's structured-config compressor
@@ -610,6 +620,52 @@ Deviations:
 - Deferred: Tier 3, the TOML array-of-tables schema fold (it needs a real TOML
   parser), and upstream's lossless folds for other kinds (log, search, diff,
   text, paths).
+
+## HTML extractor
+
+A bounded, hand-written stand-in for upstream headroom's HTML extractor
+(`headroom/transforms/html_extractor.py`, which runs trafilatura, with its
+`content_router.py` wiring and `_DENSE_ELIDE_AFTER` membership, read
+2026-10-11 at 976aa71) in `hooks/policy.mjs` as `extractHtml`, reached through
+the content router's `html` route (`extract`, then `elide` on the extraction).
+It has its own toggle, `html_extractor_enabled`, and its own `html extractor`
+table (`pages`, `saved`). It shares the tag lexer `tagAt` (upstream
+`tag_protector.rs` `parse_tag_at`) with the tag protector.
+
+Ported verbatim:
+
+- The routing: `html` is extracted, and the dense line elider then runs on the
+  extraction (`_DENSE_ELIDE_AFTER` holds HTML; `ELIDE_AFTER` here).
+- An empty extraction falls through (upstream #3609): the elider then runs on
+  the page as it is, and no block is discarded.
+- trafilatura's settings as far as they apply: links and tables kept, images
+  and comments dropped, recall over precision, markdown-ish output.
+
+Deviations:
+
+- No trafilatura (a third-party package; the mod takes no dependencies). One
+  forward pass skips comments, `<!…>` and `<?…>` declarations and the
+  boilerplate or non-text elements `head`, `script`, `style`, `noscript`,
+  `template`, `svg`, `math`, `iframe`, `object`, `embed`, `canvas`, `audio`,
+  `video`, `picture`, `map`, `nav`, `footer`, `aside`, `form`, `button`,
+  `select`, `textarea` and `dialog` (open tag to the first case-insensitive
+  close tag, or to the end when unclosed), and renders the rest: `#` headings,
+  `- ` list items, `[text](href)` links (not `#…` or `javascript:`), `| ` table
+  cells with one row per line, a line break per block element, whitespace kept
+  only inside `<pre>`, and `&amp; &lt; &gt; &quot; &apos; &nbsp;` plus decimal
+  and hex references decoded. No main-content scoring and no metadata, so its
+  output differs from upstream's and keeps more of the page.
+- The original page stays retrievable: the extraction ends with
+  `[HTML extracted to text: N characters of markup removed. Retrieve original: hash=H]`
+  and the page goes to the `offloaded` store. Upstream's HTML path cannot be
+  undone.
+- The pass draws on a budget of 4 per character + 4096 (the lexer charges
+  every character it scans), and a page that exhausts it passes through; so
+  does a page whose extraction plus retrieval line is not shorter.
+- Misroute risk: dense grep or log output carrying a doctype, an `<html>` tag
+  or 3 structural tags can be labelled `html` (the HTML branch precedes search
+  and log, as on upstream's regex path), and the extractor would then strip
+  markup-looking text from it. The original stays retrievable.
 
 ## Content router
 
@@ -681,10 +737,11 @@ Routing: a light port of `headroom/transforms/content_router.py`
 and the passthrough-fallback elision, read 2026-10-11 at 976aa71). The
 module-private `ROUTES` table maps each tag to its ordered steps:
 `json_array` runs `crush` then `elide`, `structured_config` runs `config` then
-`elide`, every other tag runs `elide`.
+`elide`, `html` runs `extract` then `elide`, every other tag runs `elide`.
 `rewriteRow`'s `shrink` detects once per unprotected text and runs that type's
 steps in order, skipping a step whose lever is off; the first step that
-rewrites wins. Detection runs only while a lever some route runs is on (every
+rewrites wins, except that a step in `ELIDE_AFTER` (`extract`, upstream's
+`_DENSE_ELIDE_AFTER` HTML member) hands its rewrite on to the next step. Detection runs only while a lever some route runs is on (every
 compression lever but dedup), so a dedup-only configuration pays nothing,
 and only on a text of at least `ROUTE_MIN_CHARS` (300, the lowest floor of any
 step), since a shorter one is passed through whatever its label.
@@ -723,8 +780,8 @@ Adding a compressor: name a new `RouteStep`, add its case in `rewriteRow`'s
 `shrink`, a `Levers` flag fed by its own `*_enabled` toggle in `register.ts`
 (plus its term in `compressOn`), a `RowRewrite` accumulator and `/headroom`
 table if it reports savings, and its step in the `ROUTES` entries of the types
-it fits, deciding there whether `elide` still follows it (as upstream's
-`_DENSE_ELIDE_AFTER` does).
+it fits, deciding whether `elide` still runs on its rewrite (put the step in
+`ELIDE_AFTER`, as upstream's `_DENSE_ELIDE_AFTER` does).
 
 ## Verified Claude Code 2.1.288 shapes relied on
 

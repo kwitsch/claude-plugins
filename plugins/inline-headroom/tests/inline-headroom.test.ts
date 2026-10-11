@@ -240,8 +240,8 @@ test("(i) /headroom opens the headroom pane and prints nothing", async ($, on) =
   const out = await $.command.run({ command: "headroom" });
   expect(out.text).toBeUndefined();
   expect(opened.length).toBe(1);
-  // 6 + 5 + 2 + 2 + 2 + 2 + 2 table rows, the storage note, the volatile header and eight gaps.
-  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 31 });
+  // 6 + 5 + 2 + 2 + 2 + 2 + 2 + 2 table rows, the storage note, the volatile header and nine gaps.
+  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 34 });
 });
 
 test("(i2) /headroom falls back to the stats tables as text when the pane is not placed", async ($, on) => {
@@ -533,6 +533,7 @@ test(
       cross_turn_dedup_enabled: false,
       dense_line_elider_enabled: false,
       config_compressor_enabled: false,
+      html_extractor_enabled: false,
     },
   },
   async ($, on) => {
@@ -543,7 +544,7 @@ test(
     await clock.advance(30_000); // no refresh timer runs
     const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
     expect(
-      await ui.find({ type: "Text", text: /^effort routing, cache aligner, smart crusher, lossless compaction, cross-turn dedup, dense line elider and config compressor are off/ }),
+      await ui.find({ type: "Text", text: /^effort routing, cache aligner, smart crusher, lossless compaction, cross-turn dedup, dense line elider, config compressor and HTML extractor are off/ }),
     ).toBeDefined();
     expect(await ui.find({ type: "Text", text: /^effort routing$/ })).toBeUndefined();
     expect(calls).toHaveLength(0);
@@ -742,6 +743,7 @@ test(
       cross_turn_dedup_enabled: false,
       dense_line_elider_enabled: false,
       config_compressor_enabled: false,
+      html_extractor_enabled: false,
       storage_enabled: false,
     },
   },
@@ -762,6 +764,7 @@ test(
     expect(text).not.toMatch(/^line elider/m);
     expect(text).not.toMatch(/^compaction/m);
     expect(text).not.toMatch(/^config/m);
+    expect(text).not.toMatch(/^html extractor/m);
   },
 );
 
@@ -835,6 +838,7 @@ test(
       cross_turn_dedup_enabled: false,
       dense_line_elider_enabled: false,
       config_compressor_enabled: false,
+      html_extractor_enabled: false,
     },
   },
   async ($, on) => {
@@ -882,6 +886,7 @@ test(
       cross_turn_dedup_enabled: false,
       dense_line_elider_enabled: false,
       config_compressor_enabled: false,
+      html_extractor_enabled: false,
       storage_enabled: false,
     },
   },
@@ -1104,4 +1109,34 @@ test("(cc2) config_compressor_enabled false keeps a YAML row whole and hides the
   await startCrusher(on, $);
   expect(await appendResult($, "Bash", CONFIG)).toBe(CONFIG);
   expect((await $.command.run({ command: "headroom" })).text).not.toMatch(/^config/m);
+});
+
+// A small web page: its head, script, navigation and footer are boilerplate the HTML extractor drops.
+const HTML_PAGE = [
+  "<!DOCTYPE html>",
+  "<html><head><title>Docs</title><style>body { font-family: sans-serif; margin: 0 auto; max-width: 60em; }</style>",
+  '<script>window.analytics = { id: "UA-000000", track: function () { return true; } };</script></head>',
+  '<body><nav><a href="/">Home</a> <a href="/docs">Docs</a></nav>',
+  "<main><h1>Install</h1><p>Run the installer, then restart the service.</p><ul><li>Linux</li><li>macOS</li></ul></main>",
+  "<footer>Copyright 2026 Example Corp. All rights reserved.</footer></body></html>",
+].join("\n");
+const EXTRACTOR_ROW = /^html extractor\s+pages\s+saved\nsession\s+(\d+)\s+(\d+)$/m;
+
+test("(hx1) an HTML row is stored as extracted text, its page is retrievable, and /headroom counts it", { options: { storage_enabled: false } }, async ($, on) => {
+  on("ui.open", notPlaced);
+  await startCrusher(on, $);
+  const stored = String(await appendResult($, "Bash", HTML_PAGE));
+  const [, hash] = /\n\[HTML extracted to text: \d+ characters of markup removed\. Retrieve original: hash=([0-9a-f]{12})\]$/.exec(stored) ?? [];
+  expect(stored.startsWith("# Install\n\nRun the installer, then restart the service.\n\n- Linux\n- macOS\n")).toBe(true);
+  expect((await $.tool.call({ tool: RETRIEVE_TOOL, hash })).result).toBe(HTML_PAGE);
+  const [, pages, saved] = EXTRACTOR_ROW.exec((await $.command.run({ command: "headroom" })).text ?? "") ?? [];
+  expect(Number(pages)).toBe(1);
+  expect(Number(saved)).toBe(HTML_PAGE.length - stored.length);
+});
+
+test("(hx2) html_extractor_enabled false keeps an HTML row whole and hides the html extractor table", { options: { html_extractor_enabled: false, storage_enabled: false } }, async ($, on) => {
+  on("ui.open", notPlaced);
+  await startCrusher(on, $);
+  expect(await appendResult($, "Bash", HTML_PAGE)).toBe(HTML_PAGE);
+  expect((await $.command.run({ command: "headroom" })).text).not.toMatch(/^html extractor/m);
 });

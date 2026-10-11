@@ -31,6 +31,7 @@ import {
   dedupBlock,
   elideDense,
   expandRuns,
+  extractHtml,
   findVolatile,
   foldRepeatedBlocks,
   foldPending,
@@ -261,6 +262,10 @@ test("statsTables builds every table, with blank for rows without counters", () 
       ["config", "texts", "saved"],
       ["session", "0", "0"],
     ],
+    [
+      ["html extractor", "pages", "saved"],
+      ["session", "0", "0"],
+    ],
   ]);
   // The in-memory rows: subagents right under the effort session row, the crusher's session counts.
   const [effort, , crusher] = statsTables([c], "…", { subagents: { steps: 4, clamped: 3 }, crush: { dropped: 40, saved: 1200 } });
@@ -273,9 +278,10 @@ test("statsTables builds every table, with blank for rows without counters", () 
   const [, , , deduper, elider] = statsTables([c], "…", { dedup: { spans: 3, saved: 900 }, elide: { lines: 2, saved: 4100 } });
   assert.deepEqual(deduper[1], ["session", "3", "900"]);
   assert.deepEqual(elider[1], ["session", "2", "4100"]);
-  const [, , , , , compactor, configs] = statsTables([c], "…", { compact: { arrays: 2, saved: 5300 }, config: { texts: 1, saved: 640 } });
+  const [, , , , , compactor, configs, extractor] = statsTables([c], "…", { compact: { arrays: 2, saved: 5300 }, config: { texts: 1, saved: 640 }, extract: { pages: 3, saved: 21000 } });
   assert.deepEqual(compactor[1], ["session", "2", "5300"]);
   assert.deepEqual(configs[1], ["session", "1", "640"]);
+  assert.deepEqual(extractor[1], ["session", "3", "21000"]);
   assert.equal(statsTables([zeroCounters()], "–")[1][1][1], "–"); // no tokens: no hit ratio
   assert.equal(statsTables([{ ...c, hit: 0.1 }], "…")[1][1][1], "10%"); // a row's own hit wins over the token-weighted one
 });
@@ -1808,4 +1814,105 @@ test("rewriteToolResults routes structured config to the config compressor, whic
   assert.ok(text.includes(`  blob: ${"QUJD".repeat(700)}`));
   assert.ok(text.includes("lines back)"));
   assert.deepEqual(r.offloaded, []); // nothing to elide, so nothing stored
+});
+
+// HTML extractor (a bounded stand-in for upstream html_extractor.py) and the ELIDE_AFTER route.
+
+const PAGE = `<!DOCTYPE html>
+<html lang="en">
+<head><title>Release notes</title><style>body { color: #333; font-family: sans-serif; margin: 0 auto; max-width: 60em; }</style>
+<script>window.analytics = { id: "UA-000000", track: function () { return true; } };</script></head>
+<body>
+<nav><a href="/">Home</a> | <a href="/docs">Docs</a></nav>
+<!-- build 4711 -->
+<main>
+<h1>Release   notes</h1>
+<p>Version <b>2.4</b> fixes the &lt;cache&gt; bug &amp; adds <a href="https://example.com/changelog">the changelog</a>.</p>
+<h2>Changes</h2>
+<ul><li>Faster startup</li><li>Smaller &quot;bundle&quot; &#8212; 30&#x25; less</li></ul>
+<table><tr><th>Name</th><th>Value</th></tr><tr><td>retries</td><td>3</td></tr></table>
+<pre>  indented
+    code line</pre>
+<p><a href="#top">Back to top</a> <a href="javascript:void(0)">noop</a><br>next line</p>
+<svg viewBox="0 0 10 10"><path d="M0 0L10 10"/></svg>
+</main>
+<footer>Copyright 2026 Example Corp. All rights reserved.</footer>
+</body>
+</html>`;
+const PAGE_TEXT = [
+  "# Release notes",
+  "",
+  "Version 2.4 fixes the <cache> bug & adds [the changelog](https://example.com/changelog).",
+  "",
+  "## Changes",
+  "",
+  "- Faster startup",
+  '- Smaller "bundle" — 30% less',
+  "",
+  "| Name | Value |",
+  "| retries | 3 |",
+  "",
+  "  indented",
+  "    code line",
+  "",
+  "Back to top noop",
+  "next line",
+].join("\n");
+// Markup that extraction removes, so a short body still comes out shorter than its page.
+const HEAD = `<!DOCTYPE html><html><head><style>${"p { margin: 0; padding: 0; } ".repeat(12)}</style></head><body>`;
+
+/**
+ * extractHtml that must rewrite; throws when the page passes through.
+ * @param {string} html
+ */
+function extracted(html) {
+  const r = extractHtml(html);
+  if (!r) throw new Error("expected extractHtml to rewrite the page");
+  return r;
+}
+
+test("extractHtml keeps headings, lists, links, tables, pre whitespace and decoded text, and drops the boilerplate", () => {
+  assert.equal(detectContentType(PAGE), "html");
+  const r = extracted(PAGE);
+  const [hash] = r.offloaded[0];
+  assert.deepEqual(r.offloaded, [[hash, PAGE]]);
+  assert.equal(r.text, `${PAGE_TEXT}\n[HTML extracted to text: ${PAGE.length - PAGE_TEXT.length} characters of markup removed. Retrieve original: hash=${hash}]`);
+  for (const gone of ["analytics", "font-family", "Home", "build 4711", "Copyright", "M0 0L10 10", "Release notes</title>"]) assert.ok(!r.text.includes(gone), gone);
+});
+
+test("extractHtml ends at an unterminated comment or an unclosed drop element, and passes through an empty or longer result", () => {
+  assert.ok(extracted(`${HEAD}<p>kept before</p><!-- unterminated <p>never shown</p>`).text.startsWith("kept before\n[HTML extracted to text: "));
+  assert.ok(extracted(`${HEAD}<p>kept before</p><script>never closed <p>never shown</p>`).text.startsWith("kept before\n[HTML extracted to text: "));
+  assert.equal(extractHtml(`<!DOCTYPE html><html><body><script>${"x".repeat(400)}</script></body></html>`), undefined); // nothing left (upstream #3609)
+  assert.equal(extractHtml(`<!DOCTYPE html><p>${"word ".repeat(100)}</p>`), undefined); // the retrieval line costs more than the markup
+});
+
+test("extractHtml gives up on an exhausted scan budget instead of rescanning unterminated quotes", () => {
+  const t0 = Date.now();
+  assert.equal(extractHtml(`<!DOCTYPE html><html><body>${'<a x="'.repeat(40_000)}`), undefined);
+  assert.ok(Date.now() - t0 < 1000, `took ${Date.now() - t0} ms`);
+});
+
+test("rewriteToolResults extracts HTML, then elides a dense line of the extraction (ELIDE_AFTER)", () => {
+  const blob = "QUJD".repeat(700);
+  const page = `${HEAD}<h1>Bundle</h1><pre>${blob}</pre></body></html>`;
+  const r = rewrite([toolResult(page)], "Bash", levers({ extract: true }));
+  const text = String(r.content[0].content);
+  assert.deepEqual([r.extract.pages, r.elide.lines], [1, 1]);
+  assert.match(text, /^# Bundle\n\nQUJD/);
+  assert.match(
+    text,
+    /\n\[HTML extracted to text: \d+ characters of markup removed\. Retrieve original: hash=[0-9a-f]{12}\]\n\[1 dense machine-generated line elided\. Retrieve original: hash=[0-9a-f]{12}\]$/,
+  );
+  assert.equal(r.offloaded.length, 2);
+  assert.deepEqual(r.offloaded[0][1], page); // the page, then the extraction the elider shortened
+  assert.ok(r.offloaded[1][1].startsWith(`# Bundle\n\n${blob}\n[HTML extracted to text: `));
+  assert.equal(r.extract.saved + r.elide.saved, page.length - text.length);
+  // The extractor off: the elider alone, on the page as it is (the old html behaviour).
+  const old = rewrite([toolResult(page)], "Bash", levers({ extract: false }));
+  assert.deepEqual([old.extract.pages, old.elide.lines], [0, 1]);
+  assert.ok(String(old.content[0].content).startsWith("<!DOCTYPE html>"));
+  // A page that extracts to nothing falls through to the elider.
+  const scripted = rewrite([toolResult(`<!DOCTYPE html><html><body><script>${blob}</script></body></html>`)], "Bash", levers({ extract: true }));
+  assert.deepEqual([scripted.extract.pages, scripted.elide.lines], [0, 1]);
 });
