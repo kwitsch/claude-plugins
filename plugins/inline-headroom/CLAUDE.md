@@ -1,15 +1,16 @@
 # CLAUDE.md — inline-headroom
 
 Mods-API plugin (the repo's first): one TypeScript function-hooks module, no
-skills/agents/command hooks. Six levers, each behind a boolean `userConfig`
+skills/agents/command hooks. Seven levers, each behind a boolean `userConfig`
 toggle (`effort_routing_enabled`, `cache_aligner_enabled`,
 `smart_crusher_enabled`, `lossless_compaction_enabled`,
-`cross_turn_dedup_enabled`, `dense_line_elider_enabled`), plus
-`subagent_effort_routing_enabled`, which extends effort routing to subagent and
-Workflow-agent steps and is active only while `effort_routing_enabled` is on,
-and `subagent_compression_enabled`, which extends the four compression levers
-to subagent and Workflow-agent tool results and is active only while one of
-them is on (all eight `default: true`, only literal `false` disables), plus the
+`cross_turn_dedup_enabled`, `dense_line_elider_enabled`,
+`config_compressor_enabled`), plus `subagent_effort_routing_enabled`, which
+extends effort routing to subagent and Workflow-agent steps and is active only
+while `effort_routing_enabled` is on, and `subagent_compression_enabled`, which
+extends the five compression levers to subagent and Workflow-agent tool results
+and is active only while one of them is on (all nine `default: true`, only
+literal `false` disables), plus the
 `/headroom` stats command and the compression levers' `headroom_retrieve` tool.
 It also ships a host-wide SQLite storage MCP server behind the fail-closed
 `storage_enabled` toggle (see `## Storage server`); the mod persists
@@ -39,8 +40,8 @@ It also ships a host-wide SQLite storage MCP server behind the fail-closed
   It is `.mjs` (not `.ts`) so the root toolchain covers it in CI:
   `tsconfig.json` (`plugins/**/*.mjs`), ESLint, and `node --test` via
   `test/inline-headroom/policy.test.mjs`. It also holds the content router and
-  the SmartCrusher (with its lossless compaction stage), cross-turn dedup and
-  dense line elider ports (see their sections).
+  the SmartCrusher (with its lossless compaction stage), cross-turn dedup,
+  dense line elider and config compressor ports (see their sections).
 - `tests/inline-headroom.test.ts` — hook-wiring tests for `claude plugin test`.
   Local only: CI runners have no `claude` CLI; `test/inline-headroom/test.bats`
   runs `claude plugin validate` and `claude plugin test` when `claude`
@@ -287,8 +288,9 @@ Wiring in `register.ts`, shared by every compression lever:
   first stored and sent, so the model, the transcript file and every later
   request read one form (prompt-cache safe). `rewriteToolResults` (pure, in
   `policy.mjs`) labels each text with `detectContentType`, runs that type's
-  `ROUTES` steps (crush then elide for `json_array`, elide for every other
-  type), then deduplicates a single-text result (see `## Content router`).
+  `ROUTES` steps (crush then elide for `json_array`, config then elide for
+  `structured_config`, elide for every other type), then deduplicates a
+  single-text result (see `## Content router`).
 - Gates, each passing the row through with `next(e)`: `retrieveReady` (this
   module load registered the tool under `RETRIEVE_TOOL`; a marker must never
   name a missing tool), `origin.kind === "tool"`, and a subagent row
@@ -314,8 +316,9 @@ Wiring in `register.ts`, shared by every compression lever:
 - Every dropped original goes to an in-memory `Map` through `storeOffloaded`
   (1000 entries and `CCR_MAX_CHARS` characters each, oldest evicted, no TTL;
   upstream caps by count only), in two stores so dedup churn never evicts a
-  sole copy: `offloaded` holds the crusher's and the elider's originals, which
-  exist nowhere else, and `folded` holds dedup runs, whose earlier copy is still
+  sole copy: `offloaded` holds the crusher's, the elider's and the config
+  compressor's originals, which exist nowhere else, and `folded` holds dedup
+  runs, whose earlier copy is still
   in the transcript until a compaction. `storeOffloaded` never evicts an entry
   of the batch it was just given (a row's markers always resolve, even when it
   folds more than 1000 runs), so a store may sit over a cap until its next call
@@ -542,6 +545,74 @@ Wiring: `rewriteToolResults` runs `elideDense` on every content type
 `smart_crusher_enabled` is off). Elided lines count in the `line elider`
 table's session-only `lines` and `saved`.
 
+Behaviour change (0.7.0): a text labelled `structured_config` (YAML, TOML or
+INI) that the config compressor rewrites is no longer elided, as upstream
+leaves CONFIG out of `_DENSE_ELIDE_AFTER`; with `config_compressor_enabled`
+off, or when the compressor declines, the elider runs on it exactly as before.
+
+## Config compressor
+
+A port of upstream headroom's structured-config compressor
+(`headroom/transforms/config_compressor.py`, the `collapse_runs`,
+`expand_runs`, `fold_repeated_blocks` and `unfold_repeated_blocks` helpers and
+`compact_lossless(…, "config")` of `headroom/transforms/lossless_compaction.py`,
+and `_try_detect_structured_config` of `content_detector.py`, read 2026-10-11
+at 976aa71) into `hooks/policy.mjs` as `compressConfig`, `configFlavor`,
+`isIniAssign` and the fold helpers, reached through the content router's
+`structured_config` route (`config` then `elide`). It has its own toggle,
+`config_compressor_enabled`, and its own `config` table (`texts`, `saved`).
+
+Ported verbatim:
+
+- Detection: the regexes `_CONFIG_SECTION_RE`, `_TOML_ASSIGN_RE`,
+  `_YAML_KEY_RE`, `_YAML_LIST_RE`, `_YAML_DOC_RE` and `_CONFIG_COMMENT_RE`; a
+  `{` or `<` first character is no config; at least 3 non-empty and 3 body
+  lines (comment lines are neutral); TOML/INI needs a section header, 2
+  assignments and a 0.6 share, and a text over 1,000,000 characters never
+  reads as TOML/INI; YAML needs 3 keys, a 0.6 share of keys, list items and
+  document markers, under half the lines ending a sentence, at most 8 words a
+  line, and 2 indent levels, a document marker or 3 list items; the markdown
+  front-matter guard. The branch sits after log and before code, upstream's
+  position (the tabular branch upstream checks in between stays omitted).
+- Tier 2: whole-line comments (`^\s*#`; INI only column-0 `#` or `;`) and,
+  outside INI, blank lines are dropped behind
+  `[N comment/blank lines elided. Retrieve original: hash=H]`, the original
+  stored first; skipped for a YAML block scalar or a TOML multi-line string.
+- Tier 1: runs of 2+ identical lines become `... (repeated N times)`, then a
+  run of 3 to 64 lines repeating the lines D back (K <= D) becomes
+  `... (repeats K lines from D lines back)` when its characters exceed the
+  marker's, with at most 8 recent positions per distinct line and no fold on a
+  text under 6 or over 20,000 lines; kept only when the inverse gives the text
+  back exactly and it is shorter.
+- A result that saves less than one character is discarded, its stored
+  original with it.
+
+Deviations:
+
+- Line-level checks stand in for `tomllib` and `configparser`: a section text
+  is TOML when every assignment is a TOML key whose value lexeme reads as TOML
+  (a basic or literal string, a number, `inf`, `nan`, a boolean, an RFC 3339
+  date/time, an array or inline-table opener), else INI when every assignment
+  is an INI one, else no TOML/INI (and the YAML checks run). That reproduces
+  upstream's flavor vectors (`x = "1"` is TOML, `x = hello` INI) but can claim
+  text a parser would reject; Tier 1 verifies itself and Tier 2 keeps the
+  original retrievable, so a wrong label costs nothing irreversible.
+- `isIniAssign` is a linear scanner accepting exactly what upstream's
+  `_INI_ASSIGN_RE` matches: its lazy run plus `\s*` backtracks quadratically on
+  whitespace-heavy lines.
+- INI also refuses Tier 2 around `"""` or `'''`, since its flavor is not
+  parser-confirmed.
+- The inverse helpers stop once their output would outgrow the text being
+  verified, so a marker-shaped line with a huge count, or markers doubling each
+  other, never allocates it (upstream expands such input in full).
+- Detection reads the detector's line-capped sample (the first 200 of its 500
+  lines, each cut to 1000 characters), not the whole text.
+- Deferred: Tier 3, the TOML array-of-tables schema fold (it needs a real TOML
+  parser), and upstream's lossless folds for other kinds (log, search, diff,
+  text, paths).
+
+## Content router
+
 ## Content router
 
 A port of upstream headroom's content detection into `hooks/policy.mjs` as
@@ -551,12 +622,13 @@ of `crates/headroom-core/src/transforms/content_detector.rs`, and
 `_TIMESTAMP_ROW_RE` from `headroom/transforms/lossless_compaction.py`, read
 2026-10-11 at 976aa71. It labels each unprotected tool-result text with one
 tag: `json_array`, `diff`, `html`, `tabular` (git status), `search`, `build`,
-`source_code` or `text`.
+`structured_config`, `source_code` or `text`.
 
 Ported verbatim:
 
 - The branch order and gates: empty → `text`; JSON; diff (≥ 0.7); HTML
-  (≥ 0.7); git status; search (≥ 0.6); log (≥ 0.5); code (≥ 0.5); else `text`.
+  (≥ 0.7); git status; search (≥ 0.6); log (≥ 0.5); structured config; code
+  (≥ 0.5); else `text`.
 - The line and character windows: diff over the first 500 lines, HTML over the
   first 3000 characters, search over the first 100 lines, log over the first
   200 lines, code over the first 100 lines.
@@ -574,13 +646,15 @@ Ported verbatim:
 
 Deviations from upstream:
 
-- Rust's category set. Python's tabular (markdown table, CSV/TSV), structured
-  config (YAML/TOML/INI) and fixed-width branches are omitted: Python confirms
-  TOML/INI with stdlib parsers (`tomllib`, `configparser`) that pure JS lacks,
-  so a heuristic port would over-claim; all three run after log, so they only
-  take text that would otherwise be code or plain text, which route
-  identically; and the newer tabular branch disagrees with upstream's own
-  parity fixtures (it reads the JavaScript fixture as `tabular`).
+- Rust's category set plus Python's structured-config branch (its tag
+  `structured_config` has no Rust counterpart). Its YAML/TOML/INI flavor comes
+  from line-level checks in place of `tomllib` and `configparser` (see
+  `## Config compressor`), so it can claim text upstream's parsers would
+  reject; it only takes text that would otherwise be code or plain text, whose
+  route was the elider alone. Python's tabular (markdown table, CSV/TSV) and
+  fixed-width branches stay omitted: they too only take such text, and the
+  newer tabular branch disagrees with upstream's own parity fixtures (it reads
+  the JavaScript fixture as `tabular`).
 - JSON follows Python, not Rust: objects, wrapped payloads and concatenated
   objects count, not only arrays. The parity fixture `{"foo": "bar"}`
   therefore reads `json_array` (Rust records `text`).
@@ -606,7 +680,8 @@ Routing: a light port of `headroom/transforms/content_router.py`
 (`_strategy_from_detection`, `_DENSE_ELIDE_AFTER`, the git-status early return
 and the passthrough-fallback elision, read 2026-10-11 at 976aa71). The
 module-private `ROUTES` table maps each tag to its ordered steps:
-`json_array` runs `crush` then `elide`, every other tag runs `elide`.
+`json_array` runs `crush` then `elide`, `structured_config` runs `config` then
+`elide`, every other tag runs `elide`.
 `rewriteRow`'s `shrink` detects once per unprotected text and runs that type's
 steps in order, skipping a step whose lever is off; the first step that
 rewrites wins. Detection runs only while a lever some route runs is on (every
@@ -641,8 +716,8 @@ Decisions:
   router is infrastructure, and each future compressor brings its own toggle;
   `.claude/rules/plugin-userconfig.md` lists it under its deliberate no-toggle
   exceptions.
-- No `/headroom` per-type counts. They would show labels with no savings, so
-  they are deferred until a type-specific compressor exists.
+- Per-compressor `/headroom` tables exist (`compaction`, `config`, …), but
+  per-type label counts stay omitted: a label alone saves nothing.
 
 Adding a compressor: name a new `RouteStep`, add its case in `rewriteRow`'s
 `shrink`, a `Levers` flag fed by its own `*_enabled` toggle in `register.ts`

@@ -34,6 +34,12 @@
       "description": "Before the SmartCrusher drops rows, rewrite a large JSON array of objects as one schema line plus CSV rows when that saves at least 15% (headroom lossless compaction): nothing is dropped, so nothing needs retrieving. Also runs while the SmartCrusher is off. Never rewrites error results.",
       "default": true
     },
+    "config_compressor_enabled": {
+      "type": "boolean",
+      "title": "Config compressor",
+      "description": "Shorten YAML, TOML and INI tool results (headroom ConfigCompressor): repeated lines and repeated multi-line blocks fold behind exact back-reference markers, and whole-line comments and blank lines are dropped behind a retrieval marker; the original stays retrievable via headroom_retrieve while the mod is loaded. Never rewrites error results.",
+      "default": true
+    },
     "cross_turn_dedup_enabled": {
       "type": "boolean",
       "title": "Cross-turn dedup",
@@ -49,7 +55,7 @@
     "subagent_compression_enabled": {
       "type": "boolean",
       "title": "Subagent compression",
-      "description": "Also apply the SmartCrusher, lossless compaction, cross-turn dedup and the dense line elider to subagent and Workflow-agent tool results. Only active while one of them is on. An agent type whose tool list leaves out headroom_retrieve cannot get the originals back.",
+      "description": "Also apply the SmartCrusher, lossless compaction, cross-turn dedup, the dense line elider and the config compressor to subagent and Workflow-agent tool results. Only active while one of them is on. An agent type whose tool list leaves out headroom_retrieve cannot get the originals back.",
       "default": true
     },
     "storage_enabled": {

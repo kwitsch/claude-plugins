@@ -240,8 +240,8 @@ test("(i) /headroom opens the headroom pane and prints nothing", async ($, on) =
   const out = await $.command.run({ command: "headroom" });
   expect(out.text).toBeUndefined();
   expect(opened.length).toBe(1);
-  // 6 + 5 + 2 + 2 + 2 + 2 table rows, the storage note, the volatile header and seven gaps.
-  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 28 });
+  // 6 + 5 + 2 + 2 + 2 + 2 + 2 table rows, the storage note, the volatile header and eight gaps.
+  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 31 });
 });
 
 test("(i2) /headroom falls back to the stats tables as text when the pane is not placed", async ($, on) => {
@@ -532,6 +532,7 @@ test(
       lossless_compaction_enabled: false,
       cross_turn_dedup_enabled: false,
       dense_line_elider_enabled: false,
+      config_compressor_enabled: false,
     },
   },
   async ($, on) => {
@@ -541,7 +542,9 @@ test(
     await $.command.run({ command: "headroom" });
     await clock.advance(30_000); // no refresh timer runs
     const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
-    expect(await ui.find({ type: "Text", text: /^effort routing, cache aligner, smart crusher, lossless compaction, cross-turn dedup and dense line elider are off/ })).toBeDefined();
+    expect(
+      await ui.find({ type: "Text", text: /^effort routing, cache aligner, smart crusher, lossless compaction, cross-turn dedup, dense line elider and config compressor are off/ }),
+    ).toBeDefined();
     expect(await ui.find({ type: "Text", text: /^effort routing$/ })).toBeUndefined();
     expect(calls).toHaveLength(0);
     await ui.unmount();
@@ -732,7 +735,16 @@ test("(sc3) an error row is stored untouched, and tool.call error and deny resul
 
 test(
   "(sc4) with every compression lever off no tool is registered, rows are stored untouched and no compression table shows",
-  { options: { smart_crusher_enabled: false, lossless_compaction_enabled: false, cross_turn_dedup_enabled: false, dense_line_elider_enabled: false, storage_enabled: false } },
+  {
+    options: {
+      smart_crusher_enabled: false,
+      lossless_compaction_enabled: false,
+      cross_turn_dedup_enabled: false,
+      dense_line_elider_enabled: false,
+      config_compressor_enabled: false,
+      storage_enabled: false,
+    },
+  },
   async ($, on) => {
     const st = bottomStep(on);
     on("ui.open", notPlaced);
@@ -749,6 +761,7 @@ test(
     expect(text).not.toMatch(/^dedup/m);
     expect(text).not.toMatch(/^line elider/m);
     expect(text).not.toMatch(/^compaction/m);
+    expect(text).not.toMatch(/^config/m);
   },
 );
 
@@ -814,7 +827,16 @@ test("(sc8) any tool's JSON row is crushed, but headroom_retrieve and the mod's 
 
 test(
   "(sc9) with only the crusher on, its hook still runs and the pane shows its table without reading storage",
-  { options: { effort_routing_enabled: false, cache_aligner_enabled: false, lossless_compaction_enabled: false, cross_turn_dedup_enabled: false, dense_line_elider_enabled: false } },
+  {
+    options: {
+      effort_routing_enabled: false,
+      cache_aligner_enabled: false,
+      lossless_compaction_enabled: false,
+      cross_turn_dedup_enabled: false,
+      dense_line_elider_enabled: false,
+      config_compressor_enabled: false,
+    },
+  },
   async ($, on) => {
     const clock = mock.clock(on, { now: NOW });
     const calls = stubWindows(on, () => windowSums(dayKey(NOW)));
@@ -859,6 +881,7 @@ test(
       lossless_compaction_enabled: false,
       cross_turn_dedup_enabled: false,
       dense_line_elider_enabled: false,
+      config_compressor_enabled: false,
       storage_enabled: false,
     },
   },
@@ -1045,4 +1068,40 @@ test("(lc2) lossless_compaction_enabled false sends a uniform JSON array to the 
   expect(rows.length).toBeLessThan(200);
   expect(dropped).toBeGreaterThan(0);
   expect((await $.command.run({ command: "headroom" })).text).not.toMatch(/^compaction/m);
+});
+
+// A commented k8s manifest whose container stanzas repeat: the config compressor elides the comments and folds the stanzas.
+const CONFIG = [
+  "# web tier deployment, owned by the platform team; change it only through the release pipeline",
+  "apiVersion: apps/v1",
+  "kind: Deployment",
+  "metadata:",
+  "  name: web",
+  "spec:",
+  "  replicas: 3",
+  "  template:",
+  "    spec:",
+  "      containers:",
+  ...[1, 2, 3].flatMap((n) => [`        - name: web-${n}`, "          image: nginx:1.25", "          resources:", "            limits:", "              cpu: 500m", "              memory: 512Mi"]),
+  "",
+].join("\n");
+const CONFIG_ROW = /^config\s+texts\s+saved\nsession\s+(\d+)\s+(\d+)$/m;
+
+test("(cc1) a YAML row is stored config-compressed, its original is retrievable, and /headroom counts it", { options: { storage_enabled: false } }, async ($, on) => {
+  on("ui.open", notPlaced);
+  await startCrusher(on, $);
+  const stored = String(await appendResult($, "Bash", CONFIG));
+  expect(stored).toMatch(/lines back\)$/m);
+  const [, hash] = /\[1 comment\/blank lines elided\. Retrieve original: hash=([0-9a-f]{12})\]$/m.exec(stored) ?? [];
+  expect((await $.tool.call({ tool: RETRIEVE_TOOL, hash })).result).toBe(CONFIG);
+  const [, texts, saved] = CONFIG_ROW.exec((await $.command.run({ command: "headroom" })).text ?? "") ?? [];
+  expect(Number(texts)).toBe(1);
+  expect(Number(saved)).toBe(CONFIG.length - stored.length);
+});
+
+test("(cc2) config_compressor_enabled false keeps a YAML row whole and hides the config table", { options: { config_compressor_enabled: false, storage_enabled: false } }, async ($, on) => {
+  on("ui.open", notPlaced);
+  await startCrusher(on, $);
+  expect(await appendResult($, "Bash", CONFIG)).toBe(CONFIG);
+  expect((await $.command.run({ command: "headroom" })).text).not.toMatch(/^config/m);
 });

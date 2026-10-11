@@ -4,7 +4,7 @@ Headroom-style levers inside Claude Code as a mod: clamp-only effort routing
 after successful tool results, a detector-only CacheAligner that flags
 volatile system-prompt content and cache-hit drops, and a SmartCrusher,
 cross-turn dedup and dense line elider that shrink tool results before the
-model reads them (originals retrievable). Ports six levers of
+model reads them (originals retrievable). Ports seven levers of
 [headroom](https://github.com/headroomlabs-ai/headroom) faithfully to upstream
 semantics.
 
@@ -24,17 +24,19 @@ semantics.
 | Compaction        | headroom SmartCrusher lossless compaction (csv-schema)     | Before the SmartCrusher drops a row, an array of 5 or more objects longer than its adaptive K is rendered as one typed schema line plus CSV rows (`[N]{id:int,name:string,…}` then `1,alice`), heterogeneous arrays split into buckets by a shared string field; when that saves at least 15% of the array's JSON the table replaces the array (as a JSON string), and nothing is dropped, so nothing needs retrieving. Runs while `smart_crusher_enabled` is off too (then an array whose table loses keeps every row). Error results are never rewritten.                                                                                                                                                                                                                                                                                                                                                        |
 | Cross-turn dedup  | headroom cross_turn_dedup.py                               | Replaces each run of 3 or more lines (40+ characters) in a tool result that already appeared in an earlier tool result of the same conversation (the main loop, or one subagent), verbatim or with every line number shifted by one constant, with a one-line pointer: `[↑nL same as result K: "anchor" hash=H]`, or `[↑nL same as result K +dL: "anchor" hash=H]` for a shifted re-read. K counts that conversation's tool results from 1, the earliest copy is never rewritten, and `headroom_retrieve` with the hash returns the run's exact text. A result that repeats an earlier one in full becomes a single pointer. Error results are never rewritten but count as originals.                                                                                                                                                                                                                             |
 | Dense line elider | headroom dense_line_elider.py                              | Shortens each line of 300+ characters with under 6% spaces, no tab and no JSON in it (minified JS/CSS, base64, RSC payloads) to its first 160 and last 80 characters around `...[N chars of dense machine-generated content elided]...`, once such lines add up to 2000+ characters in one result, and ends that result with `[N dense machine-generated line(s) elided. Retrieve original: hash=H]`; `headroom_retrieve` with the hash returns the whole original. It skips text the SmartCrusher rewrote, and error results.                                                                                                                                                                                                                                                                                                                                                                                     |
+| Config compressor | headroom ConfigCompressor (Tier 1 and 2)                   | Shortens a YAML, TOML or INI tool result of 300+ characters: whole-line comments and blank lines (INI: column-0 `#`/`;` comments only) are dropped behind `[N comment/blank lines elided. Retrieve original: hash=H]`, then repeated lines and repeated multi-line blocks (Kubernetes container stanzas, CI jobs) fold behind exact `... (repeated N times)` and `... (repeats K lines from D lines back)` markers, kept only when they expand back to the same text. Comments that may be data (a YAML block scalar, a multi-line string) are kept. `headroom_retrieve` with the hash returns the original. Error results are never rewritten.                                                                                                                                                                                                                                                                    |
 
 A content router (a light port of headroom's content detector) labels each
 tool-result text as JSON, diff, HTML, git status, search results, build/log
-output, source code or plain text, and runs only the levers that fit: the
-SmartCrusher and lossless compaction see only JSON, while the dense line
-elider and cross-turn dedup see every type. It has no option of its own; each
-lever keeps its toggle.
+output, YAML/TOML/INI config, source code or plain text, and runs only the
+levers that fit: the SmartCrusher and lossless compaction see only JSON and
+the config compressor only config, while the dense line elider and cross-turn
+dedup see every type. It has no option of its own; each lever keeps its
+toggle.
 
 ## Configuration options
 
-All nine options are on by default. For the lever toggles only a literal `false`
+All ten options are on by default. For the lever toggles only a literal `false`
 disables one; `storage_enabled` is fail-closed, so anything but a literal `true`
 turns storage off. Set them via
 `/plugin -> installed -> inline-headroom -> Configure options`, or in
@@ -52,6 +54,7 @@ turns storage off. Set them via
         "lossless_compaction_enabled": true,
         "cross_turn_dedup_enabled": true,
         "dense_line_elider_enabled": true,
+        "config_compressor_enabled": true,
         "subagent_compression_enabled": true,
         "storage_enabled": true
       }
@@ -69,6 +72,7 @@ turns storage off. Set them via
 | `lossless_compaction_enabled`     | `true`  | Before the SmartCrusher drops rows, rewrite a large JSON array of objects as a schema line plus CSV rows when that saves at least 15%; nothing is dropped. Also runs while `smart_crusher_enabled` is off.                                        |
 | `cross_turn_dedup_enabled`        | `true`  | Replace a run of 3 or more lines (40+ characters) that repeats an earlier tool result of the same conversation with a one-line pointer; the run stays retrievable with `headroom_retrieve` while the mod is loaded.                               |
 | `dense_line_elider_enabled`       | `true`  | Shorten long, nearly space-free lines (minified bundles, base64, RSC payloads) in tool results to their head and tail; the original stays retrievable with `headroom_retrieve` while the mod is loaded.                                           |
+| `config_compressor_enabled`       | `true`  | Shorten YAML, TOML and INI tool results: fold repeated lines and blocks losslessly and drop comments and blank lines behind a retrieval marker; the original stays retrievable with `headroom_retrieve` while the mod is loaded.                  |
 | `subagent_compression_enabled`    | `true`  | Also apply the SmartCrusher, cross-turn dedup and the dense line elider to subagent and Workflow-agent tool results. Only active while one of them is on; see [Notes & limitations](#notes--limitations).                                         |
 | `storage_enabled`                 | `true`  | Run the host-wide SQLite storage service behind the `storage` MCP tools (see [Storage](#storage)). Fail-closed: only a literal `true` enables it.                                                                                                 |
 
@@ -103,6 +107,9 @@ session                2    9870
 compaction        arrays   saved
 session                4   31200
 
+config             texts   saved
+session                1     640
+
 volatile shared values: unavailable (Claude Code keeps plugins out of the system-prompt hooks)
 ```
 
@@ -112,20 +119,22 @@ volatile shared values: unavailable (Claude Code keeps plugins out of the system
   rolling windows of local calendar days that include today: totals across all
   sessions on this host, read from [storage](#storage) when the pane opens and
   every 10 s while it stays open. `session`, `today`, `7 days` and `30 days`
-  count main-loop steps only. `smart crusher`, `dedup`, `line elider` and
-  `compaction` have only a `session` row, held in memory, which counts subagent
-  results too: `dropped` counts the array rows this session's crushes replaced
-  with a retrieval marker, `spans` the repeated runs replaced with a pointer,
-  `lines` the dense lines elided, `arrays` the arrays rewritten as a lossless
-  table, and each `saved` the characters that lever removed from tool results.
+  count main-loop steps only. `smart crusher`, `dedup`, `line elider`,
+  `compaction` and `config` have only a `session` row, held in memory, which
+  counts subagent results too: `dropped` counts the array rows this session's
+  crushes replaced with a retrieval marker, `spans` the repeated runs replaced
+  with a pointer, `lines` the dense lines elided, `arrays` the arrays rewritten
+  as a lossless table, `texts` the config texts shortened, and each `saved` the
+  characters that lever removed from tool results.
 - **Tables follow their levers.** `effort routing` is shown only while
   `effort_routing_enabled` is on, and its `subagents` row only while both
   `effort_routing_enabled` and `subagent_effort_routing_enabled` are on.
   `cache aligner` and the volatile list are shown only while
   `cache_aligner_enabled` is on, `smart crusher` only while
   `smart_crusher_enabled` is on, `dedup` only while `cross_turn_dedup_enabled`
-  is on, `line elider` only while `dense_line_elider_enabled` is on, and
-  `compaction` only while `lossless_compaction_enabled` is on. With every lever
+  is on, `line elider` only while `dense_line_elider_enabled` is on,
+  `compaction` only while `lossless_compaction_enabled` is on, and `config`
+  only while `config_compressor_enabled` is on. With every lever
   off the pane says so. Storage is read only while the `effort routing` or
   `cache aligner` table is shown.
 - **`hit`** is the cache hit ratio (cache reads / all input tokens). The
@@ -252,8 +261,9 @@ rows. It is the MCP server `storage` (connected as
   `lossless_compaction_enabled` to `false` for the old sampled output.
 - **Originals are retrievable while the mod is loaded.** Two in-memory stores
   keep the last 1000 originals each (at most 16 million characters each): one
-  for the crusher's dropped rows and the elider's blocks, which exist nowhere
-  else, and one for folded dedup runs, so a flood of repeated reads never
+  for the crusher's dropped rows and the elider's and config compressor's
+  originals, which exist nowhere else, and one for folded dedup runs, so a
+  flood of repeated reads never
   pushes out a crushed result's rows. A row that folds more runs than a store
   holds keeps all of its own until the next row arrives. Both live in memory
   only: a hot reload, an options change (any option change reloads the mod), a
@@ -367,8 +377,9 @@ category set and order) and the timestamp-row pattern of
 Ported verbatim:
 
 - The categories and their order: JSON, diff (confidence 0.7 or more), HTML
-  (0.7), git status, search results (0.6), build/log output (0.5), source code
-  (0.5), else plain text; empty text is plain text.
+  (0.7), git status, search results (0.6), build/log output (0.5),
+  YAML/TOML/INI config, source code (0.5), else plain text; empty text is plain
+  text.
 - The sample windows: diff over the first 500 lines, HTML over the first 3000
   characters, search and code over the first 100 lines, logs over the first
   200 lines.
@@ -382,11 +393,13 @@ Ported verbatim:
 
 Deviations:
 
-- Upstream's Rust category set. Python's tabular (markdown table, CSV/TSV),
-  structured config (YAML/TOML/INI) and fixed-width categories are left out:
-  Python confirms TOML/INI with parsers pure JS lacks, they only take text
-  that would otherwise be code or plain text, which is handled the same way,
-  and the newer tabular check disagrees with upstream's own test fixtures.
+- Upstream's Rust category set plus Python's YAML/TOML/INI config category,
+  whose TOML and INI flavors come from line checks where Python runs its TOML
+  and INI parsers (see [Config compressor](#config-compressor)). Python's
+  tabular (markdown table, CSV/TSV) and fixed-width categories are left out:
+  they only take text that would otherwise be code or plain text, which is
+  handled the same way, and the newer tabular check disagrees with upstream's
+  own test fixtures.
 - JSON follows Python, not Rust: objects, wrapped payloads and concatenated
   objects count, not only arrays.
 - JSON values are found with a bracket-span walk plus `JSON.parse` in place of
@@ -401,9 +414,10 @@ Deviations:
 - Only the label is kept: no confidence and no metadata.
 
 Routing is a light form of `headroom/transforms/content_router.py` (read
-2026-10-11 at 976aa71): JSON runs the SmartCrusher, then the dense line elider
-when the crusher changed nothing; every other type runs the dense line elider;
-cross-turn dedup then runs on every type. Routing deviations:
+2026-10-11 at 976aa71): JSON runs the SmartCrusher and config runs the config
+compressor, each followed by the dense line elider when it changed nothing;
+every other type runs the dense line elider; cross-turn dedup then runs on
+every type. Routing deviations:
 
 - A JSON text the SmartCrusher leaves alone is still elided; upstream skips
   elision after any SmartCrusher attempt.
@@ -413,6 +427,36 @@ cross-turn dedup then runs on every type. Routing deviations:
   anyway.
 - None of upstream's mixed-content splitting, ML-based detection,
   lossless-first stage, fallback chains or concatenated-JSON normalization.
+
+### Config compressor
+
+Ported from `headroom/transforms/config_compressor.py`, the config folds of
+`headroom/transforms/lossless_compaction.py` and the config branch of
+`headroom/transforms/content_detector.py` (read 2026-10-11 at 976aa71). Ported
+verbatim:
+
+- Detection's patterns and thresholds: a section header plus mostly
+  assignments for TOML/INI; for YAML at least 3 keys, mostly keys, list items
+  and document markers, short non-sentence lines, and nesting, a document
+  marker or 3 list items; markdown front matter is no config.
+- Comment and blank-line removal behind
+  `[N comment/blank lines elided. Retrieve original: hash=H]` (INI keeps blank
+  lines and drops only column-0 comments), skipped where a `#` line may be data
+  (a YAML block scalar, a TOML multi-line string).
+- The lossless folds `... (repeated N times)` and
+  `... (repeats K lines from D lines back)` (blocks of 3 to 64 lines, 8 recent
+  positions per line, texts of 6 to 20,000 lines), kept only when they expand
+  back to the exact text.
+
+Deviations:
+
+- Line checks stand in for Python's TOML and INI parsers, so text a parser
+  would reject can still be treated as config; the folds verify themselves and
+  the removed comments stay retrievable.
+- INI also keeps its comments when the text holds `"""` or `'''`.
+- The INI assignment check is a linear scanner, and expanding a fold to verify
+  it stops once it outgrows the text, so neither can stall the append hook.
+- Deferred: the TOML array-of-tables schema fold (it needs a real TOML parser).
 
 ### Dense line elider
 
