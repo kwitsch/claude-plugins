@@ -22,6 +22,7 @@
 /** @typedef {{ text: string, spans: number, offloaded: [string, string][] }} Fold a deduplicated text: the text with pointers, the runs folded, [hash, run text] per run */
 /** @typedef {{ type: string } & Record<string, unknown>} ContentBlock one Messages-API content block, as session.append hands it */
 /** @typedef {'json_array'|'diff'|'html'|'tabular'|'search'|'build'|'source_code'|'text'} ContentType upstream ContentType tags (as_str); 'tabular' is git status here */
+/** @typedef {'crush'|'elide'} RouteStep a compression lever a content type's route may run */
 /**
  * Which levers rewrite this row; dedup names the conversations map and this row's key ("" main, else agentId).
  * @typedef {{ crush: boolean, elide: boolean, dedup?: { states: Map<string, DedupState>, key: string } }} Levers
@@ -2169,7 +2170,25 @@ export function detectContentType(text) {
   return "text";
 }
 
-// The tool-result row pipeline (session.append): SmartCrusher, then the dense line elider, then cross-turn dedup.
+/**
+ * Each content type's compression steps, tried in order until one rewrites (a light upstream _strategy_from_detection).
+ * Only the SmartCrusher's JSON is type-specific; the dense line elider runs on every type, after the crusher where both
+ * run, as upstream elides after text-returning strategies and as its fallback where no compressor owns the type.
+ * A new compressor adds a RouteStep, a case in rewriteRow's shrink, a Levers flag, and its name in the types it fits.
+ * @type {Readonly<Record<ContentType, readonly RouteStep[]>>}
+ */
+const ROUTES = {
+  json_array: ["crush", "elide"],
+  diff: ["elide"],
+  html: ["elide"],
+  tabular: ["elide"],
+  search: ["elide"],
+  build: ["elide"],
+  source_code: ["elide"],
+  text: ["elide"],
+};
+
+// The tool-result row pipeline (session.append): SmartCrusher and the dense line elider by content type, then cross-turn dedup.
 
 /**
  * A tool_result block's texts as the model reads them: string content, or each text block of array content.
@@ -2205,11 +2224,12 @@ export function wantsQuery(content, tool) {
 }
 
 /**
- * Rewrites a tool-result row's blocks before they are stored: per tool_result block, each text is crushed (one whole
- * JSON document) or else dense-line-elided, then a single-text result is deduplicated against earlier results of the
- * same conversation. Error blocks and headroom_retrieve / own-storage rows are never rewritten (dedup still indexes
- * them). Undefined when no block changed. Mutates levers.dedup.states; a throw starts that conversation's corpus over,
- * since a block indexed before it belongs to a row that is then stored as made.
+ * Rewrites a tool-result row's blocks before they are stored: per tool_result block, each text runs its content type's
+ * route (`detectContentType`, `ROUTES`): crushed (one whole JSON document) or else dense-line-elided, then a single-text
+ * result is deduplicated against earlier results of the same conversation. Error blocks and headroom_retrieve /
+ * own-storage rows are never rewritten (dedup still indexes them). Undefined when no block changed. Mutates
+ * levers.dedup.states; a throw starts that conversation's corpus over, since a block indexed before it belongs to a row
+ * that is then stored as made.
  * @param {readonly ContentBlock[]} content the row's blocks
  * @param {string} tool the row's origin tool
  * @param {Levers} levers
@@ -2245,25 +2265,30 @@ function rewriteRow(content, tool, levers, query) {
     if (!isRecord(b) || b.type !== "tool_result") return b;
     const prot = rowProtected || b.is_error === true;
     /**
-     * The crusher's rewrite of one text, else the elider's (upstream elides only text no JSON strategy rewrote).
+     * The first rewrite its content type's route (ROUTES) yields; upstream elides only text no JSON strategy rewrote.
      * @param {string} text
      * @returns {string}
      */
     const shrink = (text) => {
-      if (prot) return text;
-      const c = levers.crush ? crushJson(text, query) : undefined;
-      if (c) {
-        acc.crush.dropped += c.rowsDropped;
-        acc.crush.saved += text.length - c.text.length;
-        acc.offloaded.push(...c.offloaded);
-        return c.text;
-      }
-      const d = levers.elide ? elideDense(text) : undefined;
-      if (d) {
-        acc.elide.lines += d.lines;
-        acc.elide.saved += text.length - d.text.length;
-        acc.offloaded.push(...d.offloaded);
-        return d.text;
+      if (prot || !(levers.crush || levers.elide)) return text;
+      for (const step of ROUTES[detectContentType(text)]) {
+        if (step === "crush" && levers.crush) {
+          const c = crushJson(text, query);
+          if (c) {
+            acc.crush.dropped += c.rowsDropped;
+            acc.crush.saved += text.length - c.text.length;
+            acc.offloaded.push(...c.offloaded);
+            return c.text;
+          }
+        } else if (step === "elide" && levers.elide) {
+          const d = elideDense(text);
+          if (d) {
+            acc.elide.lines += d.lines;
+            acc.elide.saved += text.length - d.text.length;
+            acc.offloaded.push(...d.offloaded);
+            return d.text;
+          }
+        }
       }
       return text;
     };

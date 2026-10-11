@@ -1134,3 +1134,24 @@ test("detectContentType knows C# and PHP", () => {
   assert.equal(detectContentType("using System;\nusing System.Linq;\nnamespace Foo\npublic class Bar\n{ get; set; }"), "source_code");
   assert.equal(detectContentType("<?php\nnamespace App\\Models;\nuse Foo\\Bar;\nfunction x() {"), "source_code");
 });
+
+test("rewriteToolResults crushes only JSON and elides a dense line of every other content type", () => {
+  const D = "x".repeat(2500);
+  /** @type {[string, string][]} */
+  const samples = [
+    ["search", `src/a.py:1:${D}\nsrc/b.py:2:foo`],
+    ["build", `ERROR build failed\n${D}`],
+    ["source_code", `import os\nimport sys\ndef main():\n${D}`],
+    ["diff", `diff --git a/x b/x\n+${D}`],
+    ["html", `<!DOCTYPE html>\n<html>\n${D}`],
+    ["tabular", `On branch main\nUntracked files:\n\tfoo\n${D}`],
+    ["text", DENSE_TEXT],
+    ["json_array", JSON.stringify({ blob: "QUJD".repeat(700) }, null, 2)], // no array to drop: the crusher declines, the elider still runs
+  ];
+  for (const [tag, sample] of samples) {
+    assert.equal(detectContentType(sample), tag);
+    const r = rewrite([toolResult(sample)], "Bash", levers());
+    assert.equal(r.elide.lines, 1, tag);
+    assert.equal(r.crush.dropped, 0, tag);
+  }
+});

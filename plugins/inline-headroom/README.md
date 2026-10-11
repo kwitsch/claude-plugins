@@ -24,6 +24,12 @@ semantics.
 | Cross-turn dedup  | headroom cross_turn_dedup.py                               | Replaces each run of 3 or more lines (40+ characters) in a tool result that already appeared in an earlier tool result of the same conversation (the main loop, or one subagent), verbatim or with every line number shifted by one constant, with a one-line pointer: `[↑nL same as result K: "anchor" hash=H]`, or `[↑nL same as result K +dL: "anchor" hash=H]` for a shifted re-read. K counts that conversation's tool results from 1, the earliest copy is never rewritten, and `headroom_retrieve` with the hash returns the run's exact text. A result that repeats an earlier one in full becomes a single pointer. Error results are never rewritten but count as originals.                                                                                                                                                                                                                             |
 | Dense line elider | headroom dense_line_elider.py                              | Shortens each line of 300+ characters with under 6% spaces, no tab and no JSON in it (minified JS/CSS, base64, RSC payloads) to its first 160 and last 80 characters around `...[N chars of dense machine-generated content elided]...`, once such lines add up to 2000+ characters in one result, and ends that result with `[N dense machine-generated line(s) elided. Retrieve original: hash=H]`; `headroom_retrieve` with the hash returns the whole original. It skips text the SmartCrusher rewrote, and error results.                                                                                                                                                                                                                                                                                                                                                                                     |
 
+A content router (a light port of headroom's content detector) labels each
+tool-result text as JSON, diff, HTML, git status, search results, build/log
+output, source code or plain text, and runs only the levers that fit: the
+SmartCrusher sees only JSON, while the dense line elider and cross-turn dedup
+see every type. It has no option of its own; each lever keeps its toggle.
+
 ## Configuration options
 
 All eight options are on by default. For the lever toggles only a literal `false`
@@ -320,6 +326,20 @@ Deviations:
 - JS `\w`, `\d` and `\b` are ASCII-only where Python's are Unicode, `\s` and
   `trim()` differ on a few exotic code points, and lengths count UTF-16 units.
 - Only the label is kept: no confidence and no metadata.
+
+Routing is a light form of `headroom/transforms/content_router.py` (read
+2026-10-11 at 976aa71): JSON runs the SmartCrusher, then the dense line elider
+when the crusher changed nothing; every other type runs the dense line elider;
+cross-turn dedup then runs on every type. Routing deviations:
+
+- A JSON text the SmartCrusher leaves alone is still elided; upstream skips
+  elision after any SmartCrusher attempt.
+- Diffs, git status and every other type get the dense line elider, as
+  upstream does where a type's own compressor is unavailable. Upstream keeps
+  git status verbatim; here its tab-indented entry lines are never dense
+  anyway.
+- None of upstream's mixed-content splitting, ML-based detection,
+  lossless-first stage, fallback chains or concatenated-JSON normalization.
 
 ### Dense line elider
 
