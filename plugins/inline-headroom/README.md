@@ -190,7 +190,7 @@ volatile shared values: unavailable (Claude Code keeps plugins out of the system
   is on, `search` only while `search_compressor_enabled` is on, `diff` only
   while `diff_compressor_enabled` is on, `text crusher` only while
   `text_crusher_enabled` is on, and `relevance split` only while
-  `relevance_split_enabled` is on (0.7.0: with every lever on the pane asks for
+  `relevance_split_enabled` is on (0.8.0: with every lever on the pane asks for
   49 rows, 15 more than before). The tag protector has no table: it saves
   nothing itself. With every lever
   off the pane says so. Storage is read only while the `effort routing` or
@@ -307,7 +307,7 @@ rows. It is the MCP server `storage` (connected as
   (`cat -n`) whole, so a following Edit can match them. Upstream never lossily
   compresses Read, Grep, WebFetch and a few other tools at all; the mod
   compresses every tool's results, Grep's included.
-- **Prose is crushed by default (0.7.0).** With `text_crusher_enabled` on, a
+- **Prose is crushed by default (0.8.0).** With `text_crusher_enabled` on, a
   prose result of 6+ sentences (an Agent's hand-back report, a WebFetch
   summary, markdown output) reaches the model as about half its characters,
   one kept sentence per line, without its original line breaks and

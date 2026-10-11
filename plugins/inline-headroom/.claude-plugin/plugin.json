@@ -1,6 +1,6 @@
 {
   "name": "inline-headroom",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Headroom-style levers inside Claude Code as a mod: clamp-only effort routing after successful tool results, a detector-only CacheAligner that flags volatile system-prompt content and cache-hit drops, and a SmartCrusher with lossless compaction, cross-turn dedup, a dense line elider, a config compressor, an HTML extractor, log, search and diff compressors, a text crusher and a relevance split that shrink tool results before the model reads them (originals retrievable, custom workflow tags kept whole). Ships a host-wide SQLite storage MCP server for persistent plugin data.",
   "author": { "name": "Kwitsch" },
   "userConfig": {

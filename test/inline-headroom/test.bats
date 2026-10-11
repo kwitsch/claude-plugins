@@ -14,8 +14,8 @@ setup() {
   assert_success
 }
 
-@test "plugin.json version is 0.7.0" {
-  run jq -e '.version == "0.7.0"' "$MANIFEST"
+@test "plugin.json version is 0.8.0" {
+  run jq -e '.version == "0.8.0"' "$MANIFEST"
   assert_success
 }
 

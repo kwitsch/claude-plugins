@@ -73,7 +73,7 @@ Every test that needs `node:sqlite` or spawns processes lives in
 `setup-node`. Its cleanup SIGTERMs every `--service` process for its temp data
 dir, so no daemon outlives the suite.
 
-The bats version-pin test (`plugin.json version is 0.7.0`) is a rolling pin:
+The bats version-pin test (`plugin.json version is 0.8.0`) is a rolling pin:
 every version bump rewrites its name and expected value in the same commit.
 
 ## Storage server
@@ -597,7 +597,7 @@ a custom tag span touches is never dense (mod-side; see `## Tag protector`),
 and after an HTML extraction the spans are those of the extracted text. A text
 the tag scan cannot finish within its budget is not elided at all.
 
-Behaviour change (0.7.0): on `build`, `search` and `text` the elider now sees
+Behaviour change (0.8.0): on `build`, `search` and `text` the elider now sees
 the log compressor's, the search compressor's or the text crusher's lossy
 output (upstream's `_DENSE_ELIDE_AFTER` LOG, SEARCH and TEXT members), and its
 retrieval line then follows that compressor's; after a lossless fold (or, on
@@ -958,7 +958,7 @@ declined), adopted only through `overFold` against `foldText`; then `textfold`
 (only on the route's input), then `elide`. An adopted crush is handed on to the
 elider; an adopted fold ends the route.
 
-Behaviour change (0.7.0): prose tool results of 6+ sentences (Agent hand-back
+Behaviour change (0.8.0): prose tool results of 6+ sentences (Agent hand-back
 reports, WebFetch summaries, markdown command output) now reach the model as
 about half their characters, without their line breaks and indentation, and
 cross-turn dedup indexes that crushed form (a repeated report is crushed the
