@@ -1,7 +1,7 @@
 {
   "name": "inline-headroom",
   "version": "0.7.0",
-  "description": "Headroom-style levers inside Claude Code as a mod: clamp-only effort routing after successful tool results, a detector-only CacheAligner that flags volatile system-prompt content and cache-hit drops, and a SmartCrusher, cross-turn dedup and dense line elider that shrink tool results before the model reads them (originals retrievable). Ships a host-wide SQLite storage MCP server for persistent plugin data.",
+  "description": "Headroom-style levers inside Claude Code as a mod: clamp-only effort routing after successful tool results, a detector-only CacheAligner that flags volatile system-prompt content and cache-hit drops, and a SmartCrusher with lossless compaction, cross-turn dedup, a dense line elider, a config compressor and an HTML extractor that shrink tool results before the model reads them (originals retrievable, custom workflow tags kept whole). Ships a host-wide SQLite storage MCP server for persistent plugin data.",
   "author": { "name": "Kwitsch" },
   "userConfig": {
     "cache_aligner_enabled": {
@@ -56,6 +56,12 @@
       "type": "boolean",
       "title": "HTML extractor",
       "description": "Turn HTML tool results (web pages) into markdown-like text (headings, lists, links, tables) without scripts, styles, navigation, footers and other boilerplate, a bounded stand-in for headroom's trafilatura extractor; the original page stays retrievable via headroom_retrieve while the mod is loaded. Never rewrites error results.",
+      "default": true
+    },
+    "tag_protector_enabled": {
+      "type": "boolean",
+      "title": "Tag protector",
+      "description": "Keep custom workflow tags such as <system-reminder>…</system-reminder> whole in tool results (headroom tag protector): no compression lever drops, elides, folds or extracts the part of a result holding one, and a result too tag-dense to scan within budget is left untouched. Only matters while a compression lever is on.",
       "default": true
     },
     "subagent_compression_enabled": {

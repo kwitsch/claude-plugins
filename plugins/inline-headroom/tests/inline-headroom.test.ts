@@ -1140,3 +1140,18 @@ test("(hx2) html_extractor_enabled false keeps an HTML row whole and hides the h
   expect(await appendResult($, "Bash", HTML_PAGE)).toBe(HTML_PAGE);
   expect((await $.command.run({ command: "headroom" })).text).not.toMatch(/^html extractor/m);
 });
+
+// One dense line with a workflow tag in its middle, then a short line.
+const TAGGED = `${"x".repeat(1200)}<system-reminder>keep this reminder whole</system-reminder>${"y".repeat(1200)}\nexit 0`;
+
+test("(tp1) tag_protector_enabled false lets the elider cut a dense line holding a custom tag", { options: { tag_protector_enabled: false, storage_enabled: false } }, async ($, on) => {
+  await startCrusher(on, $);
+  const stored = String(await appendResult($, "Bash", TAGGED));
+  expect(stored).not.toMatch(/<system-reminder>keep this reminder whole<\/system-reminder>/);
+  expect(stored).toMatch(/\n\[1 dense machine-generated line elided\. Retrieve original: hash=[0-9a-f]{12}\]$/);
+});
+
+test("(tp2) by default a dense line holding a custom tag is stored whole", { options: { storage_enabled: false } }, async ($, on) => {
+  await startCrusher(on, $);
+  expect(await appendResult($, "Bash", TAGGED)).toBe(TAGGED);
+});

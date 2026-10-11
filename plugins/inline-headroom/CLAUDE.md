@@ -8,9 +8,11 @@ toggle (`effort_routing_enabled`, `cache_aligner_enabled`,
 `config_compressor_enabled`, `html_extractor_enabled`), plus
 `subagent_effort_routing_enabled`, which extends effort routing to subagent and
 Workflow-agent steps and is active only while `effort_routing_enabled` is on,
-and `subagent_compression_enabled`, which extends the six compression levers to
+`subagent_compression_enabled`, which extends the six compression levers to
 subagent and Workflow-agent tool results and is active only while one of them
-is on (all ten `default: true`, only literal `false` disables), plus the
+is on, and `tag_protector_enabled`, which keeps custom workflow tags whole
+across the compression levers (all eleven `default: true`, only literal `false`
+disables), plus the
 `/headroom` stats command and the compression levers' `headroom_retrieve` tool.
 It also ships a host-wide SQLite storage MCP server behind the fail-closed
 `storage_enabled` toggle (see `## Storage server`); the mod persists
@@ -41,8 +43,8 @@ It also ships a host-wide SQLite storage MCP server behind the fail-closed
   `tsconfig.json` (`plugins/**/*.mjs`), ESLint, and `node --test` via
   `test/inline-headroom/policy.test.mjs`. It also holds the content router and
   the SmartCrusher (with its lossless compaction stage), cross-turn dedup,
-  dense line elider, config compressor and HTML extractor ports (see their
-  sections).
+  dense line elider, config compressor and HTML extractor ports, and the tag
+  protector (see their sections).
 - `tests/inline-headroom.test.ts` — hook-wiring tests for `claude plugin test`.
   Local only: CI runners have no `claude` CLI; `test/inline-headroom/test.bats`
   runs `claude plugin validate` and `claude plugin test` when `claude`
@@ -281,6 +283,11 @@ or more items inside a crushable document now lose items behind the sentinel
 above, and string, number and mixed arrays of 5 to 8 items are no longer
 descended into (a dict array nested in one stays whole), as upstream.
 
+Behaviour change of this lever (0.7.0): with `tag_protector_enabled` on (the
+default) a JSON text holding a custom tag (see `## Tag protector`) runs without
+the lossy stage, so no row or item of it is dropped; lossless compaction may
+still rewrite it, every string staying verbatim in a cell.
+
 Wiring in `register.ts`, shared by every compression lever:
 
 - One `session.append` hook with the matcher `{ door: "tool-result" }`,
@@ -494,6 +501,13 @@ final text of every content type (after the crusher or the elider), with the
 key `""` for a main-loop row and the `agentId` for a subagent row. Folds count
 in the `dedup` table's session-only `spans` and `saved`.
 
+Behaviour change (0.7.0): with `tag_protector_enabled` on (the default) a line
+a custom tag span touches never starts a fold, and a run ends before the first
+such line (both mod-side; see `## Tag protector`), so a repeated
+`<system-reminder>` block stays verbatim while the runs around it still fold.
+Tagged lines are still indexed. A text the tag scan cannot finish within its
+budget is only indexed.
+
 ## Dense line elider
 
 A port of upstream headroom's dense line elider
@@ -559,6 +573,11 @@ cut there and the page's markup never reaches the elider; the elider's
 retrieval line then follows the extractor's, and its stored original is the
 extraction. With `html_extractor_enabled` off, or when the extractor declines,
 the elider runs on the page exactly as before.
+
+Behaviour change (0.7.0): with `tag_protector_enabled` on (the default) a line
+a custom tag span touches is never dense (mod-side; see `## Tag protector`),
+and after an HTML extraction the spans are those of the extracted text. A text
+the tag scan cannot finish within its budget is not elided at all.
 
 ## Config compressor
 
@@ -666,6 +685,67 @@ Deviations:
   or 3 structural tags can be labelled `html` (the HTML branch precedes search
   and log, as on upstream's regex path), and the extractor would then strip
   markup-looking text from it. The original stays retrievable.
+
+## Tag protector
+
+A mask-free port of upstream headroom's tag protector
+(`crates/headroom-core/src/transforms/tag_protector.rs` `identify_spans` and
+`parse_tag_at` in block mode, `compress_tagged_content=false`, read 2026-10-11
+at 976aa71) into `hooks/policy.mjs` as `tagSpans`, sharing the lexer `tagAt`
+with the HTML extractor. It has its own toggle, `tag_protector_enabled`, no
+`compressOn` term and no `/headroom` table: it saves nothing itself, it only
+narrows what the compression levers rewrite.
+
+Ported verbatim:
+
+- The HTML5 element set (`HTML5_TAGS`, all 116 names of `HTML5_TAGS` in
+  `tag_protector.rs`), matched case-insensitively; every other name is a custom
+  tag (`is_known_html_tag`).
+- `parse_tag_at`: a name starts with an ASCII letter or `_` and continues with
+  letters, digits, `_`, `-`, `.` and `:`; a close tag allows whitespace before
+  `>`; an open tag's attributes run to the first `>` outside quotes, an
+  unterminated quote makes no tag, and `/` marks it self-closing until
+  whitespace or a quoted value follows.
+- `identify_spans` in block mode: a self-closing custom tag is a span; a custom
+  close matches the top-most open of its name (`rposition`), drops the opens
+  above it and the spans inside it, and records the whole block; an orphan
+  close or an unmatched open is never protected.
+
+Deviations:
+
+- Mask-free: no placeholders, no `restore_tags`, no salted prefixes. Upstream
+  protects only around its ML text compressors, which the mod does not have;
+  here every compression lever honours the spans on its own terms (all
+  mod-side):
+  - the SmartCrusher runs a JSON text holding a span without the lossy stage
+    (lossless compaction may still re-encode it, every string verbatim in a
+    cell; no row or item is dropped);
+  - the dense line elider never treats a line a span touches as dense;
+  - cross-turn dedup never starts a fold on a tagged line and ends a run before
+    one, but indexes tagged lines like any other;
+  - the config compressor and the HTML extractor decline a text holding a span;
+  - after an HTML extraction `shrink` recomputes the spans on the extracted
+    text before the elider runs, so a custom tag the entity decoding produced
+    (`&lt;system-reminder&gt;`) is guarded like any other; a null there returns
+    the extraction unelided.
+- A work budget: the characters the lexer scans and every stack entry a close
+  examines share one budget of 4 per character + 4096. Exhaustion returns null:
+  the text is unprotectable, and every lever passes it through unchanged (dedup
+  only indexes it). Upstream has the same unbounded weakness (it re-parses after
+  every `<` that is no tag and walks the whole stack per close), so many custom
+  opens followed by many non-matching closes would go quadratic.
+- The content of an HTML5 `<svg>` or `<math>` element, up to its first
+  case-insensitive close tag, is not scanned: SVG and MathML children (`path`,
+  `g`, `mi`, …) are no workflow tags, and without this the elider would stop
+  eliding SVG path data.
+- The spans inside a matched block are dropped by popping the tail of the
+  sorted span list (amortised linear) where upstream filters the whole list.
+- Vocabulary as upstream: every non-HTML5 name counts, so XML, JSX/TSX
+  components and Vue templates are protected too, and re-reads of such files
+  fold and elide less. `tag_protector_enabled: false` restores the levers'
+  earlier behaviour.
+- Cost: up to two budgeted scans per text holding a `<` (in the route and
+  before dedup), three for an HTML page the extractor rewrote.
 
 ## Content router
 
