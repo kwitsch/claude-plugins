@@ -5,6 +5,7 @@ import {
   CCR_CAPACITY,
   CCR_MAX_CHARS,
   CRUSH_MIN_CHARS,
+  DEDUP_MAX_CHARS,
   EFFORT_ORDER,
   ERROR_KEYWORDS,
   MAX_FINDINGS,
@@ -18,6 +19,7 @@ import {
   crushQuery,
   crushToolResult,
   dayKey,
+  dedupBlock,
   elideDense,
   findVolatile,
   foldPending,
@@ -694,4 +696,150 @@ test("elideDense counts every dense line in the retrieval line", () => {
   assert.equal(r.lines, 2);
   assert.match(r.text, /\n\[2 dense machine-generated lines elided\. Retrieve original: hash=[0-9a-f]{12}\]$/);
   assert.equal(r.text.split("\n")[1], "middle line");
+});
+
+/** @typedef {import("../../plugins/inline-headroom/hooks/policy.mjs").DedupState} DedupState */
+
+// Three numbered source lines of 40+ characters each: a run a pointer replaces.
+const RUN = ["1:function alpha() { return computeAlpha(first); }", "2:function beta() { return computeBeta(second); }", "3:function gamma() { return computeGamma(third); }"].join("\n");
+
+/**
+ * dedupBlock on an unprotected text that must fold; throws otherwise.
+ * @param {Map<string, DedupState>} states
+ * @param {string} key
+ * @param {string} text
+ */
+function fold(states, key, text) {
+  const f = dedupBlock(states, key, text, false);
+  if (!f) throw new Error("expected the text to fold");
+  return f;
+}
+
+/** @returns {Map<string, DedupState>} a fresh set of conversations */
+const conversations = () => new Map();
+
+test("dedupBlock folds a repeated run of 3 lines and 40+ characters into a pointer to the earlier result", () => {
+  const states = conversations();
+  assert.equal(dedupBlock(states, "", RUN, false), undefined); // the first block never folds
+  const f = fold(states, "", `intro\n${RUN}\noutro`);
+  const [hash] = f.offloaded[0];
+  assert.match(hash, /^[0-9a-f]{12}$/);
+  assert.equal(f.text, `intro\n[↑3L same as result 1: "function alpha() ..." hash=${hash}]\noutro`);
+  assert.equal(f.spans, 1);
+  assert.deepEqual(f.offloaded, [[hash, RUN]]);
+});
+
+test("dedupBlock leaves 2 repeated lines and 3 lines under 40 characters alone", () => {
+  const two = RUN.split("\n").slice(0, 2).join("\n");
+  const states = conversations();
+  dedupBlock(states, "", two, false);
+  assert.equal(dedupBlock(states, "", two, false), undefined);
+  const short = "1:abcd\n2:efgh\n3:ijkl"; // 20 characters
+  const other = conversations();
+  dedupBlock(other, "", short, false);
+  assert.equal(dedupBlock(other, "", short, false), undefined);
+});
+
+test("dedupBlock never starts a run on a trivial line, but a run may hold one", () => {
+  const text = ["return", "const alpha = computeAlphaValue(firstArgument);", "return", "const gamma = computeGammaValue(thirdArgument);"].join("\n");
+  const states = conversations();
+  dedupBlock(states, "", text, false);
+  const f = fold(states, "", text);
+  const [hash] = f.offloaded[0];
+  assert.equal(f.text, `return\n[↑3L same as result 1: "const alpha = com..." hash=${hash}]`);
+  assert.equal(f.offloaded[0][1], text.split("\n").slice(1).join("\n"));
+});
+
+test("dedupBlock folds a re-read whose line numbers all shifted, and timestamps with a leading zero only on an exact match", () => {
+  /**
+   * Three numbered lines starting at line `from`.
+   * @param {number} from
+   */
+  const numbered = (from) => [`${from}:  const total = items.reduce((a, b) => a + b, 0);`, `${from + 1}:  const mean = total / items.length;`, `${from + 2}:  return { total, mean };`].join("\n");
+  const states = conversations();
+  dedupBlock(states, "", numbered(10), false);
+  const f = fold(states, "", numbered(12));
+  const [hash, run] = f.offloaded[0];
+  assert.equal(f.text, `[↑3L same as result 1 +2L: "const total = ite..." hash=${hash}]`);
+  assert.equal(run, numbered(12)); // the stored run is this block's own bytes
+  /**
+   * Three log lines at second `s` and on.
+   * @param {number} s
+   */
+  const log = (s) => [0, 1, 2].map((k) => `08:00:${String(s + k).padStart(2, "0")} INFO request handled by worker ${k}`).join("\n");
+  const logs = conversations();
+  dedupBlock(logs, "", log(1), false);
+  assert.equal(dedupBlock(logs, "", log(11), false), undefined); // "08" is no line number: no shifted fold
+  assert.match(fold(logs, "", log(1)).text, /^\[↑3L same as result 1: "08:00:01 INFO req\.\.\." hash=[0-9a-f]{12}\]$/);
+});
+
+test("dedupBlock keeps the earliest original: a third repeat names result 1, not the folded result 2", () => {
+  const states = conversations();
+  dedupBlock(states, "", RUN, false);
+  fold(states, "", RUN);
+  assert.match(fold(states, "", RUN).text, /^\[↑3L same as result 1: /);
+});
+
+test("dedupBlock examines at most 16 anchor candidates per line", () => {
+  const anchor = "const anchorLine = buildTheAnchorLine(withArguments);";
+  const block = [anchor, "const second = buildTheSecondLine(withArguments);", "const third = buildTheThirdLine(withArguments);"].join("\n");
+  const states = conversations();
+  for (let i = 0; i < 16; i++) dedupBlock(states, "", anchor, false);
+  assert.equal(dedupBlock(states, "", block, false), undefined);
+  // Block 17's anchor line found its candidate list full, so an exact repeat of block 17 has no 3-line run to fold.
+  assert.equal(dedupBlock(states, "", block, false), undefined);
+});
+
+test("dedupBlock keeps each conversation's corpus apart", () => {
+  const states = conversations();
+  dedupBlock(states, "", RUN, false);
+  assert.equal(dedupBlock(states, "a1", RUN, false), undefined);
+  assert.match(fold(states, "a1", RUN).text, /^\[↑3L same as result 1: /);
+  assert.deepEqual([...states.keys()], ["", "a1"]);
+});
+
+test("dedupBlock never rewrites a protected text but folds a later text against it", () => {
+  const states = conversations();
+  assert.equal(dedupBlock(states, "", RUN, true), undefined);
+  assert.equal(dedupBlock(states, "", RUN, true), undefined);
+  assert.match(fold(states, "", RUN).text, /^\[↑3L same as result 1: /);
+});
+
+test("dedupBlock keeps a run whose pointer would not be shorter", () => {
+  const run = "alpha line 01\nbravo line 02\ncharlie line 3"; // 42 characters: the pointer with its hash takes more
+  const states = conversations();
+  dedupBlock(states, "", run, false);
+  assert.equal(dedupBlock(states, "", run, false), undefined);
+});
+
+test("dedupBlock is prefix-monotonic: an earlier block's output never depends on later blocks", () => {
+  const lines = RUN.split("\n");
+  const shifted = lines.map((l) => l.replace(/^(\d+):/, (_, n) => `${Number(n) + 5}:`)).join("\n");
+  const blocks = [RUN, `header\n${RUN}`, shifted, `${lines[0]}\n${lines[1]}\nbetween\n${lines[2]}`, `${RUN}\ntail`];
+  /**
+   * Each block's output, fed in order to one fresh set of conversations.
+   * @param {string[]} bs
+   */
+  const run = (bs) => {
+    const states = conversations();
+    return bs.map((b) => dedupBlock(states, "", b, false)?.text ?? b);
+  };
+  const full = run(blocks);
+  assert.notDeepEqual(full, blocks);
+  for (let k = 1; k <= blocks.length; k++) assert.deepEqual(run(blocks.slice(0, k)), full.slice(0, k));
+});
+
+test("dedupBlock drops the least recently appended conversation over DEDUP_MAX_CHARS, and resets a lone one", () => {
+  const half = "x".repeat(DEDUP_MAX_CHARS / 2 + 1);
+  const states = conversations();
+  dedupBlock(states, "a1", half, false);
+  dedupBlock(states, "", half, false);
+  assert.deepEqual([...states.keys()], [""]);
+  const solo = conversations();
+  dedupBlock(solo, "", RUN, false); // result 1
+  dedupBlock(solo, "", "y".repeat(DEDUP_MAX_CHARS + 1), false); // result 2, over the cap alone
+  const st = /** @type {DedupState} */ (solo.get(""));
+  assert.deepEqual([st.turn, st.corpus.size, st.index.size, st.chars], [2, 0, 0, 0]);
+  assert.equal(dedupBlock(solo, "", RUN, false), undefined); // result 3: result 1 left the corpus
+  assert.match(fold(solo, "", RUN).text, /^\[↑3L same as result 3: /);
 });
