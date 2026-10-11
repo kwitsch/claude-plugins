@@ -21,6 +21,7 @@ import {
   compactRows,
   compactionJson,
   compressLog,
+  compressSearch,
   compressConfig,
   computeOptimalK,
   configFlavor,
@@ -38,6 +39,7 @@ import {
   foldRepeatedBlocks,
   foldLog,
   foldPending,
+  foldSearch,
   formatCsvSchema,
   isCacheDrop,
   isIniAssign,
@@ -2458,4 +2460,168 @@ test("compressLog stays bounded on 20,000 distinct log lines", () => {
   const r = route(text, only({ log: true, elide: true }));
   assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0} ms`);
   assert.equal(r?.log.texts, 1);
+});
+// 60 rows of a file that sorts after every probe path and loses rows: the probe row, when it parses, is the first output row.
+const FILLER_ROWS = Array.from({ length: 60 }, (_, i) => `zzz.txt:${i + 1}:filler row number ${i} with distinct words alpha${i} beta${i * 3}`);
+
+/**
+ * How compressSearch parses one grep line: its first output row (`file:line:content` as parsed), or a filler row when it does not parse.
+ * @param {string} line
+ * @returns {string|undefined}
+ */
+const parsedRow = (line) => compressSearch([line, ...FILLER_ROWS].join("\n"), "")?.text.split("\n")[0];
+
+/** `n` grep rows each of the given files, with distinct content. */
+const grepRows = (/** @type {string[]} */ files, /** @type {number} */ n) =>
+  files.flatMap((f) => Array.from({ length: n }, (_, i) => `${f}:${(i + 1) * 3}:    value_${f.length}_${i + 1} = compute_${i + 1}(argument_${(i + 1) * 7})`));
+
+test("compressSearch parses grep, ripgrep context and Windows rows as upstream's tiered scan does (upstream parse_match_line tests)", () => {
+  /** @type {[string, string][]} */
+  const cases = [
+    ["src/main.py:42:def main():", "src/main.py:42:def main():"], // parses_standard_grep_line
+    ["src/main.py-43-context after match", "src/main.py:43:context after match"], // parses_ripgrep_context_line
+    ["app/settings.py-476-a:7:b:8:c", "app/settings.py:476:a:7:b:8:c"], // dash_context_line_wins_over_a_colon_marker_in_its_body
+    ["CHANGELOG-12-a:99:b", "CHANGELOG:12:a:99:b"],
+    ["app.py-476-foo.rs:12:ref", "app.py:476:foo.rs:12:ref"],
+    ["pkg/server.ts-91-lib/index.js:7:import", "pkg/server.ts:91:lib/index.js:7:import"],
+    ["logs/2026-05-03/app.log:12:ERROR", "logs/2026-05-03/app.log:12:ERROR"],
+    ["migrations/20240101-002-add_users.sql:12:SELECT", "migrations/20240101-002-add_users.sql:12:SELECT"],
+    ["notes.md-3-see-4-here", "notes.md:3:see-4-here"], // dash_tier_does_not_run_past_the_path_into_the_body
+    ["CHANGELOG.md-7-v1-2-beta", "CHANGELOG.md:7:v1-2-beta"],
+    ["CHANGELOG-12-2026-05-03", "CHANGELOG:12:2026-05-03"], // parses_context_line_for_extensionless_path
+    ["Makefile-7-build-2-stage", "Makefile:7:build-2-stage"],
+    [".github/workflows/ci-9-2026-01-02", ".github/workflows/ci:9:2026-01-02"],
+    ["logs/2026-05-03/Makefile-12-all:", "logs/2026-05-03/Makefile:12:all:"], // dated_dir_still_wins_for_an_extensionless_file
+    ["Makefile-7-include-2-src/foo.mk", "Makefile:7:include-2-src/foo.mk"], // ambiguous_dash_line_falls_back_to_the_leftmost_marker
+    ["Makefile-9-VERSION=v1.2.3-4-gdeadbee", "Makefile:9:VERSION=v1.2.3-4-gdeadbee"], // a_dotted_version_in_the_body_is_not_an_extension
+    ["media/2026-05-03/track-2-final.mp3-8-id3", "media/2026-05-03/track-2-final.mp3:8:id3"], // a_real_extension_still_counts_even_with_digits_in_it
+    ["manifest.txt-5-logs/2026-05-03/app.log", "manifest.txt:5:logs/2026-05-03/app.log"], // dated_path_inside_a_context_body_is_not_hijacked
+    ["C:\\Users\\foo\\bar.py:42:def main():", "C:\\Users\\foo\\bar.py:42:def main():"], // fixed_in_3e2_handles_windows_path_with_backslash
+    ["C:/Users/foo/bar.py:42:def main():", "C:/Users/foo/bar.py:42:def main():"], // ... with_forward_slash
+    ["pre-commit-config.yaml-42-fail_fast: true", "pre-commit-config.yaml:42:fail_fast: true"], // fixed_in_3e2_handles_dashes_in_filename_with_ripgrep_context
+    ["migrations/20240101-002-add_users.sql-9-  id BIGINT", "migrations/20240101-002-add_users.sql:9:  id BIGINT"], // date_stamped_path_is_not_misread_as_line_number_marker
+    ["src/main.py-44-see foo.rs:12:bar", "src/main.py:44:see foo.rs:12:bar"], // body_line_reference_does_not_hijack_a_context_line
+    ["logs/app.log.1-42-rotated line", "logs/app.log.1:42:rotated line"], // digit_terminated_path_still_parses_ripgrep_context_line
+    ['config.py:10:DATABASE_URL = "postgres://user:pass@host:5432/db"', 'config.py:10:DATABASE_URL = "postgres://user:pass@host:5432/db"'], // preserves_colons_in_match_content
+  ];
+  for (const [line, row] of cases) assert.equal(parsedRow(line), row, line);
+  // rejects_lines_without_line_number_marker, rejects_negative_line_numbers: such a line does not parse and is dropped.
+  for (const line of ["just a normal line of prose", "file.py:not-a-number:something", ":42:something", "src/file.py:-1:invalid", "src/file.py--1-invalid"]) {
+    assert.ok(parsedRow(line)?.startsWith("zzz.txt:"), line);
+  }
+});
+
+test("compressSearch keeps the first, last and best 5 rows per file within an adaptive total, then a retrieval line (upstream select_respects_per_file_cap_and_global_cap)", () => {
+  const text = grepRows(["src/alpha.py", "src/beta.py", "src/gamma.py"], 40).join("\n");
+  assert.equal(detectContentType(text), "search");
+  const r = must(compressSearch(text, ""));
+  const lines = r.text.split("\n");
+  for (const f of ["src/alpha.py", "src/beta.py", "src/gamma.py"]) {
+    const rows = lines.filter((l) => l.startsWith(`${f}:`));
+    assert.equal(rows.length, 5, f);
+    assert.ok(rows[0].startsWith(`${f}:3:`) && rows[4].startsWith(`${f}:120:`), f); // first and last, in line order
+    assert.ok(lines.includes(`[... and 35 more matches in ${f}]`), f);
+  }
+  const [, hash] = /\n\[120 matches compressed to 15\. Retrieve original: hash=([0-9a-f]{12})\]$/.exec(r.text) ?? [];
+  assert.deepEqual(r.offloaded, [[hash, text]]);
+  // At most 15 files: of 20 single-row files with equal scores, the first 15 by path survive.
+  const twenty = Array.from({ length: 20 }, (_, i) => `pkg/file${String(i).padStart(2, "0")}.go:${i + 7}:func handler${i}(w http.ResponseWriter, r *http.Request) { serve${i}(w, r) }`);
+  const kept = must(compressSearch(twenty.join("\n"), "")).text.split("\n");
+  assert.deepEqual(kept.slice(0, -1), twenty.slice(0, 15));
+  assert.match(kept.at(-1) ?? "", /^\[20 matches compressed to 15\. Retrieve original: hash=[0-9a-f]{12}\]$/);
+});
+
+test("compressSearch keeps an error row and a query row and drops unparsed lines (upstream scoring_boosts_error_lines_in_search_context, parser_groups_by_file_and_counts)", () => {
+  const rows = grepRows(["src/alpha.py"], 40);
+  rows[17] = "src/alpha.py:54:    raise ConnectionError('upstream timeout')";
+  rows[23] = "src/alpha.py:72:    return frobnicate(widget)";
+  const text = ["grep: src/vendor: Permission denied", ...rows, "just prose, no marker"].join("\n");
+  const out = must(compressSearch(text, "why does frobnicate break the widget")).text.split("\n");
+  assert.ok(out.includes(rows[17]));
+  assert.ok(out.includes(rows[23]));
+  assert.ok(!out.some((l) => l.includes("prose") || l.includes("Permission")));
+  assert.equal(must(compressSearch(text, "")).offloaded[0][1], text); // the dropped lines stay retrievable
+  assert.equal(compressSearch("plain text only\nand another line", ""), undefined); // upstream empty_input_returns_unchanged
+});
+
+test("foldSearch folds repeated files and directories into headings it can invert, skipping timestamped rows", () => {
+  const byFile = "src/a.py:1:alpha\nsrc/a.py:2:beta\nsrc/a.py:3:gamma\n";
+  assert.deepEqual(foldSearch(byFile), { text: "src/a.py\n1:alpha\n2:beta\n3:gamma\n", offloaded: [] });
+  const byDir = "src/pkg/one.py:1:alpha\nsrc/pkg/two.py:2:beta\nsrc/pkg/three.py:3:gamma";
+  assert.deepEqual(foldSearch(byDir), { text: "src/pkg/\none.py:1:alpha\ntwo.py:2:beta\nthree.py:3:gamma", offloaded: [] });
+  // A timestamped log row has the grep shape but is never folded.
+  assert.equal(foldSearch("2026-09-02 14:30:00 [FATAL] one\n2026-09-02 14:30:01 [FATAL] two\n"), undefined);
+  // The smaller fold wins: one file with many rows folds better by file than by directory.
+  const many = Array.from({ length: 6 }, (_, i) => `lib/core/engine.py:${i + 1}:line ${i}`).join("\n");
+  assert.equal(foldSearch(many)?.text, `lib/core/engine.py\n${Array.from({ length: 6 }, (_, i) => `${i + 1}:line ${i}`).join("\n")}`);
+  assert.equal(foldSearch("a.py:1:x\nb.py:2:y\n"), undefined); // nothing repeats
+});
+
+test("the search route: the search compressor beats a declining fold and a fold it out-saves by 5%, and loses to a fold that saves nearly as much", () => {
+  // Rows of two alternating files without a directory: neither fold shrinks them.
+  const alternating = Array.from({ length: 60 }, (_, i) => `${i % 2 ? "b.py" : "a.py"}:${i + 1}:    total_${i} = accumulate(series_${i}, window=${i % 9})`).join("\n");
+  assert.equal(foldSearch(alternating), undefined);
+  const plain = route(alternating, only({ search: true }));
+  assert.equal(stored(plain), compressSearch(alternating, "")?.text);
+  assert.deepEqual(plain?.search, { texts: 1, saved: alternating.length - stored(plain).length });
+  // Three files of 40 rows: the heading fold shrinks them, the lossy cut far more.
+  const three = grepRows(["src/alpha.py", "src/beta.py", "src/gamma.py"], 40).join("\n");
+  const fold = must(foldSearch(three));
+  const lossy = must(compressSearch(three, ""));
+  assert.ok(lossy.text.length <= fold.text.length * 0.95);
+  assert.equal(stored(route(three, only({ search: true }))), lossy.text);
+  // One deep path repeated 8 times: its heading fold leaves almost nothing for the lossy cut to beat.
+  const deep = Array.from({ length: 8 }, (_, i) => `src/${"deep/".repeat(20)}module.py:${i + 1}:x = ${i}`).join("\n");
+  const deepFold = must(foldSearch(deep));
+  assert.ok(must(compressSearch(deep, "")).text.length > deepFold.text.length * 0.95);
+  const r = route(deep, only({ search: true, elide: true }));
+  assert.equal(stored(r), deepFold.text);
+  assert.deepEqual([r?.search.texts, r?.elide.lines, r?.offloaded], [1, 0, []]);
+});
+
+test("the search route: a lossy search rewrite is never folded into headings, and the elider still runs on it", () => {
+  const text = grepRows(["src/alpha.py", "src/beta.py", "src/gamma.py"], 40).join("\n");
+  const lossy = must(compressSearch(text, ""));
+  assert.ok(foldSearch(lossy.text)); // the precondition: the fold WOULD rewrite the lossy output's consecutive rows
+  const r = route(text, only({ search: true, elide: true }));
+  assert.equal(stored(r), lossy.text);
+  assert.ok(stored(r).split("\n").includes("src/alpha.py:3:    value_12_1 = compute_1(argument_7)")); // still file:line:content, no heading row
+  assert.ok(!stored(r).split("\n").includes("src/alpha.py"));
+  assert.equal(r?.search.texts, 1);
+  // A dense first row of a file is always kept: the elider cuts it after the search compressor.
+  const dense = grepRows(["src/alpha.py", "src/beta.py"], 40);
+  dense[0] = `src/alpha.py:3:${"x".repeat(2500)}`;
+  const d = route(dense.join("\n"), only({ search: true, elide: true }));
+  const out = stored(d);
+  assert.match(out, /\n\[80 matches compressed to \d+\. Retrieve original: hash=[0-9a-f]{12}\]\n\[1 dense machine-generated line elided\. Retrieve original: hash=[0-9a-f]{12}\]$/);
+  assert.deepEqual([d?.search.texts, d?.elide.lines], [1, 1]);
+  assert.deepEqual(
+    d?.offloaded.map(([h]) => h),
+    [...out.matchAll(/hash=([0-9a-f]{12})\]/g)].map((m) => m[1]),
+  );
+});
+
+test("the search compressor leaves Read output, line-numbered text, tagged text and error rows whole, and alone triggers detection", () => {
+  const text = grepRows(["src/alpha.py", "src/beta.py", "src/gamma.py"], 40).join("\n");
+  assert.equal(route(text, only({ search: true }))?.search.texts, 1);
+  assert.equal(route(text, only({ search: true }), "Read"), undefined);
+  assert.equal(route(`1\t${text}`, only({ search: true })), undefined);
+  assert.equal(route(`${text}\n<system-reminder>keep</system-reminder>`, only({ search: true, tags: true })), undefined);
+  assert.equal(rewriteToolResults([toolResult(text, true)], "Bash", only({ search: true }), ""), undefined);
+});
+
+test("compressSearch stays bounded on 50,000 rows with a 16 KiB query and on one adversarial marker line", () => {
+  const rows = Array.from({ length: 50_000 }, (_, i) => `src/m${i % 400}/file${i % 1200}.py:${i + 1}:value_${i} = compute(${i})`).join("\n");
+  const query = Array.from({ length: 2000 }, (_, i) => `word${i}`)
+    .join(" ")
+    .slice(0, 16_384);
+  let t0 = Date.now();
+  assert.ok(compressSearch(rows, query));
+  assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0} ms`);
+  // Every dash marker of this one line has path structure after it, so the dash tier would rescan the line per marker: the
+  // budget declines it instead.
+  const hostile = `${"a:1-a-1-".repeat(125_000)}/x`;
+  t0 = Date.now();
+  assert.equal(compressSearch(hostile, ""), undefined);
+  assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0} ms`);
 });
