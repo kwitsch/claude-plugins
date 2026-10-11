@@ -30,6 +30,7 @@ import {
   crushNumberArray,
   crushQuery,
   crushStringArray,
+  crushText as crushProse,
   dayKey,
   detectContentType,
   dedupBlock,
@@ -42,6 +43,7 @@ import {
   foldDiff,
   foldPending,
   foldSearch,
+  foldText,
   formatCsvSchema,
   isCacheDrop,
   isIniAssign,
@@ -2869,5 +2871,114 @@ test("compressDiff stays bounded on a header line holding 250,000 ` b/`", () => 
   assert.ok(text.length >= 1_000_000);
   const t0 = Date.now();
   assert.ok(compressDiff(text, ""));
+  assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0} ms`);
+});
+/** `n` distinct prose sentences on one line each. */
+const sentences = (/** @type {number} */ n, from = 0) => Array.from({ length: n }, (_, i) => `Paragraph ${from + i} explains how the scheduler balances queue ${from + i} against its neighbours.`);
+
+test("foldText collapses repeated lines it can expand back, and only when that is shorter", () => {
+  assert.deepEqual(foldText("intro\nthe same long repeated line\nthe same long repeated line\nthe same long repeated line\noutro"), {
+    text: "intro\nthe same long repeated line\n... (repeated 3 times)\noutro",
+    offloaded: [],
+  });
+  assert.equal(foldText("one\ntwo\nthree"), undefined);
+  assert.equal(foldText("a\n... (repeated 9 times)\nb\nb"), undefined); // a marker-shaped line would not expand back
+});
+
+test("crushText matches upstream's parity fixture and declines short and CJK text (upstream plain_prose_no_query, short_passthrough, unicode)", () => {
+  const content = Array.from({ length: 30 }, (_, i) => `Sentence number ${i} explains how distributed systems reconcile state across topic ${i}.`).join(" ");
+  const r = must(crushProse(content, ""));
+  const [, hash] = /\n\[Text crushed: 15 of 30 segments kept\. Retrieve original: hash=([0-9a-f]{12})\]$/.exec(r.text) ?? [];
+  assert.equal(
+    r.text.slice(0, r.text.lastIndexOf("\n")),
+    Array.from({ length: 15 }, (_, i) => `Sentence number ${i + 15} explains how distributed systems reconcile state across topic ${i + 15}.`).join("\n"),
+  );
+  assert.deepEqual(r.offloaded, [[hash, content]]);
+  assert.equal(crushProse(content, "")?.text, r.text); // deterministic
+  assert.equal(crushProse("one thing. two thing. three thing.", ""), undefined); // fewer than 6 segments
+  const cjk = Array.from({ length: 12 }, (_, i) => `句子 ${i} 描述了系统在主题 ${i} 上的行为细节。`).join(" ");
+  assert.equal(crushProse(cjk, "系统"), undefined);
+  assert.equal(crushProse(`${content} Ｆｕｌｌ-width forms count as CJK too.`, ""), undefined);
+});
+
+test("crushText is extractive, suppresses near-duplicates and keeps the query's and the salient segments (upstream test_text_crusher.py)", () => {
+  const doc = Array.from({ length: 40 }, (_, i) => `Sentence number ${i} describes a distinct topic ${i} in some detail.`).join(" ");
+  const words = new Set(doc.split(/\s+/));
+  const kept = must(crushProse(doc, "")).text.split("\n").slice(0, -1);
+  assert.ok(kept.every((s) => s.split(/\s+/).every((w) => words.has(w))));
+  const dup = "The quick brown fox jumps over the very lazy dog today.";
+  const uniques = Array.from({ length: 8 }, (_, i) => `A unique fact about item ${i} stated plainly here.`);
+  assert.ok((must(crushProse([...Array(10).fill(dup), ...uniques].join("\n"), "")).text.match(/quick brown fox/g) ?? []).length <= 2);
+  const filler = Array.from({ length: 30 }, (_, i) => `Filler line number ${i} with generic words and padding here.`);
+  const needle = "The authentication token expires after thirty minutes of inactivity.";
+  const text = [...filler.slice(0, 15), needle, ...filler.slice(15)].join("\n");
+  assert.ok(must(crushProse(text, "how long until the authentication token expires")).text.includes(needle));
+  assert.ok(!must(crushProse(text, "")).text.includes(needle)); // without the query, recency keeps the later filler instead
+  // Digits, ALLCAPS and dotted identifiers outrank plain early prose.
+  const plain = Array.from({ length: 6 }, (_, i) => `plain words describe the general behaviour of things in vague terms ${"abcdef"[i]}`);
+  const salient = "ERROR at pipeline.apply returned HTTP 503 for request 9182 after 3 tries";
+  const out = must(crushProse([salient, ...plain, ...plain.map((p) => `${p} again`)].join("\n"), "")).text;
+  assert.ok(out.split("\n").includes(salient), out);
+  assert.ok(!out.split("\n").includes(plain[0]), out);
+});
+
+test("the text route: the text crusher beats a declining fold and a fold it out-saves by 5%, and loses to a fold that saves nearly as much", () => {
+  const prose = sentences(20).join("\n");
+  assert.equal(detectContentType(prose), "text");
+  assert.equal(foldText(prose), undefined);
+  const plain = route(prose, only({ textcrush: true }));
+  assert.equal(stored(plain), crushProse(prose, "")?.text);
+  assert.deepEqual(plain?.textcrush, { texts: 1, saved: prose.length - stored(plain).length });
+  // One repeated pair: the fold saves a line, the crusher half the text.
+  const lines = sentences(20);
+  lines.splice(5, 0, lines[5]);
+  const some = lines.join("\n");
+  const fold = must(foldText(some));
+  const lossy = must(crushProse(some, ""));
+  assert.ok(lossy.text.length <= fold.text.length * 0.95);
+  assert.equal(stored(route(some, only({ textcrush: true }))), lossy.text);
+  // Sixty identical retries: the fold leaves two lines for them, which the crusher cannot beat by 5%.
+  const retries = [...sentences(8), ...Array(60).fill("retrying the connection to the database server now")].join("\n");
+  const retryFold = must(foldText(retries));
+  assert.ok(must(crushProse(retries, "")).text.length > retryFold.text.length * 0.95);
+  const r = route(retries, only({ textcrush: true, elide: true }));
+  assert.equal(stored(r), retryFold.text);
+  assert.deepEqual([r?.textcrush.texts, r?.elide.lines, r?.offloaded], [1, 0, []]);
+});
+
+test("the text route: a crushed text is never folded, and the elider still runs on it", () => {
+  // With an empty query recency decides, so the last three segments stay adjacent; they carry no token, so no shingle drops them.
+  const text = [...sentences(12), ..."===".split("").map(() => "=".repeat(80))].join("\n");
+  const lossy = must(crushProse(text, ""));
+  assert.ok(foldText(lossy.text)); // the precondition: the fold WOULD collapse the crushed output's three identical lines
+  const r = route(text, only({ textcrush: true, elide: true }));
+  assert.equal(stored(r), lossy.text);
+  assert.doesNotMatch(stored(r), RUN_LINE);
+  assert.equal(r?.textcrush.texts, 1);
+  // A dense last segment: recency keeps it, and the elider cuts it after the crusher.
+  const d = route([...sentences(12), "x".repeat(2500)].join("\n"), only({ textcrush: true, elide: true }));
+  const out = stored(d);
+  assert.match(out, /\n\[Text crushed: \d+ of 13 segments kept\. Retrieve original: hash=[0-9a-f]{12}\]\n\[1 dense machine-generated line elided\. Retrieve original: hash=[0-9a-f]{12}\]$/);
+  assert.deepEqual([d?.textcrush.texts, d?.elide.lines], [1, 1]);
+  assert.deepEqual(
+    d?.offloaded.map(([h]) => h),
+    [...out.matchAll(/hash=([0-9a-f]{12})\]/g)].map((m) => m[1]),
+  );
+});
+
+test("the text crusher leaves Read output, line-numbered text, tagged text and error rows whole, and alone triggers detection", () => {
+  const text = sentences(20).join("\n");
+  assert.equal(route(text, only({ textcrush: true }))?.textcrush.texts, 1);
+  assert.equal(route(text, only({ textcrush: true }), "Read"), undefined);
+  assert.equal(route(`1\t${text}`, only({ textcrush: true })), undefined);
+  assert.equal(route(`${text}\n<system-reminder>keep</system-reminder>`, only({ textcrush: true, tags: true })), undefined);
+  assert.equal(rewriteToolResults([toolResult(text, true)], "Bash", only({ textcrush: true }), ""), undefined);
+});
+
+test("crushText stays bounded on 20,000 sentences", () => {
+  const text = Array.from({ length: 20_000 }, (_, i) => `Sentence ${i} notes that worker ${i % 97} finished job ${i * 31} quickly.`).join(" ");
+  assert.ok(text.length >= 1_000_000);
+  const t0 = Date.now();
+  assert.ok(crushProse(text, "which worker finished the job"));
   assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0} ms`);
 });

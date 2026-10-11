@@ -4839,6 +4839,166 @@ export function compressDiff(text, query) {
   return result.length < text.length ? { text: result, offloaded: [[hash, text]] } : undefined;
 }
 
+// Text crusher: a port of headroom's text_crusher/crusher.rs (TextCrusher::compress, ASCII path, TextCrusherConfig::default())
+// and the "text" kind of lossless_compaction.py compact_lossless. It stands in for upstream's Kompress (ML) on prose.
+
+// Upstream TextCrusherConfig::default() (target_ratio is a constant here, not clamped per call).
+const TEXT_TARGET_RATIO = 0.5;
+const TEXT_W_RECENCY = 1.0;
+const TEXT_W_RELEVANCE = 2.0;
+const TEXT_W_SALIENCE = 1.5;
+const TEXT_MIN_SEGMENT_CHARS = 12;
+const TEXT_NEAR_DUP = 0.85;
+const TEXT_MIN_SEGMENTS = 6;
+// Upstream is_cjk exactly: CJK punctuation, kana, ideographs (BMP and astral), Hangul and half/full-width forms. CJK_RANGES
+// (bigramCurve's) is narrower and stays as it is.
+const TEXT_CJK_RE = /[\u{3000}-\u{303f}\u{3040}-\u{30ff}\u{3400}-\u{4dbf}\u{4e00}-\u{9fff}\u{ac00}-\u{d7af}\u{f900}-\u{faff}\u{ff00}-\u{ffef}\u{20000}-\u{2fa1f}]/u;
+// Upstream tokens_ascii: runs of Rust is_alphanumeric (Alphabetic or Numeric) or `_`, lowercased. Not BM25_TOKEN_RE.
+const TEXT_TOKEN_RE = /[\p{Alphabetic}\p{N}_]+/gu;
+const TEXT_WORD_CHAR_RE = /[\p{Alphabetic}\p{N}]/u;
+const TEXT_LETTER_RE = /\p{Alphabetic}/gu;
+const TEXT_UPPER_RE = /^\p{Uppercase}$/u;
+const TEXT_IDENT_START_RE = /^[\p{Alphabetic}_]/u;
+const TEXT_KEYWORDS = new Set(["error", "exception", "failed", "failure", "fail", "warning", "traceback", "assert", "todo", "fixme"]);
+
+/**
+ * Upstream split_segments_ascii: each trimmed non-empty line, cut after `.`, `!` or `?` and the whitespace that follows it,
+ * each piece trimmed, empty pieces dropped.
+ * @param {string} text
+ * @returns {string[]}
+ */
+function splitSegments(text) {
+  /** @type {string[]} */
+  const segs = [];
+  const push = (/** @type {string} */ s) => {
+    const t = s.trim();
+    if (t) segs.push(t);
+  };
+  for (const line of text.split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    let start = 0;
+    let prevTerm = false;
+    for (let i = 0; i < t.length; i++) {
+      const c = t[i];
+      if (prevTerm && /\s/.test(c)) {
+        push(t.slice(start, i));
+        start = i + 1;
+        prevTerm = false;
+        continue;
+      }
+      prevTerm = c === "." || c === "!" || c === "?";
+    }
+    push(t.slice(start));
+  }
+  return segs;
+}
+
+/**
+ * Upstream trim_matches(|c| !c.is_alphanumeric()), by code points and without a regex (a backtracking one would be quadratic on
+ * a long run of punctuation).
+ * @param {string} word
+ * @returns {string}
+ */
+function trimToWord(word) {
+  const cps = Array.from(word);
+  let s = 0;
+  let e = cps.length;
+  while (s < e && !TEXT_WORD_CHAR_RE.test(cps[s])) s++;
+  while (e > s && !TEXT_WORD_CHAR_RE.test(cps[e - 1])) e--;
+  return cps.slice(s, e).join("");
+}
+
+/**
+ * Upstream is_salient: a word carrying hard-to-reconstruct information, holding an ASCII digit, being an error/status keyword
+ * once trimmed of non-alphanumerics, ALLCAPS (2+ letters, all uppercase), or a dotted identifier (`foo.bar`).
+ * @param {string} word
+ * @returns {boolean}
+ */
+function isSalient(word) {
+  if (/[0-9]/.test(word)) return true;
+  if (TEXT_KEYWORDS.has(trimToWord(word).toLowerCase())) return true;
+  const letters = word.match(TEXT_LETTER_RE) ?? [];
+  if (letters.length >= 2 && letters.every((c) => TEXT_UPPER_RE.test(c))) return true;
+  const dot = word.indexOf(".");
+  return dot > 0 && dot + 1 < word.length && TEXT_IDENT_START_RE.test(word.slice(0, dot)) && TEXT_IDENT_START_RE.test(word.slice(dot + 1));
+}
+
+/**
+ * Upstream shingles(words, 3): the 3-token windows joined by \u0001; a segment of 1 or 2 tokens gives all its sub-windows.
+ * @param {readonly string[]} words
+ * @returns {Set<string>}
+ */
+function shingles(words) {
+  /** @type {Set<string>} */
+  const set = new Set();
+  const k = words.length < 3 ? 1 : 3;
+  for (let size = k; size <= Math.min(words.length, 3); size++) for (let i = 0; i + size <= words.length; i++) set.add(words.slice(i, i + size).join("\u0001"));
+  return set;
+}
+
+/**
+ * The text fold (upstream compact_lossless "text"): runs of identical lines collapsed to `... (repeated N times)`, kept only when
+ * it expands back to the text and is shorter.
+ * @param {string} text
+ * @returns {{ text: string, offloaded: [string, string][] }|undefined}
+ */
+export function foldText(text) {
+  const cand = collapseRuns(text);
+  if (cand.length >= text.length || expandRuns(cand, splitKeepTrailing(text)[0].length) !== text) return undefined;
+  return { text: cand, offloaded: [] };
+}
+
+/**
+ * Upstream TextCrusher::compress (the ASCII path, default config): prose split into sentence segments, each scored by recency
+ * (1.0 × (i+1)/n), BM25 relevance to the query (2.0 ×) and salience (1.5 × salient words / (words + 1)), × 0.25 under 12 chars;
+ * then, best first, segments are kept until half the characters are, skipping one whose 3-token shingles are 85% covered by kept
+ * ones. The kept segments, in order and joined by \n, end with `[Text crushed: K of N segments kept. Retrieve original: hash=H]`
+ * and the input is stored under H. Deviations: text holding a CJK character declines (upstream's ICU path is not ported), lengths
+ * count UTF-16 units where upstream counts UTF-8 bytes, and the retrieval line is the mod's own. Undefined under 6 segments or
+ * when the result is not shorter.
+ * @param {string} text
+ * @param {string} query the conversation context (crushQuery), "" for none
+ * @returns {{ text: string, offloaded: [string, string][] }|undefined}
+ */
+export function crushText(text, query) {
+  if (TEXT_CJK_RE.test(text)) return undefined;
+  const segs = splitSegments(text);
+  const n = segs.length;
+  if (n < TEXT_MIN_SEGMENTS) return undefined;
+  const target = Math.max(1, Math.floor(segs.reduce((a, s) => a + s.length, 0) * TEXT_TARGET_RATIO));
+  const rel = bm25Scores(segs, query);
+  const scores = segs.map((s, i) => {
+    const words = s.split(/\s+/).filter(Boolean);
+    const salience = words.filter(isSalient).length / (words.length + 1);
+    const score = TEXT_W_RECENCY * ((i + 1) / n) + TEXT_W_RELEVANCE * rel[i] + TEXT_W_SALIENCE * salience;
+    return s.length < TEXT_MIN_SEGMENT_CHARS ? score * 0.25 : score;
+  });
+  const order = segs.map((_, i) => i).sort((a, b) => scores[b] - scores[a] || a - b);
+  const kept = new Uint8Array(n);
+  /** @type {Set<string>} */
+  const seen = new Set();
+  let keptChars = 0;
+  let keptCount = 0;
+  for (const i of order) {
+    if (keptChars >= target) break;
+    const sh = shingles(segs[i].toLowerCase().match(TEXT_TOKEN_RE) ?? []);
+    if (sh.size) {
+      let covered = 0;
+      for (const s of sh) if (seen.has(s)) covered++;
+      if (covered / sh.size >= TEXT_NEAR_DUP) continue; // a near-duplicate of kept segments
+    }
+    kept[i] = 1;
+    keptCount++;
+    for (const s of sh) seen.add(s);
+    keptChars += segs[i].length;
+  }
+  if (!keptCount) return undefined;
+  const hash = contentHash(text);
+  const out = `${segs.filter((_, i) => kept[i] === 1).join("\n")}\n[Text crushed: ${keptCount} of ${n} segments kept. Retrieve original: hash=${hash}]`;
+  return out.length < text.length ? { text: out, offloaded: [[hash, text]] } : undefined;
+}
+
 /**
  * Each content type's compression steps, tried in order until one rewrites (a light upstream _strategy_from_detection).
  * The SmartCrusher owns JSON, the config compressor structured config, the HTML extractor HTML, the log compressor build
@@ -5088,6 +5248,12 @@ function rewriteRow(content, tool, levers, query) {
         } else if (step === "difffold" && levers.diff && fresh && spans.length === 0 && cur === text) {
           const r = foldDiff(cur);
           if (r) next = adopt(acc.diff, cur, r);
+        } else if (step === "textcrush" && levers.textcrush && fresh && spans.length === 0) {
+          const r = crushText(cur, query);
+          if (r && overFold(r, foldText(cur))) next = adopt(acc.textcrush, cur, r);
+        } else if (step === "textfold" && levers.textcrush && fresh && spans.length === 0 && cur === text) {
+          const r = foldText(cur);
+          if (r) next = adopt(acc.textcrush, cur, r);
         } else if (step === "elide" && levers.elide) {
           const d = elideDense(cur, spans);
           if (d) {

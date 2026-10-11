@@ -249,8 +249,8 @@ test("(i) /headroom opens the headroom pane and prints nothing", async ($, on) =
   const out = await $.command.run({ command: "headroom" });
   expect(out.text).toBeUndefined();
   expect(opened.length).toBe(1);
-  // 6 + 5 + 2 × 9 table rows, the storage note, the volatile header and twelve gaps.
-  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 43 });
+  // 6 + 5 + 2 × 10 table rows, the storage note, the volatile header and thirteen gaps.
+  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 46 });
 });
 
 test("(i2) /headroom falls back to the stats tables as text when the pane is not placed", async ($, on) => {
@@ -556,7 +556,7 @@ test(
     expect(
       await ui.find({
         type: "Text",
-        text: /^effort routing, cache aligner, smart crusher, lossless compaction, cross-turn dedup, dense line elider, config compressor, HTML extractor, log compressor, search compressor and diff compressor are off/,
+        text: /^effort routing, cache aligner, smart crusher, lossless compaction, cross-turn dedup, dense line elider, config compressor, HTML extractor, log compressor, search compressor, diff compressor and text crusher are off/,
       }),
     ).toBeDefined();
     expect(await ui.find({ type: "Text", text: /^effort routing$/ })).toBeUndefined();
@@ -938,7 +938,7 @@ test("(sc10) session.end starts the smart crusher row over", { options: { ...LOS
   expect((await $.command.run({ command: "headroom" })).text).toMatch(/^smart crusher\s+dropped\s+saved\nsession\s+0\s+0$/m);
 });
 
-test("(dd1) a row repeating 10 lines of an earlier row is stored with one pointer, and the run is retrievable", { options: { storage_enabled: false } }, async ($, on) => {
+test("(dd1) a row repeating 10 lines of an earlier row is stored with one pointer, and the run is retrievable", { options: { ...NEW_LEVERS_OFF, storage_enabled: false } }, async ($, on) => {
   on("ui.open", notPlaced);
   await startCrusher(on, $);
   expect(await appendResult($, "Bash", TEN)).toBe(TEN);
@@ -954,14 +954,14 @@ test("(dd1) a row repeating 10 lines of an earlier row is stored with one pointe
   expect(Number(saved)).toBeGreaterThan(0);
 });
 
-test("(dd2) a subagent row never folds against the main loop, only against that subagent's own rows", async ($, on) => {
+test("(dd2) a subagent row never folds against the main loop, only against that subagent's own rows", { options: NEW_LEVERS_OFF }, async ($, on) => {
   await startCrusher(on, $);
   await appendResult($, "Bash", TEN);
   expect(await appendResult($, "Bash", TEN, { agentId: "a1" })).toBe(TEN);
   expect(String(await appendResult($, "Bash", TEN, { agentId: "a1" }))).toMatch(POINTER);
 });
 
-test("(dd3) cross_turn_dedup_enabled false folds nothing and hides the dedup table", { options: { cross_turn_dedup_enabled: false, storage_enabled: false } }, async ($, on) => {
+test("(dd3) cross_turn_dedup_enabled false folds nothing and hides the dedup table", { options: { ...NEW_LEVERS_OFF, cross_turn_dedup_enabled: false, storage_enabled: false } }, async ($, on) => {
   on("ui.open", notPlaced);
   await startCrusher(on, $);
   await appendResult($, "Bash", TEN);
@@ -969,7 +969,7 @@ test("(dd3) cross_turn_dedup_enabled false folds nothing and hides the dedup tab
   expect((await $.command.run({ command: "headroom" })).text).not.toMatch(/^dedup/m);
 });
 
-test("(dd4) session.end starts the dedup row and its corpus over", { options: { storage_enabled: false } }, async ($, on) => {
+test("(dd4) session.end starts the dedup row and its corpus over", { options: { ...NEW_LEVERS_OFF, storage_enabled: false } }, async ($, on) => {
   on("ui.open", notPlaced);
   on("session.end", async (_$, e) => ({ sessionId: e.sessionId }));
   await startCrusher(on, $);
@@ -985,25 +985,29 @@ test("(dd4) session.end starts the dedup row and its corpus over", { options: { 
 const SUMMARY = { role: "user" as const, text: "summary", toolUses: [] };
 const compact = ($: Engine, trigger: string, agentId?: string) => $.session.compact({ trigger, messages: [SUMMARY], ...(agentId === undefined ? {} : { agentId }) } as never);
 
-test("(dd5) a compaction starts only the compacting loop's dedup corpus over and keeps its ordinals, a skipped or precompute one keeps it", { options: { storage_enabled: false } }, async ($, on) => {
-  let skip: string | undefined;
-  on("session.compact", async () => (skip === undefined ? { messages: [SUMMARY] } : { skip }));
-  await startCrusher(on, $);
-  await appendResult($, "Bash", TEN); // main result 1
-  await appendResult($, "Bash", TEN, { agentId: "a1" }); // a1's result 1
-  skip = "off";
-  await compact($, "manual");
-  skip = undefined;
-  await compact($, "precompute");
-  expect(String(await appendResult($, "Bash", TEN))).toMatch(POINTER); // main result 2: neither compaction touched the corpus
-  await compact($, "auto", "a1");
-  expect(await appendResult($, "Bash", TEN, { agentId: "a1" })).toBe(TEN); // a1's corpus is gone
-  expect(String(await appendResult($, "Bash", TEN))).toMatch(POINTER); // main result 3: its corpus is not
-  await compact($, "manual");
-  expect(await appendResult($, "Bash", TEN)).toBe(TEN); // main result 4: nothing earlier to fold against
-  const [, , ref] = POINTER.exec(String(await appendResult($, "Bash", TEN))) ?? [];
-  expect(Number(ref)).toBe(4); // result 5 names result 4: the ordinals went on
-});
+test(
+  "(dd5) a compaction starts only the compacting loop's dedup corpus over and keeps its ordinals, a skipped or precompute one keeps it",
+  { options: { ...NEW_LEVERS_OFF, storage_enabled: false } },
+  async ($, on) => {
+    let skip: string | undefined;
+    on("session.compact", async () => (skip === undefined ? { messages: [SUMMARY] } : { skip }));
+    await startCrusher(on, $);
+    await appendResult($, "Bash", TEN); // main result 1
+    await appendResult($, "Bash", TEN, { agentId: "a1" }); // a1's result 1
+    skip = "off";
+    await compact($, "manual");
+    skip = undefined;
+    await compact($, "precompute");
+    expect(String(await appendResult($, "Bash", TEN))).toMatch(POINTER); // main result 2: neither compaction touched the corpus
+    await compact($, "auto", "a1");
+    expect(await appendResult($, "Bash", TEN, { agentId: "a1" })).toBe(TEN); // a1's corpus is gone
+    expect(String(await appendResult($, "Bash", TEN))).toMatch(POINTER); // main result 3: its corpus is not
+    await compact($, "manual");
+    expect(await appendResult($, "Bash", TEN)).toBe(TEN); // main result 4: nothing earlier to fold against
+    const [, , ref] = POINTER.exec(String(await appendResult($, "Bash", TEN))) ?? [];
+    expect(Number(ref)).toBe(4); // result 5 names result 4: the ordinals went on
+  },
+);
 
 // `n` distinct 3-line runs numbered from `from`, each followed by a separator line: two rows with the same runs and different `sep` fold each run into its own pointer.
 const runsRow = (n: number, from: number, sep: string) =>
@@ -1013,7 +1017,7 @@ const runsRow = (n: number, from: number, sep: string) =>
   }).join("\n");
 const hashesOf = (text: unknown): string[] => [...String(text).matchAll(/ hash=([0-9a-f]{12})\]/g)].map((m) => m[1]);
 
-test("(dd7) dedup runs have a store of their own, so a flood of them never evicts a crushed original", { options: { ...LOSSY, storage_enabled: false } }, async ($, on) => {
+test("(dd7) dedup runs have a store of their own, so a flood of them never evicts a crushed original", { options: { ...NEW_LEVERS_OFF, ...LOSSY, storage_enabled: false } }, async ($, on) => {
   await startCrusher(on, $);
   const { hash } = crushedRows(await appendResult($, "Bash", BIG));
   await appendResult($, "Bash", runsRow(600, 0, "a"));
@@ -1026,7 +1030,7 @@ test("(dd7) dedup runs have a store of their own, so a flood of them never evict
   expect(typeof (await $.tool.call({ tool: RETRIEVE_TOOL, hash: first[0] })).deny).toBe("string"); // the oldest runs went
 });
 
-test("(dd9) a row folding more runs than the store holds keeps every one of its own pointers retrievable", { options: { storage_enabled: false } }, async ($, on) => {
+test("(dd9) a row folding more runs than the store holds keeps every one of its own pointers retrievable", { options: { ...NEW_LEVERS_OFF, storage_enabled: false } }, async ($, on) => {
   await startCrusher(on, $);
   await appendResult($, "Bash", runsRow(1001, 0, "a"));
   const hashes = hashesOf(await appendResult($, "Bash", runsRow(1001, 0, "b")));
@@ -1037,7 +1041,7 @@ test("(dd9) a row folding more runs than the store holds keeps every one of its 
 
 test(
   "(dd6) a finished agent's turn.complete starts its dedup corpus over, with every other hook of that event off, and leaves the main loop's",
-  { options: { storage_enabled: false, subagent_effort_routing_enabled: false } },
+  { options: { ...NEW_LEVERS_OFF, storage_enabled: false, subagent_effort_routing_enabled: false } },
   async ($, on) => {
     on("turn.complete", async () => ({ text: "" }));
     await startCrusher(on, $);
@@ -1251,4 +1255,34 @@ test("(df2) diff_compressor_enabled false keeps a git diff whole and hides the d
   await startCrusher(on, $);
   expect(await appendResult($, "Bash", GIT_DIFF)).toBe(GIT_DIFF);
   expect((await $.command.run({ command: "headroom" })).text).not.toMatch(/^diff/m);
+});
+// A subagent-style prose report: twelve distinct sentences, no repeated line for the lossless fold to collapse.
+const REPORT = Array.from({ length: 12 }, (_, i) => `Finding ${i + 1} describes how the ${["cache", "queue", "router", "parser"][i % 4]} module behaves under ${i * 10} percent load.`).join("\n");
+const TEXT_ROW = /^text crusher\s+texts\s+saved\nsession\s+(\d+)\s+(\d+)$/m;
+const CRUSHED = /\n\[Text crushed: \d+ of (\d+) segments kept\. Retrieve original: hash=([0-9a-f]{12})\]$/;
+
+test("(tc1) a prose report is stored crushed, its original is retrievable, and /headroom counts it", { options: { storage_enabled: false } }, async ($, on) => {
+  on("ui.open", notPlaced);
+  await startCrusher(on, $);
+  const stored = String(await appendResult($, "Agent", REPORT));
+  const [, total, hash] = CRUSHED.exec(stored) ?? [];
+  expect(Number(total)).toBe(12);
+  expect((await $.tool.call({ tool: RETRIEVE_TOOL, hash })).result).toBe(REPORT);
+  const [, texts, saved] = TEXT_ROW.exec((await $.command.run({ command: "headroom" })).text ?? "") ?? [];
+  expect(Number(texts)).toBe(1);
+  expect(Number(saved)).toBe(REPORT.length - stored.length);
+});
+
+test("(tc2) text_crusher_enabled false keeps a prose report whole and hides the text crusher table", { options: { text_crusher_enabled: false, storage_enabled: false } }, async ($, on) => {
+  on("ui.open", notPlaced);
+  await startCrusher(on, $);
+  expect(await appendResult($, "Agent", REPORT)).toBe(REPORT);
+  expect((await $.command.run({ command: "headroom" })).text).not.toMatch(/^text crusher/m);
+});
+
+test("(tc3) by default dedup indexes the crushed form: a repeated prose row is crushed the same way, then folded into one pointer", { options: { storage_enabled: false } }, async ($, on) => {
+  await startCrusher(on, $);
+  const first = String(await appendResult($, "Bash", TEN));
+  expect(first).toMatch(CRUSHED);
+  expect(String(await appendResult($, "Bash", TEN))).toMatch(POINTER);
 });
