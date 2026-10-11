@@ -19,6 +19,7 @@ import {
   crushJson,
   crushQuery,
   dayKey,
+  detectContentType,
   dedupBlock,
   elideDense,
   findVolatile,
@@ -1000,4 +1001,136 @@ test("wantsQuery asks for the transcript only for a JSON document the crusher ma
   assert.equal(wantsQuery([toolResult("[ 10%] Building CXX object foo.o\n".repeat(40))], "Bash"), false);
   assert.equal(wantsQuery([toolResult("{" + "x".repeat(900))], "Bash"), false);
   assert.equal(wantsQuery([toolResult([{ type: "tool_reference", tool_name: "Read" }])], "ToolSearch"), false);
+});
+
+// Upstream tests/parity/fixtures/content_detector/*.json at 976aa71: [input, output.content_type], file name prefix.
+/* eslint-disable max-len -- the fixture inputs are verbatim upstream strings */
+const PARITY = [
+  ["diff --combined merged.py\nindex aaa..bbb..ccc 100644\n--- a/merged.py\n+++ b/merged.py\n@@@ -1,4 -1,4 +1,5 @@@\n  unchanged\n- branch_a_only\n -branch_b_only\n++merge_added\n", "diff"], // 247811aecfdec556
+  ['package com.example;\n\npublic class Foo {\n    @Override\n    public String toString() { return "foo"; }\n}\n\nprivate interface Bar {}\nprotected enum Baz { A, B }\n', "source_code"], // 37c86907c057e293
+  ["Just some prose text without any structure or special markers.", "text"], // 3a0b14d2dea7c876
+  ["<div>a</div>\n<span>b</span>\n<script>x()</script>\n<style>y</style>", "text"], // 3ba74a1f57c5351e
+  ["", "text"], // 4efe946303371867
+  ["import x from 'y';\nexport const foo = 1;\nfunction bar() { return 42; }\nconst f = async function() {};\nmodule.exports = { foo, bar };\n", "source_code"], // 53400da2b7dd2428
+  ["diff --git a/foo.py b/foo.py\nindex abc..def 100644\n--- a/foo.py\n+++ b/foo.py\n@@ -1,3 +1,3 @@\n-old line\n+new line\n unchanged\n", "diff"], // 552d30c30c2a6793
+  [
+    'import os\nfrom typing import Any\n\n@dataclass\nclass Foo:\n    """Docstring."""\n    def bar(self):\n        return 42\n\ndef baz():\n    pass\n\nif __name__ == \'__main__\':\n    baz()\n',
+    "source_code",
+  ], // 5e8e1bc29f6c71c5
+  ["INFO starting build\nWARN deprecated API used\nERROR compilation failed\nFAILED test_x\nPASSED test_y\n============================================\n", "build"], // 628c8985c40adb7d
+  ["interface User { id: number; name: string; }\ntype Maybe<T> = T | null;\nenum Color { Red, Green, Blue }\nfunction f(x: number): boolean { return x > 0; }\n", "source_code"], // 67f4b1a1697c8aa9
+  ["   \n\t  \n", "text"], // 70fbb444a583fe3c
+  [
+    "============================= test session starts ==============================\ntests/test_0.py::test_case PASSED\ntests/test_1.py::test_case PASSED\ntests/test_2.py::test_case PASSED\ntests/test_3.py::test_case PASSED\ntests/test_4.py::test_case PASSED\nFAILED tests/test_5.py::test_bad\nTraceback (most recent call last)\n",
+    "build",
+  ], // 71d648a39e151a72
+  ["src/main.py:42:def process():\nsrc/util.py:13:    return None\nlib/x.py:7:class X:\ntests/test_a.py:3:    assert True", "search"], // 79e6b68a05a1c639
+  ["<p>just one tag</p>", "text"], // 7e145153192c11a1
+  ["[]", "json_array"], // 7fde660489bc47aa
+  ['package main\n\nimport "fmt"\n\ntype Foo struct { ID int }\n\nfunc (f *Foo) Bar() int { return f.ID }\n\nfunc main() { fmt.Println("hi") }\n', "source_code"], // 837b272f1604eaaa
+  // Rust's detector records "text" (arrays only); Python, which the port follows, reads any object as JSON.
+  ['{"foo": "bar"}', "json_array"], // 9fb76321d31ed64c
+  ['[{"id":1,"name":"a"},{"id":2,"name":"b"},{"id":3,"name":"c"}]', "json_array"], // bc4488ce189d1c86
+  [
+    "use std::collections::HashMap;\n\npub struct Foo { id: u32 }\n\nimpl Foo {\n    pub fn new() -> Self { Self { id: 0 } }\n}\n\nfn main() {}\n#[derive(Debug)]\nenum Color { Red, Green }\n",
+    "source_code",
+  ], // bf9b9ceb4b70dcd0
+  ["[1, 2, 3, 4, 5]", "json_array"], // cabc55445af63e2f
+  ["<!DOCTYPE html>\n<html>\n<head><title>x</title></head>\n<body><div><span>hi</span></div></body>\n</html>", "html"], // d100a9ac7a3671da
+];
+/* eslint-enable max-len */
+
+test("detectContentType matches upstream's recorded parity fixtures, a JSON object aside", () => {
+  assert.equal(PARITY.length, 21);
+  for (const [input, tag] of PARITY) assert.equal(detectContentType(input), tag, JSON.stringify(input));
+});
+
+test("detectContentType reads JSON by parsing: objects, wrapped payloads and concatenated objects, never a bare scalar", () => {
+  assert.equal(detectContentType('{"name": "x", "tags": ["a"]}'), "json_array");
+  assert.equal(detectContentType(`Exit code: 0\n${JSON.stringify(Array.from({ length: 20 }, (_, i) => ({ id: i })))}`), "json_array"); // a small wrapper, the array the bulk
+  assert.equal(detectContentType('{"a":1} {"b":2}'), "json_array");
+  assert.notEqual(detectContentType('The service answered {"ok": true} after a retry that took several seconds to complete'), "json_array"); // under 60% of the text
+  assert.equal(detectContentType("42"), "text");
+  assert.notEqual(detectContentType('{"a":1} trailing prose that is much longer than the object itself'), "json_array");
+});
+
+test("detectContentType never throws on deeply nested brackets", () => {
+  assert.doesNotThrow(() => detectContentType("[".repeat(100_000) + "]".repeat(100_000)));
+});
+
+test("detectContentType counts a lone diff header as a diff and reads only the first 500 lines", () => {
+  assert.equal(detectContentType("diff --git a/x b/x\n"), "diff"); // 0.5 + 0.2 is exactly the 0.7 gate
+  assert.equal(detectContentType("plain\n".repeat(500) + "diff --git a/x b/x\n+y"), "text");
+});
+
+test("detectContentType needs real HTML signals", () => {
+  assert.notEqual(detectContentType("<div>hello</div>"), "html");
+  assert.equal(detectContentType("<!DOCTYPE html>\n<html>\n<body><p>hi</p></body>\n</html>"), "html");
+});
+
+test("detectContentType recognizes git status only with a heading and a path entry", () => {
+  const full = [
+    "On branch feature/status",
+    "Changes to be committed:",
+    '  (use "git restore --staged <file>..." to unstage)',
+    "\tnew file:   staged file.txt",
+    "",
+    "Changes not staged for commit:",
+    '  (use "git add <file>..." to update what will be committed)',
+    "\tmodified:   path with spaces.txt",
+    "",
+    "Untracked files:",
+    '  (use "git add <file>..." to include in what will be committed)',
+    "\tuntracked path.txt",
+    "",
+  ].join("\n");
+  assert.equal(detectContentType(full), "tabular");
+  const untracked = [
+    "On branch feature/status",
+    "",
+    "Untracked files:",
+    '  (use "git add <file>..." to include in what will be committed)',
+    "\tuntracked path with spaces.txt",
+    "\tuntracked α.rs",
+    "",
+  ].join("\n");
+  assert.equal(detectContentType(untracked), "tabular");
+  assert.notEqual(detectContentType("The branch has many changes:\n- modified: item one\n- modified: item two"), "tabular");
+  assert.equal(detectContentType("On branch main\r\nUntracked files:\r\n\tfoo\r\n"), "tabular"); // splitlines() splits on CRLF too
+});
+
+test("detectContentType wants two grep lines, rejects timestamped log rows and takes grep context lines", () => {
+  assert.equal(detectContentType("src/a.py:12:def main():\nThis is an explanation of what the function does."), "text");
+  const pad = (/** @type {number} */ n) => String(n).padStart(2, "0");
+  const timestamped = Array.from({ length: 200 }, (_, i) => `2026-09-23T10:${pad(Math.floor(i / 60))}:${pad(i % 60)}Z INFO worker[${i % 8}] processed batch ${i} in ${(i * 13) % 900}ms`).join("\n");
+  assert.notEqual(detectContentType(timestamped), "search");
+  assert.equal(detectContentType("src/a.py-12-foo\nsrc/a.py:13:bar\nsrc/a.py-14-baz"), "search");
+  assert.notEqual(detectContentType("2026-09-14-release notes\n2026-09-15-release notes\nplain line"), "search"); // a date is no path
+});
+
+test("detectContentType reads CMTrace records as build output", () => {
+  const attrs = (/** @type {number} */ sec) =>
+    `time="10:00:${String(sec).padStart(2, "0")}.000-0" date="01-15-2026" component="ExampleCorp_SampleApp_1.0.0_x64_B1" context="SYSTEM" type="1" thread="4242" file="install.ps1"`;
+  const record = (/** @type {string} */ message, /** @type {number} */ sec) => `<![LOG[${message}]LOG]!><${attrs(sec)}>`;
+  const messages = [
+    "Starting deployment of SampleApp 1.0.0",
+    "Detection rule evaluated, not installed",
+    "Downloading package from content source",
+    "Extracting files to target directory",
+    "Registering application components",
+    "Starting service SampleAppSvc",
+    "Writing uninstall registry entries",
+    "Deployment completed with exit code 0",
+  ];
+  const records = messages.flatMap((m, i) => [record("=".repeat(75), i * 2), record(m, i * 2 + 1)]);
+  assert.equal(detectContentType(records.join("\n")), "build");
+  assert.equal(detectContentType(records.join("")), "build"); // run together, as Intune writes them
+  assert.equal(detectContentType(record(messages[0], 1)), "build");
+  const divider = record("=".repeat(75), 0);
+  assert.notEqual(detectContentType(`${divider}\n${divider}`), "search"); // the path-shape guard rejects its "<" prefix
+});
+
+test("detectContentType knows C# and PHP", () => {
+  assert.equal(detectContentType("using System;\nusing System.Linq;\nnamespace Foo\npublic class Bar\n{ get; set; }"), "source_code");
+  assert.equal(detectContentType("<?php\nnamespace App\\Models;\nuse Foo\\Bar;\nfunction x() {"), "source_code");
 });
