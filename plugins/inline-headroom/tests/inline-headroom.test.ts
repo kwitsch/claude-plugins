@@ -240,8 +240,8 @@ test("(i) /headroom opens the headroom pane and prints nothing", async ($, on) =
   const out = await $.command.run({ command: "headroom" });
   expect(out.text).toBeUndefined();
   expect(opened.length).toBe(1);
-  // 6 + 5 + 2 + 2 + 2 table rows, the storage note, the volatile header and six gaps.
-  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 25 });
+  // 6 + 5 + 2 + 2 + 2 + 2 table rows, the storage note, the volatile header and seven gaps.
+  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 28 });
 });
 
 test("(i2) /headroom falls back to the stats tables as text when the pane is not placed", async ($, on) => {
@@ -523,12 +523,13 @@ test("(z) the cache aligner table and the volatile list are shown only while cac
 });
 
 test(
-  "(aa) with all five levers off the pane says so, and reads nothing from storage",
+  "(aa) with every lever off the pane says so, and reads nothing from storage",
   {
     options: {
       effort_routing_enabled: false,
       cache_aligner_enabled: false,
       smart_crusher_enabled: false,
+      lossless_compaction_enabled: false,
       cross_turn_dedup_enabled: false,
       dense_line_elider_enabled: false,
     },
@@ -540,7 +541,7 @@ test(
     await $.command.run({ command: "headroom" });
     await clock.advance(30_000); // no refresh timer runs
     const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
-    expect(await ui.find({ type: "Text", text: /^effort routing, cache aligner, smart crusher, cross-turn dedup and dense line elider are off/ })).toBeDefined();
+    expect(await ui.find({ type: "Text", text: /^effort routing, cache aligner, smart crusher, lossless compaction, cross-turn dedup and dense line elider are off/ })).toBeDefined();
     expect(await ui.find({ type: "Text", text: /^effort routing$/ })).toBeUndefined();
     expect(calls).toHaveLength(0);
     await ui.unmount();
@@ -637,6 +638,9 @@ const SENTINEL = /^<<ccr:([0-9a-f]{12}) (\d+)_rows_offloaded>>$/;
 const CRUSHER_ROW = /^smart crusher\s+dropped\s+saved\nsession\s+(\d+)\s+(\d+)$/m;
 const DEDUP_ROW = /^dedup\s+spans\s+saved\nsession\s+(\d+)\s+(\d+)$/m;
 const ELIDER_ROW = /^line elider\s+lines\s+saved\nsession\s+(\d+)\s+(\d+)$/m;
+const COMPACTION_ROW = /^compaction\s+arrays\s+saved\nsession\s+(\d+)\s+(\d+)$/m;
+// The lossy crusher alone: lossless compaction would render BIG as a table first.
+const LOSSY = { lossless_compaction_enabled: false };
 // Ten numbered lines of 40+ characters: the kind of output a re-read repeats.
 const TEN = Array.from({ length: 10 }, (_, i) => `${i + 1}:const value${i} = computeSomething(${i}); // line ${i}`).join("\n");
 // A dedup pointer: the run's line count, the result it names and the hash of its stored text.
@@ -688,7 +692,7 @@ function crushedRows(text: unknown): { rows: Record<string, unknown>[]; hash: st
   return { rows: parsed, hash, dropped: Number(dropped) };
 }
 
-test("(sc1) a main-loop Bash JSON row is stored crushed, and /headroom counts the session's savings", { options: { storage_enabled: false } }, async ($, on) => {
+test("(sc1) a main-loop Bash JSON row is stored crushed, and /headroom counts the session's savings", { options: { ...LOSSY, storage_enabled: false } }, async ($, on) => {
   on("ui.open", notPlaced);
   const registered = await startCrusher(on, $);
   const { rows: kept, dropped } = crushedRows(await appendResult($, "Bash", BIG));
@@ -701,7 +705,7 @@ test("(sc1) a main-loop Bash JSON row is stored crushed, and /headroom counts th
   expect(Number(saved)).toBeGreaterThan(0);
 });
 
-test("(sc2) headroom_retrieve returns the original rows, and an unknown hash is a denied call", async ($, on) => {
+test("(sc2) headroom_retrieve returns the original rows, and an unknown hash is a denied call", { options: LOSSY }, async ($, on) => {
   const st = bottomStep(on);
   await startCrusher(on, $);
   const { hash } = crushedRows(await appendResult($, "Bash", BIG));
@@ -728,7 +732,7 @@ test("(sc3) an error row is stored untouched, and tool.call error and deny resul
 
 test(
   "(sc4) with every compression lever off no tool is registered, rows are stored untouched and no compression table shows",
-  { options: { smart_crusher_enabled: false, cross_turn_dedup_enabled: false, dense_line_elider_enabled: false, storage_enabled: false } },
+  { options: { smart_crusher_enabled: false, lossless_compaction_enabled: false, cross_turn_dedup_enabled: false, dense_line_elider_enabled: false, storage_enabled: false } },
   async ($, on) => {
     const st = bottomStep(on);
     on("ui.open", notPlaced);
@@ -744,25 +748,29 @@ test(
     expect(text).not.toMatch(/^smart crusher/m);
     expect(text).not.toMatch(/^dedup/m);
     expect(text).not.toMatch(/^line elider/m);
+    expect(text).not.toMatch(/^compaction/m);
   },
 );
 
 test(
-  "(sc4b) smart_crusher_enabled false alone keeps JSON whole and hides its table, but still registers the tool",
+  "(sc4b) smart_crusher_enabled false alone compacts JSON losslessly, drops no row and hides its table, but still registers the tool",
   { options: { smart_crusher_enabled: false, storage_enabled: false } },
   async ($, on) => {
     on("ui.open", notPlaced);
     const registered = await startCrusher(on, $);
-    expect(await appendResult($, "Bash", BIG)).toBe(BIG); // one compact JSON line: nothing to elide or fold
+    const table = String(JSON.parse(String(await appendResult($, "Bash", BIG)))); // upstream lossless_only: a table, never a dropped row
+    expect(table.startsWith("[200]{id:int,note:string,status:string}\n")).toBe(true);
+    expect(table).not.toMatch(/_ccr_dropped/);
     expect(registered).toHaveLength(1);
     const text = (await $.command.run({ command: "headroom" })).text ?? "";
     expect(text).not.toMatch(/^smart crusher/m);
     expect(text).toMatch(DEDUP_ROW);
     expect(text).toMatch(ELIDER_ROW);
+    expect(text).toMatch(COMPACTION_ROW);
   },
 );
 
-test("(sc5) a row's array content gets only its JSON text block rewritten", async ($, on) => {
+test("(sc5) a row's array content gets only its JSON text block rewritten", { options: LOSSY }, async ($, on) => {
   const image = { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo=" } };
   await startCrusher(on, $);
   const content = (await appendResult($, "mcp__srv__list", [{ type: "text", text: BIG }, image])) as { text?: string }[];
@@ -770,7 +778,7 @@ test("(sc5) a row's array content gets only its JSON text block rewritten", asyn
   expect(content[1]).toEqual(image);
 });
 
-test("(sc6) a subagent row is crushed by default, and the subagent's effort routing is unchanged", async ($, on) => {
+test("(sc6) a subagent row is crushed by default, and the subagent's effort routing is unchanged", { options: LOSSY }, async ($, on) => {
   const st = bottomStep(on);
   on("tool.call", () => ({ result: "ok" }));
   await startCrusher(on, $);
@@ -780,7 +788,7 @@ test("(sc6) a subagent row is crushed by default, and the subagent's effort rout
   expect(st.seen).toBe("low");
 });
 
-test("(sc6b) subagent_compression_enabled false stores a subagent row untouched but still crushes a main-loop row", { options: { subagent_compression_enabled: false } }, async ($, on) => {
+test("(sc6b) subagent_compression_enabled false stores a subagent row untouched but still crushes a main-loop row", { options: { ...LOSSY, subagent_compression_enabled: false } }, async ($, on) => {
   const st = bottomStep(on);
   on("tool.call", () => ({ result: "ok" }));
   await startCrusher(on, $);
@@ -797,7 +805,7 @@ test("(sc7) no row is rewritten when headroom_retrieve registered under another 
   expect(await appendResult($, "Bash", DENSE)).toBe(DENSE);
 });
 
-test("(sc8) any tool's JSON row is crushed, but headroom_retrieve and the mod's own storage rows are not", async ($, on) => {
+test("(sc8) any tool's JSON row is crushed, but headroom_retrieve and the mod's own storage rows are not", { options: LOSSY }, async ($, on) => {
   await startCrusher(on, $);
   expect(crushedRows(await appendResult($, "WebFetch", BIG)).rows.length).toBeLessThan(200);
   expect(await appendResult($, RETRIEVE_TOOL, BIG)).toBe(BIG);
@@ -806,7 +814,7 @@ test("(sc8) any tool's JSON row is crushed, but headroom_retrieve and the mod's 
 
 test(
   "(sc9) with only the crusher on, its hook still runs and the pane shows its table without reading storage",
-  { options: { effort_routing_enabled: false, cache_aligner_enabled: false, cross_turn_dedup_enabled: false, dense_line_elider_enabled: false } },
+  { options: { effort_routing_enabled: false, cache_aligner_enabled: false, lossless_compaction_enabled: false, cross_turn_dedup_enabled: false, dense_line_elider_enabled: false } },
   async ($, on) => {
     const clock = mock.clock(on, { now: NOW });
     const calls = stubWindows(on, () => windowSums(dayKey(NOW)));
@@ -826,7 +834,7 @@ test(
   },
 );
 
-test("(sc11) a crush redraws an open /headroom pane", { options: { storage_enabled: false } }, async ($, on) => {
+test("(sc11) a crush redraws an open /headroom pane", { options: { ...LOSSY, storage_enabled: false } }, async ($, on) => {
   let redraws = 0;
   on("ui.invalidate", async () => {
     redraws++;
@@ -844,7 +852,16 @@ test("(sc11) a crush redraws an open /headroom pane", { options: { storage_enabl
 
 test(
   "(sc12) with only the crusher on, the pane asks for its own height and shows no storage note",
-  { options: { effort_routing_enabled: false, cache_aligner_enabled: false, cross_turn_dedup_enabled: false, dense_line_elider_enabled: false, storage_enabled: false } },
+  {
+    options: {
+      effort_routing_enabled: false,
+      cache_aligner_enabled: false,
+      lossless_compaction_enabled: false,
+      cross_turn_dedup_enabled: false,
+      dense_line_elider_enabled: false,
+      storage_enabled: false,
+    },
+  },
   async ($, on) => {
     const opened: { rows?: number }[] = [];
     on("ui.open", async (_$, e) => {
@@ -861,7 +878,7 @@ test(
   },
 );
 
-test("(sc10) session.end starts the smart crusher row over", { options: { storage_enabled: false } }, async ($, on) => {
+test("(sc10) session.end starts the smart crusher row over", { options: { ...LOSSY, storage_enabled: false } }, async ($, on) => {
   on("ui.open", notPlaced);
   on("session.end", async (_$, e) => ({ sessionId: e.sessionId }));
   await startCrusher(on, $);
@@ -947,7 +964,7 @@ const runsRow = (n: number, from: number, sep: string) =>
   }).join("\n");
 const hashesOf = (text: unknown): string[] => [...String(text).matchAll(/ hash=([0-9a-f]{12})\]/g)].map((m) => m[1]);
 
-test("(dd7) dedup runs have a store of their own, so a flood of them never evicts a crushed original", { options: { storage_enabled: false } }, async ($, on) => {
+test("(dd7) dedup runs have a store of their own, so a flood of them never evicts a crushed original", { options: { ...LOSSY, storage_enabled: false } }, async ($, on) => {
   await startCrusher(on, $);
   const { hash } = crushedRows(await appendResult($, "Bash", BIG));
   await appendResult($, "Bash", runsRow(600, 0, "a"));
@@ -1003,4 +1020,29 @@ test("(de2) dense_line_elider_enabled false keeps dense lines and hides the line
   await startCrusher(on, $);
   expect(await appendResult($, "Bash", DENSE)).toBe(DENSE);
   expect((await $.command.run({ command: "headroom" })).text).not.toMatch(/^line elider/m);
+});
+
+test("(lc1) by default a uniform JSON array is stored as a lossless table, counted under compaction and not under the crusher", { options: { storage_enabled: false } }, async ($, on) => {
+  on("ui.open", notPlaced);
+  await startCrusher(on, $);
+  const stored = String(await appendResult($, "Bash", BIG));
+  const table = JSON.parse(stored) as unknown; // a JSON string literal, upstream's wrapper for a top-level array
+  expect(typeof table).toBe("string");
+  expect(String(table).startsWith("[200]{id:int,note:string,status:string}\n")).toBe(true);
+  expect(String(table).split("\n").includes("150,same text,error")).toBe(true);
+  expect(stored).not.toMatch(/_ccr_dropped/);
+  const text = (await $.command.run({ command: "headroom" })).text ?? "";
+  const [, arrays, saved] = COMPACTION_ROW.exec(text) ?? [];
+  expect(Number(arrays)).toBe(1);
+  expect(Number(saved)).toBe(BIG.length - stored.length);
+  expect(text).toMatch(/^smart crusher\s+dropped\s+saved\nsession\s+0\s+0$/m);
+});
+
+test("(lc2) lossless_compaction_enabled false sends a uniform JSON array to the lossy crusher and hides the compaction table", { options: { ...LOSSY, storage_enabled: false } }, async ($, on) => {
+  on("ui.open", notPlaced);
+  await startCrusher(on, $);
+  const { rows, dropped } = crushedRows(await appendResult($, "Bash", BIG));
+  expect(rows.length).toBeLessThan(200);
+  expect(dropped).toBeGreaterThan(0);
+  expect((await $.command.run({ command: "headroom" })).text).not.toMatch(/^compaction/m);
 });

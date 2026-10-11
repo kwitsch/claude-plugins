@@ -36,6 +36,7 @@ const subagents = { steps: 0, clamped: 0 }; // this session's subagent steps: in
 const crush = { dropped: 0, saved: 0 }; // this session's SmartCrusher savings: in memory only, never persisted (the stats schema has no columns for them)
 const dedup = { spans: 0, saved: 0 }; // this session's cross-turn dedup savings: in memory only, never persisted
 const elide = { lines: 0, saved: 0 }; // this session's dense line elider savings: in memory only, never persisted
+const compact = { arrays: 0, saved: 0 }; // this session's lossless compaction savings: in memory only, never persisted
 const dedupStates = new Map<string, DedupState>(); // conversation ("" main, else agentId) → its dedup corpus; reset on session.end
 // Starts one conversation's dedup corpus over (its ordinals keep counting): what it indexes left the model's context.
 const dropCorpus = (key: string): void => {
@@ -150,9 +151,11 @@ export const register: Register = (on, options) => {
   const subOn = effortOn && options.subagent_effort_routing_enabled !== false;
   const cacheOn = options.cache_aligner_enabled !== false;
   const crusherOn = options.smart_crusher_enabled !== false;
+  // Lossless compaction runs inside the crusher's step, also with the crusher off (upstream lossless_only).
+  const compactOn = options.lossless_compaction_enabled !== false;
   const dedupOn = options.cross_turn_dedup_enabled !== false;
   const elideOn = options.dense_line_elider_enabled !== false;
-  const compressOn = crusherOn || dedupOn || elideOn;
+  const compressOn = crusherOn || compactOn || dedupOn || elideOn;
   // Subagent and Workflow-agent tool results: their own toggle, active only while a compression lever is on.
   const subCompressOn = compressOn && options.subagent_compression_enabled !== false;
   // Unset means the manifest default (true), like the sibling toggles; the server stays fail-closed.
@@ -191,13 +194,21 @@ export const register: Register = (on, options) => {
   // Each table is shown only while the lever it counts is on; the storage rows sit in both.
   // The subagents row and the compression counts are session-only: persisting them needs new stats columns and a storage PROTOCOL bump (deferred).
   const tables = (): string[][][] => {
-    const [effort, cache, crusher, deduper, elider] = statsTables([{ ...session, hit: stats.lastHit }, ...(sums?.data ?? [])], note() === undefined ? "…" : "–", {
+    const [effort, cache, crusher, deduper, elider, compactor] = statsTables([{ ...session, hit: stats.lastHit }, ...(sums?.data ?? [])], note() === undefined ? "…" : "–", {
       subagents: subOn ? subagents : undefined,
       crush,
       dedup,
       elide,
+      compact,
     });
-    return [...(effortOn ? [effort] : []), ...(cacheOn ? [cache] : []), ...(crusherOn ? [crusher] : []), ...(dedupOn ? [deduper] : []), ...(elideOn ? [elider] : [])];
+    return [
+      ...(effortOn ? [effort] : []),
+      ...(cacheOn ? [cache] : []),
+      ...(crusherOn ? [crusher] : []),
+      ...(dedupOn ? [deduper] : []),
+      ...(elideOn ? [elider] : []),
+      ...(compactOn ? [compactor] : []),
+    ];
   };
   // One row per finding, so a long list wraps per row instead of one clipped line. The list belongs to the cache aligner.
   const volatileLines = (): string[] =>
@@ -206,9 +217,9 @@ export const register: Register = (on, options) => {
       : !composeSeen
         ? ["volatile shared values: unavailable (Claude Code keeps plugins out of the system-prompt hooks)"]
         : [stats.volatile.length ? "volatile shared values:" : "volatile shared values: none", ...stats.volatile.map((v) => `  ${v.id} ${v.kind} ${v.sample}`)];
-  // With all five levers off there is nothing to show, so nothing is read from storage either.
+  // With every lever off there is nothing to show, so nothing is read from storage either.
   const idle = (): string | undefined =>
-    effortOn || cacheOn || compressOn ? undefined : "effort routing, cache aligner, smart crusher, cross-turn dedup and dense line elider are off: nothing to show";
+    effortOn || cacheOn || compressOn ? undefined : "effort routing, cache aligner, smart crusher, lossless compaction, cross-turn dedup and dense line elider are off: nothing to show";
   // Body height asked for when seated inline, mirroring the render: every table, a line for the storage note
   // wherever one can show, the volatile lines, and a gap between each.
   const paneRows = (): number => {
@@ -335,7 +346,7 @@ export const register: Register = (on, options) => {
             // crush without query signals, as upstream does with no context
           }
         }
-        rw = rewriteToolResults(e.message.content, tool, { crush: crusherOn, elide: elideOn, dedup: dedupOn ? { states: dedupStates, key: e.agentId ?? "" } : undefined }, query);
+        rw = rewriteToolResults(e.message.content, tool, { crush: crusherOn, compact: compactOn, elide: elideOn, dedup: dedupOn ? { states: dedupStates, key: e.agentId ?? "" } : undefined }, query);
       } catch {
         rw = undefined; // fail open: the row is stored as made (rewriteToolResults has already started a half-indexed corpus over)
       }
@@ -348,6 +359,8 @@ export const register: Register = (on, options) => {
       dedup.saved += rw.dedup.saved;
       elide.lines += rw.elide.lines;
       elide.saved += rw.elide.saved;
+      compact.arrays += rw.compact.arrays;
+      compact.saved += rw.compact.saved;
       if (paneOpen) {
         try {
           $.ui.invalidate("ui.render"); // redraw an open /headroom pane's compression rows now
@@ -477,6 +490,7 @@ export const register: Register = (on, options) => {
     Object.assign(crush, { dropped: 0, saved: 0 });
     Object.assign(dedup, { spans: 0, saved: 0 });
     Object.assign(elide, { lines: 0, saved: 0 });
+    Object.assign(compact, { arrays: 0, saved: 0 });
     dedupStates.clear(); // the next session's results get their own corpus and ordinals
     agentErrored.clear(); // an aborted agent whose turn.complete never came
     Object.assign(stats, { lastHit: undefined, volatile: [] });

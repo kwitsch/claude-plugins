@@ -15,6 +15,8 @@ import {
   ROWS,
   cacheHitRatio,
   clampEffort,
+  compactRows,
+  compactionJson,
   computeOptimalK,
   crushJson,
   crushQuery,
@@ -24,6 +26,7 @@ import {
   elideDense,
   findVolatile,
   foldPending,
+  formatCsvSchema,
   isCacheDrop,
   isOwnStorageCall,
   isToolError,
@@ -238,6 +241,10 @@ test("statsTables builds every table, with blank for rows without counters", () 
       ["line elider", "lines", "saved"],
       ["session", "0", "0"],
     ],
+    [
+      ["compaction", "arrays", "saved"],
+      ["session", "0", "0"],
+    ],
   ]);
   // The in-memory rows: subagents right under the effort session row, the crusher's session counts.
   const [effort, , crusher] = statsTables([c], "…", { subagents: { steps: 4, clamped: 3 }, crush: { dropped: 40, saved: 1200 } });
@@ -250,6 +257,8 @@ test("statsTables builds every table, with blank for rows without counters", () 
   const [, , , deduper, elider] = statsTables([c], "…", { dedup: { spans: 3, saved: 900 }, elide: { lines: 2, saved: 4100 } });
   assert.deepEqual(deduper[1], ["session", "3", "900"]);
   assert.deepEqual(elider[1], ["session", "2", "4100"]);
+  const [, , , , , compactor] = statsTables([c], "…", { compact: { arrays: 2, saved: 5300 } });
+  assert.deepEqual(compactor[1], ["session", "2", "5300"]);
   assert.equal(statsTables([zeroCounters()], "–")[1][1][1], "–"); // no tokens: no hit ratio
   assert.equal(statsTables([{ ...c, hit: 0.1 }], "…")[1][1][1], "10%"); // a row's own hit wins over the token-weighted one
 });
@@ -1175,4 +1184,266 @@ test("rewriteToolResults crushes only JSON and elides a dense line of every othe
     assert.equal(r.elide.lines, 1, tag);
     assert.equal(r.crush.dropped, 0, tag);
   }
+});
+
+// Lossless compaction (upstream compaction/compactor.rs, formatter.rs and crusher.rs's lossless-first stage).
+
+/**
+ * The compaction as a table; throws when it is not one.
+ * @param {import("../../plugins/inline-headroom/hooks/policy.mjs").Compaction} c
+ */
+function asTable(c) {
+  if (c.kind !== "table") throw new Error(`expected a table, got ${c.kind}`);
+  return c;
+}
+
+/**
+ * Upstream csv_quote, for building expected cells.
+ * @param {string} s
+ */
+const csvq = (s) => `"${s.replaceAll('"', '""')}"`;
+
+/** The lossless stage alone (upstream lossless_only). */
+const LOSSLESS_ONLY = { lossy: false, lossless: true };
+/** Both stages, lossless first (upstream SmartCrusher::new). */
+const BOTH = { lossy: true, lossless: true };
+
+/**
+ * crushJson with explicit stages that must rewrite; throws when the text passes through.
+ * @param {string} text
+ * @param {import("../../plugins/inline-headroom/hooks/policy.mjs").CrushModes} modes
+ */
+function crushWith(text, modes) {
+  const r = crushJson(text, "", modes);
+  if (!r) throw new Error("expected crushJson to rewrite the document");
+  return r;
+}
+
+test("compactRows leaves fewer than 2 items and non-object items untouched", () => {
+  assert.equal(compactRows([]).kind, "untouched");
+  assert.equal(compactRows([{ a: 1 }]).kind, "untouched");
+  assert.equal(compactRows([1, 2, 3]).kind, "untouched");
+  assert.equal(compactRows([{ a: 1 }, 2]).kind, "untouched");
+});
+
+test("compactRows renders a uniform array as a typed schema line and CSV rows", () => {
+  const items = [
+    { id: 1, name: "alice", status: "ok" },
+    { id: 2, name: "bob", status: "ok" },
+    { id: 3, name: "carol", status: "fail" },
+  ];
+  assert.equal(formatCsvSchema(compactRows(items)), "[3]{id:int,name:string,status:string}\n1,alice,ok\n2,bob,ok\n3,carol,fail\n");
+  assert.equal(formatCsvSchema(compactRows([{ x: 1.5 }, { x: true }])), "[2]{x:json}\n1.5\ntrue\n"); // a type conflict is json
+});
+
+test("compactRows flattens a uniform nested object into dotted columns and keeps mixed ones nested", () => {
+  const uniform = [
+    { id: 1, meta: { region: "us", tier: "gold" } },
+    { id: 2, meta: { region: "eu", tier: "silver" } },
+    { id: 3, meta: { region: "us", tier: "bronze" } },
+  ];
+  assert.equal(formatCsvSchema(compactRows(uniform)), "[3]{id:int,meta.region:string,meta.tier:string}\n1,us,gold\n2,eu,silver\n3,us,bronze\n");
+  const mixed = [
+    { id: 1, meta: { region: "us" } },
+    { id: 2, meta: { region: "eu", tier: "silver" } },
+    { id: 3, meta: { tier: "bronze" } },
+  ];
+  const t = asTable(compactRows(mixed));
+  assert.deepEqual(
+    t.fields.map((f) => f.name),
+    ["id", "meta"],
+  );
+  assert.equal(formatCsvSchema(t).split("\n")[1], `1,${csvq('{"region":"us"}')}`);
+  // A header-breaking inner key keeps its column nested instead of naming a column after it.
+  assert.deepEqual(
+    asTable(compactRows([{ m: { "a,b": 1 } }, { m: { "a,b": 2 } }])).fields.map((f) => f.name),
+    ["m"],
+  );
+});
+
+test("compactRows nests a stringified array of objects and an array cell as quoted compaction JSON", () => {
+  const items = [
+    { event: "batch", payload: '[{"x":1},{"x":2},{"x":3}]' },
+    { event: "batch", payload: '[{"x":4},{"x":5}]' },
+  ];
+  const lines = formatCsvSchema(compactRows(items)).split("\n");
+  assert.equal(lines[0], "[2]{event:string,payload:string}");
+  assert.equal(lines[1], `batch,${csvq(JSON.stringify({ _compaction: "table", _schema: [{ name: "x", type: "int" }], _kept: 3, _total: 3, _rows: [[1], [2], [3]] }))}`);
+  const nested = formatCsvSchema(
+    compactRows([
+      { id: 1, items: [{ x: 1 }, { x: null }] },
+      { id: 2, items: [{ x: 3 }, { y: 4 }] },
+    ]),
+  ).split("\n");
+  assert.equal(nested[0], "[2]{id:int,items:json}");
+  assert.equal(nested[1], `1,${csvq(JSON.stringify({ _compaction: "table", _schema: [{ name: "x", type: "int", nullable: true }], _kept: 2, _total: 2, _rows: [[1], [null]] }))}`);
+  // A stringified object becomes its parsed value; a string carrying a CCR marker is never parsed.
+  assert.equal(formatCsvSchema(compactRows([{ v: '{"a":1}' }, { v: "<<ccr:abc [1]>>" }])), `[2]{v:string}\n${csvq('{"a":1}')}\n<<ccr:abc [1]>>\n`);
+});
+
+test("compactRows keeps a stringified value JSON.parse would change as a string", () => {
+  const out = formatCsvSchema(compactRows([{ v: '{"n":12345678901234567890}' }, { v: '{"n":1}' }]));
+  assert.equal(out.split("\n")[1], csvq('{"n":12345678901234567890}'));
+});
+
+test("compactRows buckets a heterogeneous array by its discriminator and skips an id-like one", () => {
+  const items = [
+    { type: "user", id: 1, name: "alice" },
+    { type: "user", id: 2, name: "bob" },
+    { type: "order", id: 99, total: 50 },
+    { type: "order", id: 100, total: 75 },
+  ];
+  assert.equal(
+    formatCsvSchema(compactRows(items)),
+    "__buckets:type\n__key:order\n[2]{id:int,total:int,type:string}\n99,50,order\n100,75,order\n__key:user\n[2]{id:int,name:string,type:string}\n1,alice,user\n2,bob,user\n",
+  );
+  const c = compactRows([
+    { id: "a1", kind: "x", p: 1 },
+    { id: "a2", kind: "x", q: 1 },
+    { id: "a3", kind: "y", r: 1 },
+    { id: "a4", kind: "y", s: 1 },
+  ]);
+  assert.equal(c.kind === "buckets" ? c.disc : c.kind, "kind"); // "id" is unique per row: an id, not a category
+});
+
+test("compactRows orders columns by frequency then name and marks sparse or null columns nullable", () => {
+  assert.equal(formatCsvSchema(compactRows([{ common: 1, z_rare: 1 }, { common: 2, a_rare: 1 }, { common: 3 }])), "[3]{common:int,a_rare:int?,z_rare:int?}\n1,,1\n2,1,\n3,,\n");
+  assert.equal(formatCsvSchema(compactRows([{ id: 1, tag: "a" }, { id: 2 }, { id: 3, tag: null }])), "[3]{id:int,tag:string?}\n1,a\n2,\n3,null\n");
+});
+
+test("formatCsvSchema tells a missing key, null, an empty string and the string null apart, and quotes CSV specials", () => {
+  assert.equal(formatCsvSchema(compactRows([{ id: 1 }, { id: 2, label: null }, { id: 3, label: "" }, { id: 4, label: "null" }])), '[4]{id:int,label:string?}\n1,\n2,null\n3,""\n4,"null"\n');
+  assert.equal(
+    formatCsvSchema(
+      compactRows([
+        { id: 1, msg: "alice, the great" },
+        { id: 2, msg: 'she said "hi"' },
+        { id: 3, msg: "a\nb" },
+        { id: 4, msg: "c\rd" },
+      ]),
+    ),
+    '[4]{id:int,msg:string}\n1,"alice, the great"\n2,"she said ""hi"""\n3,"a\nb"\n4,"c\rd"\n',
+  );
+});
+
+test("formatCsvSchema quotes a json column's strings that JSON would read as a value", () => {
+  const items = [
+    { id: 1, v: "null" },
+    { id: 2, v: null },
+    { id: 3, v: "true" },
+    { id: 4, v: true },
+    { id: 5, v: "1" },
+    { id: 6, v: 1 },
+    { id: 7, v: "hello" },
+  ];
+  assert.deepEqual(formatCsvSchema(compactRows(items)).split("\n"), ["[7]{id:int,v:json?}", '1,"""null"""', "2,null", '3,"""true"""', "4,true", '5,"""1"""', "6,1", "7,hello", ""]);
+});
+
+test("compactionJson renders tables and buckets in upstream key order", () => {
+  assert.deepEqual(compactionJson(compactRows([{ a: 1 }, { b: "x" }])), {
+    _compaction: "table",
+    _schema: [
+      { name: "a", type: "int", nullable: true },
+      { name: "b", type: "string", nullable: true },
+    ],
+    _kept: 2,
+    _total: 2,
+    _rows: [
+      [1, null],
+      [null, "x"],
+    ],
+  });
+  const buckets = compactRows([
+    { k: "a", p: 1 },
+    { k: "a", q: 2 },
+    { k: "b", r: 3 },
+    { k: "b", s: 4 },
+  ]);
+  assert.ok(JSON.stringify(compactionJson(buckets)).startsWith('{"_compaction":"buckets","_discriminator":"k","_total":4,"_buckets":[{"_key":"a","_schema":'));
+  assert.deepEqual(compactionJson({ kind: "untouched", value: [1, 2] }), [1, 2]);
+});
+
+test("compactRows refuses a header-breaking key and finds a discriminator among many sparse keys in linear work", () => {
+  for (const key of ["a,b", "a:b", "a{b", "a}b", "a?b", "a\nb", "a\rb"]) assert.equal(compactRows([{ [key]: 1 }, { [key]: 2 }]).kind, "untouched", JSON.stringify(key));
+  const sparse = Array.from({ length: 600 }, (_, i) => ({
+    kind: i % 2 ? "odd" : "even",
+    [`k${i}`]: i,
+  }));
+  const c = compactRows(sparse);
+  assert.equal(c.kind === "buckets" ? c.disc : c.kind, "kind");
+  // 20,000 distinct keys: a budget of 4 per input character + 4096 stops the two 10,000 × 10,001 sparse tables before they are built.
+  const huge = Array.from({ length: 20_000 }, (_, i) => ({
+    kind: i % 2 ? "odd" : "even",
+    [`k${i}`]: i,
+  }));
+  const budget = { left: 4 * JSON.stringify(huge).length + 4096 };
+  const t0 = Date.now();
+  compactRows(huge, budget);
+  assert.ok(budget.left < 0);
+  assert.ok(Date.now() - t0 < 1000, `took ${Date.now() - t0} ms`);
+  assert.equal(crushJson(JSON.stringify(huge.slice(0, 4000)), "", LOSSLESS_ONLY), undefined); // crushDictArray then declines
+});
+
+/**
+ * `n` one-key rows whose string values are `len` characters long (unique per row).
+ * @param {number} n
+ * @param {number} len
+ */
+const oneKeyRows = (n, len) =>
+  JSON.stringify(
+    Array.from({ length: n }, (_, i) => ({
+      a: `${"v".repeat(len - 3)}${String(i).padStart(3, "0")}`,
+    })),
+  );
+
+test("lossless compaction keeps the 15% savings gate and runs only above K rows", () => {
+  // 20 rows, a one-character key: the table saves 146 / (181 + 20 × len) of the array, 15.2% at 39 and 14.9% at 40.
+  assert.ok(String(JSON.parse(crushWith(oneKeyRows(20, 39), LOSSLESS_ONLY).text)).startsWith("[20]{a:string}\n"));
+  assert.equal(crushJson(oneKeyRows(20, 40), "", LOSSLESS_ONLY), undefined);
+  // 8 rows are within K whatever they hold: no table, no drop.
+  const eight = JSON.stringify(
+    Array.from({ length: 8 }, (_, i) => ({
+      a_rather_long_column_name: i,
+      another_rather_long_column_name: "same value",
+      third_long_column_name: true,
+    })),
+  );
+  assert.ok(eight.length > CRUSH_MIN_CHARS);
+  assert.equal(crushJson(eight, "", LOSSLESS_ONLY), undefined);
+});
+
+test("crushJson's lossless-only mode drops nothing and keeps an array that does not compact whole", () => {
+  const loose = JSON.parse(oneKeyRows(20, 40));
+  const r = crushWith(JSON.stringify({ tight: STATUS_ROWS, loose }), LOSSLESS_ONLY);
+  const out = JSON.parse(r.text);
+  assert.ok(String(out.tight).startsWith("[200]{id:int,note:string,status:string}\n"));
+  assert.deepEqual(out.loose, loose);
+  assert.deepEqual([r.rowsDropped, r.compacted, r.offloaded], [0, 1, []]);
+});
+
+test("crushJson renders a top-level array as a JSON string literal and counts the table's savings", () => {
+  const r = crushWith(BIG, BOTH);
+  const table = JSON.parse(r.text);
+  assert.equal(typeof table, "string");
+  assert.ok(table.startsWith("[200]{id:int,note:string,status:string}\n0,same text,ok\n"));
+  assert.ok(table.split("\n").includes("150,same text,error"));
+  assert.equal(table.split("\n").length, 202); // the schema line, 200 rows, the final newline
+  assert.deepEqual([r.rowsDropped, r.compacted, r.compactSaved, r.offloaded], [0, 1, BIG.length - r.text.length, []]);
+});
+
+test("crushJson uses a nested stringified array's table as the field's string, never double-encoded", () => {
+  const r = crushWith(JSON.stringify({ payload: JSON.stringify(STATUS_ROWS) }), BOTH);
+  assert.ok(JSON.parse(r.text).payload.startsWith("[200]{id:int,note:string,status:string}\n"));
+});
+
+test("rewriteToolResults books a lossless table under compaction, not the crusher", () => {
+  const r = rewrite([toolResult(BIG)], "Bash", levers({ compact: true }));
+  const text = String(r.content[0].content);
+  assert.ok(String(JSON.parse(text)).startsWith("[200]{"));
+  assert.deepEqual(r.compact, { arrays: 1, saved: BIG.length - text.length });
+  assert.deepEqual(r.crush, { dropped: 0, saved: 0 });
+  assert.deepEqual(r.offloaded, []);
+  // The crusher off and compaction on is upstream's lossless_only: still a table, and an array that does not compact stays whole.
+  assert.equal(rewrite([toolResult(BIG)], "Bash", levers({ crush: false, compact: true })).content[0].content, text);
+  assert.equal(rewriteToolResults([toolResult(oneKeyRows(20, 40))], "Bash", levers({ crush: false, compact: true }), ""), undefined);
 });

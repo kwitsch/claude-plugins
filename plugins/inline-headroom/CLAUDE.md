@@ -1,19 +1,19 @@
 # CLAUDE.md — inline-headroom
 
 Mods-API plugin (the repo's first): one TypeScript function-hooks module, no
-skills/agents/command hooks. Five levers, each behind a boolean `userConfig`
+skills/agents/command hooks. Six levers, each behind a boolean `userConfig`
 toggle (`effort_routing_enabled`, `cache_aligner_enabled`,
-`smart_crusher_enabled`, `cross_turn_dedup_enabled`,
-`dense_line_elider_enabled`), plus `subagent_effort_routing_enabled`, which
-extends effort routing to subagent and Workflow-agent steps and is active only
-while `effort_routing_enabled` is on, and `subagent_compression_enabled`, which
-extends the three compression levers to subagent and Workflow-agent tool
-results and is active only while one of them is on (all seven `default: true`,
-only literal `false` disables), plus the `/headroom` stats command and the
-compression levers' `headroom_retrieve` tool. It also ships a host-wide
-SQLite storage MCP server
-behind the fail-closed `storage_enabled` toggle (see `## Storage server`); the
-mod persists `/headroom` counters in it.
+`smart_crusher_enabled`, `lossless_compaction_enabled`,
+`cross_turn_dedup_enabled`, `dense_line_elider_enabled`), plus
+`subagent_effort_routing_enabled`, which extends effort routing to subagent and
+Workflow-agent steps and is active only while `effort_routing_enabled` is on,
+and `subagent_compression_enabled`, which extends the four compression levers
+to subagent and Workflow-agent tool results and is active only while one of
+them is on (all eight `default: true`, only literal `false` disables), plus the
+`/headroom` stats command and the compression levers' `headroom_retrieve` tool.
+It also ships a host-wide SQLite storage MCP server behind the fail-closed
+`storage_enabled` toggle (see `## Storage server`); the mod persists
+`/headroom` counters in it.
 
 ## Layout
 
@@ -39,8 +39,8 @@ mod persists `/headroom` counters in it.
   It is `.mjs` (not `.ts`) so the root toolchain covers it in CI:
   `tsconfig.json` (`plugins/**/*.mjs`), ESLint, and `node --test` via
   `test/inline-headroom/policy.test.mjs`. It also holds the content router and
-  the SmartCrusher, cross-turn dedup and dense line elider ports (see their
-  sections).
+  the SmartCrusher (with its lossless compaction stage), cross-turn dedup and
+  dense line elider ports (see their sections).
 - `tests/inline-headroom.test.ts` — hook-wiring tests for `claude plugin test`.
   Local only: CI runners have no `claude` CLI; `test/inline-headroom/test.bats`
   runs `claude plugin validate` and `claude plugin test` when `claude`
@@ -211,16 +211,27 @@ Deviations from upstream:
   input back to the agent's start on each JSON result (O(n²) over its life).
 - JS regex `\b` is ASCII-only where Rust's is Unicode, and lengths count UTF-16
   code units where upstream counts UTF-8 bytes (length score, quoted anchors).
-- Deferred: lossless compaction, the string, number and mixed-array crushers,
-  opaque-blob CCR, TOIN / `preserve_fields`, `factor_out_constants`,
-  `include_summaries` and the embedding scorer (stubbed upstream too).
+- Deferred: the string, number and mixed-array crushers, opaque-blob CCR,
+  TOIN / `preserve_fields`, `factor_out_constants`, `include_summaries`,
+  tabular ingest (CSV text turned into records: upstream's own lossless-first
+  stage makes it a no-op on CSV, and the markdown and fixed-width tables it
+  would also take need the omitted detector branches plus a CSV parser) and the
+  embedding scorer (stubbed upstream too).
 
-Wiring in `register.ts`, shared by the SmartCrusher, cross-turn dedup and the
-dense line elider:
+Default-behaviour change of this lever (0.7.0): with
+`lossless_compaction_enabled` on (the default) the lossless table of
+`## Lossless compaction` is tried first and usually wins on a uniform dict
+array, so the model sees a schema table (a JSON string holding `[N]{…}` and CSV
+rows where the array stood) instead of sampled rows plus a `_ccr_dropped`
+sentinel, and nothing is dropped. The crushed text is still one compact JSON
+line, so what dedup and the elider see does not change.
+`lossless_compaction_enabled: false` restores the lossy-only output.
+
+Wiring in `register.ts`, shared by every compression lever:
 
 - One `session.append` hook with the matcher `{ door: "tool-result" }`,
-  registered while `smart_crusher_enabled`, `cross_turn_dedup_enabled` or
-  `dense_line_elider_enabled` is on, rewrites each tool-result row before it is
+  registered while any compression lever is on (`compressOn` in
+  `register.ts`), rewrites each tool-result row before it is
   first stored and sent, so the model, the transcript file and every later
   request read one form (prompt-cache safe). `rewriteToolResults` (pure, in
   `policy.mjs`) labels each text with `detectContentType`, runs that type's
@@ -273,9 +284,93 @@ dense line elider:
 - Model-only holds structurally: a tool-result row answers a `tool_use` block
   of the model's response, and a `session.append` rewrite never changes what a
   plugin's `$.tool.call` resolves to.
-- The `smart crusher`, `dedup` and `line elider` tables' counters are
-  session-only and reset on `session.end`. Persisting them needs new `stats`
-  columns, a `MIGRATIONS` entry and a `PROTOCOL` 2 → 3 bump, so it is deferred.
+- The compression tables' counters (`smart crusher`, `dedup`, `line elider`,
+  `compaction` and every later lever's) are session-only and reset on
+  `session.end`. Persisting them needs new `stats` columns, a `MIGRATIONS`
+  entry and a `PROTOCOL` 2 → 3 bump, so it is deferred.
+
+## Lossless compaction
+
+A port of upstream headroom's lossless-first SmartCrusher stage
+(`crates/headroom-core/src/transforms/smart_crusher/compaction/compactor.rs`,
+`formatter.rs` and `classifier.rs`, and `crusher.rs`
+`crush_array_with_source`, read 2026-10-11 at 976aa71) into
+`hooks/policy.mjs` as `compactRows`, `formatCsvSchema` and `compactionJson`,
+run by `crushDictArray` inside the `crush` step, before the lossy path. It has
+its own toggle, `lossless_compaction_enabled`, and its own `compaction` table
+(`arrays`, `saved`). With the SmartCrusher's toggle it maps onto upstream's
+configurations: both on is `SmartCrusher::new` (the default), the crusher alone
+is `without_compaction`, and compaction alone is `lossless_only`.
+
+Ported verbatim:
+
+- The defaults: at least 2 items, a core field in 80% of the rows, the
+  heterogeneous core ratio 0.6, at most 6 flattened inner keys, 2 to 8 buckets,
+  the discriminator uniqueness cap 0.7, and the lossless savings floor 0.15
+  against `estimate_array_bytes` (the rows' compact JSON plus their commas and
+  brackets).
+- `crush_array_with_source`'s order: an array within the adaptive K is left to
+  recursion before compaction is tried; a winning table replaces the array as a
+  string; without the lossy stage (`lossless_only`) an array whose table did
+  not win stays whole and is not descended into.
+- `compact_inner`: fewer than 2 items or a non-object item stays untouched; key
+  frequencies over the sorted key set; buckets by a discriminator (in every
+  row, all strings, 2 to 8 values, at most 70% unique; most buckets wins, the
+  first key on ties) when under 60% of the keys are core, each bucket compacted
+  on its own and a bucket that is no table rendered as a one-column
+  `value:json` table; otherwise one table, columns by descending frequency,
+  then name.
+- `infer_type_tag` (the first non-null type, `json` on a conflict, `string`
+  when all null), nullability (a missing key or a null), `cell_from_value` with
+  opaque markers off (an array of 2+ objects nests; a string holding a JSON
+  object or array, and no `<<ccr:` marker, is replaced by its value or a nested
+  compaction), and `flatten_uniform_nested` (1 to 6 identical inner keys,
+  order-sensitive, never on a dotted column; types and nullability re-inferred
+  from the cells).
+- The csv-schema format without a drop summary: `[N]{name:type,name:type?,…}`,
+  one CSV row per record, each line ending in `\n`; `__buckets:<disc>` and
+  `__key:<value>` lines; a missing key empty, `null` bare, `""` and `"null"`
+  quoted; CSV quoting of `,` `"` `\n` `\r`; a string a `json` column could read
+  as a value written as a quoted JSON literal; a nested cell as quoted
+  `compaction_to_json`. `process_string`'s rule: a stringified array that
+  compacts becomes the table string itself, never a double-encoded one.
+- A top-level array that compacts comes back as a JSON string literal holding
+  the table (upstream's wrapper, documented by compaction_codec.py `_peel`).
+  Its `\n` escapes can make it fail the crusher's existing not-shorter gate
+  after it passed the 15% floor, as upstream.
+
+Deviations:
+
+- A column name holding `,` `:` `{` `}` `?` or a line break leaves the array
+  untouched, and such an inner key keeps its column nested: upstream writes
+  names unescaped, so the header would no longer decode, and a lossless rewrite
+  keeps no CCR copy.
+- A stringified cell whose value `JSON.parse` would not render back the same
+  (`isLossy`) stays a string, so no digit or duplicate key is lost.
+- One compaction's work (key reads plus table cells) is charged to a budget of
+  4 per character of the array's compact JSON + 4096, and the stage declines
+  when it runs out: a sparse key set (thousands of distinct keys) would
+  otherwise build a rows × columns table synchronously. Such a table could not
+  pass the 15% floor anyway, since every cell renders at least one character.
+  The discriminator scan reads values only for keys present in every row, so
+  it stays linear in the key occurrences.
+- Numbers type as `int` when `Number.isSafeInteger`, else `float`, and cells
+  render as `String(n)`: `JSON.parse` keeps no lexeme, so `1.0` reads `int` and
+  `1.50` renders `1.5`, where upstream's `arbitrary_precision` keeps both. The
+  document still passes `isLossy` first.
+- Lengths count UTF-16 units where upstream counts UTF-8 bytes (the savings
+  ratio shifts slightly on non-ASCII input); keys sort by UTF-16 code units
+  where upstream's `BTreeMap` sorts UTF-8 bytes (different only for astral or
+  high-BMP names); JS lists integer-like object keys first, which can change
+  the flatten key-list comparison and the dotted column order. No value changes.
+- Opaque-blob CCR stays off (`emit_opaque_markers=false` semantics): long
+  strings stay verbatim cells and no `<<ccr:HASH,KIND,SIZE>>` cell is written.
+- Deferred: the markdown-kv and JSON formatters, the drop summary,
+  `factor_out_constants` and TOIN.
+
+Savings: a crushed document that lost nothing books all of its saved
+characters to `compaction`; otherwise `compaction` gets the tables' own savings
+(capped at the total) and the crusher the rest.
 
 ## Cross-turn dedup
 
@@ -462,8 +557,8 @@ module-private `ROUTES` table maps each tag to its ordered steps:
 `json_array` runs `crush` then `elide`, every other tag runs `elide`.
 `rewriteRow`'s `shrink` detects once per unprotected text and runs that type's
 steps in order, skipping a step whose lever is off; the first step that
-rewrites wins. Detection runs only while `smart_crusher_enabled` or
-`dense_line_elider_enabled` is on, so a dedup-only configuration pays nothing,
+rewrites wins. Detection runs only while a lever some route runs is on (every
+compression lever but dedup), so a dedup-only configuration pays nothing,
 and only on a text of at least `ROUTE_MIN_CHARS` (300, the lowest floor of any
 step), since a shorter one is passed through whatever its label.
 Dedup (`dedupBlock`) then runs over every type's final text, unchanged. The
@@ -527,8 +622,8 @@ it fits, deciding there whether `elide` still follows it (as upstream's
   likewise has one hook, which observes effort errors and answers
   `headroom_retrieve`, registered while effort routing or any compression
   lever is on. `session.append` has exactly one hook, with the matcher
-  `{ door: "tool-result" }`, which runs the SmartCrusher, cross-turn dedup and
-  the dense line elider, registered while any compression lever is on.
+  `{ door: "tool-result" }`, which runs every compression lever, registered
+  while any of them is on.
 - Live-run on 2.1.296 (headless `claude -p --plugin-dir … --setting-sources project`,
   a stdio MCP test server via `--mcp-config`, stream-json transcript as evidence):
   - Core resolves an MCP tool's `tool.call` to `{ ref, result, text }` where
