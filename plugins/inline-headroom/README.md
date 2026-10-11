@@ -259,6 +259,12 @@ rows. It is the MCP server `storage` (connected as
   from the conversation; `headroom_retrieve` with the pointer's hash still
   returns the run while the mod is loaded. A compaction empties the compacting
   conversation's dedup corpus, so no later pointer names a compacted result.
+- **Trimming without a compaction is not seen.** Claude Code can clear or trim
+  old tool results without raising a compaction, and the mod gets no event for
+  that. The corpus keeps indexing such a result, so a later re-read of the same
+  text becomes a pointer to a result the model no longer sees, and every further
+  re-read repeats that pointer. `headroom_retrieve` with the pointer's hash
+  returns the text while the mod is loaded.
 - **The dedup corpus is bounded.** It indexes at most 4 million characters
   across the main loop and all subagents (the least recently active
   conversation is emptied first). A finished subagent's corpus is emptied when

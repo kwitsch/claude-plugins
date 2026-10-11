@@ -46,3 +46,8 @@ See `plugins/git-sign-key/CLAUDE.md` — one hook-only plugin predates this rule
   against exactly that.
 - `taskflow` is the same case for a different reason — see
   `plugins/taskflow/CLAUDE.md` for why.
+- `inline-headroom`'s content router (`detectContentType` / `ROUTES`,
+  2026-10-11) is infrastructure inside a plugin that does have toggles: it has
+  no behaviour of its own, and which text a lever sees is governed by that
+  lever's own toggle. Each future compressor it routes to brings its own
+  toggle. See `plugins/inline-headroom/CLAUDE.md` `## Content router`.

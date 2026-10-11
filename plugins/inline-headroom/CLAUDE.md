@@ -317,7 +317,11 @@ Deviations from upstream:
   compacting loop's `session.compact` (the results it indexes left the model's
   context; not on a skip or a `precompute`, which installs nothing) and on a
   throw inside `rewriteToolResults`. It is cleared whole on `session.end` and
-  lost on a mod reload.
+  lost on a mod reload. Claude Code's own clearing or trimming of old tool
+  results without a compaction raises no event, so the corpus keeps such a
+  result and later re-reads fold into pointers to text the model no longer
+  sees (recovery: `headroom_retrieve` from `folded`); accepted, documented in
+  the README Notes.
 - The pointer names `result N`, where N is the mod's 1-based ordinal of the
   conversation's indexed tool results, instead of `msg N`. N is the message
   index in upstream's request; the mod has no request-level view at append
@@ -486,10 +490,10 @@ Routing deviations from upstream:
 Decisions:
 
 - No userConfig toggle. The router has no behaviour of its own; which text a
-  lever sees is governed by that lever's toggle and documented per lever. This
-  is a deliberate reading of `.claude/rules/plugin-userconfig.md`'s
-  toggle-per-feature rule: the router is infrastructure, and each future
-  compressor brings its own toggle.
+  lever sees is governed by that lever's toggle and documented per lever. The
+  router is infrastructure, and each future compressor brings its own toggle;
+  `.claude/rules/plugin-userconfig.md` lists it under its deliberate no-toggle
+  exceptions.
 - No `/headroom` per-type counts. They would show labels with no savings, so
   they are deferred until a type-specific compressor exists.
 
