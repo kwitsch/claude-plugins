@@ -386,6 +386,62 @@ Wiring: `rewriteToolResults` runs `elideDense` on each text the crusher did not
 rewrite (every text while `smart_crusher_enabled` is off). Elided lines count
 in the `line elider` table's session-only `lines` and `saved`.
 
+## Content router
+
+A port of upstream headroom's content detection into `hooks/policy.mjs` as
+`detectContentType`: the branch heuristics of
+`headroom/transforms/content_detector.py`, the category set and branch order
+of `crates/headroom-core/src/transforms/content_detector.rs`, and
+`_TIMESTAMP_ROW_RE` from `headroom/transforms/lossless_compaction.py`, read
+2026-10-11 at 976aa71. It labels each unprotected tool-result text with one
+tag: `json_array`, `diff`, `html`, `tabular` (git status), `search`, `build`,
+`source_code` or `text`.
+
+Ported verbatim:
+
+- The branch order and gates: empty → `text`; JSON; diff (≥ 0.7); HTML
+  (≥ 0.7); git status; search (≥ 0.6); log (≥ 0.5); code (≥ 0.5); else `text`.
+- The line and character windows: diff over the first 500 lines, HTML over the
+  first 3000 characters, search over the first 100 lines, log over the first
+  200 lines, code over the first 100 lines.
+- Every regex and threshold of the ported branches: `_TIMESTAMP_ROW_RE`, the
+  path-shape guard (no `<`, `>` or `=` before the line number), grep context
+  lines (`path-N-` whose path holds a `/` or `.`, and `path:N-`), the ≥ 2-match
+  search floor and its 0.3 ratio, all 24 log patterns and their 0.1 ratio, the
+  8-language code patterns (anchored at the line start, as `re.match` is) and
+  the best score of 3, the JSON wrapper bulk fraction 0.6, the concatenated
+  ≥ 2-objects rule, and the git-status first lines, headings and entry regex.
+- The confidence formulas, in upstream operand order, so IEEE borderline cases
+  match: one diff header and no change line gives exactly 0.7, which passes,
+  and a search ratio of 1/3 gives 0.6, which passes.
+- The type tags (upstream `ContentType` values).
+
+Deviations from upstream:
+
+- Rust's category set. Python's tabular (markdown table, CSV/TSV), structured
+  config (YAML/TOML/INI) and fixed-width branches are omitted: Python confirms
+  TOML/INI with stdlib parsers (`tomllib`, `configparser`) that pure JS lacks,
+  so a heuristic port would over-claim; all three run after log, so they only
+  take text that would otherwise be code or plain text, which route
+  identically; and the newer tabular branch disagrees with upstream's own
+  parity fixtures (it reads the JavaScript fixture as `tabular`).
+- JSON follows Python, not Rust: objects, wrapped payloads and concatenated
+  objects count, not only arrays. The parity fixture `{"foo": "bar"}`
+  therefore reads `json_array` (Rust records `text`).
+- `raw_decode` is emulated by the span walker `scanFrom` plus `JSON.parse`. A
+  non-`{` value ends the concatenated check, where upstream decodes it and then
+  rejects the run; the verdict differs only when that value would hit the
+  recursion limit.
+- `JSON.parse` rejects `NaN`/`Infinity`, which Python's `json` accepts. A
+  `JSON.parse` failure other than a `SyntaxError` counts as upstream's
+  `RecursionError` (not JSON).
+- JS `\w`, `\d` and `\b` are ASCII-only where Python's are Unicode; `\s` and
+  `trim()` differ from Python's on a few exotic code points.
+- Lengths (the 3000-character HTML sample, the bulk fraction) count UTF-16
+  units, where upstream counts code points.
+- The detector returns only the tag: no confidence and no metadata (language,
+  counts), since nothing consumes them.
+
 ## Verified Claude Code 2.1.288 shapes relied on
 
 - `turn.step` input `effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | number`;

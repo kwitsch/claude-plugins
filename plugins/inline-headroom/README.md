@@ -282,6 +282,45 @@ rows. It is the MCP server `storage` (connected as
 
 ## Upstream mapping and deviations
 
+### Content detector / router
+
+Ported from `headroom/transforms/content_detector.py` (the checks inside each
+category), `crates/headroom-core/src/transforms/content_detector.rs` (the
+category set and order) and the timestamp-row pattern of
+`headroom/transforms/lossless_compaction.py` (read 2026-10-11 at 976aa71).
+Ported verbatim:
+
+- The categories and their order: JSON, diff (confidence 0.7 or more), HTML
+  (0.7), git status, search results (0.6), build/log output (0.5), source code
+  (0.5), else plain text; empty text is plain text.
+- The sample windows: diff over the first 500 lines, HTML over the first 3000
+  characters, search and code over the first 100 lines, logs over the first
+  200 lines.
+- Every pattern and threshold of these categories: the timestamped-log-row
+  guard, the path-shape guard, grep context lines, at least 2 matching lines
+  and a 0.3 ratio for search, all 24 log patterns with a 0.1 ratio, the code
+  patterns of 8 languages with a best score of at least 3, JSON wrapped in a
+  little text when the JSON is at least 60% of it, two or more
+  whitespace-separated JSON objects, and the git status headings and entries.
+- The confidence formulas, in upstream operand order.
+
+Deviations:
+
+- Upstream's Rust category set. Python's tabular (markdown table, CSV/TSV),
+  structured config (YAML/TOML/INI) and fixed-width categories are left out:
+  Python confirms TOML/INI with parsers pure JS lacks, they only take text
+  that would otherwise be code or plain text, which is handled the same way,
+  and the newer tabular check disagrees with upstream's own test fixtures.
+- JSON follows Python, not Rust: objects, wrapped payloads and concatenated
+  objects count, not only arrays.
+- JSON values are found with a bracket-span walk plus `JSON.parse` in place of
+  Python's `raw_decode`. `NaN`/`Infinity` are not JSON here, and a parse that
+  fails for any reason but a syntax error (Python: too deeply nested) means
+  not JSON.
+- JS `\w`, `\d` and `\b` are ASCII-only where Python's are Unicode, `\s` and
+  `trim()` differ on a few exotic code points, and lengths count UTF-16 units.
+- Only the label is kept: no confidence and no metadata.
+
 ### Dense line elider
 
 Ported from `headroom/transforms/dense_line_elider.py`, the `content_router.py`

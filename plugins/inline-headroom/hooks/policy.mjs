@@ -21,6 +21,7 @@
  */
 /** @typedef {{ text: string, spans: number, offloaded: [string, string][] }} Fold a deduplicated text: the text with pointers, the runs folded, [hash, run text] per run */
 /** @typedef {{ type: string } & Record<string, unknown>} ContentBlock one Messages-API content block, as session.append hands it */
+/** @typedef {'json_array'|'diff'|'html'|'tabular'|'search'|'build'|'source_code'|'text'} ContentType upstream ContentType tags (as_str); 'tabular' is git status here */
 /**
  * Which levers rewrite this row; dedup names the conversations map and this row's key ("" main, else agentId).
  * @typedef {{ crush: boolean, elide: boolean, dedup?: { states: Map<string, DedupState>, key: string } }} Levers
@@ -146,6 +147,73 @@ const DEDUP_TRIVIAL = new Set(["return", "pass", "else:", "try:", "except:", "fi
 // shortcut: about a 1M-token context at 4 chars per token; older content has left the model's window. Raise it if long sessions stop folding.
 /** Indexed dedup characters kept across all conversations, least recently appended conversation dropped first. Deviation: upstream rebuilds per request and needs no cap. */
 export const DEDUP_MAX_CHARS = 4_000_000;
+// Content detector: upstream content_detector.py, branch order of content_detector.rs (read 2026-10-11 at 976aa71).
+const JSON_MIN_BULK_FRACTION = 0.6;
+const DIFF_HEADER_RE = /^(?:diff --git|diff --combined |diff --cc |--- a\/|@@\s+-\d+,\d+\s+\+\d+,\d+\s+@@|@@@+\s+-\d+(?:,\d+)?\s+(?:-\d+(?:,\d+)?\s+)+\+\d+(?:,\d+)?\s+@@@+)/;
+const DIFF_CHANGE_RE = /^[+-][^+-]/;
+const HTML_DOCTYPE_RE = /^\s*<!doctype\s+html/i;
+const HTML_TAG_RE = /<html[\s>]/i;
+const HTML_HEAD_RE = /<head[\s>]/i;
+const HTML_BODY_RE = /<body[\s>]/i;
+// Global, so only ever used through String.prototype.match, which resets lastIndex.
+const HTML_STRUCTURAL_RE = /<(?:div|span|script|style|link|meta|nav|header|footer|aside|article|section|main)[\s>]/gi;
+const GIT_STATUS_HEADERS = new Set(["Changes to be committed:", "Changes not staged for commit:", "Untracked files:", "Unmerged paths:"]);
+const GIT_STATUS_ENTRY_RE = /^\s+(?:new file|modified|deleted|renamed|copied|typechange|both modified|both added|both deleted|added by us|deleted by us|added by them|deleted by them):\s+\S/;
+// The separators of Python's str.splitlines(), used by git status only.
+// eslint-disable-next-line no-control-regex -- \x1c-\x1e are splitlines() separators, matched on purpose
+const LINE_BREAK_RE = /\r\n|[\n\r\v\f\x1c-\x1e\x85\u{2028}\u{2029}]/u;
+// Upstream lossless_compaction.py _TIMESTAMP_ROW_RE: a timestamped log row is never a grep line.
+const TIMESTAMP_ROW_RE = /^\s*\[?(?:\d{4}-\d{2}-\d{2}[ T]\d{1,2}:\d{2}|\d{2}\/\d{2}\/\d{2,4}[ T]\d{1,2}:\d{2}|[A-Z][a-z]{2}\s+\d{1,2}\s+\d{1,2}:\d{2}|\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?(?:\s|\]|$))/;
+const SEARCH_LINE_RE = /^[^\s:]+:\d+:/;
+const GREP_COLON_DASH_RE = /^[^\s:]+:\d+-/;
+const GREP_CONTEXT_RE = /^([^\s:]+?)-\d+-/;
+// Upstream _LOG_PATTERNS in order, each tried with search(); indexes 0 and 1 are the error / warn patterns.
+const LOG_PATTERNS = [
+  /\b(?:ERROR|FAIL|FAILED|FATAL|CRITICAL)\b/i,
+  /\b(?:WARN|WARNING)\b/i,
+  /\b(?:INFO|DEBUG|TRACE)\b/i,
+  /^\s*\d{4}-\d{2}-\d{2}/,
+  /^\s*\[\d{2}:\d{2}:\d{2}\]/,
+  /^={3,}|^-{3,}/,
+  /^\s*PASSED|^\s*FAILED|^\s*SKIPPED/,
+  /^npm ERR!|^yarn error|^cargo error/,
+  /Traceback \(most recent call last\)/,
+  /^\w*(?:Error|Exception):/,
+  /^\s*at\s+[\w.$/]+\(/,
+  /^\s*at async \S/,
+  /^(?:panic|fatal error): /,
+  /^goroutine \d+ \[/,
+  /^\t\S+\.go:\d+ \+0x/,
+  /^thread '[^']*' panicked at/,
+  /^stack backtrace:/,
+  /^\s+\d+: \S/,
+  /^\s+at \S+:\d+:\d+$/,
+  /^Unhandled exception\./,
+  /^\s*at [\s\S]+\) in [\s\S]+:line \d+/,
+  /^Caused by: /,
+  /^\s*\.\.\. \d+ more$/,
+  /^<!\[LOG\[/,
+];
+// Upstream _CODE_PATTERNS in dict order. Python calls pattern.match(line), so every pattern is anchored with ^.
+/** @type {[string, RegExp[]][]} */
+const CODE_PATTERNS = [
+  ["python", [/^\s*(?:def|class|import|from|async def)\s+\w+/, /^\s*@\w+/, /^\s*"""/, /^\s*if __name__\s*==/]],
+  ["javascript", [/^\s*(?:function|const|let|var|class|import|export)\s+/, /^\s*(?:async\s+function|=>\s*\{)/, /^\s*module\.exports/]],
+  ["typescript", [/^\s*(?:interface|type|enum|namespace)\s+\w+/, /^:\s*(?:string|number|boolean|any|void)\b/]],
+  ["go", [/^\s*(?:func|type|package|import)\s+/, /^\s*func\s+\([^)]+\)\s+\w+/]],
+  ["rust", [/^\s*(?:fn|struct|enum|impl|mod|use|pub)\s+/, /^\s*#\[/]],
+  ["java", [/^\s*(?:public|private|protected)\s+(?:class|interface|enum)/, /^\s*@\w+/, /^\s*package\s+[\w.]+;/]],
+  [
+    "csharp",
+    [
+      /^\s*using\s+[\w.]+\s*;/,
+      /^\s*namespace\s+[\w.]+/,
+      /^\s*(?:public|private|protected|internal|sealed|static|abstract|partial)\s+(?:class|struct|record|interface|enum)\b/,
+      /^[\s\S]*\b(?:get|set|init);/,
+    ],
+  ],
+  ["php", [/^<\?php\b/, /^\s*namespace\s+[\w\\]+\s*;/, /^\s*use\s+[\w\\]+(?:\s+as\s+\w+)?\s*;/, /^\s*(?:public|private|protected|static|abstract|final)?\s*function\s+\w+\s*\(/, /^\$this->/]],
+];
 
 /**
  * Whether a tool.check decides this mod's own storage call: `$.mcp.call` reaches core's permission step as a
@@ -1871,6 +1939,234 @@ export function dedupBlock(states, key, text, isProtected) {
     resetCorpus(s); // kept, not deleted: its ordinal counter must not restart at 1 while earlier pointers still name its results
   }
   return spans > 0 ? { text: out.join("\n"), spans, offloaded } : undefined;
+}
+
+// Content detector and router: a port of headroom's content detection and a light content_router dispatch.
+
+/**
+ * Upstream `content.split("\n")[:n]` without splitting the whole text.
+ * @param {string} text
+ * @param {number} n
+ * @returns {string[]}
+ */
+function headLines(text, n) {
+  let p = -1;
+  for (let i = 0; i < n; i++) {
+    p = text.indexOf("\n", p + 1);
+    if (p < 0) return text.split("\n");
+  }
+  return text.slice(0, p).split("\n");
+}
+
+/**
+ * Upstream _decode_concatenated_json read for objects: `s` is a run of 2+ JSON objects separated only by whitespace.
+ * A SyntaxError means no; any other parse failure propagates (upstream: RecursionError).
+ * @param {string} s trimmed text starting with "{"
+ * @returns {boolean}
+ */
+function isObjectRun(s) {
+  let idx = 0;
+  let count = 0;
+  while (idx < s.length) {
+    if (/\s/.test(s[idx])) {
+      idx++;
+      continue;
+    }
+    if (s[idx] !== "{") return false; // upstream decodes a non-object and rejects the run after
+    const end = scanFrom(s, idx, new Map())[0];
+    if (end === null) return false;
+    try {
+      JSON.parse(s.slice(idx, end));
+    } catch (err) {
+      if (err instanceof SyntaxError) return false;
+      throw err;
+    }
+    count++;
+    idx = end;
+  }
+  return count >= 2;
+}
+
+/**
+ * Upstream _try_detect_json as a verdict: `s` parses as an object or array (never a bare scalar), else is a run of
+ * 2+ whitespace-separated objects, else holds one bracket span, from the first "{" or "[", that parses and spans at
+ * least JSON_MIN_BULK_FRACTION of it. A parse failure other than a SyntaxError (upstream: RecursionError) means not JSON.
+ * @param {string} s trimmed, non-empty text
+ * @returns {boolean}
+ */
+function isJsonPayload(s) {
+  try {
+    const v = JSON.parse(s);
+    return typeof v === "object" && v !== null;
+  } catch (err) {
+    if (!(err instanceof SyntaxError)) return false;
+  }
+  try {
+    if (s.startsWith("{") && isObjectRun(s)) return true;
+    const starts = [s.indexOf("{"), s.indexOf("[")].filter((i) => i >= 0);
+    if (starts.length === 0) return false;
+    const start = Math.min(...starts);
+    const end = scanFrom(s, start, new Map())[0];
+    if (end === null) return false;
+    JSON.parse(s.slice(start, end));
+    return end - start >= s.length * JSON_MIN_BULK_FRACTION;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Upstream _try_detect_diff's confidence, 0 without a header line.
+ * @param {readonly string[]} lines the first 500 lines
+ * @returns {number}
+ */
+function diffConfidence(lines) {
+  let headers = 0;
+  let changes = 0;
+  for (const line of lines) {
+    if (DIFF_HEADER_RE.test(line)) headers++;
+    if (DIFF_CHANGE_RE.test(line)) changes++;
+  }
+  return headers === 0 ? 0 : Math.min(1.0, 0.5 + headers * 0.2 + changes * 0.05);
+}
+
+/**
+ * Upstream _try_detect_html's confidence, 0 where it returns None.
+ * @param {string} sample the first 3000 characters
+ * @returns {number}
+ */
+function htmlConfidence(sample) {
+  const doctype = HTML_DOCTYPE_RE.test(sample);
+  const html = HTML_TAG_RE.test(sample);
+  const structural = (sample.match(HTML_STRUCTURAL_RE) ?? []).length;
+  if (!doctype && !html && structural < 3) return 0;
+  let c = 0.0;
+  if (doctype) c += 0.5;
+  if (html) c += 0.3;
+  if (HTML_HEAD_RE.test(sample)) c += 0.1;
+  if (HTML_BODY_RE.test(sample)) c += 0.1;
+  c += Math.min(0.3, structural * 0.03);
+  c = Math.min(1.0, c);
+  return c < 0.5 ? 0 : c;
+}
+
+/**
+ * Upstream _try_detect_git_status: a `git status` first line, then a section heading and a path entry under it.
+ * @param {string} text
+ * @returns {boolean}
+ */
+function isGitStatus(text) {
+  const nl = text.indexOf("\n");
+  const first = nl < 0 ? text : text.slice(0, nl);
+  if (!first.startsWith("On branch ") && !first.startsWith("HEAD detached at ") && !first.startsWith("HEAD detached from ")) return false;
+  let heading = false;
+  let path = false;
+  /** @type {string|undefined} */
+  let section;
+  for (const line of text.split(LINE_BREAK_RE).slice(1)) {
+    if (GIT_STATUS_HEADERS.has(line)) {
+      heading = true;
+      section = line;
+    } else if (line === "" || line === "nothing to commit" || line.startsWith("Your branch ") || line.startsWith("  (use ")) continue;
+    else if (section === "Untracked files:" && line.startsWith("\t") && line.slice(1).trim() !== "") path = true;
+    else if (section !== undefined && section !== "Untracked files:" && GIT_STATUS_ENTRY_RE.test(line)) path = true;
+    if (heading && path) return true;
+  }
+  return false;
+}
+
+/**
+ * Upstream _prefix_looks_like_path: no markup tag and no key=value prefix.
+ * @param {string} prefix
+ * @returns {boolean}
+ */
+function pathLike(prefix) {
+  return !/[<>=]/.test(prefix);
+}
+
+/**
+ * Upstream _is_search_result_line: `path:N:` or `path:N-` with a path-shaped prefix, or a grep context line `path-N-`
+ * whose path holds a "/" or "."; never a timestamped log row.
+ * @param {string} line
+ * @returns {boolean}
+ */
+function isSearchLine(line) {
+  if (TIMESTAMP_ROW_RE.test(line)) return false;
+  if (SEARCH_LINE_RE.test(line) || GREP_COLON_DASH_RE.test(line)) return pathLike(line.slice(0, line.indexOf(":")));
+  const m = GREP_CONTEXT_RE.exec(line);
+  return m !== null && pathLike(m[1]) && /[/.]/.test(m[1]);
+}
+
+/**
+ * Upstream _try_detect_search's confidence, 0 below 2 matching lines or a 0.3 ratio.
+ * @param {readonly string[]} lines the first 100 lines
+ * @returns {number}
+ */
+function searchConfidence(lines) {
+  let matching = 0;
+  let nonEmpty = 0;
+  for (const line of lines) {
+    if (line.trim() === "") continue;
+    nonEmpty++;
+    if (isSearchLine(line)) matching++;
+  }
+  if (matching < 2 || nonEmpty === 0) return 0;
+  const ratio = matching / nonEmpty;
+  return ratio < 0.3 ? 0 : Math.min(1.0, 0.4 + ratio * 0.6);
+}
+
+/**
+ * Upstream _try_detect_log's confidence: one LOG_PATTERNS match per line at most, 0 below a 0.1 ratio.
+ * @param {readonly string[]} lines the first 200 lines
+ * @returns {number}
+ */
+function logConfidence(lines) {
+  let matches = 0;
+  let errors = 0;
+  let nonEmpty = 0;
+  for (const line of lines) {
+    if (line.trim() !== "") nonEmpty++;
+    const i = LOG_PATTERNS.findIndex((re) => re.test(line));
+    if (i < 0) continue;
+    matches++;
+    if (i < 2) errors++;
+  }
+  if (matches === 0 || nonEmpty === 0) return 0;
+  const ratio = matches / nonEmpty;
+  return ratio < 0.1 ? 0 : Math.min(1.0, 0.3 + ratio * 0.5 + errors * 0.05);
+}
+
+/**
+ * Upstream _try_detect_code's confidence from the best language's line score, 0 below a score of 3.
+ * @param {readonly string[]} lines the first 100 lines
+ * @returns {number}
+ */
+function codeConfidence(lines) {
+  const best = Math.max(...CODE_PATTERNS.map(([, patterns]) => lines.filter((line) => patterns.some((re) => re.test(line))).length));
+  if (best < 3) return 0;
+  const ratio = best / Math.max(lines.filter((line) => line.trim() !== "").length, 1);
+  return Math.min(1.0, 0.4 + ratio * 0.4 + best * 0.02);
+}
+
+/**
+ * Upstream detect_content_type's tag: the category set and branch order of content_detector.rs, each branch's
+ * heuristics and thresholds from content_detector.py. Pure; never throws.
+ * @param {string} text a tool-result text
+ * @returns {ContentType}
+ */
+export function detectContentType(text) {
+  const s = text.trim();
+  if (s === "") return "text";
+  if (isJsonPayload(s)) return "json_array";
+  // shortcut: a sampled line is scanned whole (~10 linear regex passes); cap per-line sample length if append latency shows it.
+  const head = headLines(text, 500);
+  if (diffConfidence(head) >= 0.7) return "diff";
+  if (htmlConfidence(text.slice(0, 3000)) >= 0.7) return "html";
+  if (isGitStatus(text)) return "tabular";
+  if (searchConfidence(head.slice(0, 100)) >= 0.6) return "search";
+  if (logConfidence(head.slice(0, 200)) >= 0.5) return "build";
+  if (codeConfidence(head.slice(0, 100)) >= 0.5) return "source_code";
+  return "text";
 }
 
 // The tool-result row pipeline (session.append): SmartCrusher, then the dense line elider, then cross-turn dedup.
