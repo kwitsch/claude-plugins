@@ -3572,6 +3572,645 @@ export function compressConfig(text) {
   return text.length - compressed.length < 1 ? undefined : { text: compressed, offloaded };
 }
 
+// Log compressor: a port of headroom's log_compressor.rs (compress_with_store with LogCompressorConfig::default()) and the
+// "log" kind of lossless_compaction.py compact_lossless.
+
+/** @typedef {'error'|'fail'|'warn'|'info'|'debug'|'trace'|'unknown'} LogLevel upstream LogLevel */
+/** @typedef {'python'|'js'|'java'|'rust_error'|'rust_backtrace'|'go_panic'|'dotnet'} TraceFlavor upstream TraceFlavor */
+/** @typedef {{ n: number, content: string, level: LogLevel, stack: boolean, summary: boolean, score: number }} LogLine a classified log line */
+/** @typedef {{ entries: Map<number, string>, totals: Set<number>, header: number|undefined }} PytestSummary short-summary entries, totals lines, first header */
+
+// Upstream LogCompressorConfig::default(); keep_first_error, keep_last_error, dedupe_warnings, keep_summary_lines and
+// collapse_runtime_frames are true there and inlined here.
+const LOG_MAX_ERRORS = 10;
+const LOG_ERROR_CONTEXT = 3;
+const LOG_MAX_STACK_TRACES = 3;
+const LOG_STACK_TRACE_MAX_LINES = 20;
+const LOG_MAX_WARNINGS = 5;
+const LOG_MAX_TOTAL_LINES = 100;
+const LOG_MIN_LINES = 50;
+const LOG_TRACE_HEAD_FRAMES = 3;
+const LOG_TRACE_APP_FRAMES = 5;
+// Upstream _ANSI_RE (CSI SGR colour and style): dropped one-way by the log fold, as non-semantic.
+// eslint-disable-next-line no-control-regex -- \x1b is the escape that starts an ANSI colour sequence, matched on purpose
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+// Upstream LevelClassifier's exact-casing words. One alternation, longest first, so at the leftmost match the longest word wins
+// (aho-corasick LeftmostLongest); \b is its ASCII word-boundary post-filter (a word that fails it cannot be followed by a
+// shorter word at the same start that passes, nor by one starting inside it).
+/** @type {ReadonlyMap<string, LogLevel>} */
+const LOG_LEVEL_WORDS = new Map(
+  /** @type {[LogLevel, string][]} */ ([
+    ["error", "ERROR error Error FATAL fatal Fatal CRITICAL critical"],
+    ["fail", "FAIL FAILED fail failed Fail Failed"],
+    ["warn", "WARN WARNING warn warning Warn Warning"],
+    ["info", "INFO info Info"],
+    ["debug", "DEBUG debug Debug"],
+    ["trace", "TRACE trace Trace"],
+  ]).flatMap(([level, words]) => words.split(" ").map((w) => /** @type {[string, LogLevel]} */ ([w, level]))),
+);
+const LOG_LEVEL_RE = new RegExp(`\\b(?:${[...LOG_LEVEL_WORDS.keys()].sort((a, b) => b.length - a.length).join("|")})\\b`);
+const LOG_LINE_COL_RE = /:\d+:\d/;
+const LOG_RUST_FRAME_RE = /^\d+: *0x[0-9a-fA-F]/;
+const LOG_GOROUTINE_RE = /^goroutine \d+ \[/;
+const LOG_JAVA_MORE_RE = /^\.\.\. \d+\s*more\s*$/;
+const LOG_UPPER_START_RE = /^\p{Uppercase}/u;
+const LOG_JAVA_SYMBOL_RE = /^[A-Za-z0-9._$/]+$/;
+const LOG_GO_SYMBOL_RE = /^[A-Za-z0-9._/*]+$/;
+const LOG_DOTNET_HEAD_RE = /^[A-Za-z0-9._`+]+$/;
+const LOG_LABEL_RE = /^[A-Za-z0-9_.]+$/;
+const LOG_CODE_RE = /^[A-Za-z0-9]+$/;
+// Upstream RUNTIME_FRAME_PREFIXES (start of the trimmed line) and RUNTIME_FRAME_MARKERS (anywhere).
+const LOG_RUNTIME_PREFIXES = ["at java.", "at jdk.", "at sun.", "at javax.", "at scala.", "at System.", "at Microsoft.", "runtime.", "created by runtime."];
+const LOG_RUNTIME_MARKERS = [
+  "site-packages/",
+  "/usr/lib/python",
+  "lib/python3.",
+  "node:internal/",
+  "node_modules/",
+  "(internal/",
+  "core::",
+  "std::",
+  "alloc::",
+  "rust_begin_unwind",
+  "__rust_",
+  "/rustc/",
+  "/usr/local/go/src/",
+  "/libexec/src/runtime/",
+];
+
+/**
+ * Upstream LevelClassifier.classify: the level of the first word-boundary-valid level word by position.
+ * @param {string} line
+ * @returns {LogLevel}
+ */
+function logLevel(line) {
+  const m = LOG_LEVEL_RE.exec(line);
+  return m ? (LOG_LEVEL_WORDS.get(m[0]) ?? "unknown") : "unknown";
+}
+
+/** @param {string} s @returns {boolean} upstream is_python_file_frame: `File "<name>", line <N>` */
+const isPythonFileFrame = (s) => s.startsWith('File "') && s.includes('", line ') && /\d$/.test(s);
+/** @param {string} s @returns {boolean} upstream is_js_at_frame */
+const isJsAtFrame = (s) => s.startsWith("at ") && s.includes("(") && s.includes(")") && LOG_LINE_COL_RE.test(s);
+/** @param {string} s @returns {boolean} upstream is_java_at_frame: `at <dotted symbol>(` */
+const isJavaAtFrame = (s) => s.startsWith("at ") && s.includes("(") && LOG_JAVA_SYMBOL_RE.test(s.slice(3, s.indexOf("(")));
+/** @param {string} s @returns {boolean} upstream is_dotnet_frame: `at <symbol>(<args>) in <file>:line <N>` */
+const isDotnetFrame = (s) => s.startsWith("at ") && s.includes(") in ") && s.includes(":line ");
+/** @param {string} s @returns {boolean} upstream is_rust_backtrace_frame: `<digits>: 0x<hex>` */
+const isRustBacktraceFrame = (s) => LOG_RUST_FRAME_RE.test(s.trimStart());
+/** @param {string} line @returns {boolean} upstream is_go_file_frame: a tab-indented `.go:` line with ` +0x` */
+const isGoFileFrame = (line) => line.startsWith("\t") && line.includes(".go:") && line.includes(" +0x");
+
+/**
+ * Upstream is_go_call_frame: `created by …`, or a column-0 `pkg.func(...)` call line.
+ * @param {string} line
+ * @returns {boolean}
+ */
+function isGoCallFrame(line) {
+  if (line.startsWith("created by ")) return true;
+  if (line.startsWith(" ") || line.startsWith("\t") || !line.endsWith(")")) return false;
+  const open = line.indexOf("(");
+  if (open < 0) return false;
+  const symbol = line.slice(0, open);
+  return symbol.includes(".") && LOG_GO_SYMBOL_RE.test(symbol);
+}
+
+/**
+ * Upstream is_dotnet_exception_head: `System.InvalidOperationException: message`.
+ * @param {string} trimmed
+ * @returns {boolean}
+ */
+function isDotnetExceptionHead(trimmed) {
+  const colon = trimmed.indexOf(":");
+  if (colon < 0) return false;
+  const head = trimmed.slice(0, colon);
+  return head.endsWith("Exception") && head.includes(".") && LOG_DOTNET_HEAD_RE.test(head);
+}
+
+/**
+ * Upstream StackTraceDetector::flavor_for: the trace a line opens, if any.
+ * @param {string} line
+ * @returns {TraceFlavor|undefined}
+ */
+function traceFlavor(line) {
+  const t = line.trimStart();
+  if (t.startsWith("Traceback (most recent call last)") || isPythonFileFrame(t)) return "python";
+  // Before Js/Java: a .NET frame also has the Java `at <dotted>(` shape.
+  if (t.startsWith("Unhandled exception.") || isDotnetFrame(t)) return "dotnet";
+  if (isJsAtFrame(t)) return "js";
+  if (isJavaAtFrame(t)) return "java";
+  if (t.startsWith("--> ") && LOG_LINE_COL_RE.test(t)) return "rust_error";
+  if ((t.startsWith("thread '") && t.includes("panicked at")) || t.startsWith("stack backtrace:") || isRustBacktraceFrame(line)) return "rust_backtrace";
+  if (line.startsWith("panic: ") || line.startsWith("fatal error: ") || LOG_GOROUTINE_RE.test(line)) return "go_panic";
+  return undefined;
+}
+
+/**
+ * Upstream StackTraceDetector::terminates: whether `line` ends the active trace of `flavor`, which has claimed `sofar` lines.
+ * @param {TraceFlavor} flavor
+ * @param {string} line
+ * @param {number} sofar
+ * @returns {boolean}
+ */
+function traceEnds(flavor, line, sofar) {
+  const t = line.trimStart();
+  switch (flavor) {
+    case "python": {
+      // Blank and indented lines continue it (chained exceptions), as do its markers; the `Type: message` line closes it.
+      const indentedOrBlank = line.startsWith(" ") || line.startsWith("\t") || line === "";
+      const continues = t.startsWith("Traceback") || t.startsWith("File ") || t.startsWith("During handling") || t.startsWith("The above exception");
+      return indentedOrBlank || continues ? false : !LOG_UPPER_START_RE.test(t);
+    }
+    case "js":
+      return !t.startsWith("at ") && line !== "";
+    case "java": {
+      const chain = t.startsWith("Caused by:") || t.startsWith("Suppressed:") || LOG_JAVA_MORE_RE.test(t);
+      return !t.startsWith("at ") && !chain && line !== "";
+    }
+    case "dotnet":
+      if (line === "") return false;
+      return !(t.startsWith("at ") || t.startsWith("--->") || t.startsWith("--- End of") || isDotnetExceptionHead(t));
+    case "rust_error":
+      return !t.startsWith("--> ") && line !== "";
+    case "rust_backtrace": {
+      // The panic message is the free-text line right after the `panicked at <loc>:` opener.
+      if (line === "" || sofar === 1) return false;
+      const frame = /^[0-9]/.test(t);
+      const continues = line.startsWith(" ") || line.startsWith("\t") || t.startsWith("stack backtrace:") || t.startsWith("note: run with");
+      return !frame && !continues;
+    }
+    case "go_panic": {
+      if (line === "") return false;
+      const continues = line.startsWith("\t") || LOG_GOROUTINE_RE.test(line) || isGoCallFrame(line) || line.startsWith("panic: ") || line.startsWith("fatal error: ") || line.startsWith("[signal ");
+      return !continues;
+    }
+  }
+  return true;
+}
+
+/** @param {string} line @returns {boolean} upstream is_frame_line: a stack frame, not a message or chain head */
+const isFrameLine = (line) => {
+  const t = line.trimStart();
+  return t.startsWith("at ") || (t.startsWith('File "') && t.includes('", line ')) || isRustBacktraceFrame(line) || isGoFileFrame(line) || isGoCallFrame(line);
+};
+
+/** @param {string} line @returns {boolean} upstream is_chain_head_line: chain heads and markers a collapse always keeps */
+const isChainHead = (line) => {
+  const t = line.trimStart();
+  return ["Caused by:", "Suppressed:", "... ", "--->", "--- End of", "During handling", "The above exception"].some((p) => t.startsWith(p));
+};
+
+/** @param {string} line @returns {boolean} upstream is_runtime_frame: a runtime or stdlib frame */
+const isRuntimeFrame = (line) => {
+  const t = line.trimStart();
+  return LOG_RUNTIME_PREFIXES.some((p) => t.startsWith(p)) || LOG_RUNTIME_MARKERS.some((m) => line.includes(m));
+};
+
+/**
+ * Upstream collapse_trace_frames: keep every message and chain-head line, the first `head` frames and up to `app` app-code frames;
+ * each contiguous dropped run becomes one `      [... N frames collapsed]` line in its first line's slot (score 0.8, a stack line).
+ * An indented continuation of a dropped frame drops with it.
+ * @param {readonly LogLine[]} stack
+ * @param {number} head
+ * @param {number} app
+ * @returns {{ kept: LogLine[], dropped: number[] }}
+ */
+function collapseTraceFrames(stack, head, app) {
+  /** @type {LogLine[]} */
+  const kept = [];
+  /** @type {number[]} */
+  const dropped = [];
+  let frames = 0;
+  let appKept = 0;
+  /** @type {number|undefined} */
+  let runStart;
+  let runLen = 0;
+  let prevDropped = false;
+  const flush = () => {
+    if (runStart === undefined) return;
+    kept.push({ n: runStart, content: `      [... ${runLen} frames collapsed]`, level: "unknown", stack: true, summary: false, score: 0.8 });
+    runStart = undefined;
+    runLen = 0;
+  };
+  for (const line of stack) {
+    if (isFrameLine(line.content) && !isChainHead(line.content)) {
+      frames++;
+      const runtime = isRuntimeFrame(line.content);
+      if (frames <= head || (!runtime && appKept < app)) {
+        if (!runtime) appKept++;
+        flush();
+        kept.push(line);
+        prevDropped = false;
+      } else {
+        runStart ??= line.n;
+        runLen++;
+        dropped.push(line.n);
+        prevDropped = true;
+      }
+    } else if (prevDropped && (line.content.startsWith(" ") || line.content.startsWith("\t")) && !isChainHead(line.content)) {
+      runLen++;
+      dropped.push(line.n);
+    } else {
+      flush();
+      kept.push(line);
+      prevDropped = false;
+    }
+  }
+  flush();
+  return { kept, dropped };
+}
+
+/**
+ * Upstream is_summary_line: separators, `N passed`-style counts, `Tests: N`, TOTAL/Summary, and build/test outcome lines.
+ * @param {string} line
+ * @returns {boolean}
+ */
+function isSummaryLine(line) {
+  if (line.startsWith("===") || line.startsWith("---")) return true;
+  const digits = /^\d*/.exec(line)?.[0].length ?? 0;
+  if (digits > 0 && line[digits] === " ") {
+    const rest = line.slice(digits + 1);
+    if (["passed", "failed", "skipped", "error", "warning"].some((k) => rest.startsWith(k))) return true;
+  }
+  for (const prefix of ["Test ", "Tests ", "Tests:", "Test:", "Suite ", "Suites ", "Suites:", "Suite:"]) {
+    if (line.startsWith(prefix)) return /^\s*[0-9]/.test(line.slice(prefix.length));
+  }
+  if (["TOTAL", "Total", "Summary"].some((p) => line.startsWith(p))) return true;
+  return ["Build", "Compile", "Test"].some((p) => line.startsWith(p)) && ["succeeded", "failed", "complete"].some((o) => line.includes(o));
+}
+
+/**
+ * Upstream scan_pytest_short_summary: a section opens on a whole `=== … short test summary info … ===` line (a trailing \r
+ * ignored) and closes at the next `===` line, its totals line; inside, `FAILED <id>` / `ERROR <id>` lines are entries, the id
+ * cut at ` - `.
+ * @param {readonly string[]} lines
+ * @returns {PytestSummary}
+ */
+function scanPytestSummary(lines) {
+  /** @type {PytestSummary} */
+  const scan = { entries: new Map(), totals: new Set(), header: undefined };
+  let inside = false;
+  lines.forEach((line, i) => {
+    const seen = line.endsWith("\r") ? line.slice(0, -1) : line;
+    if (seen.startsWith("===")) {
+      const opens = seen.endsWith("===") && seen.includes("short test summary info");
+      if (opens) scan.header ??= i;
+      else if (inside) scan.totals.add(i);
+      inside = opens;
+      return;
+    }
+    if (!inside) return;
+    const rest = line.startsWith("FAILED ") ? line.slice(7) : line.startsWith("ERROR ") ? line.slice(6) : undefined;
+    if (rest === undefined) return;
+    const cut = rest.indexOf(" - ");
+    const id = (cut < 0 ? rest : rest.slice(0, cut)).trim();
+    if (id) scan.entries.set(i, id);
+  });
+  return scan;
+}
+
+/**
+ * Upstream score_log_line: the level's base, +0.3 in a stack trace, +0.4 on a summary line, at most 1.
+ * @param {LogLevel} level
+ * @param {boolean} stack
+ * @param {boolean} summary
+ * @returns {number}
+ */
+function logScore(level, stack, summary) {
+  const base = level === "error" || level === "fail" ? 1 : level === "warn" ? 0.5 : level === "debug" ? 0.05 : level === "trace" ? 0.02 : 0.1;
+  return Math.min(base + (stack ? 0.3 : 0) + (summary ? 0.4 : 0), 1);
+}
+
+/**
+ * Upstream LogCompressor::parse_lines: each line's level, summary membership, score and stack-trace membership, through the
+ * per-flavor trace state machine (a trace ends on its flavor's terminator or after 20 lines, where a continuing line opens the
+ * next run).
+ * @param {readonly string[]} lines
+ * @param {ReadonlyMap<number, string>} entries the pytest short-summary entries
+ * @returns {LogLine[]}
+ */
+function parseLogLines(lines, entries) {
+  /** @type {TraceFlavor|undefined} */
+  let active;
+  let traced = 0;
+  return lines.map((content, n) => {
+    const level = logLevel(content);
+    const summary = isSummaryLine(content) || entries.has(n);
+    let stack = false;
+    if (active) {
+      if (traced >= LOG_STACK_TRACE_MAX_LINES || traceEnds(active, content, traced)) {
+        const capHit = traced >= LOG_STACK_TRACE_MAX_LINES;
+        const was = active;
+        active = undefined;
+        traced = 0;
+        // A chained trace opens on the line that ended the last one.
+        const next = traceFlavor(content);
+        if (next) {
+          active = next;
+          traced = 1;
+          stack = true;
+        } else if (capHit && !traceEnds(was, content, 2)) {
+          active = was;
+          traced = 1;
+          stack = true;
+        }
+      } else {
+        stack = true;
+        traced++;
+      }
+    } else {
+      const next = traceFlavor(content);
+      if (next) {
+        active = next;
+        traced = 1;
+        stack = true;
+      }
+    }
+    return { n, content, level, stack, summary, score: logScore(level, stack, summary) };
+  });
+}
+
+/**
+ * Upstream select_with_first_last: all when within `max`, else the first, the last, then the best by (score desc, line asc).
+ * @param {readonly LogLine[]} lines
+ * @param {number} max
+ * @returns {LogLine[]}
+ */
+function firstLastBest(lines, max) {
+  if (lines.length <= max) return [...lines];
+  const out = [lines[0], lines[lines.length - 1]];
+  const seen = new Set(out.map((l) => l.n));
+  for (const l of [...lines].sort((a, b) => b.score - a.score || a.n - b.n)) {
+    if (out.length >= max) break;
+    if (seen.has(l.n)) continue;
+    seen.add(l.n);
+    out.push(l);
+  }
+  return out;
+}
+
+/**
+ * Upstream normalize_for_dedupe: the text up to the first `:` or `=` verbatim, then digits → N, `0x…` → ADDR and `/…/` →
+ * /PATH/, in that order (so a `0x` address has already lost its 0, as upstream).
+ * @param {string} content
+ * @returns {string}
+ */
+function dedupeKey(content) {
+  const at = content.search(/[:=]/);
+  const cut = at < 0 ? content.length : at;
+  return (
+    content.slice(0, cut) +
+    content
+      .slice(cut)
+      .replace(/\d+/g, "N")
+      .replace(/0x[0-9a-fA-F]+/g, "ADDR")
+      .replace(/\/[\w/]+\//g, "/PATH/")
+  );
+}
+
+/**
+ * Upstream pytest_cap_reserve: the lines a binding cap keeps while a short summary competes for it, each section's totals line
+ * and the first `E ` line before the first section.
+ * @param {readonly LogLine[]} logLines
+ * @param {PytestSummary} scan
+ * @returns {Set<number>}
+ */
+function pytestReserve(logLines, scan) {
+  const reserved = new Set(scan.totals);
+  const detail = logLines.find((l) => (scan.header === undefined || l.n < scan.header) && l.content.startsWith("E "));
+  if (detail) reserved.add(detail.n);
+  return reserved;
+}
+
+/**
+ * Upstream LogCompressor::select_lines: errors and fails (first, last, best 10 each), 5 deduplicated warnings, the first 3 stack
+ * traces (20 lines each; a longer one with runtime frames collapsed), every summary line, ±3 context lines (never a collapsed
+ * frame), then the adaptive cap by (reserved, score, short-summary entry, line). A line number is taken once, first come.
+ * @param {readonly LogLine[]} logLines
+ * @param {PytestSummary} scan
+ * @param {WorkBudget} budget computeOptimalK's simhash budget
+ * @returns {LogLine[]} in line order
+ */
+function selectLogLines(logLines, scan, budget) {
+  const cap = computeOptimalK(
+    logLines.map((l) => l.content),
+    10,
+    LOG_MAX_TOTAL_LINES,
+    budget,
+  );
+  /** @type {LogLine[][]} */
+  const traces = [];
+  /** @type {LogLine[]} */
+  let current = [];
+  for (const line of logLines) {
+    if (line.stack) current.push(line);
+    else if (current.length) {
+      traces.push(current);
+      current = [];
+    }
+  }
+  if (current.length) traces.push(current);
+  /** @type {Map<number, LogLine>} */
+  const selected = new Map();
+  const take = (/** @type {readonly LogLine[]} */ lines) => {
+    for (const l of lines) if (!selected.has(l.n)) selected.set(l.n, l);
+  };
+  take(
+    firstLastBest(
+      logLines.filter((l) => l.level === "error"),
+      LOG_MAX_ERRORS,
+    ),
+  );
+  take(
+    firstLastBest(
+      logLines.filter((l) => l.level === "fail"),
+      LOG_MAX_ERRORS,
+    ),
+  );
+  /** @type {Set<string>} */
+  const seenWarnings = new Set();
+  const warnings = logLines.filter((l) => {
+    if (l.level !== "warn") return false;
+    const key = dedupeKey(l.content);
+    if (seenWarnings.has(key)) return false;
+    seenWarnings.add(key);
+    return true;
+  });
+  take(warnings.slice(0, LOG_MAX_WARNINGS));
+  /** @type {Set<number>} */
+  const collapsed = new Set();
+  for (const trace of traces.slice(0, LOG_MAX_STACK_TRACES)) {
+    if (trace.length > LOG_STACK_TRACE_MAX_LINES) {
+      const c = collapseTraceFrames(trace, LOG_TRACE_HEAD_FRAMES, LOG_TRACE_APP_FRAMES);
+      for (const n of c.dropped) collapsed.add(n);
+      take(c.kept.slice(0, LOG_STACK_TRACE_MAX_LINES));
+    } else take(trace.slice(0, LOG_STACK_TRACE_MAX_LINES));
+  }
+  take(logLines.filter((l) => l.summary));
+  const picked = new Set(selected.keys());
+  /** @type {Set<number>} */
+  const context = new Set();
+  for (const idx of picked) {
+    for (let i = Math.max(0, idx - LOG_ERROR_CONTEXT); i < Math.min(idx + LOG_ERROR_CONTEXT + 1, logLines.length); i++) if (i !== idx) context.add(i);
+  }
+  for (const i of [...context].sort((a, b) => a - b)) if (!picked.has(i) && !collapsed.has(i)) take([logLines[i]]);
+  let ordered = [...selected.values()].sort((a, b) => a.n - b.n);
+  if (ordered.length > cap) {
+    const reserved = scan.entries.size > 0 ? pytestReserve(logLines, scan) : new Set();
+    const have = new Set(ordered.map((l) => l.n));
+    for (const l of logLines) if (reserved.has(l.n) && !have.has(l.n)) ordered.push(l);
+    const res = (/** @type {LogLine} */ l) => (reserved.has(l.n) ? 1 : 0);
+    const entry = (/** @type {LogLine} */ l) => (scan.entries.has(l.n) ? 1 : 0);
+    ordered = ordered
+      .sort((a, b) => res(b) - res(a) || b.score - a.score || entry(b) - entry(a) || a.n - b.n)
+      .slice(0, cap)
+      .sort((a, b) => a.n - b.n);
+  }
+  return ordered;
+}
+
+/**
+ * Upstream extract_error_label: a cargo `error[E0425]` code, or an exception type ending in Error, Exception or Warning
+ * before a colon (after pytest's `E ` marker), never a bare `ERROR:`.
+ * @param {string} line
+ * @returns {string|undefined}
+ */
+function errorLabel(line) {
+  const t = line.trim();
+  if (t.startsWith("error[")) {
+    const end = t.indexOf("]", 6);
+    if (end >= 0 && LOG_CODE_RE.test(t.slice(6, end))) return t.slice(6, end);
+  }
+  const after = t.startsWith("E ") ? t.slice(2).trimStart() : t;
+  const colon = after.indexOf(":");
+  if (colon < 0) return undefined;
+  const head = after.slice(0, colon);
+  return LOG_LABEL_RE.test(head) && /^[A-Z]/.test(head) && (head.endsWith("Error") || head.endsWith("Exception") || head.endsWith("Warning")) ? head : undefined;
+}
+
+/**
+ * Upstream extract_source_file: a Python `File "…"` name, or a `--> file:line:col` file holding a dot.
+ * @param {string} line
+ * @returns {string|undefined}
+ */
+function sourceFile(line) {
+  const t = line.trim();
+  if (t.startsWith('File "')) {
+    const end = t.indexOf('"', 6);
+    if (end >= 0) return t.slice(6, end);
+  }
+  const arrow = t.indexOf("--> ");
+  if (arrow < 0) return undefined;
+  const part = t.slice(arrow + 4).split(":", 1)[0];
+  return part && part.includes(".") ? part : undefined;
+}
+
+/**
+ * Upstream summarize_omitted: the dropped lines' distinct files and exception types (at most 5 named) that no kept line shows,
+ * as `: K file(s), M exception type(s) (A, B, …)`, or "" when there are none.
+ * @param {readonly LogLine[]} all
+ * @param {readonly LogLine[]} selected
+ * @returns {string}
+ */
+function omittedDescriptor(all, selected) {
+  const kept = new Set(selected.map((l) => l.n));
+  /** @type {Set<string>} */
+  const keptLabels = new Set();
+  /** @type {Set<string>} */
+  const keptFiles = new Set();
+  for (const l of selected) {
+    const label = errorLabel(l.content);
+    if (label !== undefined) keptLabels.add(label);
+    const file = sourceFile(l.content);
+    if (file !== undefined) keptFiles.add(file);
+  }
+  /** @type {Set<string>} */
+  const labels = new Set();
+  /** @type {Set<string>} */
+  const files = new Set();
+  for (const l of all) {
+    if (kept.has(l.n)) continue;
+    const label = errorLabel(l.content);
+    if (label !== undefined && !keptLabels.has(label)) labels.add(label);
+    const file = sourceFile(l.content);
+    if (file !== undefined && !keptFiles.has(file)) files.add(file);
+  }
+  /** @type {string[]} */
+  const parts = [];
+  if (files.size) parts.push(`${files.size} file${files.size === 1 ? "" : "s"}`);
+  if (labels.size) {
+    const names = [...labels].sort();
+    parts.push(`${labels.size} exception type${labels.size === 1 ? "" : "s"} (${names.slice(0, 5).join(", ")}${names.length > 5 ? ", ..." : ""})`);
+  }
+  return parts.length ? `: ${parts.join(", ")}` : "";
+}
+
+/**
+ * Upstream LogCompressor::format_output: the kept lines, then `[N lines omitted: E ERROR, F FAIL, W WARN, I INFO; omitted: …]`
+ * (counts over every line, levels with none left out, up to 5 omitted pytest short-summary ids named) when lines were omitted.
+ * @param {readonly LogLine[]} selected
+ * @param {readonly LogLine[]} all
+ * @param {ReadonlyMap<number, string>} entries
+ * @returns {string}
+ */
+function formatLogOutput(selected, all, entries) {
+  const out = selected.map((l) => l.content);
+  const omitted = all.length - selected.length;
+  if (omitted > 0) {
+    const count = (/** @type {LogLevel} */ level) => all.filter((l) => l.level === level).length;
+    const parts = /** @type {[string, LogLevel][]} */ ([
+      ["ERROR", "error"],
+      ["FAIL", "fail"],
+      ["WARN", "warn"],
+      ["INFO", "info"],
+    ]).flatMap(([label, level]) => {
+      const n = count(level);
+      return n > 0 ? [`${n} ${label}`] : [];
+    });
+    if (parts.length) {
+      const kept = new Set(selected.map((l) => l.n));
+      const ids = [...entries].sort((a, b) => a[0] - b[0]).flatMap(([n, id]) => (kept.has(n) ? [] : [id]));
+      const names = ids.length === 0 ? "" : `; omitted: ${ids.slice(0, 5).join(", ")}${ids.length > 5 ? `, +${ids.length - 5} more` : ""}`;
+      out.push(`[${omitted} lines omitted: ${parts.join(", ")}${names}]`);
+    }
+  }
+  return out.join("\n");
+}
+
+/**
+ * The log fold (upstream compact_lossless "log"): ANSI colour dropped one-way, then runs of identical lines collapsed to
+ * `... (repeated N times)`, kept only when it expands back to the de-coloured text and is shorter than the input.
+ * @param {string} text
+ * @returns {{ text: string, offloaded: [string, string][] }|undefined}
+ */
+export function foldLog(text) {
+  const baseline = text.replace(ANSI_RE, "");
+  const cand = collapseRuns(baseline);
+  if (expandRuns(cand, splitKeepTrailing(baseline)[0].length) !== baseline || cand.length >= text.length) return undefined;
+  return { text: cand, offloaded: [] };
+}
+
+/**
+ * Upstream LogCompressor::compress_with_store with its default config: a log of 50+ lines keeps its errors, failures,
+ * deduplicated warnings, stack traces, summary lines and their context, up to an adaptive 10 to 100 lines, plus the omitted-lines
+ * summary, then `[N lines compressed to M<descriptor>. Retrieve original: hash=H]` with the input stored under H. Deviations:
+ * the retrieval line is always added ("Retrieve original", no 0.5 ratio gate), the hash is contentHash, the simhash diversity
+ * count is budgeted (an exhausted budget keeps 100), and the format detector (cosmetic) is not ported. Undefined under 50
+ * lines or when the result is not shorter.
+ * @param {string} text
+ * @returns {{ text: string, offloaded: [string, string][] }|undefined}
+ */
+export function compressLog(text) {
+  const lines = text.split("\n");
+  if (lines.length < LOG_MIN_LINES) return undefined;
+  const scan = scanPytestSummary(lines);
+  const all = parseLogLines(lines, scan.entries);
+  const selected = selectLogLines(all, scan, { left: SCAN_BUDGET_PER_CHAR * text.length + SCAN_BUDGET_FLOOR });
+  const hash = contentHash(text);
+  const out = `${formatLogOutput(selected, all, scan.entries)}\n[${lines.length} lines compressed to ${selected.length}${omittedDescriptor(all, selected)}. Retrieve original: hash=${hash}]`;
+  return out.length < text.length ? { text: out, offloaded: [[hash, text]] } : undefined;
+}
+
 /**
  * Each content type's compression steps, tried in order until one rewrites (a light upstream _strategy_from_detection).
  * The SmartCrusher owns JSON, the config compressor structured config, the HTML extractor HTML, the log compressor build
@@ -3606,6 +4245,19 @@ const ROUTE_MIN_CHARS = Math.min(CRUSH_MIN_CHARS, DENSE_MIN_LINE_CHARS);
 // or a split before its elision point.
 /** @type {ReadonlySet<RouteStep>} */
 const ELIDE_AFTER = new Set(["extract", "log", "search", "textcrush"]);
+// Upstream _DEFAULT_LOSSY_MIN_EXTRA_SAVINGS: a lossy step must save this fraction beyond its kind's fold.
+const LOSSY_MIN_EXTRA_SAVINGS = 0.05;
+
+/**
+ * Upstream's lossless_then_lossy gate: a lossy result is kept only when it is at most (1 - LOSSY_MIN_EXTRA_SAVINGS) of its kind's
+ * fold (the floor); when the fold declined, the step's own strictly-shorter contract has already decided.
+ * @param {{ text: string }} r the lossy step's result
+ * @param {{ text: string }|undefined} floor the kind's fold of the same text, undefined when it declined
+ * @returns {boolean}
+ */
+function overFold(r, floor) {
+  return floor === undefined || r.text.length <= floor.text.length * (1 - LOSSY_MIN_EXTRA_SAVINGS);
+}
 
 // The tool-result row pipeline (session.append): SmartCrusher and the dense line elider by content type, then cross-turn dedup.
 
@@ -3714,6 +4366,19 @@ function rewriteRow(content, tool, levers, query) {
   const routed = !!(levers.crush || levers.compact || levers.config || levers.extract || levers.log || levers.search || levers.diff || levers.textcrush || levers.split);
   // A Read result: the model needs its verbatim lines for the next Edit's old_string.
   const verbatimTool = tool === READ_TOOL;
+  /**
+   * Books a router compressor's adopted rewrite (its lossy step's or its fold's) in its table and returns the rewritten text.
+   * @param {{ texts: number, saved: number }} slot
+   * @param {string} from the step's input
+   * @param {{ text: string, offloaded: [string, string][] }} r
+   * @returns {string}
+   */
+  const adopt = (slot, from, r) => {
+    slot.texts += 1;
+    slot.saved += from.length - r.text.length;
+    acc.offloaded.push(...r.offloaded);
+    return r.text;
+  };
   let changed = false;
   /** @type {[string, [number, number][]|null]|undefined} */
   let memo;
@@ -3725,9 +4390,12 @@ function rewriteRow(content, tool, levers, query) {
     const prot = isProtectedBlock(b, tool);
     /**
      * Its content type's route (ROUTES): the first rewrite wins, except that a step in ELIDE_AFTER hands its rewrite on to
-     * the next step; upstream elides only text no JSON or config strategy rewrote. With the tag protector on, each step
-     * gets the tag spans of the text it receives: a JSON text holding one loses no row, the config compressor and the HTML
-     * extractor decline it, the elider skips its lines, and an unprotectable text (tagSpans null) passes through whole.
+     * the next step; upstream elides only text no JSON, config or diff strategy, fold or split rewrote. A fold step runs only
+     * on the route's input (`cur === text`): an adopted rewrite is always strictly shorter, so a handed-on one never equals it.
+     * With the tag protector on, each step gets the tag spans of the text it receives: a JSON text holding one loses no row,
+     * the config compressor, the HTML extractor and the router compressors decline it, the elider skips its lines, and an
+     * unprotectable text (tagSpans null) passes through whole. The router compressors also leave Read and line-numbered
+     * (`N\t`, `cat -n`) text whole: the Edit tool must still match it.
      * @param {string} text
      * @returns {string}
      */
@@ -3736,6 +4404,8 @@ function rewriteRow(content, tool, levers, query) {
       let spans = levers.tags ? spansOf(text) : [];
       if (spans === null) return text;
       let cur = text;
+      // A text the router compressors may rewrite: not Read output, not line-numbered.
+      const fresh = !verbatimTool && !LINE_NUMBERED_RE.test(text);
       // With only the elider on, every route runs just `elide`: skip the detection that cannot change the outcome.
       const type = routed ? detectContentType(text) : "text";
       for (const step of ROUTES[type]) {
@@ -3771,6 +4441,13 @@ function rewriteRow(content, tool, levers, query) {
             acc.offloaded.push(...x.offloaded);
             next = x.text;
           }
+        } else if (step === "log" && levers.log && fresh && spans.length === 0) {
+          const r = compressLog(cur);
+          if (r && overFold(r, foldLog(cur))) next = adopt(acc.log, cur, r);
+        } else if (step === "logfold" && levers.log && fresh && spans.length === 0 && cur === text) {
+          // A fold is the fallback for a lossy step that lost, never a post-processor of its output (that carries a retrieval line).
+          const r = foldLog(cur);
+          if (r) next = adopt(acc.log, cur, r);
         } else if (step === "elide" && levers.elide) {
           const d = elideDense(cur, spans);
           if (d) {

@@ -19,12 +19,12 @@ setup() {
   assert_success
 }
 
-@test "userConfig declares exactly the twelve boolean feature toggles, all default true" {
-  run jq -e '(.userConfig | keys) == ["cache_aligner_enabled","config_compressor_enabled","cross_turn_dedup_enabled","dense_line_elider_enabled","effort_routing_enabled","html_extractor_enabled","lossless_compaction_enabled","smart_crusher_enabled","storage_enabled","subagent_compression_enabled","subagent_effort_routing_enabled","tag_protector_enabled"]' "$MANIFEST"
+@test "userConfig declares exactly the thirteen boolean feature toggles, all default true" {
+  run jq -e '(.userConfig | keys) == ["cache_aligner_enabled","config_compressor_enabled","cross_turn_dedup_enabled","dense_line_elider_enabled","effort_routing_enabled","html_extractor_enabled","log_compressor_enabled","lossless_compaction_enabled","smart_crusher_enabled","storage_enabled","subagent_compression_enabled","subagent_effort_routing_enabled","tag_protector_enabled"]' "$MANIFEST"
   assert_success
-  run jq -e '(.userConfig | length) == 12' "$MANIFEST"
+  run jq -e '(.userConfig | length) == 13' "$MANIFEST"
   assert_success
-  run jq -e '[.userConfig[] | select(.type == "boolean" and .default == true and (.title | length > 0) and (.description | length > 0))] | length == 12' "$MANIFEST"
+  run jq -e '[.userConfig[] | select(.type == "boolean" and .default == true and (.title | length > 0) and (.description | length > 0))] | length == 13' "$MANIFEST"
   assert_success
 }
 

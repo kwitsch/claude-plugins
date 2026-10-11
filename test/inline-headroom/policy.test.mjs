@@ -20,6 +20,7 @@ import {
   compactConfigLossless,
   compactRows,
   compactionJson,
+  compressLog,
   compressConfig,
   computeOptimalK,
   configFlavor,
@@ -35,6 +36,7 @@ import {
   extractHtml,
   findVolatile,
   foldRepeatedBlocks,
+  foldLog,
   foldPending,
   formatCsvSchema,
   isCacheDrop,
@@ -2184,4 +2186,276 @@ test("after an extraction the elider gets the extracted text's own spans, so a d
   const elided = rewrite([toolResult(page)], "Bash", levers({ extract: true, elide: true, tags: false }));
   assert.deepEqual([elided.extract.pages, elided.elide.lines], [1, 1]);
   assert.ok(!String(elided.content[0].content).includes(REMINDER));
+});
+// Router compressors (log, search, diff, text crusher, relevance split): shared helpers.
+const RUN_LINE = /^\.\.\. \(repeated \d+ times\)$/m;
+const RETRIEVE_LINE = /\n\[[^\n]*Retrieve original: hash=([0-9a-f]{12})\]$/;
+
+/**
+ * A step's result that must exist (narrows away undefined for the type checker).
+ * @template T
+ * @param {T|undefined} x
+ * @returns {T}
+ */
+const must = (x) => {
+  if (x === undefined) throw new Error("expected a result");
+  return x;
+};
+
+/**
+ * Only the given levers on: no SmartCrusher, elider or dedup unless asked.
+ * @param {Partial<Levers>} over
+ * @returns {Levers}
+ */
+const only = (over) => ({ crush: false, elide: false, ...over });
+
+/**
+ * rewriteToolResults over one string result; undefined when the row passes through.
+ * @param {string} text
+ * @param {Levers} lv
+ * @param {string} [tool]
+ * @param {string} [query]
+ */
+const route = (text, lv, tool = "Bash", query = "") => rewriteToolResults([toolResult(text)], tool, lv, query);
+
+/**
+ * The stored text of a rewritten one-result row.
+ * @param {ReturnType<typeof rewriteToolResults>} r
+ * @returns {string}
+ */
+const stored = (r) => {
+  if (!r) throw new Error("expected the row to be rewritten");
+  return String(r.content[0].content);
+};
+
+/** `n` distinct INFO lines, one per build step. */
+const infoTicks = (/** @type {number} */ n, from = 0) => Array.from({ length: n }, (_, i) => `INFO step ${from + i}: compiled module_${from + i} into build/out_${from + i}.o`);
+
+/** Upstream log_compressor.rs java_chained_trace: two chained traces with `runtime` JDK frames each. */
+const javaTrace = (/** @type {number} */ runtime) =>
+  [
+    'Exception in thread "main" java.lang.IllegalStateException: boom',
+    "at com.example.App.handle(App.java:10)",
+    "at com.example.App.dispatch(App.java:20)",
+    ...Array.from({ length: runtime }, (_, i) => `at java.base/java.util.stream.Op${i}.eval(Op${i}.java:${i + 1})`),
+    "Caused by: java.io.IOException: disk gone",
+    "at com.example.Disk.read(Disk.java:77)",
+    ...Array.from({ length: runtime }, (_, i) => `at java.base/java.lang.Thread${i}.run(Thread.java:${i + 1})`),
+    "... 17 more",
+  ].join("\n");
+
+/** Upstream log_compressor.rs pytest_issue_log: a pytest run with `n` failures, each with its own `E ` line. */
+const pytestIssueLog = (/** @type {number} */ n) => {
+  const pad = (/** @type {number} */ i) => String(i).padStart(3, "0");
+  return [
+    "============================= test session starts =============================",
+    "collected 400 items",
+    "",
+    ...Array.from({ length: 40 }, (_, i) => `tests/test_module_${String(i).padStart(2, "0")}.py ..........................  [ ${String(i).padStart(2, " ")}%]`),
+    "=================================== FAILURES ==================================",
+    ...Array.from({ length: n }, (_, k) => [
+      `____________________ test_case${pad(k + 1)} ____________________`,
+      "",
+      ">       assert result == expected",
+      `E       AssertionError: mismatch in test_case${pad(k + 1)}`,
+      "",
+      "tests/t.py:42: AssertionError",
+    ]).flat(),
+    "=========================== short test summary info ===========================",
+    ...Array.from({ length: n }, (_, k) => `FAILED tests/t.py::test_case${pad(k + 1)} - AssertionError: mismatch`),
+    `=============== ${n} failed, 380 passed in 41.02s ==============`,
+  ].join("\n");
+};
+
+test("foldLog strips ANSI colour and collapses repeated lines, and refuses a fold it cannot verify", () => {
+  const text = "\x1b[32mok\x1b[0m step one\nretrying connection\nretrying connection\nretrying connection\ndone\n";
+  assert.deepEqual(foldLog(text), { text: "ok step one\nretrying connection\n... (repeated 3 times)\ndone\n", offloaded: [] });
+  assert.deepEqual(foldLog("\x1b[1mbold\x1b[0m\n"), { text: "bold\n", offloaded: [] }); // colour alone is worth dropping
+  assert.equal(foldLog("plain line one\nplain line two\n"), undefined); // nothing to fold
+  // A line that already reads like a run marker would expand into lines that were never there.
+  assert.equal(foldLog("a\n... (repeated 3 times)\nb\nb\n"), undefined);
+});
+
+test("compressLog declines under 50 lines (upstream empty_input_returns_unchanged)", () => {
+  assert.equal(compressLog("a\nb\nc"), undefined);
+  assert.equal(compressLog(Array.from({ length: 49 }, (_, i) => `ERROR failure number ${i} in the nightly build`).join("\n")), undefined);
+});
+
+test("compressLog keeps the error, its context and the omitted-lines summary, and ends with a retrieval line (upstream ccr_marker_descriptor_empty_when_nothing_extractable)", () => {
+  let content = "";
+  for (let i = 0; i < 50; i++) content += `INFO line ${i}\n`;
+  content += "ERROR boom\n";
+  const r = must(compressLog(content));
+  const [, hash] = RETRIEVE_LINE.exec(r.text) ?? [];
+  assert.equal(r.text, `INFO line 47\nINFO line 48\nINFO line 49\nERROR boom\n\n[47 lines omitted: 1 ERROR, 50 INFO]\n[52 lines compressed to 5. Retrieve original: hash=${hash}]`);
+  assert.deepEqual(r.offloaded, [[hash, content]]);
+  assert.equal(compressLog(content)?.text, r.text); // deterministic: the same input names the same hash
+});
+
+test("compressLog keeps the first, the last and the best of more than 10 errors", () => {
+  const lines = infoTicks(200);
+  for (let k = 1; k <= 19; k++) lines[k * 10] = `ERROR failure #${k} while linking`;
+  const r = must(compressLog(lines.join("\n")));
+  const kept = r.text.split("\n").flatMap((l) => /^ERROR failure #(\d+)/.exec(l)?.[1] ?? []);
+  assert.deepEqual(kept.map(Number), [1, 2, 3, 4, 5, 6, 7, 8, 9, 19]);
+});
+
+test("compressLog classifies levels by upstream's exact-casing words and word boundaries (upstream level_classifier tests)", () => {
+  const filler = Array.from({ length: 50 }, (_, i) => `step ${i} compiled module_${i} into build/out_${i}.o`);
+  const levelsLog = [
+    "ERROR: something went wrong",
+    "error: file not found",
+    "Error: Invalid input",
+    "FATAL: system crash",
+    "fatal error occurred",
+    "CRITICAL: database down",
+    "FAIL tests/test_foo.py",
+    "FAILED to connect",
+    "Test failed",
+    "WARN: deprecated function",
+    "WARNING: low disk space",
+    "warning: unused variable",
+    "INFO: starting process",
+    "info starting",
+    "DEBUG: variable x = 5",
+    "debug mode enabled",
+    "TRACE: entering function",
+    "Just some regular text",
+    ...filler,
+  ].join("\n");
+  assert.match(compressLog(levelsLog)?.text ?? "", /\n\[\d+ lines omitted: 6 ERROR, 3 FAIL, 3 WARN, 2 INFO\]\n/);
+  // The first word by position decides: "WARN: error" is a warning.
+  assert.match(compressLog(["WARN: error budget nearly spent", ...filler].join("\n"))?.text ?? "", /\n\[\d+ lines omitted: 1 WARN\]\n/);
+  // A level word inside a longer word is no level.
+  assert.doesNotMatch(compressLog(["informant arrested", "errorless code", "warned-off", ...filler].join("\n"))?.text ?? "", /lines omitted/);
+});
+
+test("compressLog dedupes warnings on their message prefix (upstream fixed_in_3e5_dedupe_preserves_distinct_messages, dedupe_collapses_genuinely_repeated_warnings)", () => {
+  const lines = infoTicks(70);
+  lines[10] = "warning: file /tmp/a/123 issue";
+  lines[30] = "warning: file /tmp/b/999 issue"; // digits and the path normalise away: a repeat of line 10
+  lines[50] = "WARN segfault at 0xdeadbeef in thread main";
+  lines[60] = "WARN heap overflow at 0xcafef00d in thread worker"; // another message: kept
+  const out = compressLog(lines.join("\n"))?.text ?? "";
+  for (const kept of [lines[10], lines[50], lines[60]]) assert.ok(out.split("\n").includes(kept), kept);
+  assert.ok(!out.includes(lines[30]));
+});
+
+test("compressLog keeps a chained Python traceback across its blank lines (upstream fixed_in_3e5_chained_exception_traces_survive_blank_lines)", () => {
+  const trace = [
+    "Traceback (most recent call last):",
+    '  File "a.py", line 1, in <module>',
+    "ValueError: x",
+    "",
+    "During handling of the above exception, another exception occurred:",
+    "",
+    "Traceback (most recent call last):",
+    '  File "b.py", line 2, in <module>',
+    "RuntimeError: y",
+  ];
+  const out = compressLog([...infoTicks(50), ...trace, ...infoTicks(10, 50)].join("\n"))?.text ?? "";
+  assert.ok(out.includes(trace.join("\n")), out);
+});
+
+test("compressLog collapses runtime frames of an oversized trace but keeps its chain heads (upstream collapse_keeps_chain_heads_and_app_frames, small_traces_not_collapsed)", () => {
+  const out = compressLog(javaTrace(30))?.text ?? "";
+  assert.ok(out.includes("Caused by: java.io.IOException"));
+  assert.ok(out.includes("com.example.Disk.read"));
+  assert.ok(out.includes("... 17 more"));
+  assert.match(out, /^ {6}\[\.\.\. \d+ frames collapsed\]$/m);
+  assert.ok(!out.includes("Thread25.run"));
+  const small = compressLog([...infoTicks(50), javaTrace(2)].join("\n"))?.text ?? "";
+  assert.ok(small.includes(javaTrace(2)));
+  assert.ok(!small.includes("frames collapsed]"));
+});
+
+test("compressLog reserves pytest's totals and first E line under a binding cap and names every omitted entry (upstream binding_cap_reserves_pytest_totals_and_first_error_line)", () => {
+  for (const n of [60, 200]) {
+    const out = compressLog(pytestIssueLog(n))?.text ?? "";
+    assert.ok(out.includes(`${n} failed, 380 passed`), String(n));
+    assert.ok(out.includes("E       AssertionError: mismatch in test_case001"), String(n));
+    const lines = out.split("\n");
+    const kept = lines.filter((l) => l.startsWith("FAILED tests/t.py::")).length;
+    const summary = lines.at(-2) ?? "";
+    const named = (summary.split("; omitted: ")[1] ?? "").replace(/\]$/, "");
+    const listed = named.split(", ").filter((p) => !p.startsWith("+")).length;
+    const overflow = Number(/, \+(\d+) more$/.exec(named)?.[1] ?? 0);
+    assert.equal(kept + listed + overflow, n, summary);
+  }
+});
+
+test("compressLog names the exception types and files it dropped in its retrieval line (upstream ccr_marker_includes_error_types_and_files_when_available)", () => {
+  const lines = infoTicks(10);
+  for (let i = 0; i < 120; i++) lines.push(`error[E${1000 + i}]: real distinct compile error #${i}`, ` --> src/module_${i}.rs:${i + 1}:1`);
+  const out = compressLog(lines.join("\n"))?.text ?? "";
+  assert.match(out, /\n\[250 lines compressed to \d+: \d+ files, \d+ exception types \((E\d{4}, ){4}E\d{4}, \.\.\.\)\. Retrieve original: hash=[0-9a-f]{12}\]$/);
+});
+
+test("the build route: the log compressor beats a declining fold, a fold that saves nearly as much wins and ends the route", () => {
+  const plain = [...infoTicks(60), "ERROR linker exited with code 1"].join("\n");
+  assert.equal(detectContentType(plain), "build");
+  assert.equal(foldLog(plain), undefined);
+  const lossy = route(plain, only({ log: true }));
+  assert.equal(stored(lossy), compressLog(plain)?.text); // no fold: merely shorter is enough
+  assert.deepEqual(lossy?.log, { texts: 1, saved: plain.length - stored(lossy).length });
+  // A fold that halves the log: the lossy result is still under 95% of it.
+  const halved = [...infoTicks(60).flatMap((l) => [l, l]), "ERROR linker exited with code 1"].join("\n");
+  const fold = must(foldLog(halved));
+  const lossyHalved = must(compressLog(halved));
+  assert.ok(lossyHalved.text.length <= fold.text.length * 0.95);
+  assert.equal(stored(route(halved, only({ log: true }))), lossyHalved.text);
+  // 300 identical heartbeats fold to two lines: the lossy result cannot beat that by 5%, so the fold is adopted and ends the route.
+  const beats = [...Array(300).fill("INFO heartbeat ok"), "ERROR boom"].join("\n");
+  const beatFold = must(foldLog(beats));
+  const beatLossy = must(compressLog(beats));
+  assert.ok(beatLossy.text.length > beatFold.text.length * 0.95);
+  const r = route(beats, only({ log: true, elide: true }));
+  assert.equal(stored(r), beatFold.text);
+  assert.deepEqual([r?.log.texts, r?.elide.lines, r?.offloaded], [1, 0, []]);
+});
+
+test("the build route: a lossy log rewrite is never folded, and the elider still runs on it", () => {
+  // Errors are always kept, so the lossy output keeps the two identical adjacent ERROR lines the fold would collapse.
+  const twin = infoTicks(60);
+  twin[30] = "ERROR disk quota exceeded on /var/cache";
+  twin[31] = "ERROR disk quota exceeded on /var/cache";
+  const text = twin.join("\n");
+  const lossy = must(compressLog(text));
+  assert.ok(foldLog(lossy.text)); // the precondition: the fold WOULD rewrite the lossy output
+  const r = route(text, only({ log: true, elide: true }));
+  assert.equal(stored(r), lossy.text);
+  assert.doesNotMatch(stored(r), RUN_LINE);
+  assert.equal(r?.log.texts, 1);
+  // A dense line in a kept error line: the elider cuts it after the log compressor, and both originals resolve.
+  const dense = infoTicks(60);
+  dense[30] = `ERROR ${"x".repeat(2500)}`;
+  const d = route(dense.join("\n"), only({ log: true, elide: true }));
+  const out = stored(d);
+  assert.match(out, /\n\[1 dense machine-generated line elided\. Retrieve original: hash=([0-9a-f]{12})\]$/);
+  assert.match(out, /\n\[60 lines compressed to \d+\. Retrieve original: hash=[0-9a-f]{12}\]\n/);
+  assert.deepEqual([d?.log.texts, d?.elide.lines], [1, 1]);
+  const hashes = [...out.matchAll(/hash=([0-9a-f]{12})\]/g)].map((m) => m[1]);
+  assert.deepEqual(
+    d?.offloaded.map(([h]) => h),
+    hashes,
+  );
+  assert.equal(d?.offloaded[0][1], dense.join("\n"));
+});
+
+test("the log compressor leaves Read output, line-numbered text, tagged text and error rows whole, and alone triggers detection", () => {
+  const text = [...infoTicks(60), "ERROR linker exited with code 1"].join("\n");
+  assert.equal(route(text, only({ log: true }))?.log.texts, 1); // the only lever on: detection still runs
+  assert.equal(route(text, only({ log: true }), "Read"), undefined);
+  assert.equal(route(`1\t${text}`, only({ log: true })), undefined);
+  assert.equal(route(`${text}\n<system-reminder>keep</system-reminder>`, only({ log: true, tags: true })), undefined);
+  assert.equal(rewriteToolResults([toolResult(text, true)], "Bash", only({ log: true }), ""), undefined);
+  assert.equal(route(text, only({ log: true }), RETRIEVE_TOOL), undefined);
+});
+test("compressLog stays bounded on 20,000 distinct log lines", () => {
+  const text = Array.from({ length: 20_000 }, (_, i) => `${i % 7 === 0 ? "ERROR" : "INFO"} worker ${i} handled request ${i * 7919} in ${i % 97}ms`).join("\n");
+  assert.ok(text.length >= 1_000_000);
+  const t0 = Date.now();
+  const r = route(text, only({ log: true, elide: true }));
+  assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0} ms`);
+  assert.equal(r?.log.texts, 1);
 });

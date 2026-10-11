@@ -26,6 +26,15 @@ const windowSums = (today: string): Record<string, typeof SUMS> => ({
 });
 // A main-loop turn that ended with an answer.
 const DONE = { answer: "", durationMs: 1, isAborted: false, turnId: "t1", reason: "answer" as const };
+// The five router compressors of 0.7.0 off: tests of the earlier levers keep seeing the text those levers saw before.
+// Declared up here because test options are read at module load, before the compression tests further down.
+const NEW_LEVERS_OFF = {
+  log_compressor_enabled: false,
+  search_compressor_enabled: false,
+  diff_compressor_enabled: false,
+  text_crusher_enabled: false,
+  relevance_split_enabled: false,
+};
 
 // What Claude Code passes to a ui.render hook for the /headroom pane, apart from the surface
 const PANE = {
@@ -240,8 +249,8 @@ test("(i) /headroom opens the headroom pane and prints nothing", async ($, on) =
   const out = await $.command.run({ command: "headroom" });
   expect(out.text).toBeUndefined();
   expect(opened.length).toBe(1);
-  // 6 + 5 + 2 + 2 + 2 + 2 + 2 + 2 table rows, the storage note, the volatile header and nine gaps.
-  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 34 });
+  // 6 + 5 + 2 × 7 table rows, the storage note, the volatile header and ten gaps.
+  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 37 });
 });
 
 test("(i2) /headroom falls back to the stats tables as text when the pane is not placed", async ($, on) => {
@@ -526,6 +535,7 @@ test(
   "(aa) with every lever off the pane says so, and reads nothing from storage",
   {
     options: {
+      ...NEW_LEVERS_OFF,
       effort_routing_enabled: false,
       cache_aligner_enabled: false,
       smart_crusher_enabled: false,
@@ -544,7 +554,10 @@ test(
     await clock.advance(30_000); // no refresh timer runs
     const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
     expect(
-      await ui.find({ type: "Text", text: /^effort routing, cache aligner, smart crusher, lossless compaction, cross-turn dedup, dense line elider, config compressor and HTML extractor are off/ }),
+      await ui.find({
+        type: "Text",
+        text: /^effort routing, cache aligner, smart crusher, lossless compaction, cross-turn dedup, dense line elider, config compressor, HTML extractor and log compressor are off/,
+      }),
     ).toBeDefined();
     expect(await ui.find({ type: "Text", text: /^effort routing$/ })).toBeUndefined();
     expect(calls).toHaveLength(0);
@@ -738,6 +751,7 @@ test(
   "(sc4) with every compression lever off no tool is registered, rows are stored untouched and no compression table shows",
   {
     options: {
+      ...NEW_LEVERS_OFF,
       smart_crusher_enabled: false,
       lossless_compaction_enabled: false,
       cross_turn_dedup_enabled: false,
@@ -765,6 +779,11 @@ test(
     expect(text).not.toMatch(/^compaction/m);
     expect(text).not.toMatch(/^config/m);
     expect(text).not.toMatch(/^html extractor/m);
+    expect(text).not.toMatch(/^logs/m);
+    expect(text).not.toMatch(/^search/m);
+    expect(text).not.toMatch(/^diff/m);
+    expect(text).not.toMatch(/^text crusher/m);
+    expect(text).not.toMatch(/^relevance split/m);
   },
 );
 
@@ -832,6 +851,7 @@ test(
   "(sc9) with only the crusher on, its hook still runs and the pane shows its table without reading storage",
   {
     options: {
+      ...NEW_LEVERS_OFF,
       effort_routing_enabled: false,
       cache_aligner_enabled: false,
       lossless_compaction_enabled: false,
@@ -880,6 +900,7 @@ test(
   "(sc12) with only the crusher on, the pane asks for its own height and shows no storage note",
   {
     options: {
+      ...NEW_LEVERS_OFF,
       effort_routing_enabled: false,
       cache_aligner_enabled: false,
       lossless_compaction_enabled: false,
@@ -1154,4 +1175,26 @@ test("(tp1) tag_protector_enabled false lets the elider cut a dense line holding
 test("(tp2) by default a dense line holding a custom tag is stored whole", { options: { storage_enabled: false } }, async ($, on) => {
   await startCrusher(on, $);
   expect(await appendResult($, "Bash", TAGGED)).toBe(TAGGED);
+});
+// A build log: 60 distinct INFO lines and one linker error, with no repeated line for the lossless fold to collapse.
+const BUILD_LOG = [...Array.from({ length: 60 }, (_, i) => `INFO step ${i}: compiled module_${i} into build/out_${i}.o`), "ERROR linker exited with code 1"].join("\n");
+const LOGS_ROW = /^logs\s+texts\s+saved\nsession\s+(\d+)\s+(\d+)$/m;
+
+test("(lg1) a build log is stored compressed, its original is retrievable, and /headroom counts it", { options: { storage_enabled: false } }, async ($, on) => {
+  on("ui.open", notPlaced);
+  await startCrusher(on, $);
+  const stored = String(await appendResult($, "Bash", BUILD_LOG));
+  expect(stored).toMatch(/^ERROR linker exited with code 1$/m);
+  const [, hash] = /\n\[61 lines compressed to \d+\. Retrieve original: hash=([0-9a-f]{12})\]$/.exec(stored) ?? [];
+  expect((await $.tool.call({ tool: RETRIEVE_TOOL, hash })).result).toBe(BUILD_LOG);
+  const [, texts, saved] = LOGS_ROW.exec((await $.command.run({ command: "headroom" })).text ?? "") ?? [];
+  expect(Number(texts)).toBe(1);
+  expect(Number(saved)).toBe(BUILD_LOG.length - stored.length);
+});
+
+test("(lg2) log_compressor_enabled false keeps a build log whole and hides the logs table", { options: { log_compressor_enabled: false, storage_enabled: false } }, async ($, on) => {
+  on("ui.open", notPlaced);
+  await startCrusher(on, $);
+  expect(await appendResult($, "Bash", BUILD_LOG)).toBe(BUILD_LOG);
+  expect((await $.command.run({ command: "headroom" })).text).not.toMatch(/^logs/m);
 });
