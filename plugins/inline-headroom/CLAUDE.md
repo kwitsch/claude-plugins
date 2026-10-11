@@ -1,18 +1,21 @@
 # CLAUDE.md — inline-headroom
 
 Mods-API plugin (the repo's first): one TypeScript function-hooks module, no
-skills/agents/command hooks. Eight levers, each behind a boolean `userConfig`
-toggle (`effort_routing_enabled`, `cache_aligner_enabled`,
+skills/agents/command hooks. Thirteen levers, each behind a boolean
+`userConfig` toggle (`effort_routing_enabled`, `cache_aligner_enabled`,
 `smart_crusher_enabled`, `lossless_compaction_enabled`,
 `cross_turn_dedup_enabled`, `dense_line_elider_enabled`,
-`config_compressor_enabled`, `html_extractor_enabled`), plus
-`subagent_effort_routing_enabled`, which extends effort routing to subagent and
-Workflow-agent steps and is active only while `effort_routing_enabled` is on,
-`subagent_compression_enabled`, which extends the six compression levers to
-subagent and Workflow-agent tool results and is active only while one of them
-is on, and `tag_protector_enabled`, which keeps custom workflow tags whole
-across the compression levers (all eleven `default: true`, only literal `false`
-disables), plus the
+`config_compressor_enabled`, `html_extractor_enabled`,
+`log_compressor_enabled`, `search_compressor_enabled`,
+`diff_compressor_enabled`, `text_crusher_enabled`, `relevance_split_enabled`),
+plus `subagent_effort_routing_enabled`, which extends effort routing to subagent
+and Workflow-agent steps and is active only while `effort_routing_enabled` is
+on, `subagent_compression_enabled`, which extends the eleven compression levers
+to subagent and Workflow-agent tool results and is active only while one of
+them is on, and `tag_protector_enabled`, which keeps custom workflow tags whole
+across the compression levers (all sixteen `default: true`, only literal
+`false` disables; `storage_enabled`, the seventeenth `userConfig` key, is
+fail-closed), plus the
 `/headroom` stats command and the compression levers' `headroom_retrieve` tool.
 It also ships a host-wide SQLite storage MCP server behind the fail-closed
 `storage_enabled` toggle (see `## Storage server`); the mod persists
@@ -43,8 +46,9 @@ It also ships a host-wide SQLite storage MCP server behind the fail-closed
   `tsconfig.json` (`plugins/**/*.mjs`), ESLint, and `node --test` via
   `test/inline-headroom/policy.test.mjs`. It also holds the content router and
   the SmartCrusher (with its lossless compaction stage), cross-turn dedup,
-  dense line elider, config compressor and HTML extractor ports, and the tag
-  protector (see their sections).
+  dense line elider, config compressor, HTML extractor, log compressor, search
+  compressor, diff compressor, text crusher and relevance split ports, and the
+  tag protector (see their sections).
 - `tests/inline-headroom.test.ts` — hook-wiring tests for `claude plugin test`.
   Local only: CI runners have no `claude` CLI; `test/inline-headroom/test.bats`
   runs `claude plugin validate` and `claude plugin test` when `claude`
@@ -297,9 +301,11 @@ Wiring in `register.ts`, shared by every compression lever:
   request read one form (prompt-cache safe). `rewriteToolResults` (pure, in
   `policy.mjs`) labels each text with `detectContentType`, runs that type's
   `ROUTES` steps (crush then elide for `json_array`, config then elide for
-  `structured_config`, extract then elide on the extraction for `html`, elide
-  for every other type), then deduplicates a single-text result (see
-  `## Content router`).
+  `structured_config`, extract then elide on the extraction for `html`, log,
+  logfold then elide for `build`, search, searchfold then elide for `search`,
+  diff, difffold then elide for `diff`, split, textcrush, textfold then elide
+  for `text`, elide alone for `tabular` and `source_code`), then deduplicates a
+  single-text result (see `## Content router`).
 - Gates, each passing the row through with `next(e)`: `retrieveReady` (this
   module load registered the tool under `RETRIEVE_TOOL`; a marker must never
   name a missing tool), `origin.kind === "tool"`, and a subagent row
@@ -313,8 +319,11 @@ Wiring in `register.ts`, shared by every compression lever:
   originals.
 - `wantsQuery` gates the `$.session.messages()` fetch (`{ agentId }` for a
   subagent row; a `{ deny }` means an empty query), so the transcript is read
-  only for a row holding a JSON document the crusher may rewrite; a failed
-  fetch crushes without query signals.
+  only for a row holding a JSON document the crusher may rewrite or, while the
+  search compressor, the diff compressor, the text crusher or the relevance
+  split is on, any non-Read text of 300+ characters (`register.ts` passes its
+  `levers` as `wantsQuery`'s third argument); a failed fetch compresses without
+  query signals (the relevance split then declines).
 - `next` is called exactly once on every path and its answer is returned
   unchanged. Any throw before it (the fetch, the pipeline) passes the row
   through unchanged (fail open), and a throw inside `rewriteToolResults` first
@@ -326,8 +335,9 @@ Wiring in `register.ts`, shared by every compression lever:
   (1000 entries and `CCR_MAX_CHARS` characters each, oldest evicted, no TTL;
   upstream caps by count only), in two stores so dedup churn never evicts a
   sole copy: `offloaded` holds the crusher's, the elider's, the config
-  compressor's and the HTML extractor's originals, which exist nowhere else,
-  and `folded` holds dedup runs, whose earlier copy is still
+  compressor's, the HTML extractor's, the log, search and diff compressors',
+  the text crusher's and the relevance split's originals, which exist nowhere
+  else, and `folded` holds dedup runs, whose earlier copy is still
   in the transcript until a compaction. `storeOffloaded` never evicts an entry
   of the batch it was just given (a row's markers always resolve, even when it
   folds more than 1000 runs), so a store may sit over a cap until its next call
@@ -583,6 +593,15 @@ a custom tag span touches is never dense (mod-side; see `## Tag protector`),
 and after an HTML extraction the spans are those of the extracted text. A text
 the tag scan cannot finish within its budget is not elided at all.
 
+Behaviour change (0.7.0): on `build`, `search` and `text` the elider now sees
+the log compressor's, the search compressor's or the text crusher's lossy
+output (upstream's `_DENSE_ELIDE_AFTER` LOG, SEARCH and TEXT members), and its
+retrieval line then follows that compressor's; after a lossless fold (or, on
+`text`, a relevance split) it sees nothing, since those end the route. On
+`diff` it sees nothing after a diff-compressor or index-strip rewrite (DIFF is
+not in `_DENSE_ELIDE_AFTER`). With the new toggles off, or when every new step
+on the route declines, it runs exactly as before.
+
 ## Config compressor
 
 A port of upstream headroom's structured-config compressor
@@ -644,8 +663,9 @@ Deviations:
 - Detection reads the detector's line-capped sample (the first 200 of its 500
   lines, each cut to 1000 characters), not the whole text.
 - Deferred: Tier 3, the TOML array-of-tables schema fold (it needs a real TOML
-  parser), and upstream's lossless folds for other kinds (log, search, diff,
-  text, paths).
+  parser), upstream's `paths` fold and its cross-kind lossless probing
+  (`_lossless_first`); the log, search, diff and text folds are ported with
+  their compressors.
 
 ## HTML extractor
 
@@ -693,6 +713,301 @@ Deviations:
   and log, as on upstream's regex path), and the extractor would then strip
   markup-looking text from it. The original stays retrievable.
 
+## Log compressor
+
+A port of upstream headroom's log compressor
+(`crates/headroom-core/src/transforms/log_compressor.rs` `compress_with_store`
+with `LogCompressorConfig::default()`, the Rust port of
+`headroom/transforms/log_compressor.py`) and of the `log` kind of
+`headroom/transforms/lossless_compaction.py` `compact_lossless`, read
+2026-10-11 at 976aa71, into `hooks/policy.mjs` as `compressLog` and `foldLog`,
+reached through the content router's `build` route (`log`, `logfold`, `elide`).
+It has its own toggle, `log_compressor_enabled`, and its own `logs` table
+(`texts`, `saved`); the fold counts there too.
+
+Ported verbatim:
+
+- The defaults: at most 10 errors and 10 fails (the first, the last, then the
+  best by score), 3 context lines around every kept line, 5 deduplicated
+  warnings, the first 3 stack traces at 20 lines each, every summary line, an
+  adaptive total of 10 to 100 lines (`computeOptimalK`), and logs under 50
+  lines (`split("\n")`, a trailing empty element counted) left alone.
+- The level classifier's exact-casing words (ERROR, error, Error, FATAL, fatal,
+  Fatal, CRITICAL, critical; FAIL(ED), fail(ed), Fail(ed); WARN(ING),
+  warn(ing), Warn(ing); INFO/info/Info; DEBUG/debug/Debug; TRACE/trace/Trace),
+  the leftmost-longest match with its ASCII word-boundary filter, and the level
+  of the first valid match by position (`WARN: error` is a warning).
+- The stack-trace state machine with all seven flavors (Python traceback, JS,
+  Java, Rust error, Rust backtrace, Go panic, .NET), their opener and
+  terminator rules, the 20-line cap that re-opens a continuing trace, and the
+  runtime-frame collapse of an oversized trace (`RUNTIME_FRAME_PREFIXES` and
+  `RUNTIME_FRAME_MARKERS`, 3 head frames, 5 app frames,
+  `      [... N frames collapsed]` scored 0.8).
+- The summary-line rules, the pytest `short test summary info` scan (CRLF
+  tolerant) and its cap reserve (each section's totals line and the first `E `
+  line), the scores (error and fail 1.0, warn 0.5, info and unknown 0.1, debug
+  0.05, trace 0.02, +0.3 in a trace, +0.4 on a summary line, at most 1), the
+  warning dedupe key (the text before the first `:` or `=` verbatim, then
+  digits → N, `0x…` → ADDR, `/…/` → /PATH/, in that order), the cap order
+  (reserved, score, short-summary entry, line) and the
+  `[N lines omitted: E ERROR, F FAIL, W WARN, I INFO; omitted: …]` line.
+- The marker descriptor `summarize_omitted` (`: K file(s), M exception
+type(s) (A, B, …)`, at most 5 names, labels and files a kept line shows
+  left out).
+- The fold: ANSI colour codes dropped one-way, then `collapse_runs`, kept only
+  when `expand_runs` gives the de-coloured text back and the result is shorter.
+
+Deviations:
+
+- The retrieval line is always added, `[N lines compressed to M<descriptor>.
+Retrieve original: hash=H]`, with no `min_compression_ratio_for_ccr` (0.5)
+  gate and "Retrieve original" in place of "Retrieve more"; the hash is
+  `contentHash`. A result that is not shorter, marker included, declines.
+- The simhash diversity count of `computeOptimalK` is charged to a budget of 4
+  per character + 4096 comparisons; an exhausted budget keeps 100 lines (many
+  distinct lines: high diversity, where upstream lands on the maximum too).
+- The format detector is not ported: it only labels the result.
+- JS `\d`, `\w` and `\b` are ASCII-only where Rust's are Unicode (the dedupe key,
+  the level words' boundaries already were ASCII upstream).
+
+Wiring: the `build` route runs `log` (adopted only through `overFold`: at most
+95% of `foldLog`'s length when the fold shrinks the text), then `logfold` (only
+while the text is still the route's input), then `elide`. An adopted lossy log
+is handed on to the elider (`ELIDE_AFTER`); an adopted fold ends the route.
+Read output, line-numbered text and text holding a tag span are left whole.
+
+## Search compressor
+
+A port of upstream headroom's search compressor
+(`crates/headroom-core/src/transforms/search_compressor.rs`
+`compress_with_store` with `SearchCompressorConfig::default()`, the Rust port of
+`headroom/transforms/search_compressor.py`, scoring through
+`crates/headroom-core/src/signals/keyword_detector.rs` in its Search context)
+and of the `search` kind of `lossless_compaction.py` `compact_lossless`
+(`search_heading`, `search_dir_heading` and their inverses), read 2026-10-11 at
+976aa71, into `hooks/policy.mjs` as `compressSearch` and `foldSearch`, reached
+through the `search` route (`search`, `searchfold`, `elide`). It has its own
+toggle, `search_compressor_enabled`, and its own `search` table (`texts`,
+`saved`); the fold counts there too.
+
+Ported verbatim:
+
+- The three-tier line parser (`parse_match_line`, `scan_marker`): the colon
+  tier, the dash tier that walks past a `-N-` only on path evidence
+  (`last_segment_has_extension`, `path_continues`, `has_extension_dot`), the
+  permissive tier, the Windows drive prefix, the adjacent-separator rejection
+  and the dash tier's hand-off when its confirmed boundary precedes the colon
+  marker. Lines that do not parse are dropped (`lines_unparsed`).
+- The scores: +0.3 per query context word (longer than 2 characters) found in
+  the lowercased line; +0.5 for an error word, +0.3 for an importance word
+  (whichever whole word comes first, case-insensitive), else +0.4 for a warning
+  word; at most 1.
+- The selection: files by total score (stable), at most 15; an adaptive total
+  of 5 to 30 matches (`computeOptimalK` over `file:line:content`); per file the
+  first, the last, then the best by (score, line), at most 5 and unique by
+  (line, content), back in line order; `file:line:content` rows in path order
+  with `[... and N more matches in FILE]`.
+- The fold: the file-heading and directory-heading forms, each kept only when
+  its inverse gives the text back exactly, the smaller one when shorter;
+  timestamped log rows are never grep rows (`_TIMESTAMP_ROW_RE`).
+
+Deviations:
+
+- The retrieval line is always added, `[N matches compressed to M. Retrieve
+original: hash=H]`, with no `min_matches_for_ccr` (10) or ratio (0.8) gate and
+  "Retrieve original" in place of "Retrieve more"; the hash is `contentHash`.
+- Every candidate-marker scan of one text (the dash tier's path checks) draws on
+  one budget of 4 per character + 4096; an exhausted budget declines the text
+  (upstream rescans a line per marker, quadratic on hostile input). The simhash
+  count has its own budget, as for the log compressor.
+- Context words are lowercased with `toLowerCase` (upstream: ASCII lowercase),
+  deduped newest first and capped so substring matching stays under about 16M
+  character comparisons (`contextWords`); CJK query bigrams are not added.
+- A line number beyond `Number.MAX_SAFE_INTEGER` leaves its line unparsed
+  (upstream: u64). Paths sort by UTF-16 code units (upstream: UTF-8 bytes), and
+  scores sum in doubles where upstream sums f32.
+- Lines are matched with `[^\n]*` where Python's fold regexes use `.`, which in
+  JS would also stop at a `\r`.
+
+Wiring: the `search` route runs `search` (adopted only through `overFold`
+against `foldSearch`), `searchfold` (only on the route's input), then `elide`.
+An adopted search rewrite is handed on to the elider; an adopted fold ends the
+route. Read output, line-numbered text and tagged text are left whole. Claude
+Code's Grep tool is compressed like any other (upstream's `DEFAULT_EXCLUDE_TOOLS`
+is not adopted; see `## Content router`).
+
+## Diff compressor
+
+A port of upstream headroom's diff compressor
+(`crates/headroom-core/src/transforms/diff_compressor.rs` `compress_with_store`
+with `DiffCompressorConfig::default()`) and of the `diff` kind of
+`lossless_compaction.py` `compact_lossless` (`diff_strip_index`), read
+2026-10-11 at 976aa71, into `hooks/policy.mjs` as `compressDiff` and
+`foldDiff`, reached through the `diff` route (`diff`, `difffold`, `elide`). It
+has its own toggle, `diff_compressor_enabled`, and its own `diff` table
+(`texts`, `saved`); the index strip counts there too.
+
+Ported verbatim:
+
+- The gates: under 50 lines (`min_lines_for_ccr`, which gates the whole
+  compression) or without a `diff --git`, `diff --combined` or `diff --cc`
+  header the text is left alone; `split("\n")` keeps a `\r` on its line.
+- The parser: pre-diff lines kept verbatim; mode, rename, similarity, copy and
+  binary lines setting their flags (and falling through, as upstream); `---`
+  and `+++` lines taken whole; `@@`, `@@@` and `@@@@` hunk headers (5 or more
+  `@` fall through as content); `+`/`-` lines counted, every hunk line kept;
+  other header lines outside a hunk (`index`, `old mode`, `new mode`) dropped.
+- The caps: past 20 files the most-changed 20, in that order; past 10 hunks the
+  first, the last and the 8 best middle hunks by score (stable), re-sorted by
+  their `+N`; 2 context lines around each change, every `\` line kept, a hunk
+  without changes keeping its first 2 lines. The `+A -D` totals count the lines
+  of dropped hunks too.
+- The scores (`score_hunks`): min(0.3, changes × 0.03), +0.2 per query context
+  word, +0.3 once for `PRIORITY_PATTERNS_DIFF`, at most 1.
+- The output: `new file mode 100644` / `deleted file mode 100644`, `Binary files
+differ`, and the `[N files changed, +A -D lines, H hunks omitted]` footer.
+- The fold: `index <sha>..<sha> [mode]` lines dropped when that shortens the
+  text, with no inverse check; the router only folds diff-labelled text.
+
+Deviations:
+
+- Upstream always returns the normalised output and adds `Retrieve full diff:
+hash=…` only when the output has under 80% of the lines, so a weaker
+  compression is lossy with no retrieval. Here a result is returned only when it
+  is strictly shorter, marker included, and it always ends with `[N lines
+compressed to M. Retrieve original: hash=H]` (M counts the lines before the
+  marker); the hash is `contentHash`.
+- Hunks are scored only when a surviving file has more than 10 of them: the
+  score is read nowhere else, so no output changes.
+- Context words are deduped and capped (`contextWords`; upstream counts a
+  repeated word twice and matches every word), and CJK query bigrams are not
+  added.
+- The `diff --git a/(.+) b/(.+)$` header test is hand-written (the regex would
+  backtrack quadratically on a long line with many ` b/`).
+
+Wiring: the `diff` route runs `diff` (adopted only through `overFold` against
+`foldDiff`), `difffold` (only on the route's input), then `elide`. A diff
+rewrite or an index strip ends the route: DIFF is not in upstream's
+`_DENSE_ELIDE_AFTER`. The lossy diff breaks `git apply` (stale hunk counts,
+normalised mode and binary lines), as upstream; the retrieval line restores the
+exact diff.
+
+## Text crusher
+
+A port of upstream headroom's TextCrusher
+(`crates/headroom-core/src/transforms/text_crusher/crusher.rs` and `config.rs`,
+the ASCII path, `TextCrusherConfig::default()`, wrapped by
+`headroom/transforms/text_crusher.py`) and of the `text` kind of
+`lossless_compaction.py` `compact_lossless`, read 2026-10-11 at 976aa71, into
+`hooks/policy.mjs` as `crushText` and `foldText`, reached through the `text`
+route (`split`, `textcrush`, `textfold`, `elide`). It stands in for upstream's
+Kompress (ML), which the mod cannot run. It has its own toggle,
+`text_crusher_enabled`, and its own `text crusher` table (`texts`, `saved`);
+the fold counts there too.
+
+Ported verbatim:
+
+- The segmentation (`split_segments_ascii`): each trimmed line, cut after `.`,
+  `!` or `?` and the whitespace that follows; fewer than 6 segments pass.
+- The tokens (`tokens_ascii`: alphanumeric or `_` runs, lowercased), the plain
+  BM25 relevance (`bm25Scores`, the shared core of `relevanceScores`), the score
+  `1.0 × (i+1)/n + 2.0 × relevance + 1.5 × salient/(words+1)`, × 0.25 under 12
+  characters, and `is_salient` (an ASCII digit, an error/status keyword, 2+
+  letters all uppercase, a dotted identifier).
+- The selection: best first (ties by position), kept until half the
+  characters are (`target_ratio` 0.5, checked before each candidate), skipping a
+  candidate whose 3-token shingles are 85% covered by kept ones; the kept
+  segments in order, joined by `\n`.
+- The fold: `collapse_runs`, kept only when `expand_runs` inverts it and it is
+  shorter.
+
+Deviations:
+
+- Text holding a CJK character (`TEXT_CJK_RE`, exactly upstream's `is_cjk`
+  ranges) declines: upstream's ICU segmentation path is not ported.
+- Eligibility: every `text`-labelled result of 300+ characters (the router's
+  floor, above upstream `prose_field`'s 256) that is not Read output,
+  line-numbered or tagged, subagent reports and markdown output included.
+  Upstream reaches TextCrusher only past a 50,000-token Kompress gate (opt-in);
+  here it stands in for Kompress wherever Kompress would run. No tool-name
+  exception for `Agent` reports (upstream runs Kompress on them too).
+- The kept text ends with the mod's own `[Text crushed: K of N segments kept.
+Retrieve original: hash=H]`; a result that is not shorter declines.
+- `target_ratio` is a constant (upstream clamps a per-call value to 0.05–1.0);
+  lengths count UTF-16 units where upstream counts UTF-8 bytes; JS `\b` (BM25's
+  tokenizer) is ASCII-only.
+
+Wiring: on the `text` route `textcrush` runs after `split` (when the split
+declined), adopted only through `overFold` against `foldText`; then `textfold`
+(only on the route's input), then `elide`. An adopted crush is handed on to the
+elider; an adopted fold ends the route.
+
+Behaviour change (0.7.0): prose tool results of 6+ sentences (Agent hand-back
+reports, WebFetch summaries, markdown command output) now reach the model as
+about half their characters, without their line breaks and indentation, and
+cross-turn dedup indexes that crushed form (a repeated report is crushed the
+same way, then folded into a pointer). `text_crusher_enabled: false` restores
+the earlier path.
+
+## Relevance split
+
+A port of upstream headroom's prompt-conditioned relevance split
+(`headroom/transforms/relevance_split.py` `segment`, `_otsu_threshold`,
+`adaptive_threshold`, `plan_relevance_split`, and
+`headroom/transforms/content_router.py` `_relevance_split_compress` and
+`_json_straddles_segments`), read 2026-10-11 at 976aa71, into
+`hooks/policy.mjs` as `splitRelevance`, `segmentRecords`, `adaptiveThreshold`
+and `otsuThreshold`. It is the first step of the `text` route. It has its own
+toggle, `relevance_split_enabled`, and its own `relevance split` table
+(`texts`, `saved`).
+
+Ported verbatim:
+
+- `segment(window=8, max_chars=1200)`: a lossless partition into blank-line
+  blocks packed into windows of 8 lines (indented continuations held past
+  that) and 1200 characters, a single longer line whole.
+- The scores (plain BM25 against the conversation query), the cut
+  (`adaptive_threshold` with the 0.25 floor: the floor when fewer than 2
+  distinct scores, else the Otsu midpoint, at least the floor), KEEP from the
+  cut up, consecutive records of one disposition merged into runs.
+- An empty query, a single record or no DROP run means no split; the result is
+  adopted only when it beats plain whole-block lossless compaction.
+
+Deviations:
+
+- Routed on `text` only (user decision); upstream splits LOG and SEARCH output,
+  where the log and search compressors run here. Because of that the split has
+  no `kind`: the fold it uses is `foldText`.
+- DROP runs become `...[N low-relevance line(s) elided]...` with one final
+  `[N low-relevance line(s) in R run(s) elided. Retrieve original: hash=H]`
+  line and the original stored: upstream's CCR-mode disposition
+  (`relevance_split.py` docstring), since the mod always has retrieval. Upstream
+  hands the DROP tail to Kompress.
+- A DROP run holding an `ERROR_KEYWORDS` entry (lowercased substring, as the
+  crusher tests rows) is kept whole, and a split with no KEEP run left declines
+  (user decision; upstream would emit DROP markers only).
+- `foldText` belongs to `text_crusher_enabled`: KEEP runs are folded, and the
+  adoption baseline is the folded whole text, only while that lever is on; with
+  it off the split never calls `foldText`, KEEP runs stay raw and the baseline
+  is the raw text (user decision).
+- The JSON straddle guard declines when any top-level balanced `[`/`{` span
+  crosses a record cut, found by `noJsonSpans`' budgeted walk (an exhausted
+  budget declines); upstream protects only spans that parse as JSON documents
+  or record arrays. One-line spans (JSONL) never straddle.
+- The query is `crushQuery` (the last 5 user texts and recent tool inputs), not
+  `build_relevance_query`'s prompt plus the triggering call's arguments; the
+  scorer is BM25 only (no embedding or hybrid tier), and there is no
+  `max_records` cap.
+- Lines split on `\n` only (Python's `splitlines` also splits on `\r`, `\v`,
+  `\f`, `\x1c`–`\x1e`, `\x85`, U+2028 and U+2029); 9-decimal rounding in the
+  distinct-score check uses `Math.round`.
+
+Wiring: `split` runs first on the `text` route, ahead of `textcrush`, as
+upstream's split returns before its strategy dispatch; a split rewrite ends the
+route (no crush, no elision), and when it declines the text crusher, its fold
+and the elider run as without it. It needs a query: `wantsQuery` fetches the
+transcript for it, and with no query it declines.
+
 ## Tag protector
 
 A mask-free port of upstream headroom's tag protector
@@ -730,7 +1045,9 @@ Deviations:
   - the dense line elider never treats a line a span touches as dense;
   - cross-turn dedup never starts a fold on a tagged line and ends a run before
     one, but indexes tagged lines like any other;
-  - the config compressor and the HTML extractor decline a text holding a span;
+  - the config compressor, the HTML extractor, the log, search and diff
+    compressors, the text crusher and the relevance split decline a text
+    holding a span;
   - after an HTML extraction `shrink` recomputes the spans on the extracted
     text before the elider runs, so a custom tag the entity decoding produced
     (`&lt;system-reminder&gt;`) is guarded like any other; a null there returns
@@ -825,34 +1142,74 @@ Routing: a light port of `headroom/transforms/content_router.py`
 and the passthrough-fallback elision, read 2026-10-11 at 976aa71). The
 module-private `ROUTES` table maps each tag to its ordered steps:
 `json_array` runs `crush` then `elide`, `structured_config` runs `config` then
-`elide`, `html` runs `extract` then `elide`, every other tag runs `elide`.
+`elide`, `html` runs `extract` then `elide`, `build` runs `log`, `logfold`
+then `elide`, `search` runs `search`, `searchfold` then `elide`, `diff` runs
+`diff`, `difffold` then `elide`, `text` runs `split`, `textcrush`, `textfold`
+then `elide`, and `tabular` and `source_code` run `elide` alone.
 `rewriteRow`'s `shrink` detects once per unprotected text and runs that type's
 steps in order, skipping a step whose lever is off; the first step that
-rewrites wins, except that a step in `ELIDE_AFTER` (`extract`, upstream's
-`_DENSE_ELIDE_AFTER` HTML member) hands its rewrite on to the next step. Detection runs only while a lever some route runs is on (every
-compression lever but dedup), so a dedup-only configuration pays nothing,
-and only on a text of at least `ROUTE_MIN_CHARS` (300, the lowest floor of any
-step), since a shorter one is passed through whatever its label.
-Dedup (`dedupBlock`) then runs over every type's final text, unchanged. The
-levers behave exactly as before the router: every text the crusher can crush
-parses as an object or array once trimmed, which the detector's first JSON
-step labels `json_array`, and every route ends with `elide`.
+rewrites wins, except that a step in `ELIDE_AFTER` (`extract`, `log`, `search`
+and `textcrush`, upstream's `_DENSE_ELIDE_AFTER` HTML, LOG, SEARCH and TEXT
+members) hands its rewrite on to the next step. Any other rewrite ends the
+route: the crusher, the config compressor, a diff rewrite, every fold and a
+relevance split, as upstream returns a kept fold and a split before its
+elision point and leaves SMART_CRUSHER, CONFIG and DIFF out of
+`_DENSE_ELIDE_AFTER`; the elider still runs as the fallback when every step
+before it declined. A lossy step sits before its kind's lossless fold because
+it has to beat that fold, which is the floor: `overFold` adopts it only at
+most `(1 - LOSSY_MIN_EXTRA_SAVINGS)` (0.95) of the fold's length when the fold
+shrinks the text (upstream's `lossless_then_lossy` gate,
+`_DEFAULT_LOSSY_MIN_EXTRA_SAVINGS`). A fold is the fallback for a lossy step
+that declined or lost to it, never a post-processor of an adopted lossy
+result, which goes straight to `elide`: a fold step runs only while the text is
+still the route's input (`cur === text`). Detection runs only while a lever some
+route runs ahead of the elider is on (every compression lever but dedup and the
+elider), so a dedup-only or elide-only configuration pays nothing, and only on
+a text of at least `ROUTE_MIN_CHARS` (300, the router-wide floor; the new
+steps' upstream floors are lower, but under 300 characters a retrieval line
+would eat most of any saving), since a shorter one is passed through whatever
+its label. The router compressors (log, search, diff, text crusher, relevance
+split) leave Read output and line-numbered (`N\t`, `cat -n`) text whole, as the
+HTML extractor does and dedup only indexes it, so the Edit tool can still match
+it, and decline a text holding a tag span. Dedup (`dedupBlock`) then runs over
+every type's final text, unchanged.
 
 Routing deviations from upstream:
 
 - A JSON text the crusher declined is still elided. Upstream skips elision
   after any SmartCrusher attempt (`_DENSE_ELIDE_AFTER` leaves it out).
-- Diff, git status and every other type get the elider, as upstream does where
-  a type's compressor is unavailable (the passthrough fallback). Upstream keeps
-  git status verbatim; here the elider's tab guard already leaves every
+- Git status and source code get the elider, as upstream does where a type's
+  compressor is unavailable (the passthrough fallback). Upstream keeps git
+  status verbatim; here the elider's tab guard already leaves every
   tab-indented entry line whole, and a compound output such as
   `git status; cat app.min.js` keeps its elision.
 - Dedup stays type-agnostic.
+- The fold floor: upstream's default (`lossless_then_lossy = False`) ends the
+  route on any fold that shrinks the text, under which the ported compressors
+  would almost never run (every `git diff` has `index` lines, two consecutive
+  grep rows of one file fold, a log with one repeated line folds). The router
+  uses upstream's opt-in `lossless_then_lossy` gate with its default 0.05
+  instead; the lossy step runs on the raw text, not on the folded text as
+  upstream's Kompress layer does (the per-kind parsers need the raw shape), and
+  the diff route uses the gate too (upstream keeps Kompress off diffs; the diff
+  compressor is upstream's own DIFF strategy and never emits `index` lines).
+- Upstream's `DEFAULT_EXCLUDE_TOOLS` (`headroom/config.py`: Read, Glob, Grep,
+  Write, Edit, WebSearch, WebFetch, Skill, … never lossily compressed) is not
+  adopted: every lever rewrites results of any tool except error and protected
+  rows, and the router compressors and the HTML extractor also leave Read and
+  line-numbered text whole. Adopting the list would leave the search
+  compressor idle on Claude Code's Grep tool.
+- The relevance split routes only on `text` (user decision), ahead of the text
+  crusher and folding with `foldText`, never on `build` or `search` where
+  upstream runs it; it keeps any record run holding an `ERROR_KEYWORDS` line
+  and declines when no KEEP run would remain (see `## Relevance split`).
 - A light router: no `is_mixed_content` / MIXED, no Magika or native detector,
-  no `_strip_detection_envelope`, no embedded-JSON splice, no lossless-first
-  stage, no Kompress or LOG fallback chains, no TOIN recording, and no
-  `normalize_concatenated_json` (the crusher still takes only one whole JSON
-  document).
+  no `_strip_detection_envelope`, no embedded-JSON splice, no cross-kind
+  lossless probing (`_lossless_first`: each step tries only its own kind's
+  fold, and the `paths`, `html`, `tabular`, `source_code` and `json_array`
+  folds are not ported), no Kompress (TextCrusher stands in for it on prose) or
+  LOG fallback chains, no TOIN recording, and no `normalize_concatenated_json`
+  (the crusher still takes only one whole JSON document).
 
 Decisions:
 
@@ -869,7 +1226,12 @@ Adding a compressor: name a new `RouteStep`, add its case in `rewriteRow`'s
 (plus its term in `compressOn`), a `RowRewrite` accumulator and `/headroom`
 table if it reports savings, and its step in the `ROUTES` entries of the types
 it fits, deciding whether `elide` still runs on its rewrite (put the step in
-`ELIDE_AFTER`, as upstream's `_DENSE_ELIDE_AFTER` does).
+`ELIDE_AFTER`, as upstream's `_DENSE_ELIDE_AFTER` does). A lossless fold is a
+`RouteStep` of its own that ends the route, and its branch requires
+`cur === text`, so it runs only on the route's input and never on a handed-on
+(lossy) rewrite; a lossy step that has a fold sits before it and gates on
+`overFold(r, foldX(cur))`. A step that reads the query must also be added to
+`wantsQuery`'s lever term, or its rows are rewritten without one.
 
 ## Verified Claude Code 2.1.288 shapes relied on
 
