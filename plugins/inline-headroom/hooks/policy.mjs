@@ -39,11 +39,12 @@
  * Upstream ContentType tags (as_str); 'tabular' is git status here, 'structured_config' is Python's (Rust has no such tag).
  * @typedef {'json_array'|'diff'|'html'|'tabular'|'search'|'build'|'structured_config'|'source_code'|'text'} ContentType
  */
-/** @typedef {'crush'|'config'|'elide'} RouteStep a compression lever a content type's route may run */
+/** @typedef {'crush'|'config'|'extract'|'elide'} RouteStep a compression lever a content type's route may run */
+/** @typedef {{ close: boolean, nameEnd: number, end: number, selfClosing: boolean }} TagToken one `<name …>` or `</name>` tag: its kind, where its name ends, where it ends */
 /** @typedef {'yaml'|'toml'|'ini'} ConfigFlavor a structured config's dialect */
 /**
  * Which levers rewrite this row; dedup names the conversations map and this row's key ("" main, else agentId).
- * @typedef {{ crush: boolean, compact?: boolean, elide: boolean, config?: boolean, dedup?: { states: Map<string, DedupState>, key: string } }} Levers
+ * @typedef {{ crush: boolean, compact?: boolean, elide: boolean, config?: boolean, extract?: boolean, dedup?: { states: Map<string, DedupState>, key: string } }} Levers
  */
 /**
  * A rewritten tool-result row: its blocks, the originals for the CCR store (`offloaded`: the crusher's and the elider's sole copies;
@@ -55,6 +56,7 @@
  * @property {{ dropped: number, saved: number }} crush
  * @property {{ arrays: number, saved: number }} compact
  * @property {{ texts: number, saved: number }} config
+ * @property {{ pages: number, saved: number }} extract
  * @property {{ lines: number, saved: number }} elide
  * @property {{ spans: number, saved: number }} dedup
  */
@@ -67,6 +69,7 @@
  * @property {{ lines: number, saved: number }} [elide]
  * @property {{ arrays: number, saved: number }} [compact]
  * @property {{ texts: number, saved: number }} [config]
+ * @property {{ pages: number, saved: number }} [extract]
  */
 /**
  * One dict-array field (upstream FieldStats); the numeric statistics are absent when not finite.
@@ -236,6 +239,19 @@ const FOLD_MIN_BLOCK = 3;
 const FOLD_MAX_BLOCK = 64;
 const FOLD_MAX_CANDIDATES = 8;
 const FOLD_MAX_LINES = 20_000;
+// HTML extractor: a bounded stand-in for upstream html_extractor.py (trafilatura, images and comments off).
+// Skipped whole, open tag to close tag: boilerplate and non-text content.
+const HTML_DROP = new Set("head script style noscript template svg math iframe object embed canvas audio video picture map nav footer aside form button select textarea dialog".split(" "));
+// A new line at open and close.
+const HTML_BLOCK = new Set("p div section article main header ul ol dl dt dd table thead tbody tfoot tr blockquote pre figure figcaption address details summary hgroup search hr".split(" "));
+const HTML_HEADING_RE = /^h([1-6])$/;
+const HTML_HREF_RE = /\shref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i;
+const HTML_ENTITY_RE = /&(?:#(\d{1,7})|#[xX]([\da-fA-F]{1,6})|(amp|lt|gt|quot|apos|nbsp));/g;
+/** @type {Record<string, string>} */
+const HTML_ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+// One cached `</name\s*>` search per dropped element name (global, so a search starts at lastIndex).
+/** @type {Map<string, RegExp>} */
+const HTML_CLOSE_RES = new Map();
 // Upstream _LOG_PATTERNS in order, each tried with search(); indexes 0 and 1 are the error / warn patterns.
 const LOG_PATTERNS = [
   /\b(?:ERROR|FAIL|FAILED|FATAL|CRITICAL)\b/i,
@@ -453,15 +469,23 @@ export function foldPending(days, pending, today, purgeBefore) {
 /**
  * The /headroom tables as rows of cells. Each table starts with its header row (heading, then the column names), then one row per ROWS entry.
  * A row without counters (still loading, storage off or failing) shows `blank` in every value cell. The in-memory session-only
- * counters add a `subagents` row under effort routing's session row, and the smart crusher, dedup, line elider, compaction and
- * config tables, which have only a session row.
+ * counters add a `subagents` row under effort routing's session row, and the smart crusher, dedup, line elider, compaction,
+ * config and html extractor tables, which have only a session row.
  * @param {readonly (Row|undefined)[]} counters one per ROWS entry, in ROWS order
  * @param {string} blank
  * @param {StatsMemory} [memory]
- * @returns {string[][][]} effort routing, cache aligner, smart crusher, dedup, line elider, compaction, config
+ * @returns {string[][][]} effort routing, cache aligner, smart crusher, dedup, line elider, compaction, config, html extractor
  */
 export function statsTables(counters, blank, memory = {}) {
-  const { subagents, crush = { dropped: 0, saved: 0 }, dedup = { spans: 0, saved: 0 }, elide = { lines: 0, saved: 0 }, compact = { arrays: 0, saved: 0 }, config = { texts: 0, saved: 0 } } = memory;
+  const {
+    subagents,
+    crush = { dropped: 0, saved: 0 },
+    dedup = { spans: 0, saved: 0 },
+    elide = { lines: 0, saved: 0 },
+    compact = { arrays: 0, saved: 0 },
+    config = { texts: 0, saved: 0 },
+    extract = { pages: 0, saved: 0 },
+  } = memory;
   /**
    * @param {string} heading
    * @param {string[]} columns
@@ -500,6 +524,10 @@ export function statsTables(counters, blank, memory = {}) {
     [
       ["config", "texts", "saved"],
       [session, String(config.texts), String(config.saved)],
+    ],
+    [
+      ["html extractor", "pages", "saved"],
+      [session, String(extract.pages), String(extract.saved)],
     ],
   ];
 }
@@ -2895,6 +2923,200 @@ export function configFlavor(text, head) {
 }
 
 /**
+ * @param {number} c a UTF-16 code unit
+ * @returns {boolean} an ASCII letter or `_` (upstream is_name_start)
+ */
+const isTagNameStart = (c) => (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c === 95;
+
+/**
+ * @param {number} c a UTF-16 code unit
+ * @returns {boolean} an ASCII letter, digit, `_`, `-`, `.` or `:` (upstream is_name_cont)
+ */
+const isTagNameCont = (c) => isTagNameStart(c) || (c >= 48 && c <= 57) || c === 45 || c === 46 || c === 58;
+
+/**
+ * @param {number} c a UTF-16 code unit
+ * @returns {boolean} ASCII whitespace as Rust's is_ascii_whitespace (space, tab, LF, FF, CR)
+ */
+const isAsciiSpace = (c) => c === 32 || c === 9 || c === 10 || c === 12 || c === 13;
+
+/**
+ * Upstream tag_protector.rs parse_tag_at, the one tag lexer the HTML extractor and the tag protector share: at `i` (a `<`),
+ * `</name>` with optional whitespace before `>`, or `<name …>` whose attributes run to the first `>` outside quotes (an
+ * unterminated quote is no tag; a `/` sets self-closing, whitespace or a quoted value clears it). Each scanned character
+ * costs one unit of `budget`, so retrying every `<` of an unterminated tag cannot go quadratic unnoticed.
+ * @param {string} text
+ * @param {number} i the index of a `<`
+ * @param {WorkBudget} budget
+ * @returns {TagToken|undefined}
+ */
+function tagAt(text, i, budget) {
+  const n = text.length;
+  let j = i + 1;
+  const close = j < n && text.charCodeAt(j) === 47;
+  if (close) j++;
+  if (j >= n || !isTagNameStart(text.charCodeAt(j))) {
+    budget.left -= j - i;
+    return undefined;
+  }
+  j++;
+  while (j < n && isTagNameCont(text.charCodeAt(j))) j++;
+  const nameEnd = j;
+  if (close) {
+    while (j < n && isAsciiSpace(text.charCodeAt(j))) j++;
+    budget.left -= j - i + 1;
+    return j < n && text.charCodeAt(j) === 62 ? { close: true, nameEnd, end: j + 1, selfClosing: false } : undefined;
+  }
+  let selfClosing = false;
+  while (j < n) {
+    const c = text.charCodeAt(j);
+    if (c === 62) {
+      budget.left -= j - i + 1;
+      return { close: false, nameEnd, end: j + 1, selfClosing };
+    }
+    if (c === 34 || c === 39) {
+      const q = text.indexOf(c === 34 ? '"' : "'", j + 1);
+      if (q < 0) break;
+      j = q + 1;
+      selfClosing = false;
+    } else {
+      if (c === 47) selfClosing = true;
+      else if (isAsciiSpace(c)) selfClosing = false;
+      j++;
+    }
+  }
+  budget.left -= n - i;
+  return undefined;
+}
+
+/**
+ * Decodes `&amp; &lt; &gt; &quot; &apos; &nbsp;` and decimal or hex character references; anything else stays as written.
+ * @param {string} s
+ * @returns {string}
+ */
+function decodeEntities(s) {
+  return s.includes("&")
+    ? s.replace(HTML_ENTITY_RE, (m, dec, hex, name) => {
+        if (name) return HTML_ENTITIES[name];
+        const cp = dec ? Number(dec) : parseInt(hex, 16);
+        return cp > 0 && cp <= 0x10ffff && (cp < 0xd800 || cp > 0xdfff) ? String.fromCodePoint(cp) : m;
+      })
+    : s;
+}
+
+/**
+ * The HTML extractor (a bounded, hand-written stand-in for upstream's trafilatura HTMLExtractor): one forward pass that skips
+ * comments, `<!…>` / `<?…>` declarations and boilerplate or non-text elements (HTML_DROP, open tag to its close tag, or to the
+ * end when unclosed), and renders the rest as markdown-ish text: `#` headings, `- ` list items, `[text](href)` links (not `#…`
+ * or `javascript:`), `| ` table cells, a line per block element, whitespace kept only inside `<pre>`, entities decoded. The
+ * whole pass draws on a budget of 4 per character + 4096. Undefined when the budget runs out, nothing is left (upstream
+ * #3609: fall through, never discard) or the result with its retrieval line is not shorter; else the extraction plus
+ * `[HTML extracted to text: N characters of markup removed. Retrieve original: hash=H]`, the original under `offloaded`.
+ * @param {string} text
+ * @returns {{ text: string, offloaded: [string, string][] }|undefined}
+ */
+export function extractHtml(text) {
+  const n = text.length;
+  /** @type {WorkBudget} */
+  const budget = { left: SCAN_BUDGET_PER_CHAR * n + SCAN_BUDGET_FLOOR };
+  /** @type {string[]} */
+  const parts = [];
+  let last = "\n"; // the last character written: a line start or a space swallows a following space
+  /** @param {string} s */
+  const raw = (s) => {
+    if (s === "") return;
+    parts.push(s);
+    last = s[s.length - 1];
+  };
+  /** @param {string} s */
+  const put = (s) => raw(s.startsWith(" ") && (last === " " || last === "\n") ? s.slice(1) : s);
+  let pre = 0; // open <pre> elements
+  /** @type {string|undefined} */
+  let href; // the open link's target
+  let i = 0;
+  while (i < n) {
+    const lt = text.indexOf("<", i);
+    const end = lt < 0 ? n : lt;
+    if (end > i) {
+      const chunk = decodeEntities(text.slice(i, end));
+      if (pre > 0) raw(chunk);
+      else put(chunk.replace(/\s+/g, " "));
+    }
+    budget.left -= end - i;
+    if (lt < 0) break;
+    if (text.startsWith("<!--", lt)) {
+      const c = text.indexOf("-->", lt + 4);
+      budget.left -= (c < 0 ? n : c + 3) - lt;
+      if (c < 0) break; // an unterminated comment ends the page
+      i = c + 3;
+      continue;
+    }
+    const t = tagAt(text, lt, budget);
+    if (budget.left < 0) return undefined;
+    if (!t) {
+      const next = text[lt + 1];
+      if (next === "!" || next === "?") {
+        const g = text.indexOf(">", lt);
+        budget.left -= (g < 0 ? n : g + 1) - lt;
+        if (g < 0) break;
+        i = g + 1;
+      } else {
+        put("<");
+        i = lt + 1;
+      }
+      continue;
+    }
+    const name = text.slice(lt + (t.close ? 2 : 1), t.nameEnd).toLowerCase();
+    i = t.end;
+    if (HTML_DROP.has(name)) {
+      if (t.close || t.selfClosing) continue;
+      let re = HTML_CLOSE_RES.get(name);
+      if (!re) HTML_CLOSE_RES.set(name, (re = new RegExp(`</${name}\\s*>`, "gi")));
+      re.lastIndex = i;
+      const m = re.exec(text);
+      budget.left -= (m ? re.lastIndex : n) - i;
+      if (!m) break; // an unclosed drop element runs to the end
+      i = re.lastIndex;
+      continue;
+    }
+    const heading = HTML_HEADING_RE.exec(name);
+    if (heading) raw(t.close ? "\n" : `\n${"#".repeat(Number(heading[1]))} `);
+    else if (name === "li") {
+      if (!t.close) raw("\n- ");
+    } else if (name === "br") raw("\n");
+    else if (name === "td" || name === "th") put(t.close ? " " : "| ");
+    else if (name === "a") {
+      if (!t.close && href === undefined) {
+        const m = HTML_HREF_RE.exec(text.slice(lt, t.end));
+        const target = m ? (m[1] ?? m[2] ?? m[3] ?? "") : "";
+        if (target !== "" && !target.startsWith("#") && !/^\s*javascript:/i.test(target)) {
+          href = target;
+          put("[");
+        }
+      } else if (t.close && href !== undefined) {
+        raw(`](${href})`);
+        href = undefined;
+      }
+    } else if (HTML_BLOCK.has(name)) {
+      if (name === "tr" && t.close) put("|");
+      if (name === "pre") pre = Math.max(0, pre + (t.close ? -1 : 1));
+      if (name !== "tr" || last !== "\n") raw("\n"); // table rows stay on consecutive lines
+    }
+  }
+  const extracted = parts
+    .join("")
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  if (extracted === "") return undefined;
+  const hash = contentHash(text);
+  const out = `${extracted}\n[HTML extracted to text: ${n - extracted.length} characters of markup removed. Retrieve original: hash=${hash}]`;
+  return out.length < n ? { text: out, offloaded: [[hash, text]] } : undefined;
+}
+
+/**
  * The detector's sample: the first 500 lines, each cut to DETECT_MAX_LINE_CHARS.
  * @param {string} text
  * @returns {string[]}
@@ -3134,16 +3356,16 @@ export function compressConfig(text) {
 
 /**
  * Each content type's compression steps, tried in order until one rewrites (a light upstream _strategy_from_detection).
- * The SmartCrusher owns JSON and the config compressor structured config; the dense line elider runs on every type, after the
- * type's compressor where one runs, as upstream elides after text-returning strategies and as its fallback where no
- * compressor owns the type. A new compressor adds a RouteStep, a case in rewriteRow's shrink, a Levers flag, and its name in
- * the types it fits.
+ * The SmartCrusher owns JSON, the config compressor structured config and the HTML extractor HTML; the dense line elider runs
+ * on every type, after the type's compressor where one runs, as upstream elides after text-returning strategies and as its
+ * fallback where no compressor owns the type. A rewrite ends the route unless its step is in ELIDE_AFTER. A new compressor
+ * adds a RouteStep, a case in rewriteRow's shrink, a Levers flag, and its name in the types it fits.
  * @type {Readonly<Record<ContentType, readonly RouteStep[]>>}
  */
 const ROUTES = {
   json_array: ["crush", "elide"],
   diff: ["elide"],
-  html: ["elide"],
+  html: ["extract", "elide"],
   tabular: ["elide"],
   search: ["elide"],
   build: ["elide"],
@@ -3155,6 +3377,10 @@ const ROUTES = {
 // Every step needs at least this many characters (the elider returns early below its line minimum, and the crusher wants
 // more), so a shorter text skips detection: the label could not change the outcome. A step with a lower floor lowers this.
 const ROUTE_MIN_CHARS = Math.min(CRUSH_MIN_CHARS, DENSE_MIN_LINE_CHARS);
+// The steps whose rewrite the route goes on with (upstream _DENSE_ELIDE_AFTER's HTML member): the elider then runs on the
+// extraction. The SmartCrusher and the config compressor end the route, as upstream leaves SMART_CRUSHER and CONFIG out.
+/** @type {ReadonlySet<RouteStep>} */
+const ELIDE_AFTER = new Set(["extract"]);
 
 // The tool-result row pipeline (session.append): SmartCrusher and the dense line elider by content type, then cross-turn dedup.
 
@@ -3241,6 +3467,7 @@ function rewriteRow(content, tool, levers, query) {
     crush: { dropped: 0, saved: 0 },
     compact: { arrays: 0, saved: 0 },
     config: { texts: 0, saved: 0 },
+    extract: { pages: 0, saved: 0 },
     elide: { lines: 0, saved: 0 },
     dedup: { spans: 0, saved: 0 },
   };
@@ -3250,45 +3477,60 @@ function rewriteRow(content, tool, levers, query) {
     if (!isRecord(b) || b.type !== "tool_result") return b;
     const prot = isProtectedBlock(b, tool);
     /**
-     * The first rewrite its content type's route (ROUTES) yields; upstream elides only text no JSON strategy rewrote.
+     * Its content type's route (ROUTES): the first rewrite wins, except that a step in ELIDE_AFTER hands its rewrite on to
+     * the next step; upstream elides only text no JSON or config strategy rewrote.
      * @param {string} text
      * @returns {string}
      */
     const shrink = (text) => {
-      if (prot || !(levers.crush || levers.compact || levers.elide || levers.config) || text.length < ROUTE_MIN_CHARS) return text;
+      if (prot || !(levers.crush || levers.compact || levers.elide || levers.config || levers.extract) || text.length < ROUTE_MIN_CHARS) return text;
+      let cur = text;
       for (const step of ROUTES[detectContentType(text)]) {
+        /** @type {string|undefined} */
+        let next;
         if (step === "crush" && (levers.crush || levers.compact)) {
-          const c = crushJson(text, query, { lossy: levers.crush, lossless: !!levers.compact });
+          const c = crushJson(cur, query, { lossy: levers.crush, lossless: !!levers.compact });
           if (c) {
             // A document that lost nothing owes all its savings to compaction; otherwise the tables' own savings, capped.
-            const saved = text.length - c.text.length;
+            const saved = cur.length - c.text.length;
             const toCompact = c.rowsDropped === 0 ? saved : Math.max(0, Math.min(saved, c.compactSaved));
             acc.compact.arrays += c.compacted;
             acc.compact.saved += toCompact;
             acc.crush.dropped += c.rowsDropped;
             acc.crush.saved += saved - toCompact;
             acc.offloaded.push(...c.offloaded);
-            return c.text;
+            next = c.text;
           }
         } else if (step === "config" && levers.config) {
-          const k = compressConfig(text);
+          const k = compressConfig(cur);
           if (k) {
             acc.config.texts += 1;
-            acc.config.saved += text.length - k.text.length;
+            acc.config.saved += cur.length - k.text.length;
             acc.offloaded.push(...k.offloaded);
-            return k.text;
+            next = k.text;
+          }
+        } else if (step === "extract" && levers.extract) {
+          const x = extractHtml(cur);
+          if (x) {
+            acc.extract.pages += 1;
+            acc.extract.saved += cur.length - x.text.length;
+            acc.offloaded.push(...x.offloaded);
+            next = x.text;
           }
         } else if (step === "elide" && levers.elide) {
-          const d = elideDense(text);
+          const d = elideDense(cur);
           if (d) {
             acc.elide.lines += d.lines;
-            acc.elide.saved += text.length - d.text.length;
+            acc.elide.saved += cur.length - d.text.length;
             acc.offloaded.push(...d.offloaded);
-            return d.text;
+            next = d.text;
           }
         }
+        if (next === undefined) continue;
+        if (!ELIDE_AFTER.has(step)) return next;
+        cur = next;
       }
-      return text;
+      return cur;
     };
     /**
      * Cross-turn dedup of a result's final text; a protected text is only indexed.
