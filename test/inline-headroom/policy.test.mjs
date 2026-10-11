@@ -15,9 +15,13 @@ import {
   ROWS,
   cacheHitRatio,
   clampEffort,
+  collapseRuns,
+  compactConfigLossless,
   compactRows,
   compactionJson,
+  compressConfig,
   computeOptimalK,
+  configFlavor,
   crushJson,
   crushNumberArray,
   crushQuery,
@@ -26,10 +30,13 @@ import {
   detectContentType,
   dedupBlock,
   elideDense,
+  expandRuns,
   findVolatile,
+  foldRepeatedBlocks,
   foldPending,
   formatCsvSchema,
   isCacheDrop,
+  isIniAssign,
   isOwnStorageCall,
   isToolError,
   numberChangePoints,
@@ -42,6 +49,7 @@ import {
   storeOffloaded,
   tableText,
   toCount,
+  unfoldRepeatedBlocks,
   wantsQuery,
   windowStart,
   zeroCounters,
@@ -249,6 +257,10 @@ test("statsTables builds every table, with blank for rows without counters", () 
       ["compaction", "arrays", "saved"],
       ["session", "0", "0"],
     ],
+    [
+      ["config", "texts", "saved"],
+      ["session", "0", "0"],
+    ],
   ]);
   // The in-memory rows: subagents right under the effort session row, the crusher's session counts.
   const [effort, , crusher] = statsTables([c], "…", { subagents: { steps: 4, clamped: 3 }, crush: { dropped: 40, saved: 1200 } });
@@ -261,8 +273,9 @@ test("statsTables builds every table, with blank for rows without counters", () 
   const [, , , deduper, elider] = statsTables([c], "…", { dedup: { spans: 3, saved: 900 }, elide: { lines: 2, saved: 4100 } });
   assert.deepEqual(deduper[1], ["session", "3", "900"]);
   assert.deepEqual(elider[1], ["session", "2", "4100"]);
-  const [, , , , , compactor] = statsTables([c], "…", { compact: { arrays: 2, saved: 5300 } });
+  const [, , , , , compactor, configs] = statsTables([c], "…", { compact: { arrays: 2, saved: 5300 }, config: { texts: 1, saved: 640 } });
   assert.deepEqual(compactor[1], ["session", "2", "5300"]);
+  assert.deepEqual(configs[1], ["session", "1", "640"]);
   assert.equal(statsTables([zeroCounters()], "–")[1][1][1], "–"); // no tokens: no hit ratio
   assert.equal(statsTables([{ ...c, hit: 0.1 }], "…")[1][1][1], "10%"); // a row's own hit wins over the token-weighted one
 });
@@ -1558,4 +1571,241 @@ test("crushJson keeps short and lossless-only scalar arrays whole and no longer 
   assert.equal(crushJson(JSON.stringify({ mix: [1, "a", null, true, { rows: STATUS_ROWS }] }), ""), undefined);
   // 4 items are still descended into, as before.
   assert.match(crushText(JSON.stringify({ mix: [1, "a", null, { rows: STATUS_ROWS }] })).out.mix[3].rows.at(-1)._ccr_dropped, SENTINEL);
+});
+
+// Structured config: detection (upstream content_detector.py) and the config compressor (config_compressor.py,
+// lossless_compaction.py). Fixtures from upstream tests/test_transforms_config_compressor.py.
+
+const K8S_MANIFEST = `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  labels:
+    app: web
+spec:
+  replicas: 3
+  template:
+    spec:
+      containers:
+        - name: web-1
+          image: nginx:1.25
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 250m
+              memory: 256Mi
+        - name: web-2
+          image: nginx:1.25
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 250m
+              memory: 256Mi
+        - name: web-3
+          image: nginx:1.25
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 250m
+              memory: 256Mi
+`;
+const PYPROJECT_TOML = `# Build configuration
+[package]
+name = "demo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = "1.0"
+tokio = "1.38"
+
+[profile.release]
+opt-level = 3
+lto = true
+`;
+const INI_CONFIG = `[server]
+host = 127.0.0.1
+port = 8080
+
+; connection tuning
+[logging]
+level = INFO
+file = /var/log/app.log
+
+[auth]
+enabled = true
+provider = ldap
+`;
+const PROSE = `Note: this document describes the deployment process.
+First, you should review the configuration carefully before applying it.
+The rollout takes several minutes to complete in most environments.
+If anything goes wrong, roll back to the previous release immediately.
+Contact the on-call engineer when the dashboard shows sustained errors.
+`;
+const FRONT_MATTER_DOC = `---
+title: My Post
+tags:
+  - a
+  - b
+---
+
+# Heading
+
+This is a markdown document body with prose that goes on and on.
+More prose here, explaining things in complete English sentences.
+And a final line of text to round out the document nicely today.
+`;
+
+/**
+ * configFlavor over a text's own lines (the test inputs hold no line over DETECT_MAX_LINE_CHARS).
+ * @param {string} text
+ */
+const flavorOf = (text) => configFlavor(text, text.split("\n"));
+
+/**
+ * compressConfig that must rewrite; throws when the text passes through.
+ * @param {string} text
+ */
+function compressed(text) {
+  const r = compressConfig(text);
+  if (!r) throw new Error("expected compressConfig to rewrite the text");
+  return r;
+}
+
+test("configFlavor and detectContentType claim YAML, TOML and INI", () => {
+  for (const [text, flavor] of [
+    [K8S_MANIFEST, "yaml"],
+    [PYPROJECT_TOML, "toml"],
+    [INI_CONFIG, "ini"],
+  ]) {
+    assert.equal(flavorOf(text), flavor, flavor);
+    assert.equal(detectContentType(text), "structured_config", flavor);
+  }
+  assert.equal(flavorOf("---\nname: a\nimage: x:1\nports:\n  - 80\n---\nname: b\nimage: y:2\nports:\n  - 443\n"), "yaml"); // a multi-document stream
+  assert.equal(flavorOf('[a]\nx = "1"\ny = "2"\n[b]\nz = "3"\n'), "toml"); // quoted values: TOML wins
+  assert.equal(flavorOf("[a]\nx = hello\ny = world\n[b]\nz = there\n"), "ini"); // bare values are no TOML
+});
+
+test("configFlavor claims no prose, front matter, grep, CSV, JSON, code, flat YAML or a single line", () => {
+  for (const text of [
+    PROSE,
+    FRONT_MATTER_DOC,
+    "src/main.py:42:def process():\nsrc/util.py:10:import os\nsrc/x.py:5:return 1",
+    "name,age,city\nalice,30,nyc\nbob,25,sf\ncarol,35,la",
+    '[{"id": 1, "name": "a"}, {"id": 2, "name": "b"}]',
+    '{\n  "key": "value",\n  "other": "thing",\n  "third": "entry"\n}',
+    "import os\n\n\ndef main():\n    if True:\n        return os.name\n",
+    "key: value",
+    "alpha: 1\nbeta: 2\ngamma: 3\n", // one indent level, no document marker, no list: too ambiguous
+  ]) {
+    assert.equal(flavorOf(text), undefined, text.slice(0, 40));
+    assert.notEqual(detectContentType(text), "structured_config", text.slice(0, 40));
+  }
+});
+
+test("isIniAssign accepts what upstream's _INI_ASSIGN_RE matches, in linear time", () => {
+  for (const [line, want] of [
+    ["key = v", true],
+    ["  a b.c-d@e : v", true],
+    [" = x", true],
+    ["\tkey\t= v", true],
+    ["\t= x", false],
+    ["a\tb = v", false],
+    ["k$y = v", false],
+    ["no delimiter", false],
+  ])
+    assert.equal(isIniAssign(String(line)), want, JSON.stringify(line));
+  const t0 = Date.now();
+  assert.equal(isIniAssign(`${" ".repeat(100_000)}x`), false); // the lazy regex backtracks quadratically here
+  assert.equal(isIniAssign(`${" ".repeat(100_000)}key = v`), true);
+  assert.ok(Date.now() - t0 < 1000, `took ${Date.now() - t0} ms`);
+});
+
+test("foldRepeatedBlocks folds repeated stanzas reversibly and skips short or unprofitable ones", () => {
+  const folded = foldRepeatedBlocks(K8S_MANIFEST);
+  assert.ok(folded.length < K8S_MANIFEST.length);
+  assert.ok(folded.includes("lines back)"));
+  assert.equal(unfoldRepeatedBlocks(folded), K8S_MANIFEST);
+  const block = "alpha: value-one\nbeta: value-two\ngamma: value-three\n";
+  const consecutive = foldRepeatedBlocks(block.repeat(4));
+  assert.ok(consecutive.length < block.length * 4);
+  assert.equal(unfoldRepeatedBlocks(consecutive), block.repeat(4));
+  assert.equal(foldRepeatedBlocks("x: 1\ny: 2\nx: 1\ny: 2\n"), "x: 1\ny: 2\nx: 1\ny: 2\n"); // repeats of 2 lines
+  assert.equal(foldRepeatedBlocks("a\nb\nc\na\nb\nc\n"), "a\nb\nc\na\nb\nc\n"); // the marker would not be shorter
+  assert.equal(unfoldRepeatedBlocks("line one\n... (repeats 5 lines from 2 lines back)\n"), "line one\n... (repeats 5 lines from 2 lines back)\n"); // K > D: no fold's marker
+  assert.equal(collapseRuns("a\na\na\nb\n"), "a\n... (repeated 3 times)\nb\n");
+  assert.equal(expandRuns("a\n... (repeated 3 times)\nb\n"), "a\na\na\nb\n");
+});
+
+test("compactConfigLossless verifies its round trip, bails on a marker-shaped line and never expands a marker bomb", () => {
+  const c = compactConfigLossless(K8S_MANIFEST);
+  assert.ok(c.length < K8S_MANIFEST.length);
+  assert.equal(expandRuns(unfoldRepeatedBlocks(c) ?? ""), K8S_MANIFEST);
+  const block = ["item: 0", "item: 1", "item: 2"].join("\n");
+  const collision = `${block}\n... (repeats 3 lines from 3 lines back)\n${block}\n${block}\n`;
+  assert.equal(compactConfigLossless(collision), collision);
+  // Each marker doubles the lines before it: unbounded, 40 of them would need 2^40 lines.
+  const bomb = ["a", ...Array.from({ length: 40 }, (_, k) => `... (repeats ${2 ** k} lines from ${2 ** k} lines back)`)].join("\n");
+  const t0 = Date.now();
+  assert.equal(unfoldRepeatedBlocks(bomb, 1000), undefined);
+  assert.equal(expandRuns("x\n... (repeated 1000000000 times)\n", 10), undefined);
+  assert.equal(compactConfigLossless(bomb), bomb);
+  assert.ok(Date.now() - t0 < 1000, `took ${Date.now() - t0} ms`);
+});
+
+test("compressConfig elides comments and blank lines behind a retrievable marker, then folds losslessly", () => {
+  const notes = [
+    "# pinned for CVE-2024-0001; do not bump without checking the advisory",
+    "# see https://example.com/advisories/CVE-2024-0001 for details",
+    "# owner: platform-team, revisit after the 2.x migration lands",
+  ];
+  const commented = PYPROJECT_TOML.replace('serde = "1.0"', `${notes.join("\n")}\nserde = "1.0"`);
+  const r = compressed(commented);
+  const [hash] = r.offloaded[0];
+  assert.match(hash, HASH_RE);
+  assert.deepEqual(r.offloaded, [[hash, commented]]);
+  const kept = ["[package]", 'name = "demo"', 'version = "0.1.0"', 'edition = "2021"', "[dependencies]", 'serde = "1.0"', 'tokio = "1.38"', "[profile.release]", "opt-level = 3", "lto = true"];
+  assert.equal(r.text, `${kept.join("\n")}\n[6 comment/blank lines elided. Retrieve original: hash=${hash}]`);
+  const folded = compressed(K8S_MANIFEST); // nothing to elide: Tier 1 alone, nothing stored
+  assert.deepEqual(folded.offloaded, []);
+  assert.equal(expandRuns(unfoldRepeatedBlocks(folded.text) ?? ""), K8S_MANIFEST);
+});
+
+test("compressConfig keeps comment lines that may be data, keeps INI blank lines, and passes through what it cannot shorten", () => {
+  const blockScalar = "config:\n  script: |\n    # this hash line is DATA inside a block scalar\n    echo hi\n  replicas: 3\n  image: nginx\n  ports:\n    - 80\n";
+  assert.equal(flavorOf(blockScalar), "yaml");
+  assert.equal(compressConfig(blockScalar), undefined);
+  const tomlMultiline = '[a]\ntext = """\n# not a comment\n"""\nx = "1"\ny = "2"\n';
+  assert.equal(flavorOf(tomlMultiline), "toml");
+  assert.equal(compressConfig(tomlMultiline), undefined);
+  // Deviation: INI refuses Tier 2 around triple quotes too, its flavor being unconfirmed by a parser.
+  const notes = "; owner: platform-team, rotate the credentials after every incident review\n; see the runbook in the wiki before changing any value in this section\n";
+  const iniMultiline = `[a]\nx = hello\n${notes}y = """\n# looks like a comment\n"""\n`;
+  assert.equal(flavorOf(iniMultiline), "ini");
+  assert.equal(compressConfig(iniMultiline), undefined);
+  const ini = compressed(INI_CONFIG.replace("; connection tuning\n", `; connection tuning\n${notes}`));
+  assert.ok(!ini.text.includes("; connection tuning"));
+  assert.ok(ini.text.includes("port = 8080\n\n[logging]")); // INI keeps blank lines
+  assert.equal(compressConfig(PYPROJECT_TOML), undefined); // the marker costs more than the 3 lines it would save
+  assert.equal(compressConfig(PROSE), undefined);
+});
+
+test("rewriteToolResults routes structured config to the config compressor, which ends the route like the crusher", () => {
+  const yaml = `${K8S_MANIFEST}data:\n  blob: ${"QUJD".repeat(700)}\n`;
+  assert.equal(detectContentType(yaml), "structured_config");
+  const elided = rewrite([toolResult(yaml)], "Bash", levers({ config: false })); // the config lever off: exactly the elider, as before
+  assert.deepEqual([elided.config, elided.elide.lines], [{ texts: 0, saved: 0 }, 1]);
+  const r = rewrite([toolResult(yaml)], "Bash", levers({ config: true }));
+  const text = String(r.content[0].content);
+  assert.deepEqual(r.config, { texts: 1, saved: yaml.length - text.length });
+  assert.equal(r.elide.lines, 0); // upstream leaves CONFIG out of _DENSE_ELIDE_AFTER
+  assert.ok(text.includes(`  blob: ${"QUJD".repeat(700)}`));
+  assert.ok(text.includes("lines back)"));
+  assert.deepEqual(r.offloaded, []); // nothing to elide, so nothing stored
 });

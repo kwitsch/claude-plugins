@@ -35,11 +35,15 @@
  */
 /** @typedef {{ text: string, spans: number, offloaded: [string, string][] }} Fold a deduplicated text: the text with pointers, the runs folded, [hash, run text] per run */
 /** @typedef {{ type: string } & Record<string, unknown>} ContentBlock one Messages-API content block, as session.append hands it */
-/** @typedef {'json_array'|'diff'|'html'|'tabular'|'search'|'build'|'source_code'|'text'} ContentType upstream ContentType tags (as_str); 'tabular' is git status here */
-/** @typedef {'crush'|'elide'} RouteStep a compression lever a content type's route may run */
+/**
+ * Upstream ContentType tags (as_str); 'tabular' is git status here, 'structured_config' is Python's (Rust has no such tag).
+ * @typedef {'json_array'|'diff'|'html'|'tabular'|'search'|'build'|'structured_config'|'source_code'|'text'} ContentType
+ */
+/** @typedef {'crush'|'config'|'elide'} RouteStep a compression lever a content type's route may run */
+/** @typedef {'yaml'|'toml'|'ini'} ConfigFlavor a structured config's dialect */
 /**
  * Which levers rewrite this row; dedup names the conversations map and this row's key ("" main, else agentId).
- * @typedef {{ crush: boolean, compact?: boolean, elide: boolean, dedup?: { states: Map<string, DedupState>, key: string } }} Levers
+ * @typedef {{ crush: boolean, compact?: boolean, elide: boolean, config?: boolean, dedup?: { states: Map<string, DedupState>, key: string } }} Levers
  */
 /**
  * A rewritten tool-result row: its blocks, the originals for the CCR store (`offloaded`: the crusher's and the elider's sole copies;
@@ -50,6 +54,7 @@
  * @property {[string, string][]} folded
  * @property {{ dropped: number, saved: number }} crush
  * @property {{ arrays: number, saved: number }} compact
+ * @property {{ texts: number, saved: number }} config
  * @property {{ lines: number, saved: number }} elide
  * @property {{ spans: number, saved: number }} dedup
  */
@@ -61,6 +66,7 @@
  * @property {{ spans: number, saved: number }} [dedup]
  * @property {{ lines: number, saved: number }} [elide]
  * @property {{ arrays: number, saved: number }} [compact]
+ * @property {{ texts: number, saved: number }} [config]
  */
 /**
  * One dict-array field (upstream FieldStats); the numeric statistics are absent when not finite.
@@ -207,6 +213,29 @@ const TIMESTAMP_ROW_RE = /^\s*\[?(?:\d{4}-\d{2}-\d{2}[ T]\d{1,2}:\d{2}|\d{2}\/\d
 const SEARCH_LINE_RE = /^[^\s:]+:\d+:/;
 const GREP_COLON_DASH_RE = /^[^\s:]+:\d+-/;
 const GREP_CONTEXT_RE = /^([^\s:]+?)-\d+-/;
+// Structured config: upstream content_detector.py _CONFIG_*/_TOML_*/_YAML_* patterns (_INI_ASSIGN_RE is the isIniAssign scanner).
+const CONFIG_SECTION_RE = /^\s*\[\[?[\w.\-"' ]+\]\]?\s*$/;
+const TOML_ASSIGN_RE = /^\s*(?:[\w.-]+|"[^"]+"|'[^']+')\s*=\s*\S/;
+const TOML_KEY_RE = /^\s*(?:[\w.-]+|"[^"]+"|'[^']+')\s*=/;
+const YAML_KEY_RE = /^\s*(?:-\s+)?(?:[\w./-]+|"[^"]+"|'[^']+')\s*:(?:\s|$)/;
+const YAML_LIST_RE = /^\s*-\s+\S/;
+const YAML_DOC_RE = /^---\s*$|^\.\.\.\s*$/;
+const CONFIG_COMMENT_RE = /^\s*[#;]/;
+const INI_KEY_CHAR_RE = /[\w.\-@ ]/;
+// What the TOML flavor check accepts as a value (it stands in for tomllib): strings, numbers, booleans, dates/times, arrays, tables.
+const TOML_STRING_RE = /^(?:"(?:[^"\\]|\\.)*"|'[^']*')\s*(?:#.*)?$/;
+const TOML_NUMBER_RE = /^[+-]?(?:\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d[\d_]*)?|0x[\dA-Fa-f_]+|0o[0-7_]+|0b[01_]+|inf|nan)$/;
+const TOML_DATETIME_RE = /^\d{4}-\d{2}-\d{2}(?:[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})?)?$|^\d{2}:\d{2}:\d{2}(?:\.\d+)?$/;
+const CONFIG_MAX_CHARS = 1_000_000;
+// Config compressor: upstream config_compressor.py and lossless_compaction.py (collapse_runs, fold_repeated_blocks).
+const YAML_BLOCK_SCALAR_RE = /:\s*[|>][+-]?\d*\s*$/m;
+const TOML_MULTILINE_RE = /"""|'''/;
+const RUN_MARKER_RE = /^\.\.\. \(repeated (\d+) times\)$/;
+const BLOCK_MARKER_RE = /^\.\.\. \(repeats (\d+) lines from (\d+) lines back\)$/;
+const FOLD_MIN_BLOCK = 3;
+const FOLD_MAX_BLOCK = 64;
+const FOLD_MAX_CANDIDATES = 8;
+const FOLD_MAX_LINES = 20_000;
 // Upstream _LOG_PATTERNS in order, each tried with search(); indexes 0 and 1 are the error / warn patterns.
 const LOG_PATTERNS = [
   /\b(?:ERROR|FAIL|FAILED|FATAL|CRITICAL)\b/i,
@@ -424,15 +453,15 @@ export function foldPending(days, pending, today, purgeBefore) {
 /**
  * The /headroom tables as rows of cells. Each table starts with its header row (heading, then the column names), then one row per ROWS entry.
  * A row without counters (still loading, storage off or failing) shows `blank` in every value cell. The in-memory session-only
- * counters add a `subagents` row under effort routing's session row, and the smart crusher, dedup, line elider and compaction tables,
- * which have only a session row.
+ * counters add a `subagents` row under effort routing's session row, and the smart crusher, dedup, line elider, compaction and
+ * config tables, which have only a session row.
  * @param {readonly (Row|undefined)[]} counters one per ROWS entry, in ROWS order
  * @param {string} blank
  * @param {StatsMemory} [memory]
- * @returns {string[][][]} effort routing, cache aligner, smart crusher, dedup, line elider, compaction
+ * @returns {string[][][]} effort routing, cache aligner, smart crusher, dedup, line elider, compaction, config
  */
 export function statsTables(counters, blank, memory = {}) {
-  const { subagents, crush = { dropped: 0, saved: 0 }, dedup = { spans: 0, saved: 0 }, elide = { lines: 0, saved: 0 }, compact = { arrays: 0, saved: 0 } } = memory;
+  const { subagents, crush = { dropped: 0, saved: 0 }, dedup = { spans: 0, saved: 0 }, elide = { lines: 0, saved: 0 }, compact = { arrays: 0, saved: 0 }, config = { texts: 0, saved: 0 } } = memory;
   /**
    * @param {string} heading
    * @param {string[]} columns
@@ -467,6 +496,10 @@ export function statsTables(counters, blank, memory = {}) {
     [
       ["compaction", "arrays", "saved"],
       [session, String(compact.arrays), String(compact.saved)],
+    ],
+    [
+      ["config", "texts", "saved"],
+      [session, String(config.texts), String(config.saved)],
     ],
   ];
 }
@@ -2778,8 +2811,102 @@ function codeConfidence(lines) {
 }
 
 /**
+ * Upstream _INI_ASSIGN_RE (`^\s*[\w.\-@ ]+?\s*[=:]\s*`) as a linear scanner: before the first `=` or `:` stand optional
+ * whitespace, a run of word characters, `.`, `-`, `@` and spaces, and optional whitespace. The regex's lazy run plus `\s*`
+ * backtracks quadratically on whitespace-heavy lines.
+ * @param {string} line
+ * @returns {boolean}
+ */
+export function isIniAssign(line) {
+  const k = line.search(/[=:]/);
+  if (k < 0) return false;
+  const prefix = line.slice(0, k);
+  let a = 0;
+  while (a < prefix.length && /\s/.test(prefix[a])) a++;
+  if (a === prefix.length) return prefix.includes(" "); // all whitespace: a space can stand for the run
+  let b = prefix.length;
+  while (/\s/.test(prefix[b - 1])) b--;
+  for (let i = a; i < b; i++) if (!INI_KEY_CHAR_RE.test(prefix[i])) return false;
+  return true;
+}
+
+/**
+ * Whether a TOML assignment's value lexeme is one tomllib would read: a basic or literal string (multi-line openers too), a
+ * number, `inf`, `nan`, a boolean, an RFC 3339 date/time, or an array or inline table opener. Deviation: a line-level stand-in
+ * for parsing the whole document.
+ * @param {string} raw the text after the `=`
+ * @returns {boolean}
+ */
+function isTomlValue(raw) {
+  const v = raw.trim();
+  if (v.startsWith('"""') || v.startsWith("'''") || v.startsWith("[") || v.startsWith("{") || TOML_STRING_RE.test(v)) return true;
+  const hash = v.indexOf("#");
+  const bare = (hash < 0 ? v : v.slice(0, hash)).trim();
+  return bare === "true" || bare === "false" || TOML_NUMBER_RE.test(bare) || TOML_DATETIME_RE.test(bare);
+}
+
+/**
+ * Upstream _try_detect_structured_config's verdict: a section header plus an assignment-dominant body is TOML when every
+ * assignment is a TOML key with a TOML value, else INI when every one is an INI assignment (deviation: line checks stand in
+ * for tomllib and configparser); otherwise YAML by key, list and document-marker share with the prose, front-matter and
+ * structure guards. Runs over the first 200 sampled lines.
+ * @param {string} text
+ * @param {readonly string[]} head the line-capped sample lines (detectHead)
+ * @returns {ConfigFlavor|undefined}
+ */
+export function configFlavor(text, head) {
+  const first = text.trimStart().slice(0, 1);
+  if (first === "" || first === "{" || first === "<") return undefined;
+  const lines = head.slice(0, 200);
+  const nonEmpty = lines.filter((ln) => ln.trim() !== "");
+  if (nonEmpty.length < 3) return undefined;
+  const body = nonEmpty.filter((ln) => !CONFIG_COMMENT_RE.test(ln)); // comment lines are neutral
+  if (body.length < 3) return undefined;
+  const sections = body.filter((ln) => CONFIG_SECTION_RE.test(ln)).length;
+  if (sections >= 1 && text.length <= CONFIG_MAX_CHARS) {
+    const assigns = body.filter((ln) => TOML_ASSIGN_RE.test(ln) || isIniAssign(ln));
+    if (assigns.length >= 2 && (sections + assigns.length) / body.length >= 0.6) {
+      const toml = assigns.every((ln) => {
+        const m = TOML_ASSIGN_RE.test(ln) ? TOML_KEY_RE.exec(ln) : null;
+        return m !== null && isTomlValue(ln.slice(m[0].length));
+      });
+      if (toml) return "toml";
+      if (assigns.every(isIniAssign)) return "ini";
+    }
+  }
+  // Markdown front matter: a `---` fence closed within 60 lines and followed by mostly non-YAML lines.
+  if (lines[0]?.trim() === "---")
+    for (let i = 1; i < Math.min(lines.length, 60); i++) {
+      const t = lines[i].trim();
+      if (t !== "---" && t !== "...") continue;
+      const tail = lines.slice(i + 1).filter((ln) => ln.trim() !== "");
+      const yamlTail = tail.filter((ln) => YAML_KEY_RE.test(ln) || YAML_LIST_RE.test(ln)).length;
+      if (tail.length && yamlTail / tail.length < 0.3) return undefined;
+      break;
+    }
+  const keys = body.filter((ln) => YAML_KEY_RE.test(ln)).length;
+  const lists = body.filter((ln) => YAML_LIST_RE.test(ln) && !YAML_KEY_RE.test(ln)).length;
+  const docs = body.filter((ln) => YAML_DOC_RE.test(ln.trim())).length;
+  if (keys < 3 || (keys + lists + docs) / body.length < 0.6) return undefined;
+  if (body.filter((ln) => /[.!?]$/.test(ln.trimEnd())).length / body.length >= 0.5) return undefined; // prose
+  if (body.reduce((a, ln) => a + ln.trim().split(/\s+/).length, 0) / body.length > 8) return undefined;
+  const indents = new Set(body.filter((ln) => YAML_KEY_RE.test(ln) || YAML_LIST_RE.test(ln)).map((ln) => ln.length - ln.replace(/^ +/, "").length));
+  return indents.size < 2 && docs === 0 && lists < 3 ? undefined : "yaml";
+}
+
+/**
+ * The detector's sample: the first 500 lines, each cut to DETECT_MAX_LINE_CHARS.
+ * @param {string} text
+ * @returns {string[]}
+ */
+function detectHead(text) {
+  return text.split("\n", 500).map((line) => (line.length > DETECT_MAX_LINE_CHARS ? line.slice(0, DETECT_MAX_LINE_CHARS) : line));
+}
+
+/**
  * Upstream detect_content_type's tag: the category set and branch order of content_detector.rs, each branch's
- * heuristics and thresholds from content_detector.py. Pure; never throws.
+ * heuristics and thresholds from content_detector.py, plus Python's structured-config branch in its place (after log, before
+ * code; the tabular branch Python checks in between stays omitted). Pure; never throws.
  * @param {string} text a tool-result text
  * @returns {ContentType}
  */
@@ -2789,21 +2916,228 @@ export function detectContentType(text) {
   if (isJsonPayload(s)) return "json_array";
   // Deviation: a sampled line is cut to DETECT_MAX_LINE_CHARS, because the PHP and C# stack-trace patterns backtrack quadratically
   // and detection runs synchronously on every appended result. A signal beyond that column of a line goes unseen.
-  const head = text.split("\n", 500).map((line) => (line.length > DETECT_MAX_LINE_CHARS ? line.slice(0, DETECT_MAX_LINE_CHARS) : line));
+  const head = detectHead(text);
   if (diffConfidence(head) >= 0.7) return "diff";
   if (htmlConfidence(text.slice(0, 3000)) >= 0.7) return "html";
   if (isGitStatus(text)) return "tabular";
   if (searchConfidence(head.slice(0, 100)) >= 0.6) return "search";
   if (logConfidence(head.slice(0, 200)) >= 0.5) return "build";
+  if (configFlavor(text, head)) return "structured_config";
   if (codeConfidence(head.slice(0, 100)) >= 0.5) return "source_code";
   return "text";
 }
 
 /**
+ * Upstream _split_keep_trailing: the lines without a trailing newline's empty last one, and whether it was there.
+ * @param {string} text
+ * @returns {[string[], boolean]}
+ */
+function splitKeepTrailing(text) {
+  if (text === "") return [[], false];
+  const trailing = text.endsWith("\n");
+  return [(trailing ? text.slice(0, -1) : text).split("\n"), trailing];
+}
+
+/**
+ * @param {readonly string[]} lines
+ * @param {boolean} trailing
+ * @returns {string} the lines joined, with the trailing newline put back (upstream _join)
+ */
+const joinLines = (lines, trailing) => lines.join("\n") + (trailing ? "\n" : "");
+
+/**
+ * Upstream collapse_runs: 2+ identical consecutive lines become the line once plus `... (repeated N times)`.
+ * @param {string} text
+ * @returns {string}
+ */
+export function collapseRuns(text) {
+  const [lines, trailing] = splitKeepTrailing(text);
+  if (!lines.length) return text;
+  /** @type {string[]} */
+  const out = [];
+  for (let i = 0; i < lines.length;) {
+    let j = i;
+    while (j + 1 < lines.length && lines[j + 1] === lines[i]) j++;
+    out.push(lines[i]);
+    if (j > i) out.push(`... (repeated ${j - i + 1} times)`);
+    i = j + 1;
+  }
+  return joinLines(out, trailing);
+}
+
+/**
+ * Upstream expand_runs (collapseRuns' exact inverse). Deviation: gives up once the output would pass `maxLines`, so a marker
+ * with a huge count in the input never allocates it.
+ * @param {string} text
+ * @param {number} [maxLines]
+ * @returns {string|undefined} undefined past maxLines
+ */
+export function expandRuns(text, maxLines = Infinity) {
+  const [lines, trailing] = splitKeepTrailing(text);
+  if (!lines.length) return text;
+  /** @type {string[]} */
+  const out = [];
+  for (let i = 0; i < lines.length;) {
+    const m = i + 1 < lines.length ? RUN_MARKER_RE.exec(lines[i + 1]) : null;
+    const count = m ? Number(m[1]) : 1;
+    if (out.length + count > maxLines) return undefined;
+    for (let k = 0; k < count; k++) out.push(lines[i]);
+    i += m ? 2 : 1;
+  }
+  return joinLines(out, trailing);
+}
+
+/**
+ * Upstream fold_repeated_blocks: a run of K >= 3 lines that repeats the K lines D lines back (K <= D, original coordinates)
+ * becomes `... (repeats K lines from D lines back)` when its characters exceed the marker's; at most 8 recent positions per
+ * distinct line and 64 lines per block are tried, and a text under 6 or over 20,000 lines is left alone.
+ * @param {string} text
+ * @returns {string}
+ */
+export function foldRepeatedBlocks(text) {
+  const [lines, trailing] = splitKeepTrailing(text);
+  const n = lines.length;
+  if (n < FOLD_MIN_BLOCK * 2 || n > FOLD_MAX_LINES) return text;
+  /** @type {Map<string, number[]>} */
+  const positions = new Map();
+  /** @type {(line: string, index: number) => void} */
+  const remember = (line, index) => {
+    let bucket = positions.get(line);
+    if (!bucket) positions.set(line, (bucket = []));
+    bucket.push(index);
+    if (bucket.length > FOLD_MAX_CANDIDATES) bucket.shift();
+  };
+  /** @type {string[]} */
+  const out = [];
+  for (let i = 0; i < n;) {
+    let bestLen = 0;
+    let bestDist = 0;
+    const candidates = positions.get(lines[i]) ?? [];
+    for (let c = candidates.length - 1; c >= 0; c--) {
+      const q = candidates[c];
+      const maxLen = Math.min(FOLD_MAX_BLOCK, n - i, i - q);
+      let len = 0;
+      while (len < maxLen && lines[q + len] === lines[i + len]) len++;
+      if (len > bestLen) [bestLen, bestDist] = [len, i - q];
+    }
+    if (bestLen >= FOLD_MIN_BLOCK) {
+      const marker = `... (repeats ${bestLen} lines from ${bestDist} lines back)`;
+      let chars = 0;
+      for (let k = 0; k < bestLen; k++) chars += lines[i + k].length + 1;
+      if (chars > marker.length + 1) {
+        out.push(marker);
+        for (let k = 0; k < bestLen; k++) remember(lines[i + k], i + k);
+        i += bestLen;
+        continue;
+      }
+    }
+    remember(lines[i], i);
+    out.push(lines[i]);
+    i++;
+  }
+  return joinLines(out, trailing);
+}
+
+/**
+ * Upstream unfold_repeated_blocks (foldRepeatedBlocks' exact inverse); a marker it could not have emitted (K > D, or reaching
+ * before the start) stays as is. Deviation: gives up once the output would pass `maxLines`, so nested markers in the input
+ * never double it repeatedly.
+ * @param {string} text
+ * @param {number} [maxLines]
+ * @returns {string|undefined} undefined past maxLines
+ */
+export function unfoldRepeatedBlocks(text, maxLines = Infinity) {
+  const [lines, trailing] = splitKeepTrailing(text);
+  if (!lines.length) return text;
+  /** @type {string[]} */
+  const out = [];
+  for (const line of lines) {
+    const m = BLOCK_MARKER_RE.exec(line);
+    const len = m ? Number(m[1]) : 0;
+    const start = m ? out.length - Number(m[2]) : -1;
+    if (m && start >= 0 && len <= out.length - start) {
+      if (out.length + len > maxLines) return undefined;
+      for (let k = 0; k < len; k++) out.push(out[start + k]);
+    } else {
+      if (out.length + 1 > maxLines) return undefined;
+      out.push(line);
+    }
+  }
+  return joinLines(out, trailing);
+}
+
+/**
+ * Upstream compact_lossless(text, "config"): single-line runs, then repeated stanzas; kept only when the inverse gives the text
+ * back exactly and the result is shorter.
+ * @param {string} text
+ * @returns {string}
+ */
+export function compactConfigLossless(text) {
+  if (!text) return text;
+  const candidate = foldRepeatedBlocks(collapseRuns(text));
+  const max = splitKeepTrailing(text)[0].length;
+  const unfolded = unfoldRepeatedBlocks(candidate, max);
+  if (unfolded === undefined || expandRuns(unfolded, max) !== text) return text;
+  return candidate.length < text.length ? candidate : text;
+}
+
+/**
+ * Upstream ConfigCompressor._elision_safe: false when a `#` line could be data (a YAML block scalar; a TOML multi-line string).
+ * Deviation: INI refuses `"""` / `'''` too, since its flavor is not parser-confirmed.
+ * @param {string} text
+ * @param {ConfigFlavor} flavor
+ * @returns {boolean}
+ */
+function elisionSafe(text, flavor) {
+  return flavor === "yaml" ? !YAML_BLOCK_SCALAR_RE.test(text) : !TOML_MULTILINE_RE.test(text);
+}
+
+/**
+ * Upstream ConfigCompressor._strip_comment_lines: whole-line comments and, outside INI, blank lines go (INI drops only
+ * column-0 `#`/`;` lines, as its values can continue on indented lines); a trailing newline stays.
+ * @param {string} text
+ * @param {ConfigFlavor} flavor
+ * @returns {[string, number]} the text left, the lines elided
+ */
+function stripCommentLines(text, flavor) {
+  const comment = flavor === "ini" ? /^[#;]/ : /^\s*#/;
+  const trailing = text.endsWith("\n");
+  const lines = (trailing ? text.slice(0, -1) : text).split("\n");
+  const kept = lines.filter((ln) => !comment.test(ln) && (flavor === "ini" || ln.trim() !== ""));
+  return [joinLines(kept, trailing), lines.length - kept.length];
+}
+
+/**
+ * Upstream ConfigCompressor.compress without Tier 3 (the TOML schema fold): Tier 2 drops whole-line comments and blank lines
+ * behind `[N comment/blank lines elided. Retrieve original: hash=H]` (the original goes to `offloaded`), then Tier 1 folds
+ * repeated lines and stanzas losslessly. Undefined when the text is no structured config or nothing was saved.
+ * @param {string} text
+ * @returns {{ text: string, offloaded: [string, string][] }|undefined}
+ */
+export function compressConfig(text) {
+  const flavor = configFlavor(text, detectHead(text));
+  if (!flavor) return undefined;
+  let working = text;
+  /** @type {[string, string][]} */
+  let offloaded = [];
+  if (elisionSafe(text, flavor)) {
+    const [stripped, elided] = stripCommentLines(text, flavor);
+    if (elided > 0) {
+      const hash = contentHash(text);
+      working = `${stripped}${stripped.endsWith("\n") ? "" : "\n"}[${elided} comment/blank lines elided. Retrieve original: hash=${hash}]`;
+      offloaded = [[hash, text]];
+    }
+  }
+  const compressed = compactConfigLossless(working);
+  return text.length - compressed.length < 1 ? undefined : { text: compressed, offloaded };
+}
+
+/**
  * Each content type's compression steps, tried in order until one rewrites (a light upstream _strategy_from_detection).
- * Only the SmartCrusher's JSON is type-specific; the dense line elider runs on every type, after the crusher where both
- * run, as upstream elides after text-returning strategies and as its fallback where no compressor owns the type.
- * A new compressor adds a RouteStep, a case in rewriteRow's shrink, a Levers flag, and its name in the types it fits.
+ * The SmartCrusher owns JSON and the config compressor structured config; the dense line elider runs on every type, after the
+ * type's compressor where one runs, as upstream elides after text-returning strategies and as its fallback where no
+ * compressor owns the type. A new compressor adds a RouteStep, a case in rewriteRow's shrink, a Levers flag, and its name in
+ * the types it fits.
  * @type {Readonly<Record<ContentType, readonly RouteStep[]>>}
  */
 const ROUTES = {
@@ -2813,6 +3147,7 @@ const ROUTES = {
   tabular: ["elide"],
   search: ["elide"],
   build: ["elide"],
+  structured_config: ["config", "elide"],
   source_code: ["elide"],
   text: ["elide"],
 };
@@ -2900,7 +3235,15 @@ export function rewriteToolResults(content, tool, levers, query) {
  */
 function rewriteRow(content, tool, levers, query) {
   /** @type {Omit<RowRewrite, "content">} */
-  const acc = { offloaded: [], folded: [], crush: { dropped: 0, saved: 0 }, compact: { arrays: 0, saved: 0 }, elide: { lines: 0, saved: 0 }, dedup: { spans: 0, saved: 0 } };
+  const acc = {
+    offloaded: [],
+    folded: [],
+    crush: { dropped: 0, saved: 0 },
+    compact: { arrays: 0, saved: 0 },
+    config: { texts: 0, saved: 0 },
+    elide: { lines: 0, saved: 0 },
+    dedup: { spans: 0, saved: 0 },
+  };
   let changed = false;
   /** @type {ContentBlock[]} */
   const mapped = content.map((b) => {
@@ -2912,7 +3255,7 @@ function rewriteRow(content, tool, levers, query) {
      * @returns {string}
      */
     const shrink = (text) => {
-      if (prot || !(levers.crush || levers.compact || levers.elide) || text.length < ROUTE_MIN_CHARS) return text;
+      if (prot || !(levers.crush || levers.compact || levers.elide || levers.config) || text.length < ROUTE_MIN_CHARS) return text;
       for (const step of ROUTES[detectContentType(text)]) {
         if (step === "crush" && (levers.crush || levers.compact)) {
           const c = crushJson(text, query, { lossy: levers.crush, lossless: !!levers.compact });
@@ -2926,6 +3269,14 @@ function rewriteRow(content, tool, levers, query) {
             acc.crush.saved += saved - toCompact;
             acc.offloaded.push(...c.offloaded);
             return c.text;
+          }
+        } else if (step === "config" && levers.config) {
+          const k = compressConfig(text);
+          if (k) {
+            acc.config.texts += 1;
+            acc.config.saved += text.length - k.text.length;
+            acc.offloaded.push(...k.offloaded);
+            return k.text;
           }
         } else if (step === "elide" && levers.elide) {
           const d = elideDense(text);
