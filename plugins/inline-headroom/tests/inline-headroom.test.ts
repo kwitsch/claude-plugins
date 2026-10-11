@@ -249,8 +249,8 @@ test("(i) /headroom opens the headroom pane and prints nothing", async ($, on) =
   const out = await $.command.run({ command: "headroom" });
   expect(out.text).toBeUndefined();
   expect(opened.length).toBe(1);
-  // 6 + 5 + 2 × 8 table rows, the storage note, the volatile header and eleven gaps.
-  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 40 });
+  // 6 + 5 + 2 × 9 table rows, the storage note, the volatile header and twelve gaps.
+  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 43 });
 });
 
 test("(i2) /headroom falls back to the stats tables as text when the pane is not placed", async ($, on) => {
@@ -556,7 +556,7 @@ test(
     expect(
       await ui.find({
         type: "Text",
-        text: /^effort routing, cache aligner, smart crusher, lossless compaction, cross-turn dedup, dense line elider, config compressor, HTML extractor, log compressor and search compressor are off/,
+        text: /^effort routing, cache aligner, smart crusher, lossless compaction, cross-turn dedup, dense line elider, config compressor, HTML extractor, log compressor, search compressor and diff compressor are off/,
       }),
     ).toBeDefined();
     expect(await ui.find({ type: "Text", text: /^effort routing$/ })).toBeUndefined();
@@ -1221,4 +1221,34 @@ test("(sr2) search_compressor_enabled false keeps a grep dump whole and hides th
   await startCrusher(on, $);
   expect(await appendResult($, "Bash", GREP)).toBe(GREP);
   expect((await $.command.run({ command: "headroom" })).text).not.toMatch(/^search/m);
+});
+// A real git diff shape: git's index line and one file with 15 hunks, more than the diff compressor keeps per file.
+const GIT_DIFF = [
+  "diff --git a/big.py b/big.py",
+  "index 3b18e512dba79e4c8300dd08aeb37f8e728b8dad..af5626b4a114abcb82d63db7c8082c3c4756e51b 100644",
+  "--- a/big.py",
+  "+++ b/big.py",
+  ...Array.from({ length: 15 }, (_, i) => [`@@ -${i * 100 + 1},6 +${i * 100 + 1},6 @@`, ` ctx_a_${i}`, ` ctx_b_${i}`, `-old_${i}`, `+new_${i}`, ` ctx_c_${i}`, ` ctx_d_${i}`]).flat(),
+  "",
+].join("\n");
+const DIFF_ROW = /^diff\s+texts\s+saved\nsession\s+(\d+)\s+(\d+)$/m;
+
+test("(df1) a git diff is stored compressed over its index-strip fold, its original is retrievable, and /headroom counts it", { options: { storage_enabled: false } }, async ($, on) => {
+  on("ui.open", notPlaced);
+  await startCrusher(on, $);
+  const stored = String(await appendResult($, "Bash", GIT_DIFF));
+  expect(stored).not.toMatch(/^index /m);
+  expect(stored).toMatch(/^\[1 files changed, \+15 -15 lines, 5 hunks omitted\]$/m);
+  const [, hash] = /\n\[110 lines compressed to \d+\. Retrieve original: hash=([0-9a-f]{12})\]$/.exec(stored) ?? [];
+  expect((await $.tool.call({ tool: RETRIEVE_TOOL, hash })).result).toBe(GIT_DIFF);
+  const [, texts, saved] = DIFF_ROW.exec((await $.command.run({ command: "headroom" })).text ?? "") ?? [];
+  expect(Number(texts)).toBe(1);
+  expect(Number(saved)).toBe(GIT_DIFF.length - stored.length);
+});
+
+test("(df2) diff_compressor_enabled false keeps a git diff whole and hides the diff table", { options: { diff_compressor_enabled: false, storage_enabled: false } }, async ($, on) => {
+  on("ui.open", notPlaced);
+  await startCrusher(on, $);
+  expect(await appendResult($, "Bash", GIT_DIFF)).toBe(GIT_DIFF);
+  expect((await $.command.run({ command: "headroom" })).text).not.toMatch(/^diff/m);
 });
