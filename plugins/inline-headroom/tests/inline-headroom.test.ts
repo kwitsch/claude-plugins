@@ -706,6 +706,7 @@ test("(sc2) headroom_retrieve returns the original rows, and an unknown hash is 
   await startCrusher(on, $);
   const { hash } = crushedRows(await appendResult($, "Bash", BIG));
   expect((await $.tool.call({ tool: RETRIEVE_TOOL, hash })).result).toBe(BIG);
+  expect((await $.tool.call({ tool: RETRIEVE_TOOL, hash: `hash=${hash}` })).result).toBe(BIG); // a marker's own `hash=H` text works too
   const miss = await $.tool.call({ tool: RETRIEVE_TOOL, hash: "000000000000" });
   expect(typeof miss.deny).toBe("string");
   await step($, 1, "high");
@@ -913,6 +914,75 @@ test("(dd4) session.end starts the dedup row and its corpus over", { options: { 
   expect((await $.command.run({ command: "headroom" })).text).toMatch(/^dedup\s+spans\s+saved\nsession\s+0\s+0$/m);
   expect(await appendResult($, "Bash", TEN)).toBe(TEN); // the corpus was cleared: nothing earlier to fold against
 });
+
+// The kit raises session.compact with exactly the args it is given, so a test passes the engine's own fields (trigger, agentId, messages) too.
+const SUMMARY = { role: "user" as const, text: "summary", toolUses: [] };
+const compact = ($: Engine, trigger: string, agentId?: string) => $.session.compact({ trigger, messages: [SUMMARY], ...(agentId === undefined ? {} : { agentId }) } as never);
+
+test("(dd5) a compaction starts only the compacting loop's dedup corpus over and keeps its ordinals, a skipped or precompute one keeps it", { options: { storage_enabled: false } }, async ($, on) => {
+  let skip: string | undefined;
+  on("session.compact", async () => (skip === undefined ? { messages: [SUMMARY] } : { skip }));
+  await startCrusher(on, $);
+  await appendResult($, "Bash", TEN); // main result 1
+  await appendResult($, "Bash", TEN, { agentId: "a1" }); // a1's result 1
+  skip = "off";
+  await compact($, "manual");
+  skip = undefined;
+  await compact($, "precompute");
+  expect(String(await appendResult($, "Bash", TEN))).toMatch(POINTER); // main result 2: neither compaction touched the corpus
+  await compact($, "auto", "a1");
+  expect(await appendResult($, "Bash", TEN, { agentId: "a1" })).toBe(TEN); // a1's corpus is gone
+  expect(String(await appendResult($, "Bash", TEN))).toMatch(POINTER); // main result 3: its corpus is not
+  await compact($, "manual");
+  expect(await appendResult($, "Bash", TEN)).toBe(TEN); // main result 4: nothing earlier to fold against
+  const [, , ref] = POINTER.exec(String(await appendResult($, "Bash", TEN))) ?? [];
+  expect(Number(ref)).toBe(4); // result 5 names result 4: the ordinals went on
+});
+
+// `n` distinct 3-line runs numbered from `from`, each followed by a separator line: two rows with the same runs and different `sep` fold each run into its own pointer.
+const runsRow = (n: number, from: number, sep: string) =>
+  Array.from({ length: n }, (_, i) => {
+    const k = from + i;
+    return [`run ${k} line one of the shared text`, `run ${k} line two of the shared text`, `run ${k} line three of the shared text`, `separator ${sep} ${k}`].join("\n");
+  }).join("\n");
+const hashesOf = (text: unknown): string[] => [...String(text).matchAll(/ hash=([0-9a-f]{12})\]/g)].map((m) => m[1]);
+
+test("(dd7) dedup runs have a store of their own, so a flood of them never evicts a crushed original", { options: { storage_enabled: false } }, async ($, on) => {
+  await startCrusher(on, $);
+  const { hash } = crushedRows(await appendResult($, "Bash", BIG));
+  await appendResult($, "Bash", runsRow(600, 0, "a"));
+  const first = hashesOf(await appendResult($, "Bash", runsRow(600, 0, "b")));
+  await appendResult($, "Bash", runsRow(600, 600, "a"));
+  const last = hashesOf(await appendResult($, "Bash", runsRow(600, 600, "b")));
+  expect([first.length, last.length]).toEqual([600, 600]);
+  expect((await $.tool.call({ tool: RETRIEVE_TOOL, hash })).result).toBe(BIG); // 1200 runs went through the store of 1000
+  expect((await $.tool.call({ tool: RETRIEVE_TOOL, hash: last[599] })).result).toBe(runsRow(1, 1199, "b").split("\n").slice(0, 3).join("\n"));
+  expect(typeof (await $.tool.call({ tool: RETRIEVE_TOOL, hash: first[0] })).deny).toBe("string"); // the oldest runs went
+});
+
+test("(dd9) a row folding more runs than the store holds keeps every one of its own pointers retrievable", { options: { storage_enabled: false } }, async ($, on) => {
+  await startCrusher(on, $);
+  await appendResult($, "Bash", runsRow(1001, 0, "a"));
+  const hashes = hashesOf(await appendResult($, "Bash", runsRow(1001, 0, "b")));
+  expect(hashes).toHaveLength(1001);
+  expect((await $.tool.call({ tool: RETRIEVE_TOOL, hash: hashes[0] })).result).toBe(runsRow(1, 0, "b").split("\n").slice(0, 3).join("\n"));
+  expect((await $.tool.call({ tool: RETRIEVE_TOOL, hash: hashes[1000] })).result).toBe(runsRow(1, 1000, "b").split("\n").slice(0, 3).join("\n"));
+});
+
+test(
+  "(dd6) a finished agent's turn.complete starts its dedup corpus over, with every other hook of that event off, and leaves the main loop's",
+  { options: { storage_enabled: false, subagent_effort_routing_enabled: false } },
+  async ($, on) => {
+    on("turn.complete", async () => ({ text: "" }));
+    await startCrusher(on, $);
+    await appendResult($, "Bash", TEN);
+    await appendResult($, "Bash", TEN, { agentId: "a1" }); // a1's result 1
+    await $.turn.complete({ ...DONE, agentId: "a1" });
+    expect(await appendResult($, "Bash", TEN, { agentId: "a1" })).toBe(TEN); // a1's result 2: nothing earlier to fold against
+    expect(String(await appendResult($, "Bash", TEN, { agentId: "a1" }))).toMatch(/same as result 2: /);
+    expect(String(await appendResult($, "Bash", TEN))).toMatch(POINTER); // the main loop's corpus stayed
+  },
+);
 
 test("(de1) a dense line is stored elided with a retrieval line, and the original is retrievable", { options: { storage_enabled: false } }, async ($, on) => {
   on("ui.open", notPlaced);

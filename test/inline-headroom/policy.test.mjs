@@ -25,6 +25,8 @@ import {
   isCacheDrop,
   isOwnStorageCall,
   isToolError,
+  resetCorpus,
+  retrieveKey,
   rewriteToolResults,
   statsTables,
   stepEffort,
@@ -304,11 +306,30 @@ test("storeOffloaded evicts the oldest entry beyond CCR_CAPACITY", () => {
   const store = new Map();
   storeOffloaded(
     store,
-    Array.from({ length: CCR_CAPACITY + 1 }, (_, i) => /** @type {[string, string]} */ ([`h${i}`, `[${i}]`])),
+    Array.from({ length: CCR_CAPACITY }, (_, i) => /** @type {[string, string]} */ ([`h${i}`, `[${i}]`])),
   );
+  storeOffloaded(store, [["new", "[new]"]]);
   assert.equal(store.size, CCR_CAPACITY);
   assert.equal(store.has("h0"), false);
-  assert.equal(store.get(`h${CCR_CAPACITY}`), `[${CCR_CAPACITY}]`);
+  assert.equal(store.get("new"), "[new]");
+});
+
+test("storeOffloaded never evicts the entries it was just given, even when they alone pass a cap", () => {
+  /** @type {Map<string, string>} */
+  const store = new Map([["old", "[old]"]]);
+  const batch = Array.from({ length: CCR_CAPACITY + 1 }, (_, i) => /** @type {[string, string]} */ ([`h${i}`, `[${i}]`]));
+  storeOffloaded(store, batch);
+  assert.equal(store.has("old"), false); // the older entry went first
+  assert.deepEqual(
+    [...store.keys()],
+    batch.map(([hash]) => hash),
+  ); // all 1001 stay: their markers are about to be stored
+  const huge = "x".repeat(CCR_MAX_CHARS + 1);
+  storeOffloaded(store, [["huge", huge]]);
+  assert.equal(store.get("huge"), huge); // a single original over CCR_MAX_CHARS stays until the next call
+  assert.equal(store.has("h0"), false);
+  storeOffloaded(store, [["next", "[next]"]]);
+  assert.deepEqual([...store.keys()], ["next"]); // then the older entries go, over-cap `huge` among them
 });
 
 test("storeOffloaded evicts the oldest entries beyond CCR_MAX_CHARS", () => {
@@ -337,6 +358,15 @@ test("storeOffloaded moves a re-put hash to the newest position, so it outlives 
   storeOffloaded(store, [["new", "[1]"]]);
   assert.equal(store.get("h0"), "[0]");
   assert.equal(store.has("h1"), false);
+});
+
+test("retrieveKey takes a bare hash, one with its marker's hash= or <<ccr: prefix, and nothing else", () => {
+  assert.equal(retrieveKey("abc123def456"), "abc123def456");
+  assert.equal(retrieveKey(" hash=abc123def456 "), "abc123def456");
+  assert.equal(retrieveKey("<<ccr:abc123def456 40_rows_offloaded>>"), "abc123def456");
+  assert.equal(retrieveKey(""), "");
+  assert.equal(retrieveKey(42), undefined);
+  assert.equal(retrieveKey(undefined), undefined);
 });
 
 test("crushQuery walks back from the last message, stops after the 5th user message with text and adds tool-call input JSON", () => {
@@ -764,12 +794,16 @@ test("dedupBlock is prefix-monotonic: an earlier block's output never depends on
   for (let k = 1; k <= blocks.length; k++) assert.deepEqual(run(blocks.slice(0, k)), full.slice(0, k));
 });
 
-test("dedupBlock drops the least recently appended conversation over DEDUP_MAX_CHARS, and resets a lone one", () => {
+test("dedupBlock empties the least recently appended conversation over DEDUP_MAX_CHARS and keeps its ordinals, and resets a lone one", () => {
   const half = "x".repeat(DEDUP_MAX_CHARS / 2 + 1);
   const states = conversations();
-  dedupBlock(states, "a1", half, false);
+  dedupBlock(states, "a1", RUN, false); // a1's result 1
+  dedupBlock(states, "a1", half, false); // a1's result 2
   dedupBlock(states, "", half, false);
-  assert.deepEqual([...states.keys()], [""]);
+  const a1 = /** @type {DedupState} */ (states.get("a1"));
+  assert.deepEqual([a1.turn, a1.corpus.size, a1.index.size, a1.chars], [2, 0, 0, 0]); // emptied, not forgotten
+  assert.equal(dedupBlock(states, "a1", RUN, false), undefined); // a1's result 3: results 1 and 2 left the corpus
+  assert.match(fold(states, "a1", RUN).text, /^\[↑3L same as result 3: /); // never "result 1" again
   const solo = conversations();
   dedupBlock(solo, "", RUN, false); // result 1
   dedupBlock(solo, "", "y".repeat(DEDUP_MAX_CHARS + 1), false); // result 2, over the cap alone
@@ -777,6 +811,16 @@ test("dedupBlock drops the least recently appended conversation over DEDUP_MAX_C
   assert.deepEqual([st.turn, st.corpus.size, st.index.size, st.chars], [2, 0, 0, 0]);
   assert.equal(dedupBlock(solo, "", RUN, false), undefined); // result 3: result 1 left the corpus
   assert.match(fold(solo, "", RUN).text, /^\[↑3L same as result 3: /);
+});
+
+test("resetCorpus empties a conversation's corpus but keeps its ordinals", () => {
+  const states = conversations();
+  dedupBlock(states, "", RUN, false); // result 1
+  resetCorpus(/** @type {DedupState} */ (states.get("")));
+  const st = /** @type {DedupState} */ (states.get(""));
+  assert.deepEqual([st.turn, st.corpus.size, st.index.size, st.chars], [1, 0, 0, 0]);
+  assert.equal(dedupBlock(states, "", RUN, false), undefined); // result 2: result 1 left the corpus
+  assert.match(fold(states, "", RUN).text, /^\[↑3L same as result 2: /);
 });
 
 /** @typedef {import("../../plugins/inline-headroom/hooks/policy.mjs").ContentBlock} ContentBlock */
@@ -843,8 +887,23 @@ test("rewriteToolResults never rewrites an error block, but a later result folds
   assert.equal(r.dedup.spans, 1);
 });
 
+test("rewriteToolResults starts the conversation's corpus over when it throws midway, since the row is then stored as made", () => {
+  const lv = levers();
+  const boom = {
+    type: "tool_result",
+    tool_use_id: "toolu_2",
+    get content() {
+      throw new Error("boom");
+    },
+  };
+  assert.throws(() => rewriteToolResults([toolResult(RUN), boom], "Bash", lv, ""), /boom/); // the first block was indexed before the throw
+  assert.equal(rewriteToolResults([toolResult(RUN)], "Bash", lv, ""), undefined); // nothing to fold against
+  assert.match(String(rewrite([toolResult(RUN)], "Bash", lv).content[0].content), /^\[↑3L same as result 2: /); // and the ordinals went on: result 1 was the half-indexed block
+});
+
 test("rewriteToolResults leaves headroom_retrieve and the mod's own storage tools alone", () => {
-  for (const tool of [RETRIEVE_TOOL, "mcp__plugin_inline-headroom_storage__kv_get"]) {
+  // The retrieve tool by any name an engine may report: in full, bare, or under another server's namespace.
+  for (const tool of [RETRIEVE_TOOL, "headroom_retrieve", "mcp__other__headroom_retrieve", "mcp__plugin_inline-headroom_storage__kv_get"]) {
     const lv = levers();
     assert.equal(rewriteToolResults([toolResult(BIG)], tool, lv, ""), undefined, tool);
     assert.equal(rewriteToolResults([toolResult(DENSE_TEXT)], tool, lv, ""), undefined, tool);
@@ -882,7 +941,8 @@ test("rewriteToolResults deduplicates the elided text, not the original", () => 
   assert.match(pointer, /^\[↑4L same as result 1: "x{17}\.\.\." hash=[0-9a-f]{12}\]$/);
   assert.equal(second.dedup.spans, 1);
   assert.equal(second.dedup.saved, stored.length - pointer.length);
-  assert.deepEqual(second.offloaded.at(-1), [pointer.slice(-13, -1), stored]);
+  assert.deepEqual(second.folded, [[pointer.slice(-13, -1), stored]]); // a dedup run goes to its own store, apart from the elider's original
+  assert.equal(second.offloaded.length, 1);
 });
 
 test("rewriteToolResults neither deduplicates nor indexes a result with several text blocks", () => {
@@ -918,8 +978,13 @@ test("wantsQuery asks for the transcript only for a JSON document the crusher ma
   assert.equal(wantsQuery([toolResult([IMAGE, { type: "text", text: BIG }])], "mcp__srv__list"), true);
   assert.equal(wantsQuery([toolResult(BIG, true)], "Bash"), false);
   assert.equal(wantsQuery([toolResult(BIG)], RETRIEVE_TOOL), false);
+  assert.equal(wantsQuery([toolResult(BIG)], "headroom_retrieve"), false);
+  assert.equal(wantsQuery([toolResult(BIG)], "mcp__srv__my_headroom_retrieve"), true); // only the exact tool name, not a longer one ending in it
   assert.equal(wantsQuery([toolResult(BIG)], "mcp__plugin_inline-headroom_storage__kv_get"), false);
   assert.equal(wantsQuery([toolResult("[1,2,3]")], "Bash"), false);
   assert.equal(wantsQuery([toolResult("x".repeat(900))], "Bash"), false);
+  // Text that merely starts with a bracket and is long never costs a transcript fetch: only a whole parsing document does.
+  assert.equal(wantsQuery([toolResult("[ 10%] Building CXX object foo.o\n".repeat(40))], "Bash"), false);
+  assert.equal(wantsQuery([toolResult("{" + "x".repeat(900))], "Bash"), false);
   assert.equal(wantsQuery([toolResult([{ type: "tool_reference", tool_name: "Read" }])], "ToolSearch"), false);
 });

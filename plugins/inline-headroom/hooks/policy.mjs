@@ -26,10 +26,12 @@
  * @typedef {{ crush: boolean, elide: boolean, dedup?: { states: Map<string, DedupState>, key: string } }} Levers
  */
 /**
- * A rewritten tool-result row: its blocks, the originals for the CCR store, and each lever's savings.
+ * A rewritten tool-result row: its blocks, the originals for the CCR store (`offloaded`: the crusher's and the elider's sole copies;
+ * `folded`: dedup runs, which a pointer's earlier result still holds), and each lever's savings.
  * @typedef {object} RowRewrite
  * @property {ContentBlock[]} content
  * @property {[string, string][]} offloaded
+ * @property {[string, string][]} folded
  * @property {{ dropped: number, saved: number }} crush
  * @property {{ lines: number, saved: number }} elide
  * @property {{ spans: number, saved: number }} dedup
@@ -123,6 +125,7 @@ const ANCHOR_EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g;
 const BM25_TOKEN_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\b\d{4,}\b|[a-z0-9_]+/g;
 // The mod's own storage tools are never crushed: a kv_get → edit → kv_set would write the row loss back to storage.db.
 const OWN_STORAGE_PREFIX = `mcp__plugin_${PLUGIN}_storage__`;
+const RETRIEVE_SUFFIX = `__${RETRIEVE_NAME}`;
 // Dense line elider: upstream dense_line_elider.py.
 const DENSE_MIN_LINE_CHARS = 300;
 const DENSE_MAX_SPACE_RATIO = 0.06;
@@ -509,7 +512,9 @@ export function computeOptimalK(itemStrings) {
 
 /**
  * Stores offloaded originals for headroom_retrieve: a re-put moves its hash to the newest position, and the
- * oldest entries go while the store holds more than CCR_CAPACITY entries or CCR_MAX_CHARS characters. Mutates `store`.
+ * oldest entries go while the store holds more than CCR_CAPACITY entries or CCR_MAX_CHARS characters. Never an entry
+ * of `entries` itself: the row that carries their markers is stored next, so a batch may leave the store over a cap until
+ * the next call. Mutates `store`.
  * shortcut: no idle TTL (upstream: 30 min); add one with a time argument from register.ts if memory becomes a concern.
  * @param {Map<string, string>} store hash → original text (a crushed array's JSON, an elided block, a folded span), oldest first
  * @param {readonly [string, string][]} entries
@@ -522,11 +527,28 @@ export function storeOffloaded(store, entries) {
   }
   let chars = 0;
   for (const json of store.values()) chars += json.length;
+  const incoming = new Set(entries.map(([hash]) => hash));
   for (const [hash, json] of store) {
-    if (store.size <= CCR_CAPACITY && chars <= CCR_MAX_CHARS) break;
+    // The batch is the newest tail of the store: stop there, so a marker this row just carried never names a hash it evicted itself.
+    if ((store.size <= CCR_CAPACITY && chars <= CCR_MAX_CHARS) || incoming.has(hash)) break;
     store.delete(hash);
     chars -= json.length;
   }
+}
+
+/**
+ * The CCR key in what the model passed to headroom_retrieve: the bare hash, or one copied with its marker's `hash=` or
+ * `<<ccr:` prefix (the tool's description cites both forms). Anything else is returned trimmed, as is.
+ * @param {unknown} hash
+ * @returns {string|undefined} undefined unless `hash` is a string
+ */
+export function retrieveKey(hash) {
+  return typeof hash === "string"
+    ? (hash
+        .trim()
+        .replace(/^(?:hash=|<<ccr:)/, "")
+        .split(/\s/)[0] ?? "")
+    : undefined;
 }
 
 /**
@@ -1764,11 +1786,23 @@ function pointer(span, refTurn, delta, hash) {
 }
 
 /**
+ * Empties a conversation's dedup corpus and keeps its ordinal counter, so a later pointer's "result N" never repeats
+ * the number of a result that left the corpus. Mutates `st`.
+ * @param {DedupState} st
+ * @returns {void}
+ */
+export function resetCorpus(st) {
+  st.corpus.clear();
+  st.index.clear();
+  st.chars = 0;
+}
+
+/**
  * Cross-turn dedup (upstream cross_turn_dedup.py) for one tool-result text appended to conversation `key`: each run of
  * at least 3 lines and 40 characters found verbatim (or under one uniform line-number shift) in an earlier block of the
  * same conversation becomes a pointer naming that block's ordinal, with the run's own text stored under a CCR hash.
- * A protected text is only indexed. The block is then indexed, and the oldest conversations are dropped while all
- * corpora hold more than DEDUP_MAX_CHARS. Mutates `states`. Undefined when nothing folded.
+ * A protected text is only indexed. The block is then indexed, and the oldest conversations are emptied (resetCorpus,
+ * their ordinals kept) while all corpora hold more than DEDUP_MAX_CHARS. Mutates `states`. Undefined when nothing folded.
  * @param {Map<string, DedupState>} states conversation key → corpus, least recently appended first
  * @param {string} key "" for the main loop, else the agentId
  * @param {string} text
@@ -1819,14 +1853,11 @@ export function dedupBlock(states, key, text, isProtected) {
   for (const [oldest, s] of states) {
     if (total <= DEDUP_MAX_CHARS) break;
     if (oldest === key) {
-      // This conversation alone is over the cap: start its corpus over, but keep counting ordinals.
-      st.corpus.clear();
-      st.index.clear();
-      st.chars = 0;
+      resetCorpus(st); // this conversation alone is over the cap
       break;
     }
     total -= s.chars;
-    states.delete(oldest);
+    resetCorpus(s); // kept, not deleted: its ordinal counter must not restart at 1 while earlier pointers still name its results
   }
   return spans > 0 ? { text: out.join("\n"), spans, offloaded } : undefined;
 }
@@ -1845,13 +1876,24 @@ function resultTexts(block) {
 }
 
 /**
+ * A row whose result is never rewritten: a headroom_retrieve result (the original text itself, so rewriting it again
+ * would loop; matched by name in any namespace, as a row's `origin.tool` is not live-verified to carry the full one) and
+ * the mod's own storage tools.
+ * @param {string} tool a row's origin tool
+ * @returns {boolean}
+ */
+function isProtectedTool(tool) {
+  return tool === RETRIEVE_NAME || tool.endsWith(RETRIEVE_SUFFIX) || tool.startsWith(OWN_STORAGE_PREFIX);
+}
+
+/**
  * Whether a tool-result row holds text the SmartCrusher may rewrite, so the hook pays the transcript fetch only then.
  * @param {readonly ContentBlock[]} content the row's blocks
  * @param {string} tool the row's origin tool
  * @returns {boolean}
  */
 export function wantsQuery(content, tool) {
-  if (tool === RETRIEVE_TOOL || tool.startsWith(OWN_STORAGE_PREFIX)) return false;
+  if (isProtectedTool(tool)) return false;
   return content.some((b) => isRecord(b) && b.type === "tool_result" && b.is_error !== true && resultTexts(b).some(looksLikeJsonDoc));
 }
 
@@ -1859,7 +1901,8 @@ export function wantsQuery(content, tool) {
  * Rewrites a tool-result row's blocks before they are stored: per tool_result block, each text is crushed (one whole
  * JSON document) or else dense-line-elided, then a single-text result is deduplicated against earlier results of the
  * same conversation. Error blocks and headroom_retrieve / own-storage rows are never rewritten (dedup still indexes
- * them). Undefined when no block changed. Mutates levers.dedup.states.
+ * them). Undefined when no block changed. Mutates levers.dedup.states; a throw starts that conversation's corpus over,
+ * since a block indexed before it belongs to a row that is then stored as made.
  * @param {readonly ContentBlock[]} content the row's blocks
  * @param {string} tool the row's origin tool
  * @param {Levers} levers
@@ -1867,9 +1910,28 @@ export function wantsQuery(content, tool) {
  * @returns {RowRewrite|undefined}
  */
 export function rewriteToolResults(content, tool, levers, query) {
-  const rowProtected = tool === RETRIEVE_TOOL || tool.startsWith(OWN_STORAGE_PREFIX);
+  try {
+    return rewriteRow(content, tool, levers, query);
+  } catch (err) {
+    const d = levers.dedup;
+    const st = d && d.states.get(d.key);
+    if (st) resetCorpus(st);
+    throw err;
+  }
+}
+
+/**
+ * rewriteToolResults without its failure handling.
+ * @param {readonly ContentBlock[]} content
+ * @param {string} tool
+ * @param {Levers} levers
+ * @param {string} query
+ * @returns {RowRewrite|undefined}
+ */
+function rewriteRow(content, tool, levers, query) {
+  const rowProtected = isProtectedTool(tool);
   /** @type {Omit<RowRewrite, "content">} */
-  const acc = { offloaded: [], crush: { dropped: 0, saved: 0 }, elide: { lines: 0, saved: 0 }, dedup: { spans: 0, saved: 0 } };
+  const acc = { offloaded: [], folded: [], crush: { dropped: 0, saved: 0 }, elide: { lines: 0, saved: 0 }, dedup: { spans: 0, saved: 0 } };
   let changed = false;
   /** @type {ContentBlock[]} */
   const mapped = content.map((b) => {
@@ -1908,7 +1970,7 @@ export function rewriteToolResults(content, tool, levers, query) {
       if (!f) return text;
       acc.dedup.spans += f.spans;
       acc.dedup.saved += text.length - f.text.length;
-      acc.offloaded.push(...f.offloaded);
+      acc.folded.push(...f.offloaded);
       return f.text;
     };
     const c = b.content;

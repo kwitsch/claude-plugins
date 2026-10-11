@@ -14,6 +14,8 @@ import {
   isOwnStorageCall,
   isToolError,
   pct,
+  resetCorpus,
+  retrieveKey,
   rewriteToolResults,
   statsTables,
   stepEffort,
@@ -35,8 +37,15 @@ const crush = { dropped: 0, saved: 0 }; // this session's SmartCrusher savings: 
 const dedup = { spans: 0, saved: 0 }; // this session's cross-turn dedup savings: in memory only, never persisted
 const elide = { lines: 0, saved: 0 }; // this session's dense line elider savings: in memory only, never persisted
 const dedupStates = new Map<string, DedupState>(); // conversation ("" main, else agentId) → its dedup corpus; reset on session.end
+// Starts one conversation's dedup corpus over (its ordinals keep counting): what it indexes left the model's context.
+const dropCorpus = (key: string): void => {
+  const st = dedupStates.get(key);
+  if (st) resetCorpus(st);
+};
 let retrieveReady = false; // session.start registered headroom_retrieve under its expected name in this module load
-const offloaded = new Map<string, string>(); // CCR hash → original text (crushed array JSON, elided block, folded span), oldest first (storeOffloaded evicts)
+const offloaded = new Map<string, string>(); // CCR hash → original text (crushed array JSON, elided block): the only copy, oldest first (storeOffloaded evicts)
+// A second store, so dedup churn never evicts a sole copy above: a folded run's earlier copy is still in the transcript until a compaction.
+const folded = new Map<string, string>(); // CCR hash → a folded dedup run's text, oldest first
 // The session row: this session's counters, in memory.
 const session: Counters = zeroCounters();
 const stats = {
@@ -75,7 +84,8 @@ const RETRIEVE_SPEC = {
 };
 // headroom_retrieve's answer: the original text, or a deny the model reads as a failed call.
 const retrieve = (hash: unknown) => {
-  const original = typeof hash === "string" ? offloaded.get(hash) : undefined;
+  const key = retrieveKey(hash);
+  const original = key === undefined ? undefined : (offloaded.get(key) ?? folded.get(key));
   return original === undefined ? { deny: `headroom_retrieve: no stored content under hash ${String(hash)} (evicted, or the mod reloaded)` } : { result: original };
 };
 
@@ -327,10 +337,11 @@ export const register: Register = (on, options) => {
         }
         rw = rewriteToolResults(e.message.content, tool, { crush: crusherOn, elide: elideOn, dedup: dedupOn ? { states: dedupStates, key: e.agentId ?? "" } : undefined }, query);
       } catch {
-        rw = undefined; // fail open: the row is stored as made
+        rw = undefined; // fail open: the row is stored as made (rewriteToolResults has already started a half-indexed corpus over)
       }
       if (!rw) return next(e);
       storeOffloaded(offloaded, rw.offloaded);
+      storeOffloaded(folded, rw.folded);
       crush.dropped += rw.crush.dropped;
       crush.saved += rw.crush.saved;
       dedup.spans += rw.dedup.spans;
@@ -346,6 +357,16 @@ export const register: Register = (on, options) => {
       }
       // next exactly once, its answer relayed unchanged: the engine skips a hook that answers another row.
       return next({ ...e, message: { ...e.message, content: rw.content } });
+    });
+  }
+
+  if (dedupOn) {
+    // A compaction swaps the transcript for a summary, so the results the corpus indexes are no longer in the model's context
+    // and a pointer to one would name nothing it can read. A skipped compaction and a `precompute` (nothing installed) keep the corpus.
+    on("session.compact", async (_$, e, next) => {
+      const r = await next(e);
+      if (r.skip === undefined && e.trigger !== "precompute") dropCorpus(e.agentId ?? "");
+      return r;
     });
   }
 
@@ -409,11 +430,15 @@ export const register: Register = (on, options) => {
     on("tool.check", async (_$, e, next) => (isOwnStorageCall(next.origin.plugin, e.tool) ? { decision: "allow" as const, reason: "inline-headroom's own /headroom storage call" } : next(e)));
   }
 
-  // One turn.complete hook for both jobs: the engine refuses a second turn.complete without a matcher in one module.
-  if (storageOn || subOn) {
+  // One turn.complete hook for all three jobs: the engine refuses a second turn.complete without a matcher in one module.
+  if (storageOn || subOn || dedupOn) {
     on("turn.complete", async ($, e, next) => {
-      // An agent's error entry ends with its turn, also with storage off or a throwing chain. A no-op while subOn is off: the Set stays empty.
-      if (e.agentId) agentErrored.delete(e.agentId);
+      // An agent's error entry and dedup corpus end with its turn, also with storage off or a throwing chain, so a finished
+      // agent's corpus never counts toward the cap that would evict the main loop's. No-ops while the lever is off: the Set stays empty.
+      if (e.agentId) {
+        agentErrored.delete(e.agentId);
+        dropCorpus(e.agentId);
+      }
       const r = await next(e);
       if (!storageOn || e.agentId) return r; // subagent turns carry no main-loop steps
       let today: string;

@@ -219,18 +219,29 @@ rows. It is the MCP server `storage` (connected as
   the compressed form; the screen's tool row and an SDK stream may show the
   original. Error results, `headroom_retrieve` itself and this plugin's own
   storage tools are never rewritten. Read results are never crushed (their line
-  numbers stop the text from parsing as JSON), but they are deduplicated and
-  elided.
+  numbers stop the text from parsing as JSON) nor elided (every line starts with
+  `N<tab>`, and upstream's elider never touches a line holding a tab), but they
+  are deduplicated.
+- **The elider skips more than minified code.** As upstream, a line is never
+  elided when it holds a tab or any JSON object or array, however small (`{}`,
+  `[1,2]`): a minified bundle with an `exports:{}` span stays whole. The port keeps
+  upstream's guards as they are, with no minimum span size.
 - **A crushed result arrives minified.** When rows are dropped, the whole
   document is re-serialized compactly, with numbers in their shortest form. A
   result that loses no row keeps its exact bytes (upstream minifies it too).
   Use Read for a file's exact text, for example before editing it.
-- **Originals are retrievable while the mod is loaded.** One in-memory store,
-  shared by all three compression levers, keeps the last 1000 originals
-  (crushed arrays, elided blocks and folded runs; at most 16 million characters
-  in all); a hot reload, an options change or a new process loses them, and
-  `headroom_retrieve` then answers with a denied call naming the hash (re-run
-  the tool instead). `headroom_retrieve` never asks for permission: the mod
+- **Originals are retrievable while the mod is loaded.** Two in-memory stores
+  keep the last 1000 originals each (at most 16 million characters each): one
+  for the crusher's dropped rows and the elider's blocks, which exist nowhere
+  else, and one for folded dedup runs, so a flood of repeated reads never
+  pushes out a crushed result's rows. A row that folds more runs than a store
+  holds keeps all of its own until the next row arrives. Both live in memory
+  only: a hot reload, an options change (any option change reloads the mod), a
+  plugin update, a resume or a new process loses them while the transcript keeps
+  the markers, and `headroom_retrieve` then answers with a denied call naming
+  the hash (re-run the tool instead). Writing them to the storage server is not
+  done. The tool accepts the bare hash, `hash=H` and a whole `<<ccr:H …>>`
+  marker. `headroom_retrieve` never asks for permission: the mod
   answers it before Claude Code's permission check, and it only reads what this
   session's own tool results held. It was live-verified callable from a
   general-purpose subagent, but an agent type whose tool list leaves it out
@@ -238,13 +249,17 @@ rows. It is the MCP server `storage` (connected as
   need exact output. A read-modify-write over another MCP server's JSON should
   fetch the whole value first.
 - **A dedup pointer may name a result that left the context.** After
-  compaction the result a pointer names may be gone from the conversation;
-  `headroom_retrieve` with the pointer's hash still returns the run while the
-  mod is loaded.
+  compaction the result a pointer already in the transcript names may be gone
+  from the conversation; `headroom_retrieve` with the pointer's hash still
+  returns the run while the mod is loaded. A compaction empties the compacting
+  conversation's dedup corpus, so no later pointer names a compacted result.
 - **The dedup corpus is bounded.** It indexes at most 4 million characters
   across the main loop and all subagents (the least recently active
-  conversation is dropped first) and starts over on `/clear`, a hot reload and
-  an options change; a repeat of older content stays verbatim.
+  conversation is emptied first). A finished subagent's corpus is emptied when
+  its turn completes, a compaction empties the compacting conversation's, and
+  `/clear`, a hot reload and an options change start everything over; a repeat
+  of older content stays verbatim. An emptied conversation's result numbers keep
+  counting, so a pointer never reuses an earlier result's number.
 - **Markers start at column zero.** A dedup pointer or an elider retrieval line
   inside an indented subagent report is not indented.
 - **Compression counts are not persisted.** The `smart crusher`, `dedup` and
@@ -329,9 +344,11 @@ Deviations:
 
 - Incremental at append time instead of a per-request batch. The corpus is per
   conversation (the main loop, or one subagent) and lives in module memory. It
-  is capped at 4,000,000 indexed characters across conversations, dropping the
-  least recently appended conversation first, or resetting the current one when
-  it alone exceeds the cap. It is cleared on `/clear` and lost on a mod reload.
+  is capped at 4,000,000 indexed characters across conversations, emptying the
+  least recently appended conversation first (its result numbers keep
+  counting), or the current one when it alone exceeds the cap. A finished
+  agent's turn and a compaction of a conversation empty its corpus too. It is
+  cleared on `/clear` and lost on a mod reload.
 - The pointer names `result N`, where N is the mod's 1-based ordinal of the
   conversation's indexed tool results, instead of `msg N`. N is the message
   index in upstream's request; the mod has no request-level view at append

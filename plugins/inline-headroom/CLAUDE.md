@@ -225,25 +225,43 @@ dense line elider:
   name a missing tool), `origin.kind === "tool"`, and a subagent row
   (`e.agentId`) only while `subagent_compression_enabled` is on.
 - Protected rows are never rewritten: a block with `is_error === true`, and
-  every block of a `headroom_retrieve` or `mcp__plugin_inline-headroom_storage__*`
-  row (a `kv_get` → edit → `kv_set` would write the loss back to `storage.db`).
-  Dedup still indexes them as originals.
+  every block of a `headroom_retrieve` row (matched by tool name in any
+  namespace: the full name, the bare name or another server's, since a row's
+  `origin.tool` for a plugin-registered tool is not live-verified) or an
+  `mcp__plugin_inline-headroom_storage__*` row (a `kv_get` → edit → `kv_set`
+  would write the loss back to `storage.db`). Dedup still indexes them as
+  originals.
 - `wantsQuery` gates the `$.session.messages()` fetch (`{ agentId }` for a
   subagent row; a `{ deny }` means an empty query), so the transcript is read
   only for a row holding a JSON document the crusher may rewrite; a failed
   fetch crushes without query signals.
 - `next` is called exactly once on every path and its answer is returned
   unchanged. Any throw before it (the fetch, the pipeline) passes the row
-  through unchanged (fail open); a rejection from `next` itself propagates.
-- Every dropped original goes to the in-memory `offloaded` `Map` through
-  `storeOffloaded` (1000 entries and `CCR_MAX_CHARS` characters, oldest
-  evicted, no TTL; upstream caps by count only), one store for all three
-  levers.
+  through unchanged (fail open), and a throw inside `rewriteToolResults` first
+  empties that conversation's dedup corpus (a block indexed before the throw
+  belongs to a row stored as made); a rejection from `next` itself propagates
+  and leaves the row's block indexed (no trigger is known: the kit skips a
+  throwing hook beneath instead of rejecting).
+- Every dropped original goes to an in-memory `Map` through `storeOffloaded`
+  (1000 entries and `CCR_MAX_CHARS` characters each, oldest evicted, no TTL;
+  upstream caps by count only), in two stores so dedup churn never evicts a
+  sole copy: `offloaded` holds the crusher's and the elider's originals, which
+  exist nowhere else, and `folded` holds dedup runs, whose earlier copy is still
+  in the transcript until a compaction. `storeOffloaded` never evicts an entry
+  of the batch it was just given (a row's markers always resolve, even when it
+  folds more than 1000 runs), so a store may sit over a cap until its next call.
+  Both stores are module memory only: a mod reload (an options change, a plugin
+  update) or a resumed session loses every original while the transcript keeps
+  the markers, and `headroom_retrieve` then denies the hash. Persisting them in
+  the storage server is deferred (a `kv_set` value is capped at 1 MiB, and each
+  write would be an awaited storage call inside the append hook).
 - The module's one matcher-less `tool.call` hook (registered while
   `effort_routing_enabled` or any compression lever is on) observes effort
   errors and answers `mcp__inline-headroom__headroom_retrieve` itself from
-  `offloaded` (`session.start` registers the tool); a miss is a `{ deny }`,
-  which the effort observer counts as a failure.
+  `offloaded`, then `folded` (`session.start` registers the tool); a miss is a
+  `{ deny }`, which the effort observer counts as a failure. `retrieveKey`
+  accepts the bare hash, `hash=H` and a whole `<<ccr:H …>>` marker, because the
+  tool's description cites the marker forms.
 - Model-only holds structurally: a tool-result row answers a `tool_use` block
   of the model's response, and a `session.append` rewrite never changes what a
   plugin's `$.tool.call` resolves to.
@@ -282,16 +300,22 @@ Deviations from upstream:
 - Incremental at append time instead of a per-request batch. The corpus is per
   conversation (the main loop, or one `agentId`) and lives in module memory
   (`dedupStates` in `register.ts`). It is capped at `DEDUP_MAX_CHARS`
-  (4,000,000) indexed characters across conversations, dropping the least
-  recently appended conversation first, or resetting the current one when it
-  alone exceeds the cap (its ordinals keep counting). It is cleared on
-  `session.end` and lost on a mod reload.
+  (4,000,000) indexed characters across conversations, emptying the least
+  recently appended conversation first (`resetCorpus`), or the current one when
+  it alone exceeds the cap. An emptied conversation keeps its ordinal counter,
+  so a later pointer never reuses the number of a result that left the corpus.
+  The same reset runs on a finished agent's `turn.complete` (its corpus would
+  otherwise count toward the cap that evicts the main loop's), on the
+  compacting loop's `session.compact` (the results it indexes left the model's
+  context; not on a skip or a `precompute`, which installs nothing) and on a
+  throw inside `rewriteToolResults`. It is cleared whole on `session.end` and
+  lost on a mod reload.
 - The pointer names `result N`, where N is the mod's 1-based ordinal of the
   conversation's indexed tool results, instead of `msg N`. N is the message
   index in upstream's request; the mod has no request-level view at append
   time.
 - The pointer adds ` hash=H`. Upstream recovery is in context only, but the mod
-  also stores the folded run's exact text in the CCR store, so a pointer whose
+  also stores the folded run's exact text in the `folded` CCR store, so a pointer whose
   original was compacted away stays recoverable while the mod is loaded.
 - Because of that suffix, a fold is emitted only when the pointer is shorter
   than the run. Upstream relies on `min_chars` alone for its net win.
@@ -330,6 +354,13 @@ Ported verbatim:
 - No elision of text another compressor rewrote (SmartCrusher output; upstream
   `_DENSE_ELIDE_AFTER`).
 
+Faithful-to-upstream consequences (kept, not bugs): a line holding a tab is
+never dense, which covers every line of Read output (`N\t…`), and a line is not
+dense when the span scan finds any JSON object or array in it, however small
+(`{}`, `[1,2]`). A minified bundle with an `exports:{}` span, or any Read of one,
+therefore stays whole. Upstream has no minimum span size or tab exemption;
+relaxing either would diverge from it, so it is deferred.
+
 Deviations from upstream:
 
 - The 12-hex `hash64`-based `contentHash` stands in for upstream's CCR key, as
@@ -365,9 +396,12 @@ in the `line elider` table's session-only `lines` and `saved`.
 - One hook per event without a matcher. Verified on 2.1.296, not 2.1.288: a
   module with a second matcher-less `on("turn.complete")` fails both
   `claude plugin validate` and `claude plugin test`, with the error
-  `registered twice without a matcher`. The subagent error cleanup therefore
-  shares the one `turn.complete` hook with the storage write, registered while
-  `storage_enabled` or `subagent_effort_routing_enabled` is on. `tool.call`
+  `registered twice without a matcher`. The subagent error cleanup and a
+  finished agent's dedup-corpus reset therefore share the one `turn.complete`
+  hook with the storage write, registered while `storage_enabled`,
+  `subagent_effort_routing_enabled` or `cross_turn_dedup_enabled` is on.
+  `session.compact` has one matcher-less hook (registered while
+  `cross_turn_dedup_enabled` is on) that resets the dedup corpus. `tool.call`
   likewise has one hook, which observes effort errors and answers
   `headroom_retrieve`, registered while effort routing or any compression
   lever is on. `session.append` has exactly one hook, with the matcher
@@ -535,6 +569,12 @@ delete this heading once it is empty.
 - Workflow-agent tool-result rows.
 - Agent types whose `tools` allowlist names or leaves out `headroom_retrieve`.
 - A dedup pointer whose original was compacted away.
+- A real compaction's `session.compact` dispatch (`trigger`, `agentId` and the
+  `skip` result are read from the typings; the kit raises the event with
+  hand-built input): the dedup corpus reset after `/compact` or an auto-compact.
+- The `origin.tool` of a plugin-registered tool's row at `session.append` (the
+  protected-row check matches `headroom_retrieve` by name in any namespace to
+  stay safe either way).
 
 ## Effort-routing caveat
 
