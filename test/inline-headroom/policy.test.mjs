@@ -18,6 +18,7 @@ import {
   crushQuery,
   crushToolResult,
   dayKey,
+  elideDense,
   findVolatile,
   foldPending,
   isCacheDrop,
@@ -604,4 +605,93 @@ test("non-array MCP results, headroom_retrieve, the mod's storage tools and buil
     assert.equal(isCrushCandidate(tool, r), false, tool);
     assert.equal(crushToolResult(tool, r, ""), undefined, tool);
   }
+});
+
+const HASH_RE = /^[0-9a-f]{12}$/;
+// Any lone (unpaired) UTF-16 surrogate: a cut that splits a pair leaves one behind.
+const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+
+/**
+ * elideDense that must rewrite; throws when the text passes through.
+ * @param {string} text
+ */
+function elide(text) {
+  const r = elideDense(text);
+  if (!r) throw new Error("expected elideDense to rewrite the text");
+  return r;
+}
+
+/**
+ * The omission note a dense line becomes: its head, the count of characters cut, its tail.
+ * @param {string} head
+ * @param {number} omitted
+ * @param {string} tail
+ */
+const elidedLine = (head, omitted, tail) => `${head} ...[${omitted} chars of dense machine-generated content elided]... ${tail}`;
+
+test("elideDense keeps a dense line's first 160 and last 80 characters and ends the block with a retrieval line", () => {
+  const line = "QUJD".repeat(625); // 2500 characters of base64
+  const r = elide(line);
+  const [first, marker, ...rest] = r.text.split("\n");
+  assert.deepEqual(rest, []);
+  assert.equal(first, elidedLine(line.slice(0, 160), 2260, line.slice(-80)));
+  const [, hash] = /^\[1 dense machine-generated line elided\. Retrieve original: hash=([0-9a-f]{12})\]$/.exec(marker) ?? [];
+  assert.match(hash, HASH_RE);
+  assert.equal(r.lines, 1);
+  assert.deepEqual(r.offloaded, [[hash, line]]);
+  /** @type {Map<string, string>} */
+  const store = new Map();
+  storeOffloaded(store, r.offloaded);
+  assert.equal(store.get(hash), line);
+});
+
+test("elideDense passes short text, short lines and a small dense total through", () => {
+  assert.equal(elideDense("x".repeat(299)), undefined);
+  assert.equal(elideDense(Array.from({ length: 8 }, () => "x".repeat(299)).join("\n")), undefined); // 2392 characters, no line of 300
+  assert.equal(elide(Array.from({ length: 8 }, () => "x".repeat(400)).join("\n")).lines, 8);
+  assert.equal(elideDense(Array.from({ length: 6 }, () => "x".repeat(320)).join("\n")), undefined); // dense lines add up to 1920
+});
+
+test("elideDense leaves lines with a tab, 6% spaces, a JSON shape or a JSON document alone", () => {
+  /**
+   * A 1000-character line holding exactly `k` spaces.
+   * @param {number} k
+   */
+  const spaced = (k) => ("x".repeat(15) + " ").repeat(k) + "x".repeat(1000 - 16 * k);
+  assert.equal(elideDense(`${"x".repeat(1200)}\t${"x".repeat(1200)}`), undefined);
+  assert.equal(elideDense([spaced(60), spaced(60), spaced(60)].join("\n")), undefined); // 60 / 1000 is the ratio that rejects
+  assert.equal(elide([spaced(59), spaced(59), spaced(59)].join("\n")).lines, 3);
+  assert.equal(elideDense(`[${"x".repeat(2500)}]`), undefined);
+  assert.equal(elideDense(`  {${"x".repeat(2500)}}  `), undefined);
+  assert.equal(elideDense(`data: {"a":1}${"x".repeat(2500)}`), undefined); // labelled JSON: only the SmartCrusher may touch it
+  assert.equal(elide(`data: {"a":1${"x".repeat(2500)}`).lines, 1); // an unclosed brace holds no document
+});
+
+test("elideDense splits on newlines only, so a CRLF line keeps its carriage return", () => {
+  const r = elide(`${"x".repeat(2500)}\r\nok\r\n`);
+  const lines = r.text.split("\n");
+  assert.ok(lines[0].endsWith(`${"x".repeat(79)}\r`), JSON.stringify(lines[0].slice(-4)));
+  assert.equal(lines[1], "ok\r");
+  assert.equal(lines[2], "");
+  assert.match(lines[3], /^\[1 dense machine-generated line elided\. /);
+});
+
+test("elideDense passes a result that is not shorter through", () => {
+  // Each 300-character line shrinks by one character; the retrieval line adds more than the seven save.
+  assert.equal(elideDense(Array.from({ length: 7 }, () => "x".repeat(300)).join("\n")), undefined);
+});
+
+test("elideDense never cuts a surrogate pair in half", () => {
+  const line = `${"x".repeat(159)}😀${"x".repeat(2400)}😀${"x".repeat(79)}`; // pairs straddle index 160 and length - 80
+  const r = elide(line);
+  const first = r.text.split("\n")[0];
+  assert.equal(first, elidedLine("x".repeat(159), line.length - 159 - 79, "x".repeat(79)));
+  assert.doesNotMatch(r.text, LONE_SURROGATE);
+});
+
+test("elideDense counts every dense line in the retrieval line", () => {
+  const r = elide(`${"y".repeat(1200)}\nmiddle line\n${"z".repeat(1200)}`);
+  assert.equal(r.lines, 2);
+  assert.match(r.text, /\n\[2 dense machine-generated lines elided\. Retrieve original: hash=[0-9a-f]{12}\]$/);
+  assert.equal(r.text.split("\n")[1], "middle line");
 });
