@@ -249,8 +249,8 @@ test("(i) /headroom opens the headroom pane and prints nothing", async ($, on) =
   const out = await $.command.run({ command: "headroom" });
   expect(out.text).toBeUndefined();
   expect(opened.length).toBe(1);
-  // 6 + 5 + 2 × 7 table rows, the storage note, the volatile header and ten gaps.
-  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 37 });
+  // 6 + 5 + 2 × 8 table rows, the storage note, the volatile header and eleven gaps.
+  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 40 });
 });
 
 test("(i2) /headroom falls back to the stats tables as text when the pane is not placed", async ($, on) => {
@@ -556,7 +556,7 @@ test(
     expect(
       await ui.find({
         type: "Text",
-        text: /^effort routing, cache aligner, smart crusher, lossless compaction, cross-turn dedup, dense line elider, config compressor, HTML extractor and log compressor are off/,
+        text: /^effort routing, cache aligner, smart crusher, lossless compaction, cross-turn dedup, dense line elider, config compressor, HTML extractor, log compressor and search compressor are off/,
       }),
     ).toBeDefined();
     expect(await ui.find({ type: "Text", text: /^effort routing$/ })).toBeUndefined();
@@ -1197,4 +1197,28 @@ test("(lg2) log_compressor_enabled false keeps a build log whole and hides the l
   await startCrusher(on, $);
   expect(await appendResult($, "Bash", BUILD_LOG)).toBe(BUILD_LOG);
   expect((await $.command.run({ command: "headroom" })).text).not.toMatch(/^logs/m);
+});
+// A grep dump: 40 matches in each of three files, more than the search compressor keeps.
+const GREP = ["src/alpha.py", "src/beta.py", "src/gamma.py"]
+  .flatMap((f) => Array.from({ length: 40 }, (_, i) => `${f}:${(i + 1) * 3}:    value_${i + 1} = compute_${i + 1}(argument_${(i + 1) * 7})`))
+  .join("\n");
+const SEARCH_ROW = /^search\s+texts\s+saved\nsession\s+(\d+)\s+(\d+)$/m;
+
+test("(sr1) a grep dump is stored compressed, its original is retrievable, and /headroom counts it", { options: { storage_enabled: false } }, async ($, on) => {
+  on("ui.open", notPlaced);
+  await startCrusher(on, $);
+  const stored = String(await appendResult($, "Bash", GREP));
+  expect(stored).toMatch(/^\[\.\.\. and 35 more matches in src\/alpha\.py\]$/m);
+  const [, hash] = /\n\[120 matches compressed to 15\. Retrieve original: hash=([0-9a-f]{12})\]$/.exec(stored) ?? [];
+  expect((await $.tool.call({ tool: RETRIEVE_TOOL, hash })).result).toBe(GREP);
+  const [, texts, saved] = SEARCH_ROW.exec((await $.command.run({ command: "headroom" })).text ?? "") ?? [];
+  expect(Number(texts)).toBe(1);
+  expect(Number(saved)).toBe(GREP.length - stored.length);
+});
+
+test("(sr2) search_compressor_enabled false keeps a grep dump whole and hides the search table", { options: { search_compressor_enabled: false, storage_enabled: false } }, async ($, on) => {
+  on("ui.open", notPlaced);
+  await startCrusher(on, $);
+  expect(await appendResult($, "Bash", GREP)).toBe(GREP);
+  expect((await $.command.run({ command: "headroom" })).text).not.toMatch(/^search/m);
 });

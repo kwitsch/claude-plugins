@@ -4211,6 +4211,396 @@ export function compressLog(text) {
   return out.length < text.length ? { text: out, offloaded: [[hash, text]] } : undefined;
 }
 
+// Search compressor: a port of headroom's search_compressor.rs (compress_with_store with SearchCompressorConfig::default()) and
+// the "search" kind of lossless_compaction.py compact_lossless (search_heading, search_dir_heading and their inverses).
+
+/** @typedef {{ file: string, line: number, content: string, score: number }} SearchMatch one grep hit and its relevance score */
+
+// Upstream SearchCompressorConfig::default(): always_keep_first and always_keep_last are true there and inlined here.
+const SEARCH_MAX_PER_FILE = 5;
+const SEARCH_MAX_TOTAL = 30;
+const SEARCH_MAX_FILES = 15;
+const SEARCH_MIN_K = 5;
+// Upstream lossless_compaction.py _GREP_ROW_RE, _HEADING_ROW_RE and _DIR_DATA_RE; [^\n]* stands in for Python's `.`, which,
+// unlike JS's, also matches a \r.
+const GREP_ROW_RE = /^([^\n:]+):(\d+):([^\n]*)$/;
+const HEADING_ROW_RE = /^(\d+):([^\n]*)$/;
+const DIR_DATA_RE = /^([^/\n:]+):(\d+):([^\n]*)$/;
+// Upstream KeywordDetector in ImportanceContext::Search: the leftmost whole-word error or importance keyword decides (longest
+// first at one start, case-insensitive); warning words count only when neither matched.
+const SEARCH_ERROR_WORDS = new Set(["error", "exception", "fail", "failed", "failure", "fatal", "critical", "crash", "panic", "abort", "timeout", "denied", "rejected"]);
+const SEARCH_UNIVERSAL_RE = new RegExp(`\\b(?:${[...SEARCH_ERROR_WORDS, "important", "note", "todo", "fixme", "hack", "xxx", "bug", "fix"].sort((a, b) => b.length - a.length).join("|")})\\b`, "i");
+const SEARCH_WARN_RE = /\b(?:warning|warn)\b/i;
+const WINDOWS_DRIVE_RE = /^[A-Za-z]:[\\/]/;
+// Context-word substring matching (search and diff scoring) does at most about this many character comparisons.
+const CONTEXT_MATCH_BUDGET = 16_777_216;
+
+/**
+ * The query's context words for search and diff scoring (upstream score_matches, score_hunks): lowercased, whitespace-split,
+ * longer than 2 code points, deduped in first-seen (newest-first) order, and at most CONTEXT_MATCH_BUDGET / chars of them, so
+ * matching them against `chars` characters stays bounded. Deviation: upstream matches every word (the diff compressor even
+ * counts a repeated word twice).
+ * @param {string} query
+ * @param {number} chars the characters the words will be matched against
+ * @returns {string[]}
+ */
+function contextWords(query, chars) {
+  const words = [
+    ...new Set(
+      query
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((w) => Array.from(w).length > 2),
+    ),
+  ];
+  return words.slice(0, Math.max(1, Math.floor(CONTEXT_MATCH_BUDGET / Math.max(chars, 1))));
+}
+
+/**
+ * Upstream has_extension_dot: a dot followed by a run of 1 to 8 ASCII alphanumerics holding a letter (`.md`, `.7z`, not `.3`).
+ * @param {string} tok
+ * @returns {boolean}
+ */
+function hasExtensionDot(tok) {
+  for (let i = tok.indexOf("."); i >= 0 && i + 1 < tok.length; i = tok.indexOf(".", i + 1)) {
+    let end = i + 1;
+    let letter = false;
+    for (; end < tok.length; end++) {
+      const c = tok.charCodeAt(end);
+      if ((c >= 65 && c <= 90) || (c >= 97 && c <= 122)) letter = true;
+      else if (c < 48 || c > 57) break;
+    }
+    if (letter && end - i - 1 <= 8) return true;
+  }
+  return false;
+}
+
+/**
+ * Upstream last_segment_has_extension over line[0, end): the path's last `/` or `\` segment carries an extension. The scan is
+ * charged to `budget`.
+ * @param {string} line
+ * @param {number} end
+ * @param {WorkBudget} budget
+ * @returns {boolean}
+ */
+function lastSegmentHasExtension(line, end, budget) {
+  let s = end;
+  while (s > 0 && line[s - 1] !== "/" && line[s - 1] !== "\\") s--;
+  budget.left -= end - s + 1;
+  return hasExtensionDot(line.slice(s, end));
+}
+
+/**
+ * Upstream path_continues over line[from…]: the first whitespace-free token after the marker still holds path structure
+ * (a `/`, a `\` or an extension dot). The scan is charged to `budget`.
+ * @param {string} line
+ * @param {number} from
+ * @param {WorkBudget} budget
+ * @returns {boolean}
+ */
+function pathContinues(line, from, budget) {
+  let a = from;
+  while (a < line.length && /\s/.test(line[a])) a++;
+  let b = a;
+  while (b < line.length && !/\s/.test(line[b])) b++;
+  budget.left -= b - from + 1;
+  const tok = line.slice(a, b);
+  return tok.includes("/") || tok.includes("\\") || hasExtensionDot(tok);
+}
+
+/**
+ * Upstream scan_marker: one tier's `<sep><digits><sep>` marker in a trimmed grep line as [path end, digits start, digits end],
+ * and whether the dash tier positively confirmed it as the path/body boundary (else it is the leftmost). The colon and dash
+ * tiers only look inside the leading whitespace-free run; a separator right after another one never opens a marker.
+ * @param {string} line
+ * @param {"colon"|"dash"|"any"} tier
+ * @param {WorkBudget} budget charged for the dash tier's path checks
+ * @returns {[[number, number, number], boolean]|undefined}
+ */
+function scanMarker(line, tier, budget) {
+  const n = line.length;
+  let ws = 0;
+  while (ws < n && !isAsciiSpace(line.charCodeAt(ws))) ws++;
+  /** @type {[number, number, number]|undefined} */
+  let first;
+  /** @type {[number, number, number]|undefined} */
+  let chosen;
+  // A Windows drive prefix (C:\ or C:/): its colon is no marker.
+  let i = WINDOWS_DRIVE_RE.test(line) ? 2 : 0;
+  while (i < n) {
+    const c = line[i];
+    if (tier === "colon" ? c === ":" : tier === "dash" ? c === "-" : c === ":" || c === "-") {
+      if (i > 0 && (line[i - 1] === ":" || line[i - 1] === "-")) {
+        i++;
+        continue;
+      }
+      if (tier !== "any" && ws < i) break;
+      let j = i + 1;
+      while (j < n && line.charCodeAt(j) >= 48 && line.charCodeAt(j) <= 57) j++;
+      if (j > i + 1 && j < n && (tier === "any" ? line[j] === ":" || line[j] === "-" : line[j] === c)) {
+        if (i === 0) return undefined; // a line that starts with its marker has no path
+        /** @type {[number, number, number]} */
+        const m = [i, i + 1, j];
+        first ??= m;
+        // The dash tier walks past a marker only on positive evidence that the path runs through it.
+        if (tier !== "dash" || lastSegmentHasExtension(line, i, budget) || !pathContinues(line, j + 1, budget)) {
+          chosen = m;
+          break;
+        }
+        if (budget.left < 0) return undefined; // the caller declines the whole text
+        i = j + 1;
+        continue;
+      }
+    }
+    i++;
+  }
+  const m = chosen ?? first;
+  return m ? [m, chosen !== undefined] : undefined;
+}
+
+/**
+ * Upstream parse_match_line: the colon tier wins, unless the dash tier confirmed a boundary before its marker (a `-` context
+ * line whose body holds `name:N:`); else the dash tier; else the permissive leftmost marker. Deviation: a line number beyond
+ * Number.MAX_SAFE_INTEGER leaves the line unparsed (upstream: u64).
+ * @param {string} line a trimmed line
+ * @param {WorkBudget} budget
+ * @returns {[string, number, string]|undefined} file, line number, content
+ */
+function parseMatchLine(line, budget) {
+  const colon = scanMarker(line, "colon", budget);
+  const dash = scanMarker(line, "dash", budget);
+  const pick = colon && dash && dash[1] && colon[0][0] > dash[0][2] ? dash : (colon ?? dash ?? scanMarker(line, "any", budget));
+  if (!pick) return undefined;
+  const [[pathEnd, from, to]] = pick;
+  const no = Number(line.slice(from, to));
+  return Number.isSafeInteger(no) ? [line.slice(0, pathEnd), no, line.slice(to + 1)] : undefined;
+}
+
+/**
+ * Upstream KeywordDetector.score in ImportanceContext::Search as score_matches boosts it: an error word 0.5, an importance word
+ * 0.3, else a warning word 0.4.
+ * @param {string} content
+ * @returns {number}
+ */
+function searchBoost(content) {
+  const m = SEARCH_UNIVERSAL_RE.exec(content);
+  if (m) return SEARCH_ERROR_WORDS.has(m[0].toLowerCase()) ? 0.5 : 0.3;
+  return SEARCH_WARN_RE.test(content) ? 0.4 : 0;
+}
+
+/**
+ * Upstream search_heading: consecutive `path:line:content` rows of one path become the path once, then `line:content` rows.
+ * A timestamped log row is no grep row.
+ * @param {string} text
+ * @returns {string}
+ */
+function searchHeading(text) {
+  const [lines, trailing] = splitKeepTrailing(text);
+  if (!lines.length) return text;
+  /** @type {string[]} */
+  const out = [];
+  /** @type {string|undefined} */
+  let current;
+  for (const line of lines) {
+    const m = TIMESTAMP_ROW_RE.test(line) ? null : GREP_ROW_RE.exec(line);
+    if (m) {
+      if (m[1] !== current) {
+        out.push(m[1]);
+        current = m[1];
+      }
+      out.push(`${m[2]}:${m[3]}`);
+    } else {
+      out.push(line);
+      current = undefined;
+    }
+  }
+  return joinLines(out, trailing);
+}
+
+/**
+ * Upstream search_unheading (searchHeading's exact inverse): a line that is no `line:content` row and is followed by one is a
+ * header, prefixed onto the rows under it.
+ * @param {string} text
+ * @returns {string}
+ */
+function searchUnheading(text) {
+  const [lines, trailing] = splitKeepTrailing(text);
+  if (!lines.length) return text;
+  /** @type {string[]} */
+  const out = [];
+  /** @type {string|undefined} */
+  let current;
+  for (let i = 0; i < lines.length; i++) {
+    const data = HEADING_ROW_RE.exec(lines[i]);
+    if (current !== undefined && data) out.push(`${current}:${data[1]}:${data[2]}`);
+    else if (!data && i + 1 < lines.length && HEADING_ROW_RE.test(lines[i + 1])) current = lines[i];
+    else {
+      current = undefined;
+      out.push(lines[i]);
+    }
+  }
+  return joinLines(out, trailing);
+}
+
+/**
+ * Upstream search_dir_heading: consecutive grep rows whose paths share a directory become the directory once (ending in `/`),
+ * then `base:line:content` rows. Rows whose path has no `/` pass through.
+ * @param {string} text
+ * @returns {string}
+ */
+function searchDirHeading(text) {
+  const [lines, trailing] = splitKeepTrailing(text);
+  if (!lines.length) return text;
+  /** @type {string[]} */
+  const out = [];
+  /** @type {string|undefined} */
+  let current;
+  for (const line of lines) {
+    const m = TIMESTAMP_ROW_RE.test(line) ? null : GREP_ROW_RE.exec(line);
+    if (m && m[1].includes("/")) {
+      const cut = m[1].lastIndexOf("/") + 1;
+      const dir = m[1].slice(0, cut);
+      if (dir !== current) {
+        out.push(dir);
+        current = dir;
+      }
+      out.push(`${m[1].slice(cut)}:${m[2]}:${m[3]}`);
+    } else {
+      out.push(line);
+      current = undefined;
+    }
+  }
+  return joinLines(out, trailing);
+}
+
+/**
+ * Upstream search_dir_unheading (searchDirHeading's exact inverse): a line ending in `/` followed by a `base:line:content` row is
+ * a header, prefixed onto the rows under it.
+ * @param {string} text
+ * @returns {string}
+ */
+function searchDirUnheading(text) {
+  const [lines, trailing] = splitKeepTrailing(text);
+  if (!lines.length) return text;
+  /** @type {string[]} */
+  const out = [];
+  /** @type {string|undefined} */
+  let current;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (current !== undefined && DIR_DATA_RE.test(line)) out.push(`${current}${line}`);
+    else if (line.endsWith("/") && i + 1 < lines.length && DIR_DATA_RE.test(lines[i + 1])) current = line;
+    else {
+      current = undefined;
+      out.push(line);
+    }
+  }
+  return joinLines(out, trailing);
+}
+
+/**
+ * The search fold (upstream compact_lossless "search"): the file-heading and directory-heading folds, each kept only when its
+ * inverse gives the text back exactly; the smaller one wins when it is shorter than the text.
+ * @param {string} text
+ * @returns {{ text: string, offloaded: [string, string][] }|undefined}
+ */
+export function foldSearch(text) {
+  let best = text;
+  for (const [cand, inverse] of /** @type {[string, (t: string) => string][]} */ ([
+    [searchHeading(text), searchUnheading],
+    [searchDirHeading(text), searchDirUnheading],
+  ])) {
+    if (cand.length < best.length && inverse(cand) === text) best = cand;
+  }
+  return best === text ? undefined : { text: best, offloaded: [] };
+}
+
+/**
+ * Upstream SearchCompressor::compress_with_store with its default config: grep/ripgrep rows (matches and `-C` context lines
+ * alike) parsed by file, scored (+0.3 per query context word in the line, +0.5 an error word, +0.3 an importance word, else
+ * +0.4 a warning word, at most 1), the 15 best-scoring files kept, then per file its first, last and best matches up to 5 and
+ * an adaptive 5 to 30 in all, in path and line order with `[... and N more matches in FILE]`, then
+ * `[N matches compressed to M. Retrieve original: hash=H]` with the input stored under H. Lines that do not parse are dropped,
+ * as upstream. Deviations: the retrieval line is always added ("Retrieve original", no match-count or ratio gate), the hash is
+ * contentHash, context words are capped (contextWords) and CJK query bigrams are not added, and the parse's path checks and
+ * the simhash count are budgeted (an exhausted parse declines). Undefined when nothing parses or the result is not shorter.
+ * @param {string} text
+ * @param {string} query the conversation context (crushQuery), "" for none
+ * @returns {{ text: string, offloaded: [string, string][] }|undefined}
+ */
+export function compressSearch(text, query) {
+  const budget = { left: SCAN_BUDGET_PER_CHAR * text.length + SCAN_BUDGET_FLOOR };
+  /** @type {Map<string, SearchMatch[]>} */
+  const files = new Map();
+  let total = 0;
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    const m = parseMatchLine(line, budget);
+    if (budget.left < 0) return undefined;
+    if (!m) continue;
+    let list = files.get(m[0]);
+    if (!list) files.set(m[0], (list = []));
+    list.push({ file: m[0], line: m[1], content: m[2], score: 0 });
+    total++;
+  }
+  if (!total) return undefined;
+  const words = contextWords(query, text.length);
+  for (const list of files.values()) {
+    for (const m of list) {
+      const lower = m.content.toLowerCase();
+      let s = 0;
+      for (const w of words) if (lower.includes(w)) s += 0.3;
+      m.score = Math.min(s + searchBoost(m.content), 1);
+    }
+  }
+  const ranked = [...files.keys()]
+    .sort()
+    .map((f) => /** @type {[string, SearchMatch[], number]} */ ([f, files.get(f) ?? [], (files.get(f) ?? []).reduce((a, m) => a + m.score, 0)]))
+    .sort((a, b) => b[2] - a[2])
+    .slice(0, SEARCH_MAX_FILES);
+  const cap = computeOptimalK(
+    ranked.flatMap(([f, list]) => list.map((m) => `${f}:${m.line}:${m.content}`)),
+    SEARCH_MIN_K,
+    SEARCH_MAX_TOTAL,
+    { left: SCAN_BUDGET_PER_CHAR * text.length + SCAN_BUDGET_FLOOR },
+  );
+  /** @type {Map<string, SearchMatch[]>} */
+  const selected = new Map();
+  let kept = 0;
+  for (const [file, list] of ranked) {
+    if (kept >= cap) continue;
+    const room = Math.min(SEARCH_MAX_PER_FILE, cap - kept);
+    /** @type {SearchMatch[]} */
+    const out = [];
+    /** @type {Set<string>} */
+    const seen = new Set();
+    const push = (/** @type {SearchMatch} */ m) => {
+      const key = `${m.line}\u0000${m.content}`;
+      if (out.length >= room || seen.has(key)) return;
+      seen.add(key);
+      out.push(m);
+    };
+    push(list[0]);
+    if (list.length > 1) push(list[list.length - 1]);
+    for (const m of [...list].sort((a, b) => b.score - a.score || a.line - b.line)) push(m);
+    out.sort((a, b) => a.line - b.line);
+    kept += out.length;
+    selected.set(file, out);
+  }
+  /** @type {string[]} */
+  const lines = [];
+  for (const file of [...selected.keys()].sort()) {
+    const out = selected.get(file) ?? [];
+    for (const m of out) lines.push(`${m.file}:${m.line}:${m.content}`);
+    const omitted = (files.get(file)?.length ?? 0) - out.length;
+    if (omitted > 0) lines.push(`[... and ${omitted} more matches in ${file}]`);
+  }
+  const hash = contentHash(text);
+  const result = `${lines.join("\n")}\n[${total} matches compressed to ${kept}. Retrieve original: hash=${hash}]`;
+  return result.length < text.length ? { text: result, offloaded: [[hash, text]] } : undefined;
+}
+
 /**
  * Each content type's compression steps, tried in order until one rewrites (a light upstream _strategy_from_detection).
  * The SmartCrusher owns JSON, the config compressor structured config, the HTML extractor HTML, the log compressor build
@@ -4448,6 +4838,12 @@ function rewriteRow(content, tool, levers, query) {
           // A fold is the fallback for a lossy step that lost, never a post-processor of its output (that carries a retrieval line).
           const r = foldLog(cur);
           if (r) next = adopt(acc.log, cur, r);
+        } else if (step === "search" && levers.search && fresh && spans.length === 0) {
+          const r = compressSearch(cur, query);
+          if (r && overFold(r, foldSearch(cur))) next = adopt(acc.search, cur, r);
+        } else if (step === "searchfold" && levers.search && fresh && spans.length === 0 && cur === text) {
+          const r = foldSearch(cur);
+          if (r) next = adopt(acc.search, cur, r);
         } else if (step === "elide" && levers.elide) {
           const d = elideDense(cur, spans);
           if (d) {
