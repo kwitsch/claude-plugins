@@ -142,6 +142,9 @@ const COMPACT_MAX_BUCKETS = 8;
 const COMPACT_MAX_DISCRIMINATOR_RATIO = 0.7;
 // Deviation: a column name holding one of these would make the `[N]{name:type,…}` header undecodable (upstream leaves names unescaped).
 const COMPACT_BAD_NAME_RE = /[,:{}?\n\r]/;
+// String, number and mixed-array crushers: upstream SmartCrusherConfig::default() first_fraction and last_fraction.
+const K_FIRST_FRACTION = 0.3;
+const K_LAST_FRACTION = 0.15;
 const ISO_DATETIME_RE = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}/;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // shortcut: Python int() also takes `_` digit separators; add them if a payload needs it.
@@ -1831,6 +1834,201 @@ function crushDictArray(items, query, modes) {
 }
 
 /**
+ * Python round / Rust round_ties_even: the nearest integer, a tie going to the even one.
+ * @param {number} x
+ * @returns {number}
+ */
+export function roundHalfEven(x) {
+  const r = Math.round(x);
+  return Math.abs(x % 1) === 0.5 && r % 2 !== 0 ? r - 1 : r;
+}
+
+/**
+ * Upstream compute_k_split with the BUG #4 clamp: the adaptive K, then the first 30% and the last 15% of it (each at least 1),
+ * clamped so first + last never pass K.
+ * @param {readonly string[]} strings the items as strings (a string as is, a number as String(n))
+ * @returns {[number, number, number]} K, first, last
+ */
+function kSplit(strings) {
+  const kTotal = computeOptimalK(strings);
+  const kFirst = Math.min(Math.max(1, roundHalfEven(kTotal * K_FIRST_FRACTION)), kTotal);
+  const kLast = Math.min(Math.max(1, roundHalfEven(kTotal * K_LAST_FRACTION)), kTotal - kFirst);
+  return [kTotal, kFirst, kLast];
+}
+
+/**
+ * @param {number} n
+ * @param {number} first
+ * @param {number} last
+ * @returns {number[]} the first `first` and the last `last` indices of `n`
+ */
+function boundaryIndices(n, first, last) {
+  /** @type {number[]} */
+  const out = [];
+  for (let i = 0; i < Math.min(first, n); i++) out.push(i);
+  for (let i = Math.max(0, n - last); i < n; i++) out.push(i);
+  return out;
+}
+
+/**
+ * Upstream crush_string_array: 8 or fewer items pass through; otherwise every error-keyword item, every length anomaly (code
+ * points more than 2 sample σ from the mean) and the first and last K items stay, and a stride over the rest tops the kept set up
+ * to K plus the errors and anomalies, skipping exact repeats of a kept string. The kept items keep their order.
+ * @param {readonly string[]} items
+ * @returns {readonly string[]} `items` itself when nothing was dropped
+ */
+export function crushStringArray(items) {
+  const n = items.length;
+  if (n <= 8) return items;
+  const [kTotal, kFirst, kLast] = kSplit(items);
+  /** @type {Set<number>} */
+  const errors = new Set();
+  items.forEach((s, i) => {
+    const l = s.toLowerCase();
+    if (ERROR_KEYWORDS.some((k) => l.includes(k))) errors.add(i);
+  });
+  const lengths = items.map((s) => Array.from(s).length);
+  const m = mean(lengths) ?? 0;
+  const sd = Math.sqrt(sampleVariance(lengths) ?? 0);
+  /** @type {Set<number>} */
+  const anomalies = new Set();
+  if (sd > 0) lengths.forEach((len, i) => Math.abs(len - m) > VARIANCE_THRESHOLD * sd && anomalies.add(i));
+  const keep = new Set([...errors, ...anomalies, ...boundaryIndices(n, kFirst, kLast)]);
+  const seen = new Set([...keep].map((i) => items[i]));
+  const remaining = kTotal - keep.size;
+  if (remaining > 0) {
+    const stride = Math.max(1, Math.floor((n - 1) / (remaining + 1)));
+    const cap = kTotal + errors.size + anomalies.size;
+    for (let i = 0; i < n && keep.size < cap; i += stride)
+      if (!keep.has(i) && !seen.has(items[i])) {
+        keep.add(i);
+        seen.add(items[i]);
+      }
+  }
+  return keep.size === n ? items : [...keep].sort((a, b) => a - b).map((i) => items[i]);
+}
+
+/**
+ * Upstream crush_number_array's change points: with more than 10 numbers, each index i in 5..n−6 where the means of the 5 numbers
+ * before and the 5 from i differ by more than 2σ (`sd`). Unlike changePoints (the dict analyzer's), no minimum spacing.
+ * @param {readonly number[]} items
+ * @param {number} sd the sample standard deviation of `items`
+ * @returns {number[]}
+ */
+export function numberChangePoints(items, sd) {
+  const w = 5;
+  /** @type {number[]} */
+  const out = [];
+  if (items.length <= 10 || !(sd > 0)) return out;
+  for (let i = w; i < items.length - w; i++) {
+    const shift = Math.abs((mean(items.slice(i, i + w)) ?? 0) - (mean(items.slice(i - w, i)) ?? 0));
+    if (shift > VARIANCE_THRESHOLD * sd) out.push(i);
+  }
+  return out;
+}
+
+/**
+ * Upstream crush_number_array without its strategy string: 8 or fewer items pass through; otherwise every outlier (more than 2
+ * sample σ from the mean), every change point and the first and last K numbers stay, and a stride tops the kept set up to K plus
+ * the outliers. The kept numbers keep their order.
+ * @param {readonly number[]} items
+ * @returns {readonly number[]} `items` itself when nothing was dropped
+ */
+export function crushNumberArray(items) {
+  const n = items.length;
+  if (n <= 8) return items;
+  const [kTotal, kFirst, kLast] = kSplit(items.map(String));
+  const m = mean(items) ?? 0;
+  const sd = Math.sqrt(sampleVariance(items) ?? 0);
+  /** @type {Set<number>} */
+  const outliers = new Set();
+  if (sd > 0) items.forEach((x, i) => Math.abs(x - m) > VARIANCE_THRESHOLD * sd && outliers.add(i));
+  const keep = new Set([...outliers, ...numberChangePoints(items, sd), ...boundaryIndices(n, kFirst, kLast)]);
+  const remaining = kTotal - keep.size;
+  if (remaining > 0) {
+    const stride = Math.max(1, Math.floor((n - 1) / (remaining + 1)));
+    const cap = kTotal + outliers.size;
+    for (let i = 0; i < n && keep.size < cap; i += stride) keep.add(i);
+  }
+  return keep.size === n ? items : [...keep].sort((a, b) => a - b).map((i) => items[i]);
+}
+
+/**
+ * Upstream group_key: the JSON type of a value, as crush_mixed_array groups by it.
+ * @param {unknown} v
+ * @returns {'dict'|'str'|'bool'|'number'|'list'|'none'}
+ */
+function jsonType(v) {
+  if (v === null) return "none";
+  if (Array.isArray(v)) return "list";
+  if (typeof v === "string") return "str";
+  if (typeof v === "boolean") return "bool";
+  return typeof v === "number" ? "number" : "dict";
+}
+
+/**
+ * Upstream classify_array: a non-empty array of one JSON type is a dict, string or number array; bool-only, nested-only and empty
+ * arrays are `other`; any mix, or any null, is `mixed`.
+ * @param {readonly unknown[]} v
+ * @returns {'dict'|'string'|'number'|'mixed'|'other'}
+ */
+function classifyArray(v) {
+  if (v.length === 0) return "other";
+  const types = new Set(v.map(jsonType));
+  if (types.size > 1 || types.has("none")) return "mixed";
+  return types.has("dict") ? "dict" : types.has("str") ? "string" : types.has("number") ? "number" : "other";
+}
+
+/**
+ * Upstream crush_mixed_array: 8 or fewer items pass through; otherwise the items are grouped by JSON type (first seen first) and a
+ * group of fewer than 5 is kept whole. The dict group goes through crushDictArray with the caller's modes (a winning table, a skip
+ * or an array within K keeps it whole; dropped rows are matched back by sorted-key JSON), the string group keeps every item equal
+ * to a string crushStringArray kept, the number group keeps its first and last K plus its outliers, and every other group is kept.
+ * @param {readonly unknown[]} items
+ * @param {string} query
+ * @param {CrushModes} modes
+ * @returns {readonly unknown[]} `items` itself when nothing was dropped
+ */
+function crushMixedArray(items, query, modes) {
+  if (items.length <= 8) return items;
+  /** @type {Map<string, number[]>} */
+  const groups = new Map();
+  items.forEach((v, i) => {
+    const t = jsonType(v);
+    const g = groups.get(t);
+    if (g) g.push(i);
+    else groups.set(t, [i]);
+  });
+  /** @type {Set<number>} */
+  const keep = new Set();
+  /** @param {number} i */
+  const add = (i) => keep.add(i);
+  for (const [type, idx] of groups) {
+    const values = idx.map((i) => items[i]);
+    if (values.length < MIN_ITEMS_TO_ANALYZE) idx.forEach(add);
+    else if (type === "dict") {
+      const r = crushDictArray(/** @type {Record<string, unknown>[]} */ (values), query, modes);
+      if (r === undefined || typeof r === "string") idx.forEach(add);
+      else {
+        const kept = new Set(r.map(canonicalJson));
+        idx.forEach((i, j) => kept.has(canonicalJson(values[j])) && add(i));
+      }
+    } else if (type === "str") {
+      const kept = new Set(crushStringArray(/** @type {string[]} */ (values)));
+      idx.forEach((i, j) => kept.has(/** @type {string} */ (values[j])) && add(i));
+    } else if (type === "number") {
+      const nums = /** @type {number[]} */ (values);
+      const [, kFirst, kLast] = kSplit(nums.map(String));
+      for (const j of boundaryIndices(nums.length, kFirst, kLast)) add(idx[j]);
+      const m = mean(nums);
+      const sd = Math.sqrt(sampleVariance(nums) ?? 0);
+      if (m !== undefined && sd > 0) nums.forEach((x, j) => Math.abs(x - m) > VARIANCE_THRESHOLD * sd && add(idx[j]));
+    } else idx.forEach(add);
+  }
+  return keep.size === items.length ? items : [...keep].sort((a, b) => a - b).map((i) => items[i]);
+}
+
+/**
  * A number lexeme as sign, significant digits and a power of ten, so two spellings of one decimal compare equal.
  * @param {string} lexeme
  * @returns {string|undefined} undefined when it is not a decimal ("Infinity")
@@ -1882,8 +2080,10 @@ function isLossy(text, value) {
 
 /**
  * Upstream process_value: crushes each dict array of 5+ rows (a lossless table replaces it as a string; a CCR sentinel
- * closes one that lost rows, and its kept rows are not descended into), recurses into everything else, keeps every object
- * key, and parses stringified JSON containers (process_string, which uses a table string as is). Depth 50 and below is left as is.
+ * closes one that lost rows, and its kept rows are not descended into); with `modes.lossy`, crushes each string, number or mixed
+ * array of 5+ items (a `… N more items <<ccr:HASH N_items_offloaded>>` string closes one that lost items), and never descends
+ * into such an array either way; recurses into everything else, keeps every object key, and parses stringified JSON
+ * containers (process_string, which uses a table string as is). Depth 50 and below is left as is.
  * @param {unknown} v
  * @param {number} depth
  * @param {string} query
@@ -1908,8 +2108,23 @@ function processValue(v, depth, query, acc, modes) {
     return out === parsed ? v : typeof out === "string" ? out : JSON.stringify(out);
   }
   if (Array.isArray(v)) {
-    // Only dict arrays are crushed: the string, number and mixed crushers are deferred, so those arrays keep every element.
-    const kept = v.length >= MIN_ITEMS_TO_ANALYZE && v.every(isRecord) ? crushDictArray(v, query, modes) : undefined;
+    const shape = v.length >= MIN_ITEMS_TO_ANALYZE ? classifyArray(v) : "other";
+    if (shape === "string" || shape === "number" || shape === "mixed") {
+      if (!modes.lossy) return v; // upstream lossless_only: no CCR marker without the lossy stage, so the array stays whole
+      /** @type {readonly unknown[]} */
+      let scalars;
+      if (shape === "string") scalars = crushStringArray(/** @type {string[]} */ (v));
+      else if (shape === "number") scalars = crushNumberArray(/** @type {number[]} */ (v));
+      else scalars = crushMixedArray(v, query, modes);
+      const d = v.length - scalars.length;
+      if (d === 0) return v;
+      const json = JSON.stringify(v);
+      const hash = contentHash(json);
+      acc.rowsDropped += d;
+      acc.offloaded.push([hash, json]);
+      return [...scalars, `… ${d} more items <<ccr:${hash} ${d}_items_offloaded>>`]; // upstream append_scalar_drop_sentinel
+    }
+    const kept = shape === "dict" ? crushDictArray(/** @type {Record<string, unknown>[]} */ (v), query, modes) : undefined;
     if (kept === undefined) {
       const out = v.map((x) => processValue(x, depth + 1, query, acc, modes));
       return out.some((x, i) => x !== v[i]) ? out : v;
