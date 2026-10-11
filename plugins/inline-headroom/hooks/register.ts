@@ -348,8 +348,18 @@ export const register: Register = (on, options) => {
       const tool = e.origin.tool;
       let rw: ReturnType<typeof rewriteToolResults>;
       try {
+        const levers = {
+          crush: crusherOn,
+          compact: compactOn,
+          elide: elideOn,
+          config: configOn,
+          extract: htmlOn,
+          tags: tagsOn,
+          dedup: dedupOn ? { states: dedupStates, key: e.agentId ?? "" } : undefined,
+        };
         let query = "";
-        if (crusherOn && wantsQuery(e.message.content, tool)) {
+        // levers.crush carries crusherOn: the two-argument call's SmartCrusher check is one term of the levers form.
+        if (wantsQuery(e.message.content, tool, levers)) {
           try {
             // A subagent row's query comes from that agent's own conversation; a { deny } leaves it empty.
             const m = e.agentId ? await $.session.messages({ agentId: e.agentId }) : await $.session.messages();
@@ -358,12 +368,7 @@ export const register: Register = (on, options) => {
             // crush without query signals, as upstream does with no context
           }
         }
-        rw = rewriteToolResults(
-          e.message.content,
-          tool,
-          { crush: crusherOn, compact: compactOn, elide: elideOn, config: configOn, extract: htmlOn, tags: tagsOn, dedup: dedupOn ? { states: dedupStates, key: e.agentId ?? "" } : undefined },
-          query,
-        );
+        rw = rewriteToolResults(e.message.content, tool, levers, query);
       } catch {
         rw = undefined; // fail open: the row is stored as made (rewriteToolResults has already started a half-indexed corpus over)
       }

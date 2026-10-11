@@ -613,14 +613,23 @@ function simhash(text) {
 /**
  * Upstream count_unique_simhash: greedy clusters of fingerprints within Hamming distance 3.
  * @param {readonly string[]} items
- * @returns {number}
+ * @param {WorkBudget} [budget] charged 1 per fingerprint comparison
+ * @returns {number|undefined} undefined once the budget runs out
  */
-function countUniqueSimhash(items) {
+function countUniqueSimhash(items, budget = { left: Infinity }) {
   /** @type {[number, number][]} */
   const reps = [];
   for (const s of items) {
     const [lo, hi] = simhash(s);
-    if (!reps.some(([a, b]) => popcount(lo ^ a) + popcount(hi ^ b) <= 3)) reps.push([lo, hi]);
+    let dup = false;
+    for (const [a, b] of reps) {
+      if (--budget.left < 0) return undefined;
+      if (popcount(lo ^ a) + popcount(hi ^ b) <= 3) {
+        dup = true;
+        break;
+      }
+    }
+    if (!dup) reps.push([lo, hi]);
   }
   return reps.length;
 }
@@ -678,23 +687,28 @@ function findKnee(curve) {
 }
 
 /**
- * Upstream compute_optimal_k (bias 1, min_k 3, max_k 15): how many rows a dict array keeps, from simhash
- * diversity and the knee of its bigram coverage curve.
- * @param {readonly string[]} itemStrings each row's compact JSON
+ * Upstream compute_optimal_k (bias 1; the crusher's min_k 3, max_k 15 by default): how many items to keep, from simhash
+ * diversity and the knee of the items' bigram coverage curve. As upstream, 8 or fewer items keep them all, even above maxK.
+ * @param {readonly string[]} itemStrings each item's text (a row's compact JSON, a log line, a search match)
+ * @param {number} [minK]
+ * @param {number} [maxK]
+ * @param {WorkBudget} [budget] charged 1 per simhash comparison; exhausted means maxK
  * @returns {number}
  */
-export function computeOptimalK(itemStrings) {
+export function computeOptimalK(itemStrings, minK = MIN_K, maxK = MAX_ITEMS_AFTER_CRUSH, budget = undefined) {
   const n = itemStrings.length;
   if (n <= 8) return n;
-  const unique = countUniqueSimhash(itemStrings);
-  if (unique <= 3) return Math.min(Math.max(MIN_K, unique), MAX_ITEMS_AFTER_CRUSH);
+  const unique = countUniqueSimhash(itemStrings, budget);
+  // shortcut: an exhausted budget means many distinct fingerprints (high diversity), where upstream lands on maxK too; count them all if a caller ever needs the knee there.
+  if (unique === undefined) return maxK;
+  if (unique <= 3) return Math.min(Math.max(minK, unique), maxK);
   const diversity = unique / n;
-  const floor = Math.max(MIN_K, Math.floor(n * (0.3 + 0.7 * diversity)));
+  const floor = Math.max(minK, Math.floor(n * (0.3 + 0.7 * diversity)));
   let knee = findKnee(bigramCurve(itemStrings));
   if (knee === undefined) knee = floor;
   else if (diversity > 0.7) knee = Math.max(knee, floor);
   // shortcut: upstream's tier 3 (a zlib ratio check that can raise K by 20%) is skipped; add it once a node:zlib import is live-verified in a mods module.
-  return Math.max(MIN_K, Math.min(Math.max(MIN_K, knee), MAX_ITEMS_AFTER_CRUSH));
+  return Math.max(minK, Math.min(Math.max(minK, knee), maxK));
 }
 
 /**
@@ -1369,29 +1383,40 @@ function anchorRows(items, query) {
 }
 
 /**
- * Upstream HybridScorer::score_batch without embeddings (BM25 k1 1.5, b 0.75, ln 2 idf, normalized by 10, +0.3 for a
- * matched token of 8+ chars), then the BM25-only boost: a match scores at least 0.3, two or more add 0.2. Only
- * selective query tokens (isSelective) count as matches.
- * @param {readonly string[]} docs each row's compact JSON
- * @param {string} query
- * @returns {number[]} one score per row, 0..1
+ * Upstream BM25Scorer.tokenize: TOKEN_PATTERN's matches in the lowercased text.
+ * @param {string} s
+ * @returns {string[]}
  */
-function relevanceScores(docs, query) {
-  /** @param {string} s @returns {string[]} */
-  const tokens = (s) => s.toLowerCase().match(BM25_TOKEN_RE) ?? [];
+const bm25Tokens = (s) => s.toLowerCase().match(BM25_TOKEN_RE) ?? [];
+
+/**
+ * A query's BM25 term counts.
+ * @param {string} query
+ * @returns {Map<string, number>}
+ */
+function queryFreq(query) {
   /** @type {Map<string, number>} */
   const qf = new Map();
-  for (const t of tokens(query)) qf.set(t, (qf.get(t) ?? 0) + 1);
-  if (!qf.size) return docs.map(() => 0);
-  const all = docs.map(tokens);
-  const terms = [...qf.keys()].sort().filter((t) => isSelective(all.filter((d) => d.includes(t)).length, docs.length));
-  const avg = all.reduce((a, d) => a + d.length, 0) / Math.max(docs.length, 1);
+  for (const t of bm25Tokens(query)) qf.set(t, (qf.get(t) ?? 0) + 1);
+  return qf;
+}
+
+/**
+ * Upstream BM25Scorer.score_batch's core (k1 1.5, b 0.75, ln 2 idf, normalized by 10, +0.3 for a matched term of 8+ chars).
+ * A document's matched terms are its unique tokens the query holds, summed in sorted order (upstream's BTreeMap), so the
+ * float sums match; no document-frequency work, so it stays linear in the tokens.
+ * @param {readonly (readonly string[])[]} all each document's tokens
+ * @param {ReadonlyMap<string, number>} qf query term → its count in the query
+ * @returns {{ score: number, matched: string[] }[]}
+ */
+function bm25Batch(all, qf) {
+  const avg = all.reduce((a, d) => a + d.length, 0) / Math.max(all.length, 1);
   return all.map((doc) => {
-    if (!doc.length) return 0;
+    if (!doc.length || !qf.size) return { score: 0, matched: [] };
     /** @type {Map<string, number>} */
     const tf = new Map();
     for (const t of doc) tf.set(t, (tf.get(t) ?? 0) + 1);
-    const matched = terms.filter((t) => tf.has(t));
+    const matched = [...tf.keys()].filter((t) => qf.has(t)).sort();
     let raw = 0;
     for (const t of matched) {
       const f = tf.get(t) ?? 0;
@@ -1399,10 +1424,41 @@ function relevanceScores(docs, query) {
     }
     let score = Math.min(raw / 10, 1);
     if (matched.some((t) => t.length >= 8)) score = Math.min(score + 0.3, 1);
-    if (matched.length) score = Math.max(score, 0.3);
-    if (matched.length >= 2) score = Math.min(score + 0.2, 1);
-    return score;
+    return { score, matched };
   });
+}
+
+/**
+ * Upstream HybridScorer::score_batch without embeddings (bm25Batch), then the BM25-only boost: a match scores at least 0.3,
+ * two or more add 0.2. Only selective query tokens (isSelective) count as matches.
+ * @param {readonly string[]} docs each row's compact JSON
+ * @param {string} query
+ * @returns {number[]} one score per row, 0..1
+ */
+export function relevanceScores(docs, query) {
+  const qf = queryFreq(query);
+  if (!qf.size) return docs.map(() => 0);
+  const all = docs.map(bm25Tokens);
+  const selective = new Map([...qf].filter(([t]) => isSelective(all.filter((d) => d.includes(t)).length, docs.length)));
+  return bm25Batch(all, selective).map(({ score, matched }) => {
+    let s = score;
+    if (matched.length) s = Math.max(s, 0.3);
+    if (matched.length >= 2) s = Math.min(s + 0.2, 1);
+    return s;
+  });
+}
+
+/**
+ * Upstream BM25Scorer.score_batch's plain scores (TextCrusher's and the relevance split's relevance): bm25Batch over every
+ * query term, no selective filter and no boost. An empty query scores every document 0.
+ * @param {readonly string[]} docs
+ * @param {string} query
+ * @returns {number[]} one score per document, 0..1
+ */
+export function bm25Scores(docs, query) {
+  const qf = queryFreq(query);
+  if (!qf.size) return docs.map(() => 0);
+  return bm25Batch(docs.map(bm25Tokens), qf).map((r) => r.score);
 }
 
 /**
@@ -3537,13 +3593,20 @@ function isProtectedBlock(block, tool) {
 }
 
 /**
- * Whether a tool-result row holds text the SmartCrusher may rewrite, so the hook pays the transcript fetch only then.
+ * Whether a tool-result row holds text a query-reading lever may rewrite, so the hook pays the transcript fetch only then:
+ * a JSON document for the SmartCrusher, or, for the search and diff compressors, the text crusher and the relevance split,
+ * any non-Read text of at least ROUTE_MIN_CHARS. A cheap pre-check: no content detection. The default levers are the
+ * two-argument call's (the SmartCrusher alone).
  * @param {readonly ContentBlock[]} content the row's blocks
  * @param {string} tool the row's origin tool
+ * @param {{ crush?: boolean, log?: boolean, search?: boolean, diff?: boolean, textcrush?: boolean, split?: boolean }} [levers] the row's levers; only crush and the query-reading prose levers count
  * @returns {boolean}
  */
-export function wantsQuery(content, tool) {
-  return content.some((b) => isRecord(b) && b.type === "tool_result" && !isProtectedBlock(b, tool) && resultTexts(b).some(looksLikeJsonDoc));
+export function wantsQuery(content, tool, levers = { crush: true }) {
+  const prose = !!(levers.search || levers.diff || levers.textcrush || levers.split) && tool !== READ_TOOL;
+  return content.some(
+    (b) => isRecord(b) && b.type === "tool_result" && !isProtectedBlock(b, tool) && resultTexts(b).some((t) => (!!levers.crush && looksLikeJsonDoc(t)) || (prose && t.length >= ROUTE_MIN_CHARS)),
+  );
 }
 
 /**
