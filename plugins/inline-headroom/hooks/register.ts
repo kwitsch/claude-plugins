@@ -42,6 +42,7 @@ const extract = { pages: 0, saved: 0 }; // this session's HTML extractor savings
 const log = { texts: 0, saved: 0 }; // this session's log compressor savings: in memory only, never persisted
 const search = { texts: 0, saved: 0 }; // this session's search compressor savings: in memory only, never persisted
 const diff = { texts: 0, saved: 0 }; // this session's diff compressor savings: in memory only, never persisted
+const textcrush = { texts: 0, saved: 0 }; // this session's text crusher savings: in memory only, never persisted
 const dedupStates = new Map<string, DedupState>(); // conversation ("" main, else agentId) → its dedup corpus; reset on session.end
 // Starts one conversation's dedup corpus over (its ordinals keep counting): what it indexes left the model's context.
 const dropCorpus = (key: string): void => {
@@ -166,9 +167,10 @@ export const register: Register = (on, options) => {
   const logOn = options.log_compressor_enabled !== false;
   const searchOn = options.search_compressor_enabled !== false;
   const diffOn = options.diff_compressor_enabled !== false;
+  const textOn = options.text_crusher_enabled !== false;
   // The tag protector only narrows what the levers above rewrite: no compressOn term, no table.
   const tagsOn = options.tag_protector_enabled !== false;
-  const compressOn = crusherOn || compactOn || dedupOn || elideOn || configOn || htmlOn || logOn || searchOn || diffOn;
+  const compressOn = crusherOn || compactOn || dedupOn || elideOn || configOn || htmlOn || logOn || searchOn || diffOn || textOn;
   // Subagent and Workflow-agent tool results: their own toggle, active only while a compression lever is on.
   const subCompressOn = compressOn && options.subagent_compression_enabled !== false;
   // Unset means the manifest default (true), like the sibling toggles; the server stays fail-closed.
@@ -207,7 +209,7 @@ export const register: Register = (on, options) => {
   // Each table is shown only while the lever it counts is on; the storage rows sit in both.
   // The subagents row and the compression counts are session-only: persisting them needs new stats columns and a storage PROTOCOL bump (deferred).
   const tables = (): string[][][] => {
-    const [effort, cache, crusher, deduper, elider, compactor, configs, extractor, logs, searches, diffs] = statsTables(
+    const [effort, cache, crusher, deduper, elider, compactor, configs, extractor, logs, searches, diffs, crushedTexts] = statsTables(
       [{ ...session, hit: stats.lastHit }, ...(sums?.data ?? [])],
       note() === undefined ? "…" : "–",
       {
@@ -221,6 +223,7 @@ export const register: Register = (on, options) => {
         log,
         search,
         diff,
+        textcrush,
       },
     );
     return [
@@ -235,6 +238,7 @@ export const register: Register = (on, options) => {
       ...(logOn ? [logs] : []),
       ...(searchOn ? [searches] : []),
       ...(diffOn ? [diffs] : []),
+      ...(textOn ? [crushedTexts] : []),
     ];
   };
   // One row per finding, so a long list wraps per row instead of one clipped line. The list belongs to the cache aligner.
@@ -248,7 +252,7 @@ export const register: Register = (on, options) => {
   const idle = (): string | undefined =>
     effortOn || cacheOn || compressOn
       ? undefined
-      : "effort routing, cache aligner, smart crusher, lossless compaction, cross-turn dedup, dense line elider, config compressor, HTML extractor, log compressor, search compressor and diff compressor are off: nothing to show";
+      : "effort routing, cache aligner, smart crusher, lossless compaction, cross-turn dedup, dense line elider, config compressor, HTML extractor, log compressor, search compressor, diff compressor and text crusher are off: nothing to show";
   // Body height asked for when seated inline, mirroring the render: every table, a line for the storage note
   // wherever one can show, the volatile lines, and a gap between each.
   const paneRows = (): number => {
@@ -374,6 +378,7 @@ export const register: Register = (on, options) => {
           log: logOn,
           search: searchOn,
           diff: diffOn,
+          textcrush: textOn,
           tags: tagsOn,
           dedup: dedupOn ? { states: dedupStates, key: e.agentId ?? "" } : undefined,
         };
@@ -413,6 +418,8 @@ export const register: Register = (on, options) => {
       search.saved += rw.search.saved;
       diff.texts += rw.diff.texts;
       diff.saved += rw.diff.saved;
+      textcrush.texts += rw.textcrush.texts;
+      textcrush.saved += rw.textcrush.saved;
       if (paneOpen) {
         try {
           $.ui.invalidate("ui.render"); // redraw an open /headroom pane's compression rows now
@@ -548,6 +555,7 @@ export const register: Register = (on, options) => {
     Object.assign(log, { texts: 0, saved: 0 });
     Object.assign(search, { texts: 0, saved: 0 });
     Object.assign(diff, { texts: 0, saved: 0 });
+    Object.assign(textcrush, { texts: 0, saved: 0 });
     dedupStates.clear(); // the next session's results get their own corpus and ordinals
     agentErrored.clear(); // an aborted agent whose turn.complete never came
     Object.assign(stats, { lastHit: undefined, volatile: [] });

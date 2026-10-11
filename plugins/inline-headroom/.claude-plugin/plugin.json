@@ -76,6 +76,12 @@
       "description": "Shorten git diffs of 50+ lines in tool results (headroom DiffCompressor): at most 20 files and 10 hunks per file (the first, the last and the most relevant), 2 context lines around each change, with a changed-lines summary; dropping git's index lines wins when the cut saves under 5% more. The original stays retrievable via headroom_retrieve while the mod is loaded. Never rewrites error results or Read output.",
       "default": true
     },
+    "text_crusher_enabled": {
+      "type": "boolean",
+      "title": "Text crusher",
+      "description": "Shorten prose tool results of 6+ sentences, subagent reports and markdown output included (headroom TextCrusher, standing in for its ML Kompress): keeps about half the characters, preferring recent, query-relevant and fact-dense sentences and dropping near-duplicates; collapsing repeated lines wins when the cut saves under 5% more. Line breaks and indentation of the kept sentences are not kept. The original stays retrievable via headroom_retrieve while the mod is loaded. Never rewrites error results or Read output.",
+      "default": true
+    },
     "tag_protector_enabled": {
       "type": "boolean",
       "title": "Tag protector",
