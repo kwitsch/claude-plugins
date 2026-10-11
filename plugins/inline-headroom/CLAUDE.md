@@ -744,8 +744,9 @@ Deviations:
   components and Vue templates are protected too, and re-reads of such files
   fold and elide less. `tag_protector_enabled: false` restores the levers'
   earlier behaviour.
-- Cost: up to two budgeted scans per text holding a `<` (in the route and
-  before dedup), three for an HTML page the extractor rewrote.
+- Cost: one budgeted scan per distinct text holding a `<` (the last scan is
+  reused when dedup receives the route's unchanged final text), two for an HTML
+  page the extractor rewrote.
 
 ## Content router
 

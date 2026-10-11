@@ -3434,8 +3434,7 @@ function elisionSafe(text, flavor) {
  */
 function stripCommentLines(text, flavor) {
   const comment = flavor === "ini" ? /^[#;]/ : /^\s*#/;
-  const trailing = text.endsWith("\n");
-  const lines = (trailing ? text.slice(0, -1) : text).split("\n");
+  const [lines, trailing] = splitKeepTrailing(text);
   const kept = lines.filter((ln) => !comment.test(ln) && (flavor === "ini" || ln.trim() !== ""));
   return [joinLines(kept, trailing), lines.length - kept.length];
 }
@@ -3583,6 +3582,10 @@ function rewriteRow(content, tool, levers, query) {
     dedup: { spans: 0, saved: 0 },
   };
   let changed = false;
+  /** @type {[string, [number, number][]|null]|undefined} */
+  let memo;
+  // The tag spans of the last text scanned: shrink's final text is often fold's input, and the scan is a full lexer pass.
+  const spansOf = (/** @type {string} */ t) => (memo?.[0] === t ? memo[1] : (memo = [t, tagSpans(t)])[1]);
   /** @type {ContentBlock[]} */
   const mapped = content.map((b) => {
     if (!isRecord(b) || b.type !== "tool_result") return b;
@@ -3597,10 +3600,12 @@ function rewriteRow(content, tool, levers, query) {
      */
     const shrink = (text) => {
       if (prot || !(levers.crush || levers.compact || levers.elide || levers.config || levers.extract) || text.length < ROUTE_MIN_CHARS) return text;
-      let spans = levers.tags ? tagSpans(text) : [];
+      let spans = levers.tags ? spansOf(text) : [];
       if (spans === null) return text;
       let cur = text;
-      for (const step of ROUTES[detectContentType(text)]) {
+      // With only the elider on, every route is just `elide`: skip the detection that cannot change the outcome.
+      const type = levers.crush || levers.compact || levers.config || levers.extract ? detectContentType(text) : "text";
+      for (const step of ROUTES[type]) {
         /** @type {string|undefined} */
         let next;
         const lossy = levers.crush && spans.length === 0;
@@ -3646,7 +3651,7 @@ function rewriteRow(content, tool, levers, query) {
         if (!ELIDE_AFTER.has(step)) return next;
         cur = next;
         // The extraction may hold a tag its markup did not (a decoded `&lt;system-reminder&gt;`): its own spans guard it.
-        spans = levers.tags ? tagSpans(cur) : [];
+        spans = levers.tags ? spansOf(cur) : [];
         if (spans === null) return cur;
       }
       return cur;
@@ -3659,7 +3664,7 @@ function rewriteRow(content, tool, levers, query) {
      */
     const fold = (text) => {
       if (!levers.dedup) return text;
-      const spans = levers.tags ? tagSpans(text) : [];
+      const spans = levers.tags ? spansOf(text) : [];
       const f = dedupBlock(levers.dedup.states, levers.dedup.key, text, prot || spans === null, spans ?? []);
       if (!f) return text;
       acc.dedup.spans += f.spans;
