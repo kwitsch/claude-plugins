@@ -1,15 +1,22 @@
 # CLAUDE.md — inline-headroom
 
 Mods-API plugin (the repo's first): one TypeScript function-hooks module, no
-skills/agents/command hooks. Three levers, each behind a boolean `userConfig`
+skills/agents/command hooks. Eight levers, each behind a boolean `userConfig`
 toggle (`effort_routing_enabled`, `cache_aligner_enabled`,
-`smart_crusher_enabled`), plus `subagent_effort_routing_enabled`, which extends
-effort routing to subagent and Workflow-agent steps and is active only while
-`effort_routing_enabled` is on (all four `default: true`, only literal `false`
-disables), plus the `/headroom` stats command and the SmartCrusher's
-`headroom_retrieve` tool. It also ships a host-wide SQLite storage MCP server
-behind the fail-closed `storage_enabled` toggle (see `## Storage server`); the
-mod persists `/headroom` counters in it.
+`smart_crusher_enabled`, `lossless_compaction_enabled`,
+`cross_turn_dedup_enabled`, `dense_line_elider_enabled`,
+`config_compressor_enabled`, `html_extractor_enabled`), plus
+`subagent_effort_routing_enabled`, which extends effort routing to subagent and
+Workflow-agent steps and is active only while `effort_routing_enabled` is on,
+`subagent_compression_enabled`, which extends the six compression levers to
+subagent and Workflow-agent tool results and is active only while one of them
+is on, and `tag_protector_enabled`, which keeps custom workflow tags whole
+across the compression levers (all eleven `default: true`, only literal `false`
+disables), plus the
+`/headroom` stats command and the compression levers' `headroom_retrieve` tool.
+It also ships a host-wide SQLite storage MCP server behind the fail-closed
+`storage_enabled` toggle (see `## Storage server`); the mod persists
+`/headroom` counters in it.
 
 ## Layout
 
@@ -34,8 +41,10 @@ mod persists `/headroom` counters in it.
   helpers in `register.ts` take the whole `$` typed `EngineInterface`.
   It is `.mjs` (not `.ts`) so the root toolchain covers it in CI:
   `tsconfig.json` (`plugins/**/*.mjs`), ESLint, and `node --test` via
-  `test/inline-headroom/policy.test.mjs`. It also holds the SmartCrusher port
-  (see `## SmartCrusher`).
+  `test/inline-headroom/policy.test.mjs`. It also holds the content router and
+  the SmartCrusher (with its lossless compaction stage), cross-turn dedup,
+  dense line elider, config compressor and HTML extractor ports, and the tag
+  protector (see their sections).
 - `tests/inline-headroom.test.ts` — hook-wiring tests for `claude plugin test`.
   Local only: CI runners have no `claude` CLI; `test/inline-headroom/test.bats`
   runs `claude plugin validate` and `claude plugin test` when `claude`
@@ -60,7 +69,7 @@ Every test that needs `node:sqlite` or spawns processes lives in
 `setup-node`. Its cleanup SIGTERMs every `--service` process for its temp data
 dir, so no daemon outlives the suite.
 
-The bats version-pin test (`plugin.json version is 0.6.0`) is a rolling pin:
+The bats version-pin test (`plugin.json version is 0.7.0`) is a rolling pin:
 every version bump rewrites its name and expected value in the same commit.
 
 ## Storage server
@@ -184,7 +193,14 @@ Deviations from upstream:
   lexemes that survive are re-rendered (`1.50` → `1.5`), and integer-like object
   keys come first (a JS object rule).
 - The tool-digest marker is omitted: the mod rewrites each result once, at
-  `tool.call`.
+  `session.append`.
+- Candidates are tool_result texts as the model reads them, from any tool; the
+  Bash record guards are dropped because each guarded case renders text that is
+  not one JSON document, so the whole-document parse rejects it. Read results
+  carry `N\t` line numbers and never parse as JSON (nor as HTML: see `## Content router`). A row carries no `context`, so the
+  former `context` carry-over is moot, and a subagent row's query comes from
+  `$.session.messages({ agentId })`. The crusher's thresholds and algorithm are
+  unchanged.
 - A query token or anchor found in more than half the rows is ignored
   (`isSelective`); upstream counts it, so a key name in the query marks every
   row relevant and the crush degrades to the head rows.
@@ -193,34 +209,667 @@ Deviations from upstream:
 - `crushQuery` counts only user messages with text toward its last five: a
   Claude Code tool result is a user message with empty text, so upstream's
   count would drop the user's request after five tool calls.
+- `crushQuery` keeps at most `CRUSH_QUERY_INPUT_CHARS` (16,384) characters of
+  assistant tool-call input JSON in all, newest first; upstream has no cap. A
+  subagent has one user message, so its walk would otherwise stringify every
+  input back to the agent's start on each JSON result (O(n²) over its life).
 - JS regex `\b` is ASCII-only where Rust's is Unicode, and lengths count UTF-16
   code units where upstream counts UTF-8 bytes (length score, quoted anchors).
-- Deferred: lossless compaction, the string, number and mixed-array crushers,
-  opaque-blob CCR, TOIN / `preserve_fields`, `factor_out_constants`,
-  `include_summaries` and the embedding scorer (stubbed upstream too).
+- Deferred: opaque-blob CCR, TOIN / `preserve_fields`, `factor_out_constants`,
+  `include_summaries`, tabular ingest (CSV text turned into records: upstream's
+  own lossless-first stage makes it a no-op on CSV, and the markdown and
+  fixed-width tables it would also take need the omitted detector branches
+  plus a CSV parser) and the embedding scorer (stubbed upstream too).
 
-Wiring in `register.ts`:
+Default-behaviour change of this lever (0.7.0): with
+`lossless_compaction_enabled` on (the default) the lossless table of
+`## Lossless compaction` is tried first and usually wins on a uniform dict
+array, so the model sees a schema table (a JSON string holding `[N]{…}` and CSV
+rows where the array stood) instead of sampled rows plus a `_ccr_dropped`
+sentinel, and nothing is dropped. The crushed text is still one compact JSON
+line, so what dedup and the elider see does not change.
+`lossless_compaction_enabled: false` restores the lossy-only output.
 
+### String, number and mixed-array crushers
+
+The remaining arms of upstream `process_value` (`crushers.rs`
+`crush_string_array`, `crush_number_array` and `compute_k_split`, and
+`crusher.rs` `classify_array`, `crush_mixed_array` and
+`append_scalar_drop_sentinel`, read 2026-10-11 at 976aa71), as
+`crushStringArray`, `crushNumberArray`, `crushMixedArray` and
+`numberChangePoints`. They are part of `smart_crusher_enabled` (arms of one
+upstream component behind one toggle), run only with the lossy stage, and
+count their dropped items in the `smart crusher` table's `dropped`.
+
+Ported verbatim:
+
+- `classify_array`: an array of one JSON type is a dict, string or number
+  array; bool-only, nested-only and empty arrays are recursed into; any mix of
+  types, or any null, is mixed. Only arrays of 5 or more items are classified.
+- `compute_k_split` with the BUG #4 clamp: the adaptive K, its first 30% and
+  last 15% (at least 1 each, rounded half to even), clamped so both fit in K.
+- The string crusher: 8 or fewer items pass through; error-keyword items,
+  length anomalies (code points more than 2 sample σ from the mean) and the
+  first and last K always stay; a stride tops the kept set up to K plus the
+  errors and anomalies, skipping repeats of a kept string; the order is kept.
+- The number crusher: outliers (more than 2 sample σ), change points (more
+  than 10 numbers, window 5, the mean of the 5 before against the 5 from each
+  index, more than 2σ apart, no spacing rule) and the first and last K stay; a
+  stride tops the kept set up to K plus the outliers.
+- The mixed crusher: groups by JSON type in first-seen order, a group under 5
+  items kept whole; the dict group through the dict path with the caller's
+  stages (a winning table keeps the group whole, dropped rows matched back by
+  sorted-key JSON), the string group keeping every copy of a kept string, the
+  number group its first and last K plus its outliers, every other group whole.
+- A string, number or mixed array is never descended into, whether or not it
+  lost items; one that lost items ends with the string sentinel
+  `… N more items <<ccr:HASH N_items_offloaded>>` (U+2026), its compact JSON
+  stored under the hash. Without the lossy stage (`lossless_only`) such arrays
+  stay whole.
+
+Deviations:
+
+- Number items feed `compute_k_split` as `String(n)` where upstream keeps the
+  original lexeme (`1.0`, `1e21` spell differently), a minor simhash
+  difference.
+- The strategy/debug string (and its percentile logic) is not ported: nothing
+  reads it.
+- `numberChangePoints` is its own helper: the dict analyzer's `changePoints`
+  needs 10 values and keeps a point only more than 5 past the previous one,
+  which upstream's number crusher does not.
+
+Behaviour change of this lever (0.7.0): string, number and mixed arrays of 9
+or more items inside a crushable document now lose items behind the sentinel
+above, and string, number and mixed arrays of 5 to 8 items are no longer
+descended into (a dict array nested in one stays whole), as upstream.
+
+Behaviour change of this lever (0.7.0): with `tag_protector_enabled` on (the
+default) a JSON text holding a custom tag (see `## Tag protector`) runs without
+the lossy stage, so no row or item of it is dropped; lossless compaction may
+still rewrite it, every string staying verbatim in a cell.
+
+Wiring in `register.ts`, shared by every compression lever:
+
+- One `session.append` hook with the matcher `{ door: "tool-result" }`,
+  registered while any compression lever is on (`compressOn` in
+  `register.ts`), rewrites each tool-result row before it is
+  first stored and sent, so the model, the transcript file and every later
+  request read one form (prompt-cache safe). `rewriteToolResults` (pure, in
+  `policy.mjs`) labels each text with `detectContentType`, runs that type's
+  `ROUTES` steps (crush then elide for `json_array`, config then elide for
+  `structured_config`, extract then elide on the extraction for `html`, elide
+  for every other type), then deduplicates a single-text result (see
+  `## Content router`).
+- Gates, each passing the row through with `next(e)`: `retrieveReady` (this
+  module load registered the tool under `RETRIEVE_TOOL`; a marker must never
+  name a missing tool), `origin.kind === "tool"`, and a subagent row
+  (`e.agentId`) only while `subagent_compression_enabled` is on.
+- Protected rows are never rewritten: a block with `is_error === true`, and
+  every block of a `headroom_retrieve` row (matched by tool name in any
+  namespace: the full name, the bare name or another server's, since a row's
+  `origin.tool` for a plugin-registered tool is not live-verified) or an
+  `mcp__plugin_inline-headroom_storage__*` row (a `kv_get` → edit → `kv_set`
+  would write the loss back to `storage.db`). Dedup still indexes them as
+  originals.
+- `wantsQuery` gates the `$.session.messages()` fetch (`{ agentId }` for a
+  subagent row; a `{ deny }` means an empty query), so the transcript is read
+  only for a row holding a JSON document the crusher may rewrite; a failed
+  fetch crushes without query signals.
+- `next` is called exactly once on every path and its answer is returned
+  unchanged. Any throw before it (the fetch, the pipeline) passes the row
+  through unchanged (fail open), and a throw inside `rewriteToolResults` first
+  empties that conversation's dedup corpus (a block indexed before the throw
+  belongs to a row stored as made); a rejection from `next` itself propagates
+  and leaves the row's block indexed (no trigger is known: the kit skips a
+  throwing hook beneath instead of rejecting).
+- Every dropped original goes to an in-memory `Map` through `storeOffloaded`
+  (1000 entries and `CCR_MAX_CHARS` characters each, oldest evicted, no TTL;
+  upstream caps by count only), in two stores so dedup churn never evicts a
+  sole copy: `offloaded` holds the crusher's, the elider's, the config
+  compressor's and the HTML extractor's originals, which exist nowhere else,
+  and `folded` holds dedup runs, whose earlier copy is still
+  in the transcript until a compaction. `storeOffloaded` never evicts an entry
+  of the batch it was just given (a row's markers always resolve, even when it
+  folds more than 1000 runs), so a store may sit over a cap until its next call
+  with entries.
+  Both stores are module memory only: a mod reload (an options change, a plugin
+  update) or a resumed session loses every original while the transcript keeps
+  the markers, and `headroom_retrieve` then denies the hash. Persisting them in
+  the storage server is deferred (a `kv_set` value is capped at 1 MiB, and each
+  write would be an awaited storage call inside the append hook).
 - The module's one matcher-less `tool.call` hook (registered while
-  `effort_routing_enabled` or `smart_crusher_enabled` is on) observes effort
-  errors first, answers `mcp__inline-headroom__headroom_retrieve` itself from
-  the in-memory `offloaded` `Map` (1000 entries and `CCR_MAX_CHARS` characters,
-  oldest evicted, no TTL; upstream caps by count only;
-  `session.start` registers the tool), and then crushes.
-- A result where `isToolError(r)` is true is never rewritten. A crush needs
-  all of: `smart_crusher_enabled`; `retrieveReady` (this module load registered
-  the tool under `RETRIEVE_TOOL`); no `e.agentId` (the tool is not known to be
-  callable in subagents); `next.origin.plugin === "engine"` (the model's own
-  call, never another plugin's `$.tool.call`; a missing `origin` fails open);
-  and `isCrushCandidate` (Bash stdout or MCP JSON text blocks that parse, so the
-  transcript fetch is paid only for real JSON, never `headroom_retrieve` or the
-  mod's own `mcp__plugin_inline-headroom_storage__*` tools).
-- A rewrite is a new `{ result }` that carries `next`'s `context` over
-  unchanged (user decision); every passthrough returns `r` itself, and
-  anything thrown after the error check returns `r` (fail open).
-- The `smart crusher` table's `crush.dropped` and `crush.saved` are
-  session-only and reset on `session.end`. Persisting them needs new `stats`
-  columns, a `MIGRATIONS` entry and a `PROTOCOL` 2 → 3 bump, so it is deferred.
+  `effort_routing_enabled` or any compression lever is on) observes effort
+  errors and answers `mcp__inline-headroom__headroom_retrieve` itself from
+  `offloaded`, then `folded` (`session.start` registers the tool); a miss is a
+  `{ deny }`, which the effort observer counts as a failure. `retrieveKey`
+  accepts the bare hash, `hash=H` and a whole `<<ccr:H …>>` marker, and drops
+  the closing `]` or `>>` of a copied marker (a dedup pointer and an elider line
+  end in `]`), because the tool's description cites the marker forms.
+- Model-only holds structurally: a tool-result row answers a `tool_use` block
+  of the model's response, and a `session.append` rewrite never changes what a
+  plugin's `$.tool.call` resolves to.
+- The compression tables' counters (`smart crusher`, `dedup`, `line elider`,
+  `compaction` and every later lever's) are session-only and reset on
+  `session.end`. Persisting them needs new `stats` columns, a `MIGRATIONS`
+  entry and a `PROTOCOL` 2 → 3 bump, so it is deferred.
+
+## Lossless compaction
+
+A port of upstream headroom's lossless-first SmartCrusher stage
+(`crates/headroom-core/src/transforms/smart_crusher/compaction/compactor.rs`,
+`formatter.rs` and `classifier.rs`, and `crusher.rs`
+`crush_array_with_source`, read 2026-10-11 at 976aa71) into
+`hooks/policy.mjs` as `compactRows`, `formatCsvSchema` and `compactionJson`,
+run by `crushDictArray` inside the `crush` step, before the lossy path. It has
+its own toggle, `lossless_compaction_enabled`, and its own `compaction` table
+(`arrays`, `saved`). With the SmartCrusher's toggle it maps onto upstream's
+configurations: both on is `SmartCrusher::new` (the default), the crusher alone
+is `without_compaction`, and compaction alone is `lossless_only`.
+
+Ported verbatim:
+
+- The defaults: at least 2 items, a core field in 80% of the rows, the
+  heterogeneous core ratio 0.6, at most 6 flattened inner keys, 2 to 8 buckets,
+  the discriminator uniqueness cap 0.7, and the lossless savings floor 0.15
+  against `estimate_array_bytes` (the rows' compact JSON plus their commas and
+  brackets).
+- `crush_array_with_source`'s order: an array within the adaptive K is left to
+  recursion before compaction is tried; a winning table replaces the array as a
+  string; without the lossy stage (`lossless_only`) an array whose table did
+  not win stays whole and is not descended into.
+- `compact_inner`: fewer than 2 items or a non-object item stays untouched; key
+  frequencies over the sorted key set; buckets by a discriminator (in every
+  row, all strings, 2 to 8 values, at most 70% unique; most buckets wins, the
+  first key on ties) when under 60% of the keys are core, each bucket compacted
+  on its own and a bucket that is no table rendered as a one-column
+  `value:json` table; otherwise one table, columns by descending frequency,
+  then name.
+- `infer_type_tag` (the first non-null type, `json` on a conflict, `string`
+  when all null), nullability (a missing key or a null), `cell_from_value` with
+  opaque markers off (an array of 2+ objects nests; a string holding a JSON
+  object or array, and no `<<ccr:` marker, is replaced by its value or a nested
+  compaction), and `flatten_uniform_nested` (1 to 6 identical inner keys,
+  order-sensitive, never on a dotted column; types and nullability re-inferred
+  from the cells).
+- The csv-schema format without a drop summary: `[N]{name:type,name:type?,…}`,
+  one CSV row per record, each line ending in `\n`; `__buckets:<disc>` and
+  `__key:<value>` lines; a missing key empty, `null` bare, `""` and `"null"`
+  quoted; CSV quoting of `,` `"` `\n` `\r`; a string a `json` column could read
+  as a value written as a quoted JSON literal; a nested cell as quoted
+  `compaction_to_json`. `process_string`'s rule: a stringified array that
+  compacts becomes the table string itself, never a double-encoded one.
+- A top-level array that compacts comes back as a JSON string literal holding
+  the table (upstream's wrapper, documented by compaction_codec.py `_peel`).
+  Its `\n` escapes can make it fail the crusher's existing not-shorter gate
+  after it passed the 15% floor, as upstream.
+
+Deviations:
+
+- A column name holding `,` `:` `{` `}` `?` or a line break leaves the array
+  untouched, and such an inner key keeps its column nested: upstream writes
+  names unescaped, so the header would no longer decode, and a lossless rewrite
+  keeps no CCR copy.
+- A stringified cell whose value `JSON.parse` would not render back the same
+  (`isLossy`) stays a string, so no digit or duplicate key is lost.
+- One compaction's work (key reads plus table cells) is charged to a budget of
+  4 per character of the array's compact JSON + 4096, and the stage declines
+  when it runs out: a sparse key set (thousands of distinct keys) would
+  otherwise build a rows × columns table synchronously. Such a table could not
+  pass the 15% floor anyway, since every cell renders at least one character.
+  The discriminator scan reads values only for keys present in every row, so
+  it stays linear in the key occurrences.
+- Numbers type as `int` when `Number.isSafeInteger`, else `float`, and cells
+  render as `String(n)`: `JSON.parse` keeps no lexeme, so `1.0` reads `int` and
+  `1.50` renders `1.5`, where upstream's `arbitrary_precision` keeps both. The
+  document still passes `isLossy` first.
+- Lengths count UTF-16 units where upstream counts UTF-8 bytes (the savings
+  ratio shifts slightly on non-ASCII input); keys sort by UTF-16 code units
+  where upstream's `BTreeMap` sorts UTF-8 bytes (different only for astral or
+  high-BMP names); JS lists integer-like object keys first, which can change
+  the flatten key-list comparison and the dotted column order. No value changes.
+- Opaque-blob CCR stays off (`emit_opaque_markers=false` semantics): long
+  strings stay verbatim cells and no `<<ccr:HASH,KIND,SIZE>>` cell is written.
+- Deferred: the markdown-kv and JSON formatters, the drop summary,
+  `factor_out_constants` and TOIN.
+
+Savings: a crushed document that lost nothing books all of its saved
+characters to `compaction`; otherwise `compaction` gets the tables' own savings
+(capped at the total) and the crusher the rest.
+
+## Cross-turn dedup
+
+A port of upstream headroom's cross-turn verbatim de-duplication
+(`headroom/transforms/cross_turn_dedup.py` and the `content_router.py`
+`_cross_turn_dedup_messages` wiring, read 2026-10-11 at 976aa71) into
+`hooks/policy.mjs` as `dedupBlock`.
+
+Ported verbatim:
+
+- `DEFAULT_MIN_LINES` 3, `DEFAULT_MIN_CHARS` 40 (on the joined span) and
+  `MAX_ANCHOR_CANDIDATES` 16, in first-seen order.
+- The unpadded line-number regex `^([1-9]\d*)(:|\t)(.*)$`. Leading-zero runs
+  never renumber-fold.
+- Match keys modulo the line number, with a uniform delta inside a run.
+  Non-numbered lines must match exactly.
+- The trivial-line set and the `< 4` rule.
+- The longest run wins; a tie keeps the earliest. Folded lines become null, so
+  they never seed a later match (keep-earliest).
+- Only surviving verbatim lines are indexed. Protected blocks (here: error
+  results, `headroom_retrieve` and own-storage rows) are indexed as targets and
+  never rewritten.
+- Only string content or a single non-empty text sub-block takes part.
+- Dedup runs after per-block compression, over the final text.
+- Prefix-monotonic, because each block matches only strictly earlier output and
+  stored rows are immutable.
+
+Deviations from upstream:
+
+- Incremental at append time instead of a per-request batch. The corpus is per
+  conversation (the main loop, or one `agentId`) and lives in module memory
+  (`dedupStates` in `register.ts`). It is capped at `DEDUP_MAX_CHARS`
+  (4,000,000) indexed characters across conversations, emptying the least
+  recently appended conversation first (`resetCorpus`), or the current one when
+  it alone exceeds the cap. An emptied conversation keeps its ordinal counter,
+  so a later pointer never reuses the number of a result that left the corpus.
+  The same reset runs on a finished agent's `turn.complete` (its corpus would
+  otherwise count toward the cap that evicts the main loop's), on the
+  compacting loop's `session.compact` (the results it indexes left the model's
+  context; not on a skip or a `precompute`, which installs nothing) and on a
+  throw inside `rewriteToolResults`. It is cleared whole on `session.end` and
+  lost on a mod reload. Claude Code's own clearing or trimming of old tool
+  results without a compaction raises no event, so the corpus keeps such a
+  result and later re-reads fold into pointers to text the model no longer
+  sees (recovery: `headroom_retrieve` from `folded`); accepted, documented in
+  the README Notes.
+- The pointer names `result N`, where N is the mod's 1-based ordinal of the
+  conversation's indexed tool results, instead of `msg N`. N is the message
+  index in upstream's request; the mod has no request-level view at append
+  time.
+- The pointer appends a space and `hash=H`. Upstream recovery is in context only, but the mod
+  also stores the folded run's exact text in the `folded` CCR store, so a pointer whose
+  original was compacted away stays recoverable while the mod is loaded.
+- Because of that suffix, a fold is emitted only when the pointer is shorter
+  than the run. Upstream relies on `min_chars` alone for its net win.
+- The anchor is quoted with `JSON.stringify` (always double quotes) instead of
+  Python `repr`. It is truncated by code points, as upstream does.
+- A line number beyond `Number.MAX_SAFE_INTEGER` is treated as non-numbered.
+- JS `\d` is ASCII-only where Python's `str` regex `\d` is Unicode.
+- Lengths count UTF-16 units.
+
+Wiring: `rewriteToolResults` calls `dedupBlock` last, over each tool_result's
+final text of every content type (after the crusher or the elider), with the
+key `""` for a main-loop row and the `agentId` for a subagent row. Folds count
+in the `dedup` table's session-only `spans` and `saved`. A `Read` row is only
+indexed, like a protected one (user decision): a re-Read after an Edit must show
+the file verbatim for the next Edit's `old_string`, and a later Bash `cat` of
+the same file still folds against it. Upstream protects only its verbatim
+exclude list (WebSearch, WebFetch, the retrieve tools, `view`).
+
+Behaviour change (0.7.0): with `tag_protector_enabled` on (the default) a line
+a custom tag span touches never starts a fold, and a run ends before the first
+such line (both mod-side; see `## Tag protector`), so a repeated
+`<system-reminder>` block stays verbatim while the runs around it still fold.
+Tagged lines are still indexed. A text the tag scan cannot finish within its
+budget is only indexed.
+
+## Dense line elider
+
+A port of upstream headroom's dense line elider
+(`headroom/transforms/dense_line_elider.py`, the `content_router.py`
+`_elide_dense` CCR marker and `recursive_json.py` `scan_json_documents`, read
+2026-10-11 at 976aa71) into `hooks/policy.mjs` as `elideDense`.
+
+Ported verbatim:
+
+- `MIN_LINE_CHARS` 300; `MAX_SPACE_RATIO` 0.06, with `>=` rejecting;
+  `MIN_DENSE_TOTAL_CHARS` 2000; `HEAD_CHARS` 160; `TAIL_CHARS` 80.
+- The early return below 300 characters, the tab guard and the JSON-shaped
+  guard.
+- The labelled-JSON guard through the span scan (`scanFrom`, `noJsonSpans`),
+  including the work budget of 4 per character + 4096, where an incomplete
+  scan means not dense.
+- The split on `\n` only, the per-line omission note
+  `...[N chars of dense machine-generated content elided]...`, and the CCR
+  retrieval line `[N dense machine-generated line(s) elided. Retrieve original: hash=H]`
+  appended after the block, with the whole pre-elision block stored under the
+  hash.
+- No elision of text another compressor rewrote (SmartCrusher output; upstream
+  `_DENSE_ELIDE_AFTER`).
+
+Faithful-to-upstream consequences (kept, not bugs): a line holding a tab is
+never dense, which covers every line of Read output (`N\t…`), and a line is not
+dense when the span scan finds any JSON object or array in it, however small
+(`{}`, `[1,2]`). A minified bundle with an `exports:{}` span, or any Read of one,
+therefore stays whole. Upstream has no minimum span size or tab exemption;
+relaxing either would diverge from it, so it is deferred.
+
+Deviations from upstream:
+
+- The 12-hex `hash64`-based `contentHash` stands in for upstream's CCR key, as
+  for the crusher.
+- A result that is not shorter than its input is passed through. Upstream
+  would emit it; seven 300-character dense lines grow by the retrieval line.
+- Lengths count UTF-16 code units, where upstream counts code points.
+- Head and tail cuts never split a surrogate pair, so a cut may keep one unit
+  less.
+- `JSON.parse` rejects `NaN`/`Infinity` spans that Python's `json.loads`
+  accepts, so such a span does not protect its line. A non-`SyntaxError` parse
+  failure counts as an incomplete scan.
+- `trim()` and Python `strip()` differ on a few exotic whitespace code points.
+- Upstream disables elision in lossless mode; the mod has no lossless mode.
+- Applied to every non-error tool result except `headroom_retrieve` and the
+  mod's own storage tools.
+
+Wiring: `rewriteToolResults` runs `elideDense` on every content type
+(`ROUTES`), on each text the crusher did not rewrite (every text while
+`smart_crusher_enabled` is off). Elided lines count in the `line elider`
+table's session-only `lines` and `saved`.
+
+Behaviour change (0.7.0): a text labelled `structured_config` (YAML, TOML or
+INI) that the config compressor rewrites is no longer elided, as upstream
+leaves CONFIG out of `_DENSE_ELIDE_AFTER`; with `config_compressor_enabled`
+off, or when the compressor declines, the elider runs on it exactly as before.
+
+Behaviour change (0.7.0): an HTML text the HTML extractor rewrites is elided as
+its extraction (the elider runs after the extractor, upstream's
+`_DENSE_ELIDE_AFTER` HTML member), so a dense line inside the page's text is
+cut there and the page's markup never reaches the elider; the elider's
+retrieval line then follows the extractor's, and its stored original is the
+extraction. With `html_extractor_enabled` off, or when the extractor declines,
+the elider runs on the page exactly as before.
+
+Behaviour change (0.7.0): with `tag_protector_enabled` on (the default) a line
+a custom tag span touches is never dense (mod-side; see `## Tag protector`),
+and after an HTML extraction the spans are those of the extracted text. A text
+the tag scan cannot finish within its budget is not elided at all.
+
+## Config compressor
+
+A port of upstream headroom's structured-config compressor
+(`headroom/transforms/config_compressor.py`, the `collapse_runs`,
+`expand_runs`, `fold_repeated_blocks` and `unfold_repeated_blocks` helpers and
+`compact_lossless(…, "config")` of `headroom/transforms/lossless_compaction.py`,
+and `_try_detect_structured_config` of `content_detector.py`, read 2026-10-11
+at 976aa71) into `hooks/policy.mjs` as `compressConfig`, `configFlavor`,
+`isIniAssign` and the fold helpers, reached through the content router's
+`structured_config` route (`config` then `elide`). It has its own toggle,
+`config_compressor_enabled`, and its own `config` table (`texts`, `saved`).
+
+Ported verbatim:
+
+- Detection: the regexes `_CONFIG_SECTION_RE`, `_TOML_ASSIGN_RE`,
+  `_YAML_KEY_RE`, `_YAML_LIST_RE`, `_YAML_DOC_RE` and `_CONFIG_COMMENT_RE`; a
+  `{` or `<` first character is no config; at least 3 non-empty and 3 body
+  lines (comment lines are neutral); TOML/INI needs a section header, 2
+  assignments and a 0.6 share, and a text over 1,000,000 characters never
+  reads as TOML/INI; YAML needs 3 keys, a 0.6 share of keys, list items and
+  document markers, under half the lines ending a sentence, at most 8 words a
+  line, and 2 indent levels, a document marker or 3 list items; the markdown
+  front-matter guard. The branch sits after log and before code, upstream's
+  position (the tabular branch upstream checks in between stays omitted).
+- Tier 2: whole-line comments (`^\s*#`; INI only column-0 `#` or `;`) and,
+  outside INI, blank lines are dropped behind
+  `[N comment/blank lines elided. Retrieve original: hash=H]`, the original
+  stored first; skipped for a YAML block scalar (`key: |`, or a sequence item `- |`) or a TOML multi-line string.
+- Tier 1: runs of 2+ identical lines become `... (repeated N times)`, then a
+  run of 3 to 64 lines repeating the lines D back (K <= D) becomes
+  `... (repeats K lines from D lines back)` when its characters exceed the
+  marker's, with at most 8 recent positions per distinct line and no fold on a
+  text under 6 or over 20,000 lines; kept only when the inverse gives the text
+  back exactly and it is shorter. Deviation: when Tier 2 elided nothing, a
+  Tier 1 fold appends `[Repeated config lines folded. Retrieve original: hash=H]`
+  and stores the original, so a following Edit can get the exact text
+  (upstream's Tier 1 markers carry no recovery hint).
+- A result that saves less than one character is discarded, its stored
+  original with it.
+
+Deviations:
+
+- Line-level checks stand in for `tomllib` and `configparser`: a section text
+  is TOML when every assignment is a TOML key whose value lexeme reads as TOML
+  (a basic or literal string, a number, `inf`, `nan`, a boolean, an RFC 3339
+  date/time, an array or inline-table opener), else INI when every assignment
+  is an INI one, else no TOML/INI (and the YAML checks run). That reproduces
+  upstream's flavor vectors (`x = "1"` is TOML, `x = hello` INI) but can claim
+  text a parser would reject; Tier 1 verifies itself and Tier 2 keeps the
+  original retrievable, so a wrong label costs nothing irreversible.
+- `isIniAssign` is a linear scanner accepting exactly what upstream's
+  `_INI_ASSIGN_RE` matches: its lazy run plus `\s*` backtracks quadratically on
+  whitespace-heavy lines.
+- INI also refuses Tier 2 around `"""` or `'''`, since its flavor is not
+  parser-confirmed.
+- The inverse helpers stop once their output would outgrow the text being
+  verified, so a marker-shaped line with a huge count, or markers doubling each
+  other, never allocates it (upstream expands such input in full).
+- Detection reads the detector's line-capped sample (the first 200 of its 500
+  lines, each cut to 1000 characters), not the whole text.
+- Deferred: Tier 3, the TOML array-of-tables schema fold (it needs a real TOML
+  parser), and upstream's lossless folds for other kinds (log, search, diff,
+  text, paths).
+
+## HTML extractor
+
+A bounded, hand-written stand-in for upstream headroom's HTML extractor
+(`headroom/transforms/html_extractor.py`, which runs trafilatura, with its
+`content_router.py` wiring and `_DENSE_ELIDE_AFTER` membership, read
+2026-10-11 at 976aa71) in `hooks/policy.mjs` as `extractHtml`, reached through
+the content router's `html` route (`extract`, then `elide` on the extraction).
+It has its own toggle, `html_extractor_enabled`, and its own `html extractor`
+table (`pages`, `saved`). It shares the tag lexer `tagAt` (upstream
+`tag_protector.rs` `parse_tag_at`) with the tag protector.
+
+Ported verbatim:
+
+- The routing: `html` is extracted, and the dense line elider then runs on the
+  extraction (`_DENSE_ELIDE_AFTER` holds HTML; `ELIDE_AFTER` here).
+- An empty extraction falls through (upstream #3609): the elider then runs on
+  the page as it is, and no block is discarded.
+- trafilatura's settings as far as they apply: links and tables kept, images
+  and comments dropped, recall over precision, markdown-ish output.
+
+Deviations:
+
+- No trafilatura (a third-party package; the mod takes no dependencies). One
+  forward pass skips comments, `<!…>` and `<?…>` declarations and the
+  boilerplate or non-text elements `head`, `script`, `style`, `noscript`,
+  `template`, `svg`, `math`, `iframe`, `object`, `embed`, `canvas`, `audio`,
+  `video`, `picture`, `nav`, `footer`, `aside`, `button`, `select` and
+  `textarea` (open tag to the first case-insensitive
+  close tag, or to the end when unclosed), and renders the rest: `#` headings,
+  `- ` list items, `[text](href)` links (not `#…` or `javascript:`), `| ` table
+  cells with one row per line, a line break per block element, whitespace kept
+  only inside `<pre>`, and `&amp; &lt; &gt; &quot; &apos; &nbsp;` plus decimal
+  and hex references decoded. No main-content scoring and no metadata, so its
+  output differs from upstream's and keeps more of the page.
+- The original page stays retrievable: the extraction ends with
+  `[HTML extracted to text: N characters of markup removed. Retrieve original: hash=H]`
+  and the page goes to the `offloaded` store. Upstream's HTML path cannot be
+  undone.
+- The pass draws on a budget of 4 per character + 4096 (the lexer charges
+  every character it scans), and a page that exhausts it passes through; so
+  does a page whose extraction plus retrieval line is not shorter.
+- Misroute risk: dense grep or log output carrying a doctype, an `<html>` tag
+  or 3 structural tags can be labelled `html` (the HTML branch precedes search
+  and log, as on upstream's regex path), and the extractor would then strip
+  markup-looking text from it. The original stays retrievable.
+
+## Tag protector
+
+A mask-free port of upstream headroom's tag protector
+(`crates/headroom-core/src/transforms/tag_protector.rs` `identify_spans` and
+`parse_tag_at` in block mode, `compress_tagged_content=false`, read 2026-10-11
+at 976aa71) into `hooks/policy.mjs` as `tagSpans`, sharing the lexer `tagAt`
+with the HTML extractor. It has its own toggle, `tag_protector_enabled`, no
+`compressOn` term and no `/headroom` table: it saves nothing itself, it only
+narrows what the compression levers rewrite.
+
+Ported verbatim:
+
+- The HTML5 element set (`HTML5_TAGS`, all 116 names of `HTML5_TAGS` in
+  `tag_protector.rs`), matched case-insensitively; every other name is a custom
+  tag (`is_known_html_tag`).
+- `parse_tag_at`: a name starts with an ASCII letter or `_` and continues with
+  letters, digits, `_`, `-`, `.` and `:`; a close tag allows whitespace before
+  `>`; an open tag's attributes run to the first `>` outside quotes, an
+  unterminated quote makes no tag, and `/` marks it self-closing until
+  whitespace or a quoted value follows.
+- `identify_spans` in block mode: a self-closing custom tag is a span; a custom
+  close matches the top-most open of its name (`rposition`), drops the opens
+  above it and the spans inside it, and records the whole block; an orphan
+  close or an unmatched open is never protected.
+
+Deviations:
+
+- Mask-free: no placeholders, no `restore_tags`, no salted prefixes. Upstream
+  protects only around its ML text compressors, which the mod does not have;
+  here every compression lever honours the spans on its own terms (all
+  mod-side):
+  - the SmartCrusher runs a JSON text holding a span without the lossy stage
+    (lossless compaction may still re-encode it, every string verbatim in a
+    cell; no row or item is dropped);
+  - the dense line elider never treats a line a span touches as dense;
+  - cross-turn dedup never starts a fold on a tagged line and ends a run before
+    one, but indexes tagged lines like any other;
+  - the config compressor and the HTML extractor decline a text holding a span;
+  - after an HTML extraction `shrink` recomputes the spans on the extracted
+    text before the elider runs, so a custom tag the entity decoding produced
+    (`&lt;system-reminder&gt;`) is guarded like any other; a null there returns
+    the extraction unelided.
+- A work budget: the characters the lexer scans and every stack entry a close
+  examines share one budget of 4 per character + 4096. Exhaustion returns null:
+  the text is unprotectable, and every lever passes it through unchanged (dedup
+  only indexes it). Upstream has the same unbounded weakness (it re-parses after
+  every `<` that is no tag and walks the whole stack per close), so many custom
+  opens followed by many non-matching closes would go quadratic.
+- The content of an HTML5 `<svg>` or `<math>` element, up to its first
+  case-insensitive close tag (an unclosed one skips nothing), is not scanned: SVG and MathML children (`path`,
+  `g`, `mi`, …) are no workflow tags, and without this the elider would stop
+  eliding SVG path data.
+- The spans inside a matched block are dropped by popping the tail of the
+  sorted span list (amortised linear) where upstream filters the whole list.
+- Vocabulary as upstream: every non-HTML5 name counts, so XML, JSX/TSX
+  components and Vue templates are protected too, and re-reads of such files
+  fold and elide less. `tag_protector_enabled: false` restores the levers'
+  earlier behaviour.
+- Cost: one budgeted scan per distinct text holding a `<` (the last scan is
+  reused when dedup receives the route's unchanged final text), two for an HTML
+  page the extractor rewrote.
+
+## Content router
+
+A port of upstream headroom's content detection into `hooks/policy.mjs` as
+`detectContentType`: the branch heuristics of
+`headroom/transforms/content_detector.py`, the category set and branch order
+of `crates/headroom-core/src/transforms/content_detector.rs`, and
+`_TIMESTAMP_ROW_RE` from `headroom/transforms/lossless_compaction.py`, read
+2026-10-11 at 976aa71. It labels each unprotected tool-result text with one
+tag: `json_array`, `diff`, `html`, `tabular` (git status), `search`, `build`,
+`structured_config`, `source_code` or `text`.
+
+Ported verbatim:
+
+- The branch order and gates: empty → `text`; JSON; diff (≥ 0.7); HTML
+  (≥ 0.7); git status; search (≥ 0.6); log (≥ 0.5); structured config; code
+  (≥ 0.5); else `text`.
+- The line and character windows: diff over the first 500 lines, HTML over the
+  first 3000 characters, search over the first 100 lines, log over the first
+  200 lines, code over the first 100 lines.
+- Every regex and threshold of the ported branches: `_TIMESTAMP_ROW_RE`, the
+  path-shape guard (no `<`, `>` or `=` before the line number), grep context
+  lines (`path-N-` whose path holds a `/` or `.`, and `path:N-`), the ≥ 2-match
+  search floor and its 0.3 ratio, all 24 log patterns and their 0.1 ratio, the
+  8-language code patterns (anchored at the line start, as `re.match` is) and
+  the best score of 3, the JSON wrapper bulk fraction 0.6, the concatenated
+  ≥ 2-objects rule, and the git-status first lines, headings and entry regex.
+- The confidence formulas, in upstream operand order, so IEEE borderline cases
+  match: one diff header and no change line gives exactly 0.7, which passes,
+  and a search ratio of 1/3 gives 0.6, which passes.
+- The type tags (upstream `ContentType` values).
+
+Deviations from upstream:
+
+- Rust's category set plus Python's structured-config branch (its tag
+  `structured_config` has no Rust counterpart). Its YAML/TOML/INI flavor comes
+  from line-level checks in place of `tomllib` and `configparser` (see
+  `## Config compressor`), so it can claim text upstream's parsers would
+  reject; it only takes text that would otherwise be code or plain text, whose
+  route was the elider alone. Python's tabular (markdown table, CSV/TSV) and
+  fixed-width branches stay omitted: they too only take such text, and the
+  newer tabular branch disagrees with upstream's own parity fixtures (it reads
+  the JavaScript fixture as `tabular`).
+- JSON follows Python, not Rust: objects, wrapped payloads and concatenated
+  objects count, not only arrays. The parity fixture `{"foo": "bar"}`
+  therefore reads `json_array` (Rust records `text`).
+- `raw_decode` is emulated by the span walker `scanFrom` plus `JSON.parse`. A
+  non-`{` value ends the concatenated check, where upstream decodes it and then
+  rejects the run; the verdict differs only when that value would hit the
+  recursion limit.
+- `JSON.parse` rejects `NaN`/`Infinity`, which Python's `json` accepts. A
+  `JSON.parse` failure other than a `SyntaxError` counts as upstream's
+  `RecursionError` (not JSON).
+- JS `\w`, `\d` and `\b` are ASCII-only where Python's are Unicode; `\s` and
+  `trim()` differ from Python's on a few exotic code points.
+- Lengths (the 3000-character HTML sample, the bulk fraction) count UTF-16
+  units, where upstream counts code points.
+- Each sampled line is cut to `DETECT_MAX_LINE_CHARS` (1000) before the diff,
+  search, log and code checks: the PHP and C# stack-trace patterns backtrack
+  quadratically, and detection runs synchronously on every appended result. A
+  signal beyond that column of a line goes unseen.
+- A text whose first line carries an `N\t` line number (Read output, `cat -n`) is never labelled `html`: it is a
+  file's source, and extracting it would leave the Edit tool nothing to match.
+- The detector returns only the tag: no confidence and no metadata (language,
+  counts), since nothing consumes them.
+
+Routing: a light port of `headroom/transforms/content_router.py`
+(`_strategy_from_detection`, `_DENSE_ELIDE_AFTER`, the git-status early return
+and the passthrough-fallback elision, read 2026-10-11 at 976aa71). The
+module-private `ROUTES` table maps each tag to its ordered steps:
+`json_array` runs `crush` then `elide`, `structured_config` runs `config` then
+`elide`, `html` runs `extract` then `elide`, every other tag runs `elide`.
+`rewriteRow`'s `shrink` detects once per unprotected text and runs that type's
+steps in order, skipping a step whose lever is off; the first step that
+rewrites wins, except that a step in `ELIDE_AFTER` (`extract`, upstream's
+`_DENSE_ELIDE_AFTER` HTML member) hands its rewrite on to the next step. Detection runs only while a lever some route runs is on (every
+compression lever but dedup), so a dedup-only configuration pays nothing,
+and only on a text of at least `ROUTE_MIN_CHARS` (300, the lowest floor of any
+step), since a shorter one is passed through whatever its label.
+Dedup (`dedupBlock`) then runs over every type's final text, unchanged. The
+levers behave exactly as before the router: every text the crusher can crush
+parses as an object or array once trimmed, which the detector's first JSON
+step labels `json_array`, and every route ends with `elide`.
+
+Routing deviations from upstream:
+
+- A JSON text the crusher declined is still elided. Upstream skips elision
+  after any SmartCrusher attempt (`_DENSE_ELIDE_AFTER` leaves it out).
+- Diff, git status and every other type get the elider, as upstream does where
+  a type's compressor is unavailable (the passthrough fallback). Upstream keeps
+  git status verbatim; here the elider's tab guard already leaves every
+  tab-indented entry line whole, and a compound output such as
+  `git status; cat app.min.js` keeps its elision.
+- Dedup stays type-agnostic.
+- A light router: no `is_mixed_content` / MIXED, no Magika or native detector,
+  no `_strip_detection_envelope`, no embedded-JSON splice, no lossless-first
+  stage, no Kompress or LOG fallback chains, no TOIN recording, and no
+  `normalize_concatenated_json` (the crusher still takes only one whole JSON
+  document).
+
+Decisions:
+
+- No userConfig toggle. The router has no behaviour of its own; which text a
+  lever sees is governed by that lever's toggle and documented per lever. The
+  router is infrastructure, and each future compressor brings its own toggle;
+  `.claude/rules/plugin-userconfig.md` lists it under its deliberate no-toggle
+  exceptions.
+- Per-compressor `/headroom` tables exist (`compaction`, `config`, …), but
+  per-type label counts stay omitted: a label alone saves nothing.
+
+Adding a compressor: name a new `RouteStep`, add its case in `rewriteRow`'s
+`shrink`, a `Levers` flag fed by its own `*_enabled` toggle in `register.ts`
+(plus its term in `compressOn`), a `RowRewrite` accumulator and `/headroom`
+table if it reports savings, and its step in the `ROUTES` entries of the types
+it fits, deciding whether `elide` still runs on its rewrite (put the step in
+`ELIDE_AFTER`, as upstream's `_DENSE_ELIDE_AFTER` does).
 
 ## Verified Claude Code 2.1.288 shapes relied on
 
@@ -236,12 +885,17 @@ Wiring in `register.ts`:
 - One hook per event without a matcher. Verified on 2.1.296, not 2.1.288: a
   module with a second matcher-less `on("turn.complete")` fails both
   `claude plugin validate` and `claude plugin test`, with the error
-  `registered twice without a matcher`. The subagent error cleanup therefore
-  shares the one `turn.complete` hook with the storage write, registered while
-  `storage_enabled` or `subagent_effort_routing_enabled` is on. `tool.call`
-  likewise has one hook, which observes effort errors, answers
-  `headroom_retrieve` and runs the SmartCrusher, registered while
-  `effort_routing_enabled` or `smart_crusher_enabled` is on.
+  `registered twice without a matcher`. The subagent error cleanup and a
+  finished agent's dedup-corpus reset therefore share the one `turn.complete`
+  hook with the storage write, registered while `storage_enabled`,
+  `subagent_effort_routing_enabled` or `cross_turn_dedup_enabled` is on.
+  `session.compact` has one matcher-less hook (registered while
+  `cross_turn_dedup_enabled` is on) that resets the dedup corpus. `tool.call`
+  likewise has one hook, which observes effort errors and answers
+  `headroom_retrieve`, registered while effort routing or any compression
+  lever is on. `session.append` has exactly one hook, with the matcher
+  `{ door: "tool-result" }`, which runs every compression lever, registered
+  while any of them is on.
 - Live-run on 2.1.296 (headless `claude -p --plugin-dir … --setting-sources project`,
   a stdio MCP test server via `--mcp-config`, stream-json transcript as evidence):
   - Core resolves an MCP tool's `tool.call` to `{ ref, result, text }` where
@@ -267,11 +921,14 @@ Wiring in `register.ts`:
     and maps it for the model with the tool's own mapper; `ref` and `text` are
     absent on it. `context` (`readonly string[]`, other hooks' reminder text) is
     "kept whole from `next`", but the typings do not say core restores it on a
-    hook's own `{ result }`, so the crusher carries `r.context` over itself.
+    hook's own `{ result }`. The mod answers only `headroom_retrieve` with its
+    own `{ result }`; it rewrites tool results at `session.append` instead.
   - The Bash record has `stdout`, `stderr`, `interrupted`, `isImage?`,
     `backgroundTaskId?`, `timedOutAfterMs?` (set when the command hit its
     timeout and was backgrounded), `rawOutputPath?`, `persistedOutputPath?` and
-    `structuredContent?`; the candidate guard reads each.
+    `structuredContent?`. Each case these fields flag renders a tool_result
+    text that is not one JSON document, so the crusher's whole-document parse
+    at `session.append` rejects it.
   - `$.tool.register` in the first `session.start` (which is awaited) is listed
     by turn one; a reload's `session.start` registers again; `/clear` fires
     none.
@@ -354,6 +1011,38 @@ Wiring in `register.ts`:
     volatile list therefore stays empty for an installed plugin; the pane says
     `unavailable` while no `prompt.compose` reached the module (`composeSeen`).
     Its cache-drop counting reads `turn.step` usage and still works.
+- Live-run on 2.1.296 for the compression levers (2026-10-11, a throwaway probe
+  mod with a `session.append` `{ door: "tool-result" }` hook, headless
+  `claude -p … --plugin-dir <probe> --setting-sources project --debug-file …`;
+  evidence: the probe's debug lines and the stream-json transcript):
+  - `claude plugin validate` lists the hook as `session.append{door=tool-result}`,
+    separate from the matcher-less `tool.call`.
+  - Each tool result is one row: `door: "tool-result"`,
+    `origin: { kind: "tool", tool: "<name>" }`, and a `message` of
+    `type: "user"`, `role: "user"` whose `content` holds one
+    `{ type: "tool_result", tool_use_id, content, is_error? }` block.
+    `agentId` is set on subagent rows and absent on main rows.
+  - The tool_result `content` per tool: Bash a string of stdout (with
+    `is_error: false`); Read a string with unpadded line numbers (`1\t…`); Grep
+    in content mode a string (`1:…`); ToolSearch an array of
+    `{ type: "tool_reference", tool_name }` blocks; a `$.tool.register` tool's
+    `{ result: "…" }` a string; Agent an array holding one text block (the
+    framed hand-back report).
+  - `$.session.messages()` (or `$.session.messages({ agentId })` for a subagent
+    row) called inside the hook resolves to an array with no deadlock; every
+    `session.append` settled in 2.1-4.0 ms, `next` and the fetch included.
+  - A rewrite through `next({ ...e, message: { ...e.message, content } })` is
+    stored and read by the model, for main and subagent rows alike.
+  - A `$.tool.register` tool is callable from a general-purpose subagent: the
+    subagent loaded it through ToolSearch `select:`, and the module's
+    `tool.call` hook answered it with `agentId` set.
+  - Every model tool call, in subagents too, carries `next.origin`
+    `{ plugin: "engine", tier: "core" }`.
+- Test kit: the test's own
+  `$.session.append({ message, door, origin, uuid, agentId? })` raises a row
+  through the plugin's `session.append` hooks; the kit's bottom stores it with
+  the pinned blocks put back and resolves `{ message, uuid }` (the kit tests'
+  `appendResult`).
 
 ## Not yet live-verified (kit only)
 
@@ -363,6 +1052,18 @@ delete this heading once it is empty.
 
 - Workflow agents (only Agent-tool subagents were live-run) raise `turn.step`,
   `tool.call` and `turn.complete` with a stable `agentId`.
+- A stdio MCP server's tool_result `content` shape at `session.append` (a
+  string or a text-block array; both are handled).
+- A tool-result row with `is_error: true`.
+- Workflow-agent tool-result rows.
+- Agent types whose `tools` allowlist names or leaves out `headroom_retrieve`.
+- A dedup pointer whose original was compacted away.
+- A real compaction's `session.compact` dispatch (`trigger`, `agentId` and the
+  `skip` result are read from the typings; the kit raises the event with
+  hand-built input): the dedup corpus reset after `/compact` or an auto-compact.
+- The `origin.tool` of a plugin-registered tool's row at `session.append` (the
+  protected-row check matches `headroom_retrieve` by name in any namespace to
+  stay safe either way).
 
 ## Effort-routing caveat
 

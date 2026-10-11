@@ -7,24 +7,26 @@ import {
   ROWS,
   cacheHitRatio,
   crushQuery,
-  crushToolResult,
   dayKey,
   findVolatile,
   foldPending,
   isCacheDrop,
-  isCrushCandidate,
   isOwnStorageCall,
   isToolError,
   pct,
+  resetCorpus,
+  retrieveKey,
+  rewriteToolResults,
   statsTables,
   stepEffort,
   storeOffloaded,
   tableText,
   toCount,
+  wantsQuery,
   windowStart,
   zeroCounters,
 } from "./policy.mjs";
-import type { Counters, VolatileFinding } from "./policy.mjs";
+import type { Counters, DedupState, VolatileFinding } from "./policy.mjs";
 
 // Module state resets on hot reload and on an options change (the engine reloads the module).
 // Persisted totals survive: each load writes its own rows under a new WRITER.
@@ -32,8 +34,21 @@ let toolErrored = false; // any main-loop tool error since the last main-loop st
 const agentErrored = new Set<string>(); // subagents with a tool error since their own last step; an entry ends with that agent's turn
 const subagents = { steps: 0, clamped: 0 }; // this session's subagent steps: in memory only, never persisted (the stats schema stays main-loop)
 const crush = { dropped: 0, saved: 0 }; // this session's SmartCrusher savings: in memory only, never persisted (the stats schema has no columns for them)
+const dedup = { spans: 0, saved: 0 }; // this session's cross-turn dedup savings: in memory only, never persisted
+const elide = { lines: 0, saved: 0 }; // this session's dense line elider savings: in memory only, never persisted
+const compact = { arrays: 0, saved: 0 }; // this session's lossless compaction savings: in memory only, never persisted
+const config = { texts: 0, saved: 0 }; // this session's config compressor savings: in memory only, never persisted
+const extract = { pages: 0, saved: 0 }; // this session's HTML extractor savings: in memory only, never persisted
+const dedupStates = new Map<string, DedupState>(); // conversation ("" main, else agentId) → its dedup corpus; reset on session.end
+// Starts one conversation's dedup corpus over (its ordinals keep counting): what it indexes left the model's context.
+const dropCorpus = (key: string): void => {
+  const st = dedupStates.get(key);
+  if (st) resetCorpus(st);
+};
 let retrieveReady = false; // session.start registered headroom_retrieve under its expected name in this module load
-const offloaded = new Map<string, string>(); // CCR hash → original array JSON, oldest first (storeOffloaded evicts)
+const offloaded = new Map<string, string>(); // CCR hash → original text (crushed array JSON, elided block): the only copy, oldest first (storeOffloaded evicts)
+// A second store, so dedup churn never evicts a sole copy above: a folded run's earlier copy is still in the transcript until a compaction.
+const folded = new Map<string, string>(); // CCR hash → a folded dedup run's text, oldest first
 // The session row: this session's counters, in memory.
 const session: Counters = zeroCounters();
 const stats = {
@@ -58,22 +73,23 @@ const message = (err: unknown): string => (err instanceof Error ? err.message : 
 const RETRIEVE_SPEC = {
   name: RETRIEVE_NAME,
   description:
-    "Retrieve original uncompressed content that was compressed to save tokens. Use this when you need more data than what's shown in compressed tool results. The hash is in compression markers like <<ccr:abc123def456 40_rows_offloaded>>.",
+    "Retrieve original uncompressed content that was compressed to save tokens. Use this when you need more data than what's shown in compressed tool results. The hash is in compression markers like <<ccr:abc123def456 40_rows_offloaded>> or hash=abc123def456.",
   inputSchema: {
     type: "object",
     properties: {
       hash: {
         type: "string",
-        description: "Hash key from the compression marker (e.g. 'abc123def456' from <<ccr:abc123def456 40_rows_offloaded>>)",
+        description: "Hash key from the compression marker (e.g. 'abc123def456' from <<ccr:abc123def456 40_rows_offloaded>> or hash=abc123def456)",
       },
     },
     required: ["hash"],
   },
 };
-// headroom_retrieve's answer: the original array JSON, or a deny the model reads as a failed call.
+// headroom_retrieve's answer: the original text, or a deny the model reads as a failed call.
 const retrieve = (hash: unknown) => {
-  const original = typeof hash === "string" ? offloaded.get(hash) : undefined;
-  return original === undefined ? { deny: `headroom_retrieve: no crushed content under hash ${String(hash)} (evicted, or the mod reloaded)` } : { result: original };
+  const key = retrieveKey(hash);
+  const original = key === undefined ? undefined : (offloaded.get(key) ?? folded.get(key));
+  return original === undefined ? { deny: `headroom_retrieve: no stored content under hash ${String(hash)} (evicted, or the mod reloaded)` } : { result: original };
 };
 
 // Moves one counter in the session row and in the deltas still to persist.
@@ -137,20 +153,31 @@ export const register: Register = (on, options) => {
   const subOn = effortOn && options.subagent_effort_routing_enabled !== false;
   const cacheOn = options.cache_aligner_enabled !== false;
   const crusherOn = options.smart_crusher_enabled !== false;
+  // Lossless compaction runs inside the crusher's step, also with the crusher off (upstream lossless_only).
+  const compactOn = options.lossless_compaction_enabled !== false;
+  const dedupOn = options.cross_turn_dedup_enabled !== false;
+  const elideOn = options.dense_line_elider_enabled !== false;
+  const configOn = options.config_compressor_enabled !== false;
+  const htmlOn = options.html_extractor_enabled !== false;
+  // The tag protector only narrows what the levers above rewrite: no compressOn term, no table.
+  const tagsOn = options.tag_protector_enabled !== false;
+  const compressOn = crusherOn || compactOn || dedupOn || elideOn || configOn || htmlOn;
+  // Subagent and Workflow-agent tool results: their own toggle, active only while a compression lever is on.
+  const subCompressOn = compressOn && options.subagent_compression_enabled !== false;
   // Unset means the manifest default (true), like the sibling toggles; the server stays fail-closed.
   const storageOn = options.storage_enabled !== false;
 
   on("session.start", async ($, e, next) => {
     await $.command.register({
       name: "headroom",
-      description: "inline-headroom stats: effort clamps, cache-hit drops, volatile prompt values, smart-crusher savings",
+      description: "inline-headroom stats: effort clamps, cache-hit drops, volatile prompt values, compression savings",
     });
-    if (crusherOn) {
+    if (compressOn) {
       try {
         // Sticky within a module load: a later session.start that fails or answers another name leaves an earlier registration usable.
         retrieveReady ||= (await $.tool.register(RETRIEVE_SPEC)).tool === RETRIEVE_TOOL;
       } catch {
-        // no registration in this module load → retrieveReady stays false and no rows are dropped
+        // no registration in this module load → retrieveReady stays false and no row is rewritten
       }
     }
     return next(e);
@@ -171,10 +198,27 @@ export const register: Register = (on, options) => {
   // No note means the numbers are still loading ("…"); a note means they never will come ("–").
   // The session row shows its last step's hit ratio; the storage rows are token-weighted over their windows.
   // Each table is shown only while the lever it counts is on; the storage rows sit in both.
-  // The subagents row and the crusher counts are session-only: persisting them needs new stats columns and a storage PROTOCOL bump (deferred).
+  // The subagents row and the compression counts are session-only: persisting them needs new stats columns and a storage PROTOCOL bump (deferred).
   const tables = (): string[][][] => {
-    const [effort, cache, crusher] = statsTables([{ ...session, hit: stats.lastHit }, ...(sums?.data ?? [])], note() === undefined ? "…" : "–", { subagents: subOn ? subagents : undefined, crush });
-    return [...(effortOn ? [effort] : []), ...(cacheOn ? [cache] : []), ...(crusherOn ? [crusher] : [])];
+    const [effort, cache, crusher, deduper, elider, compactor, configs, extractor] = statsTables([{ ...session, hit: stats.lastHit }, ...(sums?.data ?? [])], note() === undefined ? "…" : "–", {
+      subagents: subOn ? subagents : undefined,
+      crush,
+      dedup,
+      elide,
+      compact,
+      config,
+      extract,
+    });
+    return [
+      ...(effortOn ? [effort] : []),
+      ...(cacheOn ? [cache] : []),
+      ...(crusherOn ? [crusher] : []),
+      ...(dedupOn ? [deduper] : []),
+      ...(elideOn ? [elider] : []),
+      ...(compactOn ? [compactor] : []),
+      ...(configOn ? [configs] : []),
+      ...(htmlOn ? [extractor] : []),
+    ];
   };
   // One row per finding, so a long list wraps per row instead of one clipped line. The list belongs to the cache aligner.
   const volatileLines = (): string[] =>
@@ -183,8 +227,11 @@ export const register: Register = (on, options) => {
       : !composeSeen
         ? ["volatile shared values: unavailable (Claude Code keeps plugins out of the system-prompt hooks)"]
         : [stats.volatile.length ? "volatile shared values:" : "volatile shared values: none", ...stats.volatile.map((v) => `  ${v.id} ${v.kind} ${v.sample}`)];
-  // With all three levers off there is nothing to show, so nothing is read from storage either.
-  const idle = (): string | undefined => (effortOn || cacheOn || crusherOn ? undefined : "effort routing, cache aligner and smart crusher are off: nothing to show");
+  // With every lever off there is nothing to show, so nothing is read from storage either.
+  const idle = (): string | undefined =>
+    effortOn || cacheOn || compressOn
+      ? undefined
+      : "effort routing, cache aligner, smart crusher, lossless compaction, cross-turn dedup, dense line elider, config compressor and HTML extractor are off: nothing to show";
   // Body height asked for when seated inline, mirroring the render: every table, a line for the storage note
   // wherever one can show, the volatile lines, and a gap between each.
   const paneRows = (): number => {
@@ -268,8 +315,8 @@ export const register: Register = (on, options) => {
   });
 
   // One tool.call hook without a matcher for every job: the engine refuses a second one in one module (see CLAUDE.md).
-  // It observes failures for effort routing, answers headroom_retrieve, and crushes large JSON results.
-  if (effortOn || crusherOn) {
+  // It observes failures for effort routing and answers headroom_retrieve.
+  if (effortOn || compressOn) {
     // Observe AFTER the tool ran. A failure keeps full effort on the next step of the loop that made the call:
     // the main loop's flag, or that subagent's entry. Under parallel calls the flag is sticky.
     const failed = (agentId: string | undefined): void => {
@@ -277,7 +324,7 @@ export const register: Register = (on, options) => {
       if (!agentId) toolErrored = true;
       else if (subOn) agentErrored.add(agentId);
     };
-    on("tool.call", async ($, e, next) => {
+    on("tool.call", async (_$, e, next) => {
       let r: Awaited<ReturnType<typeof next>>;
       try {
         // headroom_retrieve is answered here (a call no hook answers fails); every other call runs beneath.
@@ -286,35 +333,74 @@ export const register: Register = (on, options) => {
         failed(e.agentId); // a tool that throws instead of returning an error result is still a failure
         throw err;
       }
-      if (isToolError(r)) {
-        failed(e.agentId);
-        return r; // errors and denies are never rewritten
-      }
-      if (!crusherOn || !retrieveReady || e.agentId || next.origin?.plugin !== "engine" || !isCrushCandidate(e.tool, r.result)) return r;
+      if (isToolError(r)) failed(e.agentId);
+      return r; // results are rewritten at session.append, never here
+    });
+  }
+
+  if (compressOn) {
+    // One session.append hook, on tool results only: crushes, elides and folds a result before it is first stored and sent,
+    // so the model, the transcript file and every later request read one form (prompt-cache safe). The screen's tool row
+    // (toolUseResult) keeps the original. Every throw before next passes the row through unchanged (fail open).
+    on("session.append", { door: "tool-result" }, async ($, e, next) => {
+      // No marker may name a missing retrieve tool; rows no tool made and subagent rows with subagent compression off pass.
+      if (!retrieveReady || e.origin.kind !== "tool" || (e.agentId && !subCompressOn)) return next(e);
+      const tool = e.origin.tool;
+      let rw: ReturnType<typeof rewriteToolResults>;
       try {
         let query = "";
-        try {
-          query = crushQuery(await $.session.messages());
-        } catch {
-          // crush without query signals, as upstream does with no context
-        }
-        const c = crushToolResult(e.tool, r.result, query);
-        if (!c) return r;
-        storeOffloaded(offloaded, c.offloaded);
-        crush.dropped += c.rowsDropped;
-        crush.saved += c.charsSaved;
-        if (paneOpen) {
+        if (crusherOn && wantsQuery(e.message.content, tool)) {
           try {
-            $.ui.invalidate("ui.render"); // redraw an open /headroom pane's smart crusher row now
+            // A subagent row's query comes from that agent's own conversation; a { deny } leaves it empty.
+            const m = e.agentId ? await $.session.messages({ agentId: e.agentId }) : await $.session.messages();
+            if (Array.isArray(m)) query = crushQuery(m);
           } catch {
-            // a refused $ never costs the crushed result
+            // crush without query signals, as upstream does with no context
           }
         }
-        // A new object: no ref/text, so core re-validates and re-maps it. Other hooks' reminder context is carried over (U1).
-        return { result: c.result, ...(r.context === undefined ? {} : { context: r.context }) };
+        rw = rewriteToolResults(
+          e.message.content,
+          tool,
+          { crush: crusherOn, compact: compactOn, elide: elideOn, config: configOn, extract: htmlOn, tags: tagsOn, dedup: dedupOn ? { states: dedupStates, key: e.agentId ?? "" } : undefined },
+          query,
+        );
       } catch {
-        return r; // fail open: never break the tool path
+        rw = undefined; // fail open: the row is stored as made (rewriteToolResults has already started a half-indexed corpus over)
       }
+      if (!rw) return next(e);
+      storeOffloaded(offloaded, rw.offloaded);
+      storeOffloaded(folded, rw.folded);
+      crush.dropped += rw.crush.dropped;
+      crush.saved += rw.crush.saved;
+      dedup.spans += rw.dedup.spans;
+      dedup.saved += rw.dedup.saved;
+      elide.lines += rw.elide.lines;
+      elide.saved += rw.elide.saved;
+      compact.arrays += rw.compact.arrays;
+      compact.saved += rw.compact.saved;
+      config.texts += rw.config.texts;
+      config.saved += rw.config.saved;
+      extract.pages += rw.extract.pages;
+      extract.saved += rw.extract.saved;
+      if (paneOpen) {
+        try {
+          $.ui.invalidate("ui.render"); // redraw an open /headroom pane's compression rows now
+        } catch {
+          // a refused $ never costs the rewrite
+        }
+      }
+      // next exactly once, its answer relayed unchanged: the engine skips a hook that answers another row.
+      return next({ ...e, message: { ...e.message, content: rw.content } });
+    });
+  }
+
+  if (dedupOn) {
+    // A compaction swaps the transcript for a summary, so the results the corpus indexes are no longer in the model's context
+    // and a pointer to one would name nothing it can read. A skipped compaction and a `precompute` (nothing installed) keep the corpus.
+    on("session.compact", async (_$, e, next) => {
+      const r = await next(e);
+      if (r.skip === undefined && e.trigger !== "precompute") dropCorpus(e.agentId ?? "");
+      return r;
     });
   }
 
@@ -378,11 +464,15 @@ export const register: Register = (on, options) => {
     on("tool.check", async (_$, e, next) => (isOwnStorageCall(next.origin.plugin, e.tool) ? { decision: "allow" as const, reason: "inline-headroom's own /headroom storage call" } : next(e)));
   }
 
-  // One turn.complete hook for both jobs: the engine refuses a second turn.complete without a matcher in one module.
-  if (storageOn || subOn) {
+  // One turn.complete hook for all three jobs: the engine refuses a second turn.complete without a matcher in one module.
+  if (storageOn || subOn || dedupOn) {
     on("turn.complete", async ($, e, next) => {
-      // An agent's error entry ends with its turn, also with storage off or a throwing chain. A no-op while subOn is off: the Set stays empty.
-      if (e.agentId) agentErrored.delete(e.agentId);
+      // An agent's error entry and dedup corpus end with its turn, also with storage off or a throwing chain, so a finished
+      // agent's corpus never counts toward the cap that would evict the main loop's. No-ops while the lever is off: the Set stays empty.
+      if (e.agentId) {
+        agentErrored.delete(e.agentId);
+        dropCorpus(e.agentId);
+      }
       const r = await next(e);
       if (!storageOn || e.agentId) return r; // subagent turns carry no main-loop steps
       let today: string;
@@ -419,6 +509,12 @@ export const register: Register = (on, options) => {
     Object.assign(session, zeroCounters());
     Object.assign(subagents, { steps: 0, clamped: 0 });
     Object.assign(crush, { dropped: 0, saved: 0 });
+    Object.assign(dedup, { spans: 0, saved: 0 });
+    Object.assign(elide, { lines: 0, saved: 0 });
+    Object.assign(compact, { arrays: 0, saved: 0 });
+    Object.assign(config, { texts: 0, saved: 0 });
+    Object.assign(extract, { pages: 0, saved: 0 });
+    dedupStates.clear(); // the next session's results get their own corpus and ordinals
     agentErrored.clear(); // an aborted agent whose turn.complete never came
     Object.assign(stats, { lastHit: undefined, volatile: [] });
     $.ui.invalidate("ui.render");
