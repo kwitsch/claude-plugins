@@ -16,6 +16,12 @@
 /** @typedef {{ result: Record<string, unknown> | unknown[], rowsDropped: number, charsSaved: number, offloaded: [string, string][] }} ToolCrush a crushed tool result and what it saved */
 /** @typedef {{ text: string, lines: number, offloaded: [string, string][] }} Elision a dense-line-elided text: the shortened text, the lines elided, [hash, original text] */
 /**
+ * One conversation's dedup corpus: the last ordinal handed out, each indexed block's verbatim lines (null where folded) by
+ * ordinal, the anchor index (match key → [ordinal, line] first-seen, at most 16), and the indexed characters.
+ * @typedef {{ turn: number, corpus: Map<number, (string|null)[]>, index: Map<string, [number, number][]>, chars: number }} DedupState
+ */
+/** @typedef {{ text: string, spans: number, offloaded: [string, string][] }} Fold a deduplicated text: the text with pointers, the runs folded, [hash, run text] per run */
+/**
  * One dict-array field (upstream FieldStats); the numeric statistics are absent when not finite.
  * @typedef {{ name: string, type: string, unique: number, ratio: number, min?: number, max?: number, mean?: number, variance?: number, changePoints: number[], avgLen?: number }} FieldStats
  */
@@ -114,6 +120,15 @@ const DENSE_TAIL_CHARS = 80;
 // JSON span scan work budget: upstream recursive_json.py.
 const SCAN_BUDGET_PER_CHAR = 4;
 const SCAN_BUDGET_FLOOR = 4096;
+// Cross-turn dedup: upstream cross_turn_dedup.py.
+const DEDUP_MIN_LINES = 3;
+const DEDUP_MIN_CHARS = 40;
+const DEDUP_MAX_ANCHOR_CANDIDATES = 16;
+const DEDUP_LINENO_RE = /^([1-9]\d*)(:|\t)([\s\S]*)$/;
+const DEDUP_TRIVIAL = new Set(["return", "pass", "else:", "try:", "except:", "finally:", "break", "continue", "});", "})", "],", "),", '"""', "'''", "..."]);
+// shortcut: about a 1M-token context at 4 chars per token; older content has left the model's window. Raise it if long sessions stop folding.
+/** Indexed dedup characters kept across all conversations, least recently appended conversation dropped first. Deviation: upstream rebuilds per request and needs no cap. */
+export const DEDUP_MAX_CHARS = 4_000_000;
 
 /**
  * Whether a tool.check decides this mod's own storage call: `$.mcp.call` reaches core's permission step as a
@@ -1687,4 +1702,173 @@ export function elideDense(text) {
   const elided = `${out.join("\n")}\n[${n} dense machine-generated ${n === 1 ? "line" : "lines"} elided. Retrieve original: hash=${hash}]`;
   // Deviation: upstream emits a result that grew (seven 300-char lines plus the retrieval line); the mod passes it through.
   return elided.length < text.length ? { text: elided, lines: n, offloaded: [[hash, text]] } : undefined;
+}
+
+// Cross-turn dedup: a port of headroom's cross_turn_dedup.py, run once per appended tool-result text.
+
+/**
+ * Upstream _num_and_key: a leading unpadded line number, the match key (the line without that number, its separator
+ * kept, so the same content at another line number shares a key) and the content after the separator.
+ * Deviation: a number beyond Number.MAX_SAFE_INTEGER counts as no number (Python ints are unbounded).
+ * @param {string} line
+ * @returns {[number|null, string, string]}
+ */
+function numAndKey(line) {
+  const m = DEDUP_LINENO_RE.exec(line);
+  if (!m) return [null, line, line];
+  const n = Number(m[1]);
+  return Number.isSafeInteger(n) ? [n, m[2] + m[3], m[3]] : [null, line, line];
+}
+
+/**
+ * Upstream _is_trivial: a line too short or too common to anchor a match on its own.
+ * @param {string} content
+ * @returns {boolean}
+ */
+function isTrivial(content) {
+  const s = content.trim();
+  return s.length < 4 || DEDUP_TRIVIAL.has(s);
+}
+
+/**
+ * Upstream _index_lines: records each surviving non-trivial line as [ordinal, line] under its match key, first-seen
+ * order, at most DEDUP_MAX_ANCHOR_CANDIDATES per key. Folded lines (null) are skipped (keep-earliest).
+ * @param {readonly (string|null)[]} verbatim
+ * @param {number} turn the block's ordinal
+ * @param {DedupState} st
+ * @returns {void}
+ */
+function indexLines(verbatim, turn, st) {
+  verbatim.forEach((ln, li) => {
+    if (ln === null) return;
+    const [, key, content] = numAndKey(ln);
+    if (isTrivial(content)) return;
+    let bucket = st.index.get(key);
+    if (!bucket) st.index.set(key, (bucket = []));
+    if (bucket.length < DEDUP_MAX_ANCHOR_CANDIDATES) bucket.push([turn, li]);
+  });
+}
+
+/**
+ * Upstream _longest_match: the longest run of `cur` from `start` found in one earlier block, its line keys equal and
+ * every numbered pair under one uniform line-number shift (non-numbered lines must match exactly). A longer run wins;
+ * a tie keeps the earliest candidate. Undefined when no run starts here.
+ * @param {readonly string[]} cur
+ * @param {number} start
+ * @param {DedupState} st
+ * @returns {{ len: number, turn: number, li: number, delta: number }|undefined}
+ */
+function longestMatch(cur, start, st) {
+  const candidates = st.index.get(numAndKey(cur[start])[1]);
+  if (!candidates) return undefined;
+  let best = { len: 0, turn: -1, li: -1, delta: 0 };
+  for (const [t, li] of candidates) {
+    const blockLines = st.corpus.get(t);
+    if (!blockLines) continue;
+    let k = 0;
+    /** @type {number|null} */
+    let delta = null;
+    while (start + k < cur.length && li + k < blockLines.length) {
+      const ca = cur[start + k];
+      const cb = blockLines[li + k];
+      if (cb === null) break; // a folded span ends the run
+      const [na, ka] = numAndKey(ca);
+      const [nb, kb] = numAndKey(cb);
+      if (ka !== kb) break;
+      if (na !== null && nb !== null) {
+        const d = na - nb;
+        if (delta === null) delta = d;
+        else if (delta !== d) break; // an edit inside the span: the shift is not uniform
+      } else if (ca !== cb) break;
+      k++;
+    }
+    if (k > best.len) best = { len: k, turn: t, li, delta: delta ?? 0 };
+  }
+  return best.len === 0 ? undefined : best;
+}
+
+/**
+ * Upstream _pointer plus a ` hash=H` CCR suffix: `[↑nL same as result K: "anchor" hash=H]`, with ` ±dL` after K when
+ * the run's line numbers are shifted. The anchor is the run's first non-blank line's content, at most 20 code points.
+ * @param {readonly string[]} span
+ * @param {number} refTurn the earlier block's ordinal
+ * @param {number} delta
+ * @param {string} hash
+ * @returns {string}
+ */
+function pointer(span, refTurn, delta, hash) {
+  const first = span.find((ln) => ln.trim() !== "");
+  const anchor = first === undefined ? "" : numAndKey(first)[2].trim();
+  const points = [...anchor];
+  const shown = points.length > 20 ? `${points.slice(0, 17).join("")}...` : anchor;
+  const shift = delta === 0 ? "" : ` ${delta > 0 ? "+" : ""}${delta}L`;
+  return `[↑${span.length}L same as result ${refTurn}${shift}: ${JSON.stringify(shown)} hash=${hash}]`;
+}
+
+/**
+ * Cross-turn dedup (upstream cross_turn_dedup.py) for one tool-result text appended to conversation `key`: each run of
+ * at least 3 lines and 40 characters found verbatim (or under one uniform line-number shift) in an earlier block of the
+ * same conversation becomes a pointer naming that block's ordinal, with the run's own text stored under a CCR hash.
+ * A protected text is only indexed. The block is then indexed, and the oldest conversations are dropped while all
+ * corpora hold more than DEDUP_MAX_CHARS. Mutates `states`. Undefined when nothing folded.
+ * @param {Map<string, DedupState>} states conversation key → corpus, least recently appended first
+ * @param {string} key "" for the main loop, else the agentId
+ * @param {string} text
+ * @param {boolean} isProtected
+ * @returns {Fold|undefined}
+ */
+export function dedupBlock(states, key, text, isProtected) {
+  const st = states.get(key) ?? { turn: 0, corpus: new Map(), index: new Map(), chars: 0 };
+  states.delete(key);
+  states.set(key, st); // this conversation is now the most recently appended
+  const turn = ++st.turn;
+  const lines = text.split("\n");
+  /** @type {string[]} */
+  const out = [];
+  /** @type {(string|null)[]} */
+  const verbatim = isProtected ? [...lines] : [];
+  /** @type {[string, string][]} */
+  const offloaded = [];
+  let spans = 0;
+  for (let i = 0; !isProtected && i < lines.length;) {
+    const m = longestMatch(lines, i, st);
+    if (m && m.len >= DEDUP_MIN_LINES) {
+      const span = lines.slice(i, i + m.len);
+      const spanText = span.join("\n");
+      if (spanText.length >= DEDUP_MIN_CHARS) {
+        const hash = contentHash(spanText);
+        const ptr = pointer(span, m.turn, m.delta, hash);
+        // Deviation: the hash suffix can make a short run's pointer longer than the run; such a run stays verbatim.
+        if (ptr.length < spanText.length) {
+          out.push(ptr);
+          for (let k = 0; k < m.len; k++) verbatim.push(null);
+          offloaded.push([hash, spanText]);
+          spans++;
+          i += m.len;
+          continue;
+        }
+      }
+    }
+    out.push(lines[i]);
+    verbatim.push(lines[i]);
+    i++;
+  }
+  indexLines(verbatim, turn, st);
+  st.corpus.set(turn, verbatim);
+  st.chars += text.length;
+  let total = 0;
+  for (const s of states.values()) total += s.chars;
+  for (const [oldest, s] of states) {
+    if (total <= DEDUP_MAX_CHARS) break;
+    if (oldest === key) {
+      // This conversation alone is over the cap: start its corpus over, but keep counting ordinals.
+      st.corpus.clear();
+      st.index.clear();
+      st.chars = 0;
+      break;
+    }
+    total -= s.chars;
+    states.delete(oldest);
+  }
+  return spans > 0 ? { text: out.join("\n"), spans, offloaded } : undefined;
 }
