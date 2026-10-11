@@ -27,11 +27,13 @@ import {
   isCrushCandidate,
   isOwnStorageCall,
   isToolError,
+  rewriteToolResults,
   statsTables,
   stepEffort,
   storeOffloaded,
   tableText,
   toCount,
+  wantsQuery,
   windowStart,
   zeroCounters,
 } from "../../plugins/inline-headroom/hooks/policy.mjs";
@@ -226,6 +228,14 @@ test("statsTables builds every table, with blank for rows without counters", () 
       ["smart crusher", "dropped", "saved"],
       ["session", "0", "0"],
     ],
+    [
+      ["dedup", "spans", "saved"],
+      ["session", "0", "0"],
+    ],
+    [
+      ["line elider", "lines", "saved"],
+      ["session", "0", "0"],
+    ],
   ]);
   // The in-memory rows: subagents right under the effort session row, the crusher's session counts.
   const [effort, , crusher] = statsTables([c], "…", { subagents: { steps: 4, clamped: 3 }, crush: { dropped: 40, saved: 1200 } });
@@ -235,6 +245,9 @@ test("statsTables builds every table, with blank for rows without counters", () 
     ["today", "…", "…"],
   ]);
   assert.deepEqual(crusher[1], ["session", "40", "1200"]);
+  const [, , , deduper, elider] = statsTables([c], "…", { dedup: { spans: 3, saved: 900 }, elide: { lines: 2, saved: 4100 } });
+  assert.deepEqual(deduper[1], ["session", "3", "900"]);
+  assert.deepEqual(elider[1], ["session", "2", "4100"]);
   assert.equal(statsTables([zeroCounters()], "–")[1][1][1], "–"); // no tokens: no hit ratio
   assert.equal(statsTables([{ ...c, hit: 0.1 }], "…")[1][1][1], "10%"); // a row's own hit wins over the token-weighted one
 });
@@ -842,4 +855,149 @@ test("dedupBlock drops the least recently appended conversation over DEDUP_MAX_C
   assert.deepEqual([st.turn, st.corpus.size, st.index.size, st.chars], [2, 0, 0, 0]);
   assert.equal(dedupBlock(solo, "", RUN, false), undefined); // result 3: result 1 left the corpus
   assert.match(fold(solo, "", RUN).text, /^\[↑3L same as result 3: /);
+});
+
+/** @typedef {import("../../plugins/inline-headroom/hooks/policy.mjs").ContentBlock} ContentBlock */
+/** @typedef {import("../../plugins/inline-headroom/hooks/policy.mjs").Levers} Levers */
+
+const IMAGE = { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo=" } };
+// A pretty-printed document whose blob line is dense: elided when nothing crushes it, never once crushed.
+const PRETTY = JSON.stringify({ rows: STATUS_ROWS, blob: "QUJD".repeat(700) }, null, 2);
+// A dense line plus two short lines: elided to four lines (the omission note, both lines, the retrieval line).
+const DENSE_TEXT = `${"x".repeat(2500)}\nexit code 0 after the bundle step\nfinished writing dist/app.min.js`;
+
+/**
+ * One tool_result block as session.append hands it.
+ * @param {unknown} content
+ * @param {boolean} [isError]
+ * @returns {ContentBlock}
+ */
+const toolResult = (content, isError = false) => ({ type: "tool_result", tool_use_id: "toolu_1", content, ...(isError ? { is_error: true } : {}) });
+
+/**
+ * Every lever on, with a fresh main-loop dedup corpus unless one is given.
+ * @param {Partial<Levers>} [over]
+ * @returns {Levers}
+ */
+const levers = (over = {}) => ({ crush: true, elide: true, dedup: { states: new Map(), key: "" }, ...over });
+
+/**
+ * rewriteToolResults that must rewrite; throws when the row passes through.
+ * @param {readonly ContentBlock[]} content
+ * @param {string} tool
+ * @param {Levers} lv
+ */
+function rewrite(content, tool, lv) {
+  const r = rewriteToolResults(content, tool, lv, "");
+  if (!r) throw new Error("expected the row to be rewritten");
+  return r;
+}
+
+test("rewriteToolResults crushes a JSON string result and reports what it dropped and saved", () => {
+  const r = rewrite([toolResult(BIG)], "Bash", levers());
+  const text = String(r.content[0].content);
+  const rows = JSON.parse(text);
+  const [, hash, n] = SENTINEL.exec(rows.at(-1)._ccr_dropped) ?? [];
+  assert.equal(r.crush.dropped, Number(n));
+  assert.equal(r.crush.dropped, 200 - (rows.length - 1));
+  assert.equal(r.crush.saved, BIG.length - text.length);
+  assert.deepEqual(r.offloaded, [[hash, BIG]]);
+  assert.deepEqual(
+    [r.elide, r.dedup],
+    [
+      { lines: 0, saved: 0 },
+      { spans: 0, saved: 0 },
+    ],
+  );
+  assert.equal(r.content[0].tool_use_id, "toolu_1");
+});
+
+test("rewriteToolResults never rewrites an error block, but a later result folds against it", () => {
+  const lv = levers();
+  assert.equal(rewriteToolResults([toolResult(BIG, true)], "Bash", lv, ""), undefined);
+  assert.equal(rewriteToolResults([toolResult(RUN, true)], "Bash", lv, ""), undefined);
+  const r = rewrite([toolResult(RUN)], "Bash", lv);
+  assert.match(String(r.content[0].content), /^\[↑3L same as result 2: "function alpha\(\) \.\.\." hash=[0-9a-f]{12}\]$/);
+  assert.equal(r.dedup.spans, 1);
+});
+
+test("rewriteToolResults leaves headroom_retrieve and the mod's own storage tools alone", () => {
+  for (const tool of [RETRIEVE_TOOL, "mcp__plugin_inline-headroom_storage__kv_get"]) {
+    const lv = levers();
+    assert.equal(rewriteToolResults([toolResult(BIG)], tool, lv, ""), undefined, tool);
+    assert.equal(rewriteToolResults([toolResult(DENSE_TEXT)], tool, lv, ""), undefined, tool);
+  }
+});
+
+test("rewriteToolResults rewrites only the text block of an array result", () => {
+  const r = rewrite([toolResult([{ type: "text", text: BIG }, IMAGE])], "mcp__srv__list", levers());
+  const [text, image] = /** @type {[{ type: string, text: string }, unknown]} */ (r.content[0].content);
+  assert.equal(text.type, "text");
+  assert.match(JSON.parse(text.text).at(-1)._ccr_dropped, SENTINEL);
+  assert.equal(image, IMAGE);
+});
+
+test("rewriteToolResults never elides text the crusher rewrote, but elides it when the crusher is off", () => {
+  const crushed = rewrite([toolResult(PRETTY)], "Bash", levers());
+  assert.ok(crushed.crush.dropped > 0);
+  assert.equal(crushed.elide.lines, 0);
+  assert.equal(JSON.parse(String(crushed.content[0].content)).blob, "QUJD".repeat(700)); // still whole JSON
+  const elided = rewrite([toolResult(PRETTY)], "Bash", levers({ crush: false }));
+  assert.equal(elided.crush.dropped, 0);
+  assert.equal(elided.elide.lines, 1);
+  assert.match(String(elided.content[0].content), /\n\[1 dense machine-generated line elided\. Retrieve original: hash=[0-9a-f]{12}\]$/);
+  assert.equal(rewriteToolResults([toolResult(BIG)], "Bash", levers({ crush: false }), ""), undefined); // one compact JSON line: nothing to elide or fold
+});
+
+test("rewriteToolResults deduplicates the elided text, not the original", () => {
+  const lv = levers();
+  const first = rewrite([toolResult(DENSE_TEXT)], "Bash", lv);
+  const stored = String(first.content[0].content);
+  assert.equal(first.elide.lines, 1);
+  assert.equal(stored.split("\n").length, 4);
+  const second = rewrite([toolResult(DENSE_TEXT)], "Bash", lv);
+  const pointer = String(second.content[0].content);
+  assert.match(pointer, /^\[↑4L same as result 1: "x{17}\.\.\." hash=[0-9a-f]{12}\]$/);
+  assert.equal(second.dedup.spans, 1);
+  assert.equal(second.dedup.saved, stored.length - pointer.length);
+  assert.deepEqual(second.offloaded.at(-1), [pointer.slice(-13, -1), stored]);
+});
+
+test("rewriteToolResults neither deduplicates nor indexes a result with several text blocks", () => {
+  const lv = levers();
+  const multi = [
+    toolResult([
+      { type: "text", text: RUN },
+      { type: "text", text: "a second text block" },
+    ]),
+  ];
+  assert.equal(rewriteToolResults(multi, "Agent", lv, ""), undefined);
+  assert.equal(rewriteToolResults(multi, "Agent", lv, ""), undefined);
+  assert.equal(rewriteToolResults([toolResult(RUN)], "Bash", lv, ""), undefined); // nothing earlier was indexed
+});
+
+test("rewriteToolResults passes through rows with nothing to rewrite", () => {
+  const lv = levers();
+  assert.equal(rewriteToolResults([toolResult([{ type: "tool_reference", tool_name: "Read" }])], "ToolSearch", lv, ""), undefined);
+  assert.equal(rewriteToolResults([toolResult("ok")], "Bash", lv, ""), undefined);
+  assert.equal(rewriteToolResults([toolResult("")], "Bash", lv, ""), undefined);
+  assert.equal(rewriteToolResults([{ type: "text", text: BIG }], "Bash", lv, ""), undefined); // not a tool_result block
+  assert.equal(rewriteToolResults([toolResult(undefined)], "Bash", lv, ""), undefined);
+});
+
+test("rewriteToolResults with every lever off changes nothing", () => {
+  const off = { crush: false, elide: false };
+  assert.equal(rewriteToolResults([toolResult(BIG)], "Bash", off, ""), undefined);
+  assert.equal(rewriteToolResults([toolResult(DENSE_TEXT)], "Bash", off, ""), undefined);
+});
+
+test("wantsQuery asks for the transcript only for a JSON document the crusher may rewrite", () => {
+  assert.equal(wantsQuery([toolResult(BIG)], "Bash"), true);
+  assert.equal(wantsQuery([toolResult([IMAGE, { type: "text", text: BIG }])], "mcp__srv__list"), true);
+  assert.equal(wantsQuery([toolResult(BIG, true)], "Bash"), false);
+  assert.equal(wantsQuery([toolResult(BIG)], RETRIEVE_TOOL), false);
+  assert.equal(wantsQuery([toolResult(BIG)], "mcp__plugin_inline-headroom_storage__kv_get"), false);
+  assert.equal(wantsQuery([toolResult("[1,2,3]")], "Bash"), false);
+  assert.equal(wantsQuery([toolResult("x".repeat(900))], "Bash"), false);
+  assert.equal(wantsQuery([toolResult([{ type: "tool_reference", tool_name: "Read" }])], "ToolSearch"), false);
 });

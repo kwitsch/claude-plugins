@@ -21,6 +21,20 @@
  * @typedef {{ turn: number, corpus: Map<number, (string|null)[]>, index: Map<string, [number, number][]>, chars: number }} DedupState
  */
 /** @typedef {{ text: string, spans: number, offloaded: [string, string][] }} Fold a deduplicated text: the text with pointers, the runs folded, [hash, run text] per run */
+/** @typedef {{ type: string } & Record<string, unknown>} ContentBlock one Messages-API content block, as session.append hands it */
+/**
+ * Which levers rewrite this row; dedup names the conversations map and this row's key ("" main, else agentId).
+ * @typedef {{ crush: boolean, elide: boolean, dedup?: { states: Map<string, DedupState>, key: string } }} Levers
+ */
+/**
+ * A rewritten tool-result row: its blocks, the originals for the CCR store, and each lever's savings.
+ * @typedef {object} RowRewrite
+ * @property {ContentBlock[]} content
+ * @property {[string, string][]} offloaded
+ * @property {{ dropped: number, saved: number }} crush
+ * @property {{ lines: number, saved: number }} elide
+ * @property {{ spans: number, saved: number }} dedup
+ */
 /**
  * One dict-array field (upstream FieldStats); the numeric statistics are absent when not finite.
  * @typedef {{ name: string, type: string, unique: number, ratio: number, min?: number, max?: number, mean?: number, variance?: number, changePoints: number[], avgLen?: number }} FieldStats
@@ -299,14 +313,14 @@ export function foldPending(days, pending, today, purgeBefore) {
 /**
  * The /headroom tables as rows of cells. Each table starts with its header row (heading, then the column names), then one row per ROWS entry.
  * A row without counters (still loading, storage off or failing) shows `blank` in every value cell. The in-memory session-only
- * counters add a `subagents` row under effort routing's session row, and the smart crusher table, which has only a session row.
+ * counters add a `subagents` row under effort routing's session row, and the smart crusher, dedup and line elider tables, which have only a session row.
  * @param {readonly (Row|undefined)[]} counters one per ROWS entry, in ROWS order
  * @param {string} blank
- * @param {{ subagents?: { steps: number, clamped: number }, crush?: { dropped: number, saved: number } }} [memory]
- * @returns {string[][][]} effort routing, cache aligner, smart crusher
+ * @param {{ subagents?: { steps: number, clamped: number }, crush?: { dropped: number, saved: number }, dedup?: { spans: number, saved: number }, elide?: { lines: number, saved: number } }} [memory]
+ * @returns {string[][][]} effort routing, cache aligner, smart crusher, dedup, line elider
  */
 export function statsTables(counters, blank, memory = {}) {
-  const { subagents, crush = { dropped: 0, saved: 0 } } = memory;
+  const { subagents, crush = { dropped: 0, saved: 0 }, dedup = { spans: 0, saved: 0 }, elide = { lines: 0, saved: 0 } } = memory;
   /**
    * @param {string} heading
    * @param {string[]} columns
@@ -329,6 +343,14 @@ export function statsTables(counters, blank, memory = {}) {
     [
       ["smart crusher", "dropped", "saved"],
       [session, String(crush.dropped), String(crush.saved)],
+    ],
+    [
+      ["dedup", "spans", "saved"],
+      [session, String(dedup.spans), String(dedup.saved)],
+    ],
+    [
+      ["line elider", "lines", "saved"],
+      [session, String(elide.lines), String(elide.saved)],
     ],
   ];
 }
@@ -1871,4 +1893,119 @@ export function dedupBlock(states, key, text, isProtected) {
     states.delete(oldest);
   }
   return spans > 0 ? { text: out.join("\n"), spans, offloaded } : undefined;
+}
+
+// The tool-result row pipeline (session.append): SmartCrusher, then the dense line elider, then cross-turn dedup.
+
+/**
+ * A tool_result block's texts as the model reads them: string content, or each text block of array content.
+ * @param {Record<string, unknown>} block
+ * @returns {string[]}
+ */
+function resultTexts(block) {
+  const c = block.content;
+  if (typeof c === "string") return [c];
+  return Array.isArray(c) ? c.filter(isTextBlock).map((b) => b.text) : [];
+}
+
+/**
+ * Whether a tool-result row holds text the SmartCrusher may rewrite, so the hook pays the transcript fetch only then.
+ * @param {readonly ContentBlock[]} content the row's blocks
+ * @param {string} tool the row's origin tool
+ * @returns {boolean}
+ */
+export function wantsQuery(content, tool) {
+  if (tool === RETRIEVE_TOOL || tool.startsWith(OWN_STORAGE_PREFIX)) return false;
+  return content.some((b) => isRecord(b) && b.type === "tool_result" && b.is_error !== true && resultTexts(b).some(looksLikeJsonDoc));
+}
+
+/**
+ * Rewrites a tool-result row's blocks before they are stored: per tool_result block, each text is crushed (one whole
+ * JSON document) or else dense-line-elided, then a single-text result is deduplicated against earlier results of the
+ * same conversation. Error blocks and headroom_retrieve / own-storage rows are never rewritten (dedup still indexes
+ * them). Undefined when no block changed. Mutates levers.dedup.states.
+ * @param {readonly ContentBlock[]} content the row's blocks
+ * @param {string} tool the row's origin tool
+ * @param {Levers} levers
+ * @param {string} query the conversation context (crushQuery), "" for none
+ * @returns {RowRewrite|undefined}
+ */
+export function rewriteToolResults(content, tool, levers, query) {
+  const rowProtected = tool === RETRIEVE_TOOL || tool.startsWith(OWN_STORAGE_PREFIX);
+  /** @type {Omit<RowRewrite, "content">} */
+  const acc = { offloaded: [], crush: { dropped: 0, saved: 0 }, elide: { lines: 0, saved: 0 }, dedup: { spans: 0, saved: 0 } };
+  let changed = false;
+  /** @type {ContentBlock[]} */
+  const mapped = content.map((b) => {
+    if (!isRecord(b) || b.type !== "tool_result") return b;
+    const prot = rowProtected || b.is_error === true;
+    /**
+     * The crusher's rewrite of one text, else the elider's (upstream elides only text no JSON strategy rewrote).
+     * @param {string} text
+     * @returns {string}
+     */
+    const shrink = (text) => {
+      if (prot) return text;
+      const c = levers.crush ? crushJson(text, query) : undefined;
+      if (c) {
+        acc.crush.dropped += c.rowsDropped;
+        acc.crush.saved += text.length - c.text.length;
+        acc.offloaded.push(...c.offloaded);
+        return c.text;
+      }
+      const d = levers.elide ? elideDense(text) : undefined;
+      if (d) {
+        acc.elide.lines += d.lines;
+        acc.elide.saved += text.length - d.text.length;
+        acc.offloaded.push(...d.offloaded);
+        return d.text;
+      }
+      return text;
+    };
+    /**
+     * Cross-turn dedup of a result's final text; a protected text is only indexed.
+     * @param {string} text
+     * @returns {string}
+     */
+    const fold = (text) => {
+      const f = levers.dedup ? dedupBlock(levers.dedup.states, levers.dedup.key, text, prot) : undefined;
+      if (!f) return text;
+      acc.dedup.spans += f.spans;
+      acc.dedup.saved += text.length - f.text.length;
+      acc.offloaded.push(...f.offloaded);
+      return f.text;
+    };
+    const c = b.content;
+    if (typeof c === "string") {
+      let t = shrink(c);
+      if (t !== "") t = fold(t);
+      if (t === c) return b;
+      changed = true;
+      return { ...b, content: t };
+    }
+    if (!Array.isArray(c)) return b;
+    let touched = false;
+    /** @type {unknown[]} */
+    const items = c.map((x) => {
+      if (!isTextBlock(x)) return x;
+      const text = shrink(x.text);
+      if (text === x.text) return x;
+      touched = true;
+      return { ...x, text };
+    });
+    // Upstream dedups only a result with exactly one non-empty text block; multi-text results stay verbatim and unindexed.
+    const texts = items.flatMap((x, i) => (isTextBlock(x) && x.text !== "" ? [i] : []));
+    if (texts.length === 1) {
+      const it = /** @type {{ type: "text", text: string }} */ (items[texts[0]]);
+      const text = fold(it.text);
+      if (text !== it.text) {
+        items[texts[0]] = { ...it, text };
+        touched = true;
+      }
+    }
+    if (!touched) return b;
+    changed = true;
+    return { ...b, content: items };
+  });
+  return changed ? { content: mapped, ...acc } : undefined;
 }
