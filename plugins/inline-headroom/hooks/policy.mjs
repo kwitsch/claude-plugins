@@ -13,7 +13,6 @@
  * A crushed document: compact text, rows lost, [hash, original text (a crushed array's JSON, an elided block, a folded span)] per crushed array.
  * @typedef {{ text: string, rowsDropped: number, offloaded: [string, string][] }} CrushOutcome
  */
-/** @typedef {{ result: Record<string, unknown> | unknown[], rowsDropped: number, charsSaved: number, offloaded: [string, string][] }} ToolCrush a crushed tool result and what it saved */
 /** @typedef {{ text: string, lines: number, offloaded: [string, string][] }} Elision a dense-line-elided text: the shortened text, the lines elided, [hash, original text] */
 /**
  * One conversation's dedup corpus: the last ordinal handed out, each indexed block's verbatim lines (null where folded) by
@@ -122,7 +121,6 @@ const ANCHOR_HOST_RE = /\b[a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z0-9][-a-zA-Z0-9]*(?:\
 const ANCHOR_QUOTED_RE = /['"]([^'"]{1,50})['"]/g;
 const ANCHOR_EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g;
 const BM25_TOKEN_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\b\d{4,}\b|[a-z0-9_]+/g;
-const MCP_TOOL_RE = /^mcp__.+__.+$/;
 // The mod's own storage tools are never crushed: a kv_get → edit → kv_set would write the row loss back to storage.db.
 const OWN_STORAGE_PREFIX = `mcp__plugin_${PLUGIN}_storage__`;
 // Dense line elider: upstream dense_line_elider.py.
@@ -1490,72 +1488,10 @@ function looksLikeJsonDoc(s) {
 
 /**
  * @param {unknown} b
- * @returns {b is { type: "text", text: string }} an MCP text content block
+ * @returns {b is { type: "text", text: string }} a text content block (an MCP result's or a Messages-API tool_result's)
  */
 function isTextBlock(b) {
   return isRecord(b) && b.type === "text" && typeof b.text === "string";
-}
-
-/**
- * Whether a successful tool.call result is one the crusher may rewrite. Bash: stdout that is one whole inline JSON
- * document, with empty stderr, not interrupted, an image, backgrounded, timed out, offloaded to a file, or
- * structured. MCP (`mcp__<server>__<tool>`, never headroom_retrieve or the mod's own storage tools): core's result is
- * the content-block array itself (live-verified on 2.1.296), holding a JSON text block. Nothing else.
- * @param {string} tool
- * @param {unknown} result tool.call's `result`
- * @returns {boolean}
- */
-export function isCrushCandidate(tool, result) {
-  if (tool === "Bash") {
-    if (!isRecord(result)) return false;
-    const { stdout, stderr, structuredContent } = result;
-    return (
-      typeof stdout === "string" &&
-      (stderr === undefined || (typeof stderr === "string" && stderr.trim() === "")) &&
-      result.interrupted !== true &&
-      !result.isImage &&
-      result.backgroundTaskId === undefined &&
-      result.timedOutAfterMs === undefined &&
-      result.rawOutputPath === undefined &&
-      result.persistedOutputPath === undefined &&
-      !(Array.isArray(structuredContent) && structuredContent.length > 0) &&
-      looksLikeJsonDoc(stdout)
-    );
-  }
-  return MCP_TOOL_RE.test(tool) && tool !== RETRIEVE_TOOL && !tool.startsWith(OWN_STORAGE_PREFIX) && Array.isArray(result) && result.some((b) => isTextBlock(b) && looksLikeJsonDoc(b.text));
-}
-
-/**
- * Crushes a candidate tool result: Bash's `stdout`, or each MCP JSON text block. Every other field and block is
- * kept as is. Undefined when it is no candidate or nothing got shorter.
- * @param {string} tool
- * @param {unknown} result tool.call's `result`
- * @param {string} query the conversation context (crushQuery)
- * @returns {ToolCrush|undefined}
- */
-export function crushToolResult(tool, result, query) {
-  if (!isCrushCandidate(tool, result)) return undefined;
-  /** @type {ToolCrush} */
-  const c = { result: [], rowsDropped: 0, charsSaved: 0, offloaded: [] };
-  /** @param {string} text */
-  const crush = (text) => {
-    const out = crushJson(text, query);
-    if (!out) return text;
-    c.rowsDropped += out.rowsDropped;
-    c.charsSaved += text.length - out.text.length;
-    c.offloaded.push(...out.offloaded);
-    return out.text;
-  };
-  if (tool === "Bash") {
-    const r = /** @type {Record<string, unknown>} */ (result);
-    c.result = { ...r, stdout: crush(/** @type {string} */ (r.stdout)) };
-  } else
-    c.result = /** @type {unknown[]} */ (result).map((b) => {
-      if (!isTextBlock(b)) return b;
-      const text = crush(b.text);
-      return text === b.text ? b : { ...b, text };
-    });
-  return c.charsSaved > 0 ? c : undefined;
 }
 
 // Dense line elider: a port of headroom's dense_line_elider.py and ContentRouter._elide_dense.
