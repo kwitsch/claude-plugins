@@ -9,8 +9,12 @@
 /** @typedef {{steps: number, clamped: number, cache_drops: number, input_tokens: number, cache_read_input_tokens: number, cache_creation_input_tokens: number}} Counters */
 /** @typedef {Counters & {hit?: number}} Row hit: the ratio to show in place of the token-weighted one (the session row shows its last step's) */
 /** @typedef {{ role: 'user'|'assistant', text: string, toolUses: readonly { input: Record<string, unknown> }[] }} QueryMessage the SessionMessage fields crushQuery reads */
-/** @typedef {{ text: string, rowsDropped: number, offloaded: [string, string][] }} CrushOutcome a crushed document: compact text, rows lost, [hash, original array JSON] per crushed array */
+/**
+ * A crushed document: compact text, rows lost, [hash, original text (a crushed array's JSON, an elided block, a folded span)] per crushed array.
+ * @typedef {{ text: string, rowsDropped: number, offloaded: [string, string][] }} CrushOutcome
+ */
 /** @typedef {{ result: Record<string, unknown> | unknown[], rowsDropped: number, charsSaved: number, offloaded: [string, string][] }} ToolCrush a crushed tool result and what it saved */
+/** @typedef {{ text: string, lines: number, offloaded: [string, string][] }} Elision a dense-line-elided text: the shortened text, the lines elided, [hash, original text] */
 /**
  * One dict-array field (upstream FieldStats); the numeric statistics are absent when not finite.
  * @typedef {{ name: string, type: string, unique: number, ratio: number, min?: number, max?: number, mean?: number, variance?: number, changePoints: number[], avgLen?: number }} FieldStats
@@ -101,6 +105,15 @@ const BM25_TOKEN_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const MCP_TOOL_RE = /^mcp__.+__.+$/;
 // The mod's own storage tools are never crushed: a kv_get → edit → kv_set would write the row loss back to storage.db.
 const OWN_STORAGE_PREFIX = `mcp__plugin_${PLUGIN}_storage__`;
+// Dense line elider: upstream dense_line_elider.py.
+const DENSE_MIN_LINE_CHARS = 300;
+const DENSE_MAX_SPACE_RATIO = 0.06;
+const DENSE_MIN_TOTAL_CHARS = 2000;
+const DENSE_HEAD_CHARS = 160;
+const DENSE_TAIL_CHARS = 80;
+// JSON span scan work budget: upstream recursive_json.py.
+const SCAN_BUDGET_PER_CHAR = 4;
+const SCAN_BUDGET_FLOOR = 4096;
 
 /**
  * Whether a tool.check decides this mod's own storage call: `$.mcp.call` reaches core's permission step as a
@@ -463,7 +476,7 @@ export function computeOptimalK(itemStrings) {
  * Stores offloaded originals for headroom_retrieve: a re-put moves its hash to the newest position, and the
  * oldest entries go while the store holds more than CCR_CAPACITY entries or CCR_MAX_CHARS characters. Mutates `store`.
  * shortcut: no idle TTL (upstream: 30 min); add one with a time argument from register.ts if memory becomes a concern.
- * @param {Map<string, string>} store hash → original array JSON, oldest first
+ * @param {Map<string, string>} store hash → original text (a crushed array's JSON, an elided block, a folded span), oldest first
  * @param {readonly [string, string][]} entries
  * @returns {void}
  */
@@ -1506,4 +1519,172 @@ export function crushToolResult(tool, result, query) {
       return text === b.text ? b : { ...b, text };
     });
   return c.charsSaved > 0 ? c : undefined;
+}
+
+// Dense line elider: a port of headroom's dense_line_elider.py and ContentRouter._elide_dense.
+
+/**
+ * A cut at `i` would split a surrogate pair: a low surrogate at `i` preceded by a high one.
+ * @param {string} s
+ * @param {number} i
+ * @returns {boolean}
+ */
+function splitsPair(s, i) {
+  if (i <= 0 || i >= s.length) return false;
+  const lo = s.charCodeAt(i);
+  const hi = s.charCodeAt(i - 1);
+  return lo >= 0xdc00 && lo <= 0xdfff && hi >= 0xd800 && hi <= 0xdbff;
+}
+
+/**
+ * The end of a head cut `s.slice(0, i)` that leaves no lone surrogate (one unit shorter when `i` splits a pair).
+ * @param {string} s
+ * @param {number} i
+ * @returns {number}
+ */
+function pairSafeEnd(s, i) {
+  return splitsPair(s, i) ? i - 1 : i;
+}
+
+/**
+ * The start of a tail cut `s.slice(i)` that leaves no lone surrogate (one unit later when `i` splits a pair).
+ * @param {string} s
+ * @param {number} i
+ * @returns {number}
+ */
+function pairSafeStart(s, i) {
+  return splitsPair(s, i) ? i + 1 : i;
+}
+
+/**
+ * Upstream _scan_from: walks one bracket span from `start` outside strings, records every container it pushed
+ * in `known` (its end, or null when it never closes) and returns the span's end (or null) and the characters walked.
+ * @param {string} text
+ * @param {number} start the index of a "[" or "{"
+ * @param {Map<number, number|null>} known
+ * @returns {[number|null, number]}
+ */
+function scanFrom(text, start, known) {
+  /** @type {number[]} */
+  const stack = [];
+  let inStr = false;
+  let esc = false;
+  const n = text.length;
+  for (let j = start; j < n; j++) {
+    const ch = text[j];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === "[" || ch === "{") stack.push(j);
+    else if (ch === "]" || ch === "}") {
+      const top = stack.at(-1);
+      if (top === undefined || text[top] !== (ch === "}" ? "{" : "[")) {
+        for (const p of stack) known.set(p, null);
+        return [null, j - start + 1];
+      }
+      stack.pop();
+      known.set(top, j + 1);
+      if (stack.length === 0) return [j + 1, j - start + 1];
+    }
+  }
+  for (const p of stack) known.set(p, null);
+  return [null, n - start];
+}
+
+/**
+ * Upstream scan_json_documents read as `complete and not spans`: no balanced bracket span (nested ones included)
+ * parses as a JSON object or array. An exhausted walk or parse budget, or a parse failure other than a SyntaxError
+ * (upstream: RecursionError), means the scan is incomplete, so false.
+ * @param {string} text
+ * @returns {boolean}
+ */
+function noJsonSpans(text) {
+  const n = text.length;
+  const budget = SCAN_BUDGET_PER_CHAR * n + SCAN_BUDGET_FLOOR;
+  /** @type {Map<number, number|null>} */
+  const known = new Map();
+  let spent = 0;
+  let i = 0;
+  while (i < n) {
+    if (text[i] === "[" || text[i] === "{") {
+      /** @type {number|null|undefined} */
+      let end;
+      if (known.has(i)) end = known.get(i);
+      else if (spent >= budget) return false;
+      else {
+        const [e, walked] = scanFrom(text, i, known);
+        end = e;
+        spent += walked;
+      }
+      if (typeof end === "number") {
+        i = end;
+        continue;
+      }
+    }
+    i++;
+  }
+  let parsed = 0;
+  for (const start of [...known.keys()].sort((a, b) => a - b)) {
+    const end = known.get(start);
+    if (typeof end !== "number") continue;
+    if (parsed + end - start > budget) return false;
+    parsed += end - start;
+    let v;
+    try {
+      v = JSON.parse(text.slice(start, end));
+    } catch (err) {
+      if (err instanceof SyntaxError) continue;
+      return false;
+    }
+    if (typeof v === "object" && v !== null) return false;
+  }
+  return true;
+}
+
+/**
+ * Upstream is_dense_line: at least 300 characters, no tab, under 6% spaces (U+0020), not JSON-shaped once trimmed,
+ * and holding no JSON document (a label may precede compact JSON, which only the SmartCrusher may rewrite).
+ * @param {string} line
+ * @returns {boolean}
+ */
+function isDenseLine(line) {
+  const n = line.length;
+  if (n < DENSE_MIN_LINE_CHARS || line.includes("\t") || (line.split(" ").length - 1) / n >= DENSE_MAX_SPACE_RATIO) return false;
+  const s = line.trim();
+  // "{[".includes("") is true like Python's "" in "{[": an all-whitespace line counts as JSON-shaped, as upstream.
+  if ("{[".includes(s.slice(0, 1)) && "}]".includes(s.slice(-1))) return false;
+  return noJsonSpans(line);
+}
+
+/**
+ * Dense line elider (upstream dense_line_elider.py + ContentRouter._elide_dense): each long, nearly space-free line that
+ * holds no JSON document keeps its first 160 and last 80 characters around an omission note, when the dense lines add
+ * up to at least 2000 characters; the block then ends with a retrieval line and its original goes to the CCR store.
+ * Undefined when nothing is dense or the result is not shorter.
+ * @param {string} text
+ * @returns {Elision|undefined}
+ */
+export function elideDense(text) {
+  if (text.length < DENSE_MIN_LINE_CHARS) return undefined;
+  const lines = text.split("\n"); // "\n" only: a "\r" stays on its line
+  const dense = lines.map(isDenseLine);
+  let total = 0;
+  for (let i = 0; i < lines.length; i++) if (dense[i]) total += lines[i].length;
+  if (total < DENSE_MIN_TOTAL_CHARS) return undefined;
+  let n = 0;
+  const out = lines.map((line, i) => {
+    if (!dense[i]) return line;
+    n++;
+    const head = line.slice(0, pairSafeEnd(line, DENSE_HEAD_CHARS));
+    const tail = line.slice(pairSafeStart(line, line.length - DENSE_TAIL_CHARS));
+    return `${head} ...[${line.length - head.length - tail.length} chars of dense machine-generated content elided]... ${tail}`;
+  });
+  const hash = contentHash(text);
+  const elided = `${out.join("\n")}\n[${n} dense machine-generated ${n === 1 ? "line" : "lines"} elided. Retrieve original: hash=${hash}]`;
+  // Deviation: upstream emits a result that grew (seven 300-char lines plus the retrieval line); the mod passes it through.
+  return elided.length < text.length ? { text: elided, lines: n, offloaded: [[hash, text]] } : undefined;
 }
