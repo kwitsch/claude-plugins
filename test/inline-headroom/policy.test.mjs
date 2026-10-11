@@ -588,6 +588,16 @@ test("crushJson is deterministic", () => {
   assert.equal(crushJson(text, "status 150")?.text, crushJson(text, "status 150")?.text);
 });
 
+test("crushJson's shared parse never leaks a value or accepts whitespace JSON forbids", () => {
+  const text = JSON.stringify({ rows: STATUS_ROWS });
+  const first = crushJson(text, "")?.text;
+  assert.ok(first);
+  assert.equal(detectContentType(text), "json_array"); // the detector's parse of the same text in between
+  assert.equal(crushJson(text, "")?.text, first);
+  assert.equal(crushJson(` \n${text}\t\r`, "")?.text, first); // JSON whitespace around a value parses alike
+  assert.equal(crushJson(text + String.fromCharCode(0xa0), ""), undefined); // trim() strips NBSP, JSON.parse does not: passed through
+});
+
 const BIG = JSON.stringify(STATUS_ROWS);
 
 const HASH_RE = /^[0-9a-f]{12}$/;

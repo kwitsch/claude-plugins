@@ -1564,7 +1564,7 @@ export function crushJson(text, query) {
   if (text.length <= CRUSH_MIN_CHARS) return undefined;
   let value;
   try {
-    value = JSON.parse(text);
+    value = parseJson(text, true);
   } catch {
     return undefined;
   }
@@ -1585,11 +1585,44 @@ export function crushJson(text, query) {
 function looksLikeJsonDoc(s) {
   if (s.length <= CRUSH_MIN_CHARS || !/^[{[]/.test(s.trimStart())) return false;
   try {
-    JSON.parse(s);
+    parseJson(s);
     return true;
   } catch {
     return false;
   }
+}
+
+/** @type {{ key: string, ok: boolean, value: unknown, err: unknown } | undefined} */
+let lastParse;
+const JSON_WS = /^[ \t\n\r]*$/;
+
+/**
+ * JSON.parse(text), memoized for the last text: the append path asks wantsQuery, detectContentType and crushJson
+ * about the same result, so a large document is parsed once. Keyed by the trimmed text so detectContentType's trimmed
+ * form hits too; JSON.parse skips only space, tab, LF and CR around a value, so other trimmed whitespace still throws.
+ * shortcut: holds one parsed value until the next text or a `take`; a per-row cache would need the row threaded through.
+ * @param {string} text
+ * @param {boolean} [take] the caller owns the value (crushJson rewrites from it), so the memo drops it
+ * @returns {unknown} the parsed value; throws what JSON.parse throws
+ */
+function parseJson(text, take = false) {
+  const key = text.trim();
+  let r = lastParse;
+  if (!r || r.key !== key) {
+    try {
+      r = { key, ok: true, value: JSON.parse(key), err: undefined };
+    } catch (err) {
+      r = { key, ok: false, value: undefined, err };
+    }
+  }
+  lastParse = take ? undefined : r;
+  if (!r.ok) throw r.err;
+  if (key.length !== text.length) {
+    const lead = text.length - text.trimStart().length;
+    const tail = text.length - text.trimEnd().length;
+    if (!JSON_WS.test(text.slice(0, lead)) || !JSON_WS.test(text.slice(text.length - tail))) JSON.parse(text); // throws, as an untrimmed parse would
+  }
+  return r.value;
 }
 
 /**
@@ -1991,7 +2024,7 @@ function isObjectRun(s) {
  */
 function isJsonPayload(s) {
   try {
-    const v = JSON.parse(s);
+    const v = parseJson(s);
     return typeof v === "object" && v !== null;
   } catch (err) {
     if (!(err instanceof SyntaxError)) return false;
@@ -2212,14 +2245,24 @@ function isProtectedTool(tool) {
 }
 
 /**
+ * A tool_result block whose texts are never rewritten (dedup still indexes them): an error, or a protected tool's row.
+ * wantsQuery and rewriteRow share it so the fetch gate and the rewrite never disagree.
+ * @param {Record<string, unknown>} block
+ * @param {string} tool a row's origin tool
+ * @returns {boolean}
+ */
+function isProtectedBlock(block, tool) {
+  return block.is_error === true || isProtectedTool(tool);
+}
+
+/**
  * Whether a tool-result row holds text the SmartCrusher may rewrite, so the hook pays the transcript fetch only then.
  * @param {readonly ContentBlock[]} content the row's blocks
  * @param {string} tool the row's origin tool
  * @returns {boolean}
  */
 export function wantsQuery(content, tool) {
-  if (isProtectedTool(tool)) return false;
-  return content.some((b) => isRecord(b) && b.type === "tool_result" && b.is_error !== true && resultTexts(b).some(looksLikeJsonDoc));
+  return content.some((b) => isRecord(b) && b.type === "tool_result" && !isProtectedBlock(b, tool) && resultTexts(b).some(looksLikeJsonDoc));
 }
 
 /**
@@ -2255,14 +2298,13 @@ export function rewriteToolResults(content, tool, levers, query) {
  * @returns {RowRewrite|undefined}
  */
 function rewriteRow(content, tool, levers, query) {
-  const rowProtected = isProtectedTool(tool);
   /** @type {Omit<RowRewrite, "content">} */
   const acc = { offloaded: [], folded: [], crush: { dropped: 0, saved: 0 }, elide: { lines: 0, saved: 0 }, dedup: { spans: 0, saved: 0 } };
   let changed = false;
   /** @type {ContentBlock[]} */
   const mapped = content.map((b) => {
     if (!isRecord(b) || b.type !== "tool_result") return b;
-    const prot = rowProtected || b.is_error === true;
+    const prot = isProtectedBlock(b, tool);
     /**
      * The first rewrite its content type's route (ROUTES) yields; upstream elides only text no JSON strategy rewrote.
      * @param {string} text
