@@ -242,7 +242,7 @@ const FOLD_MAX_CANDIDATES = 8;
 const FOLD_MAX_LINES = 20_000;
 // HTML extractor: a bounded stand-in for upstream html_extractor.py (trafilatura, images and comments off).
 // Skipped whole, open tag to close tag: boilerplate and non-text content.
-const HTML_DROP = new Set("head script style noscript template svg math iframe object embed canvas audio video picture map nav footer aside form button select textarea dialog".split(" "));
+const HTML_DROP = new Set("head script style noscript template svg math iframe object embed canvas audio video picture nav footer aside button select textarea".split(" "));
 // A new line at open and close.
 const HTML_BLOCK = new Set("p div section article main header ul ol dl dt dd table thead tbody tfoot tr blockquote pre figure figcaption address details summary hgroup search hr".split(" "));
 const HTML_HEADING_RE = /^h([1-6])$/;
@@ -3460,7 +3460,14 @@ export function compressConfig(text) {
       offloaded = [[hash, text]];
     }
   }
-  const compressed = compactConfigLossless(working);
+  let compressed = compactConfigLossless(working);
+  // Deviation: upstream's Tier 1 markers carry no recovery hint; here a fold without Tier 2's line gets its own, so the
+  // exact text a following Edit needs stays retrievable.
+  if (compressed !== working && offloaded.length === 0) {
+    const hash = contentHash(text);
+    compressed = `${compressed}${compressed.endsWith("\n") ? "" : "\n"}[Repeated config lines folded. Retrieve original: hash=${hash}]`;
+    offloaded = [[hash, text]];
+  }
   return text.length - compressed.length < 1 ? undefined : { text: compressed, offloaded };
 }
 
@@ -3515,6 +3522,8 @@ function resultTexts(block) {
 function isProtectedTool(tool) {
   return tool === RETRIEVE_NAME || tool.endsWith(RETRIEVE_SUFFIX) || tool.startsWith(OWN_STORAGE_PREFIX);
 }
+
+const READ_TOOL = "Read";
 
 /**
  * A tool_result block whose texts are never rewritten (dedup still indexes them): an error, or a protected tool's row.
@@ -3665,7 +3674,8 @@ function rewriteRow(content, tool, levers, query) {
     const fold = (text) => {
       if (!levers.dedup) return text;
       const spans = levers.tags ? spansOf(text) : [];
-      const f = dedupBlock(levers.dedup.states, levers.dedup.key, text, prot || spans === null, spans ?? []);
+      // A Read result is only indexed: the model needs its verbatim lines for the next Edit's old_string.
+      const f = dedupBlock(levers.dedup.states, levers.dedup.key, text, prot || spans === null || tool === READ_TOOL, spans ?? []);
       if (!f) return text;
       acc.dedup.spans += f.spans;
       acc.dedup.saved += text.length - f.text.length;

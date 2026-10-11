@@ -946,6 +946,14 @@ test("rewriteToolResults never rewrites an error block, but a later result folds
   assert.equal(r.dedup.spans, 1);
 });
 
+test("rewriteToolResults never folds a Read result, but a later result folds against it", () => {
+  const lv = levers();
+  assert.equal(rewriteToolResults([toolResult(RUN)], "Read", lv, ""), undefined);
+  assert.equal(rewriteToolResults([toolResult(RUN)], "Read", lv, ""), undefined); // a re-Read stays verbatim for the next Edit
+  const r = rewrite([toolResult(RUN)], "Bash", lv);
+  assert.match(String(r.content[0].content), /^\[↑3L same as result 1: /);
+});
+
 test("rewriteToolResults starts the conversation's corpus over when it throws midway, since the row is then stored as made", () => {
   const lv = levers();
   const boom = {
@@ -1781,9 +1789,12 @@ test("compressConfig elides comments and blank lines behind a retrievable marker
   assert.deepEqual(r.offloaded, [[hash, commented]]);
   const kept = ["[package]", 'name = "demo"', 'version = "0.1.0"', 'edition = "2021"', "[dependencies]", 'serde = "1.0"', 'tokio = "1.38"', "[profile.release]", "opt-level = 3", "lto = true"];
   assert.equal(r.text, `${kept.join("\n")}\n[6 comment/blank lines elided. Retrieve original: hash=${hash}]`);
-  const folded = compressed(K8S_MANIFEST); // nothing to elide: Tier 1 alone, nothing stored
-  assert.deepEqual(folded.offloaded, []);
-  assert.equal(expandRuns(unfoldRepeatedBlocks(folded.text) ?? ""), K8S_MANIFEST);
+  const folded = compressed(K8S_MANIFEST); // nothing to elide: Tier 1 alone, with its own retrieval line
+  const [fh] = folded.offloaded[0];
+  assert.deepEqual(folded.offloaded, [[fh, K8S_MANIFEST]]);
+  const marker = `\n[Repeated config lines folded. Retrieve original: hash=${fh}]`;
+  assert.ok(folded.text.endsWith(marker));
+  assert.equal(expandRuns(unfoldRepeatedBlocks(folded.text.slice(0, -marker.length) + "\n") ?? ""), K8S_MANIFEST);
 });
 
 test("compressConfig keeps comment lines that may be data, keeps INI blank lines, and passes through what it cannot shorten", () => {
@@ -1819,7 +1830,10 @@ test("rewriteToolResults routes structured config to the config compressor, whic
   assert.equal(r.elide.lines, 0); // upstream leaves CONFIG out of _DENSE_ELIDE_AFTER
   assert.ok(text.includes(`  blob: ${"QUJD".repeat(700)}`));
   assert.ok(text.includes("lines back)"));
-  assert.deepEqual(r.offloaded, []); // nothing to elide, so nothing stored
+  assert.deepEqual(
+    r.offloaded.map(([, original]) => original),
+    [yaml],
+  ); // Tier 1 alone: the original goes behind its own retrieval line
 });
 
 // HTML extractor (a bounded stand-in for upstream html_extractor.py) and the ELIDE_AFTER route.
@@ -1891,6 +1905,13 @@ test("extractHtml ends at an unterminated comment or an unclosed drop element, a
   assert.ok(extracted(`${HEAD}<p>kept before</p><script>never closed <p>never shown</p>`).text.startsWith("kept before\n[HTML extracted to text: "));
   assert.equal(extractHtml(`<!DOCTYPE html><html><body><script>${"x".repeat(400)}</script></body></html>`), undefined); // nothing left (upstream #3609)
   assert.equal(extractHtml(`<!DOCTYPE html><p>${"word ".repeat(100)}</p>`), undefined); // the retrieval line costs more than the markup
+});
+
+test("extractHtml keeps the text of form, dialog and map elements and drops form controls", () => {
+  const r = extracted(
+    `${HEAD}<form id="aspnetForm"><h1>Order 4711</h1><p>Shipped today.</p><select><option>noise</option></select><button>Save</button></form><dialog><p>Dialog text.</p></dialog></body></html>`,
+  );
+  assert.match(r.text, /^# Order 4711\n+Shipped today\.\n+Dialog text\.\n\[HTML extracted to text: /);
 });
 
 test("extractHtml gives up on an exhausted scan budget instead of rescanning unterminated quotes", () => {

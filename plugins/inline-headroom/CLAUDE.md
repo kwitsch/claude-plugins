@@ -499,7 +499,11 @@ Deviations from upstream:
 Wiring: `rewriteToolResults` calls `dedupBlock` last, over each tool_result's
 final text of every content type (after the crusher or the elider), with the
 key `""` for a main-loop row and the `agentId` for a subagent row. Folds count
-in the `dedup` table's session-only `spans` and `saved`.
+in the `dedup` table's session-only `spans` and `saved`. A `Read` row is only
+indexed, like a protected one (user decision): a re-Read after an Edit must show
+the file verbatim for the next Edit's `old_string`, and a later Bash `cat` of
+the same file still folds against it. Upstream protects only its verbatim
+exclude list (WebSearch, WebFetch, the retrieve tools, `view`).
 
 Behaviour change (0.7.0): with `tag_protector_enabled` on (the default) a line
 a custom tag span touches never starts a fold, and a run ends before the first
@@ -612,7 +616,10 @@ Ported verbatim:
   `... (repeats K lines from D lines back)` when its characters exceed the
   marker's, with at most 8 recent positions per distinct line and no fold on a
   text under 6 or over 20,000 lines; kept only when the inverse gives the text
-  back exactly and it is shorter.
+  back exactly and it is shorter. Deviation: when Tier 2 elided nothing, a
+  Tier 1 fold appends `[Repeated config lines folded. Retrieve original: hash=H]`
+  and stores the original, so a following Edit can get the exact text
+  (upstream's Tier 1 markers carry no recovery hint).
 - A result that saves less than one character is discarded, its stored
   original with it.
 
@@ -666,8 +673,8 @@ Deviations:
   forward pass skips comments, `<!…>` and `<?…>` declarations and the
   boilerplate or non-text elements `head`, `script`, `style`, `noscript`,
   `template`, `svg`, `math`, `iframe`, `object`, `embed`, `canvas`, `audio`,
-  `video`, `picture`, `map`, `nav`, `footer`, `aside`, `form`, `button`,
-  `select`, `textarea` and `dialog` (open tag to the first case-insensitive
+  `video`, `picture`, `nav`, `footer`, `aside`, `button`, `select` and
+  `textarea` (open tag to the first case-insensitive
   close tag, or to the end when unclosed), and renders the rest: `#` headings,
   `- ` list items, `[text](href)` links (not `#…` or `javascript:`), `| ` table
   cells with one row per line, a line break per block element, whitespace kept
