@@ -13,6 +13,7 @@ import {
   RETAIN_DAYS,
   RETRIEVE_TOOL,
   ROWS,
+  bm25Scores,
   cacheHitRatio,
   clampEffort,
   collapseRuns,
@@ -41,6 +42,7 @@ import {
   isOwnStorageCall,
   isToolError,
   numberChangePoints,
+  relevanceScores,
   resetCorpus,
   retrieveKey,
   rewriteToolResults,
@@ -334,6 +336,55 @@ test("computeOptimalK keeps every row up to 8, 3 for redundant rows and at most 
   assert.equal(computeOptimalK(Array.from({ length: 20 }, (_, i) => `unique item number ${i} with some long content`)), 15);
   const k = computeOptimalK(Array.from({ length: 30 }, (_, i) => `item content ${i}`));
   assert.ok(k >= 3 && k <= 15, String(k));
+});
+
+test("computeOptimalK honours a caller's minK and maxK and answers maxK once its simhash budget runs out", () => {
+  const items = Array.from({ length: 20 }, (_, i) => `unique item number ${i} with some long content`);
+  assert.equal(computeOptimalK(items, 10, 100), 19); // the crusher's cap of 15 no longer binds
+  assert.equal(computeOptimalK(items, 5, 30, { left: 1e9 }), 19); // a budget that suffices changes nothing
+  assert.equal(computeOptimalK(items, 5, 30, { left: 0 }), 30);
+  assert.equal(
+    computeOptimalK(
+      Array.from({ length: 30 }, () => "abc"),
+      10,
+      100,
+    ),
+    10,
+  ); // redundant rows: minK
+  assert.equal(computeOptimalK(["a", "b", "c"], 1, 2), 3); // 8 or fewer keep every item, even above maxK (upstream's fast path)
+});
+
+// Captured from relevanceScores before its BM25 core moved into bm25Batch: the refactor must not move a single bit.
+const SCORED_ROWS = [
+  '{"id":1,"host":"alpha.example.com","status":"ok","note":"nightly backup finished"}',
+  '{"id":2,"host":"beta.example.com","status":"error","note":"connection refused by upstream"}',
+  '{"id":3,"host":"gamma.example.com","status":"ok","note":"nightly backup finished"}',
+  '{"id":4,"host":"delta.example.com","status":"ok","note":"retrying connection after timeout"}',
+  '{"id":5,"host":"epsilon.example.com","status":"ok","note":"configuration reloaded"}',
+];
+
+test("relevanceScores keeps its selective filter, 8-char bonus, 0.3 floor and +0.2 boost bit for bit", () => {
+  assert.deepEqual(relevanceScores(SCORED_ROWS, "connection refused beta"), [0, 0.701983971405207, 0, 0.3673279904684023, 0]);
+  assert.deepEqual(relevanceScores(SCORED_ROWS, "status example host"), [0, 0, 0, 0, 0]); // every term in more than half the rows
+  assert.deepEqual(relevanceScores(SCORED_ROWS, "configuration"), [0, 0, 0, 0, 0.3725248336434934]); // 8+ chars: +0.3
+  assert.deepEqual(relevanceScores(SCORED_ROWS, "nightly backup"), [0.5, 0, 0.5, 0, 0]); // floor 0.3, two matches +0.2
+  assert.deepEqual(relevanceScores(SCORED_ROWS, "refused"), [0, 0.3, 0, 0, 0]); // floor alone
+  assert.deepEqual(relevanceScores(SCORED_ROWS, ""), [0, 0, 0, 0, 0]);
+  assert.deepEqual(relevanceScores(SCORED_ROWS, "unrelated words only"), [0, 0, 0, 0, 0]);
+});
+
+test("bm25Scores is upstream BM25Scorer.score_batch: ln 2 idf, k1 1.5, b 0.75, over 10, +0.3 for an 8-char match", () => {
+  // Tokens [alpha beta], [beta gamma gamma], [delta]: average length 2.
+  const [a, b, c] = bm25Scores(["alpha beta", "beta gamma gamma", "delta"], "gamma beta");
+  const term = (/** @type {number} */ f, /** @type {number} */ len) => (Math.LN2 * f * 2.5) / (f + 1.5 * (0.25 + (0.75 * len) / 2));
+  assert.ok(Math.abs(a - term(1, 2) / 10) < 1e-12, String(a));
+  assert.ok(Math.abs(b - (term(1, 3) + term(2, 3)) / 10) < 1e-12, String(b));
+  assert.equal(c, 0);
+  // Average length 1.5; "configuration" has 13 chars: +0.3, and no selective filter or floor applies.
+  const [d, e] = bm25Scores(["configuration file", "other"], "configuration");
+  assert.ok(Math.abs(d - ((Math.LN2 * 2.5) / (1 + 1.5 * (0.25 + (0.75 * 2) / 1.5)) / 10 + 0.3)) < 1e-12, String(d));
+  assert.equal(e, 0);
+  assert.deepEqual(bm25Scores(["alpha", "beta"], ""), [0, 0]);
 });
 
 test("storeOffloaded evicts the oldest entry beyond CCR_CAPACITY", () => {
@@ -1054,6 +1105,22 @@ test("wantsQuery asks for the transcript only for a JSON document the crusher ma
   assert.equal(wantsQuery([toolResult("[ 10%] Building CXX object foo.o\n".repeat(40))], "Bash"), false);
   assert.equal(wantsQuery([toolResult("{" + "x".repeat(900))], "Bash"), false);
   assert.equal(wantsQuery([toolResult([{ type: "tool_reference", tool_name: "Read" }])], "ToolSearch"), false);
+});
+
+test("wantsQuery with levers also asks for any non-Read text of 300+ characters a query-reading prose lever may rewrite", () => {
+  const prose = "a line of ordinary command output\n".repeat(10); // 340 characters
+  assert.equal(wantsQuery([toolResult(prose)], "Bash", { split: true }), true);
+  assert.equal(wantsQuery([toolResult(prose)], "Bash", { search: true }), true);
+  assert.equal(wantsQuery([toolResult(prose)], "Bash", { diff: true }), true);
+  assert.equal(wantsQuery([toolResult(prose)], "Bash", { textcrush: true }), true);
+  assert.equal(wantsQuery([toolResult(prose)], "Read", { split: true }), false);
+  assert.equal(wantsQuery([toolResult(prose, true)], "Bash", { split: true }), false);
+  assert.equal(wantsQuery([toolResult(prose)], RETRIEVE_TOOL, { split: true }), false);
+  assert.equal(wantsQuery([toolResult(prose.slice(0, 299))], "Bash", { split: true }), false);
+  assert.equal(wantsQuery([toolResult(prose)], "Bash", { log: true }), false); // the log compressor never reads the query
+  assert.equal(wantsQuery([toolResult(prose)], "Bash", { crush: true }), false); // the two-argument behaviour
+  assert.equal(wantsQuery([toolResult(BIG)], "Bash", { crush: false }), false); // the SmartCrusher off: no JSON check
+  assert.equal(wantsQuery([toolResult(BIG)], "Bash", { crush: true, split: true }), true);
 });
 
 // Upstream tests/parity/fixtures/content_detector/*.json at 976aa71: [input, output.content_type], file name prefix.
