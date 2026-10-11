@@ -318,7 +318,7 @@ Deviations from upstream:
   conversation's indexed tool results, instead of `msg N`. N is the message
   index in upstream's request; the mod has no request-level view at append
   time.
-- The pointer adds ` hash=H`. Upstream recovery is in context only, but the mod
+- The pointer appends a space and `hash=H`. Upstream recovery is in context only, but the mod
   also stores the folded run's exact text in the `folded` CCR store, so a pointer whose
   original was compacted away stays recoverable while the mod is loaded.
 - Because of that suffix, a fold is emitted only when the pointer is shorter
