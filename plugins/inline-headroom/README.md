@@ -4,7 +4,7 @@ Headroom-style levers inside Claude Code as a mod: clamp-only effort routing
 after successful tool results, a detector-only CacheAligner that flags
 volatile system-prompt content and cache-hit drops, and a SmartCrusher,
 cross-turn dedup and dense line elider that shrink tool results before the
-model reads them (originals retrievable). Ports five levers of
+model reads them (originals retrievable). Ports six levers of
 [headroom](https://github.com/headroomlabs-ai/headroom) faithfully to upstream
 semantics.
 
@@ -21,18 +21,20 @@ semantics.
 | Effort routing    | headroom effort routing (structural success-vs-error rule) | On a main-loop model step after index 0 whose preceding tool results were all successful, lowers thinking effort to `low`; with `subagent_effort_routing_enabled` on, each subagent and Workflow agent gets the same rule on its own steps, tracked per agent. Clamp-only: never raises effort, never injects one, leaves numeric or absent effort alone. Any tool error or deny since that loop's last step keeps full effort.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | CacheAligner      | headroom CacheAligner (detector only)                      | Scans the cacheable `shared` system-prompt sections for UUID, ISO-8601, JWT and 32/40/64-hex values and logs a line whenever the prompt-cache hit ratio drops from at least 60% to below 60% between steps. Never rewrites or reorders the prompt.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | SmartCrusher      | headroom SmartCrusher (dict-array lossy path)              | Rewrites a successful tool result of any tool whose text (string content or a text block) is one JSON document longer than 800 characters, before the model first reads it: in the main loop, and in subagent and Workflow-agent results while `subagent_compression_enabled` is on. Read results never qualify (their line numbers stop the text from parsing). An array of 5 or more objects keeps at most an adaptive K (3 to 15) rows plus every error row, structural outlier and numeric anomaly: its first and last rows, the rows around change points, top-scored search results, one or two rows per log message cluster, and rows matching the conversation. Arrays of unique entities with no such signal stay whole. An array that lost rows ends with `{"_ccr_dropped":"<<ccr:HASH N_rows_offloaded>>"}`; the `headroom_retrieve` tool returns its original rows. Error results are never rewritten. |
+| Compaction        | headroom SmartCrusher lossless compaction (csv-schema)     | Before the SmartCrusher drops a row, an array of 5 or more objects longer than its adaptive K is rendered as one typed schema line plus CSV rows (`[N]{id:int,name:string,…}` then `1,alice`), heterogeneous arrays split into buckets by a shared string field; when that saves at least 15% of the array's JSON the table replaces the array (as a JSON string), and nothing is dropped, so nothing needs retrieving. Runs while `smart_crusher_enabled` is off too (then an array whose table loses keeps every row). Error results are never rewritten.                                                                                                                                                                                                                                                                                                                                                        |
 | Cross-turn dedup  | headroom cross_turn_dedup.py                               | Replaces each run of 3 or more lines (40+ characters) in a tool result that already appeared in an earlier tool result of the same conversation (the main loop, or one subagent), verbatim or with every line number shifted by one constant, with a one-line pointer: `[↑nL same as result K: "anchor" hash=H]`, or `[↑nL same as result K +dL: "anchor" hash=H]` for a shifted re-read. K counts that conversation's tool results from 1, the earliest copy is never rewritten, and `headroom_retrieve` with the hash returns the run's exact text. A result that repeats an earlier one in full becomes a single pointer. Error results are never rewritten but count as originals.                                                                                                                                                                                                                             |
 | Dense line elider | headroom dense_line_elider.py                              | Shortens each line of 300+ characters with under 6% spaces, no tab and no JSON in it (minified JS/CSS, base64, RSC payloads) to its first 160 and last 80 characters around `...[N chars of dense machine-generated content elided]...`, once such lines add up to 2000+ characters in one result, and ends that result with `[N dense machine-generated line(s) elided. Retrieve original: hash=H]`; `headroom_retrieve` with the hash returns the whole original. It skips text the SmartCrusher rewrote, and error results.                                                                                                                                                                                                                                                                                                                                                                                     |
 
 A content router (a light port of headroom's content detector) labels each
 tool-result text as JSON, diff, HTML, git status, search results, build/log
 output, source code or plain text, and runs only the levers that fit: the
-SmartCrusher sees only JSON, while the dense line elider and cross-turn dedup
-see every type. It has no option of its own; each lever keeps its toggle.
+SmartCrusher and lossless compaction see only JSON, while the dense line
+elider and cross-turn dedup see every type. It has no option of its own; each
+lever keeps its toggle.
 
 ## Configuration options
 
-All eight options are on by default. For the lever toggles only a literal `false`
+All nine options are on by default. For the lever toggles only a literal `false`
 disables one; `storage_enabled` is fail-closed, so anything but a literal `true`
 turns storage off. Set them via
 `/plugin -> installed -> inline-headroom -> Configure options`, or in
@@ -47,6 +49,7 @@ turns storage off. Set them via
         "subagent_effort_routing_enabled": true,
         "cache_aligner_enabled": true,
         "smart_crusher_enabled": true,
+        "lossless_compaction_enabled": true,
         "cross_turn_dedup_enabled": true,
         "dense_line_elider_enabled": true,
         "subagent_compression_enabled": true,
@@ -63,6 +66,7 @@ turns storage off. Set them via
 | `subagent_effort_routing_enabled` | `true`  | Apply the same clamp to each subagent and Workflow agent, per agent. Only active while `effort_routing_enabled` is on. Overrides effort set on purpose (agent frontmatter, Agent tool, Workflow); see [Notes & limitations](#notes--limitations). |
 | `cache_aligner_enabled`           | `true`  | Flag volatile values in the `shared` system-prompt sections and log prompt-cache hit-ratio drops.                                                                                                                                                 |
 | `smart_crusher_enabled`           | `true`  | Compress large JSON arrays in successful tool results of any tool (Read results never qualify); dropped rows stay retrievable with `headroom_retrieve` while the mod is loaded (see [Notes & limitations](#notes--limitations)).                  |
+| `lossless_compaction_enabled`     | `true`  | Before the SmartCrusher drops rows, rewrite a large JSON array of objects as a schema line plus CSV rows when that saves at least 15%; nothing is dropped. Also runs while `smart_crusher_enabled` is off.                                        |
 | `cross_turn_dedup_enabled`        | `true`  | Replace a run of 3 or more lines (40+ characters) that repeats an earlier tool result of the same conversation with a one-line pointer; the run stays retrievable with `headroom_retrieve` while the mod is loaded.                               |
 | `dense_line_elider_enabled`       | `true`  | Shorten long, nearly space-free lines (minified bundles, base64, RSC payloads) in tool results to their head and tail; the original stays retrievable with `headroom_retrieve` while the mod is loaded.                                           |
 | `subagent_compression_enabled`    | `true`  | Also apply the SmartCrusher, cross-turn dedup and the dense line elider to subagent and Workflow-agent tool results. Only active while one of them is on; see [Notes & limitations](#notes--limitations).                                         |
@@ -96,6 +100,9 @@ session                3    2140
 line elider        lines   saved
 session                2    9870
 
+compaction        arrays   saved
+session                4   31200
+
 volatile shared values: unavailable (Claude Code keeps plugins out of the system-prompt hooks)
 ```
 
@@ -105,21 +112,22 @@ volatile shared values: unavailable (Claude Code keeps plugins out of the system
   rolling windows of local calendar days that include today: totals across all
   sessions on this host, read from [storage](#storage) when the pane opens and
   every 10 s while it stays open. `session`, `today`, `7 days` and `30 days`
-  count main-loop steps only. `smart crusher`, `dedup` and `line elider` have
-  only a `session` row, held in memory, which counts subagent results too:
-  `dropped` counts the array rows this session's crushes replaced with a
-  retrieval marker, `spans` the repeated runs replaced with a pointer, `lines`
-  the dense lines elided, and each `saved` the characters that lever removed
-  from tool results.
+  count main-loop steps only. `smart crusher`, `dedup`, `line elider` and
+  `compaction` have only a `session` row, held in memory, which counts subagent
+  results too: `dropped` counts the array rows this session's crushes replaced
+  with a retrieval marker, `spans` the repeated runs replaced with a pointer,
+  `lines` the dense lines elided, `arrays` the arrays rewritten as a lossless
+  table, and each `saved` the characters that lever removed from tool results.
 - **Tables follow their levers.** `effort routing` is shown only while
   `effort_routing_enabled` is on, and its `subagents` row only while both
   `effort_routing_enabled` and `subagent_effort_routing_enabled` are on.
   `cache aligner` and the volatile list are shown only while
   `cache_aligner_enabled` is on, `smart crusher` only while
   `smart_crusher_enabled` is on, `dedup` only while `cross_turn_dedup_enabled`
-  is on, and `line elider` only while `dense_line_elider_enabled` is on. With
-  all five levers off the pane says so. Storage is read only while the
-  `effort routing` or `cache aligner` table is shown.
+  is on, `line elider` only while `dense_line_elider_enabled` is on, and
+  `compaction` only while `lossless_compaction_enabled` is on. With every lever
+  off the pane says so. Storage is read only while the `effort routing` or
+  `cache aligner` table is shown.
 - **`hit`** is the cache hit ratio (cache reads / all input tokens). The
   `session` row shows its last step's ratio; the storage rows show the
   token-weighted ratio over their window. It reads `–` while no tokens were
@@ -138,7 +146,7 @@ volatile shared values: unavailable (Claude Code keeps plugins out of the system
 
 The pane docks beside the transcript in fullscreen at 110+ columns and otherwise sits
 above the prompt. It takes the keyboard when the prompt is empty: Esc closes it,
-and Ctrl+X then X always does. While it stays open the `session`, `subagents`, `smart crusher`, `dedup` and `line elider` rows redraw whenever the stats change, and the other rows refresh every 10 s.
+and Ctrl+X then X always does. While it stays open the `session`, `subagents` and compression rows redraw whenever the stats change, and the other rows refresh every 10 s.
 
 ## Storage
 
@@ -212,13 +220,13 @@ rows. It is the MCP server `storage` (connected as
   Workflow `effort` option from a default one; set
   `subagent_effort_routing_enabled` to `false` if agents depend on their
   configured effort.
-- **The session rows reset; persisted totals stay.** The `session`,
-  `subagents`, `smart crusher`, `dedup` and `line elider` rows live in module
-  memory and start over on a hot reload, an options change and `/clear`.
+- **The session rows reset; persisted totals stay.** The `session` and
+  `subagents` rows and every compression table live in module memory and start
+  over on a hot reload, an options change and `/clear`.
   The today / 7 days / 30 days rows keep their totals, but a turn cut off by a
   reload or a crash before it ends is not persisted.
 - **Compression rewrites tool results before the model first reads them.** The
-  SmartCrusher, cross-turn dedup and the dense line elider rewrite a tool
+  compression levers rewrite a tool
   result of any tool (Bash, Grep, WebFetch, MCP tools, an Agent's report, …) as
   it is stored, in the main loop and, while `subagent_compression_enabled` is
   on, in subagents and Workflow agents. The model and the transcript file read
@@ -236,6 +244,12 @@ rows. It is the MCP server `storage` (connected as
   document is re-serialized compactly, with numbers in their shortest form. A
   result that loses no row keeps its exact bytes (upstream minifies it too).
   Use Read for a file's exact text, for example before editing it.
+- **The crusher's default output changed in 0.7.0.** With
+  `lossless_compaction_enabled` on (the default) a uniform JSON array of
+  objects usually comes back as a lossless table (a JSON string holding
+  `[N]{name:type,…}` and CSV rows) instead of sampled rows plus a
+  `_ccr_dropped` marker; nothing is dropped. Set
+  `lossless_compaction_enabled` to `false` for the old sampled output.
 - **Originals are retrievable while the mod is loaded.** Two in-memory stores
   keep the last 1000 originals each (at most 16 million characters each): one
   for the crusher's dropped rows and the elider's blocks, which exist nowhere
@@ -274,15 +288,15 @@ rows. It is the MCP server `storage` (connected as
   counting, so a pointer never reuses an earlier result's number.
 - **Markers start at column zero.** A dedup pointer or an elider retrieval line
   inside an indented subagent report is not indented.
-- **Compression counts are not persisted.** The `smart crusher`, `dedup` and
-  `line elider` tables have only their `session` row; the today / 7 days / 30
-  days rows hold no compression numbers, because storing them needs new stats
-  columns and a storage protocol bump.
-- **Deferred SmartCrusher parts.** Upstream's lossless compaction (table and
-  CSV rendering), the string, number and mixed-array crushers (those arrays
-  keep every element), opaque-blob substitution (`<<ccr:HASH,KIND,SIZE>>`), the
-  zlib check of the adaptive row count and the embedding relevance scorer
-  (stubbed upstream too) are not ported.
+- **Compression counts are not persisted.** The compression tables have only
+  their `session` row; the today / 7 days / 30 days rows hold no compression
+  numbers, because storing them needs new stats columns and a storage protocol
+  bump.
+- **Deferred SmartCrusher parts.** Upstream's string, number and mixed-array
+  crushers (those arrays keep every element), tabular ingest (CSV text turned
+  into records), opaque-blob substitution (`<<ccr:HASH,KIND,SIZE>>`), the zlib
+  check of the adaptive row count and the embedding relevance scorer (stubbed
+  upstream too) are not ported.
 - **Updating from 0.2.0 needs a session restart.** The storage protocol is now 2:
   a session still running 0.2.0 gets "restart this session" from every storage
   tool until it restarts. Downgrading to 0.2.0 after this update leaves storage
@@ -293,6 +307,40 @@ rows. It is the MCP server `storage` (connected as
 - The mods API is early-access; shapes may change between Claude Code releases.
 
 ## Upstream mapping and deviations
+
+### Lossless compaction and array crushers
+
+Lossless compaction is ported from
+`crates/headroom-core/src/transforms/smart_crusher/compaction/` (`compactor.rs`,
+`formatter.rs`, `classifier.rs`) and the lossless-first step of `crusher.rs`
+(read 2026-10-11 at 976aa71). Ported verbatim:
+
+- The defaults: at least 2 rows, core fields in 80% of the rows, buckets when
+  under 60% of the keys are core (2 to 8 buckets, a discriminator at most 70%
+  unique), at most 6 flattened inner keys, and the 15% savings floor.
+- The order: an array within the adaptive row count is left alone, the table
+  is tried before any row is dropped, and with the SmartCrusher off an array
+  whose table loses stays whole.
+- The table rules (column order, types, nullability, nested and stringified
+  JSON cells, dotted columns for uniform nested objects) and the csv-schema
+  text: `[N]{name:type,name:type?}`, CSV rows, `__buckets:` and `__key:` lines,
+  `null` against an empty field, `""` and `"null"`, JSON literals for
+  ambiguous strings in `json` columns.
+- A top-level array comes back as a JSON string holding the table, which can
+  fail the crusher's not-shorter check after passing the 15% floor.
+
+Deviations:
+
+- A column name holding `,` `:` `{` `}` `?` or a line break leaves the array
+  as it is (upstream would write a header that no longer decodes), and a
+  stringified cell `JSON.parse` would change stays a string.
+- The work of one table is capped at 4 per character of the array's JSON +
+  4096, so thousands of distinct keys cannot stall the append hook; such a
+  table could not save 15% anyway.
+- Numbers are typed and printed from their parsed value (`1.0` reads `int`,
+  `1.50` prints `1.5`); lengths count UTF-16 units, keys sort by UTF-16 code
+  units, and integer-like keys come first.
+- No opaque-blob cells: long strings stay in the table verbatim.
 
 ### Content detector / router
 

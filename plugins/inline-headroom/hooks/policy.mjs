@@ -10,9 +10,23 @@
 /** @typedef {Counters & {hit?: number}} Row hit: the ratio to show in place of the token-weighted one (the session row shows its last step's) */
 /** @typedef {{ role: 'user'|'assistant', text: string, toolUses: readonly { input: Record<string, unknown> }[] }} QueryMessage the SessionMessage fields crushQuery reads */
 /**
- * A crushed document: compact text, rows lost, [hash, original text (a crushed array's JSON, an elided block, a folded span)] per crushed array.
- * @typedef {{ text: string, rowsDropped: number, offloaded: [string, string][] }} CrushOutcome
+ * A crushed document: compact text, rows and items lost, arrays rendered losslessly and the characters those tables saved,
+ * [hash, original text (a crushed array's JSON, an elided block, a folded span)] per crushed array.
+ * @typedef {{ text: string, rowsDropped: number, compacted: number, compactSaved: number, offloaded: [string, string][] }} CrushOutcome
  */
+/** @typedef {{ rowsDropped: number, compacted: number, compactSaved: number, offloaded: [string, string][] }} CrushAcc processValue's running totals, mutated */
+/** @typedef {{ lossy: boolean, lossless: boolean }} CrushModes which SmartCrusher stages run: the lossy row drop, the lossless table */
+/** @typedef {{ name: string, type: string, nullable: boolean }} FieldSpec one compaction column (upstream FieldSpec) */
+/**
+ * One compaction cell (upstream CellValue without OpaqueRef): a scalar (any JSON value), a missing key, or a nested compaction.
+ * @typedef {{ s: unknown } | { m: true } | { n: Compaction }} Cell
+ */
+/** @typedef {{ key: string, fields: FieldSpec[], rows: Cell[][] }} Bucket one bucket of a heterogeneous array: its discriminator value and its table */
+/**
+ * The compaction IR (upstream Compaction without OpaqueRef): a table, buckets split by a discriminator, or the items untouched.
+ * @typedef {{ kind: "table", fields: FieldSpec[], rows: Cell[][] } | { kind: "buckets", disc: string, buckets: Bucket[] } | { kind: "untouched", value: unknown }} Compaction
+ */
+/** @typedef {{ left: number }} WorkBudget a scan's remaining work units, mutated; below 0 means exhausted */
 /** @typedef {{ text: string, lines: number, offloaded: [string, string][] }} Elision a dense-line-elided text: the shortened text, the lines elided, [hash, original text] */
 /**
  * One conversation's dedup corpus: the last ordinal handed out, each indexed block's verbatim lines (null where folded) by
@@ -25,7 +39,7 @@
 /** @typedef {'crush'|'elide'} RouteStep a compression lever a content type's route may run */
 /**
  * Which levers rewrite this row; dedup names the conversations map and this row's key ("" main, else agentId).
- * @typedef {{ crush: boolean, elide: boolean, dedup?: { states: Map<string, DedupState>, key: string } }} Levers
+ * @typedef {{ crush: boolean, compact?: boolean, elide: boolean, dedup?: { states: Map<string, DedupState>, key: string } }} Levers
  */
 /**
  * A rewritten tool-result row: its blocks, the originals for the CCR store (`offloaded`: the crusher's and the elider's sole copies;
@@ -35,8 +49,18 @@
  * @property {[string, string][]} offloaded
  * @property {[string, string][]} folded
  * @property {{ dropped: number, saved: number }} crush
+ * @property {{ arrays: number, saved: number }} compact
  * @property {{ lines: number, saved: number }} elide
  * @property {{ spans: number, saved: number }} dedup
+ */
+/**
+ * The in-memory, session-only /headroom counters (statsTables' `memory`).
+ * @typedef {object} StatsMemory
+ * @property {{ steps: number, clamped: number }} [subagents]
+ * @property {{ dropped: number, saved: number }} [crush]
+ * @property {{ spans: number, saved: number }} [dedup]
+ * @property {{ lines: number, saved: number }} [elide]
+ * @property {{ arrays: number, saved: number }} [compact]
  */
 /**
  * One dict-array field (upstream FieldStats); the numeric statistics are absent when not finite.
@@ -107,6 +131,17 @@ const MIN_ITEMS_TO_ANALYZE = 5;
 const VARIANCE_THRESHOLD = 2.0;
 const RELEVANCE_THRESHOLD = 0.3;
 const MAX_PROCESS_DEPTH = 50;
+// Lossless compaction: upstream SmartCrusherConfig::default() (lossless_min_savings_ratio) and CompactConfig::default().
+const LOSSLESS_MIN_SAVINGS = 0.15;
+const COMPACT_MIN_ITEMS = 2;
+const COMPACT_CORE_FIELD_FRACTION = 0.8;
+const COMPACT_HETEROGENEOUS_CORE_RATIO = 0.6;
+const COMPACT_MAX_FLATTEN_INNER_KEYS = 6;
+const COMPACT_MIN_BUCKETS = 2;
+const COMPACT_MAX_BUCKETS = 8;
+const COMPACT_MAX_DISCRIMINATOR_RATIO = 0.7;
+// Deviation: a column name holding one of these would make the `[N]{name:type,…}` header undecodable (upstream leaves names unescaped).
+const COMPACT_BAD_NAME_RE = /[,:{}?\n\r]/;
 const ISO_DATETIME_RE = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}/;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // shortcut: Python int() also takes `_` digit separators; add them if a payload needs it.
@@ -386,14 +421,15 @@ export function foldPending(days, pending, today, purgeBefore) {
 /**
  * The /headroom tables as rows of cells. Each table starts with its header row (heading, then the column names), then one row per ROWS entry.
  * A row without counters (still loading, storage off or failing) shows `blank` in every value cell. The in-memory session-only
- * counters add a `subagents` row under effort routing's session row, and the smart crusher, dedup and line elider tables, which have only a session row.
+ * counters add a `subagents` row under effort routing's session row, and the smart crusher, dedup, line elider and compaction tables,
+ * which have only a session row.
  * @param {readonly (Row|undefined)[]} counters one per ROWS entry, in ROWS order
  * @param {string} blank
- * @param {{ subagents?: { steps: number, clamped: number }, crush?: { dropped: number, saved: number }, dedup?: { spans: number, saved: number }, elide?: { lines: number, saved: number } }} [memory]
- * @returns {string[][][]} effort routing, cache aligner, smart crusher, dedup, line elider
+ * @param {StatsMemory} [memory]
+ * @returns {string[][][]} effort routing, cache aligner, smart crusher, dedup, line elider, compaction
  */
 export function statsTables(counters, blank, memory = {}) {
-  const { subagents, crush = { dropped: 0, saved: 0 }, dedup = { spans: 0, saved: 0 }, elide = { lines: 0, saved: 0 } } = memory;
+  const { subagents, crush = { dropped: 0, saved: 0 }, dedup = { spans: 0, saved: 0 }, elide = { lines: 0, saved: 0 }, compact = { arrays: 0, saved: 0 } } = memory;
   /**
    * @param {string} heading
    * @param {string[]} columns
@@ -424,6 +460,10 @@ export function statsTables(counters, blank, memory = {}) {
     [
       ["line elider", "lines", "saved"],
       [session, String(elide.lines), String(elide.saved)],
+    ],
+    [
+      ["compaction", "arrays", "saved"],
+      [session, String(compact.arrays), String(compact.saved)],
     ],
   ];
 }
@@ -1438,16 +1478,352 @@ function createPlan(p) {
 }
 
 /**
- * Upstream crush_array_with_source without compaction: undefined when the array is within K (the caller recurses
- * into its rows); the array itself when the crushability gate skips it; else the kept rows in index order.
+ * Upstream type_tag_for: a JSON value's compaction type. Deviation: a number is `int` when it is a safe integer, since
+ * JSON.parse keeps no lexeme (`1.0` reads `int` here, `float` upstream).
+ * @param {unknown} v
+ * @returns {string}
+ */
+function typeTag(v) {
+  if (v === null) return "null";
+  if (typeof v === "boolean") return "bool";
+  if (typeof v === "number") return Number.isSafeInteger(v) ? "int" : "float";
+  return typeof v === "string" ? "string" : "json";
+}
+
+/**
+ * Upstream cell_from_value with classify_cell's opaque markers off: an array of 2+ objects nests a compaction, a string
+ * holding a JSON object or array (no `<<ccr:` marker in it) is replaced by its parsed value or a nested compaction, and
+ * everything else is a scalar. Deviation: a stringified value JSON.parse would not render back the same (isLossy) stays a string.
+ * @param {unknown} v
+ * @param {WorkBudget} budget
+ * @returns {Cell}
+ */
+function cellFrom(v, budget) {
+  if (Array.isArray(v)) return v.length >= 2 && v.every(isRecord) ? { n: compactRows(v, budget) } : { s: v };
+  if (typeof v !== "string" || v.includes("<<ccr:") || !/^[{[]/.test(v.trimStart())) return { s: v };
+  let parsed;
+  try {
+    parsed = JSON.parse(v);
+  } catch {
+    return { s: v };
+  }
+  if (typeof parsed !== "object" || parsed === null || isLossy(v, parsed)) return { s: v };
+  return Array.isArray(parsed) && parsed.length >= 2 && parsed.every(isRecord) ? { n: compactRows(parsed, budget) } : { s: parsed };
+}
+
+/**
+ * Upstream detect_discriminator: the key present in every row, all its values strings, with 2..8 distinct values and at most
+ * 70% of the row count; most buckets wins, the first in key order on ties. Only keys in every row are read (linear work).
+ * @param {readonly Record<string, unknown>[]} rows
+ * @param {readonly string[]} keys sorted
+ * @param {Map<string, number>} freq
+ * @returns {string|undefined}
+ */
+function discriminator(rows, keys, freq) {
+  const n = rows.length;
+  /** @type {string|undefined} */
+  let best;
+  let most = 0;
+  for (const k of keys) {
+    if (freq.get(k) !== n) continue;
+    /** @type {Set<string>} */
+    const distinct = new Set();
+    let ok = true;
+    for (const o of rows) {
+      const v = o[k];
+      if (typeof v !== "string" || distinct.add(v).size > COMPACT_MAX_BUCKETS) {
+        ok = false;
+        break;
+      }
+    }
+    if (!ok || distinct.size < COMPACT_MIN_BUCKETS || distinct.size / n > COMPACT_MAX_DISCRIMINATOR_RATIO) continue;
+    if (distinct.size > most) [best, most] = [k, distinct.size];
+  }
+  return best;
+}
+
+/**
+ * Upstream uniform_object_keys: the inner key list (order-sensitive) every present cell of column `col` shares, when each is an
+ * object and the column is not already dotted.
+ * @param {readonly FieldSpec[]} fields
+ * @param {readonly Cell[][]} rows
+ * @param {number} col
+ * @returns {string[]|undefined}
+ */
+function uniformObjectKeys(fields, rows, col) {
+  if (fields[col].name.includes(".")) return undefined;
+  /** @type {string[]|undefined} */
+  let canon;
+  for (const row of rows) {
+    const cell = row[col];
+    if ("m" in cell) continue;
+    if (!("s" in cell) || !isRecord(cell.s)) return undefined;
+    const keys = Object.keys(cell.s);
+    if (canon === undefined) canon = keys;
+    else if (canon.length !== keys.length || canon.some((k, j) => k !== keys[j])) return undefined;
+  }
+  return canon;
+}
+
+/**
+ * Upstream flatten_uniform_nested: a column of objects sharing 1..6 inner keys becomes `parent.key` columns, their types and
+ * nullability re-inferred from the cells. Deviation: inner keys holding a header-breaking character keep the column nested.
+ * Mutates `fields` and `rows`.
+ * @param {FieldSpec[]} fields
+ * @param {Cell[][]} rows
+ * @returns {void}
+ */
+function flattenUniformNested(fields, rows) {
+  for (let i = 0; i < fields.length;) {
+    const inner = uniformObjectKeys(fields, rows, i);
+    if (!inner || inner.length === 0 || inner.length > COMPACT_MAX_FLATTEN_INNER_KEYS || inner.some((k) => COMPACT_BAD_NAME_RE.test(k))) {
+      i++;
+      continue;
+    }
+    const parent = fields[i].name;
+    fields.splice(i, 1, ...inner.map((k) => ({ name: `${parent}.${k}`, type: "string", nullable: false })));
+    for (const row of rows) {
+      const cell = row[i];
+      const obj = "s" in cell && isRecord(cell.s) ? cell.s : undefined;
+      row.splice(i, 1, ...inner.map((k) => /** @type {Cell} */ (obj && Object.hasOwn(obj, k) ? { s: obj[k] } : { m: true })));
+    }
+    for (let off = 0; off < inner.length; off++) {
+      let type = "string";
+      let saw = false;
+      let nullable = false;
+      for (const row of rows) {
+        const cell = row[i + off];
+        if ("m" in cell || ("s" in cell && cell.s === null)) nullable = true;
+        else if ("s" in cell) {
+          const t = typeTag(cell.s);
+          if (!saw) [type, saw] = [t, true];
+          else if (t !== type) type = "json";
+        } else type = "json";
+      }
+      Object.assign(fields[i + off], { type, nullable });
+    }
+    i += inner.length;
+  }
+}
+
+/**
+ * Upstream build_homogeneous_table: columns by descending frequency, then name; a column's type is its first non-null value's
+ * (`json` on a conflict, `string` when all null); nullable when a row lacks it or holds null. Charges rows × columns to `budget`.
+ * @param {Record<string, unknown>[]} rows
+ * @param {readonly string[]} keys sorted
+ * @param {Map<string, number>} freq
+ * @param {WorkBudget} budget
+ * @returns {Compaction}
+ */
+function homogeneousTable(rows, keys, freq, budget) {
+  const n = rows.length;
+  budget.left -= n * keys.length;
+  if (budget.left < 0) return { kind: "untouched", value: rows };
+  const ordered = [...keys].sort((a, b) => (freq.get(b) ?? 0) - (freq.get(a) ?? 0) || (a < b ? -1 : a > b ? 1 : 0));
+  /** @type {FieldSpec[]} */
+  const fields = ordered.map((k) => {
+    /** @type {string|undefined} */
+    let type;
+    let nullable = (freq.get(k) ?? 0) < n;
+    for (const o of rows) {
+      if (!Object.hasOwn(o, k)) continue;
+      if (o[k] === null) {
+        nullable = true;
+        continue;
+      }
+      const t = typeTag(o[k]);
+      if (type === undefined) type = t;
+      else if (type !== t) type = "json";
+    }
+    return { name: k, type: type ?? "string", nullable };
+  });
+  /** @type {Cell[][]} */
+  const cells = rows.map((o) => ordered.map((k) => (Object.hasOwn(o, k) ? cellFrom(o[k], budget) : { m: true })));
+  flattenUniformNested(fields, cells);
+  return { kind: "table", fields, rows: cells };
+}
+
+/**
+ * Upstream bucket_by: rows grouped by the discriminator's value in sorted order, each group compacted on its own; a group that
+ * is not a table becomes a one-column `value:json` table of its raw rows.
+ * @param {Record<string, unknown>[]} rows
+ * @param {string} disc
+ * @param {WorkBudget} budget
+ * @returns {Compaction}
+ */
+function bucketBy(rows, disc, budget) {
+  /** @type {Map<string, Record<string, unknown>[]>} */
+  const groups = new Map();
+  for (const o of rows) {
+    const key = String(o[disc]);
+    const group = groups.get(key);
+    if (group) group.push(o);
+    else groups.set(key, [o]);
+  }
+  /** @type {Bucket[]} */
+  const buckets = [...groups.keys()].sort().map((key) => {
+    const group = groups.get(key) ?? [];
+    const inner = compactRows(group, budget);
+    if (inner.kind === "table") return { key, fields: inner.fields, rows: inner.rows };
+    budget.left -= group.length;
+    return { key, fields: [{ name: "value", type: "json", nullable: false }], rows: group.map((o) => [{ s: o }]) };
+  });
+  return { kind: "buckets", disc, buckets };
+}
+
+/**
+ * Upstream compact_inner (TabularCompactor) with opaque markers off: 2+ objects become a table, or buckets when under 60% of
+ * the keys are in 80% of the rows and a discriminator splits them; anything else stays untouched. Deviation: a key holding
+ * `,` `:` `{` `}` `?` or a line break leaves the items untouched, and an exhausted work budget (key reads plus table cells)
+ * does too. Keys sort by UTF-16 code units where upstream's BTreeMap sorts UTF-8 bytes.
+ * @param {readonly unknown[]} items
+ * @param {WorkBudget} [budget] unbounded when absent
+ * @returns {Compaction}
+ */
+export function compactRows(items, budget = { left: Infinity }) {
+  /** @type {Compaction} */
+  const untouched = { kind: "untouched", value: items };
+  if (items.length < COMPACT_MIN_ITEMS || budget.left < 0 || !items.every(isRecord)) return untouched;
+  const rows = /** @type {Record<string, unknown>[]} */ (items);
+  /** @type {Map<string, number>} */
+  const freq = new Map();
+  for (const o of rows) {
+    const ks = Object.keys(o);
+    budget.left -= ks.length;
+    for (const k of ks) freq.set(k, (freq.get(k) ?? 0) + 1);
+  }
+  const keys = [...freq.keys()].sort();
+  if (budget.left < 0 || keys.some((k) => COMPACT_BAD_NAME_RE.test(k))) return untouched;
+  const core = keys.filter((k) => (freq.get(k) ?? 0) >= Math.ceil(rows.length * COMPACT_CORE_FIELD_FRACTION)).length;
+  if ((keys.length === 0 ? 1 : core / keys.length) < COMPACT_HETEROGENEOUS_CORE_RATIO) {
+    const disc = discriminator(rows, keys, freq);
+    if (disc !== undefined) return bucketBy(rows, disc, budget);
+  }
+  return homogeneousTable(rows, keys, freq, budget);
+}
+
+/**
+ * @param {string} s
+ * @returns {string} `s` in double quotes, inner quotes doubled (upstream csv_quote)
+ */
+const csvQuote = (s) => `"${s.replaceAll('"', '""')}"`;
+
+/**
+ * Upstream json_scalar_to_csv: null, booleans and numbers bare; a string quoted when empty, `null` or holding `,` `"` or a line
+ * break; an object or array as quoted JSON.
+ * @param {unknown} v
+ * @returns {string}
+ */
+function csvScalar(v) {
+  if (v === null) return "null";
+  if (typeof v === "boolean") return v ? "true" : "false";
+  if (typeof v === "number") return String(v);
+  if (typeof v === "string") return v === "" || v === "null" || /[,"\n\r]/.test(v) ? csvQuote(v) : v;
+  return csvQuote(JSON.stringify(v));
+}
+
+/**
+ * Upstream is_ambiguous_json_text: JSON could read `s` as something other than the string (after JSON whitespace it starts
+ * with `[` `{` `"` `-` or a digit, or is a bare literal Python accepts).
+ * @param {string} s
+ * @returns {boolean}
+ */
+function isAmbiguousJsonText(s) {
+  let a = 0;
+  let b = s.length;
+  while (a < b && " \t\n\r".includes(s[a])) a++;
+  while (b > a && " \t\n\r".includes(s[b - 1])) b--;
+  const t = s.slice(a, b);
+  return /^[[{"\-0-9]/.test(t) || ["true", "false", "null", "NaN", "Infinity"].includes(t);
+}
+
+/**
+ * Upstream format_cell: a missing key is empty, an ambiguous string in a `json` column is a quoted JSON literal, a nested
+ * compaction is quoted compactionJson, everything else csvScalar.
+ * @param {Cell} cell
+ * @param {boolean} jsonColumn
+ * @returns {string}
+ */
+function csvCell(cell, jsonColumn) {
+  if ("m" in cell) return "";
+  if ("n" in cell) return csvQuote(JSON.stringify(compactionJson(cell.n)));
+  return jsonColumn && typeof cell.s === "string" && isAmbiguousJsonText(cell.s) ? csvQuote(JSON.stringify(cell.s)) : csvScalar(cell.s);
+}
+
+/**
+ * Upstream write_table: `[N]{name:type,name:type?,…}` then one CSV row per record, each line ending in `\n`.
+ * @param {readonly FieldSpec[]} fields
+ * @param {readonly Cell[][]} rows
+ * @returns {string}
+ */
+function csvTable(fields, rows) {
+  const json = fields.map((f) => f.type === "json");
+  let out = `[${rows.length}]{${fields.map((f) => `${f.name}:${f.type}${f.nullable ? "?" : ""}`).join(",")}}\n`;
+  for (const row of rows) out += `${row.map((cell, i) => csvCell(cell, json[i] ?? false)).join(",")}\n`;
+  return out;
+}
+
+/**
+ * Upstream CsvSchemaFormatter (include_drop_summary false): a table, `__buckets:<disc>` then `__key:<value>` and a table per
+ * bucket, or an untouched value as compact JSON. Field names are not escaped (upstream's documented exposure; compactRows
+ * refuses the names that would break the header).
+ * @param {Compaction} c
+ * @returns {string}
+ */
+export function formatCsvSchema(c) {
+  if (c.kind === "table") return csvTable(c.fields, c.rows);
+  if (c.kind === "buckets") return `__buckets:${c.disc}\n${c.buckets.map((b) => `__key:${csvScalar(b.key)}\n${csvTable(b.fields, b.rows)}`).join("")}`;
+  return JSON.stringify(c.value);
+}
+
+/**
+ * Upstream compaction_to_json (the JSON a nested cell renders as), key order as upstream: a missing cell reads null.
+ * @param {Compaction} c
+ * @returns {unknown}
+ */
+export function compactionJson(c) {
+  /** @param {readonly FieldSpec[]} fields */
+  const schema = (fields) => fields.map((f) => (f.nullable ? { name: f.name, type: f.type, nullable: true } : { name: f.name, type: f.type }));
+  /** @param {readonly Cell[][]} rows */
+  const rowsJson = (rows) => rows.map((r) => r.map((cell) => ("m" in cell ? null : "n" in cell ? compactionJson(cell.n) : cell.s)));
+  if (c.kind === "table") return { _compaction: "table", _schema: schema(c.fields), _kept: c.rows.length, _total: c.rows.length, _rows: rowsJson(c.rows) };
+  if (c.kind === "buckets")
+    return {
+      _compaction: "buckets",
+      _discriminator: c.disc,
+      _total: c.buckets.reduce((a, b) => a + b.rows.length, 0),
+      _buckets: c.buckets.map((b) => ({ _key: b.key, _schema: schema(b.fields), _rows: rowsJson(b.rows) })),
+    };
+  return c.value;
+}
+
+/**
+ * Upstream crush_array_with_source: undefined when the array is within K (the caller recurses into its rows). Then, with
+ * `modes.lossless`, the csv-schema table when it saves at least 15% of the array's compact JSON (upstream estimate_array_bytes,
+ * in UTF-16 units here); without `modes.lossy`, the array itself (upstream lossless_only); the array itself when the
+ * crushability gate skips it; else the kept rows in index order. The compaction's work is charged to a budget of 4 per
+ * character of that JSON + 4096 and abandoned when it runs out.
  * @param {Record<string, unknown>[]} items
  * @param {string} query
- * @returns {Record<string, unknown>[]|undefined}
+ * @param {CrushModes} modes
+ * @returns {string|Record<string, unknown>[]|undefined}
  */
-function crushDictArray(items, query) {
+function crushDictArray(items, query, modes) {
   const strings = items.map((o) => JSON.stringify(o));
   const max = computeOptimalK(strings);
   if (items.length <= max) return undefined;
+  if (modes.lossless) {
+    let estimate = strings.length + 1; // the n − 1 commas and two brackets around the rows
+    for (const s of strings) estimate += s.length;
+    /** @type {WorkBudget} */
+    const budget = { left: SCAN_BUDGET_PER_CHAR * estimate + SCAN_BUDGET_FLOOR };
+    const c = compactRows(items, budget);
+    if (c.kind !== "untouched" && budget.left >= 0) {
+      const r = formatCsvSchema(c);
+      if (1 - r.length / estimate >= LOSSLESS_MIN_SAVINGS) return r;
+    }
+  }
+  if (!modes.lossy) return items;
   const analysis = analyzeArray(items, strings);
   if (analysis.strategy === "skip") return items;
   const keep = createPlan({ items, strings, canon: items.map(canonicalJson), analysis, query, max });
@@ -1505,16 +1881,17 @@ function isLossy(text, value) {
 }
 
 /**
- * Upstream process_value: crushes each dict array of 5+ rows (a CCR sentinel closes one that lost rows, and its
- * kept rows are not descended into), recurses into everything else, keeps every object key, and parses
- * stringified JSON containers (process_string). Depth 50 and below is left as is.
+ * Upstream process_value: crushes each dict array of 5+ rows (a lossless table replaces it as a string; a CCR sentinel
+ * closes one that lost rows, and its kept rows are not descended into), recurses into everything else, keeps every object
+ * key, and parses stringified JSON containers (process_string, which uses a table string as is). Depth 50 and below is left as is.
  * @param {unknown} v
  * @param {number} depth
  * @param {string} query
- * @param {{ rowsDropped: number, offloaded: [string, string][] }} acc rows dropped and originals, mutated
+ * @param {CrushAcc} acc
+ * @param {CrushModes} modes
  * @returns {unknown} `v` itself when nothing below it changed
  */
-function processValue(v, depth, query, acc) {
+function processValue(v, depth, query, acc, modes) {
   if (depth >= MAX_PROCESS_DEPTH) return v;
   if (typeof v === "string") {
     // A stringified JSON object or array is crushed too and re-emitted as a string (opaque-blob CCR is deferred).
@@ -1526,15 +1903,21 @@ function processValue(v, depth, query, acc) {
       return v;
     }
     if (typeof parsed !== "object" || parsed === null || isLossy(v, parsed)) return v;
-    const out = processValue(parsed, depth + 1, query, acc);
-    return out === parsed ? v : JSON.stringify(out);
+    const out = processValue(parsed, depth + 1, query, acc, modes);
+    // A table string is used as is: re-encoding it would double-encode the field (upstream process_string).
+    return out === parsed ? v : typeof out === "string" ? out : JSON.stringify(out);
   }
   if (Array.isArray(v)) {
     // Only dict arrays are crushed: the string, number and mixed crushers are deferred, so those arrays keep every element.
-    const kept = v.length >= MIN_ITEMS_TO_ANALYZE && v.every(isRecord) ? crushDictArray(v, query) : undefined;
+    const kept = v.length >= MIN_ITEMS_TO_ANALYZE && v.every(isRecord) ? crushDictArray(v, query, modes) : undefined;
     if (kept === undefined) {
-      const out = v.map((x) => processValue(x, depth + 1, query, acc));
+      const out = v.map((x) => processValue(x, depth + 1, query, acc, modes));
       return out.some((x, i) => x !== v[i]) ? out : v;
+    }
+    if (typeof kept === "string") {
+      acc.compacted++;
+      acc.compactSaved += JSON.stringify(v).length - JSON.stringify(kept).length;
+      return kept;
     }
     if (kept.length === v.length) return v;
     const json = JSON.stringify(v);
@@ -1545,22 +1928,25 @@ function processValue(v, depth, query, acc) {
     return [...kept, { _ccr_dropped: `<<ccr:${hash} ${dropped}_rows_offloaded>>` }];
   }
   if (!isRecord(v)) return v;
-  const entries = Object.entries(v).map(([k, x]) => /** @type {[string, unknown]} */ ([k, processValue(x, depth + 1, query, acc)]));
+  const entries = Object.entries(v).map(([k, x]) => /** @type {[string, unknown]} */ ([k, processValue(x, depth + 1, query, acc, modes)]));
   // fromEntries defines own properties, so a "__proto__" key stays data.
   return entries.some(([k, x]) => x !== v[k]) ? Object.fromEntries(entries) : v;
 }
 
 /**
- * SmartCrusher over one JSON document (upstream smart_crush_content without compaction): dict arrays lose rows
- * to a `{"_ccr_dropped":"<<ccr:HASH N_rows_offloaded>>"}` sentinel and the result is compact JSON. Undefined means
- * pass the text through: at most CRUSH_MIN_CHARS, not a JSON object or array, a number, -0 or duplicate key JSON.parse
- * cannot keep, no row dropped, or output that is not shorter. Deviation: upstream also minifies a pretty-printed
- * document that lost no rows; here such a result keeps its original bytes.
+ * SmartCrusher over one JSON document (upstream smart_crush_content): with `modes.lossless`, a dict array whose csv-schema
+ * table saves 15% becomes that table as a string (a top-level array yields a JSON string literal, upstream's wrapper); with
+ * `modes.lossy`, dict arrays lose rows to a `{"_ccr_dropped":"<<ccr:HASH N_rows_offloaded>>"}` sentinel. The result is compact
+ * JSON. Undefined means pass the text through: at most CRUSH_MIN_CHARS, not a JSON object or array, a number, -0 or duplicate
+ * key JSON.parse cannot keep, nothing changed, or output that is not shorter (a table's `\n` escapes can fail this after it
+ * passed the 15% gate, as upstream). Deviation: upstream also minifies a pretty-printed document that lost no rows; here such
+ * a result keeps its original bytes.
  * @param {string} text
  * @param {string} query the conversation context (crushQuery), "" for none
+ * @param {CrushModes} [modes] the lossy path alone when absent
  * @returns {CrushOutcome|undefined}
  */
-export function crushJson(text, query) {
+export function crushJson(text, query, modes = { lossy: true, lossless: false }) {
   if (text.length <= CRUSH_MIN_CHARS) return undefined;
   let value;
   try {
@@ -1569,9 +1955,9 @@ export function crushJson(text, query) {
     return undefined;
   }
   if (typeof value !== "object" || value === null || isLossy(text, value)) return undefined;
-  /** @type {{ rowsDropped: number, offloaded: [string, string][] }} */
-  const acc = { rowsDropped: 0, offloaded: [] };
-  const out = processValue(value, 0, query, acc);
+  /** @type {CrushAcc} */
+  const acc = { rowsDropped: 0, compacted: 0, compactSaved: 0, offloaded: [] };
+  const out = processValue(value, 0, query, acc, modes);
   if (out === value) return undefined; // nothing dropped: keep the original bytes
   const s = JSON.stringify(out);
   return s.length < text.trim().length ? { text: s, ...acc } : undefined;
@@ -2299,7 +2685,7 @@ export function rewriteToolResults(content, tool, levers, query) {
  */
 function rewriteRow(content, tool, levers, query) {
   /** @type {Omit<RowRewrite, "content">} */
-  const acc = { offloaded: [], folded: [], crush: { dropped: 0, saved: 0 }, elide: { lines: 0, saved: 0 }, dedup: { spans: 0, saved: 0 } };
+  const acc = { offloaded: [], folded: [], crush: { dropped: 0, saved: 0 }, compact: { arrays: 0, saved: 0 }, elide: { lines: 0, saved: 0 }, dedup: { spans: 0, saved: 0 } };
   let changed = false;
   /** @type {ContentBlock[]} */
   const mapped = content.map((b) => {
@@ -2311,13 +2697,18 @@ function rewriteRow(content, tool, levers, query) {
      * @returns {string}
      */
     const shrink = (text) => {
-      if (prot || !(levers.crush || levers.elide) || text.length < ROUTE_MIN_CHARS) return text;
+      if (prot || !(levers.crush || levers.compact || levers.elide) || text.length < ROUTE_MIN_CHARS) return text;
       for (const step of ROUTES[detectContentType(text)]) {
-        if (step === "crush" && levers.crush) {
-          const c = crushJson(text, query);
+        if (step === "crush" && (levers.crush || levers.compact)) {
+          const c = crushJson(text, query, { lossy: levers.crush, lossless: !!levers.compact });
           if (c) {
+            // A document that lost nothing owes all its savings to compaction; otherwise the tables' own savings, capped.
+            const saved = text.length - c.text.length;
+            const toCompact = c.rowsDropped === 0 ? saved : Math.max(0, Math.min(saved, c.compactSaved));
+            acc.compact.arrays += c.compacted;
+            acc.compact.saved += toCompact;
             acc.crush.dropped += c.rowsDropped;
-            acc.crush.saved += text.length - c.text.length;
+            acc.crush.saved += saved - toCompact;
             acc.offloaded.push(...c.offloaded);
             return c.text;
           }
