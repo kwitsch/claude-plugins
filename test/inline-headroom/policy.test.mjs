@@ -49,6 +49,7 @@ import {
   stepEffort,
   storeOffloaded,
   tableText,
+  tagSpans,
   toCount,
   unfoldRepeatedBlocks,
   wantsQuery,
@@ -1915,4 +1916,125 @@ test("rewriteToolResults extracts HTML, then elides a dense line of the extracti
   // A page that extracts to nothing falls through to the elider.
   const scripted = rewrite([toolResult(`<!DOCTYPE html><html><body><script>${blob}</script></body></html>`)], "Bash", levers({ extract: true }));
   assert.deepEqual([scripted.extract.pages, scripted.elide.lines], [0, 1]);
+});
+
+// Tag protector (upstream tag_protector.rs identify_spans, block mode) and the per-lever span guards.
+
+/**
+ * The text each span covers.
+ * @param {string} text
+ */
+const spanTexts = (text) => (tagSpans(text) ?? []).map(([a, b]) => text.slice(a, b));
+
+const REMINDER = "<system-reminder>keep-this-reminder-whole</system-reminder>";
+// One dense line with a reminder in its middle, then a short line: elided without the tag protector, kept whole with it.
+const TAGGED_DENSE = `${"x".repeat(1200)}${REMINDER}${"y".repeat(1200)}\nexit code 0`;
+
+test("tagSpans finds custom tag blocks and self-closing custom tags, never HTML5 tags (upstream vectors)", () => {
+  assert.deepEqual(tagSpans("Just plain text"), []);
+  assert.deepEqual(tagSpans(""), []);
+  assert.deepEqual(tagSpans("<div>Some content</div>"), []);
+  assert.deepEqual(tagSpans("<DIV>a</DIV><Span>b</Span>"), []); // HTML names match case-insensitively
+  assert.deepEqual(spanTexts("Before <system-reminder>Important</system-reminder> After"), ["<system-reminder>Important</system-reminder>"]);
+  assert.deepEqual(spanTexts('<context key="session" type="persistent">user data</context>'), ['<context key="session" type="persistent">user data</context>']);
+  assert.deepEqual(spanTexts("Text <marker/> more text"), ["<marker/>"]);
+  assert.deepEqual(tagSpans("Text <br/> more <hr/> text"), []);
+  assert.deepEqual(spanTexts("<outer><inner>deep</inner></outer>"), ["<outer><inner>deep</inner></outer>"]);
+  assert.deepEqual(spanTexts("<div>HTML</div> <system-reminder>Rule</system-reminder> <p>HTML2</p>"), ["<system-reminder>Rule</system-reminder>"]);
+  for (const tag of [
+    "<tool_call>search({query: 'test'})</tool_call>",
+    "<thinking>Let me analyze this</thinking>",
+    "<EXTREMELY_IMPORTANT>Never skip validation</EXTREMELY_IMPORTANT>",
+    "<user-prompt-submit-hook>check perms</user-prompt-submit-hook>",
+    "<system-reminder>Rules</system-reminder>",
+    "<result>Success: 42 items</result>",
+  ])
+    assert.deepEqual(spanTexts(`Before ${tag} After`), [tag], tag);
+});
+
+test("tagSpans keeps duplicates apart, collapses deep nesting and ignores orphans, a lone < and truncated tags", () => {
+  assert.deepEqual(spanTexts("<system-reminder>same</system-reminder> middle <system-reminder>same</system-reminder>"), [
+    "<system-reminder>same</system-reminder>",
+    "<system-reminder>same</system-reminder>",
+  ]);
+  const deep = `${"<lvl>".repeat(60)}core${"</lvl>".repeat(60)}`;
+  assert.deepEqual(tagSpans(deep), [[0, deep.length]]);
+  assert.deepEqual(spanTexts("<marker/> middle <marker/>"), ["<marker/>", "<marker/>"]);
+  assert.deepEqual(tagSpans("no opener </ghost> here"), []);
+  assert.deepEqual(tagSpans("<ghost>dangling content with no close"), []);
+  assert.deepEqual(tagSpans("if a < b then c"), []);
+  for (const text of ["</", "<", "<a/", "<a", "<a /", "</a"]) assert.deepEqual(tagSpans(text), [], text);
+  assert.deepEqual(spanTexts('<context attr="a > b">payload</context>'), ['<context attr="a > b">payload</context>']);
+  assert.deepEqual(spanTexts("<custom>x</div> y</custom>"), ["<custom>x</div> y</custom>"]); // an HTML close inside a block
+  // Deviation: SVG and MathML children are not workflow tags.
+  assert.deepEqual(spanTexts('<svg viewBox="0 0 1 1"><g><path d="M0 0"/></g></svg> <note>x</note> <math><mi>x</mi></math>'), ["<note>x</note>"]);
+});
+
+test("tagSpans returns null when unterminated quotes or a deep stack of unmatched opens exhaust its budget", () => {
+  const t0 = Date.now();
+  assert.equal(tagSpans('<x a="'.repeat(30_000)), null);
+  // 20,000 distinct custom opens, then 20,000 closes that match none: each close walks the whole stack.
+  const opens = Array.from({ length: 20_000 }, (_, i) => `<a${i}>`).join("");
+  const closes = Array.from({ length: 20_000 }, (_, i) => `</b${i}>`).join("");
+  const stress = `${opens}\n${closes}\n${opens}`;
+  assert.equal(tagSpans(stress), null);
+  assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0} ms`);
+  // An unprotectable text passes through every lever whole; without the protector its dense lines are elided.
+  const lv = levers({ tags: true, compact: true, config: true, extract: true });
+  assert.equal(rewriteToolResults([toolResult(stress)], "Bash", lv, ""), undefined);
+  assert.equal(rewriteToolResults([toolResult(stress)], "Bash", lv, ""), undefined); // nor folded against its first copy
+  assert.equal(rewrite([toolResult(stress)], "Bash", levers({ tags: false })).elide.lines, 3);
+  // A moderate stack well under the budget still yields its spans.
+  const moderate = `<keep>${"<o>".repeat(50)}${"</c>".repeat(50)}</keep>`;
+  assert.deepEqual(tagSpans(moderate), [[0, moderate.length]]);
+});
+
+test("the tag protector keeps a dense line holding a custom tag from the elider", () => {
+  assert.equal(elideDense(TAGGED_DENSE, tagSpans(TAGGED_DENSE) ?? []), undefined);
+  assert.equal(rewriteToolResults([toolResult(TAGGED_DENSE)], "Bash", levers({ tags: true }), ""), undefined);
+  assert.equal(rewrite([toolResult(TAGGED_DENSE)], "Bash", levers({ tags: false })).elide.lines, 1);
+});
+
+test("the tag protector never folds a repeated reminder block while the runs around it still fold", () => {
+  const after = ["4:function delta() { return computeDelta(fourth); }", "5:function epsilon() { return computeEpsilon(fifth); }", "6:function zeta() { return computeZeta(sixth); }"].join("\n");
+  const reminder = "<system-reminder>\nThe file may have changed since it was read.\nRead it again before editing it.\n</system-reminder>";
+  const block = `${RUN}\n${reminder}\n${after}`;
+  const tagged = levers({ tags: true });
+  assert.equal(rewriteToolResults([toolResult(block)], "Bash", tagged, ""), undefined); // the first copy: nothing to fold against
+  const lines = String(rewrite([toolResult(block)], "Bash", tagged).content[0].content).split("\n");
+  assert.equal(lines.length, 6);
+  assert.match(lines[0], /^\[↑3L same as result 1: "function alpha\(\) \.\.\." hash=[0-9a-f]{12}\]$/);
+  assert.deepEqual(lines.slice(1, 5), reminder.split("\n"));
+  assert.match(lines[5], /^\[↑3L same as result 1: "function delta\(\) \.\.\." hash=[0-9a-f]{12}\]$/);
+  const plain = levers({ tags: false });
+  assert.equal(rewriteToolResults([toolResult(block)], "Bash", plain, ""), undefined);
+  assert.match(String(rewrite([toolResult(block)], "Bash", plain).content[0].content), /^\[↑10L same as result 1: /);
+});
+
+test("the tag protector drops no row of a JSON document holding a tag, and the config compressor and the HTML extractor decline it", () => {
+  const doc = JSON.stringify({ rows: STATUS_ROWS, note: REMINDER });
+  assert.equal(rewriteToolResults([toolResult(doc)], "Bash", levers({ tags: true }), ""), undefined); // lossy off, compaction off: untouched
+  assert.ok(rewrite([toolResult(doc)], "Bash", levers({ tags: false })).crush.dropped > 0);
+  const lossless = rewrite([toolResult(doc)], "Bash", levers({ tags: true, compact: true })); // a lossless table keeps every row
+  assert.deepEqual([lossless.crush.dropped, lossless.compact.arrays], [0, 1]);
+  assert.equal(JSON.parse(String(lossless.content[0].content)).note, REMINDER);
+  const yaml = `${K8S_MANIFEST}note: ${REMINDER}\n`;
+  assert.equal(rewriteToolResults([toolResult(yaml)], "Bash", levers({ tags: true, config: true }), ""), undefined);
+  assert.equal(rewrite([toolResult(yaml)], "Bash", levers({ tags: false, config: true })).config.texts, 1);
+  const page = PAGE.replace("<h2>Changes</h2>", `<h2>Changes</h2>${REMINDER}`);
+  assert.equal(rewriteToolResults([toolResult(page)], "Bash", levers({ tags: true, extract: true }), ""), undefined);
+  assert.equal(rewrite([toolResult(page)], "Bash", levers({ tags: false, extract: true })).extract.pages, 1);
+});
+
+test("after an extraction the elider gets the extracted text's own spans, so a decoded custom tag is guarded (D32)", () => {
+  const line = `${"x".repeat(1200)}&lt;system-reminder&gt;keep-this-reminder-whole&lt;/system-reminder&gt;${"y".repeat(1200)}`;
+  const page = `${HEAD}<h1>Log</h1><pre>${line}</pre></body></html>`;
+  assert.deepEqual(tagSpans(page), []); // the markup holds no custom tag, so the extractor runs
+  const decoded = `${"x".repeat(1200)}${REMINDER}${"y".repeat(1200)}`;
+  const kept = rewrite([toolResult(page)], "Bash", levers({ extract: true, elide: true, tags: true }));
+  assert.deepEqual([kept.extract.pages, kept.elide.lines], [1, 0]);
+  assert.ok(String(kept.content[0].content).split("\n").includes(decoded));
+  const elided = rewrite([toolResult(page)], "Bash", levers({ extract: true, elide: true, tags: false }));
+  assert.deepEqual([elided.extract.pages, elided.elide.lines], [1, 1]);
+  assert.ok(!String(elided.content[0].content).includes(REMINDER));
 });

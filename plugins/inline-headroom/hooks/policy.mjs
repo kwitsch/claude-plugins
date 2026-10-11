@@ -44,7 +44,7 @@
 /** @typedef {'yaml'|'toml'|'ini'} ConfigFlavor a structured config's dialect */
 /**
  * Which levers rewrite this row; dedup names the conversations map and this row's key ("" main, else agentId).
- * @typedef {{ crush: boolean, compact?: boolean, elide: boolean, config?: boolean, extract?: boolean, dedup?: { states: Map<string, DedupState>, key: string } }} Levers
+ * @typedef {{ crush: boolean, compact?: boolean, elide: boolean, config?: boolean, extract?: boolean, tags?: boolean, dedup?: { states: Map<string, DedupState>, key: string } }} Levers
  */
 /**
  * A rewritten tool-result row: its blocks, the originals for the CCR store (`offloaded`: the crusher's and the elider's sole copies;
@@ -252,6 +252,16 @@ const HTML_ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: 
 // One cached `</name\s*>` search per dropped element name (global, so a search starts at lastIndex).
 /** @type {Map<string, RegExp>} */
 const HTML_CLOSE_RES = new Map();
+// Tag protector: upstream tag_protector.rs HTML5_TAGS, element for element; every other tag name is a custom (workflow) tag.
+const HTML5_TAGS = new Set(
+  (
+    "html base head link meta style title body address article aside footer h1 h2 h3 h4 h5 h6 header hgroup main nav section search " +
+    "blockquote dd div dl dt figcaption figure hr li menu ol p pre ul a abbr b bdi bdo br cite code data dfn em i kbd mark q rp rt ruby " +
+    "s samp small span strong sub sup time u var wbr area audio img map track video embed iframe object param picture portal source svg " +
+    "math canvas noscript script del ins caption col colgroup table tbody td tfoot th thead tr button datalist fieldset form input label " +
+    "legend meter optgroup option output progress select textarea details dialog summary slot template"
+  ).split(" "),
+);
 // Upstream _LOG_PATTERNS in order, each tried with search(); indexes 0 and 1 are the error / warn patterns.
 const LOG_PATTERNS = [
   /\b(?:ERROR|FAIL|FAILED|FATAL|CRITICAL)\b/i,
@@ -301,8 +311,8 @@ const CODE_PATTERNS = [
 ];
 
 /**
- * Whether a tool.check decides this mod's own storage call: `$.mcp.call` reaches core's permission step as a
- * `$.tool.call` (live on 2.1.296, although the typings promise no prompt), so without an allow rule a headless
+ * Whether a tool.check decides this mod's own storage call: the mods API's `mcp.call` reaches core's permission step as a
+ * `tool.call` (live on 2.1.296, although the typings promise no prompt), so without an allow rule a headless
  * session denies every `/headroom` write and an interactive one asks. The model's own storage calls are not covered.
  * @param {string} originPlugin `next.origin.plugin`
  * @param {string} tool
@@ -2441,14 +2451,17 @@ function isDenseLine(line) {
  * Dense line elider (upstream dense_line_elider.py + ContentRouter._elide_dense): each long, nearly space-free line that
  * holds no JSON document keeps its first 160 and last 80 characters around an omission note, when the dense lines add
  * up to at least 2000 characters; the block then ends with a retrieval line and its original goes to the CCR store.
- * Undefined when nothing is dense or the result is not shorter.
+ * A line a tag span touches is never dense (the tag protector, a mod-side guard). Undefined when nothing is dense or the
+ * result is not shorter.
  * @param {string} text
+ * @param {readonly [number, number][]} [spans] tagSpans(text), none when absent
  * @returns {Elision|undefined}
  */
-export function elideDense(text) {
+export function elideDense(text, spans = []) {
   if (text.length < DENSE_MIN_LINE_CHARS) return undefined;
   const lines = text.split("\n"); // "\n" only: a "\r" stays on its line
-  const dense = lines.map(isDenseLine);
+  const tagged = spanLines(lines, spans);
+  const dense = lines.map((line, i) => !tagged[i] && isDenseLine(line));
   let total = 0;
   for (let i = 0; i < lines.length; i++) if (dense[i]) total += lines[i].length;
   if (total < DENSE_MIN_TOTAL_CHARS) return undefined;
@@ -2584,15 +2597,18 @@ export function resetCorpus(st) {
  * Cross-turn dedup (upstream cross_turn_dedup.py) for one tool-result text appended to conversation `key`: each run of
  * at least 3 lines and 40 characters found verbatim (or under one uniform line-number shift) in an earlier block of the
  * same conversation becomes a pointer naming that block's ordinal, with the run's own text stored under a CCR hash.
- * A protected text is only indexed. The block is then indexed, and the oldest conversations are emptied (resetCorpus,
- * their ordinals kept) while all corpora hold more than DEDUP_MAX_CHARS. Mutates `states`. Undefined when nothing folded.
+ * A protected text is only indexed. A line a tag span touches never starts a run and ends one before it (the tag protector,
+ * a mod-side guard), but is indexed like any other. The block is then indexed, and the oldest conversations are emptied
+ * (resetCorpus, their ordinals kept) while all corpora hold more than DEDUP_MAX_CHARS. Mutates `states`. Undefined when
+ * nothing folded.
  * @param {Map<string, DedupState>} states conversation key → corpus, least recently appended first
  * @param {string} key "" for the main loop, else the agentId
  * @param {string} text
  * @param {boolean} isProtected
+ * @param {readonly [number, number][]} [spans] tagSpans(text), none when absent
  * @returns {Fold|undefined}
  */
-export function dedupBlock(states, key, text, isProtected) {
+export function dedupBlock(states, key, text, isProtected, spans = []) {
   const st = states.get(key) ?? { turn: 0, corpus: new Map(), index: new Map(), chars: 0 };
   states.delete(key);
   states.set(key, st); // this conversation is now the most recently appended
@@ -2605,11 +2621,18 @@ export function dedupBlock(states, key, text, isProtected) {
   const verbatim = isProtected ? [...lines] : [];
   /** @type {[string, string][]} */
   const offloaded = [];
-  let spans = 0;
+  const tagged = spanLines(lines, spans);
+  let folds = 0;
   for (let i = 0; !isProtected && i < lines.length;) {
-    const m = longestMatch(lines, keys, i, st);
-    if (m && m.len >= DEDUP_MIN_LINES) {
-      const span = lines.slice(i, i + m.len);
+    const m = tagged[i] ? undefined : longestMatch(lines, keys, i, st);
+    let len = m ? m.len : 0;
+    for (let k = 1; k < len; k++)
+      if (tagged[i + k]) {
+        len = k; // a run ends before the first tagged line
+        break;
+      }
+    if (m && len >= DEDUP_MIN_LINES) {
+      const span = lines.slice(i, i + len);
       const spanText = span.join("\n");
       if (spanText.length >= DEDUP_MIN_CHARS) {
         const hash = contentHash(spanText);
@@ -2617,10 +2640,10 @@ export function dedupBlock(states, key, text, isProtected) {
         // Deviation: the hash suffix can make a short run's pointer longer than the run; such a run stays verbatim.
         if (ptr.length < spanText.length) {
           out.push(ptr);
-          for (let k = 0; k < m.len; k++) verbatim.push(null);
+          for (let k = 0; k < len; k++) verbatim.push(null);
           offloaded.push([hash, spanText]);
-          spans++;
-          i += m.len;
+          folds++;
+          i += len;
           continue;
         }
       }
@@ -2643,7 +2666,7 @@ export function dedupBlock(states, key, text, isProtected) {
     total -= s.chars;
     resetCorpus(s); // kept, not deleted: its ordinal counter must not restart at 1 while earlier pointers still name its results
   }
-  return spans > 0 ? { text: out.join("\n"), spans, offloaded } : undefined;
+  return folds > 0 ? { text: out.join("\n"), spans: folds, offloaded } : undefined;
 }
 
 // Content detector and router: a port of headroom's content detection and a light content_router dispatch.
@@ -2990,6 +3013,94 @@ function tagAt(text, i, budget) {
 }
 
 /**
+ * @param {string} name a lowercase HTML element name (letters and digits only)
+ * @returns {RegExp} its cached global, case-insensitive `</name\s*>` search
+ */
+function closeTagRe(name) {
+  let re = HTML_CLOSE_RES.get(name);
+  if (!re) HTML_CLOSE_RES.set(name, (re = new RegExp(`</${name}\\s*>`, "gi")));
+  return re;
+}
+
+/**
+ * The tag protector (upstream tag_protector.rs identify_spans in block mode, compress_tagged_content off): the [start, end)
+ * ranges of every custom (non-HTML5, case-insensitive) tag block `<name …>…</name>`, nested ones collapsed into the outermost,
+ * and of every self-closing custom tag `<name/>`. A close matches the top-most open of its name; an orphan close or open is
+ * never protected. Deviation: the content of an HTML5 `<svg>` or `<math>` element is not scanned (SVG and MathML children
+ * are no workflow tags). The scanned characters and every stack entry a close examines share a budget of 4 per character
+ * + 4096; null when it runs out, and such a text must be passed through whole (upstream walks without a bound).
+ * @param {string} text
+ * @returns {[number, number][]|null} sorted, disjoint spans; null when the text is unprotectable
+ */
+export function tagSpans(text) {
+  /** @type {[number, number][]} */
+  const spans = [];
+  if (!text.includes("<")) return spans;
+  /** @type {WorkBudget} */
+  const budget = { left: SCAN_BUDGET_PER_CHAR * text.length + SCAN_BUDGET_FLOOR };
+  /** @type {[string, number][]} */
+  const stack = []; // open custom tags: [lowercase name, start]
+  for (let i = text.indexOf("<"); i >= 0;) {
+    const t = tagAt(text, i, budget);
+    if (budget.left < 0) return null;
+    if (!t) {
+      i = text.indexOf("<", i + 1);
+      continue;
+    }
+    const name = text.slice(i + (t.close ? 2 : 1), t.nameEnd).toLowerCase();
+    let next = t.end;
+    if (HTML5_TAGS.has(name)) {
+      if ((name === "svg" || name === "math") && !t.close && !t.selfClosing) {
+        const re = closeTagRe(name);
+        re.lastIndex = t.end;
+        const m = re.exec(text);
+        budget.left -= (m ? re.lastIndex : text.length) - t.end;
+        if (budget.left < 0) return null;
+        if (!m) break;
+        next = re.lastIndex;
+      }
+    } else if (!t.close) {
+      if (t.selfClosing) spans.push([i, t.end]);
+      else stack.push([name, i]);
+    } else {
+      let k = stack.length - 1;
+      for (; k >= 0; k--) {
+        budget.left--; // every entry examined costs, so many opens and non-matching closes cannot go quadratic
+        if (stack[k][0] === name) break;
+      }
+      if (budget.left < 0) return null;
+      if (k >= 0) {
+        const start = stack[k][1];
+        stack.length = k;
+        while (spans.length > 0 && spans[spans.length - 1][0] >= start) spans.pop(); // spans inside the block collapse into it
+        spans.push([start, t.end]);
+      }
+    }
+    i = text.indexOf("<", next);
+  }
+  return spans;
+}
+
+/**
+ * For each line of `lines` (the text split on "\n"), whether a span touches it.
+ * @param {readonly string[]} lines
+ * @param {readonly [number, number][]} spans sorted and disjoint, as tagSpans returns them
+ * @returns {boolean[]}
+ */
+function spanLines(lines, spans) {
+  const touched = new Array(lines.length).fill(false);
+  let s = 0;
+  let start = 0;
+  for (let i = 0; i < lines.length && s < spans.length; i++) {
+    const end = start + lines[i].length;
+    while (s < spans.length && spans[s][1] <= start) s++;
+    if (s < spans.length && spans[s][0] <= end) touched[i] = true;
+    start = end + 1;
+  }
+  return touched;
+}
+
+/**
  * Decodes `&amp; &lt; &gt; &quot; &apos; &nbsp;` and decimal or hex character references; anything else stays as written.
  * @param {string} s
  * @returns {string}
@@ -3070,8 +3181,7 @@ export function extractHtml(text) {
     i = t.end;
     if (HTML_DROP.has(name)) {
       if (t.close || t.selfClosing) continue;
-      let re = HTML_CLOSE_RES.get(name);
-      if (!re) HTML_CLOSE_RES.set(name, (re = new RegExp(`</${name}\\s*>`, "gi")));
+      const re = closeTagRe(name);
       re.lastIndex = i;
       const m = re.exec(text);
       budget.left -= (m ? re.lastIndex : n) - i;
@@ -3478,18 +3588,23 @@ function rewriteRow(content, tool, levers, query) {
     const prot = isProtectedBlock(b, tool);
     /**
      * Its content type's route (ROUTES): the first rewrite wins, except that a step in ELIDE_AFTER hands its rewrite on to
-     * the next step; upstream elides only text no JSON or config strategy rewrote.
+     * the next step; upstream elides only text no JSON or config strategy rewrote. With the tag protector on, each step
+     * gets the tag spans of the text it receives: a JSON text holding one loses no row, the config compressor and the HTML
+     * extractor decline it, the elider skips its lines, and an unprotectable text (tagSpans null) passes through whole.
      * @param {string} text
      * @returns {string}
      */
     const shrink = (text) => {
       if (prot || !(levers.crush || levers.compact || levers.elide || levers.config || levers.extract) || text.length < ROUTE_MIN_CHARS) return text;
+      let spans = levers.tags ? tagSpans(text) : [];
+      if (spans === null) return text;
       let cur = text;
       for (const step of ROUTES[detectContentType(text)]) {
         /** @type {string|undefined} */
         let next;
-        if (step === "crush" && (levers.crush || levers.compact)) {
-          const c = crushJson(cur, query, { lossy: levers.crush, lossless: !!levers.compact });
+        const lossy = levers.crush && spans.length === 0;
+        if (step === "crush" && (lossy || levers.compact)) {
+          const c = crushJson(cur, query, { lossy, lossless: !!levers.compact });
           if (c) {
             // A document that lost nothing owes all its savings to compaction; otherwise the tables' own savings, capped.
             const saved = cur.length - c.text.length;
@@ -3501,7 +3616,7 @@ function rewriteRow(content, tool, levers, query) {
             acc.offloaded.push(...c.offloaded);
             next = c.text;
           }
-        } else if (step === "config" && levers.config) {
+        } else if (step === "config" && levers.config && spans.length === 0) {
           const k = compressConfig(cur);
           if (k) {
             acc.config.texts += 1;
@@ -3509,7 +3624,7 @@ function rewriteRow(content, tool, levers, query) {
             acc.offloaded.push(...k.offloaded);
             next = k.text;
           }
-        } else if (step === "extract" && levers.extract) {
+        } else if (step === "extract" && levers.extract && spans.length === 0) {
           const x = extractHtml(cur);
           if (x) {
             acc.extract.pages += 1;
@@ -3518,7 +3633,7 @@ function rewriteRow(content, tool, levers, query) {
             next = x.text;
           }
         } else if (step === "elide" && levers.elide) {
-          const d = elideDense(cur);
+          const d = elideDense(cur, spans);
           if (d) {
             acc.elide.lines += d.lines;
             acc.elide.saved += cur.length - d.text.length;
@@ -3529,16 +3644,22 @@ function rewriteRow(content, tool, levers, query) {
         if (next === undefined) continue;
         if (!ELIDE_AFTER.has(step)) return next;
         cur = next;
+        // The extraction may hold a tag its markup did not (a decoded `&lt;system-reminder&gt;`): its own spans guard it.
+        spans = levers.tags ? tagSpans(cur) : [];
+        if (spans === null) return cur;
       }
       return cur;
     };
     /**
-     * Cross-turn dedup of a result's final text; a protected text is only indexed.
+     * Cross-turn dedup of a result's final text; a protected text, and with the tag protector on an unprotectable one, is
+     * only indexed, and a tagged line never folds.
      * @param {string} text
      * @returns {string}
      */
     const fold = (text) => {
-      const f = levers.dedup ? dedupBlock(levers.dedup.states, levers.dedup.key, text, prot) : undefined;
+      if (!levers.dedup) return text;
+      const spans = levers.tags ? tagSpans(text) : [];
+      const f = dedupBlock(levers.dedup.states, levers.dedup.key, text, prot || spans === null, spans ?? []);
       if (!f) return text;
       acc.dedup.spans += f.spans;
       acc.dedup.saved += text.length - f.text.length;

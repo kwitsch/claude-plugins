@@ -159,6 +159,8 @@ export const register: Register = (on, options) => {
   const elideOn = options.dense_line_elider_enabled !== false;
   const configOn = options.config_compressor_enabled !== false;
   const htmlOn = options.html_extractor_enabled !== false;
+  // The tag protector only narrows what the levers above rewrite: no compressOn term, no table.
+  const tagsOn = options.tag_protector_enabled !== false;
   const compressOn = crusherOn || compactOn || dedupOn || elideOn || configOn || htmlOn;
   // Subagent and Workflow-agent tool results: their own toggle, active only while a compression lever is on.
   const subCompressOn = compressOn && options.subagent_compression_enabled !== false;
@@ -359,7 +361,7 @@ export const register: Register = (on, options) => {
         rw = rewriteToolResults(
           e.message.content,
           tool,
-          { crush: crusherOn, compact: compactOn, elide: elideOn, config: configOn, extract: htmlOn, dedup: dedupOn ? { states: dedupStates, key: e.agentId ?? "" } : undefined },
+          { crush: crusherOn, compact: compactOn, elide: elideOn, config: configOn, extract: htmlOn, tags: tagsOn, dedup: dedupOn ? { states: dedupStates, key: e.agentId ?? "" } : undefined },
           query,
         );
       } catch {

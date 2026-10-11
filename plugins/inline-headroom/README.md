@@ -2,9 +2,11 @@
 
 Headroom-style levers inside Claude Code as a mod: clamp-only effort routing
 after successful tool results, a detector-only CacheAligner that flags
-volatile system-prompt content and cache-hit drops, and a SmartCrusher,
-cross-turn dedup and dense line elider that shrink tool results before the
-model reads them (originals retrievable). Ports eight levers of
+volatile system-prompt content and cache-hit drops, and a SmartCrusher with
+lossless compaction, cross-turn dedup, a dense line elider, a config
+compressor and an HTML extractor that shrink tool results before the model
+reads them (originals retrievable, custom workflow tags kept whole). Ports
+eight levers and the tag protector of
 [headroom](https://github.com/headroomlabs-ai/headroom) faithfully to upstream
 semantics.
 
@@ -26,6 +28,7 @@ semantics.
 | Dense line elider | headroom dense_line_elider.py                              | Shortens each line of 300+ characters with under 6% spaces, no tab and no JSON in it (minified JS/CSS, base64, RSC payloads) to its first 160 and last 80 characters around `...[N chars of dense machine-generated content elided]...`, once such lines add up to 2000+ characters in one result, and ends that result with `[N dense machine-generated line(s) elided. Retrieve original: hash=H]`; `headroom_retrieve` with the hash returns the whole original. It skips text the SmartCrusher rewrote, and error results.                                                                                                                                                                                                                                                                                                                                                                                     |
 | Config compressor | headroom ConfigCompressor (Tier 1 and 2)                   | Shortens a YAML, TOML or INI tool result of 300+ characters: whole-line comments and blank lines (INI: column-0 `#`/`;` comments only) are dropped behind `[N comment/blank lines elided. Retrieve original: hash=H]`, then repeated lines and repeated multi-line blocks (Kubernetes container stanzas, CI jobs) fold behind exact `... (repeated N times)` and `... (repeats K lines from D lines back)` markers, kept only when they expand back to the same text. Comments that may be data (a YAML block scalar, a multi-line string) are kept. `headroom_retrieve` with the hash returns the original. Error results are never rewritten.                                                                                                                                                                                                                                                                    |
 | HTML extractor    | headroom HTMLExtractor (bounded stand-in, no trafilatura)  | Turns an HTML tool result (a web page) of 300+ characters into markdown-like text: scripts, styles, the head, navigation, footers, forms, embedded media and comments are dropped; headings become `#` lines, list items `- ` lines, links `[text](href)`, table rows pipe-separated lines; `<pre>` keeps its whitespace and entities are decoded. The text ends with `[HTML extracted to text: N characters of markup removed. Retrieve original: hash=H]`, and `headroom_retrieve` with the hash returns the page. The dense line elider then runs on the extracted text. A page that extracts to nothing, or to nothing shorter, is left to the elider as it is. Error results are never rewritten.                                                                                                                                                                                                             |
+| Tag protector     | headroom tag protector (block mode, mask-free)             | Keeps custom workflow tags (any non-HTML5 tag such as `<system-reminder>`, `<tool_call>` or `<thinking>`, with everything between its open and close tag) whole in tool results: a JSON document holding one drops no row or item, a line holding one is never elided, a repeated run of lines touching one is never folded, and YAML, TOML, INI or HTML holding one is left to the elider and dedup. A result too tag-dense to scan within its budget is left untouched. It saves nothing itself, so it has no `/headroom` table, and it only matters while a compression lever is on.                                                                                                                                                                                                                                                                                                                            |
 
 A content router (a light port of headroom's content detector) labels each
 tool-result text as JSON, diff, HTML, git status, search results, build/log
@@ -37,7 +40,7 @@ toggle.
 
 ## Configuration options
 
-All eleven options are on by default. For the lever toggles only a literal `false`
+All twelve options are on by default. For the lever toggles only a literal `false`
 disables one; `storage_enabled` is fail-closed, so anything but a literal `true`
 turns storage off. Set them via
 `/plugin -> installed -> inline-headroom -> Configure options`, or in
@@ -57,6 +60,7 @@ turns storage off. Set them via
         "dense_line_elider_enabled": true,
         "config_compressor_enabled": true,
         "html_extractor_enabled": true,
+        "tag_protector_enabled": true,
         "subagent_compression_enabled": true,
         "storage_enabled": true
       }
@@ -76,6 +80,7 @@ turns storage off. Set them via
 | `dense_line_elider_enabled`       | `true`  | Shorten long, nearly space-free lines (minified bundles, base64, RSC payloads) in tool results to their head and tail; the original stays retrievable with `headroom_retrieve` while the mod is loaded.                                           |
 | `config_compressor_enabled`       | `true`  | Shorten YAML, TOML and INI tool results: fold repeated lines and blocks losslessly and drop comments and blank lines behind a retrieval marker; the original stays retrievable with `headroom_retrieve` while the mod is loaded.                  |
 | `html_extractor_enabled`          | `true`  | Turn HTML tool results into markdown-like text without scripts, styles, navigation and other boilerplate; the page stays retrievable with `headroom_retrieve` while the mod is loaded.                                                            |
+| `tag_protector_enabled`           | `true`  | Keep custom workflow tags such as `<system-reminder>` whole: no compression lever drops, elides, folds or extracts the part of a tool result holding one.                                                                                         |
 | `subagent_compression_enabled`    | `true`  | Also apply the SmartCrusher, cross-turn dedup and the dense line elider to subagent and Workflow-agent tool results. Only active while one of them is on; see [Notes & limitations](#notes--limitations).                                         |
 | `storage_enabled`                 | `true`  | Run the host-wide SQLite storage service behind the `storage` MCP tools (see [Storage](#storage)). Fail-closed: only a literal `true` enables it.                                                                                                 |
 
@@ -142,7 +147,8 @@ volatile shared values: unavailable (Claude Code keeps plugins out of the system
   is on, `line elider` only while `dense_line_elider_enabled` is on,
   `compaction` only while `lossless_compaction_enabled` is on, `config` only
   while `config_compressor_enabled` is on, and `html extractor` only while
-  `html_extractor_enabled` is on. With every lever
+  `html_extractor_enabled` is on. The tag protector has no table: it saves
+  nothing itself. With every lever
   off the pane says so. Storage is read only while the `effort routing` or
   `cache aligner` table is shown.
 - **`hit`** is the cache hit ratio (cache reads / all input tokens). The
@@ -307,6 +313,14 @@ rows. It is the MCP server `storage` (connected as
   counting, so a pointer never reuses an earlier result's number.
 - **Markers start at column zero.** A dedup pointer or an elider retrieval line
   inside an indented subagent report is not indented.
+- **Custom tags narrow compression (0.7.0).** The tag protector treats every
+  non-HTML5 tag as a workflow tag, as upstream: XML files, JSX/TSX components
+  and Vue templates are full of them, so re-reads of such files fold less and
+  their dense lines are elided less. Set `tag_protector_enabled` to `false` to
+  compress them as before.
+- **Unprotectable results pass through whole.** While the tag protector is on,
+  a result so dense in tags (or unterminated quotes) that its tag scan runs out
+  of budget is not compressed at all: leaving it whole beats cutting a tag.
 - **Compression counts are not persisted.** The compression tables have only
   their `session` row; the today / 7 days / 30 days rows hold no compression
   numbers, because storing them needs new stats columns and a storage protocol
@@ -489,6 +503,26 @@ kept, images and comments dropped. Deviations:
 - Dense grep or log output that looks like HTML (a doctype, an `<html>` tag or
   several structural tags) can be extracted like a page; the original stays
   retrievable.
+
+### Tag protector
+
+Ported from `crates/headroom-core/src/transforms/tag_protector.rs` (read
+2026-10-11 at 976aa71), block mode. Ported verbatim: the HTML5 element names
+it never protects (case-insensitive), its tag parser (quoted attributes,
+self-closing tags, whitespace before a close's `>`), and the block rule (a
+close matches the nearest open of its name, nested custom tags collapse into
+the outermost block, orphan opens and closes are not protected). Deviations:
+
+- No placeholders: instead of masking tags around ML compressors (which the
+  mod does not have), each lever respects them: a JSON result holding one
+  drops no row, the elider and dedup skip the lines they touch, and the config
+  compressor and the HTML extractor leave such a result to the elider and dedup.
+- A tag a decoded entity creates in an HTML extraction is protected too.
+- The scan has a budget of 4 per character + 4096, which the open tags a close
+  has to search through also draw on; a result that exhausts it is left whole
+  (upstream has no bound).
+- Tags inside an `<svg>` or `<math>` element are not workflow tags and are not
+  scanned.
 
 ### Dense line elider
 
