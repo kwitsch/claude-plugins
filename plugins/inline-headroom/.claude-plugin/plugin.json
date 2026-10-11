@@ -70,6 +70,12 @@
       "description": "Shorten grep and ripgrep results in tool results (headroom SearchCompressor): per file the first, last and most relevant matches (error words and words from the conversation rank higher), at most 15 files and 30 matches, with a count of the rest; a lossless fold (one heading per repeated file or directory) wins when the cut saves under 5% more. The original stays retrievable via headroom_retrieve while the mod is loaded. Never rewrites error results or Read output.",
       "default": true
     },
+    "diff_compressor_enabled": {
+      "type": "boolean",
+      "title": "Diff compressor",
+      "description": "Shorten git diffs of 50+ lines in tool results (headroom DiffCompressor): at most 20 files and 10 hunks per file (the first, the last and the most relevant), 2 context lines around each change, with a changed-lines summary; dropping git's index lines wins when the cut saves under 5% more. The original stays retrievable via headroom_retrieve while the mod is loaded. Never rewrites error results or Read output.",
+      "default": true
+    },
     "tag_protector_enabled": {
       "type": "boolean",
       "title": "Tag protector",

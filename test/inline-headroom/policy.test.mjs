@@ -23,6 +23,7 @@ import {
   compressLog,
   compressSearch,
   compressConfig,
+  compressDiff,
   computeOptimalK,
   configFlavor,
   crushJson,
@@ -38,6 +39,7 @@ import {
   findVolatile,
   foldRepeatedBlocks,
   foldLog,
+  foldDiff,
   foldPending,
   foldSearch,
   formatCsvSchema,
@@ -2623,5 +2625,249 @@ test("compressSearch stays bounded on 50,000 rows with a 16 KiB query and on one
   const hostile = `${"a:1-a-1-".repeat(125_000)}/x`;
   t0 = Date.now();
   assert.equal(compressSearch(hostile, ""), undefined);
+  assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0} ms`);
+});
+/** Upstream diff_compressor.rs build_synthetic_diff: `n` files with one 18-line hunk each (5 context, 3 removed, 5 added, 5 context). */
+const syntheticDiff = (/** @type {number} */ n) =>
+  Array.from({ length: n }, (_, i) =>
+    [
+      `diff --git a/file_${i}.py b/file_${i}.py`,
+      `--- a/file_${i}.py`,
+      `+++ b/file_${i}.py`,
+      "@@ -1,10 +1,12 @@",
+      ...Array.from({ length: 5 }, (_, k) => ` context_${k}_${i}`),
+      ...Array.from({ length: 3 }, (_, k) => `-removed_${k}_${i}`),
+      ...Array.from({ length: 5 }, (_, k) => `+added_${k}_${i}`),
+      ...Array.from({ length: 5 }, (_, k) => ` tail_${k}_${i}`),
+      "",
+    ].join("\n"),
+  ).join("") + "# variant 1";
+
+/** Upstream diff_compressor.rs build_n_hunk_diff: one file with `n` 6-line hunks 100 lines apart (`index` adds git's bookkeeping line). */
+const nHunkDiff = (/** @type {number} */ n, index = false) =>
+  [
+    "diff --git a/big.py b/big.py",
+    ...(index ? ["index 3b18e512dba79e4c8300dd08aeb37f8e728b8dad..af5626b4a114abcb82d63db7c8082c3c4756e51b 100644"] : []),
+    "--- a/big.py",
+    "+++ b/big.py",
+    ...Array.from({ length: n }, (_, i) => [`@@ -${i * 100 + 1},6 +${i * 100 + 1},6 @@`, ` ctx_a_${i}`, ` ctx_b_${i}`, `-old_${i}`, `+new_${i}`, ` ctx_c_${i}`, ` ctx_d_${i}`]).flat(),
+    "",
+  ].join("\n");
+
+// A second file whose 60 unchanged lines the context trim drops: pads a small fixture past 50 lines and makes it compress.
+const PAD_FILE = [
+  "diff --git a/pad.txt b/pad.txt",
+  "--- a/pad.txt",
+  "+++ b/pad.txt",
+  "@@ -1,61 +1,61 @@",
+  "-old pad",
+  "+new pad",
+  ...Array.from({ length: 60 }, (_, i) => ` unchanged pad line ${i}`),
+].join("\n");
+
+test("compressDiff declines a short input and a text without a file header (upstream short_input_passes_through, non_diff_input_passes_through)", () => {
+  assert.equal(compressDiff("diff --git a/x b/x\n@@ -1 +1 @@\n-a\n+b", ""), undefined);
+  assert.equal(compressDiff("this is not a diff\n".repeat(60), ""), undefined);
+  assert.equal(compressDiff(`${"+ added line\n".repeat(60)}--- a/x.py\n`, ""), undefined);
+});
+
+test("compressDiff trims context to 2 lines and ends with the footer and a retrieval line (upstream synthetic_eight_file_diff_matches_known_shape)", () => {
+  const input = syntheticDiff(8);
+  assert.equal(input.split("\n").length, 177);
+  const r = must(compressDiff(input, ""));
+  const lines = r.text.split("\n");
+  const [, hash] = /^\[177 lines compressed to 129\. Retrieve original: hash=([0-9a-f]{12})\]$/.exec(lines.at(-1) ?? "") ?? [];
+  assert.ok(hash, lines.at(-1));
+  assert.equal(lines.at(-2), "[8 files changed, +40 -24 lines]");
+  assert.deepEqual(r.offloaded, [[hash, input]]);
+  // Each hunk keeps the 2 context lines on either side of its 8 changes: 12 of 18 lines.
+  assert.deepEqual(lines.slice(0, 16), [
+    "diff --git a/file_0.py b/file_0.py",
+    "--- a/file_0.py",
+    "+++ b/file_0.py",
+    "@@ -1,10 +1,12 @@",
+    " context_3_0",
+    " context_4_0",
+    "-removed_0_0",
+    "-removed_1_0",
+    "-removed_2_0",
+    "+added_0_0",
+    "+added_1_0",
+    "+added_2_0",
+    "+added_3_0",
+    "+added_4_0",
+    " tail_0_0",
+    " tail_1_0",
+  ]);
+});
+
+test("compressDiff keeps the first, the last and 8 middle hunks of a file, counting the dropped ones' lines (upstream max_hunks_per_file_cap_drops_excess_and_records_stats)", () => {
+  const out = must(compressDiff(nHunkDiff(15), "")).text;
+  const headers = out.split("\n").filter((l) => l.startsWith("@@ "));
+  assert.equal(headers.length, 10);
+  assert.equal(headers[0], "@@ -1,6 +1,6 @@");
+  assert.equal(headers[9], "@@ -1401,6 +1401,6 @@");
+  assert.match(out, /\n\[1 files changed, \+15 -15 lines, 5 hunks omitted\]\n/);
+  // A query word and a priority word lift their middle hunks into the 8 kept ones.
+  const marked = nHunkDiff(15).replace("+new_12", "+new_12 frobnicate(widget)").replace("+new_13", "+new_13  # TODO tidy");
+  assert.ok(!must(compressDiff(marked, "")).text.includes("frobnicate"));
+  assert.ok(must(compressDiff(marked, "")).text.includes("# TODO tidy"));
+  assert.ok(must(compressDiff(marked, "why does frobnicate break")).text.includes("frobnicate(widget)"));
+});
+
+test("compressDiff keeps the 20 most-changed of more files (upstream max_files_cap_drops_files_and_records_names_in_stats)", () => {
+  const out = must(compressDiff(syntheticDiff(25), "")).text;
+  assert.match(out, /\n\[20 files changed, \+100 -60 lines\]\n/);
+  assert.ok(out.includes("diff --git a/file_19.py b/file_19.py"));
+  assert.ok(!out.includes("file_20.py"));
+});
+
+test("compressDiff normalises mode and binary lines and keeps rename lines, combined hunks, no-newline markers and pre-diff lines (upstream file_mode, binary, bugfix and gap tests)", () => {
+  const exec = must(
+    compressDiff(
+      ["diff --git a/script.sh b/script.sh", "new file mode 100755", "--- /dev/null", "+++ b/script.sh", "@@ -0,0 +1,3 @@", "+#!/bin/sh", "+echo hi", "+exit 0", ...Array(50).fill("# pad")].join("\n"),
+      "",
+    ),
+  ).text;
+  assert.ok(exec.includes("diff --git a/script.sh b/script.sh\nnew file mode 100644\n--- /dev/null\n+++ b/script.sh"));
+  assert.ok(!exec.includes("100755"));
+  const binary = must(compressDiff(["diff --git a/img.png b/img.png", "Binary files a/img.png and b/img.png differ", ...Array(60).fill("# pad")].join("\n"), "")).text;
+  assert.match(binary, /^diff --git a\/img\.png b\/img\.png\nBinary files differ\n\[1 files changed, \+0 -0 lines\]\n/);
+  const renamed = must(
+    compressDiff(
+      [
+        "diff --git a/old.py b/new.py",
+        "similarity index 92%",
+        "rename from old.py",
+        "rename to new.py",
+        "--- a/old.py",
+        "+++ b/new.py",
+        "@@ -1,3 +1,3 @@",
+        " ctx_a",
+        "-old_line",
+        "+new_line",
+        " ctx_b",
+        PAD_FILE,
+      ].join("\n"),
+      "",
+    ),
+  ).text;
+  assert.ok(renamed.startsWith("diff --git a/old.py b/new.py\nsimilarity index 92%\nrename from old.py\nrename to new.py\n--- a/old.py\n+++ b/new.py\n"));
+  const merged = must(
+    compressDiff(
+      [
+        "diff --git a/merge.py b/merge.py",
+        "--- a/merge.py",
+        "+++ b/merge.py",
+        "@@@ -1,3 -1,3 +1,4 @@@",
+        "  unchanged_a",
+        " -old_branch_1",
+        "- old_branch_2",
+        "++new_in_merge",
+        " +new_added",
+        "  unchanged_b",
+        PAD_FILE,
+      ].join("\n"),
+      "",
+    ),
+  ).text;
+  assert.ok(merged.includes("@@@ -1,3 -1,3 +1,4 @@@\n  unchanged_a\n -old_branch_1\n- old_branch_2\n++new_in_merge\n +new_added\n  unchanged_b"));
+  const noNewline = must(
+    compressDiff(
+      [
+        "diff --git a/last.txt b/last.txt",
+        "--- a/last.txt",
+        "+++ b/last.txt",
+        "@@ -1,8 +1,8 @@",
+        "-old_first",
+        "+new_first",
+        ...["a", "b", "c", "d", "e", "f"].map((c) => ` ctx_${c}`),
+        "\\ No newline at end of file",
+        PAD_FILE,
+      ].join("\n"),
+      "",
+    ),
+  ).text;
+  assert.ok(noNewline.includes("+new_first\n ctx_a\n ctx_b\n\\ No newline at end of file\n"));
+  for (const header of ["diff --combined merge.py", "diff --cc cc_target.py"]) {
+    const out = must(
+      compressDiff(
+        [header, "index abc..def..ghi 100644", "--- a/merge.py", "+++ b/merge.py", "@@@ -1,3 -1,3 +1,4 @@@", "  ctx_a", "- removed_p1", " -removed_p2", "++added_in_merge", "  ctx_b", PAD_FILE].join(
+          "\n",
+        ),
+        "",
+      ),
+    ).text;
+    assert.ok(out.startsWith(`${header}\n--- a/merge.py\n+++ b/merge.py\n@@@ -1,3 -1,3 +1,4 @@@\n`), header);
+    assert.match(out, /\n\[2 files changed, /);
+  }
+  const commit = must(
+    compressDiff(["commit abc1234567890", "Author: Tester <t@example.com>", "Date:   Mon Apr 25 12:00:00 2026", "", "    Refactor: rename and modify", "", PAD_FILE].join("\n"), ""),
+  ).text;
+  assert.ok(commit.startsWith("commit abc1234567890\nAuthor: Tester <t@example.com>\nDate:   Mon Apr 25 12:00:00 2026\n\n    Refactor: rename and modify\n\ndiff --git a/pad.txt b/pad.txt\n"));
+});
+
+test("foldDiff drops only index lines", () => {
+  const text = "diff --git a/x b/x\nindex 83db48f..f735c3e 100644\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-index 1..2\n+b\n";
+  assert.deepEqual(foldDiff(text), { text: "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-index 1..2\n+b\n", offloaded: [] });
+  assert.equal(foldDiff("diff --git a/x b/x\n--- a/x\n+++ b/x\n"), undefined);
+});
+
+test("the diff route: a real git diff reaches the diff compressor over its index-strip fold, a diff rewrite is never elided, and a fold that saves nearly as much wins", () => {
+  const real = nHunkDiff(15, true);
+  assert.equal(detectContentType(real), "diff");
+  const fold = must(foldDiff(real));
+  const lossy = must(compressDiff(real, ""));
+  assert.ok(lossy.text.length <= fold.text.length * 0.95);
+  const r = route(real, only({ diff: true, elide: true }));
+  assert.equal(stored(r), lossy.text);
+  assert.ok(!stored(r).includes("index 3b18e51"));
+  assert.equal(r?.diff.texts, 1);
+  // No index line: no fold, so merely shorter is enough.
+  assert.equal(foldDiff(nHunkDiff(15)), undefined);
+  assert.equal(stored(route(nHunkDiff(15), only({ diff: true }))), compressDiff(nHunkDiff(15), "")?.text);
+  // A dense added line in a kept hunk: the diff rewrite ends the route, so the elider never sees it.
+  const dense = nHunkDiff(15).replace("+new_0", `+${"x".repeat(2500)}`);
+  const d = route(dense, only({ diff: true, elide: true }));
+  assert.ok(stored(d).includes("x".repeat(2500)));
+  assert.deepEqual([d?.diff.texts, d?.elide.lines], [1, 0]);
+  // Twelve files whose hunks hold nothing to trim: the lossy rewrite only drops the index lines the fold drops too, plus its
+  // footer and retrieval line, so the fold wins and ends the route.
+  const tight = Array.from({ length: 12 }, (_, i) =>
+    [
+      `diff --git a/m${i}.py b/m${i}.py`,
+      `index ${"a".repeat(40)}..${"b".repeat(40)} 100644`,
+      `--- a/m${i}.py`,
+      `+++ b/m${i}.py`,
+      "@@ -1,5 +1,5 @@",
+      " a",
+      " b",
+      `-old ${i}`,
+      `+new ${i}`,
+      " c",
+      " d",
+    ].join("\n"),
+  ).join("\n");
+  const tightFold = must(foldDiff(tight));
+  assert.ok(must(compressDiff(tight, "")).text.length > tightFold.text.length * 0.95);
+  const t = route(tight, only({ diff: true, elide: true }));
+  assert.equal(stored(t), tightFold.text);
+  assert.deepEqual([t?.diff.texts, t?.offloaded], [1, []]);
+});
+
+test("the diff compressor leaves Read output, line-numbered text, tagged text and error rows whole, and alone triggers detection", () => {
+  const text = nHunkDiff(15);
+  assert.equal(route(text, only({ diff: true }))?.diff.texts, 1);
+  assert.equal(route(text, only({ diff: true }), "Read"), undefined);
+  assert.equal(route(`1\t${text}`, only({ diff: true })), undefined);
+  assert.equal(route(text.replace("+new_3", "+new_3 <system-reminder>keep</system-reminder>"), only({ diff: true, tags: true })), undefined);
+  assert.equal(rewriteToolResults([toolResult(text, true)], "Bash", only({ diff: true }), ""), undefined);
+});
+
+test("compressDiff stays bounded on a header line holding 250,000 ` b/`", () => {
+  const text = `diff --git a/x${" b/x".repeat(250_000)}\n${nHunkDiff(15).split("\n").slice(1).join("\n")}`;
+  assert.ok(text.length >= 1_000_000);
+  const t0 = Date.now();
+  assert.ok(compressDiff(text, ""));
   assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0} ms`);
 });

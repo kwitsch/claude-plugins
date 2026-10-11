@@ -4601,6 +4601,244 @@ export function compressSearch(text, query) {
   return result.length < text.length ? { text: result, offloaded: [[hash, text]] } : undefined;
 }
 
+// Diff compressor: a port of headroom's diff_compressor.rs (compress_with_store with DiffCompressorConfig::default()) and the
+// "diff" kind of lossless_compaction.py compact_lossless (diff_strip_index).
+
+/** @typedef {{ header: string, lines: string[], additions: number, deletions: number, score: number }} DiffHunk one hunk: its header, body lines, counts and relevance */
+/**
+ * One file section: its header, `---`/`+++` lines (or ""), hunks, binary/new/deleted flags and rename lines (upstream DiffFile).
+ * @typedef {{ header: string, oldFile: string, newFile: string, hunks: DiffHunk[], binary: boolean, added: boolean, deleted: boolean, renames: string[] }} DiffFile
+ */
+
+// Upstream DiffCompressorConfig::default() (min_lines_for_ccr gates the whole compression) and its score constants.
+const DIFF_MAX_CONTEXT = 2;
+const DIFF_MAX_HUNKS = 10;
+const DIFF_MAX_FILES = 20;
+const DIFF_MIN_LINES = 50;
+// Upstream _DIFF_INDEX_RE: git's blob bookkeeping line, which a diff does not need to apply.
+const DIFF_INDEX_RE = /^index [0-9a-fA-F]+\.\.[0-9a-fA-F]+( [0-7]+)?$/;
+// Upstream hunk_header_regex: @@ (regular), @@@ (3-way) and @@@@ (4-way merge) headers; 5 or more @ fall through as content.
+const DIFF_HUNK_RE = /^(?:@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@|@@@ -\d+(?:,\d+)? -\d+(?:,\d+)? \+\d+(?:,\d+)? @@@|@@@@ -\d+(?:,\d+)? -\d+(?:,\d+)? -\d+(?:,\d+)? \+\d+(?:,\d+)? @@@@)/;
+const DIFF_NEW_START_RE = /\+(\d+)/;
+const DIFF_BINARY_RE = /^Binary files [^\n]+ differ$/;
+// Upstream priority_patterns (PRIORITY_PATTERNS_DIFF): one +0.3 when any matches the lowercased hunk.
+const DIFF_PRIORITY_RES = [
+  /\b(?:error|exception|fail(?:ed|ure)?|fatal|critical|crash|panic)\b/i,
+  /\b(?:important|note|todo|fixme|hack|xxx|bug|fix)\b/i,
+  /\b(?:security|auth|password|secret|token)\b/i,
+];
+
+/**
+ * Upstream is_diff_header: `diff --git a/<x> b/<y>`, `diff --combined <path>` or `diff --cc <path>`. Hand-checked: the
+ * `^diff --git a/(.+) b/(.+)$` regex would backtrack quadratically on a long line with many ` b/`.
+ * @param {string} line
+ * @returns {boolean}
+ */
+function isDiffHeader(line) {
+  if (line.startsWith("diff --git a/")) return line.lastIndexOf(" b/", line.length - 4) >= 14;
+  return (line.startsWith("diff --combined ") && line.length > 16) || (line.startsWith("diff --cc ") && line.length > 10);
+}
+
+/**
+ * Upstream parse_diff: lines before the first header are kept verbatim; mode, rename and binary lines set their flags (and fall
+ * through, as upstream); `---`/`+++` lines and hunk headers are taken whole; inside a hunk `+` and `-` lines (not `+++`/`---`)
+ * count, and every line is kept. Other header lines outside a hunk (`index`, `old mode`, `new mode`) are dropped, as upstream.
+ * @param {readonly string[]} lines
+ * @returns {{ pre: string[], files: DiffFile[] }}
+ */
+function parseDiff(lines) {
+  /** @type {string[]} */
+  const pre = [];
+  /** @type {DiffFile[]} */
+  const files = [];
+  /** @type {DiffFile|undefined} */
+  let file;
+  /** @type {DiffHunk|undefined} */
+  let hunk;
+  const closeHunk = () => {
+    if (hunk && file) file.hunks.push(hunk);
+    hunk = undefined;
+  };
+  for (const line of lines) {
+    if (isDiffHeader(line)) {
+      closeHunk();
+      if (file) files.push(file);
+      file = { header: line, oldFile: "", newFile: "", hunks: [], binary: false, added: false, deleted: false, renames: [] };
+      continue;
+    }
+    if (!file) {
+      pre.push(line);
+      continue;
+    }
+    if (line.startsWith("new file mode")) file.added = true;
+    else if (line.startsWith("deleted file mode")) file.deleted = true;
+    else if (line.startsWith("rename ") || line.startsWith("similarity ") || line.startsWith("copy ") || line.startsWith("dissimilarity ")) file.renames.push(line);
+    else if (DIFF_BINARY_RE.test(line)) file.binary = true;
+    if (line === "--- /dev/null" || (line.startsWith("--- a/") && line.length > 6)) {
+      file.oldFile = line;
+      continue;
+    }
+    if (line === "+++ /dev/null" || (line.startsWith("+++ b/") && line.length > 6)) {
+      file.newFile = line;
+      continue;
+    }
+    if (DIFF_HUNK_RE.test(line)) {
+      closeHunk();
+      hunk = { header: line, lines: [], additions: 0, deletions: 0, score: 0 };
+      continue;
+    }
+    if (!hunk) continue;
+    if (line.startsWith("+") && !line.startsWith("+++")) hunk.additions++;
+    else if (line.startsWith("-") && !line.startsWith("---")) hunk.deletions++;
+    hunk.lines.push(line);
+  }
+  closeHunk();
+  if (file) files.push(file);
+  return { pre, files };
+}
+
+/**
+ * Upstream score_hunks: min(0.3, changes × 0.03), +0.2 per query context word in the lowercased hunk, +0.3 once for a priority
+ * pattern, at most 1. Deviations: context words are deduped and capped (contextWords), no CJK bigrams.
+ * @param {readonly DiffFile[]} files mutated: each hunk's score
+ * @param {string} query
+ * @param {number} chars the text's length, for contextWords' cap
+ * @returns {void}
+ */
+function scoreHunks(files, query, chars) {
+  const words = contextWords(query, chars);
+  for (const f of files) {
+    for (const h of f.hunks) {
+      let s = Math.min((h.additions + h.deletions) * 0.03, 0.3);
+      const lower = h.lines.join("\n").toLowerCase();
+      for (const w of words) if (lower.includes(w)) s += 0.2;
+      if (DIFF_PRIORITY_RES.some((re) => re.test(lower))) s += 0.3;
+      h.score = Math.min(s, 1);
+    }
+  }
+}
+
+/**
+ * Upstream extract_line_number: the first `+N` in a hunk header, else 0.
+ * @param {string} header
+ * @returns {number}
+ */
+function hunkNewStart(header) {
+  const n = Number(DIFF_NEW_START_RE.exec(header)?.[1] ?? 0);
+  return Number.isSafeInteger(n) ? n : 0;
+}
+
+/**
+ * Upstream select_hunks: over 10 hunks, the first, the last and the 8 best middle hunks by score (stable), re-sorted (stably) by
+ * their header's new start line.
+ * @param {DiffHunk[]} hunks
+ * @returns {DiffHunk[]}
+ */
+function selectHunks(hunks) {
+  if (hunks.length <= DIFF_MAX_HUNKS) return hunks;
+  const middle = hunks
+    .slice(1, -1)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, DIFF_MAX_HUNKS - 2);
+  return [hunks[0], ...middle, hunks[hunks.length - 1]].sort((a, b) => hunkNewStart(a.header) - hunkNewStart(b.header));
+}
+
+/**
+ * Upstream reduce_context: the lines within 2 of a `+`/`-` line, plus every `\` line, in order; a hunk without changes keeps its
+ * first 2 lines.
+ * @param {DiffHunk} h
+ * @returns {DiffHunk}
+ */
+function reduceContext(h) {
+  const n = h.lines.length;
+  const keep = new Uint8Array(n);
+  let changed = false;
+  h.lines.forEach((l, p) => {
+    if (!l.startsWith("+") && !l.startsWith("-")) return;
+    changed = true;
+    for (let i = Math.max(0, p - DIFF_MAX_CONTEXT); i <= Math.min(p + DIFF_MAX_CONTEXT, n - 1); i++) keep[i] = 1;
+  });
+  if (!changed) return { ...h, lines: h.lines.slice(0, DIFF_MAX_CONTEXT) };
+  return { ...h, lines: h.lines.filter((l, i) => keep[i] === 1 || l.startsWith("\\")) };
+}
+
+/**
+ * The diff fold (upstream compact_lossless "diff"): `index <sha>..<sha> [mode]` lines dropped, when that shortens the text. No
+ * inverse check, as upstream; the router only calls it on diff-labelled text.
+ * @param {string} text
+ * @returns {{ text: string, offloaded: [string, string][] }|undefined}
+ */
+export function foldDiff(text) {
+  const [lines, trailing] = splitKeepTrailing(text);
+  const cand = joinLines(
+    lines.filter((l) => !DIFF_INDEX_RE.test(l)),
+    trailing,
+  );
+  return cand.length < text.length ? { text: cand, offloaded: [] } : undefined;
+}
+
+/**
+ * Upstream DiffCompressor::compress_with_store with its default config: a diff of 50+ lines keeps its pre-diff lines, at most 20
+ * files (past 20 the most-changed, in that order), per file at most 10 hunks (the first, the last and the best-scored middle
+ * ones) trimmed to 2 context lines around each change, with mode lines normalised to 100644 and binary lines to `Binary files
+ * differ`, then `[N files changed, +A -D lines, H hunks omitted]` and `[N lines compressed to M. Retrieve original: hash=H]`
+ * with the input stored under H. Deviations: the retrieval line is always added ("Retrieve original", no 0.8 line-ratio gate,
+ * so a result is returned only when shorter), the hash is contentHash, hunks are scored only when a file has more than 10 (the
+ * score is read nowhere else), and context words are deduped and capped. Undefined under 50 lines, without a file header, or
+ * when the result is not shorter.
+ * @param {string} text
+ * @param {string} query the conversation context (crushQuery), "" for none
+ * @returns {{ text: string, offloaded: [string, string][] }|undefined}
+ */
+export function compressDiff(text, query) {
+  const lines = text.split("\n"); // "\n" only: a "\r" stays on its line, as upstream
+  if (lines.length < DIFF_MIN_LINES) return undefined;
+  const { pre, files: parsed } = parseDiff(lines);
+  if (!parsed.length) return undefined;
+  const changes = (/** @type {DiffFile} */ f) => f.hunks.reduce((a, h) => a + h.additions + h.deletions, 0);
+  const files =
+    parsed.length > DIFF_MAX_FILES
+      ? parsed
+          .map((f) => /** @type {[DiffFile, number]} */ ([f, changes(f)]))
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, DIFF_MAX_FILES)
+          .map(([f]) => f)
+      : parsed;
+  if (files.some((f) => f.hunks.length > DIFF_MAX_HUNKS)) scoreHunks(files, query, text.length);
+  let adds = 0;
+  let dels = 0;
+  let omitted = 0;
+  /** @type {string[]} */
+  const out = [];
+  for (const l of pre) out.push(l);
+  for (const f of files) {
+    for (const h of f.hunks) {
+      adds += h.additions;
+      dels += h.deletions;
+    }
+    const hunks = selectHunks(f.hunks).map(reduceContext);
+    omitted += f.hunks.length - hunks.length;
+    out.push(f.header);
+    for (const l of f.renames) out.push(l);
+    if (f.added) out.push("new file mode 100644");
+    else if (f.deleted) out.push("deleted file mode 100644");
+    if (f.binary) {
+      out.push("Binary files differ");
+      continue;
+    }
+    if (f.oldFile) out.push(f.oldFile);
+    if (f.newFile) out.push(f.newFile);
+    for (const h of hunks) {
+      out.push(h.header);
+      for (const l of h.lines) out.push(l);
+    }
+  }
+  out.push(`[${files.length} files changed, +${adds} -${dels} lines${omitted > 0 ? `, ${omitted} hunks omitted` : ""}]`);
+  const hash = contentHash(text);
+  const result = `${out.join("\n")}\n[${lines.length} lines compressed to ${out.length}. Retrieve original: hash=${hash}]`;
+  return result.length < text.length ? { text: result, offloaded: [[hash, text]] } : undefined;
+}
+
 /**
  * Each content type's compression steps, tried in order until one rewrites (a light upstream _strategy_from_detection).
  * The SmartCrusher owns JSON, the config compressor structured config, the HTML extractor HTML, the log compressor build
@@ -4844,6 +5082,12 @@ function rewriteRow(content, tool, levers, query) {
         } else if (step === "searchfold" && levers.search && fresh && spans.length === 0 && cur === text) {
           const r = foldSearch(cur);
           if (r) next = adopt(acc.search, cur, r);
+        } else if (step === "diff" && levers.diff && fresh && spans.length === 0) {
+          const r = compressDiff(cur, query);
+          if (r && overFold(r, foldDiff(cur))) next = adopt(acc.diff, cur, r);
+        } else if (step === "difffold" && levers.diff && fresh && spans.length === 0 && cur === text) {
+          const r = foldDiff(cur);
+          if (r) next = adopt(acc.diff, cur, r);
         } else if (step === "elide" && levers.elide) {
           const d = elideDense(cur, spans);
           if (d) {
