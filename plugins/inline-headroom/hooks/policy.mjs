@@ -150,6 +150,7 @@ const DEDUP_TRIVIAL = new Set(["return", "pass", "else:", "try:", "except:", "fi
 export const DEDUP_MAX_CHARS = 4_000_000;
 // Content detector: upstream content_detector.py, branch order of content_detector.rs (read 2026-10-11 at 976aa71).
 const JSON_MIN_BULK_FRACTION = 0.6;
+const DETECT_MAX_LINE_CHARS = 1000;
 const DIFF_HEADER_RE = /^(?:diff --git|diff --combined |diff --cc |--- a\/|@@\s+-\d+,\d+\s+\+\d+,\d+\s+@@|@@@+\s+-\d+(?:,\d+)?\s+(?:-\d+(?:,\d+)?\s+)+\+\d+(?:,\d+)?\s+@@@+)/;
 const DIFF_CHANGE_RE = /^[+-][^+-]/;
 const HTML_DOCTYPE_RE = /^\s*<!doctype\s+html/i;
@@ -609,7 +610,8 @@ export function storeOffloaded(store, entries) {
 
 /**
  * The CCR key in what the model passed to headroom_retrieve: the bare hash, or one copied with its marker's `hash=` or
- * `<<ccr:` prefix (the tool's description cites both forms). Anything else is returned trimmed, as is.
+ * `<<ccr:` prefix (the tool's description cites both forms) and, as a pointer or elider line ends in `]` and a CCR
+ * marker in `>>`, that closing bracket. Anything else is returned trimmed, as is.
  * @param {unknown} hash
  * @returns {string|undefined} undefined unless `hash` is a string
  */
@@ -618,7 +620,8 @@ export function retrieveKey(hash) {
     ? (hash
         .trim()
         .replace(/^(?:hash=|<<ccr:)/, "")
-        .split(/\s/)[0] ?? "")
+        .split(/\s/)[0]
+        ?.replace(/[\]>]+$/, "") ?? "")
     : undefined;
 }
 
@@ -2159,8 +2162,9 @@ export function detectContentType(text) {
   const s = text.trim();
   if (s === "") return "text";
   if (isJsonPayload(s)) return "json_array";
-  // shortcut: a sampled line is scanned whole (~10 linear regex passes); cap per-line sample length if append latency shows it.
-  const head = headLines(text, 500);
+  // Deviation: a sampled line is cut to DETECT_MAX_LINE_CHARS, because the PHP and C# stack-trace patterns backtrack quadratically
+  // and detection runs synchronously on every appended result. A signal beyond that column of a line goes unseen.
+  const head = headLines(text, 500).map((line) => (line.length > DETECT_MAX_LINE_CHARS ? line.slice(0, DETECT_MAX_LINE_CHARS) : line));
   if (diffConfidence(head) >= 0.7) return "diff";
   if (htmlConfidence(text.slice(0, 3000)) >= 0.7) return "html";
   if (isGitStatus(text)) return "tabular";

@@ -362,10 +362,12 @@ test("storeOffloaded moves a re-put hash to the newest position, so it outlives 
   assert.equal(store.has("h1"), false);
 });
 
-test("retrieveKey takes a bare hash, one with its marker's hash= or <<ccr: prefix, and nothing else", () => {
+test("retrieveKey takes a bare hash, one with its marker's hash= or <<ccr: prefix and closing bracket, and nothing else", () => {
   assert.equal(retrieveKey("abc123def456"), "abc123def456");
   assert.equal(retrieveKey(" hash=abc123def456 "), "abc123def456");
   assert.equal(retrieveKey("<<ccr:abc123def456 40_rows_offloaded>>"), "abc123def456");
+  assert.equal(retrieveKey("hash=abc123def456]"), "abc123def456"); // the tail of a dedup pointer or an elider line
+  assert.equal(retrieveKey("<<ccr:abc123def456>>"), "abc123def456");
   assert.equal(retrieveKey(""), "");
   assert.equal(retrieveKey(42), undefined);
   assert.equal(retrieveKey(undefined), undefined);
@@ -1133,6 +1135,15 @@ test("detectContentType reads CMTrace records as build output", () => {
 test("detectContentType knows C# and PHP", () => {
   assert.equal(detectContentType("using System;\nusing System.Linq;\nnamespace Foo\npublic class Bar\n{ get; set; }"), "source_code");
   assert.equal(detectContentType("<?php\nnamespace App\\Models;\nuse Foo\\Bar;\nfunction x() {"), "source_code");
+});
+
+test("detectContentType cuts each sampled line, so a backtracking pattern cannot stall the append hook", () => {
+  const t0 = Date.now();
+  detectContentType(`${" ".repeat(200_000)}\nok`); // the PHP function pattern backtracks quadratically on leading whitespace
+  detectContentType(`at ${") in ".repeat(40_000)}`); // so does the C# stack-trace pattern
+  assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0} ms`);
+  // A signal inside the first DETECT_MAX_LINE_CHARS still counts.
+  assert.equal(detectContentType(`ERROR boom ${"x".repeat(5000)}\nFAIL again`), "build");
 });
 
 test("rewriteToolResults crushes only JSON and elides a dense line of every other content type", () => {

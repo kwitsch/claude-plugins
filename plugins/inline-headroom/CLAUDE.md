@@ -266,8 +266,9 @@ dense line elider:
   errors and answers `mcp__inline-headroom__headroom_retrieve` itself from
   `offloaded`, then `folded` (`session.start` registers the tool); a miss is a
   `{ deny }`, which the effort observer counts as a failure. `retrieveKey`
-  accepts the bare hash, `hash=H` and a whole `<<ccr:H …>>` marker, because the
-  tool's description cites the marker forms.
+  accepts the bare hash, `hash=H` and a whole `<<ccr:H …>>` marker, and drops
+  the closing `]` or `>>` of a copied marker (a dedup pointer and an elider line
+  end in `]`), because the tool's description cites the marker forms.
 - Model-only holds structurally: a tool-result row answers a `tool_use` block
   of the model's response, and a `session.append` rewrite never changes what a
   plugin's `$.tool.call` resolves to.
@@ -442,6 +443,10 @@ Deviations from upstream:
   `trim()` differ from Python's on a few exotic code points.
 - Lengths (the 3000-character HTML sample, the bulk fraction) count UTF-16
   units, where upstream counts code points.
+- Each sampled line is cut to `DETECT_MAX_LINE_CHARS` (1000) before the diff,
+  search, log and code checks: the PHP and C# stack-trace patterns backtrack
+  quadratically, and detection runs synchronously on every appended result. A
+  signal beyond that column of a line goes unseen.
 - The detector returns only the tag: no confidence and no metadata (language,
   counts), since nothing consumes them.
 

@@ -247,7 +247,7 @@ rows. It is the MCP server `storage` (connected as
   the markers, and `headroom_retrieve` then answers with a denied call naming
   the hash (re-run the tool instead). Writing them to the storage server is not
   done. The tool accepts the bare hash, `hash=H` and a whole `<<ccr:H …>>`
-  marker. `headroom_retrieve` never asks for permission: the mod
+  marker, with or without its closing `]` or `>>`. `headroom_retrieve` never asks for permission: the mod
   answers it before Claude Code's permission check, and it only reads what this
   session's own tool results held. It was live-verified callable from a
   general-purpose subagent, but an agent type whose tool list leaves it out
@@ -325,6 +325,9 @@ Deviations:
   not JSON.
 - JS `\w`, `\d` and `\b` are ASCII-only where Python's are Unicode, `\s` and
   `trim()` differ on a few exotic code points, and lengths count UTF-16 units.
+- Each sampled line is cut to 1000 characters before the diff, search, log and
+  code checks, so one huge line cannot stall the append hook; a signal past
+  that column goes unseen.
 - Only the label is kept: no confidence and no metadata.
 
 Routing is a light form of `headroom/transforms/content_router.py` (read
