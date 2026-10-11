@@ -255,7 +255,8 @@ dense line elider:
   exist nowhere else, and `folded` holds dedup runs, whose earlier copy is still
   in the transcript until a compaction. `storeOffloaded` never evicts an entry
   of the batch it was just given (a row's markers always resolve, even when it
-  folds more than 1000 runs), so a store may sit over a cap until its next call.
+  folds more than 1000 runs), so a store may sit over a cap until its next call
+  with entries.
   Both stores are module memory only: a mod reload (an options change, a plugin
   update) or a resumed session loses every original while the transcript keeps
   the markers, and `headroom_retrieve` then denies the hash. Persisting them in
@@ -458,7 +459,9 @@ module-private `ROUTES` table maps each tag to its ordered steps:
 `rewriteRow`'s `shrink` detects once per unprotected text and runs that type's
 steps in order, skipping a step whose lever is off; the first step that
 rewrites wins. Detection runs only while `smart_crusher_enabled` or
-`dense_line_elider_enabled` is on, so a dedup-only configuration pays nothing.
+`dense_line_elider_enabled` is on, so a dedup-only configuration pays nothing,
+and only on a text of at least `ROUTE_MIN_CHARS` (300, the lowest floor of any
+step), since a shorter one is passed through whatever its label.
 Dedup (`dedupBlock`) then runs over every type's final text, unchanged. The
 levers behave exactly as before the router: every text the crusher can crush
 parses as an object or array once trimmed, which the detector's first JSON

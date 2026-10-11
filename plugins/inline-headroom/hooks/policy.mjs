@@ -586,13 +586,14 @@ export function computeOptimalK(itemStrings) {
  * Stores offloaded originals for headroom_retrieve: a re-put moves its hash to the newest position, and the
  * oldest entries go while the store holds more than CCR_CAPACITY entries or CCR_MAX_CHARS characters. Never an entry
  * of `entries` itself: the row that carries their markers is stored next, so a batch may leave the store over a cap until
- * the next call. Mutates `store`.
+ * the next call with entries. Mutates `store`.
  * shortcut: no idle TTL (upstream: 30 min); add one with a time argument from register.ts if memory becomes a concern.
  * @param {Map<string, string>} store hash → original text (a crushed array's JSON, an elided block, a folded span), oldest first
  * @param {readonly [string, string][]} entries
  * @returns {void}
  */
 export function storeOffloaded(store, entries) {
+  if (entries.length === 0) return; // nothing to add: skip the O(store) size pass, as most rows carry no entry for one of the two stores
   for (const [hash, json] of entries) {
     store.delete(hash);
     store.set(hash, json);
@@ -1731,7 +1732,10 @@ function noJsonSpans(text) {
  */
 function isDenseLine(line) {
   const n = line.length;
-  if (n < DENSE_MIN_LINE_CHARS || line.includes("\t") || (line.split(" ").length - 1) / n >= DENSE_MAX_SPACE_RATIO) return false;
+  if (n < DENSE_MIN_LINE_CHARS || line.includes("\t")) return false;
+  let spaces = 0;
+  for (let p = line.indexOf(" "); p >= 0; p = line.indexOf(" ", p + 1)) spaces++;
+  if (spaces / n >= DENSE_MAX_SPACE_RATIO) return false;
   const s = line.trim();
   // "{[".includes("") is true like Python's "" in "{[": an all-whitespace line counts as JSON-shaped, as upstream.
   if ("{[".includes(s.slice(0, 1)) && "}]".includes(s.slice(-1))) return false;
@@ -1817,12 +1821,13 @@ function indexLines(verbatim, turn, st) {
  * every numbered pair under one uniform line-number shift (non-numbered lines must match exactly). A longer run wins;
  * a tie keeps the earliest candidate. Undefined when no run starts here.
  * @param {readonly string[]} cur
+ * @param {readonly [number|null, string, string][]} curKeys numAndKey of each line of `cur`, computed once per block
  * @param {number} start
  * @param {DedupState} st
  * @returns {{ len: number, turn: number, li: number, delta: number }|undefined}
  */
-function longestMatch(cur, start, st) {
-  const candidates = st.index.get(numAndKey(cur[start])[1]);
+function longestMatch(cur, curKeys, start, st) {
+  const candidates = st.index.get(curKeys[start][1]);
   if (!candidates) return undefined;
   let best = { len: 0, turn: -1, li: -1, delta: 0 };
   for (const [t, li] of candidates) {
@@ -1835,7 +1840,7 @@ function longestMatch(cur, start, st) {
       const ca = cur[start + k];
       const cb = blockLines[li + k];
       if (cb === null) break; // a folded span ends the run
-      const [na, ka] = numAndKey(ca);
+      const [na, ka] = curKeys[start + k];
       const [nb, kb] = numAndKey(cb);
       if (ka !== kb) break;
       if (na !== null && nb !== null) {
@@ -1898,6 +1903,7 @@ export function dedupBlock(states, key, text, isProtected) {
   states.set(key, st); // this conversation is now the most recently appended
   const turn = ++st.turn;
   const lines = text.split("\n");
+  const keys = isProtected ? [] : lines.map(numAndKey);
   /** @type {string[]} */
   const out = [];
   /** @type {(string|null)[]} */
@@ -1906,7 +1912,7 @@ export function dedupBlock(states, key, text, isProtected) {
   const offloaded = [];
   let spans = 0;
   for (let i = 0; !isProtected && i < lines.length;) {
-    const m = longestMatch(lines, i, st);
+    const m = longestMatch(lines, keys, i, st);
     if (m && m.len >= DEDUP_MIN_LINES) {
       const span = lines.slice(i, i + m.len);
       const spanText = span.join("\n");
@@ -1946,21 +1952,6 @@ export function dedupBlock(states, key, text, isProtected) {
 }
 
 // Content detector and router: a port of headroom's content detection and a light content_router dispatch.
-
-/**
- * Upstream `content.split("\n")[:n]` without splitting the whole text.
- * @param {string} text
- * @param {number} n
- * @returns {string[]}
- */
-function headLines(text, n) {
-  let p = -1;
-  for (let i = 0; i < n; i++) {
-    p = text.indexOf("\n", p + 1);
-    if (p < 0) return text.split("\n");
-  }
-  return text.slice(0, p).split("\n");
-}
 
 /**
  * Upstream _decode_concatenated_json read for objects: `s` is a run of 2+ JSON objects separated only by whitespace.
@@ -2164,7 +2155,7 @@ export function detectContentType(text) {
   if (isJsonPayload(s)) return "json_array";
   // Deviation: a sampled line is cut to DETECT_MAX_LINE_CHARS, because the PHP and C# stack-trace patterns backtrack quadratically
   // and detection runs synchronously on every appended result. A signal beyond that column of a line goes unseen.
-  const head = headLines(text, 500).map((line) => (line.length > DETECT_MAX_LINE_CHARS ? line.slice(0, DETECT_MAX_LINE_CHARS) : line));
+  const head = text.split("\n", 500).map((line) => (line.length > DETECT_MAX_LINE_CHARS ? line.slice(0, DETECT_MAX_LINE_CHARS) : line));
   if (diffConfidence(head) >= 0.7) return "diff";
   if (htmlConfidence(text.slice(0, 3000)) >= 0.7) return "html";
   if (isGitStatus(text)) return "tabular";
@@ -2191,6 +2182,10 @@ const ROUTES = {
   source_code: ["elide"],
   text: ["elide"],
 };
+
+// Every step needs at least this many characters (the elider returns early below its line minimum, and the crusher wants
+// more), so a shorter text skips detection: the label could not change the outcome. A step with a lower floor lowers this.
+const ROUTE_MIN_CHARS = Math.min(CRUSH_MIN_CHARS, DENSE_MIN_LINE_CHARS);
 
 // The tool-result row pipeline (session.append): SmartCrusher and the dense line elider by content type, then cross-turn dedup.
 
@@ -2274,7 +2269,7 @@ function rewriteRow(content, tool, levers, query) {
      * @returns {string}
      */
     const shrink = (text) => {
-      if (prot || !(levers.crush || levers.elide)) return text;
+      if (prot || !(levers.crush || levers.elide) || text.length < ROUTE_MIN_CHARS) return text;
       for (const step of ROUTES[detectContentType(text)]) {
         if (step === "crush" && levers.crush) {
           const c = crushJson(text, query);
