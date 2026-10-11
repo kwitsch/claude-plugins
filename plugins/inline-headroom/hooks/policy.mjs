@@ -4999,6 +4999,207 @@ export function crushText(text, query) {
   return out.length < text.length ? { text: out, offloaded: [[hash, text]] } : undefined;
 }
 
+// Relevance split: a port of headroom's relevance_split.py (segment, _otsu_threshold, adaptive_threshold, plan_relevance_split)
+// and content_router.py _relevance_split_compress, routed on prose only (user decision; upstream splits LOG and SEARCH output).
+
+const SPLIT_WINDOW = 8;
+const SPLIT_MAX_CHARS = 1200;
+// Upstream RelevanceScorerConfig.relevance_threshold: the KEEP cut's floor.
+const SPLIT_FLOOR = 0.25;
+
+/**
+ * Upstream segment(content, window, max_chars): a lossless partition (`segs.join("") === text`) into blank-line-delimited
+ * blocks, each packed into windows of at most `window` lines, an indented continuation line held past that, and at most
+ * `maxChars` characters; a single longer line stays whole. Deviation: lines split on \n only (Python's splitlines also splits on
+ * \r, \v, \f, \x1c-\x1e, \x85, U+2028 and U+2029).
+ * @param {string} text
+ * @param {number} [window]
+ * @param {number} [maxChars]
+ * @returns {string[]}
+ */
+export function segmentRecords(text, window = SPLIT_WINDOW, maxChars = SPLIT_MAX_CHARS) {
+  /** @type {string[]} */
+  const lines = [];
+  for (let s = 0; s < text.length;) {
+    const nl = text.indexOf("\n", s);
+    const end = nl < 0 ? text.length : nl + 1;
+    lines.push(text.slice(s, end));
+    s = end;
+  }
+  if (lines.length <= 1) return text ? [text] : [];
+  /** @type {string[][]} */
+  const blocks = [];
+  /** @type {string[]} */
+  let cur = [];
+  for (const ln of lines) {
+    cur.push(ln);
+    if (/^\s*$/.test(ln)) {
+      blocks.push(cur);
+      cur = [];
+    }
+  }
+  if (cur.length) blocks.push(cur);
+  /** @type {string[]} */
+  const segs = [];
+  for (const block of blocks) {
+    for (let i = 0; i < block.length;) {
+      let j = i + 1;
+      let size = block[i].length;
+      while (j < block.length && (j - i < window || block[j].startsWith(" ") || block[j].startsWith("\t")) && size + block[j].length <= maxChars) {
+        size += block[j].length;
+        j++;
+      }
+      segs.push(block.slice(i, j).join(""));
+      i = j;
+    }
+  }
+  return segs;
+}
+
+/**
+ * Upstream _otsu_threshold: the midpoint of the adjacent sorted pair that maximises the between-class variance.
+ * @param {readonly number[]} values at least one
+ * @returns {number}
+ */
+export function otsuThreshold(values) {
+  const xs = [...values].sort((a, b) => a - b);
+  const n = xs.length;
+  const total = xs.reduce((a, b) => a + b, 0);
+  let w0 = 0;
+  let sum0 = 0;
+  let bestT = xs[0];
+  let bestVar = -1;
+  for (let i = 0; i < n - 1; i++) {
+    w0 += 1;
+    sum0 += xs[i];
+    const w1 = n - w0;
+    const between = w0 * w1 * (sum0 / w0 - (total - sum0) / w1) ** 2;
+    if (between > bestVar) {
+      bestVar = between;
+      bestT = (xs[i] + xs[i + 1]) / 2;
+    }
+  }
+  return bestT;
+}
+
+/**
+ * Upstream adaptive_threshold: `floor` when fewer than 2 distinct values remain after rounding to 9 decimals, else the Otsu cut
+ * of the raw values, at least `floor`.
+ * @param {readonly number[]} values
+ * @param {number} floor
+ * @returns {number}
+ */
+export function adaptiveThreshold(values, floor) {
+  if (new Set(values.map((v) => Math.round(v * 1e9) / 1e9)).size < 2) return floor;
+  return Math.max(otsuThreshold(values), floor);
+}
+
+/**
+ * A stand-in for upstream _json_straddles_segments: whether a top-level balanced `[`/`{` span crosses a cut between two segments.
+ * The outer walk is noJsonSpans' (budget 4 per character + 4096, the `known` memo reused); spans and cuts are merged in one
+ * linear pass. An exhausted budget counts as straddling. Deviation: any balanced span counts (upstream protects only spans that
+ * parse as JSON documents or record arrays), which errs on keeping the text whole; one-line spans never straddle.
+ * @param {string} text
+ * @param {readonly string[]} segs segmentRecords(text)
+ * @returns {boolean}
+ */
+function jsonStraddles(text, segs) {
+  const n = text.length;
+  const budget = SCAN_BUDGET_PER_CHAR * n + SCAN_BUDGET_FLOOR;
+  /** @type {Map<number, number|null>} */
+  const known = new Map();
+  /** @type {[number, number][]} */
+  const spans = [];
+  let spent = 0;
+  for (let i = 0; i < n;) {
+    if (text[i] === "[" || text[i] === "{") {
+      /** @type {number|null|undefined} */
+      let end;
+      if (known.has(i)) end = known.get(i);
+      else if (spent >= budget) return true;
+      else {
+        const [e, walked] = scanFrom(text, i, known);
+        end = e;
+        spent += walked;
+      }
+      if (typeof end === "number") {
+        spans.push([i, end]);
+        i = end;
+        continue;
+      }
+    }
+    i++;
+  }
+  let s = 0;
+  let cut = 0;
+  for (let k = 0; k < segs.length - 1; k++) {
+    cut += segs[k].length;
+    while (s < spans.length && spans[s][1] <= cut) s++;
+    if (s < spans.length && spans[s][0] < cut) return true;
+  }
+  return false;
+}
+
+/**
+ * Upstream plan_relevance_split plus content_router.py _relevance_split_compress, for prose: the text's records
+ * (segmentRecords) are scored by plain BM25 against the query and kept from the adaptive cut (floor 0.25) up; consecutive
+ * records of one disposition form runs. A DROP run holding an ERROR_KEYWORDS line is kept whole (user decision). Each DROP run
+ * becomes `...[N low-relevance line(s) elided]...` (upstream's CCR-mode disposition: the mod always has retrieval), KEEP runs
+ * are folded with foldText while `foldOn` (text_crusher_enabled owns that fold; off, they stay raw and foldText is never
+ * called), and `[N low-relevance line(s) in R run(s) elided. Retrieve original: hash=H]` ends the text, the input stored under H.
+ * Adopted only when strictly shorter than the baseline: foldText's whole-text fold while `foldOn` (or the text when it
+ * declines), else the text. Undefined for an empty query, a single record, a multi-line bracket span across a cut, no KEEP run
+ * (never an all-DROP output; user decision) or no DROP run.
+ * @param {string} text
+ * @param {string} query the conversation context (crushQuery)
+ * @param {boolean} foldOn whether the text crusher's lever, the owner of foldText, is on
+ * @returns {{ text: string, offloaded: [string, string][] }|undefined}
+ */
+export function splitRelevance(text, query, foldOn) {
+  if (query.trim() === "") return undefined;
+  const segs = segmentRecords(text);
+  if (segs.length < 2 || jsonStraddles(text, segs)) return undefined;
+  const scores = bm25Scores(segs, query);
+  const cut = adaptiveThreshold(scores, SPLIT_FLOOR);
+  /** @type {{ keep: boolean, text: string, mustKeep: boolean }[]} */
+  const runs = [];
+  segs.forEach((seg, i) => {
+    const keep = scores[i] >= cut;
+    const lower = seg.toLowerCase();
+    const mustKeep = ERROR_KEYWORDS.some((k) => lower.includes(k));
+    const last = runs.at(-1);
+    if (last && last.keep === keep) {
+      last.text += seg;
+      last.mustKeep ||= mustKeep;
+    } else runs.push({ keep, text: seg, mustKeep });
+  });
+  /** @type {{ keep: boolean, text: string }[]} */
+  const merged = [];
+  for (const r of runs) {
+    const keep = r.keep || r.mustKeep;
+    const last = merged.at(-1);
+    if (last && last.keep === keep) last.text += r.text;
+    else merged.push({ keep, text: r.text });
+  }
+  const drops = merged.filter((r) => !r.keep);
+  if (drops.length === 0 || drops.length === merged.length) return undefined;
+  const lineCount = (/** @type {string} */ t) => (t.match(/\n/g)?.length ?? 0) + (t.endsWith("\n") ? 0 : 1);
+  let dropped = 0;
+  const body = merged
+    .map((r) => {
+      if (r.keep) return foldOn ? (foldText(r.text)?.text ?? r.text) : r.text;
+      const n = lineCount(r.text);
+      dropped += n;
+      return `...[${n} low-relevance ${n === 1 ? "line" : "lines"} elided]...${r.text.endsWith("\n") ? "\n" : ""}`;
+    })
+    .join("");
+  const hash = contentHash(text);
+  const runWord = drops.length === 1 ? "run" : "runs";
+  const out = `${body}${body.endsWith("\n") ? "" : "\n"}[${dropped} low-relevance ${dropped === 1 ? "line" : "lines"} in ${drops.length} ${runWord} elided. Retrieve original: hash=${hash}]`;
+  const baseline = foldOn ? (foldText(text)?.text ?? text) : text;
+  return out.length < baseline.length ? { text: out, offloaded: [[hash, text]] } : undefined;
+}
+
 /**
  * Each content type's compression steps, tried in order until one rewrites (a light upstream _strategy_from_detection).
  * The SmartCrusher owns JSON, the config compressor structured config, the HTML extractor HTML, the log compressor build
@@ -5254,6 +5455,10 @@ function rewriteRow(content, tool, levers, query) {
         } else if (step === "textfold" && levers.textcrush && fresh && spans.length === 0 && cur === text) {
           const r = foldText(cur);
           if (r) next = adopt(acc.textcrush, cur, r);
+        } else if (step === "split" && levers.split && fresh && spans.length === 0) {
+          // foldText belongs to the text crusher's lever: the split folds its KEEP runs only while that lever is on.
+          const r = splitRelevance(cur, query, !!levers.textcrush);
+          if (r) next = adopt(acc.split, cur, r);
         } else if (step === "elide" && levers.elide) {
           const d = elideDense(cur, spans);
           if (d) {

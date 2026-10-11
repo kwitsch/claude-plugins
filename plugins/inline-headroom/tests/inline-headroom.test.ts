@@ -249,8 +249,8 @@ test("(i) /headroom opens the headroom pane and prints nothing", async ($, on) =
   const out = await $.command.run({ command: "headroom" });
   expect(out.text).toBeUndefined();
   expect(opened.length).toBe(1);
-  // 6 + 5 + 2 × 10 table rows, the storage note, the volatile header and thirteen gaps.
-  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 46 });
+  // 6 + 5 + 2 × 11 table rows, the storage note, the volatile header and fourteen gaps.
+  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 49 });
 });
 
 test("(i2) /headroom falls back to the stats tables as text when the pane is not placed", async ($, on) => {
@@ -556,7 +556,7 @@ test(
     expect(
       await ui.find({
         type: "Text",
-        text: /^effort routing, cache aligner, smart crusher, lossless compaction, cross-turn dedup, dense line elider, config compressor, HTML extractor, log compressor, search compressor, diff compressor and text crusher are off/,
+        text: /^effort routing, cache aligner, smart crusher, lossless compaction, cross-turn dedup, dense line elider, config compressor, HTML extractor, log compressor, search compressor, diff compressor, text crusher and relevance split are off/,
       }),
     ).toBeDefined();
     expect(await ui.find({ type: "Text", text: /^effort routing$/ })).toBeUndefined();
@@ -669,14 +669,15 @@ const notPlaced = async () => ({ value: { isPlaced: false as const, reason: "no 
 
 // Raises session.start, which registers headroom_retrieve, with the ops it needs stubbed: tool.register answers
 // `registeredAs` and records each spec. Call it after the test's other stubs: the kit refuses on() once $ was called.
-async function startCrusher(on: On, $: Engine, registeredAs: string = RETRIEVE_TOOL): Promise<unknown[]> {
+// `userText` is the one user message session.messages answers with: "" (a tool result) gives an empty query.
+async function startCrusher(on: On, $: Engine, registeredAs: string = RETRIEVE_TOOL, userText = ""): Promise<unknown[]> {
   const registered: unknown[] = [];
   on("command.register", async (_$, e) => ({ value: { command: e.name } }));
   on("tool.register", async (_$, e) => {
     registered.push(e);
     return { value: { tool: registeredAs } };
   });
-  on("session.messages", async () => ({ value: [{ role: "user" as const, text: "", toolUses: [] }] }));
+  on("session.messages", async () => ({ value: [{ role: "user" as const, text: userText, toolUses: [] }] }));
   on("session.start", async (_$, e) => ({ cwd: e.cwd }));
   await $.session.start({ cwd: "/tmp", surface: "terminal", isInteractive: true });
   return registered;
@@ -1285,4 +1286,51 @@ test("(tc3) by default dedup indexes the crushed form: a repeated prose row is c
   const first = String(await appendResult($, "Bash", TEN));
   expect(first).toMatch(CRUSHED);
   expect(String(await appendResult($, "Bash", TEN))).toMatch(POINTER);
+});
+// Prose records: three about the oauth token refresh, two about widgets; the user asked about the refresh.
+const OAUTH_NOTES = [
+  "The oauth token refresh runs every ten minutes from the scheduler service.\n\n",
+  "The widget gallery renders thumbnails in a responsive grid layout for every visitor.\nIt uses lazy loading for images below the fold of the page to save bandwidth.\n\n",
+  "Refreshing the oauth token needs the client secret from the vault.\n\n",
+  "Colour themes for widgets live in a separate stylesheet bundle with many variables.\nDark mode swaps the whole palette through custom properties on the root element.\n\n",
+  "A refreshed oauth token is cached for the lifetime of the session.\n",
+].join("");
+const OAUTH_ASK = "why does the oauth token refresh break";
+const SPLIT_ROW = /^relevance split\s+texts\s+saved\nsession\s+(\d+)\s+(\d+)$/m;
+
+test("(rs1) prose is split by the user's request, the original is retrievable, and /headroom counts it", { options: { storage_enabled: false } }, async ($, on) => {
+  on("ui.open", notPlaced);
+  await startCrusher(on, $, RETRIEVE_TOOL, OAUTH_ASK);
+  const stored = String(await appendResult($, "Bash", OAUTH_NOTES));
+  expect(stored).toMatch(/^\.\.\.\[3 low-relevance lines elided\]\.\.\.$/m);
+  expect(stored).toMatch(/^A refreshed oauth token is cached for the lifetime of the session\.$/m);
+  const [, hash] = /\n\[6 low-relevance lines in 2 runs elided\. Retrieve original: hash=([0-9a-f]{12})\]$/.exec(stored) ?? [];
+  expect((await $.tool.call({ tool: RETRIEVE_TOOL, hash })).result).toBe(OAUTH_NOTES);
+  const [, texts, saved] = SPLIT_ROW.exec((await $.command.run({ command: "headroom" })).text ?? "") ?? [];
+  expect(Number(texts)).toBe(1);
+  expect(Number(saved)).toBe(OAUTH_NOTES.length - stored.length);
+});
+
+test(
+  "(rs2) relevance_split_enabled false keeps prose whole (with the text crusher off too) and hides the relevance split table",
+  { options: { relevance_split_enabled: false, text_crusher_enabled: false, storage_enabled: false } },
+  async ($, on) => {
+    on("ui.open", notPlaced);
+    await startCrusher(on, $, RETRIEVE_TOOL, OAUTH_ASK);
+    expect(await appendResult($, "Bash", OAUTH_NOTES)).toBe(OAUTH_NOTES);
+    expect((await $.command.run({ command: "headroom" })).text).not.toMatch(/^relevance split/m);
+  },
+);
+
+test("(rs3) session.end starts the logs, search, diff, text crusher and relevance split rows over", { options: { storage_enabled: false } }, async ($, on) => {
+  on("ui.open", notPlaced);
+  on("session.end", async (_$, e) => ({ sessionId: e.sessionId }));
+  await startCrusher(on, $, RETRIEVE_TOOL, OAUTH_ASK);
+  for (const text of [BUILD_LOG, GREP, GIT_DIFF, REPORT, OAUTH_NOTES]) await appendResult($, "Bash", text);
+  const rows = [LOGS_ROW, SEARCH_ROW, DIFF_ROW, TEXT_ROW, SPLIT_ROW];
+  const before = (await $.command.run({ command: "headroom" })).text ?? "";
+  for (const row of rows) expect(Number(row.exec(before)?.[1])).toBe(1);
+  await $.session.end({ reason: "clear", sessionId: "s1", resume: { id: "s1" } });
+  const after = (await $.command.run({ command: "headroom" })).text ?? "";
+  for (const row of rows) expect(row.exec(after)?.slice(1)).toEqual(["0", "0"]);
 });

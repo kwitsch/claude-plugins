@@ -13,6 +13,7 @@ import {
   RETAIN_DAYS,
   RETRIEVE_TOOL,
   ROWS,
+  adaptiveThreshold,
   bm25Scores,
   cacheHitRatio,
   clampEffort,
@@ -50,11 +51,14 @@ import {
   isOwnStorageCall,
   isToolError,
   numberChangePoints,
+  otsuThreshold,
   relevanceScores,
   resetCorpus,
   retrieveKey,
   rewriteToolResults,
   roundHalfEven,
+  segmentRecords,
+  splitRelevance,
   statsTables,
   stepEffort,
   storeOffloaded,
@@ -2980,5 +2984,147 @@ test("crushText stays bounded on 20,000 sentences", () => {
   assert.ok(text.length >= 1_000_000);
   const t0 = Date.now();
   assert.ok(crushProse(text, "which worker finished the job"));
+  assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0} ms`);
+});
+// Prose records for the relevance split: three about the oauth token refresh, two (and a timeout note) about widgets.
+const RECORDS = {
+  oauth1: "The oauth token refresh runs every ten minutes from the scheduler service.\n\n",
+  widget1: "The widget gallery renders thumbnails in a responsive grid layout for every visitor.\nIt uses lazy loading for images below the fold of the page to save bandwidth.\n\n",
+  oauth2: "Refreshing the oauth token needs the client secret from the vault.\n\n",
+  widget2: "Colour themes for widgets live in a separate stylesheet bundle with many variables.\nDark mode swaps the whole palette through custom properties on the root element.\n\n",
+  timeout: "The widget cache Timeout is thirty seconds by default.\n\n",
+  oauth3: "A refreshed oauth token is cached for the lifetime of the session.\n",
+};
+const OAUTH_DOC = [RECORDS.oauth1, RECORDS.widget1, RECORDS.oauth2, RECORDS.widget2, RECORDS.oauth3].join("");
+const OAUTH_QUERY = "why does the oauth token refresh break";
+
+test("segmentRecords partitions losslessly into blank-line blocks and bounded windows (upstream test_segment_* cases)", () => {
+  assert.equal(segmentRecords("a\nb\n\n  cont\nc\n").join(""), "a\nb\n\n  cont\nc\n");
+  const dense = Array.from({ length: 20 }, (_, i) => `line${i}\n`).join("");
+  assert.ok(segmentRecords(dense, 5).length > 1); // a dense blank-free stream is windowed
+  // A short indented continuation stays with its head line even past the line window.
+  for (const s of segmentRecords("ERROR boom\n  File a.py line 1\n  File b.py line 2\nnext record\n", 1)) assert.ok(!s.startsWith(" ") && !s.startsWith("\t"));
+  const indented = `HEADER (not indented)\n${Array.from({ length: 300 }, (_, i) => `    frame line ${String(i).padStart(3, "0")}\n`).join("")}`;
+  const bounded = segmentRecords(indented, 8, 1200);
+  assert.equal(bounded.join(""), indented);
+  assert.ok(bounded.length > 2 && bounded.every((s) => s.length <= 1200));
+  const headless = segmentRecords(`ERROR boom\n${Array.from({ length: 200 }, (_, i) => `    frame ${String(i).padStart(3, "0")} in handler\n`).join("")}`, 8, 1200);
+  assert.ok(headless.some((s) => s.startsWith(" "))); // a long run is bounded, so later segments start headless
+  assert.ok(segmentRecords(`${"L".repeat(500)}\n`.repeat(8), 8, 1200).every((s) => s.length <= 1200));
+  assert.equal(segmentRecords(`${"X".repeat(5000)}\nshort tail\n`, 8, 1200)[0].length, 5001); // an over-long line stays whole
+  const blocks = `intro paragraph\n\nhead\n${Array.from({ length: 200 }, (_, i) => `\tdetail ${String(i).padStart(3, "0")}\n`).join("")}\ntail note\n`;
+  const across = segmentRecords(blocks, 8, 1200);
+  assert.equal(across.join(""), blocks);
+  assert.ok(across.every((s) => s.length <= 1200));
+  // Random texts: the partition is always the identity.
+  let seed = 7;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  for (let k = 0; k < 200; k++) {
+    const text = Array.from({ length: Math.floor(rnd() * 40) }, () => [" ", "\t", "", "x", "word "][Math.floor(rnd() * 5)].repeat(Math.floor(rnd() * 30)) + (rnd() < 0.9 ? "\n" : "")).join("");
+    assert.equal(segmentRecords(text).join(""), text);
+  }
+  assert.deepEqual(segmentRecords(""), []);
+  assert.deepEqual(segmentRecords("solo"), ["solo"]);
+});
+
+test("adaptiveThreshold cuts at the natural gap, never under its floor (upstream test_adaptive_threshold_* cases)", () => {
+  const t = adaptiveThreshold([0.92, 0.88, 0.12, 0.05], 0.25);
+  assert.ok(t > 0.12 && t < 0.88);
+  assert.equal(otsuThreshold([0.92, 0.88, 0.12, 0.05]), (0.12 + 0.88) / 2); // the midpoint of the widest-variance pair
+  assert.equal(adaptiveThreshold([0.3, 0.28, 0.05, 0.03], 0.25), 0.25);
+  assert.equal(adaptiveThreshold([0.4, 0.4, 0.4], 0.25), 0.25);
+  assert.ok(adaptiveThreshold([0.95, 0.9, 0.6, 0.55], 0.1) > adaptiveThreshold([0.4, 0.35, 0.08, 0.05], 0.1));
+});
+
+test("splitRelevance keeps the query's records and elides the rest behind one retrieval line (upstream test_split_keeps_relevant_drops_irrelevant)", () => {
+  const r = must(splitRelevance(OAUTH_DOC, OAUTH_QUERY, true));
+  const [, hash] = /\n\[6 low-relevance lines in 2 runs elided\. Retrieve original: hash=([0-9a-f]{12})\]$/.exec(r.text) ?? [];
+  assert.equal(
+    r.text,
+    `${RECORDS.oauth1}...[3 low-relevance lines elided]...\n${RECORDS.oauth2}...[3 low-relevance lines elided]...\n${RECORDS.oauth3}` +
+      `[6 low-relevance lines in 2 runs elided. Retrieve original: hash=${hash}]`,
+  );
+  assert.deepEqual(r.offloaded, [[hash, OAUTH_DOC]]);
+  assert.equal(splitRelevance(OAUTH_DOC, "   ", true), undefined); // upstream test_empty_query_yields_no_split
+  assert.equal(splitRelevance("solo record about the oauth token refresh", OAUTH_QUERY, true), undefined); // test_single_record_yields_no_split
+});
+
+test("splitRelevance never drops every record, and keeps a low-scoring run holding an error keyword whole (user decision, guards a and b)", () => {
+  // Guard (a): no record matches the query and none holds an error keyword, so every record would be dropped: decline.
+  assert.equal(splitRelevance(OAUTH_DOC, "kubernetes ingress annotations", true), undefined);
+  // Guard (b): the widget run beside the Timeout note scores low, but holds a case-insensitive ERROR_KEYWORDS hit: kept verbatim.
+  assert.ok(ERROR_KEYWORDS.includes("timeout"));
+  const doc = [RECORDS.oauth1, RECORDS.widget1, RECORDS.oauth2, RECORDS.widget2, RECORDS.timeout, RECORDS.oauth3].join("");
+  const out = must(splitRelevance(doc, OAUTH_QUERY, true)).text;
+  assert.ok(out.includes(`${RECORDS.oauth2}${RECORDS.widget2}${RECORDS.timeout}${RECORDS.oauth3}`));
+  assert.ok(!out.includes(RECORDS.widget1)); // the keyword-free widget run is still elided
+  assert.match(out, /\n\[3 low-relevance lines in 1 run elided\. Retrieve original: hash=[0-9a-f]{12}\]$/);
+});
+
+test("splitRelevance declines a multi-line JSON span across a record cut, and adopts only what beats the whole-text fold", () => {
+  const json = JSON.stringify({ widgets: Array.from({ length: 12 }, (_, i) => ({ id: i })) }, null, 2);
+  assert.equal(splitRelevance(`${RECORDS.oauth1}${json}\n\n${RECORDS.oauth2}`, OAUTH_QUERY, true), undefined);
+  const jsonl = Array.from({ length: 12 }, (_, i) => JSON.stringify({ id: i, note: "widget gallery thumbnails" })).join("\n");
+  assert.ok(splitRelevance(`${RECORDS.oauth1}${jsonl}\n\n${RECORDS.oauth2}`, OAUTH_QUERY, true)); // one-line records never straddle
+  // Thirty identical filler lines: the whole-text fold already collapses them to two lines, which the split cannot beat.
+  const filler = `${"widget gallery filler line kept for layout\n".repeat(30)}\n`;
+  const doc = `${RECORDS.oauth1}${filler}${RECORDS.oauth3}`;
+  assert.ok(foldText(doc));
+  assert.equal(splitRelevance(doc, OAUTH_QUERY, true), undefined);
+  // With the text crusher's lever off the split never calls that fold, so the raw text is its baseline: adopted.
+  assert.ok(splitRelevance(doc, OAUTH_QUERY, false));
+});
+
+test("with the split on and the text crusher off, KEEP runs stay raw and the baseline is the raw text (user decision)", () => {
+  const repeated = "Each oauth token refresh is logged with its expiry.\n".repeat(4);
+  const doc = `${RECORDS.oauth1}${repeated}\n${RECORDS.widget1}${RECORDS.widget2}${RECORDS.oauth3}`;
+  const raw = must(splitRelevance(doc, OAUTH_QUERY, false)).text;
+  assert.ok(raw.includes(repeated));
+  assert.doesNotMatch(raw, RUN_LINE);
+  assert.match(must(splitRelevance(doc, OAUTH_QUERY, true)).text, RUN_LINE); // with the fold's lever on, the KEEP run folds
+  const r = route(doc, only({ split: true, textcrush: false }), "Bash", OAUTH_QUERY);
+  assert.equal(stored(r), raw);
+  assert.deepEqual([r?.split.texts, r?.textcrush.texts], [1, 0]);
+});
+
+test("the text route: a split rewrite ends the route ahead of the text crusher, which runs when the split declines", () => {
+  const both = only({ split: true, textcrush: true, elide: true });
+  const r = route(OAUTH_DOC, both, "Bash", OAUTH_QUERY);
+  assert.equal(stored(r), splitRelevance(OAUTH_DOC, OAUTH_QUERY, true)?.text);
+  assert.deepEqual([r?.split.texts, r?.textcrush.texts], [1, 0]);
+  const prose = sentences(20).join("\n");
+  const noQuery = route(prose, both); // an empty query: the split declines, the crusher runs
+  assert.deepEqual([noQuery?.split.texts, noQuery?.textcrush.texts], [0, 1]);
+});
+
+test("the relevance split routes on prose only: a build log and a grep dump with a matching query are never split (user decision)", () => {
+  const log = [...infoTicks(60), "ERROR linker exited with code 1"].join("\n");
+  const grep = grepRows(["src/alpha.py", "src/beta.py"], 40).join("\n");
+  assert.equal(detectContentType(log), "build");
+  assert.equal(detectContentType(grep), "search");
+  for (const text of [log, grep]) {
+    const r = route(text, only({ split: true, elide: true }), "Bash", "linker compute_3 argument_21 module_7");
+    assert.equal(r?.split.texts ?? 0, 0);
+  }
+});
+
+test("the relevance split leaves Read output, line-numbered text, tagged text and error rows whole, and alone triggers detection", () => {
+  const lv = only({ split: true });
+  assert.equal(route(OAUTH_DOC, lv, "Bash", OAUTH_QUERY)?.split.texts, 1);
+  assert.equal(route(OAUTH_DOC, lv, "Read", OAUTH_QUERY), undefined);
+  assert.equal(route(`1\t${OAUTH_DOC}`, lv, "Bash", OAUTH_QUERY), undefined);
+  assert.equal(route(`${OAUTH_DOC}\n<system-reminder>keep</system-reminder>`, only({ split: true, tags: true }), "Bash", OAUTH_QUERY), undefined);
+  assert.equal(rewriteToolResults([toolResult(OAUTH_DOC, true)], "Bash", lv, OAUTH_QUERY), undefined);
+  assert.equal(route(OAUTH_DOC, lv), undefined); // no query: no split
+});
+
+test("splitRelevance stays bounded on an unclosed multi-line JSON span with a 16 KiB query", () => {
+  const text = `{\n${"the oauth token refresh line keeps going\n".repeat(25_000)}`;
+  assert.ok(text.length >= 1_000_000);
+  const query = Array.from({ length: 2000 }, (_, i) => `term${i} oauth`)
+    .join(" ")
+    .slice(0, 16_384);
+  const t0 = Date.now();
+  splitRelevance(text, query, true);
   assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0} ms`);
 });

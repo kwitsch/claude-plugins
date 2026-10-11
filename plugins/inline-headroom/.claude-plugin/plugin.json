@@ -82,6 +82,12 @@
       "description": "Shorten prose tool results of 6+ sentences, subagent reports and markdown output included (headroom TextCrusher, standing in for its ML Kompress): keeps about half the characters, preferring recent, query-relevant and fact-dense sentences and dropping near-duplicates; collapsing repeated lines wins when the cut saves under 5% more. Line breaks and indentation of the kept sentences are not kept. The original stays retrievable via headroom_retrieve while the mod is loaded. Never rewrites error results or Read output.",
       "default": true
     },
+    "relevance_split_enabled": {
+      "type": "boolean",
+      "title": "Relevance split",
+      "description": "In prose tool results, keep the records (paragraphs, short line groups) that match the conversation's recent requests and elide the rest behind one-line notes (headroom relevance split, BM25 scoring); a record group holding an error word is always kept, and a result where nothing matches is left to the text crusher. The original stays retrievable via headroom_retrieve while the mod is loaded. Never rewrites error results or Read output.",
+      "default": true
+    },
     "tag_protector_enabled": {
       "type": "boolean",
       "title": "Tag protector",
