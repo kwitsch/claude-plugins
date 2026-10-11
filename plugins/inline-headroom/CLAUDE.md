@@ -197,7 +197,7 @@ Deviations from upstream:
 - Candidates are tool_result texts as the model reads them, from any tool; the
   Bash record guards are dropped because each guarded case renders text that is
   not one JSON document, so the whole-document parse rejects it. Read results
-  carry `N\t` line numbers and never parse. A row carries no `context`, so the
+  carry `N\t` line numbers and never parse as JSON (nor as HTML: see `## Content router`). A row carries no `context`, so the
   former `context` carry-over is moot, and a subagent row's query comes from
   `$.session.messages({ agentId })`. The crusher's thresholds and algorithm are
   unchanged.
@@ -606,7 +606,7 @@ Ported verbatim:
 - Tier 2: whole-line comments (`^\s*#`; INI only column-0 `#` or `;`) and,
   outside INI, blank lines are dropped behind
   `[N comment/blank lines elided. Retrieve original: hash=H]`, the original
-  stored first; skipped for a YAML block scalar or a TOML multi-line string.
+  stored first; skipped for a YAML block scalar (`key: |`, or a sequence item `- |`) or a TOML multi-line string.
 - Tier 1: runs of 2+ identical lines become `... (repeated N times)`, then a
   run of 3 to 64 lines repeating the lines D back (K <= D) becomes
   `... (repeats K lines from D lines back)` when its characters exceed the
@@ -735,7 +735,7 @@ Deviations:
   every `<` that is no tag and walks the whole stack per close), so many custom
   opens followed by many non-matching closes would go quadratic.
 - The content of an HTML5 `<svg>` or `<math>` element, up to its first
-  case-insensitive close tag, is not scanned: SVG and MathML children (`path`,
+  case-insensitive close tag (an unclosed one skips nothing), is not scanned: SVG and MathML children (`path`,
   `g`, `mi`, …) are no workflow tags, and without this the elider would stop
   eliding SVG path data.
 - The spans inside a matched block are dropped by popping the tail of the
@@ -746,8 +746,6 @@ Deviations:
   earlier behaviour.
 - Cost: up to two budgeted scans per text holding a `<` (in the route and
   before dedup), three for an HTML page the extractor rewrote.
-
-## Content router
 
 ## Content router
 
@@ -809,6 +807,8 @@ Deviations from upstream:
   search, log and code checks: the PHP and C# stack-trace patterns backtrack
   quadratically, and detection runs synchronously on every appended result. A
   signal beyond that column of a line goes unseen.
+- A text whose first line carries an `N\t` line number (Read output, `cat -n`) is never labelled `html`: it is a
+  file's source, and extracting it would leave the Edit tool nothing to match.
 - The detector returns only the tag: no confidence and no metadata (language,
   counts), since nothing consumes them.
 

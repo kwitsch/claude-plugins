@@ -1111,6 +1111,8 @@ test("detectContentType counts a lone diff header as a diff and reads only the f
 test("detectContentType needs real HTML signals", () => {
   assert.notEqual(detectContentType("<div>hello</div>"), "html");
   assert.equal(detectContentType("<!DOCTYPE html>\n<html>\n<body><p>hi</p></body>\n</html>"), "html");
+  // Read output (`N\t` line numbers) is a file's source: it must never be extracted to text
+  assert.notEqual(detectContentType("1\t<!DOCTYPE html>\n2\t<html>\n3\t<body><p>hi</p></body>\n4\t</html>"), "html");
 });
 
 test("detectContentType recognizes git status only with a heading and a path entry", () => {
@@ -1788,6 +1790,9 @@ test("compressConfig keeps comment lines that may be data, keeps INI blank lines
   const blockScalar = "config:\n  script: |\n    # this hash line is DATA inside a block scalar\n    echo hi\n  replicas: 3\n  image: nginx\n  ports:\n    - 80\n";
   assert.equal(flavorOf(blockScalar), "yaml");
   assert.equal(compressConfig(blockScalar), undefined);
+  const seqScalar = "steps:\n  - |\n    echo a\n\n    # not a comment\n    echo b\n  - name: x\n  - name: y\n";
+  assert.equal(flavorOf(seqScalar), "yaml");
+  assert.equal(compressConfig(seqScalar), undefined); // a sequence-item block scalar too
   const tomlMultiline = '[a]\ntext = """\n# not a comment\n"""\nx = "1"\ny = "2"\n';
   assert.equal(flavorOf(tomlMultiline), "toml");
   assert.equal(compressConfig(tomlMultiline), undefined);
@@ -1968,6 +1973,8 @@ test("tagSpans keeps duplicates apart, collapses deep nesting and ignores orphan
   assert.deepEqual(spanTexts("<custom>x</div> y</custom>"), ["<custom>x</div> y</custom>"]); // an HTML close inside a block
   // Deviation: SVG and MathML children are not workflow tags.
   assert.deepEqual(spanTexts('<svg viewBox="0 0 1 1"><g><path d="M0 0"/></g></svg> <note>x</note> <math><mi>x</mi></math>'), ["<note>x</note>"]);
+  assert.deepEqual(spanTexts('<svg viewBox="0 0 1 1">\n<note>x</note>'), ["<note>x</note>"]); // an unclosed svg or math hides nothing after it
+  assert.deepEqual(spanTexts("x <math> y <note>x</note>"), ["<note>x</note>"]);
 });
 
 test("tagSpans returns null when unterminated quotes or a deep stack of unmatched opens exhaust its budget", () => {

@@ -229,9 +229,10 @@ const INI_KEY_CHAR_RE = /[\w.\-@ ]/;
 const TOML_STRING_RE = /^(?:"(?:[^"\\]|\\.)*"|'[^']*')\s*(?:#.*)?$/;
 const TOML_NUMBER_RE = /^[+-]?(?:\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d[\d_]*)?|0x[\dA-Fa-f_]+|0o[0-7_]+|0b[01_]+|inf|nan)$/;
 const TOML_DATETIME_RE = /^\d{4}-\d{2}-\d{2}(?:[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})?)?$|^\d{2}:\d{2}:\d{2}(?:\.\d+)?$/;
+const LINE_NUMBERED_RE = /^\s*[1-9]\d*\t/;
 const CONFIG_MAX_CHARS = 1_000_000;
 // Config compressor: upstream config_compressor.py and lossless_compaction.py (collapse_runs, fold_repeated_blocks).
-const YAML_BLOCK_SCALAR_RE = /:\s*[|>][+-]?\d*\s*$/m;
+const YAML_BLOCK_SCALAR_RE = /(?::\s*|^\s*-\s+)[|>][+-]?\d*\s*$/m; // `key: |` or a sequence item `- |`
 const TOML_MULTILINE_RE = /"""|'''/;
 const RUN_MARKER_RE = /^\.\.\. \(repeated (\d+) times\)$/;
 const BLOCK_MARKER_RE = /^\.\.\. \(repeats (\d+) lines from (\d+) lines back\)$/;
@@ -3027,7 +3028,7 @@ function closeTagRe(name) {
  * ranges of every custom (non-HTML5, case-insensitive) tag block `<name …>…</name>`, nested ones collapsed into the outermost,
  * and of every self-closing custom tag `<name/>`. A close matches the top-most open of its name; an orphan close or open is
  * never protected. Deviation: the content of an HTML5 `<svg>` or `<math>` element is not scanned (SVG and MathML children
- * are no workflow tags). The scanned characters and every stack entry a close examines share a budget of 4 per character
+ * are no workflow tags; an unclosed one skips nothing). The scanned characters and every stack entry a close examines share a budget of 4 per character
  * + 4096; null when it runs out, and such a text must be passed through whole (upstream walks without a bound).
  * @param {string} text
  * @returns {[number, number][]|null} sorted, disjoint spans; null when the text is unprotectable
@@ -3056,8 +3057,7 @@ export function tagSpans(text) {
         const m = re.exec(text);
         budget.left -= (m ? re.lastIndex : text.length) - t.end;
         if (budget.left < 0) return null;
-        if (!m) break;
-        next = re.lastIndex;
+        if (m) next = re.lastIndex; // unclosed: its content is scanned like any other, so a later workflow tag stays protected
       }
     } else if (!t.close) {
       if (t.selfClosing) spans.push([i, t.end]);
@@ -3250,7 +3250,8 @@ export function detectContentType(text) {
   // and detection runs synchronously on every appended result. A signal beyond that column of a line goes unseen.
   const head = detectHead(text);
   if (diffConfidence(head) >= 0.7) return "diff";
-  if (htmlConfidence(text.slice(0, 3000)) >= 0.7) return "html";
+  // Deviation: line-numbered output (Read, `cat -n`) is a file's source, never a page to extract: the Edit tool must still match it.
+  if (!LINE_NUMBERED_RE.test(text) && htmlConfidence(text.slice(0, 3000)) >= 0.7) return "html";
   if (isGitStatus(text)) return "tabular";
   if (searchConfidence(head.slice(0, 100)) >= 0.6) return "search";
   if (logConfidence(head.slice(0, 200)) >= 0.5) return "build";
