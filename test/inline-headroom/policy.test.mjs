@@ -19,7 +19,9 @@ import {
   compactionJson,
   computeOptimalK,
   crushJson,
+  crushNumberArray,
   crushQuery,
+  crushStringArray,
   dayKey,
   detectContentType,
   dedupBlock,
@@ -30,9 +32,11 @@ import {
   isCacheDrop,
   isOwnStorageCall,
   isToolError,
+  numberChangePoints,
   resetCorpus,
   retrieveKey,
   rewriteToolResults,
+  roundHalfEven,
   statsTables,
   stepEffort,
   storeOffloaded,
@@ -1446,4 +1450,112 @@ test("rewriteToolResults books a lossless table under compaction, not the crushe
   // The crusher off and compaction on is upstream's lossless_only: still a table, and an array that does not compact stays whole.
   assert.equal(rewrite([toolResult(BIG)], "Bash", levers({ crush: false, compact: true })).content[0].content, text);
   assert.equal(rewriteToolResults([toolResult(oneKeyRows(20, 40))], "Bash", levers({ crush: false, compact: true }), ""), undefined);
+});
+
+// String, number and mixed-array crushers (upstream crushers.rs and crusher.rs's crush_mixed_array).
+
+const ITEMS_SENTINEL = /^… (\d+) more items <<ccr:([0-9a-f]{12}) \1_items_offloaded>>$/;
+// 30 log lines: 5 unique, 20 copies of one filler line, 5 unique, with an error line at 12 and a 400-character line at 18.
+const LOG_LINES = [
+  ...Array.from({ length: 5 }, (_, i) => `unique opening line number ${i} of the build log output`),
+  ...Array.from({ length: 20 }, () => "repeated filler line from the build log output"),
+  ...Array.from({ length: 5 }, (_, i) => `unique closing line number ${i} of the build log output`),
+];
+LOG_LINES[12] = "ERROR: linking failed at step twelve of the build";
+LOG_LINES[18] = "x".repeat(400);
+// A flat series around 0 with a 5-value spike of about 112 at indices 12..16.
+const SPIKE = Array.from({ length: 30 }, (_, i) => (i < 12 || i >= 17 ? i / 1000 : 100 + i));
+
+/**
+ * The sample standard deviation, as the number crusher computes it.
+ * @param {readonly number[]} xs
+ */
+function sampleSd(xs) {
+  const m = xs.reduce((a, b) => a + b, 0) / xs.length;
+  return Math.sqrt(xs.reduce((a, x) => a + (x - m) ** 2, 0) / (xs.length - 1));
+}
+
+test("roundHalfEven rounds a tie to the even integer, as Python's round does", () => {
+  assert.deepEqual([0.5, 1.5, 2.5, 3.5, 4.5, 2.4, 2.6, 3].map(roundHalfEven), [0, 2, 2, 4, 4, 2, 3, 3]);
+});
+
+test("crushStringArray keeps errors, length anomalies and the first and last items, and skips repeats in its stride", () => {
+  const kept = crushStringArray(LOG_LINES);
+  assert.ok(kept.length < LOG_LINES.length, String(kept.length));
+  for (const s of [LOG_LINES[0], LOG_LINES[12], LOG_LINES[18], LOG_LINES[29]]) assert.ok(kept.includes(s), s.slice(0, 40));
+  assert.equal(kept.filter((s) => s === "repeated filler line from the build log output").length, 1);
+  const order = kept.map((s) => LOG_LINES.indexOf(s));
+  assert.deepEqual(
+    order,
+    [...order].sort((a, b) => a - b),
+  ); // the original order
+  const eight = LOG_LINES.slice(0, 8);
+  assert.equal(crushStringArray(eight), eight); // 8 or fewer: passed through
+});
+
+test("numberChangePoints marks every shifted window, even 1 apart, where the dict analyzer's spacing rule keeps one", () => {
+  assert.deepEqual(numberChangePoints(SPIKE, sampleSd(SPIKE)), [11, 12, 17, 18]); // changePoints would keep 11 and 17 only
+  const jump = [0, 0, 0, 0, 0, 100, 100, 100, 100, 100];
+  assert.deepEqual(numberChangePoints(jump, sampleSd(jump)), []); // 10 numbers: never checked (upstream n > 10)
+  // At 11 numbers the one window pair is two groups of 5, whose mean gap can never pass 2 sample σ: none either.
+  const eleven = [0, 0, 0, 0, 0, 100, 100, 100, 100, 100, 50];
+  assert.deepEqual(numberChangePoints(eleven, sampleSd(eleven)), []);
+});
+
+test("crushNumberArray keeps outliers, change points and the first and last numbers", () => {
+  const kept = crushNumberArray(SPIKE);
+  assert.ok(kept.length < SPIKE.length, String(kept.length));
+  for (const i of [0, 11, 12, 13, 14, 15, 16, 17, 18, 29]) assert.ok(kept.includes(SPIKE[i]), String(i));
+  assert.deepEqual(
+    kept,
+    [...kept].sort((a, b) => SPIKE.indexOf(a) - SPIKE.indexOf(b)),
+  );
+  const eight = SPIKE.slice(0, 8);
+  assert.equal(crushNumberArray(eight), eight);
+});
+
+test("crushJson closes a string array that lost items with a retrievable sentinel string", () => {
+  const r = crushText(JSON.stringify({ lines: LOG_LINES }));
+  const lines = r.out.lines;
+  const [, n, hash] = ITEMS_SENTINEL.exec(lines.at(-1)) ?? [];
+  assert.equal(Number(n), LOG_LINES.length - (lines.length - 1));
+  assert.equal(r.rowsDropped, Number(n));
+  assert.deepEqual(r.offloaded, [[hash, JSON.stringify(LOG_LINES)]]);
+  const rw = rewrite([toolResult(JSON.stringify({ lines: LOG_LINES }))], "Bash", levers());
+  assert.equal(rw.crush.dropped, Number(n)); // dropped items count in the crusher's column
+});
+
+test("crushJson groups a mixed array by type, and a dict group that compacts keeps every row", () => {
+  /** @type {unknown[]} */
+  const mix = [];
+  for (let i = 0; i < 20; i++)
+    mix.push(`build step ${i} finished ok`, i === 7 ? 5000 : 10 + (i % 2), {
+      id: i,
+      status: "ok",
+      note: "the same note on every row of it",
+    });
+  mix.push(null, null, null);
+  const r = crushWith(JSON.stringify({ mix }), BOTH);
+  const out = /** @type {unknown[]} */ (JSON.parse(r.text).mix);
+  const [, n, hash] = ITEMS_SENTINEL.exec(String(out.at(-1))) ?? [];
+  assert.equal(out.filter((x) => typeof x === "object" && x !== null).length, 20); // the table won, so the group stays whole
+  assert.equal(out.filter((x) => x === null).length, 3); // a group under 5 is kept
+  assert.deepEqual(
+    out.filter((x) => typeof x === "number"),
+    [10, 5000, 11],
+  ); // first, outlier, last
+  assert.equal(r.rowsDropped, Number(n));
+  assert.deepEqual([r.compacted, r.offloaded], [0, [[hash, JSON.stringify(mix)]]]);
+  // Without compaction the dict group is crushed like any dict array.
+  const lossy = JSON.parse(crushText(JSON.stringify({ mix })).text).mix;
+  assert.ok(lossy.filter((/** @type {unknown} */ x) => typeof x === "object" && x !== null).length < 20);
+});
+
+test("crushJson keeps short and lossless-only scalar arrays whole and no longer descends into a 5-8 item mixed array", () => {
+  assert.equal(crushJson(JSON.stringify({ lines: LOG_LINES.slice(0, 8), pad: "y".repeat(900) }), ""), undefined); // 8 strings pass through
+  assert.equal(crushJson(JSON.stringify({ lines: LOG_LINES }), "", LOSSLESS_ONLY), undefined); // no sentinel without the lossy stage
+  // A mixed array of 5 is a mixed array (upstream): crushMixedArray passes it through and nothing inside it is crushed any more.
+  assert.equal(crushJson(JSON.stringify({ mix: [1, "a", null, true, { rows: STATUS_ROWS }] }), ""), undefined);
+  // 4 items are still descended into, as before.
+  assert.match(crushText(JSON.stringify({ mix: [1, "a", null, { rows: STATUS_ROWS }] })).out.mix[3].rows.at(-1)._ccr_dropped, SENTINEL);
 });

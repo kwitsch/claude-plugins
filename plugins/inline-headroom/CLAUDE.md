@@ -211,12 +211,11 @@ Deviations from upstream:
   input back to the agent's start on each JSON result (O(n²) over its life).
 - JS regex `\b` is ASCII-only where Rust's is Unicode, and lengths count UTF-16
   code units where upstream counts UTF-8 bytes (length score, quoted anchors).
-- Deferred: the string, number and mixed-array crushers, opaque-blob CCR,
-  TOIN / `preserve_fields`, `factor_out_constants`, `include_summaries`,
-  tabular ingest (CSV text turned into records: upstream's own lossless-first
-  stage makes it a no-op on CSV, and the markdown and fixed-width tables it
-  would also take need the omitted detector branches plus a CSV parser) and the
-  embedding scorer (stubbed upstream too).
+- Deferred: opaque-blob CCR, TOIN / `preserve_fields`, `factor_out_constants`,
+  `include_summaries`, tabular ingest (CSV text turned into records: upstream's
+  own lossless-first stage makes it a no-op on CSV, and the markdown and
+  fixed-width tables it would also take need the omitted detector branches
+  plus a CSV parser) and the embedding scorer (stubbed upstream too).
 
 Default-behaviour change of this lever (0.7.0): with
 `lossless_compaction_enabled` on (the default) the lossless table of
@@ -226,6 +225,59 @@ rows where the array stood) instead of sampled rows plus a `_ccr_dropped`
 sentinel, and nothing is dropped. The crushed text is still one compact JSON
 line, so what dedup and the elider see does not change.
 `lossless_compaction_enabled: false` restores the lossy-only output.
+
+### String, number and mixed-array crushers
+
+The remaining arms of upstream `process_value` (`crushers.rs`
+`crush_string_array`, `crush_number_array` and `compute_k_split`, and
+`crusher.rs` `classify_array`, `crush_mixed_array` and
+`append_scalar_drop_sentinel`, read 2026-10-11 at 976aa71), as
+`crushStringArray`, `crushNumberArray`, `crushMixedArray` and
+`numberChangePoints`. They are part of `smart_crusher_enabled` (arms of one
+upstream component behind one toggle), run only with the lossy stage, and
+count their dropped items in the `smart crusher` table's `dropped`.
+
+Ported verbatim:
+
+- `classify_array`: an array of one JSON type is a dict, string or number
+  array; bool-only, nested-only and empty arrays are recursed into; any mix of
+  types, or any null, is mixed. Only arrays of 5 or more items are classified.
+- `compute_k_split` with the BUG #4 clamp: the adaptive K, its first 30% and
+  last 15% (at least 1 each, rounded half to even), clamped so both fit in K.
+- The string crusher: 8 or fewer items pass through; error-keyword items,
+  length anomalies (code points more than 2 sample σ from the mean) and the
+  first and last K always stay; a stride tops the kept set up to K plus the
+  errors and anomalies, skipping repeats of a kept string; the order is kept.
+- The number crusher: outliers (more than 2 sample σ), change points (more
+  than 10 numbers, window 5, the mean of the 5 before against the 5 from each
+  index, more than 2σ apart, no spacing rule) and the first and last K stay; a
+  stride tops the kept set up to K plus the outliers.
+- The mixed crusher: groups by JSON type in first-seen order, a group under 5
+  items kept whole; the dict group through the dict path with the caller's
+  stages (a winning table keeps the group whole, dropped rows matched back by
+  sorted-key JSON), the string group keeping every copy of a kept string, the
+  number group its first and last K plus its outliers, every other group whole.
+- A string, number or mixed array is never descended into, whether or not it
+  lost items; one that lost items ends with the string sentinel
+  `… N more items <<ccr:HASH N_items_offloaded>>` (U+2026), its compact JSON
+  stored under the hash. Without the lossy stage (`lossless_only`) such arrays
+  stay whole.
+
+Deviations:
+
+- Number items feed `compute_k_split` as `String(n)` where upstream keeps the
+  original lexeme (`1.0`, `1e21` spell differently), a minor simhash
+  difference.
+- The strategy/debug string (and its percentile logic) is not ported: nothing
+  reads it.
+- `numberChangePoints` is its own helper: the dict analyzer's `changePoints`
+  needs 10 values and keeps a point only more than 5 past the previous one,
+  which upstream's number crusher does not.
+
+Behaviour change of this lever (0.7.0): string, number and mixed arrays of 9
+or more items inside a crushable document now lose items behind the sentinel
+above, and string, number and mixed arrays of 5 to 8 items are no longer
+descended into (a dict array nested in one stays whole), as upstream.
 
 Wiring in `register.ts`, shared by every compression lever:
 
