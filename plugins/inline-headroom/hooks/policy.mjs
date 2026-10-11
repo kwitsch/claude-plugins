@@ -4625,6 +4625,8 @@ export function compressSearch(text, query) {
 const DIFF_MAX_CONTEXT = 2;
 const DIFF_MAX_HUNKS = 10;
 const DIFF_MAX_FILES = 20;
+// The footer names at most this many files the cap dropped.
+const DIFF_OMITTED_NAMES = 10;
 const DIFF_MIN_LINES = 50;
 // Upstream _DIFF_INDEX_RE: git's blob bookkeeping line, which a diff does not need to apply.
 const DIFF_INDEX_RE = /^index [0-9a-fA-F]+\.\.[0-9a-fA-F]+( [0-7]+)?$/;
@@ -4841,11 +4843,14 @@ export function compressDiff(text, query) {
   /** @type {string[]} */
   const out = [];
   for (const l of pre) out.push(l);
-  for (const f of files) {
+  // Deviation: the totals count every file, and a file the cap dropped is named, so the footer never understates the change.
+  for (const f of parsed)
     for (const h of f.hunks) {
       adds += h.additions;
       dels += h.deletions;
     }
+  const dropped = parsed.filter((f) => !files.includes(f)).map((f) => f.header.replace(/^diff --git a\/.* b\//, ""));
+  for (const f of files) {
     const hunks = selectHunks(f.hunks).map(reduceContext);
     omitted += f.hunks.length - hunks.length;
     for (const l of f.prefix) out.push(l);
@@ -4865,7 +4870,8 @@ export function compressDiff(text, query) {
     }
   }
   for (const l of post) out.push(l);
-  out.push(`[${files.length} files changed, +${adds} -${dels} lines${omitted > 0 ? `, ${omitted} hunks omitted` : ""}]`);
+  const names = dropped.slice(0, DIFF_OMITTED_NAMES).join(", ") + (dropped.length > DIFF_OMITTED_NAMES ? ", …" : "");
+  out.push(`[${parsed.length} files changed, +${adds} -${dels} lines${omitted > 0 ? `, ${omitted} hunks omitted` : ""}${dropped.length ? `; ${dropped.length} files omitted: ${names}` : ""}]`);
   const hash = contentHash(text);
   const result = `${out.join("\n")}\n[${lines.length} lines compressed to ${out.length}. Retrieve original: hash=${hash}]`;
   return result.length < text.length ? { text: result, offloaded: [[hash, text]] } : undefined;
@@ -4924,6 +4930,31 @@ function splitSegments(text) {
     push(t.slice(start));
   }
   return segs;
+}
+
+/**
+ * Whether a text reads as prose: at least half its non-empty lines hold a sentence end (`.`, `!` or `?` before whitespace or
+ * the line end). Deviation (user decision): the text crusher and the relevance split run only on prose, since upstream's
+ * one-segment-per-line fallback would halve a Glob, find, ls or `git log --oneline` listing. One linear pass.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function isProse(text) {
+  let lines = 0;
+  let ended = 0;
+  for (const line of text.split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    lines++;
+    for (let i = 0; i < t.length; i++) {
+      const c = t[i];
+      if ((c === "." || c === "!" || c === "?") && (i + 1 === t.length || /\s/.test(t[i + 1]))) {
+        ended++;
+        break;
+      }
+    }
+  }
+  return lines > 0 && ended * 2 >= lines;
 }
 
 /**
@@ -5306,6 +5337,8 @@ function isProtectedTool(tool) {
 
 // Tools whose results the model reads back verbatim to build its next Edit: a Read file, an Edit/Write `cat -n` snippet.
 const VERBATIM_TOOLS = new Set(["Read", "Edit", "Write", "NotebookEdit"]);
+// An Agent/Task hand-back report carries the agentId the model resumes it with: never cut by the text crusher or the split.
+const REPORT_TOOLS = new Set(["Agent", "Task"]);
 
 /**
  * A tool_result block whose texts are never rewritten (dedup still indexes them): an error, or a protected tool's row.
@@ -5428,6 +5461,10 @@ function rewriteRow(content, tool, levers, query) {
       let cur = text;
       // A text the router compressors may rewrite: not Read output, not line-numbered.
       const fresh = !verbatimTool && !LINE_NUMBERED_RE.test(text);
+      // The text crusher and the split take only prose, and never an Agent/Task report; computed once, on first need.
+      /** @type {boolean|undefined} */
+      let prose;
+      const proseOk = () => (prose ??= !REPORT_TOOLS.has(tool) && isProse(text));
       // With only the elider on, every route runs just `elide`: skip the detection that cannot change the outcome.
       const type = routed ? detectContentType(text) : "text";
       for (const step of ROUTES[type]) {
@@ -5482,13 +5519,13 @@ function rewriteRow(content, tool, levers, query) {
         } else if (step === "difffold" && levers.diff && fresh && spans.length === 0 && cur === text) {
           const r = foldDiff(cur);
           if (r) next = adopt(acc.diff, cur, r);
-        } else if (step === "textcrush" && levers.textcrush && fresh && spans.length === 0) {
+        } else if (step === "textcrush" && levers.textcrush && fresh && spans.length === 0 && proseOk()) {
           const r = crushText(cur, query);
           if (r && overFold(r, foldText(cur))) next = adopt(acc.textcrush, cur, r);
         } else if (step === "textfold" && levers.textcrush && fresh && spans.length === 0 && cur === text) {
           const r = foldText(cur);
           if (r) next = adopt(acc.textcrush, cur, r);
-        } else if (step === "split" && levers.split && fresh && spans.length === 0) {
+        } else if (step === "split" && levers.split && fresh && spans.length === 0 && proseOk()) {
           // foldText belongs to the text crusher's lever: the split folds its KEEP runs only while that lever is on.
           const r = splitRelevance(cur, query, !!levers.textcrush);
           if (r) next = adopt(acc.split, cur, r);

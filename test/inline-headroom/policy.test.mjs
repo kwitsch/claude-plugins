@@ -49,6 +49,7 @@ import {
   isCacheDrop,
   isIniAssign,
   isOwnStorageCall,
+  isProse,
   isToolError,
   numberChangePoints,
   otsuThreshold,
@@ -2723,9 +2724,12 @@ test("compressDiff keeps the first, the last and 8 middle hunks of a file, count
 
 test("compressDiff keeps the 20 most-changed of more files (upstream max_files_cap_drops_files_and_records_names_in_stats)", () => {
   const out = must(compressDiff(syntheticDiff(25), "")).text;
-  assert.match(out, /\n\[20 files changed, \+100 -60 lines\]\n/);
+  // Deviation: the footer counts all 25 files and names the 5 the cap dropped.
+  assert.match(out, /\n\[25 files changed, \+125 -75 lines; 5 files omitted: file_20\.py, file_21\.py, file_22\.py, file_23\.py, file_24\.py\]\n/);
   assert.ok(out.includes("diff --git a/file_19.py b/file_19.py"));
-  assert.ok(!out.includes("file_20.py"));
+  assert.ok(!out.includes("diff --git a/file_20.py"));
+  const many = must(compressDiff(syntheticDiff(40), "")).text;
+  assert.match(many, /; 20 files omitted: file_20\.py, (?:file_\d+\.py, ){9}…\]\n/); // at most 10 names
 });
 
 test("compressDiff normalises mode and binary lines and keeps rename lines, combined hunks, no-newline markers and pre-diff lines (upstream file_mode, binary, bugfix and gap tests)", () => {
@@ -2948,6 +2952,24 @@ test("the text route: the text crusher beats a declining fold and a fold it out-
   const r = route(retries, only({ textcrush: true, elide: true }));
   assert.equal(stored(r), retryFold.text);
   assert.deepEqual([r?.textcrush.texts, r?.elide.lines, r?.offloaded], [1, 0, []]);
+});
+
+test("the text crusher and the split take only prose: a Glob, find or git log listing passes through whole", () => {
+  const paths = Array.from({ length: 40 }, (_, i) => `src/components/feature_${i}/index.ts`).join("\n");
+  const commits = Array.from({ length: 30 }, (_, i) => `${(0xabc000 + i).toString(16)} fix: adjust the scheduler for queue ${i}`).join("\n");
+  for (const list of [paths, commits]) {
+    assert.equal(isProse(list), false);
+    assert.equal(detectContentType(list), "text");
+    for (const tool of ["Glob", "Bash"]) assert.equal(route(list, only({ textcrush: true, split: true })), undefined, tool);
+  }
+  assert.equal(isProse(sentences(20).join("\n")), true);
+  assert.equal(isProse("- one item ends here.\n- another without an end\n"), true); // half the lines end a sentence
+});
+
+test("an Agent or Task report is never cut by the text crusher or the split", () => {
+  const report = `${sentences(20).join("\n")}\nagentId: a1b2c3 (use SendMessage with to: 'a1b2c3' to continue this agent)`;
+  assert.ok(route(report, only({ textcrush: true }), "Bash")); // the same text from another tool is crushed
+  for (const tool of ["Agent", "Task"]) assert.equal(route(report, only({ textcrush: true, split: true }), tool), undefined, tool);
 });
 
 test("the text route: a crushed text is never folded, and the elider still runs on it", () => {

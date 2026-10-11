@@ -1265,9 +1265,10 @@ const CRUSHED = /\n\[Text crushed: \d+ of (\d+) segments kept\. Retrieve origina
 test("(tc1) a prose report is stored crushed, its original is retrievable, and /headroom counts it", { options: { storage_enabled: false } }, async ($, on) => {
   on("ui.open", notPlaced);
   await startCrusher(on, $);
-  const stored = String(await appendResult($, "Agent", REPORT));
+  const stored = String(await appendResult($, "Bash", REPORT));
   const [, total, hash] = CRUSHED.exec(stored) ?? [];
   expect(Number(total)).toBe(12);
+  expect(String(await appendResult($, "Agent", REPORT))).not.toMatch(CRUSHED); // an Agent report is never crushed (dedup may still fold it)
   expect((await $.tool.call({ tool: RETRIEVE_TOOL, hash })).result).toBe(REPORT);
   const [, texts, saved] = TEXT_ROW.exec((await $.command.run({ command: "headroom" })).text ?? "") ?? [];
   expect(Number(texts)).toBe(1);
@@ -1283,9 +1284,9 @@ test("(tc2) text_crusher_enabled false keeps a prose report whole and hides the 
 
 test("(tc3) by default dedup indexes the crushed form: a repeated prose row is crushed the same way, then folded into one pointer", { options: { storage_enabled: false } }, async ($, on) => {
   await startCrusher(on, $);
-  const first = String(await appendResult($, "Bash", TEN));
+  const first = String(await appendResult($, "Bash", REPORT));
   expect(first).toMatch(CRUSHED);
-  expect(String(await appendResult($, "Bash", TEN))).toMatch(POINTER);
+  expect(String(await appendResult($, "Bash", REPORT))).toMatch(POINTER);
 });
 // Prose records: three about the oauth token refresh, two about widgets; the user asked about the refresh.
 const OAUTH_NOTES = [

@@ -886,6 +886,10 @@ compressed to M. Retrieve original: hash=H]` (M counts the lines before the
 - Context words are deduped and capped (`contextWords`; upstream counts a
   repeated word twice and matches every word), and CJK query bigrams are not
   added.
+- The footer counts every file and line, not only the 20 the cap keeps, and
+  ends with `; N files omitted: <b-paths>` (at most `DIFF_OMITTED_NAMES`, 10,
+  names, then `…`) when the cap dropped files (user decision; upstream's footer
+  counts only the kept files and records the dropped names in its stats alone).
 - The `diff --git a/(.+) b/(.+)$` header test is hand-written (the regex would
   backtrack quadratically on a long line with many ` b/`).
 
@@ -908,6 +912,14 @@ route (`split`, `textcrush`, `textfold`, `elide`). It stands in for upstream's
 Kompress (ML), which the mod cannot run. It has its own toggle,
 `text_crusher_enabled`, and its own `text crusher` table (`texts`, `saved`);
 the fold counts there too.
+
+Gates (user decisions, deviations from upstream): the lossy crusher and the
+relevance split run only on prose (`isProse`: at least half the non-empty lines
+hold a sentence end, `.`, `!` or `?` before whitespace or the line end), since
+upstream's one-segment-per-line fallback would halve a Glob, `find`, `ls` or
+`git log --oneline` listing the router labels `text`; and never on an `Agent` or
+`Task` result (`REPORT_TOOLS`), whose hand-back report ends with the agentId the
+model resumes it with. The lossless `textfold` and the elider still run on both.
 
 Ported verbatim:
 
