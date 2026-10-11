@@ -39,12 +39,21 @@
  * Upstream ContentType tags (as_str); 'tabular' is git status here, 'structured_config' is Python's (Rust has no such tag).
  * @typedef {'json_array'|'diff'|'html'|'tabular'|'search'|'build'|'structured_config'|'source_code'|'text'} ContentType
  */
-/** @typedef {'crush'|'config'|'extract'|'elide'} RouteStep a compression lever a content type's route may run */
+/**
+ * A compression step a content type's route may run: a lever, or (logfold, searchfold, difffold, textfold) a compressor's
+ * lossless fold, which belongs to that compressor's lever.
+ * @typedef {'crush'|'config'|'extract'|'elide'|'split'|'logfold'|'log'|'searchfold'|'search'|'difffold'|'diff'|'textfold'|'textcrush'} RouteStep
+ */
 /** @typedef {{ close: boolean, nameEnd: number, end: number, selfClosing: boolean }} TagToken one `<name …>` or `</name>` tag: its kind, where its name ends, where it ends */
 /** @typedef {'yaml'|'toml'|'ini'} ConfigFlavor a structured config's dialect */
 /**
  * Which levers rewrite this row; dedup names the conversations map and this row's key ("" main, else agentId).
- * @typedef {{ crush: boolean, compact?: boolean, elide: boolean, config?: boolean, extract?: boolean, tags?: boolean, dedup?: { states: Map<string, DedupState>, key: string } }} Levers
+ * The log, search and diff compressors, the text crusher and the relevance split are off when omitted.
+ * @typedef {{
+ *   crush: boolean, compact?: boolean, elide: boolean, config?: boolean, extract?: boolean,
+ *   log?: boolean, search?: boolean, diff?: boolean, textcrush?: boolean, split?: boolean,
+ *   tags?: boolean, dedup?: { states: Map<string, DedupState>, key: string }
+ * }} Levers
  */
 /**
  * A rewritten tool-result row: its blocks, the originals for the CCR store (`offloaded`: the crusher's and the elider's sole copies;
@@ -59,6 +68,11 @@
  * @property {{ pages: number, saved: number }} extract
  * @property {{ lines: number, saved: number }} elide
  * @property {{ spans: number, saved: number }} dedup
+ * @property {{ texts: number, saved: number }} log the log compressor's rewrites, its lossless fold's included
+ * @property {{ texts: number, saved: number }} search the search compressor's rewrites, its lossless fold's included
+ * @property {{ texts: number, saved: number }} diff the diff compressor's rewrites, its index-line strip's included
+ * @property {{ texts: number, saved: number }} textcrush the text crusher's rewrites, its lossless fold's included
+ * @property {{ texts: number, saved: number }} split the relevance split's rewrites
  */
 /**
  * The in-memory, session-only /headroom counters (statsTables' `memory`).
@@ -70,6 +84,11 @@
  * @property {{ arrays: number, saved: number }} [compact]
  * @property {{ texts: number, saved: number }} [config]
  * @property {{ pages: number, saved: number }} [extract]
+ * @property {{ texts: number, saved: number }} [log]
+ * @property {{ texts: number, saved: number }} [search]
+ * @property {{ texts: number, saved: number }} [diff]
+ * @property {{ texts: number, saved: number }} [textcrush]
+ * @property {{ texts: number, saved: number }} [split]
  */
 /**
  * One dict-array field (upstream FieldStats); the numeric statistics are absent when not finite.
@@ -481,11 +500,12 @@ export function foldPending(days, pending, today, purgeBefore) {
  * The /headroom tables as rows of cells. Each table starts with its header row (heading, then the column names), then one row per ROWS entry.
  * A row without counters (still loading, storage off or failing) shows `blank` in every value cell. The in-memory session-only
  * counters add a `subagents` row under effort routing's session row, and the smart crusher, dedup, line elider, compaction,
- * config and html extractor tables, which have only a session row.
+ * config, html extractor, logs, search, diff, text crusher and relevance split tables, which have only a session row.
  * @param {readonly (Row|undefined)[]} counters one per ROWS entry, in ROWS order
  * @param {string} blank
  * @param {StatsMemory} [memory]
- * @returns {string[][][]} effort routing, cache aligner, smart crusher, dedup, line elider, compaction, config, html extractor
+ * @returns {string[][][]} effort routing, cache aligner, smart crusher, dedup, line elider, compaction, config, html extractor,
+ *   logs, search, diff, text crusher, relevance split
  */
 export function statsTables(counters, blank, memory = {}) {
   const {
@@ -496,6 +516,11 @@ export function statsTables(counters, blank, memory = {}) {
     compact = { arrays: 0, saved: 0 },
     config = { texts: 0, saved: 0 },
     extract = { pages: 0, saved: 0 },
+    log = { texts: 0, saved: 0 },
+    search = { texts: 0, saved: 0 },
+    diff = { texts: 0, saved: 0 },
+    textcrush = { texts: 0, saved: 0 },
+    split = { texts: 0, saved: 0 },
   } = memory;
   /**
    * @param {string} heading
@@ -539,6 +564,26 @@ export function statsTables(counters, blank, memory = {}) {
     [
       ["html extractor", "pages", "saved"],
       [session, String(extract.pages), String(extract.saved)],
+    ],
+    [
+      ["logs", "texts", "saved"],
+      [session, String(log.texts), String(log.saved)],
+    ],
+    [
+      ["search", "texts", "saved"],
+      [session, String(search.texts), String(search.saved)],
+    ],
+    [
+      ["diff", "texts", "saved"],
+      [session, String(diff.texts), String(diff.saved)],
+    ],
+    [
+      ["text crusher", "texts", "saved"],
+      [session, String(textcrush.texts), String(textcrush.saved)],
+    ],
+    [
+      ["relevance split", "texts", "saved"],
+      [session, String(split.texts), String(split.saved)],
     ],
   ];
 }
@@ -3529,31 +3574,38 @@ export function compressConfig(text) {
 
 /**
  * Each content type's compression steps, tried in order until one rewrites (a light upstream _strategy_from_detection).
- * The SmartCrusher owns JSON, the config compressor structured config and the HTML extractor HTML; the dense line elider runs
- * on every type, after the type's compressor where one runs, as upstream elides after text-returning strategies and as its
- * fallback where no compressor owns the type. A rewrite ends the route unless its step is in ELIDE_AFTER. A new compressor
- * adds a RouteStep, a case in rewriteRow's shrink, a Levers flag, and its name in the types it fits.
+ * The SmartCrusher owns JSON, the config compressor structured config, the HTML extractor HTML, the log compressor build
+ * output, the search compressor search results, the diff compressor diffs, and the relevance split and the text crusher
+ * prose. The dense line elider ends every route: it runs after a step in ELIDE_AFTER hands its rewrite on, and as the
+ * fallback when every step before it declined; any other rewrite ends the route (a diff rewrite, a fold, a split, as
+ * upstream returns them before its elision point). A lossy step sits before its kind's lossless fold because it has to beat
+ * that fold, the floor (overFold, upstream's lossless_then_lossy gate); the fold step runs only on the route's input text, as
+ * the fallback for a lossy step that declined or lost, never on a handed-on rewrite. A new compressor adds a RouteStep, a
+ * case in rewriteRow's shrink, a Levers flag, and its name in the types it fits.
  * @type {Readonly<Record<ContentType, readonly RouteStep[]>>}
  */
 const ROUTES = {
   json_array: ["crush", "elide"],
-  diff: ["elide"],
+  diff: ["diff", "difffold", "elide"],
   html: ["extract", "elide"],
   tabular: ["elide"],
-  search: ["elide"],
-  build: ["elide"],
+  search: ["search", "searchfold", "elide"],
+  build: ["log", "logfold", "elide"],
   structured_config: ["config", "elide"],
   source_code: ["elide"],
-  text: ["elide"],
+  text: ["split", "textcrush", "textfold", "elide"],
 };
 
-// Every step needs at least this many characters (the elider returns early below its line minimum, and the crusher wants
-// more), so a shorter text skips detection: the label could not change the outcome. A step with a lower floor lowers this.
+// The router-wide floor: a shorter text skips detection and every step. The elider returns early below its line minimum and
+// the crusher wants more; the new steps' own upstream floors are lower (search none, the split 2 records, log and diff 50
+// lines, prose_field 256 bytes), but under 300 characters a retrieval line would eat most of any saving.
 const ROUTE_MIN_CHARS = Math.min(CRUSH_MIN_CHARS, DENSE_MIN_LINE_CHARS);
-// The steps whose rewrite the route goes on with (upstream _DENSE_ELIDE_AFTER's HTML member): the elider then runs on the
-// extraction. The SmartCrusher and the config compressor end the route, as upstream leaves SMART_CRUSHER and CONFIG out.
+// The steps whose rewrite the route goes on with (upstream _DENSE_ELIDE_AFTER's HTML, LOG, SEARCH and TEXT members): the
+// elider then runs on the extraction or the lossy output. The SmartCrusher, the config compressor, the diff compressor, every
+// fold and the relevance split end the route, as upstream leaves SMART_CRUSHER, CONFIG and DIFF out and returns a kept fold
+// or a split before its elision point.
 /** @type {ReadonlySet<RouteStep>} */
-const ELIDE_AFTER = new Set(["extract"]);
+const ELIDE_AFTER = new Set(["extract", "log", "search", "textcrush"]);
 
 // The tool-result row pipeline (session.append): SmartCrusher and the dense line elider by content type, then cross-turn dedup.
 
@@ -3652,7 +3704,16 @@ function rewriteRow(content, tool, levers, query) {
     extract: { pages: 0, saved: 0 },
     elide: { lines: 0, saved: 0 },
     dedup: { spans: 0, saved: 0 },
+    log: { texts: 0, saved: 0 },
+    search: { texts: 0, saved: 0 },
+    diff: { texts: 0, saved: 0 },
+    textcrush: { texts: 0, saved: 0 },
+    split: { texts: 0, saved: 0 },
   };
+  // A lever some route runs ahead of the elider is on, so a text's label can change what runs (every one but dedup and the elider).
+  const routed = !!(levers.crush || levers.compact || levers.config || levers.extract || levers.log || levers.search || levers.diff || levers.textcrush || levers.split);
+  // A Read result: the model needs its verbatim lines for the next Edit's old_string.
+  const verbatimTool = tool === READ_TOOL;
   let changed = false;
   /** @type {[string, [number, number][]|null]|undefined} */
   let memo;
@@ -3671,12 +3732,12 @@ function rewriteRow(content, tool, levers, query) {
      * @returns {string}
      */
     const shrink = (text) => {
-      if (prot || !(levers.crush || levers.compact || levers.elide || levers.config || levers.extract) || text.length < ROUTE_MIN_CHARS) return text;
+      if (prot || !(routed || levers.elide) || text.length < ROUTE_MIN_CHARS) return text;
       let spans = levers.tags ? spansOf(text) : [];
       if (spans === null) return text;
       let cur = text;
-      // With only the elider on, every route is just `elide`: skip the detection that cannot change the outcome.
-      const type = levers.crush || levers.compact || levers.config || levers.extract ? detectContentType(text) : "text";
+      // With only the elider on, every route runs just `elide`: skip the detection that cannot change the outcome.
+      const type = routed ? detectContentType(text) : "text";
       for (const step of ROUTES[type]) {
         /** @type {string|undefined} */
         let next;
@@ -3738,7 +3799,7 @@ function rewriteRow(content, tool, levers, query) {
       if (!levers.dedup) return text;
       const spans = levers.tags ? spansOf(text) : [];
       // A Read result is only indexed: the model needs its verbatim lines for the next Edit's old_string.
-      const f = dedupBlock(levers.dedup.states, levers.dedup.key, text, prot || spans === null || tool === READ_TOOL, spans ?? []);
+      const f = dedupBlock(levers.dedup.states, levers.dedup.key, text, prot || spans === null || verbatimTool, spans ?? []);
       if (!f) return text;
       acc.dedup.spans += f.spans;
       acc.dedup.saved += text.length - f.text.length;

@@ -269,6 +269,26 @@ test("statsTables builds every table, with blank for rows without counters", () 
       ["html extractor", "pages", "saved"],
       ["session", "0", "0"],
     ],
+    [
+      ["logs", "texts", "saved"],
+      ["session", "0", "0"],
+    ],
+    [
+      ["search", "texts", "saved"],
+      ["session", "0", "0"],
+    ],
+    [
+      ["diff", "texts", "saved"],
+      ["session", "0", "0"],
+    ],
+    [
+      ["text crusher", "texts", "saved"],
+      ["session", "0", "0"],
+    ],
+    [
+      ["relevance split", "texts", "saved"],
+      ["session", "0", "0"],
+    ],
   ]);
   // The in-memory rows: subagents right under the effort session row, the crusher's session counts.
   const [effort, , crusher] = statsTables([c], "…", { subagents: { steps: 4, clamped: 3 }, crush: { dropped: 40, saved: 1200 } });
@@ -285,6 +305,25 @@ test("statsTables builds every table, with blank for rows without counters", () 
   assert.deepEqual(compactor[1], ["session", "2", "5300"]);
   assert.deepEqual(configs[1], ["session", "1", "640"]);
   assert.deepEqual(extractor[1], ["session", "3", "21000"]);
+  const [, , , , , , , , logs, searches, diffs, crushedTexts, splits] = statsTables([c], "…", {
+    log: { texts: 1, saved: 900 },
+    search: { texts: 2, saved: 1800 },
+    diff: { texts: 3, saved: 2700 },
+    textcrush: { texts: 4, saved: 3600 },
+    split: { texts: 5, saved: 4500 },
+  });
+  assert.deepEqual(
+    [logs, searches, diffs, crushedTexts, splits].map((t) => [t[0][0], ...t[1].slice(1)]),
+    [
+      ["logs", "1", "900"],
+      ["search", "2", "1800"],
+      ["diff", "3", "2700"],
+      ["text crusher", "4", "3600"],
+      ["relevance split", "5", "4500"],
+    ],
+  );
+  // Every heading fits the label column.
+  for (const t of statsTables([c], "…")) assert.ok(t[0][0].length <= 16, t[0][0]);
   assert.equal(statsTables([zeroCounters()], "–")[1][1][1], "–"); // no tokens: no hit ratio
   assert.equal(statsTables([{ ...c, hit: 0.1 }], "…")[1][1][1], "10%"); // a row's own hit wins over the token-weighted one
 });
@@ -1083,6 +1122,19 @@ test("rewriteToolResults passes through rows with nothing to rewrite", () => {
   assert.equal(rewriteToolResults([toolResult("")], "Bash", lv, ""), undefined);
   assert.equal(rewriteToolResults([{ type: "text", text: BIG }], "Bash", lv, ""), undefined); // not a tool_result block
   assert.equal(rewriteToolResults([toolResult(undefined)], "Bash", lv, ""), undefined);
+});
+
+test("the router still ends every route with the elider when the new levers find nothing to do", () => {
+  const smallDiff = `diff --git a/app.min.js b/app.min.js\n@@ -1,1 +1,1 @@\n-${"x".repeat(2500)}\n+${"y".repeat(2500)}`;
+  assert.equal(detectContentType(smallDiff), "diff");
+  const all = { crush: false, elide: true, log: true, search: true, diff: true, textcrush: true, split: true };
+  for (const text of [DENSE_TEXT, smallDiff]) {
+    const elideOnly = rewrite([toolResult(text)], "Bash", { crush: false, elide: true }); // no detection: the text route
+    const routed = rewrite([toolResult(text)], "Bash", all); // detection: the type's own route
+    assert.equal(routed.content[0].content, elideOnly.content[0].content);
+    assert.equal(routed.elide.lines, elideOnly.elide.lines);
+    assert.deepEqual([routed.log, routed.search, routed.diff, routed.textcrush, routed.split], Array(5).fill({ texts: 0, saved: 0 }));
+  }
 });
 
 test("rewriteToolResults with every lever off changes nothing", () => {
