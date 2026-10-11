@@ -9,8 +9,31 @@
 /** @typedef {{steps: number, clamped: number, cache_drops: number, input_tokens: number, cache_read_input_tokens: number, cache_creation_input_tokens: number}} Counters */
 /** @typedef {Counters & {hit?: number}} Row hit: the ratio to show in place of the token-weighted one (the session row shows its last step's) */
 /** @typedef {{ role: 'user'|'assistant', text: string, toolUses: readonly { input: Record<string, unknown> }[] }} QueryMessage the SessionMessage fields crushQuery reads */
-/** @typedef {{ text: string, rowsDropped: number, offloaded: [string, string][] }} CrushOutcome a crushed document: compact text, rows lost, [hash, original array JSON] per crushed array */
-/** @typedef {{ result: Record<string, unknown> | unknown[], rowsDropped: number, charsSaved: number, offloaded: [string, string][] }} ToolCrush a crushed tool result and what it saved */
+/**
+ * A crushed document: compact text, rows lost, [hash, original text (a crushed array's JSON, an elided block, a folded span)] per crushed array.
+ * @typedef {{ text: string, rowsDropped: number, offloaded: [string, string][] }} CrushOutcome
+ */
+/** @typedef {{ text: string, lines: number, offloaded: [string, string][] }} Elision a dense-line-elided text: the shortened text, the lines elided, [hash, original text] */
+/**
+ * One conversation's dedup corpus: the last ordinal handed out, each indexed block's verbatim lines (null where folded) by
+ * ordinal, the anchor index (match key → [ordinal, line] first-seen, at most 16), and the indexed characters.
+ * @typedef {{ turn: number, corpus: Map<number, (string|null)[]>, index: Map<string, [number, number][]>, chars: number }} DedupState
+ */
+/** @typedef {{ text: string, spans: number, offloaded: [string, string][] }} Fold a deduplicated text: the text with pointers, the runs folded, [hash, run text] per run */
+/** @typedef {{ type: string } & Record<string, unknown>} ContentBlock one Messages-API content block, as session.append hands it */
+/**
+ * Which levers rewrite this row; dedup names the conversations map and this row's key ("" main, else agentId).
+ * @typedef {{ crush: boolean, elide: boolean, dedup?: { states: Map<string, DedupState>, key: string } }} Levers
+ */
+/**
+ * A rewritten tool-result row: its blocks, the originals for the CCR store, and each lever's savings.
+ * @typedef {object} RowRewrite
+ * @property {ContentBlock[]} content
+ * @property {[string, string][]} offloaded
+ * @property {{ dropped: number, saved: number }} crush
+ * @property {{ lines: number, saved: number }} elide
+ * @property {{ spans: number, saved: number }} dedup
+ */
 /**
  * One dict-array field (upstream FieldStats); the numeric statistics are absent when not finite.
  * @typedef {{ name: string, type: string, unique: number, ratio: number, min?: number, max?: number, mean?: number, variance?: number, changePoints: number[], avgLen?: number }} FieldStats
@@ -98,9 +121,26 @@ const ANCHOR_HOST_RE = /\b[a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z0-9][-a-zA-Z0-9]*(?:\
 const ANCHOR_QUOTED_RE = /['"]([^'"]{1,50})['"]/g;
 const ANCHOR_EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g;
 const BM25_TOKEN_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\b\d{4,}\b|[a-z0-9_]+/g;
-const MCP_TOOL_RE = /^mcp__.+__.+$/;
 // The mod's own storage tools are never crushed: a kv_get → edit → kv_set would write the row loss back to storage.db.
 const OWN_STORAGE_PREFIX = `mcp__plugin_${PLUGIN}_storage__`;
+// Dense line elider: upstream dense_line_elider.py.
+const DENSE_MIN_LINE_CHARS = 300;
+const DENSE_MAX_SPACE_RATIO = 0.06;
+const DENSE_MIN_TOTAL_CHARS = 2000;
+const DENSE_HEAD_CHARS = 160;
+const DENSE_TAIL_CHARS = 80;
+// JSON span scan work budget: upstream recursive_json.py.
+const SCAN_BUDGET_PER_CHAR = 4;
+const SCAN_BUDGET_FLOOR = 4096;
+// Cross-turn dedup: upstream cross_turn_dedup.py.
+const DEDUP_MIN_LINES = 3;
+const DEDUP_MIN_CHARS = 40;
+const DEDUP_MAX_ANCHOR_CANDIDATES = 16;
+const DEDUP_LINENO_RE = /^([1-9]\d*)(:|\t)([\s\S]*)$/;
+const DEDUP_TRIVIAL = new Set(["return", "pass", "else:", "try:", "except:", "finally:", "break", "continue", "});", "})", "],", "),", '"""', "'''", "..."]);
+// shortcut: about a 1M-token context at 4 chars per token; older content has left the model's window. Raise it if long sessions stop folding.
+/** Indexed dedup characters kept across all conversations, least recently appended conversation dropped first. Deviation: upstream rebuilds per request and needs no cap. */
+export const DEDUP_MAX_CHARS = 4_000_000;
 
 /**
  * Whether a tool.check decides this mod's own storage call: `$.mcp.call` reaches core's permission step as a
@@ -271,14 +311,14 @@ export function foldPending(days, pending, today, purgeBefore) {
 /**
  * The /headroom tables as rows of cells. Each table starts with its header row (heading, then the column names), then one row per ROWS entry.
  * A row without counters (still loading, storage off or failing) shows `blank` in every value cell. The in-memory session-only
- * counters add a `subagents` row under effort routing's session row, and the smart crusher table, which has only a session row.
+ * counters add a `subagents` row under effort routing's session row, and the smart crusher, dedup and line elider tables, which have only a session row.
  * @param {readonly (Row|undefined)[]} counters one per ROWS entry, in ROWS order
  * @param {string} blank
- * @param {{ subagents?: { steps: number, clamped: number }, crush?: { dropped: number, saved: number } }} [memory]
- * @returns {string[][][]} effort routing, cache aligner, smart crusher
+ * @param {{ subagents?: { steps: number, clamped: number }, crush?: { dropped: number, saved: number }, dedup?: { spans: number, saved: number }, elide?: { lines: number, saved: number } }} [memory]
+ * @returns {string[][][]} effort routing, cache aligner, smart crusher, dedup, line elider
  */
 export function statsTables(counters, blank, memory = {}) {
-  const { subagents, crush = { dropped: 0, saved: 0 } } = memory;
+  const { subagents, crush = { dropped: 0, saved: 0 }, dedup = { spans: 0, saved: 0 }, elide = { lines: 0, saved: 0 } } = memory;
   /**
    * @param {string} heading
    * @param {string[]} columns
@@ -301,6 +341,14 @@ export function statsTables(counters, blank, memory = {}) {
     [
       ["smart crusher", "dropped", "saved"],
       [session, String(crush.dropped), String(crush.saved)],
+    ],
+    [
+      ["dedup", "spans", "saved"],
+      [session, String(dedup.spans), String(dedup.saved)],
+    ],
+    [
+      ["line elider", "lines", "saved"],
+      [session, String(elide.lines), String(elide.saved)],
     ],
   ];
 }
@@ -463,7 +511,7 @@ export function computeOptimalK(itemStrings) {
  * Stores offloaded originals for headroom_retrieve: a re-put moves its hash to the newest position, and the
  * oldest entries go while the store holds more than CCR_CAPACITY entries or CCR_MAX_CHARS characters. Mutates `store`.
  * shortcut: no idle TTL (upstream: 30 min); add one with a time argument from register.ts if memory becomes a concern.
- * @param {Map<string, string>} store hash → original array JSON, oldest first
+ * @param {Map<string, string>} store hash → original text (a crushed array's JSON, an elided block, a folded span), oldest first
  * @param {readonly [string, string][]} entries
  * @returns {void}
  */
@@ -1440,70 +1488,460 @@ function looksLikeJsonDoc(s) {
 
 /**
  * @param {unknown} b
- * @returns {b is { type: "text", text: string }} an MCP text content block
+ * @returns {b is { type: "text", text: string }} a text content block (an MCP result's or a Messages-API tool_result's)
  */
 function isTextBlock(b) {
   return isRecord(b) && b.type === "text" && typeof b.text === "string";
 }
 
+// Dense line elider: a port of headroom's dense_line_elider.py and ContentRouter._elide_dense.
+
 /**
- * Whether a successful tool.call result is one the crusher may rewrite. Bash: stdout that is one whole inline JSON
- * document, with empty stderr, not interrupted, an image, backgrounded, timed out, offloaded to a file, or
- * structured. MCP (`mcp__<server>__<tool>`, never headroom_retrieve or the mod's own storage tools): core's result is
- * the content-block array itself (live-verified on 2.1.296), holding a JSON text block. Nothing else.
- * @param {string} tool
- * @param {unknown} result tool.call's `result`
+ * A cut at `i` would split a surrogate pair: a low surrogate at `i` preceded by a high one.
+ * @param {string} s
+ * @param {number} i
  * @returns {boolean}
  */
-export function isCrushCandidate(tool, result) {
-  if (tool === "Bash") {
-    if (!isRecord(result)) return false;
-    const { stdout, stderr, structuredContent } = result;
-    return (
-      typeof stdout === "string" &&
-      (stderr === undefined || (typeof stderr === "string" && stderr.trim() === "")) &&
-      result.interrupted !== true &&
-      !result.isImage &&
-      result.backgroundTaskId === undefined &&
-      result.timedOutAfterMs === undefined &&
-      result.rawOutputPath === undefined &&
-      result.persistedOutputPath === undefined &&
-      !(Array.isArray(structuredContent) && structuredContent.length > 0) &&
-      looksLikeJsonDoc(stdout)
-    );
-  }
-  return MCP_TOOL_RE.test(tool) && tool !== RETRIEVE_TOOL && !tool.startsWith(OWN_STORAGE_PREFIX) && Array.isArray(result) && result.some((b) => isTextBlock(b) && looksLikeJsonDoc(b.text));
+function splitsPair(s, i) {
+  if (i <= 0 || i >= s.length) return false;
+  const lo = s.charCodeAt(i);
+  const hi = s.charCodeAt(i - 1);
+  return lo >= 0xdc00 && lo <= 0xdfff && hi >= 0xd800 && hi <= 0xdbff;
 }
 
 /**
- * Crushes a candidate tool result: Bash's `stdout`, or each MCP JSON text block. Every other field and block is
- * kept as is. Undefined when it is no candidate or nothing got shorter.
- * @param {string} tool
- * @param {unknown} result tool.call's `result`
- * @param {string} query the conversation context (crushQuery)
- * @returns {ToolCrush|undefined}
+ * The end of a head cut `s.slice(0, i)` that leaves no lone surrogate (one unit shorter when `i` splits a pair).
+ * @param {string} s
+ * @param {number} i
+ * @returns {number}
  */
-export function crushToolResult(tool, result, query) {
-  if (!isCrushCandidate(tool, result)) return undefined;
-  /** @type {ToolCrush} */
-  const c = { result: [], rowsDropped: 0, charsSaved: 0, offloaded: [] };
-  /** @param {string} text */
-  const crush = (text) => {
-    const out = crushJson(text, query);
-    if (!out) return text;
-    c.rowsDropped += out.rowsDropped;
-    c.charsSaved += text.length - out.text.length;
-    c.offloaded.push(...out.offloaded);
-    return out.text;
-  };
-  if (tool === "Bash") {
-    const r = /** @type {Record<string, unknown>} */ (result);
-    c.result = { ...r, stdout: crush(/** @type {string} */ (r.stdout)) };
-  } else
-    c.result = /** @type {unknown[]} */ (result).map((b) => {
-      if (!isTextBlock(b)) return b;
-      const text = crush(b.text);
-      return text === b.text ? b : { ...b, text };
+function pairSafeEnd(s, i) {
+  return splitsPair(s, i) ? i - 1 : i;
+}
+
+/**
+ * The start of a tail cut `s.slice(i)` that leaves no lone surrogate (one unit later when `i` splits a pair).
+ * @param {string} s
+ * @param {number} i
+ * @returns {number}
+ */
+function pairSafeStart(s, i) {
+  return splitsPair(s, i) ? i + 1 : i;
+}
+
+/**
+ * Upstream _scan_from: walks one bracket span from `start` outside strings, records every container it pushed
+ * in `known` (its end, or null when it never closes) and returns the span's end (or null) and the characters walked.
+ * @param {string} text
+ * @param {number} start the index of a "[" or "{"
+ * @param {Map<number, number|null>} known
+ * @returns {[number|null, number]}
+ */
+function scanFrom(text, start, known) {
+  /** @type {number[]} */
+  const stack = [];
+  let inStr = false;
+  let esc = false;
+  const n = text.length;
+  for (let j = start; j < n; j++) {
+    const ch = text[j];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === "[" || ch === "{") stack.push(j);
+    else if (ch === "]" || ch === "}") {
+      const top = stack.at(-1);
+      if (top === undefined || text[top] !== (ch === "}" ? "{" : "[")) {
+        for (const p of stack) known.set(p, null);
+        return [null, j - start + 1];
+      }
+      stack.pop();
+      known.set(top, j + 1);
+      if (stack.length === 0) return [j + 1, j - start + 1];
+    }
+  }
+  for (const p of stack) known.set(p, null);
+  return [null, n - start];
+}
+
+/**
+ * Upstream scan_json_documents read as `complete and not spans`: no balanced bracket span (nested ones included)
+ * parses as a JSON object or array. An exhausted walk or parse budget, or a parse failure other than a SyntaxError
+ * (upstream: RecursionError), means the scan is incomplete, so false.
+ * @param {string} text
+ * @returns {boolean}
+ */
+function noJsonSpans(text) {
+  const n = text.length;
+  const budget = SCAN_BUDGET_PER_CHAR * n + SCAN_BUDGET_FLOOR;
+  /** @type {Map<number, number|null>} */
+  const known = new Map();
+  let spent = 0;
+  let i = 0;
+  while (i < n) {
+    if (text[i] === "[" || text[i] === "{") {
+      /** @type {number|null|undefined} */
+      let end;
+      if (known.has(i)) end = known.get(i);
+      else if (spent >= budget) return false;
+      else {
+        const [e, walked] = scanFrom(text, i, known);
+        end = e;
+        spent += walked;
+      }
+      if (typeof end === "number") {
+        i = end;
+        continue;
+      }
+    }
+    i++;
+  }
+  let parsed = 0;
+  for (const start of [...known.keys()].sort((a, b) => a - b)) {
+    const end = known.get(start);
+    if (typeof end !== "number") continue;
+    if (parsed + end - start > budget) return false;
+    parsed += end - start;
+    let v;
+    try {
+      v = JSON.parse(text.slice(start, end));
+    } catch (err) {
+      if (err instanceof SyntaxError) continue;
+      return false;
+    }
+    if (typeof v === "object" && v !== null) return false;
+  }
+  return true;
+}
+
+/**
+ * Upstream is_dense_line: at least 300 characters, no tab, under 6% spaces (U+0020), not JSON-shaped once trimmed,
+ * and holding no JSON document (a label may precede compact JSON, which only the SmartCrusher may rewrite).
+ * @param {string} line
+ * @returns {boolean}
+ */
+function isDenseLine(line) {
+  const n = line.length;
+  if (n < DENSE_MIN_LINE_CHARS || line.includes("\t") || (line.split(" ").length - 1) / n >= DENSE_MAX_SPACE_RATIO) return false;
+  const s = line.trim();
+  // "{[".includes("") is true like Python's "" in "{[": an all-whitespace line counts as JSON-shaped, as upstream.
+  if ("{[".includes(s.slice(0, 1)) && "}]".includes(s.slice(-1))) return false;
+  return noJsonSpans(line);
+}
+
+/**
+ * Dense line elider (upstream dense_line_elider.py + ContentRouter._elide_dense): each long, nearly space-free line that
+ * holds no JSON document keeps its first 160 and last 80 characters around an omission note, when the dense lines add
+ * up to at least 2000 characters; the block then ends with a retrieval line and its original goes to the CCR store.
+ * Undefined when nothing is dense or the result is not shorter.
+ * @param {string} text
+ * @returns {Elision|undefined}
+ */
+export function elideDense(text) {
+  if (text.length < DENSE_MIN_LINE_CHARS) return undefined;
+  const lines = text.split("\n"); // "\n" only: a "\r" stays on its line
+  const dense = lines.map(isDenseLine);
+  let total = 0;
+  for (let i = 0; i < lines.length; i++) if (dense[i]) total += lines[i].length;
+  if (total < DENSE_MIN_TOTAL_CHARS) return undefined;
+  let n = 0;
+  const out = lines.map((line, i) => {
+    if (!dense[i]) return line;
+    n++;
+    const head = line.slice(0, pairSafeEnd(line, DENSE_HEAD_CHARS));
+    const tail = line.slice(pairSafeStart(line, line.length - DENSE_TAIL_CHARS));
+    return `${head} ...[${line.length - head.length - tail.length} chars of dense machine-generated content elided]... ${tail}`;
+  });
+  const hash = contentHash(text);
+  const elided = `${out.join("\n")}\n[${n} dense machine-generated ${n === 1 ? "line" : "lines"} elided. Retrieve original: hash=${hash}]`;
+  // Deviation: upstream emits a result that grew (seven 300-char lines plus the retrieval line); the mod passes it through.
+  return elided.length < text.length ? { text: elided, lines: n, offloaded: [[hash, text]] } : undefined;
+}
+
+// Cross-turn dedup: a port of headroom's cross_turn_dedup.py, run once per appended tool-result text.
+
+/**
+ * Upstream _num_and_key: a leading unpadded line number, the match key (the line without that number, its separator
+ * kept, so the same content at another line number shares a key) and the content after the separator.
+ * Deviation: a number beyond Number.MAX_SAFE_INTEGER counts as no number (Python ints are unbounded).
+ * @param {string} line
+ * @returns {[number|null, string, string]}
+ */
+function numAndKey(line) {
+  const m = DEDUP_LINENO_RE.exec(line);
+  if (!m) return [null, line, line];
+  const n = Number(m[1]);
+  return Number.isSafeInteger(n) ? [n, m[2] + m[3], m[3]] : [null, line, line];
+}
+
+/**
+ * Upstream _is_trivial: a line too short or too common to anchor a match on its own.
+ * @param {string} content
+ * @returns {boolean}
+ */
+function isTrivial(content) {
+  const s = content.trim();
+  return s.length < 4 || DEDUP_TRIVIAL.has(s);
+}
+
+/**
+ * Upstream _index_lines: records each surviving non-trivial line as [ordinal, line] under its match key, first-seen
+ * order, at most DEDUP_MAX_ANCHOR_CANDIDATES per key. Folded lines (null) are skipped (keep-earliest).
+ * @param {readonly (string|null)[]} verbatim
+ * @param {number} turn the block's ordinal
+ * @param {DedupState} st
+ * @returns {void}
+ */
+function indexLines(verbatim, turn, st) {
+  verbatim.forEach((ln, li) => {
+    if (ln === null) return;
+    const [, key, content] = numAndKey(ln);
+    if (isTrivial(content)) return;
+    let bucket = st.index.get(key);
+    if (!bucket) st.index.set(key, (bucket = []));
+    if (bucket.length < DEDUP_MAX_ANCHOR_CANDIDATES) bucket.push([turn, li]);
+  });
+}
+
+/**
+ * Upstream _longest_match: the longest run of `cur` from `start` found in one earlier block, its line keys equal and
+ * every numbered pair under one uniform line-number shift (non-numbered lines must match exactly). A longer run wins;
+ * a tie keeps the earliest candidate. Undefined when no run starts here.
+ * @param {readonly string[]} cur
+ * @param {number} start
+ * @param {DedupState} st
+ * @returns {{ len: number, turn: number, li: number, delta: number }|undefined}
+ */
+function longestMatch(cur, start, st) {
+  const candidates = st.index.get(numAndKey(cur[start])[1]);
+  if (!candidates) return undefined;
+  let best = { len: 0, turn: -1, li: -1, delta: 0 };
+  for (const [t, li] of candidates) {
+    const blockLines = st.corpus.get(t);
+    if (!blockLines) continue;
+    let k = 0;
+    /** @type {number|null} */
+    let delta = null;
+    while (start + k < cur.length && li + k < blockLines.length) {
+      const ca = cur[start + k];
+      const cb = blockLines[li + k];
+      if (cb === null) break; // a folded span ends the run
+      const [na, ka] = numAndKey(ca);
+      const [nb, kb] = numAndKey(cb);
+      if (ka !== kb) break;
+      if (na !== null && nb !== null) {
+        const d = na - nb;
+        if (delta === null) delta = d;
+        else if (delta !== d) break; // an edit inside the span: the shift is not uniform
+      } else if (ca !== cb) break;
+      k++;
+    }
+    if (k > best.len) best = { len: k, turn: t, li, delta: delta ?? 0 };
+  }
+  return best.len === 0 ? undefined : best;
+}
+
+/**
+ * Upstream _pointer plus a ` hash=H` CCR suffix: `[↑nL same as result K: "anchor" hash=H]`, with ` ±dL` after K when
+ * the run's line numbers are shifted. The anchor is the run's first non-blank line's content, at most 20 code points.
+ * @param {readonly string[]} span
+ * @param {number} refTurn the earlier block's ordinal
+ * @param {number} delta
+ * @param {string} hash
+ * @returns {string}
+ */
+function pointer(span, refTurn, delta, hash) {
+  const first = span.find((ln) => ln.trim() !== "");
+  const anchor = first === undefined ? "" : numAndKey(first)[2].trim();
+  const points = [...anchor];
+  const shown = points.length > 20 ? `${points.slice(0, 17).join("")}...` : anchor;
+  const shift = delta === 0 ? "" : ` ${delta > 0 ? "+" : ""}${delta}L`;
+  return `[↑${span.length}L same as result ${refTurn}${shift}: ${JSON.stringify(shown)} hash=${hash}]`;
+}
+
+/**
+ * Cross-turn dedup (upstream cross_turn_dedup.py) for one tool-result text appended to conversation `key`: each run of
+ * at least 3 lines and 40 characters found verbatim (or under one uniform line-number shift) in an earlier block of the
+ * same conversation becomes a pointer naming that block's ordinal, with the run's own text stored under a CCR hash.
+ * A protected text is only indexed. The block is then indexed, and the oldest conversations are dropped while all
+ * corpora hold more than DEDUP_MAX_CHARS. Mutates `states`. Undefined when nothing folded.
+ * @param {Map<string, DedupState>} states conversation key → corpus, least recently appended first
+ * @param {string} key "" for the main loop, else the agentId
+ * @param {string} text
+ * @param {boolean} isProtected
+ * @returns {Fold|undefined}
+ */
+export function dedupBlock(states, key, text, isProtected) {
+  const st = states.get(key) ?? { turn: 0, corpus: new Map(), index: new Map(), chars: 0 };
+  states.delete(key);
+  states.set(key, st); // this conversation is now the most recently appended
+  const turn = ++st.turn;
+  const lines = text.split("\n");
+  /** @type {string[]} */
+  const out = [];
+  /** @type {(string|null)[]} */
+  const verbatim = isProtected ? [...lines] : [];
+  /** @type {[string, string][]} */
+  const offloaded = [];
+  let spans = 0;
+  for (let i = 0; !isProtected && i < lines.length;) {
+    const m = longestMatch(lines, i, st);
+    if (m && m.len >= DEDUP_MIN_LINES) {
+      const span = lines.slice(i, i + m.len);
+      const spanText = span.join("\n");
+      if (spanText.length >= DEDUP_MIN_CHARS) {
+        const hash = contentHash(spanText);
+        const ptr = pointer(span, m.turn, m.delta, hash);
+        // Deviation: the hash suffix can make a short run's pointer longer than the run; such a run stays verbatim.
+        if (ptr.length < spanText.length) {
+          out.push(ptr);
+          for (let k = 0; k < m.len; k++) verbatim.push(null);
+          offloaded.push([hash, spanText]);
+          spans++;
+          i += m.len;
+          continue;
+        }
+      }
+    }
+    out.push(lines[i]);
+    verbatim.push(lines[i]);
+    i++;
+  }
+  indexLines(verbatim, turn, st);
+  st.corpus.set(turn, verbatim);
+  st.chars += text.length;
+  let total = 0;
+  for (const s of states.values()) total += s.chars;
+  for (const [oldest, s] of states) {
+    if (total <= DEDUP_MAX_CHARS) break;
+    if (oldest === key) {
+      // This conversation alone is over the cap: start its corpus over, but keep counting ordinals.
+      st.corpus.clear();
+      st.index.clear();
+      st.chars = 0;
+      break;
+    }
+    total -= s.chars;
+    states.delete(oldest);
+  }
+  return spans > 0 ? { text: out.join("\n"), spans, offloaded } : undefined;
+}
+
+// The tool-result row pipeline (session.append): SmartCrusher, then the dense line elider, then cross-turn dedup.
+
+/**
+ * A tool_result block's texts as the model reads them: string content, or each text block of array content.
+ * @param {Record<string, unknown>} block
+ * @returns {string[]}
+ */
+function resultTexts(block) {
+  const c = block.content;
+  if (typeof c === "string") return [c];
+  return Array.isArray(c) ? c.filter(isTextBlock).map((b) => b.text) : [];
+}
+
+/**
+ * Whether a tool-result row holds text the SmartCrusher may rewrite, so the hook pays the transcript fetch only then.
+ * @param {readonly ContentBlock[]} content the row's blocks
+ * @param {string} tool the row's origin tool
+ * @returns {boolean}
+ */
+export function wantsQuery(content, tool) {
+  if (tool === RETRIEVE_TOOL || tool.startsWith(OWN_STORAGE_PREFIX)) return false;
+  return content.some((b) => isRecord(b) && b.type === "tool_result" && b.is_error !== true && resultTexts(b).some(looksLikeJsonDoc));
+}
+
+/**
+ * Rewrites a tool-result row's blocks before they are stored: per tool_result block, each text is crushed (one whole
+ * JSON document) or else dense-line-elided, then a single-text result is deduplicated against earlier results of the
+ * same conversation. Error blocks and headroom_retrieve / own-storage rows are never rewritten (dedup still indexes
+ * them). Undefined when no block changed. Mutates levers.dedup.states.
+ * @param {readonly ContentBlock[]} content the row's blocks
+ * @param {string} tool the row's origin tool
+ * @param {Levers} levers
+ * @param {string} query the conversation context (crushQuery), "" for none
+ * @returns {RowRewrite|undefined}
+ */
+export function rewriteToolResults(content, tool, levers, query) {
+  const rowProtected = tool === RETRIEVE_TOOL || tool.startsWith(OWN_STORAGE_PREFIX);
+  /** @type {Omit<RowRewrite, "content">} */
+  const acc = { offloaded: [], crush: { dropped: 0, saved: 0 }, elide: { lines: 0, saved: 0 }, dedup: { spans: 0, saved: 0 } };
+  let changed = false;
+  /** @type {ContentBlock[]} */
+  const mapped = content.map((b) => {
+    if (!isRecord(b) || b.type !== "tool_result") return b;
+    const prot = rowProtected || b.is_error === true;
+    /**
+     * The crusher's rewrite of one text, else the elider's (upstream elides only text no JSON strategy rewrote).
+     * @param {string} text
+     * @returns {string}
+     */
+    const shrink = (text) => {
+      if (prot) return text;
+      const c = levers.crush ? crushJson(text, query) : undefined;
+      if (c) {
+        acc.crush.dropped += c.rowsDropped;
+        acc.crush.saved += text.length - c.text.length;
+        acc.offloaded.push(...c.offloaded);
+        return c.text;
+      }
+      const d = levers.elide ? elideDense(text) : undefined;
+      if (d) {
+        acc.elide.lines += d.lines;
+        acc.elide.saved += text.length - d.text.length;
+        acc.offloaded.push(...d.offloaded);
+        return d.text;
+      }
+      return text;
+    };
+    /**
+     * Cross-turn dedup of a result's final text; a protected text is only indexed.
+     * @param {string} text
+     * @returns {string}
+     */
+    const fold = (text) => {
+      const f = levers.dedup ? dedupBlock(levers.dedup.states, levers.dedup.key, text, prot) : undefined;
+      if (!f) return text;
+      acc.dedup.spans += f.spans;
+      acc.dedup.saved += text.length - f.text.length;
+      acc.offloaded.push(...f.offloaded);
+      return f.text;
+    };
+    const c = b.content;
+    if (typeof c === "string") {
+      let t = shrink(c);
+      if (t !== "") t = fold(t);
+      if (t === c) return b;
+      changed = true;
+      return { ...b, content: t };
+    }
+    if (!Array.isArray(c)) return b;
+    let touched = false;
+    /** @type {unknown[]} */
+    const items = c.map((x) => {
+      if (!isTextBlock(x)) return x;
+      const text = shrink(x.text);
+      if (text === x.text) return x;
+      touched = true;
+      return { ...x, text };
     });
-  return c.charsSaved > 0 ? c : undefined;
+    // Upstream dedups only a result with exactly one non-empty text block; multi-text results stay verbatim and unindexed.
+    const texts = items.flatMap((x, i) => (isTextBlock(x) && x.text !== "" ? [i] : []));
+    if (texts.length === 1) {
+      const it = /** @type {{ type: "text", text: string }} */ (items[texts[0]]);
+      const text = fold(it.text);
+      if (text !== it.text) {
+        items[texts[0]] = { ...it, text };
+        touched = true;
+      }
+    }
+    if (!touched) return b;
+    changed = true;
+    return { ...b, content: items };
+  });
+  return changed ? { content: mapped, ...acc } : undefined;
 }

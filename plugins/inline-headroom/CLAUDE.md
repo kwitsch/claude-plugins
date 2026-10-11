@@ -1,13 +1,17 @@
 # CLAUDE.md — inline-headroom
 
 Mods-API plugin (the repo's first): one TypeScript function-hooks module, no
-skills/agents/command hooks. Three levers, each behind a boolean `userConfig`
+skills/agents/command hooks. Five levers, each behind a boolean `userConfig`
 toggle (`effort_routing_enabled`, `cache_aligner_enabled`,
-`smart_crusher_enabled`), plus `subagent_effort_routing_enabled`, which extends
-effort routing to subagent and Workflow-agent steps and is active only while
-`effort_routing_enabled` is on (all four `default: true`, only literal `false`
-disables), plus the `/headroom` stats command and the SmartCrusher's
-`headroom_retrieve` tool. It also ships a host-wide SQLite storage MCP server
+`smart_crusher_enabled`, `cross_turn_dedup_enabled`,
+`dense_line_elider_enabled`), plus `subagent_effort_routing_enabled`, which
+extends effort routing to subagent and Workflow-agent steps and is active only
+while `effort_routing_enabled` is on, and `subagent_compression_enabled`, which
+extends the three compression levers to subagent and Workflow-agent tool
+results and is active only while one of them is on (all seven `default: true`,
+only literal `false` disables), plus the `/headroom` stats command and the
+compression levers' `headroom_retrieve` tool. It also ships a host-wide
+SQLite storage MCP server
 behind the fail-closed `storage_enabled` toggle (see `## Storage server`); the
 mod persists `/headroom` counters in it.
 
@@ -34,8 +38,8 @@ mod persists `/headroom` counters in it.
   helpers in `register.ts` take the whole `$` typed `EngineInterface`.
   It is `.mjs` (not `.ts`) so the root toolchain covers it in CI:
   `tsconfig.json` (`plugins/**/*.mjs`), ESLint, and `node --test` via
-  `test/inline-headroom/policy.test.mjs`. It also holds the SmartCrusher port
-  (see `## SmartCrusher`).
+  `test/inline-headroom/policy.test.mjs`. It also holds the SmartCrusher,
+  cross-turn dedup and dense line elider ports (see their sections).
 - `tests/inline-headroom.test.ts` — hook-wiring tests for `claude plugin test`.
   Local only: CI runners have no `claude` CLI; `test/inline-headroom/test.bats`
   runs `claude plugin validate` and `claude plugin test` when `claude`
@@ -60,7 +64,7 @@ Every test that needs `node:sqlite` or spawns processes lives in
 `setup-node`. Its cleanup SIGTERMs every `--service` process for its temp data
 dir, so no daemon outlives the suite.
 
-The bats version-pin test (`plugin.json version is 0.6.0`) is a rolling pin:
+The bats version-pin test (`plugin.json version is 0.7.0`) is a rolling pin:
 every version bump rewrites its name and expected value in the same commit.
 
 ## Storage server
@@ -184,7 +188,14 @@ Deviations from upstream:
   lexemes that survive are re-rendered (`1.50` → `1.5`), and integer-like object
   keys come first (a JS object rule).
 - The tool-digest marker is omitted: the mod rewrites each result once, at
-  `tool.call`.
+  `session.append`.
+- Candidates are tool_result texts as the model reads them, from any tool; the
+  Bash record guards are dropped because each guarded case renders text that is
+  not one JSON document, so the whole-document parse rejects it. Read results
+  carry `N\t` line numbers and never parse. A row carries no `context`, so the
+  former `context` carry-over is moot, and a subagent row's query comes from
+  `$.session.messages({ agentId })`. The crusher's thresholds and algorithm are
+  unchanged.
 - A query token or anchor found in more than half the rows is ignored
   (`isSelective`); upstream counts it, so a key name in the query marks every
   row relevant and the crush degrades to the head rows.
@@ -199,28 +210,146 @@ Deviations from upstream:
   opaque-blob CCR, TOIN / `preserve_fields`, `factor_out_constants`,
   `include_summaries` and the embedding scorer (stubbed upstream too).
 
-Wiring in `register.ts`:
+Wiring in `register.ts`, shared by the SmartCrusher, cross-turn dedup and the
+dense line elider:
 
+- One `session.append` hook with the matcher `{ door: "tool-result" }`,
+  registered while `smart_crusher_enabled`, `cross_turn_dedup_enabled` or
+  `dense_line_elider_enabled` is on, rewrites each tool-result row before it is
+  first stored and sent, so the model, the transcript file and every later
+  request read one form (prompt-cache safe). `rewriteToolResults` (pure, in
+  `policy.mjs`) crushes each text, elides each text the crusher left alone,
+  then deduplicates a single-text result.
+- Gates, each passing the row through with `next(e)`: `retrieveReady` (this
+  module load registered the tool under `RETRIEVE_TOOL`; a marker must never
+  name a missing tool), `origin.kind === "tool"`, and a subagent row
+  (`e.agentId`) only while `subagent_compression_enabled` is on.
+- Protected rows are never rewritten: a block with `is_error === true`, and
+  every block of a `headroom_retrieve` or `mcp__plugin_inline-headroom_storage__*`
+  row (a `kv_get` → edit → `kv_set` would write the loss back to `storage.db`).
+  Dedup still indexes them as originals.
+- `wantsQuery` gates the `$.session.messages()` fetch (`{ agentId }` for a
+  subagent row; a `{ deny }` means an empty query), so the transcript is read
+  only for a row holding a JSON document the crusher may rewrite; a failed
+  fetch crushes without query signals.
+- `next` is called exactly once on every path and its answer is returned
+  unchanged. Any throw before it (the fetch, the pipeline) passes the row
+  through unchanged (fail open); a rejection from `next` itself propagates.
+- Every dropped original goes to the in-memory `offloaded` `Map` through
+  `storeOffloaded` (1000 entries and `CCR_MAX_CHARS` characters, oldest
+  evicted, no TTL; upstream caps by count only), one store for all three
+  levers.
 - The module's one matcher-less `tool.call` hook (registered while
-  `effort_routing_enabled` or `smart_crusher_enabled` is on) observes effort
-  errors first, answers `mcp__inline-headroom__headroom_retrieve` itself from
-  the in-memory `offloaded` `Map` (1000 entries and `CCR_MAX_CHARS` characters,
-  oldest evicted, no TTL; upstream caps by count only;
-  `session.start` registers the tool), and then crushes.
-- A result where `isToolError(r)` is true is never rewritten. A crush needs
-  all of: `smart_crusher_enabled`; `retrieveReady` (this module load registered
-  the tool under `RETRIEVE_TOOL`); no `e.agentId` (the tool is not known to be
-  callable in subagents); `next.origin.plugin === "engine"` (the model's own
-  call, never another plugin's `$.tool.call`; a missing `origin` fails open);
-  and `isCrushCandidate` (Bash stdout or MCP JSON text blocks that parse, so the
-  transcript fetch is paid only for real JSON, never `headroom_retrieve` or the
-  mod's own `mcp__plugin_inline-headroom_storage__*` tools).
-- A rewrite is a new `{ result }` that carries `next`'s `context` over
-  unchanged (user decision); every passthrough returns `r` itself, and
-  anything thrown after the error check returns `r` (fail open).
-- The `smart crusher` table's `crush.dropped` and `crush.saved` are
+  `effort_routing_enabled` or any compression lever is on) observes effort
+  errors and answers `mcp__inline-headroom__headroom_retrieve` itself from
+  `offloaded` (`session.start` registers the tool); a miss is a `{ deny }`,
+  which the effort observer counts as a failure.
+- Model-only holds structurally: a tool-result row answers a `tool_use` block
+  of the model's response, and a `session.append` rewrite never changes what a
+  plugin's `$.tool.call` resolves to.
+- The `smart crusher`, `dedup` and `line elider` tables' counters are
   session-only and reset on `session.end`. Persisting them needs new `stats`
   columns, a `MIGRATIONS` entry and a `PROTOCOL` 2 → 3 bump, so it is deferred.
+
+## Cross-turn dedup
+
+A port of upstream headroom's cross-turn verbatim de-duplication
+(`headroom/transforms/cross_turn_dedup.py` and the `content_router.py`
+`_cross_turn_dedup_messages` wiring, read 2026-10-11 at 976aa71) into
+`hooks/policy.mjs` as `dedupBlock`.
+
+Ported verbatim:
+
+- `DEFAULT_MIN_LINES` 3, `DEFAULT_MIN_CHARS` 40 (on the joined span) and
+  `MAX_ANCHOR_CANDIDATES` 16, in first-seen order.
+- The unpadded line-number regex `^([1-9]\d*)(:|\t)(.*)$`. Leading-zero runs
+  never renumber-fold.
+- Match keys modulo the line number, with a uniform delta inside a run.
+  Non-numbered lines must match exactly.
+- The trivial-line set and the `< 4` rule.
+- The longest run wins; a tie keeps the earliest. Folded lines become null, so
+  they never seed a later match (keep-earliest).
+- Only surviving verbatim lines are indexed. Protected blocks (here: error
+  results, `headroom_retrieve` and own-storage rows) are indexed as targets and
+  never rewritten.
+- Only string content or a single non-empty text sub-block takes part.
+- Dedup runs after per-block compression, over the final text.
+- Prefix-monotonic, because each block matches only strictly earlier output and
+  stored rows are immutable.
+
+Deviations from upstream:
+
+- Incremental at append time instead of a per-request batch. The corpus is per
+  conversation (the main loop, or one `agentId`) and lives in module memory
+  (`dedupStates` in `register.ts`). It is capped at `DEDUP_MAX_CHARS`
+  (4,000,000) indexed characters across conversations, dropping the least
+  recently appended conversation first, or resetting the current one when it
+  alone exceeds the cap (its ordinals keep counting). It is cleared on
+  `session.end` and lost on a mod reload.
+- The pointer names `result N`, where N is the mod's 1-based ordinal of the
+  conversation's indexed tool results, instead of `msg N`. N is the message
+  index in upstream's request; the mod has no request-level view at append
+  time.
+- The pointer adds ` hash=H`. Upstream recovery is in context only, but the mod
+  also stores the folded run's exact text in the CCR store, so a pointer whose
+  original was compacted away stays recoverable while the mod is loaded.
+- Because of that suffix, a fold is emitted only when the pointer is shorter
+  than the run. Upstream relies on `min_chars` alone for its net win.
+- The anchor is quoted with `JSON.stringify` (always double quotes) instead of
+  Python `repr`. It is truncated by code points, as upstream does.
+- A line number beyond `Number.MAX_SAFE_INTEGER` is treated as non-numbered.
+- JS `\d` is ASCII-only where Python's `str` regex `\d` is Unicode.
+- Lengths count UTF-16 units.
+
+Wiring: `rewriteToolResults` calls `dedupBlock` last, over each tool_result's
+final text (after the crusher or the elider), with the key `""` for a main-loop
+row and the `agentId` for a subagent row. Folds count in the `dedup` table's
+session-only `spans` and `saved`.
+
+## Dense line elider
+
+A port of upstream headroom's dense line elider
+(`headroom/transforms/dense_line_elider.py`, the `content_router.py`
+`_elide_dense` CCR marker and `recursive_json.py` `scan_json_documents`, read
+2026-10-11 at 976aa71) into `hooks/policy.mjs` as `elideDense`.
+
+Ported verbatim:
+
+- `MIN_LINE_CHARS` 300; `MAX_SPACE_RATIO` 0.06, with `>=` rejecting;
+  `MIN_DENSE_TOTAL_CHARS` 2000; `HEAD_CHARS` 160; `TAIL_CHARS` 80.
+- The early return below 300 characters, the tab guard and the JSON-shaped
+  guard.
+- The labelled-JSON guard through the span scan (`scanFrom`, `noJsonSpans`),
+  including the work budget of 4 per character + 4096, where an incomplete
+  scan means not dense.
+- The split on `\n` only, the per-line omission note
+  `...[N chars of dense machine-generated content elided]...`, and the CCR
+  retrieval line `[N dense machine-generated line(s) elided. Retrieve original: hash=H]`
+  appended after the block, with the whole pre-elision block stored under the
+  hash.
+- No elision of text another compressor rewrote (SmartCrusher output; upstream
+  `_DENSE_ELIDE_AFTER`).
+
+Deviations from upstream:
+
+- The 12-hex `hash64`-based `contentHash` stands in for upstream's CCR key, as
+  for the crusher.
+- A result that is not shorter than its input is passed through. Upstream
+  would emit it; seven 300-character dense lines grow by the retrieval line.
+- Lengths count UTF-16 code units, where upstream counts code points.
+- Head and tail cuts never split a surrogate pair, so a cut may keep one unit
+  less.
+- `JSON.parse` rejects `NaN`/`Infinity` spans that Python's `json.loads`
+  accepts, so such a span does not protect its line. A non-`SyntaxError` parse
+  failure counts as an incomplete scan.
+- `trim()` and Python `strip()` differ on a few exotic whitespace code points.
+- Upstream disables elision in lossless mode; the mod has no lossless mode.
+- Applied to every non-error tool result except `headroom_retrieve` and the
+  mod's own storage tools.
+
+Wiring: `rewriteToolResults` runs `elideDense` on each text the crusher did not
+rewrite (every text while `smart_crusher_enabled` is off). Elided lines count
+in the `line elider` table's session-only `lines` and `saved`.
 
 ## Verified Claude Code 2.1.288 shapes relied on
 
@@ -239,9 +368,11 @@ Wiring in `register.ts`:
   `registered twice without a matcher`. The subagent error cleanup therefore
   shares the one `turn.complete` hook with the storage write, registered while
   `storage_enabled` or `subagent_effort_routing_enabled` is on. `tool.call`
-  likewise has one hook, which observes effort errors, answers
-  `headroom_retrieve` and runs the SmartCrusher, registered while
-  `effort_routing_enabled` or `smart_crusher_enabled` is on.
+  likewise has one hook, which observes effort errors and answers
+  `headroom_retrieve`, registered while effort routing or any compression
+  lever is on. `session.append` has exactly one hook, with the matcher
+  `{ door: "tool-result" }`, which runs the SmartCrusher, cross-turn dedup and
+  the dense line elider, registered while any compression lever is on.
 - Live-run on 2.1.296 (headless `claude -p --plugin-dir … --setting-sources project`,
   a stdio MCP test server via `--mcp-config`, stream-json transcript as evidence):
   - Core resolves an MCP tool's `tool.call` to `{ ref, result, text }` where
@@ -267,11 +398,14 @@ Wiring in `register.ts`:
     and maps it for the model with the tool's own mapper; `ref` and `text` are
     absent on it. `context` (`readonly string[]`, other hooks' reminder text) is
     "kept whole from `next`", but the typings do not say core restores it on a
-    hook's own `{ result }`, so the crusher carries `r.context` over itself.
+    hook's own `{ result }`. The mod answers only `headroom_retrieve` with its
+    own `{ result }`; it rewrites tool results at `session.append` instead.
   - The Bash record has `stdout`, `stderr`, `interrupted`, `isImage?`,
     `backgroundTaskId?`, `timedOutAfterMs?` (set when the command hit its
     timeout and was backgrounded), `rawOutputPath?`, `persistedOutputPath?` and
-    `structuredContent?`; the candidate guard reads each.
+    `structuredContent?`. Each case these fields flag renders a tool_result
+    text that is not one JSON document, so the crusher's whole-document parse
+    at `session.append` rejects it.
   - `$.tool.register` in the first `session.start` (which is awaited) is listed
     by turn one; a reload's `session.start` registers again; `/clear` fires
     none.
@@ -354,6 +488,38 @@ Wiring in `register.ts`:
     volatile list therefore stays empty for an installed plugin; the pane says
     `unavailable` while no `prompt.compose` reached the module (`composeSeen`).
     Its cache-drop counting reads `turn.step` usage and still works.
+- Live-run on 2.1.296 for the compression levers (2026-10-11, a throwaway probe
+  mod with a `session.append` `{ door: "tool-result" }` hook, headless
+  `claude -p … --plugin-dir <probe> --setting-sources project --debug-file …`;
+  evidence: the probe's debug lines and the stream-json transcript):
+  - `claude plugin validate` lists the hook as `session.append{door=tool-result}`,
+    separate from the matcher-less `tool.call`.
+  - Each tool result is one row: `door: "tool-result"`,
+    `origin: { kind: "tool", tool: "<name>" }`, and a `message` of
+    `type: "user"`, `role: "user"` whose `content` holds one
+    `{ type: "tool_result", tool_use_id, content, is_error? }` block.
+    `agentId` is set on subagent rows and absent on main rows.
+  - The tool_result `content` per tool: Bash a string of stdout (with
+    `is_error: false`); Read a string with unpadded line numbers (`1\t…`); Grep
+    in content mode a string (`1:…`); ToolSearch an array of
+    `{ type: "tool_reference", tool_name }` blocks; a `$.tool.register` tool's
+    `{ result: "…" }` a string; Agent an array holding one text block (the
+    framed hand-back report).
+  - `$.session.messages()` (or `$.session.messages({ agentId })` for a subagent
+    row) called inside the hook resolves to an array with no deadlock; every
+    `session.append` settled in 2.1-4.0 ms, `next` and the fetch included.
+  - A rewrite through `next({ ...e, message: { ...e.message, content } })` is
+    stored and read by the model, for main and subagent rows alike.
+  - A `$.tool.register` tool is callable from a general-purpose subagent: the
+    subagent loaded it through ToolSearch `select:`, and the module's
+    `tool.call` hook answered it with `agentId` set.
+  - Every model tool call, in subagents too, carries `next.origin`
+    `{ plugin: "engine", tier: "core" }`.
+- Test kit: the test's own
+  `$.session.append({ message, door, origin, uuid, agentId? })` raises a row
+  through the plugin's `session.append` hooks; the kit's bottom stores it with
+  the pinned blocks put back and resolves `{ message, uuid }` (the kit tests'
+  `appendResult`).
 
 ## Not yet live-verified (kit only)
 
@@ -363,6 +529,12 @@ delete this heading once it is empty.
 
 - Workflow agents (only Agent-tool subagents were live-run) raise `turn.step`,
   `tool.call` and `turn.complete` with a stable `agentId`.
+- A stdio MCP server's tool_result `content` shape at `session.append` (a
+  string or a text-block array; both are handled).
+- A tool-result row with `is_error: true`.
+- Workflow-agent tool-result rows.
+- Agent types whose `tools` allowlist names or leaves out `headroom_retrieve`.
+- A dedup pointer whose original was compacted away.
 
 ## Effort-routing caveat
 

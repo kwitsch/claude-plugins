@@ -5,6 +5,7 @@ import {
   CCR_CAPACITY,
   CCR_MAX_CHARS,
   CRUSH_MIN_CHARS,
+  DEDUP_MAX_CHARS,
   EFFORT_ORDER,
   ERROR_KEYWORDS,
   MAX_FINDINGS,
@@ -16,19 +17,21 @@ import {
   computeOptimalK,
   crushJson,
   crushQuery,
-  crushToolResult,
   dayKey,
+  dedupBlock,
+  elideDense,
   findVolatile,
   foldPending,
   isCacheDrop,
-  isCrushCandidate,
   isOwnStorageCall,
   isToolError,
+  rewriteToolResults,
   statsTables,
   stepEffort,
   storeOffloaded,
   tableText,
   toCount,
+  wantsQuery,
   windowStart,
   zeroCounters,
 } from "../../plugins/inline-headroom/hooks/policy.mjs";
@@ -223,6 +226,14 @@ test("statsTables builds every table, with blank for rows without counters", () 
       ["smart crusher", "dropped", "saved"],
       ["session", "0", "0"],
     ],
+    [
+      ["dedup", "spans", "saved"],
+      ["session", "0", "0"],
+    ],
+    [
+      ["line elider", "lines", "saved"],
+      ["session", "0", "0"],
+    ],
   ]);
   // The in-memory rows: subagents right under the effort session row, the crusher's session counts.
   const [effort, , crusher] = statsTables([c], "…", { subagents: { steps: 4, clamped: 3 }, crush: { dropped: 40, saved: 1200 } });
@@ -232,6 +243,9 @@ test("statsTables builds every table, with blank for rows without counters", () 
     ["today", "…", "…"],
   ]);
   assert.deepEqual(crusher[1], ["session", "40", "1200"]);
+  const [, , , deduper, elider] = statsTables([c], "…", { dedup: { spans: 3, saved: 900 }, elide: { lines: 2, saved: 4100 } });
+  assert.deepEqual(deduper[1], ["session", "3", "900"]);
+  assert.deepEqual(elider[1], ["session", "2", "4100"]);
   assert.equal(statsTables([zeroCounters()], "–")[1][1][1], "–"); // no tokens: no hit ratio
   assert.equal(statsTables([{ ...c, hit: 0.1 }], "…")[1][1][1], "10%"); // a row's own hit wins over the token-weighted one
 });
@@ -530,78 +544,382 @@ test("crushJson is deterministic", () => {
 
 const BIG = JSON.stringify(STATUS_ROWS);
 
+const HASH_RE = /^[0-9a-f]{12}$/;
+// Any lone (unpaired) UTF-16 surrogate: a cut that splits a pair leaves one behind.
+const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+
 /**
- * crushToolResult with an empty query; throws when the result is not rewritten.
- * @param {string} tool
- * @param {unknown} result
+ * elideDense that must rewrite; throws when the text passes through.
+ * @param {string} text
  */
-function crushTool(tool, result) {
-  const c = crushToolResult(tool, result, "");
-  if (!c) throw new Error(`expected the ${tool} result to be crushed`);
-  return c;
+function elide(text) {
+  const r = elideDense(text);
+  if (!r) throw new Error("expected elideDense to rewrite the text");
+  return r;
 }
 
-test("crushToolResult rewrites a candidate Bash result's stdout and nothing else", () => {
-  const result = { stdout: BIG, stderr: "", interrupted: false, noOutputExpected: false };
-  assert.equal(isCrushCandidate("Bash", result), true);
-  const c = crushTool("Bash", result);
-  const { stdout, ...rest } = /** @type {Record<string, unknown>} */ (c.result);
-  assert.deepEqual(rest, { stderr: "", interrupted: false, noOutputExpected: false });
-  assert.equal(typeof stdout, "string");
-  const rows = JSON.parse(String(stdout));
-  assert.match(rows.at(-1)._ccr_dropped, SENTINEL);
-  assert.equal(c.rowsDropped, 200 - (rows.length - 1));
-  assert.equal(c.charsSaved, BIG.length - String(stdout).length);
-  assert.equal(c.offloaded.length, 1);
-  assert.equal(result.stdout, BIG); // the input is not mutated
+/**
+ * The omission note a dense line becomes: its head, the count of characters cut, its tail.
+ * @param {string} head
+ * @param {number} omitted
+ * @param {string} tail
+ */
+const elidedLine = (head, omitted, tail) => `${head} ...[${omitted} chars of dense machine-generated content elided]... ${tail}`;
+
+test("elideDense keeps a dense line's first 160 and last 80 characters and ends the block with a retrieval line", () => {
+  const line = "QUJD".repeat(625); // 2500 characters of base64
+  const r = elide(line);
+  const [first, marker, ...rest] = r.text.split("\n");
+  assert.deepEqual(rest, []);
+  assert.equal(first, elidedLine(line.slice(0, 160), 2260, line.slice(-80)));
+  const [, hash] = /^\[1 dense machine-generated line elided\. Retrieve original: hash=([0-9a-f]{12})\]$/.exec(marker) ?? [];
+  assert.match(hash, HASH_RE);
+  assert.equal(r.lines, 1);
+  assert.deepEqual(r.offloaded, [[hash, line]]);
+  /** @type {Map<string, string>} */
+  const store = new Map();
+  storeOffloaded(store, r.offloaded);
+  assert.equal(store.get(hash), line);
 });
 
-test("Bash results that are not one whole inline JSON document are never candidates", () => {
-  const ok = { stdout: BIG, stderr: "", interrupted: false };
-  for (const extra of [
-    { interrupted: true },
-    { isImage: true },
-    { backgroundTaskId: "b1" },
-    { timedOutAfterMs: 120000 },
-    { persistedOutputPath: "/tmp/out.txt" },
-    { rawOutputPath: "/tmp/raw.txt" },
-    { stderr: "warn" },
-    { structuredContent: [{ type: "text", text: "x" }] },
-    { stdout: "x".repeat(900) },
-    { stdout: "[ 10%] Building CXX object foo.o\n".repeat(40) }, // starts with "[" but is a build log
-    { stdout: "{" + "x".repeat(900) }, // starts with "{" but does not parse
-  ]) {
-    assert.equal(isCrushCandidate("Bash", { ...ok, ...extra }), false, Object.keys(extra)[0]);
-    assert.equal(crushToolResult("Bash", { ...ok, ...extra }, ""), undefined, Object.keys(extra)[0]);
+test("elideDense passes short text, short lines and a small dense total through", () => {
+  assert.equal(elideDense("x".repeat(299)), undefined);
+  assert.equal(elideDense(Array.from({ length: 8 }, () => "x".repeat(299)).join("\n")), undefined); // 2392 characters, no line of 300
+  assert.equal(elide(Array.from({ length: 8 }, () => "x".repeat(400)).join("\n")).lines, 8);
+  assert.equal(elideDense(Array.from({ length: 6 }, () => "x".repeat(320)).join("\n")), undefined); // dense lines add up to 1920
+});
+
+test("elideDense leaves lines with a tab, 6% spaces, a JSON shape or a JSON document alone", () => {
+  /**
+   * A 1000-character line holding exactly `k` spaces.
+   * @param {number} k
+   */
+  const spaced = (k) => ("x".repeat(15) + " ").repeat(k) + "x".repeat(1000 - 16 * k);
+  assert.equal(elideDense(`${"x".repeat(1200)}\t${"x".repeat(1200)}`), undefined);
+  assert.equal(elideDense([spaced(60), spaced(60), spaced(60)].join("\n")), undefined); // 60 / 1000 is the ratio that rejects
+  assert.equal(elide([spaced(59), spaced(59), spaced(59)].join("\n")).lines, 3);
+  assert.equal(elideDense(`[${"x".repeat(2500)}]`), undefined);
+  assert.equal(elideDense(`  {${"x".repeat(2500)}}  `), undefined);
+  assert.equal(elideDense(`data: {"a":1}${"x".repeat(2500)}`), undefined); // labelled JSON: only the SmartCrusher may touch it
+  assert.equal(elide(`data: {"a":1${"x".repeat(2500)}`).lines, 1); // an unclosed brace holds no document
+});
+
+test("elideDense splits on newlines only, so a CRLF line keeps its carriage return", () => {
+  const r = elide(`${"x".repeat(2500)}\r\nok\r\n`);
+  const lines = r.text.split("\n");
+  assert.ok(lines[0].endsWith(`${"x".repeat(79)}\r`), JSON.stringify(lines[0].slice(-4)));
+  assert.equal(lines[1], "ok\r");
+  assert.equal(lines[2], "");
+  assert.match(lines[3], /^\[1 dense machine-generated line elided\. /);
+});
+
+test("elideDense passes a result that is not shorter through", () => {
+  // Each 300-character line shrinks by one character; the retrieval line adds more than the seven save.
+  assert.equal(elideDense(Array.from({ length: 7 }, () => "x".repeat(300)).join("\n")), undefined);
+});
+
+test("elideDense never cuts a surrogate pair in half", () => {
+  const line = `${"x".repeat(159)}😀${"x".repeat(2400)}😀${"x".repeat(79)}`; // pairs straddle index 160 and length - 80
+  const r = elide(line);
+  const first = r.text.split("\n")[0];
+  assert.equal(first, elidedLine("x".repeat(159), line.length - 159 - 79, "x".repeat(79)));
+  assert.doesNotMatch(r.text, LONE_SURROGATE);
+});
+
+test("elideDense counts every dense line in the retrieval line", () => {
+  const r = elide(`${"y".repeat(1200)}\nmiddle line\n${"z".repeat(1200)}`);
+  assert.equal(r.lines, 2);
+  assert.match(r.text, /\n\[2 dense machine-generated lines elided\. Retrieve original: hash=[0-9a-f]{12}\]$/);
+  assert.equal(r.text.split("\n")[1], "middle line");
+});
+
+/** @typedef {import("../../plugins/inline-headroom/hooks/policy.mjs").DedupState} DedupState */
+
+// Three numbered source lines of 40+ characters each: a run a pointer replaces.
+const RUN = ["1:function alpha() { return computeAlpha(first); }", "2:function beta() { return computeBeta(second); }", "3:function gamma() { return computeGamma(third); }"].join("\n");
+
+/**
+ * dedupBlock on an unprotected text that must fold; throws otherwise.
+ * @param {Map<string, DedupState>} states
+ * @param {string} key
+ * @param {string} text
+ */
+function fold(states, key, text) {
+  const f = dedupBlock(states, key, text, false);
+  if (!f) throw new Error("expected the text to fold");
+  return f;
+}
+
+/** @returns {Map<string, DedupState>} a fresh set of conversations */
+const conversations = () => new Map();
+
+test("dedupBlock folds a repeated run of 3 lines and 40+ characters into a pointer to the earlier result", () => {
+  const states = conversations();
+  assert.equal(dedupBlock(states, "", RUN, false), undefined); // the first block never folds
+  const f = fold(states, "", `intro\n${RUN}\noutro`);
+  const [hash] = f.offloaded[0];
+  assert.match(hash, /^[0-9a-f]{12}$/);
+  assert.equal(f.text, `intro\n[↑3L same as result 1: "function alpha() ..." hash=${hash}]\noutro`);
+  assert.equal(f.spans, 1);
+  assert.deepEqual(f.offloaded, [[hash, RUN]]);
+});
+
+test("dedupBlock leaves 2 repeated lines and 3 lines under 40 characters alone", () => {
+  const two = RUN.split("\n").slice(0, 2).join("\n");
+  const states = conversations();
+  dedupBlock(states, "", two, false);
+  assert.equal(dedupBlock(states, "", two, false), undefined);
+  const short = "1:abcd\n2:efgh\n3:ijkl"; // 20 characters
+  const other = conversations();
+  dedupBlock(other, "", short, false);
+  assert.equal(dedupBlock(other, "", short, false), undefined);
+});
+
+test("dedupBlock never starts a run on a trivial line, but a run may hold one", () => {
+  const text = ["return", "const alpha = computeAlphaValue(firstArgument);", "return", "const gamma = computeGammaValue(thirdArgument);"].join("\n");
+  const states = conversations();
+  dedupBlock(states, "", text, false);
+  const f = fold(states, "", text);
+  const [hash] = f.offloaded[0];
+  assert.equal(f.text, `return\n[↑3L same as result 1: "const alpha = com..." hash=${hash}]`);
+  assert.equal(f.offloaded[0][1], text.split("\n").slice(1).join("\n"));
+});
+
+test("dedupBlock folds a re-read whose line numbers all shifted, and timestamps with a leading zero only on an exact match", () => {
+  /**
+   * Three numbered lines starting at line `from`.
+   * @param {number} from
+   */
+  const numbered = (from) => [`${from}:  const total = items.reduce((a, b) => a + b, 0);`, `${from + 1}:  const mean = total / items.length;`, `${from + 2}:  return { total, mean };`].join("\n");
+  const states = conversations();
+  dedupBlock(states, "", numbered(10), false);
+  const f = fold(states, "", numbered(12));
+  const [hash, run] = f.offloaded[0];
+  assert.equal(f.text, `[↑3L same as result 1 +2L: "const total = ite..." hash=${hash}]`);
+  assert.equal(run, numbered(12)); // the stored run is this block's own bytes
+  /**
+   * Three log lines at second `s` and on.
+   * @param {number} s
+   */
+  const log = (s) => [0, 1, 2].map((k) => `08:00:${String(s + k).padStart(2, "0")} INFO request handled by worker ${k}`).join("\n");
+  const logs = conversations();
+  dedupBlock(logs, "", log(1), false);
+  assert.equal(dedupBlock(logs, "", log(11), false), undefined); // "08" is no line number: no shifted fold
+  assert.match(fold(logs, "", log(1)).text, /^\[↑3L same as result 1: "08:00:01 INFO req\.\.\." hash=[0-9a-f]{12}\]$/);
+});
+
+test("dedupBlock keeps the earliest original: a third repeat names result 1, not the folded result 2", () => {
+  const states = conversations();
+  dedupBlock(states, "", RUN, false);
+  fold(states, "", RUN);
+  assert.match(fold(states, "", RUN).text, /^\[↑3L same as result 1: /);
+});
+
+test("dedupBlock examines at most 16 anchor candidates per line", () => {
+  const anchor = "const anchorLine = buildTheAnchorLine(withArguments);";
+  const block = [anchor, "const second = buildTheSecondLine(withArguments);", "const third = buildTheThirdLine(withArguments);"].join("\n");
+  const states = conversations();
+  for (let i = 0; i < 16; i++) dedupBlock(states, "", anchor, false);
+  assert.equal(dedupBlock(states, "", block, false), undefined);
+  // Block 17's anchor line found its candidate list full, so an exact repeat of block 17 has no 3-line run to fold.
+  assert.equal(dedupBlock(states, "", block, false), undefined);
+});
+
+test("dedupBlock keeps each conversation's corpus apart", () => {
+  const states = conversations();
+  dedupBlock(states, "", RUN, false);
+  assert.equal(dedupBlock(states, "a1", RUN, false), undefined);
+  assert.match(fold(states, "a1", RUN).text, /^\[↑3L same as result 1: /);
+  assert.deepEqual([...states.keys()], ["", "a1"]);
+});
+
+test("dedupBlock never rewrites a protected text but folds a later text against it", () => {
+  const states = conversations();
+  assert.equal(dedupBlock(states, "", RUN, true), undefined);
+  assert.equal(dedupBlock(states, "", RUN, true), undefined);
+  assert.match(fold(states, "", RUN).text, /^\[↑3L same as result 1: /);
+});
+
+test("dedupBlock keeps a run whose pointer would not be shorter", () => {
+  const run = "alpha line 01\nbravo line 02\ncharlie line 3"; // 42 characters: the pointer with its hash takes more
+  const states = conversations();
+  dedupBlock(states, "", run, false);
+  assert.equal(dedupBlock(states, "", run, false), undefined);
+});
+
+test("dedupBlock is prefix-monotonic: an earlier block's output never depends on later blocks", () => {
+  const lines = RUN.split("\n");
+  const shifted = lines.map((l) => l.replace(/^(\d+):/, (_, n) => `${Number(n) + 5}:`)).join("\n");
+  const blocks = [RUN, `header\n${RUN}`, shifted, `${lines[0]}\n${lines[1]}\nbetween\n${lines[2]}`, `${RUN}\ntail`];
+  /**
+   * Each block's output, fed in order to one fresh set of conversations.
+   * @param {string[]} bs
+   */
+  const run = (bs) => {
+    const states = conversations();
+    return bs.map((b) => dedupBlock(states, "", b, false)?.text ?? b);
+  };
+  const full = run(blocks);
+  assert.notDeepEqual(full, blocks);
+  for (let k = 1; k <= blocks.length; k++) assert.deepEqual(run(blocks.slice(0, k)), full.slice(0, k));
+});
+
+test("dedupBlock drops the least recently appended conversation over DEDUP_MAX_CHARS, and resets a lone one", () => {
+  const half = "x".repeat(DEDUP_MAX_CHARS / 2 + 1);
+  const states = conversations();
+  dedupBlock(states, "a1", half, false);
+  dedupBlock(states, "", half, false);
+  assert.deepEqual([...states.keys()], [""]);
+  const solo = conversations();
+  dedupBlock(solo, "", RUN, false); // result 1
+  dedupBlock(solo, "", "y".repeat(DEDUP_MAX_CHARS + 1), false); // result 2, over the cap alone
+  const st = /** @type {DedupState} */ (solo.get(""));
+  assert.deepEqual([st.turn, st.corpus.size, st.index.size, st.chars], [2, 0, 0, 0]);
+  assert.equal(dedupBlock(solo, "", RUN, false), undefined); // result 3: result 1 left the corpus
+  assert.match(fold(solo, "", RUN).text, /^\[↑3L same as result 3: /);
+});
+
+/** @typedef {import("../../plugins/inline-headroom/hooks/policy.mjs").ContentBlock} ContentBlock */
+/** @typedef {import("../../plugins/inline-headroom/hooks/policy.mjs").Levers} Levers */
+
+const IMAGE = { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo=" } };
+// A pretty-printed document whose blob line is dense: elided when nothing crushes it, never once crushed.
+const PRETTY = JSON.stringify({ rows: STATUS_ROWS, blob: "QUJD".repeat(700) }, null, 2);
+// A dense line plus two short lines: elided to four lines (the omission note, both lines, the retrieval line).
+const DENSE_TEXT = `${"x".repeat(2500)}\nexit code 0 after the bundle step\nfinished writing dist/app.min.js`;
+
+/**
+ * One tool_result block as session.append hands it.
+ * @param {unknown} content
+ * @param {boolean} [isError]
+ * @returns {ContentBlock}
+ */
+const toolResult = (content, isError = false) => ({ type: "tool_result", tool_use_id: "toolu_1", content, ...(isError ? { is_error: true } : {}) });
+
+/**
+ * Every lever on, with a fresh main-loop dedup corpus unless one is given.
+ * @param {Partial<Levers>} [over]
+ * @returns {Levers}
+ */
+const levers = (over = {}) => ({ crush: true, elide: true, dedup: { states: new Map(), key: "" }, ...over });
+
+/**
+ * rewriteToolResults that must rewrite; throws when the row passes through.
+ * @param {readonly ContentBlock[]} content
+ * @param {string} tool
+ * @param {Levers} lv
+ */
+function rewrite(content, tool, lv) {
+  const r = rewriteToolResults(content, tool, lv, "");
+  if (!r) throw new Error("expected the row to be rewritten");
+  return r;
+}
+
+test("rewriteToolResults crushes a JSON string result and reports what it dropped and saved", () => {
+  const r = rewrite([toolResult(BIG)], "Bash", levers());
+  const text = String(r.content[0].content);
+  const rows = JSON.parse(text);
+  const [, hash, n] = SENTINEL.exec(rows.at(-1)._ccr_dropped) ?? [];
+  assert.equal(r.crush.dropped, Number(n));
+  assert.equal(r.crush.dropped, 200 - (rows.length - 1));
+  assert.equal(r.crush.saved, BIG.length - text.length);
+  assert.deepEqual(r.offloaded, [[hash, BIG]]);
+  assert.deepEqual(
+    [r.elide, r.dedup],
+    [
+      { lines: 0, saved: 0 },
+      { spans: 0, saved: 0 },
+    ],
+  );
+  assert.equal(r.content[0].tool_use_id, "toolu_1");
+});
+
+test("rewriteToolResults never rewrites an error block, but a later result folds against it", () => {
+  const lv = levers();
+  assert.equal(rewriteToolResults([toolResult(BIG, true)], "Bash", lv, ""), undefined);
+  assert.equal(rewriteToolResults([toolResult(RUN, true)], "Bash", lv, ""), undefined);
+  const r = rewrite([toolResult(RUN)], "Bash", lv);
+  assert.match(String(r.content[0].content), /^\[↑3L same as result 2: "function alpha\(\) \.\.\." hash=[0-9a-f]{12}\]$/);
+  assert.equal(r.dedup.spans, 1);
+});
+
+test("rewriteToolResults leaves headroom_retrieve and the mod's own storage tools alone", () => {
+  for (const tool of [RETRIEVE_TOOL, "mcp__plugin_inline-headroom_storage__kv_get"]) {
+    const lv = levers();
+    assert.equal(rewriteToolResults([toolResult(BIG)], tool, lv, ""), undefined, tool);
+    assert.equal(rewriteToolResults([toolResult(DENSE_TEXT)], tool, lv, ""), undefined, tool);
   }
 });
 
-test("crushToolResult rewrites only an MCP result's JSON text blocks", () => {
-  const image = { type: "image", data: "x", mimeType: "image/png" };
-  const small = { type: "text", text: "[1,2,3]" };
-  const json = { type: "text", text: BIG };
-  // Core's MCP result is the content-block array itself (live-verified).
-  const c = crushTool("mcp__srv__list", [json, image, small]);
-  const content = /** @type {{ text?: string }[]} */ (c.result);
-  assert.equal(content.length, 3);
-  assert.match(JSON.parse(String(content[0].text)).at(-1)._ccr_dropped, SENTINEL);
-  assert.equal(content[1], image);
-  assert.equal(content[2], small);
-  assert.equal(json.text, BIG); // the input is not mutated
+test("rewriteToolResults rewrites only the text block of an array result", () => {
+  const r = rewrite([toolResult([{ type: "text", text: BIG }, IMAGE])], "mcp__srv__list", levers());
+  const [text, image] = /** @type {[{ type: string, text: string }, unknown]} */ (r.content[0].content);
+  assert.equal(text.type, "text");
+  assert.match(JSON.parse(text.text).at(-1)._ccr_dropped, SENTINEL);
+  assert.equal(image, IMAGE);
 });
 
-test("non-array MCP results, headroom_retrieve, the mod's storage tools and built-ins are never candidates", () => {
-  const result = [{ type: "text", text: BIG }];
-  assert.equal(isCrushCandidate("mcp__srv__list", result), true);
-  for (const [tool, r] of /** @type {[string, unknown][]} */ ([
-    ["mcp__srv__list", { content: result }], // the $.mcp.call shape, not what tool.call resolves
-    ["mcp__srv__list", BIG],
-    ["mcp__srv__list", [{ type: "text", text: "x".repeat(900) }]],
-    [RETRIEVE_TOOL, result],
-    ["mcp__plugin_inline-headroom_storage__kv_get", result],
-    ["Read", result],
-  ])) {
-    assert.equal(isCrushCandidate(tool, r), false, tool);
-    assert.equal(crushToolResult(tool, r, ""), undefined, tool);
-  }
+test("rewriteToolResults never elides text the crusher rewrote, but elides it when the crusher is off", () => {
+  const crushed = rewrite([toolResult(PRETTY)], "Bash", levers());
+  assert.ok(crushed.crush.dropped > 0);
+  assert.equal(crushed.elide.lines, 0);
+  assert.equal(JSON.parse(String(crushed.content[0].content)).blob, "QUJD".repeat(700)); // still whole JSON
+  const elided = rewrite([toolResult(PRETTY)], "Bash", levers({ crush: false }));
+  assert.equal(elided.crush.dropped, 0);
+  assert.equal(elided.elide.lines, 1);
+  assert.match(String(elided.content[0].content), /\n\[1 dense machine-generated line elided\. Retrieve original: hash=[0-9a-f]{12}\]$/);
+  assert.equal(rewriteToolResults([toolResult(BIG)], "Bash", levers({ crush: false }), ""), undefined); // one compact JSON line: nothing to elide or fold
+});
+
+test("rewriteToolResults deduplicates the elided text, not the original", () => {
+  const lv = levers();
+  const first = rewrite([toolResult(DENSE_TEXT)], "Bash", lv);
+  const stored = String(first.content[0].content);
+  assert.equal(first.elide.lines, 1);
+  assert.equal(stored.split("\n").length, 4);
+  const second = rewrite([toolResult(DENSE_TEXT)], "Bash", lv);
+  const pointer = String(second.content[0].content);
+  assert.match(pointer, /^\[↑4L same as result 1: "x{17}\.\.\." hash=[0-9a-f]{12}\]$/);
+  assert.equal(second.dedup.spans, 1);
+  assert.equal(second.dedup.saved, stored.length - pointer.length);
+  assert.deepEqual(second.offloaded.at(-1), [pointer.slice(-13, -1), stored]);
+});
+
+test("rewriteToolResults neither deduplicates nor indexes a result with several text blocks", () => {
+  const lv = levers();
+  const multi = [
+    toolResult([
+      { type: "text", text: RUN },
+      { type: "text", text: "a second text block" },
+    ]),
+  ];
+  assert.equal(rewriteToolResults(multi, "Agent", lv, ""), undefined);
+  assert.equal(rewriteToolResults(multi, "Agent", lv, ""), undefined);
+  assert.equal(rewriteToolResults([toolResult(RUN)], "Bash", lv, ""), undefined); // nothing earlier was indexed
+});
+
+test("rewriteToolResults passes through rows with nothing to rewrite", () => {
+  const lv = levers();
+  assert.equal(rewriteToolResults([toolResult([{ type: "tool_reference", tool_name: "Read" }])], "ToolSearch", lv, ""), undefined);
+  assert.equal(rewriteToolResults([toolResult("ok")], "Bash", lv, ""), undefined);
+  assert.equal(rewriteToolResults([toolResult("")], "Bash", lv, ""), undefined);
+  assert.equal(rewriteToolResults([{ type: "text", text: BIG }], "Bash", lv, ""), undefined); // not a tool_result block
+  assert.equal(rewriteToolResults([toolResult(undefined)], "Bash", lv, ""), undefined);
+});
+
+test("rewriteToolResults with every lever off changes nothing", () => {
+  const off = { crush: false, elide: false };
+  assert.equal(rewriteToolResults([toolResult(BIG)], "Bash", off, ""), undefined);
+  assert.equal(rewriteToolResults([toolResult(DENSE_TEXT)], "Bash", off, ""), undefined);
+});
+
+test("wantsQuery asks for the transcript only for a JSON document the crusher may rewrite", () => {
+  assert.equal(wantsQuery([toolResult(BIG)], "Bash"), true);
+  assert.equal(wantsQuery([toolResult([IMAGE, { type: "text", text: BIG }])], "mcp__srv__list"), true);
+  assert.equal(wantsQuery([toolResult(BIG, true)], "Bash"), false);
+  assert.equal(wantsQuery([toolResult(BIG)], RETRIEVE_TOOL), false);
+  assert.equal(wantsQuery([toolResult(BIG)], "mcp__plugin_inline-headroom_storage__kv_get"), false);
+  assert.equal(wantsQuery([toolResult("[1,2,3]")], "Bash"), false);
+  assert.equal(wantsQuery([toolResult("x".repeat(900))], "Bash"), false);
+  assert.equal(wantsQuery([toolResult([{ type: "tool_reference", tool_name: "Read" }])], "ToolSearch"), false);
 });

@@ -1,7 +1,7 @@
 {
   "name": "inline-headroom",
-  "version": "0.6.0",
-  "description": "Headroom-style levers inside Claude Code as a mod: clamp-only effort routing after successful tool results, a detector-only CacheAligner that flags volatile system-prompt content and cache-hit drops, and a SmartCrusher that compresses large JSON arrays in tool results. Ships a host-wide SQLite storage MCP server for persistent plugin data.",
+  "version": "0.7.0",
+  "description": "Headroom-style levers inside Claude Code as a mod: clamp-only effort routing after successful tool results, a detector-only CacheAligner that flags volatile system-prompt content and cache-hit drops, and a SmartCrusher, cross-turn dedup and dense line elider that shrink tool results before the model reads them (originals retrievable). Ships a host-wide SQLite storage MCP server for persistent plugin data.",
   "author": { "name": "Kwitsch" },
   "userConfig": {
     "cache_aligner_enabled": {
@@ -25,7 +25,25 @@
     "smart_crusher_enabled": {
       "type": "boolean",
       "title": "SmartCrusher",
-      "description": "Compress large JSON arrays in successful Bash and MCP tool results (headroom SmartCrusher): keeps first/last, error, outlier, anomaly and query-relevant rows; dropped rows stay retrievable via headroom_retrieve while the mod is loaded. Never rewrites error results.",
+      "description": "Compress large JSON arrays in successful tool results of any tool (headroom SmartCrusher): keeps first/last, error, outlier, anomaly and query-relevant rows; dropped rows stay retrievable via headroom_retrieve while the mod is loaded. Never rewrites error results.",
+      "default": true
+    },
+    "cross_turn_dedup_enabled": {
+      "type": "boolean",
+      "title": "Cross-turn dedup",
+      "description": "Replace a run of 3 or more lines (40+ characters) in a tool result that repeats an earlier tool result of the same conversation verbatim with a short pointer (headroom cross-turn dedup); the run stays retrievable via headroom_retrieve while the mod is loaded. Never rewrites error results.",
+      "default": true
+    },
+    "dense_line_elider_enabled": {
+      "type": "boolean",
+      "title": "Dense line elider",
+      "description": "Shorten long, nearly space-free lines (minified JS/CSS, base64, RSC payloads) in tool results to their head and tail once they add up to 2000+ characters (headroom dense line elider); the original stays retrievable via headroom_retrieve while the mod is loaded. Never rewrites error results.",
+      "default": true
+    },
+    "subagent_compression_enabled": {
+      "type": "boolean",
+      "title": "Subagent compression",
+      "description": "Also apply the SmartCrusher, cross-turn dedup and the dense line elider to subagent and Workflow-agent tool results. Only active while one of them is on. An agent type whose tool list leaves out headroom_retrieve cannot get the originals back.",
       "default": true
     },
     "storage_enabled": {
