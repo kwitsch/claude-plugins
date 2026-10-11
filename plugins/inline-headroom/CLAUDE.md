@@ -38,8 +38,9 @@ mod persists `/headroom` counters in it.
   helpers in `register.ts` take the whole `$` typed `EngineInterface`.
   It is `.mjs` (not `.ts`) so the root toolchain covers it in CI:
   `tsconfig.json` (`plugins/**/*.mjs`), ESLint, and `node --test` via
-  `test/inline-headroom/policy.test.mjs`. It also holds the SmartCrusher,
-  cross-turn dedup and dense line elider ports (see their sections).
+  `test/inline-headroom/policy.test.mjs`. It also holds the content router and
+  the SmartCrusher, cross-turn dedup and dense line elider ports (see their
+  sections).
 - `tests/inline-headroom.test.ts` — hook-wiring tests for `claude plugin test`.
   Local only: CI runners have no `claude` CLI; `test/inline-headroom/test.bats`
   runs `claude plugin validate` and `claude plugin test` when `claude`
@@ -222,8 +223,9 @@ dense line elider:
   `dense_line_elider_enabled` is on, rewrites each tool-result row before it is
   first stored and sent, so the model, the transcript file and every later
   request read one form (prompt-cache safe). `rewriteToolResults` (pure, in
-  `policy.mjs`) crushes each text, elides each text the crusher left alone,
-  then deduplicates a single-text result.
+  `policy.mjs`) labels each text with `detectContentType`, runs that type's
+  `ROUTES` steps (crush then elide for `json_array`, elide for every other
+  type), then deduplicates a single-text result (see `## Content router`).
 - Gates, each passing the row through with `next(e)`: `retrieveReady` (this
   module load registered the tool under `RETRIEVE_TOOL`; a marker must never
   name a missing tool), `origin.kind === "tool"`, and a subagent row
@@ -330,9 +332,9 @@ Deviations from upstream:
 - Lengths count UTF-16 units.
 
 Wiring: `rewriteToolResults` calls `dedupBlock` last, over each tool_result's
-final text (after the crusher or the elider), with the key `""` for a main-loop
-row and the `agentId` for a subagent row. Folds count in the `dedup` table's
-session-only `spans` and `saved`.
+final text of every content type (after the crusher or the elider), with the
+key `""` for a main-loop row and the `agentId` for a subagent row. Folds count
+in the `dedup` table's session-only `spans` and `saved`.
 
 ## Dense line elider
 
@@ -382,9 +384,10 @@ Deviations from upstream:
 - Applied to every non-error tool result except `headroom_retrieve` and the
   mod's own storage tools.
 
-Wiring: `rewriteToolResults` runs `elideDense` on each text the crusher did not
-rewrite (every text while `smart_crusher_enabled` is off). Elided lines count
-in the `line elider` table's session-only `lines` and `saved`.
+Wiring: `rewriteToolResults` runs `elideDense` on every content type
+(`ROUTES`), on each text the crusher did not rewrite (every text while
+`smart_crusher_enabled` is off). Elided lines count in the `line elider`
+table's session-only `lines` and `saved`.
 
 ## Content router
 
@@ -441,6 +444,53 @@ Deviations from upstream:
   units, where upstream counts code points.
 - The detector returns only the tag: no confidence and no metadata (language,
   counts), since nothing consumes them.
+
+Routing: a light port of `headroom/transforms/content_router.py`
+(`_strategy_from_detection`, `_DENSE_ELIDE_AFTER`, the git-status early return
+and the passthrough-fallback elision, read 2026-10-11 at 976aa71). The
+module-private `ROUTES` table maps each tag to its ordered steps:
+`json_array` runs `crush` then `elide`, every other tag runs `elide`.
+`rewriteRow`'s `shrink` detects once per unprotected text and runs that type's
+steps in order, skipping a step whose lever is off; the first step that
+rewrites wins. Detection runs only while `smart_crusher_enabled` or
+`dense_line_elider_enabled` is on, so a dedup-only configuration pays nothing.
+Dedup (`dedupBlock`) then runs over every type's final text, unchanged. The
+levers behave exactly as before the router: every text the crusher can crush
+parses as an object or array once trimmed, which the detector's first JSON
+step labels `json_array`, and every route ends with `elide`.
+
+Routing deviations from upstream:
+
+- A JSON text the crusher declined is still elided. Upstream skips elision
+  after any SmartCrusher attempt (`_DENSE_ELIDE_AFTER` leaves it out).
+- Diff, git status and every other type get the elider, as upstream does where
+  a type's compressor is unavailable (the passthrough fallback). Upstream keeps
+  git status verbatim; here the elider's tab guard already leaves every
+  tab-indented entry line whole, and a compound output such as
+  `git status; cat app.min.js` keeps its elision.
+- Dedup stays type-agnostic.
+- A light router: no `is_mixed_content` / MIXED, no Magika or native detector,
+  no `_strip_detection_envelope`, no embedded-JSON splice, no lossless-first
+  stage, no Kompress or LOG fallback chains, no TOIN recording, and no
+  `normalize_concatenated_json` (the crusher still takes only one whole JSON
+  document).
+
+Decisions:
+
+- No userConfig toggle. The router has no behaviour of its own; which text a
+  lever sees is governed by that lever's toggle and documented per lever. This
+  is a deliberate reading of `.claude/rules/plugin-userconfig.md`'s
+  toggle-per-feature rule: the router is infrastructure, and each future
+  compressor brings its own toggle.
+- No `/headroom` per-type counts. They would show labels with no savings, so
+  they are deferred until a type-specific compressor exists.
+
+Adding a compressor: name a new `RouteStep`, add its case in `rewriteRow`'s
+`shrink`, a `Levers` flag fed by its own `*_enabled` toggle in `register.ts`
+(plus its term in `compressOn`), a `RowRewrite` accumulator and `/headroom`
+table if it reports savings, and its step in the `ROUTES` entries of the types
+it fits, deciding there whether `elide` still follows it (as upstream's
+`_DENSE_ELIDE_AFTER` does).
 
 ## Verified Claude Code 2.1.288 shapes relied on
 
