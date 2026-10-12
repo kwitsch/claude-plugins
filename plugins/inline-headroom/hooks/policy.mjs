@@ -39,12 +39,21 @@
  * Upstream ContentType tags (as_str); 'tabular' is git status here, 'structured_config' is Python's (Rust has no such tag).
  * @typedef {'json_array'|'diff'|'html'|'tabular'|'search'|'build'|'structured_config'|'source_code'|'text'} ContentType
  */
-/** @typedef {'crush'|'config'|'extract'|'elide'} RouteStep a compression lever a content type's route may run */
+/**
+ * A compression step a content type's route may run: a lever, or (logfold, searchfold, difffold, textfold) a compressor's
+ * lossless fold, which belongs to that compressor's lever.
+ * @typedef {'crush'|'config'|'extract'|'elide'|'split'|'logfold'|'log'|'searchfold'|'search'|'difffold'|'diff'|'textfold'|'textcrush'} RouteStep
+ */
 /** @typedef {{ close: boolean, nameEnd: number, end: number, selfClosing: boolean }} TagToken one `<name …>` or `</name>` tag: its kind, where its name ends, where it ends */
 /** @typedef {'yaml'|'toml'|'ini'} ConfigFlavor a structured config's dialect */
 /**
  * Which levers rewrite this row; dedup names the conversations map and this row's key ("" main, else agentId).
- * @typedef {{ crush: boolean, compact?: boolean, elide: boolean, config?: boolean, extract?: boolean, tags?: boolean, dedup?: { states: Map<string, DedupState>, key: string } }} Levers
+ * The log, search and diff compressors, the text crusher and the relevance split are off when omitted.
+ * @typedef {{
+ *   crush: boolean, compact?: boolean, elide: boolean, config?: boolean, extract?: boolean,
+ *   log?: boolean, search?: boolean, diff?: boolean, textcrush?: boolean, split?: boolean,
+ *   tags?: boolean, dedup?: { states: Map<string, DedupState>, key: string }
+ * }} Levers
  */
 /**
  * A rewritten tool-result row: its blocks, the originals for the CCR store (`offloaded`: the crusher's and the elider's sole copies;
@@ -59,6 +68,11 @@
  * @property {{ pages: number, saved: number }} extract
  * @property {{ lines: number, saved: number }} elide
  * @property {{ spans: number, saved: number }} dedup
+ * @property {{ texts: number, saved: number }} log the log compressor's rewrites, its lossless fold's included
+ * @property {{ texts: number, saved: number }} search the search compressor's rewrites, its lossless fold's included
+ * @property {{ texts: number, saved: number }} diff the diff compressor's rewrites, its index-line strip's included
+ * @property {{ texts: number, saved: number }} textcrush the text crusher's rewrites, its lossless fold's included
+ * @property {{ texts: number, saved: number }} split the relevance split's rewrites
  */
 /**
  * The in-memory, session-only /headroom counters (statsTables' `memory`).
@@ -70,6 +84,11 @@
  * @property {{ arrays: number, saved: number }} [compact]
  * @property {{ texts: number, saved: number }} [config]
  * @property {{ pages: number, saved: number }} [extract]
+ * @property {{ texts: number, saved: number }} [log]
+ * @property {{ texts: number, saved: number }} [search]
+ * @property {{ texts: number, saved: number }} [diff]
+ * @property {{ texts: number, saved: number }} [textcrush]
+ * @property {{ texts: number, saved: number }} [split]
  */
 /**
  * One dict-array field (upstream FieldStats); the numeric statistics are absent when not finite.
@@ -190,7 +209,8 @@ const SCAN_BUDGET_FLOOR = 4096;
 const DEDUP_MIN_LINES = 3;
 const DEDUP_MIN_CHARS = 40;
 const DEDUP_MAX_ANCHOR_CANDIDATES = 16;
-const DEDUP_LINENO_RE = /^([1-9]\d*)(:|\t)([\s\S]*)$/;
+// Deviation: a `:` separator must not be followed by a digit (`10:15:03`, `8080:80`), where the leading integer is a time or port, not a line number.
+const DEDUP_LINENO_RE = /^([1-9]\d*)(:(?!\d)|\t)([\s\S]*)$/;
 const DEDUP_TRIVIAL = new Set(["return", "pass", "else:", "try:", "except:", "finally:", "break", "continue", "});", "})", "],", "),", '"""', "'''", "..."]);
 // shortcut: about a 1M-token context at 4 chars per token; older content has left the model's window. Raise it if long sessions stop folding.
 /** Indexed dedup characters kept across all conversations, least recently appended conversation dropped first. Deviation: upstream rebuilds per request and needs no cap. */
@@ -214,6 +234,9 @@ const LINE_BREAK_RE = /\r\n|[\n\r\v\f\x1c-\x1e\x85\u{2028}\u{2029}]/u;
 // Upstream lossless_compaction.py _TIMESTAMP_ROW_RE: a timestamped log row is never a grep line.
 const TIMESTAMP_ROW_RE = /^\s*\[?(?:\d{4}-\d{2}-\d{2}[ T]\d{1,2}:\d{2}|\d{2}\/\d{2}\/\d{2,4}[ T]\d{1,2}:\d{2}|[A-Z][a-z]{2}\s+\d{1,2}\s+\d{1,2}:\d{2}|\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?(?:\s|\]|$))/;
 const SEARCH_LINE_RE = /^[^\s:]+:\d+:/;
+// Compiler and linter diagnostics (`f.c:3:5: error:`, `f.py:3: warning:`, `f.py:3:1: F401 `, `f.py:3:0: C0114:`) share grep's
+// `path:N:` shape; compressSearch declines them, as its selection would drop errors and every code-frame line.
+const DIAGNOSTIC_ROW_RE = /^[^\s:]+:\d+(?::\d+)?:\s+(?:(?:fatal error|error|warning|note)\b|[A-Z]{1,4}\d{2,5}\b)/;
 const GREP_COLON_DASH_RE = /^[^\s:]+:\d+-/;
 const GREP_CONTEXT_RE = /^([^\s:]+?)-\d+-/;
 // Structured config: upstream content_detector.py _CONFIG_*/_TOML_*/_YAML_* patterns (_INI_ASSIGN_RE is the isIniAssign scanner).
@@ -224,6 +247,7 @@ const YAML_KEY_RE = /^\s*(?:-\s+)?(?:[\w./-]+|"[^"]+"|'[^']+')\s*:(?:\s|$)/;
 const YAML_LIST_RE = /^\s*-\s+\S/;
 const YAML_DOC_RE = /^---\s*$|^\.\.\.\s*$/;
 const CONFIG_COMMENT_RE = /^\s*[#;]/;
+const MARKDOWN_HEADING_RE = /^#{2,6}\s+\S/;
 const INI_KEY_CHAR_RE = /[\w.\-@ ]/;
 // What the TOML flavor check accepts as a value (it stands in for tomllib): strings, numbers, booleans, dates/times, arrays, tables.
 const TOML_STRING_RE = /^(?:"(?:[^"\\]|\\.)*"|'[^']*')\s*(?:#.*)?$/;
@@ -481,11 +505,12 @@ export function foldPending(days, pending, today, purgeBefore) {
  * The /headroom tables as rows of cells. Each table starts with its header row (heading, then the column names), then one row per ROWS entry.
  * A row without counters (still loading, storage off or failing) shows `blank` in every value cell. The in-memory session-only
  * counters add a `subagents` row under effort routing's session row, and the smart crusher, dedup, line elider, compaction,
- * config and html extractor tables, which have only a session row.
+ * config, html extractor, logs, search, diff, text crusher and relevance split tables, which have only a session row.
  * @param {readonly (Row|undefined)[]} counters one per ROWS entry, in ROWS order
  * @param {string} blank
  * @param {StatsMemory} [memory]
- * @returns {string[][][]} effort routing, cache aligner, smart crusher, dedup, line elider, compaction, config, html extractor
+ * @returns {string[][][]} effort routing, cache aligner, smart crusher, dedup, line elider, compaction, config, html extractor,
+ *   logs, search, diff, text crusher, relevance split
  */
 export function statsTables(counters, blank, memory = {}) {
   const {
@@ -496,6 +521,11 @@ export function statsTables(counters, blank, memory = {}) {
     compact = { arrays: 0, saved: 0 },
     config = { texts: 0, saved: 0 },
     extract = { pages: 0, saved: 0 },
+    log = { texts: 0, saved: 0 },
+    search = { texts: 0, saved: 0 },
+    diff = { texts: 0, saved: 0 },
+    textcrush = { texts: 0, saved: 0 },
+    split = { texts: 0, saved: 0 },
   } = memory;
   /**
    * @param {string} heading
@@ -539,6 +569,26 @@ export function statsTables(counters, blank, memory = {}) {
     [
       ["html extractor", "pages", "saved"],
       [session, String(extract.pages), String(extract.saved)],
+    ],
+    [
+      ["logs", "texts", "saved"],
+      [session, String(log.texts), String(log.saved)],
+    ],
+    [
+      ["search", "texts", "saved"],
+      [session, String(search.texts), String(search.saved)],
+    ],
+    [
+      ["diff", "texts", "saved"],
+      [session, String(diff.texts), String(diff.saved)],
+    ],
+    [
+      ["text crusher", "texts", "saved"],
+      [session, String(textcrush.texts), String(textcrush.saved)],
+    ],
+    [
+      ["relevance split", "texts", "saved"],
+      [session, String(split.texts), String(split.saved)],
     ],
   ];
 }
@@ -613,14 +663,23 @@ function simhash(text) {
 /**
  * Upstream count_unique_simhash: greedy clusters of fingerprints within Hamming distance 3.
  * @param {readonly string[]} items
- * @returns {number}
+ * @param {WorkBudget} [budget] charged 1 per fingerprint comparison
+ * @returns {number|undefined} undefined once the budget runs out
  */
-function countUniqueSimhash(items) {
+function countUniqueSimhash(items, budget = { left: Infinity }) {
   /** @type {[number, number][]} */
   const reps = [];
   for (const s of items) {
     const [lo, hi] = simhash(s);
-    if (!reps.some(([a, b]) => popcount(lo ^ a) + popcount(hi ^ b) <= 3)) reps.push([lo, hi]);
+    let dup = false;
+    for (const [a, b] of reps) {
+      if (--budget.left < 0) return undefined;
+      if (popcount(lo ^ a) + popcount(hi ^ b) <= 3) {
+        dup = true;
+        break;
+      }
+    }
+    if (!dup) reps.push([lo, hi]);
   }
   return reps.length;
 }
@@ -678,23 +737,28 @@ function findKnee(curve) {
 }
 
 /**
- * Upstream compute_optimal_k (bias 1, min_k 3, max_k 15): how many rows a dict array keeps, from simhash
- * diversity and the knee of its bigram coverage curve.
- * @param {readonly string[]} itemStrings each row's compact JSON
+ * Upstream compute_optimal_k (bias 1; the crusher's min_k 3, max_k 15 by default): how many items to keep, from simhash
+ * diversity and the knee of the items' bigram coverage curve. As upstream, 8 or fewer items keep them all, even above maxK.
+ * @param {readonly string[]} itemStrings each item's text (a row's compact JSON, a log line, a search match)
+ * @param {number} [minK]
+ * @param {number} [maxK]
+ * @param {WorkBudget} [budget] charged 1 per simhash comparison; exhausted means maxK
  * @returns {number}
  */
-export function computeOptimalK(itemStrings) {
+export function computeOptimalK(itemStrings, minK = MIN_K, maxK = MAX_ITEMS_AFTER_CRUSH, budget = undefined) {
   const n = itemStrings.length;
   if (n <= 8) return n;
-  const unique = countUniqueSimhash(itemStrings);
-  if (unique <= 3) return Math.min(Math.max(MIN_K, unique), MAX_ITEMS_AFTER_CRUSH);
+  const unique = countUniqueSimhash(itemStrings, budget);
+  // shortcut: an exhausted budget means many distinct fingerprints (high diversity), where upstream lands on maxK too; count them all if a caller ever needs the knee there.
+  if (unique === undefined) return maxK;
+  if (unique <= 3) return Math.min(Math.max(minK, unique), maxK);
   const diversity = unique / n;
-  const floor = Math.max(MIN_K, Math.floor(n * (0.3 + 0.7 * diversity)));
+  const floor = Math.max(minK, Math.floor(n * (0.3 + 0.7 * diversity)));
   let knee = findKnee(bigramCurve(itemStrings));
   if (knee === undefined) knee = floor;
   else if (diversity > 0.7) knee = Math.max(knee, floor);
   // shortcut: upstream's tier 3 (a zlib ratio check that can raise K by 20%) is skipped; add it once a node:zlib import is live-verified in a mods module.
-  return Math.max(MIN_K, Math.min(Math.max(MIN_K, knee), MAX_ITEMS_AFTER_CRUSH));
+  return Math.max(minK, Math.min(Math.max(minK, knee), maxK));
 }
 
 /**
@@ -1369,29 +1433,40 @@ function anchorRows(items, query) {
 }
 
 /**
- * Upstream HybridScorer::score_batch without embeddings (BM25 k1 1.5, b 0.75, ln 2 idf, normalized by 10, +0.3 for a
- * matched token of 8+ chars), then the BM25-only boost: a match scores at least 0.3, two or more add 0.2. Only
- * selective query tokens (isSelective) count as matches.
- * @param {readonly string[]} docs each row's compact JSON
- * @param {string} query
- * @returns {number[]} one score per row, 0..1
+ * Upstream BM25Scorer.tokenize: TOKEN_PATTERN's matches in the lowercased text.
+ * @param {string} s
+ * @returns {string[]}
  */
-function relevanceScores(docs, query) {
-  /** @param {string} s @returns {string[]} */
-  const tokens = (s) => s.toLowerCase().match(BM25_TOKEN_RE) ?? [];
+const bm25Tokens = (s) => s.toLowerCase().match(BM25_TOKEN_RE) ?? [];
+
+/**
+ * A query's BM25 term counts.
+ * @param {string} query
+ * @returns {Map<string, number>}
+ */
+function queryFreq(query) {
   /** @type {Map<string, number>} */
   const qf = new Map();
-  for (const t of tokens(query)) qf.set(t, (qf.get(t) ?? 0) + 1);
-  if (!qf.size) return docs.map(() => 0);
-  const all = docs.map(tokens);
-  const terms = [...qf.keys()].sort().filter((t) => isSelective(all.filter((d) => d.includes(t)).length, docs.length));
-  const avg = all.reduce((a, d) => a + d.length, 0) / Math.max(docs.length, 1);
+  for (const t of bm25Tokens(query)) qf.set(t, (qf.get(t) ?? 0) + 1);
+  return qf;
+}
+
+/**
+ * Upstream BM25Scorer.score_batch's core (k1 1.5, b 0.75, ln 2 idf, normalized by 10, +0.3 for a matched term of 8+ chars).
+ * A document's matched terms are its unique tokens the query holds, summed in sorted order (upstream's BTreeMap), so the
+ * float sums match; no document-frequency work, so it stays linear in the tokens.
+ * @param {readonly (readonly string[])[]} all each document's tokens
+ * @param {ReadonlyMap<string, number>} qf query term → its count in the query
+ * @returns {{ score: number, matched: string[] }[]}
+ */
+function bm25Batch(all, qf) {
+  const avg = all.reduce((a, d) => a + d.length, 0) / Math.max(all.length, 1);
   return all.map((doc) => {
-    if (!doc.length) return 0;
+    if (!doc.length || !qf.size) return { score: 0, matched: [] };
     /** @type {Map<string, number>} */
     const tf = new Map();
     for (const t of doc) tf.set(t, (tf.get(t) ?? 0) + 1);
-    const matched = terms.filter((t) => tf.has(t));
+    const matched = [...tf.keys()].filter((t) => qf.has(t)).sort();
     let raw = 0;
     for (const t of matched) {
       const f = tf.get(t) ?? 0;
@@ -1399,10 +1474,41 @@ function relevanceScores(docs, query) {
     }
     let score = Math.min(raw / 10, 1);
     if (matched.some((t) => t.length >= 8)) score = Math.min(score + 0.3, 1);
-    if (matched.length) score = Math.max(score, 0.3);
-    if (matched.length >= 2) score = Math.min(score + 0.2, 1);
-    return score;
+    return { score, matched };
   });
+}
+
+/**
+ * Upstream HybridScorer::score_batch without embeddings (bm25Batch), then the BM25-only boost: a match scores at least 0.3,
+ * two or more add 0.2. Only selective query tokens (isSelective) count as matches.
+ * @param {readonly string[]} docs each row's compact JSON
+ * @param {string} query
+ * @returns {number[]} one score per row, 0..1
+ */
+export function relevanceScores(docs, query) {
+  const qf = queryFreq(query);
+  if (!qf.size) return docs.map(() => 0);
+  const all = docs.map(bm25Tokens);
+  const selective = new Map([...qf].filter(([t]) => isSelective(all.filter((d) => d.includes(t)).length, docs.length)));
+  return bm25Batch(all, selective).map(({ score, matched }) => {
+    let s = score;
+    if (matched.length) s = Math.max(s, 0.3);
+    if (matched.length >= 2) s = Math.min(s + 0.2, 1);
+    return s;
+  });
+}
+
+/**
+ * Upstream BM25Scorer.score_batch's plain scores (TextCrusher's and the relevance split's relevance): bm25Batch over every
+ * query term, no selective filter and no boost. An empty query scores every document 0.
+ * @param {readonly string[]} docs
+ * @param {string} query
+ * @returns {number[]} one score per document, 0..1
+ */
+export function bm25Scores(docs, query) {
+  const qf = queryFreq(query);
+  if (!qf.size) return docs.map(() => 0);
+  return bm25Batch(docs.map(bm25Tokens), qf).map((r) => r.score);
 }
 
 /**
@@ -2936,6 +3042,8 @@ export function configFlavor(text, head) {
       if (tail.length && yamlTail / tail.length < 0.3) return undefined;
       break;
     }
+  // Deviation: a markdown `##` heading is no neutral comment; Tier 2 would delete every heading of a document.
+  if (nonEmpty.some((ln) => MARKDOWN_HEADING_RE.test(ln))) return undefined;
   const keys = body.filter((ln) => YAML_KEY_RE.test(ln)).length;
   const lists = body.filter((ln) => YAML_LIST_RE.test(ln) && !YAML_KEY_RE.test(ln)).length;
   const docs = body.filter((ln) => YAML_DOC_RE.test(ln.trim())).length;
@@ -3198,7 +3306,7 @@ export function extractHtml(text) {
     else if (name === "a") {
       if (!t.close && href === undefined) {
         const m = HTML_HREF_RE.exec(text.slice(lt, t.end));
-        const target = m ? (m[1] ?? m[2] ?? m[3] ?? "") : "";
+        const target = m ? decodeEntities(m[1] ?? m[2] ?? m[3] ?? "") : "";
         if (target !== "" && !target.startsWith("#") && !/^\s*javascript:/i.test(target)) {
           href = target;
           put("[");
@@ -3471,33 +3579,1737 @@ export function compressConfig(text) {
   return text.length - compressed.length < 1 ? undefined : { text: compressed, offloaded };
 }
 
+// Log compressor: a port of headroom's log_compressor.rs (compress_with_store with LogCompressorConfig::default()) and the
+// "log" kind of lossless_compaction.py compact_lossless.
+
+/** @typedef {'error'|'fail'|'warn'|'info'|'debug'|'trace'|'unknown'} LogLevel upstream LogLevel */
+/** @typedef {'python'|'js'|'java'|'rust_error'|'rust_backtrace'|'go_panic'|'dotnet'} TraceFlavor upstream TraceFlavor */
+/** @typedef {{ n: number, content: string, level: LogLevel, stack: boolean, summary: boolean, score: number }} LogLine a classified log line */
+/** @typedef {{ entries: Map<number, string>, totals: Set<number>, header: number|undefined }} PytestSummary short-summary entries, totals lines, first header */
+
+// Upstream LogCompressorConfig::default(); keep_first_error, keep_last_error, dedupe_warnings, keep_summary_lines and
+// collapse_runtime_frames are true there and inlined here.
+const LOG_MAX_ERRORS = 10;
+const LOG_ERROR_CONTEXT = 3;
+const LOG_MAX_STACK_TRACES = 3;
+const LOG_STACK_TRACE_MAX_LINES = 20;
+const LOG_MAX_WARNINGS = 5;
+const LOG_MAX_TOTAL_LINES = 100;
+const LOG_MIN_LINES = 50;
+const LOG_TRACE_HEAD_FRAMES = 3;
+const LOG_TRACE_APP_FRAMES = 5;
+// Upstream _ANSI_RE (CSI SGR colour and style): dropped one-way by the log fold, as non-semantic.
+// eslint-disable-next-line no-control-regex -- \x1b is the escape that starts an ANSI colour sequence, matched on purpose
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+// Upstream LevelClassifier's exact-casing words. One alternation, longest first, so at the leftmost match the longest word wins
+// (aho-corasick LeftmostLongest); \b is its ASCII word-boundary post-filter (a word that fails it cannot be followed by a
+// shorter word at the same start that passes, nor by one starting inside it).
+/** @type {ReadonlyMap<string, LogLevel>} */
+const LOG_LEVEL_WORDS = new Map(
+  /** @type {[LogLevel, string][]} */ ([
+    ["error", "ERROR error Error FATAL fatal Fatal CRITICAL critical"],
+    ["fail", "FAIL FAILED fail failed Fail Failed"],
+    ["warn", "WARN WARNING warn warning Warn Warning"],
+    ["info", "INFO info Info"],
+    ["debug", "DEBUG debug Debug"],
+    ["trace", "TRACE trace Trace"],
+  ]).flatMap(([level, words]) => words.split(" ").map((w) => /** @type {[string, LogLevel]} */ ([w, level]))),
+);
+const LOG_LEVEL_RE = new RegExp(`\\b(?:${[...LOG_LEVEL_WORDS.keys()].sort((a, b) => b.length - a.length).join("|")})\\b`);
+const LOG_LINE_COL_RE = /:\d+:\d/;
+const LOG_RUST_FRAME_RE = /^\d+: *0x[0-9a-fA-F]/;
+const LOG_GOROUTINE_RE = /^goroutine \d+ \[/;
+const LOG_JAVA_MORE_RE = /^\.\.\. \d+\s*more\s*$/;
+const LOG_UPPER_START_RE = /^\p{Uppercase}/u;
+const LOG_JAVA_SYMBOL_RE = /^[A-Za-z0-9._$/]+$/;
+const LOG_GO_SYMBOL_RE = /^[A-Za-z0-9._/*]+$/;
+const LOG_DOTNET_HEAD_RE = /^[A-Za-z0-9._`+]+$/;
+const LOG_LABEL_RE = /^[A-Za-z0-9_.]+$/;
+const LOG_CODE_RE = /^[A-Za-z0-9]+$/;
+// Upstream RUNTIME_FRAME_PREFIXES (start of the trimmed line) and RUNTIME_FRAME_MARKERS (anywhere).
+const LOG_RUNTIME_PREFIXES = ["at java.", "at jdk.", "at sun.", "at javax.", "at scala.", "at System.", "at Microsoft.", "runtime.", "created by runtime."];
+const LOG_RUNTIME_MARKERS = [
+  "site-packages/",
+  "/usr/lib/python",
+  "lib/python3.",
+  "node:internal/",
+  "node_modules/",
+  "(internal/",
+  "core::",
+  "std::",
+  "alloc::",
+  "rust_begin_unwind",
+  "__rust_",
+  "/rustc/",
+  "/usr/local/go/src/",
+  "/libexec/src/runtime/",
+];
+
+/**
+ * Upstream LevelClassifier.classify: the level of the first word-boundary-valid level word by position.
+ * @param {string} line
+ * @returns {LogLevel}
+ */
+function logLevel(line) {
+  const m = LOG_LEVEL_RE.exec(line);
+  return m ? (LOG_LEVEL_WORDS.get(m[0]) ?? "unknown") : "unknown";
+}
+
+/** @param {string} s @returns {boolean} upstream is_python_file_frame: `File "<name>", line <N>` */
+const isPythonFileFrame = (s) => s.startsWith('File "') && s.includes('", line ') && /\d$/.test(s);
+/** @param {string} s @returns {boolean} upstream is_js_at_frame */
+const isJsAtFrame = (s) => s.startsWith("at ") && s.includes("(") && s.includes(")") && LOG_LINE_COL_RE.test(s);
+/** @param {string} s @returns {boolean} upstream is_java_at_frame: `at <dotted symbol>(` */
+const isJavaAtFrame = (s) => s.startsWith("at ") && s.includes("(") && LOG_JAVA_SYMBOL_RE.test(s.slice(3, s.indexOf("(")));
+/** @param {string} s @returns {boolean} upstream is_dotnet_frame: `at <symbol>(<args>) in <file>:line <N>` */
+const isDotnetFrame = (s) => s.startsWith("at ") && s.includes(") in ") && s.includes(":line ");
+/** @param {string} s @returns {boolean} upstream is_rust_backtrace_frame: `<digits>: 0x<hex>` */
+const isRustBacktraceFrame = (s) => LOG_RUST_FRAME_RE.test(s.trimStart());
+/** @param {string} line @returns {boolean} upstream is_go_file_frame: a tab-indented `.go:` line with ` +0x` */
+const isGoFileFrame = (line) => line.startsWith("\t") && line.includes(".go:") && line.includes(" +0x");
+
+/**
+ * Upstream is_go_call_frame: `created by …`, or a column-0 `pkg.func(...)` call line.
+ * @param {string} line
+ * @returns {boolean}
+ */
+function isGoCallFrame(line) {
+  if (line.startsWith("created by ")) return true;
+  if (line.startsWith(" ") || line.startsWith("\t") || !line.endsWith(")")) return false;
+  const open = line.indexOf("(");
+  if (open < 0) return false;
+  const symbol = line.slice(0, open);
+  return symbol.includes(".") && LOG_GO_SYMBOL_RE.test(symbol);
+}
+
+/**
+ * Upstream is_dotnet_exception_head: `System.InvalidOperationException: message`.
+ * @param {string} trimmed
+ * @returns {boolean}
+ */
+function isDotnetExceptionHead(trimmed) {
+  const colon = trimmed.indexOf(":");
+  if (colon < 0) return false;
+  const head = trimmed.slice(0, colon);
+  return head.endsWith("Exception") && head.includes(".") && LOG_DOTNET_HEAD_RE.test(head);
+}
+
+/**
+ * Upstream StackTraceDetector::flavor_for: the trace a line opens, if any.
+ * @param {string} line
+ * @returns {TraceFlavor|undefined}
+ */
+function traceFlavor(line) {
+  const t = line.trimStart();
+  if (t.startsWith("Traceback (most recent call last)") || isPythonFileFrame(t)) return "python";
+  // Before Js/Java: a .NET frame also has the Java `at <dotted>(` shape.
+  if (t.startsWith("Unhandled exception.") || isDotnetFrame(t)) return "dotnet";
+  if (isJsAtFrame(t)) return "js";
+  if (isJavaAtFrame(t)) return "java";
+  if (t.startsWith("--> ") && LOG_LINE_COL_RE.test(t)) return "rust_error";
+  if ((t.startsWith("thread '") && t.includes("panicked at")) || t.startsWith("stack backtrace:") || isRustBacktraceFrame(line)) return "rust_backtrace";
+  if (line.startsWith("panic: ") || line.startsWith("fatal error: ") || LOG_GOROUTINE_RE.test(line)) return "go_panic";
+  return undefined;
+}
+
+/**
+ * Upstream StackTraceDetector::terminates: whether `line` ends the active trace of `flavor`, which has claimed `sofar` lines.
+ * @param {TraceFlavor} flavor
+ * @param {string} line
+ * @param {number} sofar
+ * @returns {boolean}
+ */
+function traceEnds(flavor, line, sofar) {
+  const t = line.trimStart();
+  switch (flavor) {
+    case "python": {
+      // Blank and indented lines continue it (chained exceptions), as do its markers; the `Type: message` line closes it.
+      const indentedOrBlank = line.startsWith(" ") || line.startsWith("\t") || line === "";
+      const continues = t.startsWith("Traceback") || t.startsWith("File ") || t.startsWith("During handling") || t.startsWith("The above exception");
+      return indentedOrBlank || continues ? false : !LOG_UPPER_START_RE.test(t);
+    }
+    case "js":
+      return !t.startsWith("at ") && line !== "";
+    case "java": {
+      const chain = t.startsWith("Caused by:") || t.startsWith("Suppressed:") || LOG_JAVA_MORE_RE.test(t);
+      return !t.startsWith("at ") && !chain && line !== "";
+    }
+    case "dotnet":
+      if (line === "") return false;
+      return !(t.startsWith("at ") || t.startsWith("--->") || t.startsWith("--- End of") || isDotnetExceptionHead(t));
+    case "rust_error":
+      return !t.startsWith("--> ") && line !== "";
+    case "rust_backtrace": {
+      // The panic message is the free-text line right after the `panicked at <loc>:` opener.
+      if (line === "" || sofar === 1) return false;
+      const frame = /^[0-9]/.test(t);
+      const continues = line.startsWith(" ") || line.startsWith("\t") || t.startsWith("stack backtrace:") || t.startsWith("note: run with");
+      return !frame && !continues;
+    }
+    case "go_panic": {
+      if (line === "") return false;
+      const continues = line.startsWith("\t") || LOG_GOROUTINE_RE.test(line) || isGoCallFrame(line) || line.startsWith("panic: ") || line.startsWith("fatal error: ") || line.startsWith("[signal ");
+      return !continues;
+    }
+  }
+  return true;
+}
+
+/** @param {string} line @returns {boolean} upstream is_frame_line: a stack frame, not a message or chain head */
+const isFrameLine = (line) => {
+  const t = line.trimStart();
+  return t.startsWith("at ") || (t.startsWith('File "') && t.includes('", line ')) || isRustBacktraceFrame(line) || isGoFileFrame(line) || isGoCallFrame(line);
+};
+
+/** @param {string} line @returns {boolean} upstream is_chain_head_line: chain heads and markers a collapse always keeps */
+const isChainHead = (line) => {
+  const t = line.trimStart();
+  return ["Caused by:", "Suppressed:", "... ", "--->", "--- End of", "During handling", "The above exception"].some((p) => t.startsWith(p));
+};
+
+/** @param {string} line @returns {boolean} upstream is_runtime_frame: a runtime or stdlib frame */
+const isRuntimeFrame = (line) => {
+  const t = line.trimStart();
+  return LOG_RUNTIME_PREFIXES.some((p) => t.startsWith(p)) || LOG_RUNTIME_MARKERS.some((m) => line.includes(m));
+};
+
+/**
+ * Upstream collapse_trace_frames: keep every message and chain-head line, the first `head` frames and up to `app` app-code frames;
+ * each contiguous dropped run becomes one `      [... N frames collapsed]` line in its first line's slot (score 0.8, a stack line).
+ * An indented continuation of a dropped frame drops with it.
+ * @param {readonly LogLine[]} stack
+ * @param {number} head
+ * @param {number} app
+ * @returns {{ kept: LogLine[], dropped: number[] }}
+ */
+function collapseTraceFrames(stack, head, app) {
+  /** @type {LogLine[]} */
+  const kept = [];
+  /** @type {number[]} */
+  const dropped = [];
+  let frames = 0;
+  let appKept = 0;
+  /** @type {number|undefined} */
+  let runStart;
+  let runLen = 0;
+  let prevDropped = false;
+  const flush = () => {
+    if (runStart === undefined) return;
+    kept.push({ n: runStart, content: `      [... ${runLen} frames collapsed]`, level: "unknown", stack: true, summary: false, score: 0.8 });
+    runStart = undefined;
+    runLen = 0;
+  };
+  for (const line of stack) {
+    if (isFrameLine(line.content) && !isChainHead(line.content)) {
+      frames++;
+      const runtime = isRuntimeFrame(line.content);
+      if (frames <= head || (!runtime && appKept < app)) {
+        if (!runtime) appKept++;
+        flush();
+        kept.push(line);
+        prevDropped = false;
+      } else {
+        runStart ??= line.n;
+        runLen++;
+        dropped.push(line.n);
+        prevDropped = true;
+      }
+    } else if (prevDropped && (line.content.startsWith(" ") || line.content.startsWith("\t")) && !isChainHead(line.content)) {
+      runLen++;
+      dropped.push(line.n);
+    } else {
+      flush();
+      kept.push(line);
+      prevDropped = false;
+    }
+  }
+  flush();
+  return { kept, dropped };
+}
+
+/**
+ * Upstream is_summary_line: separators, `N passed`-style counts, `Tests: N`, TOTAL/Summary, and build/test outcome lines.
+ * @param {string} line
+ * @returns {boolean}
+ */
+function isSummaryLine(line) {
+  if (line.startsWith("===") || line.startsWith("---")) return true;
+  const digits = /^\d*/.exec(line)?.[0].length ?? 0;
+  if (digits > 0 && line[digits] === " ") {
+    const rest = line.slice(digits + 1);
+    if (["passed", "failed", "skipped", "error", "warning"].some((k) => rest.startsWith(k))) return true;
+  }
+  for (const prefix of ["Test ", "Tests ", "Tests:", "Test:", "Suite ", "Suites ", "Suites:", "Suite:"]) {
+    if (line.startsWith(prefix)) return /^\s*[0-9]/.test(line.slice(prefix.length));
+  }
+  if (["TOTAL", "Total", "Summary"].some((p) => line.startsWith(p))) return true;
+  return ["Build", "Compile", "Test"].some((p) => line.startsWith(p)) && ["succeeded", "failed", "complete"].some((o) => line.includes(o));
+}
+
+/**
+ * Upstream scan_pytest_short_summary: a section opens on a whole `=== … short test summary info … ===` line (a trailing \r
+ * ignored) and closes at the next `===` line, its totals line; inside, `FAILED <id>` / `ERROR <id>` lines are entries, the id
+ * cut at ` - `.
+ * @param {readonly string[]} lines
+ * @returns {PytestSummary}
+ */
+function scanPytestSummary(lines) {
+  /** @type {PytestSummary} */
+  const scan = { entries: new Map(), totals: new Set(), header: undefined };
+  let inside = false;
+  lines.forEach((line, i) => {
+    const seen = line.endsWith("\r") ? line.slice(0, -1) : line;
+    if (seen.startsWith("===")) {
+      const opens = seen.endsWith("===") && seen.includes("short test summary info");
+      if (opens) scan.header ??= i;
+      else if (inside) scan.totals.add(i);
+      inside = opens;
+      return;
+    }
+    if (!inside) return;
+    const rest = line.startsWith("FAILED ") ? line.slice(7) : line.startsWith("ERROR ") ? line.slice(6) : undefined;
+    if (rest === undefined) return;
+    const cut = rest.indexOf(" - ");
+    const id = (cut < 0 ? rest : rest.slice(0, cut)).trim();
+    if (id) scan.entries.set(i, id);
+  });
+  return scan;
+}
+
+/**
+ * Upstream score_log_line: the level's base, +0.3 in a stack trace, +0.4 on a summary line, at most 1.
+ * @param {LogLevel} level
+ * @param {boolean} stack
+ * @param {boolean} summary
+ * @returns {number}
+ */
+function logScore(level, stack, summary) {
+  const base = level === "error" || level === "fail" ? 1 : level === "warn" ? 0.5 : level === "debug" ? 0.05 : level === "trace" ? 0.02 : 0.1;
+  return Math.min(base + (stack ? 0.3 : 0) + (summary ? 0.4 : 0), 1);
+}
+
+/**
+ * Upstream LogCompressor::parse_lines: each line's level, summary membership, score and stack-trace membership, through the
+ * per-flavor trace state machine (a trace ends on its flavor's terminator or after 20 lines, where a continuing line opens the
+ * next run).
+ * @param {readonly string[]} lines
+ * @param {ReadonlyMap<number, string>} entries the pytest short-summary entries
+ * @returns {LogLine[]}
+ */
+function parseLogLines(lines, entries) {
+  /** @type {TraceFlavor|undefined} */
+  let active;
+  let traced = 0;
+  return lines.map((content, n) => {
+    const level = logLevel(content);
+    const summary = isSummaryLine(content) || entries.has(n);
+    let stack = false;
+    if (active) {
+      if (traced >= LOG_STACK_TRACE_MAX_LINES || traceEnds(active, content, traced)) {
+        const capHit = traced >= LOG_STACK_TRACE_MAX_LINES;
+        const was = active;
+        active = undefined;
+        traced = 0;
+        // A chained trace opens on the line that ended the last one.
+        const next = traceFlavor(content);
+        if (next) {
+          active = next;
+          traced = 1;
+          stack = true;
+        } else if (capHit && !traceEnds(was, content, 2)) {
+          active = was;
+          traced = 1;
+          stack = true;
+        }
+      } else {
+        stack = true;
+        traced++;
+      }
+    } else {
+      const next = traceFlavor(content);
+      if (next) {
+        active = next;
+        traced = 1;
+        stack = true;
+      }
+    }
+    return { n, content, level, stack, summary, score: logScore(level, stack, summary) };
+  });
+}
+
+/**
+ * Upstream select_with_first_last: all when within `max`, else the first, the last, then the best by (score desc, line asc).
+ * @param {readonly LogLine[]} lines
+ * @param {number} max
+ * @returns {LogLine[]}
+ */
+function firstLastBest(lines, max) {
+  if (lines.length <= max) return [...lines];
+  const out = [lines[0], lines[lines.length - 1]];
+  const seen = new Set(out.map((l) => l.n));
+  for (const l of [...lines].sort((a, b) => b.score - a.score || a.n - b.n)) {
+    if (out.length >= max) break;
+    if (seen.has(l.n)) continue;
+    seen.add(l.n);
+    out.push(l);
+  }
+  return out;
+}
+
+/**
+ * Upstream normalize_for_dedupe: the text up to the first `:` or `=` verbatim, then digits → N, `0x…` → ADDR and `/…/` →
+ * /PATH/, in that order (so a `0x` address has already lost its 0, as upstream).
+ * @param {string} content
+ * @returns {string}
+ */
+function dedupeKey(content) {
+  const at = content.search(/[:=]/);
+  const cut = at < 0 ? content.length : at;
+  return (
+    content.slice(0, cut) +
+    content
+      .slice(cut)
+      .replace(/\d+/g, "N")
+      .replace(/0x[0-9a-fA-F]+/g, "ADDR")
+      .replace(/\/[\w/]+\//g, "/PATH/")
+  );
+}
+
+/**
+ * Upstream pytest_cap_reserve: the lines a binding cap keeps while a short summary competes for it, each section's totals line
+ * and the first `E ` line before the first section.
+ * @param {readonly LogLine[]} logLines
+ * @param {PytestSummary} scan
+ * @returns {Set<number>}
+ */
+function pytestReserve(logLines, scan) {
+  const reserved = new Set(scan.totals);
+  const detail = logLines.find((l) => (scan.header === undefined || l.n < scan.header) && l.content.startsWith("E "));
+  if (detail) reserved.add(detail.n);
+  return reserved;
+}
+
+/**
+ * Upstream LogCompressor::select_lines: errors and fails (first, last, best 10 each), 5 deduplicated warnings, the first 3 stack
+ * traces (20 lines each; a longer one with runtime frames collapsed), every summary line, ±3 context lines (never a collapsed
+ * frame), then the adaptive cap by (reserved, score, short-summary entry, line). A line number is taken once, first come.
+ * @param {readonly LogLine[]} logLines
+ * @param {PytestSummary} scan
+ * @param {WorkBudget} budget computeOptimalK's simhash budget
+ * @returns {LogLine[]} in line order
+ */
+function selectLogLines(logLines, scan, budget) {
+  const cap = computeOptimalK(
+    logLines.map((l) => l.content),
+    10,
+    LOG_MAX_TOTAL_LINES,
+    budget,
+  );
+  /** @type {LogLine[][]} */
+  const traces = [];
+  /** @type {LogLine[]} */
+  let current = [];
+  for (const line of logLines) {
+    if (line.stack) current.push(line);
+    else if (current.length) {
+      traces.push(current);
+      current = [];
+    }
+  }
+  if (current.length) traces.push(current);
+  /** @type {Map<number, LogLine>} */
+  const selected = new Map();
+  const take = (/** @type {readonly LogLine[]} */ lines) => {
+    for (const l of lines) if (!selected.has(l.n)) selected.set(l.n, l);
+  };
+  take(
+    firstLastBest(
+      logLines.filter((l) => l.level === "error"),
+      LOG_MAX_ERRORS,
+    ),
+  );
+  take(
+    firstLastBest(
+      logLines.filter((l) => l.level === "fail"),
+      LOG_MAX_ERRORS,
+    ),
+  );
+  /** @type {Set<string>} */
+  const seenWarnings = new Set();
+  const warnings = logLines.filter((l) => {
+    if (l.level !== "warn") return false;
+    const key = dedupeKey(l.content);
+    if (seenWarnings.has(key)) return false;
+    seenWarnings.add(key);
+    return true;
+  });
+  take(warnings.slice(0, LOG_MAX_WARNINGS));
+  /** @type {Set<number>} */
+  const collapsed = new Set();
+  for (const trace of traces.slice(0, LOG_MAX_STACK_TRACES)) {
+    if (trace.length > LOG_STACK_TRACE_MAX_LINES) {
+      const c = collapseTraceFrames(trace, LOG_TRACE_HEAD_FRAMES, LOG_TRACE_APP_FRAMES);
+      for (const n of c.dropped) collapsed.add(n);
+      take(c.kept.slice(0, LOG_STACK_TRACE_MAX_LINES));
+    } else take(trace.slice(0, LOG_STACK_TRACE_MAX_LINES));
+  }
+  take(logLines.filter((l) => l.summary));
+  const picked = new Set(selected.keys());
+  /** @type {Set<number>} */
+  const context = new Set();
+  for (const idx of picked) {
+    for (let i = Math.max(0, idx - LOG_ERROR_CONTEXT); i < Math.min(idx + LOG_ERROR_CONTEXT + 1, logLines.length); i++) if (i !== idx) context.add(i);
+  }
+  for (const i of [...context].sort((a, b) => a - b)) if (!picked.has(i) && !collapsed.has(i)) take([logLines[i]]);
+  let ordered = [...selected.values()].sort((a, b) => a.n - b.n);
+  if (ordered.length > cap) {
+    const reserved = scan.entries.size > 0 ? pytestReserve(logLines, scan) : new Set();
+    const have = new Set(ordered.map((l) => l.n));
+    for (const l of logLines) if (reserved.has(l.n) && !have.has(l.n)) ordered.push(l);
+    const res = (/** @type {LogLine} */ l) => (reserved.has(l.n) ? 1 : 0);
+    const entry = (/** @type {LogLine} */ l) => (scan.entries.has(l.n) ? 1 : 0);
+    ordered = ordered
+      .sort((a, b) => res(b) - res(a) || b.score - a.score || entry(b) - entry(a) || a.n - b.n)
+      .slice(0, cap)
+      .sort((a, b) => a.n - b.n);
+  }
+  return ordered;
+}
+
+/**
+ * Upstream extract_error_label: a cargo `error[E0425]` code, or an exception type ending in Error, Exception or Warning
+ * before a colon (after pytest's `E ` marker), never a bare `ERROR:`.
+ * @param {string} line
+ * @returns {string|undefined}
+ */
+function errorLabel(line) {
+  const t = line.trim();
+  if (t.startsWith("error[")) {
+    const end = t.indexOf("]", 6);
+    if (end >= 0 && LOG_CODE_RE.test(t.slice(6, end))) return t.slice(6, end);
+  }
+  const after = t.startsWith("E ") ? t.slice(2).trimStart() : t;
+  const colon = after.indexOf(":");
+  if (colon < 0) return undefined;
+  const head = after.slice(0, colon);
+  return LOG_LABEL_RE.test(head) && /^[A-Z]/.test(head) && (head.endsWith("Error") || head.endsWith("Exception") || head.endsWith("Warning")) ? head : undefined;
+}
+
+/**
+ * Upstream extract_source_file: a Python `File "…"` name, or a `--> file:line:col` file holding a dot.
+ * @param {string} line
+ * @returns {string|undefined}
+ */
+function sourceFile(line) {
+  const t = line.trim();
+  if (t.startsWith('File "')) {
+    const end = t.indexOf('"', 6);
+    if (end >= 0) return t.slice(6, end);
+  }
+  const arrow = t.indexOf("--> ");
+  if (arrow < 0) return undefined;
+  const part = t.slice(arrow + 4).split(":", 1)[0];
+  return part && part.includes(".") ? part : undefined;
+}
+
+/**
+ * Upstream summarize_omitted: the dropped lines' distinct files and exception types (at most 5 named) that no kept line shows,
+ * as `: K file(s), M exception type(s) (A, B, …)`, or "" when there are none.
+ * @param {readonly LogLine[]} all
+ * @param {readonly LogLine[]} selected
+ * @returns {string}
+ */
+function omittedDescriptor(all, selected) {
+  const kept = new Set(selected.map((l) => l.n));
+  /** @type {Set<string>} */
+  const keptLabels = new Set();
+  /** @type {Set<string>} */
+  const keptFiles = new Set();
+  for (const l of selected) {
+    const label = errorLabel(l.content);
+    if (label !== undefined) keptLabels.add(label);
+    const file = sourceFile(l.content);
+    if (file !== undefined) keptFiles.add(file);
+  }
+  /** @type {Set<string>} */
+  const labels = new Set();
+  /** @type {Set<string>} */
+  const files = new Set();
+  for (const l of all) {
+    if (kept.has(l.n)) continue;
+    const label = errorLabel(l.content);
+    if (label !== undefined && !keptLabels.has(label)) labels.add(label);
+    const file = sourceFile(l.content);
+    if (file !== undefined && !keptFiles.has(file)) files.add(file);
+  }
+  /** @type {string[]} */
+  const parts = [];
+  if (files.size) parts.push(`${files.size} file${files.size === 1 ? "" : "s"}`);
+  if (labels.size) {
+    const names = [...labels].sort();
+    parts.push(`${labels.size} exception type${labels.size === 1 ? "" : "s"} (${names.slice(0, 5).join(", ")}${names.length > 5 ? ", ..." : ""})`);
+  }
+  return parts.length ? `: ${parts.join(", ")}` : "";
+}
+
+/**
+ * Upstream LogCompressor::format_output: the kept lines, then `[N lines omitted: E ERROR, F FAIL, W WARN, I INFO; omitted: …]`
+ * (counts over every line, levels with none left out, up to 5 omitted pytest short-summary ids named) when lines were omitted.
+ * @param {readonly LogLine[]} selected
+ * @param {readonly LogLine[]} all
+ * @param {ReadonlyMap<number, string>} entries
+ * @returns {string}
+ */
+function formatLogOutput(selected, all, entries) {
+  const out = selected.map((l) => l.content);
+  const omitted = all.length - selected.length;
+  if (omitted > 0) {
+    const count = (/** @type {LogLevel} */ level) => all.filter((l) => l.level === level).length;
+    const parts = /** @type {[string, LogLevel][]} */ ([
+      ["ERROR", "error"],
+      ["FAIL", "fail"],
+      ["WARN", "warn"],
+      ["INFO", "info"],
+    ]).flatMap(([label, level]) => {
+      const n = count(level);
+      return n > 0 ? [`${n} ${label}`] : [];
+    });
+    if (parts.length) {
+      const kept = new Set(selected.map((l) => l.n));
+      const ids = [...entries].sort((a, b) => a[0] - b[0]).flatMap(([n, id]) => (kept.has(n) ? [] : [id]));
+      const names = ids.length === 0 ? "" : `; omitted: ${ids.slice(0, 5).join(", ")}${ids.length > 5 ? `, +${ids.length - 5} more` : ""}`;
+      out.push(`[${omitted} lines omitted: ${parts.join(", ")}${names}]`);
+    }
+  }
+  return out.join("\n");
+}
+
+/**
+ * The log fold (upstream compact_lossless "log"): ANSI colour dropped one-way, then runs of identical lines collapsed to
+ * `... (repeated N times)`, kept only when it expands back to the de-coloured text and is shorter than the input.
+ * @param {string} text
+ * @returns {{ text: string, offloaded: [string, string][] }|undefined}
+ */
+export function foldLog(text) {
+  const baseline = text.replace(ANSI_RE, "");
+  const cand = collapseRuns(baseline);
+  if (expandRuns(cand, splitKeepTrailing(baseline)[0].length) !== baseline || cand.length >= text.length) return undefined;
+  return { text: cand, offloaded: [] };
+}
+
+/**
+ * Upstream LogCompressor::compress_with_store with its default config: a log of 50+ lines keeps its errors, failures,
+ * deduplicated warnings, stack traces, summary lines and their context, up to an adaptive 10 to 100 lines, plus the omitted-lines
+ * summary, then `[N lines compressed to M<descriptor>. Retrieve original: hash=H]` with the input stored under H. Deviations:
+ * the retrieval line is always added ("Retrieve original", no 0.5 ratio gate), the hash is contentHash, the simhash diversity
+ * count is budgeted (an exhausted budget keeps 100), and the format detector (cosmetic) is not ported. Undefined under 50
+ * lines or when the result is not shorter.
+ * @param {string} text
+ * @returns {{ text: string, offloaded: [string, string][] }|undefined}
+ */
+export function compressLog(text) {
+  const lines = text.split("\n");
+  if (lines.length < LOG_MIN_LINES) return undefined;
+  const scan = scanPytestSummary(lines);
+  const all = parseLogLines(lines, scan.entries);
+  const selected = selectLogLines(all, scan, { left: SCAN_BUDGET_PER_CHAR * text.length + SCAN_BUDGET_FLOOR });
+  // Deviation: a log with no error, warning, summary or trace line selects nothing; a marker alone would hide all of it.
+  if (selected.length === 0) return undefined;
+  const hash = contentHash(text);
+  const out = `${formatLogOutput(selected, all, scan.entries)}\n[${lines.length} lines compressed to ${selected.length}${omittedDescriptor(all, selected)}. Retrieve original: hash=${hash}]`;
+  return out.length < text.length ? { text: out, offloaded: [[hash, text]] } : undefined;
+}
+
+// Search compressor: a port of headroom's search_compressor.rs (compress_with_store with SearchCompressorConfig::default()) and
+// the "search" kind of lossless_compaction.py compact_lossless (search_heading, search_dir_heading and their inverses).
+
+/** @typedef {{ file: string, line: number, content: string, score: number }} SearchMatch one grep hit and its relevance score */
+
+// Upstream SearchCompressorConfig::default(): always_keep_first and always_keep_last are true there and inlined here.
+const SEARCH_MAX_PER_FILE = 5;
+const SEARCH_MAX_TOTAL = 30;
+const SEARCH_MAX_FILES = 15;
+const SEARCH_MIN_K = 5;
+// Upstream lossless_compaction.py _GREP_ROW_RE, _HEADING_ROW_RE and _DIR_DATA_RE; [^\n]* stands in for Python's `.`, which,
+// unlike JS's, also matches a \r.
+const GREP_ROW_RE = /^([^\n:]+):(\d+):([^\n]*)$/;
+const HEADING_ROW_RE = /^(\d+):([^\n]*)$/;
+const DIR_DATA_RE = /^([^/\n:]+):(\d+):([^\n]*)$/;
+// Upstream KeywordDetector in ImportanceContext::Search: the leftmost whole-word error or importance keyword decides (longest
+// first at one start, case-insensitive); warning words count only when neither matched.
+const SEARCH_ERROR_WORDS = new Set(["error", "exception", "fail", "failed", "failure", "fatal", "critical", "crash", "panic", "abort", "timeout", "denied", "rejected"]);
+const SEARCH_UNIVERSAL_RE = new RegExp(`\\b(?:${[...SEARCH_ERROR_WORDS, "important", "note", "todo", "fixme", "hack", "xxx", "bug", "fix"].sort((a, b) => b.length - a.length).join("|")})\\b`, "i");
+const SEARCH_WARN_RE = /\b(?:warning|warn)\b/i;
+const WINDOWS_DRIVE_RE = /^[A-Za-z]:[\\/]/;
+// Context-word substring matching (search and diff scoring) does at most about this many character comparisons.
+const CONTEXT_MATCH_BUDGET = 16_777_216;
+
+/**
+ * The query's context words for search and diff scoring (upstream score_matches, score_hunks): lowercased, whitespace-split,
+ * longer than 2 code points, deduped in first-seen (newest-first) order, and at most CONTEXT_MATCH_BUDGET / chars of them, so
+ * matching them against `chars` characters stays bounded. Deviation: upstream matches every word (the diff compressor even
+ * counts a repeated word twice).
+ * @param {string} query
+ * @param {number} chars the characters the words will be matched against
+ * @returns {string[]}
+ */
+function contextWords(query, chars) {
+  const words = [
+    ...new Set(
+      query
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((w) => Array.from(w).length > 2),
+    ),
+  ];
+  return words.slice(0, Math.max(1, Math.floor(CONTEXT_MATCH_BUDGET / Math.max(chars, 1))));
+}
+
+/**
+ * Upstream has_extension_dot: a dot followed by a run of 1 to 8 ASCII alphanumerics holding a letter (`.md`, `.7z`, not `.3`).
+ * @param {string} tok
+ * @returns {boolean}
+ */
+function hasExtensionDot(tok) {
+  for (let i = tok.indexOf("."); i >= 0 && i + 1 < tok.length; i = tok.indexOf(".", i + 1)) {
+    let end = i + 1;
+    let letter = false;
+    for (; end < tok.length; end++) {
+      const c = tok.charCodeAt(end);
+      if ((c >= 65 && c <= 90) || (c >= 97 && c <= 122)) letter = true;
+      else if (c < 48 || c > 57) break;
+    }
+    if (letter && end - i - 1 <= 8) return true;
+  }
+  return false;
+}
+
+/**
+ * Upstream last_segment_has_extension over line[0, end): the path's last `/` or `\` segment carries an extension. The scan is
+ * charged to `budget`.
+ * @param {string} line
+ * @param {number} end
+ * @param {WorkBudget} budget
+ * @returns {boolean}
+ */
+function lastSegmentHasExtension(line, end, budget) {
+  let s = end;
+  while (s > 0 && line[s - 1] !== "/" && line[s - 1] !== "\\") s--;
+  budget.left -= end - s + 1;
+  return hasExtensionDot(line.slice(s, end));
+}
+
+/**
+ * Upstream path_continues over line[from…]: the first whitespace-free token after the marker still holds path structure
+ * (a `/`, a `\` or an extension dot). The scan is charged to `budget`.
+ * @param {string} line
+ * @param {number} from
+ * @param {WorkBudget} budget
+ * @returns {boolean}
+ */
+function pathContinues(line, from, budget) {
+  let a = from;
+  while (a < line.length && /\s/.test(line[a])) a++;
+  let b = a;
+  while (b < line.length && !/\s/.test(line[b])) b++;
+  budget.left -= b - from + 1;
+  const tok = line.slice(a, b);
+  return tok.includes("/") || tok.includes("\\") || hasExtensionDot(tok);
+}
+
+/**
+ * Upstream scan_marker: one tier's `<sep><digits><sep>` marker in a trimmed grep line as [path end, digits start, digits end],
+ * and whether the dash tier positively confirmed it as the path/body boundary (else it is the leftmost). The colon and dash
+ * tiers only look inside the leading whitespace-free run; a separator right after another one never opens a marker.
+ * @param {string} line
+ * @param {"colon"|"dash"|"any"} tier
+ * @param {WorkBudget} budget charged for the dash tier's path checks
+ * @returns {[[number, number, number], boolean]|undefined}
+ */
+function scanMarker(line, tier, budget) {
+  const n = line.length;
+  let ws = 0;
+  while (ws < n && !isAsciiSpace(line.charCodeAt(ws))) ws++;
+  /** @type {[number, number, number]|undefined} */
+  let first;
+  /** @type {[number, number, number]|undefined} */
+  let chosen;
+  // A Windows drive prefix (C:\ or C:/): its colon is no marker.
+  let i = WINDOWS_DRIVE_RE.test(line) ? 2 : 0;
+  while (i < n) {
+    const c = line[i];
+    if (tier === "colon" ? c === ":" : tier === "dash" ? c === "-" : c === ":" || c === "-") {
+      if (i > 0 && (line[i - 1] === ":" || line[i - 1] === "-")) {
+        i++;
+        continue;
+      }
+      if (tier !== "any" && ws < i) break;
+      let j = i + 1;
+      while (j < n && line.charCodeAt(j) >= 48 && line.charCodeAt(j) <= 57) j++;
+      if (j > i + 1 && j < n && (tier === "any" ? line[j] === ":" || line[j] === "-" : line[j] === c)) {
+        if (i === 0) return undefined; // a line that starts with its marker has no path
+        /** @type {[number, number, number]} */
+        const m = [i, i + 1, j];
+        first ??= m;
+        // The dash tier walks past a marker only on positive evidence that the path runs through it.
+        if (tier !== "dash" || lastSegmentHasExtension(line, i, budget) || !pathContinues(line, j + 1, budget)) {
+          chosen = m;
+          break;
+        }
+        if (budget.left < 0) return undefined; // the caller declines the whole text
+        i = j + 1;
+        continue;
+      }
+    }
+    i++;
+  }
+  const m = chosen ?? first;
+  return m ? [m, chosen !== undefined] : undefined;
+}
+
+/**
+ * Upstream parse_match_line: the colon tier wins, unless the dash tier confirmed a boundary before its marker (a `-` context
+ * line whose body holds `name:N:`); else the dash tier; else the permissive leftmost marker. Deviation: a line number beyond
+ * Number.MAX_SAFE_INTEGER leaves the line unparsed (upstream: u64).
+ * @param {string} line a trimmed line
+ * @param {WorkBudget} budget
+ * @returns {[string, number, string]|undefined} file, line number, content
+ */
+function parseMatchLine(line, budget) {
+  const colon = scanMarker(line, "colon", budget);
+  const dash = scanMarker(line, "dash", budget);
+  const pick = colon && dash && dash[1] && colon[0][0] > dash[0][2] ? dash : (colon ?? dash ?? scanMarker(line, "any", budget));
+  if (!pick) return undefined;
+  const [[pathEnd, from, to]] = pick;
+  const no = Number(line.slice(from, to));
+  return Number.isSafeInteger(no) ? [line.slice(0, pathEnd), no, line.slice(to + 1)] : undefined;
+}
+
+/**
+ * Upstream KeywordDetector.score in ImportanceContext::Search as score_matches boosts it: an error word 0.5, an importance word
+ * 0.3, else a warning word 0.4.
+ * @param {string} content
+ * @returns {number}
+ */
+function searchBoost(content) {
+  const m = SEARCH_UNIVERSAL_RE.exec(content);
+  if (m) return SEARCH_ERROR_WORDS.has(m[0].toLowerCase()) ? 0.5 : 0.3;
+  return SEARCH_WARN_RE.test(content) ? 0.4 : 0;
+}
+
+/**
+ * Upstream search_heading: consecutive `path:line:content` rows of one path become the path once, then `line:content` rows.
+ * A timestamped log row is no grep row.
+ * @param {string} text
+ * @returns {string}
+ */
+function searchHeading(text) {
+  const [lines, trailing] = splitKeepTrailing(text);
+  if (!lines.length) return text;
+  /** @type {string[]} */
+  const out = [];
+  /** @type {string|undefined} */
+  let current;
+  for (const line of lines) {
+    const m = TIMESTAMP_ROW_RE.test(line) ? null : GREP_ROW_RE.exec(line);
+    if (m) {
+      if (m[1] !== current) {
+        out.push(m[1]);
+        current = m[1];
+      }
+      out.push(`${m[2]}:${m[3]}`);
+    } else {
+      out.push(line);
+      current = undefined;
+    }
+  }
+  return joinLines(out, trailing);
+}
+
+/**
+ * Upstream search_unheading (searchHeading's exact inverse): a line that is no `line:content` row and is followed by one is a
+ * header, prefixed onto the rows under it.
+ * @param {string} text
+ * @returns {string}
+ */
+function searchUnheading(text) {
+  const [lines, trailing] = splitKeepTrailing(text);
+  if (!lines.length) return text;
+  /** @type {string[]} */
+  const out = [];
+  /** @type {string|undefined} */
+  let current;
+  for (let i = 0; i < lines.length; i++) {
+    const data = HEADING_ROW_RE.exec(lines[i]);
+    if (current !== undefined && data) out.push(`${current}:${data[1]}:${data[2]}`);
+    else if (!data && i + 1 < lines.length && HEADING_ROW_RE.test(lines[i + 1])) current = lines[i];
+    else {
+      current = undefined;
+      out.push(lines[i]);
+    }
+  }
+  return joinLines(out, trailing);
+}
+
+/**
+ * Upstream search_dir_heading: consecutive grep rows whose paths share a directory become the directory once (ending in `/`),
+ * then `base:line:content` rows. Rows whose path has no `/` pass through.
+ * @param {string} text
+ * @returns {string}
+ */
+function searchDirHeading(text) {
+  const [lines, trailing] = splitKeepTrailing(text);
+  if (!lines.length) return text;
+  /** @type {string[]} */
+  const out = [];
+  /** @type {string|undefined} */
+  let current;
+  for (const line of lines) {
+    const m = TIMESTAMP_ROW_RE.test(line) ? null : GREP_ROW_RE.exec(line);
+    if (m && m[1].includes("/")) {
+      const cut = m[1].lastIndexOf("/") + 1;
+      const dir = m[1].slice(0, cut);
+      if (dir !== current) {
+        out.push(dir);
+        current = dir;
+      }
+      out.push(`${m[1].slice(cut)}:${m[2]}:${m[3]}`);
+    } else {
+      out.push(line);
+      current = undefined;
+    }
+  }
+  return joinLines(out, trailing);
+}
+
+/**
+ * Upstream search_dir_unheading (searchDirHeading's exact inverse): a line ending in `/` followed by a `base:line:content` row is
+ * a header, prefixed onto the rows under it.
+ * @param {string} text
+ * @returns {string}
+ */
+function searchDirUnheading(text) {
+  const [lines, trailing] = splitKeepTrailing(text);
+  if (!lines.length) return text;
+  /** @type {string[]} */
+  const out = [];
+  /** @type {string|undefined} */
+  let current;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (current !== undefined && DIR_DATA_RE.test(line)) out.push(`${current}${line}`);
+    else if (line.endsWith("/") && i + 1 < lines.length && DIR_DATA_RE.test(lines[i + 1])) current = line;
+    else {
+      current = undefined;
+      out.push(line);
+    }
+  }
+  return joinLines(out, trailing);
+}
+
+/**
+ * The search fold (upstream compact_lossless "search"): the file-heading and directory-heading folds, each kept only when its
+ * inverse gives the text back exactly; the smaller one wins when it is shorter than the text.
+ * @param {string} text
+ * @returns {{ text: string, offloaded: [string, string][] }|undefined}
+ */
+export function foldSearch(text) {
+  let best = text;
+  for (const [cand, inverse] of /** @type {[string, (t: string) => string][]} */ ([
+    [searchHeading(text), searchUnheading],
+    [searchDirHeading(text), searchDirUnheading],
+  ])) {
+    if (cand.length < best.length && inverse(cand) === text) best = cand;
+  }
+  return best === text ? undefined : { text: best, offloaded: [] };
+}
+
+/**
+ * Upstream SearchCompressor::compress_with_store with its default config: grep/ripgrep rows (matches and `-C` context lines
+ * alike) parsed by file, scored (+0.3 per query context word in the line, +0.5 an error word, +0.3 an importance word, else
+ * +0.4 a warning word, at most 1), the 15 best-scoring files kept, then per file its first, last and best matches up to 5 and
+ * an adaptive 5 to 30 in all, in path and line order with `[... and N more matches in FILE]`, then
+ * `[N matches compressed to M. Retrieve original: hash=H]` with the input stored under H. Lines that do not parse are dropped,
+ * as upstream. Deviations: the retrieval line is always added ("Retrieve original", no match-count or ratio gate), the hash is
+ * contentHash, context words are capped (contextWords) and CJK query bigrams are not added, and the parse's path checks and
+ * the simhash count are budgeted (an exhausted parse declines), and a text holding a compiler or linter diagnostic row
+ * (DIAGNOSTIC_ROW_RE) declines. Undefined when nothing parses or the result is not shorter.
+ * @param {string} text
+ * @param {string} query the conversation context (crushQuery), "" for none
+ * @returns {{ text: string, offloaded: [string, string][] }|undefined}
+ */
+export function compressSearch(text, query) {
+  const budget = { left: SCAN_BUDGET_PER_CHAR * text.length + SCAN_BUDGET_FLOOR };
+  /** @type {Map<string, SearchMatch[]>} */
+  const files = new Map();
+  let total = 0;
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (DIAGNOSTIC_ROW_RE.test(line)) return undefined;
+    const m = parseMatchLine(line, budget);
+    if (budget.left < 0) return undefined;
+    if (!m) continue;
+    let list = files.get(m[0]);
+    if (!list) files.set(m[0], (list = []));
+    list.push({ file: m[0], line: m[1], content: m[2], score: 0 });
+    total++;
+  }
+  if (!total) return undefined;
+  const words = contextWords(query, text.length);
+  for (const list of files.values()) {
+    for (const m of list) {
+      const lower = m.content.toLowerCase();
+      let s = 0;
+      for (const w of words) if (lower.includes(w)) s += 0.3;
+      m.score = Math.min(s + searchBoost(m.content), 1);
+    }
+  }
+  const ranked = [...files.keys()]
+    .sort()
+    .map((f) => /** @type {[string, SearchMatch[], number]} */ ([f, files.get(f) ?? [], (files.get(f) ?? []).reduce((a, m) => a + m.score, 0)]))
+    .sort((a, b) => b[2] - a[2])
+    .slice(0, SEARCH_MAX_FILES);
+  const cap = computeOptimalK(
+    ranked.flatMap(([f, list]) => list.map((m) => `${f}:${m.line}:${m.content}`)),
+    SEARCH_MIN_K,
+    SEARCH_MAX_TOTAL,
+    { left: SCAN_BUDGET_PER_CHAR * text.length + SCAN_BUDGET_FLOOR },
+  );
+  /** @type {Map<string, SearchMatch[]>} */
+  const selected = new Map();
+  let kept = 0;
+  for (const [file, list] of ranked) {
+    if (kept >= cap) continue;
+    const room = Math.min(SEARCH_MAX_PER_FILE, cap - kept);
+    /** @type {SearchMatch[]} */
+    const out = [];
+    /** @type {Set<string>} */
+    const seen = new Set();
+    const push = (/** @type {SearchMatch} */ m) => {
+      const key = `${m.line}\u0000${m.content}`;
+      if (out.length >= room || seen.has(key)) return;
+      seen.add(key);
+      out.push(m);
+    };
+    push(list[0]);
+    if (list.length > 1) push(list[list.length - 1]);
+    for (const m of [...list].sort((a, b) => b.score - a.score || a.line - b.line)) push(m);
+    out.sort((a, b) => a.line - b.line);
+    kept += out.length;
+    selected.set(file, out);
+  }
+  /** @type {string[]} */
+  const lines = [];
+  for (const file of [...selected.keys()].sort()) {
+    const out = selected.get(file) ?? [];
+    for (const m of out) lines.push(`${m.file}:${m.line}:${m.content}`);
+    const omitted = (files.get(file)?.length ?? 0) - out.length;
+    if (omitted > 0) lines.push(`[... and ${omitted} more matches in ${file}]`);
+  }
+  const hash = contentHash(text);
+  const result = `${lines.join("\n")}\n[${total} matches compressed to ${kept}. Retrieve original: hash=${hash}]`;
+  return result.length < text.length ? { text: result, offloaded: [[hash, text]] } : undefined;
+}
+
+// Diff compressor: a port of headroom's diff_compressor.rs (compress_with_store with DiffCompressorConfig::default()) and the
+// "diff" kind of lossless_compaction.py compact_lossless (diff_strip_index).
+
+/** @typedef {{ header: string, lines: string[], additions: number, deletions: number, score: number }} DiffHunk one hunk: its header, body lines, counts and relevance */
+/**
+ * One file section: its header, `---`/`+++` lines (or ""), hunks, binary/new/deleted flags and rename lines (upstream DiffFile).
+ * @typedef {{ header: string, prefix: string[], oldFile: string, newFile: string, hunks: DiffHunk[], binary: boolean, added: boolean, deleted: boolean, renames: string[] }} DiffFile
+ */
+
+// Upstream DiffCompressorConfig::default() (min_lines_for_ccr gates the whole compression) and its score constants.
+const DIFF_MAX_CONTEXT = 2;
+const DIFF_MAX_HUNKS = 10;
+const DIFF_MAX_FILES = 20;
+// The footer names at most this many files the cap dropped.
+const DIFF_OMITTED_NAMES = 10;
+const DIFF_MIN_LINES = 50;
+// Upstream _DIFF_INDEX_RE: git's blob bookkeeping line, which a diff does not need to apply.
+const DIFF_INDEX_RE = /^index [0-9a-fA-F]+\.\.[0-9a-fA-F]+( [0-7]+)?$/;
+// Upstream hunk_header_regex: @@ (regular), @@@ (3-way) and @@@@ (4-way merge) headers; 5 or more @ fall through as content.
+const DIFF_HUNK_RE = /^(?:@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@|@@@ -\d+(?:,\d+)? -\d+(?:,\d+)? \+\d+(?:,\d+)? @@@|@@@@ -\d+(?:,\d+)? -\d+(?:,\d+)? -\d+(?:,\d+)? \+\d+(?:,\d+)? @@@@)/;
+const DIFF_NEW_START_RE = /\+(\d+)/;
+const DIFF_BINARY_RE = /^Binary files [^\n]+ differ$/;
+// Upstream priority_patterns (PRIORITY_PATTERNS_DIFF): one +0.3 when any matches the lowercased hunk.
+const DIFF_PRIORITY_RES = [
+  /\b(?:error|exception|fail(?:ed|ure)?|fatal|critical|crash|panic)\b/i,
+  /\b(?:important|note|todo|fixme|hack|xxx|bug|fix)\b/i,
+  /\b(?:security|auth|password|secret|token)\b/i,
+];
+
+/**
+ * Upstream is_diff_header: `diff --git a/<x> b/<y>`, `diff --combined <path>` or `diff --cc <path>`. Hand-checked: the
+ * `^diff --git a/(.+) b/(.+)$` regex would backtrack quadratically on a long line with many ` b/`.
+ * @param {string} line
+ * @returns {boolean}
+ */
+function isDiffHeader(line) {
+  // Deviation: a path holding a non-ASCII or special byte is quoted (`"a/f\303\274r.txt"`).
+  if (line.startsWith('diff --git "a/') || (line.startsWith("diff --git a/") && line.includes(' "b/'))) return line.lastIndexOf(' "b/') > 14;
+  if (line.startsWith("diff --git a/")) return line.lastIndexOf(" b/", line.length - 4) >= 14;
+  return (line.startsWith("diff --combined ") && line.length > 16) || (line.startsWith("diff --cc ") && line.length > 10);
+}
+
+// A commit line of a multi-commit patch series (`commit <sha>`, optionally decorated).
+const DIFF_COMMIT_RE = /^commit [0-9a-f]{7,64}(?: \(.*\))?$/;
+
+/**
+ * Upstream parse_diff: lines before the first header are kept verbatim; mode, rename and binary lines set their flags (and fall
+ * through, as upstream); `---`/`+++` lines and hunk headers are taken whole; inside a hunk `+` and `-` lines (not `+++`/`---`)
+ * count, and every line is kept. Other header lines outside a hunk (`index`, `old mode`, `new mode`) are dropped, as upstream.
+ * Deviation: a `commit <sha>` line after a file starts a commit header, kept with its Author, Date and message lines as the
+ * next file's `prefix` (or in `post` when no file follows), so a multi-commit log keeps every commit's header.
+ * @param {readonly string[]} lines
+ * @returns {{ pre: string[], files: DiffFile[], post: string[] }}
+ */
+function parseDiff(lines) {
+  /** @type {string[]} */
+  const pre = [];
+  /** @type {DiffFile[]} */
+  const files = [];
+  /** @type {DiffFile|undefined} */
+  let file;
+  /** @type {DiffHunk|undefined} */
+  let hunk;
+  /** @type {string[]|undefined} */
+  let commit; // the commit header being collected after a file
+  const closeHunk = () => {
+    if (hunk && file) file.hunks.push(hunk);
+    hunk = undefined;
+  };
+  for (const line of lines) {
+    if (isDiffHeader(line)) {
+      closeHunk();
+      if (file) files.push(file);
+      file = { header: line, prefix: commit ?? [], oldFile: "", newFile: "", hunks: [], binary: false, added: false, deleted: false, renames: [] };
+      commit = undefined;
+      continue;
+    }
+    if (!file) {
+      pre.push(line);
+      continue;
+    }
+    if (commit) {
+      commit.push(line);
+      continue;
+    }
+    if (DIFF_COMMIT_RE.test(line)) {
+      closeHunk();
+      commit = [line];
+      continue;
+    }
+    if (line.startsWith("new file mode")) file.added = true;
+    else if (line.startsWith("deleted file mode")) file.deleted = true;
+    else if (line.startsWith("rename ") || line.startsWith("similarity ") || line.startsWith("copy ") || line.startsWith("dissimilarity ")) file.renames.push(line);
+    else if (DIFF_BINARY_RE.test(line)) file.binary = true;
+    if (line === "--- /dev/null" || (line.startsWith("--- a/") && line.length > 6) || line.startsWith('--- "a/')) {
+      file.oldFile = line;
+      continue;
+    }
+    if (line === "+++ /dev/null" || (line.startsWith("+++ b/") && line.length > 6) || line.startsWith('+++ "b/')) {
+      file.newFile = line;
+      continue;
+    }
+    if (DIFF_HUNK_RE.test(line)) {
+      closeHunk();
+      hunk = { header: line, lines: [], additions: 0, deletions: 0, score: 0 };
+      continue;
+    }
+    if (!hunk) continue;
+    if (line.startsWith("+") && !line.startsWith("+++")) hunk.additions++;
+    else if (line.startsWith("-") && !line.startsWith("---")) hunk.deletions++;
+    hunk.lines.push(line);
+  }
+  closeHunk();
+  if (file) files.push(file);
+  return { pre, files, post: commit ?? [] };
+}
+
+/**
+ * Upstream score_hunks: min(0.3, changes × 0.03), +0.2 per query context word in the lowercased hunk, +0.3 once for a priority
+ * pattern, at most 1. Deviations: context words are deduped and capped (contextWords), no CJK bigrams.
+ * @param {readonly DiffFile[]} files mutated: each hunk's score
+ * @param {string} query
+ * @param {number} chars the text's length, for contextWords' cap
+ * @returns {void}
+ */
+function scoreHunks(files, query, chars) {
+  const words = contextWords(query, chars);
+  for (const f of files) {
+    for (const h of f.hunks) {
+      let s = Math.min((h.additions + h.deletions) * 0.03, 0.3);
+      const lower = h.lines.join("\n").toLowerCase();
+      for (const w of words) if (lower.includes(w)) s += 0.2;
+      if (DIFF_PRIORITY_RES.some((re) => re.test(lower))) s += 0.3;
+      h.score = Math.min(s, 1);
+    }
+  }
+}
+
+/**
+ * Upstream extract_line_number: the first `+N` in a hunk header, else 0.
+ * @param {string} header
+ * @returns {number}
+ */
+function hunkNewStart(header) {
+  const n = Number(DIFF_NEW_START_RE.exec(header)?.[1] ?? 0);
+  return Number.isSafeInteger(n) ? n : 0;
+}
+
+/**
+ * Upstream select_hunks: over 10 hunks, the first, the last and the 8 best middle hunks by score (stable), re-sorted (stably) by
+ * their header's new start line.
+ * @param {DiffHunk[]} hunks
+ * @returns {DiffHunk[]}
+ */
+function selectHunks(hunks) {
+  if (hunks.length <= DIFF_MAX_HUNKS) return hunks;
+  const middle = hunks
+    .slice(1, -1)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, DIFF_MAX_HUNKS - 2);
+  return [hunks[0], ...middle, hunks[hunks.length - 1]].sort((a, b) => hunkNewStart(a.header) - hunkNewStart(b.header));
+}
+
+/**
+ * Upstream reduce_context: the lines within 2 of a `+`/`-` line, plus every `\` line, in order; a hunk without changes keeps its
+ * first 2 lines.
+ * @param {DiffHunk} h
+ * @returns {DiffHunk}
+ */
+function reduceContext(h) {
+  const n = h.lines.length;
+  const keep = new Uint8Array(n);
+  let changed = false;
+  h.lines.forEach((l, p) => {
+    if (!l.startsWith("+") && !l.startsWith("-")) return;
+    changed = true;
+    for (let i = Math.max(0, p - DIFF_MAX_CONTEXT); i <= Math.min(p + DIFF_MAX_CONTEXT, n - 1); i++) keep[i] = 1;
+  });
+  if (!changed) return { ...h, lines: h.lines.slice(0, DIFF_MAX_CONTEXT) };
+  return { ...h, lines: h.lines.filter((l, i) => keep[i] === 1 || l.startsWith("\\")) };
+}
+
+/**
+ * The diff fold (upstream compact_lossless "diff"): `index <sha>..<sha> [mode]` lines dropped, when that shortens the text. No
+ * inverse check, as upstream; the router only calls it on diff-labelled text.
+ * @param {string} text
+ * @returns {{ text: string, offloaded: [string, string][] }|undefined}
+ */
+export function foldDiff(text) {
+  const [lines, trailing] = splitKeepTrailing(text);
+  const cand = joinLines(
+    lines.filter((l) => !DIFF_INDEX_RE.test(l)),
+    trailing,
+  );
+  return cand.length < text.length ? { text: cand, offloaded: [] } : undefined;
+}
+
+/**
+ * Upstream DiffCompressor::compress_with_store with its default config: a diff of 50+ lines keeps its pre-diff lines, at most 20
+ * files (past 20 the most-changed, in that order), per file at most 10 hunks (the first, the last and the best-scored middle
+ * ones) trimmed to 2 context lines around each change, with mode lines normalised to 100644 and binary lines to `Binary files
+ * differ`, then `[N files changed, +A -D lines, H hunks omitted]` and `[N lines compressed to M. Retrieve original: hash=H]`
+ * with the input stored under H. Deviations: the retrieval line is always added ("Retrieve original", no 0.8 line-ratio gate,
+ * so a result is returned only when shorter), the hash is contentHash, hunks are scored only when a file has more than 10 (the
+ * score is read nowhere else), and context words are deduped and capped. Undefined under 50 lines, without a file header, or
+ * when the result is not shorter.
+ * @param {string} text
+ * @param {string} query the conversation context (crushQuery), "" for none
+ * @returns {{ text: string, offloaded: [string, string][] }|undefined}
+ */
+export function compressDiff(text, query) {
+  const lines = text.split("\n"); // "\n" only: a "\r" stays on its line, as upstream
+  if (lines.length < DIFF_MIN_LINES) return undefined;
+  const { pre, files: parsed, post } = parseDiff(lines);
+  if (!parsed.length) return undefined;
+  const changes = (/** @type {DiffFile} */ f) => f.hunks.reduce((a, h) => a + h.additions + h.deletions, 0);
+  const files =
+    parsed.length > DIFF_MAX_FILES
+      ? parsed
+          .map((f) => /** @type {[DiffFile, number]} */ ([f, changes(f)]))
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, DIFF_MAX_FILES)
+          .map(([f]) => f)
+      : parsed;
+  if (files.some((f) => f.hunks.length > DIFF_MAX_HUNKS)) scoreHunks(files, query, text.length);
+  let adds = 0;
+  let dels = 0;
+  let omitted = 0;
+  /** @type {string[]} */
+  const out = [];
+  for (const l of pre) out.push(l);
+  // Deviation: the totals count every file, and a file the cap dropped is named, so the footer never understates the change.
+  for (const f of parsed)
+    for (const h of f.hunks) {
+      adds += h.additions;
+      dels += h.deletions;
+    }
+  const dropped = parsed.filter((f) => !files.includes(f)).map((f) => f.header.replace(/^diff --git a\/.* b\//, ""));
+  for (const f of files) {
+    const hunks = selectHunks(f.hunks).map(reduceContext);
+    omitted += f.hunks.length - hunks.length;
+    for (const l of f.prefix) out.push(l);
+    out.push(f.header);
+    for (const l of f.renames) out.push(l);
+    if (f.added) out.push("new file mode 100644");
+    else if (f.deleted) out.push("deleted file mode 100644");
+    if (f.binary) {
+      out.push("Binary files differ");
+      continue;
+    }
+    if (f.oldFile) out.push(f.oldFile);
+    if (f.newFile) out.push(f.newFile);
+    for (const h of hunks) {
+      out.push(h.header);
+      for (const l of h.lines) out.push(l);
+    }
+  }
+  for (const l of post) out.push(l);
+  const names = dropped.slice(0, DIFF_OMITTED_NAMES).join(", ") + (dropped.length > DIFF_OMITTED_NAMES ? ", …" : "");
+  out.push(`[${parsed.length} files changed, +${adds} -${dels} lines${omitted > 0 ? `, ${omitted} hunks omitted` : ""}${dropped.length ? `; ${dropped.length} files omitted: ${names}` : ""}]`);
+  const hash = contentHash(text);
+  const result = `${out.join("\n")}\n[${lines.length} lines compressed to ${out.length}. Retrieve original: hash=${hash}]`;
+  return result.length < text.length ? { text: result, offloaded: [[hash, text]] } : undefined;
+}
+
+// Text crusher: a port of headroom's text_crusher/crusher.rs (TextCrusher::compress, ASCII path, TextCrusherConfig::default())
+// and the "text" kind of lossless_compaction.py compact_lossless. It stands in for upstream's Kompress (ML) on prose.
+
+// Upstream TextCrusherConfig::default() (target_ratio is a constant here, not clamped per call).
+const TEXT_TARGET_RATIO = 0.5;
+const TEXT_W_RECENCY = 1.0;
+const TEXT_W_RELEVANCE = 2.0;
+const TEXT_W_SALIENCE = 1.5;
+const TEXT_MIN_SEGMENT_CHARS = 12;
+const TEXT_NEAR_DUP = 0.85;
+const TEXT_MIN_SEGMENTS = 6;
+// Upstream is_cjk exactly: CJK punctuation, kana, ideographs (BMP and astral), Hangul and half/full-width forms. CJK_RANGES
+// (bigramCurve's) is narrower and stays as it is.
+const TEXT_CJK_RE = /[\u{3000}-\u{303f}\u{3040}-\u{30ff}\u{3400}-\u{4dbf}\u{4e00}-\u{9fff}\u{ac00}-\u{d7af}\u{f900}-\u{faff}\u{ff00}-\u{ffef}\u{20000}-\u{2fa1f}]/u;
+// Upstream tokens_ascii: runs of Rust is_alphanumeric (Alphabetic or Numeric) or `_`, lowercased. Not BM25_TOKEN_RE.
+const TEXT_TOKEN_RE = /[\p{Alphabetic}\p{N}_]+/gu;
+const TEXT_WORD_CHAR_RE = /[\p{Alphabetic}\p{N}]/u;
+const TEXT_LETTER_RE = /\p{Alphabetic}/gu;
+const TEXT_UPPER_RE = /^\p{Uppercase}$/u;
+const TEXT_IDENT_START_RE = /^[\p{Alphabetic}_]/u;
+const TEXT_KEYWORDS = new Set(["error", "exception", "failed", "failure", "fail", "warning", "traceback", "assert", "todo", "fixme"]);
+
+/**
+ * Upstream split_segments_ascii: each trimmed non-empty line, cut after `.`, `!` or `?` and the whitespace that follows it,
+ * each piece trimmed, empty pieces dropped.
+ * @param {string} text
+ * @returns {string[]}
+ */
+function splitSegments(text) {
+  /** @type {string[]} */
+  const segs = [];
+  const push = (/** @type {string} */ s) => {
+    const t = s.trim();
+    if (t) segs.push(t);
+  };
+  for (const line of text.split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    let start = 0;
+    let prevTerm = false;
+    for (let i = 0; i < t.length; i++) {
+      const c = t[i];
+      if (prevTerm && /\s/.test(c)) {
+        push(t.slice(start, i));
+        start = i + 1;
+        prevTerm = false;
+        continue;
+      }
+      prevTerm = c === "." || c === "!" || c === "?";
+    }
+    push(t.slice(start));
+  }
+  return segs;
+}
+
+/**
+ * Whether a text reads as prose: at least half its non-empty lines hold a sentence end (`.`, `!` or `?` before whitespace or
+ * the line end). Deviation (user decision): the text crusher and the relevance split run only on prose, since upstream's
+ * one-segment-per-line fallback would halve a Glob, find, ls or `git log --oneline` listing. One linear pass.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function isProse(text) {
+  let lines = 0;
+  let ended = 0;
+  for (const line of text.split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    lines++;
+    for (let i = 0; i < t.length; i++) {
+      const c = t[i];
+      if ((c === "." || c === "!" || c === "?") && (i + 1 === t.length || /\s/.test(t[i + 1]))) {
+        ended++;
+        break;
+      }
+    }
+  }
+  return lines > 0 && ended * 2 >= lines;
+}
+
+/**
+ * Upstream trim_matches(|c| !c.is_alphanumeric()), by code points and without a regex (a backtracking one would be quadratic on
+ * a long run of punctuation).
+ * @param {string} word
+ * @returns {string}
+ */
+function trimToWord(word) {
+  const cps = Array.from(word);
+  let s = 0;
+  let e = cps.length;
+  while (s < e && !TEXT_WORD_CHAR_RE.test(cps[s])) s++;
+  while (e > s && !TEXT_WORD_CHAR_RE.test(cps[e - 1])) e--;
+  return cps.slice(s, e).join("");
+}
+
+/**
+ * Upstream is_salient: a word carrying hard-to-reconstruct information, holding an ASCII digit, being an error/status keyword
+ * once trimmed of non-alphanumerics, ALLCAPS (2+ letters, all uppercase), or a dotted identifier (`foo.bar`).
+ * @param {string} word
+ * @returns {boolean}
+ */
+function isSalient(word) {
+  if (/[0-9]/.test(word)) return true;
+  if (TEXT_KEYWORDS.has(trimToWord(word).toLowerCase())) return true;
+  const letters = word.match(TEXT_LETTER_RE) ?? [];
+  if (letters.length >= 2 && letters.every((c) => TEXT_UPPER_RE.test(c))) return true;
+  const dot = word.indexOf(".");
+  return dot > 0 && dot + 1 < word.length && TEXT_IDENT_START_RE.test(word.slice(0, dot)) && TEXT_IDENT_START_RE.test(word.slice(dot + 1));
+}
+
+/**
+ * Upstream shingles(words, 3): the 3-token windows joined by \u0001; a segment of 1 or 2 tokens gives all its sub-windows.
+ * @param {readonly string[]} words
+ * @returns {Set<string>}
+ */
+function shingles(words) {
+  /** @type {Set<string>} */
+  const set = new Set();
+  const k = words.length < 3 ? 1 : 3;
+  for (let size = k; size <= Math.min(words.length, 3); size++) for (let i = 0; i + size <= words.length; i++) set.add(words.slice(i, i + size).join("\u0001"));
+  return set;
+}
+
+/**
+ * The text fold (upstream compact_lossless "text"): runs of identical lines collapsed to `... (repeated N times)`, kept only when
+ * it expands back to the text and is shorter.
+ * @param {string} text
+ * @returns {{ text: string, offloaded: [string, string][] }|undefined}
+ */
+export function foldText(text) {
+  const cand = collapseRuns(text);
+  if (cand.length >= text.length || expandRuns(cand, splitKeepTrailing(text)[0].length) !== text) return undefined;
+  return { text: cand, offloaded: [] };
+}
+
+/**
+ * Upstream TextCrusher::compress (the ASCII path, default config): prose split into sentence segments, each scored by recency
+ * (1.0 × (i+1)/n), BM25 relevance to the query (2.0 ×) and salience (1.5 × salient words / (words + 1)), × 0.25 under 12 chars;
+ * then, best first, segments are kept until half the characters are, skipping one whose 3-token shingles are 85% covered by kept
+ * ones. The kept segments, in order and joined by \n, end with `[Text crushed: K of N segments kept. Retrieve original: hash=H]`
+ * and the input is stored under H. Deviations: text holding a CJK character declines (upstream's ICU path is not ported), lengths
+ * count UTF-16 units where upstream counts UTF-8 bytes, and the retrieval line is the mod's own. Undefined under 6 segments or
+ * when the result is not shorter.
+ * @param {string} text
+ * @param {string} query the conversation context (crushQuery), "" for none
+ * @returns {{ text: string, offloaded: [string, string][] }|undefined}
+ */
+export function crushText(text, query) {
+  if (TEXT_CJK_RE.test(text)) return undefined;
+  const segs = splitSegments(text);
+  const n = segs.length;
+  if (n < TEXT_MIN_SEGMENTS) return undefined;
+  const target = Math.max(1, Math.floor(segs.reduce((a, s) => a + s.length, 0) * TEXT_TARGET_RATIO));
+  const rel = bm25Scores(segs, query);
+  const scores = segs.map((s, i) => {
+    const words = s.split(/\s+/).filter(Boolean);
+    const salience = words.filter(isSalient).length / (words.length + 1);
+    const score = TEXT_W_RECENCY * ((i + 1) / n) + TEXT_W_RELEVANCE * rel[i] + TEXT_W_SALIENCE * salience;
+    return s.length < TEXT_MIN_SEGMENT_CHARS ? score * 0.25 : score;
+  });
+  const order = segs.map((_, i) => i).sort((a, b) => scores[b] - scores[a] || a - b);
+  const kept = new Uint8Array(n);
+  /** @type {Set<string>} */
+  const seen = new Set();
+  let keptChars = 0;
+  let keptCount = 0;
+  for (const i of order) {
+    if (keptChars >= target) break;
+    const sh = shingles(segs[i].toLowerCase().match(TEXT_TOKEN_RE) ?? []);
+    if (sh.size) {
+      let covered = 0;
+      for (const s of sh) if (seen.has(s)) covered++;
+      if (covered / sh.size >= TEXT_NEAR_DUP) continue; // a near-duplicate of kept segments
+    }
+    kept[i] = 1;
+    keptCount++;
+    for (const s of sh) seen.add(s);
+    keptChars += segs[i].length;
+  }
+  if (!keptCount) return undefined;
+  const hash = contentHash(text);
+  const out = `${segs.filter((_, i) => kept[i] === 1).join("\n")}\n[Text crushed: ${keptCount} of ${n} segments kept. Retrieve original: hash=${hash}]`;
+  return out.length < text.length ? { text: out, offloaded: [[hash, text]] } : undefined;
+}
+
+// Relevance split: a port of headroom's relevance_split.py (segment, _otsu_threshold, adaptive_threshold, plan_relevance_split)
+// and content_router.py _relevance_split_compress, routed on prose only (user decision; upstream splits LOG and SEARCH output).
+
+const SPLIT_WINDOW = 8;
+const SPLIT_MAX_CHARS = 1200;
+// Upstream RelevanceScorerConfig.relevance_threshold: the KEEP cut's floor.
+const SPLIT_FLOOR = 0.25;
+
+/**
+ * Upstream segment(content, window, max_chars): a lossless partition (`segs.join("") === text`) into blank-line-delimited
+ * blocks, each packed into windows of at most `window` lines, an indented continuation line held past that, and at most
+ * `maxChars` characters; a single longer line stays whole. Deviation: lines split on \n only (Python's splitlines also splits on
+ * \r, \v, \f, \x1c-\x1e, \x85, U+2028 and U+2029).
+ * @param {string} text
+ * @param {number} [window]
+ * @param {number} [maxChars]
+ * @returns {string[]}
+ */
+export function segmentRecords(text, window = SPLIT_WINDOW, maxChars = SPLIT_MAX_CHARS) {
+  /** @type {string[]} */
+  const lines = [];
+  for (let s = 0; s < text.length;) {
+    const nl = text.indexOf("\n", s);
+    const end = nl < 0 ? text.length : nl + 1;
+    lines.push(text.slice(s, end));
+    s = end;
+  }
+  if (lines.length <= 1) return text ? [text] : [];
+  /** @type {string[][]} */
+  const blocks = [];
+  /** @type {string[]} */
+  let cur = [];
+  for (const ln of lines) {
+    cur.push(ln);
+    if (/^\s*$/.test(ln)) {
+      blocks.push(cur);
+      cur = [];
+    }
+  }
+  if (cur.length) blocks.push(cur);
+  /** @type {string[]} */
+  const segs = [];
+  for (const block of blocks) {
+    for (let i = 0; i < block.length;) {
+      let j = i + 1;
+      let size = block[i].length;
+      while (j < block.length && (j - i < window || block[j].startsWith(" ") || block[j].startsWith("\t")) && size + block[j].length <= maxChars) {
+        size += block[j].length;
+        j++;
+      }
+      segs.push(block.slice(i, j).join(""));
+      i = j;
+    }
+  }
+  return segs;
+}
+
+/**
+ * Upstream _otsu_threshold: the midpoint of the adjacent sorted pair that maximises the between-class variance.
+ * @param {readonly number[]} values at least one
+ * @returns {number}
+ */
+export function otsuThreshold(values) {
+  const xs = [...values].sort((a, b) => a - b);
+  const n = xs.length;
+  const total = xs.reduce((a, b) => a + b, 0);
+  let w0 = 0;
+  let sum0 = 0;
+  let bestT = xs[0];
+  let bestVar = -1;
+  for (let i = 0; i < n - 1; i++) {
+    w0 += 1;
+    sum0 += xs[i];
+    const w1 = n - w0;
+    const between = w0 * w1 * (sum0 / w0 - (total - sum0) / w1) ** 2;
+    if (between > bestVar) {
+      bestVar = between;
+      bestT = (xs[i] + xs[i + 1]) / 2;
+    }
+  }
+  return bestT;
+}
+
+/**
+ * Upstream adaptive_threshold: `floor` when fewer than 2 distinct values remain after rounding to 9 decimals, else the Otsu cut
+ * of the raw values, at least `floor`.
+ * @param {readonly number[]} values
+ * @param {number} floor
+ * @returns {number}
+ */
+export function adaptiveThreshold(values, floor) {
+  if (new Set(values.map((v) => Math.round(v * 1e9) / 1e9)).size < 2) return floor;
+  return Math.max(otsuThreshold(values), floor);
+}
+
+/**
+ * A stand-in for upstream _json_straddles_segments: whether a top-level balanced `[`/`{` span crosses a cut between two segments.
+ * The outer walk is noJsonSpans' (budget 4 per character + 4096, the `known` memo reused); spans and cuts are merged in one
+ * linear pass. An exhausted budget counts as straddling. Deviation: any balanced span counts (upstream protects only spans that
+ * parse as JSON documents or record arrays), which errs on keeping the text whole; one-line spans never straddle.
+ * @param {string} text
+ * @param {readonly string[]} segs segmentRecords(text)
+ * @returns {boolean}
+ */
+function jsonStraddles(text, segs) {
+  const n = text.length;
+  const budget = SCAN_BUDGET_PER_CHAR * n + SCAN_BUDGET_FLOOR;
+  /** @type {Map<number, number|null>} */
+  const known = new Map();
+  /** @type {[number, number][]} */
+  const spans = [];
+  let spent = 0;
+  for (let i = 0; i < n;) {
+    if (text[i] === "[" || text[i] === "{") {
+      /** @type {number|null|undefined} */
+      let end;
+      if (known.has(i)) end = known.get(i);
+      else if (spent >= budget) return true;
+      else {
+        const [e, walked] = scanFrom(text, i, known);
+        end = e;
+        spent += walked;
+      }
+      if (typeof end === "number") {
+        spans.push([i, end]);
+        i = end;
+        continue;
+      }
+    }
+    i++;
+  }
+  let s = 0;
+  let cut = 0;
+  for (let k = 0; k < segs.length - 1; k++) {
+    cut += segs[k].length;
+    while (s < spans.length && spans[s][1] <= cut) s++;
+    if (s < spans.length && spans[s][0] < cut) return true;
+  }
+  return false;
+}
+
+/**
+ * Upstream plan_relevance_split plus content_router.py _relevance_split_compress, for prose: the text's records
+ * (segmentRecords) are scored by plain BM25 against the query and kept from the adaptive cut (floor 0.25) up; consecutive
+ * records of one disposition form runs. A DROP run holding an ERROR_KEYWORDS line is kept whole (user decision). Each DROP run
+ * becomes `...[N low-relevance line(s) elided]...` (upstream's CCR-mode disposition: the mod always has retrieval), KEEP runs
+ * are folded with foldText while `foldOn` (text_crusher_enabled owns that fold; off, they stay raw and foldText is never
+ * called), and `[N low-relevance line(s) in R run(s) elided. Retrieve original: hash=H]` ends the text, the input stored under H.
+ * Adopted only when strictly shorter than the baseline: foldText's whole-text fold while `foldOn` (or the text when it
+ * declines), else the text. Undefined for an empty query, a single record, a multi-line bracket span across a cut, no KEEP run
+ * (never an all-DROP output; user decision) or no DROP run.
+ * @param {string} text
+ * @param {string} query the conversation context (crushQuery)
+ * @param {boolean} foldOn whether the text crusher's lever, the owner of foldText, is on
+ * @returns {{ text: string, offloaded: [string, string][] }|undefined}
+ */
+export function splitRelevance(text, query, foldOn) {
+  if (query.trim() === "") return undefined;
+  const segs = segmentRecords(text);
+  if (segs.length < 2 || jsonStraddles(text, segs)) return undefined;
+  const scores = bm25Scores(segs, query);
+  const cut = adaptiveThreshold(scores, SPLIT_FLOOR);
+  /** @type {{ keep: boolean, text: string, mustKeep: boolean }[]} */
+  const runs = [];
+  segs.forEach((seg, i) => {
+    const keep = scores[i] >= cut;
+    const lower = seg.toLowerCase();
+    const mustKeep = ERROR_KEYWORDS.some((k) => lower.includes(k));
+    const last = runs.at(-1);
+    if (last && last.keep === keep) {
+      last.text += seg;
+      last.mustKeep ||= mustKeep;
+    } else runs.push({ keep, text: seg, mustKeep });
+  });
+  /** @type {{ keep: boolean, text: string }[]} */
+  const merged = [];
+  for (const r of runs) {
+    const keep = r.keep || r.mustKeep;
+    const last = merged.at(-1);
+    if (last && last.keep === keep) last.text += r.text;
+    else merged.push({ keep, text: r.text });
+  }
+  const drops = merged.filter((r) => !r.keep);
+  if (drops.length === 0 || drops.length === merged.length) return undefined;
+  const lineCount = (/** @type {string} */ t) => (t.match(/\n/g)?.length ?? 0) + (t.endsWith("\n") ? 0 : 1);
+  let dropped = 0;
+  const body = merged
+    .map((r) => {
+      if (r.keep) return foldOn ? (foldText(r.text)?.text ?? r.text) : r.text;
+      const n = lineCount(r.text);
+      dropped += n;
+      return `...[${n} low-relevance ${n === 1 ? "line" : "lines"} elided]...${r.text.endsWith("\n") ? "\n" : ""}`;
+    })
+    .join("");
+  const hash = contentHash(text);
+  const runWord = drops.length === 1 ? "run" : "runs";
+  const out = `${body}${body.endsWith("\n") ? "" : "\n"}[${dropped} low-relevance ${dropped === 1 ? "line" : "lines"} in ${drops.length} ${runWord} elided. Retrieve original: hash=${hash}]`;
+  const baseline = foldOn ? (foldText(text)?.text ?? text) : text;
+  return out.length < baseline.length ? { text: out, offloaded: [[hash, text]] } : undefined;
+}
+
 /**
  * Each content type's compression steps, tried in order until one rewrites (a light upstream _strategy_from_detection).
- * The SmartCrusher owns JSON, the config compressor structured config and the HTML extractor HTML; the dense line elider runs
- * on every type, after the type's compressor where one runs, as upstream elides after text-returning strategies and as its
- * fallback where no compressor owns the type. A rewrite ends the route unless its step is in ELIDE_AFTER. A new compressor
- * adds a RouteStep, a case in rewriteRow's shrink, a Levers flag, and its name in the types it fits.
+ * The SmartCrusher owns JSON, the config compressor structured config, the HTML extractor HTML, the log compressor build
+ * output, the search compressor search results, the diff compressor diffs, and the relevance split and the text crusher
+ * prose. The dense line elider ends every route: it runs after a step in ELIDE_AFTER hands its rewrite on, and as the
+ * fallback when every step before it declined; any other rewrite ends the route (a diff rewrite, a fold, a split, as
+ * upstream returns them before its elision point). A lossy step sits before its kind's lossless fold because it has to beat
+ * that fold, the floor (overFold, upstream's lossless_then_lossy gate); the fold step runs only on the route's input text, as
+ * the fallback for a lossy step that declined or lost, never on a handed-on rewrite. A new compressor adds a RouteStep, a
+ * case in rewriteRow's shrink, a Levers flag, and its name in the types it fits.
  * @type {Readonly<Record<ContentType, readonly RouteStep[]>>}
  */
 const ROUTES = {
   json_array: ["crush", "elide"],
-  diff: ["elide"],
+  diff: ["diff", "difffold", "elide"],
   html: ["extract", "elide"],
   tabular: ["elide"],
-  search: ["elide"],
-  build: ["elide"],
+  search: ["search", "searchfold", "elide"],
+  build: ["log", "logfold", "elide"],
   structured_config: ["config", "elide"],
   source_code: ["elide"],
-  text: ["elide"],
+  text: ["split", "textcrush", "textfold", "elide"],
 };
 
-// Every step needs at least this many characters (the elider returns early below its line minimum, and the crusher wants
-// more), so a shorter text skips detection: the label could not change the outcome. A step with a lower floor lowers this.
+// The router-wide floor: a shorter text skips detection and every step. The elider returns early below its line minimum and
+// the crusher wants more; the new steps' own upstream floors are lower (search none, the split 2 records, log and diff 50
+// lines, prose_field 256 bytes), but under 300 characters a retrieval line would eat most of any saving.
 const ROUTE_MIN_CHARS = Math.min(CRUSH_MIN_CHARS, DENSE_MIN_LINE_CHARS);
-// The steps whose rewrite the route goes on with (upstream _DENSE_ELIDE_AFTER's HTML member): the elider then runs on the
-// extraction. The SmartCrusher and the config compressor end the route, as upstream leaves SMART_CRUSHER and CONFIG out.
+// The steps whose rewrite the route goes on with (upstream _DENSE_ELIDE_AFTER's HTML, LOG, SEARCH and TEXT members): the
+// elider then runs on the extraction or the lossy output. The SmartCrusher, the config compressor, the diff compressor, every
+// fold and the relevance split end the route, as upstream leaves SMART_CRUSHER, CONFIG and DIFF out and returns a kept fold
+// or a split before its elision point.
 /** @type {ReadonlySet<RouteStep>} */
-const ELIDE_AFTER = new Set(["extract"]);
+const ELIDE_AFTER = new Set(["extract", "log", "search", "textcrush"]);
+// Upstream _DEFAULT_LOSSY_MIN_EXTRA_SAVINGS: a lossy step must save this fraction beyond its kind's fold.
+const LOSSY_MIN_EXTRA_SAVINGS = 0.05;
+
+/**
+ * Upstream's lossless_then_lossy gate: a lossy result is kept only when it is at most (1 - LOSSY_MIN_EXTRA_SAVINGS) of its kind's
+ * fold (the floor); when the fold declined, the step's own strictly-shorter contract has already decided.
+ * @param {{ text: string }} r the lossy step's result
+ * @param {{ text: string }|undefined} floor the kind's fold of the same text, undefined when it declined
+ * @returns {boolean}
+ */
+function overFold(r, floor) {
+  return floor === undefined || r.text.length <= floor.text.length * (1 - LOSSY_MIN_EXTRA_SAVINGS);
+}
 
 // The tool-result row pipeline (session.append): SmartCrusher and the dense line elider by content type, then cross-turn dedup.
 
@@ -3523,7 +5335,10 @@ function isProtectedTool(tool) {
   return tool === RETRIEVE_NAME || tool.endsWith(RETRIEVE_SUFFIX) || tool.startsWith(OWN_STORAGE_PREFIX);
 }
 
-const READ_TOOL = "Read";
+// Tools whose results the model reads back verbatim to build its next Edit: a Read file, an Edit/Write `cat -n` snippet.
+const VERBATIM_TOOLS = new Set(["Read", "Edit", "Write", "NotebookEdit"]);
+// An Agent/Task hand-back report carries the agentId the model resumes it with: never cut by the text crusher or the split.
+const REPORT_TOOLS = new Set(["Agent", "Task"]);
 
 /**
  * A tool_result block whose texts are never rewritten (dedup still indexes them): an error, or a protected tool's row.
@@ -3537,13 +5352,20 @@ function isProtectedBlock(block, tool) {
 }
 
 /**
- * Whether a tool-result row holds text the SmartCrusher may rewrite, so the hook pays the transcript fetch only then.
+ * Whether a tool-result row holds text a query-reading lever may rewrite, so the hook pays the transcript fetch only then:
+ * a JSON document for the SmartCrusher, or, for the search and diff compressors, the text crusher and the relevance split,
+ * any non-Read text of at least ROUTE_MIN_CHARS. A cheap pre-check: no content detection. The default levers are the
+ * two-argument call's (the SmartCrusher alone).
  * @param {readonly ContentBlock[]} content the row's blocks
  * @param {string} tool the row's origin tool
+ * @param {{ crush?: boolean, log?: boolean, search?: boolean, diff?: boolean, textcrush?: boolean, split?: boolean }} [levers] the row's levers; only crush and the query-reading prose levers count
  * @returns {boolean}
  */
-export function wantsQuery(content, tool) {
-  return content.some((b) => isRecord(b) && b.type === "tool_result" && !isProtectedBlock(b, tool) && resultTexts(b).some(looksLikeJsonDoc));
+export function wantsQuery(content, tool, levers = { crush: true }) {
+  const prose = !!(levers.search || levers.diff || levers.textcrush || levers.split) && !VERBATIM_TOOLS.has(tool);
+  return content.some(
+    (b) => isRecord(b) && b.type === "tool_result" && !isProtectedBlock(b, tool) && resultTexts(b).some((t) => (!!levers.crush && looksLikeJsonDoc(t)) || (prose && t.length >= ROUTE_MIN_CHARS)),
+  );
 }
 
 /**
@@ -3589,6 +5411,28 @@ function rewriteRow(content, tool, levers, query) {
     extract: { pages: 0, saved: 0 },
     elide: { lines: 0, saved: 0 },
     dedup: { spans: 0, saved: 0 },
+    log: { texts: 0, saved: 0 },
+    search: { texts: 0, saved: 0 },
+    diff: { texts: 0, saved: 0 },
+    textcrush: { texts: 0, saved: 0 },
+    split: { texts: 0, saved: 0 },
+  };
+  // A lever some route runs ahead of the elider is on, so a text's label can change what runs (every one but dedup and the elider).
+  const routed = !!(levers.crush || levers.compact || levers.config || levers.extract || levers.log || levers.search || levers.diff || levers.textcrush || levers.split);
+  // A Read result: the model needs its verbatim lines for the next Edit's old_string.
+  const verbatimTool = VERBATIM_TOOLS.has(tool);
+  /**
+   * Books a router compressor's adopted rewrite (its lossy step's or its fold's) in its table and returns the rewritten text.
+   * @param {{ texts: number, saved: number }} slot
+   * @param {string} from the step's input
+   * @param {{ text: string, offloaded: [string, string][] }} r
+   * @returns {string}
+   */
+  const adopt = (slot, from, r) => {
+    slot.texts += 1;
+    slot.saved += from.length - r.text.length;
+    for (const o of r.offloaded) acc.offloaded.push(o);
+    return r.text;
   };
   let changed = false;
   /** @type {[string, [number, number][]|null]|undefined} */
@@ -3601,19 +5445,28 @@ function rewriteRow(content, tool, levers, query) {
     const prot = isProtectedBlock(b, tool);
     /**
      * Its content type's route (ROUTES): the first rewrite wins, except that a step in ELIDE_AFTER hands its rewrite on to
-     * the next step; upstream elides only text no JSON or config strategy rewrote. With the tag protector on, each step
-     * gets the tag spans of the text it receives: a JSON text holding one loses no row, the config compressor and the HTML
-     * extractor decline it, the elider skips its lines, and an unprotectable text (tagSpans null) passes through whole.
+     * the next step; upstream elides only text no JSON, config or diff strategy, fold or split rewrote. A fold step runs only
+     * on the route's input (`cur === text`): an adopted rewrite is always strictly shorter, so a handed-on one never equals it.
+     * With the tag protector on, each step gets the tag spans of the text it receives: a JSON text holding one loses no row,
+     * the config compressor, the HTML extractor and the router compressors decline it, the elider skips its lines, and an
+     * unprotectable text (tagSpans null) passes through whole. The router compressors also leave Read and line-numbered
+     * (`N\t`, `cat -n`) text whole: the Edit tool must still match it.
      * @param {string} text
      * @returns {string}
      */
     const shrink = (text) => {
-      if (prot || !(levers.crush || levers.compact || levers.elide || levers.config || levers.extract) || text.length < ROUTE_MIN_CHARS) return text;
+      if (prot || !(routed || levers.elide) || text.length < ROUTE_MIN_CHARS) return text;
       let spans = levers.tags ? spansOf(text) : [];
       if (spans === null) return text;
       let cur = text;
-      // With only the elider on, every route is just `elide`: skip the detection that cannot change the outcome.
-      const type = levers.crush || levers.compact || levers.config || levers.extract ? detectContentType(text) : "text";
+      // A text the router compressors may rewrite: not Read output, not line-numbered.
+      const fresh = !verbatimTool && !LINE_NUMBERED_RE.test(text);
+      // The text crusher and the split take only prose, and never an Agent/Task report; computed once, on first need.
+      /** @type {boolean|undefined} */
+      let prose;
+      const proseOk = () => (prose ??= !REPORT_TOOLS.has(tool) && isProse(text));
+      // With only the elider on, every route runs just `elide`: skip the detection that cannot change the outcome.
+      const type = routed ? detectContentType(text) : "text";
       for (const step of ROUTES[type]) {
         /** @type {string|undefined} */
         let next;
@@ -3628,7 +5481,7 @@ function rewriteRow(content, tool, levers, query) {
             acc.compact.saved += toCompact;
             acc.crush.dropped += c.rowsDropped;
             acc.crush.saved += saved - toCompact;
-            acc.offloaded.push(...c.offloaded);
+            for (const o of c.offloaded) acc.offloaded.push(o);
             next = c.text;
           }
         } else if (step === "config" && levers.config && spans.length === 0) {
@@ -3636,7 +5489,7 @@ function rewriteRow(content, tool, levers, query) {
           if (k) {
             acc.config.texts += 1;
             acc.config.saved += cur.length - k.text.length;
-            acc.offloaded.push(...k.offloaded);
+            for (const o of k.offloaded) acc.offloaded.push(o);
             next = k.text;
           }
         } else if (step === "extract" && levers.extract && spans.length === 0) {
@@ -3644,15 +5497,44 @@ function rewriteRow(content, tool, levers, query) {
           if (x) {
             acc.extract.pages += 1;
             acc.extract.saved += cur.length - x.text.length;
-            acc.offloaded.push(...x.offloaded);
+            for (const o of x.offloaded) acc.offloaded.push(o);
             next = x.text;
           }
+        } else if (step === "log" && levers.log && fresh && spans.length === 0) {
+          const r = compressLog(cur);
+          if (r && overFold(r, foldLog(cur))) next = adopt(acc.log, cur, r);
+        } else if (step === "logfold" && levers.log && fresh && spans.length === 0 && cur === text) {
+          // A fold is the fallback for a lossy step that lost, never a post-processor of its output (that carries a retrieval line).
+          const r = foldLog(cur);
+          if (r) next = adopt(acc.log, cur, r);
+        } else if (step === "search" && levers.search && fresh && spans.length === 0) {
+          const r = compressSearch(cur, query);
+          if (r && overFold(r, foldSearch(cur))) next = adopt(acc.search, cur, r);
+        } else if (step === "searchfold" && levers.search && fresh && spans.length === 0 && cur === text) {
+          const r = foldSearch(cur);
+          if (r) next = adopt(acc.search, cur, r);
+        } else if (step === "diff" && levers.diff && fresh && spans.length === 0) {
+          const r = compressDiff(cur, query);
+          if (r && overFold(r, foldDiff(cur))) next = adopt(acc.diff, cur, r);
+        } else if (step === "difffold" && levers.diff && fresh && spans.length === 0 && cur === text) {
+          const r = foldDiff(cur);
+          if (r) next = adopt(acc.diff, cur, r);
+        } else if (step === "textcrush" && levers.textcrush && fresh && spans.length === 0 && proseOk()) {
+          const r = crushText(cur, query);
+          if (r && overFold(r, foldText(cur))) next = adopt(acc.textcrush, cur, r);
+        } else if (step === "textfold" && levers.textcrush && fresh && spans.length === 0 && cur === text) {
+          const r = foldText(cur);
+          if (r) next = adopt(acc.textcrush, cur, r);
+        } else if (step === "split" && levers.split && fresh && spans.length === 0 && proseOk()) {
+          // foldText belongs to the text crusher's lever: the split folds its KEEP runs only while that lever is on.
+          const r = splitRelevance(cur, query, !!levers.textcrush);
+          if (r) next = adopt(acc.split, cur, r);
         } else if (step === "elide" && levers.elide) {
           const d = elideDense(cur, spans);
           if (d) {
             acc.elide.lines += d.lines;
             acc.elide.saved += cur.length - d.text.length;
-            acc.offloaded.push(...d.offloaded);
+            for (const o of d.offloaded) acc.offloaded.push(o);
             next = d.text;
           }
         }
@@ -3675,11 +5557,11 @@ function rewriteRow(content, tool, levers, query) {
       if (!levers.dedup) return text;
       const spans = levers.tags ? spansOf(text) : [];
       // A Read result is only indexed: the model needs its verbatim lines for the next Edit's old_string.
-      const f = dedupBlock(levers.dedup.states, levers.dedup.key, text, prot || spans === null || tool === READ_TOOL, spans ?? []);
+      const f = dedupBlock(levers.dedup.states, levers.dedup.key, text, prot || spans === null || verbatimTool, spans ?? []);
       if (!f) return text;
       acc.dedup.spans += f.spans;
       acc.dedup.saved += text.length - f.text.length;
-      acc.folded.push(...f.offloaded);
+      for (const o of f.offloaded) acc.folded.push(o);
       return f.text;
     };
     const c = b.content;

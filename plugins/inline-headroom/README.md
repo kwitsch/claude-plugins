@@ -4,9 +4,10 @@ Headroom-style levers inside Claude Code as a mod: clamp-only effort routing
 after successful tool results, a detector-only CacheAligner that flags
 volatile system-prompt content and cache-hit drops, and a SmartCrusher with
 lossless compaction, cross-turn dedup, a dense line elider, a config
-compressor and an HTML extractor that shrink tool results before the model
-reads them (originals retrievable, custom workflow tags kept whole). Ports
-eight levers and the tag protector of
+compressor, an HTML extractor, log, search and diff compressors, a text
+crusher and a relevance split that shrink tool results before the model reads
+them (originals retrievable, custom workflow tags kept whole). Ports thirteen
+levers and the tag protector of
 [headroom](https://github.com/headroomlabs-ai/headroom) faithfully to upstream
 semantics.
 
@@ -28,19 +29,30 @@ semantics.
 | Dense line elider | headroom dense_line_elider.py                              | Shortens each line of 300+ characters with under 6% spaces, no tab and no JSON in it (minified JS/CSS, base64, RSC payloads) to its first 160 and last 80 characters around `...[N chars of dense machine-generated content elided]...`, once such lines add up to 2000+ characters in one result, and ends that result with `[N dense machine-generated line(s) elided. Retrieve original: hash=H]`; `headroom_retrieve` with the hash returns the whole original. It skips text the SmartCrusher rewrote, and error results.                                                                                                                                                                                                                                                                                                                                                                                     |
 | Config compressor | headroom ConfigCompressor (Tier 1 and 2)                   | Shortens a YAML, TOML or INI tool result of 300+ characters: whole-line comments and blank lines (INI: column-0 `#`/`;` comments only) are dropped behind `[N comment/blank lines elided. Retrieve original: hash=H]`, then repeated lines and repeated multi-line blocks (Kubernetes container stanzas, CI jobs) fold behind exact `... (repeated N times)` and `... (repeats K lines from D lines back)` markers, kept only when they expand back to the same text; when no comment line was elided, the result ends with `[Repeated config lines folded. Retrieve original: hash=H]`. Comments that may be data (a YAML block scalar, a multi-line string) are kept. `headroom_retrieve` with the hash returns the original. Error results are never rewritten.                                                                                                                                                 |
 | HTML extractor    | headroom HTMLExtractor (bounded stand-in, no trafilatura)  | Turns an HTML tool result (a web page) of 300+ characters into markdown-like text: scripts, styles, the head, navigation, footers, form controls, embedded media and comments are dropped (the text inside a form or dialog is kept); headings become `#` lines, list items `- ` lines, links `[text](href)`, table rows pipe-separated lines; `<pre>` keeps its whitespace and entities are decoded. The text ends with `[HTML extracted to text: N characters of markup removed. Retrieve original: hash=H]`, and `headroom_retrieve` with the hash returns the page. The dense line elider then runs on the extracted text. A page that extracts to nothing, or to nothing shorter, is left to the elider as it is. Error results are never rewritten.                                                                                                                                                          |
-| Tag protector     | headroom tag protector (block mode, mask-free)             | Keeps custom workflow tags (any non-HTML5 tag such as `<system-reminder>`, `<tool_call>` or `<thinking>`, with everything between its open and close tag) whole in tool results: a JSON document holding one drops no row or item, a line holding one is never elided, a repeated run of lines touching one is never folded, and YAML, TOML, INI or HTML holding one is left to the elider and dedup. A result too tag-dense to scan within its budget is left untouched. It saves nothing itself, so it has no `/headroom` table, and it only matters while a compression lever is on.                                                                                                                                                                                                                                                                                                                            |
+| Log compressor    | headroom LogCompressor (Rust log_compressor.rs)            | Shortens a build or test log of 50+ lines: keeps errors and failures (the first, the last and the most important, 10 of each), 5 deduplicated warnings, the first 3 stack traces (a long trace's runtime frames collapsed behind `[... N frames collapsed]`), summary lines such as pytest's totals and short test summary, and 3 lines of context around each, up to an adaptive 10 to 100 lines, then `[N lines omitted: … ERROR, … WARN, …]` and `[N lines compressed to M: …. Retrieve original: hash=H]`; `headroom_retrieve` with the hash returns the log. When dropping ANSI colour and collapsing repeated lines shrinks the log nearly as much (within 5%), that lossless fold is used instead. Error results, Read output and line-numbered text are never rewritten.                                                                                                                                   |
+| Search compressor | headroom SearchCompressor (Rust search_compressor.rs)      | Shortens grep and ripgrep output (matches and `-C` context lines, Unix and Windows paths): per file the first, the last and the most relevant matches (error words and words from the conversation's recent requests rank higher), at most 5 per file, 15 files and an adaptive 5 to 30 in all, with `[... and N more matches in FILE]`, then `[N matches compressed to M. Retrieve original: hash=H]`. Lines that are not grep rows are dropped (they stay retrievable). When one heading per repeated file or directory shrinks the output nearly as much (within 5%), that lossless fold is used instead. Error results, Read output and line-numbered text are never rewritten.                                                                                                                                                                                                                                |
+| Diff compressor   | headroom DiffCompressor (Rust diff_compressor.rs)          | Shortens a git diff of 50+ lines: at most 20 files (the most-changed), at most 10 hunks per file (the first, the last and the most relevant), 2 context lines around each change; `\ No newline` markers, rename lines and commit headers are kept, mode lines normalised to `100644` and binary lines to `Binary files differ`, then `[N files changed, +A -D lines, H hunks omitted]` and `[N lines compressed to M. Retrieve original: hash=H]`. When dropping git's `index` lines alone shrinks it nearly as much (within 5%), only those are dropped. A compressed diff no longer applies with `git apply`; the original is retrievable. The dense line elider does not run on a compressed diff. Error results, Read output and line-numbered text are never rewritten.                                                                                                                                      |
+| Text crusher      | headroom TextCrusher (standing in for its ML Kompress)     | Shortens prose of 6+ sentences (a WebFetch summary, markdown output; never an Agent or Task report, and never a line-per-entry listing such as Glob, `find` or `git log --oneline`) to about half its characters: sentences are scored by position (later ranks higher), relevance to the conversation's recent requests and fact density (numbers, ALLCAPS, dotted names, error words), near-duplicates are skipped, and the kept sentences, one per line, end with `[Text crushed: K of N segments kept. Retrieve original: hash=H]`. Line breaks and indentation are not kept. When collapsing repeated lines shrinks it nearly as much (within 5%), that lossless fold is used instead. Text holding CJK characters, error results, Read output and line-numbered text are left alone.                                                                                                                         |
+| Relevance split   | headroom relevance split (BM25, CCR mode)                  | Before the text crusher, splits prose (never an Agent or Task report or a listing) into records (paragraphs, groups of up to 8 lines) and scores each against the conversation's recent requests; records below an adaptive cut become `...[N low-relevance lines elided]...`, and the result ends with `[N low-relevance lines in R runs elided. Retrieve original: hash=H]`. A group of records holding an error word (error, failed, timeout, …) is always kept, and when nothing would be kept the text is left to the text crusher. Runs only with a request to match against, only on prose (never on logs or grep output), and never on error results, Read output or line-numbered text.                                                                                                                                                                                                                   |
+| Tag protector     | headroom tag protector (block mode, mask-free)             | Keeps custom workflow tags (any non-HTML5 tag such as `<system-reminder>`, `<tool_call>` or `<thinking>`, with everything between its open and close tag) whole in tool results: a JSON document holding one drops no row or item, a line holding one is never elided, a repeated run of lines touching one is never folded, and YAML, TOML, INI, HTML, build logs, grep output, diffs and prose holding one are left to the elider and dedup. A result too tag-dense to scan within its budget is left untouched. It saves nothing itself, so it has no `/headroom` table, and it only matters while a compression lever is on.                                                                                                                                                                                                                                                                                   |
 
 A content router (a light port of headroom's content detector) labels each
 tool-result text as JSON, diff, HTML, git status, search results, build/log
 output, YAML/TOML/INI config, source code or plain text, and runs only the
 levers that fit: the SmartCrusher and lossless compaction see only JSON, the
-config compressor only config and the HTML extractor only HTML, while the
-dense line elider and cross-turn dedup see every type. It has no option of its own; each lever keeps its
+config compressor only config, the HTML extractor only HTML, the log
+compressor only build/log output, the search compressor only search results,
+the diff compressor only diffs, and the relevance split and the text crusher
+only plain text, while the dense line elider and cross-turn dedup see every
+type. A lossy log, search, diff or text compressor is used only when it saves
+at least 5% more than its type's lossless fold; the dense line elider then runs
+on what the log, search and text compressors leave, but not after a diff, a
+fold or a relevance split. It has no option of its own; each lever keeps its
 toggle.
 
 ## Configuration options
 
-All twelve options are on by default. For the lever toggles only a literal `false`
+All seventeen options are on by default. For the lever toggles only a literal `false`
 disables one; `storage_enabled` is fail-closed, so anything but a literal `true`
 turns storage off. Set them via
 `/plugin -> installed -> inline-headroom -> Configure options`, or in
@@ -60,6 +72,11 @@ turns storage off. Set them via
         "dense_line_elider_enabled": true,
         "config_compressor_enabled": true,
         "html_extractor_enabled": true,
+        "log_compressor_enabled": true,
+        "search_compressor_enabled": true,
+        "diff_compressor_enabled": true,
+        "text_crusher_enabled": true,
+        "relevance_split_enabled": true,
         "tag_protector_enabled": true,
         "subagent_compression_enabled": true,
         "storage_enabled": true
@@ -69,20 +86,25 @@ turns storage off. Set them via
 }
 ```
 
-| Option                            | Default | Effect / Value                                                                                                                                                                                                                                                                      |
-| --------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `effort_routing_enabled`          | `true`  | Lower effort to `low` on main-loop steps that only resume after successful tool results.                                                                                                                                                                                            |
-| `subagent_effort_routing_enabled` | `true`  | Apply the same clamp to each subagent and Workflow agent, per agent. Only active while `effort_routing_enabled` is on. Overrides effort set on purpose (agent frontmatter, Agent tool, Workflow); see [Notes & limitations](#notes--limitations).                                   |
-| `cache_aligner_enabled`           | `true`  | Flag volatile values in the `shared` system-prompt sections and log prompt-cache hit-ratio drops.                                                                                                                                                                                   |
-| `smart_crusher_enabled`           | `true`  | Compress large JSON arrays in successful tool results of any tool (Read results never qualify); dropped rows stay retrievable with `headroom_retrieve` while the mod is loaded (see [Notes & limitations](#notes--limitations)).                                                    |
-| `lossless_compaction_enabled`     | `true`  | Before the SmartCrusher drops rows, rewrite a large JSON array of objects as a schema line plus CSV rows when that saves at least 15%; nothing is dropped. Also runs while `smart_crusher_enabled` is off.                                                                          |
-| `cross_turn_dedup_enabled`        | `true`  | Replace a run of 3 or more lines (40+ characters) that repeats an earlier tool result of the same conversation with a one-line pointer; the run stays retrievable with `headroom_retrieve` while the mod is loaded.                                                                 |
-| `dense_line_elider_enabled`       | `true`  | Shorten long, nearly space-free lines (minified bundles, base64, RSC payloads) in tool results to their head and tail; the original stays retrievable with `headroom_retrieve` while the mod is loaded.                                                                             |
-| `config_compressor_enabled`       | `true`  | Shorten YAML, TOML and INI tool results: fold repeated lines and blocks losslessly and drop comments and blank lines behind a retrieval marker; the original stays retrievable with `headroom_retrieve` while the mod is loaded.                                                    |
-| `html_extractor_enabled`          | `true`  | Turn HTML tool results into markdown-like text without scripts, styles, navigation and other boilerplate; the page stays retrievable with `headroom_retrieve` while the mod is loaded.                                                                                              |
-| `tag_protector_enabled`           | `true`  | Keep custom workflow tags such as `<system-reminder>` whole: no compression lever drops, elides, folds or extracts the part of a tool result holding one.                                                                                                                           |
-| `subagent_compression_enabled`    | `true`  | Also apply the six compression levers (SmartCrusher, lossless compaction, cross-turn dedup, dense line elider, config compressor, HTML extractor) to subagent and Workflow-agent tool results. Only active while one of them is on; see [Notes & limitations](#notes--limitations). |
-| `storage_enabled`                 | `true`  | Run the host-wide SQLite storage service behind the `storage` MCP tools (see [Storage](#storage)). Fail-closed: only a literal `true` enables it.                                                                                                                                   |
+| Option                            | Default | Effect / Value                                                                                                                                                                                                                                                                                                                                          |
+| --------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `effort_routing_enabled`          | `true`  | Lower effort to `low` on main-loop steps that only resume after successful tool results.                                                                                                                                                                                                                                                                |
+| `subagent_effort_routing_enabled` | `true`  | Apply the same clamp to each subagent and Workflow agent, per agent. Only active while `effort_routing_enabled` is on. Overrides effort set on purpose (agent frontmatter, Agent tool, Workflow); see [Notes & limitations](#notes--limitations).                                                                                                       |
+| `cache_aligner_enabled`           | `true`  | Flag volatile values in the `shared` system-prompt sections and log prompt-cache hit-ratio drops.                                                                                                                                                                                                                                                       |
+| `smart_crusher_enabled`           | `true`  | Compress large JSON arrays in successful tool results of any tool (Read results never qualify); dropped rows stay retrievable with `headroom_retrieve` while the mod is loaded (see [Notes & limitations](#notes--limitations)).                                                                                                                        |
+| `lossless_compaction_enabled`     | `true`  | Before the SmartCrusher drops rows, rewrite a large JSON array of objects as a schema line plus CSV rows when that saves at least 15%; nothing is dropped. Also runs while `smart_crusher_enabled` is off.                                                                                                                                              |
+| `cross_turn_dedup_enabled`        | `true`  | Replace a run of 3 or more lines (40+ characters) that repeats an earlier tool result of the same conversation with a one-line pointer; the run stays retrievable with `headroom_retrieve` while the mod is loaded.                                                                                                                                     |
+| `dense_line_elider_enabled`       | `true`  | Shorten long, nearly space-free lines (minified bundles, base64, RSC payloads) in tool results to their head and tail; the original stays retrievable with `headroom_retrieve` while the mod is loaded.                                                                                                                                                 |
+| `config_compressor_enabled`       | `true`  | Shorten YAML, TOML and INI tool results: fold repeated lines and blocks losslessly and drop comments and blank lines behind a retrieval marker; the original stays retrievable with `headroom_retrieve` while the mod is loaded.                                                                                                                        |
+| `html_extractor_enabled`          | `true`  | Turn HTML tool results into markdown-like text without scripts, styles, navigation and other boilerplate; the page stays retrievable with `headroom_retrieve` while the mod is loaded.                                                                                                                                                                  |
+| `log_compressor_enabled`          | `true`  | Shorten build and test logs of 50+ lines to their errors, failures, warnings, stack traces, summaries and context, or fold their colour codes and repeated lines losslessly when that saves nearly as much; the original stays retrievable with `headroom_retrieve` while the mod is loaded.                                                            |
+| `search_compressor_enabled`       | `true`  | Shorten grep and ripgrep output to the first, last and most relevant matches per file, or fold repeated paths into headings losslessly when that saves nearly as much; the original stays retrievable with `headroom_retrieve` while the mod is loaded.                                                                                                 |
+| `diff_compressor_enabled`         | `true`  | Shorten git diffs of 50+ lines to at most 20 files and 10 hunks per file with 2 context lines, or drop only their `index` lines when that saves nearly as much; the original stays retrievable with `headroom_retrieve` while the mod is loaded.                                                                                                        |
+| `text_crusher_enabled`            | `true`  | Shorten prose of 6+ sentences (Agent reports, WebFetch summaries, markdown output) to about half its characters, or collapse its repeated lines losslessly when that saves nearly as much; the original stays retrievable with `headroom_retrieve` while the mod is loaded. Also owns the fold the relevance split applies to the records it keeps.     |
+| `relevance_split_enabled`         | `true`  | Elide the prose records that do not match the conversation's recent requests, keeping every record group that holds an error word; the original stays retrievable with `headroom_retrieve` while the mod is loaded.                                                                                                                                     |
+| `tag_protector_enabled`           | `true`  | Keep custom workflow tags such as `<system-reminder>` whole: no compression lever drops, elides, folds or extracts the part of a tool result holding one.                                                                                                                                                                                               |
+| `subagent_compression_enabled`    | `true`  | Also apply the eleven compression levers (SmartCrusher, lossless compaction, cross-turn dedup, dense line elider, config compressor, HTML extractor, log, search and diff compressors, text crusher, relevance split) to subagent and Workflow-agent tool results. Only active while one of them is on; see [Notes & limitations](#notes--limitations). |
+| `storage_enabled`                 | `true`  | Run the host-wide SQLite storage service behind the `storage` MCP tools (see [Storage](#storage)). Fail-closed: only a literal `true` enables it.                                                                                                                                                                                                       |
 
 ## `/headroom`
 
@@ -121,6 +143,21 @@ session                1     640
 html extractor     pages   saved
 session                3   21000
 
+logs               texts   saved
+session                2   14800
+
+search             texts   saved
+session                4    9120
+
+diff               texts   saved
+session                1    3350
+
+text crusher       texts   saved
+session                5    6400
+
+relevance split    texts   saved
+session                1    1210
+
 volatile shared values: unavailable (Claude Code keeps plugins out of the system-prompt hooks)
 ```
 
@@ -131,12 +168,14 @@ volatile shared values: unavailable (Claude Code keeps plugins out of the system
   sessions on this host, read from [storage](#storage) when the pane opens and
   every 10 s while it stays open. `session`, `today`, `7 days` and `30 days`
   count main-loop steps only. `smart crusher`, `dedup`, `line elider`,
-  `compaction`, `config` and `html extractor` have only a `session` row, held
-  in memory, which counts subagent results too: `dropped` counts the array
-  rows this session's crushes replaced with a retrieval marker, `spans` the
-  repeated runs replaced with a pointer, `lines` the dense lines elided,
-  `arrays` the arrays rewritten as a lossless table, `texts` the config texts
-  shortened, `pages` the HTML pages extracted, and each `saved` the characters
+  `compaction`, `config`, `html extractor`, `logs`, `search`, `diff`,
+  `text crusher` and `relevance split` have only a `session` row, held in
+  memory, which counts subagent results too: `dropped` counts the array rows
+  this session's crushes replaced with a retrieval marker, `spans` the repeated
+  runs replaced with a pointer, `lines` the dense lines elided, `arrays` the
+  arrays rewritten as a lossless table, `texts` the texts that lever shortened
+  (for the log, search, diff and text compressors their lossless folds
+  included), `pages` the HTML pages extracted, and each `saved` the characters
   that lever removed from tool results.
 - **Tables follow their levers.** `effort routing` is shown only while
   `effort_routing_enabled` is on, and its `subagents` row only while both
@@ -146,8 +185,13 @@ volatile shared values: unavailable (Claude Code keeps plugins out of the system
   `smart_crusher_enabled` is on, `dedup` only while `cross_turn_dedup_enabled`
   is on, `line elider` only while `dense_line_elider_enabled` is on,
   `compaction` only while `lossless_compaction_enabled` is on, `config` only
-  while `config_compressor_enabled` is on, and `html extractor` only while
-  `html_extractor_enabled` is on. The tag protector has no table: it saves
+  while `config_compressor_enabled` is on, `html extractor` only while
+  `html_extractor_enabled` is on, `logs` only while `log_compressor_enabled`
+  is on, `search` only while `search_compressor_enabled` is on, `diff` only
+  while `diff_compressor_enabled` is on, `text crusher` only while
+  `text_crusher_enabled` is on, and `relevance split` only while
+  `relevance_split_enabled` is on (0.8.0: with every lever on the pane asks for
+  49 rows, 15 more than before). The tag protector has no table: it saves
   nothing itself. With every lever
   off the pane says so. Storage is read only while the `effort routing` or
   `cache aligner` table is shown.
@@ -258,7 +302,34 @@ rows. It is the MCP server `storage` (connected as
   storage tools are never rewritten. Read results are never crushed (their line
   numbers stop the text from parsing as JSON) nor elided (every line starts with
   `N<tab>`, and upstream's elider never touches a line holding a tab), but they
-  are deduplicated.
+  are deduplicated. The HTML extractor and the log, search, diff, text and
+  relevance-split compressors leave Read results and any line-numbered text
+  (`cat -n`) whole, so a following Edit can match them. Upstream never lossily
+  compresses Read, Grep, WebFetch and a few other tools at all; the mod
+  compresses every tool's results, Grep's included.
+- **Prose is crushed by default (0.8.0).** With `text_crusher_enabled` on, a
+  prose result of 6+ sentences (an Agent's hand-back report, a WebFetch
+  summary, markdown output) reaches the model as about half its characters,
+  one kept sentence per line, without its original line breaks and
+  indentation. Upstream would run its ML compressor (Kompress) on the same
+  text. Set `text_crusher_enabled` to `false` to keep prose whole (the dense
+  line elider and dedup still run on it).
+- **The relevance split can elide a line you need.** It keeps every record
+  group holding an error word, but a warning or a key number with no word of
+  your recent requests in its record can still be elided; `headroom_retrieve`
+  with the result's hash returns the whole text. When it splits a text, the
+  text crusher does not run on it. Set `relevance_split_enabled` to `false` to
+  leave prose to the text crusher.
+- **A compressed diff does not apply.** Its hunk counts are stale after the
+  context trim and hunk drops, and mode and binary lines are normalised, as
+  upstream; retrieve the original for `git apply`. The search compressor drops
+  lines that are not grep rows and lists `-C` context lines as matches, as
+  upstream.
+- **More transcript reads.** With the search or diff compressor, the text
+  crusher or the relevance split on, every non-Read tool result of 300+
+  characters reads the conversation (`$.session.messages()`) to score against
+  your recent requests: live-measured at 2 to 4 ms per result, the read
+  included.
 - **The elider skips more than minified code.** As upstream, a line is never
   elided when it holds a tab or any JSON object or array, however small (`{}`,
   `[1,2]`): a minified bundle with an `exports:{}` span stays whole. The port keeps
@@ -275,8 +346,9 @@ rows. It is the MCP server `storage` (connected as
   `lossless_compaction_enabled` to `false` for the old sampled output.
 - **Originals are retrievable while the mod is loaded.** Two in-memory stores
   keep the last 1000 originals each (at most 16 million characters each): one
-  for the crusher's dropped rows and the elider's, config compressor's and
-  HTML extractor's originals, which exist nowhere else, and one for folded
+  for the crusher's dropped rows and the elider's, config compressor's, HTML
+  extractor's, log, search and diff compressors', text crusher's and relevance
+  split's originals, which exist nowhere else, and one for folded
   dedup runs, so a
   flood of repeated reads never
   pushes out a crushed result's rows. A row that folds more runs than a store
@@ -440,17 +512,33 @@ Routing is a light form of `headroom/transforms/content_router.py` (read
 2026-10-11 at 976aa71): JSON runs the SmartCrusher and config runs the config
 compressor, each followed by the dense line elider when it changed nothing;
 HTML runs the HTML extractor, then the dense line elider on its result (or on
-the page when nothing was extracted); every other type runs the dense line
-elider; cross-turn dedup then runs on every type. Routing deviations:
+the page when nothing was extracted); build output, search results and plain
+text run the log compressor, the search compressor or (after the relevance
+split) the text crusher, then the dense line elider on its result, or their
+lossless fold, which ends there, when the lossy result saves under 5% more;
+diffs run the diff compressor or its `index`-line strip, either ending there;
+git status and source code run the dense line elider; cross-turn dedup then
+runs on every type. Routing deviations:
 
 - A JSON text the SmartCrusher leaves alone is still elided; upstream skips
   elision after any SmartCrusher attempt.
-- Diffs, git status and every other type get the dense line elider, as
-  upstream does where a type's own compressor is unavailable. Upstream keeps
-  git status verbatim; here its tab-indented entry lines are never dense
-  anyway.
-- None of upstream's mixed-content splitting, ML-based detection,
-  lossless-first stage, fallback chains or concatenated-JSON normalization.
+- Git status, source code and every text no compressor rewrote get the dense
+  line elider, as upstream does where a type's own compressor is unavailable.
+  Upstream keeps git status verbatim; here its tab-indented entry lines are
+  never dense anyway.
+- A lossy compressor must beat its type's lossless fold by 5%: upstream's
+  opt-in `lossless_then_lossy` mode, not its default, under which any fold
+  that shrinks a diff, a grep dump or a log would stop the compressor from
+  running. The lossy compressor runs on the original text, and diffs use the
+  same rule.
+- Upstream's list of tools it never compresses lossily (Read, Grep, WebFetch,
+  …) is not adopted; Read results and line-numbered text are left whole by the
+  new compressors instead.
+- The relevance split runs only on plain text, never on logs or search results
+  where upstream runs it.
+- None of upstream's mixed-content splitting, ML-based detection, cross-type
+  lossless probing, ML compression (TextCrusher stands in for Kompress),
+  fallback chains or concatenated-JSON normalization.
 
 ### Config compressor
 
@@ -504,6 +592,148 @@ kept, images and comments dropped. Deviations:
   several structural tags) can be extracted like a page; the original stays
   retrievable.
 
+### Log compressor
+
+Ported from `crates/headroom-core/src/transforms/log_compressor.rs` (the Rust
+port of `headroom/transforms/log_compressor.py`) and the log fold of
+`headroom/transforms/lossless_compaction.py` (read 2026-10-11 at 976aa71).
+Ported verbatim:
+
+- The defaults: logs under 50 lines are left alone; 10 errors and 10 failures
+  (the first, the last, then the best), 5 warnings deduplicated on their
+  message prefix, the first 3 stack traces of 20 lines, every summary line,
+  3 lines of context, an adaptive 10 to 100 lines in all.
+- The level words in their exact casings with whole-word matching (the first
+  one on a line decides: `WARN: error` is a warning), the stack-trace rules for
+  Python, JavaScript, Java, Rust (errors and backtraces), Go panics and .NET,
+  the runtime-frame collapse of long traces, pytest's short test summary and its
+  reserved totals line, the scores and the `[N lines omitted: …]` line.
+- The fold: ANSI colour codes dropped, repeated lines collapsed to
+  `... (repeated N times)`, kept only when it expands back exactly.
+
+Deviations:
+
+- The retrieval line `[N lines compressed to M: …. Retrieve original: hash=H]`
+  is always added (upstream adds it only under half the size, and says
+  "Retrieve more"); a result that is not shorter is left as it is.
+- The diversity count behind the adaptive line count has a work budget (4 per
+  character + 4096); past it, 100 lines are kept.
+- The log format detector (it only labels the result) is not ported.
+
+### Search compressor
+
+Ported from `crates/headroom-core/src/transforms/search_compressor.rs` (the Rust
+port of `headroom/transforms/search_compressor.py`), its keyword scoring in
+`crates/headroom-core/src/signals/keyword_detector.rs` and the search folds of
+`headroom/transforms/lossless_compaction.py` (read 2026-10-11 at 976aa71).
+Ported verbatim:
+
+- The line parser: `file:line:content` matches and `file-line-content` context
+  lines, dated and dashed paths, extension-less files, Windows drive paths,
+  `::` and `:-` rejected; lines that do not parse are dropped.
+- The scores (+0.3 per word of the request found in the line, +0.5 for an
+  error word, +0.3 for an importance word such as `TODO`, else +0.4 for a
+  warning word, at most 1) and the selection: at most 15 files by score, an
+  adaptive 5 to 30 matches, per file the first, the last and the best up to 5,
+  in path and line order with `[... and N more matches in FILE]`.
+- The folds: one heading per repeated file or directory, kept only when it
+  expands back exactly; timestamped log rows are never folded.
+
+Deviations:
+
+- The retrieval line `[N matches compressed to M. Retrieve original: hash=H]` is
+  always added (upstream adds it only for 10+ matches under 80% of the size).
+- The parser's path checks share one work budget (4 per character + 4096) per
+  result, and a result past it is left as it is; upstream's scan can turn
+  quadratic on a hostile line.
+- Words of the request are matched up to a work cap (about 16 million
+  character comparisons), and Chinese, Japanese or Korean requests add no
+  character pairs.
+- A line number past 2^53 leaves its line unparsed.
+
+### Diff compressor
+
+Ported from `crates/headroom-core/src/transforms/diff_compressor.rs` and the
+diff fold of `headroom/transforms/lossless_compaction.py` (read 2026-10-11 at
+976aa71). Ported verbatim:
+
+- Diffs under 50 lines or without a `diff --git`, `diff --combined` or
+  `diff --cc` header are left alone; text before the first header (commit
+  messages) is kept.
+- At most 20 files (past 20 the most-changed, in that order), at most 10 hunks
+  per file (the first, the last and the 8 best by changes, words of the request
+  and priority words such as `error`, `TODO` or `token`), 2 context lines around
+  each change, `\ No newline` markers, rename and similarity lines kept, mode
+  lines normalised to `100644`, binary lines to `Binary files differ`, and the
+  `[N files changed, +A -D lines, H hunks omitted]` footer, whose totals count
+  dropped hunks too.
+- The fold: `index <sha>..<sha>` lines dropped.
+
+Deviations:
+
+- Upstream returns its normalised diff even when it saves little and adds
+  `Retrieve full diff: hash=…` only under 80% of the lines. Here a result is
+  used only when it is shorter, and it always ends with
+  `[N lines compressed to M. Retrieve original: hash=H]`.
+- Past 20 files the footer still counts every file and line and names the
+  dropped ones (`; N files omitted: …`, at most 10 names); upstream's footer
+  counts only the kept files.
+- Repeated words of the request count once, and the words are capped as for
+  the search compressor; the `diff --git` header check is hand-written so a
+  long header line cannot stall the append hook.
+
+### Text crusher
+
+Ported from `crates/headroom-core/src/transforms/text_crusher/` (the ASCII
+path; `headroom/transforms/text_crusher.py` wraps it) and the text fold of
+`headroom/transforms/lossless_compaction.py` (read 2026-10-11 at 976aa71). It
+stands in for upstream's ML compressor (Kompress), which the mod cannot run.
+Ported verbatim:
+
+- Sentence segments (cut after `.`, `!` or `?`), at least 6; scores from
+  position, BM25 relevance to the request and fact density (digits, error
+  words, ALLCAPS, dotted names), short segments penalised; segments kept best
+  first until half the characters are, near-duplicates (85% of their word
+  triples already kept) skipped; kept segments in order, one per line.
+- The fold: repeated lines collapsed, kept only when it expands back exactly.
+
+Deviations:
+
+- It runs on plain-text results of 300+ characters that read as prose (at least
+  half the lines end a sentence), never on an Agent or Task report; upstream
+  reaches it only past a 50,000-token gate and runs Kompress below that. A
+  Glob, `find`, `ls` or `git log --oneline` listing is left whole, as is the
+  relevance split's input under the same rule.
+- Text holding Chinese, Japanese or Korean characters is left alone (upstream's
+  ICU path is not ported).
+- The kept text ends with `[Text crushed: K of N segments kept. Retrieve
+original: hash=H]`; lengths count UTF-16 units where upstream counts bytes.
+
+### Relevance split
+
+Ported from `headroom/transforms/relevance_split.py` and the split step of
+`headroom/transforms/content_router.py` (read 2026-10-11 at 976aa71). Ported
+verbatim: records are blank-line paragraphs packed into groups of up to 8
+lines and 1200 characters (indented continuation lines stay with their head);
+each is scored against the request with BM25 and kept from an adaptive cut
+(the natural gap between high and low scores, at least 0.25) up; an empty
+request, a single record or nothing to drop means no split; the result is used
+only when it beats the plain lossless fold of the whole text. Deviations:
+
+- It runs on plain text only, ahead of the text crusher; upstream runs it on
+  logs and search results, which the log and search compressors handle here.
+- Dropped records become `...[N low-relevance lines elided]...`, with one
+  retrieval line for the whole original, upstream's mode for setups that can
+  retrieve; upstream otherwise compresses them with Kompress.
+- A dropped group holding an error word (error, failed, timeout, …) is kept
+  whole, and a split that would keep nothing is not made.
+- The kept records are folded, and the whole-text fold is the bar to beat,
+  only while `text_crusher_enabled` (which owns that fold) is on.
+- A multi-line bracket span across two records stops the split (upstream checks
+  only spans that parse as JSON); the request is the conversation's recent
+  messages, not the triggering call's arguments; BM25 only, no embedding
+  scorer.
+
 ### Tag protector
 
 Ported from `crates/headroom-core/src/transforms/tag_protector.rs` (read
@@ -516,7 +746,8 @@ the outermost block, orphan opens and closes are not protected). Deviations:
 - No placeholders: instead of masking tags around ML compressors (which the
   mod does not have), each lever respects them: a JSON result holding one
   drops no row, the elider and dedup skip the lines they touch, and the config
-  compressor and the HTML extractor leave such a result to the elider and dedup.
+  compressor, the HTML extractor and the log, search, diff, text and
+  relevance-split compressors leave such a result to the elider and dedup.
 - A tag a decoded entity creates in an HTML extraction is protected too.
 - The scan has a budget of 4 per character + 4096, which the open tags a close
   has to search through also draw on; a result that exhausts it is left whole
@@ -603,6 +834,9 @@ Deviations:
 - The anchor is quoted with `JSON.stringify` (always double quotes) instead of
   Python `repr`. It is truncated by code points, as upstream does.
 - A line number beyond `Number.MAX_SAFE_INTEGER` is treated as non-numbered.
+- A `:` separator directly followed by a digit (`10:15:03 …`, `8080:80`) is not a
+  line number: the leading integer is a time or port, so such lines match
+  exactly.
 - JS `\d` is ASCII-only where Python's `str` regex `\d` is Unicode.
 - Lengths count UTF-16 units.
 

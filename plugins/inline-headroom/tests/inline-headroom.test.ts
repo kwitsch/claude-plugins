@@ -26,6 +26,15 @@ const windowSums = (today: string): Record<string, typeof SUMS> => ({
 });
 // A main-loop turn that ended with an answer.
 const DONE = { answer: "", durationMs: 1, isAborted: false, turnId: "t1", reason: "answer" as const };
+// The five router compressors of 0.7.0 off: tests of the earlier levers keep seeing the text those levers saw before.
+// Declared up here because test options are read at module load, before the compression tests further down.
+const NEW_LEVERS_OFF = {
+  log_compressor_enabled: false,
+  search_compressor_enabled: false,
+  diff_compressor_enabled: false,
+  text_crusher_enabled: false,
+  relevance_split_enabled: false,
+};
 
 // What Claude Code passes to a ui.render hook for the /headroom pane, apart from the surface
 const PANE = {
@@ -240,8 +249,8 @@ test("(i) /headroom opens the headroom pane and prints nothing", async ($, on) =
   const out = await $.command.run({ command: "headroom" });
   expect(out.text).toBeUndefined();
   expect(opened.length).toBe(1);
-  // 6 + 5 + 2 + 2 + 2 + 2 + 2 + 2 table rows, the storage note, the volatile header and nine gaps.
-  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 34 });
+  // 6 + 5 + 2 × 11 table rows, the storage note, the volatile header and fourteen gaps.
+  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 49 });
 });
 
 test("(i2) /headroom falls back to the stats tables as text when the pane is not placed", async ($, on) => {
@@ -526,6 +535,7 @@ test(
   "(aa) with every lever off the pane says so, and reads nothing from storage",
   {
     options: {
+      ...NEW_LEVERS_OFF,
       effort_routing_enabled: false,
       cache_aligner_enabled: false,
       smart_crusher_enabled: false,
@@ -544,7 +554,10 @@ test(
     await clock.advance(30_000); // no refresh timer runs
     const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
     expect(
-      await ui.find({ type: "Text", text: /^effort routing, cache aligner, smart crusher, lossless compaction, cross-turn dedup, dense line elider, config compressor and HTML extractor are off/ }),
+      await ui.find({
+        type: "Text",
+        text: /^effort routing, cache aligner, smart crusher, lossless compaction, cross-turn dedup, dense line elider, config compressor, HTML extractor, log compressor, search compressor, diff compressor, text crusher and relevance split are off/,
+      }),
     ).toBeDefined();
     expect(await ui.find({ type: "Text", text: /^effort routing$/ })).toBeUndefined();
     expect(calls).toHaveLength(0);
@@ -656,14 +669,15 @@ const notPlaced = async () => ({ value: { isPlaced: false as const, reason: "no 
 
 // Raises session.start, which registers headroom_retrieve, with the ops it needs stubbed: tool.register answers
 // `registeredAs` and records each spec. Call it after the test's other stubs: the kit refuses on() once $ was called.
-async function startCrusher(on: On, $: Engine, registeredAs: string = RETRIEVE_TOOL): Promise<unknown[]> {
+// `userText` is the one user message session.messages answers with: "" (a tool result) gives an empty query.
+async function startCrusher(on: On, $: Engine, registeredAs: string = RETRIEVE_TOOL, userText = ""): Promise<unknown[]> {
   const registered: unknown[] = [];
   on("command.register", async (_$, e) => ({ value: { command: e.name } }));
   on("tool.register", async (_$, e) => {
     registered.push(e);
     return { value: { tool: registeredAs } };
   });
-  on("session.messages", async () => ({ value: [{ role: "user" as const, text: "", toolUses: [] }] }));
+  on("session.messages", async () => ({ value: [{ role: "user" as const, text: userText, toolUses: [] }] }));
   on("session.start", async (_$, e) => ({ cwd: e.cwd }));
   await $.session.start({ cwd: "/tmp", surface: "terminal", isInteractive: true });
   return registered;
@@ -738,6 +752,7 @@ test(
   "(sc4) with every compression lever off no tool is registered, rows are stored untouched and no compression table shows",
   {
     options: {
+      ...NEW_LEVERS_OFF,
       smart_crusher_enabled: false,
       lossless_compaction_enabled: false,
       cross_turn_dedup_enabled: false,
@@ -765,6 +780,11 @@ test(
     expect(text).not.toMatch(/^compaction/m);
     expect(text).not.toMatch(/^config/m);
     expect(text).not.toMatch(/^html extractor/m);
+    expect(text).not.toMatch(/^logs/m);
+    expect(text).not.toMatch(/^search/m);
+    expect(text).not.toMatch(/^diff/m);
+    expect(text).not.toMatch(/^text crusher/m);
+    expect(text).not.toMatch(/^relevance split/m);
   },
 );
 
@@ -832,6 +852,7 @@ test(
   "(sc9) with only the crusher on, its hook still runs and the pane shows its table without reading storage",
   {
     options: {
+      ...NEW_LEVERS_OFF,
       effort_routing_enabled: false,
       cache_aligner_enabled: false,
       lossless_compaction_enabled: false,
@@ -880,6 +901,7 @@ test(
   "(sc12) with only the crusher on, the pane asks for its own height and shows no storage note",
   {
     options: {
+      ...NEW_LEVERS_OFF,
       effort_routing_enabled: false,
       cache_aligner_enabled: false,
       lossless_compaction_enabled: false,
@@ -917,7 +939,7 @@ test("(sc10) session.end starts the smart crusher row over", { options: { ...LOS
   expect((await $.command.run({ command: "headroom" })).text).toMatch(/^smart crusher\s+dropped\s+saved\nsession\s+0\s+0$/m);
 });
 
-test("(dd1) a row repeating 10 lines of an earlier row is stored with one pointer, and the run is retrievable", { options: { storage_enabled: false } }, async ($, on) => {
+test("(dd1) a row repeating 10 lines of an earlier row is stored with one pointer, and the run is retrievable", { options: { ...NEW_LEVERS_OFF, storage_enabled: false } }, async ($, on) => {
   on("ui.open", notPlaced);
   await startCrusher(on, $);
   expect(await appendResult($, "Bash", TEN)).toBe(TEN);
@@ -933,14 +955,14 @@ test("(dd1) a row repeating 10 lines of an earlier row is stored with one pointe
   expect(Number(saved)).toBeGreaterThan(0);
 });
 
-test("(dd2) a subagent row never folds against the main loop, only against that subagent's own rows", async ($, on) => {
+test("(dd2) a subagent row never folds against the main loop, only against that subagent's own rows", { options: NEW_LEVERS_OFF }, async ($, on) => {
   await startCrusher(on, $);
   await appendResult($, "Bash", TEN);
   expect(await appendResult($, "Bash", TEN, { agentId: "a1" })).toBe(TEN);
   expect(String(await appendResult($, "Bash", TEN, { agentId: "a1" }))).toMatch(POINTER);
 });
 
-test("(dd3) cross_turn_dedup_enabled false folds nothing and hides the dedup table", { options: { cross_turn_dedup_enabled: false, storage_enabled: false } }, async ($, on) => {
+test("(dd3) cross_turn_dedup_enabled false folds nothing and hides the dedup table", { options: { ...NEW_LEVERS_OFF, cross_turn_dedup_enabled: false, storage_enabled: false } }, async ($, on) => {
   on("ui.open", notPlaced);
   await startCrusher(on, $);
   await appendResult($, "Bash", TEN);
@@ -948,7 +970,7 @@ test("(dd3) cross_turn_dedup_enabled false folds nothing and hides the dedup tab
   expect((await $.command.run({ command: "headroom" })).text).not.toMatch(/^dedup/m);
 });
 
-test("(dd4) session.end starts the dedup row and its corpus over", { options: { storage_enabled: false } }, async ($, on) => {
+test("(dd4) session.end starts the dedup row and its corpus over", { options: { ...NEW_LEVERS_OFF, storage_enabled: false } }, async ($, on) => {
   on("ui.open", notPlaced);
   on("session.end", async (_$, e) => ({ sessionId: e.sessionId }));
   await startCrusher(on, $);
@@ -964,25 +986,29 @@ test("(dd4) session.end starts the dedup row and its corpus over", { options: { 
 const SUMMARY = { role: "user" as const, text: "summary", toolUses: [] };
 const compact = ($: Engine, trigger: string, agentId?: string) => $.session.compact({ trigger, messages: [SUMMARY], ...(agentId === undefined ? {} : { agentId }) } as never);
 
-test("(dd5) a compaction starts only the compacting loop's dedup corpus over and keeps its ordinals, a skipped or precompute one keeps it", { options: { storage_enabled: false } }, async ($, on) => {
-  let skip: string | undefined;
-  on("session.compact", async () => (skip === undefined ? { messages: [SUMMARY] } : { skip }));
-  await startCrusher(on, $);
-  await appendResult($, "Bash", TEN); // main result 1
-  await appendResult($, "Bash", TEN, { agentId: "a1" }); // a1's result 1
-  skip = "off";
-  await compact($, "manual");
-  skip = undefined;
-  await compact($, "precompute");
-  expect(String(await appendResult($, "Bash", TEN))).toMatch(POINTER); // main result 2: neither compaction touched the corpus
-  await compact($, "auto", "a1");
-  expect(await appendResult($, "Bash", TEN, { agentId: "a1" })).toBe(TEN); // a1's corpus is gone
-  expect(String(await appendResult($, "Bash", TEN))).toMatch(POINTER); // main result 3: its corpus is not
-  await compact($, "manual");
-  expect(await appendResult($, "Bash", TEN)).toBe(TEN); // main result 4: nothing earlier to fold against
-  const [, , ref] = POINTER.exec(String(await appendResult($, "Bash", TEN))) ?? [];
-  expect(Number(ref)).toBe(4); // result 5 names result 4: the ordinals went on
-});
+test(
+  "(dd5) a compaction starts only the compacting loop's dedup corpus over and keeps its ordinals, a skipped or precompute one keeps it",
+  { options: { ...NEW_LEVERS_OFF, storage_enabled: false } },
+  async ($, on) => {
+    let skip: string | undefined;
+    on("session.compact", async () => (skip === undefined ? { messages: [SUMMARY] } : { skip }));
+    await startCrusher(on, $);
+    await appendResult($, "Bash", TEN); // main result 1
+    await appendResult($, "Bash", TEN, { agentId: "a1" }); // a1's result 1
+    skip = "off";
+    await compact($, "manual");
+    skip = undefined;
+    await compact($, "precompute");
+    expect(String(await appendResult($, "Bash", TEN))).toMatch(POINTER); // main result 2: neither compaction touched the corpus
+    await compact($, "auto", "a1");
+    expect(await appendResult($, "Bash", TEN, { agentId: "a1" })).toBe(TEN); // a1's corpus is gone
+    expect(String(await appendResult($, "Bash", TEN))).toMatch(POINTER); // main result 3: its corpus is not
+    await compact($, "manual");
+    expect(await appendResult($, "Bash", TEN)).toBe(TEN); // main result 4: nothing earlier to fold against
+    const [, , ref] = POINTER.exec(String(await appendResult($, "Bash", TEN))) ?? [];
+    expect(Number(ref)).toBe(4); // result 5 names result 4: the ordinals went on
+  },
+);
 
 // `n` distinct 3-line runs numbered from `from`, each followed by a separator line: two rows with the same runs and different `sep` fold each run into its own pointer.
 const runsRow = (n: number, from: number, sep: string) =>
@@ -992,7 +1018,7 @@ const runsRow = (n: number, from: number, sep: string) =>
   }).join("\n");
 const hashesOf = (text: unknown): string[] => [...String(text).matchAll(/ hash=([0-9a-f]{12})\]/g)].map((m) => m[1]);
 
-test("(dd7) dedup runs have a store of their own, so a flood of them never evicts a crushed original", { options: { ...LOSSY, storage_enabled: false } }, async ($, on) => {
+test("(dd7) dedup runs have a store of their own, so a flood of them never evicts a crushed original", { options: { ...NEW_LEVERS_OFF, ...LOSSY, storage_enabled: false } }, async ($, on) => {
   await startCrusher(on, $);
   const { hash } = crushedRows(await appendResult($, "Bash", BIG));
   await appendResult($, "Bash", runsRow(600, 0, "a"));
@@ -1005,7 +1031,7 @@ test("(dd7) dedup runs have a store of their own, so a flood of them never evict
   expect(typeof (await $.tool.call({ tool: RETRIEVE_TOOL, hash: first[0] })).deny).toBe("string"); // the oldest runs went
 });
 
-test("(dd9) a row folding more runs than the store holds keeps every one of its own pointers retrievable", { options: { storage_enabled: false } }, async ($, on) => {
+test("(dd9) a row folding more runs than the store holds keeps every one of its own pointers retrievable", { options: { ...NEW_LEVERS_OFF, storage_enabled: false } }, async ($, on) => {
   await startCrusher(on, $);
   await appendResult($, "Bash", runsRow(1001, 0, "a"));
   const hashes = hashesOf(await appendResult($, "Bash", runsRow(1001, 0, "b")));
@@ -1016,7 +1042,7 @@ test("(dd9) a row folding more runs than the store holds keeps every one of its 
 
 test(
   "(dd6) a finished agent's turn.complete starts its dedup corpus over, with every other hook of that event off, and leaves the main loop's",
-  { options: { storage_enabled: false, subagent_effort_routing_enabled: false } },
+  { options: { ...NEW_LEVERS_OFF, storage_enabled: false, subagent_effort_routing_enabled: false } },
   async ($, on) => {
     on("turn.complete", async () => ({ text: "" }));
     await startCrusher(on, $);
@@ -1154,4 +1180,158 @@ test("(tp1) tag_protector_enabled false lets the elider cut a dense line holding
 test("(tp2) by default a dense line holding a custom tag is stored whole", { options: { storage_enabled: false } }, async ($, on) => {
   await startCrusher(on, $);
   expect(await appendResult($, "Bash", TAGGED)).toBe(TAGGED);
+});
+// A build log: 60 distinct INFO lines and one linker error, with no repeated line for the lossless fold to collapse.
+const BUILD_LOG = [...Array.from({ length: 60 }, (_, i) => `INFO step ${i}: compiled module_${i} into build/out_${i}.o`), "ERROR linker exited with code 1"].join("\n");
+const LOGS_ROW = /^logs\s+texts\s+saved\nsession\s+(\d+)\s+(\d+)$/m;
+
+test("(lg1) a build log is stored compressed, its original is retrievable, and /headroom counts it", { options: { storage_enabled: false } }, async ($, on) => {
+  on("ui.open", notPlaced);
+  await startCrusher(on, $);
+  const stored = String(await appendResult($, "Bash", BUILD_LOG));
+  expect(stored).toMatch(/^ERROR linker exited with code 1$/m);
+  const [, hash] = /\n\[61 lines compressed to \d+\. Retrieve original: hash=([0-9a-f]{12})\]$/.exec(stored) ?? [];
+  expect((await $.tool.call({ tool: RETRIEVE_TOOL, hash })).result).toBe(BUILD_LOG);
+  const [, texts, saved] = LOGS_ROW.exec((await $.command.run({ command: "headroom" })).text ?? "") ?? [];
+  expect(Number(texts)).toBe(1);
+  expect(Number(saved)).toBe(BUILD_LOG.length - stored.length);
+});
+
+test("(lg2) log_compressor_enabled false keeps a build log whole and hides the logs table", { options: { log_compressor_enabled: false, storage_enabled: false } }, async ($, on) => {
+  on("ui.open", notPlaced);
+  await startCrusher(on, $);
+  expect(await appendResult($, "Bash", BUILD_LOG)).toBe(BUILD_LOG);
+  expect((await $.command.run({ command: "headroom" })).text).not.toMatch(/^logs/m);
+});
+// A grep dump: 40 matches in each of three files, more than the search compressor keeps.
+const GREP = ["src/alpha.py", "src/beta.py", "src/gamma.py"]
+  .flatMap((f) => Array.from({ length: 40 }, (_, i) => `${f}:${(i + 1) * 3}:    value_${i + 1} = compute_${i + 1}(argument_${(i + 1) * 7})`))
+  .join("\n");
+const SEARCH_ROW = /^search\s+texts\s+saved\nsession\s+(\d+)\s+(\d+)$/m;
+
+test("(sr1) a grep dump is stored compressed, its original is retrievable, and /headroom counts it", { options: { storage_enabled: false } }, async ($, on) => {
+  on("ui.open", notPlaced);
+  await startCrusher(on, $);
+  const stored = String(await appendResult($, "Bash", GREP));
+  expect(stored).toMatch(/^\[\.\.\. and 35 more matches in src\/alpha\.py\]$/m);
+  const [, hash] = /\n\[120 matches compressed to 15\. Retrieve original: hash=([0-9a-f]{12})\]$/.exec(stored) ?? [];
+  expect((await $.tool.call({ tool: RETRIEVE_TOOL, hash })).result).toBe(GREP);
+  const [, texts, saved] = SEARCH_ROW.exec((await $.command.run({ command: "headroom" })).text ?? "") ?? [];
+  expect(Number(texts)).toBe(1);
+  expect(Number(saved)).toBe(GREP.length - stored.length);
+});
+
+test("(sr2) search_compressor_enabled false keeps a grep dump whole and hides the search table", { options: { search_compressor_enabled: false, storage_enabled: false } }, async ($, on) => {
+  on("ui.open", notPlaced);
+  await startCrusher(on, $);
+  expect(await appendResult($, "Bash", GREP)).toBe(GREP);
+  expect((await $.command.run({ command: "headroom" })).text).not.toMatch(/^search/m);
+});
+// A real git diff shape: git's index line and one file with 15 hunks, more than the diff compressor keeps per file.
+const GIT_DIFF = [
+  "diff --git a/big.py b/big.py",
+  "index 3b18e512dba79e4c8300dd08aeb37f8e728b8dad..af5626b4a114abcb82d63db7c8082c3c4756e51b 100644",
+  "--- a/big.py",
+  "+++ b/big.py",
+  ...Array.from({ length: 15 }, (_, i) => [`@@ -${i * 100 + 1},6 +${i * 100 + 1},6 @@`, ` ctx_a_${i}`, ` ctx_b_${i}`, `-old_${i}`, `+new_${i}`, ` ctx_c_${i}`, ` ctx_d_${i}`]).flat(),
+  "",
+].join("\n");
+const DIFF_ROW = /^diff\s+texts\s+saved\nsession\s+(\d+)\s+(\d+)$/m;
+
+test("(df1) a git diff is stored compressed over its index-strip fold, its original is retrievable, and /headroom counts it", { options: { storage_enabled: false } }, async ($, on) => {
+  on("ui.open", notPlaced);
+  await startCrusher(on, $);
+  const stored = String(await appendResult($, "Bash", GIT_DIFF));
+  expect(stored).not.toMatch(/^index /m);
+  expect(stored).toMatch(/^\[1 files changed, \+15 -15 lines, 5 hunks omitted\]$/m);
+  const [, hash] = /\n\[110 lines compressed to \d+\. Retrieve original: hash=([0-9a-f]{12})\]$/.exec(stored) ?? [];
+  expect((await $.tool.call({ tool: RETRIEVE_TOOL, hash })).result).toBe(GIT_DIFF);
+  const [, texts, saved] = DIFF_ROW.exec((await $.command.run({ command: "headroom" })).text ?? "") ?? [];
+  expect(Number(texts)).toBe(1);
+  expect(Number(saved)).toBe(GIT_DIFF.length - stored.length);
+});
+
+test("(df2) diff_compressor_enabled false keeps a git diff whole and hides the diff table", { options: { diff_compressor_enabled: false, storage_enabled: false } }, async ($, on) => {
+  on("ui.open", notPlaced);
+  await startCrusher(on, $);
+  expect(await appendResult($, "Bash", GIT_DIFF)).toBe(GIT_DIFF);
+  expect((await $.command.run({ command: "headroom" })).text).not.toMatch(/^diff/m);
+});
+// A subagent-style prose report: twelve distinct sentences, no repeated line for the lossless fold to collapse.
+const REPORT = Array.from({ length: 12 }, (_, i) => `Finding ${i + 1} describes how the ${["cache", "queue", "router", "parser"][i % 4]} module behaves under ${i * 10} percent load.`).join("\n");
+const TEXT_ROW = /^text crusher\s+texts\s+saved\nsession\s+(\d+)\s+(\d+)$/m;
+const CRUSHED = /\n\[Text crushed: \d+ of (\d+) segments kept\. Retrieve original: hash=([0-9a-f]{12})\]$/;
+
+test("(tc1) a prose report is stored crushed, its original is retrievable, and /headroom counts it", { options: { storage_enabled: false } }, async ($, on) => {
+  on("ui.open", notPlaced);
+  await startCrusher(on, $);
+  const stored = String(await appendResult($, "Bash", REPORT));
+  const [, total, hash] = CRUSHED.exec(stored) ?? [];
+  expect(Number(total)).toBe(12);
+  expect(String(await appendResult($, "Agent", REPORT))).not.toMatch(CRUSHED); // an Agent report is never crushed (dedup may still fold it)
+  expect((await $.tool.call({ tool: RETRIEVE_TOOL, hash })).result).toBe(REPORT);
+  const [, texts, saved] = TEXT_ROW.exec((await $.command.run({ command: "headroom" })).text ?? "") ?? [];
+  expect(Number(texts)).toBe(1);
+  expect(Number(saved)).toBe(REPORT.length - stored.length);
+});
+
+test("(tc2) text_crusher_enabled false keeps a prose report whole and hides the text crusher table", { options: { text_crusher_enabled: false, storage_enabled: false } }, async ($, on) => {
+  on("ui.open", notPlaced);
+  await startCrusher(on, $);
+  expect(await appendResult($, "Agent", REPORT)).toBe(REPORT);
+  expect((await $.command.run({ command: "headroom" })).text).not.toMatch(/^text crusher/m);
+});
+
+test("(tc3) by default dedup indexes the crushed form: a repeated prose row is crushed the same way, then folded into one pointer", { options: { storage_enabled: false } }, async ($, on) => {
+  await startCrusher(on, $);
+  const first = String(await appendResult($, "Bash", REPORT));
+  expect(first).toMatch(CRUSHED);
+  expect(String(await appendResult($, "Bash", REPORT))).toMatch(POINTER);
+});
+// Prose records: three about the oauth token refresh, two about widgets; the user asked about the refresh.
+const OAUTH_NOTES = [
+  "The oauth token refresh runs every ten minutes from the scheduler service.\n\n",
+  "The widget gallery renders thumbnails in a responsive grid layout for every visitor.\nIt uses lazy loading for images below the fold of the page to save bandwidth.\n\n",
+  "Refreshing the oauth token needs the client secret from the vault.\n\n",
+  "Colour themes for widgets live in a separate stylesheet bundle with many variables.\nDark mode swaps the whole palette through custom properties on the root element.\n\n",
+  "A refreshed oauth token is cached for the lifetime of the session.\n",
+].join("");
+const OAUTH_ASK = "why does the oauth token refresh break";
+const SPLIT_ROW = /^relevance split\s+texts\s+saved\nsession\s+(\d+)\s+(\d+)$/m;
+
+test("(rs1) prose is split by the user's request, the original is retrievable, and /headroom counts it", { options: { storage_enabled: false } }, async ($, on) => {
+  on("ui.open", notPlaced);
+  await startCrusher(on, $, RETRIEVE_TOOL, OAUTH_ASK);
+  const stored = String(await appendResult($, "Bash", OAUTH_NOTES));
+  expect(stored).toMatch(/^\.\.\.\[3 low-relevance lines elided\]\.\.\.$/m);
+  expect(stored).toMatch(/^A refreshed oauth token is cached for the lifetime of the session\.$/m);
+  const [, hash] = /\n\[6 low-relevance lines in 2 runs elided\. Retrieve original: hash=([0-9a-f]{12})\]$/.exec(stored) ?? [];
+  expect((await $.tool.call({ tool: RETRIEVE_TOOL, hash })).result).toBe(OAUTH_NOTES);
+  const [, texts, saved] = SPLIT_ROW.exec((await $.command.run({ command: "headroom" })).text ?? "") ?? [];
+  expect(Number(texts)).toBe(1);
+  expect(Number(saved)).toBe(OAUTH_NOTES.length - stored.length);
+});
+
+test(
+  "(rs2) relevance_split_enabled false keeps prose whole (with the text crusher off too) and hides the relevance split table",
+  { options: { relevance_split_enabled: false, text_crusher_enabled: false, storage_enabled: false } },
+  async ($, on) => {
+    on("ui.open", notPlaced);
+    await startCrusher(on, $, RETRIEVE_TOOL, OAUTH_ASK);
+    expect(await appendResult($, "Bash", OAUTH_NOTES)).toBe(OAUTH_NOTES);
+    expect((await $.command.run({ command: "headroom" })).text).not.toMatch(/^relevance split/m);
+  },
+);
+
+test("(rs3) session.end starts the logs, search, diff, text crusher and relevance split rows over", { options: { storage_enabled: false } }, async ($, on) => {
+  on("ui.open", notPlaced);
+  on("session.end", async (_$, e) => ({ sessionId: e.sessionId }));
+  await startCrusher(on, $, RETRIEVE_TOOL, OAUTH_ASK);
+  for (const text of [BUILD_LOG, GREP, GIT_DIFF, REPORT, OAUTH_NOTES]) await appendResult($, "Bash", text);
+  const rows = [LOGS_ROW, SEARCH_ROW, DIFF_ROW, TEXT_ROW, SPLIT_ROW];
+  const before = (await $.command.run({ command: "headroom" })).text ?? "";
+  for (const row of rows) expect(Number(row.exec(before)?.[1])).toBe(1);
+  await $.session.end({ reason: "clear", sessionId: "s1", resume: { id: "s1" } });
+  const after = (await $.command.run({ command: "headroom" })).text ?? "";
+  for (const row of rows) expect(row.exec(after)?.slice(1)).toEqual(["0", "0"]);
 });

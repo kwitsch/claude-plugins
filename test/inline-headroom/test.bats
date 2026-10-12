@@ -14,17 +14,17 @@ setup() {
   assert_success
 }
 
-@test "plugin.json version is 0.7.0" {
-  run jq -e '.version == "0.7.0"' "$MANIFEST"
+@test "plugin.json version is 0.8.0" {
+  run jq -e '.version == "0.8.0"' "$MANIFEST"
   assert_success
 }
 
-@test "userConfig declares exactly the twelve boolean feature toggles, all default true" {
-  run jq -e '(.userConfig | keys) == ["cache_aligner_enabled","config_compressor_enabled","cross_turn_dedup_enabled","dense_line_elider_enabled","effort_routing_enabled","html_extractor_enabled","lossless_compaction_enabled","smart_crusher_enabled","storage_enabled","subagent_compression_enabled","subagent_effort_routing_enabled","tag_protector_enabled"]' "$MANIFEST"
+@test "userConfig declares exactly the seventeen boolean feature toggles, all default true" {
+  run jq -e '(.userConfig | keys) == ["cache_aligner_enabled","config_compressor_enabled","cross_turn_dedup_enabled","dense_line_elider_enabled","diff_compressor_enabled","effort_routing_enabled","html_extractor_enabled","log_compressor_enabled","lossless_compaction_enabled","relevance_split_enabled","search_compressor_enabled","smart_crusher_enabled","storage_enabled","subagent_compression_enabled","subagent_effort_routing_enabled","tag_protector_enabled","text_crusher_enabled"]' "$MANIFEST"
   assert_success
-  run jq -e '(.userConfig | length) == 12' "$MANIFEST"
+  run jq -e '(.userConfig | length) == 17' "$MANIFEST"
   assert_success
-  run jq -e '[.userConfig[] | select(.type == "boolean" and .default == true and (.title | length > 0) and (.description | length > 0))] | length == 12' "$MANIFEST"
+  run jq -e '[.userConfig[] | select(.type == "boolean" and .default == true and (.title | length > 0) and (.description | length > 0))] | length == 17' "$MANIFEST"
   assert_success
 }
 

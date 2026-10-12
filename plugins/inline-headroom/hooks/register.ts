@@ -39,6 +39,11 @@ const elide = { lines: 0, saved: 0 }; // this session's dense line elider saving
 const compact = { arrays: 0, saved: 0 }; // this session's lossless compaction savings: in memory only, never persisted
 const config = { texts: 0, saved: 0 }; // this session's config compressor savings: in memory only, never persisted
 const extract = { pages: 0, saved: 0 }; // this session's HTML extractor savings: in memory only, never persisted
+const log = { texts: 0, saved: 0 }; // this session's log compressor savings: in memory only, never persisted
+const search = { texts: 0, saved: 0 }; // this session's search compressor savings: in memory only, never persisted
+const diff = { texts: 0, saved: 0 }; // this session's diff compressor savings: in memory only, never persisted
+const textcrush = { texts: 0, saved: 0 }; // this session's text crusher savings: in memory only, never persisted
+const split = { texts: 0, saved: 0 }; // this session's relevance split savings: in memory only, never persisted
 const dedupStates = new Map<string, DedupState>(); // conversation ("" main, else agentId) → its dedup corpus; reset on session.end
 // Starts one conversation's dedup corpus over (its ordinals keep counting): what it indexes left the model's context.
 const dropCorpus = (key: string): void => {
@@ -159,9 +164,15 @@ export const register: Register = (on, options) => {
   const elideOn = options.dense_line_elider_enabled !== false;
   const configOn = options.config_compressor_enabled !== false;
   const htmlOn = options.html_extractor_enabled !== false;
+  // The router compressors: each owns its content type's lossy step and lossless fold.
+  const logOn = options.log_compressor_enabled !== false;
+  const searchOn = options.search_compressor_enabled !== false;
+  const diffOn = options.diff_compressor_enabled !== false;
+  const textOn = options.text_crusher_enabled !== false;
+  const splitOn = options.relevance_split_enabled !== false;
   // The tag protector only narrows what the levers above rewrite: no compressOn term, no table.
   const tagsOn = options.tag_protector_enabled !== false;
-  const compressOn = crusherOn || compactOn || dedupOn || elideOn || configOn || htmlOn;
+  const compressOn = crusherOn || compactOn || dedupOn || elideOn || configOn || htmlOn || logOn || searchOn || diffOn || textOn || splitOn;
   // Subagent and Workflow-agent tool results: their own toggle, active only while a compression lever is on.
   const subCompressOn = compressOn && options.subagent_compression_enabled !== false;
   // Unset means the manifest default (true), like the sibling toggles; the server stays fail-closed.
@@ -200,15 +211,24 @@ export const register: Register = (on, options) => {
   // Each table is shown only while the lever it counts is on; the storage rows sit in both.
   // The subagents row and the compression counts are session-only: persisting them needs new stats columns and a storage PROTOCOL bump (deferred).
   const tables = (): string[][][] => {
-    const [effort, cache, crusher, deduper, elider, compactor, configs, extractor] = statsTables([{ ...session, hit: stats.lastHit }, ...(sums?.data ?? [])], note() === undefined ? "…" : "–", {
-      subagents: subOn ? subagents : undefined,
-      crush,
-      dedup,
-      elide,
-      compact,
-      config,
-      extract,
-    });
+    const [effort, cache, crusher, deduper, elider, compactor, configs, extractor, logs, searches, diffs, crushedTexts, splits] = statsTables(
+      [{ ...session, hit: stats.lastHit }, ...(sums?.data ?? [])],
+      note() === undefined ? "…" : "–",
+      {
+        subagents: subOn ? subagents : undefined,
+        crush,
+        dedup,
+        elide,
+        compact,
+        config,
+        extract,
+        log,
+        search,
+        diff,
+        textcrush,
+        split,
+      },
+    );
     return [
       ...(effortOn ? [effort] : []),
       ...(cacheOn ? [cache] : []),
@@ -218,6 +238,11 @@ export const register: Register = (on, options) => {
       ...(compactOn ? [compactor] : []),
       ...(configOn ? [configs] : []),
       ...(htmlOn ? [extractor] : []),
+      ...(logOn ? [logs] : []),
+      ...(searchOn ? [searches] : []),
+      ...(diffOn ? [diffs] : []),
+      ...(textOn ? [crushedTexts] : []),
+      ...(splitOn ? [splits] : []),
     ];
   };
   // One row per finding, so a long list wraps per row instead of one clipped line. The list belongs to the cache aligner.
@@ -231,7 +256,7 @@ export const register: Register = (on, options) => {
   const idle = (): string | undefined =>
     effortOn || cacheOn || compressOn
       ? undefined
-      : "effort routing, cache aligner, smart crusher, lossless compaction, cross-turn dedup, dense line elider, config compressor and HTML extractor are off: nothing to show";
+      : "effort routing, cache aligner, smart crusher, lossless compaction, cross-turn dedup, dense line elider, config compressor, HTML extractor, log compressor, search compressor, diff compressor, text crusher and relevance split are off: nothing to show";
   // Body height asked for when seated inline, mirroring the render: every table, a line for the storage note
   // wherever one can show, the volatile lines, and a gap between each.
   const paneRows = (): number => {
@@ -348,8 +373,23 @@ export const register: Register = (on, options) => {
       const tool = e.origin.tool;
       let rw: ReturnType<typeof rewriteToolResults>;
       try {
+        const levers = {
+          crush: crusherOn,
+          compact: compactOn,
+          elide: elideOn,
+          config: configOn,
+          extract: htmlOn,
+          log: logOn,
+          search: searchOn,
+          diff: diffOn,
+          textcrush: textOn,
+          split: splitOn,
+          tags: tagsOn,
+          dedup: dedupOn ? { states: dedupStates, key: e.agentId ?? "" } : undefined,
+        };
         let query = "";
-        if (crusherOn && wantsQuery(e.message.content, tool)) {
+        // levers.crush carries crusherOn: the two-argument call's SmartCrusher check is one term of the levers form.
+        if (wantsQuery(e.message.content, tool, levers)) {
           try {
             // A subagent row's query comes from that agent's own conversation; a { deny } leaves it empty.
             const m = e.agentId ? await $.session.messages({ agentId: e.agentId }) : await $.session.messages();
@@ -358,12 +398,7 @@ export const register: Register = (on, options) => {
             // crush without query signals, as upstream does with no context
           }
         }
-        rw = rewriteToolResults(
-          e.message.content,
-          tool,
-          { crush: crusherOn, compact: compactOn, elide: elideOn, config: configOn, extract: htmlOn, tags: tagsOn, dedup: dedupOn ? { states: dedupStates, key: e.agentId ?? "" } : undefined },
-          query,
-        );
+        rw = rewriteToolResults(e.message.content, tool, levers, query);
       } catch {
         rw = undefined; // fail open: the row is stored as made (rewriteToolResults has already started a half-indexed corpus over)
       }
@@ -382,6 +417,16 @@ export const register: Register = (on, options) => {
       config.saved += rw.config.saved;
       extract.pages += rw.extract.pages;
       extract.saved += rw.extract.saved;
+      log.texts += rw.log.texts;
+      log.saved += rw.log.saved;
+      search.texts += rw.search.texts;
+      search.saved += rw.search.saved;
+      diff.texts += rw.diff.texts;
+      diff.saved += rw.diff.saved;
+      textcrush.texts += rw.textcrush.texts;
+      textcrush.saved += rw.textcrush.saved;
+      split.texts += rw.split.texts;
+      split.saved += rw.split.saved;
       if (paneOpen) {
         try {
           $.ui.invalidate("ui.render"); // redraw an open /headroom pane's compression rows now
@@ -390,7 +435,12 @@ export const register: Register = (on, options) => {
         }
       }
       // next exactly once, its answer relayed unchanged: the engine skips a hook that answers another row.
-      return next({ ...e, message: { ...e.message, content: rw.content } });
+      try {
+        return await next({ ...e, message: { ...e.message, content: rw.content } });
+      } catch (err) {
+        dropCorpus(e.agentId ?? ""); // the row was never stored: what this call indexed names a result the model never got
+        throw err;
+      }
     });
   }
 
@@ -514,6 +564,11 @@ export const register: Register = (on, options) => {
     Object.assign(compact, { arrays: 0, saved: 0 });
     Object.assign(config, { texts: 0, saved: 0 });
     Object.assign(extract, { pages: 0, saved: 0 });
+    Object.assign(log, { texts: 0, saved: 0 });
+    Object.assign(search, { texts: 0, saved: 0 });
+    Object.assign(diff, { texts: 0, saved: 0 });
+    Object.assign(textcrush, { texts: 0, saved: 0 });
+    Object.assign(split, { texts: 0, saved: 0 });
     dedupStates.clear(); // the next session's results get their own corpus and ordinals
     agentErrored.clear(); // an aborted agent whose turn.complete never came
     Object.assign(stats, { lastHit: undefined, volatile: [] });

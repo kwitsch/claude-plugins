@@ -13,19 +13,25 @@ import {
   RETAIN_DAYS,
   RETRIEVE_TOOL,
   ROWS,
+  adaptiveThreshold,
+  bm25Scores,
   cacheHitRatio,
   clampEffort,
   collapseRuns,
   compactConfigLossless,
   compactRows,
   compactionJson,
+  compressLog,
+  compressSearch,
   compressConfig,
+  compressDiff,
   computeOptimalK,
   configFlavor,
   crushJson,
   crushNumberArray,
   crushQuery,
   crushStringArray,
+  crushText as crushProse,
   dayKey,
   detectContentType,
   dedupBlock,
@@ -34,17 +40,26 @@ import {
   extractHtml,
   findVolatile,
   foldRepeatedBlocks,
+  foldLog,
+  foldDiff,
   foldPending,
+  foldSearch,
+  foldText,
   formatCsvSchema,
   isCacheDrop,
   isIniAssign,
   isOwnStorageCall,
+  isProse,
   isToolError,
   numberChangePoints,
+  otsuThreshold,
+  relevanceScores,
   resetCorpus,
   retrieveKey,
   rewriteToolResults,
   roundHalfEven,
+  segmentRecords,
+  splitRelevance,
   statsTables,
   stepEffort,
   storeOffloaded,
@@ -267,6 +282,26 @@ test("statsTables builds every table, with blank for rows without counters", () 
       ["html extractor", "pages", "saved"],
       ["session", "0", "0"],
     ],
+    [
+      ["logs", "texts", "saved"],
+      ["session", "0", "0"],
+    ],
+    [
+      ["search", "texts", "saved"],
+      ["session", "0", "0"],
+    ],
+    [
+      ["diff", "texts", "saved"],
+      ["session", "0", "0"],
+    ],
+    [
+      ["text crusher", "texts", "saved"],
+      ["session", "0", "0"],
+    ],
+    [
+      ["relevance split", "texts", "saved"],
+      ["session", "0", "0"],
+    ],
   ]);
   // The in-memory rows: subagents right under the effort session row, the crusher's session counts.
   const [effort, , crusher] = statsTables([c], "…", { subagents: { steps: 4, clamped: 3 }, crush: { dropped: 40, saved: 1200 } });
@@ -283,6 +318,25 @@ test("statsTables builds every table, with blank for rows without counters", () 
   assert.deepEqual(compactor[1], ["session", "2", "5300"]);
   assert.deepEqual(configs[1], ["session", "1", "640"]);
   assert.deepEqual(extractor[1], ["session", "3", "21000"]);
+  const [, , , , , , , , logs, searches, diffs, crushedTexts, splits] = statsTables([c], "…", {
+    log: { texts: 1, saved: 900 },
+    search: { texts: 2, saved: 1800 },
+    diff: { texts: 3, saved: 2700 },
+    textcrush: { texts: 4, saved: 3600 },
+    split: { texts: 5, saved: 4500 },
+  });
+  assert.deepEqual(
+    [logs, searches, diffs, crushedTexts, splits].map((t) => [t[0][0], ...t[1].slice(1)]),
+    [
+      ["logs", "1", "900"],
+      ["search", "2", "1800"],
+      ["diff", "3", "2700"],
+      ["text crusher", "4", "3600"],
+      ["relevance split", "5", "4500"],
+    ],
+  );
+  // Every heading fits the label column.
+  for (const t of statsTables([c], "…")) assert.ok(t[0][0].length <= 16, t[0][0]);
   assert.equal(statsTables([zeroCounters()], "–")[1][1][1], "–"); // no tokens: no hit ratio
   assert.equal(statsTables([{ ...c, hit: 0.1 }], "…")[1][1][1], "10%"); // a row's own hit wins over the token-weighted one
 });
@@ -334,6 +388,55 @@ test("computeOptimalK keeps every row up to 8, 3 for redundant rows and at most 
   assert.equal(computeOptimalK(Array.from({ length: 20 }, (_, i) => `unique item number ${i} with some long content`)), 15);
   const k = computeOptimalK(Array.from({ length: 30 }, (_, i) => `item content ${i}`));
   assert.ok(k >= 3 && k <= 15, String(k));
+});
+
+test("computeOptimalK honours a caller's minK and maxK and answers maxK once its simhash budget runs out", () => {
+  const items = Array.from({ length: 20 }, (_, i) => `unique item number ${i} with some long content`);
+  assert.equal(computeOptimalK(items, 10, 100), 19); // the crusher's cap of 15 no longer binds
+  assert.equal(computeOptimalK(items, 5, 30, { left: 1e9 }), 19); // a budget that suffices changes nothing
+  assert.equal(computeOptimalK(items, 5, 30, { left: 0 }), 30);
+  assert.equal(
+    computeOptimalK(
+      Array.from({ length: 30 }, () => "abc"),
+      10,
+      100,
+    ),
+    10,
+  ); // redundant rows: minK
+  assert.equal(computeOptimalK(["a", "b", "c"], 1, 2), 3); // 8 or fewer keep every item, even above maxK (upstream's fast path)
+});
+
+// Captured from relevanceScores before its BM25 core moved into bm25Batch: the refactor must not move a single bit.
+const SCORED_ROWS = [
+  '{"id":1,"host":"alpha.example.com","status":"ok","note":"nightly backup finished"}',
+  '{"id":2,"host":"beta.example.com","status":"error","note":"connection refused by upstream"}',
+  '{"id":3,"host":"gamma.example.com","status":"ok","note":"nightly backup finished"}',
+  '{"id":4,"host":"delta.example.com","status":"ok","note":"retrying connection after timeout"}',
+  '{"id":5,"host":"epsilon.example.com","status":"ok","note":"configuration reloaded"}',
+];
+
+test("relevanceScores keeps its selective filter, 8-char bonus, 0.3 floor and +0.2 boost bit for bit", () => {
+  assert.deepEqual(relevanceScores(SCORED_ROWS, "connection refused beta"), [0, 0.701983971405207, 0, 0.3673279904684023, 0]);
+  assert.deepEqual(relevanceScores(SCORED_ROWS, "status example host"), [0, 0, 0, 0, 0]); // every term in more than half the rows
+  assert.deepEqual(relevanceScores(SCORED_ROWS, "configuration"), [0, 0, 0, 0, 0.3725248336434934]); // 8+ chars: +0.3
+  assert.deepEqual(relevanceScores(SCORED_ROWS, "nightly backup"), [0.5, 0, 0.5, 0, 0]); // floor 0.3, two matches +0.2
+  assert.deepEqual(relevanceScores(SCORED_ROWS, "refused"), [0, 0.3, 0, 0, 0]); // floor alone
+  assert.deepEqual(relevanceScores(SCORED_ROWS, ""), [0, 0, 0, 0, 0]);
+  assert.deepEqual(relevanceScores(SCORED_ROWS, "unrelated words only"), [0, 0, 0, 0, 0]);
+});
+
+test("bm25Scores is upstream BM25Scorer.score_batch: ln 2 idf, k1 1.5, b 0.75, over 10, +0.3 for an 8-char match", () => {
+  // Tokens [alpha beta], [beta gamma gamma], [delta]: average length 2.
+  const [a, b, c] = bm25Scores(["alpha beta", "beta gamma gamma", "delta"], "gamma beta");
+  const term = (/** @type {number} */ f, /** @type {number} */ len) => (Math.LN2 * f * 2.5) / (f + 1.5 * (0.25 + (0.75 * len) / 2));
+  assert.ok(Math.abs(a - term(1, 2) / 10) < 1e-12, String(a));
+  assert.ok(Math.abs(b - (term(1, 3) + term(2, 3)) / 10) < 1e-12, String(b));
+  assert.equal(c, 0);
+  // Average length 1.5; "configuration" has 13 chars: +0.3, and no selective filter or floor applies.
+  const [d, e] = bm25Scores(["configuration file", "other"], "configuration");
+  assert.ok(Math.abs(d - ((Math.LN2 * 2.5) / (1 + 1.5 * (0.25 + (0.75 * 2) / 1.5)) / 10 + 0.3)) < 1e-12, String(d));
+  assert.equal(e, 0);
+  assert.deepEqual(bm25Scores(["alpha", "beta"], ""), [0, 0]);
 });
 
 test("storeOffloaded evicts the oldest entry beyond CCR_CAPACITY", () => {
@@ -1034,6 +1137,19 @@ test("rewriteToolResults passes through rows with nothing to rewrite", () => {
   assert.equal(rewriteToolResults([toolResult(undefined)], "Bash", lv, ""), undefined);
 });
 
+test("the router still ends every route with the elider when the new levers find nothing to do", () => {
+  const smallDiff = `diff --git a/app.min.js b/app.min.js\n@@ -1,1 +1,1 @@\n-${"x".repeat(2500)}\n+${"y".repeat(2500)}`;
+  assert.equal(detectContentType(smallDiff), "diff");
+  const all = { crush: false, elide: true, log: true, search: true, diff: true, textcrush: true, split: true };
+  for (const text of [DENSE_TEXT, smallDiff]) {
+    const elideOnly = rewrite([toolResult(text)], "Bash", { crush: false, elide: true }); // no detection: the text route
+    const routed = rewrite([toolResult(text)], "Bash", all); // detection: the type's own route
+    assert.equal(routed.content[0].content, elideOnly.content[0].content);
+    assert.equal(routed.elide.lines, elideOnly.elide.lines);
+    assert.deepEqual([routed.log, routed.search, routed.diff, routed.textcrush, routed.split], Array(5).fill({ texts: 0, saved: 0 }));
+  }
+});
+
 test("rewriteToolResults with every lever off changes nothing", () => {
   const off = { crush: false, elide: false };
   assert.equal(rewriteToolResults([toolResult(BIG)], "Bash", off, ""), undefined);
@@ -1054,6 +1170,22 @@ test("wantsQuery asks for the transcript only for a JSON document the crusher ma
   assert.equal(wantsQuery([toolResult("[ 10%] Building CXX object foo.o\n".repeat(40))], "Bash"), false);
   assert.equal(wantsQuery([toolResult("{" + "x".repeat(900))], "Bash"), false);
   assert.equal(wantsQuery([toolResult([{ type: "tool_reference", tool_name: "Read" }])], "ToolSearch"), false);
+});
+
+test("wantsQuery with levers also asks for any non-Read text of 300+ characters a query-reading prose lever may rewrite", () => {
+  const prose = "a line of ordinary command output\n".repeat(10); // 340 characters
+  assert.equal(wantsQuery([toolResult(prose)], "Bash", { split: true }), true);
+  assert.equal(wantsQuery([toolResult(prose)], "Bash", { search: true }), true);
+  assert.equal(wantsQuery([toolResult(prose)], "Bash", { diff: true }), true);
+  assert.equal(wantsQuery([toolResult(prose)], "Bash", { textcrush: true }), true);
+  assert.equal(wantsQuery([toolResult(prose)], "Read", { split: true }), false);
+  assert.equal(wantsQuery([toolResult(prose, true)], "Bash", { split: true }), false);
+  assert.equal(wantsQuery([toolResult(prose)], RETRIEVE_TOOL, { split: true }), false);
+  assert.equal(wantsQuery([toolResult(prose.slice(0, 299))], "Bash", { split: true }), false);
+  assert.equal(wantsQuery([toolResult(prose)], "Bash", { log: true }), false); // the log compressor never reads the query
+  assert.equal(wantsQuery([toolResult(prose)], "Bash", { crush: true }), false); // the two-argument behaviour
+  assert.equal(wantsQuery([toolResult(BIG)], "Bash", { crush: false }), false); // the SmartCrusher off: no JSON check
+  assert.equal(wantsQuery([toolResult(BIG)], "Bash", { crush: true, split: true }), true);
 });
 
 // Upstream tests/parity/fixtures/content_detector/*.json at 976aa71: [input, output.content_type], file name prefix.
@@ -2065,4 +2197,992 @@ test("after an extraction the elider gets the extracted text's own spans, so a d
   const elided = rewrite([toolResult(page)], "Bash", levers({ extract: true, elide: true, tags: false }));
   assert.deepEqual([elided.extract.pages, elided.elide.lines], [1, 1]);
   assert.ok(!String(elided.content[0].content).includes(REMINDER));
+});
+// Router compressors (log, search, diff, text crusher, relevance split): shared helpers.
+const RUN_LINE = /^\.\.\. \(repeated \d+ times\)$/m;
+const RETRIEVE_LINE = /\n\[[^\n]*Retrieve original: hash=([0-9a-f]{12})\]$/;
+
+/**
+ * A step's result that must exist (narrows away undefined for the type checker).
+ * @template T
+ * @param {T|undefined} x
+ * @returns {T}
+ */
+const must = (x) => {
+  if (x === undefined) throw new Error("expected a result");
+  return x;
+};
+
+/**
+ * Only the given levers on: no SmartCrusher, elider or dedup unless asked.
+ * @param {Partial<Levers>} over
+ * @returns {Levers}
+ */
+const only = (over) => ({ crush: false, elide: false, ...over });
+
+/**
+ * rewriteToolResults over one string result; undefined when the row passes through.
+ * @param {string} text
+ * @param {Levers} lv
+ * @param {string} [tool]
+ * @param {string} [query]
+ */
+const route = (text, lv, tool = "Bash", query = "") => rewriteToolResults([toolResult(text)], tool, lv, query);
+
+/**
+ * The stored text of a rewritten one-result row.
+ * @param {ReturnType<typeof rewriteToolResults>} r
+ * @returns {string}
+ */
+const stored = (r) => {
+  if (!r) throw new Error("expected the row to be rewritten");
+  return String(r.content[0].content);
+};
+
+/** `n` distinct INFO lines, one per build step. */
+const infoTicks = (/** @type {number} */ n, from = 0) => Array.from({ length: n }, (_, i) => `INFO step ${from + i}: compiled module_${from + i} into build/out_${from + i}.o`);
+
+/** Upstream log_compressor.rs java_chained_trace: two chained traces with `runtime` JDK frames each. */
+const javaTrace = (/** @type {number} */ runtime) =>
+  [
+    'Exception in thread "main" java.lang.IllegalStateException: boom',
+    "at com.example.App.handle(App.java:10)",
+    "at com.example.App.dispatch(App.java:20)",
+    ...Array.from({ length: runtime }, (_, i) => `at java.base/java.util.stream.Op${i}.eval(Op${i}.java:${i + 1})`),
+    "Caused by: java.io.IOException: disk gone",
+    "at com.example.Disk.read(Disk.java:77)",
+    ...Array.from({ length: runtime }, (_, i) => `at java.base/java.lang.Thread${i}.run(Thread.java:${i + 1})`),
+    "... 17 more",
+  ].join("\n");
+
+/** Upstream log_compressor.rs pytest_issue_log: a pytest run with `n` failures, each with its own `E ` line. */
+const pytestIssueLog = (/** @type {number} */ n) => {
+  const pad = (/** @type {number} */ i) => String(i).padStart(3, "0");
+  return [
+    "============================= test session starts =============================",
+    "collected 400 items",
+    "",
+    ...Array.from({ length: 40 }, (_, i) => `tests/test_module_${String(i).padStart(2, "0")}.py ..........................  [ ${String(i).padStart(2, " ")}%]`),
+    "=================================== FAILURES ==================================",
+    ...Array.from({ length: n }, (_, k) => [
+      `____________________ test_case${pad(k + 1)} ____________________`,
+      "",
+      ">       assert result == expected",
+      `E       AssertionError: mismatch in test_case${pad(k + 1)}`,
+      "",
+      "tests/t.py:42: AssertionError",
+    ]).flat(),
+    "=========================== short test summary info ===========================",
+    ...Array.from({ length: n }, (_, k) => `FAILED tests/t.py::test_case${pad(k + 1)} - AssertionError: mismatch`),
+    `=============== ${n} failed, 380 passed in 41.02s ==============`,
+  ].join("\n");
+};
+
+test("foldLog strips ANSI colour and collapses repeated lines, and refuses a fold it cannot verify", () => {
+  const text = "\x1b[32mok\x1b[0m step one\nretrying connection\nretrying connection\nretrying connection\ndone\n";
+  assert.deepEqual(foldLog(text), { text: "ok step one\nretrying connection\n... (repeated 3 times)\ndone\n", offloaded: [] });
+  assert.deepEqual(foldLog("\x1b[1mbold\x1b[0m\n"), { text: "bold\n", offloaded: [] }); // colour alone is worth dropping
+  assert.equal(foldLog("plain line one\nplain line two\n"), undefined); // nothing to fold
+  // A line that already reads like a run marker would expand into lines that were never there.
+  assert.equal(foldLog("a\n... (repeated 3 times)\nb\nb\n"), undefined);
+});
+
+test("compressLog declines under 50 lines (upstream empty_input_returns_unchanged)", () => {
+  assert.equal(compressLog("a\nb\nc"), undefined);
+  assert.equal(compressLog(Array.from({ length: 49 }, (_, i) => `ERROR failure number ${i} in the nightly build`).join("\n")), undefined);
+});
+
+test("compressLog keeps the error, its context and the omitted-lines summary, and ends with a retrieval line (upstream ccr_marker_descriptor_empty_when_nothing_extractable)", () => {
+  let content = "";
+  for (let i = 0; i < 50; i++) content += `INFO line ${i}\n`;
+  content += "ERROR boom\n";
+  const r = must(compressLog(content));
+  const [, hash] = RETRIEVE_LINE.exec(r.text) ?? [];
+  assert.equal(r.text, `INFO line 47\nINFO line 48\nINFO line 49\nERROR boom\n\n[47 lines omitted: 1 ERROR, 50 INFO]\n[52 lines compressed to 5. Retrieve original: hash=${hash}]`);
+  assert.deepEqual(r.offloaded, [[hash, content]]);
+  assert.equal(compressLog(content)?.text, r.text); // deterministic: the same input names the same hash
+});
+
+test("compressLog keeps the first, the last and the best of more than 10 errors", () => {
+  const lines = infoTicks(200);
+  for (let k = 1; k <= 19; k++) lines[k * 10] = `ERROR failure #${k} while linking`;
+  const r = must(compressLog(lines.join("\n")));
+  const kept = r.text.split("\n").flatMap((l) => /^ERROR failure #(\d+)/.exec(l)?.[1] ?? []);
+  assert.deepEqual(kept.map(Number), [1, 2, 3, 4, 5, 6, 7, 8, 9, 19]);
+});
+
+test("compressLog classifies levels by upstream's exact-casing words and word boundaries (upstream level_classifier tests)", () => {
+  const filler = Array.from({ length: 50 }, (_, i) => `step ${i} compiled module_${i} into build/out_${i}.o`);
+  const levelsLog = [
+    "ERROR: something went wrong",
+    "error: file not found",
+    "Error: Invalid input",
+    "FATAL: system crash",
+    "fatal error occurred",
+    "CRITICAL: database down",
+    "FAIL tests/test_foo.py",
+    "FAILED to connect",
+    "Test failed",
+    "WARN: deprecated function",
+    "WARNING: low disk space",
+    "warning: unused variable",
+    "INFO: starting process",
+    "info starting",
+    "DEBUG: variable x = 5",
+    "debug mode enabled",
+    "TRACE: entering function",
+    "Just some regular text",
+    ...filler,
+  ].join("\n");
+  assert.match(compressLog(levelsLog)?.text ?? "", /\n\[\d+ lines omitted: 6 ERROR, 3 FAIL, 3 WARN, 2 INFO\]\n/);
+  // The first word by position decides: "WARN: error" is a warning.
+  assert.match(compressLog(["WARN: error budget nearly spent", ...filler].join("\n"))?.text ?? "", /\n\[\d+ lines omitted: 1 WARN\]\n/);
+  // A level word inside a longer word is no level.
+  assert.doesNotMatch(compressLog(["informant arrested", "errorless code", "warned-off", ...filler].join("\n"))?.text ?? "", /lines omitted/);
+});
+
+test("compressLog dedupes warnings on their message prefix (upstream fixed_in_3e5_dedupe_preserves_distinct_messages, dedupe_collapses_genuinely_repeated_warnings)", () => {
+  const lines = infoTicks(70);
+  lines[10] = "warning: file /tmp/a/123 issue";
+  lines[30] = "warning: file /tmp/b/999 issue"; // digits and the path normalise away: a repeat of line 10
+  lines[50] = "WARN segfault at 0xdeadbeef in thread main";
+  lines[60] = "WARN heap overflow at 0xcafef00d in thread worker"; // another message: kept
+  const out = compressLog(lines.join("\n"))?.text ?? "";
+  for (const kept of [lines[10], lines[50], lines[60]]) assert.ok(out.split("\n").includes(kept), kept);
+  assert.ok(!out.includes(lines[30]));
+});
+
+test("compressLog keeps a chained Python traceback across its blank lines (upstream fixed_in_3e5_chained_exception_traces_survive_blank_lines)", () => {
+  const trace = [
+    "Traceback (most recent call last):",
+    '  File "a.py", line 1, in <module>',
+    "ValueError: x",
+    "",
+    "During handling of the above exception, another exception occurred:",
+    "",
+    "Traceback (most recent call last):",
+    '  File "b.py", line 2, in <module>',
+    "RuntimeError: y",
+  ];
+  const out = compressLog([...infoTicks(50), ...trace, ...infoTicks(10, 50)].join("\n"))?.text ?? "";
+  assert.ok(out.includes(trace.join("\n")), out);
+});
+
+test("compressLog collapses runtime frames of an oversized trace but keeps its chain heads (upstream collapse_keeps_chain_heads_and_app_frames, small_traces_not_collapsed)", () => {
+  const out = compressLog(javaTrace(30))?.text ?? "";
+  assert.ok(out.includes("Caused by: java.io.IOException"));
+  assert.ok(out.includes("com.example.Disk.read"));
+  assert.ok(out.includes("... 17 more"));
+  assert.match(out, /^ {6}\[\.\.\. \d+ frames collapsed\]$/m);
+  assert.ok(!out.includes("Thread25.run"));
+  const small = compressLog([...infoTicks(50), javaTrace(2)].join("\n"))?.text ?? "";
+  assert.ok(small.includes(javaTrace(2)));
+  assert.ok(!small.includes("frames collapsed]"));
+});
+
+test("compressLog reserves pytest's totals and first E line under a binding cap and names every omitted entry (upstream binding_cap_reserves_pytest_totals_and_first_error_line)", () => {
+  for (const n of [60, 200]) {
+    const out = compressLog(pytestIssueLog(n))?.text ?? "";
+    assert.ok(out.includes(`${n} failed, 380 passed`), String(n));
+    assert.ok(out.includes("E       AssertionError: mismatch in test_case001"), String(n));
+    const lines = out.split("\n");
+    const kept = lines.filter((l) => l.startsWith("FAILED tests/t.py::")).length;
+    const summary = lines.at(-2) ?? "";
+    const named = (summary.split("; omitted: ")[1] ?? "").replace(/\]$/, "");
+    const listed = named.split(", ").filter((p) => !p.startsWith("+")).length;
+    const overflow = Number(/, \+(\d+) more$/.exec(named)?.[1] ?? 0);
+    assert.equal(kept + listed + overflow, n, summary);
+  }
+});
+
+test("compressLog names the exception types and files it dropped in its retrieval line (upstream ccr_marker_includes_error_types_and_files_when_available)", () => {
+  const lines = infoTicks(10);
+  for (let i = 0; i < 120; i++) lines.push(`error[E${1000 + i}]: real distinct compile error #${i}`, ` --> src/module_${i}.rs:${i + 1}:1`);
+  const out = compressLog(lines.join("\n"))?.text ?? "";
+  assert.match(out, /\n\[250 lines compressed to \d+: \d+ files, \d+ exception types \((E\d{4}, ){4}E\d{4}, \.\.\.\)\. Retrieve original: hash=[0-9a-f]{12}\]$/);
+});
+
+test("the build route: the log compressor beats a declining fold, a fold that saves nearly as much wins and ends the route", () => {
+  const plain = [...infoTicks(60), "ERROR linker exited with code 1"].join("\n");
+  assert.equal(detectContentType(plain), "build");
+  assert.equal(foldLog(plain), undefined);
+  const lossy = route(plain, only({ log: true }));
+  assert.equal(stored(lossy), compressLog(plain)?.text); // no fold: merely shorter is enough
+  assert.deepEqual(lossy?.log, { texts: 1, saved: plain.length - stored(lossy).length });
+  // A fold that halves the log: the lossy result is still under 95% of it.
+  const halved = [...infoTicks(60).flatMap((l) => [l, l]), "ERROR linker exited with code 1"].join("\n");
+  const fold = must(foldLog(halved));
+  const lossyHalved = must(compressLog(halved));
+  assert.ok(lossyHalved.text.length <= fold.text.length * 0.95);
+  assert.equal(stored(route(halved, only({ log: true }))), lossyHalved.text);
+  // 300 identical heartbeats fold to two lines: the lossy result cannot beat that by 5%, so the fold is adopted and ends the route.
+  const beats = [...Array(300).fill("INFO heartbeat ok"), "ERROR boom"].join("\n");
+  const beatFold = must(foldLog(beats));
+  const beatLossy = must(compressLog(beats));
+  assert.ok(beatLossy.text.length > beatFold.text.length * 0.95);
+  const r = route(beats, only({ log: true, elide: true }));
+  assert.equal(stored(r), beatFold.text);
+  assert.deepEqual([r?.log.texts, r?.elide.lines, r?.offloaded], [1, 0, []]);
+});
+
+test("the build route: a lossy log rewrite is never folded, and the elider still runs on it", () => {
+  // Errors are always kept, so the lossy output keeps the two identical adjacent ERROR lines the fold would collapse.
+  const twin = infoTicks(60);
+  twin[30] = "ERROR disk quota exceeded on /var/cache";
+  twin[31] = "ERROR disk quota exceeded on /var/cache";
+  const text = twin.join("\n");
+  const lossy = must(compressLog(text));
+  assert.ok(foldLog(lossy.text)); // the precondition: the fold WOULD rewrite the lossy output
+  const r = route(text, only({ log: true, elide: true }));
+  assert.equal(stored(r), lossy.text);
+  assert.doesNotMatch(stored(r), RUN_LINE);
+  assert.equal(r?.log.texts, 1);
+  // A dense line in a kept error line: the elider cuts it after the log compressor, and both originals resolve.
+  const dense = infoTicks(60);
+  dense[30] = `ERROR ${"x".repeat(2500)}`;
+  const d = route(dense.join("\n"), only({ log: true, elide: true }));
+  const out = stored(d);
+  assert.match(out, /\n\[1 dense machine-generated line elided\. Retrieve original: hash=([0-9a-f]{12})\]$/);
+  assert.match(out, /\n\[60 lines compressed to \d+\. Retrieve original: hash=[0-9a-f]{12}\]\n/);
+  assert.deepEqual([d?.log.texts, d?.elide.lines], [1, 1]);
+  const hashes = [...out.matchAll(/hash=([0-9a-f]{12})\]/g)].map((m) => m[1]);
+  assert.deepEqual(
+    d?.offloaded.map(([h]) => h),
+    hashes,
+  );
+  assert.equal(d?.offloaded[0][1], dense.join("\n"));
+});
+
+test("the log compressor leaves Read output, line-numbered text, tagged text and error rows whole, and alone triggers detection", () => {
+  const text = [...infoTicks(60), "ERROR linker exited with code 1"].join("\n");
+  assert.equal(route(text, only({ log: true }))?.log.texts, 1); // the only lever on: detection still runs
+  assert.equal(route(text, only({ log: true }), "Read"), undefined);
+  assert.equal(route(`1\t${text}`, only({ log: true })), undefined);
+  assert.equal(route(`${text}\n<system-reminder>keep</system-reminder>`, only({ log: true, tags: true })), undefined);
+  assert.equal(rewriteToolResults([toolResult(text, true)], "Bash", only({ log: true }), ""), undefined);
+  assert.equal(route(text, only({ log: true }), RETRIEVE_TOOL), undefined);
+});
+test("compressLog stays bounded on 20,000 distinct log lines", () => {
+  const text = Array.from({ length: 20_000 }, (_, i) => `${i % 7 === 0 ? "ERROR" : "INFO"} worker ${i} handled request ${i * 7919} in ${i % 97}ms`).join("\n");
+  assert.ok(text.length >= 1_000_000);
+  const t0 = Date.now();
+  const r = route(text, only({ log: true, elide: true }));
+  assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0} ms`);
+  assert.equal(r?.log.texts, 1);
+});
+// 60 rows of a file that sorts after every probe path and loses rows: the probe row, when it parses, is the first output row.
+const FILLER_ROWS = Array.from({ length: 60 }, (_, i) => `zzz.txt:${i + 1}:filler row number ${i} with distinct words alpha${i} beta${i * 3}`);
+
+/**
+ * How compressSearch parses one grep line: its first output row (`file:line:content` as parsed), or a filler row when it does not parse.
+ * @param {string} line
+ * @returns {string|undefined}
+ */
+const parsedRow = (line) => compressSearch([line, ...FILLER_ROWS].join("\n"), "")?.text.split("\n")[0];
+
+/** `n` grep rows each of the given files, with distinct content. */
+const grepRows = (/** @type {string[]} */ files, /** @type {number} */ n) =>
+  files.flatMap((f) => Array.from({ length: n }, (_, i) => `${f}:${(i + 1) * 3}:    value_${f.length}_${i + 1} = compute_${i + 1}(argument_${(i + 1) * 7})`));
+
+test("compressSearch parses grep, ripgrep context and Windows rows as upstream's tiered scan does (upstream parse_match_line tests)", () => {
+  /** @type {[string, string][]} */
+  const cases = [
+    ["src/main.py:42:def main():", "src/main.py:42:def main():"], // parses_standard_grep_line
+    ["src/main.py-43-context after match", "src/main.py:43:context after match"], // parses_ripgrep_context_line
+    ["app/settings.py-476-a:7:b:8:c", "app/settings.py:476:a:7:b:8:c"], // dash_context_line_wins_over_a_colon_marker_in_its_body
+    ["CHANGELOG-12-a:99:b", "CHANGELOG:12:a:99:b"],
+    ["app.py-476-foo.rs:12:ref", "app.py:476:foo.rs:12:ref"],
+    ["pkg/server.ts-91-lib/index.js:7:import", "pkg/server.ts:91:lib/index.js:7:import"],
+    ["logs/2026-05-03/app.log:12:ERROR", "logs/2026-05-03/app.log:12:ERROR"],
+    ["migrations/20240101-002-add_users.sql:12:SELECT", "migrations/20240101-002-add_users.sql:12:SELECT"],
+    ["notes.md-3-see-4-here", "notes.md:3:see-4-here"], // dash_tier_does_not_run_past_the_path_into_the_body
+    ["CHANGELOG.md-7-v1-2-beta", "CHANGELOG.md:7:v1-2-beta"],
+    ["CHANGELOG-12-2026-05-03", "CHANGELOG:12:2026-05-03"], // parses_context_line_for_extensionless_path
+    ["Makefile-7-build-2-stage", "Makefile:7:build-2-stage"],
+    [".github/workflows/ci-9-2026-01-02", ".github/workflows/ci:9:2026-01-02"],
+    ["logs/2026-05-03/Makefile-12-all:", "logs/2026-05-03/Makefile:12:all:"], // dated_dir_still_wins_for_an_extensionless_file
+    ["Makefile-7-include-2-src/foo.mk", "Makefile:7:include-2-src/foo.mk"], // ambiguous_dash_line_falls_back_to_the_leftmost_marker
+    ["Makefile-9-VERSION=v1.2.3-4-gdeadbee", "Makefile:9:VERSION=v1.2.3-4-gdeadbee"], // a_dotted_version_in_the_body_is_not_an_extension
+    ["media/2026-05-03/track-2-final.mp3-8-id3", "media/2026-05-03/track-2-final.mp3:8:id3"], // a_real_extension_still_counts_even_with_digits_in_it
+    ["manifest.txt-5-logs/2026-05-03/app.log", "manifest.txt:5:logs/2026-05-03/app.log"], // dated_path_inside_a_context_body_is_not_hijacked
+    ["C:\\Users\\foo\\bar.py:42:def main():", "C:\\Users\\foo\\bar.py:42:def main():"], // fixed_in_3e2_handles_windows_path_with_backslash
+    ["C:/Users/foo/bar.py:42:def main():", "C:/Users/foo/bar.py:42:def main():"], // ... with_forward_slash
+    ["pre-commit-config.yaml-42-fail_fast: true", "pre-commit-config.yaml:42:fail_fast: true"], // fixed_in_3e2_handles_dashes_in_filename_with_ripgrep_context
+    ["migrations/20240101-002-add_users.sql-9-  id BIGINT", "migrations/20240101-002-add_users.sql:9:  id BIGINT"], // date_stamped_path_is_not_misread_as_line_number_marker
+    ["src/main.py-44-see foo.rs:12:bar", "src/main.py:44:see foo.rs:12:bar"], // body_line_reference_does_not_hijack_a_context_line
+    ["logs/app.log.1-42-rotated line", "logs/app.log.1:42:rotated line"], // digit_terminated_path_still_parses_ripgrep_context_line
+    ['config.py:10:DATABASE_URL = "postgres://user:pass@host:5432/db"', 'config.py:10:DATABASE_URL = "postgres://user:pass@host:5432/db"'], // preserves_colons_in_match_content
+  ];
+  for (const [line, row] of cases) assert.equal(parsedRow(line), row, line);
+  // rejects_lines_without_line_number_marker, rejects_negative_line_numbers: such a line does not parse and is dropped.
+  for (const line of ["just a normal line of prose", "file.py:not-a-number:something", ":42:something", "src/file.py:-1:invalid", "src/file.py--1-invalid"]) {
+    assert.ok(parsedRow(line)?.startsWith("zzz.txt:"), line);
+  }
+});
+
+test("compressSearch keeps the first, last and best 5 rows per file within an adaptive total, then a retrieval line (upstream select_respects_per_file_cap_and_global_cap)", () => {
+  const text = grepRows(["src/alpha.py", "src/beta.py", "src/gamma.py"], 40).join("\n");
+  assert.equal(detectContentType(text), "search");
+  const r = must(compressSearch(text, ""));
+  const lines = r.text.split("\n");
+  for (const f of ["src/alpha.py", "src/beta.py", "src/gamma.py"]) {
+    const rows = lines.filter((l) => l.startsWith(`${f}:`));
+    assert.equal(rows.length, 5, f);
+    assert.ok(rows[0].startsWith(`${f}:3:`) && rows[4].startsWith(`${f}:120:`), f); // first and last, in line order
+    assert.ok(lines.includes(`[... and 35 more matches in ${f}]`), f);
+  }
+  const [, hash] = /\n\[120 matches compressed to 15\. Retrieve original: hash=([0-9a-f]{12})\]$/.exec(r.text) ?? [];
+  assert.deepEqual(r.offloaded, [[hash, text]]);
+  // At most 15 files: of 20 single-row files with equal scores, the first 15 by path survive.
+  const twenty = Array.from({ length: 20 }, (_, i) => `pkg/file${String(i).padStart(2, "0")}.go:${i + 7}:func handler${i}(w http.ResponseWriter, r *http.Request) { serve${i}(w, r) }`);
+  const kept = must(compressSearch(twenty.join("\n"), "")).text.split("\n");
+  assert.deepEqual(kept.slice(0, -1), twenty.slice(0, 15));
+  assert.match(kept.at(-1) ?? "", /^\[20 matches compressed to 15\. Retrieve original: hash=[0-9a-f]{12}\]$/);
+});
+
+test("compressSearch keeps an error row and a query row and drops unparsed lines (upstream scoring_boosts_error_lines_in_search_context, parser_groups_by_file_and_counts)", () => {
+  const rows = grepRows(["src/alpha.py"], 40);
+  rows[17] = "src/alpha.py:54:    raise ConnectionError('upstream timeout')";
+  rows[23] = "src/alpha.py:72:    return frobnicate(widget)";
+  const text = ["grep: src/vendor: Permission denied", ...rows, "just prose, no marker"].join("\n");
+  const out = must(compressSearch(text, "why does frobnicate break the widget")).text.split("\n");
+  assert.ok(out.includes(rows[17]));
+  assert.ok(out.includes(rows[23]));
+  assert.ok(!out.some((l) => l.includes("prose") || l.includes("Permission")));
+  assert.equal(must(compressSearch(text, "")).offloaded[0][1], text); // the dropped lines stay retrievable
+  assert.equal(compressSearch("plain text only\nand another line", ""), undefined); // upstream empty_input_returns_unchanged
+});
+
+test("foldSearch folds repeated files and directories into headings it can invert, skipping timestamped rows", () => {
+  const byFile = "src/a.py:1:alpha\nsrc/a.py:2:beta\nsrc/a.py:3:gamma\n";
+  assert.deepEqual(foldSearch(byFile), { text: "src/a.py\n1:alpha\n2:beta\n3:gamma\n", offloaded: [] });
+  const byDir = "src/pkg/one.py:1:alpha\nsrc/pkg/two.py:2:beta\nsrc/pkg/three.py:3:gamma";
+  assert.deepEqual(foldSearch(byDir), { text: "src/pkg/\none.py:1:alpha\ntwo.py:2:beta\nthree.py:3:gamma", offloaded: [] });
+  // A timestamped log row has the grep shape but is never folded.
+  assert.equal(foldSearch("2026-09-02 14:30:00 [FATAL] one\n2026-09-02 14:30:01 [FATAL] two\n"), undefined);
+  // The smaller fold wins: one file with many rows folds better by file than by directory.
+  const many = Array.from({ length: 6 }, (_, i) => `lib/core/engine.py:${i + 1}:line ${i}`).join("\n");
+  assert.equal(foldSearch(many)?.text, `lib/core/engine.py\n${Array.from({ length: 6 }, (_, i) => `${i + 1}:line ${i}`).join("\n")}`);
+  assert.equal(foldSearch("a.py:1:x\nb.py:2:y\n"), undefined); // nothing repeats
+});
+
+test("the search route: the search compressor beats a declining fold and a fold it out-saves by 5%, and loses to a fold that saves nearly as much", () => {
+  // Rows of two alternating files without a directory: neither fold shrinks them.
+  const alternating = Array.from({ length: 60 }, (_, i) => `${i % 2 ? "b.py" : "a.py"}:${i + 1}:    total_${i} = accumulate(series_${i}, window=${i % 9})`).join("\n");
+  assert.equal(foldSearch(alternating), undefined);
+  const plain = route(alternating, only({ search: true }));
+  assert.equal(stored(plain), compressSearch(alternating, "")?.text);
+  assert.deepEqual(plain?.search, { texts: 1, saved: alternating.length - stored(plain).length });
+  // Three files of 40 rows: the heading fold shrinks them, the lossy cut far more.
+  const three = grepRows(["src/alpha.py", "src/beta.py", "src/gamma.py"], 40).join("\n");
+  const fold = must(foldSearch(three));
+  const lossy = must(compressSearch(three, ""));
+  assert.ok(lossy.text.length <= fold.text.length * 0.95);
+  assert.equal(stored(route(three, only({ search: true }))), lossy.text);
+  // One deep path repeated 8 times: its heading fold leaves almost nothing for the lossy cut to beat.
+  const deep = Array.from({ length: 8 }, (_, i) => `src/${"deep/".repeat(20)}module.py:${i + 1}:x = ${i}`).join("\n");
+  const deepFold = must(foldSearch(deep));
+  assert.ok(must(compressSearch(deep, "")).text.length > deepFold.text.length * 0.95);
+  const r = route(deep, only({ search: true, elide: true }));
+  assert.equal(stored(r), deepFold.text);
+  assert.deepEqual([r?.search.texts, r?.elide.lines, r?.offloaded], [1, 0, []]);
+});
+
+test("the search route: a lossy search rewrite is never folded into headings, and the elider still runs on it", () => {
+  const text = grepRows(["src/alpha.py", "src/beta.py", "src/gamma.py"], 40).join("\n");
+  const lossy = must(compressSearch(text, ""));
+  assert.ok(foldSearch(lossy.text)); // the precondition: the fold WOULD rewrite the lossy output's consecutive rows
+  const r = route(text, only({ search: true, elide: true }));
+  assert.equal(stored(r), lossy.text);
+  assert.ok(stored(r).split("\n").includes("src/alpha.py:3:    value_12_1 = compute_1(argument_7)")); // still file:line:content, no heading row
+  assert.ok(!stored(r).split("\n").includes("src/alpha.py"));
+  assert.equal(r?.search.texts, 1);
+  // A dense first row of a file is always kept: the elider cuts it after the search compressor.
+  const dense = grepRows(["src/alpha.py", "src/beta.py"], 40);
+  dense[0] = `src/alpha.py:3:${"x".repeat(2500)}`;
+  const d = route(dense.join("\n"), only({ search: true, elide: true }));
+  const out = stored(d);
+  assert.match(out, /\n\[80 matches compressed to \d+\. Retrieve original: hash=[0-9a-f]{12}\]\n\[1 dense machine-generated line elided\. Retrieve original: hash=[0-9a-f]{12}\]$/);
+  assert.deepEqual([d?.search.texts, d?.elide.lines], [1, 1]);
+  assert.deepEqual(
+    d?.offloaded.map(([h]) => h),
+    [...out.matchAll(/hash=([0-9a-f]{12})\]/g)].map((m) => m[1]),
+  );
+});
+
+test("the search compressor leaves Read output, line-numbered text, tagged text and error rows whole, and alone triggers detection", () => {
+  const text = grepRows(["src/alpha.py", "src/beta.py", "src/gamma.py"], 40).join("\n");
+  assert.equal(route(text, only({ search: true }))?.search.texts, 1);
+  assert.equal(route(text, only({ search: true }), "Read"), undefined);
+  assert.equal(route(`1\t${text}`, only({ search: true })), undefined);
+  assert.equal(route(`${text}\n<system-reminder>keep</system-reminder>`, only({ search: true, tags: true })), undefined);
+  assert.equal(rewriteToolResults([toolResult(text, true)], "Bash", only({ search: true }), ""), undefined);
+});
+
+test("compressSearch stays bounded on 50,000 rows with a 16 KiB query and on one adversarial marker line", () => {
+  const rows = Array.from({ length: 50_000 }, (_, i) => `src/m${i % 400}/file${i % 1200}.py:${i + 1}:value_${i} = compute(${i})`).join("\n");
+  const query = Array.from({ length: 2000 }, (_, i) => `word${i}`)
+    .join(" ")
+    .slice(0, 16_384);
+  let t0 = Date.now();
+  assert.ok(compressSearch(rows, query));
+  assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0} ms`);
+  // Every dash marker of this one line has path structure after it, so the dash tier would rescan the line per marker: the
+  // budget declines it instead.
+  const hostile = `${"a:1-a-1-".repeat(125_000)}/x`;
+  t0 = Date.now();
+  assert.equal(compressSearch(hostile, ""), undefined);
+  assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0} ms`);
+});
+/** Upstream diff_compressor.rs build_synthetic_diff: `n` files with one 18-line hunk each (5 context, 3 removed, 5 added, 5 context). */
+const syntheticDiff = (/** @type {number} */ n) =>
+  Array.from({ length: n }, (_, i) =>
+    [
+      `diff --git a/file_${i}.py b/file_${i}.py`,
+      `--- a/file_${i}.py`,
+      `+++ b/file_${i}.py`,
+      "@@ -1,10 +1,12 @@",
+      ...Array.from({ length: 5 }, (_, k) => ` context_${k}_${i}`),
+      ...Array.from({ length: 3 }, (_, k) => `-removed_${k}_${i}`),
+      ...Array.from({ length: 5 }, (_, k) => `+added_${k}_${i}`),
+      ...Array.from({ length: 5 }, (_, k) => ` tail_${k}_${i}`),
+      "",
+    ].join("\n"),
+  ).join("") + "# variant 1";
+
+/** Upstream diff_compressor.rs build_n_hunk_diff: one file with `n` 6-line hunks 100 lines apart (`index` adds git's bookkeeping line). */
+const nHunkDiff = (/** @type {number} */ n, index = false) =>
+  [
+    "diff --git a/big.py b/big.py",
+    ...(index ? ["index 3b18e512dba79e4c8300dd08aeb37f8e728b8dad..af5626b4a114abcb82d63db7c8082c3c4756e51b 100644"] : []),
+    "--- a/big.py",
+    "+++ b/big.py",
+    ...Array.from({ length: n }, (_, i) => [`@@ -${i * 100 + 1},6 +${i * 100 + 1},6 @@`, ` ctx_a_${i}`, ` ctx_b_${i}`, `-old_${i}`, `+new_${i}`, ` ctx_c_${i}`, ` ctx_d_${i}`]).flat(),
+    "",
+  ].join("\n");
+
+// A second file whose 60 unchanged lines the context trim drops: pads a small fixture past 50 lines and makes it compress.
+const PAD_FILE = [
+  "diff --git a/pad.txt b/pad.txt",
+  "--- a/pad.txt",
+  "+++ b/pad.txt",
+  "@@ -1,61 +1,61 @@",
+  "-old pad",
+  "+new pad",
+  ...Array.from({ length: 60 }, (_, i) => ` unchanged pad line ${i}`),
+].join("\n");
+
+test("compressDiff declines a short input and a text without a file header (upstream short_input_passes_through, non_diff_input_passes_through)", () => {
+  assert.equal(compressDiff("diff --git a/x b/x\n@@ -1 +1 @@\n-a\n+b", ""), undefined);
+  assert.equal(compressDiff("this is not a diff\n".repeat(60), ""), undefined);
+  assert.equal(compressDiff(`${"+ added line\n".repeat(60)}--- a/x.py\n`, ""), undefined);
+});
+
+test("compressDiff trims context to 2 lines and ends with the footer and a retrieval line (upstream synthetic_eight_file_diff_matches_known_shape)", () => {
+  const input = syntheticDiff(8);
+  assert.equal(input.split("\n").length, 177);
+  const r = must(compressDiff(input, ""));
+  const lines = r.text.split("\n");
+  const [, hash] = /^\[177 lines compressed to 129\. Retrieve original: hash=([0-9a-f]{12})\]$/.exec(lines.at(-1) ?? "") ?? [];
+  assert.ok(hash, lines.at(-1));
+  assert.equal(lines.at(-2), "[8 files changed, +40 -24 lines]");
+  assert.deepEqual(r.offloaded, [[hash, input]]);
+  // Each hunk keeps the 2 context lines on either side of its 8 changes: 12 of 18 lines.
+  assert.deepEqual(lines.slice(0, 16), [
+    "diff --git a/file_0.py b/file_0.py",
+    "--- a/file_0.py",
+    "+++ b/file_0.py",
+    "@@ -1,10 +1,12 @@",
+    " context_3_0",
+    " context_4_0",
+    "-removed_0_0",
+    "-removed_1_0",
+    "-removed_2_0",
+    "+added_0_0",
+    "+added_1_0",
+    "+added_2_0",
+    "+added_3_0",
+    "+added_4_0",
+    " tail_0_0",
+    " tail_1_0",
+  ]);
+});
+
+test("compressDiff keeps the first, the last and 8 middle hunks of a file, counting the dropped ones' lines (upstream max_hunks_per_file_cap_drops_excess_and_records_stats)", () => {
+  const out = must(compressDiff(nHunkDiff(15), "")).text;
+  const headers = out.split("\n").filter((l) => l.startsWith("@@ "));
+  assert.equal(headers.length, 10);
+  assert.equal(headers[0], "@@ -1,6 +1,6 @@");
+  assert.equal(headers[9], "@@ -1401,6 +1401,6 @@");
+  assert.match(out, /\n\[1 files changed, \+15 -15 lines, 5 hunks omitted\]\n/);
+  // A query word and a priority word lift their middle hunks into the 8 kept ones.
+  const marked = nHunkDiff(15).replace("+new_12", "+new_12 frobnicate(widget)").replace("+new_13", "+new_13  # TODO tidy");
+  assert.ok(!must(compressDiff(marked, "")).text.includes("frobnicate"));
+  assert.ok(must(compressDiff(marked, "")).text.includes("# TODO tidy"));
+  assert.ok(must(compressDiff(marked, "why does frobnicate break")).text.includes("frobnicate(widget)"));
+});
+
+test("compressDiff keeps the 20 most-changed of more files (upstream max_files_cap_drops_files_and_records_names_in_stats)", () => {
+  const out = must(compressDiff(syntheticDiff(25), "")).text;
+  // Deviation: the footer counts all 25 files and names the 5 the cap dropped.
+  assert.match(out, /\n\[25 files changed, \+125 -75 lines; 5 files omitted: file_20\.py, file_21\.py, file_22\.py, file_23\.py, file_24\.py\]\n/);
+  assert.ok(out.includes("diff --git a/file_19.py b/file_19.py"));
+  assert.ok(!out.includes("diff --git a/file_20.py"));
+  const many = must(compressDiff(syntheticDiff(40), "")).text;
+  assert.match(many, /; 20 files omitted: file_20\.py, (?:file_\d+\.py, ){9}…\]\n/); // at most 10 names
+});
+
+test("compressDiff normalises mode and binary lines and keeps rename lines, combined hunks, no-newline markers and pre-diff lines (upstream file_mode, binary, bugfix and gap tests)", () => {
+  const exec = must(
+    compressDiff(
+      ["diff --git a/script.sh b/script.sh", "new file mode 100755", "--- /dev/null", "+++ b/script.sh", "@@ -0,0 +1,3 @@", "+#!/bin/sh", "+echo hi", "+exit 0", ...Array(50).fill("# pad")].join("\n"),
+      "",
+    ),
+  ).text;
+  assert.ok(exec.includes("diff --git a/script.sh b/script.sh\nnew file mode 100644\n--- /dev/null\n+++ b/script.sh"));
+  assert.ok(!exec.includes("100755"));
+  const binary = must(compressDiff(["diff --git a/img.png b/img.png", "Binary files a/img.png and b/img.png differ", ...Array(60).fill("# pad")].join("\n"), "")).text;
+  assert.match(binary, /^diff --git a\/img\.png b\/img\.png\nBinary files differ\n\[1 files changed, \+0 -0 lines\]\n/);
+  const renamed = must(
+    compressDiff(
+      [
+        "diff --git a/old.py b/new.py",
+        "similarity index 92%",
+        "rename from old.py",
+        "rename to new.py",
+        "--- a/old.py",
+        "+++ b/new.py",
+        "@@ -1,3 +1,3 @@",
+        " ctx_a",
+        "-old_line",
+        "+new_line",
+        " ctx_b",
+        PAD_FILE,
+      ].join("\n"),
+      "",
+    ),
+  ).text;
+  assert.ok(renamed.startsWith("diff --git a/old.py b/new.py\nsimilarity index 92%\nrename from old.py\nrename to new.py\n--- a/old.py\n+++ b/new.py\n"));
+  const merged = must(
+    compressDiff(
+      [
+        "diff --git a/merge.py b/merge.py",
+        "--- a/merge.py",
+        "+++ b/merge.py",
+        "@@@ -1,3 -1,3 +1,4 @@@",
+        "  unchanged_a",
+        " -old_branch_1",
+        "- old_branch_2",
+        "++new_in_merge",
+        " +new_added",
+        "  unchanged_b",
+        PAD_FILE,
+      ].join("\n"),
+      "",
+    ),
+  ).text;
+  assert.ok(merged.includes("@@@ -1,3 -1,3 +1,4 @@@\n  unchanged_a\n -old_branch_1\n- old_branch_2\n++new_in_merge\n +new_added\n  unchanged_b"));
+  const noNewline = must(
+    compressDiff(
+      [
+        "diff --git a/last.txt b/last.txt",
+        "--- a/last.txt",
+        "+++ b/last.txt",
+        "@@ -1,8 +1,8 @@",
+        "-old_first",
+        "+new_first",
+        ...["a", "b", "c", "d", "e", "f"].map((c) => ` ctx_${c}`),
+        "\\ No newline at end of file",
+        PAD_FILE,
+      ].join("\n"),
+      "",
+    ),
+  ).text;
+  assert.ok(noNewline.includes("+new_first\n ctx_a\n ctx_b\n\\ No newline at end of file\n"));
+  for (const header of ["diff --combined merge.py", "diff --cc cc_target.py"]) {
+    const out = must(
+      compressDiff(
+        [header, "index abc..def..ghi 100644", "--- a/merge.py", "+++ b/merge.py", "@@@ -1,3 -1,3 +1,4 @@@", "  ctx_a", "- removed_p1", " -removed_p2", "++added_in_merge", "  ctx_b", PAD_FILE].join(
+          "\n",
+        ),
+        "",
+      ),
+    ).text;
+    assert.ok(out.startsWith(`${header}\n--- a/merge.py\n+++ b/merge.py\n@@@ -1,3 -1,3 +1,4 @@@\n`), header);
+    assert.match(out, /\n\[2 files changed, /);
+  }
+  const commit = must(
+    compressDiff(["commit abc1234567890", "Author: Tester <t@example.com>", "Date:   Mon Apr 25 12:00:00 2026", "", "    Refactor: rename and modify", "", PAD_FILE].join("\n"), ""),
+  ).text;
+  assert.ok(commit.startsWith("commit abc1234567890\nAuthor: Tester <t@example.com>\nDate:   Mon Apr 25 12:00:00 2026\n\n    Refactor: rename and modify\n\ndiff --git a/pad.txt b/pad.txt\n"));
+});
+
+test("foldDiff drops only index lines", () => {
+  const text = "diff --git a/x b/x\nindex 83db48f..f735c3e 100644\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-index 1..2\n+b\n";
+  assert.deepEqual(foldDiff(text), { text: "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-index 1..2\n+b\n", offloaded: [] });
+  assert.equal(foldDiff("diff --git a/x b/x\n--- a/x\n+++ b/x\n"), undefined);
+});
+
+test("the diff route: a real git diff reaches the diff compressor over its index-strip fold, a diff rewrite is never elided, and a fold that saves nearly as much wins", () => {
+  const real = nHunkDiff(15, true);
+  assert.equal(detectContentType(real), "diff");
+  const fold = must(foldDiff(real));
+  const lossy = must(compressDiff(real, ""));
+  assert.ok(lossy.text.length <= fold.text.length * 0.95);
+  const r = route(real, only({ diff: true, elide: true }));
+  assert.equal(stored(r), lossy.text);
+  assert.ok(!stored(r).includes("index 3b18e51"));
+  assert.equal(r?.diff.texts, 1);
+  // No index line: no fold, so merely shorter is enough.
+  assert.equal(foldDiff(nHunkDiff(15)), undefined);
+  assert.equal(stored(route(nHunkDiff(15), only({ diff: true }))), compressDiff(nHunkDiff(15), "")?.text);
+  // A dense added line in a kept hunk: the diff rewrite ends the route, so the elider never sees it.
+  const dense = nHunkDiff(15).replace("+new_0", `+${"x".repeat(2500)}`);
+  const d = route(dense, only({ diff: true, elide: true }));
+  assert.ok(stored(d).includes("x".repeat(2500)));
+  assert.deepEqual([d?.diff.texts, d?.elide.lines], [1, 0]);
+  // Twelve files whose hunks hold nothing to trim: the lossy rewrite only drops the index lines the fold drops too, plus its
+  // footer and retrieval line, so the fold wins and ends the route.
+  const tight = Array.from({ length: 12 }, (_, i) =>
+    [
+      `diff --git a/m${i}.py b/m${i}.py`,
+      `index ${"a".repeat(40)}..${"b".repeat(40)} 100644`,
+      `--- a/m${i}.py`,
+      `+++ b/m${i}.py`,
+      "@@ -1,5 +1,5 @@",
+      " a",
+      " b",
+      `-old ${i}`,
+      `+new ${i}`,
+      " c",
+      " d",
+    ].join("\n"),
+  ).join("\n");
+  const tightFold = must(foldDiff(tight));
+  assert.ok(must(compressDiff(tight, "")).text.length > tightFold.text.length * 0.95);
+  const t = route(tight, only({ diff: true, elide: true }));
+  assert.equal(stored(t), tightFold.text);
+  assert.deepEqual([t?.diff.texts, t?.offloaded], [1, []]);
+});
+
+test("the diff compressor leaves Read output, line-numbered text, tagged text and error rows whole, and alone triggers detection", () => {
+  const text = nHunkDiff(15);
+  assert.equal(route(text, only({ diff: true }))?.diff.texts, 1);
+  assert.equal(route(text, only({ diff: true }), "Read"), undefined);
+  assert.equal(route(`1\t${text}`, only({ diff: true })), undefined);
+  assert.equal(route(text.replace("+new_3", "+new_3 <system-reminder>keep</system-reminder>"), only({ diff: true, tags: true })), undefined);
+  assert.equal(rewriteToolResults([toolResult(text, true)], "Bash", only({ diff: true }), ""), undefined);
+});
+
+test("compressDiff stays bounded on a header line holding 250,000 ` b/`", () => {
+  const text = `diff --git a/x${" b/x".repeat(250_000)}\n${nHunkDiff(15).split("\n").slice(1).join("\n")}`;
+  assert.ok(text.length >= 1_000_000);
+  const t0 = Date.now();
+  assert.ok(compressDiff(text, ""));
+  assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0} ms`);
+});
+/** `n` distinct prose sentences on one line each. */
+const sentences = (/** @type {number} */ n, from = 0) => Array.from({ length: n }, (_, i) => `Paragraph ${from + i} explains how the scheduler balances queue ${from + i} against its neighbours.`);
+
+test("foldText collapses repeated lines it can expand back, and only when that is shorter", () => {
+  assert.deepEqual(foldText("intro\nthe same long repeated line\nthe same long repeated line\nthe same long repeated line\noutro"), {
+    text: "intro\nthe same long repeated line\n... (repeated 3 times)\noutro",
+    offloaded: [],
+  });
+  assert.equal(foldText("one\ntwo\nthree"), undefined);
+  assert.equal(foldText("a\n... (repeated 9 times)\nb\nb"), undefined); // a marker-shaped line would not expand back
+});
+
+test("crushText matches upstream's parity fixture and declines short and CJK text (upstream plain_prose_no_query, short_passthrough, unicode)", () => {
+  const content = Array.from({ length: 30 }, (_, i) => `Sentence number ${i} explains how distributed systems reconcile state across topic ${i}.`).join(" ");
+  const r = must(crushProse(content, ""));
+  const [, hash] = /\n\[Text crushed: 15 of 30 segments kept\. Retrieve original: hash=([0-9a-f]{12})\]$/.exec(r.text) ?? [];
+  assert.equal(
+    r.text.slice(0, r.text.lastIndexOf("\n")),
+    Array.from({ length: 15 }, (_, i) => `Sentence number ${i + 15} explains how distributed systems reconcile state across topic ${i + 15}.`).join("\n"),
+  );
+  assert.deepEqual(r.offloaded, [[hash, content]]);
+  assert.equal(crushProse(content, "")?.text, r.text); // deterministic
+  assert.equal(crushProse("one thing. two thing. three thing.", ""), undefined); // fewer than 6 segments
+  const cjk = Array.from({ length: 12 }, (_, i) => `句子 ${i} 描述了系统在主题 ${i} 上的行为细节。`).join(" ");
+  assert.equal(crushProse(cjk, "系统"), undefined);
+  assert.equal(crushProse(`${content} Ｆｕｌｌ-width forms count as CJK too.`, ""), undefined);
+});
+
+test("crushText is extractive, suppresses near-duplicates and keeps the query's and the salient segments (upstream test_text_crusher.py)", () => {
+  const doc = Array.from({ length: 40 }, (_, i) => `Sentence number ${i} describes a distinct topic ${i} in some detail.`).join(" ");
+  const words = new Set(doc.split(/\s+/));
+  const kept = must(crushProse(doc, "")).text.split("\n").slice(0, -1);
+  assert.ok(kept.every((s) => s.split(/\s+/).every((w) => words.has(w))));
+  const dup = "The quick brown fox jumps over the very lazy dog today.";
+  const uniques = Array.from({ length: 8 }, (_, i) => `A unique fact about item ${i} stated plainly here.`);
+  assert.ok((must(crushProse([...Array(10).fill(dup), ...uniques].join("\n"), "")).text.match(/quick brown fox/g) ?? []).length <= 2);
+  const filler = Array.from({ length: 30 }, (_, i) => `Filler line number ${i} with generic words and padding here.`);
+  const needle = "The authentication token expires after thirty minutes of inactivity.";
+  const text = [...filler.slice(0, 15), needle, ...filler.slice(15)].join("\n");
+  assert.ok(must(crushProse(text, "how long until the authentication token expires")).text.includes(needle));
+  assert.ok(!must(crushProse(text, "")).text.includes(needle)); // without the query, recency keeps the later filler instead
+  // Digits, ALLCAPS and dotted identifiers outrank plain early prose.
+  const plain = Array.from({ length: 6 }, (_, i) => `plain words describe the general behaviour of things in vague terms ${"abcdef"[i]}`);
+  const salient = "ERROR at pipeline.apply returned HTTP 503 for request 9182 after 3 tries";
+  const out = must(crushProse([salient, ...plain, ...plain.map((p) => `${p} again`)].join("\n"), "")).text;
+  assert.ok(out.split("\n").includes(salient), out);
+  assert.ok(!out.split("\n").includes(plain[0]), out);
+});
+
+test("the text route: the text crusher beats a declining fold and a fold it out-saves by 5%, and loses to a fold that saves nearly as much", () => {
+  const prose = sentences(20).join("\n");
+  assert.equal(detectContentType(prose), "text");
+  assert.equal(foldText(prose), undefined);
+  const plain = route(prose, only({ textcrush: true }));
+  assert.equal(stored(plain), crushProse(prose, "")?.text);
+  assert.deepEqual(plain?.textcrush, { texts: 1, saved: prose.length - stored(plain).length });
+  // One repeated pair: the fold saves a line, the crusher half the text.
+  const lines = sentences(20);
+  lines.splice(5, 0, lines[5]);
+  const some = lines.join("\n");
+  const fold = must(foldText(some));
+  const lossy = must(crushProse(some, ""));
+  assert.ok(lossy.text.length <= fold.text.length * 0.95);
+  assert.equal(stored(route(some, only({ textcrush: true }))), lossy.text);
+  // Sixty identical retries: the fold leaves two lines for them, which the crusher cannot beat by 5%.
+  const retries = [...sentences(8), ...Array(60).fill("retrying the connection to the database server now")].join("\n");
+  const retryFold = must(foldText(retries));
+  assert.ok(must(crushProse(retries, "")).text.length > retryFold.text.length * 0.95);
+  const r = route(retries, only({ textcrush: true, elide: true }));
+  assert.equal(stored(r), retryFold.text);
+  assert.deepEqual([r?.textcrush.texts, r?.elide.lines, r?.offloaded], [1, 0, []]);
+});
+
+test("the text crusher and the split take only prose: a Glob, find or git log listing passes through whole", () => {
+  const paths = Array.from({ length: 40 }, (_, i) => `src/components/feature_${i}/index.ts`).join("\n");
+  const commits = Array.from({ length: 30 }, (_, i) => `${(0xabc000 + i).toString(16)} fix: adjust the scheduler for queue ${i}`).join("\n");
+  for (const list of [paths, commits]) {
+    assert.equal(isProse(list), false);
+    assert.equal(detectContentType(list), "text");
+    for (const tool of ["Glob", "Bash"]) assert.equal(route(list, only({ textcrush: true, split: true })), undefined, tool);
+  }
+  assert.equal(isProse(sentences(20).join("\n")), true);
+  assert.equal(isProse("- one item ends here.\n- another without an end\n"), true); // half the lines end a sentence
+});
+
+test("an Agent or Task report is never cut by the text crusher or the split", () => {
+  const report = `${sentences(20).join("\n")}\nagentId: a1b2c3 (use SendMessage with to: 'a1b2c3' to continue this agent)`;
+  assert.ok(route(report, only({ textcrush: true }), "Bash")); // the same text from another tool is crushed
+  for (const tool of ["Agent", "Task"]) assert.equal(route(report, only({ textcrush: true, split: true }), tool), undefined, tool);
+});
+
+test("the text route: a crushed text is never folded, and the elider still runs on it", () => {
+  // With an empty query recency decides, so the last three segments stay adjacent; they carry no token, so no shingle drops them.
+  const text = [...sentences(12), ..."===".split("").map(() => "=".repeat(80))].join("\n");
+  const lossy = must(crushProse(text, ""));
+  assert.ok(foldText(lossy.text)); // the precondition: the fold WOULD collapse the crushed output's three identical lines
+  const r = route(text, only({ textcrush: true, elide: true }));
+  assert.equal(stored(r), lossy.text);
+  assert.doesNotMatch(stored(r), RUN_LINE);
+  assert.equal(r?.textcrush.texts, 1);
+  // A dense last segment: recency keeps it, and the elider cuts it after the crusher.
+  const d = route([...sentences(12), "x".repeat(2500)].join("\n"), only({ textcrush: true, elide: true }));
+  const out = stored(d);
+  assert.match(out, /\n\[Text crushed: \d+ of 13 segments kept\. Retrieve original: hash=[0-9a-f]{12}\]\n\[1 dense machine-generated line elided\. Retrieve original: hash=[0-9a-f]{12}\]$/);
+  assert.deepEqual([d?.textcrush.texts, d?.elide.lines], [1, 1]);
+  assert.deepEqual(
+    d?.offloaded.map(([h]) => h),
+    [...out.matchAll(/hash=([0-9a-f]{12})\]/g)].map((m) => m[1]),
+  );
+});
+
+test("the text crusher leaves Read output, line-numbered text, tagged text and error rows whole, and alone triggers detection", () => {
+  const text = sentences(20).join("\n");
+  assert.equal(route(text, only({ textcrush: true }))?.textcrush.texts, 1);
+  assert.equal(route(text, only({ textcrush: true }), "Read"), undefined);
+  assert.equal(route(`1\t${text}`, only({ textcrush: true })), undefined);
+  assert.equal(route(`${text}\n<system-reminder>keep</system-reminder>`, only({ textcrush: true, tags: true })), undefined);
+  assert.equal(rewriteToolResults([toolResult(text, true)], "Bash", only({ textcrush: true }), ""), undefined);
+});
+
+test("crushText stays bounded on 20,000 sentences", () => {
+  const text = Array.from({ length: 20_000 }, (_, i) => `Sentence ${i} notes that worker ${i % 97} finished job ${i * 31} quickly.`).join(" ");
+  assert.ok(text.length >= 1_000_000);
+  const t0 = Date.now();
+  assert.ok(crushProse(text, "which worker finished the job"));
+  assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0} ms`);
+});
+// Prose records for the relevance split: three about the oauth token refresh, two (and a timeout note) about widgets.
+const RECORDS = {
+  oauth1: "The oauth token refresh runs every ten minutes from the scheduler service.\n\n",
+  widget1: "The widget gallery renders thumbnails in a responsive grid layout for every visitor.\nIt uses lazy loading for images below the fold of the page to save bandwidth.\n\n",
+  oauth2: "Refreshing the oauth token needs the client secret from the vault.\n\n",
+  widget2: "Colour themes for widgets live in a separate stylesheet bundle with many variables.\nDark mode swaps the whole palette through custom properties on the root element.\n\n",
+  timeout: "The widget cache Timeout is thirty seconds by default.\n\n",
+  oauth3: "A refreshed oauth token is cached for the lifetime of the session.\n",
+};
+const OAUTH_DOC = [RECORDS.oauth1, RECORDS.widget1, RECORDS.oauth2, RECORDS.widget2, RECORDS.oauth3].join("");
+const OAUTH_QUERY = "why does the oauth token refresh break";
+
+test("segmentRecords partitions losslessly into blank-line blocks and bounded windows (upstream test_segment_* cases)", () => {
+  assert.equal(segmentRecords("a\nb\n\n  cont\nc\n").join(""), "a\nb\n\n  cont\nc\n");
+  const dense = Array.from({ length: 20 }, (_, i) => `line${i}\n`).join("");
+  assert.ok(segmentRecords(dense, 5).length > 1); // a dense blank-free stream is windowed
+  // A short indented continuation stays with its head line even past the line window.
+  for (const s of segmentRecords("ERROR boom\n  File a.py line 1\n  File b.py line 2\nnext record\n", 1)) assert.ok(!s.startsWith(" ") && !s.startsWith("\t"));
+  const indented = `HEADER (not indented)\n${Array.from({ length: 300 }, (_, i) => `    frame line ${String(i).padStart(3, "0")}\n`).join("")}`;
+  const bounded = segmentRecords(indented, 8, 1200);
+  assert.equal(bounded.join(""), indented);
+  assert.ok(bounded.length > 2 && bounded.every((s) => s.length <= 1200));
+  const headless = segmentRecords(`ERROR boom\n${Array.from({ length: 200 }, (_, i) => `    frame ${String(i).padStart(3, "0")} in handler\n`).join("")}`, 8, 1200);
+  assert.ok(headless.some((s) => s.startsWith(" "))); // a long run is bounded, so later segments start headless
+  assert.ok(segmentRecords(`${"L".repeat(500)}\n`.repeat(8), 8, 1200).every((s) => s.length <= 1200));
+  assert.equal(segmentRecords(`${"X".repeat(5000)}\nshort tail\n`, 8, 1200)[0].length, 5001); // an over-long line stays whole
+  const blocks = `intro paragraph\n\nhead\n${Array.from({ length: 200 }, (_, i) => `\tdetail ${String(i).padStart(3, "0")}\n`).join("")}\ntail note\n`;
+  const across = segmentRecords(blocks, 8, 1200);
+  assert.equal(across.join(""), blocks);
+  assert.ok(across.every((s) => s.length <= 1200));
+  // Random texts: the partition is always the identity.
+  let seed = 7;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  for (let k = 0; k < 200; k++) {
+    const text = Array.from({ length: Math.floor(rnd() * 40) }, () => [" ", "\t", "", "x", "word "][Math.floor(rnd() * 5)].repeat(Math.floor(rnd() * 30)) + (rnd() < 0.9 ? "\n" : "")).join("");
+    assert.equal(segmentRecords(text).join(""), text);
+  }
+  assert.deepEqual(segmentRecords(""), []);
+  assert.deepEqual(segmentRecords("solo"), ["solo"]);
+});
+
+test("adaptiveThreshold cuts at the natural gap, never under its floor (upstream test_adaptive_threshold_* cases)", () => {
+  const t = adaptiveThreshold([0.92, 0.88, 0.12, 0.05], 0.25);
+  assert.ok(t > 0.12 && t < 0.88);
+  assert.equal(otsuThreshold([0.92, 0.88, 0.12, 0.05]), (0.12 + 0.88) / 2); // the midpoint of the widest-variance pair
+  assert.equal(adaptiveThreshold([0.3, 0.28, 0.05, 0.03], 0.25), 0.25);
+  assert.equal(adaptiveThreshold([0.4, 0.4, 0.4], 0.25), 0.25);
+  assert.ok(adaptiveThreshold([0.95, 0.9, 0.6, 0.55], 0.1) > adaptiveThreshold([0.4, 0.35, 0.08, 0.05], 0.1));
+});
+
+test("splitRelevance keeps the query's records and elides the rest behind one retrieval line (upstream test_split_keeps_relevant_drops_irrelevant)", () => {
+  const r = must(splitRelevance(OAUTH_DOC, OAUTH_QUERY, true));
+  const [, hash] = /\n\[6 low-relevance lines in 2 runs elided\. Retrieve original: hash=([0-9a-f]{12})\]$/.exec(r.text) ?? [];
+  assert.equal(
+    r.text,
+    `${RECORDS.oauth1}...[3 low-relevance lines elided]...\n${RECORDS.oauth2}...[3 low-relevance lines elided]...\n${RECORDS.oauth3}` +
+      `[6 low-relevance lines in 2 runs elided. Retrieve original: hash=${hash}]`,
+  );
+  assert.deepEqual(r.offloaded, [[hash, OAUTH_DOC]]);
+  assert.equal(splitRelevance(OAUTH_DOC, "   ", true), undefined); // upstream test_empty_query_yields_no_split
+  assert.equal(splitRelevance("solo record about the oauth token refresh", OAUTH_QUERY, true), undefined); // test_single_record_yields_no_split
+});
+
+test("splitRelevance never drops every record, and keeps a low-scoring run holding an error keyword whole (user decision, guards a and b)", () => {
+  // Guard (a): no record matches the query and none holds an error keyword, so every record would be dropped: decline.
+  assert.equal(splitRelevance(OAUTH_DOC, "kubernetes ingress annotations", true), undefined);
+  // Guard (b): the widget run beside the Timeout note scores low, but holds a case-insensitive ERROR_KEYWORDS hit: kept verbatim.
+  assert.ok(ERROR_KEYWORDS.includes("timeout"));
+  const doc = [RECORDS.oauth1, RECORDS.widget1, RECORDS.oauth2, RECORDS.widget2, RECORDS.timeout, RECORDS.oauth3].join("");
+  const out = must(splitRelevance(doc, OAUTH_QUERY, true)).text;
+  assert.ok(out.includes(`${RECORDS.oauth2}${RECORDS.widget2}${RECORDS.timeout}${RECORDS.oauth3}`));
+  assert.ok(!out.includes(RECORDS.widget1)); // the keyword-free widget run is still elided
+  assert.match(out, /\n\[3 low-relevance lines in 1 run elided\. Retrieve original: hash=[0-9a-f]{12}\]$/);
+});
+
+test("splitRelevance declines a multi-line JSON span across a record cut, and adopts only what beats the whole-text fold", () => {
+  const json = JSON.stringify({ widgets: Array.from({ length: 12 }, (_, i) => ({ id: i })) }, null, 2);
+  assert.equal(splitRelevance(`${RECORDS.oauth1}${json}\n\n${RECORDS.oauth2}`, OAUTH_QUERY, true), undefined);
+  const jsonl = Array.from({ length: 12 }, (_, i) => JSON.stringify({ id: i, note: "widget gallery thumbnails" })).join("\n");
+  assert.ok(splitRelevance(`${RECORDS.oauth1}${jsonl}\n\n${RECORDS.oauth2}`, OAUTH_QUERY, true)); // one-line records never straddle
+  // Thirty identical filler lines: the whole-text fold already collapses them to two lines, which the split cannot beat.
+  const filler = `${"widget gallery filler line kept for layout\n".repeat(30)}\n`;
+  const doc = `${RECORDS.oauth1}${filler}${RECORDS.oauth3}`;
+  assert.ok(foldText(doc));
+  assert.equal(splitRelevance(doc, OAUTH_QUERY, true), undefined);
+  // With the text crusher's lever off the split never calls that fold, so the raw text is its baseline: adopted.
+  assert.ok(splitRelevance(doc, OAUTH_QUERY, false));
+});
+
+test("with the split on and the text crusher off, KEEP runs stay raw and the baseline is the raw text (user decision)", () => {
+  const repeated = "Each oauth token refresh is logged with its expiry.\n".repeat(4);
+  const doc = `${RECORDS.oauth1}${repeated}\n${RECORDS.widget1}${RECORDS.widget2}${RECORDS.oauth3}`;
+  const raw = must(splitRelevance(doc, OAUTH_QUERY, false)).text;
+  assert.ok(raw.includes(repeated));
+  assert.doesNotMatch(raw, RUN_LINE);
+  assert.match(must(splitRelevance(doc, OAUTH_QUERY, true)).text, RUN_LINE); // with the fold's lever on, the KEEP run folds
+  const r = route(doc, only({ split: true, textcrush: false }), "Bash", OAUTH_QUERY);
+  assert.equal(stored(r), raw);
+  assert.deepEqual([r?.split.texts, r?.textcrush.texts], [1, 0]);
+});
+
+test("the text route: a split rewrite ends the route ahead of the text crusher, which runs when the split declines", () => {
+  const both = only({ split: true, textcrush: true, elide: true });
+  const r = route(OAUTH_DOC, both, "Bash", OAUTH_QUERY);
+  assert.equal(stored(r), splitRelevance(OAUTH_DOC, OAUTH_QUERY, true)?.text);
+  assert.deepEqual([r?.split.texts, r?.textcrush.texts], [1, 0]);
+  const prose = sentences(20).join("\n");
+  const noQuery = route(prose, both); // an empty query: the split declines, the crusher runs
+  assert.deepEqual([noQuery?.split.texts, noQuery?.textcrush.texts], [0, 1]);
+});
+
+test("the relevance split routes on prose only: a build log and a grep dump with a matching query are never split (user decision)", () => {
+  const log = [...infoTicks(60), "ERROR linker exited with code 1"].join("\n");
+  const grep = grepRows(["src/alpha.py", "src/beta.py"], 40).join("\n");
+  assert.equal(detectContentType(log), "build");
+  assert.equal(detectContentType(grep), "search");
+  for (const text of [log, grep]) {
+    const r = route(text, only({ split: true, elide: true }), "Bash", "linker compute_3 argument_21 module_7");
+    assert.equal(r?.split.texts ?? 0, 0);
+  }
+});
+
+test("the relevance split leaves Read output, line-numbered text, tagged text and error rows whole, and alone triggers detection", () => {
+  const lv = only({ split: true });
+  assert.equal(route(OAUTH_DOC, lv, "Bash", OAUTH_QUERY)?.split.texts, 1);
+  assert.equal(route(OAUTH_DOC, lv, "Read", OAUTH_QUERY), undefined);
+  assert.equal(route(`1\t${OAUTH_DOC}`, lv, "Bash", OAUTH_QUERY), undefined);
+  assert.equal(route(`${OAUTH_DOC}\n<system-reminder>keep</system-reminder>`, only({ split: true, tags: true }), "Bash", OAUTH_QUERY), undefined);
+  assert.equal(rewriteToolResults([toolResult(OAUTH_DOC, true)], "Bash", lv, OAUTH_QUERY), undefined);
+  assert.equal(route(OAUTH_DOC, lv), undefined); // no query: no split
+});
+
+test("splitRelevance stays bounded on an unclosed multi-line JSON span with a 16 KiB query", () => {
+  const text = `{\n${"the oauth token refresh line keeps going\n".repeat(25_000)}`;
+  assert.ok(text.length >= 1_000_000);
+  const query = Array.from({ length: 2000 }, (_, i) => `term${i} oauth`)
+    .join(" ")
+    .slice(0, 16_384);
+  const t0 = Date.now();
+  splitRelevance(text, query, true);
+  assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0} ms`);
+});
+test("review fixes: log, search, config, diff and HTML edge cases", () => {
+  // a date-led CSV selects no log line: the compressor declines instead of leaving only a marker
+  const csv = Array.from({ length: 80 }, (_, i) => `2026-03-${String((i % 28) + 1).padStart(2, "0")},${i * 3}`).join("\n");
+  assert.equal(compressLog(csv), undefined);
+  // compiler diagnostics keep every row and code-frame line
+  const diag = Array.from({ length: 80 }, (_, i) => `src/f${i % 20}.c:${i + 1}:5: error: bad ${i}\n  code\n  ^`).join("\n");
+  assert.equal(compressSearch(diag, ""), undefined);
+  // a markdown document of headings and bullets is no YAML config
+  const md = Array.from({ length: 12 }, (_, i) => `## Section ${i}\n\n- name: a${i}\n- id: ${i}\n  - one\n`).join("\n");
+  assert.equal(detectContentType(md), "text");
+  // multi-commit log keeps each commit header; a quoted non-ASCII path starts its own file
+  const body = Array.from({ length: 30 }, (_, i) => ` ctx ${i}`).join("\n");
+  /** @type {(name: string, q?: boolean) => string} */
+  const file = (name, q) => {
+    const [a, b] = q ? [`"a/${name}"`, `"b/${name}"`] : [`a/${name}`, `b/${name}`];
+    return `diff --git ${a} ${b}\n--- ${a}\n+++ ${b}\n@@ -1,31 +1,31 @@\n${body}\n-old\n+new`;
+  };
+  const log = [1, 2, 3].map((n) => `commit abcdef${n}0\nAuthor: A <a@b>\n\n    message ${n}\n\n${file("f.txt")}\n`).join("\n");
+  const logOut = compressDiff(log, "")?.text ?? "";
+  for (const n of [1, 2, 3]) assert.ok(logOut.includes(`    message ${n}`));
+  const three = [file("a.txt"), file("f\\303\\274r.txt", true), file("c.txt")].join("\n");
+  assert.ok(compressDiff(three, "")?.text.includes("[3 files changed, +3 -3 lines]"));
+  // link targets are entity-decoded
+  assert.ok(extractHtml(`<p><a href="https://e.com/a?b=1&amp;c=2">link</a></p>`.repeat(30))?.text.includes("(https://e.com/a?b=1&c=2)"));
+});
+
+test("review fixes: Edit and Write snippets stay verbatim; time-prefixed lines are no line numbers for dedup", () => {
+  const rows = Array.from({ length: 30 }, (_, i) => `${i + 1}\t  line ${i} of the snippet that is long enough. Another sentence.`);
+  const snippet = `The file x.md has been updated. Here's the result of running \`cat -n\` on a snippet:\n${rows.join("\n")}`;
+  for (const tool of ["Edit", "Write"]) assert.equal(route(snippet, only({ textcrush: true, split: true }), tool, "snippet line"), undefined);
+  const a = ["10:15:03 service started ok", "11:16:04 worker connected ok", "12:17:05 queue drained ok"].join("\n");
+  const b = ["14:15:03 service started ok", "15:16:04 worker connected ok", "16:17:05 queue drained ok"].join("\n");
+  const states = new Map();
+  dedupBlock(states, "", a, false);
+  assert.equal(dedupBlock(states, "", b, false), undefined);
 });

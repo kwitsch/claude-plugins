@@ -1,7 +1,7 @@
 {
   "name": "inline-headroom",
-  "version": "0.7.0",
-  "description": "Headroom-style levers inside Claude Code as a mod: clamp-only effort routing after successful tool results, a detector-only CacheAligner that flags volatile system-prompt content and cache-hit drops, and a SmartCrusher with lossless compaction, cross-turn dedup, a dense line elider, a config compressor and an HTML extractor that shrink tool results before the model reads them (originals retrievable, custom workflow tags kept whole). Ships a host-wide SQLite storage MCP server for persistent plugin data.",
+  "version": "0.8.0",
+  "description": "Headroom-style levers inside Claude Code as a mod: clamp-only effort routing after successful tool results, a detector-only CacheAligner that flags volatile system-prompt content and cache-hit drops, and a SmartCrusher with lossless compaction, cross-turn dedup, a dense line elider, a config compressor, an HTML extractor, log, search and diff compressors, a text crusher and a relevance split that shrink tool results before the model reads them (originals retrievable, custom workflow tags kept whole). Ships a host-wide SQLite storage MCP server for persistent plugin data.",
   "author": { "name": "Kwitsch" },
   "userConfig": {
     "cache_aligner_enabled": {
@@ -58,6 +58,36 @@
       "description": "Turn HTML tool results (web pages) into markdown-like text (headings, lists, links, tables) without scripts, styles, navigation, footers and other boilerplate, a bounded stand-in for headroom's trafilatura extractor; the original page stays retrievable via headroom_retrieve while the mod is loaded. Never rewrites error results.",
       "default": true
     },
+    "log_compressor_enabled": {
+      "type": "boolean",
+      "title": "Log compressor",
+      "description": "Shorten build and test logs of 50+ lines in tool results (headroom LogCompressor): keeps errors, failures, deduplicated warnings, stack traces with runtime frames collapsed, summary lines and their context, plus an omitted-lines summary; a lossless fold (ANSI colour dropped, repeated lines collapsed) wins when the cut saves under 5% more. The original stays retrievable via headroom_retrieve while the mod is loaded. Never rewrites error results or Read output.",
+      "default": true
+    },
+    "search_compressor_enabled": {
+      "type": "boolean",
+      "title": "Search compressor",
+      "description": "Shorten grep and ripgrep results in tool results (headroom SearchCompressor): per file the first, last and most relevant matches (error words and words from the conversation rank higher), at most 15 files and 30 matches, with a count of the rest; a lossless fold (one heading per repeated file or directory) wins when the cut saves under 5% more. The original stays retrievable via headroom_retrieve while the mod is loaded. Never rewrites error results or Read output.",
+      "default": true
+    },
+    "diff_compressor_enabled": {
+      "type": "boolean",
+      "title": "Diff compressor",
+      "description": "Shorten git diffs of 50+ lines in tool results (headroom DiffCompressor): at most 20 files and 10 hunks per file (the first, the last and the most relevant), 2 context lines around each change, with a changed-lines summary; dropping git's index lines wins when the cut saves under 5% more. The original stays retrievable via headroom_retrieve while the mod is loaded. Never rewrites error results or Read output.",
+      "default": true
+    },
+    "text_crusher_enabled": {
+      "type": "boolean",
+      "title": "Text crusher",
+      "description": "Shorten prose tool results of 6+ sentences, subagent reports and markdown output included (headroom TextCrusher, standing in for its ML Kompress): keeps about half the characters, preferring recent, query-relevant and fact-dense sentences and dropping near-duplicates; collapsing repeated lines wins when the cut saves under 5% more. Line breaks and indentation of the kept sentences are not kept. The original stays retrievable via headroom_retrieve while the mod is loaded. Never rewrites error results or Read output.",
+      "default": true
+    },
+    "relevance_split_enabled": {
+      "type": "boolean",
+      "title": "Relevance split",
+      "description": "In prose tool results, keep the records (paragraphs, short line groups) that match the conversation's recent requests and elide the rest behind one-line notes (headroom relevance split, BM25 scoring); a record group holding an error word is always kept, and a result where nothing matches is left to the text crusher. The original stays retrievable via headroom_retrieve while the mod is loaded. Never rewrites error results or Read output.",
+      "default": true
+    },
     "tag_protector_enabled": {
       "type": "boolean",
       "title": "Tag protector",
@@ -67,7 +97,7 @@
     "subagent_compression_enabled": {
       "type": "boolean",
       "title": "Subagent compression",
-      "description": "Also apply the SmartCrusher, lossless compaction, cross-turn dedup, the dense line elider, the config compressor and the HTML extractor to subagent and Workflow-agent tool results. Only active while one of them is on. An agent type whose tool list leaves out headroom_retrieve cannot get the originals back.",
+      "description": "Also apply the SmartCrusher, lossless compaction, cross-turn dedup, the dense line elider, the config compressor, the HTML extractor, the log, search and diff compressors, the text crusher and the relevance split to subagent and Workflow-agent tool results. Only active while one of them is on. An agent type whose tool list leaves out headroom_retrieve cannot get the originals back.",
       "default": true
     },
     "storage_enabled": {
