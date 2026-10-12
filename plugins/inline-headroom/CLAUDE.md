@@ -73,7 +73,7 @@ Every test that needs `node:sqlite` or spawns processes lives in
 `setup-node`. Its cleanup SIGTERMs every `--service` process for its temp data
 dir, so no daemon outlives the suite.
 
-The bats version-pin test (`plugin.json version is 0.8.0`) is a rolling pin:
+The bats version-pin test (`plugin.json version is 0.8.1`) is a rolling pin:
 every version bump rewrites its name and expected value in the same commit.
 
 ## Storage server
@@ -1430,6 +1430,9 @@ delete this heading once it is empty.
 
 - Workflow agents (only Agent-tool subagents were live-run) raise `turn.step`,
   `tool.call` and `turn.complete` with a stable `agentId`.
+- An agent's `turn.complete` hook raises its `stats_put` in-frame, so the
+  module's `tool.check` allows it without a permission prompt (only main-loop
+  writes were live-run).
 - A stdio MCP server's tool_result `content` shape at `session.append` (a
   string or a text-block array; both are handled).
 - A tool-result row with `is_error: true`.
@@ -1457,8 +1460,11 @@ still defaults to `true` per `.claude/rules/plugin-userconfig.md`; the
 toggle (user decision) because the clamp overrides deliberately set effort
 (agent frontmatter `effort`, Agent tool `effort` param, Workflow `effort`
 option) and each subagent pays its own cache re-write on the switch, which
-`/headroom` does not measure. Its counters live in memory only (the `subagents`
-row); the persisted `stats` schema stays main-loop.
+`/headroom` does not measure. Its own `subagents` row lives in memory only;
+its steps and clamps also go into the persisted `steps` and `clamped` columns
+(no schema change), so the storage rows count main-loop and subagent steps
+while the `session` row stays main-loop. An agent's `turn.complete` writes the
+pending totals too, so a background agent's steps need no main-loop turn.
 
 ## Releases
 

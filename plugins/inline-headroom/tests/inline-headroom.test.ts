@@ -366,19 +366,18 @@ test("(s) a clock failure shows as storage unavailable instead of loading foreve
   expect(out.text).toMatch(/storage unavailable: /);
 });
 
-test("(m) a main-loop turn.complete writes today's absolute row; a failed write is rewritten with the new totals", async ($, on) => {
+test("(m) a turn.complete writes today's absolute row, subagent steps and clamps included; a failed write is rewritten with the new totals", async ($, on) => {
   const clock = mock.clock(on, { now: NOW });
   let failPut = true;
   const calls = stubStorage(on, (tool) => (tool === "stats_put" && failPut ? new Error("inline-headroom storage: boom") : { ok: true, purged: 0 }));
   bottomStep(on);
   on("turn.complete", async () => ({ text: "" }));
   await step($, 0, "high");
-  await step($, 1, "high", "a1"); // a subagent step: counted in the subagents row, never persisted
-  await $.turn.complete({ ...DONE, agentId: "a1" }); // a subagent turn writes nothing
-  await $.turn.complete(DONE);
-  await clock.advance(0); // the write runs unawaited after the hook returned
+  await step($, 1, "high", "a1"); // a clamped subagent step: counted in today's row as well as the subagents row
+  await $.turn.complete({ ...DONE, agentId: "a1" }); // an agent's turn writes too
+  await clock.advance(0);
   const today = dayKey(clock.now());
-  const row = { day: today, steps: 1, clamped: 0, cache_drops: 0, input_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
+  const row = { day: today, steps: 2, clamped: 1, cache_drops: 0, input_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
   expect(calls).toHaveLength(1);
   expect(calls[0].tool).toBe("stats_put");
   expect(String(calls[0].args.writer)).toMatch(/^[a-z0-9]{8,}$/);
@@ -390,7 +389,7 @@ test("(m) a main-loop turn.complete writes today's absolute row; a failed write 
   await clock.advance(0);
   expect(calls).toHaveLength(2);
   expect(calls[1].args.writer).toBe(calls[0].args.writer);
-  expect(calls[1].args.rows).toEqual([{ ...row, steps: 2 }]);
+  expect(calls[1].args.rows).toEqual([{ ...row, steps: 3 }]);
 });
 
 test("(r) a usage with a missing token field still writes integer counters", async ($, on) => {
@@ -627,7 +626,7 @@ for (const storage_enabled of [true, false]) {
     on("turn.complete", async () => ({ text: "" }));
     on("tool.call", (_$, e) => (e.agentId === "a1" ? { isError: true as const, result: "boom" } : { result: "ok" }));
     await callRead($, "a1");
-    await $.turn.complete({ ...DONE, agentId: "a1" }); // the storage hook returns before any clock read for an agent turn
+    await $.turn.complete({ ...DONE, agentId: "a1" }); // with storage on, the kit refuses $.clock.now() (no mock.clock) and the write is skipped
     await step($, 1, "high", "a1");
     expect(st.seen).toBe("low");
   });
