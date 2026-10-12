@@ -32,7 +32,7 @@ import type { Counters, DedupState, VolatileFinding } from "./policy.mjs";
 // Persisted totals survive: each load writes its own rows under a new WRITER.
 let toolErrored = false; // any main-loop tool error since the last main-loop step
 const agentErrored = new Set<string>(); // subagents with a tool error since their own last step; an entry ends with that agent's turn
-const subagents = { steps: 0, clamped: 0 }; // this session's subagent steps: in memory only, never persisted (the stats schema stays main-loop)
+const subagents = { steps: 0, clamped: 0 }; // this session's subagent steps: its own row in memory; the persisted day rows count them with the main loop's
 const crush = { dropped: 0, saved: 0 }; // this session's SmartCrusher savings: in memory only, never persisted (the stats schema has no columns for them)
 const dedup = { spans: 0, saved: 0 }; // this session's cross-turn dedup savings: in memory only, never persisted
 const elide = { lines: 0, saved: 0 }; // this session's dense line elider savings: in memory only, never persisted
@@ -210,6 +210,7 @@ export const register: Register = (on, options) => {
   // The session row shows its last step's hit ratio; the storage rows are token-weighted over their windows.
   // Each table is shown only while the lever it counts is on; the storage rows sit in both.
   // The subagents row and the compression counts are session-only: persisting them needs new stats columns and a storage PROTOCOL bump (deferred).
+  // Subagent steps and clamps still reach the storage rows, inside the main loop's steps and clamped columns.
   const tables = (): string[][][] => {
     const [effort, cache, crusher, deduper, elider, compactor, configs, extractor, logs, searches, diffs, crushedTexts, splits] = statsTables(
       [{ ...session, hit: stats.lastHit }, ...(sums?.data ?? [])],
@@ -459,9 +460,13 @@ export const register: Register = (on, options) => {
     if (id) {
       if (!subOn) return yield* next(e); // today's behaviour: subagent steps untouched
       subagents.steps++;
+      pending.steps++; // the today / 7 days / 30 days rows count every step; the session row stays main-loop
       // Same rule as the main loop, per agent: index 0 is the agent's own prompt step.
       const to = stepEffort(e.index, agentErrored.has(id), e.effort);
-      if (to !== undefined) subagents.clamped++;
+      if (to !== undefined) {
+        subagents.clamped++;
+        pending.clamped++;
+      }
       agentErrored.delete(id); // consumed per step, like the main-loop flag
       // Both counters moved before the step runs, so the redraw needs no finally. Only an open pane redraws:
       // a Workflow fan-out would otherwise pay an invalidate per step.
@@ -524,7 +529,7 @@ export const register: Register = (on, options) => {
         dropCorpus(e.agentId);
       }
       const r = await next(e);
-      if (!storageOn || e.agentId) return r; // subagent turns carry no main-loop steps
+      if (!storageOn) return r; // an agent's turn writes too: a background agent's steps would otherwise wait for the next main-loop turn
       let today: string;
       let purgeBefore: string;
       let rows: ReturnType<typeof foldPending>;

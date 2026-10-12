@@ -163,11 +163,12 @@ volatile shared values: unavailable (Claude Code keeps plugins out of the system
 
 - **Rows:** `session` is this session's counters, kept in memory and redrawn
   live. `subagents` counts this session's subagent and Workflow-agent steps and
-  clamps, in memory only (never persisted). `today`, `7 days` and `30 days` are
+  clamps, in memory only. `today`, `7 days` and `30 days` are
   rolling windows of local calendar days that include today: totals across all
   sessions on this host, read from [storage](#storage) when the pane opens and
-  every 10 s while it stays open. `session`, `today`, `7 days` and `30 days`
-  count main-loop steps only. `smart crusher`, `dedup`, `line elider`,
+  every 10 s while it stays open. `session` counts main-loop steps only;
+  `today`, `7 days` and `30 days` count main-loop and subagent steps, so this
+  session adds `session` plus `subagents` to them. `smart crusher`, `dedup`, `line elider`,
   `compaction`, `config`, `html extractor`, `logs`, `search`, `diff`,
   `text crusher` and `relevance split` have only a `session` row, held in
   memory, which counts subagent results too: `dropped` counts the array rows
