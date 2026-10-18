@@ -294,6 +294,7 @@ function parseSegment(segment) {
   /** @type {string[]} */ const outTargets = [];
   /** @type {string[]} */ const inTargets = [];
   /** @type {string | null} */ let cmdWord = null;
+  let rtkWrapped = false;
   /** @type {"out" | "in" | "skip" | null} */ let pending = null;
   for (const tok of segment.trim().split(/\s+/)) {
     if (tok === "") continue;
@@ -332,7 +333,19 @@ function parseSegment(segment) {
     }
     if (cmdWord === null) {
       if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tok)) continue; // env prefix
-      cmdWord = tok.slice(tok.lastIndexOf("/") + 1);
+      const word = tok.slice(tok.lastIndexOf("/") + 1);
+      if (rtkWrapped) {
+        if (word.startsWith("-")) continue; // rtk's own flags before the subcommand
+        cmdWord = word === "read" ? "cat" : word; // `rtk read` is rtk's cat; grep/rg/diff/... keep their names
+        continue;
+      }
+      // rtk (linux-token-efficiency's proxy) wraps the real tool: its mods rewrite may reach this hook first
+      // (`cat X` → `rtk read X`), so the subcommand is the command word.
+      if (word === "rtk") {
+        rtkWrapped = true;
+        continue;
+      }
+      cmdWord = word;
       continue;
     }
     args.push(tok);
