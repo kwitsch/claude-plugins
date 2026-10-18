@@ -11,7 +11,8 @@ signing, instead of relying on the `ssh-agent`.
 
 ## What it does
 
-- A **PreToolUse** hook on the Bash tool watches for `git commit` commands. When
+- A hook on the Bash tool (an in-process mods `tool.call` hook — no process is
+  spawned per Bash call) watches for `git commit` commands. When
   `~/.claude/sign.key` exists, it rewrites the command in place to:
 
   ```
@@ -28,7 +29,7 @@ signing, instead of relying on the `ssh-agent`.
 
 - When `~/.claude/sign.key` does **not** exist, commands are left **completely
   untouched** (no signing config is injected).
-- A **SessionStart** hook warns you at the start of a session when the key file
+- A **session start** hook warns you at the start of a session when the key file
   is missing (with the setup steps below), and also when an existing key looks
   **passphrase-encrypted** — which would make every commit fail (see below).
 
@@ -123,11 +124,11 @@ setup signs them).
 600` and never commit it to a repository.
 - Anyone with read access to the file can sign commits as you. Use a dedicated
   key you can revoke independently from your auth keys.
-- While the key file exists, the PreToolUse hook returns `permissionDecision:
-allow` for the commits it rewrites, so those `git commit` commands run
-  **without the usual Bash permission prompt**. This is required: Claude Code
-  only applies a hook's rewritten command when the decision is `allow`. Remove
-  the key file to restore the normal prompt.
+- While the key file exists, the commits the hook rewrites are auto-allowed
+  (a `tool.check` hook turns the permission prompt into `allow` for exactly
+  those calls), so those `git commit` commands run **without the usual Bash
+  permission prompt**. A `deny` rule in your settings still wins. Remove the key
+  file to restore the normal prompt.
 
 ## Notes & limitations
 
@@ -143,6 +144,6 @@ allow` for the commits it rewrites, so those `git commit` commands run
   like `gc`, options that take a _space-separated_ value such as
   `git --git-dir /path commit`, and a real commit nested inside a
   double-quoted command substitution (`"$(… git commit …)"`).
-- If another Bash `PreToolUse` hook also rewrites the command (Claude Code keeps
-  the last writer's `updatedInput`), the two can conflict — install only one
-  command-rewriting hook per tool.
+- If another plugin also rewrites Bash commands, the rewrites nest: each sees
+  the command as the one above it passed it on, so the two can still conflict —
+  install only one command-rewriting hook per tool.
