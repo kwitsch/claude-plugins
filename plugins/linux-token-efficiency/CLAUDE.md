@@ -34,10 +34,10 @@ Installs the upstream rtk Linux binary into ~/.local/bin at SessionStart and aut
 ### Read the env var, not a placeholder
 
 - The mods module reads `auto_rewrite` / `steer_enabled` from `register(on, options)`; that gap below does not apply to it.
-- The command hooks (`rtk-install.mjs`, `mcp/server.mjs`) read `CLAUDE_PLUGIN_OPTION_<KEY>`, **not** a `${user_config.<key>}` placeholder in `hooks.json` (the `npm-automations` precedent).
+- The command hooks (`rtk-install.mjs`, `mcp/server.mjs`) read `CLAUDE_PLUGIN_OPTION_<KEY>`, **not** a `${user_config.<key>}` placeholder in `hooks.json`.
   - The placeholder hard-errors when the plugin was never configured via `/plugin manage`, even though a `default` is declared.
   - Claude Code ≥ 2.1.207 rejects `${user_config.*}` in shell-run hook `command` fields outright.
-- Accepted, documented gap (same as `npm-automations`): if the env var is never populated for a command-hook subprocess, an explicit `false` goes unhonored and the feature stays enabled.
+- Accepted, documented gap: if the env var is never populated for a command-hook subprocess, an explicit `false` goes unhonored and the feature stays enabled.
 
 ### Fail-open
 
@@ -64,7 +64,7 @@ Registers the EXTERNAL npm package `context-mode` (upstream <https://github.com/
 ### Launcher (`bin/context-mode-launch.sh`)
 
 - A wrapper, not the canonical direct-`command` form: an external npm package has no local file to exec, and registering `npx` directly (upstream's `claude mcp add context-mode -- npx -y context-mode`) would lose the bun preference — the wrapper lets `bunx` win when available.
-- Not a copy of `bin/mjs-launch.sh` (the identical copies in `coding-toolbox`, `universal-format`, `claude-code-knowledge`).
+- Not a copy of `bin/mjs-launch.sh` (the copy in `universal-format`).
   - That wrapper execs a runtime against the `.mjs` path in `$1`, hence its missing-argument exit-64 guard.
   - Here the target is a fixed package spec baked in: no mandatory argv, no guard; `"$@"` is still forwarded as harmless future-proofing.
 - Probe `bunx` and `npx`, the package RUNNERS. `command -v node` is the wrong check: node alone does not run `npx`.
