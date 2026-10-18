@@ -1,0 +1,227 @@
+---
+name: repository-audit
+description: Run a full repository audit of a project's Claude Code setup end to end — first flag whether the baseline memory files (a root CLAUDE.md and a .claude/rules/ directory) exist, then run the existing lsp-audit LSP-coverage pass and the memory-audit memory-quality pass in sequence (forwarding the same --fix flag and repo path), offer the manual to-dos memory-audit returns (leanness trims, scope-split moves) for selection via AskUserQuestion (--fix applies them all), then detect the development tools the repository uses (runtimes, package managers, LSP servers — git, bash, curl and Claude Code are assumed present) and offer to create a project-level init-dev-environment skill that installs them at user level into ~/.local/bin (--fix creates it without asking) — or, when that skill already exists, offer per tool to add each detected tool it lacks (--fix adds them all) — and fold all four passes into one combined report with Structure, LSP audit, Memory audit, and Dev environment sections. Reuses lsp-audit and memory-audit verbatim via the Skill tool rather than re-implementing them; the phase-1 structure check is report-only and never writes. Use when the user asks to audit, check, or fix a repository's Claude Code memory structure or dev-environment setup, or to run a full repository audit.
+argument-hint: [--fix] [optional repo path]
+allowed-tools: Bash, Read, Edit, Write, Skill, AskUserQuestion
+# review-skip(F1): unscoped Bash/Edit/Write is required — the structure check runs test against an arbitrary repo root supplied at runtime, scripts/detect-tools.mjs scans that root and, on confirmation, writes or extends its .claude/skills/init-dev-environment/, and step 4 applies selected memory-audit manual tasks to arbitrary CLAUDE.md/.claude/rules files; allowed-tools only pre-approves, never restricts. Edit/Write are used only for those manual tasks; the other file creation this skill performs itself goes through scripts/detect-tools.mjs; the nested lsp-audit/memory-audit own their own writes under their own frontmatter.
+---
+
+# repository-audit — full Claude Code repository audit
+
+Give the user one entry point to audit a project's Claude Code setup end to end:
+first flag whether the baseline memory files exist at the repo root, then run
+the existing LSP-coverage audit and memory-quality audit in sequence, then
+detect the repository's development tools and offer to generate a
+project-level `init-dev-environment` skill that installs them, and fold all
+four passes into one combined report. This skill reuses `lsp-audit` and
+`memory-audit` verbatim via the `Skill` tool — it adds the structure-presence
+check, the manual-task gate for `memory-audit`'s to-dos (step 4), the
+tool-detection phase (whose scanning and file writing live in
+`scripts/detect-tools.mjs`), and the orchestration/report wrapper. **This skill
+runs inline (depth 0)** — it drives two nested inline skills in the same turn
+(each may raise its own `AskUserQuestion` gate) and raises its own step-6 gates;
+never run it as `context: fork`.
+
+> **Ask the user via `AskUserQuestion`.** When this skill needs a decision from
+> the user and the answers are a fixed / multiple-choice set, it MUST present the
+> question through the `AskUserQuestion` tool — never as plain prose that waits for
+> a typed reply. Remote sessions do not reliably surface a plain-text "waiting for
+> input" prompt, whereas `AskUserQuestion` raises a notification.
+
+## 1. Parse arguments & resolve scope
+
+`$ARGUMENTS` may contain the bare flag `--fix` (no value) and/or a repo path.
+Parse and strip `--fix` first; set `$FIX` = present/absent. Whatever non-flag
+text remains, trimmed, is the path; default to `.` (the current working
+directory) when empty. Resolve it and call it `$ROOT`.
+
+## 2. Check repository structure
+
+Run this with the Bash tool, passing the resolved scope as the argument. (Runs
+at runtime, not as a load-time dynamic-context injection, because the scope may
+be supplied interactively.)
+
+```bash
+ROOT="${1:-.}"
+[ -f "$ROOT/CLAUDE.md" ] && echo "present: CLAUDE.md" || echo "MISSING: CLAUDE.md (repo root)"
+[ -d "$ROOT/.claude/rules" ] && echo "present: .claude/rules/" || echo "MISSING: .claude/rules/ directory"
+```
+
+This presence bar (root `CLAUDE.md`; `.claude/rules/` directory) is a policy this
+skill declares itself — it is deliberately not drawn from `cc-reference`
+(`claude-code-memory-reference.md` documents both as optional; no upstream rule
+mandates their existence). A missing item is a finding for the final report:
+report it as a manual to-do pointing at this plugin's own `cc-author` skill for
+grounded creation — never auto-generate content for it. Phase 1 has no `--fix`
+behavior of its own (missing files are never created even when `$FIX` is set) and
+raises no phase-1 `AskUserQuestion` gate; `$FIX` propagates forward into the
+two nested audits (steps 3–4), also confirms the step-4 manual-task gate, and
+confirms both step-6 init-dev-environment gates (creating the skill, and adding
+detected tools an existing one lacks). No `Write`/`Edit` is used here.
+
+If `$ROOT` does not resolve to an existing directory at all, say so explicitly
+and stop before steps 3–6 (the two nested skills and the tool-detection phase)
+— do not hand a bad path forward. (The two probes above degrade cleanly to
+`MISSING` on a nonexistent root; the explicit stop is for the case where `$ROOT`
+itself is not a directory.)
+
+## 3. Run lsp-audit via the Skill tool
+
+Invoke skill `cc-knowledge:lsp-audit` with `args` set to the
+re-serialized resolved invocation: `--fix $ROOT` when `$FIX` is set, else
+`$ROOT`. It runs inline in the same turn, plays out its own steps (including its
+own `AskUserQuestion` gate when `$FIX` is absent), and emits its own report. Do
+not attempt to parse a return value from the `Skill` tool call — inline skills
+produce none.
+
+## 4. Run memory-audit via the Skill tool
+
+After step 3's inline flow fully resolves, invoke skill
+`cc-knowledge:memory-audit` the same way, with `args` set to
+`--fix $ROOT` when `$FIX` is set, else `$ROOT`. Sequential only — never dispatch
+steps 3 and 4 concurrently or interleaved.
+
+### Offer memory-audit's manual tasks
+
+`memory-audit` leaves some findings as manual to-dos (`suggested_fix: null`) —
+leanness trims and scope-split moves, each with a candidate target — and applies
+none of them. Once its inline flow fully resolves, collect them from its step-7
+report (one `<id> · <path> · <recommendation>` line each). Only covered findings
+qualify; `uncovered` findings and files that failed to analyze stay
+informational, never selectable. Skip this subsection when no qualifying to-do
+exists or `memory-audit` did not run.
+
+- **`$FIX` set** — skip the `AskUserQuestion` gate; treat every collected to-do
+  as selected.
+- **`$FIX` absent** — present them via `AskUserQuestion` (`multiSelect: true`),
+  chunked as `memory-audit` §5 does: one tab per ≤4 to-dos of a single file, ≤4
+  tabs per call, option labels beginning with the finding `id`, plus a
+  `"Skip this group"` option on a single-to-do tab. Apply only what the user
+  selects.
+
+Apply each selected to-do against the file's **current** content (re-`Read` it
+first — `memory-audit` may have edited it): a trim via `Edit`; a split by moving
+the named section verbatim into the candidate target — a subdirectory
+`CLAUDE.md`, or a `.claude/rules/*.md` file with a `paths:` frontmatter glob,
+created via `Write` or appended via `Edit` — then removing it from the source.
+Stay inside `$ROOT`. When a to-do has no concrete target or the move would not
+apply cleanly, do not guess — leave it undone and report it as skipped. Never
+auto-commit.
+
+## 5. Read scripts/detect-tools.reference.md
+
+Read `scripts/detect-tools.reference.md` (colocated with the script) for the
+script's invocation contract — the audit, `--write` and `--add` modes, the
+`<project-root>` positional, the output-JSON schemas, and the exit codes. Per
+its table.
+
+## 6. Detect development tools and offer init-dev-environment
+
+Only after step 4's inline flow fully resolves — step 3's lsp-audit may just
+have added `.lsp.json` servers such as `pylsp` or `gopls` — run:
+
+    node ${CLAUDE_SKILL_DIR}/scripts/detect-tools.mjs "$ROOT"
+
+`${CLAUDE_SKILL_DIR}` is a bare pre-injection substitution token — never a live
+shell variable and never dynamic-context-injected. The script prints one JSON
+object to stdout (the audit schema in the reference). Parse it, then:
+
+- **Non-zero exit** — record the printed stderr for the Dev environment section,
+  write nothing, and go to step 7.
+- **`tools` is empty** — no question, nothing written. Record "no tools beyond
+  the assumed-present git, bash, curl, Claude Code" plus every `manual` entry as
+  a manual to-do (this covers the manual-only case too — there is nothing the
+  generated skill could install).
+- **`skillExists` is true** — the script has already compared the existing
+  skill's tool list (its `install.sh --dry-run <ids>` line) with the detected
+  `tools`:
+  - **`missingTools` is null** — the list could not be read (hand-edited, or not
+    generated by repository-audit). No question, nothing written. Record
+    "`<skillDir>` exists but its tool list could not be read, left untouched. To
+    regenerate it from the current detection, delete that directory and run
+    repository-audit again."
+  - **`missingTools` is empty** — no question, nothing written. Record
+    "`<skillDir>` already covers every detected tool."
+  - **Otherwise** — offer each missing tool as described in "Add tools missing
+    from the existing skill" below.
+- **Otherwise, gate.** When `$FIX` is set, skip the question entirely and treat
+  it as confirmed. Otherwise ask one `AskUserQuestion` — single-select, header
+  `Dev env`, question "Create a project-level init-dev-environment skill that
+  installs <comma-separated tool ids> at user level (~/.local/bin)?", options:
+  - `Create init-dev-environment skill` — "Writes
+    .claude/skills/init-dev-environment/ (SKILL.md + install.sh). Installs
+    nothing now."
+  - `Skip` — "Write nothing." (record: skipped by the user)
+
+If confirmed, run the write and parse its JSON:
+
+    node ${CLAUDE_SKILL_DIR}/scripts/detect-tools.mjs "$ROOT" --write
+
+- **`wrote: true`** — record the created path and the next step: review and
+  commit the directory, then run `/init-dev-environment` to install. When
+  `skillsDirCreated` is true, add that Claude Code must be restarted first — a
+  newly created top-level `.claude/skills/` directory is only picked up at
+  session start.
+- **`wrote: false`** (the tree changed between the two calls) — record the
+  outcome the fields show (`skillExists` true, or `tools` empty), exactly as
+  above.
+- **Non-zero exit** — record the error, and that nothing was written.
+
+Never run the generated `install.sh` from this skill.
+
+### Add tools missing from the existing skill
+
+Only for the `skillExists`-true case with a non-empty `missingTools`.
+
+- **`$FIX` set** — skip the `AskUserQuestion` gate; treat every `missingTools`
+  id as confirmed.
+- **`$FIX` absent** — present the `missingTools` ids via `AskUserQuestion`
+  (`multiSelect: true`), chunked as step 4's gate does: one tab per ≤4 ids,
+  ≤4 tabs per call, header `Dev tool`, plus a `"Skip this group"` option on a
+  single-id tab. Each option label begins with the tool id; its description
+  names the detected `evidence` and states that the skill's SKILL.md and
+  install.sh are rewritten from the current template, so hand edits to those two
+  files are replaced, and that nothing is installed now. A selected id is
+  confirmed; an unselected one is declined (record: declined by the user).
+
+When no id is confirmed, run nothing and record the declined ids. Otherwise run
+the confirmed ids, comma-separated with no spaces, and parse the JSON:
+
+    node ${CLAUDE_SKILL_DIR}/scripts/detect-tools.mjs "$ROOT" --add "<id>,<id>"
+
+- **`added` is non-empty** — record "extended with <added ids>", plus any
+  declined ids, and the next step: review and commit the directory, then run
+  `/init-dev-environment` to install the new tools.
+- **A confirmed id is absent from `added`** (the tree changed between the two
+  calls) — record it as no longer missing.
+- **Non-zero exit** — record the error. Per the reference, a failure between
+  the two file swaps leaves the refreshed `install.sh` under the old tool list.
+
+## 7. Combined report
+
+Emit one final report with exactly four named sections, in this order:
+
+1. **Structure** — the step-2 findings (present/missing `CLAUDE.md` and
+   `.claude/rules/`), with the manual-to-do note (pointing at `cc-author`) for
+   any missing item.
+2. **LSP audit** — carry forward `lsp-audit`'s already-emitted report content
+   from step 3.
+3. **Memory audit** — carry forward `memory-audit`'s already-emitted report
+   content from step 4, plus the manual-task outcome: which manual to-dos were
+   applied, skipped, or declined.
+4. **Dev environment** — the step-6 findings and outcome: each detected tool id
+   with its `evidence`; every `manual` entry as a manual to-do; and the outcome
+   — created (with the path and next steps, including the restart note when
+   `skillsDirCreated` is true), skipped by the user, extended with the added
+   tool ids (naming any declined), already covers every detected tool, existing
+   skill's tool list unreadable (left untouched), nothing installable detected,
+   or failed (with the error).
+
+This is a recap/wrapper, not a re-derivation — no structured data crosses the
+inline nested-skill boundary, so the LSP audit and Memory audit sections are
+narrative prose that folds forward what each nested skill already printed; the
+Dev environment section comes from step 6's parsed script output. If a nested
+skill invocation or the step-6 script is unavailable or fails mid-flow, report
+in the combined report which phase failed and continue to the remaining phases
+where still possible; never silently drop the failed phase, and never fabricate
+a report section for a phase that did not actually run.

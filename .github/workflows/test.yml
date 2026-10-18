@@ -18,7 +18,7 @@ jobs:
         # Add a plugin here when it gains a test/<plugin>/test.bats suite.
         plugin:
           - git-sign-key
-          - claude-code-knowledge
+          - cc-knowledge
           - coding-toolbox
           - universal-format
           - universal-lint

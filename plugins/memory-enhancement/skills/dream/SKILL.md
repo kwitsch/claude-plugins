@@ -1,6 +1,6 @@
 ---
 name: dream
-description: Consolidates this project's auto-memory files (~/.claude/projects/<project>/memory/) in four phases -- orient, gather signal from recent session transcripts, consolidate (merge duplicates, drop stale entries, resolve contradictions, author a new memory file for any signal with no existing memory home), update the MEMORY.md index. Optionally compresses touched detail files caveman-style via claude-code-knowledge's cc-compress when that plugin is enabled (silent no-op otherwise). Surgical -- only touches files that need a change. Trigger on natural language such as "dream", "run a dream", "dream cycle", "consolidate my memory", "clean up my memory files", "did I forget to save something as memory", "check for missed learnings" -- no slash command needed.
+description: Consolidates this project's auto-memory files (~/.claude/projects/<project>/memory/) in four phases -- orient, gather signal from recent session transcripts, consolidate (merge duplicates, drop stale entries, resolve contradictions, author a new memory file for any signal with no existing memory home), update the MEMORY.md index. Optionally compresses touched detail files caveman-style via cc-knowledge's cc-compress when that plugin is enabled (silent no-op otherwise). Surgical -- only touches files that need a change. Trigger on natural language such as "dream", "run a dream", "dream cycle", "consolidate my memory", "clean up my memory files", "did I forget to save something as memory", "check for missed learnings" -- no slash command needed.
 allowed-tools: Read, Write, Edit, Bash, Skill, AskUserQuestion
 ---
 
@@ -57,8 +57,8 @@ types structure the body with **Why:** and **How to apply:** lines):
    nothing to back up — skip this step for it.
 2. Write the consolidated (or newly-authored) content.
 3. If the file is anything **other than** `MEMORY.md`: check whether
-   `claude-code-knowledge:cc-compress` is among this session's available
-   skills (no hard dependency — `claude-code-knowledge` is an optional
+   `cc-knowledge:cc-compress` is among this session's available
+   skills (no hard dependency — `cc-knowledge` is an optional
    integration). **Not available → silent no-op**: keep the
    consolidated-but-uncompressed content as final, no note in the summary,
    no different from a cycle that never attempted compression. **Available →**
@@ -70,7 +70,7 @@ types structure the body with **Why:** and **How to apply:** lines):
 '\[\[[^]]+\]\]|\b[\w-]+\.md\b' <file> | sort -u` (wikilinks plus
    bare-`.md` filenames — `cc-compress`'s path-preservation check does not
    protect either, only slash-containing paths and full URLs). Invoke
-   `claude-code-knowledge:cc-compress` (Skill tool) on it with `--confirmed`
+   `cc-knowledge:cc-compress` (Skill tool) on it with `--confirmed`
    (memory files live outside any git repo, so `cc-compress`'s own
    git-recoverability gate would otherwise ask every time; this dream
    cycle's own backups already cover rollback). After compressing, run the

@@ -89,7 +89,7 @@ policy]` (the skill/command still loads). Handle that placeholder
   `${CLAUDE_SKILL_DIR}` (or `${CLAUDE_PLUGIN_ROOT}`) is a **pre-injection text
   substitution** applied to the skill's own body before the model reads it — not
   a live shell environment variable (both are empty inside a Bash-tool
-  subprocess). Precedent: `plugins/claude-code-knowledge/skills/cc-compress/SKILL.md` —
+  subprocess). Precedent: `plugins/cc-knowledge/skills/cc-compress/SKILL.md` —
   `node ${CLAUDE_SKILL_DIR}/scripts/compress.mjs "<absolute-filepath>" "<backup-root>"`.
   Never use `!`-injected `$CLAUDE_PLUGIN_ROOT`/`$CLAUDE_SKILL_DIR` for this: it
   renders empty and fails the whole Skill invocation in a worktree-isolated

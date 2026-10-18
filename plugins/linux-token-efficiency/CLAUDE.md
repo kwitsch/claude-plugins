@@ -101,7 +101,7 @@ Registers the EXTERNAL npm package `context-mode` (upstream <https://github.com/
 
 ### Prior removals — do not "restore"
 
-- context-mode was tried and dropped twice before: the in-repo `cave-context` plugin (it vendored and proxied the upstream package) was removed, and routing to the external context-mode plugin as an optional command accelerator was dropped from `coding-toolbox` and `claude-code-knowledge` after measuring no benefit over `rtk` for the git/gh/glab commands those plugins run.
-  - Their file-scoped "no context-mode reference" tests (in `test/coding-toolbox` and `test/claude-code-knowledge`) still assert that absence.
+- context-mode was tried and dropped twice before: the in-repo `cave-context` plugin (it vendored and proxied the upstream package) was removed, and routing to the external context-mode plugin as an optional command accelerator was dropped from `coding-toolbox` and `cc-knowledge` after measuring no benefit over `rtk` for the git/gh/glab commands those plugins run.
+  - Their file-scoped "no context-mode reference" tests (in `test/coding-toolbox` and `test/cc-knowledge`) still assert that absence.
 - This registration is a deliberate, user-decided revisit with a different shape: a `bunx`/`npx`-wrapped external MCP server plus one static session-start routing document — no vendored tree, no proxy, no session-continuity machinery. It is not contingent on the earlier benchmark, which measured raw command-output size for a different tool's command set, never context-mode's sandboxed-execution or session-continuity value.
 - Do not file this as an accident and "restore" the removal; do not restore `cave-context`.
