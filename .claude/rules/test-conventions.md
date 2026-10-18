@@ -9,7 +9,7 @@ paths:
 
 - No network in tests.
 - Replace external CLIs with stub executables on an isolated `PATH`.
-- Redirect `$HOME` to a temp dir when hooks read `~/…` paths (e.g. git-sign-key).
+- Redirect `$HOME` to a temp dir when hook scripts read `~/…` paths; a mods module mocks `$.env`/`$.fs` in its `claude plugin test` instead (e.g. git-sign-key).
 - Installer tests use `--print-*` modes or `CCTOOLS_SKIP_INSTALL=1` — never download.
 
 ## Exit codes
