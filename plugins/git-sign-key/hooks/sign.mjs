@@ -180,6 +180,11 @@ export function rewriteCommand(command, keyFile) {
         i = skipToken(s, i);
         continue;
       }
+      // rtk (linux-token-efficiency's proxy) is a transparent wrapper: `rtk git commit` is still a commit.
+      if (s.startsWith("rtk", i) && (s[i + 3] === " " || s[i + 3] === "\t")) {
+        i += 3;
+        continue;
+      }
       if (s.startsWith("git", i) && (s[i + 3] === " " || s[i + 3] === "\t")) {
         const inv = commitInvocation(s, i + 3, marker);
         if (inv.commit) {

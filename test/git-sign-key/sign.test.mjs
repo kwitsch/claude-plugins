@@ -31,6 +31,13 @@ test("rewrites git commit", () => {
   assert.ok(out.includes('commit -m "Fix bug"'));
 });
 
+test("rtk-wrapped git commit is signed (rtk is a transparent wrapper)", () => {
+  assert.equal(rw("rtk git commit -m x"), `rtk git ${FLAGS} commit -m x`);
+  assert.equal(rw("cd a && rtk git commit -m x"), `cd a && rtk git ${FLAGS} commit -m x`);
+  assert.equal(rw("rtk git status"), "rtk git status");
+  assert.equal(rw("echo rtk git commit"), "echo rtk git commit");
+});
+
 test("non-commit command untouched", () => {
   assert.equal(rw("ls -la"), "ls -la");
 });

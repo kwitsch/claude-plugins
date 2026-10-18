@@ -12,6 +12,7 @@ Wiring lives in `register.ts`, logic in `sign.mjs`. Only rationale and pitfalls 
   - It rewrites every `git` at an unquoted command position, so `a && b` and `$(…)`/backticks are signed and quoted text is left untouched.
   - A separator inside a quoted arg (e.g. `-m "fix; git commit later"`) must not count as a command position — that would inject flags into the literal and still pass `bash -n`.
 - `commitInvocation` skips global options (`-C <path>`, `-c k=v`, `--long`) to reach the subcommand and requires a right boundary after `commit`, so `commit-tree`/`committed` never match.
+- A leading `rtk ` word at a command position is skipped as a transparent wrapper (`rtk git commit` → signed): linux-token-efficiency's `tool.call` rtk rewrite may run before this hook in the mods chain (cross-plugin order is not documented).
 - Idempotency via the marker `user.signingkey='<key>'`; an already-wired command is skipped.
   - The marker is the signing-key flag, not `gpg.ssh.program`: matching the latter would skip a real commit where the user pinned ssh-keygen themselves.
 - Build the flag string by concatenation (template literal), so `&`/`\` in `$HOME` stay literal; single-quote the key path so spaces survive.
