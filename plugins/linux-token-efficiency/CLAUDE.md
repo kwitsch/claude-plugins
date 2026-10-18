@@ -85,7 +85,7 @@ Registers the EXTERNAL npm package `context-mode` (upstream <https://github.com/
 
 ### `ctx_execute` / `ctx_batch_execute` bypass `Bash` hooks
 
-- This server hands the model a code- and shell-execution path that no `Bash` `PreToolUse` or `tool.call` hook observes: not this plugin's Bash router, not another plugin's hard deny gates (e.g. `coding-toolbox`'s `encoding-guard.mjs`). An MCP tool call never matches a `Bash` matcher, and no toggle can gate it.
+- This server hands the model a code- and shell-execution path that no `Bash` `PreToolUse` or `tool.call` hook observes: not this plugin's Bash router, not another plugin's hard deny gates (e.g. `coding-toolbox`'s encoding guard). An MCP tool call never matches a `Bash` matcher, and no toggle can gate it.
 - The steering hooks knowingly **widen** this bypass: work they push from Bash/WebFetch into `ctx_*` calls is work no `Bash`/`WebFetch` hook sees again. The steer classifier's read-only-only scope keeps the widened surface to gather commands — an accepted trade-off, not an oversight.
 
 ### No toggle, by explicit decision
