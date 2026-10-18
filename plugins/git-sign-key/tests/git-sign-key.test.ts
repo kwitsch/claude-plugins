@@ -24,9 +24,9 @@ function world(on: On, opts: { key: boolean; bashExit?: number; probeStderr?: st
 }
 
 // Bottom tool.call hook (stands for the engine): records the command that reached it and the permission verdict for it.
-function bottomBash($: Engine, on: On): Seen {
+function bottomBash($: Engine, on: On, rule?: string): Seen {
   const seen: Seen = { command: "not-called", description: undefined, check: undefined };
-  on("tool.check", () => ({ decision: "ask" as const }));
+  on("tool.check", () => ({ decision: "ask" as const, ...(rule === undefined ? {} : { rule }) }));
   on("tool.call", async (_h, e) => {
     if (e.tool !== "Bash") return { result: "" };
     seen.command = e.command;
@@ -93,4 +93,11 @@ test("session.start is silent for a usable key and when ssh-keygen cannot run", 
   on("session.start", (_$, e) => ({ cwd: e.cwd }));
   await $.session.start({ cwd: "/repo", surface: null, isInteractive: false });
   expect(session.appended()).toEqual([]);
+});
+
+test("an ask from a settings rule still prompts for a rewritten commit", async ($, on) => {
+  world(on, { key: true });
+  const seen = bottomBash($, on, "Bash(git:*)");
+  await $.tool.call({ tool: "Bash", command: "git commit -m x" });
+  expect(seen.check).toBe("ask");
 });

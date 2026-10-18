@@ -60,13 +60,15 @@ export const register: Register = (on) => {
   // A rewritten commit runs without the Bash permission prompt, as before; a deny from the rules still stands.
   on("tool.check", { tool: "Bash" }, async (_$, e, next) => {
     const r = await next(e);
-    return e.tool_use_id !== undefined && rewritten.has(e.tool_use_id) && r.decision === "ask"
-      ? { ...r, decision: "allow" as const, reason: "git-sign-key rewrote this git commit for file-based SSH signing" }
-      : r;
+    // Only the mode's default ask: an ask from a settings rule, a settings hook or an option's own check still prompts.
+    const modeAsk = r.decision === "ask" && r.rule === undefined && r.hook === undefined && r.setting === undefined;
+    return e.tool_use_id !== undefined && rewritten.has(e.tool_use_id) && modeAsk ? { ...r, decision: "allow" as const, reason: "git-sign-key rewrote this git commit for file-based SSH signing" } : r;
   });
 
   on("session.start", async ($, e, next) => {
     const r = await next(e);
+    // A reload, enable or worker respawn mid-session fires session.start again: the warning is already in the transcript.
+    if ((await $.session.turns().catch(() => 0)) > 0) return r;
     const text = await startWarning($).catch(() => null);
     if (text !== null) await $.session.append({ message: { type: "user", content: [{ type: "text", text }] } });
     return r;

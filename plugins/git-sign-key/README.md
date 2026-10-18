@@ -127,7 +127,7 @@ setup signs them).
 - While the key file exists, the commits the hook rewrites are auto-allowed
   (a `tool.check` hook turns the permission prompt into `allow` for exactly
   those calls), so those `git commit` commands run **without the usual Bash
-  permission prompt**. A `deny` rule in your settings still wins. Remove the key
+  permission prompt**. A `deny` or `ask` rule in your settings still wins. Remove the key
   file to restore the normal prompt.
 
 ## Notes & limitations
