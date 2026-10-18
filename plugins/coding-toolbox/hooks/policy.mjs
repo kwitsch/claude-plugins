@@ -514,3 +514,126 @@ export function decodeBase64(b64) {
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Worktree refresh (tool.call on EnterWorktree, after the tool ran)
+// ---------------------------------------------------------------------------
+
+export const GIT_TIMEOUT_MS = 30_000;
+
+/**
+ * Fail-open toggle: only a literal false (boolean or string) disables.
+ * @param {unknown} value  `options.worktree_refresh`
+ * @returns {boolean}
+ */
+export function isWorktreeRefreshEnabled(value) {
+  return value !== false && value !== "false";
+}
+
+/**
+ * After EnterWorktree created a new worktree at `cwd`: fetch and rebase it onto
+ * the repo's default branch on origin. Answers the note for the model on a
+ * fetch failure or an aborted rebase conflict, undefined on success and on
+ * every non-actionable case (not a linked worktree, no remote / offline).
+ * @param {string} cwd  the new worktree (absolute)
+ * @param {RefreshIo} io
+ * @returns {Promise<string | undefined>}
+ */
+export async function refreshWorktree(cwd, io) {
+  if (!(await isLinkedWorktree(cwd, io))) return undefined; // defensive: not (yet) inside a linked worktree
+  const base = await detectDefaultBranch(cwd, io);
+  if (!base) return undefined; // no remote / offline — nothing to refresh against
+
+  const fetchErr = await gitError(cwd, ["fetch", "origin", base], io);
+  if (fetchErr !== undefined) {
+    return `worktree-refresh: fetch of origin/${base} failed — this worktree may not have the latest upstream changes (${fetchErr})`;
+  }
+  const rebaseErr = await gitError(cwd, ["rebase", `origin/${base}`], io);
+  if (rebaseErr !== undefined) {
+    await gitError(cwd, ["rebase", "--abort"], io); // best effort: never leave the worktree mid-rebase
+    // eslint-disable-next-line max-len -- long line is the literal message string
+    return `worktree-refresh: rebase onto origin/${base} conflicted and was aborted — the worktree was left as created (not refreshed). Run 'git rebase origin/${base}' manually in this worktree if you need the latest upstream changes. (${rebaseErr})`;
+  }
+  return undefined; // success — silent, no need to report the common case
+}
+
+/**
+ * Runs git; answers its trimmed stdout, or throws with its one-line diagnostic.
+ * @param {string} cwd
+ * @param {string[]} args
+ * @param {RefreshIo} io
+ * @returns {Promise<string>}
+ */
+async function git(cwd, args, io) {
+  const r = await io.git(cwd, args);
+  if (r.exitCode !== 0) throw new Error(firstLine(r.stderr) || `git ${args[0]} exited ${r.exitCode}`);
+  return r.stdout.trim();
+}
+
+/**
+ * Runs git for its effect; answers undefined on success, else its one-line
+ * diagnostic (a timeout's rejection message included).
+ * @param {string} cwd
+ * @param {string[]} args
+ * @param {RefreshIo} io
+ * @returns {Promise<string | undefined>}
+ */
+async function gitError(cwd, args, io) {
+  try {
+    await git(cwd, args, io);
+    return undefined;
+  } catch (e) {
+    return firstLine(e instanceof Error ? e.message : String(e));
+  }
+}
+
+/**
+ * The first non-blank line, bare CRs (progress output) collapsed.
+ * @param {string} text
+ * @returns {string}
+ */
+export function firstLine(text) {
+  return (text.split("\n").find((l) => l.trim()) ?? "").replace(/\r+/g, " ").trim();
+}
+
+// Same inode-safe comparison as fresh-branch's script (resolved paths, not the
+// raw strings: from inside a worktree --git-dir is absolute while
+// --git-common-dir can be relative to the TARGET cwd, so resolve it there).
+/**
+ * @param {string} cwd
+ * @param {RefreshIo} io
+ * @returns {Promise<boolean>}
+ */
+async function isLinkedWorktree(cwd, io) {
+  try {
+    const gitDir = await io.realPath(resolvePath(await git(cwd, ["rev-parse", "--git-dir"], io), cwd, undefined));
+    const commonDir = await io.realPath(resolvePath(await git(cwd, ["rev-parse", "--git-common-dir"], io), cwd, undefined));
+    return gitDir !== commonDir;
+  } catch {
+    return false;
+  }
+}
+
+// Mirrors fresh-branch's detect_default(): prefer the cached origin/HEAD symlink,
+// refreshed once; fall back to parsing `git remote show origin`.
+/**
+ * @param {string} cwd
+ * @param {RefreshIo} io
+ * @returns {Promise<string | null>}
+ */
+async function detectDefaultBranch(cwd, io) {
+  await gitError(cwd, ["remote", "set-head", "origin", "--auto"], io); // best effort
+  try {
+    const ref = await git(cwd, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], io);
+    if (ref) return ref.replace(/^origin\//, "");
+  } catch {
+    /* fall through */
+  }
+  try {
+    const m = (await git(cwd, ["remote", "show", "origin"], io)).match(/HEAD branch:\s*(\S+)/);
+    if (m) return m[1];
+  } catch {
+    /* no remote / offline */
+  }
+  return null;
+}

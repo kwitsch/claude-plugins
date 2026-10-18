@@ -1,19 +1,6 @@
 {
   "modules": ["./register.ts"],
   "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "EnterWorktree",
-        "hooks": [
-          {
-            "type": "mcp_tool",
-            "server": "plugin:coding-toolbox:coding-toolbox-hooks",
-            "tool": "worktree_refresh",
-            "statusMessage": "Refreshing new worktree from origin"
-          }
-        ]
-      }
-    ],
     "Stop": [
       {
         "hooks": [

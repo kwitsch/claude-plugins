@@ -58,3 +58,59 @@ test("Bash resolves a relative content-tool argument against the session cwd", a
   expect((await $.tool.call({ tool: "Bash", command: "iconv -f WINDOWS-1252 -t UTF-8 legacy.txt" })).result).toBe("ran");
   expect(tool.ran).toBe(1);
 });
+
+// Stands for git: answers by the argv after `git`, recording every call.
+function stubGit(on: On, answer: (args: readonly string[]) => Run): string[][] {
+  const calls: string[][] = [];
+  on("process.run", async (_$, e) => {
+    const args = e.argv.slice(1);
+    calls.push([...args]);
+    return { value: { ...answer(args), isStdoutTruncated: false, isStderrTruncated: false } };
+  });
+  return calls;
+}
+
+const OK = (stdout = ""): Run => ({ exitCode: 0, stdout, stderr: "" });
+// A linked worktree at /r/wt of the repo /r whose origin's default branch is main.
+const worktreeGit =
+  (rebase: Run) =>
+  (args: readonly string[]): Run => {
+    const a = args.join(" ");
+    if (a === "rev-parse --git-dir") return OK("/r/.git/worktrees/wt\n");
+    if (a === "rev-parse --git-common-dir") return OK("/r/.git\n");
+    if (a === "symbolic-ref --short refs/remotes/origin/HEAD") return OK("origin/main\n");
+    if (a === "rebase origin/main") return rebase;
+    return OK();
+  };
+
+test("EnterWorktree: a rebase conflict is aborted and reported as context after the tool's result", async ($, on) => {
+  stubFiles(on, {});
+  stubTool(on, { worktreePath: "/r/wt", message: "Created worktree" });
+  const calls = stubGit(on, worktreeGit({ exitCode: 1, stdout: "", stderr: "error: could not apply 1234abc... edit\n" }));
+  const r = await $.tool.call({ tool: "EnterWorktree", name: "wt" });
+  expect(r.result).toEqual({ worktreePath: "/r/wt", message: "Created worktree" });
+  expect(r.context?.length).toBe(1);
+  expect(r.context?.[0]).toContain("worktree-refresh: rebase onto origin/main conflicted and was aborted");
+  expect(r.context?.[0]).toContain("could not apply");
+  expect(calls).toContainEqual(["fetch", "origin", "main"]);
+  expect(calls).toContainEqual(["rebase", "--abort"]);
+});
+
+test("EnterWorktree: a clean refresh adds no context, and switching into an existing worktree runs no git", async ($, on) => {
+  stubFiles(on, {});
+  stubTool(on, { worktreePath: "/r/wt", message: "Created worktree" });
+  const calls = stubGit(on, worktreeGit(OK()));
+  expect((await $.tool.call({ tool: "EnterWorktree", name: "wt" })).context).toBeUndefined();
+  expect(calls).toContainEqual(["rebase", "origin/main"]);
+  calls.length = 0;
+  expect((await $.tool.call({ tool: "EnterWorktree", path: "/r/wt" })).context).toBeUndefined();
+  expect(calls).toEqual([]);
+});
+
+test("EnterWorktree: worktree_refresh false runs no git", { options: { worktree_refresh: false } }, async ($, on) => {
+  stubFiles(on, {});
+  stubTool(on, { worktreePath: "/r/wt", message: "Created worktree" });
+  const calls = stubGit(on, worktreeGit(OK()));
+  expect((await $.tool.call({ tool: "EnterWorktree", name: "wt" })).context).toBeUndefined();
+  expect(calls).toEqual([]);
+});

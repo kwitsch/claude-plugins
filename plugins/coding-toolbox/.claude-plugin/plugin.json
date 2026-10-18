@@ -9,7 +9,7 @@
     "worktree_refresh": {
       "type": "boolean",
       "title": "Worktree refresh on EnterWorktree",
-      "description": "When EnterWorktree creates a new worktree (not when switching into an existing one), fetches and rebases it onto the repo's default branch on origin. Values: true (or unset) = enabled; false = disabled — the worktree_refresh hook no-ops immediately, no git commands run. Fail-open: only the literal value false disables it. Default: true.",
+      "description": "When EnterWorktree creates a new worktree (not when switching into an existing one), fetches and rebases it onto the repo's default branch on origin. Values: true (or unset) = enabled; false = disabled — the worktree refresh hook is not registered, no git commands run. Fail-open: only the literal value false disables it. Default: true.",
       "default": true
     }
   }
