@@ -2460,6 +2460,12 @@ detect_fixture() {
   [ "$output" != "1.11.0" ]
 }
 
+@test "plugin.json version was bumped for the reroute mod (minor, off 1.12.1)" {
+  run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
+  [ "$output" != "1.12.1" ]
+}
+
 @test "plugin.json description mentions init-dev-environment" {
   run jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
