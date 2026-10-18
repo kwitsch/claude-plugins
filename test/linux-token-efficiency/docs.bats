@@ -60,7 +60,7 @@ setup() {
 }
 
 @test "hooks/CLAUDE.md documents the novel-in-repo mechanics" {
-  for token in 'spawnSync' 'checksums.txt' 'curl'; do
+  for token in '$.process.run' 'checksums.txt' 'curl'; do
     run grep -F "$token" "$PLUGIN_HOOKS_CLAUDE"
     assert_success
   done
@@ -188,20 +188,20 @@ setup() {
   done
 }
 
-@test "plugin CLAUDE.md states the unconditional-cat limitation; hooks/CLAUDE.md states the nine-hook count" {
+@test "plugin CLAUDE.md states the unconditional-cat limitation; hooks/CLAUDE.md states the seven-hook count" {
   run grep -Fi 'unconditional' "$PLUGIN_CLAUDE"
   assert_success
+  run grep -F 'seven classic hooks total' "$PLUGIN_HOOKS_CLAUDE"
+  assert_success
   run grep -F 'nine hooks total' "$PLUGIN_HOOKS_CLAUDE"
-  assert_success
-  run grep -F 'eight hooks total' "$PLUGIN_HOOKS_CLAUDE"
   assert_failure
-  run grep -F 'Nine hooks total.' "$HOOKS"
+  run grep -F 'Seven classic hooks total' "$HOOKS"
   assert_success
-  # Ties both hardcoded "nine" claims above to the actual hook count, so a future hook
+  # Ties both hardcoded "seven" claims above to the actual hook count, so a future hook
   # addition/removal that forgets to update this prose is caught structurally instead
   # of only by string-matching a hardcoded number (same derivation as context-mode.bats
   # / cbm-hooks.bats use for their own hooks.json structural assertions).
-  run jq -e '([.hooks[][].hooks | length] | add) == 9' "$HOOKS"
+  run jq -e '([.hooks[][].hooks | length] | add) == 7' "$HOOKS"
   assert_success
 }
 
