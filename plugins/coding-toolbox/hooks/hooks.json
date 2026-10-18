@@ -1,16 +1,1 @@
-{
-  "modules": ["./register.ts"],
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "mcp_tool",
-            "server": "plugin:coding-toolbox:coding-toolbox-hooks",
-            "tool": "interaction_gate"
-          }
-        ]
-      }
-    ]
-  }
-}
+{ "modules": ["./register.ts"] }
