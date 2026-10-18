@@ -11,7 +11,9 @@ spawned per turn.
   `dream-due:<hash>` → `true`; presence = due.
 - `<hash>`: first 8 hex chars of `sha256(realpath(project root))`
   (`dueKey` in `dream.mjs`, `crypto.subtle`), the 0.4.x flag file's hash.
-  Project root is `$.session.root()`, realpath via
+  Project root is `$.session.root()` as captured at `session.start` (the old
+  `CLAUDE_PROJECT_DIR` semantics: a later `/cd` or `EnterWorktree` does not move
+  the key to a throwaway worktree; a mid-session reload re-captures it), realpath via
   `$.fs.stat(root, { resolve: true })`, the root as given when it does not
   resolve. Realpath so symlink variants of one project dir share a key (same
   idiom as `cc-compress`'s `backupPathFor`).

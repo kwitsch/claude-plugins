@@ -8,12 +8,12 @@ const PROJECT = "/work/project";
 const REAL = "/real/project"; // where PROJECT's realpath lands
 const DONE = { answer: "", durationMs: 1, isAborted: false, turnId: "t1", reason: "answer" as const };
 
-type World = { store: Map<string, unknown> };
+type World = { store: Map<string, unknown>; root: string };
 
 // The world beneath the mod: an in-memory $.store, a session with `turns` user turns.
 function world(on: On, turns: number, entries: Record<string, unknown> = {}): World {
-  const w: World = { store: new Map(Object.entries(entries)) };
-  on("session.root", async () => ({ value: PROJECT }));
+  const w: World = { store: new Map(Object.entries(entries)), root: PROJECT };
+  on("session.root", async () => ({ value: w.root }));
   on("session.turns", async () => ({ value: turns }));
   on("fs.stat", async (_$, e) => ({
     value: { kind: "dir" as const, size: 0, mtimeMs: 0, isLink: false, ...(e.path === PROJECT ? { realPath: REAL } : {}) },
@@ -98,4 +98,12 @@ test("auto_dream false still sets the key at turn end", { options: { auto_dream:
   const w = world(on, 0);
   await $.turn.complete(DONE);
   expect(w.store.has(await key())).toBe(true);
+});
+
+test("a worktree move after startup still flags the session-start project", async ($, on) => {
+  const w = world(on, 1);
+  await start($);
+  w.root = "/work/project/.claude/worktrees/x";
+  await $.turn.complete(DONE);
+  expect([...w.store]).toEqual([[await key(), true]]);
 });
