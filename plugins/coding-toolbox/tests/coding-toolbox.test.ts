@@ -150,6 +150,22 @@ test("a main-loop answer ending in a bare question gets exactly one gate prompt;
   expect(prompts.length).toBe(1);
 });
 
+test("the loop guard holds even when the gate turn's prompt text does not carry the reason", async ($, on) => {
+  const clock = mock.clock(on);
+  const prompts = stubTurns(on);
+  await $.turn.start({ text: "do it", turnId: "t1" });
+  await $.turn.complete(done("t1", "Shall I?"));
+  await clock.settle();
+  await $.turn.start({ text: "", turnId: "t2" }); // the gate's turn, framed beyond recognition
+  await $.turn.complete(done("t2", "Still asking?"));
+  await clock.settle();
+  expect(prompts.length).toBe(1);
+  await $.turn.start({ text: "next request", turnId: "t3" }); // a new user turn is gated again
+  await $.turn.complete(done("t3", "Which one?"));
+  await clock.settle();
+  expect(prompts.length).toBe(2);
+});
+
 test("no gate prompt for a plain answer, a code-fenced question, or a subagent's question", async ($, on) => {
   const clock = mock.clock(on);
   const prompts = stubTurns(on);
