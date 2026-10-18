@@ -360,20 +360,49 @@ reroute_call() {
     | jq -c 'select(.id==2) | .result.structuredContent'
 }
 
-@test "hooks.json wires the PreToolUse Agent reroute to the mcp_tool" {
-  run jq empty "$PLUGIN/hooks/hooks.json"
+# --- claude-code-guide reroute mod (hooks/register.ts + hooks/reroute.mjs) ---
+# reroute.mjs logic: test/claude-code-knowledge/reroute.test.mjs (node:test);
+# hook wiring: plugins/claude-code-knowledge/tests/*.test.ts (claude plugin test, local only).
+
+@test "hooks.json is exactly the mods module list" {
+  run jq -e '. == {"modules":["./register.ts"]}' "$PLUGIN/hooks/hooks.json"
   [ "$status" -eq 0 ]
-  run jq -e '.hooks.PreToolUse[0].matcher | test("Agent")' "$PLUGIN/hooks/hooks.json"
-  [ "$output" = "true" ]
-  run jq -r '.hooks.PreToolUse[0].hooks[0].type' "$PLUGIN/hooks/hooks.json"
-  [ "$output" = "mcp_tool" ]
-  # A plugin's own mcp_tool hook must reference the runtime-namespaced server name
-  # (plugin:<plugin>:<server-key>, as shown by `claude mcp list` / `/mcp`), NOT the
-  # bare .mcp.json key — the bare key resolves to "MCP server not connected".
-  run jq -r '.hooks.PreToolUse[0].hooks[0].server' "$PLUGIN/hooks/hooks.json"
-  [ "$output" = "plugin:claude-code-knowledge:claude-code-knowledge-hooks" ]
-  run jq -r '.hooks.PreToolUse[0].hooks[0].tool' "$PLUGIN/hooks/hooks.json"
-  [ "$output" = "reroute_guide" ]
+}
+
+@test "mod source and wiring-test files exist" {
+  [ -f "$PLUGIN/hooks/register.ts" ]
+  [ -f "$PLUGIN/hooks/reroute.mjs" ]
+  [ -f "$PLUGIN/tests/claude-code-knowledge.test.ts" ]
+}
+
+# core.fileMode = false in this repo, so `[ -x ]` passes even when git recorded 100644 — assert the index.
+@test "hooks/reroute.mjs is executable in the git index (100755, hooks-executable rule)" {
+  run git -C "$REPO_ROOT" ls-files --stage -- plugins/claude-code-knowledge/hooks/reroute.mjs
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ ^100755\  ]]
+}
+
+@test "register.ts hooks tool.call on Agent and Task and reroutes via rerouteType" {
+  run rg_or_grep -F 'on("tool.call", { tool: ["Agent", "Task"] }' "$PLUGIN/hooks/register.ts"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'rerouteType(e.subagent_type)' "$PLUGIN/hooks/register.ts"
+  [ "$status" -eq 0 ]
+}
+
+# The plugin name is reserved under the CLI's third-party naming rule (a pre-existing
+# manifest error unrelated to the mod), so validate must fail with exactly that one error.
+@test "claude plugin validate lists the tool.call hook and no error besides the reserved name" {
+  command -v claude >/dev/null || skip "claude CLI unavailable"
+  run claude plugin validate "$PLUGIN"
+  [[ "$output" == *"./register.ts hooks: tool.call{tool=Agent|Task}"* ]]
+  [[ "$output" == *"Found 1 error"* ]]
+  [[ "$output" == *'Plugin name "claude-code-knowledge" is reserved'* ]]
+}
+
+@test "claude plugin test succeeds" {
+  command -v claude >/dev/null || skip "claude CLI unavailable"
+  run claude plugin test "$PLUGIN"
+  [ "$status" -eq 0 ]
 }
 
 @test ".mcp.json registers the hooks server pointing at mcp/server.mjs" {
