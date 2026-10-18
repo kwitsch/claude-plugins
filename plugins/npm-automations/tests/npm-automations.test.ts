@@ -1,4 +1,5 @@
 import { expect, mock, test, type TestBody } from "claude-code/testing";
+import { DELIVERY_FRAME } from "../hooks/policy.mjs";
 
 type On = Parameters<TestBody>[1];
 type Run = { argv: readonly string[]; cwd?: string; env?: Record<string, string>; timeoutMs?: number };
@@ -71,7 +72,7 @@ test("a failed install leaves its failure line for the model", async ($, on) => 
   await $.tool.call({ tool: "Write", file_path: PKG, content: "{}" });
   await settle();
   const texts = session.appended().flatMap((row) => (Array.isArray(row.message.content) ? row.message.content : []));
-  expect(texts).toEqual([{ type: "text", text: `npm-install-on-package-change: \`npm install\` failed in ${PROJ} (exit code 1):\nE404 nope` }]);
+  expect(texts).toEqual([{ type: "text", text: `${DELIVERY_FRAME}npm-install-on-package-change: \`npm install\` failed in ${PROJ} (exit code 1):\nE404 nope` }]);
 });
 
 test("a manager missing from PATH is reported as not found", async ($, on) => {
@@ -81,7 +82,7 @@ test("a manager missing from PATH is reported as not found", async ($, on) => {
   await $.tool.call({ tool: "Write", file_path: PKG, content: "{}" });
   await settle();
   const texts = session.appended().flatMap((row) => (Array.isArray(row.message.content) ? row.message.content : []));
-  expect(texts).toEqual([{ type: "text", text: `npm-install-on-package-change: yarn not found on PATH, skipped in ${PROJ}` }]);
+  expect(texts).toEqual([{ type: "text", text: `${DELIVERY_FRAME}npm-install-on-package-change: yarn not found on PATH, skipped in ${PROJ}` }]);
 });
 
 test("EnterWorktree into a project with package-lock.json runs npm ci in the worktree", async ($, on) => {

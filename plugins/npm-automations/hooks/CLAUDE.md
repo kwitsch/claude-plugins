@@ -13,7 +13,7 @@
 - Each awaits `next(e)` first and returns its result unchanged; a denied or errored call does nothing. The tool result is delayed only by the in-process decision (filename check, plus for a `package.json` one `$.fs.read` and one `$.fs.list`).
 - The install is fire-and-forget: `enqueue` chains `$.process.run(argv, { cwd, env: { PATH }, timeoutMs: 300000 })` without awaiting it (verified live: it keeps running after the hook returned, as does the `$.session.append` after it).
 - Outcome (`outcomeMessage`): clean exit and our own timeout (`aborted: still running after`) stay silent; a binary that cannot start with `ENOENT` gives `<hook>: <bin> not found on PATH, skipped in <cwd>`; any other start error or non-zero exit gives ``<hook>: `<command>` failed in <cwd> (<reason>):\n<truncated stdout+stderr>``. A child killed by a signal reads as exit code 1 (`$.process.run` semantics).
-- The line is delivered with `$.session.append` as a user-role meta row of the main conversation, so the model reads it on its next request — the async hook's `additionalContext` equivalent. The model may attribute that row to the user.
+- The line is delivered with `$.session.append` as a user-role meta row of the main conversation, so the model reads it on its next request — the async hook's `additionalContext` equivalent. A user-role row carries no hook framing (the model read an unframed line as something the user pasted, live), so it is headed by `DELIVERY_FRAME`, naming the plugin.
 - Every `$` failure after `next` is caught: fail open, the tool's result goes back unchanged.
 
 ## Package manager detection

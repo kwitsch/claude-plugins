@@ -3,6 +3,10 @@
 // (the engine rejects both in a file the hooks module imports). Every file system,
 // environment and process access happens in register.ts and is handed in here as data.
 
+// Heads a delivered outcome line: a user-role meta row carries no hook framing, and without it the model reads the
+// line as something the user pasted (seen live).
+export const DELIVERY_FRAME = "[npm-automations plugin: automated background install result, not a user message]\n";
+
 export const INSTALL_TIMEOUT_MS = 300000; // the old async command hooks' own `timeout: 300`
 const MAX_CONTEXT_CHARS = 4000; // same cap as universal-lint's lint-file.mjs
 const DEP_FIELDS = ["dependencies", "devDependencies", "optionalDependencies"];

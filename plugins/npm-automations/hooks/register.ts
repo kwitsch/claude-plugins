@@ -1,5 +1,17 @@
 import type { EngineInterface, Register } from "claude-code";
-import { DEFAULT_MANAGER, INSTALL_TIMEOUT_MS, detectPackageManager, dirname, installArgsFor, isEnabled, isPackageJson, outcomeMessage, pathWithLocalBin, planInstall } from "./policy.mjs";
+import {
+  DEFAULT_MANAGER,
+  DELIVERY_FRAME,
+  INSTALL_TIMEOUT_MS,
+  detectPackageManager,
+  dirname,
+  installArgsFor,
+  isEnabled,
+  isPackageJson,
+  outcomeMessage,
+  pathWithLocalBin,
+  planInstall,
+} from "./policy.mjs";
 
 type Install = { hook: string; cwd: string; bin: string; args: string[]; command: string };
 
@@ -19,7 +31,7 @@ async function runInstall($: EngineInterface, job: Install): Promise<void> {
     .run([job.bin, ...job.args], { cwd: job.cwd, timeoutMs: INSTALL_TIMEOUT_MS, ...(path ? { env: { PATH: path } } : {}) })
     .catch((err: unknown) => ({ error: String(err) }));
   const text = outcomeMessage(job.hook, job.bin, job.command, job.cwd, outcome);
-  if (text !== null) await $.session.append({ message: { type: "user", content: [{ type: "text", text }] } });
+  if (text !== null) await $.session.append({ message: { type: "user", content: [{ type: "text", text: DELIVERY_FRAME + text }] } });
 }
 
 // Fire and forget: queued behind the directory's running install; the hook never waits.
