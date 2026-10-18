@@ -11,6 +11,10 @@
   - Why: the suite was split from one monolithic file once it outgrew ~2200 lines; `.claude/rules/test-conventions.md` ("Splitting a large suite") points here for this rationale.
 - Content owned by no single skill/hook (plugin.json/marketplace/root-README/`test.yml`-matrix invariants, generic README structure) lives in `manifest.bats`.
 - Put a new assertion in the file of the skill/hook it concerns, not at the end of the suite — thematic coherence over append order.
+- The mods hooks module is tested in three layers:
+  - `encoding-guard.test.mjs` (with the `encoding-guard-corpus.json` Bash case set), `worktree-refresh.test.mjs` (real git against hermetic file-path origins) and `interaction-gate.test.mjs` drive the pure `hooks/policy.mjs` under `node --test` (`pnpm run test:unit`, CI-gated).
+  - `hooks.bats` pins the wiring invariants (`hooks.json`, the removed MCP server, `userConfig`) and runs `claude plugin validate`/`claude plugin test` only when `claude` is on `PATH`.
+  - `plugins/coding-toolbox/tests/coding-toolbox.test.ts` covers the hook wiring under `claude plugin test` (local only).
 
 ### Helpers
 
