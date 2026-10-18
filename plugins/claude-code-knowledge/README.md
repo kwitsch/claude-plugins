@@ -22,11 +22,11 @@ Lookup skill plus harness-optimized reference files for authoring and configurin
 
 ## Agents
 
-| Agent                | Model | Role                                                                                                                                                                                                                                                                                                 |
-| -------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `claude-code-expert` | haiku | Answers Claude Code authoring questions (skills, subagents, hooks) strictly via the `cc-reference` skill — read-only, never from training memory. A `PreToolUse` hook transparently reroutes the built-in `claude-code-guide` agent to it, so existing "ask the guide" flows get the curated answer. |
-| `cc-reviewer`        | haiku | Read-only worker dispatched by the `cc-review` skill. Audits one component type in a target against the `cc-reference` rules and returns structured JSON findings — never writes.                                                                                                                    |
-| `cc-author-planner`  | haiku | Read-only worker dispatched by the `cc-author` skill. Composes the new component's file content strictly from the `cc-reference` knowledge and returns it as JSON — never writes.                                                                                                                    |
+| Agent                | Model | Role                                                                                                                                                                                                                                                                                                                 |
+| -------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `claude-code-expert` | haiku | Answers Claude Code authoring questions (skills, subagents, hooks) strictly via the `cc-reference` skill — read-only, never from training memory. An in-process mods `tool.call` hook transparently reroutes the built-in `claude-code-guide` agent to it, so existing "ask the guide" flows get the curated answer. |
+| `cc-reviewer`        | haiku | Read-only worker dispatched by the `cc-review` skill. Audits one component type in a target against the `cc-reference` rules and returns structured JSON findings — never writes.                                                                                                                                    |
+| `cc-author-planner`  | haiku | Read-only worker dispatched by the `cc-author` skill. Composes the new component's file content strictly from the `cc-reference` knowledge and returns it as JSON — never writes.                                                                                                                                    |
 
 ## Reference files
 
@@ -59,7 +59,7 @@ Once installed, invoke the skill with your question:
 
 The skill matches your question against the section index in `SKILL.md` and loads only the matched reference section, keeping context small. The bundled reference files are the primary source (no network needed). When they don't cover a question, the skill falls back to `WebFetch` against the current official Anthropic docs and flags that the answer came from live docs rather than the bundled reference — a hint to run `/update-cc-references`.
 
-You can also let the expert agent drive: any dispatch of the built-in `claude-code-guide` subagent is rerouted by a `PreToolUse` hook to `claude-code-knowledge:claude-code-expert`, which answers only from the cc-reference knowledge and has no write access.
+You can also let the expert agent drive: any dispatch of the built-in `claude-code-guide` subagent is rerouted by an in-process mods `tool.call` hook (no hook process or MCP server) to `claude-code-knowledge:claude-code-expert`, which answers only from the cc-reference knowledge and has no write access.
 
 ## Maintenance
 
