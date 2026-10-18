@@ -8,7 +8,7 @@
 // Idempotent (present => no-op, never overwrites), fail-open (every failure logs one stderr
 // line and the process exits 0), one bounded download attempt. Shares
 // downloadToFile()/findBinaries()/fetchExpectedSha() with mcp/server.mjs's cbm provisioning.
-// It NEVER downloads inside the synchronous PreToolUse hook — that is rtk-rewrite.mjs's concern.
+// It NEVER downloads inside the per-call Bash rewrite (the mods module, register.ts).
 import process from "node:process";
 import os from "node:os";
 import path from "node:path";
@@ -41,7 +41,8 @@ function describe(error) {
 /**
  * The user's home directory: HOME when usable, else os.homedir(), else null. Uses
  * cbm-context.mjs's usablePath so this and rtk-rewrite.mjs's resolveManagedRtk agree on what
- * counts as a usable home value.
+ * counts as a usable home value (resolveManagedRtk has no os.homedir() fallback: with HOME
+ * unusable the rewrite no-ops).
  * @param {Record<string, string|undefined>} env
  * @returns {string|null}
  */
