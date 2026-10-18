@@ -1,17 +1,6 @@
 {
+  "modules": ["./register.ts"],
   "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Read|Edit|Write|Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/encoding-guard.mjs",
-            "statusMessage": "Checking file encoding"
-          }
-        ]
-      }
-    ],
     "PostToolUse": [
       {
         "matcher": "EnterWorktree",

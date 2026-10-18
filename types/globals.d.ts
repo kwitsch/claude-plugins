@@ -64,6 +64,10 @@ declare class Buffer {
   [index: number]: number;
 }
 
+// Web base64 globals (Node >= 16, and the mods hooks environment).
+declare function atob(data: string): string;
+declare function btoa(data: string): string;
+
 // Wildcard ambient declaration: types every `import { x } from 'node:*'` as `any`,
 // resolving TS2307 "Cannot find module 'node:path'" etc. without @types/node.
 declare module "node:*";

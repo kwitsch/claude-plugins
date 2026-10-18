@@ -1,18 +1,30 @@
-#!/usr/bin/env node
-// PreToolUse encoding guard: denies Read/Edit/Write/Bash operations that
-// would read or modify the content of a non-UTF-8 text file with
-// UTF-8-assuming tools, naming the detected encoding and an iconv-based safe
-// path. Fail-open by design: any uncertainty, parse failure, or internal
-// error exits 0 with no output so the user is never stranded.
-import fs from "node:fs";
-import path from "node:path";
-import process from "node:process";
+// Pure, zero-dep logic behind coding-toolbox's mods hooks module (register.ts).
+// Never references the mods API `$`: register.ts hands every file-system or
+// process effect in through the small `io` objects below, so node:test can drive
+// the same code with node:fs / child_process.
 
 /** @typedef {{path: string, label: string, iconv: string}} Offender */
 /** @typedef {{safe: true} | {safe: false, label: string, iconv: string}} Classification */
+/** @typedef {{kind: string, size: number}} FileStat */
+/**
+ * File access the encoding guard needs. `stat` follows links; `sample` answers
+ * the file's first `min(size, SAMPLE_BYTES)` bytes. Either may throw: the file
+ * then counts as safe (fail open).
+ * @typedef {{stat: (path: string) => Promise<FileStat>, sample: (path: string, size: number) => Promise<Uint8Array>}} GuardIo
+ */
+/** @typedef {{tool: string, file_path?: unknown, command?: unknown}} GuardedCall */
+/** @typedef {{exitCode: number, stdout: string, stderr: string}} RunResult */
+/**
+ * Effects the worktree refresh needs. `git` runs `git <args>` in `cwd` and may
+ * reject (timeout); `realPath` resolves every symbolic link of an absolute path.
+ * @typedef {{git: (cwd: string, args: string[]) => Promise<RunResult>, realPath: (path: string) => Promise<string>}} RefreshIo
+ */
 
-const SAMPLE_BYTES = 64 * 1024;
-const STDIN_CAP = 1024 * 1024;
+export const SAMPLE_BYTES = 64 * 1024;
+// Files up to this size are read whole (the mods fs read has no range) and sliced;
+// larger ones are sampled through `head -c`, so a huge log never crosses the
+// worker boundary in full.
+export const FULL_READ_MAX = 1024 * 1024;
 const SENTINEL = "\u0001"; // written as an escape: a literal control char is invisible and copy-fragile
 
 // Tools whose file arguments / input redirects consume or transform text
@@ -58,70 +70,63 @@ const CONTENT_TOOLS = new Set([
   "unix2dos",
 ]);
 
-main();
-
-/** @returns {void} */
-function main() {
-  try {
-    const raw = fs.readFileSync(0, "utf8");
-    if (raw.length > STDIN_CAP) return;
-    /** @type {ToolHookInput} */
-    const input = JSON.parse(raw);
-    const cwd = typeof input.cwd === "string" && input.cwd !== "" ? input.cwd : process.cwd();
-    const offenders = collectOffenders(input, cwd);
-    if (offenders.length > 0) {
-      process.stdout.write(JSON.stringify(denyResult(offenders)) + "\n");
-    }
-  } catch (e) {
-    if (process.env.ENCODING_GUARD_DEBUG) {
-      process.stderr.write(`encoding-guard: ${e instanceof Error ? e.message : String(e)}\n`);
-    }
-    // fail open — exit 0 with no output
-  }
-}
+// ---------------------------------------------------------------------------
+// Encoding guard (tool.call on Read|Edit|Write|Bash)
+// ---------------------------------------------------------------------------
 
 /**
- * @param {ToolHookInput} input
- * @param {string} cwd
- * @returns {Offender[]}
+ * Offending files of one guarded tool call: the file a Read/Edit/Write names,
+ * or the literal Bash tokens a content tool reads or a redirect writes, that
+ * classify as non-UTF-8 text. Unknown tools and missing arguments pass.
+ * @param {GuardedCall} call  the `tool.call` event (tool arguments spread on it)
+ * @param {string} cwd  the session's working directory (absolute)
+ * @param {string | undefined} home  `$HOME`, for a leading `~`
+ * @param {GuardIo} io
+ * @returns {Promise<Offender[]>}
  */
-function collectOffenders(input, cwd) {
-  const ti = input.tool_input;
-  if (input.tool_name === "Read" || input.tool_name === "Edit" || input.tool_name === "Write") {
-    const fp = ti ? ti.file_path : undefined;
+export async function collectOffenders(call, cwd, home, io) {
+  if (call.tool === "Read" || call.tool === "Edit" || call.tool === "Write") {
+    const fp = call.file_path;
     if (typeof fp !== "string" || fp === "") return [];
-    const abs = resolvePath(fp, cwd);
-    const c = classifyFile(abs);
+    const abs = resolvePath(fp, cwd, home);
+    const c = await classifyFile(abs, io);
     return c.safe ? [] : [{ path: abs, label: c.label, iconv: c.iconv }];
   }
-  if (input.tool_name === "Bash") {
-    const cmd = ti ? ti.command : undefined;
+  if (call.tool === "Bash") {
+    const cmd = call.command;
     if (typeof cmd !== "string" || cmd === "") return [];
-    return analyzeBash(cmd, cwd);
+    /** @type {Map<string, Offender>} */
+    const found = new Map();
+    for (const tok of bashCandidates(cmd)) {
+      const abs = resolvePath(tok, cwd, home);
+      if (found.has(abs)) continue;
+      const c = await classifyFile(abs, io);
+      if (!c.safe) found.set(abs, { path: abs, label: c.label, iconv: c.iconv });
+    }
+    return [...found.values()];
   }
   return [];
 }
 
 /**
- * Precision-biased Bash command analysis. Returns offenders only for clean
- * literal path tokens that (a) are output-redirect targets, or (b) are
- * arguments / input-redirect targets of a known content tool, and that
- * classify as non-UTF-8 text. False negatives are acceptable; false
- * positives are not — non-literal tokens (quotes, substitutions, variables,
- * globs) are skipped and unknown tools pass (fail open).
+ * Precision-biased Bash command analysis: the clean literal tokens that (a) are
+ * output-redirect targets, or (b) are arguments / input-redirect targets of a
+ * known content tool, in order, duplicates kept (the caller dedups by resolved
+ * path). False negatives are acceptable; false positives are not — non-literal
+ * tokens (quotes, substitutions, variables, globs) and options are dropped and
+ * unknown tools pass (fail open).
  * @param {string} cmd
- * @param {string} cwd
- * @returns {Offender[]}
+ * @returns {string[]}
  */
-function analyzeBash(cmd, cwd) {
+export function bashCandidates(cmd) {
   const sanitized = blankNonLiterals(stripHeredocBodies(cmd))
     .replace(/\d*>&\d*/g, " ") // fd duplication (2>&1) — never a file
     .replace(/&>>/g, ">>")
     .replace(/&>/g, ">")
     .replace(/>\|/g, "> ")
     .replace(/\|&/g, "|");
-  /** @type {Map<string, Offender>} */
-  const found = new Map();
+  /** @type {string[]} */
+  const out = [];
   for (const segment of sanitized.split(/\n|;|\|\||&&|\||&/)) {
     const { cmdWord, args, outTargets, inTargets } = parseSegment(segment);
     const candidates = [...outTargets];
@@ -129,13 +134,10 @@ function analyzeBash(cmd, cwd) {
       candidates.push(...args, ...inTargets);
     }
     for (const tok of candidates) {
-      const abs = literalPath(tok, cwd);
-      if (abs === null || found.has(abs)) continue;
-      const c = classifyFile(abs);
-      if (!c.safe) found.set(abs, { path: abs, label: c.label, iconv: c.iconv });
+      if (isLiteralPathToken(tok)) out.push(tok);
     }
   }
-  return [...found.values()];
+  return out;
 }
 
 /**
@@ -196,12 +198,12 @@ function blankNonLiterals(text) {
     }
     if (c === "$" && c2 === "'") {
       out += SENTINEL;
-      i = skipAnsiC(text, i + 2);
+      i = skipEscaped(text, i + 2, "'");
       continue;
     }
     if (c === '"') {
       out += SENTINEL;
-      i = skipDouble(text, i + 1);
+      i = skipEscaped(text, i + 1, '"');
       continue;
     }
     if (c === "$" && c2 === "(") {
@@ -241,38 +243,20 @@ function skipPast(text, from, ch) {
 }
 
 /**
- * Double-quote scanner honoring backslash escapes.
+ * Quote scanner honoring backslash escapes, for "…" and ANSI-C $'…'.
  * @param {string} text
  * @param {number} from
+ * @param {string} quote  the closing quote character
  * @returns {number} index just past the closing quote (or end of string)
  */
-function skipDouble(text, from) {
+function skipEscaped(text, from, quote) {
   let i = from;
   while (i < text.length) {
     if (text[i] === "\\") {
       i += 2;
       continue;
     }
-    if (text[i] === '"') return i + 1;
-    i += 1;
-  }
-  return i;
-}
-
-/**
- * ANSI-C $'…' scanner honoring backslash escapes.
- * @param {string} text
- * @param {number} from
- * @returns {number} index just past the closing quote (or end of string)
- */
-function skipAnsiC(text, from) {
-  let i = from;
-  while (i < text.length) {
-    if (text[i] === "\\") {
-      i += 2;
-      continue;
-    }
-    if (text[i] === "'") return i + 1;
+    if (text[i] === quote) return i + 1;
     i += 1;
   }
   return i;
@@ -348,7 +332,7 @@ function parseSegment(segment) {
     }
     if (cmdWord === null) {
       if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tok)) continue; // env prefix
-      cmdWord = path.posix.basename(tok);
+      cmdWord = tok.slice(tok.lastIndexOf("/") + 1);
       continue;
     }
     args.push(tok);
@@ -357,68 +341,55 @@ function parseSegment(segment) {
 }
 
 /**
- * Resolve a token to an absolute path IFF it is a clean literal path to an
- * existing regular file. Sentinel residue, `$` variables, options and glob
- * characters reject the token (fail open).
+ * A clean literal path token: sentinel residue, `$` variables, options and
+ * glob characters reject it (fail open). Whether it names an existing regular
+ * file is `classifyFile`'s business.
  * @param {string} tok
- * @param {string} cwd
- * @returns {string | null}
+ * @returns {boolean}
  */
-function literalPath(tok, cwd) {
-  if (tok === "" || tok.includes(SENTINEL) || tok.includes("$")) return null;
-  if (tok.startsWith("-")) return null; // option
-  if (/[*?[\]{}]/.test(tok)) return null; // glob — expansion unknown
-  const abs = resolvePath(tok, cwd);
-  try {
-    if (!fs.statSync(abs).isFile()) return null;
-  } catch {
-    return null;
-  }
-  return abs;
+function isLiteralPathToken(tok) {
+  if (tok === "" || tok.includes(SENTINEL) || tok.includes("$")) return false;
+  if (tok.startsWith("-")) return false; // option
+  return !/[*?[\]{}]/.test(tok); // glob — expansion unknown
 }
 
 /**
- * Expand a leading `~` and resolve against the hook-provided cwd.
+ * POSIX `path.resolve(cwd, p)` with a leading `~` expanded to `home`.
  * @param {string} p
- * @param {string} cwd
+ * @param {string} cwd  absolute
+ * @param {string | undefined} home
  * @returns {string}
  */
-function resolvePath(p, cwd) {
+export function resolvePath(p, cwd, home) {
   let expanded = p;
-  if (p === "~" || p.startsWith("~/")) {
-    const home = process.env.HOME;
-    if (home) expanded = path.join(home, p.slice(1));
+  if (home && (p === "~" || p.startsWith("~/"))) expanded = home + p.slice(1);
+  const joined = expanded.startsWith("/") ? expanded : `${cwd}/${expanded}`;
+  /** @type {string[]} */
+  const parts = [];
+  for (const seg of joined.split("/")) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") parts.pop();
+    else parts.push(seg);
   }
-  return path.resolve(cwd, expanded);
+  return `/${parts.join("/")}`;
 }
 
 /**
- * Classify a file by sampling its first 64 KiB. Missing files, non-files,
- * empty files and anything unreadable are safe (fail open).
- * @param {string} filePath
- * @returns {Classification}
+ * Classify a file by its first 64 KiB. Missing files, non-files, empty files
+ * and anything unreadable are safe (fail open).
+ * @param {string} filePath  absolute
+ * @param {GuardIo} io
+ * @returns {Promise<Classification>}
  */
-function classifyFile(filePath) {
-  /** @type {number | undefined} */
-  let fd;
+export async function classifyFile(filePath, io) {
   try {
-    const stat = fs.statSync(filePath);
-    if (!stat.isFile() || stat.size === 0) return { safe: true };
-    fd = fs.openSync(filePath, "r");
-    const len = Math.min(stat.size, SAMPLE_BYTES);
-    const buf = Buffer.alloc(len);
-    const got = fs.readSync(fd, buf, 0, len, 0);
-    return classifyBuffer(buf.subarray(0, got), got < stat.size);
+    const st = await io.stat(filePath);
+    if (st.kind !== "file" || st.size === 0) return { safe: true };
+    const buf = await io.sample(filePath, st.size);
+    const got = Math.min(buf.length, SAMPLE_BYTES);
+    return classifyBytes(buf.subarray(0, got), got < st.size);
   } catch {
     return { safe: true };
-  } finally {
-    if (fd !== undefined) {
-      try {
-        fs.closeSync(fd);
-      } catch {
-        /* ignore */
-      }
-    }
   }
 }
 
@@ -427,11 +398,11 @@ function classifyFile(filePath) {
  * UTF-8 validation → legacy single-byte fallback. NUL analysis MUST run
  * before UTF-8 validation: NUL is a *valid* UTF-8 byte, so ASCII-content
  * UTF-16 without a BOM would otherwise pass as UTF-8 and slip through.
- * @param {Buffer} buf
+ * @param {Uint8Array} buf
  * @param {boolean} truncated  true when the sample is a prefix of a larger file
  * @returns {Classification}
  */
-function classifyBuffer(buf, truncated) {
+export function classifyBytes(buf, truncated) {
   if (startsWith(buf, [0xff, 0xfe, 0x00, 0x00])) return unsafe("UTF-32LE", "UTF-32LE");
   if (startsWith(buf, [0x00, 0x00, 0xfe, 0xff])) return unsafe("UTF-32BE", "UTF-32BE");
   if (startsWith(buf, [0xef, 0xbb, 0xbf])) return { safe: true }; // UTF-8 BOM round-trips
@@ -469,23 +440,20 @@ function unsafe(label, iconv) {
 }
 
 /**
- * @param {Buffer} buf
+ * @param {Uint8Array} buf
  * @param {number[]} bytes
  * @returns {boolean}
  */
 function startsWith(buf, bytes) {
   if (buf.length < bytes.length) return false;
-  for (let i = 0; i < bytes.length; i++) {
-    if (buf[i] !== bytes[i]) return false;
-  }
-  return true;
+  return bytes.every((b, i) => buf[i] === b);
 }
 
 /**
  * Strict UTF-8 validation (overlongs, surrogates and >U+10FFFF rejected). A
  * multibyte sequence cut off at the end of a truncated sample is tolerated —
  * that is a sampling artifact, not an encoding error.
- * @param {Buffer} buf
+ * @param {Uint8Array} buf
  * @param {boolean} truncated
  * @returns {boolean}
  */
@@ -519,24 +487,30 @@ function isValidUtf8(buf, truncated) {
 }
 
 /**
- * Build the PreToolUse deny JSON. The reason always names every offending
- * file with its detected encoding and gives one concrete iconv command line.
- * @param {Offender[]} offenders
- * @returns {HookResult}
+ * The deny reason: every offending file with its detected encoding, and one
+ * concrete iconv command line.
+ * @param {Offender[]} offenders  non-empty
+ * @returns {string}
  */
-function denyResult(offenders) {
+export function denyReason(offenders) {
   const list = offenders.map((o) => `${o.path} (${o.label})`).join(", ");
   const first = offenders[0];
-  const reason =
+  return (
     `encoding-guard: ${list} ${offenders.length === 1 ? "is" : "are"} not UTF-8. ` +
     "Native Read/Edit/Write and plain shell text tools assume UTF-8 and would misread or corrupt the content. " +
     `Read safely with: iconv -f ${first.iconv} -t UTF-8 '${first.path}'. ` +
-    `To modify: convert to UTF-8, edit, convert back with iconv -f UTF-8 -t ${first.iconv} — or use another encoding-preserving tool.`;
-  return {
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      permissionDecision: "deny",
-      permissionDecisionReason: reason,
-    },
-  };
+    `To modify: convert to UTF-8, edit, convert back with iconv -f UTF-8 -t ${first.iconv} — or use another encoding-preserving tool.`
+  );
+}
+
+/**
+ * Decode base64 (whitespace tolerated, as `atob` strips it) to bytes.
+ * @param {string} b64
+ * @returns {Uint8Array}
+ */
+export function decodeBase64(b64) {
+  const bin = atob(b64.replace(/\s+/g, ""));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
 }
