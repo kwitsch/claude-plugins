@@ -171,6 +171,53 @@ export function applyEdit(current: string, oldStr: string, newStr: string, repla
   return current.slice(0, idx) + newStr + current.slice(idx + oldStr.length);
 }
 
+/** Start index of the line that contains index `i` of `s` (0 for the first line). */
+function lineStart(s: string, i: number): number {
+  return i <= 0 ? 0 : s.lastIndexOf("\n", i - 1) + 1;
+}
+
+/** Index just past the newline that ends the line containing index `i` of `s` (`s.length` for an
+ * unterminated last line). */
+function lineEnd(s: string, i: number): number {
+  const nl = s.indexOf("\n", i);
+  return nl === -1 ? s.length : nl + 1;
+}
+
+/** Shrink a whole-file Edit swap to the smallest run of whole lines that differs between the
+ * pre-edit file and its formatted replacement. Prettier still formats the WHOLE merged file (a
+ * fragment cannot be formatted in isolation); this only trims what the Edit tool is asked to swap,
+ * so a one-line edit to an already-formatted 300-line file costs a few lines of updatedInput
+ * instead of two copies of the file over the JSON-RPC pipe and through the Edit tool (measured:
+ * 1.9 MB -> 1.3 KB for a 450 KB file). The Edit tool applies `old_string` only when it is unique
+ * in the file, so the run grows
+ * one whole line at a time (upward first, then downward) until it is, degrading to the old
+ * whole-file swap in the worst case. Returns null when nothing differs. */
+export function shrinkSwap(current: string, formatted: string): { old_string: string; new_string: string } | null {
+  if (current === formatted) return null;
+  const max = Math.min(current.length, formatted.length);
+  let prefix = 0;
+  while (prefix < max && current.charCodeAt(prefix) === formatted.charCodeAt(prefix)) prefix++;
+  let suffix = 0;
+  while (suffix < max - prefix && current.charCodeAt(current.length - 1 - suffix) === formatted.charCodeAt(formatted.length - 1 - suffix)) suffix++;
+  // The changed run of `current` is [prefix, changedEnd); widen it to whole lines. The swap stays
+  // correct as long as `start <= prefix` and `end >= changedEnd` (everything outside is common
+  // text), which the widening below only ever strengthens. A pure insertion has an empty run, so
+  // the line holding the insertion point is taken; a run that is still empty (insertion at the end
+  // of a newline-terminated file) is widened by the loop.
+  const changedEnd = current.length - suffix;
+  let start = lineStart(current, prefix);
+  let end = lineEnd(current, Math.max(prefix, changedEnd - 1));
+  for (;;) {
+    const oldStr = current.slice(start, end);
+    if (oldStr !== "" && current.indexOf(oldStr) === start && current.lastIndexOf(oldStr) === start) {
+      return { old_string: oldStr, new_string: formatted.slice(start, formatted.length - (current.length - end)) };
+    }
+    if (start > 0) start = lineStart(current, start - 1);
+    else if (end < current.length) end = lineEnd(current, end);
+    else return { old_string: current, new_string: formatted }; // only reachable for an empty file
+  }
+}
+
 // The ONE base-rooted ignore file. A write to it refreshes THIS server's base-keyed ignore cache
 // (prettier's own getFileInfo still caches nothing). Kept as its own set so formatPost can act on
 // it separately from the config clear. `.gitignore` is deliberately NOT a member -- see
@@ -288,7 +335,11 @@ export async function formatPre(args: ToolHookInput): Promise<HookResult> {
       if (merged === null) return {}; // absent OR non-unique -> let the original Edit proceed/err
       const formatted = await formatInProcess(merged, resolved, base, lang);
       if (formatted === merged) return {};
-      return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp, old_string: current, new_string: formatted, replace_all: false }, additionalContext: notice } };
+      // null: the edit changed only what prettier formats straight back, so the file is already in
+      // its final shape -- let the raw Edit land rather than hand the Edit tool an old===new swap.
+      const swap = shrinkSwap(current, formatted);
+      if (swap === null) return {};
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp, ...swap, replace_all: false }, additionalContext: notice } };
     }
 
     return {};

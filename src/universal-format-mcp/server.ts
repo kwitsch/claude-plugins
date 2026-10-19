@@ -22,11 +22,11 @@ declare const UNIVERSAL_FORMAT_MCP_VERSION: string | undefined;
 const SERVER_INFO = { name: SERVER_NAME, version: typeof UNIVERSAL_FORMAT_MCP_VERSION === "string" ? UNIVERSAL_FORMAT_MCP_VERSION : "0.0.0" };
 const DEFAULT_PROTOCOL = "2025-11-25"; // only used if the client omits protocolVersion
 
-// ---- public surface of the built artifact: exactly 21 names, imported by the test suites ----
+// ---- public surface of the built artifact: exactly 22 names, imported by the test suites ----
 export { BUNDLED_PRETTIER_VERSION, bundledPluginsFor, formatInProcess, hasPrettierProjectConfig, resolveConfigPlugins, shouldOverridePrintWidth } from "./prettier.js";
 export { EXT_MAP, PRETTIER_LANGS, REGISTRY } from "./registry.js";
 export { buildInvocation, findNativeConfig, matchGlob, parseEditorconfig, resolveEditorconfig } from "./editorconfig.js";
-export { applyEdit, cwdChanged, formatPost, formatPre, isExcludedPath, resolveBase, worktreeEntered } from "./handlers.js";
+export { applyEdit, cwdChanged, formatPost, formatPre, isExcludedPath, resolveBase, shrinkSwap, worktreeEntered } from "./handlers.js";
 
 type ToolDef = {
   name: string;

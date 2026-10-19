@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=1e26beea15f81093 body=8a2d9fac8aec1440 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=7a58e377ac42d50b body=5eed461375912e61 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -200765,6 +200765,41 @@ function applyEdit(current, oldStr, newStr, replaceAll3) {
     return null;
   return current.slice(0, idx) + newStr + current.slice(idx + oldStr.length);
 }
+function lineStart(s, i5) {
+  return i5 <= 0 ? 0 : s.lastIndexOf(`
+`, i5 - 1) + 1;
+}
+function lineEnd(s, i5) {
+  const nl3 = s.indexOf(`
+`, i5);
+  return nl3 === -1 ? s.length : nl3 + 1;
+}
+function shrinkSwap(current, formatted) {
+  if (current === formatted)
+    return null;
+  const max = Math.min(current.length, formatted.length);
+  let prefix = 0;
+  while (prefix < max && current.charCodeAt(prefix) === formatted.charCodeAt(prefix))
+    prefix++;
+  let suffix = 0;
+  while (suffix < max - prefix && current.charCodeAt(current.length - 1 - suffix) === formatted.charCodeAt(formatted.length - 1 - suffix))
+    suffix++;
+  const changedEnd = current.length - suffix;
+  let start2 = lineStart(current, prefix);
+  let end = lineEnd(current, Math.max(prefix, changedEnd - 1));
+  for (;; ) {
+    const oldStr = current.slice(start2, end);
+    if (oldStr !== "" && current.indexOf(oldStr) === start2 && current.lastIndexOf(oldStr) === start2) {
+      return { old_string: oldStr, new_string: formatted.slice(start2, formatted.length - (current.length - end)) };
+    }
+    if (start2 > 0)
+      start2 = lineStart(current, start2 - 1);
+    else if (end < current.length)
+      end = lineEnd(current, end);
+    else
+      return { old_string: current, new_string: formatted };
+  }
+}
 var PRETTIER_IGNORE_BASENAMES = new Set([".prettierignore"]);
 var CACHE_INVALIDATING_BASENAMES = new Set([...PRETTIER_CONFIG_FILENAMES, "package.json", "package.yaml", ".editorconfig", ...PRETTIER_IGNORE_BASENAMES]);
 async function formatPost(args2) {
@@ -200850,7 +200885,10 @@ async function formatPre(args2) {
       const formatted = await formatInProcess(merged, resolved, base, lang);
       if (formatted === merged)
         return {};
-      return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp2, old_string: current, new_string: formatted, replace_all: false }, additionalContext: notice } };
+      const swap = shrinkSwap(current, formatted);
+      if (swap === null)
+        return {};
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp2, ...swap, replace_all: false }, additionalContext: notice } };
     }
     return {};
   } catch {
@@ -201000,6 +201038,7 @@ if (isMainModule())
   startServer();
 export {
   worktreeEntered,
+  shrinkSwap,
   shouldOverridePrintWidth,
   resolveEditorconfig,
   resolveConfigPlugins,
