@@ -103,20 +103,25 @@ if (!haveBun()) {
 }
 
 // plugin.json is the single source of truth for the server's reported version -- inlined into
-// the bundle via bun's --env (a compile-time constant substitution, verified empirically: the
-// resulting literal survives running the built artifact under plain node with the env var unset),
-// so SERVER_INFO.version in server.ts never needs hand-pairing with a release bump.
+// the bundle via bun's --define, which replaces the bare global identifier server.ts declares with
+// the version literal (verified: `serverInfo.version` of the built artifact equals plugin.json's,
+// asserted by build-artifact.test.mjs), so SERVER_INFO.version never needs hand-pairing with a
+// release bump. Not `--env`: that only rewrites the GLOBAL `process.env.X`, and server.ts imports
+// `process` from "node:process", so every earlier artifact reported "0.0.0".
 const pluginVersion = JSON.parse(readFileSync(path.join(PLUGIN_DIR, ".claude-plugin", "plugin.json"), "utf8")).version;
 
 const tmpDir = mkdtempSync(path.join(tmpdir(), "uf-mcp-build-"));
 const tmpOut = path.join(tmpDir, "server.mjs");
 // cwd is pinned to the repo root: bun embeds cwd-relative `// <module path>` provenance
 // comments, so building the same tree from a parent directory would change ~20 comment lines.
-const built = spawnSync("bun", ["build", path.join(SRC_DIR, "server.ts"), "--target=node", "--format=esm", "--env=UNIVERSAL_FORMAT_MCP_VERSION*", "--outfile=" + tmpOut], {
-  cwd: REPO_ROOT,
-  stdio: "inherit",
-  env: { ...process.env, UNIVERSAL_FORMAT_MCP_VERSION: pluginVersion },
-});
+const built = spawnSync(
+  "bun",
+  ["build", path.join(SRC_DIR, "server.ts"), "--target=node", "--format=esm", `--define=UNIVERSAL_FORMAT_MCP_VERSION=${JSON.stringify(pluginVersion)}`, "--outfile=" + tmpOut],
+  {
+    cwd: REPO_ROOT,
+    stdio: "inherit",
+  },
+);
 if (built.error || built.status !== 0) {
   rmSync(tmpDir, { recursive: true, force: true });
   process.stderr.write("bun build failed; the committed artifact was left untouched.\n");

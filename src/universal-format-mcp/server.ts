@@ -12,10 +12,14 @@ import { fileURLToPath } from "node:url";
 import { cwdChanged, formatPost, formatPre, worktreeEntered } from "./handlers.js";
 
 const SERVER_NAME = "universal-format-hooks"; // keep aligned with the .mcp.json key
-// UNIVERSAL_FORMAT_MCP_VERSION is inlined at build time by build.mjs's `bun build --env` flag
-// from plugin.json's own version, so plugin.json stays the single source of truth -- never
-// hand-edit this fallback to "match" a release; it only fires if server.ts runs unbundled.
-const SERVER_INFO = { name: SERVER_NAME, version: process.env.UNIVERSAL_FORMAT_MCP_VERSION ?? "0.0.0" };
+// UNIVERSAL_FORMAT_MCP_VERSION is a bare global that build.mjs's `bun build --define` replaces with
+// plugin.json's version literal, so plugin.json stays the single source of truth -- never hand-edit
+// the fallback to "match" a release; it only fires if server.ts runs unbundled (the `typeof` guard
+// keeps that a value, not a ReferenceError). Not `process.env.X`: bun's `--env`/`--define` match
+// only the GLOBAL `process`, and this module imports `process` from "node:process", so the old
+// `--env` form silently shipped "0.0.0" in every release (pinned by build-artifact.test.mjs).
+declare const UNIVERSAL_FORMAT_MCP_VERSION: string | undefined;
+const SERVER_INFO = { name: SERVER_NAME, version: typeof UNIVERSAL_FORMAT_MCP_VERSION === "string" ? UNIVERSAL_FORMAT_MCP_VERSION : "0.0.0" };
 const DEFAULT_PROTOCOL = "2025-11-25"; // only used if the client omits protocolVersion
 
 // ---- public surface of the built artifact: exactly 20 names, imported by the test suites ----

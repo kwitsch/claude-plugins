@@ -122,3 +122,28 @@ test("artifact uses no Bun-only API: no `Bun.` token and no `bun:` import", () =
   assert.ok(!/\bBun\./.test(text), "the bundle references a `Bun.` API — the --target=node no-Bun invariant is broken; rebuild from Bun-API-free source");
   assert.ok(!/["']bun:/.test(text), "the bundle imports a `bun:` module — the --target=node no-Bun invariant is broken; rebuild from Bun-API-free source");
 });
+
+// The version is inlined by `bun build --define` into a bare global `server.ts` declares. The
+// earlier `--env=UNIVERSAL_FORMAT_MCP_VERSION*` form never matched (server.ts imports `process`
+// from "node:process", and bun's env inlining only rewrites the global `process.env.X`), so every
+// artifact before 0.18.0 answered `initialize` with version "0.0.0". Behavioral check: spawn the
+// built server and read what it actually reports.
+test("built server reports plugin.json's version in initialize's serverInfo", async () => {
+  const { spawn } = await import("node:child_process");
+  const pluginVersion = JSON.parse(readFileSync(path.join(MCP_DIR, "..", ".claude-plugin", "plugin.json"), "utf8")).version;
+  const reported = await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [ARTIFACT], { stdio: ["pipe", "pipe", "ignore"] });
+    let out = "";
+    child.stdout.on("data", (/** @type {Buffer} */ d) => (out += d.toString()));
+    child.on("close", () => {
+      try {
+        const line = out.split("\n").find((l) => l.includes('"id":1'));
+        resolve(JSON.parse(/** @type {string} */ (line)).result.serverInfo.version);
+      } catch (e) {
+        reject(new Error(`no initialize response: ${JSON.stringify(out)} (${e})`));
+      }
+    });
+    child.stdin.end('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n');
+  });
+  assert.equal(reported, pluginVersion, "the bundle must carry plugin.json's version -- rebuild after a bump, and never let the inlining regress to 0.0.0");
+});
