@@ -14,7 +14,11 @@ if [ "$#" -eq 0 ]; then
   exit 64
 fi
 
-if command -v bun  >/dev/null 2>&1; then exec bun  "$@"; fi
-if command -v node >/dev/null 2>&1; then exec node "$@"; fi
+if command -v bun > /dev/null 2>&1; then exec bun "$@"; fi
+# node only: V8 compile cache for the 9 MB bundle (Node >= 22.1, ignored by older node). Cuts the
+# per-start parse/compile of server.mjs by ~80 ms from the second start on. Fail-open: an
+# unwritable or missing dir just disables the cache. The user's own setting wins.
+export NODE_COMPILE_CACHE="${NODE_COMPILE_CACHE:-${XDG_CACHE_HOME:-${HOME:-/tmp}/.cache}/universal-format/node-compile-cache}"
+if command -v node > /dev/null 2>&1; then exec node "$@"; fi
 echo "mjs-launch.sh: neither bun nor node is available. Install Node.js or Bun." >&2
 exit 1
