@@ -1,6 +1,10 @@
 [
   { "cmd": "cat legacy.txt", "expect": "deny" },
   { "cmd": "cat ./legacy.txt", "expect": "deny" },
+  { "cmd": "rtk read legacy.txt", "expect": "deny" },
+  { "cmd": "rtk read legacy.txt --tail-lines 5", "expect": "deny" },
+  { "cmd": "rtk grep foo legacy.txt", "expect": "deny" },
+  { "cmd": "rtk ls", "expect": "allow" },
   { "cmd": "head -n 5 legacy.txt", "expect": "deny" },
   { "cmd": "tail legacy.txt", "expect": "deny" },
   { "cmd": "grep foo legacy.txt", "expect": "deny" },

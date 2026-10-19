@@ -15,8 +15,8 @@ takes precedence over any skill-level guidance that allows inline ask-and-wait.
 - Fixed-choice or open-ended → always AskUserQuestion.
 - Never rely on plain-text prompts to elicit user input.
 - Never end a turn with a bare "?" — including casual offers ("want me to X or Y?",
-  "should I continue?"). A mechanical Stop-hook gate enforces this: it blocks and
-  tells you to redo it via AskUserQuestion.
+  "should I continue?"). A mechanical turn-end gate enforces this: it sends a
+  follow-up prompt telling you to redo it via AskUserQuestion.
 
 ## 2. Language — compress (src: cavemem/docs/compression.md)
 

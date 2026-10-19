@@ -46,17 +46,22 @@ four axes — three sourced from external repos, one (Interaction) plugin-origin
 | **Behavior**    | [andrej-karpathy-skills `CLAUDE.md`](https://github.com/multica-ai/andrej-karpathy-skills/blob/main/CLAUDE.md) | think → simplify → surgical → verify                        |
 | **Mentality**   | [ponytail-lite `AGENTS.md`](https://github.com/ilindaniel/ponytail-lite/blob/main/AGENTS.md)                   | lazy senior dev; YAGNI; prefer deletion                     |
 
-- A `Stop` hook mechanically blocks a turn that ends with a plain-text question to the
-  user, telling Claude to redo it via `AskUserQuestion` instead.
-- **Encoding guard (PreToolUse):** before `Read`, `Edit`, `Write` and `Bash`
+- **Interaction gate:** when a turn ends with a plain-text question to the user, the
+  plugin sends one follow-up message telling Claude to redo it via `AskUserQuestion`
+  instead (at most once per turn you start).
+- **Encoding guard:** before `Read`, `Edit`, `Write` and `Bash`
   operations that read or modify file content, detects the target file's
   encoding and denies the call when the file is not UTF-8 — naming the
   detected encoding and a concrete `iconv` alternative. Precision-biased and
   fail-open: quoted/substituted paths, unknown tools, binary and missing
   files always pass; encoding-safe tools (`iconv`, `git`, `mv`, …) are never
   blocked.
+- **Worktree refresh:** when `EnterWorktree` creates a new worktree, fetches and rebases
+  it onto the repo's default branch on origin; a fetch failure or an (aborted) rebase
+  conflict is reported to Claude. Toggle: `worktree_refresh` (default `true`).
 
-The Stop gate and encoding guard need no setup. Run
+All three run in-process as a mods hooks module (no extra processes). The interaction
+gate and encoding guard need no setup. Run
 `/coding-toolbox:setup-rules` once per machine to opt into the full golden-rules document
 and a tool-routing table as persistent `~/.claude/rules/*.md` files, applying to every
 project you open here.
