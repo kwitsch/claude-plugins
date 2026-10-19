@@ -117,6 +117,16 @@
       },
       "category": "productivity",
       "tags": ["mods", "hooks", "token-efficiency", "prompt-cache", "effort"]
+    },
+    {
+      "name": "dprint",
+      "source": "./plugins/dprint",
+      "description": "Skill that checks for a minimum dprint version and, after confirmation, installs or updates dprint at user level.",
+      "author": {
+        "name": "Kwitsch"
+      },
+      "category": "development",
+      "tags": ["dprint", "formatter", "installer"]
     }
   ]
 }

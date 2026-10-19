@@ -1,0 +1,53 @@
+#!/usr/bin/env bats
+
+load 'test_helper'
+
+setup() {
+  common_setup
+  MARKET="$REPO_ROOT/.claude-plugin/marketplace.json"
+}
+
+@test "plugin.json is valid, pins version 0.1.0, and has required fields" {
+  run jq -e '.name == "dprint" and .version == "0.1.0" and (.description | length > 0) and (.author.name == "Kwitsch")' "$PLUGIN/.claude-plugin/plugin.json"
+  assert_success
+}
+
+@test "plugin.json carries no userConfig" {
+  run jq -e 'has("userConfig") | not' "$PLUGIN/.claude-plugin/plugin.json"
+  assert_success
+}
+
+@test "marketplace.json has exactly one dprint entry with the right source and no version" {
+  run jq -e '[.plugins[] | select(.name == "dprint" and .source == "./plugins/dprint")] | length == 1' "$MARKET"
+  assert_success
+  run jq -e '[.plugins[] | select(.name == "dprint") | has("version")] | any | not' "$MARKET"
+  assert_success
+}
+
+@test "marketplace.json dprint entry has author Kwitsch and category development" {
+  run jq -e '.plugins[] | select(.name == "dprint") | .author.name == "Kwitsch" and .category == "development"' "$MARKET"
+  assert_success
+}
+
+@test "marketplace.json dprint description is byte-identical to plugin.json" {
+  plugin_desc="$(jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json")"
+  market_desc="$(jq -r '.plugins[] | select(.name == "dprint") | .description' "$MARKET")"
+  [ "$plugin_desc" = "$market_desc" ]
+}
+
+@test "root README links the dprint plugin README" {
+  run grep -F '[dprint](plugins/dprint/README.md)' "$REPO_ROOT/README.md"
+  assert_success
+}
+
+@test "CI test matrix lists dprint" {
+  run grep -n -- '- dprint$' "$REPO_ROOT/.github/workflows/test.yml"
+  assert_success
+}
+
+@test "plugin README has Install first with the install command" {
+  run grep -m1 '^## ' "$PLUGIN/README.md"
+  assert_output "## Install"
+  run grep -F '/plugin install dprint@kwitsch-plugins' "$PLUGIN/README.md"
+  assert_success
+}
