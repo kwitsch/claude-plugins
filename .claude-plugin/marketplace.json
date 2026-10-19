@@ -19,8 +19,8 @@
       "tags": ["git", "hooks", "signing", "ssh"]
     },
     {
-      "name": "claude-code-knowledge",
-      "source": "./plugins/claude-code-knowledge",
+      "name": "cc-knowledge",
+      "source": "./plugins/cc-knowledge",
       "description": "Lookup skill plus harness-optimized reference files for authoring and configuring Claude Code — skills, subagents, hooks, slash commands, MCP, plugins, CLAUDE.md memory, and settings — plus a read-only expert agent that replaces the built-in claude-code-guide. Retrieves only the relevant section into context.",
       "author": {
         "name": "Kwitsch"
@@ -61,7 +61,7 @@
     {
       "name": "memory-enhancement",
       "source": "./plugins/memory-enhancement",
-      "description": "A dream skill that runs a natural-language-triggered, four-phase memory-consolidation cycle over this project's auto-memory files (orient, gather signal from recent session transcripts, consolidate merging duplicates/dropping stale entries/resolving contradictions, update the MEMORY.md index under its 200-line load cutoff), compressing touched detail files caveman-style via claude-code-knowledge's cc-compress; a turn-end/session-start mods hook pair flags and nudges the next session to run one, gated by the auto_dream toggle (default true).",
+      "description": "A dream skill that runs a natural-language-triggered, four-phase memory-consolidation cycle over this project's auto-memory files (orient, gather signal from recent session transcripts, consolidate merging duplicates/dropping stale entries/resolving contradictions, update the MEMORY.md index under its 200-line load cutoff), compressing touched detail files caveman-style via cc-knowledge's cc-compress; a turn-end/session-start mods hook pair flags and nudges the next session to run one, gated by the auto_dream toggle (default true).",
       "author": {
         "name": "Kwitsch"
       },

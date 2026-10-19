@@ -110,7 +110,7 @@ conservative rules — preserve curated gotchas, never regenerate wholesale); `c
 `plugins` → `claude-code-plugins-reference.md` and its two splits `claude-code-plugins-lsp-reference.md`
 and `claude-code-plugins-marketplace-reference.md`; `memory` → `claude-code-memory-reference.md`; `settings`
 → `claude-code-settings-reference.md`; `all`/empty → everything. Locate files with `Glob`
-(`plugins/claude-code-knowledge/skills/cc-reference/references/*.md`); if absent, create them there.
+(`plugins/cc-knowledge/skills/cc-reference/references/*.md`); if absent, create them there.
 (`skill-folder-structure.md` in that folder is a static convention doc — NOT a maintained target.)
 
 `len(resolved files) == 1` → **Inline mode** (below). `len(resolved files) > 1` → **Workflow mode**
@@ -409,14 +409,14 @@ or been reverted (Inline mode step 7-8 / Workflow mode's Verify+Revert stages) b
 1. **Detect change:**
 
    ```bash
-   git status --porcelain plugins/claude-code-knowledge/skills/cc-reference/
+   git status --porcelain plugins/cc-knowledge/skills/cc-reference/
    ```
 
    - **No output** (nothing changed) → report "references already current",
      print the short changelog, and STOP. Make no commit, no version bump, no PR.
    - **Output present** → continue.
 
-2. **Patch version bump** in `plugins/claude-code-knowledge/.claude-plugin/plugin.json`:
+2. **Patch version bump** in `plugins/cc-knowledge/.claude-plugin/plugin.json`:
    bump only the last number, leave major/minor untouched (e.g. `0.1.0` → `0.1.1`).
    The version lives ONLY in `plugin.json` (per `.claude/rules/plugin-versioning.md`).
    Do NOT edit any version in `marketplace.json` and do NOT create a git tag — CI
@@ -436,7 +436,7 @@ or been reverted (Inline mode step 7-8 / Workflow mode's Verify+Revert stages) b
 4. **Commit, push, open PR** by invoking the `commit-commands:commit-push-pr`
    skill (Skill tool). Stage the changed reference files and the bumped
    `plugin.json`. Use a Conventional-Commit subject such as
-   `fix(claude-code-knowledge): refresh CC reference files`. Commit messages must
+   `fix(cc-knowledge): refresh CC reference files`. Commit messages must
    carry NO `Co-Authored-By:` trailer and NO "Generated with Claude Code" footer
    (repo convention). If `commit-push-pr` is unavailable, fall back to inline git:
    create a branch off the default branch if currently on it, commit, push, and
