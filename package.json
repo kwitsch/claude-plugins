@@ -19,8 +19,8 @@
     "bats-support": "^0.3.0",
     "eslint": "^10.6.0",
     "globals": "^17.7.0",
-    "prettier": "^3.9.4",
-    "prettier-plugin-java": "2.10.3",
+    "prettier": "^3.9.10",
+    "prettier-plugin-java": "2.11.0",
     "prettier-plugin-sh": "0.16.1",
     "sh-syntax": "0.4.2",
     "typescript": "^7.0.2"

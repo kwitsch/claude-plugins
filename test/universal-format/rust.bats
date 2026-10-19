@@ -1,6 +1,7 @@
 #!/usr/bin/env bats
 
-# Rust (rustfmt) single-tool chain: mapped strategy, rustfmt formats a bare file path in place.
+# Rust (rustfmt) single-tool chain: mapped strategy, fed on stdin from the file's own directory
+# (rustfmt finds rustfmt.toml by walking up from cwd; it has no path flag for stdin input).
 
 load 'test_helper'
 
@@ -8,27 +9,26 @@ setup() {
   common_setup
 }
 
-@test "rust: rustfmt on PATH, no config -> runs bare (in place)" {
+@test "rust: rustfmt on PATH, no config -> runs bare on stdin, cwd is the file's directory" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
-  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
-  printf 'fn main(){}\n' > "$cwd/a.rs"
-  rec_stub rustfmt
-  run format_file_call "$cwd/a.rs" "$cwd"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd/src"
+  make_stub rustfmt 'printf "%s %s %s\n" rustfmt "$*" "$PWD" >> "$RECORD"' 'cat >/dev/null' 'printf "reformatted\n"'
+  run pre_tool_use_write_call "$cwd/src/a.rs" 'fn main(){}' "$cwd"
   assert_success
-  run rg_or_grep -F "rustfmt " "$RECORD"
-  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.updatedInput.content == "reformatted\n"'
+  run cat "$RECORD"
+  assert_output "rustfmt  $cwd/src"
 }
 
 @test "rust: rustfmt.toml present -> native-config bypass (no --config emitted)" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
-  printf 'fn main(){}\n' > "$cwd/a.rs"
   printf 'max_width = 100\n' > "$cwd/rustfmt.toml"
   printf 'root = true\n[*]\nmax_line_length = 120\n' > "$cwd/.editorconfig"
   rec_stub rustfmt
-  run format_file_call "$cwd/a.rs" "$cwd"
+  run pre_tool_use_write_call "$cwd/a.rs" 'fn main(){}' "$cwd"
   assert_success
   run rg_or_grep -F -- "--config" "$RECORD"
   assert_failure
@@ -38,37 +38,42 @@ setup() {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
-  printf 'fn main(){}\n' > "$cwd/a.rs"
-  run format_file_call "$cwd/a.rs" "$cwd"
+  run pre_tool_use_write_call "$cwd/a.rs" 'fn main(){}' "$cwd"
   assert_success
+  [ "$output" = "{}" ]
   run rg_or_grep -F "rustfmt " "$RECORD"
   assert_failure
 }
 
-@test "rust: rustfmt exits 1 AFTER rewriting file -> additionalContext still returned" {
+@test "rust: rustfmt exits 1 (its failure code) -> {} even when it printed output" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
-  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
-  printf 'fn main(){}\n' > "$cwd/a.rs"
-  make_stub rustfmt \
-    'printf "%s %s\n" rustfmt "$*" >> "$RECORD"' \
-    'for last; do :; done' \
-    'printf "reformatted\n" > "$last"' \
-    'exit 1'
-  run format_file_call "$cwd/a.rs" "$cwd"
+  make_stub rustfmt 'cat >/dev/null' 'printf "garbage\n"' 'exit 1'
+  run pre_tool_use_write_call "$cwd/a.rs" 'fn main(){}' "$cwd"
   assert_success
-  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("rustfmt reformatted a.rs")'
+  [ "$output" = "{}" ]
 }
 
 @test "rust: .editorconfig max_line_length -> rustfmt gets --config max_width" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
-  printf 'fn main(){}\n' > "$cwd/a.rs"
   printf 'root = true\n[*]\nmax_line_length = 120\n' > "$cwd/.editorconfig"
   rec_stub rustfmt
-  run format_file_call "$cwd/a.rs" "$cwd"
+  run pre_tool_use_write_call "$cwd/a.rs" 'fn main(){}' "$cwd"
   assert_success
   run rg_or_grep -F -- "--config max_width=120" "$RECORD"
   assert_success
+}
+
+@test "rust: the crate's Cargo.toml edition is passed as --edition (stdin would otherwise parse as Rust 2015)" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd/src"
+  printf '[package]\nname = "x"\nedition = "2021"\n' > "$cwd/Cargo.toml"
+  rec_stub rustfmt
+  run pre_tool_use_write_call "$cwd/src/a.rs" 'async fn main(){}' "$cwd"
+  assert_success
+  run cat "$RECORD"
+  assert_output "rustfmt --edition 2021"
 }

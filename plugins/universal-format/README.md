@@ -1,6 +1,6 @@
 # universal-format
 
-Silently auto-formats source files around Write/Edit — Prettier languages before the write with the Prettier (and the Java, PHP and Shell plugins bundled next to it) the plugin ships inside its own MCP server, the three remaining languages after it via their own CLI — honoring `.editorconfig`, `.prettierignore` and tool-native configs, and doing nothing when no formatter can be found.
+Silently auto-formats source files before every Write/Edit lands — Prettier languages with the Prettier (and the Java, PHP and Shell plugins bundled next to it) the plugin ships inside its own MCP server, Kotlin/Python/Go/Rust through their own CLI fed on stdin — honoring `.editorconfig`, `.prettierignore` and tool-native configs, and doing nothing when no formatter can be found.
 
 ## Install
 
@@ -16,22 +16,23 @@ Silently auto-formats source files around Write/Edit — Prettier languages befo
 
 ## What it does
 
-Two `Write|Edit` hooks on a self-contained plugin-local MCP server, plus two more that react to
-your working directory changing — a `CwdChanged` hook that only refreshes that server's cached
-view of your `.prettierignore`, and (for background-job sessions using
-`EnterWorktree`, which `CwdChanged` doesn't reliably fire for) a `PostToolUse:EnterWorktree` hook
-that does the same cache refresh plus remembers the worktree path it was given as the cwd the
-other two hooks should resolve files against for the rest of that session. Neither ever formats
-anything.
+One `Write|Edit` hook on a self-contained plugin-local MCP server. It runs **before** the write,
+formats the content Claude is about to write and hands the formatted content back to the tool, so
+the file lands formatted the first time — nothing runs after the write, and nothing ever rewrites
+the file on disk behind the tool's back.
 
 **Prettier languages** (JS/TS, JSON, YAML, Markdown, CSS, SCSS, LESS, HTML, Vue, GraphQL, Shell,
-Java, PHP) are formatted **before** the write, in-process, by the Prettier this plugin ships inside
-its own MCP server — together with the three community plugins bundled next to it
-(`prettier-plugin-java`, `@prettier/plugin-php`, `prettier-plugin-sh`) and their three `.wasm`
-sidecars. There is no version lookup and no install step: one bundled copy, always used, with no
-network access.
+Java, PHP) are formatted in-process by the Prettier this plugin ships inside its own MCP server —
+together with the three community plugins bundled next to it (`prettier-plugin-java`,
+`@prettier/plugin-php`, `prettier-plugin-sh`) and their three `.wasm` sidecars. There is no version
+lookup and no install step: one bundled copy, always used, with no network access.
 
-**All other languages** (Kotlin, Python, Go, Rust) are formatted after the write via each tool's CLI.
+**All other languages** (Kotlin, Python, Go, Rust) are formatted by the first of each language's CLI
+formatters found on `PATH`, fed the content on stdin (`ruff format --stdin-filename …`,
+`ktlint --stdin --stdin-path …`, `goimports -srcdir …`, …) so the tool resolves `pyproject.toml`,
+`.editorconfig` or the Go module exactly as it would for the file on disk. Its stdout is what gets
+written; a non-zero exit (except ktlint's "violations remain" exit 1) or empty output leaves the
+content untouched.
 
 Your project's Prettier **configuration** is still honored in full — `.prettierrc*`,
 `prettier.config.*`, a top-level `"prettier"` key in `package.json`/`package.yaml`,
@@ -72,25 +73,25 @@ does not opt out of Prettier formatting; exclude the paths via `.prettierignore`
 
 ## Supported formatters
 
-| Language | Extensions                                            | Formatter chain                                   |
-| -------- | ----------------------------------------------------- | ------------------------------------------------- |
-| Shell    | `.sh` `.bash`                                         | bundled `prettier` (in-process, before the write) |
-| Java     | `.java`                                               | bundled `prettier` (in-process, before the write) |
-| Kotlin   | `.kt` `.kts`                                          | `ktlint` → `ktfmt`                                |
-| JS/TS    | `.js` `.jsx` `.mjs` `.cjs` `.ts` `.tsx` `.mts` `.cts` | bundled `prettier` (in-process, before the write) |
-| Python   | `.py` `.pyi`                                          | `ruff` → `black`                                  |
-| Go       | `.go`                                                 | `goimports` → `gofmt`                             |
-| Rust     | `.rs`                                                 | `rustfmt`                                         |
-| JSON     | `.json`                                               | bundled `prettier` (in-process, before the write) |
-| YAML     | `.yaml` `.yml`                                        | bundled `prettier` (in-process, before the write) |
-| Markdown | `.md`                                                 | bundled `prettier` (in-process, before the write) |
-| CSS      | `.css`                                                | bundled `prettier` (in-process, before the write) |
-| SCSS     | `.scss`                                               | bundled `prettier` (in-process, before the write) |
-| LESS     | `.less`                                               | bundled `prettier` (in-process, before the write) |
-| HTML     | `.html` `.htm`                                        | bundled `prettier` (in-process, before the write) |
-| Vue      | `.vue`                                                | bundled `prettier` (in-process, before the write) |
-| GraphQL  | `.graphql` `.gql`                                     | bundled `prettier` (in-process, before the write) |
-| PHP      | `.php`                                                | bundled `prettier` (in-process, before the write) |
+| Language | Extensions                                            | Formatter chain                                        |
+| -------- | ----------------------------------------------------- | ------------------------------------------------------ |
+| Shell    | `.sh` `.bash`                                         | bundled `prettier` (in-process, before the write)      |
+| Java     | `.java`                                               | bundled `prettier` (in-process, before the write)      |
+| Kotlin   | `.kt` `.kts`                                          | `ktlint` → `ktfmt` (CLI on stdin, before the write)    |
+| JS/TS    | `.js` `.jsx` `.mjs` `.cjs` `.ts` `.tsx` `.mts` `.cts` | bundled `prettier` (in-process, before the write)      |
+| Python   | `.py` `.pyi`                                          | `ruff` → `black` (CLI on stdin, before the write)      |
+| Go       | `.go`                                                 | `goimports` → `gofmt` (CLI on stdin, before the write) |
+| Rust     | `.rs`                                                 | `rustfmt` (CLI on stdin, before the write)             |
+| JSON     | `.json`                                               | bundled `prettier` (in-process, before the write)      |
+| YAML     | `.yaml` `.yml`                                        | bundled `prettier` (in-process, before the write)      |
+| Markdown | `.md`                                                 | bundled `prettier` (in-process, before the write)      |
+| CSS      | `.css`                                                | bundled `prettier` (in-process, before the write)      |
+| SCSS     | `.scss`                                               | bundled `prettier` (in-process, before the write)      |
+| LESS     | `.less`                                               | bundled `prettier` (in-process, before the write)      |
+| HTML     | `.html` `.htm`                                        | bundled `prettier` (in-process, before the write)      |
+| Vue      | `.vue`                                                | bundled `prettier` (in-process, before the write)      |
+| GraphQL  | `.graphql` `.gql`                                     | bundled `prettier` (in-process, before the write)      |
+| PHP      | `.php`                                                | bundled `prettier` (in-process, before the write)      |
 
 `prettier` is the copy bundled into the plugin's own MCP server, together with the
 `prettier-plugin-java`, `@prettier/plugin-php` and `prettier-plugin-sh` plugins bundled beside it
@@ -102,11 +103,12 @@ does not opt out of Prettier formatting; exclude the paths via `.prettierignore`
 `.editorconfig` is honored when present; tool-native configs (`.prettierrc*`, `.ruff.toml`, `pyproject.toml [tool.ruff]`/`[tool.black]`) take precedence over it.
 
 - `prettier` and `ktlint` read `.editorconfig` natively (run flag-free). For the thirteen bundled `prettier` languages that is the whole mechanism — `indent_style`, `indent_size` and `max_line_length` included, Shell, Java and PHP with them.
-- `ktfmt` is always passed `--enable-editorconfig`.
+- `ktfmt` is always passed `--enable-editorconfig`; it applies `.editorconfig` to stdin input (via `--stdin-name`) from ktfmt 0.65 on — older releases format with ktfmt's default style.
 - For `ruff` and `black`, a minimal built-in resolver maps core `.editorconfig` properties (`indent_style`, `indent_size`, `max_line_length`, `end_of_line`) to CLI flags — **only** when no tool-native config governs the file. This mapping is intentionally partial (documented properties only).
 - For `rustfmt`, the same resolver maps `max_line_length`/`indent_style`/`indent_size` to `--config max_width`/`--config hard_tabs`/`--config tab_spaces` — **only** when no `rustfmt.toml`/`.rustfmt.toml` governs the file. `rustfmt` honors every tab/space combination, so there is no hard-conflict skip.
 - **Hard conflicts are skipped, not violated:** `black` is hard-fixed at 4-space indentation, so an `.editorconfig` declaring `indent_style = tab` leaves the Python file untouched rather than reformatted against its own config.
 - Go's style is fixed by design (tabs); a conforming `[*.go] indent_style = tab` is honored by construction.
+- Line endings: `ktlint`, `gofmt`, `goimports` and `rustfmt` emit LF for CRLF input on stdin; `ruff`, `black`, `ktfmt` and Prettier (`endOfLine: "auto"` or your config) keep what they are given. An `Edit` to a CRLF file keeps CRLF either way (the Edit tool writes the file's own line endings back).
 
 Two notes on the languages that moved to the bundled `prettier`:
 

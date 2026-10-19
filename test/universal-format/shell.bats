@@ -27,16 +27,13 @@ setup() {
   echo "$output" | jq -e '.hookSpecificOutput.updatedInput.content == "echo hi\n"'
 }
 
-@test "shell: format_post returns {} with a shfmt stub present but never run" {
+@test "shell: a shfmt stub on PATH is never run; the bundled plugin formats in-process" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
-  printf 'echo  hi\n' > "$cwd/a.sh"
   rec_stub shfmt
-  run format_file_call "$cwd/a.sh" "$cwd"
+  run pre_tool_use_write_call "$cwd/a.sh" 'echo  hi' "$cwd"
   assert_success
-  [ "$output" = "{}" ]
+  echo "$output" | jq -e '.hookSpecificOutput.updatedInput.content == "echo hi\n"'
   [ ! -s "$RECORD" ]
-  run cat "$cwd/a.sh"
-  assert_output "echo  hi"
 }

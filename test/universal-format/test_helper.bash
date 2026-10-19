@@ -63,13 +63,14 @@ make_stub() {
   chmod +x "$MOCKBIN/$name"
 }
 
-# A recording+rewriting stub: appends "<name> <argv>" to $RECORD and overwrites the
-# target file (always the last arg) so the server's content-diff sees a change.
+# A recording+rewriting stub for a CLI formatter: appends "<name> <argv>" to $RECORD, drains the
+# content the server feeds it on stdin and prints a marker line as its "formatted" result, so the
+# server's content-diff sees a change and a test can assert which tool ran.
 rec_stub() {
   make_stub "$1" \
     'printf "%s %s\n" "'"$1"'" "$*" >> "$RECORD"' \
-    'for last; do :; done' \
-    'printf "reformatted-by-'"$1"'\n" > "$last"'
+    'cat >/dev/null' \
+    'printf "reformatted-by-'"$1"'\n"'
 }
 
 # Drive one JSON-RPC request against a fresh server on the isolated PATH; echo the
@@ -84,7 +85,8 @@ rec_stub() {
 # closing should make the server's readline hit EOF and exit on its own, but a server bug
 # (a stray timer, an unresolved promise) keeping it alive must never hang the whole suite on
 # an unbounded `wait`. mkfifo/grep/sleep/jq run in the bats shell with the real PATH, so
-# MOCKBIN's symlink farm needs no new entry.
+# MOCKBIN's symlink farm needs no new entry. It backs pre_tool_use_write_call and
+# pre_tool_use_edit_call (format_pre is the server's only tool).
 # $1 = tool name, $2 = arguments JSON object (compact).
 _mcp_call() {
   local tool="$1" args_json="$2" out i
@@ -118,15 +120,6 @@ _mcp_call() {
   rm -f "$fifo"
   out="$(jq -rc 'select(.id == 2) | .result.content[0].text' "$outfile" 2>/dev/null)"
   if [ -n "$out" ]; then printf '%s' "$out"; else printf 'NO_RESULT'; fi
-}
-
-# format_file_call <file_path> <cwd> — drive format_post (PostToolUse). Signature
-# unchanged from the pre-MCP helper, so existing per-language call sites keep their
-# assertions; a no-op handler still yields "{}", a dead server now yields NO_RESULT.
-format_file_call() {
-  local fp="$1" cwd="$2" args
-  args="$(jq -cn --arg f "$fp" --arg c "$cwd" '{hook_event_name:"PostToolUse", tool_name:"Write", tool_input:{file_path:$f}, tool_response:{success:true}, cwd:$c}')"
-  _mcp_call format_post "$args"
 }
 
 # pre_tool_use_write_call <file_path> <content> <cwd> — drive format_pre for a Write.

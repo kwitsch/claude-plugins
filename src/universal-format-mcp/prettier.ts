@@ -50,15 +50,21 @@ const BUNDLED_PLUGIN_LOADERS = {
 type BundledPluginName = keyof typeof BUNDLED_PLUGIN_LOADERS;
 
 /** Which bundled plugins a format of `lang` needs: its own one for java/php/shell; all three for
- * every language prettier formats Markdown inside -- Markdown itself, JS/TS (`md`/`markdown` tagged
- * templates), HTML (`<script type="text/markdown">`) and Vue (custom blocks with `lang="markdown"`) --
- * because fenced ```java / ```php / ```sh blocks in that Markdown are formatted through them (the
- * eager-import behavior this must keep byte-identical); none for JSON/YAML/CSS/SCSS/LESS/GraphQL,
- * which embed nothing. Loading stays off the server-start path either way. */
-const MARKDOWN_HOSTS: ReadonlySet<string> = new Set(["markdown", "jsts", "html", "vue"]);
-export function bundledPluginsFor(lang: string): BundledPluginName[] {
+ * Markdown, because fenced ```java / ```php / ```sh blocks are formatted through them (the
+ * eager-import behavior this must keep byte-identical); all three as well for the languages prettier
+ * formats Markdown inside -- JS/TS (`md`/`markdown` tagged templates), HTML (`<script
+ * type="text/markdown">`) and Vue (custom blocks with `lang="markdown"`) -- but only when `src`
+ * contains the word `md` or `markdown` at all: Markdown can only be embedded through a construct that
+ * names it, so a source without either word cannot need the trio (a cheap superset check; a stray
+ * variable named `md` just loads them needlessly). That keeps the trio's ~90 ms first-load off the
+ * first format of a plain JS/TS/HTML/Vue file. None for JSON/YAML/CSS/SCSS/LESS/GraphQL, which embed
+ * nothing. Loading stays off the server-start path either way. */
+const MARKDOWN_HOSTS: ReadonlySet<string> = new Set(["jsts", "html", "vue"]);
+const MARKDOWN_TOKEN = /\b(?:md|markdown)\b/i;
+export function bundledPluginsFor(lang: string, src = ""): BundledPluginName[] {
   const all = Object.keys(BUNDLED_PLUGIN_LOADERS) as BundledPluginName[];
-  return MARKDOWN_HOSTS.has(lang) ? all : all.filter((name) => name === lang);
+  if (lang === "markdown" || (MARKDOWN_HOSTS.has(lang) && MARKDOWN_TOKEN.test(src))) return all;
+  return all.filter((name) => name === lang);
 }
 
 // prettier-plugin-java starts `Parser.init()` in a module-scope IIFE, so a floating promise exists
@@ -185,10 +191,11 @@ export function resolveConfigPlugins(plugins: unknown, cwd: string): unknown[] |
 export async function formatInProcess(src: string, filePath: string, cwd: string, lang: string): Promise<string> {
   // Deliberately does NOT clear prettier's config cache. Doing that per format cost ~9.9 ms of
   // the ~10.6 ms total (measured: 10.60 -> 0.73 ms/format on a nested project), i.e. it threw
-  // away most of the warm-instance win on every single write. Invalidation is event-driven:
-  // formatPost clears the cache when a config/ignore file is written. Trade-off, accepted
-  // deliberately: a config edited OUTSIDE the Write/Edit tools (a Bash `sed`, an external
-  // editor) is not noticed until the server restarts.
+  // away most of the warm-instance win on every single write. Invalidation is event-driven: the
+  // handler clears the cache once a Write/Edit of a config/ignore file has landed on disk
+  // (handlers.ts, pendingRefreshes). Trade-off, accepted deliberately: a config edited OUTSIDE
+  // the Write/Edit tools (a Bash `sed`, an external editor) is not noticed until the server
+  // restarts.
   // Shallow-copied: resolveConfig's result is cached internally by prettier (see above), so
   // mutating it in place would leak this call's plugin/printWidth overrides onto every other
   // file that later resolves to the same cached config.
@@ -204,17 +211,17 @@ export async function formatInProcess(src: string, filePath: string, cwd: string
   // back into `config`: resolveConfig's result is cached inside prettier. The resolveConfigPlugins
   // null early-return above MUST stay ahead of this -- a project with an unresolvable custom
   // plugin must keep getting "leave the file alone", not bundled-plugins-only formatting.
-  const bundled = await Promise.all(bundledPluginsFor(lang).map((name) => BUNDLED_PLUGIN_LOADERS[name]()));
+  const bundled = await Promise.all(bundledPluginsFor(lang, src).map((name) => BUNDLED_PLUGIN_LOADERS[name]()));
   const plugins = [...(Array.isArray(config.plugins) ? config.plugins : []), ...bundled];
   return await bundledPrettier.format(src, { ...config, plugins, filepath: filePath });
 }
 
-/** Drop the bundled prettier's cached config state. Called only from the PostToolUse handler,
- * once a config/ignore file has actually landed on disk — clearing at PreToolUse would re-cache
- * the pre-write content on the next resolveConfig. A broken clearConfigCache must never break
- * the hook, hence the guard + catch. Deliberately does NOT touch `ignoreCache` below: a
- * `.prettierrc` write cannot change what is ignored, and an ignore-file write refreshes that
- * cache through its own `primePrettierIgnoreCache` call instead. */
+/** Drop the bundled prettier's cached config state. Called by the handler only once a config/ignore
+ * file written through Write/Edit has actually landed on disk (the hook itself fires BEFORE the
+ * write; clearing then would re-cache the pre-write content on the next resolveConfig). A broken
+ * clearConfigCache must never break the hook, hence the guard + catch. Deliberately does NOT touch
+ * `ignoreCache` below: a `.prettierrc` write cannot change what is ignored, and an ignore-file
+ * write refreshes that cache through its own `primePrettierIgnoreCache` call instead. */
 export function clearPrettierConfigCaches(): void {
   projectConfigCache.clear();
   try {
@@ -237,7 +244,8 @@ type IgnoreState = { hasRules: boolean; verdicts: Map<string, boolean> };
 // in-flight hook calls from sub-agents may carry different cwds against this one long-lived server
 // process. Out-of-cwd files add one entry per foreign project root, each holding that project's own
 // .prettierignore state. Populated on first use (MCP `initialize` carries no cwd, so there is no
-// startup moment to populate it at) and invalidated event-driven only, never from formatPre.
+// startup moment to populate it at) and refreshed event-driven only (a landed `.prettierignore`
+// write), never per format.
 const ignoreCache = new Map<string, IgnoreState>();
 
 // The ONE base-rooted ignore file this plugin consults, named exactly once so both readers agree.
@@ -311,33 +319,14 @@ export async function isPrettierIgnored(filePath: string, cwd: string): Promise<
   }
 }
 
-/** Re-read `cwd`'s `.prettierignore` now, discarding that directory's memoized verdicts. Called from
- * the PostToolUse handler when an ignore file has just landed, and from the CwdChanged handler
- * for the NEW directory. On failure the entry is deleted rather than left half-built, so a
- * transient fs error degrades to "read lazily next time", never to a poisoned cache. */
+/** Re-read `cwd`'s `.prettierignore` now, discarding that directory's memoized verdicts. Called by
+ * the handler once a `.prettierignore` written through Write/Edit has landed on disk. On failure the
+ * entry is deleted rather than left half-built, so a transient fs error degrades to "read lazily
+ * next time", never to a poisoned cache. */
 export function primePrettierIgnoreCache(cwd: string): void {
   try {
     ignoreCache.set(cwd, readIgnoreState(cwd));
   } catch {
     ignoreCache.delete(cwd);
-  }
-}
-
-/** Drop `cwd`'s ignore entry entirely — the CwdChanged handler uses it on the OLD directory so
- * the Map does not grow for the process lifetime. */
-export function clearPrettierIgnoreCache(cwd: string): void {
-  ignoreCache.delete(cwd);
-}
-
-/** Prefetch prettier's OWN directory-keyed config-search cache for `cwd`; the resolved value is
- * discarded and nothing is stored here — this is the "warm", not a second config store. The probe
- * basename never has to exist: resolveConfig searches directories. Measured on prettier 3.9.4:
- * 1.92 ms cold, after which a real file in that directory resolves in 0.25 ms instead of 1.9 ms.
- * A pure prefetch has no observable result, so it swallows everything. */
-export async function warmPrettierConfigCache(cwd: string): Promise<void> {
-  try {
-    await bundledPrettier.resolveConfig(path.join(cwd, "__universal_format_probe__"), { editorconfig: true });
-  } catch {
-    /* pure prefetch — nothing to preserve on failure */
   }
 }

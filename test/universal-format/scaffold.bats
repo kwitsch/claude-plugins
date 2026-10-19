@@ -40,54 +40,23 @@ setup() {
   assert_success
 }
 
-@test "PostToolUse hook -> format_post mcp_tool, matcher Write|Edit, timeout 60, not async" {
-  run jq -e '.hooks.PostToolUse[0] | .matcher == "Write|Edit" and (.hooks[0].type == "mcp_tool") and (.hooks[0].server == "plugin:universal-format:universal-format-hooks") and (.hooks[0].tool == "format_post") and (.hooks[0].timeout == 60) and ((.hooks[0].async // false) == false)' "$HOOKS"
+@test "hooks.json declares exactly one event, PreToolUse, with exactly one entry (no PostToolUse, no CwdChanged)" {
+  run jq -e '(.hooks | keys) == ["PreToolUse"] and (.hooks.PreToolUse | length == 1) and (.hooks.PreToolUse[0].hooks | length == 1)' "$HOOKS"
   assert_success
 }
 
-@test "PostToolUse has exactly two entries: format_post (Write|Edit) and worktree_entered (EnterWorktree)" {
-  run jq -e '.hooks.PostToolUse | length == 2' "$HOOKS"
-  assert_success
-}
-
-@test "PostToolUse hook -> worktree_entered mcp_tool, matcher EnterWorktree, timeout 60, not async" {
-  run jq -e '.hooks.PostToolUse[1] | .matcher == "EnterWorktree" and (.hooks[0].type == "mcp_tool") and (.hooks[0].server == "plugin:universal-format:universal-format-hooks") and (.hooks[0].tool == "worktree_entered") and (.hooks[0].timeout == 60) and ((.hooks[0].async // false) == false)' "$HOOKS"
-  assert_success
-}
-
-@test "CwdChanged hook -> cwd_changed mcp_tool, no matcher, timeout 60, not async" {
-  run jq -e '.hooks.CwdChanged[0] | (has("matcher") | not) and (.hooks[0].type == "mcp_tool") and (.hooks[0].server == "plugin:universal-format:universal-format-hooks") and (.hooks[0].tool == "cwd_changed") and (.hooks[0].timeout == 60) and ((.hooks[0].async // false) == false)' "$HOOKS"
-  assert_success
-}
-
-# Regression pin: every mcp_tool hook here declares an explicit "input" field. Omitting it makes
-# Claude Code deliver an EMPTY arguments object to the tool (verified live, 2.1.226) rather than the
-# full hook JSON that .claude/rules/hooks-mcp-server.md's reference server previously assumed as the
+# Regression pin: the mcp_tool hook declares an explicit "input" field. Omitting it makes Claude
+# Code deliver an EMPTY arguments object to the tool (verified live, 2.1.226) rather than the full
+# hook JSON that .claude/rules/hooks-mcp-server.md's reference server previously assumed as the
 # default -- see plugins/universal-format/CLAUDE.md's "Explicit hook input" section. Losing this
-# field silently reintroduces "formatting stops working" with hooks/format_pre/etc. still reporting
-# exitCode 0.
-@test "every mcp_tool hook declares an explicit input field (no implicit-passthrough regression)" {
-  run jq -e '[.hooks.PreToolUse[0].hooks[0], .hooks.PostToolUse[0].hooks[0], .hooks.PostToolUse[1].hooks[0], .hooks.CwdChanged[0].hooks[0]] | all(has("input") and (.input | type == "object") and (.input | length > 0))' "$HOOKS"
+# field silently reintroduces "formatting stops working" with the hook still reporting exitCode 0.
+@test "the mcp_tool hook declares an explicit input field (no implicit-passthrough regression)" {
+  run jq -e '.hooks.PreToolUse[0].hooks[0] | has("input") and (.input | type == "object") and (.input | length > 0)' "$HOOKS"
   assert_success
 }
 
-@test "format_pre's input reconstructs tool_input.file_path/content/old_string/new_string/replace_all" {
-  run jq -e '.hooks.PreToolUse[0].hooks[0].input | .cwd == "${cwd}" and .tool_name == "${tool_name}" and (.tool_input | .file_path == "${tool_input.file_path}" and .content == "${tool_input.content}" and .old_string == "${tool_input.old_string}" and .new_string == "${tool_input.new_string}" and .replace_all == "${tool_input.replace_all}")' "$HOOKS"
-  assert_success
-}
-
-@test "format_post's input reconstructs tool_input.file_path and tool_response.success" {
-  run jq -e '.hooks.PostToolUse[0].hooks[0].input | .tool_input.file_path == "${tool_input.file_path}" and .tool_response.success == "${tool_response.success}"' "$HOOKS"
-  assert_success
-}
-
-@test "worktree_entered's input reconstructs tool_response.worktreePath" {
-  run jq -e '.hooks.PostToolUse[1].hooks[0].input.tool_response.worktreePath == "${tool_response.worktreePath}"' "$HOOKS"
-  assert_success
-}
-
-@test "cwd_changed's input reconstructs old_cwd/new_cwd" {
-  run jq -e '.hooks.CwdChanged[0].hooks[0].input | .old_cwd == "${old_cwd}" and .new_cwd == "${new_cwd}"' "$HOOKS"
+@test "format_pre's input reconstructs exactly cwd, tool_name and tool_input.file_path/content/old_string/new_string/replace_all" {
+  run jq -e '.hooks.PreToolUse[0].hooks[0].input | (keys | sort) == ["cwd", "tool_input", "tool_name"] and .cwd == "${cwd}" and .tool_name == "${tool_name}" and (.tool_input | .file_path == "${tool_input.file_path}" and .content == "${tool_input.content}" and .old_string == "${tool_input.old_string}" and .new_string == "${tool_input.new_string}" and .replace_all == "${tool_input.replace_all}")' "$HOOKS"
   assert_success
 }
 
@@ -144,7 +113,7 @@ setup() {
   assert_success
 }
 
-@test "tools/list lists format_pre, format_post, cwd_changed and worktree_entered, and the server exits" {
+@test "tools/list lists format_pre as the only tool, and the server exits" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   run bash -c '
     printf "%s\n%s\n" \
@@ -154,16 +123,22 @@ setup() {
   '
   assert_success
   assert_output --partial '"format_pre"'
-  assert_output --partial '"format_post"'
-  assert_output --partial '"cwd_changed"'
-  assert_output --partial '"worktree_entered"'
+  refute_output --partial '"format_post"'
+  refute_output --partial '"cwd_changed"'
+  refute_output --partial '"worktree_entered"'
+  run bash -c '
+    printf "%s\n%s\n" \
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}" \
+      "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}" \
+    | node "'"$SERVER"'" 2>/dev/null | jq -r "select(.id == 2) | .result.tools | length"
+  '
+  assert_output "1"
 }
 
-@test "format_post on an unsupported extension over JSON-RPC returns {}" {
+@test "format_pre on an unsupported extension over JSON-RPC returns {}" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
-  printf 'hi\n' > "$cwd/z.txt"
-  run format_file_call "$cwd/z.txt" "$cwd"
+  run pre_tool_use_write_call "$cwd/z.txt" 'hi' "$cwd"
   assert_success
   [ "$output" = "{}" ]
 }
@@ -190,8 +165,8 @@ setup() {
   assert_failure
 }
 
-@test "plugin.json version is 0.18.0" {
-  run jq -e '.version == "0.18.0"' "$PLUGIN/.claude-plugin/plugin.json"
+@test "plugin.json version is 0.19.0" {
+  run jq -e '.version == "0.19.0"' "$PLUGIN/.claude-plugin/plugin.json"
   assert_success
 }
 
@@ -206,7 +181,7 @@ setup() {
 }
 
 @test "root package.json pins the three bundled prettier plugins exactly (no range prefix)" {
-  run jq -e '.devDependencies["prettier-plugin-java"] == "2.10.3" and .devDependencies["@prettier/plugin-php"] == "0.25.0" and .devDependencies["prettier-plugin-sh"] == "0.16.1"' "$REPO_ROOT/package.json"
+  run jq -e '.devDependencies["prettier-plugin-java"] == "2.11.0" and .devDependencies["@prettier/plugin-php"] == "0.25.0" and .devDependencies["prettier-plugin-sh"] == "0.16.1"' "$REPO_ROOT/package.json"
   assert_success
 }
 
@@ -304,18 +279,25 @@ setup() {
   done
 }
 
-# Doc drift is the main failure mode of the ignore cache: three places used to assert that
-# clearing for an ignore file is inert, and one asserted this plugin backs exactly two mcp_tool
-# hooks. All of them are wrong as of 0.12.0.
-@test "docs describe the ignore cache and the third mcp_tool hook, not the stale no-op claim" {
+# Doc drift is the main failure mode of the caches and the hook roster: the docs must describe the
+# landed-write refresh and the ONE hook, and must not resurrect the removed format_post /
+# cwd_changed / worktree_entered tools (0.19.0 collapsed everything into format_pre).
+@test "docs describe the landed-write cache refresh and the single hook, not the removed tools" {
   run rg_or_grep -q -F "no-op today" "$PLUGIN/CLAUDE.md"
   assert_failure
   run rg_or_grep -q -F "Ignore-file caching is event-driven" "$REPO_ROOT/src/universal-format-mcp/CLAUDE.md"
   assert_success
-  run rg_or_grep -q -F "cwd_changed" "$PLUGIN/CLAUDE.md"
+  run rg_or_grep -q -F "landed" "$REPO_ROOT/src/universal-format-mcp/CLAUDE.md"
   assert_success
-  run rg_or_grep -q -F "CwdChanged" "$PLUGIN/README.md"
+  run rg_or_grep -q -F "ONE \`mcp_tool\` hook on one server" "$PLUGIN/CLAUDE.md"
   assert_success
+  # The two CLAUDE.md files may name the removed tools in their do-not-restore history; the
+  # user-facing README and the skill docs must not.
+  local f
+  for f in "$PLUGIN/README.md" "$PLUGIN/skills/universal-format/CLAUDE.md" "$PLUGIN/skills/universal-format/SKILL.md" "$REPO_ROOT/README.md"; do
+    run rg_or_grep -q -E "format_post|cwd_changed|worktree_entered|formatPost|CwdChanged|formatted after|reformatted on disk" "$f"
+    assert_failure
+  done
 }
 
 @test "plugin README table and both manifest descriptions cover the thirteen bundled-prettier languages" {
@@ -327,7 +309,7 @@ setup() {
     case "$desc" in *"$t"*) ;; *) printf 'plugin.json description is missing %s\n' "$t"; return 1 ;; esac
   done
   desc="$(jq -r '.description' "$HOOKS")"
-  for t in shell java php less html vue graphql kotlin python go; do
+  for t in shell java php less html vue graphql kotlin python go rust; do
     case "$desc" in *"$t"*) ;; *) printf 'hooks.json description is missing %s\n' "$t"; return 1 ;; esac
   done
 }

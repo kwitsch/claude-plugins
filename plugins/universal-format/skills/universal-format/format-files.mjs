@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 // universal-format skill driver: apply the plugin's on-write formatting to a
-// list of files, reusing the plugin's own MCP-server handlers verbatim — no new
+// list of files, reusing the plugin's own MCP-server handler verbatim — no new
 // formatting logic. Reads a newline-delimited list file (argv[2]); each line is
-// one path, resolved against process.cwd(). Prettier languages: read content,
-// call formatPre (Write), persist the returned updatedInput.content. CLI
-// languages (Kotlin/Python/Go/Rust): call formatPost, which reformats the file
-// on disk itself. Fail-open per file; always exits 0 — the printed summary is
-// the signal, not the exit code.
+// one path, resolved against process.cwd(). For every supported language the
+// driver reads the file, calls formatPre exactly as a Write hook would, and
+// persists the returned updatedInput.content (prettier languages in-process,
+// Kotlin/Python/Go/Rust through their CLI on stdin — the same code path either
+// way). Fail-open per file; always exits 0 — the printed summary is the signal,
+// not the exit code.
 //
 // server.mjs is a committed `// @ts-nocheck` bundle, so its exports are
 // untyped; the namespace is cast to any so this file typechecks under
@@ -17,7 +18,7 @@ import { extname, resolve } from "node:path";
 import process from "node:process";
 import * as formatServer from "../../mcp/server.mjs";
 
-const { formatPre, formatPost, EXT_MAP, PRETTIER_LANGS } = /** @type {any} */ (formatServer);
+const { formatPre, EXT_MAP } = /** @type {any} */ (formatServer);
 
 const listFile = process.argv[2];
 if (!listFile) {
@@ -39,46 +40,28 @@ const lines = [];
 
 for (const p of paths) {
   const resolved = resolve(cwd, p);
-  const lang = EXT_MAP[extname(resolved).toLowerCase()];
-  if (!lang) {
+  if (!EXT_MAP[extname(resolved).toLowerCase()]) {
     skipped++;
     lines.push(`skipped (unsupported): ${p}`);
     continue;
   }
   try {
-    if (PRETTIER_LANGS.has(lang)) {
-      const content = readFileSync(resolved, "utf8");
-      const pre = /** @type {any} */ (
-        await formatPre({
-          cwd,
-          tool_name: "Write",
-          tool_input: { file_path: resolved, content },
-        })
-      );
-      const next = pre?.hookSpecificOutput?.updatedInput?.content;
-      if (typeof next === "string" && next !== content) {
-        writeFileSync(resolved, next);
-        formatted++;
-        lines.push(`formatted: ${p}`);
-      } else {
-        unchanged++;
-        lines.push(`unchanged: ${p}`);
-      }
+    const content = readFileSync(resolved, "utf8");
+    const pre = /** @type {any} */ (
+      await formatPre({
+        cwd,
+        tool_name: "Write",
+        tool_input: { file_path: resolved, content },
+      })
+    );
+    const next = pre?.hookSpecificOutput?.updatedInput?.content;
+    if (typeof next === "string" && next !== content) {
+      writeFileSync(resolved, next);
+      formatted++;
+      lines.push(`formatted: ${p}`);
     } else {
-      const post = /** @type {any} */ (
-        await formatPost({
-          cwd,
-          tool_input: { file_path: resolved },
-          tool_response: { success: true },
-        })
-      );
-      if (post?.hookSpecificOutput) {
-        formatted++;
-        lines.push(`formatted: ${p}`);
-      } else {
-        unchanged++;
-        lines.push(`unchanged: ${p}`);
-      }
+      unchanged++;
+      lines.push(`unchanged: ${p}`);
     }
   } catch (err) {
     skipped++;

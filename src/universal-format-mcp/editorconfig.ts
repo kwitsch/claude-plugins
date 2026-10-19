@@ -21,7 +21,9 @@ const MAPPERS: Record<string, (base: string[], ec: EditorConfigProps) => { argv:
     const argv = base.slice();
     if (typeof ec.max_line_length === "number") argv.push("--line-length", String(ec.max_line_length));
     if (ec.indent_style === "tab" || ec.indent_style === "space") argv.push("--config", `format.indent-style='${ec.indent_style}'`);
-    if (typeof ec.indent_size === "number") argv.push("--config", `format.indent-width=${ec.indent_size}`);
+    // `indent-width` is a TOP-LEVEL ruff setting (`format.indent-width` is rejected: "unknown field",
+    // exit 2, no output), unlike `format.indent-style`, which really lives in the [format] table.
+    if (typeof ec.indent_size === "number") argv.push("--config", `indent-width=${ec.indent_size}`);
     return { argv };
   },
   black(base, ec) {

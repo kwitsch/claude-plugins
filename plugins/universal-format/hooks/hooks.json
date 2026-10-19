@@ -1,5 +1,5 @@
 {
-  "description": "PreToolUse Write|Edit -> format_pre: prettier languages (jsts/json/yaml/markdown/css/scss/less/html/vue/graphql/shell/java/php) formatted in-process before the write with the prettier — and the bundled java/php/shell plugins — inside this plugin's MCP server. PostToolUse Write|Edit -> format_post: kotlin/python/go/rust formatted on disk after the write via each tool's CLI. CwdChanged -> cwd_changed: refresh that server's cached prettier ignore state for the new working directory and drop the old one's. PostToolUse EnterWorktree -> worktree_entered: same, via the signal that actually fires when a background-job session's cwd moves into a worktree (CwdChanged does not).",
+  "description": "PreToolUse Write|Edit -> format_pre: every supported language is formatted BEFORE the write and handed back via updatedInput — the prettier languages (jsts/json/yaml/markdown/css/scss/less/html/vue/graphql/shell/java/php) in-process with the prettier and the java/php/shell plugins bundled into this plugin's MCP server, kotlin/python/go/rust by feeding the content on stdin to the first CLI formatter on PATH (ktlint/ktfmt, ruff/black, goimports/gofmt, rustfmt). The one hook, the one tool: nothing runs after the write.",
   "hooks": {
     "PreToolUse": [
       {
@@ -12,8 +12,6 @@
             "timeout": 60,
             "input": {
               "cwd": "${cwd}",
-              "agent_id": "${agent_id}",
-              "session_id": "${session_id}",
               "tool_name": "${tool_name}",
               "tool_input": {
                 "file_path": "${tool_input.file_path}",
@@ -22,61 +20,6 @@
                 "new_string": "${tool_input.new_string}",
                 "replace_all": "${tool_input.replace_all}"
               }
-            }
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "mcp_tool",
-            "server": "plugin:universal-format:universal-format-hooks",
-            "tool": "format_post",
-            "timeout": 60,
-            "input": {
-              "cwd": "${cwd}",
-              "agent_id": "${agent_id}",
-              "session_id": "${session_id}",
-              "tool_input": { "file_path": "${tool_input.file_path}" },
-              "tool_response": { "success": "${tool_response.success}" }
-            }
-          }
-        ]
-      },
-      {
-        "matcher": "EnterWorktree",
-        "hooks": [
-          {
-            "type": "mcp_tool",
-            "server": "plugin:universal-format:universal-format-hooks",
-            "tool": "worktree_entered",
-            "timeout": 60,
-            "input": {
-              "cwd": "${cwd}",
-              "agent_id": "${agent_id}",
-              "session_id": "${session_id}",
-              "tool_response": { "worktreePath": "${tool_response.worktreePath}" }
-            }
-          }
-        ]
-      }
-    ],
-    "CwdChanged": [
-      {
-        "hooks": [
-          {
-            "type": "mcp_tool",
-            "server": "plugin:universal-format:universal-format-hooks",
-            "tool": "cwd_changed",
-            "timeout": 60,
-            "input": {
-              "agent_id": "${agent_id}",
-              "session_id": "${session_id}",
-              "old_cwd": "${old_cwd}",
-              "new_cwd": "${new_cwd}"
             }
           }
         ]
