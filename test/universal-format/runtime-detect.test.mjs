@@ -1,11 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const ARTIFACT = path.join(REPO_ROOT, "plugins", "universal-format", "mcp", "server.mjs");
+// server.ts reads this at startup from the manifest next to mcp/ -- no build-time inlining to go stale.
+const PLUGIN_VERSION = JSON.parse(readFileSync(path.join(REPO_ROOT, "plugins", "universal-format", ".claude-plugin", "plugin.json"), "utf8")).version;
 
 const SERVER_EXIT_TIMEOUT_MS = 30000; // normal run takes ~0.6s
 
@@ -40,7 +43,7 @@ function runServer(runtime) {
 
 test("built server logs `running under node` on stderr under node, keeps stdout JSON-RPC-only", async () => {
   const { stdout, stderr } = await runServer(process.execPath);
-  assert.ok(stderr.includes("running under node"), `stderr must identify the node runtime; got: ${JSON.stringify(stderr)}`);
+  assert.ok(stderr.includes(`running under node (v${PLUGIN_VERSION})`), `stderr must identify the node runtime and plugin.json's version; got: ${JSON.stringify(stderr)}`);
   // stdout is reserved for newline-delimited JSON-RPC 2.0: every non-empty line must parse as JSON.
   for (const line of stdout.split("\n")) {
     if (!line.trim()) continue;

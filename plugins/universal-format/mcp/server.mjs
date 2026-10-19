@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=7a58e377ac42d50b body=d345d44950303491 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=36d67f7505e3bf8e body=2b573210320ac11e prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -200125,7 +200125,7 @@ var init_lib2 = __esm(() => {
 // src/universal-format-mcp/server.ts
 import process7 from "node:process";
 import readline from "node:readline";
-import { realpathSync as realpathSync2 } from "node:fs";
+import { readFileSync as readFileSync4, realpathSync as realpathSync2 } from "node:fs";
 import { fileURLToPath as fileURLToPath8 } from "node:url";
 
 // src/universal-format-mcp/handlers.ts
@@ -200932,7 +200932,14 @@ async function worktreeEntered(args2) {
 
 // src/universal-format-mcp/server.ts
 var SERVER_NAME = "universal-format-hooks";
-var SERVER_INFO = { name: SERVER_NAME, version: "0.18.0" };
+function readPluginVersion() {
+  try {
+    return String(JSON.parse(readFileSync4(new URL("../.claude-plugin/plugin.json", import.meta.url), "utf8")).version);
+  } catch {
+    return "0.0.0";
+  }
+}
+var SERVER_INFO = { name: SERVER_NAME, version: readPluginVersion() };
 var DEFAULT_PROTOCOL = "2025-11-25";
 function isMainModule() {
   try {

@@ -9,7 +9,7 @@ TypeScript sources of the generated `plugins/universal-format/mcp/server.mjs`. P
 - Keep module-level singletons (`probeCache`, `ignoreCache`, `projectConfigCache`, `gitRootCache`, `cwdOverrides`) single instances — bun emits each module once, so both handlers share them. Never use a single "current cwd" global: concurrent sub-agent calls carry different cwds against this one server process.
 - `server.ts` re-exports the symbols the `test/universal-format/*.test.mjs` suites import from the built artifact (e.g. `resolveBase`); add a re-export when a test needs a new symbol.
 - `detectRuntime()` in `server.ts` stays module-local and non-exported, and reads `process.versions.bun` (never a bare `Bun` identifier), so the node-target bundle has no `Bun.` / `bun:` token (enforced by `build-artifact.test.mjs`).
-- `SERVER_INFO.version` is inlined from `plugin.json` at build time (`--define` of the bare global `UNIVERSAL_FORMAT_MCP_VERSION` that `server.ts` declares — NOT `process.env.X`, which bun only rewrites on the global `process`, not the imported binding; that is why every artifact before 0.18.0 reported `0.0.0`): never hand-pair it with a release bump, and expect a version bump to reach the bundle only after a rebuild. `build-artifact.test.mjs` asserts the built server's `serverInfo.version` equals `plugin.json`'s.
+- `SERVER_INFO.version` is read at startup from `../.claude-plugin/plugin.json` relative to the bundle (the manifest ships next to `mcp/` in every install), so a release bump needs no rebuild and nothing is hand-paired; `runtime-detect.test.mjs` pins the startup line's version. The earlier build-time `--env` inlining silently produced `0.0.0` in every artifact (bun rewrites only the global `process`, and `server.ts` imports it) — do not reintroduce a build-time version.
 
 ## Bundled prettier (no resolver) (do not "fix" without reading this)
 
@@ -110,7 +110,6 @@ TypeScript sources of the generated `plugins/universal-format/mcp/server.mjs`. P
 
 - `--target=node` — bun's default target is `browser`. With `node`, built-ins stay external imports and no bun shims are emitted (no `Bun.`, no `import.meta.require`), so the bundle runs under plain `node`.
 - `--format=esm` — named exports must survive for `node --test`; `import.meta.url` must stay real (`isMainModule` depends on it).
-- `--define=UNIVERSAL_FORMAT_MCP_VERSION=<json string>` — inlines `plugin.json`'s version as a compile-time constant into `SERVER_INFO.version` (a bare global identifier with a `typeof` guard in `server.ts`; `--env` cannot do this because `server.ts` reads `process` through an import).
 - `cwd: repoRoot` on the spawn — bun embeds cwd-relative `// <module path>` provenance comments; pinning cwd makes the output caller-independent.
 - Comment canonicalization — `node_modules/.pnpm/<pkg>/node_modules/` becomes `node_modules/` inside `//`-prefixed lines only, so hoisted and pnpm-symlinked layouts produce identical sha256.
 - Banner prepended by the script (not `--banner`) — the shebang must be byte one and the fingerprint must be computed over the final body.

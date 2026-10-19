@@ -7,22 +7,26 @@
 //   worktree_entered (PostToolUse EnterWorktree)   — same, via the signal that actually fires (see handlers.ts)
 import process from "node:process";
 import readline from "node:readline";
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { cwdChanged, formatPost, formatPre, worktreeEntered } from "./handlers.js";
 
 const SERVER_NAME = "universal-format-hooks"; // keep aligned with the .mcp.json key
-// UNIVERSAL_FORMAT_MCP_VERSION is a bare global that build.mjs's `bun build --define` replaces with
-// plugin.json's version literal, so plugin.json stays the single source of truth -- never hand-edit
-// the fallback to "match" a release; it only fires if server.ts runs unbundled (the `typeof` guard
-// keeps that a value, not a ReferenceError). Not `process.env.X`: bun's `--env`/`--define` match
-// only the GLOBAL `process`, and this module imports `process` from "node:process", so the old
-// `--env` form silently shipped "0.0.0" in every release (pinned by build-artifact.test.mjs).
-declare const UNIVERSAL_FORMAT_MCP_VERSION: string | undefined;
-const SERVER_INFO = { name: SERVER_NAME, version: typeof UNIVERSAL_FORMAT_MCP_VERSION === "string" ? UNIVERSAL_FORMAT_MCP_VERSION : "0.0.0" };
+
+// plugin.json ships next to mcp/ in every install (it is the plugin manifest), so the version is
+// read from it at startup rather than baked into the bundle: a release bump needs no rebuild.
+// "0.0.0" only if the manifest is missing; runtime-detect.test.mjs pins the real value.
+function readPluginVersion(): string {
+  try {
+    return String(JSON.parse(readFileSync(new URL("../.claude-plugin/plugin.json", import.meta.url), "utf8")).version);
+  } catch {
+    return "0.0.0";
+  }
+}
+const SERVER_INFO = { name: SERVER_NAME, version: readPluginVersion() };
 const DEFAULT_PROTOCOL = "2025-11-25"; // only used if the client omits protocolVersion
 
-// ---- public surface of the built artifact: exactly 22 names, imported by the test suites ----
+// ---- public surface of the built artifact, imported by the test suites ----
 export { BUNDLED_PRETTIER_VERSION, bundledPluginsFor, formatInProcess, hasPrettierProjectConfig, resolveConfigPlugins, shouldOverridePrintWidth } from "./prettier.js";
 export { EXT_MAP, PRETTIER_LANGS, REGISTRY } from "./registry.js";
 export { buildInvocation, findNativeConfig, matchGlob, parseEditorconfig, resolveEditorconfig } from "./editorconfig.js";
