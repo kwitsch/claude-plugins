@@ -3,14 +3,45 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { buildInvocation, isExcludedPath, REGISTRY, EXT_MAP, PRETTIER_LANGS, hasPrettierProjectConfig, shouldOverridePrintWidth } from "../../plugins/universal-format/mcp/server.mjs";
+import { buildInvocation, isExcludedPath, REGISTRY, EXT_MAP, PRETTIER_LANGS, hasPrettierProjectConfig, selectFormatter, shouldOverridePrintWidth } from "../../plugins/universal-format/mcp/server.mjs";
+import { chmodSync } from "node:fs";
 
 const gofmt = REGISTRY.go.chain[1];
 const ruff = REGISTRY.python.chain[0];
 const black = REGISTRY.python.chain[1];
 
-test("native/fixed tools always run bare regardless of editorconfig", () => {
-  assert.deepEqual(buildInvocation(gofmt, { editorconfig: { indent_style: "tab" } }), { argv: ["-w"] });
+test("native/fixed tools always run bare regardless of editorconfig (and never carry an in-place flag: the content travels on stdin)", () => {
+  assert.deepEqual(buildInvocation(gofmt, { editorconfig: { indent_style: "tab" } }), { argv: [] });
+});
+
+// Every chain tool must be able to run in stdin mode: the handler never writes the file itself, so
+// a tool without a stdin tail could only ever be a no-op. The tail names the real file so project
+// config (pyproject.toml, .editorconfig, a Go module) resolves as for the file on disk.
+test("REGISTRY: every chain tool declares stdinArgs, and selectFormatter appends them after the mapped flags", () => {
+  for (const entry of Object.values(REGISTRY)) {
+    for (const tool of entry.chain) assert.equal(typeof tool.stdinArgs, "function", `${tool.name} must declare stdinArgs`);
+  }
+  assert.deepEqual(REGISTRY.kotlin.chain[0].okExit, [0, 1], "ktlint exits 1 after a successful format when unfixable violations remain");
+  assert.equal(REGISTRY.rust.chain[0].spawnCwd, "fileDir", "rustfmt finds rustfmt.toml by walking up from cwd, so cwd must be the file's directory");
+
+  const bin = mkdtempSync(path.join(tmpdir(), "uf-sel-bin-"));
+  for (const name of ["ruff", "gofmt"]) {
+    writeFileSync(path.join(bin, name), "#!/bin/sh\ncat\n");
+    chmodSync(path.join(bin, name), 0o755);
+  }
+  const proj = mkdtempSync(path.join(tmpdir(), "uf-sel-proj-"));
+  writeFileSync(path.join(proj, ".editorconfig"), "root = true\n[*]\nmax_line_length = 88\n");
+  const originalPath = process.env.PATH;
+  process.env.PATH = bin; // onPath caches per tool name for the process lifetime: this is the only PATH probe in this file
+  try {
+    const py = selectFormatter(REGISTRY.python.chain, path.join(proj, "a.py"), proj);
+    assert.deepEqual(py?.argv, ["format", "--quiet", "--line-length", "88", "--stdin-filename", path.join(proj, "a.py"), "-"]);
+    const go = selectFormatter(REGISTRY.go.chain, path.join(proj, "a.go"), proj);
+    assert.equal(go?.tool.name, "gofmt", "goimports is not on PATH, so the chain falls through to gofmt");
+    assert.deepEqual(go?.argv, []);
+  } finally {
+    process.env.PATH = originalPath;
+  }
 });
 
 test("black: tab indent skips; max_line_length maps", () => {
@@ -46,8 +77,8 @@ test("REGISTRY: no chain tool carries npmSpec or guardPrintWidth", () => {
 });
 
 // Tripwire 2: EXT_MAP partitions exactly — every mapped language is either owned by the bundled
-// prettier (format_pre) or has a CLI chain in REGISTRY (format_post), never both and never
-// neither. This is the unit-level pin for formatPost's REGISTRY[lang] existence guard.
+// prettier (in-process) or has a CLI chain in REGISTRY (stdin), never both and never neither. This
+// is the unit-level pin for formatPre's dispatch (PRETTIER_LANGS first, then REGISTRY[lang]).
 test("EXT_MAP partitions exactly into PRETTIER_LANGS and REGISTRY keys", () => {
   for (const lang of Object.values(EXT_MAP)) {
     assert.equal(PRETTIER_LANGS.has(lang) !== Object.hasOwn(REGISTRY, lang), true, `${lang} must be in exactly one of PRETTIER_LANGS / REGISTRY`);

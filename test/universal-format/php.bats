@@ -17,14 +17,13 @@ setup() {
   echo "$output" | jq -e '.hookSpecificOutput.updatedInput.content == "<?php echo \"hi\";\n"'
 }
 
-@test "php: format_post returns {} with a php-cs-fixer stub present but never run" {
+@test "php: a php-cs-fixer stub on PATH is never run; the bundled plugin formats in-process" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
-  printf '<?php echo "hi";\n' > "$cwd/a.php"
   rec_stub php-cs-fixer
-  run format_file_call "$cwd/a.php" "$cwd"
+  run pre_tool_use_write_call "$cwd/a.php" '<?php  echo "hi";' "$cwd"
   assert_success
-  [ "$output" = "{}" ]
+  echo "$output" | jq -e '.hookSpecificOutput.updatedInput.content == "<?php echo \"hi\";\n"'
   [ ! -s "$RECORD" ]
 }

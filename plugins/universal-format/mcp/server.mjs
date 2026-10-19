@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=ac39f0340bf8cf2f body=b801e24d253031aa prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=df5ac3abfce53713 body=3499555db66e1fdd prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { fileURLToPath as __ufFileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 var __create = Object.create;
@@ -200614,9 +200614,8 @@ import { fileURLToPath as fileURLToPath8 } from "node:url";
 // src/universal-format-mcp/handlers.ts
 import path21 from "node:path";
 import os9 from "node:os";
-import { existsSync as existsSync3, readFileSync as readFileSync3 } from "node:fs";
-import { execFile as execFileCb } from "node:child_process";
-import { promisify } from "node:util";
+import { existsSync as existsSync3, readFileSync as readFileSync3, statSync as statSync2 } from "node:fs";
+import { spawn } from "node:child_process";
 
 // src/universal-format-mcp/registry.ts
 import path3 from "node:path";
@@ -200894,12 +200893,15 @@ var REGISTRY = {
       {
         name: "ktlint",
         strategy: "native",
-        base: ["--format", "--log-level=none"]
+        base: ["--format", "--log-level=none"],
+        stdinArgs: (file) => ["--stdin", "--stdin-path", file],
+        okExit: [0, 1]
       },
       {
         name: "ktfmt",
         strategy: "native",
-        base: ["--enable-editorconfig", "--quiet"]
+        base: ["--enable-editorconfig", "--quiet"],
+        stdinArgs: (file) => [`--stdin-name=${file}`, "-"]
       }
     ]
   },
@@ -200909,20 +200911,22 @@ var REGISTRY = {
         name: "ruff",
         strategy: "mapped",
         nativeConfig: [".ruff.toml", "ruff.toml", { file: "pyproject.toml", section: "tool.ruff" }],
-        base: ["format", "--quiet"]
+        base: ["format", "--quiet"],
+        stdinArgs: (file) => ["--stdin-filename", file, "-"]
       },
       {
         name: "black",
         strategy: "mapped",
         nativeConfig: [{ file: "pyproject.toml", section: "tool.black" }],
-        base: ["--quiet"]
+        base: ["--quiet"],
+        stdinArgs: (file) => ["--stdin-filename", file, "-"]
       }
     ]
   },
   go: {
     chain: [
-      { name: "goimports", strategy: "fixed", base: ["-w"] },
-      { name: "gofmt", strategy: "fixed", base: ["-w"] }
+      { name: "goimports", strategy: "fixed", base: [], stdinArgs: (file) => ["-srcdir", file] },
+      { name: "gofmt", strategy: "fixed", base: [], stdinArgs: () => [] }
     ]
   },
   rust: {
@@ -200931,7 +200935,9 @@ var REGISTRY = {
         name: "rustfmt",
         strategy: "mapped",
         nativeConfig: ["rustfmt.toml", ".rustfmt.toml"],
-        base: []
+        base: [],
+        stdinArgs: () => [],
+        spawnCwd: "fileDir"
       }
     ]
   }
@@ -200955,7 +200961,7 @@ function selectFormatter(chain, file, cwd) {
     const inv = resolveInvocation(tool, file, cwd);
     if ("skip" in inv)
       continue;
-    return { tool, argv: inv.argv };
+    return { tool, argv: [...inv.argv, ...tool.stdinArgs(file)] };
   }
   return null;
 }
@@ -201139,18 +201145,9 @@ function primePrettierIgnoreCache(cwd) {
     ignoreCache.delete(cwd);
   }
 }
-function clearPrettierIgnoreCache(cwd) {
-  ignoreCache.delete(cwd);
-}
-async function warmPrettierConfigCache(cwd) {
-  try {
-    await bundledPrettier.resolveConfig(path20.join(cwd, "__universal_format_probe__"), { editorconfig: true });
-  } catch {}
-}
 
 // src/universal-format-mcp/handlers.ts
 var SPAWN_TIMEOUT_MS = 30000;
-var execFile = promisify(execFileCb);
 function isExcludedPath(rel) {
   const segments = rel.split(path21.sep);
   if (segments.some((s) => s === "node_modules" || s === "vendor" || s === ".git"))
@@ -201199,21 +201196,8 @@ function resolveBaseAndRel(cwd, resolved) {
 function resolveBase(cwd, resolved) {
   return resolveBaseAndRel(cwd, resolved).base;
 }
-var cwdOverrides = new Map;
-function overrideKey(args2) {
-  if (typeof args2?.agent_id === "string" && args2.agent_id)
-    return args2.agent_id;
-  return typeof args2?.session_id === "string" ? args2.session_id : "";
-}
-function resolveCwd(args2) {
-  const key2 = overrideKey(args2);
-  const override = key2 ? cwdOverrides.get(key2) : undefined;
-  if (override)
-    return override;
-  return typeof args2?.cwd === "string" ? args2.cwd : "";
-}
 function resolveTarget(args2) {
-  const cwd = resolveCwd(args2);
+  const cwd = typeof args2?.cwd === "string" ? args2.cwd : "";
   const fp2 = args2?.tool_input?.file_path;
   if (typeof fp2 !== "string" || !fp2)
     return null;
@@ -201275,73 +201259,89 @@ function shrinkSwap(current, formatted) {
 }
 var PRETTIER_IGNORE_BASENAMES = new Set([".prettierignore"]);
 var CACHE_INVALIDATING_BASENAMES = new Set([...PRETTIER_CONFIG_FILENAMES, "package.json", "package.yaml", ".editorconfig", ...PRETTIER_IGNORE_BASENAMES]);
-async function formatPost(args2) {
+function fileStamp(file) {
   try {
-    const success = args2?.tool_response?.success;
-    if (success === false || success === "false")
-      return {};
-    const target = resolveTarget(args2);
-    if (!target)
-      return {};
-    const { cwd, base, resolved, rel } = target;
-    const basename = path21.basename(resolved);
-    if (CACHE_INVALIDATING_BASENAMES.has(basename))
-      clearPrettierConfigCaches();
-    if (PRETTIER_IGNORE_BASENAMES.has(basename))
-      primePrettierIgnoreCache(base);
-    const lang = EXT_MAP[path21.extname(resolved).toLowerCase()];
-    if (!lang)
-      return {};
-    if (!existsSync3(resolved))
-      return {};
-    if (PRETTIER_LANGS.has(lang))
-      return {};
-    const entry = REGISTRY[lang];
-    if (!entry)
-      return {};
-    const selection = selectFormatter(entry.chain, resolved, base);
-    if (!selection)
-      return {};
-    const { tool, argv } = selection;
-    const before = readFileSync3(resolved);
-    try {
-      await execFile(tool.name, [...argv, resolved], { cwd: base, timeout: SPAWN_TIMEOUT_MS });
-    } catch {}
-    const after = readFileSync3(resolved);
-    if (before.equals(after))
-      return {};
-    const display = base === cwd ? rel : resolved;
-    return {
-      hookSpecificOutput: {
-        hookEventName: "PostToolUse",
-        additionalContext: `universal-format: ${tool.name} reformatted ${display}; re-read it before further string-based edits. This reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules — do not revert or redo it by hand to shrink the diff.`
-      }
-    };
+    const s = statSync2(file);
+    return `${s.ino}:${s.size}:${s.mtimeMs}`;
   } catch {
-    return {};
+    return "";
   }
+}
+var pendingRefreshes = new Map;
+function noteConfigWrite(resolved, base) {
+  pendingRefreshes.set(resolved, { base, stamp: fileStamp(resolved) });
+}
+function refreshLandedConfigWrites() {
+  for (const [file, pending] of pendingRefreshes) {
+    if (fileStamp(file) === pending.stamp)
+      continue;
+    pendingRefreshes.delete(file);
+    clearPrettierConfigCaches();
+    if (PRETTIER_IGNORE_BASENAMES.has(path21.basename(file)))
+      primePrettierIgnoreCache(pending.base);
+  }
+}
+function runStdinFormatter(tool, argv, cwd, src) {
+  return new Promise((resolve4) => {
+    let out2 = "";
+    let done = false;
+    const finish = (value) => {
+      if (done)
+        return;
+      done = true;
+      clearTimeout(timer);
+      resolve4(value);
+    };
+    const child = spawn(tool.name, argv, { cwd, stdio: ["pipe", "pipe", "ignore"] });
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      finish(null);
+    }, SPAWN_TIMEOUT_MS);
+    child.on("error", () => finish(null));
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => out2 += chunk);
+    child.on("close", (code) => finish((tool.okExit ?? [0]).includes(code ?? -1) && out2.length > 0 ? out2 : null));
+    child.stdin.on("error", () => {});
+    child.stdin.end(src);
+  });
+}
+async function formatContent(src, resolved, base, lang) {
+  if (PRETTIER_LANGS.has(lang))
+    return { formatted: await formatInProcess(src, resolved, base, lang), tool: "prettier" };
+  const entry = REGISTRY[lang];
+  if (!entry)
+    return null;
+  const selection = selectFormatter(entry.chain, resolved, base);
+  if (!selection)
+    return null;
+  const cwd = selection.tool.spawnCwd === "fileDir" ? path21.dirname(resolved) : base;
+  const formatted = await runStdinFormatter(selection.tool, selection.argv, cwd, src);
+  return formatted === null ? null : { formatted, tool: selection.tool.name };
 }
 async function formatPre(args2) {
   try {
+    refreshLandedConfigWrites();
     const target = resolveTarget(args2);
     if (!target)
       return {};
     const { cwd, base, resolved, rel, fp: fp2 } = target;
+    if (CACHE_INVALIDATING_BASENAMES.has(path21.basename(resolved)))
+      noteConfigWrite(resolved, base);
     const lang = EXT_MAP[path21.extname(resolved).toLowerCase()];
-    if (!lang || !PRETTIER_LANGS.has(lang))
+    if (!lang)
       return {};
-    if (await isPrettierIgnored(resolved, base))
+    if (PRETTIER_LANGS.has(lang) && await isPrettierIgnored(resolved, base))
       return {};
     const display = base === cwd ? rel : resolved;
-    const notice = `universal-format: prettier reformatted ${display}; re-read it before further string-based edits. This reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules — do not revert or redo it by hand to shrink the diff.`;
+    const noticeFor = (tool) => `universal-format: ${tool} reformatted ${display}; re-read it before further string-based edits. This reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules — do not revert or redo it by hand to shrink the diff.`;
     if (args2.tool_name === "Write") {
       const content = args2.tool_input.content;
       if (typeof content !== "string")
         return {};
-      const formatted = await formatInProcess(content, resolved, base, lang);
-      if (formatted === content)
+      const result = await formatContent(content, resolved, base, lang);
+      if (result === null || result.formatted === content)
         return {};
-      return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp2, content: formatted }, additionalContext: notice } };
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp2, content: result.formatted }, additionalContext: noticeFor(result.tool) } };
     }
     if (args2.tool_name === "Edit") {
       if (!existsSync3(resolved))
@@ -201361,7 +201361,10 @@ async function formatPre(args2) {
       const merged = applyEdit(current, oldStr, newStr, replaceAll3 === true || replaceAll3 === "true");
       if (merged === null)
         return {};
-      const formatted = toLf(await formatInProcess(merged, resolved, base, lang));
+      const result = await formatContent(merged, resolved, base, lang);
+      if (result === null)
+        return {};
+      const formatted = toLf(result.formatted);
       if (formatted === merged)
         return {};
       const swap = shrinkSwap(current, formatted);
@@ -201370,50 +201373,16 @@ async function formatPre(args2) {
           hookSpecificOutput: {
             hookEventName: "PreToolUse",
             updatedInput: { file_path: fp2, old_string: oldStr, new_string: oldStr, replace_all: replaceAll3 === true || replaceAll3 === "true" },
-            additionalContext: `universal-format: prettier formats this edit straight back to the current content of ${display}, so there is nothing to change; the Edit was turned into a no-op and the file is unchanged.`
+            additionalContext: `universal-format: ${result.tool} formats this edit straight back to the current content of ${display}, so there is nothing to change; the Edit was turned into a no-op and the file is unchanged.`
           }
         };
       }
-      return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp2, ...swap, replace_all: false }, additionalContext: notice } };
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp2, ...swap, replace_all: false }, additionalContext: noticeFor(result.tool) } };
     }
     return {};
   } catch {
     return {};
   }
-}
-async function cwdChanged(args2) {
-  try {
-    const oldCwd = typeof args2?.old_cwd === "string" ? args2.old_cwd : "";
-    const newCwd = typeof args2?.new_cwd === "string" ? args2.new_cwd : "";
-    if (oldCwd)
-      clearPrettierIgnoreCache(oldCwd);
-    if (newCwd) {
-      const key2 = overrideKey(args2);
-      if (key2)
-        cwdOverrides.set(key2, newCwd);
-      primePrettierIgnoreCache(newCwd);
-      await warmPrettierConfigCache(newCwd);
-    }
-  } catch {}
-  return {};
-}
-async function worktreeEntered(args2) {
-  try {
-    const reported = args2?.tool_response?.worktreePath;
-    const newCwd = typeof reported === "string" && reported ? reported : typeof args2?.cwd === "string" ? args2.cwd : "";
-    if (!newCwd)
-      return {};
-    const key2 = overrideKey(args2);
-    if (!key2)
-      return {};
-    const previous = cwdOverrides.get(key2);
-    if (previous && previous !== newCwd)
-      clearPrettierIgnoreCache(previous);
-    cwdOverrides.set(key2, newCwd);
-    primePrettierIgnoreCache(newCwd);
-    await warmPrettierConfigCache(newCwd);
-  } catch {}
-  return {};
 }
 
 // src/universal-format-mcp/server.ts
@@ -201441,27 +201410,9 @@ function startServer() {
   const TOOLS = [
     {
       name: "format_pre",
-      description: "PreToolUse Write|Edit: format prettier-language files (jsts/json/yaml/markdown/css/scss/less/html/vue/graphql/shell/java/php) in-process before the write (updatedInput) with the bundled prettier.",
+      description: "PreToolUse Write|Edit: format the file content before the write (updatedInput) — prettier languages (jsts/json/yaml/markdown/css/scss/less/html/vue/graphql/shell/java/php) in-process with the bundled prettier, kotlin/python/go/rust through the first CLI formatter on PATH, fed on stdin.",
       inputSchema: { type: "object", additionalProperties: true },
       handler: formatPre
-    },
-    {
-      name: "format_post",
-      description: "PostToolUse Write|Edit: format the just-written file with the language's CLI formatter (kotlin/python/go); prettier languages belong to format_pre.",
-      inputSchema: { type: "object", additionalProperties: true },
-      handler: formatPost
-    },
-    {
-      name: "cwd_changed",
-      description: "CwdChanged: refresh this server's cached prettier ignore state for the new working directory and drop the old one's.",
-      inputSchema: { type: "object", additionalProperties: true },
-      handler: cwdChanged
-    },
-    {
-      name: "worktree_entered",
-      description: "PostToolUse EnterWorktree: CwdChanged does not fire when this switches the session's cwd into a worktree, so capture the worktree path here instead and use it for every later format_pre/format_post cwd resolution.",
-      inputSchema: { type: "object", additionalProperties: true },
-      handler: worktreeEntered
     }
   ];
   const findTool = (name2) => TOOLS.find((t34) => t34.name === name2);
@@ -201532,9 +201483,9 @@ function startServer() {
 if (isMainModule())
   startServer();
 export {
-  worktreeEntered,
   shrinkSwap,
   shouldOverridePrintWidth,
+  selectFormatter,
   resolveEditorconfig,
   resolveConfigPlugins,
   resolveBase,
@@ -201543,10 +201494,8 @@ export {
   isExcludedPath,
   hasPrettierProjectConfig,
   formatPre,
-  formatPost,
   formatInProcess,
   findNativeConfig,
-  cwdChanged,
   bundledPluginsFor,
   buildInvocation,
   applyEdit,

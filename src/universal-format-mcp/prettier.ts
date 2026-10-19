@@ -185,10 +185,11 @@ export function resolveConfigPlugins(plugins: unknown, cwd: string): unknown[] |
 export async function formatInProcess(src: string, filePath: string, cwd: string, lang: string): Promise<string> {
   // Deliberately does NOT clear prettier's config cache. Doing that per format cost ~9.9 ms of
   // the ~10.6 ms total (measured: 10.60 -> 0.73 ms/format on a nested project), i.e. it threw
-  // away most of the warm-instance win on every single write. Invalidation is event-driven:
-  // formatPost clears the cache when a config/ignore file is written. Trade-off, accepted
-  // deliberately: a config edited OUTSIDE the Write/Edit tools (a Bash `sed`, an external
-  // editor) is not noticed until the server restarts.
+  // away most of the warm-instance win on every single write. Invalidation is event-driven: the
+  // handler clears the cache once a Write/Edit of a config/ignore file has landed on disk
+  // (handlers.ts, pendingRefreshes). Trade-off, accepted deliberately: a config edited OUTSIDE
+  // the Write/Edit tools (a Bash `sed`, an external editor) is not noticed until the server
+  // restarts.
   // Shallow-copied: resolveConfig's result is cached internally by prettier (see above), so
   // mutating it in place would leak this call's plugin/printWidth overrides onto every other
   // file that later resolves to the same cached config.
@@ -209,12 +210,12 @@ export async function formatInProcess(src: string, filePath: string, cwd: string
   return await bundledPrettier.format(src, { ...config, plugins, filepath: filePath });
 }
 
-/** Drop the bundled prettier's cached config state. Called only from the PostToolUse handler,
- * once a config/ignore file has actually landed on disk — clearing at PreToolUse would re-cache
- * the pre-write content on the next resolveConfig. A broken clearConfigCache must never break
- * the hook, hence the guard + catch. Deliberately does NOT touch `ignoreCache` below: a
- * `.prettierrc` write cannot change what is ignored, and an ignore-file write refreshes that
- * cache through its own `primePrettierIgnoreCache` call instead. */
+/** Drop the bundled prettier's cached config state. Called by the handler only once a config/ignore
+ * file written through Write/Edit has actually landed on disk (the hook itself fires BEFORE the
+ * write; clearing then would re-cache the pre-write content on the next resolveConfig). A broken
+ * clearConfigCache must never break the hook, hence the guard + catch. Deliberately does NOT touch
+ * `ignoreCache` below: a `.prettierrc` write cannot change what is ignored, and an ignore-file
+ * write refreshes that cache through its own `primePrettierIgnoreCache` call instead. */
 export function clearPrettierConfigCaches(): void {
   projectConfigCache.clear();
   try {
@@ -237,7 +238,8 @@ type IgnoreState = { hasRules: boolean; verdicts: Map<string, boolean> };
 // in-flight hook calls from sub-agents may carry different cwds against this one long-lived server
 // process. Out-of-cwd files add one entry per foreign project root, each holding that project's own
 // .prettierignore state. Populated on first use (MCP `initialize` carries no cwd, so there is no
-// startup moment to populate it at) and invalidated event-driven only, never from formatPre.
+// startup moment to populate it at) and refreshed event-driven only (a landed `.prettierignore`
+// write), never per format.
 const ignoreCache = new Map<string, IgnoreState>();
 
 // The ONE base-rooted ignore file this plugin consults, named exactly once so both readers agree.
@@ -311,33 +313,14 @@ export async function isPrettierIgnored(filePath: string, cwd: string): Promise<
   }
 }
 
-/** Re-read `cwd`'s `.prettierignore` now, discarding that directory's memoized verdicts. Called from
- * the PostToolUse handler when an ignore file has just landed, and from the CwdChanged handler
- * for the NEW directory. On failure the entry is deleted rather than left half-built, so a
- * transient fs error degrades to "read lazily next time", never to a poisoned cache. */
+/** Re-read `cwd`'s `.prettierignore` now, discarding that directory's memoized verdicts. Called by
+ * the handler once a `.prettierignore` written through Write/Edit has landed on disk. On failure the
+ * entry is deleted rather than left half-built, so a transient fs error degrades to "read lazily
+ * next time", never to a poisoned cache. */
 export function primePrettierIgnoreCache(cwd: string): void {
   try {
     ignoreCache.set(cwd, readIgnoreState(cwd));
   } catch {
     ignoreCache.delete(cwd);
-  }
-}
-
-/** Drop `cwd`'s ignore entry entirely — the CwdChanged handler uses it on the OLD directory so
- * the Map does not grow for the process lifetime. */
-export function clearPrettierIgnoreCache(cwd: string): void {
-  ignoreCache.delete(cwd);
-}
-
-/** Prefetch prettier's OWN directory-keyed config-search cache for `cwd`; the resolved value is
- * discarded and nothing is stored here — this is the "warm", not a second config store. The probe
- * basename never has to exist: resolveConfig searches directories. Measured on prettier 3.9.4:
- * 1.92 ms cold, after which a real file in that directory resolves in 0.25 ms instead of 1.9 ms.
- * A pure prefetch has no observable result, so it swallows everything. */
-export async function warmPrettierConfigCache(cwd: string): Promise<void> {
-  try {
-    await bundledPrettier.resolveConfig(path.join(cwd, "__universal_format_probe__"), { editorconfig: true });
-  } catch {
-    /* pure prefetch — nothing to preserve on failure */
   }
 }

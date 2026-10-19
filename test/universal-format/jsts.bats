@@ -19,17 +19,14 @@ setup() {
   echo "$output" | jq -e '.hookSpecificOutput | has("permissionDecision") | not'
 }
 
-@test "jsts: format_post returns {} for a prettier language, with prettier and npx stubs present but never run" {
+@test "jsts: prettier and npx stubs on PATH are never run; the bundled prettier formats in-process" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
-  printf 'let x=1\n' > "$cwd/a.js"
   rec_stub prettier
   rec_stub npx
-  run format_file_call "$cwd/a.js" "$cwd"
+  run pre_tool_use_write_call "$cwd/a.js" 'let x=1' "$cwd"
   assert_success
-  [ "$output" = "{}" ]
+  echo "$output" | jq -e '.hookSpecificOutput.updatedInput.content == "let x = 1;\n"'
   [ ! -s "$RECORD" ]
-  run cat "$cwd/a.js"
-  assert_output "let x=1"
 }

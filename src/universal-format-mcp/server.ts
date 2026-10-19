@@ -1,15 +1,14 @@
 // server.ts — entry point of the universal-format MCP stdio server. Bundled by
 // `pnpm run build:universal-format-mcp` into plugins/universal-format/mcp/server.mjs.
 // Transport: newline-delimited JSON-RPC 2.0. stdout = JSON-RPC only; logs -> stderr.
-//   format_pre       (PreToolUse Write|Edit)       — prettier languages, in-process, updatedInput
-//   format_post      (PostToolUse Write|Edit)      — kotlin/python/go via each tool's CLI
-//   cwd_changed      (CwdChanged)                  — refresh the cwd-keyed prettier ignore/config caches
-//   worktree_entered (PostToolUse EnterWorktree)   — same, via the signal that actually fires (see handlers.ts)
+//   format_pre (PreToolUse Write|Edit) — the one tool: every supported language formatted BEFORE the
+//   write and handed back via updatedInput (prettier languages in-process, kotlin/python/go/rust
+//   through their CLI on stdin). See handlers.ts.
 import process from "node:process";
 import readline from "node:readline";
 import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { cwdChanged, formatPost, formatPre, worktreeEntered } from "./handlers.js";
+import { formatPre } from "./handlers.js";
 
 const SERVER_NAME = "universal-format-hooks"; // keep aligned with the .mcp.json key
 
@@ -28,9 +27,9 @@ const DEFAULT_PROTOCOL = "2025-11-25"; // only used if the client omits protocol
 
 // ---- public surface of the built artifact, imported by the test suites ----
 export { BUNDLED_PRETTIER_VERSION, bundledPluginsFor, formatInProcess, hasPrettierProjectConfig, resolveConfigPlugins, shouldOverridePrintWidth } from "./prettier.js";
-export { EXT_MAP, PRETTIER_LANGS, REGISTRY } from "./registry.js";
+export { EXT_MAP, PRETTIER_LANGS, REGISTRY, selectFormatter } from "./registry.js";
 export { buildInvocation, findNativeConfig, matchGlob, parseEditorconfig, resolveEditorconfig } from "./editorconfig.js";
-export { applyEdit, cwdChanged, formatPost, formatPre, isExcludedPath, resolveBase, shrinkSwap, worktreeEntered } from "./handlers.js";
+export { applyEdit, formatPre, isExcludedPath, resolveBase, shrinkSwap } from "./handlers.js";
 
 type ToolDef = {
   name: string;
@@ -63,28 +62,9 @@ function startServer(): void {
     {
       name: "format_pre",
       description:
-        "PreToolUse Write|Edit: format prettier-language files (jsts/json/yaml/markdown/css/scss/less/html/vue/graphql/shell/java/php) in-process before the write (updatedInput) with the bundled prettier.",
+        "PreToolUse Write|Edit: format the file content before the write (updatedInput) — prettier languages (jsts/json/yaml/markdown/css/scss/less/html/vue/graphql/shell/java/php) in-process with the bundled prettier, kotlin/python/go/rust through the first CLI formatter on PATH, fed on stdin.",
       inputSchema: { type: "object", additionalProperties: true },
       handler: formatPre,
-    },
-    {
-      name: "format_post",
-      description: "PostToolUse Write|Edit: format the just-written file with the language's CLI formatter (kotlin/python/go); prettier languages belong to format_pre.",
-      inputSchema: { type: "object", additionalProperties: true },
-      handler: formatPost,
-    },
-    {
-      name: "cwd_changed",
-      description: "CwdChanged: refresh this server's cached prettier ignore state for the new working directory and drop the old one's.",
-      inputSchema: { type: "object", additionalProperties: true },
-      handler: cwdChanged,
-    },
-    {
-      name: "worktree_entered",
-      description:
-        "PostToolUse EnterWorktree: CwdChanged does not fire when this switches the session's cwd into a worktree, so capture the worktree path here instead and use it for every later format_pre/format_post cwd resolution.",
-      inputSchema: { type: "object", additionalProperties: true },
-      handler: worktreeEntered,
     },
   ];
   const findTool = (name: string) => TOOLS.find((t) => t.name === name);

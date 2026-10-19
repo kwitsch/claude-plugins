@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { formatInProcess, applyEdit, cwdChanged, formatPre, formatPost, resolveConfigPlugins, shrinkSwap, worktreeEntered } from "../../plugins/universal-format/mcp/server.mjs";
+import { formatInProcess, applyEdit, formatPre, resolveConfigPlugins, shrinkSwap } from "../../plugins/universal-format/mcp/server.mjs";
 
 // No `maybe`/tier gating any more: prettier is bundled into the artifact, so every test here is
 // unconditional. There is exactly one prettier instance in this process.
@@ -41,20 +41,6 @@ function hookInput(p) {
   };
 }
 
-// Build a full CwdChangedHookInput from just the two directories these tests vary.
-/** @param {{old_cwd:string, new_cwd:string}} p @returns {CwdChangedHookInput} */
-function cwdChangedInput(p) {
-  return {
-    session_id: "test-session",
-    transcript_path: "/dev/null",
-    cwd: p.new_cwd,
-    permission_mode: "default",
-    hook_event_name: "CwdChanged",
-    old_cwd: p.old_cwd,
-    new_cwd: p.new_cwd,
-  };
-}
-
 /** @param {any} res @returns {string} */
 const preContent = (res) => res.hookSpecificOutput.updatedInput.content;
 
@@ -81,24 +67,47 @@ test("json printWidth override: .prettierrc printWidth honored", async () => {
 });
 
 // Config invalidation is event-driven: formatInProcess does not clear prettier's config cache per
-// call (that cost ~9.9 of ~10.6 ms per format). formatPost clears it when a config/ignore file is
-// written — which is why the .prettierrc write below is followed by a formatPost on that file,
-// exactly as the two hooks fire in a real session. Both cases probe `semi` on a .mjs file
-// deliberately: it is a value only prettier's own (cached) config can produce. A json/yaml
-// printWidth probe would be confounded by shouldOverridePrintWidth, which re-reads the
-// filesystem on every call and would react to a new .prettierrc even with the cache untouched.
-test("config cache: a .prettierrc written through the hooks takes effect on the next format", async () => {
+// call (that cost ~9.9 of ~10.6 ms per format). The hook fires BEFORE a Write lands, so a Write of a
+// config file leaves a pending refresh behind, and the first later format that finds the file
+// changed on disk clears the cache -- never earlier, or the pre-write content would be re-cached.
+// Both cases probe `semi` on a .mjs file deliberately: it is a value only prettier's own (cached)
+// config can produce. A json/yaml printWidth probe would be confounded by shouldOverridePrintWidth,
+// which re-reads the filesystem on every call and would react to a new .prettierrc even with the
+// cache untouched.
+test("config cache: a .prettierrc written through the hook takes effect once the write has landed, not before", async () => {
   const cwd = tmp("uf-cache-a-");
   const fp = path.join(cwd, "a.mjs");
   const before = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: "const a = 1\n" } })));
   assert.ok(preContent(before).includes(";"), "no config yet -> prettier's default semi: true");
 
   const rc = path.join(cwd, ".prettierrc");
-  writeFileSync(rc, JSON.stringify({ semi: false }));
-  await formatPost(/** @type {any} */ (hookInput({ cwd, tool_name: "Write", tool_input: { file_path: rc } })));
+  const rcContent = JSON.stringify({ semi: false });
+  const onConfigWrite = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: rc, content: rcContent } }));
+  assert.deepEqual(onConfigWrite, {}, "the hook on the config Write itself formats nothing (no extension)");
 
+  const notLanded = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: "const a = 1\n" } })));
+  assert.ok(preContent(notLanded).includes(";"), "while the Write has not landed, the cached (absent) config stays in force");
+
+  writeFileSync(rc, rcContent); // the Write tool lands it
   const after = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: "const a = 1;\n" } })));
-  assert.ok(!preContent(after).includes(";"), "the new .prettierrc must take effect once formatPost invalidated the cache");
+  assert.ok(!preContent(after).includes(";"), "the first format after the write landed must see the new .prettierrc");
+});
+
+// An Edit of an existing config file lands too: the pending refresh keys on the file's on-disk stamp
+// (inode, size, mtime), so the edited content is picked up exactly like a fresh Write's.
+test("config cache: an Edit of an existing .prettierrc is picked up once it has landed", async () => {
+  const cwd = tmp("uf-cache-edit-");
+  const fp = path.join(cwd, "a.mjs");
+  const rc = path.join(cwd, ".prettierrc");
+  writeFileSync(rc, JSON.stringify({ semi: false }));
+  const before = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: "const a = 1;\n" } })));
+  assert.ok(!preContent(before).includes(";"), "semi: false in force");
+
+  assert.deepEqual(await formatPre(hookInput({ cwd, tool_name: "Edit", tool_input: { file_path: rc, old_string: "false", new_string: "true" } })), {});
+  await new Promise((r) => setTimeout(r, 5)); // keep the mtime distinguishable on coarse filesystems
+  writeFileSync(rc, JSON.stringify({ semi: true })); // the Edit tool lands it
+  const after = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: "const a = 1\n" } })));
+  assert.ok(preContent(after).includes(";"), "the edited .prettierrc must take effect once it landed");
 });
 
 // The documented trade-off of dropping the per-format clear: a config that appears without ever
@@ -274,10 +283,18 @@ test("format_pre Edit: absent old_string -> {}", async () => {
   assert.deepEqual(res, {});
 });
 
-test("format_pre: non-prettier ext (.go) and excluded path -> {}", async () => {
+test("format_pre: CLI language with no formatter on PATH, and an excluded path -> {}", async () => {
   const cwd = tmp("uf-guard-");
-  const go = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "a.go"), content: "package main" } }));
-  assert.deepEqual(go, {});
+  // An empty PATH: whatever onPath() may already have cached for a Go formatter, the spawn itself
+  // cannot find one, and a spawn error fails open like a missing tool does.
+  const originalPath = process.env.PATH;
+  process.env.PATH = "";
+  try {
+    const go = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "a.go"), content: "package main" } }));
+    assert.deepEqual(go, {});
+  } finally {
+    process.env.PATH = originalPath;
+  }
   mkdirSync(path.join(cwd, "node_modules", "pkg"), { recursive: true });
   const nm = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "node_modules", "pkg", "a.json"), content: '{"a":1}' } }));
   assert.deepEqual(nm, {});
@@ -370,21 +387,23 @@ test("ignore cache: a .prettierignore appearing out of band is NOT picked up (do
   assert.equal(preContent(after), '{ "a": 1 }\n', "still formatted with the pre-write ignore state");
 });
 
-// The update path, mirroring the .prettierrc one above: an ignore file written THROUGH the hooks
-// re-reads that cwd's ignore state (and discards its memoized verdicts) at PostToolUse — the only
-// correct moment, since at PreToolUse the write has not landed yet.
-test("ignore cache: a .prettierignore written through the hooks takes effect on the next format", async () => {
+// The update path, mirroring the .prettierrc one above: an ignore file written THROUGH the hook
+// re-reads that base's ignore state (and discards its memoized verdicts) once the write has landed
+// -- the only correct moment, since at PreToolUse the write has not happened yet.
+test("ignore cache: a .prettierignore written through the hook takes effect once the write has landed", async () => {
   const cwd = tmp("uf-ign-post-");
   const fp = path.join(cwd, "late.json");
   const before = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } })));
   assert.equal(preContent(before), '{ "a": 1 }\n', "no ignore file yet -> formatted");
 
   const ign = path.join(cwd, ".prettierignore");
-  writeFileSync(ign, "late.json\n");
-  await formatPost(/** @type {any} */ (hookInput({ cwd, tool_name: "Write", tool_input: { file_path: ign } })));
+  assert.deepEqual(await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: ign, content: "late.json\n" } })), {});
+  const notLanded = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } })));
+  assert.equal(preContent(notLanded), '{ "a": 1 }\n', "still formatted while the ignore file is not on disk");
 
+  writeFileSync(ign, "late.json\n"); // the Write tool lands it
   const after = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } }));
-  assert.deepEqual(after, {}, "formatPost on .prettierignore must re-read this cwd's ignore state");
+  assert.deepEqual(after, {}, "the landed .prettierignore must be re-read before the next format");
 });
 
 // cwd is a HINT, not a gate: a file written outside the session cwd is formatted against its OWN
@@ -475,147 +494,12 @@ test("out-of-cwd anchoring: an orphan file formats, its own directory's .prettie
   assert.deepEqual(noCwdRelative, {}, "a relative path with no cwd has nothing to resolve against");
 });
 
-// A `cd` is not a Write/Edit, so nothing else would ever re-read the new directory's ignore
-// files. cwd_changed reads them at the moment of the change (and drops the old directory's entry
-// so the Map does not grow for the process lifetime). Also the only exit from the out-of-band
-// trade-off short of a server restart.
-test("cwd_changed: entering a directory re-reads its ignore files", async () => {
-  const a = tmp("uf-cwd-a-");
-  const b = tmp("uf-cwd-b-");
-  const fp = path.join(a, "later.json");
-  const primed = /** @type {any} */ (await formatPre(hookInput({ cwd: a, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } })));
-  assert.equal(preContent(primed), '{ "a": 1 }\n', "no ignore file yet -> formatted");
-
-  writeFileSync(path.join(a, ".prettierignore"), "later.json\n"); // out of band, no Write/Edit hook fires
-  assert.deepEqual(await cwdChanged(cwdChangedInput({ old_cwd: b, new_cwd: a })), {}, "cwd_changed always returns {}");
-
-  const after = await formatPre(hookInput({ cwd: a, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } }));
-  assert.deepEqual(after, {}, "cwd_changed must have re-read the new cwd's ignore files");
-});
-
-// Reproduces a live bug: EnterWorktree switches a background-job session's cwd into a worktree,
-// but CwdChanged has been observed (real session transcript, no CwdChanged event at all across a
-// real EnterWorktree call) to never fire for it. Every later PreToolUse/PostToolUse Write|Edit
-// call then keeps reporting the pre-worktree cwd, so isExcludedPath misclassifies the session's
-// OWN active worktree as another agent's scratch state (`.claude/worktrees/...`) and formatting
-// silently stops. worktreeEntered (PostToolUse:EnterWorktree) is the fallback signal that DOES
-// fire; these tests MUST run last in this file. The override it raises is keyed by
-// agent_id/session_id (never a bare global — see handlers.ts's `cwdOverrides` comment), and most
-// calls below use hookInput()'s hardcoded "test-session" and no agent_id, so they share ONE key
-// and would still leak into any test placed after them.
-// A dedicated session_id on every call here, not hookInput()'s shared "test-session" default: the
-// `cwd_changed` test above raises an override under that shared key, and resolveCwd would hand this
-// test THAT directory instead of `outer`. Until this change an outside-cwd file was gated to {}
-// either way, so the leak was invisible; now the first assertion below really does depend on `cwd`
-// being `outer`, so the key has to be its own (same reasoning as the concurrency test at the end).
-test("worktree_entered: before the fix, a stale outer cwd misclassifies a worktree-nested file as excluded", async () => {
-  const outer = tmp("uf-outer-");
-  const worktreeDir = path.join(outer, ".claude", "worktrees", "my-worktree");
-  mkdirSync(worktreeDir, { recursive: true });
-  const fp = path.join(worktreeDir, "a.json");
-  const session_id = "uf-worktree-session-1";
-
-  const before = await formatPre({ ...hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1,"b":2}' } }), session_id });
-  assert.deepEqual(before, {}, "relative to the stale outer cwd this looks like another agent's worktree scratch state");
-
-  await worktreeEntered(/** @type {any} */ ({ ...hookInput({ cwd: outer, tool_name: "EnterWorktree", tool_input: {} }), session_id, tool_response: { worktreePath: worktreeDir } }));
-
-  const after = /** @type {any} */ (await formatPre({ ...hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1,"b":2}' } }), session_id }));
-  assert.equal(preContent(after), '{ "a": 1, "b": 2 }\n', "override must resolve the file relative to the worktree, ignoring the stale outer cwd");
-});
-
-// A stub "goimports" that deterministically rewrites its target file, so a real format and a
-// same-shaped {} no-op (which formatPost also returns for an excluded/unresolvable path, or for
-// "no formatter on PATH") are distinguishable from the test's own assertions -- {} alone would
-// pass even if the cwd override were silently broken and the file were still misclassified as
-// excluded. onPath()'s PATH probe is cached for the process lifetime (see util.ts), so this must
-// be the first (and only) place in this file that probes "goimports"/"gofmt".
-const STUB_GO_OUTPUT = "package main\n\n// stub-formatted\n";
-
-/** Installs an executable `goimports` stub on `process.env.PATH` for the duration of `fn`,
- * restoring the original PATH afterward even if `fn` throws. @param {() => Promise<void>} fn */
-async function withGoimportsStub(fn) {
-  const binDir = tmp("uf-stub-bin-");
-  const stub = path.join(binDir, "goimports");
-  // A heredoc, not `printf '%s' "<escaped>"`: printf does not interpret backslash escapes inside
-  // a substituted argument (only inside the format operand itself), so a JSON-escaped `\n` would
-  // land in the target file as a literal backslash-n instead of a real newline.
-  writeFileSync(stub, `#!/bin/sh\ncat > "$2" <<'STUBEOF'\n${STUB_GO_OUTPUT}STUBEOF\n`);
-  chmodSync(stub, 0o755);
-  const originalPath = process.env.PATH;
-  process.env.PATH = `${binDir}${path.delimiter}${originalPath}`;
-  try {
-    await fn();
-  } finally {
-    process.env.PATH = originalPath;
-  }
-}
-
-test("worktree_entered: format_post also resolves against the override, not the stale cwd", async () => {
-  const outer = tmp("uf-outer2-");
-  const worktreeDir = path.join(outer, ".claude", "worktrees", "another-worktree");
-  mkdirSync(worktreeDir, { recursive: true });
-  const goFile = path.join(worktreeDir, "main.go");
-  writeFileSync(goFile, "package main\n");
-
-  await worktreeEntered(/** @type {any} */ ({ ...hookInput({ cwd: outer, tool_name: "EnterWorktree", tool_input: {} }), tool_response: { worktreePath: worktreeDir } }));
-
-  await withGoimportsStub(async () => {
-    const result = /** @type {any} */ (await formatPost(/** @type {any} */ (hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: goFile } }))));
-    assert.equal(result?.hookSpecificOutput?.hookEventName, "PostToolUse", "the stub must actually have run -- a same-shaped {} would also pass if the override were silently broken");
-    assert.equal(readFileSync(goFile, "utf8"), STUB_GO_OUTPUT, "the stub ran against the worktree-resolved file, proving the override (not the stale outer cwd) was used");
-  });
-});
-
-test("worktree_entered: no tool_response.worktreePath falls back to cwd", async () => {
-  const dir = tmp("uf-fallback-");
-  const fp = path.join(dir, "b.json");
-  await worktreeEntered(/** @type {any} */ (hookInput({ cwd: dir, tool_name: "EnterWorktree", tool_input: {} })));
-  const result = /** @type {any} */ (await formatPre(hookInput({ cwd: dir, tool_name: "Write", tool_input: { file_path: fp, content: '{"c":3}' } })));
-  assert.equal(preContent(result), '{ "c": 3 }\n', "falling back to cwd must still resolve correctly");
-});
-
-// The concurrency case: this MCP server is one long-lived process shared by every subagent in the
-// session (see ignoreCache/projectConfigCache's own "concurrent in-flight hook calls from
-// sub-agents" comment in prettier.ts). Two subagents, each isolated into its OWN worktree via
-// EnterWorktree, both report the SAME (stale) outer cwd but must never share one cwd override —
-// a bare global would let whichever subagent's EnterWorktree ran last win for BOTH of them.
-test("worktree_entered: concurrent subagents keep independent overrides, keyed by agent_id", async () => {
-  const outer = tmp("uf-concurrent-outer-");
-  const worktreeA = path.join(outer, ".claude", "worktrees", "agent-a-wt");
-  const worktreeB = path.join(outer, ".claude", "worktrees", "agent-b-wt");
-  mkdirSync(worktreeA, { recursive: true });
-  mkdirSync(worktreeB, { recursive: true });
-  const fpA = path.join(worktreeA, "a.json");
-  const fpB = path.join(worktreeB, "b.json");
-
-  await worktreeEntered(/** @type {any} */ ({ ...hookInput({ cwd: outer, tool_name: "EnterWorktree", tool_input: {} }), agent_id: "agent-A", tool_response: { worktreePath: worktreeA } }));
-  await worktreeEntered(/** @type {any} */ ({ ...hookInput({ cwd: outer, tool_name: "EnterWorktree", tool_input: {} }), agent_id: "agent-B", tool_response: { worktreePath: worktreeB } }));
-
-  const resultA = /** @type {any} */ (await formatPre({ ...hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: fpA, content: '{"a":1}' } }), agent_id: "agent-A" }));
-  const resultB = /** @type {any} */ (await formatPre({ ...hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: fpB, content: '{"b":2}' } }), agent_id: "agent-B" }));
-
-  assert.equal(preContent(resultA), '{ "a": 1 }\n', "agent A's file resolves against ITS OWN worktree override");
-  assert.equal(preContent(resultB), '{ "b": 2 }\n', "agent B's file resolves against ITS OWN worktree override, unaffected by agent A's");
-
-  // A call under a DIFFERENT session_id (a genuinely distinct parent session, not either
-  // subagent's agent_id) must be untouched by both subagents' overrides. A dedicated session_id
-  // here, not hookInput()'s shared "test-session" default -- other tests earlier in this file
-  // also key on "test-session" and would otherwise make this assertion depend on file ordering.
-  const dirC = tmp("uf-parent-");
-  const fpC = path.join(dirC, "c.json");
-  const resultC = /** @type {any} */ (
-    await formatPre({ ...hookInput({ cwd: dirC, tool_name: "Write", tool_input: { file_path: fpC, content: '{"c":3}' } }), session_id: "concurrency-parent-session" })
-  );
-  assert.equal(preContent(resultC), '{ "c": 3 }\n', "an unrelated session's own calls are unaffected by either subagent's override");
-});
-
-// Out-of-cwd absolute write into a SIBLING agent's worktree, with no override raised for THIS
-// session/agent: resolveBase's git-root walk lands directly on the worktree root (its `.git` is a
-// FILE), which would erase `.claude/worktrees` from a base-relative `rel`. isClaudeInternalPath's
-// absolute-path check (gated on base !== cwd) must still exclude it -- this agent never entered
-// that worktree, so it must not reformat another agent's in-flight scratch state.
-test("out-of-cwd absolute write into a sibling agent's worktree is still excluded (no override raised here)", async () => {
+// Out-of-cwd absolute write into a SIBLING agent's worktree (the session's own cwd is elsewhere):
+// resolveBase's git-root walk lands directly on the worktree root (its `.git` is a FILE), which
+// would erase `.claude/worktrees` from a base-relative `rel`. isClaudeInternalPath's absolute-path
+// check (gated on base !== cwd) must still exclude it -- this agent never entered that worktree, so
+// it must not reformat another agent's in-flight scratch state.
+test("out-of-cwd absolute write into a sibling agent's worktree is still excluded", async () => {
   const cwd = tmp("uf-sibling-cwd-");
   const siblingRepo = tmp("uf-sibling-repo-");
   const siblingWorktree = path.join(siblingRepo, ".claude", "worktrees", "other-agent-wt");

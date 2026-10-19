@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-# Guard clauses and the exit-code-independence contract.
+# Guard clauses and the stdin-formatter contract of the CLI languages (gofmt is the vehicle).
 
 load 'test_helper'
 
@@ -8,40 +8,34 @@ setup() {
   common_setup
 }
 
-@test "formats a go file: gofmt runs, file changes, additionalContext returned" {
+@test "formats a go file: gofmt is fed the content on stdin, its stdout becomes updatedInput, additionalContext returned" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
-  printf 'package main\n' > "$cwd/a.go"
   rec_stub gofmt
-  run format_file_call "$cwd/a.go" "$cwd"
+  run pre_tool_use_write_call "$cwd/a.go" 'package main' "$cwd"
   assert_success
-  echo "$output" | jq -e '.hookSpecificOutput as $h | $h.hookEventName == "PostToolUse" and ($h.additionalContext | test("gofmt reformatted a.go")) and ($h.additionalContext | test("exempt from .surgical/minimal-diff. change-scope rules"))'
+  echo "$output" | jq -e '.hookSpecificOutput as $h | $h.hookEventName == "PreToolUse" and $h.updatedInput.content == "reformatted-by-gofmt\n" and ($h.additionalContext | test("gofmt reformatted a.go")) and ($h.additionalContext | test("exempt from .surgical/minimal-diff. change-scope rules"))'
+  echo "$output" | jq -e '.hookSpecificOutput | has("permissionDecision") | not'
   run rg_or_grep -F "gofmt " "$RECORD"
   assert_success
-  run cat "$cwd/a.go"
-  assert_output --partial "reformatted-by-gofmt"
+  [ ! -e "$cwd/a.go" ]   # nothing is written by the hook itself
 }
 
-@test "no formatter on PATH -> file untouched, {} result" {
+@test "no formatter on PATH -> {} result" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
-  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
-  printf 'package main\n' > "$cwd/a.go"
-  run format_file_call "$cwd/a.go" "$cwd"       # no gofmt/goimports stub created
+  run pre_tool_use_write_call "$cwd/a.go" 'package main' "$cwd"       # no gofmt/goimports stub created
   assert_success
   [ "$output" = "{}" ]
-  run cat "$cwd/a.go"
-  assert_output "package main"
 }
 
 @test "non-target extension (.txt) -> formatter never invoked" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
-  printf 'hi\n' > "$cwd/a.txt"
   rec_stub gofmt
-  run format_file_call "$cwd/a.txt" "$cwd"
+  run pre_tool_use_write_call "$cwd/a.txt" 'hi' "$cwd"
   assert_success
   [ "$output" = "{}" ]
   [ ! -s "$RECORD" ]
@@ -52,24 +46,21 @@ setup() {
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
   local out="$BATS_TEST_TMPDIR/outside"; mkdir -p "$out"
-  printf 'package main\n' > "$out/a.go"
   rec_stub gofmt
-  run format_file_call "$out/a.go" "$cwd"
+  run pre_tool_use_write_call "$out/a.go" 'package main' "$cwd"
   assert_success
-  echo "$output" | jq -e '.hookSpecificOutput.hookEventName == "PostToolUse"'
+  echo "$output" | jq -e '.hookSpecificOutput.updatedInput.content == "reformatted-by-gofmt\n"'
+  echo "$output" | jq -e --arg p "$out/a.go" '.hookSpecificOutput.additionalContext | test("gofmt reformatted " + $p)'
   run rg_or_grep -F "gofmt " "$RECORD"
   assert_success
-  run cat "$out/a.go"
-  assert_output --partial "reformatted-by-gofmt"
 }
 
 @test "node_modules path -> formatter never invoked" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd/node_modules/x"
-  printf 'package main\n' > "$cwd/node_modules/x/a.go"
   rec_stub gofmt
-  run format_file_call "$cwd/node_modules/x/a.go" "$cwd"
+  run pre_tool_use_write_call "$cwd/node_modules/x/a.go" 'package main' "$cwd"
   assert_success
   [ "$output" = "{}" ]
   [ ! -s "$RECORD" ]
@@ -79,9 +70,8 @@ setup() {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd/.claude/worktrees/foo"
-  printf 'package main\n' > "$cwd/.claude/worktrees/foo/a.go"
   rec_stub gofmt
-  run format_file_call "$cwd/.claude/worktrees/foo/a.go" "$cwd"
+  run pre_tool_use_write_call "$cwd/.claude/worktrees/foo/a.go" 'package main' "$cwd"
   assert_success
   [ "$output" = "{}" ]
   [ ! -s "$RECORD" ]
@@ -89,23 +79,18 @@ setup() {
 
 @test ".claude/agent-memory path -> formatter never invoked" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
-  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd/.claude/agent-memory"
-  printf 'hi\n' > "$cwd/.claude/agent-memory/a.md"
-  rec_stub prettier
-  run format_file_call "$cwd/.claude/agent-memory/a.md" "$cwd"
+  run pre_tool_use_write_call "$cwd/.claude/agent-memory/a.md" '#  hi' "$cwd"
   assert_success
   [ "$output" = "{}" ]
-  [ ! -s "$RECORD" ]
 }
 
 @test "*.local.* file -> formatter never invoked" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
-  printf 'package main\n' > "$cwd/settings.local.go"
   rec_stub gofmt
-  run format_file_call "$cwd/settings.local.go" "$cwd"
+  run pre_tool_use_write_call "$cwd/settings.local.go" 'package main' "$cwd"
   assert_success
   [ "$output" = "{}" ]
   [ ! -s "$RECORD" ]
@@ -115,23 +100,51 @@ setup() {
   command -v node >/dev/null 2>&1 || skip "node not installed"
   RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd/.claude/rules"
-  printf 'package main\n' > "$cwd/.claude/rules/a.go"
   rec_stub gofmt
-  run format_file_call "$cwd/.claude/rules/a.go" "$cwd"
+  run pre_tool_use_write_call "$cwd/.claude/rules/a.go" 'package main' "$cwd"
   assert_success
   run rg_or_grep -F "gofmt " "$RECORD"
   assert_success
 }
 
-@test "formatter exits 1 WITHOUT changing file -> {} (no crash)" {
+@test "formatter exits non-zero -> {} even though it printed something (only an ok exit code's stdout is trusted)" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
-  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
-  printf 'package main\n' > "$cwd/a.go"
-  make_stub gofmt 'printf "%s %s\n" gofmt "$*" >> "$RECORD"' 'exit 1'   # no file change
-  run format_file_call "$cwd/a.go" "$cwd"
+  make_stub gofmt 'cat >/dev/null' 'printf "partial\n"' 'exit 2'
+  run pre_tool_use_write_call "$cwd/a.go" 'package main' "$cwd"
   assert_success
   [ "$output" = "{}" ]
+}
+
+@test "formatter exits 0 with EMPTY stdout -> {} (an empty result is never written)" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  make_stub gofmt 'cat >/dev/null' 'exit 0'
+  run pre_tool_use_write_call "$cwd/a.go" 'package main' "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+}
+
+@test "formatter output identical to the input -> {} (content diff decides, not the exit code)" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  make_stub gofmt 'cat'
+  run pre_tool_use_write_call "$cwd/a.go" 'package main' "$cwd"
+  assert_success
+  [ "$output" = "{}" ]
+}
+
+@test "Edit on a CLI-language file: the merged file goes through the formatter and only the changed run of lines is swapped" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
+  printf 'package main\n\nfunc a() {}\n\nfunc b() {}\n' > "$cwd/a.go"
+  make_stub gofmt 'while IFS= read -r l; do printf "%s\n" "${l//x:=1/x := 1}"; done'   # a "formatter" that fixes exactly the edited line
+  run pre_tool_use_edit_call "$cwd/a.go" 'func a() {}' 'func a() { x:=1 }' "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.updatedInput | .old_string == "func a() {}\n" and .new_string == "func a() { x := 1 }\n" and .replace_all == false'
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("gofmt reformatted a.go")'
+  run cat "$cwd/a.go"
+  assert_output --partial 'func a() {}'   # the hook never touches the file itself
 }
 
 @test "PreToolUse: excluded path (node_modules) -> {}" {
@@ -159,10 +172,16 @@ setup() {
   echo "$output" | jq -e '.hookSpecificOutput.updatedInput.content == "{ \"a\": 1 }\n"'
 }
 
-@test "PreToolUse: non-prettier extension (.go) -> {} (go is PostToolUse only)" {
+@test ".prettierignore opts a prettier language out but never a CLI language (its opt-out is not installing the tool)" {
   command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
   local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd"
-  run pre_tool_use_write_call "$cwd/a.go" 'package main' "$cwd"
+  printf 'a.json\na.go\n' > "$cwd/.prettierignore"
+  rec_stub gofmt
+  run pre_tool_use_write_call "$cwd/a.json" '{"a":1}' "$cwd"
   assert_success
   [ "$output" = "{}" ]
+  run pre_tool_use_write_call "$cwd/a.go" 'package main' "$cwd"
+  assert_success
+  echo "$output" | jq -e '.hookSpecificOutput.updatedInput.content == "reformatted-by-gofmt\n"'
 }

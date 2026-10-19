@@ -3,7 +3,7 @@ name: universal-format
 description: >-
   User-invoked. Takes a free-text description of a set of files ("all files in src/",
   "files changed in PR 123", or an explicit list) and formats each of them exactly as this
-  plugin's Write/Edit hooks would — all 17 languages, formatting files in place. Self-contained:
+  plugin's Write/Edit hook would — all 17 languages, formatting files in place. Self-contained:
   depends on no other plugin.
 argument-hint: "[files description, e.g. 'all files in src/' or 'files changed in PR 123']"
 arguments: file_scope
@@ -14,8 +14,8 @@ disable-model-invocation: true
 # universal-format
 
 Formats every file you name — in natural language — exactly as this plugin's always-on
-`Write`/`Edit` hooks would: the 13 Prettier languages in-process before the write, the 4 CLI
-languages (Kotlin, Python, Go, Rust) via their own tool after it. The whole trailing text of the
+`Write`/`Edit` hook would: all 17 languages, the 13 Prettier languages in-process and the 4 CLI
+languages (Kotlin, Python, Go, Rust) through their own tool on stdin. The whole trailing text of the
 command binds to `$file_scope`. Reuses the plugin's own tested hook logic through a colocated
 driver — no new formatting logic, no other plugin.
 

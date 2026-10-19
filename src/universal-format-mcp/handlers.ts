@@ -1,21 +1,16 @@
-// handlers.ts — the two hook handlers plus their pure helpers. Fail open is the contract: every
+// handlers.ts — the format_pre hook handler plus its pure helpers. Fail open is the contract: every
 // guard failure and every caught error returns {}. The TS port must never "tighten" that away
 // because a type says a value cannot be undefined.
 import path from "node:path";
 import os from "node:os";
-import { existsSync, readFileSync } from "node:fs";
-import { execFile as execFileCb } from "node:child_process";
-import { promisify } from "node:util";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { EXT_MAP, PRETTIER_LANGS, REGISTRY, selectFormatter } from "./registry.js";
+import type { FormatTool } from "./types.js";
 import { walkToRoot } from "./util.js";
-import { PRETTIER_CONFIG_FILENAMES, clearPrettierConfigCaches, clearPrettierIgnoreCache, formatInProcess, isPrettierIgnored, primePrettierIgnoreCache, warmPrettierConfigCache } from "./prettier.js";
+import { PRETTIER_CONFIG_FILENAMES, clearPrettierConfigCaches, formatInProcess, isPrettierIgnored, primePrettierIgnoreCache } from "./prettier.js";
 
 const SPAWN_TIMEOUT_MS = 30000; // inner formatter timeout; the hook-level timeout:60 is the backstop
-
-// Promise-based, not spawnSync: this handler runs inside a persistent MCP server that also
-// services other concurrent hook calls, so a blocking spawn would stall the whole event loop
-// (and every other in-flight format_pre/format_post) for up to SPAWN_TIMEOUT_MS.
-const execFile = promisify(execFileCb);
 
 // True when `rel` (already resolved inside cwd) is dependency/VCS state (node_modules/vendor/
 // .git) or Claude-Code-owned session/worktree machinery that happens to sit inside cwd -- a
@@ -73,9 +68,10 @@ function findGitRoot(fileDir: string, home: string): string {
  * can anchor `base` AT a worktree's own root (a worktree's `.git` is a FILE, so branch 2 stops right
  * there), which erases the `.claude/worktrees` segment from a base-relative `rel` entirely and would
  * otherwise let this agent reformat a SIBLING agent's in-flight worktree/scratch state. Must never
- * be consulted when `base === cwd` -- that is precisely the session's OWN worktree, entered on
- * purpose via `worktreeEntered`'s override (the 0.13.0 fix), whose absolute path legitimately
- * contains `.claude/worktrees/<name>` too; gating on `base !== cwd` keeps that case formatting. */
+ * be consulted when `base === cwd` -- that is the session's OWN project root, including its own
+ * worktree once EnterWorktree moved it there (Claude Code reports the worktree as `cwd` from then
+ * on, verified live on 2.1.303), whose absolute path legitimately contains `.claude/worktrees/<name>`
+ * too; gating on `base !== cwd` keeps that case formatting. */
 function isClaudeInternalPath(resolved: string): boolean {
   const segments = resolved.split(path.sep);
   return segments.some((s, i) => s === ".claude" && (segments[i + 1] === "worktrees" || segments[i + 1] === "agent-memory"));
@@ -107,46 +103,12 @@ export function resolveBase(cwd: string, resolved: string): string {
   return resolveBaseAndRel(cwd, resolved).base;
 }
 
-// Per-agent override of "the real current cwd", raised only by worktreeEntered
-// (PostToolUse:EnterWorktree). CwdChanged is wired for the same purpose but has been observed
-// (live session transcript, no CwdChanged event at all across a real EnterWorktree call) to
-// never fire when EnterWorktree switches a background-job session into a worktree -- so `cwd` on
-// every later PreToolUse/PostToolUse Write|Edit call keeps reporting the pre-worktree directory,
-// isExcludedPath then misclassifies the session's OWN active worktree as another agent's scratch
-// state (the very thing that exclusion is meant to skip), and formatting silently stops for the
-// rest of the session. This override is the fallback that actually fires.
-//
-// Keyed by agent_id (falling back to session_id for the main/non-subagent conversation), exactly
-// like ignoreCache/projectConfigCache in prettier.ts are keyed by cwd, and for the same reason
-// their own comment states: "concurrent in-flight hook calls from sub-agents may carry different
-// cwds against this one long-lived server process." A bare global here would let one concurrently
-// running subagent's EnterWorktree clobber the cwd every OTHER subagent's format_pre/format_post
-// resolves against -- cross-contaminating which worktree a file gets formatted relative to.
-const cwdOverrides = new Map<string, string>();
-
-/** The key `cwdOverrides` is keyed by for this hook call, or "" if neither field is present
- * (resolveCwd then falls through to `args.cwd` untouched, same as before this override existed). */
-function overrideKey(args: { agent_id?: unknown; session_id?: unknown }): string {
-  if (typeof args?.agent_id === "string" && args.agent_id) return args.agent_id;
-  return typeof args?.session_id === "string" ? args.session_id : "";
-}
-
-/** `args.cwd`, unless worktreeEntered has raised an override for THIS agent/session. */
-function resolveCwd(args: { cwd?: unknown; agent_id?: unknown; session_id?: unknown }): string {
-  const key = overrideKey(args);
-  const override = key ? cwdOverrides.get(key) : undefined;
-  if (override) return override;
-  return typeof args?.cwd === "string" ? args.cwd : "";
-}
-
-/** Resolves the write target shared by both hook handlers: the file path, the `base` directory
- * every project-scoped lookup anchors at, and the base-relative path used for exclusion. Returns
- * null on any guard failure -- callers return {} in that case (fail open). Extracted so the
- * resolution sequence (resolveCwd -> fp guard -> resolve -> resolveBaseAndRel -> isExcludedPath ->
- * isClaudeInternalPath) can't silently drift out of sync between formatPost and formatPre, which
- * must otherwise be edited in lockstep. */
+/** Resolves the write target: the file path, the `base` directory every project-scoped lookup
+ * anchors at, and the base-relative path used for exclusion. `cwd` is the hook payload's own --
+ * Claude Code keeps it current across `cd` and EnterWorktree (verified live on 2.1.303), so there
+ * is no override to consult. Returns null on any guard failure -- the caller returns {} (fail open). */
 function resolveTarget(args: ToolHookInput): { cwd: string; base: string; resolved: string; rel: string; fp: string } | null {
-  const cwd = resolveCwd(args);
+  const cwd = typeof args?.cwd === "string" ? args.cwd : "";
   const fp = args?.tool_input?.file_path;
   if (typeof fp !== "string" || !fp) return null;
   if (!cwd && !path.isAbsolute(fp)) return null; // nothing to resolve a relative path against
@@ -186,7 +148,7 @@ function lineEnd(s: string, i: number): number {
 const MAX_WIDENINGS = 32; // real edits widen 1-10 times (measured p99 = 5); only repetitive fixtures hit this
 
 /** Shrink a whole-file Edit swap to the smallest run of whole lines that differs between the
- * pre-edit file and its formatted replacement. Prettier still formats the WHOLE merged file (a
+ * pre-edit file and its formatted replacement. The formatter still sees the WHOLE merged file (a
  * fragment cannot be formatted in isolation); this only trims what the Edit tool is asked to swap,
  * so a one-line edit to an already-formatted file costs a few lines of updatedInput instead of two
  * copies of the file (numbers: plugins/universal-format/CLAUDE.md). The run is widened one whole
@@ -218,8 +180,8 @@ export function shrinkSwap(current: string, formatted: string): { old_string: st
 }
 
 // The ONE base-rooted ignore file. A write to it refreshes THIS server's base-keyed ignore cache
-// (prettier's own getFileInfo still caches nothing). Kept as its own set so formatPost can act on
-// it separately from the config clear. `.gitignore` is deliberately NOT a member -- see
+// (prettier's own getFileInfo still caches nothing). Kept as its own set so the landed-write refresh
+// can re-prime it separately from the config clear. `.gitignore` is deliberately NOT a member -- see
 // isPrettierIgnored in prettier.ts.
 export const PRETTIER_IGNORE_BASENAMES: Set<string> = new Set([".prettierignore"]);
 
@@ -227,99 +189,120 @@ export const PRETTIER_IGNORE_BASENAMES: Set<string> = new Set([".prettierignore"
 // themselves, the two files prettier reads a top-level "prettier" key out of, and .editorconfig
 // (a SEPARATE cache inside prettier from .prettierrc -- verified that clearConfigCache() covers
 // both). The ignore file is spread in so this set stays the single "a config-ish file was
-// written" concept; clearing prettier's config cache for it really is inert, but it is NOT
-// inert overall -- the second line of formatPost's basename block re-reads the ignore cache for
-// it.
+// written" concept; clearing prettier's config cache for it really is inert, but the refresh also
+// re-reads this server's own ignore state for it.
 export const CACHE_INVALIDATING_BASENAMES: Set<string> = new Set([...PRETTIER_CONFIG_FILENAMES, "package.json", "package.yaml", ".editorconfig", ...PRETTIER_IGNORE_BASENAMES]);
 
-/** PostToolUse handler: the non-prettier CLI chains only, plus the event-driven prettier
- * config-cache invalidation. Returns {} on every guard failure / error (fail open). */
-export async function formatPost(args: PostToolUseHookInput): Promise<HookResult> {
+/** Identity of a file's current on-disk state (inode, size, mtime), or "" when it does not exist. */
+function fileStamp(file: string): string {
   try {
-    // `=== "false"` too: hooks.json's mcp_tool `input` reconstructs this field via `${...}`
-    // string substitution (Claude Code has no documented type-preserving whole-value
-    // substitution), so a real `false` may arrive stringified rather than as a boolean.
-    const success: unknown = args?.tool_response?.success;
-    if (success === false || success === "false") return {};
-    const target = resolveTarget(args);
-    if (!target) return {};
-    const { cwd, base, resolved, rel } = target;
-
-    // The write has landed by now, so this is the only correct moment to invalidate/refresh. Runs
-    // BEFORE the language guard on purpose: most of these basenames have no extension at all
-    // (`.prettierrc`, `.editorconfig`, `.prettierignore`), so EXT_MAP would drop them and neither
-    // cache would ever be touched. primePrettierIgnoreCache always re-reads the BASE-ROOTED
-    // .prettierignore, so a write to a nested `sub/.prettierignore` triggers a harmless (and correct)
-    // re-read of the base-rooted one rather than mistaking the written file for the cached one.
-    const basename = path.basename(resolved);
-    if (CACHE_INVALIDATING_BASENAMES.has(basename)) clearPrettierConfigCaches();
-    if (PRETTIER_IGNORE_BASENAMES.has(basename)) primePrettierIgnoreCache(base);
-
-    const lang = EXT_MAP[path.extname(resolved).toLowerCase()];
-    if (!lang) return {};
-    if (!existsSync(resolved)) return {};
-
-    // format_pre owns every prettier language, before the write, with the bundled prettier.
-    if (PRETTIER_LANGS.has(lang)) return {};
-
-    // EXT_MAP/REGISTRY drift guard: EXT_MAP maps thirteen languages REGISTRY no longer contains,
-    // so an unguarded REGISTRY[lang].chain would throw if the PRETTIER_LANGS return were ever
-    // reordered away. Pinned by registry.test.mjs's EXT_MAP-partition tripwire.
-    const entry = REGISTRY[lang];
-    if (!entry) return {};
-
-    const selection = selectFormatter(entry.chain, resolved, base);
-    if (!selection) return {};
-    const { tool, argv } = selection;
-
-    const before = readFileSync(resolved);
-    try {
-      await execFile(tool.name, [...argv, resolved], { cwd: base, timeout: SPAWN_TIMEOUT_MS });
-    } catch {
-      /* spawn/non-zero-exit failure is a silent no-op -- some tools (ktlint) exit non-zero after
-       * a successful format, so this must never gate the before/after diff below */
-    }
-    const after = readFileSync(resolved);
-    if (before.equals(after)) return {};
-
-    // A repo-relative path alone is ambiguous once files from several projects can be formatted in
-    // one session, so only an in-cwd file (base === cwd) keeps the short form; everything else is
-    // named absolutely. In-cwd notices stay byte-identical to before.
-    const display = base === cwd ? rel : resolved;
-    return {
-      hookSpecificOutput: {
-        hookEventName: "PostToolUse",
-        additionalContext: `universal-format: ${tool.name} reformatted ${display}; re-read it before further string-based edits. This reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules — do not revert or redo it by hand to shrink the diff.`,
-      },
-    };
+    const s = statSync(file);
+    return `${s.ino}:${s.size}:${s.mtimeMs}`;
   } catch {
-    return {};
+    return "";
   }
 }
 
-/** PreToolUse handler: every prettier language formatted in-process before the write via
- * updatedInput with the bundled prettier. Never sets permissionDecision. Returns {} on every
- * guard failure / error (fail open). */
+// Config-ish files a Write/Edit is about to land on. At PreToolUse the write has not happened yet,
+// and clearing prettier's config cache right away would just re-cache the pre-write content on the
+// next resolveConfig -- so each entry remembers the file's on-disk stamp, and the first later format
+// that finds it changed (the write landed, from this agent or any concurrent one) clears the config
+// caches, re-primes the base-rooted ignore state for an ignore file, and drops the entry. A write
+// that never lands (a failed tool call) keeps its entry at the cost of one stat per format.
+const pendingRefreshes = new Map<string, { base: string; stamp: string }>();
+
+function noteConfigWrite(resolved: string, base: string): void {
+  pendingRefreshes.set(resolved, { base, stamp: fileStamp(resolved) });
+}
+
+function refreshLandedConfigWrites(): void {
+  for (const [file, pending] of pendingRefreshes) {
+    if (fileStamp(file) === pending.stamp) continue; // not on disk yet
+    pendingRefreshes.delete(file);
+    clearPrettierConfigCaches();
+    if (PRETTIER_IGNORE_BASENAMES.has(path.basename(file))) primePrettierIgnoreCache(pending.base);
+  }
+}
+
+/** Run `tool` on `src` via stdin and resolve its stdout, or null unless the exit code is one of the
+ * tool's `okExit` codes AND stdout is non-empty -- neither signal alone is trustworthy: black echoes
+ * the UNFORMATTED input on a parse error (exit 123), ktlint reports a syntax error with exit 0 and
+ * empty stdout. A spawn error (not on PATH after all), a timeout kill or a crash resolves null too;
+ * nothing here throws. Promise-based, never spawnSync: this runs inside a persistent MCP server that
+ * also services other concurrent hook calls, so a blocking spawn would stall every in-flight format. */
+function runStdinFormatter(tool: FormatTool, argv: string[], cwd: string, src: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    let out = "";
+    let done = false;
+    const finish = (value: string | null) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const child = spawn(tool.name, argv, { cwd, stdio: ["pipe", "pipe", "ignore"] });
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      finish(null);
+    }, SPAWN_TIMEOUT_MS);
+    child.on("error", () => finish(null));
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => (out += chunk));
+    child.on("close", (code: number | null) => finish((tool.okExit ?? [0]).includes(code ?? -1) && out.length > 0 ? out : null));
+    child.stdin.on("error", () => {}); // EPIPE: the tool bailed out (syntax error) before reading everything
+    child.stdin.end(src);
+  });
+}
+
+/** Format `src` as the file `resolved` (language `lang`): the bundled prettier in-process for its
+ * thirteen languages, else the language's first CLI formatter on PATH, fed on stdin. Resolves the
+ * formatted text plus the formatter's name for the notice, or null when no formatter could run.
+ * A prettier error propagates -- the handler's catch fails open. */
+async function formatContent(src: string, resolved: string, base: string, lang: string): Promise<{ formatted: string; tool: string } | null> {
+  if (PRETTIER_LANGS.has(lang)) return { formatted: await formatInProcess(src, resolved, base, lang), tool: "prettier" };
+  const entry = REGISTRY[lang];
+  if (!entry) return null;
+  const selection = selectFormatter(entry.chain, resolved, base);
+  if (!selection) return null;
+  const cwd = selection.tool.spawnCwd === "fileDir" ? path.dirname(resolved) : base;
+  const formatted = await runStdinFormatter(selection.tool, selection.argv, cwd, src);
+  return formatted === null ? null : { formatted, tool: selection.tool.name };
+}
+
+/** PreToolUse handler: every supported language is formatted BEFORE the write and handed back via
+ * updatedInput -- prettier languages in-process, the CLI languages through their tool on stdin.
+ * Never sets permissionDecision. Returns {} on every guard failure / error (fail open). */
 export async function formatPre(args: ToolHookInput): Promise<HookResult> {
   try {
+    refreshLandedConfigWrites();
     const target = resolveTarget(args);
     if (!target) return {};
     const { cwd, base, resolved, rel, fp } = target;
 
+    // A config-ish file is about to be written: refresh the caches once it has landed. Runs BEFORE
+    // the language guard on purpose: most of these basenames have no extension at all
+    // (`.prettierrc`, `.editorconfig`, `.prettierignore`), so EXT_MAP would drop them.
+    if (CACHE_INVALIDATING_BASENAMES.has(path.basename(resolved))) noteConfigWrite(resolved, base);
+
     const lang = EXT_MAP[path.extname(resolved).toLowerCase()];
-    if (!lang || !PRETTIER_LANGS.has(lang)) return {};
+    if (!lang) return {};
+    // `.prettierignore` opts a path out of the thirteen prettier languages; for the CLI languages the
+    // opt-out is not installing the tool (README), exactly as before they moved in front of the write.
+    if (PRETTIER_LANGS.has(lang) && (await isPrettierIgnored(resolved, base))) return {};
 
-    if (await isPrettierIgnored(resolved, base)) return {};
-
+    // A repo-relative path alone is ambiguous once files from several projects can be formatted in
+    // one session, so only an in-cwd file (base === cwd) keeps the short form; everything else is
+    // named absolutely.
     const display = base === cwd ? rel : resolved;
-    const notice = `universal-format: prettier reformatted ${display}; re-read it before further string-based edits. This reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules — do not revert or redo it by hand to shrink the diff.`;
+    const noticeFor = (tool: string) =>
+      `universal-format: ${tool} reformatted ${display}; re-read it before further string-based edits. This reformat is intentional and exempt from "surgical/minimal-diff" change-scope rules — do not revert or redo it by hand to shrink the diff.`;
 
     if (args.tool_name === "Write") {
       const content = args.tool_input.content;
       if (typeof content !== "string") return {};
-      const formatted = await formatInProcess(content, resolved, base, lang);
-      if (formatted === content) return {};
-      return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp, content: formatted }, additionalContext: notice } };
+      const result = await formatContent(content, resolved, base, lang);
+      if (result === null || result.formatted === content) return {};
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp, content: result.formatted }, additionalContext: noticeFor(result.tool) } };
     }
 
     if (args.tool_name === "Edit") {
@@ -334,87 +317,35 @@ export async function formatPre(args: ToolHookInput): Promise<HookResult> {
       const oldStr = args.tool_input.old_string;
       const newStr = args.tool_input.new_string;
       if (typeof oldStr !== "string" || typeof newStr !== "string") return {};
-      // `=== "true"` too: see formatPost's matching comment on hooks.json's `input` reconstruction.
+      // `=== "true"` too: hooks.json's mcp_tool `input` reconstructs this field via `${...}` string
+      // substitution (Claude Code has no documented type-preserving whole-value substitution), so a
+      // real boolean may arrive stringified rather than as a boolean.
       const replaceAll = args.tool_input.replace_all;
       const merged = applyEdit(current, oldStr, newStr, replaceAll === true || replaceAll === "true");
       if (merged === null) return {}; // absent OR non-unique -> let the original Edit proceed/err
-      const formatted = toLf(await formatInProcess(merged, resolved, base, lang));
+      const result = await formatContent(merged, resolved, base, lang);
+      if (result === null) return {};
+      const formatted = toLf(result.formatted);
       if (formatted === merged) return {};
-      // null: prettier formats the edit straight back to the pre-edit file, so the formatted result IS
-      // what is on disk. Letting the raw edit land would leave the file unformatted until its next
-      // write, so hand the Edit tool a no-op instead (old_string == new_string: rejected or applied as
-      // nothing, the file stays formatted either way) and tell Claude why.
+      // null: the formatter turns the edit straight back into the pre-edit file, so the formatted
+      // result IS what is on disk. Letting the raw edit land would leave the file unformatted until
+      // its next write, so hand the Edit tool a no-op instead (old_string == new_string: rejected or
+      // applied as nothing, the file stays formatted either way) and tell Claude why.
       const swap = shrinkSwap(current, formatted);
       if (swap === null) {
         return {
           hookSpecificOutput: {
             hookEventName: "PreToolUse",
             updatedInput: { file_path: fp, old_string: oldStr, new_string: oldStr, replace_all: replaceAll === true || replaceAll === "true" },
-            additionalContext: `universal-format: prettier formats this edit straight back to the current content of ${display}, so there is nothing to change; the Edit was turned into a no-op and the file is unchanged.`,
+            additionalContext: `universal-format: ${result.tool} formats this edit straight back to the current content of ${display}, so there is nothing to change; the Edit was turned into a no-op and the file is unchanged.`,
           },
         };
       }
-      return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp, ...swap, replace_all: false }, additionalContext: notice } };
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp, ...swap, replace_all: false }, additionalContext: noticeFor(result.tool) } };
     }
 
     return {};
   } catch {
     return {};
   }
-}
-
-/** CwdChanged handler: the session's working directory moved, so drop the OLD directory's ignore
- * entry and prefetch both halves for the NEW one — its cwd-rooted ignore files, and prettier's
- * own directory-keyed config-search cache (measured ~1.9 ms -> ~0.25 ms for the first format
- * there). A `cd` is not a format, so this really is a prefetch and not a cost shift. Also raises
- * this call's `cwdOverrides` entry to `newCwd`, same as worktreeEntered, so this stays
- * authoritative if a real CwdChanged ever does fire after a worktreeEntered-raised override (e.g.
- * a plain `cd` later in the same agent/session). Per .claude/rules/hooks-mcp-tool-event-matrix.md
- * CwdChanged is block_capable:false, additional_context:false, block_mechanism:"none" — there is
- * nothing useful to say, so it always returns {}. Each half is independently guarded so a
- * missing/non-string field is simply skipped. */
-export async function cwdChanged(args: CwdChangedHookInput): Promise<HookResult> {
-  try {
-    const oldCwd = typeof args?.old_cwd === "string" ? args.old_cwd : "";
-    const newCwd = typeof args?.new_cwd === "string" ? args.new_cwd : "";
-    if (oldCwd) clearPrettierIgnoreCache(oldCwd);
-    if (newCwd) {
-      const key = overrideKey(args);
-      if (key) cwdOverrides.set(key, newCwd);
-      primePrettierIgnoreCache(newCwd);
-      await warmPrettierConfigCache(newCwd);
-    }
-  } catch {
-    /* fail open: a cache prefetch must never surface as a hook failure */
-  }
-  return {};
-}
-
-/** PostToolUse:EnterWorktree handler: the one signal that has actually been observed to fire when
- * a background-job session's cwd moves into a worktree, since the dedicated CwdChanged event does
- * not (see cwdOverrides' comment). `tool_response.worktreePath` is EnterWorktree's own reported
- * path — the same field coding-toolbox's worktreeRefreshHandler already prefers over `cwd` for
- * this exact tool, because `cwd` "is present for every tool but not guaranteed to name the
- * worktree" on this specific call. Falls back to `cwd` only if `worktreePath` is absent. Primes
- * the new cwd's caches exactly like cwdChanged, plus raises THIS call's `cwdOverrides` entry
- * (keyed by agent_id/session_id, never a bare global — see overrideKey) so every later
- * format_pre/format_post call from the SAME agent resolves against the worktree regardless of
- * what `cwd` the platform reports going forward, without disturbing a concurrently running
- * sibling agent's own override. Fail open: any error leaves the override untouched. */
-export async function worktreeEntered(args: PostToolUseHookInput): Promise<HookResult> {
-  try {
-    const reported = args?.tool_response?.worktreePath;
-    const newCwd = typeof reported === "string" && reported ? reported : typeof args?.cwd === "string" ? args.cwd : "";
-    if (!newCwd) return {};
-    const key = overrideKey(args);
-    if (!key) return {}; // no way to scope the override to this agent -- leave args.cwd as-is
-    const previous = cwdOverrides.get(key);
-    if (previous && previous !== newCwd) clearPrettierIgnoreCache(previous);
-    cwdOverrides.set(key, newCwd);
-    primePrettierIgnoreCache(newCwd);
-    await warmPrettierConfigCache(newCwd);
-  } catch {
-    /* fail open: a cache prefetch must never surface as a hook failure */
-  }
-  return {};
 }
