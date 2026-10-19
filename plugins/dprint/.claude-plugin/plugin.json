@@ -1,0 +1,6 @@
+{
+  "name": "dprint",
+  "version": "0.1.0",
+  "description": "Skill that checks for a minimum dprint version and, after confirmation, installs or updates dprint at user level.",
+  "author": { "name": "Kwitsch" }
+}
