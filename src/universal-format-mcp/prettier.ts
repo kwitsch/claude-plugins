@@ -41,7 +41,11 @@ function asPlugin(ns: unknown): unknown {
 const BUNDLED_PLUGIN_LOADERS = {
   java: () => import("prettier-plugin-java"),
   php: () => import("@prettier/plugin-php"),
-  shell: () => import("prettier-plugin-sh"),
+  // sh-syntax (the plugin's `experimentalWasm: true` path) needs Go's `wasm_exec` runtime on
+  // globalThis. Its own side-effect import of `vendors/wasm_exec.cjs` is tree-shaken by `bun build`
+  // because sh-syntax's package.json lists only `vendors/wasm_exec.js` as side-effectful, so every
+  // wasm format died with "Go is not defined"; importing the exported subpath here keeps it.
+  shell: () => Promise.all([import("sh-syntax/vendors/wasm_exec.cjs"), import("prettier-plugin-sh")]).then(([, ns]) => ns),
 } as const;
 type BundledPluginName = keyof typeof BUNDLED_PLUGIN_LOADERS;
 const loadedBundledPlugins = new Map<BundledPluginName, Promise<unknown>>();

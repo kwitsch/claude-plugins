@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=36d67f7505e3bf8e body=2b573210320ac11e prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=aca0b2cc627641b4 body=6cbe8480c8525c0e prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -103715,6 +103715,488 @@ var init_src = __esm(() => {
   };
 });
 
+// node_modules/sh-syntax/vendors/wasm_exec.cjs
+var exports_wasm_exec = {};
+var init_wasm_exec = __esm(() => {
+  (() => {
+    if (typeof global !== "undefined") {} else if (typeof window !== "undefined") {
+      window.global = window;
+    } else if (typeof self !== "undefined") {
+      self.global = self;
+    } else {
+      throw new Error("cannot export Go (neither global, window nor self is defined)");
+    }
+    if (!global.require && true) {
+      global.require = __require;
+    }
+    if (!global.fs && global.require) {
+      global.fs = __require("fs");
+    }
+    const enosys = () => {
+      const err2 = new Error("not implemented");
+      err2.code = "ENOSYS";
+      return err2;
+    };
+    if (!global.fs) {
+      let outputBuf = "";
+      global.fs = {
+        constants: { O_WRONLY: -1, O_RDWR: -1, O_CREAT: -1, O_TRUNC: -1, O_APPEND: -1, O_EXCL: -1 },
+        writeSync(fd3, buf) {
+          outputBuf += decoder.decode(buf);
+          const nl3 = outputBuf.lastIndexOf(`
+`);
+          if (nl3 != -1) {
+            console.log(outputBuf.substr(0, nl3));
+            outputBuf = outputBuf.substr(nl3 + 1);
+          }
+          return buf.length;
+        },
+        write(fd3, buf, offset, length, position, callback) {
+          if (offset !== 0 || length !== buf.length || position !== null) {
+            callback(enosys());
+            return;
+          }
+          const n4 = this.writeSync(fd3, buf);
+          callback(null, n4);
+        },
+        chmod(path18, mode, callback) {
+          callback(enosys());
+        },
+        chown(path18, uid, gid, callback) {
+          callback(enosys());
+        },
+        close(fd3, callback) {
+          callback(enosys());
+        },
+        fchmod(fd3, mode, callback) {
+          callback(enosys());
+        },
+        fchown(fd3, uid, gid, callback) {
+          callback(enosys());
+        },
+        fstat(fd3, callback) {
+          callback(enosys());
+        },
+        fsync(fd3, callback) {
+          callback(null);
+        },
+        ftruncate(fd3, length, callback) {
+          callback(enosys());
+        },
+        lchown(path18, uid, gid, callback) {
+          callback(enosys());
+        },
+        link(path18, link, callback) {
+          callback(enosys());
+        },
+        lstat(path18, callback) {
+          callback(enosys());
+        },
+        mkdir(path18, perm, callback) {
+          callback(enosys());
+        },
+        open(path18, flags2, mode, callback) {
+          callback(enosys());
+        },
+        read(fd3, buffer2, offset, length, position, callback) {
+          callback(enosys());
+        },
+        readdir(path18, callback) {
+          callback(enosys());
+        },
+        readlink(path18, callback) {
+          callback(enosys());
+        },
+        rename(from, to6, callback) {
+          callback(enosys());
+        },
+        rmdir(path18, callback) {
+          callback(enosys());
+        },
+        stat(path18, callback) {
+          callback(enosys());
+        },
+        symlink(path18, link, callback) {
+          callback(enosys());
+        },
+        truncate(path18, length, callback) {
+          callback(enosys());
+        },
+        unlink(path18, callback) {
+          callback(enosys());
+        },
+        utimes(path18, atime, mtime, callback) {
+          callback(enosys());
+        }
+      };
+    }
+    if (!global.process) {
+      global.process = {
+        getuid() {
+          return -1;
+        },
+        getgid() {
+          return -1;
+        },
+        geteuid() {
+          return -1;
+        },
+        getegid() {
+          return -1;
+        },
+        getgroups() {
+          throw enosys();
+        },
+        pid: -1,
+        ppid: -1,
+        umask() {
+          throw enosys();
+        },
+        cwd() {
+          throw enosys();
+        },
+        chdir() {
+          throw enosys();
+        }
+      };
+    }
+    if (!global.crypto) {
+      const nodeCrypto = __require("crypto");
+      global.crypto = {
+        getRandomValues(b6) {
+          nodeCrypto.randomFillSync(b6);
+        }
+      };
+    }
+    if (!global.performance) {
+      global.performance = {
+        now() {
+          const [sec, nsec] = process.hrtime();
+          return sec * 1000 + nsec / 1e6;
+        }
+      };
+    }
+    if (!global.TextEncoder) {
+      global.TextEncoder = __require("util").TextEncoder;
+    }
+    if (!global.TextDecoder) {
+      global.TextDecoder = __require("util").TextDecoder;
+    }
+    const encoder = new TextEncoder("utf-8");
+    const decoder = new TextDecoder("utf-8");
+    let reinterpretBuf = new DataView(new ArrayBuffer(8));
+    var logLine = [];
+    global.Go = class {
+      constructor() {
+        this._callbackTimeouts = new Map;
+        this._nextCallbackTimeoutID = 1;
+        const mem = () => {
+          return new DataView(this._inst.exports.memory.buffer);
+        };
+        const unboxValue = (v_ref) => {
+          reinterpretBuf.setBigInt64(0, v_ref, true);
+          const f4 = reinterpretBuf.getFloat64(0, true);
+          if (f4 === 0) {
+            return;
+          }
+          if (!isNaN(f4)) {
+            return f4;
+          }
+          const id3 = v_ref & 0xffffffffn;
+          return this._values[id3];
+        };
+        const loadValue = (addr2) => {
+          let v_ref = mem().getBigUint64(addr2, true);
+          return unboxValue(v_ref);
+        };
+        const boxValue = (v5) => {
+          const nanHead = 0x7FF80000n;
+          if (typeof v5 === "number") {
+            if (isNaN(v5)) {
+              return nanHead << 32n;
+            }
+            if (v5 === 0) {
+              return nanHead << 32n | 1n;
+            }
+            reinterpretBuf.setFloat64(0, v5, true);
+            return reinterpretBuf.getBigInt64(0, true);
+          }
+          switch (v5) {
+            case undefined:
+              return 0n;
+            case null:
+              return nanHead << 32n | 2n;
+            case true:
+              return nanHead << 32n | 3n;
+            case false:
+              return nanHead << 32n | 4n;
+          }
+          let id3 = this._ids.get(v5);
+          if (id3 === undefined) {
+            id3 = this._idPool.pop();
+            if (id3 === undefined) {
+              id3 = BigInt(this._values.length);
+            }
+            this._values[id3] = v5;
+            this._goRefCounts[id3] = 0;
+            this._ids.set(v5, id3);
+          }
+          this._goRefCounts[id3]++;
+          let typeFlag = 1n;
+          switch (typeof v5) {
+            case "string":
+              typeFlag = 2n;
+              break;
+            case "symbol":
+              typeFlag = 3n;
+              break;
+            case "function":
+              typeFlag = 4n;
+              break;
+          }
+          return id3 | (nanHead | typeFlag) << 32n;
+        };
+        const storeValue = (addr2, v5) => {
+          let v_ref = boxValue(v5);
+          mem().setBigUint64(addr2, v_ref, true);
+        };
+        const loadSlice = (array2, len, cap) => {
+          return new Uint8Array(this._inst.exports.memory.buffer, array2, len);
+        };
+        const loadSliceOfValues = (array2, len, cap) => {
+          const a4 = new Array(len);
+          for (let i5 = 0;i5 < len; i5++) {
+            a4[i5] = loadValue(array2 + i5 * 8);
+          }
+          return a4;
+        };
+        const loadString = (ptr, len) => {
+          return decoder.decode(new DataView(this._inst.exports.memory.buffer, ptr, len));
+        };
+        const timeOrigin = Date.now() - performance.now();
+        this.importObject = {
+          wasi_snapshot_preview1: {
+            fd_write: function(fd3, iovs_ptr, iovs_len, nwritten_ptr) {
+              let nwritten = 0;
+              if (fd3 == 1) {
+                for (let iovs_i = 0;iovs_i < iovs_len; iovs_i++) {
+                  let iov_ptr = iovs_ptr + iovs_i * 8;
+                  let ptr = mem().getUint32(iov_ptr + 0, true);
+                  let len = mem().getUint32(iov_ptr + 4, true);
+                  nwritten += len;
+                  for (let i5 = 0;i5 < len; i5++) {
+                    let c5 = mem().getUint8(ptr + i5);
+                    if (c5 == 13) {} else if (c5 == 10) {
+                      let line5 = decoder.decode(new Uint8Array(logLine));
+                      logLine = [];
+                      console.log(line5);
+                    } else {
+                      logLine.push(c5);
+                    }
+                  }
+                }
+              } else {
+                console.error("invalid file descriptor:", fd3);
+              }
+              mem().setUint32(nwritten_ptr, nwritten, true);
+              return 0;
+            },
+            fd_close: () => 0,
+            fd_fdstat_get: () => 0,
+            fd_seek: () => 0,
+            proc_exit: (code) => {
+              if (global.process) {
+                process.exit(code);
+              } else {
+                throw "trying to exit with code " + code;
+              }
+            },
+            random_get: (bufPtr, bufLen) => {
+              crypto.getRandomValues(loadSlice(bufPtr, bufLen));
+              return 0;
+            }
+          },
+          gojs: {
+            "runtime.ticks": () => {
+              return timeOrigin + performance.now();
+            },
+            "runtime.sleepTicks": (timeout) => {
+              setTimeout(this._inst.exports.go_scheduler, timeout);
+            },
+            "syscall/js.finalizeRef": (v_ref) => {
+              const id3 = mem().getUint32(unboxValue(v_ref), true);
+              this._goRefCounts[id3]--;
+              if (this._goRefCounts[id3] === 0) {
+                const v5 = this._values[id3];
+                this._values[id3] = null;
+                this._ids.delete(v5);
+                this._idPool.push(id3);
+              }
+            },
+            "syscall/js.stringVal": (value_ptr, value_len) => {
+              const s = loadString(value_ptr, value_len);
+              return boxValue(s);
+            },
+            "syscall/js.valueGet": (v_ref, p_ptr, p_len) => {
+              let prop = loadString(p_ptr, p_len);
+              let v5 = unboxValue(v_ref);
+              let result = Reflect.get(v5, prop);
+              return boxValue(result);
+            },
+            "syscall/js.valueSet": (v_ref, p_ptr, p_len, x_ref) => {
+              const v5 = unboxValue(v_ref);
+              const p5 = loadString(p_ptr, p_len);
+              const x7 = unboxValue(x_ref);
+              Reflect.set(v5, p5, x7);
+            },
+            "syscall/js.valueDelete": (v_ref, p_ptr, p_len) => {
+              const v5 = unboxValue(v_ref);
+              const p5 = loadString(p_ptr, p_len);
+              Reflect.deleteProperty(v5, p5);
+            },
+            "syscall/js.valueIndex": (v_ref, i5) => {
+              return boxValue(Reflect.get(unboxValue(v_ref), i5));
+            },
+            "syscall/js.valueSetIndex": (v_ref, i5, x_ref) => {
+              Reflect.set(unboxValue(v_ref), i5, unboxValue(x_ref));
+            },
+            "syscall/js.valueCall": (ret_addr, v_ref, m_ptr, m_len, args_ptr, args_len, args_cap) => {
+              const v5 = unboxValue(v_ref);
+              const name2 = loadString(m_ptr, m_len);
+              const args2 = loadSliceOfValues(args_ptr, args_len, args_cap);
+              try {
+                const m7 = Reflect.get(v5, name2);
+                storeValue(ret_addr, Reflect.apply(m7, v5, args2));
+                mem().setUint8(ret_addr + 8, 1);
+              } catch (err2) {
+                storeValue(ret_addr, err2);
+                mem().setUint8(ret_addr + 8, 0);
+              }
+            },
+            "syscall/js.valueInvoke": (ret_addr, v_ref, args_ptr, args_len, args_cap) => {
+              try {
+                const v5 = unboxValue(v_ref);
+                const args2 = loadSliceOfValues(args_ptr, args_len, args_cap);
+                storeValue(ret_addr, Reflect.apply(v5, undefined, args2));
+                mem().setUint8(ret_addr + 8, 1);
+              } catch (err2) {
+                storeValue(ret_addr, err2);
+                mem().setUint8(ret_addr + 8, 0);
+              }
+            },
+            "syscall/js.valueNew": (ret_addr, v_ref, args_ptr, args_len, args_cap) => {
+              const v5 = unboxValue(v_ref);
+              const args2 = loadSliceOfValues(args_ptr, args_len, args_cap);
+              try {
+                storeValue(ret_addr, Reflect.construct(v5, args2));
+                mem().setUint8(ret_addr + 8, 1);
+              } catch (err2) {
+                storeValue(ret_addr, err2);
+                mem().setUint8(ret_addr + 8, 0);
+              }
+            },
+            "syscall/js.valueLength": (v_ref) => {
+              return unboxValue(v_ref).length;
+            },
+            "syscall/js.valuePrepareString": (ret_addr, v_ref) => {
+              const s = String(unboxValue(v_ref));
+              const str = encoder.encode(s);
+              storeValue(ret_addr, str);
+              mem().setInt32(ret_addr + 8, str.length, true);
+            },
+            "syscall/js.valueLoadString": (v_ref, slice_ptr, slice_len, slice_cap) => {
+              const str = unboxValue(v_ref);
+              loadSlice(slice_ptr, slice_len, slice_cap).set(str);
+            },
+            "syscall/js.valueInstanceOf": (v_ref, t_ref) => {
+              return unboxValue(v_ref) instanceof unboxValue(t_ref);
+            },
+            "syscall/js.copyBytesToGo": (ret_addr, dest_addr, dest_len, dest_cap, src_ref) => {
+              let num_bytes_copied_addr = ret_addr;
+              let returned_status_addr = ret_addr + 4;
+              const dst = loadSlice(dest_addr, dest_len);
+              const src = unboxValue(src_ref);
+              if (!(src instanceof Uint8Array || src instanceof Uint8ClampedArray)) {
+                mem().setUint8(returned_status_addr, 0);
+                return;
+              }
+              const toCopy = src.subarray(0, dst.length);
+              dst.set(toCopy);
+              mem().setUint32(num_bytes_copied_addr, toCopy.length, true);
+              mem().setUint8(returned_status_addr, 1);
+            },
+            "syscall/js.copyBytesToJS": (ret_addr, dst_ref, src_addr, src_len, src_cap) => {
+              let num_bytes_copied_addr = ret_addr;
+              let returned_status_addr = ret_addr + 4;
+              const dst = unboxValue(dst_ref);
+              const src = loadSlice(src_addr, src_len);
+              if (!(dst instanceof Uint8Array || dst instanceof Uint8ClampedArray)) {
+                mem().setUint8(returned_status_addr, 0);
+                return;
+              }
+              const toCopy = src.subarray(0, dst.length);
+              dst.set(toCopy);
+              mem().setUint32(num_bytes_copied_addr, toCopy.length, true);
+              mem().setUint8(returned_status_addr, 1);
+            }
+          }
+        };
+        this.importObject.env = this.importObject.gojs;
+      }
+      async run(instance2) {
+        this._inst = instance2;
+        this._values = [
+          NaN,
+          0,
+          null,
+          true,
+          false,
+          global,
+          this
+        ];
+        this._goRefCounts = [];
+        this._ids = new Map;
+        this._idPool = [];
+        this.exited = false;
+        const mem = new DataView(this._inst.exports.memory.buffer);
+        while (true) {
+          const callbackPromise = new Promise((resolve4) => {
+            this._resolveCallbackPromise = () => {
+              if (this.exited) {
+                throw new Error("bad callback: Go program has already exited");
+              }
+              setTimeout(resolve4, 0);
+            };
+          });
+          this._inst.exports._start();
+          if (this.exited) {
+            break;
+          }
+          await callbackPromise;
+        }
+      }
+      _resume() {
+        if (this.exited) {
+          throw new Error("Go program has already exited");
+        }
+        this._inst.exports.resume();
+        if (this.exited) {
+          this._resolveExitPromise();
+        }
+      }
+      _makeFuncWrapper(id3) {
+        const go6 = this;
+        return function() {
+          const event = { id: id3, this: this, args: arguments };
+          go6._pendingEvent = event;
+          go6._resume();
+          return event.result;
+        };
+      }
+    };
+  })();
+});
+
 // node_modules/mvdan-sh/index.js
 var require_mvdan_sh = __commonJS((exports, module2) => {
   (function() {
@@ -198742,7 +199224,7 @@ var require_mvdan_sh = __commonJS((exports, module2) => {
 // node_modules/sh-syntax/lib/shim.js
 import { randomFillSync } from "node:crypto";
 import _fs from "node:fs";
-import { performance } from "node:perf_hooks";
+import { performance as performance2 } from "node:perf_hooks";
 var init_shim = __esm(() => {
   if (!globalThis.fs) {
     globalThis.fs = _fs;
@@ -198753,7 +199235,7 @@ var init_shim = __esm(() => {
     };
   }
   if (!globalThis.performance) {
-    globalThis.performance = performance;
+    globalThis.performance = performance2;
   }
 });
 
@@ -200491,7 +200973,7 @@ function asPlugin(ns10) {
 var BUNDLED_PLUGIN_LOADERS = {
   java: () => Promise.resolve().then(() => (init_dist(), exports_dist)),
   php: () => Promise.resolve().then(() => (init_src(), exports_src)),
-  shell: () => Promise.resolve().then(() => (init_lib2(), exports_lib))
+  shell: () => Promise.all([Promise.resolve().then(() => (init_wasm_exec(), exports_wasm_exec)), Promise.resolve().then(() => (init_lib2(), exports_lib))]).then(([, ns10]) => ns10)
 };
 var loadedBundledPlugins = new Map;
 function loadBundledPlugin(name2) {

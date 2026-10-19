@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import process from "node:process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -91,6 +91,19 @@ test("markdown: fenced sh/java/php blocks are still formatted through the lazily
 test("artifact keeps the three bundled plugins behind lazy init wrappers", () => {
   const text = readFileSync(ARTIFACT, "utf8");
   for (const key of ["java", "php", "shell"]) {
-    assert.match(text, new RegExp(`^  ${key}: \\(\\) => Promise\\.resolve\\(\\)\\.then\\(\\(\\) => \\(init_\\w+\\(\\), exports_\\w+\\)\\)`, "m"), `${key} plugin loader must be a lazy init wrapper`);
+    // the loader line must still call a bun `init_<module>()` wrapper (eager evaluation would leave only the namespace)
+    assert.match(text, new RegExp(`^  ${key}: \\(\\) => [^\\n]*\\binit_\\w+\\(\\)`, "m"), `${key} plugin loader must be a lazy init wrapper`);
   }
+});
+
+// prettier-plugin-sh's opt-in wasm path (`experimentalWasm: true` in a project's prettier config)
+// runs sh-syntax's Go runtime, which `vendors/wasm_exec.cjs` installs on globalThis. sh-syntax's
+// package.json lists only `wasm_exec.js` as side-effectful, so bun tree-shook that import and every
+// wasm format failed with "Go is not defined" until prettier.ts imported the file explicitly. This
+// is also the only test that reaches the committed main.wasm sidecar through build.mjs's __dirname
+// rewrite (the default path uses mvdan-sh, pure JS).
+test("shell: a project opting into experimentalWasm is formatted through main.wasm", async () => {
+  const cwd = tmp("uf-sh-wasm-");
+  writeFileSync(path.join(cwd, ".prettierrc"), '{ "experimentalWasm": true }\n');
+  assert.equal(await formatInProcess("echo    hi\n", path.join(cwd, "a.sh"), cwd, "shell"), "echo hi\n");
 });
