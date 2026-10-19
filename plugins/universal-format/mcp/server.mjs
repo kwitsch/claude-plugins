@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=ab896f856eb207ac body=3bdfff350e7544be prettier=3.9.10 plugins=prettier-plugin-java@2.11.0+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=edf3b95dd1134d77 bun=1.3.14
+// uf-build-fingerprint src=a3ec7f9f19e93944 body=a0344385c79ad95a prettier=3.9.10 plugins=prettier-plugin-java@2.11.0+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=edf3b95dd1134d77 bun=1.3.14
 import { fileURLToPath as __ufFileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 var __create = Object.create;
@@ -201167,10 +201167,13 @@ var BUNDLED_PLUGIN_LOADERS = {
   php: () => Promise.resolve().then(() => (init_src(), exports_src)).then(asPlugin),
   shell: () => Promise.all([Promise.resolve().then(() => (init_wasm_exec(), exports_wasm_exec)), Promise.resolve().then(() => (init_lib2(), exports_lib))]).then(([, ns10]) => asPlugin(ns10))
 };
-var MARKDOWN_HOSTS = new Set(["markdown", "jsts", "html", "vue"]);
-function bundledPluginsFor(lang) {
+var MARKDOWN_HOSTS = new Set(["jsts", "html", "vue"]);
+var MARKDOWN_TOKEN = /\b(?:md|markdown)\b/i;
+function bundledPluginsFor(lang, src = "") {
   const all = Object.keys(BUNDLED_PLUGIN_LOADERS);
-  return MARKDOWN_HOSTS.has(lang) ? all : all.filter((name2) => name2 === lang);
+  if (lang === "markdown" || MARKDOWN_HOSTS.has(lang) && MARKDOWN_TOKEN.test(src))
+    return all;
+  return all.filter((name2) => name2 === lang);
 }
 process5.on("unhandledRejection", (reason) => {
   const msg = String(reason?.message ?? reason).split(`
@@ -201264,7 +201267,7 @@ async function formatInProcess(src, filePath, cwd, lang) {
   }
   if ((lang === "json" || lang === "yaml") && shouldOverridePrintWidth(filePath, cwd))
     config.printWidth = 99999;
-  const bundled = await Promise.all(bundledPluginsFor(lang).map((name2) => BUNDLED_PLUGIN_LOADERS[name2]()));
+  const bundled = await Promise.all(bundledPluginsFor(lang, src).map((name2) => BUNDLED_PLUGIN_LOADERS[name2]()));
   const plugins2 = [...Array.isArray(config.plugins) ? config.plugins : [], ...bundled];
   return await bundledPrettier.format(src, { ...config, plugins: plugins2, filepath: filePath });
 }

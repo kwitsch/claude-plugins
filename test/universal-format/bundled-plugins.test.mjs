@@ -19,7 +19,7 @@ function tmp(prefix) {
 }
 
 // markdown loads all three plugins: fenced sh/java/php blocks are formatted through them
-const MD_FENCES = "# t\n\n```sh\necho    hi\n```\n\n```java\nclass A {  }\n```\n\n```php\n<?php  echo \"hi\";\n```\n";
+const MD_FENCES = '# t\n\n```sh\necho    hi\n```\n\n```java\nclass A {  }\n```\n\n```php\n<?php  echo "hi";\n```\n';
 const MD_FENCES_FORMATTED = '# t\n\n```sh\necho hi\n```\n\n```java\nclass A {}\n```\n\n```php\n<?php echo "hi";\n```\n';
 const CASES = [
   ["a.sh", "shell", "echo  hi", "echo hi\n"],
@@ -67,11 +67,23 @@ test("importing the bundle arms the unhandledRejection guard", () => {
 // evaluates them. Markdown needs all three (the CASES row above pins the fenced-block formatting a
 // lazy loader could otherwise silently drop).
 const TRIO = ["java", "php", "shell"];
-const EXPECTED_PLUGINS = /** @type {Record<string, string[]>} */ ({ java: ["java"], php: ["php"], shell: ["shell"], markdown: TRIO, jsts: TRIO, html: TRIO, vue: TRIO });
-test("bundledPluginsFor: own plugin for java/php/shell, all three for every Markdown-embedding host, none otherwise", () => {
+const EXPECTED_PLUGINS = /** @type {Record<string, string[]>} */ ({ java: ["java"], php: ["php"], shell: ["shell"], markdown: TRIO });
+test("bundledPluginsFor: own plugin for java/php/shell, all three for Markdown, none otherwise (a plain host file included)", () => {
   for (const lang of [...PRETTIER_LANGS, "kotlin", "nope"]) {
-    assert.deepEqual(bundledPluginsFor(lang), EXPECTED_PLUGINS[lang] ?? [], lang);
+    assert.deepEqual(bundledPluginsFor(lang, "const a = 1;\n"), EXPECTED_PLUGINS[lang] ?? [], lang);
   }
+});
+
+// A host can only embed Markdown through a construct that names it, so the trio (~90 ms to load) is
+// taken along only when the source contains the word md/markdown at all -- a superset check: any
+// mention loads them, which is harmless, while a file without one provably needs none.
+test("bundledPluginsFor: a Markdown-embedding host loads the trio only when its source names md/markdown", () => {
+  for (const lang of ["jsts", "html", "vue"]) {
+    assert.deepEqual(bundledPluginsFor(lang, "const a = 1;\n"), [], `${lang} without a token`);
+    assert.deepEqual(bundledPluginsFor(lang, "const doc = md`# T`;\n"), TRIO, `${lang} with an md tag`);
+    assert.deepEqual(bundledPluginsFor(lang, '<script type="text/markdown"></script>\n'), TRIO, `${lang} with text/markdown`);
+  }
+  assert.deepEqual(bundledPluginsFor("json", '{ "md": 1 }\n'), [], "a non-host never loads the trio, token or not");
 });
 
 // prettier-plugin-sh's opt-in wasm path (`experimentalWasm: true` in a project's prettier config)

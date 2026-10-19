@@ -50,15 +50,21 @@ const BUNDLED_PLUGIN_LOADERS = {
 type BundledPluginName = keyof typeof BUNDLED_PLUGIN_LOADERS;
 
 /** Which bundled plugins a format of `lang` needs: its own one for java/php/shell; all three for
- * every language prettier formats Markdown inside -- Markdown itself, JS/TS (`md`/`markdown` tagged
- * templates), HTML (`<script type="text/markdown">`) and Vue (custom blocks with `lang="markdown"`) --
- * because fenced ```java / ```php / ```sh blocks in that Markdown are formatted through them (the
- * eager-import behavior this must keep byte-identical); none for JSON/YAML/CSS/SCSS/LESS/GraphQL,
- * which embed nothing. Loading stays off the server-start path either way. */
-const MARKDOWN_HOSTS: ReadonlySet<string> = new Set(["markdown", "jsts", "html", "vue"]);
-export function bundledPluginsFor(lang: string): BundledPluginName[] {
+ * Markdown, because fenced ```java / ```php / ```sh blocks are formatted through them (the
+ * eager-import behavior this must keep byte-identical); all three as well for the languages prettier
+ * formats Markdown inside -- JS/TS (`md`/`markdown` tagged templates), HTML (`<script
+ * type="text/markdown">`) and Vue (custom blocks with `lang="markdown"`) -- but only when `src`
+ * contains the word `md` or `markdown` at all: Markdown can only be embedded through a construct that
+ * names it, so a source without either word cannot need the trio (a cheap superset check; a stray
+ * variable named `md` just loads them needlessly). That keeps the trio's ~90 ms first-load off the
+ * first format of a plain JS/TS/HTML/Vue file. None for JSON/YAML/CSS/SCSS/LESS/GraphQL, which embed
+ * nothing. Loading stays off the server-start path either way. */
+const MARKDOWN_HOSTS: ReadonlySet<string> = new Set(["jsts", "html", "vue"]);
+const MARKDOWN_TOKEN = /\b(?:md|markdown)\b/i;
+export function bundledPluginsFor(lang: string, src = ""): BundledPluginName[] {
   const all = Object.keys(BUNDLED_PLUGIN_LOADERS) as BundledPluginName[];
-  return MARKDOWN_HOSTS.has(lang) ? all : all.filter((name) => name === lang);
+  if (lang === "markdown" || (MARKDOWN_HOSTS.has(lang) && MARKDOWN_TOKEN.test(src))) return all;
+  return all.filter((name) => name === lang);
 }
 
 // prettier-plugin-java starts `Parser.init()` in a module-scope IIFE, so a floating promise exists
@@ -205,7 +211,7 @@ export async function formatInProcess(src: string, filePath: string, cwd: string
   // back into `config`: resolveConfig's result is cached inside prettier. The resolveConfigPlugins
   // null early-return above MUST stay ahead of this -- a project with an unresolvable custom
   // plugin must keep getting "leave the file alone", not bundled-plugins-only formatting.
-  const bundled = await Promise.all(bundledPluginsFor(lang).map((name) => BUNDLED_PLUGIN_LOADERS[name]()));
+  const bundled = await Promise.all(bundledPluginsFor(lang, src).map((name) => BUNDLED_PLUGIN_LOADERS[name]()));
   const plugins = [...(Array.isArray(config.plugins) ? config.plugins : []), ...bundled];
   return await bundledPrettier.format(src, { ...config, plugins, filepath: filePath });
 }
