@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { buildInvocation, isExcludedPath, REGISTRY, EXT_MAP, PRETTIER_LANGS, hasPrettierProjectConfig, selectFormatter, shouldOverridePrintWidth } from "../../plugins/universal-format/mcp/server.mjs";
+import { buildInvocation, cargoEdition, isExcludedPath, REGISTRY, EXT_MAP, PRETTIER_LANGS, hasPrettierProjectConfig, selectFormatter, shouldOverridePrintWidth } from "../../plugins/universal-format/mcp/server.mjs";
 import { chmodSync } from "node:fs";
 
 const gofmt = REGISTRY.go.chain[1];
@@ -25,7 +25,7 @@ test("REGISTRY: every chain tool declares stdinArgs, and selectFormatter appends
   assert.equal(REGISTRY.rust.chain[0].spawnCwd, "fileDir", "rustfmt finds rustfmt.toml by walking up from cwd, so cwd must be the file's directory");
 
   const bin = mkdtempSync(path.join(tmpdir(), "uf-sel-bin-"));
-  for (const name of ["ruff", "gofmt"]) {
+  for (const name of ["ruff", "gofmt", "rustfmt"]) {
     writeFileSync(path.join(bin, name), "#!/bin/sh\ncat\n");
     chmodSync(path.join(bin, name), 0o755);
   }
@@ -39,9 +39,29 @@ test("REGISTRY: every chain tool declares stdinArgs, and selectFormatter appends
     const go = selectFormatter(REGISTRY.go.chain, path.join(proj, "a.go"), proj);
     assert.equal(go?.tool.name, "gofmt", "goimports is not on PATH, so the chain falls through to gofmt");
     assert.deepEqual(go?.argv, []);
+    writeFileSync(path.join(proj, "Cargo.toml"), '[package]\nname = "x"\nedition = "2021"\n');
+    const rs = selectFormatter(REGISTRY.rust.chain, path.join(proj, "a.rs"), proj);
+    assert.deepEqual(rs?.argv, ["--config", "max_width=88", "--edition", "2021"], "mapped flags, then the Cargo.toml edition, then the (empty) stdin tail");
   } finally {
     process.env.PATH = originalPath;
   }
+});
+
+// rustfmt parses stdin as Rust 2015 unless told otherwise, so the crate's edition is what `cargo fmt`
+// would pass: the nearest Cargo.toml stating one, walking up to the project base for a crate that
+// inherits `edition.workspace = true` from its workspace root.
+test("cargoEdition: nearest literal wins, workspace inheritance walks up, none -> empty", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "uf-cargo-"));
+  const crate = path.join(root, "crates", "a", "src");
+  mkdirSync(crate, { recursive: true });
+  assert.equal(cargoEdition(crate, root), "", "no manifest anywhere");
+  writeFileSync(path.join(root, "Cargo.toml"), '[workspace]\nmembers = ["crates/*"]\n\n[workspace.package]\nedition = "2024"\n');
+  writeFileSync(path.join(root, "crates", "a", "Cargo.toml"), '[package]\nname = "a"\nedition.workspace = true\n');
+  assert.equal(cargoEdition(crate, root), "2024", "inherited: the crate manifest has no literal, the workspace root does");
+  writeFileSync(path.join(root, "crates", "a", "Cargo.toml"), '[package]\nname = "a"\nedition = "2018"\n');
+  assert.equal(cargoEdition(crate, root), "2018", "the nearest literal wins");
+  assert.equal(cargoEdition(crate, path.join(root, "crates", "a")), "2018", "bounded at base (inclusive)");
+  assert.equal(cargoEdition(path.join(root, "crates"), path.join(root, "crates")), "", "bounded: never looks above base");
 });
 
 test("black: tab indent skips; max_line_length maps", () => {

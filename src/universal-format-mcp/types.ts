@@ -12,6 +12,9 @@ export type FormatTool = {
   /** argv tail that makes the tool read stdin, print to stdout and resolve its project config as if
    * the input lived at `file` (the real, absolute path of the file being written). */
   stdinArgs: (file: string) => string[];
+  /** Project-derived flags inserted between the mapped flags and the stdin tail (rustfmt's
+   * `--edition` from the nearest Cargo.toml); `base` bounds the upward search. */
+  extraArgs?: (file: string, base: string) => string[];
   /** Exit codes whose stdout IS the fully formatted content; `[0]` when omitted. */
   okExit?: number[];
   /** Working directory of the spawn: the project base (default), or the file's own directory for a

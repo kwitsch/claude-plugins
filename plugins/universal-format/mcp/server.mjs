@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=df5ac3abfce53713 body=3499555db66e1fdd prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=ab896f856eb207ac body=1d75e957824b83d3 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { fileURLToPath as __ufFileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 var __create = Object.create;
@@ -200608,17 +200608,18 @@ var init_lib2 = __esm(() => {
 // src/universal-format-mcp/server.ts
 import process7 from "node:process";
 import readline from "node:readline";
-import { readFileSync as readFileSync4, realpathSync as realpathSync2 } from "node:fs";
+import { readFileSync as readFileSync5, realpathSync as realpathSync2 } from "node:fs";
 import { fileURLToPath as fileURLToPath8 } from "node:url";
 
 // src/universal-format-mcp/handlers.ts
 import path21 from "node:path";
 import os9 from "node:os";
-import { existsSync as existsSync3, readFileSync as readFileSync3, statSync as statSync2 } from "node:fs";
+import { existsSync as existsSync4, readFileSync as readFileSync4, statSync as statSync2 } from "node:fs";
 import { spawn } from "node:child_process";
 
 // src/universal-format-mcp/registry.ts
 import path3 from "node:path";
+import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
 
 // src/universal-format-mcp/editorconfig.ts
 import path from "node:path";
@@ -200936,12 +200937,37 @@ var REGISTRY = {
         strategy: "mapped",
         nativeConfig: ["rustfmt.toml", ".rustfmt.toml"],
         base: [],
+        extraArgs: (file, base) => {
+          const edition = cargoEdition(path3.dirname(file), base);
+          return edition ? ["--edition", edition] : [];
+        },
         stdinArgs: () => [],
         spawnCwd: "fileDir"
       }
     ]
   }
 };
+function cargoEdition(fileDir, base) {
+  let dir = fileDir;
+  for (;; ) {
+    const manifest = path3.join(dir, "Cargo.toml");
+    if (existsSync2(manifest)) {
+      let text = "";
+      try {
+        text = readFileSync2(manifest, "utf8");
+      } catch {}
+      const m = /^\s*edition\s*=\s*"(\d{4})"/m.exec(text);
+      if (m)
+        return m[1];
+    }
+    if (dir === base)
+      return "";
+    const parent = path3.dirname(dir);
+    if (parent === dir)
+      return "";
+    dir = parent;
+  }
+}
 function resolveInvocation(tool, file, cwd) {
   if (tool.strategy !== "mapped")
     return buildInvocation(tool);
@@ -200961,7 +200987,7 @@ function selectFormatter(chain, file, cwd) {
     const inv = resolveInvocation(tool, file, cwd);
     if ("skip" in inv)
       continue;
-    return { tool, argv: [...inv.argv, ...tool.stdinArgs(file)] };
+    return { tool, argv: [...inv.argv, ...tool.extraArgs?.(file, cwd) ?? [], ...tool.stdinArgs(file)] };
   }
   return null;
 }
@@ -200970,7 +200996,7 @@ function selectFormatter(chain, file, cwd) {
 init_prettier();
 import process5 from "node:process";
 import path20 from "node:path";
-import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
+import { existsSync as existsSync3, readFileSync as readFileSync3 } from "node:fs";
 import { createRequire as createRequire3 } from "node:module";
 var bundledPrettier = index_exports ?? exports_prettier;
 var BUNDLED_PRETTIER_VERSION = String(bundledPrettier.version ?? "");
@@ -201019,21 +201045,21 @@ function hasPrettierProjectConfig(fileDir) {
   if (cached !== undefined)
     return cached;
   const result = walkToRoot(fileDir, (dir) => {
-    if (PRETTIER_CONFIG_FILENAMES.some((name2) => existsSync2(path20.join(dir, name2))))
+    if (PRETTIER_CONFIG_FILENAMES.some((name2) => existsSync3(path20.join(dir, name2))))
       return true;
     const pkgPath = path20.join(dir, "package.json");
-    if (existsSync2(pkgPath)) {
+    if (existsSync3(pkgPath)) {
       try {
-        const pkg = JSON.parse(readFileSync2(pkgPath, "utf8"));
+        const pkg = JSON.parse(readFileSync3(pkgPath, "utf8"));
         if (pkg && typeof pkg === "object" && Object.hasOwn(pkg, "prettier"))
           return true;
       } catch {}
     }
     const pkgYamlPath = path20.join(dir, "package.yaml");
-    if (existsSync2(pkgYamlPath)) {
+    if (existsSync3(pkgYamlPath)) {
       let text = "";
       try {
-        text = readFileSync2(pkgYamlPath, "utf8");
+        text = readFileSync3(pkgYamlPath, "utf8");
       } catch {}
       if (/^prettier\s*:/m.test(text))
         return true;
@@ -201095,11 +201121,11 @@ var PRETTIER_IGNORE_FILENAME = ".prettierignore";
 function readIgnoreState(cwd) {
   const verdicts = new Map;
   const file = path20.join(cwd, PRETTIER_IGNORE_FILENAME);
-  if (!existsSync2(file))
+  if (!existsSync3(file))
     return { hasRules: false, verdicts };
   let text = "";
   try {
-    text = readFileSync2(file, "utf8");
+    text = readFileSync3(file, "utf8");
   } catch {
     return { hasRules: true, verdicts };
   }
@@ -201171,7 +201197,7 @@ function findGitRoot(fileDir, home) {
   walkToRoot(fileDir, (dir) => {
     if (home && dir === home)
       return true;
-    if (!existsSync3(path21.join(dir, ".git")))
+    if (!existsSync4(path21.join(dir, ".git")))
       return false;
     found = dir;
     return true;
@@ -201344,9 +201370,9 @@ async function formatPre(args2) {
       return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp2, content: result.formatted }, additionalContext: noticeFor(result.tool) } };
     }
     if (args2.tool_name === "Edit") {
-      if (!existsSync3(resolved))
+      if (!existsSync4(resolved))
         return {};
-      const raw = readFileSync3(resolved, "utf8");
+      const raw = readFileSync4(resolved, "utf8");
       const crlf = raw.includes(`\r
 `);
       const toLf = (s) => crlf ? s.replaceAll(`\r
@@ -201389,7 +201415,7 @@ async function formatPre(args2) {
 var SERVER_NAME = "universal-format-hooks";
 function readPluginVersion() {
   try {
-    return String(JSON.parse(readFileSync4(new URL("../.claude-plugin/plugin.json", import.meta.url), "utf8")).version ?? "0.0.0");
+    return String(JSON.parse(readFileSync5(new URL("../.claude-plugin/plugin.json", import.meta.url), "utf8")).version ?? "0.0.0");
   } catch {
     return "0.0.0";
   }
@@ -201496,6 +201522,7 @@ export {
   formatPre,
   formatInProcess,
   findNativeConfig,
+  cargoEdition,
   bundledPluginsFor,
   buildInvocation,
   applyEdit,

@@ -65,3 +65,15 @@ setup() {
   run rg_or_grep -F -- "--config max_width=120" "$RECORD"
   assert_success
 }
+
+@test "rust: the crate's Cargo.toml edition is passed as --edition (stdin would otherwise parse as Rust 2015)" {
+  command -v node >/dev/null 2>&1 || skip "node not installed"
+  RECORD="$BATS_TEST_TMPDIR/rec"; : > "$RECORD"
+  local cwd="$BATS_TEST_TMPDIR/proj"; mkdir -p "$cwd/src"
+  printf '[package]\nname = "x"\nedition = "2021"\n' > "$cwd/Cargo.toml"
+  rec_stub rustfmt
+  run pre_tool_use_write_call "$cwd/src/a.rs" 'async fn main(){}' "$cwd"
+  assert_success
+  run cat "$RECORD"
+  assert_output "rustfmt --edition 2021"
+}

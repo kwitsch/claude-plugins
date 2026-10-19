@@ -3,6 +3,7 @@
 // npmSpec and no guardPrintWidth entry. EXT_MAP still maps the thirteen prettier languages, so
 // formatPre dispatches on PRETTIER_LANGS first and only then looks a language up here.
 import path from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import type { EditorConfigProps, FormatTool, LangEntry } from "./types.js";
 import { buildInvocation, findNativeConfig, resolveEditorconfig } from "./editorconfig.js";
 import { onPath } from "./util.js";
@@ -101,7 +102,9 @@ export const REGISTRY: Record<string, LangEntry> = {
   },
   // rust: no viable prettier plugin formats Rust source (survey, not deferral). rustfmt has no path
   // flag for stdin: it finds rustfmt.toml by walking up from cwd, hence spawnCwd "fileDir". Strategy
-  // "mapped" gives .rs the same .editorconfig parity as python.
+  // "mapped" gives .rs the same .editorconfig parity as python. Without --edition rustfmt parses
+  // stdin as Rust 2015 and rejects `async fn`, `dyn`-less trait objects and the like, so the edition
+  // comes from the crate's Cargo.toml exactly as `cargo fmt` passes it.
   rust: {
     chain: [
       {
@@ -109,12 +112,41 @@ export const REGISTRY: Record<string, LangEntry> = {
         strategy: "mapped",
         nativeConfig: ["rustfmt.toml", ".rustfmt.toml"],
         base: [],
+        extraArgs: (file, base) => {
+          const edition = cargoEdition(path.dirname(file), base);
+          return edition ? ["--edition", edition] : [];
+        },
         stdinArgs: () => [],
         spawnCwd: "fileDir",
       },
     ],
   },
 };
+
+/** The `edition = "YYYY"` of the nearest Cargo.toml from `fileDir` up to `base` (inclusive) that
+ * states one, or "" when none does. A crate inheriting `edition.workspace = true` has no literal of
+ * its own, so the walk simply continues to the workspace root's `[workspace.package]` entry. The
+ * regex is anchored to a line start and accepts a four-digit value only; everything else is "". */
+export function cargoEdition(fileDir: string, base: string): string {
+  let dir = fileDir;
+  for (;;) {
+    const manifest = path.join(dir, "Cargo.toml");
+    if (existsSync(manifest)) {
+      let text = "";
+      try {
+        text = readFileSync(manifest, "utf8");
+      } catch {
+        /* unreadable manifest -> keep walking */
+      }
+      const m = /^\s*edition\s*=\s*"(\d{4})"/m.exec(text);
+      if (m) return m[1];
+    }
+    if (dir === base) return "";
+    const parent = path.dirname(dir);
+    if (parent === dir) return "";
+    dir = parent;
+  }
+}
 
 // Determine the formatter invocation for a resolved tool. native/fixed -> bare. mapped -> if a
 // tool-native config governs the file, bare; else resolve .editorconfig for this file and
@@ -133,13 +165,14 @@ export function resolveInvocation(tool: FormatTool, file: string, cwd: string): 
 // Try each formatter in the language's chain, in order: skip a tool that isn't on PATH, or whose
 // resolveInvocation reports a hard style conflict (skip:true), and fall through to the next chain
 // entry rather than aborting. Returns the first {tool, argv} that can actually run -- argv complete
-// with the tool's stdin tail -- or null. One pass only: there is no package-runner second pass.
+// with the tool's project-derived flags and its stdin tail -- or null. One pass only: there is no
+// package-runner second pass.
 export function selectFormatter(chain: FormatTool[], file: string, cwd: string): { tool: FormatTool; argv: string[] } | null {
   for (const tool of chain) {
     if (!onPath(tool.name)) continue;
     const inv = resolveInvocation(tool, file, cwd);
     if ("skip" in inv) continue;
-    return { tool, argv: [...inv.argv, ...tool.stdinArgs(file)] };
+    return { tool, argv: [...inv.argv, ...(tool.extraArgs?.(file, cwd) ?? []), ...tool.stdinArgs(file)] };
   }
   return null;
 }

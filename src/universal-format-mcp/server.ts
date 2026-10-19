@@ -27,7 +27,7 @@ const DEFAULT_PROTOCOL = "2025-11-25"; // only used if the client omits protocol
 
 // ---- public surface of the built artifact, imported by the test suites ----
 export { BUNDLED_PRETTIER_VERSION, bundledPluginsFor, formatInProcess, hasPrettierProjectConfig, resolveConfigPlugins, shouldOverridePrintWidth } from "./prettier.js";
-export { EXT_MAP, PRETTIER_LANGS, REGISTRY, selectFormatter } from "./registry.js";
+export { EXT_MAP, PRETTIER_LANGS, REGISTRY, cargoEdition, selectFormatter } from "./registry.js";
 export { buildInvocation, findNativeConfig, matchGlob, parseEditorconfig, resolveEditorconfig } from "./editorconfig.js";
 export { applyEdit, formatPre, isExcludedPath, resolveBase, shrinkSwap } from "./handlers.js";
 
