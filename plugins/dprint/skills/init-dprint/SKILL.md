@@ -51,14 +51,13 @@ permission prompt is a second gate; install/update commands are deliberately not
      curl -fsSL https://dprint.dev/install.sh | sh
      ```
 
-   - **Update, found version >= 0.30.0** (major >= 1, or major 0 with minor >= 30):
+   - **Update** (every outdated version has the `upgrade` subcommand, since the minimum is far
+     above 0.30.0):
 
-     ```bash
-     < path > upgrade
+     ```text
+     <path> upgrade
      ```
 
-   - **Update, found version < 0.30.0** (no `upgrade` subcommand upstream): the installer,
-     `curl -fsSL https://dprint.dev/install.sh | sh`.
    - Non-zero exit (or the permission prompt is denied): report the command's error output and
      stop. No retry, no fallback to another install method.
 
@@ -68,16 +67,16 @@ permission prompt is a second gate; install/update commands are deliberately not
    node ${CLAUDE_SKILL_DIR}/check-dprint.mjs
    ```
 
-   - Exit `0`: report the new version and path.
-   - Exit `0` and `path` is `<home>/.dprint/bin/dprint`: check whether that directory is on `PATH`
-     with `node -e "console.log(process.env.PATH)"`. If it is not, also print this line for the
-     user to add to their shell profile (never edit shell rc files yourself):
+   - Exit `0`: report the new version and path. If `path` is `<home>/.dprint/bin/dprint`, also
+     check whether that directory is on `PATH` with `node -e "console.log(process.env.PATH)"`. If
+     it is not, print this line for the user to add to their shell profile (never edit shell rc
+     files yourself):
 
      ```bash
      export PATH="$HOME/.dprint/bin:$PATH"
      ```
 
-   - Non-zero exit: report the state and stop. If it is still `outdated` after `<path> upgrade`,
+   - Non-zero exit: report the state and stop. If it is still `outdated` after the upgrade,
      dprint is likely managed by a package manager (npm, Homebrew, ...) that refused the
      self-upgrade: tell the user to update it through that package manager. Never force a
      reinstall that would shadow the managed copy.

@@ -83,13 +83,15 @@ function check(args) {
     return { code: 2, status: "error", version: "-", path };
   }
 
-  const m = /^dprint (\d+)\.(\d+)\.(\d+)/.exec(out.trim());
+  const m = /^dprint (\d+)\.(\d+)\.(\d+)(-\S+)?/.exec(out.trim());
   if (!m) {
     process.stderr.write(`check-dprint: unparseable '${path} --version' output: ${JSON.stringify(out.trim())}\n`);
     return { code: 2, status: "error", version: "-", path };
   }
   const version = `${m[1]}.${m[2]}.${m[3]}`;
-  return compareToMin(version) >= 0 ? { code: 0, status: "ok", version, path } : { code: 11, status: "outdated", version, path };
+  // a prerelease of MIN_VERSION sorts below it
+  const cmp = compareToMin(version) || (m[4] ? -1 : 0);
+  return cmp >= 0 ? { code: 0, status: "ok", version, path } : { code: 11, status: "outdated", version, path };
 }
 
 const r = check(process.argv.slice(2));
