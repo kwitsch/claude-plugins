@@ -208,7 +208,7 @@ hook_result() {
 @test "hooks.json wires SubagentStart/PreToolUse/PostToolUse to mcp_tool on the namespaced server with an explicit input, SessionStart to a command hook" {
   run jq empty "$HOOKS"
   assert_success
-  local entries='[.hooks.SubagentStart[0].hooks[0], .hooks.PreToolUse[1].hooks[0], .hooks.PostToolUse[0].hooks[0]]'
+  local entries='[.hooks.SubagentStart[0].hooks[0], .hooks.PreToolUse[0].hooks[0], .hooks.PostToolUse[0].hooks[0]]'
   run jq -e "$entries | all(.type == \"mcp_tool\" and .server == \"plugin:linux-token-efficiency:codebase-memory\" and .timeout == 20 and (has(\"command\") | not) and (has(\"async\") | not))" "$HOOKS"
   assert_success
   # Regression pin: an omitted "input" delivers {} instead of the hook JSON.
@@ -227,11 +227,11 @@ hook_result() {
   assert_success
   run jq -e '.hooks.SubagentStart[0].hooks[0].input == {cwd:"${cwd}"}' "$HOOKS"
   assert_success
-  run jq -e '.hooks.PreToolUse[1] | .matcher == "Grep|Glob" and (.hooks[0].input == {cwd:"${cwd}", tool_name:"${tool_name}", tool_input:{pattern:"${tool_input.pattern}"}})' "$HOOKS"
+  run jq -e '.hooks.PreToolUse[0] | .matcher == "Grep|Glob" and (.hooks[0].input == {cwd:"${cwd}", tool_name:"${tool_name}", tool_input:{pattern:"${tool_input.pattern}"}})' "$HOOKS"
   assert_success
   run jq -e '.hooks.PostToolUse[0] | .matcher == "Read" and (.hooks[0].input == {cwd:"${cwd}", tool_input:{file_path:"${tool_input.file_path}"}})' "$HOOKS"
   assert_success
-  run jq -e '(.hooks.SessionStart | length) == 3 and (.hooks.SubagentStart | length) == 2 and (.hooks.PostToolUse | length) == 1 and (.hooks.PreToolUse | length) == 3' "$HOOKS"
+  run jq -e '(.hooks.SessionStart | length) == 3 and (.hooks.SubagentStart | length) == 2 and (.hooks.PostToolUse | length) == 1 and (.hooks.PreToolUse | length) == 1' "$HOOKS"
   assert_success
   run jq -e '.hooks.SessionStart[0] | has("matcher") | not' "$HOOKS"
   assert_success
@@ -243,7 +243,7 @@ hook_result() {
   assert_failure
 }
 
-@test "the rtk Bash entry stays a command hook, first in PreToolUse" {
-  run jq -e '.hooks.PreToolUse[0] | .matcher == "Bash" and (.hooks[0] | .type == "command" and .command == "${CLAUDE_PLUGIN_ROOT}/hooks/rtk-rewrite.mjs" and .timeout == 10)' "$HOOKS"
+@test "the rtk Bash routing is a mods module hook, never a classic PreToolUse entry beside the cbm one" {
+  run jq -e '.modules == ["./register.ts"] and ([.hooks.PreToolUse[].matcher] == ["Grep|Glob"])' "$HOOKS"
   assert_success
 }

@@ -10,7 +10,6 @@ common_setup() {
   PLUGIN="$REPO_ROOT/plugins/linux-token-efficiency"
   MANIFEST="$PLUGIN/.claude-plugin/plugin.json"
   HOOKS="$PLUGIN/hooks/hooks.json"
-  HOOK="$PLUGIN/hooks/rtk-rewrite.mjs"
   CBM_TOOLS="$PLUGIN/cbm-tools.json"
   CBM_SERVER="$PLUGIN/mcp/server.mjs"
   CBM_HELPERS="$PLUGIN/mcp/cbm-context.mjs"

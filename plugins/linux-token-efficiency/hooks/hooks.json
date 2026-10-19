@@ -1,5 +1,6 @@
 {
-  "description": "PreToolUse Bash -> rtk-rewrite.mjs: a router — read-only gather commands (bare curl/wget GETs, >=3-segment text-tool chains, >=3-stage text pipelines) are deny-steered to context-mode's ctx_fetch_and_index / ctx_batch_execute / ctx_execute with a copy-ready replacement call (steer_enabled toggle); everything else is rewritten to its rtk equivalent using the bundled rtk binary (auto_rewrite toggle). PreToolUse WebFetch -> webfetch-steer.mjs: deny-steers every WebFetch to ctx_fetch_and_index + ctx_search (steer_enabled toggle). SessionStart -> server.mjs --session-start-hook (command hook: mcp_tool hard-errors pre-connect), SubagentStart -> hook_subagent_context, PreToolUse Grep|Glob -> hook_symbol_context, PostToolUse Read -> hook_coverage_context: fail-open, context-only codebase-memory-mcp graph context served as mcp_tool hooks by this plugin's own codebase-memory proxy MCP server (mcp/server.mjs). Second SessionStart entry -> cat hooks/SessionStart.md: injects the context-mode MCP server's own routing-rules document (upstream, verbatim) as session context on every startup/resume/clear/compact. Second SubagentStart entry -> cat hooks/subagent-nudge.json: a pre-rendered hookSpecificOutput.additionalContext JSON payload (SubagentStart command-hook stdout is NOT auto-delivered as context like SessionStart's -- it only reaches the debug log -- so the static payload must already be the JSON envelope) telling subagents to skip inter-tool-call narration and to prefer context-mode's ctx_* tools. Third SessionStart entry -> hooks/rtk-install.mjs: async command hook that installs the pinned, dual-sha256-verified rtk release into ~/.local/bin/rtk on first use (only when absent), gated by rtk_enabled. Nine hooks total.",
+  "description": "modules -> register.ts (mods hooks module, in-process, no per-call process): a tool.call hook on Bash is a router — read-only gather commands (bare curl GETs, >=3-segment text-tool chains, >=3-stage text pipelines) are denied with a copy-ready replacement call on context-mode's ctx_fetch_and_index / ctx_batch_execute / ctx_execute (steer_enabled toggle); everything else is rewritten to its rtk equivalent through the managed ~/.local/bin/rtk (auto_rewrite toggle). A tool.call hook on WebFetch denies every WebFetch with a ctx_fetch_and_index + ctx_search replacement (steer_enabled toggle). Pure policy: hooks/rtk-rewrite.mjs. SessionStart -> server.mjs --session-start-hook (command hook: mcp_tool hard-errors pre-connect), SubagentStart -> hook_subagent_context, PreToolUse Grep|Glob -> hook_symbol_context, PostToolUse Read -> hook_coverage_context: fail-open, context-only codebase-memory-mcp graph context served as mcp_tool hooks by this plugin's own codebase-memory proxy MCP server (mcp/server.mjs). Second SessionStart entry -> cat hooks/SessionStart.md: injects the context-mode MCP server's own routing-rules document (upstream, verbatim) as session context on every startup/resume/clear/compact. Second SubagentStart entry -> cat hooks/subagent-nudge.json: a pre-rendered hookSpecificOutput.additionalContext JSON payload (SubagentStart command-hook stdout is NOT auto-delivered as context like SessionStart's -- it only reaches the debug log -- so the static payload must already be the JSON envelope) telling subagents to skip inter-tool-call narration and to prefer context-mode's ctx_* tools. Third SessionStart entry -> hooks/rtk-install.mjs: async command hook that installs the pinned, dual-sha256-verified rtk release into ~/.local/bin/rtk on first use (only when absent), gated by rtk_enabled. Seven classic hooks total, plus the module's two tool.call hooks.",
+  "modules": ["./register.ts"],
   "hooks": {
     "SessionStart": [
       {
@@ -44,7 +45,9 @@
             "server": "plugin:linux-token-efficiency:codebase-memory",
             "tool": "hook_subagent_context",
             "timeout": 20,
-            "input": { "cwd": "${cwd}" }
+            "input": {
+              "cwd": "${cwd}"
+            }
           }
         ]
       },
@@ -61,16 +64,6 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/rtk-rewrite.mjs",
-            "timeout": 10
-          }
-        ]
-      },
-      {
         "matcher": "Grep|Glob",
         "hooks": [
           {
@@ -81,18 +74,10 @@
             "input": {
               "cwd": "${cwd}",
               "tool_name": "${tool_name}",
-              "tool_input": { "pattern": "${tool_input.pattern}" }
+              "tool_input": {
+                "pattern": "${tool_input.pattern}"
+              }
             }
-          }
-        ]
-      },
-      {
-        "matcher": "WebFetch",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/webfetch-steer.mjs",
-            "timeout": 10
           }
         ]
       }
@@ -108,7 +93,9 @@
             "timeout": 20,
             "input": {
               "cwd": "${cwd}",
-              "tool_input": { "file_path": "${tool_input.file_path}" }
+              "tool_input": {
+                "file_path": "${tool_input.file_path}"
+              }
             }
           }
         ]

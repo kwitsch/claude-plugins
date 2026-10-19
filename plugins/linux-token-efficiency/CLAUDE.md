@@ -4,14 +4,14 @@ Installs the upstream rtk Linux binary into ~/.local/bin at SessionStart and aut
 
 ## Where things live
 
-- `hooks/CLAUDE.md` — `hooks.json` wiring, the `rtk-rewrite.mjs` router, `webfetch-steer.mjs`, `## rtk install`, the verbatim `SessionStart.md` contract, the `SubagentStart` nudge.
+- `hooks/CLAUDE.md` — `hooks.json` wiring, the mods module (`register.ts` + pure `rtk-rewrite.mjs`: Bash router and WebFetch steer), `## rtk install`, the verbatim `SessionStart.md` contract, the `SubagentStart` nudge.
 - `mcp/CLAUDE.md` — `mcp/server.mjs`, the codebase-memory proxy MCP server (runtime download + checksum-verify of codebase-memory-mcp into `${CLAUDE_PLUGIN_DATA}/cbm`), its `cbm-context.mjs` helper and `binary-fetch.mjs`.
 - `test/linux-token-efficiency/CLAUDE.md` — fixtures and test tripwires.
 - This file — executable bit, `bin/`, `userConfig`, output style, context-mode.
 
 ## Executable bit and core.fileMode
 
-- This repo sets `core.fileMode=false`, so `chmod +x` alone is NOT committed: after adding or replacing any `hooks/*.mjs`, `mcp/server.mjs` or `bin/*` file, force the mode with `git update-index --chmod=+x <file>`.
+- This repo sets `core.fileMode=false`, so `chmod +x` alone is NOT committed: after adding or replacing any `hooks/*.mjs`, `mcp/server.mjs` or `bin/*` file (not `hooks/register.ts`: the engine imports it, `100644` like inline-headroom's), force the mode with `git update-index --chmod=+x <file>`.
 - Steps and the index check: `.claude/rules/hooks-executable.md`, `.claude/rules/bin-executable.md`.
 - `hooks/SessionStart.md` and `hooks/subagent-nudge.json` stay `100644` — they are `cat`-ed, not executed.
 
@@ -20,23 +20,24 @@ Installs the upstream rtk Linux binary into ~/.local/bin at SessionStart and aut
 - `bin/rtk` — a small committed shell wrapper, no binary: `exec "${HOME}/.local/bin/rtk" "$@"` behind an existence check.
   - The real binary is installed at runtime into `~/.local/bin/rtk` by `hooks/rtk-install.mjs` (`hooks/CLAUDE.md` `## rtk install`); never commit it.
   - Why a bridge: Claude Code always puts an enabled plugin's own `bin/` on the Bash PATH, but `~/.local/bin` is not guaranteed to be; the wrapper keeps a bare `rtk` working by hand.
-  - `hooks/rtk-rewrite.mjs`'s "never double-wire" guard treats a PATH resolution to this wrapper like the managed binary itself (`PLUGIN_BIN_RTK`).
+  - `hooks/register.ts`'s "never double-wire" guard treats a PATH resolution to this wrapper like the managed binary itself, and walks it last (Claude Code appends plugin `bin/` dirs to the Bash PATH).
 - `bin/context-mode-launch.sh` — bun-preferred `bunx`/`npx --yes` launcher for the external `context-mode` npm package; see `## context-mode`.
 
 ## userConfig
 
 - Four toggles, one per gated feature, all boolean `default: true`: `auto_rewrite`, `cbm_enabled`, `rtk_enabled` (the network-install gate), `steer_enabled`.
-- `steer_enabled` gates ONLY the two deny-steers (`rtk-rewrite.mjs`'s steer branch and `webfetch-steer.mjs`), never the rtk rewrite.
-  - It is the escape hatch for a down or misbehaving context-mode server: a deny pointing at an unavailable `ctx_*` tool would strand the model, and a command hook cannot check MCP connectivity.
+- `steer_enabled` gates ONLY the two deny-steers (the module's Bash steer exit and its WebFetch hook), never the rtk rewrite.
+  - It is the escape hatch for a down or misbehaving context-mode server: a deny pointing at an unavailable `ctx_*` tool would strand the model, and the steer does not check MCP connectivity.
 - The plugin does NOT qualify for `.claude/rules/plugin-userconfig.md`'s no-toggle exception: with auto-rewrite off the `rtk` bridge is still usable by hand, so disabling the hook differs from uninstalling.
 - `context-mode` deliberately has no toggle (see `## context-mode`).
 
 ### Read the env var, not a placeholder
 
-- Hooks read `CLAUDE_PLUGIN_OPTION_<KEY>`, **not** a `${user_config.<key>}` placeholder in `hooks.json` (the `npm-automations` precedent).
+- The mods module reads `auto_rewrite` / `steer_enabled` from `register(on, options)`; that gap below does not apply to it.
+- The command hooks (`rtk-install.mjs`, `mcp/server.mjs`) read `CLAUDE_PLUGIN_OPTION_<KEY>`, **not** a `${user_config.<key>}` placeholder in `hooks.json`.
   - The placeholder hard-errors when the plugin was never configured via `/plugin manage`, even though a `default` is declared.
   - Claude Code ≥ 2.1.207 rejects `${user_config.*}` in shell-run hook `command` fields outright.
-- Accepted, documented gap (same as `npm-automations`): if the env var is never populated for a command-hook subprocess, an explicit `false` goes unhonored and the feature stays enabled.
+- Accepted, documented gap: if the env var is never populated for a command-hook subprocess, an explicit `false` goes unhonored and the feature stays enabled.
 
 ### Fail-open
 
@@ -63,7 +64,7 @@ Registers the EXTERNAL npm package `context-mode` (upstream <https://github.com/
 ### Launcher (`bin/context-mode-launch.sh`)
 
 - A wrapper, not the canonical direct-`command` form: an external npm package has no local file to exec, and registering `npx` directly (upstream's `claude mcp add context-mode -- npx -y context-mode`) would lose the bun preference — the wrapper lets `bunx` win when available.
-- Not a copy of `bin/mjs-launch.sh` (the identical copies in `coding-toolbox`, `universal-format`, `claude-code-knowledge`).
+- Not a copy of `bin/mjs-launch.sh` (the copy in `universal-format`).
   - That wrapper execs a runtime against the `.mjs` path in `$1`, hence its missing-argument exit-64 guard.
   - Here the target is a fixed package spec baked in: no mandatory argv, no guard; `"$@"` is still forwarded as harmless future-proofing.
 - Probe `bunx` and `npx`, the package RUNNERS. `command -v node` is the wrong check: node alone does not run `npx`.
@@ -84,7 +85,7 @@ Registers the EXTERNAL npm package `context-mode` (upstream <https://github.com/
 
 ### `ctx_execute` / `ctx_batch_execute` bypass `Bash` hooks
 
-- This server hands the model a code- and shell-execution path that no `Bash` `PreToolUse` hook observes: not this plugin's `rtk-rewrite.mjs`, not another plugin's hard deny gates (e.g. `coding-toolbox`'s `encoding-guard.mjs`). An MCP tool call never matches a `Bash` matcher, and no toggle can gate it.
+- This server hands the model a code- and shell-execution path that no `Bash` `PreToolUse` or `tool.call` hook observes: not this plugin's Bash router, not another plugin's hard deny gates (e.g. `coding-toolbox`'s encoding guard). An MCP tool call never matches a `Bash` matcher, and no toggle can gate it.
 - The steering hooks knowingly **widen** this bypass: work they push from Bash/WebFetch into `ctx_*` calls is work no `Bash`/`WebFetch` hook sees again. The steer classifier's read-only-only scope keeps the widened surface to gather commands — an accepted trade-off, not an oversight.
 
 ### No toggle, by explicit decision

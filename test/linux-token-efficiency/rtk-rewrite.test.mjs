@@ -1,33 +1,23 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, mkdirSync, writeFileSync, symlinkSync } from "node:fs";
-import { execFileSync } from "node:child_process";
-import os, { tmpdir } from "node:os";
+import { mkdtempSync, mkdirSync, realpathSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   isAutoRewriteEnabled,
   isSteerEnabled,
-  resolveRtkOnPath,
   resolveManagedRtk,
-  sameFile,
-  buildUpdatedInput,
+  rtkCandidates,
+  parseRtkRewrite,
+  gitDirs,
   splitTopLevel,
   commandHead,
   classifyBashCommand,
   buildSteerDeny,
   hasGitOperand,
-  isLinkedWorktree,
+  buildWebFetchDeny,
 } from "../../plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs";
-import { buildWebFetchDeny } from "../../plugins/linux-token-efficiency/hooks/webfetch-steer.mjs";
-
-/** @param {string} dir @param {string} name @returns {string} */
-function makeExecutable(dir, name) {
-  mkdirSync(dir, { recursive: true });
-  const p = path.join(dir, name);
-  writeFileSync(p, "#!/usr/bin/env bash\nexit 0\n");
-  chmodSync(p, 0o755);
-  return p;
-}
 
 test("isAutoRewriteEnabled: only the literal false disables (fail-open)", () => {
   assert.equal(isAutoRewriteEnabled("false"), false);
@@ -37,88 +27,9 @@ test("isAutoRewriteEnabled: only the literal false disables (fail-open)", () => 
   assert.equal(isAutoRewriteEnabled("true"), true);
   assert.equal(isAutoRewriteEnabled("${user_config.auto_rewrite}"), true);
   assert.equal(isAutoRewriteEnabled("False"), true);
-});
-
-test("resolveRtkOnPath: returns the first executable rtk, honoring PATH order", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "lte-path-"));
-  const first = path.join(root, "a");
-  const second = path.join(root, "b");
-  makeExecutable(second, "rtk");
-  const empty = path.join(root, "empty");
-  mkdirSync(empty, { recursive: true });
-  assert.equal(resolveRtkOnPath([first, second].join(path.delimiter)), path.join(second, "rtk"));
-  makeExecutable(first, "rtk");
-  assert.equal(resolveRtkOnPath([first, second].join(path.delimiter)), path.join(first, "rtk"));
-  assert.equal(resolveRtkOnPath([empty].join(path.delimiter)), null);
-});
-
-test("resolveRtkOnPath: null for empty, undefined and non-executable candidates", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "lte-path2-"));
-  mkdirSync(root, { recursive: true });
-  const notExec = path.join(root, "rtk");
-  writeFileSync(notExec, "not executable\n");
-  chmodSync(notExec, 0o644);
-  assert.equal(resolveRtkOnPath(undefined), null);
-  assert.equal(resolveRtkOnPath(""), null);
-  assert.equal(resolveRtkOnPath(`${path.delimiter}${path.delimiter}`), null);
-  assert.equal(resolveRtkOnPath(root), null);
-});
-
-test("resolveManagedRtk: ${HOME}/.local/bin/rtk; falls back to os.homedir() on blank or ${-bearing HOME", () => {
-  assert.equal(resolveManagedRtk({ HOME: "/home/u" }), path.join("/home/u", ".local", "bin", "rtk"));
-  assert.equal(resolveManagedRtk({ HOME: "  /home/u  " }), path.join("/home/u", ".local", "bin", "rtk"));
-  // HOME unusable (blank / ${-bearing / absent): falls back to os.homedir(), matching
-  // rtk-install.mjs's resolveHome() so both agree on the install target in this edge case.
-  const fallback = path.join(os.homedir(), ".local", "bin", "rtk");
-  assert.equal(resolveManagedRtk({ HOME: "" }), fallback);
-  assert.equal(resolveManagedRtk({ HOME: "   " }), fallback);
-  assert.equal(resolveManagedRtk({ HOME: "${HOME}/.x" }), fallback);
-  assert.equal(resolveManagedRtk({}), fallback);
-});
-
-test("sameFile: true through a symlink, false for distinct files and missing paths", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "lte-same-"));
-  const real = makeExecutable(path.join(root, "bin"), "rtk");
-  const other = makeExecutable(path.join(root, "global"), "rtk");
-  const link = path.join(root, "link-rtk");
-  symlinkSync(real, link);
-  assert.equal(sameFile(real, link), true);
-  assert.equal(sameFile(real, other), false);
-  assert.equal(sameFile(real, path.join(root, "nope")), false);
-});
-
-test("buildUpdatedInput: forwards every field, replaces only command, no permissionDecision", () => {
-  const toolInput = {
-    command: "ls -la /tmp",
-    description: "list",
-    timeout: 600000,
-    run_in_background: true,
-    future_field: "keep-me",
-  };
-  const result = buildUpdatedInput(toolInput, "rtk ls -la /tmp");
-  assert.deepEqual(result, {
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      permissionDecisionReason: "rtk auto-rewrite (bundled)",
-      updatedInput: {
-        command: "rtk ls -la /tmp",
-        description: "list",
-        timeout: 600000,
-        run_in_background: true,
-        future_field: "keep-me",
-      },
-    },
-  });
-  assert.equal("permissionDecision" in (result.hookSpecificOutput ?? {}), false);
-  assert.equal(toolInput.command, "ls -la /tmp", "the original object must not be mutated");
-});
-
-test("buildUpdatedInput: takes no decision parameter and never emits permissionDecision", () => {
-  assert.equal(buildUpdatedInput.length, 2);
-  const toolInput = { command: "ls -la /tmp" };
-  const result = buildUpdatedInput(toolInput, "rtk ls -la /tmp");
-  assert.equal("permissionDecision" in (result.hookSpecificOutput ?? {}), false);
-  assert.equal(result.hookSpecificOutput?.updatedInput?.command, "rtk ls -la /tmp");
+  // userConfig booleans as register.ts receives them in `options`.
+  assert.equal(isAutoRewriteEnabled(false), false);
+  assert.equal(isAutoRewriteEnabled(true), true);
 });
 
 test("isSteerEnabled: only the literal false disables (fail-open, same as auto_rewrite)", () => {
@@ -128,6 +39,35 @@ test("isSteerEnabled: only the literal false disables (fail-open, same as auto_r
   assert.equal(isSteerEnabled(""), true);
   assert.equal(isSteerEnabled("true"), true);
   assert.equal(isSteerEnabled("${user_config.steer_enabled}"), true);
+  assert.equal(isSteerEnabled(false), false);
+  assert.equal(isSteerEnabled(true), true);
+});
+
+test("resolveManagedRtk: ${HOME}/.local/bin/rtk; null on blank, ${-bearing or absent HOME (no passwd fallback in a mods module)", () => {
+  assert.equal(resolveManagedRtk({ HOME: "/home/u" }), "/home/u/.local/bin/rtk");
+  assert.equal(resolveManagedRtk({ HOME: "  /home/u  " }), "/home/u/.local/bin/rtk");
+  assert.equal(resolveManagedRtk({ HOME: "" }), null);
+  assert.equal(resolveManagedRtk({ HOME: "   " }), null);
+  assert.equal(resolveManagedRtk({ HOME: "${HOME}/.x" }), null);
+  assert.equal(resolveManagedRtk({}), null);
+});
+
+test("rtkCandidates: every non-empty PATH entry in order, then the plugin's own bin/rtk bridge", () => {
+  assert.deepEqual(rtkCandidates("/a:/b/:", "/plug/bin"), ["/a/rtk", "/b/rtk", "/plug/bin/rtk"]);
+  assert.deepEqual(rtkCandidates(undefined, "/plug/bin"), ["/plug/bin/rtk"]);
+  assert.deepEqual(rtkCandidates("::", "/plug/bin"), ["/plug/bin/rtk"]);
+});
+
+test("parseRtkRewrite: only a changed plain updatedInput.command is applied (the former hook.bats rtk-output cases)", () => {
+  const says = (/** @type {string} */ command) =>
+    JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecisionReason: "RTK auto-rewrite", updatedInput: { command, description: "list" } } });
+  assert.equal(parseRtkRewrite(says("rtk ls -la /tmp") + "\n", "ls -la /tmp"), "rtk ls -la /tmp");
+  assert.equal(parseRtkRewrite(says("ls -la /tmp"), "ls -la /tmp"), null, "unchanged");
+  assert.equal(parseRtkRewrite("", "echo hi"), null, "rtk had no rewrite");
+  assert.equal(parseRtkRewrite("not json at all\n", "ls"), null, "garbage");
+  const decision = JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: "blocked by rtk" } });
+  assert.equal(parseRtkRewrite(decision, "rm -rf /"), null, "a decision is never forwarded");
+  assert.equal(parseRtkRewrite(JSON.stringify({ hookSpecificOutput: { updatedInput: { command: 1 } } }), "ls"), null);
 });
 
 test("splitTopLevel: flat chains and pipes split; quotes protect operators", () => {
@@ -232,8 +172,16 @@ test("hasGitOperand: matches a bare `git` token, not a substring hit", () => {
   assert.equal(hasGitOperand("rtk github status"), false);
 });
 
-test("isLinkedWorktree: false for the main worktree and a non-repo path, true from inside a linked worktree", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "lte-worktree-"));
+test("gitDirs: absolute pair from one rev-parse call, null on failure or a wrong shape", () => {
+  assert.deepEqual(gitDirs(0, ".git\n.git\n", "/r"), ["/r/.git", "/r/.git"]);
+  assert.deepEqual(gitDirs(0, "/m/.git/worktrees/x\n/m/.git\n", "/w/"), ["/m/.git/worktrees/x", "/m/.git"]);
+  assert.equal(gitDirs(128, "", "/r"), null);
+  assert.equal(gitDirs(0, ".git\n", "/r"), null);
+  assert.equal(gitDirs(0, "a\nb\nc\n", "/r"), null);
+});
+
+test("gitDirs against real git: the main worktree resolves to one dir, a linked worktree to two, a non-repo to null", () => {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "lte-worktree-")));
   const main = path.join(root, "main");
   mkdirSync(main, { recursive: true });
   /** @param {string[]} args @param {string} cwd */
@@ -244,11 +192,17 @@ test("isLinkedWorktree: false for the main worktree and a non-repo path, true fr
   git(["commit", "-q", "--allow-empty", "-m", "init"], main);
   const linked = path.join(root, "linked");
   git(["worktree", "add", "-q", linked, "-b", "lte-test-branch"], main);
-
-  assert.equal(isLinkedWorktree(main), false);
-  assert.equal(isLinkedWorktree(linked), true);
-  assert.equal(isLinkedWorktree(root), false, "not a git repo at all");
-  assert.equal(isLinkedWorktree(undefined), false, "no cwd given");
+  // What register.ts's isLinkedWorktree does, node's realpath standing in for $.fs.stat's realPath.
+  /** @param {string} cwd */
+  const linkedness = (cwd) => {
+    const r = spawnSync("git", ["rev-parse", "--git-dir", "--git-common-dir"], { cwd, encoding: "utf8" });
+    const dirs = gitDirs(r.status ?? 1, r.stdout, cwd);
+    return dirs === null ? null : realpathSync(dirs[0]) !== realpathSync(dirs[1]);
+  };
+  assert.equal(linkedness(main), false);
+  assert.equal(linkedness(path.join(main, ".git")), false, "inside the git dir itself");
+  assert.equal(linkedness(linked), true);
+  assert.equal(linkedness(root), null, "not a git repo at all");
 });
 
 test("buildWebFetchDeny: deny with the namespaced tool, the URL, the hostname source and the escape hatch", () => {

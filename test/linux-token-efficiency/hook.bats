@@ -1,361 +1,63 @@
 #!/usr/bin/env bats
 
-# hooks/rtk-rewrite.mjs — PreToolUse Bash router hook (context-mode steer branch +
-# rtk rewrite branch), linux-token-efficiency.
+# The mods hooks module (hooks/register.ts) — the Bash router (context-mode steer + rtk
+# rewrite) and the WebFetch steer as in-process tool.call hooks, linux-token-efficiency.
 #
-# The hook rewrites through the plugin-managed rtk at $HOME/.local/bin/rtk, so behavior
-# tests run a COPY of the hook inside a fake plugin tree in $BATS_TEST_TMPDIR and place a
-# stub `rtk` at $HOME/.local/bin/rtk (HOME is a sandbox). That dir is also placed first on
-# the test PATH, standing in for the user having ~/.local/bin on PATH.
+# Behaviour lives in two other suites: the pure policy in rtk-rewrite.test.mjs
+# (`pnpm run test:unit`, CI) and the hook wiring in
+# plugins/linux-token-efficiency/tests/linux-token-efficiency.test.ts (`claude plugin
+# test`, local only — CI runners have no claude CLI, so the last two cases skip there).
 
 load 'test_helper'
 
 setup() {
+  REAL_HOME="$HOME" # common_setup sandboxes HOME; the claude CLI cases below need the real one
   common_setup
-  FAKE_PLUGIN="$BATS_TEST_TMPDIR/plugin"
-  mkdir -p "$FAKE_PLUGIN/hooks"
-  FAKE_HOOK="$FAKE_PLUGIN/hooks/rtk-rewrite.mjs"
-  cp "$HOOK" "$FAKE_HOOK"
-  chmod +x "$FAKE_HOOK"
-  # Managed rtk lives at $HOME/.local/bin/rtk (common_setup sets HOME to a sandbox); that
-  # dir is prepended to PATH, standing in for the user having ~/.local/bin on PATH.
-  LOCAL_BIN="$HOME/.local/bin"
-  GLOBAL_BIN="$BATS_TEST_TMPDIR/globalbin"
-  mkdir -p "$LOCAL_BIN" "$GLOBAL_BIN"
-  REWRITE_JSON='{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecisionReason":"RTK auto-rewrite","updatedInput":{"command":"rtk ls -la /tmp","description":"list"}}}'
 }
 
-# rtk_stub <dir> <body-line>... -- an `rtk` stub that always drains stdin first.
-rtk_stub() {
-  local dir="$1"
-  shift
-  make_stub_in "$dir" rtk 'cat > /dev/null' "$@"
-}
-
-# hook_run <payload> [VAR=VALUE ...] -- pipe a payload into the fake hook with the managed
-# ~/.local/bin first on PATH (so resolveRtkOnPath finds the managed rtk). env -i wipes
-# BATS_TEST_TMPDIR, so TMPDIR is forwarded explicitly for any stub that needs a temp dir.
-hook_run() {
-  local payload="$1"
-  shift
-  run env -i PATH="$LOCAL_BIN:$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" "$@" "$FAKE_HOOK" <<< "$payload"
-}
-
-# hook_run_path <payload> <path> [VAR=VALUE ...] -- same, with an explicit PATH.
-hook_run_path() {
-  local payload="$1" pathval="$2"
-  shift 2
-  run env -i PATH="$pathval" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" "$@" "$FAKE_HOOK" <<< "$payload"
-}
-
-# assert_json <jq-filter> -- assert the last run's stdout satisfies the filter.
-assert_json() {
-  local filter="$1" out="$output"
-  run jq -e "$filter" <<< "$out"
+@test "hooks.json loads the mods module beside the classic hooks" {
+  run jq -e '.modules == ["./register.ts"]' "$HOOKS"
+  assert_success
+  run jq -e '.hooks | type == "object"' "$HOOKS"
   assert_success
 }
 
-# make_input_cwd <command> <cwd> [extra-tool_input-json-object] -- same as make_input,
-# but also sets the top-level `cwd` field isLinkedWorktree reads (make_input has none).
-make_input_cwd() {
-  local cmd="$1" cwd="$2" extra="${3:-}"
-  [ -n "$extra" ] || extra='{}'
-  jq -cn --arg cmd "$cmd" --arg cwd "$cwd" --argjson extra "$extra" \
-    '{hook_event_name:"PreToolUse", tool_name:"Bash", cwd:$cwd, tool_input:({command:$cmd} + $extra)}'
-}
-
-# make_worktree <repo-name> <branch-name> -- create a throwaway git repo under
-# BATS_TEST_TMPDIR plus one linked worktree off a fresh branch; echoes "<repo> <linked>".
-make_worktree() {
-  local repo="$BATS_TEST_TMPDIR/$1" linked="$BATS_TEST_TMPDIR/$1-wt"
-  git init -q "$repo"
-  git -C "$repo" config user.email a@a.com
-  git -C "$repo" config user.name a
-  git -C "$repo" commit -q --allow-empty -m init
-  git -C "$repo" worktree add -q "$linked" -b "$2"
-  printf '%s %s\n' "$repo" "$linked"
-}
-
-@test "happy path: rtk's rewritten command is forwarded verbatim" {
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
-  hook_run "$(make_input 'ls -la /tmp' '{"description":"list"}')"
+@test "no classic Bash or WebFetch entry is left: the module owns both" {
+  run jq -e '[.hooks.PreToolUse[].matcher] | (index("Bash") == null) and (index("WebFetch") == null)' "$HOOKS"
   assert_success
-  assert_json '.hookSpecificOutput.updatedInput.command == "rtk ls -la /tmp"'
+  run grep -F 'rtk-rewrite.mjs"' "$HOOKS"
+  assert_failure
+  run grep -F 'webfetch-steer' "$HOOKS"
+  assert_failure
 }
 
-@test "emitted command carries no PATH prefix and no absolute path" {
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
-  hook_run "$(make_input 'ls -la /tmp' '{"description":"list"}')"
+@test "the module registers exactly the Bash and WebFetch tool.call hooks and reads userConfig from options" {
+  run grep -c 'on("tool.call"' "$PLUGIN/hooks/register.ts"
+  assert_output '2'
+  run grep -F 'on("tool.call", { tool: "Bash" }' "$PLUGIN/hooks/register.ts"
   assert_success
-  assert_json '.hookSpecificOutput.updatedInput.command | startswith("rtk ") and (contains("export PATH=") | not) and (contains("/bin/rtk") | not)'
+  run grep -F 'on("tool.call", { tool: "WebFetch" }' "$PLUGIN/hooks/register.ts"
+  assert_success
+  run grep -F 'options.steer_enabled' "$PLUGIN/hooks/register.ts"
+  assert_success
+  run grep -F 'options.auto_rewrite' "$PLUGIN/hooks/register.ts"
+  assert_success
+  # The command-hook era read CLAUDE_PLUGIN_OPTION_* env vars; the module never does.
+  run grep -F 'CLAUDE_PLUGIN_OPTION_' "$PLUGIN/hooks/register.ts" "$PLUGIN/hooks/rtk-rewrite.mjs"
+  assert_failure
 }
 
-@test "emitted hookEventName and reason are the plugin's own" {
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
-  hook_run "$(make_input 'ls -la /tmp' '{"description":"list"}')"
-  assert_json '.hookSpecificOutput.hookEventName == "PreToolUse" and .hookSpecificOutput.permissionDecisionReason == "rtk auto-rewrite (bundled)"'
+@test "the policy module stays importable by the engine: no node: import, no mods \$" {
+  run grep -E '^import |from "node:' "$PLUGIN/hooks/rtk-rewrite.mjs"
+  assert_failure
+  run grep -F '$.' "$PLUGIN/hooks/rtk-rewrite.mjs"
+  assert_failure
 }
 
-@test "emitted JSON never contains permissionDecision" {
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
-  hook_run "$(make_input 'ls -la /tmp' '{"description":"list"}')"
-  assert_json '.hookSpecificOutput | has("permissionDecision") | not'
-}
-
-@test "every original tool_input field survives; only command changes" {
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
-  hook_run "$(make_input 'ls -la /tmp' '{"description":"list","timeout":600000,"run_in_background":true,"future_field":"keep-me"}')"
-  assert_success
-  assert_json '.hookSpecificOutput.updatedInput | .run_in_background == true and .timeout == 600000 and .description == "list" and .future_field == "keep-me" and .command == "rtk ls -la /tmp"'
-}
-
-@test "rtk returning the command unchanged produces no output" {
-  local same='{"hookSpecificOutput":{"hookEventName":"PreToolUse","updatedInput":{"command":"ls -la /tmp"}}}'
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$same'"
-  hook_run "$(make_input 'ls -la /tmp')"
-  assert_success
-  assert_output ''
-}
-
-@test "rtk printing nothing produces no output" {
-  rtk_stub "$LOCAL_BIN" 'exit 0'
-  hook_run "$(make_input 'echo hi')"
-  assert_success
-  assert_output ''
-}
-
-@test "rtk exiting non-zero produces no output" {
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$REWRITE_JSON'" 'exit 1'
-  hook_run "$(make_input 'ls -la /tmp')"
-  assert_success
-  assert_output ''
-}
-
-@test "rtk printing garbage produces no output" {
-  rtk_stub "$LOCAL_BIN" 'printf "not json at all\n"'
-  hook_run "$(make_input 'ls -la /tmp')"
-  assert_success
-  assert_output ''
-}
-
-@test "rtk hanging past the internal timeout produces no output" {
-  rtk_stub "$LOCAL_BIN" 'sleep 8' "printf '%s\n' '$REWRITE_JSON'"
-  hook_run "$(make_input 'ls -la /tmp')"
-  assert_success
-  assert_output ''
-}
-
-@test "a non-updatedInput decision shape produces no output (fail-open, never forwards permissionDecision)" {
-  local other='{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"blocked by rtk"}}'
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$other'"
-  hook_run "$(make_input 'rm -rf /')"
-  assert_success
-  assert_output ''
-}
-
-@test "managed rtk not installed produces no output" {
-  # No $LOCAL_BIN/rtk installed; a global rtk on PATH must not be adopted.
-  rtk_stub "$GLOBAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
-  hook_run_path "$(make_input 'ls -la /tmp')" "$GLOBAL_BIN:$MOCKBIN"
-  assert_success
-  assert_output ''
-}
-
-@test "non-executable managed binary produces no output" {
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
-  chmod -x "$LOCAL_BIN/rtk"
-  hook_run "$(make_input 'ls -la /tmp')"
-  assert_success
-  assert_output ''
-}
-
-@test "rtk not resolvable on PATH at all produces no output" {
-  # Managed rtk installed but ~/.local/bin not on PATH -> resolveRtkOnPath null -> no-op.
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
-  hook_run_path "$(make_input 'ls -la /tmp')" "$MOCKBIN"
-  assert_success
-  assert_output ''
-}
-
-@test "a global rtk earlier on PATH produces no output" {
-  # resolved=GLOBAL, sameFile(resolved, managed) false -> never double-wire.
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
-  rtk_stub "$GLOBAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
-  hook_run_path "$(make_input 'ls -la /tmp')" "$GLOBAL_BIN:$LOCAL_BIN:$MOCKBIN"
-  assert_success
-  assert_output ''
-}
-
-@test "a valid symlink at the managed path is accepted (rewrite happens)" {
-  # A stow/asdf/mise-style user install: the managed path is a symlink that resolves to an
-  # executable rtk, and PATH still resolves the bare `rtk` word to that same symlink.
-  rtk_stub "$GLOBAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
-  ln -s "$GLOBAL_BIN/rtk" "$LOCAL_BIN/rtk"
-  hook_run "$(make_input 'ls -la /tmp')"
-  assert_success
-  assert_json '.hookSpecificOutput.updatedInput.command == "rtk ls -la /tmp"'
-}
-
-@test "a dangling symlink at the managed path produces no output" {
-  ln -s "$BATS_TEST_TMPDIR/does-not-exist" "$LOCAL_BIN/rtk"
-  hook_run "$(make_input 'ls -la /tmp')"
-  assert_success
-  assert_output ''
-}
-
-@test "the plugin's own bin/rtk PATH-bridge wrapper is accepted, not treated as a competing install" {
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
-  local plugin_bin="$FAKE_PLUGIN/bin"
-  mkdir -p "$plugin_bin"
-  cat > "$plugin_bin/rtk" <<EOF
-#!/usr/bin/env bash
-exec "$LOCAL_BIN/rtk" "\$@"
-EOF
-  chmod +x "$plugin_bin/rtk"
-  hook_run_path "$(make_input 'ls -la /tmp')" "$plugin_bin:$MOCKBIN"
-  assert_success
-  assert_json '.hookSpecificOutput.updatedInput.command == "rtk ls -la /tmp"'
-}
-
-@test "a non-Bash tool_name produces no output" {
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
-  hook_run "$(jq -cn '{hook_event_name:"PreToolUse", tool_name:"Write", tool_input:{file_path:"/tmp/x"}}')"
-  assert_success
-  assert_output ''
-}
-
-@test "an empty command produces no output" {
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
-  hook_run "$(make_input '')"
-  assert_success
-  assert_output ''
-}
-
-@test "malformed stdin JSON produces no output" {
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
-  hook_run 'this is not json'
-  assert_success
-  assert_output ''
-}
-
-@test "toggle: CLAUDE_PLUGIN_OPTION_AUTO_REWRITE=false disables the rewrite" {
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
-  hook_run "$(make_input 'ls -la /tmp')" CLAUDE_PLUGIN_OPTION_AUTO_REWRITE=false
-  assert_success
-  assert_output ''
-}
-
-@test "toggle: unset, empty, true and an uninterpolated placeholder all stay enabled" {
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
-  hook_run "$(make_input 'ls -la /tmp')"
-  assert_json '.hookSpecificOutput.updatedInput.command == "rtk ls -la /tmp"'
-  hook_run "$(make_input 'ls -la /tmp')" CLAUDE_PLUGIN_OPTION_AUTO_REWRITE=
-  assert_json '.hookSpecificOutput.updatedInput.command == "rtk ls -la /tmp"'
-  hook_run "$(make_input 'ls -la /tmp')" CLAUDE_PLUGIN_OPTION_AUTO_REWRITE=true
-  assert_json '.hookSpecificOutput.updatedInput.command == "rtk ls -la /tmp"'
-  hook_run "$(make_input 'ls -la /tmp')" 'CLAUDE_PLUGIN_OPTION_AUTO_REWRITE=${user_config.auto_rewrite}'
-  assert_json '.hookSpecificOutput.updatedInput.command == "rtk ls -la /tmp"'
-}
-
-# --- steer branch (context-mode): deny-steers read-only gather commands; everything
-# --- else falls through to the rtk rewrite branch below. Classifier internals are
-# --- unit-tested in rtk-rewrite.test.mjs; these cases pin the end-to-end routing.
-
-@test "steer: a read-only 3-segment chain is denied toward ctx_batch_execute, rtk never consulted" {
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
-  hook_run "$(make_input 'grep -rn foo src && wc -l file && cat README.md')"
-  assert_success
-  # One combined filter: assert_json consumes $output, so it must not be chained.
-  assert_json '.hookSpecificOutput | (.permissionDecision == "deny") and (has("updatedInput") | not) and (.permissionDecisionReason | contains("ctx_batch_execute") and contains("grep -rn foo src") and contains("Do not retry") and contains("steer_enabled"))'
-}
-
-@test "steer: a bare curl GET is denied toward ctx_fetch_and_index" {
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
-  hook_run "$(make_input 'curl -sSL https://example.com/api/items')"
-  assert_success
-  assert_json '.hookSpecificOutput | (.permissionDecision == "deny") and (.permissionDecisionReason | contains("ctx_fetch_and_index") and contains("https://example.com/api/items"))'
-}
-
-@test "steer: a read-only 3-stage pipeline is denied toward ctx_execute" {
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
-  hook_run "$(make_input 'cat log.txt | grep ERROR | sort | uniq -c')"
-  assert_success
-  assert_json '.hookSpecificOutput | (.permissionDecision == "deny") and (.permissionDecisionReason | contains("ctx_execute") and contains("\"language\": \"shell\""))'
-}
-
-@test "steer: git/gh chains stay in Bash and get the rtk rewrite instead" {
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
-  hook_run "$(make_input 'git status && git log --oneline -5 && git diff' '{"description":"list"}')"
-  assert_success
-  assert_json '.hookSpecificOutput | (.updatedInput.command == "rtk ls -la /tmp") and (has("permissionDecision") | not)'
-}
-
-@test "linked worktree: a git rewrite is withheld so the isolation guard never sees an rtk-wrapped git call" {
-  read -r repo linked <<< "$(make_worktree repo1 lte-hook-test-1)"
-  local rewrite='{"hookSpecificOutput":{"hookEventName":"PreToolUse","updatedInput":{"command":"rtk git status"}}}'
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$rewrite'"
-  hook_run "$(make_input_cwd 'git status' "$linked")"
-  assert_success
-  assert_output ''
-}
-
-@test "linked worktree: a non-git rewrite still applies (only git is guarded)" {
-  read -r repo linked <<< "$(make_worktree repo2 lte-hook-test-2)"
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
-  hook_run "$(make_input_cwd 'ls -la /tmp' "$linked" '{"description":"list"}')"
-  assert_success
-  assert_json '.hookSpecificOutput.updatedInput.command == "rtk ls -la /tmp"'
-}
-
-@test "main worktree (not linked): the git rewrite still applies" {
-  read -r repo linked <<< "$(make_worktree repo3 lte-hook-test-3)"
-  local rewrite='{"hookSpecificOutput":{"hookEventName":"PreToolUse","updatedInput":{"command":"rtk git status"}}}'
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$rewrite'"
-  hook_run "$(make_input_cwd 'git status' "$repo")"
-  assert_success
-  assert_json '.hookSpecificOutput.updatedInput.command == "rtk git status"'
-}
-
-@test "no cwd given: the git rewrite still applies (fail-open, matches pre-fix behavior)" {
-  local rewrite='{"hookSpecificOutput":{"hookEventName":"PreToolUse","updatedInput":{"command":"rtk git status"}}}'
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$rewrite'"
-  hook_run "$(make_input 'git status')"
-  assert_success
-  assert_json '.hookSpecificOutput.updatedInput.command == "rtk git status"'
-}
-
-@test "steer: a backgrounded gather command is never steered (ctx tools cannot background)" {
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
-  hook_run "$(make_input 'grep -rn foo src && wc -l file && cat README.md' '{"run_in_background":true}')"
-  assert_success
-  assert_json '.hookSpecificOutput | (has("permissionDecision") | not) and (.updatedInput.command == "rtk ls -la /tmp")'
-}
-
-@test "steer toggle: CLAUDE_PLUGIN_OPTION_STEER_ENABLED=false disables the steer, rewrite still runs" {
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
-  hook_run "$(make_input 'grep -rn foo src && wc -l file && cat README.md')" CLAUDE_PLUGIN_OPTION_STEER_ENABLED=false
-  assert_success
-  assert_json '.hookSpecificOutput | (has("permissionDecision") | not) and (.updatedInput.command == "rtk ls -la /tmp")'
-}
-
-@test "steer runs independently of auto_rewrite: both toggles off produce no output" {
-  rtk_stub "$LOCAL_BIN" "printf '%s\n' '$REWRITE_JSON'"
-  hook_run "$(make_input 'grep -rn foo src && wc -l file && cat README.md')" CLAUDE_PLUGIN_OPTION_AUTO_REWRITE=false
-  assert_success
-  assert_json '.hookSpecificOutput.permissionDecision == "deny"'
-  hook_run "$(make_input 'grep -rn foo src && wc -l file && cat README.md')" \
-    CLAUDE_PLUGIN_OPTION_AUTO_REWRITE=false CLAUDE_PLUGIN_OPTION_STEER_ENABLED=false
-  assert_success
-  assert_output ''
-}
-
-@test "hooks.json wires PreToolUse/Bash to the hook with no node prefix" {
-  run jq -e '.hooks.PreToolUse[0].matcher == "Bash"' "$HOOKS"
-  assert_success
-  run jq -e '.hooks.PreToolUse[0].hooks[0].type == "command" and .hooks.PreToolUse[0].hooks[0].command == "${CLAUDE_PLUGIN_ROOT}/hooks/rtk-rewrite.mjs" and .hooks.PreToolUse[0].hooks[0].timeout == 10' "$HOOKS"
-  assert_success
-  run jq -e '.hooks.PreToolUse[0].hooks[0] | has("async") | not' "$HOOKS"
-  assert_success
+@test "the webfetch-steer entry point is gone and no code, config or test references it" {
+  [ ! -e "$PLUGIN/hooks/webfetch-steer.mjs" ]
+  run grep -rF --exclude='*.md' --exclude=hook.bats 'webfetch-steer' "$PLUGIN" "$REPO_ROOT/test/linux-token-efficiency"
+  assert_failure
 }
 
 @test "hooks.json contains no user_config placeholder" {
@@ -364,8 +66,26 @@ EOF
 }
 
 @test "rtk-rewrite.mjs is executable in the git index (100755)" {
-  # Index, not HEAD: this suite runs before the adding commit exists.
+  # hooks-executable rule: every hooks/*.mjs keeps 100755, though the engine imports it.
   run git -C "$REPO_ROOT" ls-files --stage -- plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs
   assert_success
   assert_line --regexp '^100755 [0-9a-f]+ 0[[:space:]]+plugins/linux-token-efficiency/hooks/rtk-rewrite\.mjs$'
+}
+
+@test "mod source and wiring-test files exist" {
+  [ -f "$PLUGIN/hooks/register.ts" ]
+  [ -f "$PLUGIN/hooks/rtk-rewrite.mjs" ]
+  [ -f "$PLUGIN/tests/linux-token-efficiency.test.ts" ]
+}
+
+@test "claude plugin validate succeeds" {
+  command -v claude > /dev/null || skip "claude CLI unavailable"
+  run env HOME="$REAL_HOME" claude plugin validate "$PLUGIN"
+  assert_success
+}
+
+@test "claude plugin test succeeds" {
+  command -v claude > /dev/null || skip "claude CLI unavailable"
+  run env HOME="$REAL_HOME" claude plugin test "$PLUGIN"
+  assert_success
 }

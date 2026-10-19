@@ -2,7 +2,7 @@
 # context-mode-launch.sh -- runtime launcher for the EXTERNAL `context-mode` npm package
 # (upstream: https://github.com/mksglu/context-mode), registered as this plugin's
 # `context-mode` MCP stdio server. Prefers bun (bunx); falls back to npx; errors if neither
-# is available. Unlike bin/mjs-launch.sh in coding-toolbox/universal-format/claude-code-knowledge,
+# is available. Unlike universal-format's bin/mjs-launch.sh,
 # there is no local .mjs to exec -- the target is a published package spec, so there is no
 # mandatory argv and no missing-argument guard.
 # stdout MUST stay clean (stdio MCP channel); all messages -> stderr.

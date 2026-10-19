@@ -21,7 +21,7 @@ At SessionStart the plugin installs rtk to `~/.local/bin/rtk` (when absent); it 
 hand as `rtk …` even when `~/.local/bin` itself is not on your `PATH`, via a small bridge wrapper
 the plugin also puts on `PATH` (a small wrapper under the plugin's own `bin/`, always added while
 the plugin is enabled), and the
-rewrite gracefully no-ops when neither resolves. On top of that, a `PreToolUse` hook routes each Bash command: a
+rewrite gracefully no-ops when neither resolves. On top of that, an in-process hook (a mods `tool.call` hook, no process per call) routes each Bash command: a
 conservatively classified read-only gather command (a bare `curl` GET, a ≥3-command chain of text
 tools like `grep`/`cat`/`wc`, or a ≥3-stage text pipeline) is denied with a ready-to-use
 replacement call on context-mode's `ctx_fetch_and_index` / `ctx_batch_execute` / `ctx_execute`
@@ -44,7 +44,7 @@ Set via `/plugin manage`, stored in settings.json under
 | `steer_enabled` | `true`  | `true` (or unset): deny-steer WebFetch and read-only Bash gather commands to context-mode's `ctx_*` tools (see "context-mode steering" below). `false`: no steering — the escape hatch when the context-mode server is unavailable. Does not affect the rtk rewrite. Only the literal value `false` disables.       |
 
 The `context-mode` server (below) has no toggle — it is always enabled. `steer_enabled` gates only
-the two steering hooks, never the server itself.
+the two steering hooks, never the server itself. Changing an option reloads the hooks module.
 
 ## When the hook does nothing
 
@@ -54,16 +54,19 @@ replacement in hand). The rewrite deliberately no-ops when:
 
 - the host is not Linux;
 - `auto_rewrite` is set to `false`;
+- `HOME` is unset or blank;
 - `~/.local/bin/rtk` is not yet installed (SessionStart install pending or `rtk_enabled=false`), or
   does not resolve — following a symlink — to a regular file (a symlinked install is fine; a
-  dangling symlink or a directory is not), or nothing on the Bash `PATH` resolves to `rtk` at all;
+  dangling symlink or a directory is not);
 - **a global `rtk` install appears earlier on `PATH`** — that install and its own hook already own
   the rewrite, and this plugin never double-wires (its own PATH-bridge wrapper under `bin/` is not
   treated as a competing install). On such a machine (a maintainer's own, typically)
   the plugin looks inert by design;
-- `rtk` does not resolve on `PATH` at all — the hook never emits a command it has no evidence can
-  run;
+- `rtk` resolves neither on `PATH` nor through the plugin's own bridge — the hook never emits a
+  command it has no evidence can run;
 - the bundled rtk exits non-zero, times out (5 s) or prints anything other than its rewrite JSON;
+- the rewrite names `git` and the session runs in a linked git worktree (the harness's
+  worktree-isolation guard refuses an `rtk git …` call there, so the plain `git …` runs instead);
 - the host is Linux but not x86_64 — the musl binary cannot exec there, the spawn fails and the
   command runs unmodified (no token savings until an aarch64 binary is bundled).
 
@@ -145,7 +148,7 @@ integrity. context-mode keeps its own SQLite knowledge base at its upstream defa
 copied byte-for-byte, and a `SessionStart` hook literally runs `cat` on it, so its ~5 KB of rules are
 injected on every `startup`, `resume`, `clear` and `compact`.
 
-**context-mode steering** (`steer_enabled`, default on). Two `PreToolUse` hooks turn the routing
+**context-mode steering** (`steer_enabled`, default on). Two in-process tool-call hooks (on Bash and WebFetch) turn the routing
 rules from advice into enforcement, each deny carrying a complete, ready-to-use replacement call:
 
 | Denied call                                                                          | Replacement in the deny reason                       |

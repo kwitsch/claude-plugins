@@ -1,57 +1,37 @@
-#!/usr/bin/env node
-// hooks/rtk-rewrite.mjs — linux-token-efficiency plugin: PreToolUse Bash router.
-// One synchronous hook, two exits (two separate hooks on the same matcher would race
-// deny against updatedInput):
+// hooks/rtk-rewrite.mjs — linux-token-efficiency plugin: the pure policy behind the
+// mods hooks module's PreToolUse-equivalent `tool.call` hooks (hooks/register.ts).
+// Zero-dep, no `node:` import and never the mods `$`: the engine refuses passing `$`
+// into an imported function, and a mods module is not known to load node built-ins.
+// Every file system, environment and process access lives in register.ts.
+//
+// The Bash hook is a router with two exits, in this order:
 //
 // 1. STEER (context-mode): a conservatively classified read-only gather command —
 //    a bare curl GET, a >=3-segment chain of text tools, or a >=3-stage text
 //    pipeline — is denied with a copy-ready replacement call on context-mode's
-//    ctx_fetch_and_index / ctx_batch_execute / ctx_execute. This is the ONLY path
-//    that ever emits permissionDecision. Gated by the steer_enabled toggle.
-// 2. REWRITE (rtk): everything else is piped verbatim into the bundled binary's own
+//    ctx_fetch_and_index / ctx_batch_execute / ctx_execute. Gated by steer_enabled.
+// 2. REWRITE (rtk): everything else is piped into the managed binary's own
 //    `rtk hook claude` protocol (spawned by ABSOLUTE path) and rtk's rewritten command
-//    is forwarded back as hookSpecificOutput.updatedInput. The emitted command keeps
-//    rtk's bare `rtk …` word: when ~/.local/bin is on the Bash PATH, so it resolves to
-//    the managed binary — no path rewriting, no PATH prefix. Gated by the auto_rewrite
-//    toggle.
+//    replaces `command`. The command keeps rtk's bare `rtk …` word — no path
+//    rewriting, no PATH prefix. Gated by auto_rewrite.
 //
 // The split is the deliberate rtk/context-mode balance: git/gh and other side-effect
 // or single commands STAY in Bash under rtk compression (the measured winner for that
 // class); only the read-only gather class rtk does not rewrite is steered into the
 // context-mode sandbox, where output is indexed instead of entering context.
-//
-// Fail-open everywhere: every failure path is a bare `return` inside main()'s single
-// try/catch (no process.exit), so the process exits 0 having printed nothing and the
-// Bash command runs unmodified. Ordered guards: platform -> stdin size/parse
-// -> Bash + non-empty command -> steer classification -> rewrite toggle -> managed
-// ~/.local/bin/rtk executable + a regular file -> `rtk` resolves on PATH and resolves to
-// THIS binary (a global rtk install owns the rewrite instead) -> spawn.
-// Platform is checked before touching stdin: on any non-Linux host every Bash call
-// would otherwise pay for a readFileSync(0) + JSON.parse it can never use.
-// Not async in hooks.json: a PreToolUse hook returning updatedInput must be synchronous.
-import process from "node:process";
-import os from "node:os";
-import { spawnSync } from "node:child_process";
-import { accessSync, readFileSync, realpathSync, statSync, constants as fsConstants } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 
-/** This plugin's own bin/rtk -- a committed PATH-bridge wrapper (see bin/rtk) that always
- *  execs the managed ~/.local/bin/rtk. Resolving to it is NOT a competing rtk install, so it
- *  must not trip the "never double-wire" guard below the way a genuine global rtk would. */
-const PLUGIN_BIN_RTK = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "bin", "rtk");
-
-const STDIN_CAP = 1024 * 1024; // same cap as coding-toolbox/hooks/encoding-guard.mjs
-const RTK_SPAWN_TIMEOUT_MS = 5000; // stays well under hooks.json's timeout: 10
-const RTK_MAX_OUTPUT_BYTES = 1024 * 1024; // spawnSync default is 1 MiB; pinned explicitly
-const GIT_WORKTREE_CHECK_TIMEOUT_MS = 2000; // two rev-parse calls; 5000 + 2*2000 stays under hooks.json's timeout: 10
+/** Same cap the command hook applied to its stdin: a larger command is left alone. */
+export const INPUT_CAP = 1024 * 1024;
+/** `rtk hook claude` round-trip bound; a slower rtk means no rewrite. */
+export const RTK_SPAWN_TIMEOUT_MS = 5000;
+/** One `git rev-parse --git-dir --git-common-dir` call. */
+export const GIT_WORKTREE_CHECK_TIMEOUT_MS = 2000;
 
 /**
- * userConfig toggle read (CLAUDE_PLUGIN_OPTION_AUTO_REWRITE), fail-open per
- * .claude/rules/plugin-userconfig.md: unset, empty, "true" and an uninterpolated
- * `${user_config.auto_rewrite}` placeholder all count as enabled; only the literal
- * string "false" disables.
- * @param {string|undefined} value
+ * auto_rewrite toggle, fail-open per .claude/rules/plugin-userconfig.md: unset, empty,
+ * true/"true" and an uninterpolated `${user_config.auto_rewrite}` placeholder all count
+ * as enabled; only false / the literal string "false" disables.
+ * @param {unknown} value
  * @returns {boolean}
  */
 export function isAutoRewriteEnabled(value) {
@@ -59,15 +39,14 @@ export function isAutoRewriteEnabled(value) {
 }
 
 /**
- * steer_enabled toggle (CLAUDE_PLUGIN_OPTION_STEER_ENABLED), same fail-open semantics
- * as auto_rewrite: only the literal string "false" disables the context-mode steering.
- * @param {string|undefined} value
+ * steer_enabled toggle, same fail-open semantics as auto_rewrite: only false / the
+ * literal string "false" disables the context-mode steering.
+ * @param {unknown} value
  * @returns {boolean}
  */
 export function isSteerEnabled(value) {
   return String(value ?? "").trim() !== "false";
 }
-
 // Full MCP tool-name prefix for the plugin-bundled context-mode server. Deny reasons
 // spell it out once so the model can call the tool without guessing the namespace.
 const CTX_TOOL_PREFIX = "mcp__plugin_linux-token-efficiency_context-mode__";
@@ -318,31 +297,23 @@ export function hasGitOperand(command) {
 }
 
 /**
- * Whether cwd resolves inside a linked git worktree (a checkout whose git-dir lives
- * elsewhere, shared with a main/other worktree) rather than the main worktree -- the
- * same same-file (`-ef`) comparison coding-toolbox's fresh-pr/finish-pr SKILL.md
- * `!`-injected git-context blocks already use in shell form. False (not detected as
- * linked -- including any spawn/parse failure, or cwd not being a git repo at all) is
- * always the safe default: the caller only special-cases the true branch, so
- * "undetermined" falls back to today's existing rewrite behavior, never a new failure
- * mode.
- * @param {string|undefined} cwd
- * @returns {boolean}
+ * The git dir and the common dir from one `git rev-parse --git-dir --git-common-dir`
+ * run in `cwd`, each made absolute against `cwd` (git prints a relative `.git` from
+ * a worktree root). Null unless git exited 0 with exactly those two lines. register.ts
+ * resolves both through the file system: a linked worktree is a checkout whose
+ * resolved git dir differs from its resolved common dir — the same `-ef` comparison
+ * coding-toolbox's fresh-pr/finish-pr git-context blocks use in shell form.
+ * @param {number} exitCode
+ * @param {string} stdout
+ * @param {string} cwd absolute
+ * @returns {[string, string]|null}
  */
-export function isLinkedWorktree(cwd) {
-  const opts = { encoding: "utf8", timeout: GIT_WORKTREE_CHECK_TIMEOUT_MS, cwd: cwd || undefined };
-  try {
-    const gitDir = spawnSync("git", ["rev-parse", "--git-dir"], opts);
-    const commonDir = spawnSync("git", ["rev-parse", "--git-common-dir"], opts);
-    if (gitDir.error || gitDir.status !== 0 || gitDir.signal) return false;
-    if (commonDir.error || commonDir.status !== 0 || commonDir.signal) return false;
-    const base = cwd || process.cwd();
-    const a = realpathSync(path.resolve(base, String(gitDir.stdout).trim()));
-    const b = realpathSync(path.resolve(base, String(commonDir.stdout).trim()));
-    return a !== b;
-  } catch {
-    return false;
-  }
+export function gitDirs(exitCode, stdout, cwd) {
+  if (exitCode !== 0) return null;
+  const lines = stdout.trim().split("\n");
+  if (lines.length !== 2 || lines.some((l) => l.trim() === "")) return null;
+  const abs = (/** @type {string} */ p) => (p.startsWith("/") ? p : `${cwd.replace(/\/+$/, "")}/${p}`);
+  return [abs(lines[0].trim()), abs(lines[1].trim())];
 }
 
 /**
@@ -356,178 +327,79 @@ function usableHome(value) {
 }
 
 /**
- * The plugin-managed rtk install path (${HOME}/.local/bin/rtk). Resolves the home
- * directory the same way rtk-install.mjs's resolveHome() does — env.HOME when usable,
- * else os.homedir() — so the two stay in agreement about where rtk was installed.
- * Returns null only when neither source yields a usable home. Never returns a
- * ${-bearing path.
- * @param {Record<string, string|undefined>} env
+ * The plugin-managed rtk install path (${HOME}/.local/bin/rtk), or null when HOME is
+ * unusable (unset, blank, or a `${`-bearing placeholder). Never returns a `${`-bearing
+ * path. shortcut: no os.homedir() passwd fallback (a mods module has no such API), so
+ * an unset HOME means no rewrite; upgrade if a host without HOME ever matters.
+ * @param {{HOME?: string}} env
  * @returns {string|null}
  */
 export function resolveManagedRtk(env) {
-  let home = null;
-  if (usableHome(env.HOME)) {
-    home = String(env.HOME).trim();
-  } else {
-    try {
-      const h = os.homedir();
-      if (usableHome(h)) home = h;
-    } catch {
-      home = null;
-    }
-  }
-  if (home === null) return null;
-  return path.join(home, ".local", "bin", "rtk");
+  if (!usableHome(env.HOME)) return null;
+  return `${String(env.HOME).trim()}/.local/bin/rtk`;
 }
 
 /**
- * First executable `rtk` on the given PATH string, as an absolute path, or null.
- * Patterned after universal-lint's onPath(), but returns the resolved path.
+ * Where a bare `rtk` can resolve in the Bash tool, in lookup order: `<dir>/rtk` for
+ * every non-empty PATH entry, then this plugin's own `bin/rtk` PATH bridge — Claude
+ * Code appends each enabled plugin's `bin/` to the Bash PATH, not to its own.
  * @param {string|undefined} pathEnv
+ * @param {string} pluginBin absolute `<plugin root>/bin`
+ * @returns {string[]}
+ */
+export function rtkCandidates(pathEnv, pluginBin) {
+  return [...(pathEnv || "").split(":").filter((d) => d !== ""), pluginBin].map((d) => `${d.replace(/\/+$/, "")}/rtk`);
+}
+
+/**
+ * rtk's rewritten command from `rtk hook claude` stdout, or null when there is none to
+ * apply: empty output (no rewrite for this command), unparseable output, any shape
+ * other than a plain `hookSpecificOutput.updatedInput.command` string (e.g. rtk's own
+ * permissionDecision — never forwarded), or a command identical to the original.
+ * @param {string} stdout
+ * @param {string} original
  * @returns {string|null}
  */
-export function resolveRtkOnPath(pathEnv) {
-  for (const dir of (pathEnv || "").split(path.delimiter)) {
-    if (!dir) continue;
-    const candidate = path.join(dir, "rtk");
-    try {
-      accessSync(candidate, fsConstants.X_OK);
-      return candidate;
-    } catch {
-      /* keep looking */
-    }
-  }
-  return null;
-}
-
-/**
- * Do two paths name the same file on disk? False on any resolution error.
- * @param {string} a
- * @param {string} b
- * @returns {boolean}
- */
-export function sameFile(a, b) {
+export function parseRtkRewrite(stdout, original) {
+  const out = stdout.trim();
+  if (out === "") return null;
+  /** @type {any} */
+  let parsed;
   try {
-    return realpathSync(a) === realpathSync(b);
+    parsed = JSON.parse(out);
   } catch {
-    return false;
+    return null;
   }
+  const rewritten = parsed?.hookSpecificOutput?.updatedInput?.command;
+  if (typeof rewritten !== "string" || rewritten === original) return null;
+  return rewritten;
 }
 
 /**
- * The PreToolUse result: the ENTIRE original tool_input, with only `command` replaced.
- * updatedInput replaces the whole input object, so a freshly built {command,description}
- * would silently drop timeout / run_in_background and any future harness field.
- * Never emits permissionDecision — `allow` makes the harness drop updatedInput. The only
- * permissionDecision this hook ever emits is the steer branch's own deny (buildSteerDeny);
- * rtk's raw JSON is never forwarded (see the passthrough-rejection path below).
- * @param {Record<string, unknown>} toolInput
- * @param {string} command
+ * The deny steering one WebFetch URL to ctx_fetch_and_index. The reason is a complete
+ * replacement call plus an explicit "do not retry WebFetch" so the model cannot loop on
+ * the denial. Every URL steers: WebFetch has no comparable non-context-mode equivalent.
+ * @param {string} url
  * @returns {HookResult}
  */
-export function buildUpdatedInput(toolInput, command) {
-  /** @type {HookSpecificOutput} */
-  const hookSpecificOutput = {
-    hookEventName: "PreToolUse",
-    permissionDecisionReason: "rtk auto-rewrite (bundled)",
-    updatedInput: { ...toolInput, command },
+export function buildWebFetchDeny(url) {
+  let source = "web";
+  try {
+    source = new URL(url).hostname || "web";
+  } catch {
+    /* keep the fallback label */
+  }
+  const reason =
+    `context-mode steer: WebFetch is routed through the context-mode MCP server. ` +
+    `Do not retry WebFetch for this URL. Call ctx_fetch_and_index (${CTX_TOOL_PREFIX}ctx_fetch_and_index) with ` +
+    `{"url": ${JSON.stringify(url)}, "source": ${JSON.stringify(source)}}, then ctx_search(queries: [...]) ` +
+    `to read the indexed content — the raw page never enters the context window. ` +
+    `(Set the linux-token-efficiency plugin option steer_enabled to false to disable this routing.)`;
+  return {
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: reason,
+    },
   };
-  return { hookSpecificOutput };
 }
-
-// True only when this file is the process entry point, false when imported by a unit
-// test -- so importing never reads stdin.
-function isMainModule() {
-  try {
-    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
-  } catch {
-    return false;
-  }
-}
-
-/** @returns {void} */
-function main() {
-  try {
-    if (process.platform !== "linux") return;
-    const raw = readFileSync(0, "utf8");
-    if (raw.length > STDIN_CAP) return;
-    /** @type {ToolHookInput} */
-    const input = JSON.parse(raw);
-    if (input.tool_name !== "Bash") return;
-    const toolInput = input.tool_input;
-    if (!toolInput || typeof toolInput !== "object") return;
-    const original = toolInput.command;
-    if (typeof original !== "string" || original === "") return;
-
-    // STEER branch. Never for backgrounded commands: ctx_* tools cannot background,
-    // so denying one would strand the model without a replacement.
-    if (isSteerEnabled(process.env.CLAUDE_PLUGIN_OPTION_STEER_ENABLED) && toolInput.run_in_background !== true && toolInput.run_in_background !== "true") {
-      const steer = buildSteerDeny(classifyBashCommand(original));
-      if (steer !== null) {
-        process.stdout.write(JSON.stringify(steer) + "\n");
-        return;
-      }
-    }
-
-    // REWRITE branch.
-    if (!isAutoRewriteEnabled(process.env.CLAUDE_PLUGIN_OPTION_AUTO_REWRITE)) return;
-    const managed = resolveManagedRtk(process.env);
-    if (managed === null) return; // HOME unusable
-    try {
-      accessSync(managed, fsConstants.X_OK);
-    } catch {
-      return; // ~/.local/bin/rtk not installed yet (SessionStart install pending) — fail-open
-    }
-    try {
-      // Follows symlinks: a valid symlink at the managed path (e.g. a stow/asdf/mise-style
-      // user install) is accepted, since accessSync above already proved it resolves and is
-      // executable; only a non-regular file (directory, fifo, …) is rejected.
-      if (!statSync(managed).isFile()) return;
-    } catch {
-      return;
-    }
-    const resolved = resolveRtkOnPath(process.env.PATH);
-    if (resolved === null) return; // never emit an `rtk …` we have no evidence resolves (~/.local/bin not on PATH)
-    // A global rtk install owns the rewrite unless what resolved is either the managed binary
-    // itself or this plugin's own bin/rtk PATH-bridge wrapper (not a competing install).
-    if (!sameFile(resolved, managed) && !sameFile(resolved, PLUGIN_BIN_RTK)) return;
-
-    const result = spawnSync(managed, ["hook", "claude"], {
-      input: raw,
-      encoding: "utf8",
-      timeout: RTK_SPAWN_TIMEOUT_MS,
-      maxBuffer: RTK_MAX_OUTPUT_BYTES,
-      cwd: typeof input.cwd === "string" && input.cwd !== "" ? input.cwd : undefined,
-    });
-    if (result.error || result.signal) return; // checked before .status/.stdout
-    if (result.status !== 0) return;
-    const stdout = typeof result.stdout === "string" ? result.stdout.trim() : "";
-    if (stdout === "") return; // rtk had no rewrite for this command
-    /** @type {any} */
-    let parsed;
-    try {
-      parsed = JSON.parse(stdout);
-    } catch {
-      return;
-    }
-    const hso = parsed?.hookSpecificOutput;
-    const rewritten = hso?.updatedInput?.command;
-    // Anything other than a plain rewritten command (e.g. rtk's own permissionDecision)
-    // is rejected, not forwarded: this wrapper must never emit permissionDecision, and
-    // writing rtk's raw JSON through unchecked would do exactly that.
-    if (typeof rewritten !== "string") return;
-    if (rewritten === original) return; // nothing changed
-    // In a linked worktree, forwarding a rewrite that still names `git` (e.g. `rtk git
-    // status`) trips the harness's own worktree-isolation guard -- it refuses to run
-    // rtk with a git command among its operands because it can't verify cwd/root
-    // through the wrapper. Skip the rewrite there so the original `git ...` command
-    // runs directly instead, where the guard's own git-aware check applies normally.
-    if (hasGitOperand(rewritten) && isLinkedWorktree(typeof input.cwd === "string" ? input.cwd : undefined)) return;
-    const output = buildUpdatedInput(toolInput, rewritten);
-    process.stdout.write(JSON.stringify(output) + "\n");
-  } catch {
-    // fail open — no output, exit 0
-  }
-}
-
-if (isMainModule()) main();

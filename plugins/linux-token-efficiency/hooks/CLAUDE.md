@@ -4,7 +4,8 @@ Scope: `hooks/` and `hooks/hooks.json`. Toggles (`auto_rewrite`, `steer_enabled`
 
 ## Hook wiring (`hooks.json`)
 
-- This plugin backs nine hooks total; `hooks.json` and its `description` are the inventory — update both on any add/remove (a bats assertion ties the count to the description).
+- `hooks.json` holds both `"modules": ["./register.ts"]` (the mods hooks module: the Bash router and the WebFetch steer, see `## The mods module`) and a classic `"hooks"` block; both run.
+- The classic block backs seven classic hooks total; `hooks.json` and its `description` are the inventory — update both on any add/remove (a bats assertion ties the count to the description).
 - The four cbm entries are not all `mcp_tool`:
   - `SessionStart` is a `command` hook (`mcp/server.mjs --session-start-hook`) — see below.
   - `SubagentStart`, `PreToolUse` `Grep|Glob` and `PostToolUse` `Read` are `type: "mcp_tool"` on server `plugin:linux-token-efficiency:codebase-memory`.
@@ -23,55 +24,55 @@ Scope: `hooks/` and `hooks/hooks.json`. Toggles (`auto_rewrite`, `steer_enabled`
 - No `asyncRewake`: the branch has no exit-2 path, so wake-on-exit-2 would be inert and would contradict the fail-open "every failure returns `{}`, never a decision" invariant.
 - The second `SessionStart` entry (`cat` of `SessionStart.md`) does not double-inject: it delivers a different, static document no other handler produces.
 
-## `rtk-rewrite.mjs` — a router with two exits
+## The mods module (`register.ts` + `rtk-rewrite.mjs`)
 
-- `PreToolUse`/`Bash` **command** hook; not `async` (a hook returning `updatedInput` must run synchronously).
-- ONE hook on the matcher, deliberately: two hooks on the same matcher would race a `deny` against an `updatedInput`.
-- **Steer branch** (context-mode, gated by `steer_enabled`):
-  - Denies a conservatively classified read-only gather command: a single bare `curl` GET, a ≥3-segment chain whose every pipe-stage head is in the read-only text-tool set, or a ≥3-stage all-read-only pipeline.
+- Since 0.8.0 the two per-call `PreToolUse` command hooks (`rtk-rewrite.mjs` as a Bash router, `webfetch-steer.mjs`) are in-process `tool.call` hooks: no node process per Bash/WebFetch call. Layout and module rules follow `plugins/inline-headroom/CLAUDE.md` `## Layout`.
+- `register.ts` holds every `$` use; `rtk-rewrite.mjs` is the pure, zero-dep, JSDoc-typed policy (no `node:` import, never `$`), covered by root `tsc`, ESLint and `test/linux-token-efficiency/rtk-rewrite.test.mjs`. It keeps `100755` (hooks-executable rule), though nothing execs it.
+- Two hooks with distinct matchers (`{ tool: "Bash" }`, `{ tool: "WebFetch" }`); the Bash one registers only while `steer_enabled` or `auto_rewrite` is on, the WebFetch one only while `steer_enabled` is on. Toggles come from `options` (an options change reloads the module), with the same truthiness as before: only `false` / `"false"` disables.
+- Wiring tests: `tests/linux-token-efficiency.test.ts` (`claude plugin test`, local only); `hook.bats` runs `claude plugin validate`/`test` when `claude` is on `PATH`.
+
+### Bash router: two exits, steer first
+
+- ONE hook on the matcher, deliberately: a deny and a rewrite must not race.
+- **Steer** (context-mode, `steer_enabled`): a conservatively classified read-only gather command — a single bare `curl` GET, a ≥3-segment chain whose every pipe-stage head is in the read-only text-tool set, or a ≥3-stage all-read-only pipeline — is answered `{ deny }` with the former hook's exact `permissionDecisionReason` text (`buildSteerDeny`).
   - Never `wget`: its default is a file download, a side effect the steer cannot replicate.
-  - The deny carries a **copy-ready replacement call** on `ctx_fetch_and_index` / `ctx_batch_execute` / `ctx_execute` (full namespaced tool name) plus an explicit "do not retry via Bash" — the anti-denial-loop measure.
-  - The classifier (`splitTopLevel`/`commandHead`/`classifyBashCommand`) returns "stay" on ANYTHING beyond a flat quoted chain: substitution, redirects (`2>&1` too), subshells, background `&`, comments, newlines, unknown heads. The failure direction is always "command runs in Bash", never a wrong deny.
-  - Never steer `run_in_background` calls: `ctx_*` tools cannot background, so a deny would strand the model.
-- **Rewrite branch** (rtk, gated by `auto_rewrite`):
-  - Everything else spawns the managed binary **by absolute path** (`~/.local/bin/rtk hook claude`) and emits rtk's rewritten command **verbatim** — no `PATH` prefix, no absolute-path substitution.
-  - The bare `rtk` in that command resolves when `~/.local/bin` is on the Bash `PATH` (conventional, not guaranteed); otherwise the preflight below no-ops the hook.
-- This split IS the rtk/cbm/context-mode balance:
-  - git/gh and other side-effect or single commands stay in Bash under rtk compression.
-  - The read-only gather class rtk has no rewrite for goes to the context-mode sandbox, where output is indexed instead of entering context.
-  - Grep/Glob/Read stay cbm's domain untouched.
+  - The deny carries a **copy-ready replacement call** on `ctx_fetch_and_index` / `ctx_batch_execute` / `ctx_execute` (full namespaced tool name) plus an explicit "do not retry via Bash".
+  - The classifier (`splitTopLevel`/`commandHead`/`classifyBashCommand`) returns "stay" on ANYTHING beyond a flat quoted chain: substitution, redirects (`2>&1` too), subshells, background `&`, comments, newlines, unknown heads.
+  - Never steer `run_in_background` calls: `ctx_*` tools cannot background.
+- **Rewrite** (rtk, `auto_rewrite`): `$.process.run([~/.local/bin/rtk, "hook", "claude"], { cwd, stdin, timeoutMs: 5000 })` with the PreToolUse JSON (`hook_event_name`, `tool_name`, `cwd`, `tool_input` = the Bash arguments) on stdin; rtk's `updatedInput.command` (`parseRtkRewrite`) goes on as `next({ ...e, command })`, every other argument kept. A decision shape from rtk is never forwarded.
+- This split IS the rtk/cbm/context-mode balance: git/gh and other side-effect or single commands stay in Bash under rtk compression; the read-only gather class goes to the context-mode sandbox; Grep/Glob/Read stay cbm's domain.
+- Fail-open: every helper turns a failure (a rejected `$` call, a timeout, a non-zero exit, truncated stdout) into "no rewrite", and the hook calls `next` once, outside any `try`. A throwing hook is skipped by the engine anyway (`claude plugin validate` lists both as "gating hook without .catch": intended, no fail-closed guard here).
+- Platform: `$.fs.exists("/proc/version")`, probed once per module load, stands in for `process.platform === "linux"`; off Linux neither hook acts.
 
 ### Preflight (the rewrite no-ops when any holds)
 
-- `~/.local/bin/rtk` is absent (SessionStart install not landed yet) or does not resolve (following symlinks) to a regular file. A symlinked managed install (stow/asdf/mise) is accepted; a directory/fifo/other non-regular dirent is rejected.
-- `rtk` does not resolve on `PATH` at all — never emit an unresolvable command.
-- The resolved `rtk` is neither the managed `~/.local/bin/rtk` nor this plugin's own `bin/rtk` PATH-bridge (`PLUGIN_BIN_RTK`): a global `rtk init -g` install owns the rewrite then; never double-wire.
+- `HOME` is unusable (unset, blank, `${`-bearing). No `os.homedir()` passwd fallback any more: a mods module has no such API.
+- `~/.local/bin/rtk` does not stat (links followed) as a regular file: not installed yet, dangling, a directory.
+- The first `<dir>/rtk` that stats as a regular file, walking `PATH` (`$.env.get("PATH")`, the engine's) and then this plugin's own `bin/` (Claude Code appends each enabled plugin's `bin/` to the Bash `PATH`), resolves neither to the managed binary nor to the plugin's `bin/rtk` bridge: a global `rtk init -g` install owns the rewrite; never double-wire. Nothing found: no rewrite.
+- The fs API has no execute bit: a non-executable managed binary now fails at the spawn (same outcome: no rewrite), and a non-executable `rtk` ahead on `PATH` ends the walk where bash would skip it (`shortcut:` comment in `register.ts`).
 
 ### Linked-worktree guard on the git rewrite
 
-- A rewrite naming `git` among its operands (`git status` → `rtk git status`) is withheld — the original command runs in Bash — when `cwd` resolves inside a **linked** git worktree (`isLinkedWorktree`: the `--git-dir`/`--git-common-dir` comparison `coding-toolbox`'s `fresh-pr`/`finish-pr` use in shell form).
-- Why: the harness's worktree-isolation guard refuses to run rtk with a git operand in a worktree-isolated session (it cannot verify cwd/root through the opaque wrapper), which broke every dispatched agent/skill that runs git from a linked worktree.
-- `hasGitOperand` is a plain whitespace-token check (`git` as a standalone token, not a substring).
-- `isLinkedWorktree` is fail-open: any spawn/parse failure, or `cwd` not being a git repo, returns `false` and the rewrite applies.
-- Only `git` is guarded; `gh`/`glab` and other rewrites still apply in a linked worktree.
+- A rewrite naming `git` among its operands (`git status` → `rtk git status`) is withheld — the original command runs — when the session's cwd (`$.session.cwd()`, read inside the hook: a subagent's own) is inside a **linked** git worktree.
+- Detection: ONE `git rev-parse --git-dir --git-common-dir` (`$.process.run`, cwd, 2 s), both paths made absolute (`gitDirs`) and resolved via `$.fs.stat(…, { resolve: true })`; linked = they differ. Same answers as the former two `rev-parse` spawns + `realpathSync`, including inside `.git` and outside any repo. It runs only for a git-naming rewrite.
+- Why: the harness's worktree-isolation guard refuses to run rtk with a git operand in a worktree-isolated session (it cannot verify cwd/root through the opaque wrapper).
+- `hasGitOperand` is a plain whitespace-token check. Fail-open: any failure means "not linked", and the rewrite applies. Only `git` is guarded.
 
-### Output contract
+### Chain composition (other `tool.call` Bash rewriters)
 
-- `updatedInput` is `{ ...tool_input, command: final }`: it replaces the **entire** input object, so a fresh `{command, description}` would drop `timeout` / `run_in_background` and turn a backgrounded call into a blocking one.
-- Never emit `permissionDecision` on the rewrite (`allow` makes the harness drop `updatedInput`).
-- Every failure path is a bare `return` inside `main()`'s single `try/catch` — never `process.exit()`, matching `encoding-guard.mjs` and `lint-file.mjs`.
+- Mods composes rewrites: a hook above this one hands its command in as `e.command`; this hook classifies and rewrites THAT, and the hooks beneath see this hook's result. Cross-plugin order is the engine's (not pinned or documented here).
+- An already-rewritten `rtk …` command is passed on as is: rtk's own `hook claude` answers nothing for its own output (verified on rtk 0.48.0), so a second rtk rewriter is a no-op.
+- `git-sign-key` (also a Bash rewriter): above this hook, its `git -c gpg.format=ssh … commit` reaches rtk, which keeps the `-c` flags (`rtk git -c … commit`, verified). Beneath it, it receives `rtk git commit …`; its rewrite then has to treat a leading `rtk` as transparent, or signing is skipped.
 
-## `webfetch-steer.mjs`
+### WebFetch steer
 
-- `PreToolUse`/`WebFetch` **command** hook denying **every** WebFetch with a copy-ready `ctx_fetch_and_index` + `ctx_search` replacement that embeds `tool_input.url` and its hostname as the source label.
-- No classifier, unlike Bash: WebFetch has no comparable non-context-mode equivalent and no side-effect cases to protect.
-- Same `steer_enabled` gate (imported from `rtk-rewrite.mjs`) and same fail-open shape: any failure means WebFetch runs normally.
-- A command hook, knowingly against the decision tree's `mcp_tool` preference: the reason must embed `${tool_input.url}` dynamically, the cbm proxy is the wrong category for a context-mode steer, and a third MCP server for one gate is more machinery than it justifies.
-- The escape hatch for a down/unconnected context-mode server is the `steer_enabled` toggle — a command hook cannot check MCP connectivity (accepted limitation, stated in the toggle's description).
+- Denies **every** WebFetch with the former hook's exact text (`buildWebFetchDeny`): a copy-ready `ctx_fetch_and_index` + `ctx_search` replacement embedding the URL and its hostname as the source label.
+- No classifier: WebFetch has no comparable non-context-mode equivalent and no side-effect cases to protect.
+- The escape hatch for a down/unconnected context-mode server is `steer_enabled` (the hook does not check MCP connectivity).
 
 ## Steering decision
 
-- Only dynamic deny-steering with a copy-ready replacement call is wired (the two hooks above). `context-mode.bats` pins this shape: `PreToolUse` matchers exactly `["Bash","Grep|Glob","WebFetch"]`, `PostToolUse` length 1, every `mcp_tool` handler on the namespaced cbm server, no `context_guidance` literal in `hooks.json`. Changing it means revisiting this section.
+- Only dynamic deny-steering with a copy-ready replacement call is wired (the two module hooks above). `context-mode.bats` pins the classic shape: `PreToolUse` matchers exactly `["Grep|Glob"]`, `PostToolUse` length 1, every `mcp_tool` handler on the namespaced cbm server, no `context_guidance` literal in `hooks.json`. Changing it means revisiting this section.
 - NO static `<context_guidance><tip>` hooks, ever: upstream's `createBashGuidance`/`createGrepGuidance`/`createReadGuidance` restate what `SessionStart.md` already says, a per-call token cost in a token-efficiency plugin; `createExternalMcpGuidance` (`WebFetch`) is more machinery than a tip justifies.
 - NO Grep/Glob or Read steering: a context-mode hook there would stack against `hook_symbol_context` and contradict `hook_coverage_context`'s load-bearing fail-quiet contract (pinned by `cbm-hooks.bats`).
 
@@ -115,6 +116,6 @@ Scope: `hooks/` and `hooks/hooks.json`. Toggles (`auto_rewrite`, `steer_enabled`
 
 ## Mechanics with no in-repo precedent
 
-- **`spawnSync`'s `input` option** pipes the hook's stdin into the rtk child. Chosen over an async `spawn` write loop because the repo uses `spawnSync` exclusively and a `PreToolUse` `updatedInput` hook must be synchronous anyway.
+- **`$.process.run`'s `stdin`** pipes the PreToolUse JSON into the rtk child (it replaced the command hook's `spawnSync` `input`); one shot, whole output read, `timeoutMs` rejects.
 - **A hook whose `command` is a bare PATH-resolved system binary:** both static entries are `{"type":"command","command":"cat","args":["${CLAUDE_PLUGIN_ROOT}/hooks/<file>"]}` — the first hooks here that run a system tool instead of a bundled script. `cat` is POSIX-universal on the Linux hosts this plugin targets; exec form keeps the path an untokenized argument. A `.mjs` reader exists only to _transform_ its input; a static file that must not be transformed gets a bare `cat`.
 - **Runtime `checksums.txt` verification** on every download (`rtk-install.mjs` and `mcp/server.mjs`): see `mcp/CLAUDE.md` `## codebase-memory-mcp bundle`.
