@@ -2,8 +2,8 @@
 
 A dream skill that consolidates this project's auto-memory files, a
 self-improvement skill that reflects on a session's own efficiency, plus a
-Stop/SessionStart hook pair that nudges the next session to run a dream
-cycle.
+turn-end/session-start mods hook pair that nudges the next session to run a
+dream cycle.
 
 ## Install
 
@@ -32,7 +32,8 @@ no hard dependency, silent no-op if that plugin isn't installed.
 Only files that actually need a change are touched -- untouched memory files
 are left byte-for-byte alone.
 
-A `Stop` hook flags a genuinely new next session (not a same-session
-`/clear`, `/compact`, or `--resume`) as dream-due; a `SessionStart` hook
-consumes that flag and nudges Claude to run a cycle. On by default -- set
-`auto_dream` to `false` to keep the flag silent.
+An in-process mods hooks module (no hook process is spawned) flags each
+finished main-loop turn's project as dream-due; at the next genuinely new
+session (not a same-session `/clear`, `/compact`, `--resume`/`--continue`, or a
+mid-session plugin reload) it consumes that flag and nudges Claude to run a
+cycle. On by default -- set `auto_dream` to `false` to keep the flag silent.
