@@ -181,7 +181,7 @@ setup() {
 }
 
 @test "root package.json pins the three bundled prettier plugins exactly (no range prefix)" {
-  run jq -e '.devDependencies["prettier-plugin-java"] == "2.10.3" and .devDependencies["@prettier/plugin-php"] == "0.25.0" and .devDependencies["prettier-plugin-sh"] == "0.16.1"' "$REPO_ROOT/package.json"
+  run jq -e '.devDependencies["prettier-plugin-java"] == "2.11.0" and .devDependencies["@prettier/plugin-php"] == "0.25.0" and .devDependencies["prettier-plugin-sh"] == "0.16.1"' "$REPO_ROOT/package.json"
   assert_success
 }
 

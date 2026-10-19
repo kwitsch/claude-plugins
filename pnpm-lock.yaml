@@ -13,7 +13,7 @@ importers:
         version: 10.0.1(eslint@10.8.0)
       '@prettier/plugin-php':
         specifier: 0.25.0
-        version: 0.25.0(prettier@3.9.6)
+        version: 0.25.0(prettier@3.9.10)
       bats:
         specifier: ^1.13.0
         version: 1.13.0
@@ -30,14 +30,14 @@ importers:
         specifier: ^17.7.0
         version: 17.9.0
       prettier:
-        specifier: ^3.9.4
-        version: 3.9.6
+        specifier: ^3.9.10
+        version: 3.9.10
       prettier-plugin-java:
-        specifier: 2.10.3
-        version: 2.10.3(prettier@3.9.6)
+        specifier: 2.11.0
+        version: 2.11.0(prettier@3.9.10)
       prettier-plugin-sh:
         specifier: 0.16.1
-        version: 0.16.1(prettier@3.9.6)
+        version: 0.16.1(prettier@3.9.10)
       sh-syntax:
         specifier: 0.4.2
         version: 0.4.2
@@ -453,8 +453,8 @@ packages:
     resolution: {integrity: sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g==}
     engines: {node: '>= 0.8.0'}
 
-  prettier-plugin-java@2.10.3:
-    resolution: {integrity: sha512-/g52mTbsN2ee8JjLRpBWGGmcmRhdv2zRWyj4QbsL9CQ+nKR022GRJhebwEpRyaCc8hLV6aO3JPGNQyXp1DPrCA==}
+  prettier-plugin-java@2.11.0:
+    resolution: {integrity: sha512-pLwm2wHvVvW5eVVLf1cq2orY2ATaIj5ngN8hJ5ZdXYzUHzxrfaZkk2xmu8Mz/duBXAc2xT/cUH5+dK414HQSTw==}
     peerDependencies:
       prettier: ^3.0.0
 
@@ -464,8 +464,8 @@ packages:
     peerDependencies:
       prettier: ^3.0.3
 
-  prettier@3.9.6:
-    resolution: {integrity: sha512-OpN0zzVdiaiAhxpuuj5efpIS4sY9j7bY6uR5mnj5yPzGkdkjNKSJeUThPb60Jw29QuAZgA4o+/iB49kFiaBX6g==}
+  prettier@3.9.10:
+    resolution: {integrity: sha512-skGHTH1Yb9QvaTC4hWnRTzEYtCpApF0UMBPz+t/0ZPzP8ihefo/btKd+QA7pUE0fEwA1SbS/NmhyEcstdXOIdA==}
     engines: {node: '>=14'}
     hasBin: true
 
@@ -500,8 +500,8 @@ packages:
   uri-js@4.4.1:
     resolution: {integrity: sha512-7rKUyy33Q1yc98pQ1DAmLtwX109F7TIfWlW1Ydo8Wl1ii1SeHieeh0HHfPeL2fMXK6z0s8ecKs9frCuLJvndBg==}
 
-  web-tree-sitter@0.26.11:
-    resolution: {integrity: sha512-Q5Dm3YTIXSXuH6FxX6RuzX2Qwpc4DPGiYMU87Wg5Z8OIStiQFiUex4zMDc0vBTw78EphaYJacncJghCHzbZptg==}
+  web-tree-sitter@0.27.0:
+    resolution: {integrity: sha512-XK08gj6RwTMQatAG7uVRP8MunqotL/XC19vHgkSPKmELgbGPBj4ECvB8haHOUnyj6ls2B8t42UTro14zxGgAHg==}
 
   which@2.0.2:
     resolution: {integrity: sha512-BLI3Tl1TW3Pvl70l3yq3Y64i+awpwXqsGBYWkkqMtnbXgrMD+yj7rhW0kuEDxzJaYXGjEW5ogapKNMEKNMjibA==}
@@ -568,11 +568,11 @@ snapshots:
 
   '@humanwhocodes/retry@0.4.3': {}
 
-  '@prettier/plugin-php@0.25.0(prettier@3.9.6)':
+  '@prettier/plugin-php@0.25.0(prettier@3.9.10)':
     dependencies:
       linguist-languages: 8.2.0
       php-parser: 3.7.0
-      prettier: 3.9.6
+      prettier: 3.9.10
 
   '@types/esrecurse@4.3.1': {}
 
@@ -844,18 +844,18 @@ snapshots:
 
   prelude-ls@1.2.1: {}
 
-  prettier-plugin-java@2.10.3(prettier@3.9.6):
+  prettier-plugin-java@2.11.0(prettier@3.9.10):
     dependencies:
-      prettier: 3.9.6
-      web-tree-sitter: 0.26.11
+      prettier: 3.9.10
+      web-tree-sitter: 0.27.0
 
-  prettier-plugin-sh@0.16.1(prettier@3.9.6):
+  prettier-plugin-sh@0.16.1(prettier@3.9.10):
     dependencies:
       mvdan-sh: 0.10.1
-      prettier: 3.9.6
+      prettier: 3.9.10
       sh-syntax: 0.4.2
 
-  prettier@3.9.6: {}
+  prettier@3.9.10: {}
 
   punycode@2.3.1: {}
 
@@ -902,7 +902,7 @@ snapshots:
     dependencies:
       punycode: 2.3.1
 
-  web-tree-sitter@0.26.11: {}
+  web-tree-sitter@0.27.0: {}
 
   which@2.0.2:
     dependencies:
