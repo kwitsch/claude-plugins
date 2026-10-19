@@ -77,24 +77,30 @@ function canonicalize(text) {
 // machine (and worktree) that ran the build. Reusing the shim's own fallback keeps the artifact
 // self-contained; anchoring it one directory ("lib") deeper than the bundle's own directory
 // preserves sh-syntax's `path.resolve(__dirname, "../main.wasm")` lookup landing next to the
-// bundle, exactly where the other wasm sidecars are copied.
-const SH_SYNTAX_DIRNAME_RE =
-  /(\/\/ node_modules\/sh-syntax\/lib\/index\.js\nvar __dirname = )"[^"]*"(;\nvar _dirname = typeof __dirname === "undefined" \? (\w+)\.dirname\((\w+)\(import\.meta\.url\)\) : __dirname;)/;
+// bundle, exactly where the other wasm sidecars are copied. Because prettier-plugin-sh is reached
+// through a dynamic import, bun puts the module body behind a lazy `__esm` init wrapper and
+// hoists the `var __dirname = "…", _dirname, processor2;` declaration to the top level, so the
+// literal and the fallback line are matched separately (each exactly once).
+const SH_SYNTAX_DIRNAME_LITERAL_RE = /^var __dirname = "[^"]*"(?=[,;])/gm;
+const SH_SYNTAX_DIRNAME_FALLBACK_RE = /^\s*(?:var )?_dirname = typeof __dirname === "undefined" \? (\w+)\.dirname\((\w+)\(import\.meta\.url\)\) : __dirname;$/gm;
 
 /** Replace the hardcoded absolute path bun emits for sh-syntax's `__dirname` with an expression
- * built from the SAME import.meta.url fallback the next line already uses — reusing whatever
- * `path`/`fileURLToPath` local aliases bun picked this build, so nothing here depends on bun's
- * bundler-internal naming staying stable across builds. Throws if the known pattern is absent
- * (a sh-syntax/bun upgrade changed the shim shape): silently shipping the old absolute path back
- * is worse than a loud build failure. @param {string} text @returns {string} */
+ * built from the SAME import.meta.url fallback the shim's next statement already uses — reusing
+ * whatever `path`/`fileURLToPath` local aliases bun picked this build, so nothing here depends on
+ * bun's bundler-internal naming staying stable across builds. Throws unless both patterns match
+ * exactly once (a sh-syntax/bun upgrade changed the shim shape): silently shipping the old
+ * absolute path back is worse than a loud build failure. @param {string} text @returns {string} */
 function containShSyntaxDirname(text) {
-  if (!SH_SYNTAX_DIRNAME_RE.test(text)) {
-    throw new Error("build.mjs: sh-syntax's `var __dirname = \"…\";` shim line was not found — sh-syntax or bun's CJS interop shim changed shape; update SH_SYNTAX_DIRNAME_RE.");
+  const literals = [...text.matchAll(SH_SYNTAX_DIRNAME_LITERAL_RE)];
+  const fallbacks = [...text.matchAll(SH_SYNTAX_DIRNAME_FALLBACK_RE)];
+  if (literals.length !== 1 || fallbacks.length !== 1) {
+    throw new Error(
+      `build.mjs: expected exactly one sh-syntax \`var __dirname = "…"\` literal and one \`_dirname = typeof __dirname …\` fallback line, ` +
+        `found ${literals.length}/${fallbacks.length} — sh-syntax or bun's CJS interop shim changed shape; update the SH_SYNTAX_DIRNAME_* patterns.`,
+    );
   }
-  return text.replace(SH_SYNTAX_DIRNAME_RE, (_m, prefix, suffix, pathAlias, urlToPathAlias) => {
-    const dirnameExpr = `${pathAlias}.join(${pathAlias}.dirname(${urlToPathAlias}(import.meta.url)), "lib")`;
-    return `${prefix}${dirnameExpr}${suffix}`;
-  });
+  const [, pathAlias, urlToPathAlias] = fallbacks[0];
+  return text.replace(SH_SYNTAX_DIRNAME_LITERAL_RE, `var __dirname = ${pathAlias}.join(${pathAlias}.dirname(${urlToPathAlias}(import.meta.url)), "lib")`);
 }
 
 if (!haveBun()) {

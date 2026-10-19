@@ -8,9 +8,6 @@ import path from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import * as prettierNs from "prettier";
-import * as javaPluginNs from "prettier-plugin-java";
-import * as phpPluginNs from "@prettier/plugin-php";
-import * as shPluginNs from "prettier-plugin-sh";
 import { walkToRoot } from "./util.js";
 import { resolveEditorconfig } from "./editorconfig.js";
 
@@ -36,17 +33,48 @@ function asPlugin(ns: unknown): unknown {
  * LATEST release and loads two .wasm sidecars from this bundle's own directory (put there by
  * build.mjs); php is latest and pure JS; sh is pinned to its last pure-JS release on purpose --
  * newer releases are WASM-only and resolve their wasm OUTSIDE this bundle's directory. No plugin
- * OPTION is ever set from here (never experimentalWasm): a project's config is the only knob. */
-export const BUNDLED_PLUGINS: unknown[] = [asPlugin(javaPluginNs), asPlugin(phpPluginNs), asPlugin(shPluginNs)];
+ * OPTION is ever set from here (never experimentalWasm): a project's config is the only knob.
+ * Imported LAZILY through `import()`: `bun build` keeps each in the single-file bundle but behind a
+ * lazy init wrapper, so the module-scope work of all three (mvdan-sh's GopherJS runtime, the php
+ * printer tables, java's `Parser.init()` wasm load -- ~90 ms CPU and ~15 MB together, measured)
+ * runs on the first format that needs the plugin instead of at every server start. */
+const BUNDLED_PLUGIN_LOADERS = {
+  java: () => import("prettier-plugin-java"),
+  php: () => import("@prettier/plugin-php"),
+  shell: () => import("prettier-plugin-sh"),
+} as const;
+type BundledPluginName = keyof typeof BUNDLED_PLUGIN_LOADERS;
+const loadedBundledPlugins = new Map<BundledPluginName, Promise<unknown>>();
+
+/** Load (once) and return one bundled plugin object. The memoized promise is shared by every
+ * concurrent caller, so a burst of first formats evaluates the plugin exactly once. */
+function loadBundledPlugin(name: BundledPluginName): Promise<unknown> {
+  let loading = loadedBundledPlugins.get(name);
+  if (loading === undefined) {
+    loading = BUNDLED_PLUGIN_LOADERS[name]().then(asPlugin);
+    loadedBundledPlugins.set(name, loading);
+  }
+  return loading;
+}
+
+/** Which bundled plugins a format of `lang` needs: its own one for java/php/shell; all three for
+ * markdown, because prettier formats fenced ```java / ```php / ```sh blocks through them (this
+ * keeps a Markdown write byte-identical to the eager-import days); none for everything else, so a
+ * session that never touches those languages never evaluates them. */
+export function bundledPluginsFor(lang: string): BundledPluginName[] {
+  if (lang === "markdown") return ["java", "php", "shell"];
+  return Object.hasOwn(BUNDLED_PLUGIN_LOADERS, lang) ? [lang as BundledPluginName] : [];
+}
 
 // prettier-plugin-java starts `Parser.init()` in a module-scope IIFE, so a floating promise exists
-// from import time. If a .wasm sidecar is missing or corrupt that promise rejects with nothing
-// attached, which KILLS this process under node (verified: exit 1) and exits non-zero under bun --
-// taking down formatting for every OTHER language too. Downgrade it to a stderr note so the server
-// survives and only the affected language fails open. stdout is the JSON-RPC channel: never write
-// there. Deliberately process-global because the hazard is created by this module's own imports;
-// the cost is that an unrelated unhandled rejection is reported instead of fatal, which is the
-// correct trade for a hook whose entire contract is to fail open.
+// from the moment the plugin is first imported (now: the first java/markdown format). If a .wasm
+// sidecar is missing or corrupt that promise rejects with nothing attached, which KILLS this
+// process under node (verified: exit 1) and exits non-zero under bun -- taking down formatting for
+// every OTHER language too. Downgrade it to a stderr note so the server survives and only the
+// affected language fails open. stdout is the JSON-RPC channel: never write there. Deliberately
+// process-global and armed at import, before any plugin can load, because the hazard is created by
+// this module's own imports; the cost is that an unrelated unhandled rejection is reported instead
+// of fatal, which is the correct trade for a hook whose entire contract is to fail open.
 process.on("unhandledRejection", (reason: unknown) => {
   const msg = String((reason as { message?: string })?.message ?? reason).split("\n")[0];
   process.stderr.write(`[universal-format] background plugin init failed; that language will fail open: ${msg}\n`);
@@ -180,8 +208,9 @@ export async function formatInProcess(src: string, filePath: string, cwd: string
   // prettier without a parser (duplicate registration verified safe). Local array, never assigned
   // back into `config`: resolveConfig's result is cached inside prettier. The resolveConfigPlugins
   // null early-return above MUST stay ahead of this -- a project with an unresolvable custom
-  // plugin must keep getting "leave the file alone", not BUNDLED_PLUGINS-only formatting.
-  const plugins = [...(Array.isArray(config.plugins) ? config.plugins : []), ...BUNDLED_PLUGINS];
+  // plugin must keep getting "leave the file alone", not bundled-plugins-only formatting.
+  const bundled = await Promise.all(bundledPluginsFor(lang).map(loadBundledPlugin));
+  const plugins = [...(Array.isArray(config.plugins) ? config.plugins : []), ...bundled];
   return await bundledPrettier.format(src, { ...config, plugins, filepath: filePath });
 }
 
