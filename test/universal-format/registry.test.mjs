@@ -28,7 +28,7 @@ test("ruff: editorconfig maps line length + indent style/width", () => {
       },
     }),
     {
-      argv: ["format", "--quiet", "--line-length", "88", "--config", "format.indent-style='space'", "--config", "format.indent-width=4"],
+      argv: ["format", "--quiet", "--line-length", "88", "--config", "format.indent-style='space'", "--config", "indent-width=4"],
     },
   );
 });

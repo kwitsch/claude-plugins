@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=d3120c476bcf7cd4 body=85592ee43ae060f7 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=ac39f0340bf8cf2f body=b801e24d253031aa prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { fileURLToPath as __ufFileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 var __create = Object.create;
@@ -200641,7 +200641,7 @@ var MAPPERS = {
     if (ec.indent_style === "tab" || ec.indent_style === "space")
       argv.push("--config", `format.indent-style='${ec.indent_style}'`);
     if (typeof ec.indent_size === "number")
-      argv.push("--config", `format.indent-width=${ec.indent_size}`);
+      argv.push("--config", `indent-width=${ec.indent_size}`);
     return { argv };
   },
   black(base, ec) {
