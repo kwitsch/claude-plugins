@@ -340,11 +340,20 @@ export async function formatPre(args: ToolHookInput): Promise<HookResult> {
       if (merged === null) return {}; // absent OR non-unique -> let the original Edit proceed/err
       const formatted = toLf(await formatInProcess(merged, resolved, base, lang));
       if (formatted === merged) return {};
-      // null: prettier formatted the edit straight back to the pre-edit file, which no swap can
-      // express (the Edit tool rejects old === new). Fail open: the raw edit lands as written and
-      // the next Write/Edit of the file re-formats it.
+      // null: prettier formats the edit straight back to the pre-edit file, so the formatted result IS
+      // what is on disk. Letting the raw edit land would leave the file unformatted until its next
+      // write, so hand the Edit tool a no-op instead (old_string == new_string: rejected or applied as
+      // nothing, the file stays formatted either way) and tell Claude why.
       const swap = shrinkSwap(current, formatted);
-      if (swap === null) return {};
+      if (swap === null) {
+        return {
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            updatedInput: { file_path: fp, old_string: oldStr, new_string: oldStr, replace_all: replaceAll === true || replaceAll === "true" },
+            additionalContext: `universal-format: prettier formats this edit straight back to the current content of ${display}, so there is nothing to change; the Edit was turned into a no-op and the file is unchanged.`,
+          },
+        };
+      }
       return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp, ...swap, replace_all: false }, additionalContext: notice } };
     }
 

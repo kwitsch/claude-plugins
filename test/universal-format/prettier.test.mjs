@@ -253,15 +253,17 @@ test("format_pre Edit: a CRLF file is swapped in LF space, never with a CR", asy
   assert.deepEqual(await formatPre(hookInput({ cwd: crlfCwd, tool_name: "Edit", tool_input: { ...clean, file_path: crlfFp } })), {}, "endOfLine crlf: an already-formatted edit stays a plain Edit");
 });
 
-// An edit prettier formats straight back to the pre-edit file cannot be expressed as a swap (the
-// Edit tool rejects old===new), so the handler fails open: the raw edit lands as written and the
-// next Write/Edit of the file re-formats it.
-test("format_pre Edit: an edit prettier formats straight back yields {}", async () => {
+// An edit prettier formats straight back to the pre-edit file has no effect once formatted, so the
+// handler turns it into a no-op Edit (old_string == new_string) with a notice: the file stays
+// formatted instead of the raw, format-only edit landing and waiting for the next write.
+test("format_pre Edit: an edit prettier formats straight back becomes a no-op swap with a notice", async () => {
   const cwd = tmp("uf-pre-e3-");
   const fp = path.join(cwd, "a.json");
   writeFileSync(fp, '{ "a": 1 }\n');
-  const res = await formatPre(hookInput({ cwd, tool_name: "Edit", tool_input: { file_path: fp, old_string: '"a": 1', new_string: '"a":1' } }));
-  assert.deepEqual(res, {});
+  const res = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Edit", tool_input: { file_path: fp, old_string: '"a": 1', new_string: '"a":1' } })));
+  assert.deepEqual(res.hookSpecificOutput.updatedInput, { file_path: fp, old_string: '"a": 1', new_string: '"a": 1', replace_all: false });
+  assert.match(res.hookSpecificOutput.additionalContext, /nothing to change/);
+  assert.ok(!("permissionDecision" in res.hookSpecificOutput));
 });
 
 test("format_pre Edit: absent old_string -> {}", async () => {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=91769ca598eb7e95 body=91ae47de30f2fefd prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=d3120c476bcf7cd4 body=85592ee43ae060f7 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { fileURLToPath as __ufFileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 var __create = Object.create;
@@ -201365,8 +201365,15 @@ async function formatPre(args2) {
       if (formatted === merged)
         return {};
       const swap = shrinkSwap(current, formatted);
-      if (swap === null)
-        return {};
+      if (swap === null) {
+        return {
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            updatedInput: { file_path: fp2, old_string: oldStr, new_string: oldStr, replace_all: replaceAll3 === true || replaceAll3 === "true" },
+            additionalContext: `universal-format: prettier formats this edit straight back to the current content of ${display}, so there is nothing to change; the Edit was turned into a no-op and the file is unchanged.`
+          }
+        };
+      }
       return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp2, ...swap, replace_all: false }, additionalContext: notice } };
     }
     return {};
