@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=2c14e99437e44ae8 body=c175fa66b1a04b4b prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=9881edeebcfa4362 body=ddadbb30e3ecccda prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { dirname as __ufDirname, join as __ufJoin } from "node:path";
 import { fileURLToPath as __ufFileURLToPath } from "node:url";
 import { createRequire } from "node:module";
@@ -201346,7 +201346,13 @@ async function formatPre(args2) {
     if (args2.tool_name === "Edit") {
       if (!existsSync3(resolved))
         return {};
-      const current = readFileSync3(resolved, "utf8");
+      const raw = readFileSync3(resolved, "utf8");
+      const crlf = raw.includes(`\r
+`);
+      const toLf = (s) => crlf ? s.replaceAll(`\r
+`, `
+`) : s;
+      const current = toLf(raw);
       const oldStr = args2.tool_input.old_string;
       const newStr = args2.tool_input.new_string;
       if (typeof oldStr !== "string" || typeof newStr !== "string")
@@ -201355,7 +201361,7 @@ async function formatPre(args2) {
       const merged = applyEdit(current, oldStr, newStr, replaceAll3 === true || replaceAll3 === "true");
       if (merged === null)
         return {};
-      const formatted = await formatInProcess(merged, resolved, base, lang);
+      const formatted = toLf(await formatInProcess(merged, resolved, base, lang));
       if (formatted === merged)
         return {};
       const swap = shrinkSwap(current, formatted);
@@ -201490,6 +201496,8 @@ function startServer() {
         return fail(id3, -32601, `method not found: ${method}`);
     }
   };
+  for (const signal of ["SIGINT", "SIGTERM"])
+    process7.on(signal, () => process7.exit(0));
   process7.stderr.write(`[${SERVER_NAME}] running under ${detectRuntime()} (v${SERVER_INFO.version})
 `);
   const rl4 = readline.createInterface({ input: process7.stdin });

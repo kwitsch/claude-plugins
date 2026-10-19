@@ -227,6 +227,32 @@ test("format_pre Edit: a one-line file still swaps whole (the run IS the file)",
   assert.equal(res.hookSpecificOutput.updatedInput.new_string, '{ "a": 2 }\n');
 });
 
+// The Edit tool matches old_string against LF-normalized content and writes CRLF back to a CRLF
+// file itself, so the swap must never carry a CR (it could not match) and a multi-line old_string
+// typed as the model saw the file (LF) must still reach the formatter. A project that configures
+// `endOfLine: "crlf"` must not turn an already-formatted edit into a whole-file swap either.
+test("format_pre Edit: a CRLF file is swapped in LF space, never with a CR", async () => {
+  const cwd = tmp("uf-pre-crlf-");
+  const fp = path.join(cwd, "a.json");
+  writeFileSync(fp, '{\r\n  "a": 1,\r\n  "b": 2,\r\n  "c": 3\r\n}\r\n');
+  for (const [old_string, new_string] of [
+    ['"b": 2', '"b":   22'],
+    ['"b": 2,\n  "c": 3', '"b":   22,\n  "c": 3'],
+  ]) {
+    const res = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Edit", tool_input: { file_path: fp, old_string, new_string } })));
+    const swap = res.hookSpecificOutput.updatedInput;
+    assert.ok(!swap.old_string.includes("\r") && !swap.new_string.includes("\r"), "no CR may reach the Edit tool");
+    assert.equal(applyEdit('{\n  "a": 1,\n  "b": 2,\n  "c": 3\n}\n', swap.old_string, swap.new_string, false), '{\n  "a": 1,\n  "b": 22,\n  "c": 3\n}\n');
+  }
+  const clean = { file_path: fp, old_string: '"b": 2', new_string: '"b": 7' };
+  assert.deepEqual(await formatPre(hookInput({ cwd, tool_name: "Edit", tool_input: clean })), {}, "an already-formatted edit stays a plain Edit");
+  const crlfCwd = tmp("uf-pre-crlf-cfg-");
+  const crlfFp = path.join(crlfCwd, "a.json");
+  writeFileSync(path.join(crlfCwd, ".prettierrc"), '{ "endOfLine": "crlf" }\n');
+  writeFileSync(crlfFp, '{\r\n  "a": 1,\r\n  "b": 2\r\n}\r\n');
+  assert.deepEqual(await formatPre(hookInput({ cwd: crlfCwd, tool_name: "Edit", tool_input: { ...clean, file_path: crlfFp } })), {}, "endOfLine crlf: an already-formatted edit stays a plain Edit");
+});
+
 // An edit prettier formats straight back to the pre-edit file cannot be expressed as a swap (the
 // Edit tool rejects old===new), so the handler fails open: the raw edit lands as written and the
 // next Write/Edit of the file re-formats it.

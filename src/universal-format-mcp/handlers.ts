@@ -323,7 +323,13 @@ export async function formatPre(args: ToolHookInput): Promise<HookResult> {
 
     if (args.tool_name === "Edit") {
       if (!existsSync(resolved)) return {};
-      const current = readFileSync(resolved, "utf8");
+      // The Edit tool matches old_string against LF-normalized content and writes CRLF back to a CRLF
+      // file itself, so for such a file everything below runs in LF space: a `\r\n` in the swap's
+      // old_string could never match, and the Edit would fail instead of failing open.
+      const raw = readFileSync(resolved, "utf8");
+      const crlf = raw.includes("\r\n");
+      const toLf = (s: string) => (crlf ? s.replaceAll("\r\n", "\n") : s);
+      const current = toLf(raw);
       const oldStr = args.tool_input.old_string;
       const newStr = args.tool_input.new_string;
       if (typeof oldStr !== "string" || typeof newStr !== "string") return {};
@@ -331,7 +337,7 @@ export async function formatPre(args: ToolHookInput): Promise<HookResult> {
       const replaceAll = args.tool_input.replace_all;
       const merged = applyEdit(current, oldStr, newStr, replaceAll === true || replaceAll === "true");
       if (merged === null) return {}; // absent OR non-unique -> let the original Edit proceed/err
-      const formatted = await formatInProcess(merged, resolved, base, lang);
+      const formatted = toLf(await formatInProcess(merged, resolved, base, lang));
       if (formatted === merged) return {};
       // null: prettier formatted the edit straight back to the pre-edit file, which no swap can
       // express (the Edit tool rejects old === new). Fail open: the raw edit lands as written and

@@ -123,6 +123,13 @@ function startServer(): void {
     }
   };
 
+  // Claude Code stops a stdio MCP server with SIGINT (SIGTERM after 100 ms, SIGKILL after 400 ms) on
+  // every platform but Windows, where it closes stdin instead. Node writes its V8 compile cache
+  // (NODE_COMPILE_CACHE, set by bin/mjs-launch.sh) only on a normal exit, so both signals must end in
+  // process.exit(0) rather than death by signal. Armed before the startup line below, which the
+  // signal test waits for.
+  for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => process.exit(0));
+
   process.stderr.write(`[${SERVER_NAME}] running under ${detectRuntime()} (v${SERVER_INFO.version})\n`);
 
   const rl = readline.createInterface({ input: process.stdin });

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -50,3 +51,20 @@ test("built server logs `running under node` on stderr under node, keeps stdout 
     assert.doesNotThrow(() => JSON.parse(line), `stdout carried a non-JSON-RPC line: ${line}`);
   }
 });
+
+// Claude Code stops a stdio MCP server with SIGINT (SIGTERM, then SIGKILL, if it lingers) on every
+// platform but Windows, never by closing stdin. Node writes its V8 compile cache only on a normal
+// exit, so each signal must end in process.exit(0), not in death by signal.
+for (const signal of /** @type {const} */ (["SIGINT", "SIGTERM"])) {
+  test(`built server exits 0 on ${signal}`, async () => {
+    const child = spawn(process.execPath, [ARTIFACT], { stdio: ["pipe", "ignore", "pipe"] });
+    try {
+      await once(child.stderr, "data", { signal: AbortSignal.timeout(SERVER_EXIT_TIMEOUT_MS) }); // the startup line, written after the handlers are armed
+      child.kill(signal);
+      const [code, killedBy] = await once(child, "close", { signal: AbortSignal.timeout(SERVER_EXIT_TIMEOUT_MS) });
+      assert.deepEqual([code, killedBy], [0, null], `${signal} must end in a normal exit(0)`);
+    } finally {
+      child.kill("SIGKILL");
+    }
+  });
+}
