@@ -5,7 +5,7 @@ Claude Code plugin marketplace.
 ## Layout
 
 - Plugins live in `plugins/<name>/` (conventions: `plugins/CLAUDE.md`), each with a bats suite in `test/<name>/` (conventions: `.claude/rules/test-conventions.md`).
-- `src/<name>/` holds TypeScript sources whose build output is a **committed** plugin artifact — `universal-format` only; the repo-wide convention stays hand-written zero-dep `.mjs`. Editing `src/` requires `pnpm run build:universal-format-mcp` before commit — see `plugins/universal-format/CLAUDE.md` and `src/universal-format-mcp/CLAUDE.md`. `inline-headroom` is a TypeScript mods module (`hooks/register.ts`), another exception to the zero-dep `.mjs` convention — see `plugins/inline-headroom/CLAUDE.md`.
+- `src/<name>/` holds TypeScript sources whose build output is a **committed** plugin artifact — `universal-format` only; the repo-wide convention stays hand-written zero-dep `.mjs`. Editing `src/` requires `pnpm run build:universal-format-mcp` before commit — see `plugins/universal-format/CLAUDE.md` and `src/universal-format-mcp/CLAUDE.md`. Mods plugins (a TypeScript `hooks/register.ts` function-hooks module, e.g. `inline-headroom`, `claude-code-knowledge`) are another exception to the zero-dep `.mjs` convention; their pure logic still lives in zero-dep `.mjs` beside it — see `plugins/inline-headroom/CLAUDE.md`.
 - `.claude/rules/` — path-scoped rules, loaded when Claude edits matching files.
 - `tag-on-version-bump.yml` tags any plugin whose `plugin.json` version has no tag yet.
 
@@ -28,7 +28,7 @@ pnpm run test:unit
 pnpm run lint
 
 # mods plugin wiring (local only — needs the claude CLI, not run in CI)
-claude plugin validate plugins/inline-headroom && claude plugin test plugins/inline-headroom
+claude plugin validate plugins/<name> && claude plugin test plugins/<name>
 
 # validate marketplace manifest + plugin.json files (mirrors CI)
 jq empty .claude-plugin/marketplace.json \

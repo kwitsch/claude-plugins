@@ -350,77 +350,59 @@ make_stub() {
   [ "$status" -eq 0 ]
 }
 
-# Drive the reroute MCP server: initialize + one tools/call, echo the
-# structuredContent of the tools/call (id 2) response. $1 = arguments JSON object.
-reroute_call() {
-  printf '%s\n%s\n' \
-    '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
-    "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"reroute_guide\",\"arguments\":$1}}" \
-    | node "$PLUGIN/mcp/server.mjs" 2>/dev/null \
-    | jq -c 'select(.id==2) | .result.structuredContent'
-}
+# --- claude-code-guide reroute mod (hooks/register.ts + hooks/reroute.mjs) ---
+# reroute.mjs logic: test/claude-code-knowledge/reroute.test.mjs (node:test);
+# hook wiring: plugins/claude-code-knowledge/tests/*.test.ts (claude plugin test, local only).
 
-@test "hooks.json wires the PreToolUse Agent reroute to the mcp_tool" {
-  run jq empty "$PLUGIN/hooks/hooks.json"
-  [ "$status" -eq 0 ]
-  run jq -e '.hooks.PreToolUse[0].matcher | test("Agent")' "$PLUGIN/hooks/hooks.json"
-  [ "$output" = "true" ]
-  run jq -r '.hooks.PreToolUse[0].hooks[0].type' "$PLUGIN/hooks/hooks.json"
-  [ "$output" = "mcp_tool" ]
-  # A plugin's own mcp_tool hook must reference the runtime-namespaced server name
-  # (plugin:<plugin>:<server-key>, as shown by `claude mcp list` / `/mcp`), NOT the
-  # bare .mcp.json key — the bare key resolves to "MCP server not connected".
-  run jq -r '.hooks.PreToolUse[0].hooks[0].server' "$PLUGIN/hooks/hooks.json"
-  [ "$output" = "plugin:claude-code-knowledge:claude-code-knowledge-hooks" ]
-  run jq -r '.hooks.PreToolUse[0].hooks[0].tool' "$PLUGIN/hooks/hooks.json"
-  [ "$output" = "reroute_guide" ]
-}
-
-@test ".mcp.json registers the hooks server pointing at mcp/server.mjs" {
-  run jq empty "$PLUGIN/.mcp.json"
-  [ "$status" -eq 0 ]
-  run jq -r '.mcpServers["claude-code-knowledge-hooks"].command' "$PLUGIN/.mcp.json"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"mcp/server.mjs" ]] || [[ "$output" == *"bin/mjs-launch.sh" ]]
-}
-
-@test ".mcp.json launches the hooks server via the mjs-launch.sh wrapper" {
-  run jq -e '.mcpServers["claude-code-knowledge-hooks"] | (.command | endswith("bin/mjs-launch.sh")) and (.args[0] | endswith("mcp/server.mjs"))' "$PLUGIN/.mcp.json"
+@test "hooks.json is exactly the mods module list" {
+  run jq -e '. == {"modules":["./register.ts"]}' "$PLUGIN/hooks/hooks.json"
   [ "$status" -eq 0 ]
 }
 
-@test "mcp/server.mjs is executable (repo rule)" {
-  [ -x "$PLUGIN/mcp/server.mjs" ]
+@test "mod source and wiring-test files exist" {
+  [ -f "$PLUGIN/hooks/register.ts" ]
+  [ -f "$PLUGIN/hooks/reroute.mjs" ]
+  [ -f "$PLUGIN/tests/claude-code-knowledge.test.ts" ]
+}
+
+# core.fileMode = false in this repo, so `[ -x ]` passes even when git recorded 100644 — assert the index.
+@test "hooks/reroute.mjs is executable in the git index (100755, hooks-executable rule)" {
+  run git -C "$REPO_ROOT" ls-files --stage -- plugins/claude-code-knowledge/hooks/reroute.mjs
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ ^100755\  ]]
+}
+
+@test "register.ts hooks tool.call on Agent and Task and reroutes via rerouteType" {
+  run rg_or_grep -F 'on("tool.call", { tool: ["Agent", "Task"] }' "$PLUGIN/hooks/register.ts"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'rerouteType(e.subagent_type)' "$PLUGIN/hooks/register.ts"
+  [ "$status" -eq 0 ]
+}
+
+# The plugin name is reserved under the CLI's third-party naming rule (a pre-existing
+# manifest error unrelated to the mod), so validate must fail with exactly that one error.
+@test "claude plugin validate lists the tool.call hook and no error besides the reserved name" {
+  command -v claude >/dev/null || skip "claude CLI unavailable"
+  run claude plugin validate "$PLUGIN"
+  [[ "$output" == *"./register.ts hooks: tool.call{tool=Agent|Task}"* ]]
+  [[ "$output" == *"Found 1 error"* ]]
+  [[ "$output" == *'Plugin name "claude-code-knowledge" is reserved'* ]]
+}
+
+@test "claude plugin test succeeds" {
+  command -v claude >/dev/null || skip "claude CLI unavailable"
+  run claude plugin test "$PLUGIN"
+  [ "$status" -eq 0 ]
 }
 
 @test "old command reroute hook is gone" {
   [ ! -f "$PLUGIN/hooks/reroute-guide.mjs" ]
 }
 
-@test "reroute server reroutes claude-code-guide, preserving prompt and model" {
-  if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
-  sc=$(reroute_call '{"hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"subagent_type":"claude-code-guide","prompt":"P","model":"m"}}')
-  run jq -r '.hookSpecificOutput.permissionDecision' <<<"$sc"
-  [ "$output" = "allow" ]
-  run jq -r '.hookSpecificOutput.updatedInput.subagent_type' <<<"$sc"
-  [ "$output" = "claude-code-knowledge:claude-code-expert" ]
-  run jq -r '.hookSpecificOutput.updatedInput.prompt' <<<"$sc"
-  [ "$output" = "P" ]
-  run jq -r '.hookSpecificOutput.updatedInput.model' <<<"$sc"
-  [ "$output" = "m" ]
-}
-
-@test "reroute server reroutes a case/separator variant" {
-  if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
-  sc=$(reroute_call '{"hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"subagent_type":"Claude Code Guide","prompt":"x"}}')
-  run jq -r '.hookSpecificOutput.updatedInput.subagent_type' <<<"$sc"
-  [ "$output" = "claude-code-knowledge:claude-code-expert" ]
-}
-
-@test "reroute server is a no-op for other subagents" {
-  if ! command -v node >/dev/null 2>&1; then skip "node not installed"; fi
-  sc=$(reroute_call '{"hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"subagent_type":"general-purpose"}}')
-  [ "$sc" = "{}" ]
+@test "old hook-only MCP server, .mcp.json and launcher are gone" {
+  [ ! -e "$PLUGIN/mcp" ]
+  [ ! -e "$PLUGIN/.mcp.json" ]
+  [ ! -e "$PLUGIN/bin" ]
 }
 
 # --- cc-review orchestrator skill ---
@@ -739,47 +721,6 @@ reroute_call() {
 
 @test "update-cc-references Release is gated on the contradiction gate" {
   rg_or_grep -qi "zero unconfirmed contradictions" "$MAINT"
-}
-
-# --- mjs-launch.sh wrapper ---
-
-@test "mjs-launch.sh is executable and passes bash -n" {
-  [ -x "$PLUGIN/bin/mjs-launch.sh" ]
-  run bash -n "$PLUGIN/bin/mjs-launch.sh"
-  [ "$status" -eq 0 ]
-}
-
-@test "mjs-launch.sh runs the script under bun when bun is present" {
-  tmp="$BATS_TEST_TMPDIR/bunhome"; mkdir -p "$tmp/.bun/bin"
-  cat > "$tmp/.bun/bin/bun" <<'EOF'
-#!/usr/bin/env bash
-echo "BUN_RAN $*"
-EOF
-  chmod +x "$tmp/.bun/bin/bun"
-  run env -i HOME="$tmp" PATH="/usr/bin:/bin" bash "$PLUGIN/bin/mjs-launch.sh" /x/server.mjs --flag
-  [ "$status" -eq 0 ]
-  echo "$output" | rg_or_grep -q "BUN_RAN /x/server.mjs --flag"
-}
-
-@test "mjs-launch.sh falls back to node when bun is absent" {
-  nodedir="$(dirname "$(command -v node)")"
-  script="$BATS_TEST_TMPDIR/which.mjs"
-  printf 'process.stdout.write(process.versions.bun ? "RUNTIME_BUN" : "RUNTIME_NODE");\n' > "$script"
-  run env -i HOME="$BATS_TEST_TMPDIR/nohome" PATH="$nodedir:/usr/bin:/bin" bash "$PLUGIN/bin/mjs-launch.sh" "$script"
-  [ "$status" -eq 0 ]
-  echo "$output" | rg_or_grep -q "RUNTIME_NODE"
-}
-
-@test "mjs-launch.sh exits 1 when neither bun nor node is available" {
-  emptybin="$BATS_TEST_TMPDIR/empty"; mkdir -p "$emptybin"
-  ln -sf "$(command -v bash)" "$emptybin/bash"
-  run env -i HOME="$BATS_TEST_TMPDIR/nohome" PATH="$emptybin" bash "$PLUGIN/bin/mjs-launch.sh" /x/server.mjs
-  [ "$status" -eq 1 ]
-}
-
-@test "mjs-launch.sh exits 64 when no script argument is given" {
-  run env -i HOME="$BATS_TEST_TMPDIR/nohome" PATH="/usr/bin:/bin" bash "$PLUGIN/bin/mjs-launch.sh"
-  [ "$status" -eq 64 ]
 }
 
 # --- cc-compress script (scripts/compress.mjs) ---
@@ -2517,6 +2458,12 @@ detect_fixture() {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
   [ "$output" != "1.11.0" ]
+}
+
+@test "plugin.json version was bumped for the reroute mod (minor, off 1.12.1)" {
+  run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
+  [ "$status" -eq 0 ]
+  [ "$output" != "1.12.1" ]
 }
 
 @test "plugin.json description mentions init-dev-environment" {

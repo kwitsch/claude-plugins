@@ -14,7 +14,7 @@ The plugin ships these components (mechanics live in each `SKILL.md` / agent fil
 - `agents/claude-code-expert.md` — read-only Q&A expert (reroute target).
 - `agents/cc-reviewer.md` — read-only review worker dispatched by `cc-review`.
 - `agents/cc-author-planner.md` — read-only authoring planner dispatched by `cc-author`; never writes.
-- `hooks/hooks.json` + `mcp/server.mjs` + `.mcp.json` — `claude-code-guide` reroute hook backend; see `mcp/CLAUDE.md`.
+- `hooks/` — the `claude-code-guide` reroute mod; see `## Reroute mod`.
 
 Constraints:
 
@@ -24,6 +24,19 @@ Constraints:
 - `claude-code-expert` answers only from `cc-reference` — never from training memory; it reaches live docs only through `cc-reference`'s WebFetch fallback.
 - `memory-audit`, `lsp-audit` and `repository-audit` deliberately drop the `cc-*` skill-name prefix — an intentional symmetry break, not an oversight; do not "restore" a `cc-` prefix.
 - The `lsp-audit` catalog (`scripts/lsp-map.json`) is operational data (like `universal-lint`'s linter map), not duplicated `cc-reference` knowledge.
+
+## Reroute mod
+
+A mods function-hooks module (layout and module rules as `plugins/inline-headroom/CLAUDE.md`); no hook process, no MCP server.
+
+- `hooks/hooks.json` — exactly `{"modules": ["./register.ts"]}`.
+- `hooks/register.ts` — one `tool.call` hook, matcher `{ tool: ["Agent", "Task"] }`. It calls `next` with `subagent_type` from `rerouteType`; every other call passes as is.
+- `hooks/reroute.mjs` — pure, zero-dep, JSDoc-typed (`normalize`, `rerouteType`, `REROUTE_TARGET`); never references `$`. Executable (`100755`, hooks-executable rule).
+- Behavior: any spelling of `claude-code-guide` (lowercased, separator runs collapsed to `-`) runs as `claude-code-knowledge:claude-code-expert`, other arguments kept. Loop-safe: the target is not a guide. Main loop and subagents alike.
+- Fail-open: no `.catch`, so a throwing hook is skipped and the guide runs un-rerouted, as the former `mcp_tool` hook did when its server was down.
+- No permission override: the former hook's `permissionDecision: "allow"` only carried its `updatedInput`. A mods rewrite needs none, and Agent calls raise no prompt in `default` mode (live-verified on 2.1.302).
+- `.claude-plugin/types/` is engine-written and gitignored.
+- `claude plugin validate` reports one pre-existing error: the plugin name is reserved under the CLI's third-party naming rule. The module itself validates (`tool.call{tool=Agent|Task}`), and `--plugin-dir` still loads it (`plugin.register ... admitted`).
 
 ## Reference-file authoring style
 
@@ -41,9 +54,13 @@ Version lives ONLY in `.claude-plugin/plugin.json`. Rules:
 
 ```bash
 BATS_LIB_PATH="$PWD/node_modules" pnpm exec bats test/claude-code-knowledge/
+# CI: reroute.mjs (test/claude-code-knowledge/*.test.mjs)
+pnpm run test:unit
+# local only (CI has no claude CLI): hook wiring, tests/claude-code-knowledge.test.ts
+claude plugin test plugins/claude-code-knowledge
 ```
 
-The suite is structural: it checks the plugin manifest, the cc-reference skill shape, the reference files under `references/` (incl. the `references/` layout convention + `skill-folder-structure.md`), the expert agent, the mcp_tool reroute server, and that the update-cc-references maintenance skill is present but user-only.
+The suite is structural: it checks the plugin manifest, the cc-reference skill shape, the reference files under `references/` (incl. the `references/` layout convention + `skill-folder-structure.md`), the expert agent, the reroute mod's files and wiring, and that the update-cc-references maintenance skill is present but user-only. Its `claude plugin validate`/`test` cases run only when `claude` is on `PATH`.
 
 ## rtk does not apply
 
