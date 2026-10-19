@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=f8c3c7985425abee body=8f79a115d84fab09 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=91769ca598eb7e95 body=91ae47de30f2fefd prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { fileURLToPath as __ufFileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 var __create = Object.create;
@@ -200976,9 +200976,10 @@ var BUNDLED_PLUGIN_LOADERS = {
   php: () => Promise.resolve().then(() => (init_src(), exports_src)).then(asPlugin),
   shell: () => Promise.all([Promise.resolve().then(() => (init_wasm_exec(), exports_wasm_exec)), Promise.resolve().then(() => (init_lib2(), exports_lib))]).then(([, ns10]) => asPlugin(ns10))
 };
+var MARKDOWN_HOSTS = new Set(["markdown", "jsts", "html", "vue"]);
 function bundledPluginsFor(lang) {
   const all = Object.keys(BUNDLED_PLUGIN_LOADERS);
-  return lang === "markdown" ? all : all.filter((name2) => name2 === lang);
+  return MARKDOWN_HOSTS.has(lang) ? all : all.filter((name2) => name2 === lang);
 }
 process5.on("unhandledRejection", (reason) => {
   const msg = String(reason?.message ?? reason).split(`

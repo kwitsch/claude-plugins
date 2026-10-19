@@ -50,11 +50,15 @@ const BUNDLED_PLUGIN_LOADERS = {
 type BundledPluginName = keyof typeof BUNDLED_PLUGIN_LOADERS;
 
 /** Which bundled plugins a format of `lang` needs: its own one for java/php/shell; all three for
- * markdown, because prettier formats fenced ```java / ```php / ```sh blocks through them; none for
- * everything else, so a session that never touches those languages never evaluates them. */
+ * every language prettier formats Markdown inside -- Markdown itself, JS/TS (`md`/`markdown` tagged
+ * templates), HTML (`<script type="text/markdown">`) and Vue (custom blocks with `lang="markdown"`) --
+ * because fenced ```java / ```php / ```sh blocks in that Markdown are formatted through them (the
+ * eager-import behavior this must keep byte-identical); none for JSON/YAML/CSS/SCSS/LESS/GraphQL,
+ * which embed nothing. Loading stays off the server-start path either way. */
+const MARKDOWN_HOSTS: ReadonlySet<string> = new Set(["markdown", "jsts", "html", "vue"]);
 export function bundledPluginsFor(lang: string): BundledPluginName[] {
   const all = Object.keys(BUNDLED_PLUGIN_LOADERS) as BundledPluginName[];
-  return lang === "markdown" ? all : all.filter((name) => name === lang);
+  return MARKDOWN_HOSTS.has(lang) ? all : all.filter((name) => name === lang);
 }
 
 // prettier-plugin-java starts `Parser.init()` in a module-scope IIFE, so a floating promise exists
