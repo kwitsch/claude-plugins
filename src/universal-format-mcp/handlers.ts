@@ -183,6 +183,8 @@ function lineEnd(s: string, i: number): number {
   return nl === -1 ? s.length : nl + 1;
 }
 
+const MAX_WIDENINGS = 32; // real edits widen 1-10 times (measured p99 = 5); only repetitive fixtures hit this
+
 /** Shrink a whole-file Edit swap to the smallest run of whole lines that differs between the
  * pre-edit file and its formatted replacement. Prettier still formats the WHOLE merged file (a
  * fragment cannot be formatted in isolation); this only trims what the Edit tool is asked to swap,
@@ -192,7 +194,6 @@ function lineEnd(s: string, i: number): number {
  * contract, reproduces `formatted` from it (an empty or non-unique `old_string` never does), bounded
  * by MAX_WIDENINGS so repetitive text (thousands of identical lines) cannot make the scan quadratic:
  * past the bound the whole file is swapped, exactly the pre-0.18 payload. Null when nothing differs. */
-const MAX_WIDENINGS = 32; // real edits widen 1-10 times (measured p99 = 5); only repetitive fixtures hit this
 export function shrinkSwap(current: string, formatted: string): { old_string: string; new_string: string } | null {
   if (current === formatted) return null;
   const max = Math.min(current.length, formatted.length);

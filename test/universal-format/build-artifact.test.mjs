@@ -1,10 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import process from "node:process";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { BUNDLED_PRETTIER_VERSION } from "../../plugins/universal-format/mcp/server.mjs";
 
@@ -124,16 +126,40 @@ test("artifact uses no Bun-only API: no `Bun.` token and no `bun:` import", () =
 });
 
 
-// The three bundled prettier plugins must stay LAZY: each loader line in BUNDLED_PLUGIN_LOADERS has to
-// call a bun `init_<module>()` wrapper (eager evaluation would leave only the namespace reference), or
-// every server start silently pays for all three again. Scanned on a slice around the object literal.
-test("artifact keeps the three bundled plugins behind lazy init wrappers", () => {
-  const at = text.indexOf("BUNDLED_PLUGIN_LOADERS = {");
-  assert.notEqual(at, -1, "the bundle must contain the BUNDLED_PLUGIN_LOADERS object literal");
-  const loaders = text.slice(at, at + 1200);
-  for (const key of ["java", "php", "shell"]) {
-    assert.match(loaders, new RegExp(`^  ${key}: \\(\\) => [^\\n]*\\binit_\\w+\\(\\)`, "m"), `${key} plugin loader must be a lazy init wrapper`);
-  }
+// The bundled prettier plugins must stay LAZY: a stray static import evaluates one at every server
+// start (java: two wasm loads; shell: mvdan-sh's GopherJS runtime, which leaks globals). Behavioral,
+// so it holds whatever the bundler emits: a child imports the artifact with `.wasm` reads and new
+// globals recorded and must see neither, then formats a shell and a java file as the positive
+// control that both instruments really see an evaluation.
+const LAZY_PROBE = `
+import fs from "node:fs";
+import fsp from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { syncBuiltinESMExports } from "node:module";
+const wasm = [];
+for (const [obj, key] of [[fs, "readFileSync"], [fs, "readFile"], [fsp, "readFile"]]) {
+  const orig = obj[key];
+  obj[key] = function (p, ...rest) { if (String(p).endsWith(".wasm")) wasm.push(String(p)); return orig.call(this, p, ...rest); };
+}
+syncBuiltinESMExports();
+const before = new Set(Object.getOwnPropertyNames(globalThis));
+const mod = await import(${JSON.stringify(pathToFileURL(ARTIFACT).href)});
+await new Promise((r) => setTimeout(r, 300));
+const seen = () => ({ wasm: wasm.length, globals: Object.getOwnPropertyNames(globalThis).filter((k) => !before.has(k)).length });
+const atImport = seen();
+const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "uf-lazy-"));
+await mod.formatInProcess("echo  hi", path.join(cwd, "a.sh"), cwd, "shell");
+await mod.formatInProcess("class A {  }", path.join(cwd, "A.java"), cwd, "java");
+await new Promise((r) => setTimeout(r, 100));
+process.stdout.write(JSON.stringify({ atImport, afterUse: seen() }));
+process.exit(0);
+`;
+
+test("artifact evaluates none of the bundled plugins at import, only on first use", () => {
+  const out = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", LAZY_PROBE], { encoding: "utf8" }));
+  assert.deepEqual(out.atImport, { wasm: 0, globals: 0 }, "importing the artifact evaluated a bundled plugin — one must have become a static import");
+  assert.ok(out.afterUse.wasm > 0 && out.afterUse.globals > 0, "positive control failed: formatting java and shell must show up in the probe's instruments");
 });
 
 // The shell loader imports Go's wasm_exec runtime from the ROOT sh-syntax pin, while

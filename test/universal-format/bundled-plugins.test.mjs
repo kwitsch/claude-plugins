@@ -66,13 +66,10 @@ test("importing the bundle arms the unhandledRejection guard", () => {
 // The plugins load lazily, per language: a session that never writes java/php/shell/markdown never
 // evaluates them. Markdown needs all three (the CASES row above pins the fenced-block formatting a
 // lazy loader could otherwise silently drop).
+const EXPECTED_PLUGINS = /** @type {Record<string, string[]>} */ ({ java: ["java"], php: ["php"], shell: ["shell"], markdown: ["java", "php", "shell"] });
 test("bundledPluginsFor: own plugin for java/php/shell, all three for markdown, none otherwise", () => {
-  assert.deepEqual(bundledPluginsFor("java"), ["java"]);
-  assert.deepEqual(bundledPluginsFor("php"), ["php"]);
-  assert.deepEqual(bundledPluginsFor("shell"), ["shell"]);
-  assert.deepEqual(bundledPluginsFor("markdown"), ["java", "php", "shell"]);
   for (const lang of [...PRETTIER_LANGS, "kotlin", "nope"]) {
-    if (!["java", "php", "shell", "markdown"].includes(lang)) assert.deepEqual(bundledPluginsFor(lang), [], `${lang} must need no bundled plugin`);
+    assert.deepEqual(bundledPluginsFor(lang), EXPECTED_PLUGINS[lang] ?? [], lang);
   }
 });
 

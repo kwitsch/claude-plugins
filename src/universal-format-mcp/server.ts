@@ -18,7 +18,7 @@ const SERVER_NAME = "universal-format-hooks"; // keep aligned with the .mcp.json
 // "0.0.0" only if the manifest is missing; runtime-detect.test.mjs pins the real value.
 function readPluginVersion(): string {
   try {
-    return String(JSON.parse(readFileSync(new URL("../.claude-plugin/plugin.json", import.meta.url), "utf8")).version);
+    return String(JSON.parse(readFileSync(new URL("../.claude-plugin/plugin.json", import.meta.url), "utf8")).version ?? "0.0.0");
   } catch {
     return "0.0.0";
   }

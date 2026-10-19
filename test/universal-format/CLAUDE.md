@@ -17,7 +17,7 @@
   - `.editorconfig` resolver and registry flag mapping.
   - `prettier.test.mjs`: the in-process prettier contract, including `shrinkSwap` (the changed-lines Edit swap).
   - `handlers.test.mjs`: `resolveBase`, against the built artifact.
-  - `build-artifact.test.mjs`: artifact freshness, the no-`Bun.` invariant, and the tripwire that the three bundled-plugin loaders stay lazy in the artifact.
+  - `build-artifact.test.mjs`: artifact freshness, the no-`Bun.` invariant, and the behavioral check that importing the artifact evaluates none of the three bundled plugins (no `.wasm` read, no leaked globals; a child process, with a java+shell positive control).
   - `bundled-plugins.test.mjs`: the three bundled plugins (incl. prettier-plugin-sh's `experimentalWasm` path through `main.wasm`) and the four newly routed core languages against the built bundle, the per-language lazy-loading table (`bundledPluginsFor`, Markdown's fenced-block trio), plus the tripwire that the `unhandledRejection` guard is armed.
   - `runtime-detect.test.mjs`: spawns the built server under each runtime and checks the startup line carries `plugin.json`'s version (read at runtime from the manifest), and that SIGINT and SIGTERM end in a normal exit 0 (what lets node flush its compile cache).
   - Suites importing the built bundle stay stale until `pnpm run build:universal-format-mcp` is rerun (see `src/universal-format-mcp/CLAUDE.md`).

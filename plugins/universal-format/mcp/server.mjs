@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=9881edeebcfa4362 body=ddadbb30e3ecccda prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
-import { dirname as __ufDirname, join as __ufJoin } from "node:path";
+// uf-build-fingerprint src=f8c3c7985425abee body=8f79a115d84fab09 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { fileURLToPath as __ufFileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 var __create = Object.create;
@@ -199971,7 +199970,7 @@ var init_processor = __esm(() => {
 import fs13 from "node:fs/promises";
 import path19 from "node:path";
 import { fileURLToPath as fileURLToPath6 } from "node:url";
-var __dirname = __ufJoin(__ufDirname(__ufFileURLToPath(import.meta.url)), "lib"), _dirname, processor2;
+var __dirname = __ufFileURLToPath(new URL("lib", import.meta.url)), _dirname, processor2;
 var init_lib = __esm(() => {
   init_shim();
   init_processor();
@@ -201413,7 +201412,7 @@ async function worktreeEntered(args2) {
 var SERVER_NAME = "universal-format-hooks";
 function readPluginVersion() {
   try {
-    return String(JSON.parse(readFileSync4(new URL("../.claude-plugin/plugin.json", import.meta.url), "utf8")).version);
+    return String(JSON.parse(readFileSync4(new URL("../.claude-plugin/plugin.json", import.meta.url), "utf8")).version ?? "0.0.0");
   } catch {
     return "0.0.0";
   }

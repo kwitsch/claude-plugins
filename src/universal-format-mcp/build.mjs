@@ -76,10 +76,10 @@ function canonicalize(text) {
 // literal is located by VALUE -- build.mjs knows that directory because it resolves main.wasm from
 // there -- never by bun's codegen shape, and replaced with the same import.meta.url lookup anchored
 // one directory ("lib") below the bundle, so sh-syntax's `path.resolve(__dirname, "../main.wasm")`
-// lands on the sidecar next to it. The expression uses import aliases this script prepends to the
-// body, so nothing depends on bun's internal alias names. Exactly one occurrence is required: zero
+// lands on the sidecar next to it. The expression uses an import alias this script prepends to the
+// body, so nothing depends on bun's internal alias name. Exactly one occurrence is required: zero
 // means the shim changed shape, two would be a bug in this rewrite.
-const SH_SYNTAX_IMPORTS = 'import { dirname as __ufDirname, join as __ufJoin } from "node:path";\nimport { fileURLToPath as __ufFileURLToPath } from "node:url";\n';
+const SH_SYNTAX_IMPORT = 'import { fileURLToPath as __ufFileURLToPath } from "node:url";\n';
 
 /** @param {string} text @param {string} shSyntaxLibDir @returns {string} */
 function containShSyntaxDirname(text, shSyntaxLibDir) {
@@ -88,7 +88,7 @@ function containShSyntaxDirname(text, shSyntaxLibDir) {
   if (parts.length !== 2) {
     throw new Error(`build.mjs: expected exactly one occurrence of sh-syntax's lib path literal ${literal} in the bundle, found ${parts.length - 1} — sh-syntax or bun's interop shim changed shape.`);
   }
-  return SH_SYNTAX_IMPORTS + parts.join('__ufJoin(__ufDirname(__ufFileURLToPath(import.meta.url)), "lib")');
+  return SH_SYNTAX_IMPORT + parts.join('__ufFileURLToPath(new URL("lib", import.meta.url))');
 }
 
 if (!haveBun()) {
