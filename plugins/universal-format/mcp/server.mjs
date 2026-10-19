@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=aca0b2cc627641b4 body=6cbe8480c8525c0e prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=ea7934e341587228 body=2ead3a0c9e2c26c1 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+import { dirname as __ufDirname, join as __ufJoin } from "node:path";
+import { fileURLToPath as __ufFileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -199969,7 +199971,7 @@ var init_processor = __esm(() => {
 import fs13 from "node:fs/promises";
 import path19 from "node:path";
 import { fileURLToPath as fileURLToPath6 } from "node:url";
-var __dirname = path19.join(path19.dirname(fileURLToPath6(import.meta.url)), "lib"), _dirname, processor2;
+var __dirname = __ufJoin(__ufDirname(__ufFileURLToPath(import.meta.url)), "lib"), _dirname, processor2;
 var init_lib = __esm(() => {
   init_shim();
   init_processor();

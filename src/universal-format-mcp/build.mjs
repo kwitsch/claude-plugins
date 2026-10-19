@@ -70,37 +70,25 @@ function canonicalize(text) {
     .join("\n");
 }
 
-// bun's CJS interop shim for sh-syntax/lib/index.js hardcodes the BUILD MACHINE's absolute
-// node_modules path as a `var __dirname = "…"` literal, ahead of the shim's own
-// import.meta.url-based fallback for when __dirname is undefined. That literal makes the
-// committed artifact resolve sh-syntax's main.wasm against a path that only exists on the
-// machine (and worktree) that ran the build. Reusing the shim's own fallback keeps the artifact
-// self-contained; anchoring it one directory ("lib") deeper than the bundle's own directory
-// preserves sh-syntax's `path.resolve(__dirname, "../main.wasm")` lookup landing next to the
-// bundle, exactly where the other wasm sidecars are copied. Because prettier-plugin-sh is reached
-// through a dynamic import, bun puts the module body behind a lazy `__esm` init wrapper and
-// hoists the `var __dirname = "…", _dirname, processor2;` declaration to the top level, so the
-// literal and the fallback line are matched separately (each exactly once).
-const SH_SYNTAX_DIRNAME_LITERAL_RE = /^var __dirname = "[^"]*"(?=[,;])/gm;
-const SH_SYNTAX_DIRNAME_FALLBACK_RE = /^\s*(?:var )?_dirname = typeof __dirname === "undefined" \? (\w+)\.dirname\((\w+)\(import\.meta\.url\)\) : __dirname;$/gm;
+// bun's interop for sh-syntax/lib/index.js bakes the BUILD MACHINE's absolute sh-syntax/lib path
+// in as a `var __dirname = "…"` literal, ahead of the shim's own import.meta.url fallback, so the
+// committed artifact would look for main.wasm on a path that exists only where the build ran. The
+// literal is located by VALUE -- build.mjs knows that directory because it resolves main.wasm from
+// there -- never by bun's codegen shape, and replaced with the same import.meta.url lookup anchored
+// one directory ("lib") below the bundle, so sh-syntax's `path.resolve(__dirname, "../main.wasm")`
+// lands on the sidecar next to it. The expression uses import aliases this script prepends to the
+// body, so nothing depends on bun's internal alias names. Exactly one occurrence is required: zero
+// means the shim changed shape, two would be a bug in this rewrite.
+const SH_SYNTAX_IMPORTS = 'import { dirname as __ufDirname, join as __ufJoin } from "node:path";\nimport { fileURLToPath as __ufFileURLToPath } from "node:url";\n';
 
-/** Replace the hardcoded absolute path bun emits for sh-syntax's `__dirname` with an expression
- * built from the SAME import.meta.url fallback the shim's next statement already uses — reusing
- * whatever `path`/`fileURLToPath` local aliases bun picked this build, so nothing here depends on
- * bun's bundler-internal naming staying stable across builds. Throws unless both patterns match
- * exactly once (a sh-syntax/bun upgrade changed the shim shape): silently shipping the old
- * absolute path back is worse than a loud build failure. @param {string} text @returns {string} */
-function containShSyntaxDirname(text) {
-  const literals = [...text.matchAll(SH_SYNTAX_DIRNAME_LITERAL_RE)];
-  const fallbacks = [...text.matchAll(SH_SYNTAX_DIRNAME_FALLBACK_RE)];
-  if (literals.length !== 1 || fallbacks.length !== 1) {
-    throw new Error(
-      `build.mjs: expected exactly one sh-syntax \`var __dirname = "…"\` literal and one \`_dirname = typeof __dirname …\` fallback line, ` +
-        `found ${literals.length}/${fallbacks.length} — sh-syntax or bun's CJS interop shim changed shape; update the SH_SYNTAX_DIRNAME_* patterns.`,
-    );
+/** @param {string} text @param {string} shSyntaxLibDir @returns {string} */
+function containShSyntaxDirname(text, shSyntaxLibDir) {
+  const literal = JSON.stringify(shSyntaxLibDir);
+  const parts = text.split(literal);
+  if (parts.length !== 2) {
+    throw new Error(`build.mjs: expected exactly one occurrence of sh-syntax's lib path literal ${literal} in the bundle, found ${parts.length - 1} — sh-syntax or bun's interop shim changed shape.`);
   }
-  const [, pathAlias, urlToPathAlias] = fallbacks[0];
-  return text.replace(SH_SYNTAX_DIRNAME_LITERAL_RE, `var __dirname = ${pathAlias}.join(${pathAlias}.dirname(${urlToPathAlias}(import.meta.url)), "lib")`);
+  return SH_SYNTAX_IMPORTS + parts.join('__ufJoin(__ufDirname(__ufFileURLToPath(import.meta.url)), "lib")');
 }
 
 if (!haveBun()) {
@@ -122,12 +110,15 @@ if (built.error || built.status !== 0) {
   process.exit(1);
 }
 
-const body = containShSyntaxDirname(canonicalize(readFileSync(tmpOut, "utf8")));
+const require = createRequire(import.meta.url);
+// sh-syntax's main.wasm, resolved the way prettier-plugin-sh resolves it at runtime (copied as a
+// sidecar below); its package directory is where bun's baked-in `__dirname` literal points.
+const shSyntaxWasm = createRequire(require.resolve("prettier-plugin-sh")).resolve("sh-syntax/main.wasm");
+const body = containShSyntaxDirname(canonicalize(readFileSync(tmpOut, "utf8")), path.join(path.dirname(shSyntaxWasm), "lib"));
 rmSync(tmpDir, { recursive: true, force: true });
 
 const srcHash = hashSourceTree(SRC_DIR);
 const bodyHash = createHash("sha256").update(body).digest("hex").slice(0, 16);
-const require = createRequire(import.meta.url);
 const prettierVersion = JSON.parse(readFileSync(require.resolve("prettier/package.json"), "utf8")).version;
 const bunVersion = String(spawnSync("bun", ["--version"], { encoding: "utf8" }).stdout ?? "").trim();
 
@@ -154,8 +145,7 @@ const WASM_ASSETS = [
   // prettier-plugin-java does NOT export the subpath (ERR_PACKAGE_PATH_NOT_EXPORTED), nor its
   // package.json. Resolve the entry and join -- mirrors the plugin's own runtime lookup.
   path.join(path.dirname(javaPluginEntry), "tree-sitter-java_orchard.wasm"),
-  // sh-syntax exports this subpath explicitly, unlike the java plugin above.
-  createRequire(require.resolve("prettier-plugin-sh")).resolve("sh-syntax/main.wasm"),
+  shSyntaxWasm,
 ];
 
 // Sweep every pre-existing *.wasm first: a plugin bump that renames its grammar must never leave
