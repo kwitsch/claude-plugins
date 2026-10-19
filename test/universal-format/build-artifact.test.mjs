@@ -122,3 +122,16 @@ test("artifact uses no Bun-only API: no `Bun.` token and no `bun:` import", () =
   assert.ok(!/\bBun\./.test(text), "the bundle references a `Bun.` API — the --target=node no-Bun invariant is broken; rebuild from Bun-API-free source");
   assert.ok(!/["']bun:/.test(text), "the bundle imports a `bun:` module — the --target=node no-Bun invariant is broken; rebuild from Bun-API-free source");
 });
+
+
+// The three bundled prettier plugins must stay LAZY: each loader line in BUNDLED_PLUGIN_LOADERS has to
+// call a bun `init_<module>()` wrapper (eager evaluation would leave only the namespace reference), or
+// every server start silently pays for all three again. Scanned on a slice around the object literal.
+test("artifact keeps the three bundled plugins behind lazy init wrappers", () => {
+  const at = text.indexOf("BUNDLED_PLUGIN_LOADERS = {");
+  assert.notEqual(at, -1, "the bundle must contain the BUNDLED_PLUGIN_LOADERS object literal");
+  const loaders = text.slice(at, at + 1200);
+  for (const key of ["java", "php", "shell"]) {
+    assert.match(loaders, new RegExp(`^  ${key}: \\(\\) => [^\\n]*\\binit_\\w+\\(\\)`, "m"), `${key} plugin loader must be a lazy init wrapper`);
+  }
+});

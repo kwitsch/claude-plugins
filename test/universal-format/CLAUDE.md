@@ -17,8 +17,8 @@
   - `.editorconfig` resolver and registry flag mapping.
   - `prettier.test.mjs`: the in-process prettier contract, including `shrinkSwap` (the changed-lines Edit swap).
   - `handlers.test.mjs`: `resolveBase`, against the built artifact.
-  - `build-artifact.test.mjs`: artifact freshness and the no-`Bun.` invariant.
-  - `bundled-plugins.test.mjs`: the three bundled plugins and the four newly routed core languages against the built bundle, the per-language lazy-loading table (`bundledPluginsFor`, Markdown's fenced-block trio), the structural tripwire that the loaders stay lazy in the artifact, plus the tripwire that the `unhandledRejection` guard is armed.
+  - `build-artifact.test.mjs`: artifact freshness, the no-`Bun.` invariant, and the tripwire that the three bundled-plugin loaders stay lazy in the artifact.
+  - `bundled-plugins.test.mjs`: the three bundled plugins (incl. prettier-plugin-sh's `experimentalWasm` path through `main.wasm`) and the four newly routed core languages against the built bundle, the per-language lazy-loading table (`bundledPluginsFor`, Markdown's fenced-block trio), plus the tripwire that the `unhandledRejection` guard is armed.
   - `runtime-detect.test.mjs`: spawns the built server under each runtime and checks the startup line carries `plugin.json`'s version (read at runtime from the manifest).
   - Suites importing the built bundle stay stale until `pnpm run build:universal-format-mcp` is rerun (see `src/universal-format-mcp/CLAUDE.md`).
 - **Doc pins:** `scaffold.bats` greps `plugins/universal-format/CLAUDE.md` and `src/universal-format-mcp/CLAUDE.md` for pinned phrases; when you rename a heading there, update the pin in the same change.

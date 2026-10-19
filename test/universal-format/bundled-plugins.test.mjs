@@ -5,12 +5,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-
-import { bundledPluginsFor, formatInProcess } from "../../plugins/universal-format/mcp/server.mjs";
-
-const ARTIFACT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "plugins", "universal-format", "mcp", "server.mjs");
+import { PRETTIER_LANGS, bundledPluginsFor, formatInProcess } from "../../plugins/universal-format/mcp/server.mjs";
 
 // The three third-party prettier plugins bundled into the artifact (java, php, shell) plus the
 // four core-parser languages the routing gap opened up (less, html, vue, graphql). Imports the
@@ -23,6 +18,9 @@ function tmp(prefix) {
   return mkdtempSync(path.join(tmpdir(), prefix));
 }
 
+// markdown loads all three plugins: fenced sh/java/php blocks are formatted through them
+const MD_FENCES = "# t\n\n```sh\necho    hi\n```\n\n```java\nclass A {  }\n```\n\n```php\n<?php  echo \"hi\";\n```\n";
+const MD_FENCES_FORMATTED = '# t\n\n```sh\necho hi\n```\n\n```java\nclass A {}\n```\n\n```php\n<?php echo "hi";\n```\n';
 const CASES = [
   ["a.sh", "shell", "echo  hi", "echo hi\n"],
   ["a.bash", "shell", "echo  hi", "echo hi\n"],
@@ -34,6 +32,7 @@ const CASES = [
   ["a.vue", "vue", "<template><p>hi</p></template>\n\n<script setup>\nlet x=1\n</script>", "<template><p>hi</p></template>\n\n<script setup>\nlet x = 1;\n</script>\n"],
   ["a.graphql", "graphql", "query   Q {  a }", "query Q {\n  a\n}\n"],
   ["a.gql", "graphql", "query   Q {  a }", "query Q {\n  a\n}\n"],
+  ["a.md", "markdown", MD_FENCES, MD_FENCES_FORMATTED],
 ];
 
 test("formatInProcess formats every bundled-plugin and newly-routed language", async () => {
@@ -65,34 +64,15 @@ test("importing the bundle arms the unhandledRejection guard", () => {
 });
 
 // The plugins load lazily, per language: a session that never writes java/php/shell/markdown never
-// evaluates them (mvdan-sh's GopherJS runtime, java's wasm init). Markdown needs all three because
-// prettier formats fenced ```java / ```php / ```sh blocks through them -- pinned below so a lazy
-// loader can never silently drop embedded-code formatting.
+// evaluates them. Markdown needs all three (the CASES row above pins the fenced-block formatting a
+// lazy loader could otherwise silently drop).
 test("bundledPluginsFor: own plugin for java/php/shell, all three for markdown, none otherwise", () => {
   assert.deepEqual(bundledPluginsFor("java"), ["java"]);
   assert.deepEqual(bundledPluginsFor("php"), ["php"]);
   assert.deepEqual(bundledPluginsFor("shell"), ["shell"]);
   assert.deepEqual(bundledPluginsFor("markdown"), ["java", "php", "shell"]);
-  for (const lang of ["jsts", "json", "yaml", "css", "scss", "less", "html", "vue", "graphql", "kotlin", "nope"]) {
-    assert.deepEqual(bundledPluginsFor(lang), [], `${lang} must need no bundled plugin`);
-  }
-});
-
-test("markdown: fenced sh/java/php blocks are still formatted through the lazily loaded plugins", async () => {
-  const cwd = tmp("uf-md-embed-");
-  const md = "# t\n\n```sh\necho    hi\n```\n\n```java\nclass A {  }\n```\n\n```php\n<?php  echo \"hi\";\n```\n";
-  const out = await formatInProcess(md, path.join(cwd, "a.md"), cwd, "markdown");
-  assert.equal(out, '# t\n\n```sh\necho hi\n```\n\n```java\nclass A {}\n```\n\n```php\n<?php echo "hi";\n```\n');
-});
-
-// Structural tripwire on the built bundle: bun must have emitted each plugin behind a lazy init
-// wrapper (`init_<module>()` inside the loader's Promise), not evaluated it at module scope. If a
-// bun upgrade ever inlines them eagerly, startup silently pays for all three again.
-test("artifact keeps the three bundled plugins behind lazy init wrappers", () => {
-  const text = readFileSync(ARTIFACT, "utf8");
-  for (const key of ["java", "php", "shell"]) {
-    // the loader line must still call a bun `init_<module>()` wrapper (eager evaluation would leave only the namespace)
-    assert.match(text, new RegExp(`^  ${key}: \\(\\) => [^\\n]*\\binit_\\w+\\(\\)`, "m"), `${key} plugin loader must be a lazy init wrapper`);
+  for (const lang of [...PRETTIER_LANGS, "kotlin", "nope"]) {
+    if (!["java", "php", "shell", "markdown"].includes(lang)) assert.deepEqual(bundledPluginsFor(lang), [], `${lang} must need no bundled plugin`);
   }
 });
 

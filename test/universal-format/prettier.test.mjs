@@ -227,8 +227,9 @@ test("format_pre Edit: a one-line file still swaps whole (the run IS the file)",
   assert.equal(res.hookSpecificOutput.updatedInput.new_string, '{ "a": 2 }\n');
 });
 
-// An edit that only touches what prettier formats straight back leaves the file already in its
-// final shape; handing the Edit tool an old===new swap would make it error, so the raw edit lands.
+// An edit prettier formats straight back to the pre-edit file cannot be expressed as a swap (the
+// Edit tool rejects old===new), so the handler fails open: the raw edit lands as written and the
+// next Write/Edit of the file re-formats it.
 test("format_pre Edit: an edit prettier formats straight back yields {}", async () => {
   const cwd = tmp("uf-pre-e3-");
   const fp = path.join(cwd, "a.json");

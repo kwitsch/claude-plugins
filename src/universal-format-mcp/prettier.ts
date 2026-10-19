@@ -34,44 +34,31 @@ function asPlugin(ns: unknown): unknown {
  * build.mjs); php is latest and pure JS; sh is pinned to its last pure-JS release on purpose --
  * newer releases are WASM-only and resolve their wasm OUTSIDE this bundle's directory. No plugin
  * OPTION is ever set from here (never experimentalWasm): a project's config is the only knob.
- * Imported LAZILY through `import()`: `bun build` keeps each in the single-file bundle but behind a
- * lazy init wrapper, so the module-scope work of all three (mvdan-sh's GopherJS runtime, the php
- * printer tables, java's `Parser.init()` wasm load -- ~90 ms CPU and ~15 MB together, measured)
- * runs on the first format that needs the plugin instead of at every server start. */
+ * Loaded lazily through `import()` -- `bun build` keeps each in the single-file bundle behind a
+ * lazy init wrapper -- so a server start evaluates none of them (mvdan-sh's GopherJS runtime, the
+ * php printer tables, java's `Parser.init()` wasm load); the module system evaluates each exactly
+ * once, so a burst of first formats shares one evaluation. Numbers: plugins/universal-format/CLAUDE.md. */
 const BUNDLED_PLUGIN_LOADERS = {
-  java: () => import("prettier-plugin-java"),
-  php: () => import("@prettier/plugin-php"),
+  java: () => import("prettier-plugin-java").then(asPlugin),
+  php: () => import("@prettier/plugin-php").then(asPlugin),
   // sh-syntax (the plugin's `experimentalWasm: true` path) needs Go's `wasm_exec` runtime on
   // globalThis. Its own side-effect import of `vendors/wasm_exec.cjs` is tree-shaken by `bun build`
   // because sh-syntax's package.json lists only `vendors/wasm_exec.js` as side-effectful, so every
   // wasm format died with "Go is not defined"; importing the exported subpath here keeps it.
-  shell: () => Promise.all([import("sh-syntax/vendors/wasm_exec.cjs"), import("prettier-plugin-sh")]).then(([, ns]) => ns),
-} as const;
+  shell: () => Promise.all([import("sh-syntax/vendors/wasm_exec.cjs"), import("prettier-plugin-sh")]).then(([, ns]) => asPlugin(ns)),
+};
 type BundledPluginName = keyof typeof BUNDLED_PLUGIN_LOADERS;
-const loadedBundledPlugins = new Map<BundledPluginName, Promise<unknown>>();
-
-/** Load (once) and return one bundled plugin object. The memoized promise is shared by every
- * concurrent caller, so a burst of first formats evaluates the plugin exactly once. */
-function loadBundledPlugin(name: BundledPluginName): Promise<unknown> {
-  let loading = loadedBundledPlugins.get(name);
-  if (loading === undefined) {
-    loading = BUNDLED_PLUGIN_LOADERS[name]().then(asPlugin);
-    loadedBundledPlugins.set(name, loading);
-  }
-  return loading;
-}
 
 /** Which bundled plugins a format of `lang` needs: its own one for java/php/shell; all three for
- * markdown, because prettier formats fenced ```java / ```php / ```sh blocks through them (this
- * keeps a Markdown write byte-identical to the eager-import days); none for everything else, so a
- * session that never touches those languages never evaluates them. */
+ * markdown, because prettier formats fenced ```java / ```php / ```sh blocks through them; none for
+ * everything else, so a session that never touches those languages never evaluates them. */
 export function bundledPluginsFor(lang: string): BundledPluginName[] {
-  if (lang === "markdown") return ["java", "php", "shell"];
-  return Object.hasOwn(BUNDLED_PLUGIN_LOADERS, lang) ? [lang as BundledPluginName] : [];
+  const all = Object.keys(BUNDLED_PLUGIN_LOADERS) as BundledPluginName[];
+  return lang === "markdown" ? all : all.filter((name) => name === lang);
 }
 
 // prettier-plugin-java starts `Parser.init()` in a module-scope IIFE, so a floating promise exists
-// from the moment the plugin is first imported (now: the first java/markdown format). If a .wasm
+// from the moment the plugin is first imported (the first java/markdown format). If a .wasm
 // sidecar is missing or corrupt that promise rejects with nothing attached, which KILLS this
 // process under node (verified: exit 1) and exits non-zero under bun -- taking down formatting for
 // every OTHER language too. Downgrade it to a stderr note so the server survives and only the
@@ -213,7 +200,7 @@ export async function formatInProcess(src: string, filePath: string, cwd: string
   // back into `config`: resolveConfig's result is cached inside prettier. The resolveConfigPlugins
   // null early-return above MUST stay ahead of this -- a project with an unresolvable custom
   // plugin must keep getting "leave the file alone", not bundled-plugins-only formatting.
-  const bundled = await Promise.all(bundledPluginsFor(lang).map(loadBundledPlugin));
+  const bundled = await Promise.all(bundledPluginsFor(lang).map((name) => BUNDLED_PLUGIN_LOADERS[name]()));
   const plugins = [...(Array.isArray(config.plugins) ? config.plugins : []), ...bundled];
   return await bundledPrettier.format(src, { ...config, plugins, filepath: filePath });
 }

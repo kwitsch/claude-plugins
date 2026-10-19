@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=ea7934e341587228 body=2ead3a0c9e2c26c1 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=3c2adf0220785b49 body=c175fa66b1a04b4b prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { dirname as __ufDirname, join as __ufJoin } from "node:path";
 import { fileURLToPath as __ufFileURLToPath } from "node:url";
 import { createRequire } from "node:module";
@@ -200973,23 +200973,13 @@ function asPlugin(ns10) {
   return ns10.default ?? ns10;
 }
 var BUNDLED_PLUGIN_LOADERS = {
-  java: () => Promise.resolve().then(() => (init_dist(), exports_dist)),
-  php: () => Promise.resolve().then(() => (init_src(), exports_src)),
-  shell: () => Promise.all([Promise.resolve().then(() => (init_wasm_exec(), exports_wasm_exec)), Promise.resolve().then(() => (init_lib2(), exports_lib))]).then(([, ns10]) => ns10)
+  java: () => Promise.resolve().then(() => (init_dist(), exports_dist)).then(asPlugin),
+  php: () => Promise.resolve().then(() => (init_src(), exports_src)).then(asPlugin),
+  shell: () => Promise.all([Promise.resolve().then(() => (init_wasm_exec(), exports_wasm_exec)), Promise.resolve().then(() => (init_lib2(), exports_lib))]).then(([, ns10]) => asPlugin(ns10))
 };
-var loadedBundledPlugins = new Map;
-function loadBundledPlugin(name2) {
-  let loading = loadedBundledPlugins.get(name2);
-  if (loading === undefined) {
-    loading = BUNDLED_PLUGIN_LOADERS[name2]().then(asPlugin);
-    loadedBundledPlugins.set(name2, loading);
-  }
-  return loading;
-}
 function bundledPluginsFor(lang) {
-  if (lang === "markdown")
-    return ["java", "php", "shell"];
-  return Object.hasOwn(BUNDLED_PLUGIN_LOADERS, lang) ? [lang] : [];
+  const all = Object.keys(BUNDLED_PLUGIN_LOADERS);
+  return lang === "markdown" ? all : all.filter((name2) => name2 === lang);
 }
 process5.on("unhandledRejection", (reason) => {
   const msg = String(reason?.message ?? reason).split(`
@@ -201083,7 +201073,7 @@ async function formatInProcess(src, filePath, cwd, lang) {
   }
   if ((lang === "json" || lang === "yaml") && shouldOverridePrintWidth(filePath, cwd))
     config.printWidth = 99999;
-  const bundled = await Promise.all(bundledPluginsFor(lang).map(loadBundledPlugin));
+  const bundled = await Promise.all(bundledPluginsFor(lang).map((name2) => BUNDLED_PLUGIN_LOADERS[name2]()));
   const plugins2 = [...Array.isArray(config.plugins) ? config.plugins : [], ...bundled];
   return await bundledPrettier.format(src, { ...config, plugins: plugins2, filepath: filePath });
 }
@@ -201258,6 +201248,7 @@ function lineEnd(s, i5) {
 `, i5);
   return nl3 === -1 ? s.length : nl3 + 1;
 }
+var MAX_WIDENINGS = 32;
 function shrinkSwap(current, formatted) {
   if (current === formatted)
     return null;
@@ -201268,21 +201259,19 @@ function shrinkSwap(current, formatted) {
   let suffix = 0;
   while (suffix < max - prefix && current.charCodeAt(current.length - 1 - suffix) === formatted.charCodeAt(formatted.length - 1 - suffix))
     suffix++;
-  const changedEnd = current.length - suffix;
   let start2 = lineStart(current, prefix);
-  let end = lineEnd(current, Math.max(prefix, changedEnd - 1));
-  for (;; ) {
-    const oldStr = current.slice(start2, end);
-    if (oldStr !== "" && current.indexOf(oldStr) === start2 && current.lastIndexOf(oldStr) === start2) {
-      return { old_string: oldStr, new_string: formatted.slice(start2, formatted.length - (current.length - end)) };
-    }
+  let end = lineEnd(current, Math.max(prefix, current.length - suffix - 1));
+  const swapAt = () => ({ old_string: current.slice(start2, end), new_string: formatted.slice(start2, formatted.length - (current.length - end)) });
+  for (let i5 = 0;i5 < MAX_WIDENINGS && (start2 > 0 || end < current.length); i5++) {
+    const swap = swapAt();
+    if (applyEdit(current, swap.old_string, swap.new_string, false) === formatted)
+      return swap;
     if (start2 > 0)
       start2 = lineStart(current, start2 - 1);
-    else if (end < current.length)
-      end = lineEnd(current, end);
     else
-      return { old_string: current, new_string: formatted };
+      end = lineEnd(current, end);
   }
+  return { old_string: current, new_string: formatted };
 }
 var PRETTIER_IGNORE_BASENAMES = new Set([".prettierignore"]);
 var CACHE_INVALIDATING_BASENAMES = new Set([...PRETTIER_CONFIG_FILENAMES, "package.json", "package.yaml", ".editorconfig", ...PRETTIER_IGNORE_BASENAMES]);
