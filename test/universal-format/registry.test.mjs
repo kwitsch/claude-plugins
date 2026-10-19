@@ -3,7 +3,17 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { buildInvocation, cargoEdition, isExcludedPath, REGISTRY, EXT_MAP, PRETTIER_LANGS, hasPrettierProjectConfig, selectFormatter, shouldOverridePrintWidth } from "../../plugins/universal-format/mcp/server.mjs";
+import {
+  buildInvocation,
+  cargoEdition,
+  isExcludedPath,
+  REGISTRY,
+  EXT_MAP,
+  PRETTIER_LANGS,
+  hasPrettierProjectConfig,
+  selectFormatter,
+  shouldOverridePrintWidth,
+} from "../../plugins/universal-format/mcp/server.mjs";
 import { chmodSync } from "node:fs";
 
 const gofmt = REGISTRY.go.chain[1];
