@@ -15,10 +15,11 @@ if [ "$#" -eq 0 ]; then
 fi
 
 if command -v bun > /dev/null 2>&1; then exec bun "$@"; fi
-# node only: V8 compile cache for the 9 MB bundle (Node >= 22.1, ignored by older node). Cuts the
-# per-start parse/compile of server.mjs by ~80 ms from the second start on. Fail-open: an
-# unwritable or missing dir just disables the cache. The user's own setting wins.
-export NODE_COMPILE_CACHE="${NODE_COMPILE_CACHE:-${XDG_CACHE_HOME:-${HOME:-/tmp}/.cache}/universal-format/node-compile-cache}"
+# node only: V8 compile cache for the 9 MB bundle, kept in the plugin's persistent data dir
+# (Claude Code exports CLAUDE_PLUGIN_DATA to MCP servers; nothing is exported without it; a user-set
+# NODE_COMPILE_CACHE wins). Node < 22.1 ignores it, an unwritable dir just disables it, and it is
+# persisted on the graceful stdin-EOF exit Claude Code performs. Numbers: CLAUDE.md.
+[ -n "${CLAUDE_PLUGIN_DATA:-}" ] && export NODE_COMPILE_CACHE="${NODE_COMPILE_CACHE:-${CLAUDE_PLUGIN_DATA}/node-compile-cache}"
 if command -v node > /dev/null 2>&1; then exec node "$@"; fi
 echo "mjs-launch.sh: neither bun nor node is available. Install Node.js or Bun." >&2
 exit 1
