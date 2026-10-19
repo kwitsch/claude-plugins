@@ -135,3 +135,15 @@ test("artifact keeps the three bundled plugins behind lazy init wrappers", () =>
     assert.match(loaders, new RegExp(`^  ${key}: \\(\\) => [^\\n]*\\binit_\\w+\\(\\)`, "m"), `${key} plugin loader must be a lazy init wrapper`);
   }
 });
+
+// The shell loader imports Go's wasm_exec runtime from the ROOT sh-syntax pin, while
+// prettier-plugin-sh brings its own sh-syntax (declared as a ^ range) with the matching main.wasm.
+// bun bundles one copy only while both resolve to the same version; if a lockfile refresh moved the
+// plugin's copy ahead of the root pin, the Go runtime and the wasm would come from different
+// versions and every experimentalWasm format would silently fail again.
+test("root sh-syntax pin equals the version prettier-plugin-sh resolves", () => {
+  const rootPkg = JSON.parse(readFileSync(path.join(REPO_ROOT, "package.json"), "utf8"));
+  const require = createRequire(import.meta.url);
+  const viaPlugin = JSON.parse(readFileSync(createRequire(require.resolve("prettier-plugin-sh")).resolve("sh-syntax/package.json"), "utf8")).version;
+  assert.equal(rootPkg.devDependencies["sh-syntax"], viaPlugin, "re-pin sh-syntax in the root package.json to the version prettier-plugin-sh resolves, then rebuild");
+});
