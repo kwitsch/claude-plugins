@@ -29,7 +29,7 @@ by `scripts/dprint-config.mjs`, which never overwrites or duplicates an existing
 
    Parse `status`, `version`, `min` and `path` from its single stdout line and branch on the exit
    code, per the table in `check-dprint.reference.md`:
-   - `0` (ok): report `dprint <version> at <path> (>= <min>)` and go to step 7. Ask nothing about
+   - `0` (ok): report `dprint <version> at <path> (>= <min>)` and go to step 8. Ask nothing about
      dprint.
    - `2` (error): report the stderr diagnostic and stop. Never guess, never install.
    - `10` (missing) or `11` (outdated): go to step 4.
@@ -44,9 +44,10 @@ by `scripts/dprint-config.mjs`, which never overwrites or duplicates an existing
      - header: `dprint [currently: <version>, needs >= <min>]`
      - question: `Update dprint at <path>?`
      - options: `Update`, described as the exact update command chosen in step 5 (for example
-       "Runs <path> upgrade"); `Skip`, described as "Change nothing."
+       "Runs <path> upgrade", or the installer command for a version below 0.30.0); `Skip`,
+       described as "Change nothing."
    - `Skip`, or any answer other than `Install` / `Update`: report "dprint: skipped, nothing
-     changed" and go to step 7.
+     changed" and go to step 8.
 
 5. Apply only after `Install` / `Update`, via the Bash tool, one command, visibly:
    - **Install:**
@@ -55,17 +56,21 @@ by `scripts/dprint-config.mjs`, which never overwrites or duplicates an existing
      curl -fsSL https://dprint.dev/install.sh | sh
      ```
 
-   - **Update** (every outdated version has the `upgrade` subcommand, since the minimum is far
-     above 0.30.0):
+   - **Update**, `<version>` >= 0.30.0 (the `upgrade` subcommand exists from 0.30.0 on):
 
      ```text
      <path> upgrade
      ```
 
+   - **Update**, `<version>` < 0.30.0 (no `upgrade` subcommand): run the Install command above
+     instead; it installs the current release to the installer's directory.
    - Non-zero exit (or the permission prompt is denied): report the command's error output and
      stop. No retry, no fallback to another install method.
 
-6. Re-run the check:
+6. Read `${CLAUDE_SKILL_DIR}/scripts/check-dprint.reference.md` again (exit-code contract for the
+   re-check).
+
+7. Re-run the check:
 
    ```bash
    node ${CLAUDE_SKILL_DIR}/scripts/check-dprint.mjs
@@ -80,17 +85,17 @@ by `scripts/dprint-config.mjs`, which never overwrites or duplicates an existing
      export PATH="$HOME/.dprint/bin:$PATH"
      ```
 
-     Then go to step 7.
+     Then go to step 8.
 
    - Non-zero exit: report the state and stop. If it is still `outdated` after the upgrade,
      dprint is likely managed by a package manager (npm, Homebrew, ...) that refused the
      self-upgrade: tell the user to update it through that package manager. Never force a
      reinstall that would shadow the managed copy.
 
-7. Read `${CLAUDE_SKILL_DIR}/scripts/dprint-config.reference.md` (output shapes and exit codes of
-   both modes; this one read covers steps 8 and 10).
+8. Read `${CLAUDE_SKILL_DIR}/scripts/dprint-config.reference.md` (output shapes and exit codes of
+   both modes).
 
-8. Detect:
+9. Detect:
 
    ```bash
    node ${CLAUDE_SKILL_DIR}/scripts/dprint-config.mjs detect
@@ -98,40 +103,45 @@ by `scripts/dprint-config.mjs`, which never overwrites or duplicates an existing
 
    Parse `existing` and `sources` from its single stdout JSON line, per
    `dprint-config.reference.md`:
-   - Exit `2`: report the error as the config result and go to step 11.
-   - `existing` non-null: report "config: <existing> already present", write nothing, go to
-     step 11.
+   - Exit `2`: report the error as the config result and go to step 13.
+   - `existing` non-null (a path with a `../` prefix is a config in a parent directory, which
+     dprint also uses): report "config: <existing> already present", write nothing, go to
+     step 13.
    - Otherwise ask exactly one `AskUserQuestion`, single-select (`multiSelect: false`), no
      pre-selected option:
      - header: `dprint config [currently: none]`
      - question: `Create .dprint.jsonc in the working directory?`
      - options: `Create`, described as "Writes .dprint.jsonc; never overwrites"; `Skip`,
        described as "Write nothing."
-   - Any answer other than `Create`: write nothing, go to step 11.
+   - Any answer other than `Create`: write nothing, go to step 13.
 
-9. Wizard. A readable source is a `sources` entry whose `settings` is a non-empty object (`null` =
-   unreadable format, `{}` = nothing maps; both are only reported in step 11, never asked about).
-   - No readable source: go to step 10 with no settings.
-   - Adopt round: one `AskUserQuestion` call with one single-select question
-     (`multiSelect: false`, no pre-selected option) per readable source (at most 3):
-     - header: `<file> [currently: <k=v, ...>]` (its settings, for example
-       `.editorconfig [currently: lineWidth=200, indentWidth=2]`)
-     - question: `Adopt the settings of <file> into .dprint.jsonc?`
-     - options: `Adopt`, described as "Copies <k=v list> into .dprint.jsonc"; `Skip`, described
-       as "Ignore this file."
-     - Any answer other than `Adopt` counts as `Skip`.
-   - Merge the adopted sources key by key: a key set by only one adopted source, or set to the
-     same value by every adopted source that sets it, is taken directly.
-   - Conflict round: if adopted sources disagree on any key, one more `AskUserQuestion` call with
-     one single-select question (`multiSelect: false`, no pre-selected option) per conflicting
-     key (at most 4):
-     - header: `<key> [currently: conflict]`
-     - question: `Which <key> should .dprint.jsonc use?`
-     - options: one `<file>: <value>` option per adopted source that sets the key, described as
-       "From <file>"; plus `Skip`, described as "Leave dprint default."
-     - The chosen option's value is taken; any other answer omits the key.
+10. Wizard. A readable source is a `sources` entry whose `settings` is a non-empty object (`null` =
+    unreadable format, `{}` = nothing maps; both are only reported in step 13, never asked about).
+    A `file` with a `../` prefix is the nearest copy in a parent directory.
+    - No readable source: go to step 11 with no settings.
+    - Adopt round: one `AskUserQuestion` call with one single-select question
+      (`multiSelect: false`, no pre-selected option) per readable source (at most 3):
+      - header: `<file> [currently: <k=v, ...>]` (its settings, for example
+        `.editorconfig [currently: lineWidth=200, indentWidth=2]`)
+      - question: `Adopt the settings of <file> into .dprint.jsonc?`
+      - options: `Adopt`, described as "Copies <k=v list> into .dprint.jsonc"; `Skip`, described
+        as "Ignore this file."
+      - Any answer other than `Adopt` counts as `Skip`.
+    - Merge the adopted sources key by key: a key set by only one adopted source, or set to the
+      same value by every adopted source that sets it, is taken directly.
+    - Conflict round: if adopted sources disagree on any key, one more `AskUserQuestion` call with
+      one single-select question (`multiSelect: false`, no pre-selected option) per conflicting
+      key (at most 4):
+      - header: `<key> [currently: conflict]`
+      - question: `Which <key> should .dprint.jsonc use?`
+      - options: one `<file>: <value>` option per adopted source that sets the key, described as
+        "From <file>"; plus `Skip`, described as "Leave dprint default."
+      - The chosen option's value is taken; any other answer omits the key.
 
-10. Write, passing each resulting key as one `key=value` argument (no arguments is valid and
+11. Read `${CLAUDE_SKILL_DIR}/scripts/dprint-config.reference.md` again (exit codes and output
+    shape of `write`).
+
+12. Write, passing each resulting key as one `key=value` argument (no arguments is valid and
     writes the minimal file):
 
     ```bash
@@ -142,7 +152,7 @@ by `scripts/dprint-config.mjs`, which never overwrites or duplicates an existing
     - Exit `3`: report "config: <existing> already present, nothing written".
     - Exit `2`: report the `error` message; nothing written.
 
-11. Final output, as a terse bullet list:
+13. Final output, as a terse bullet list:
     - dprint state before (`status`, `version`, `path`)
     - dprint action taken (command run, or "skipped")
     - dprint state after (`status`, `version`, `path`, plus the `export PATH` line when needed)
