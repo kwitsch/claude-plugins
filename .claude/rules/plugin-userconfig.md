@@ -46,6 +46,11 @@ See `plugins/git-sign-key/CLAUDE.md` — one hook-only plugin predates this rule
   against exactly that.
 - `taskflow` is the same case for a different reason — see
   `plugins/taskflow/CLAUDE.md` for why.
+- `dprint` (2026-10-20) intentionally ships no `userConfig`: it is a skill-only
+  plugin whose one skill, `init-dprint`, runs only when explicitly invoked and
+  asks before every install, update or file write, so a toggle would only gate
+  an already opt-in action. Its bats suite asserts `userConfig`'s absence as a
+  tripwire.
 - `inline-headroom`'s content router (`detectContentType` / `ROUTES`,
   2026-10-11) is infrastructure inside a plugin that does have toggles: it has
   no behaviour of its own, and which text a lever sees is governed by that
