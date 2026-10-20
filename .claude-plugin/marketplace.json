@@ -121,7 +121,7 @@
     {
       "name": "dprint",
       "source": "./plugins/dprint",
-      "description": "Skill that checks for a minimum dprint version and, after confirmation, installs or updates dprint at user level.",
+      "description": "Skill that checks for a minimum dprint version, installs or updates dprint after confirmation, and offers to create a .dprint.jsonc from existing style configs.",
       "author": {
         "name": "Kwitsch"
       },

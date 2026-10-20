@@ -1,32 +1,36 @@
 ---
 name: init-dprint
-description: Checks whether dprint is installed in at least the plugin's minimum version and, after confirmation via AskUserQuestion, installs it (when missing) or updates it (when too old) at user level. Use when the user wants dprint set up, installed, updated, or checked.
+description: Checks whether dprint is installed in at least the plugin's minimum version and, after confirmation via AskUserQuestion, installs it (when missing) or updates it (when too old) at user level, then offers to create a starter .dprint.jsonc from the project's existing style configs. Use when the user wants dprint set up, installed, updated, or checked, or a dprint config created.
 allowed-tools: ["AskUserQuestion", "Bash(node:*)"]
 ---
 
 # init-dprint
 
-Makes sure a usable dprint, at least the minimum version pinned in `check-dprint.mjs`, is
-available. Detection is read-only. Installing or updating happens only after an explicit
-`Install` / `Update` answer, and the command then runs visibly through the Bash tool (its normal
-permission prompt is a second gate; install/update commands are deliberately not pre-allowed).
+Makes sure a usable dprint, at least the minimum version pinned in `scripts/check-dprint.mjs`, is
+available, then offers a starter `.dprint.jsonc`. Detection is read-only. Installing or updating
+happens only after an explicit `Install` / `Update` answer, and the command then runs visibly
+through the Bash tool (its normal permission prompt is a second gate; install/update commands are
+deliberately not pre-allowed). The config file is written only after an explicit `Create` answer,
+by `scripts/dprint-config.mjs`, which never overwrites or duplicates an existing dprint config.
 
 ## Steps
 
 1. **All questions go through the `AskUserQuestion` tool, never as plain text.** Never run an
-   install or update command without an explicit `Install` / `Update` answer.
+   install or update command without an explicit `Install` / `Update` answer. Never write a config
+   without an explicit `Create` answer.
 
-2. Read `${CLAUDE_SKILL_DIR}/check-dprint.reference.md` (output line and exit-code contract).
+2. Read `${CLAUDE_SKILL_DIR}/scripts/check-dprint.reference.md` (output line and exit-code contract).
 
 3. Run the check:
 
    ```bash
-   node ${CLAUDE_SKILL_DIR}/check-dprint.mjs
+   node ${CLAUDE_SKILL_DIR}/scripts/check-dprint.mjs
    ```
 
    Parse `status`, `version`, `min` and `path` from its single stdout line and branch on the exit
    code, per the table in `check-dprint.reference.md`:
-   - `0` (ok): report `dprint <version> at <path> (>= <min>)` and stop. Ask nothing.
+   - `0` (ok): report `dprint <version> at <path> (>= <min>)` and go to step 8. Ask nothing about
+     dprint.
    - `2` (error): report the stderr diagnostic and stop. Never guess, never install.
    - `10` (missing) or `11` (outdated): go to step 4.
 
@@ -40,9 +44,10 @@ permission prompt is a second gate; install/update commands are deliberately not
      - header: `dprint [currently: <version>, needs >= <min>]`
      - question: `Update dprint at <path>?`
      - options: `Update`, described as the exact update command chosen in step 5 (for example
-       "Runs <path> upgrade"); `Skip`, described as "Change nothing."
-   - `Skip`, or any answer other than `Install` / `Update`: report "skipped, nothing changed" and
-     stop.
+       "Runs <path> upgrade", or the installer command for a version below 0.30.0); `Skip`,
+       described as "Change nothing."
+   - `Skip`, or any answer other than `Install` / `Update`: report "dprint: skipped, nothing
+     changed" and go to step 8.
 
 5. Apply only after `Install` / `Update`, via the Bash tool, one command, visibly:
    - **Install:**
@@ -51,20 +56,24 @@ permission prompt is a second gate; install/update commands are deliberately not
      curl -fsSL https://dprint.dev/install.sh | sh
      ```
 
-   - **Update** (every outdated version has the `upgrade` subcommand, since the minimum is far
-     above 0.30.0):
+   - **Update**, `<version>` >= 0.30.0 (the `upgrade` subcommand exists from 0.30.0 on):
 
      ```text
      <path> upgrade
      ```
 
+   - **Update**, `<version>` < 0.30.0 (no `upgrade` subcommand): run the Install command above
+     instead; it installs the current release to the installer's directory.
    - Non-zero exit (or the permission prompt is denied): report the command's error output and
      stop. No retry, no fallback to another install method.
 
-6. Re-run the check:
+6. Read `${CLAUDE_SKILL_DIR}/scripts/check-dprint.reference.md` again (exit-code contract for the
+   re-check).
+
+7. Re-run the check:
 
    ```bash
-   node ${CLAUDE_SKILL_DIR}/check-dprint.mjs
+   node ${CLAUDE_SKILL_DIR}/scripts/check-dprint.mjs
    ```
 
    - Exit `0`: report the new version and path. If `path` is `<home>/.dprint/bin/dprint`, also
@@ -76,12 +85,81 @@ permission prompt is a second gate; install/update commands are deliberately not
      export PATH="$HOME/.dprint/bin:$PATH"
      ```
 
+     Then go to step 8.
+
    - Non-zero exit: report the state and stop. If it is still `outdated` after the upgrade,
      dprint is likely managed by a package manager (npm, Homebrew, ...) that refused the
      self-upgrade: tell the user to update it through that package manager. Never force a
      reinstall that would shadow the managed copy.
 
-7. Final output, as a terse bullet list:
-   - state before (`status`, `version`, `path`)
-   - action taken (command run, or "skipped")
-   - state after (`status`, `version`, `path`, plus the `export PATH` line when needed)
+8. Read `${CLAUDE_SKILL_DIR}/scripts/dprint-config.reference.md` (output shapes and exit codes of
+   both modes).
+
+9. Detect:
+
+   ```bash
+   node ${CLAUDE_SKILL_DIR}/scripts/dprint-config.mjs detect
+   ```
+
+   Parse `existing` and `sources` from its single stdout JSON line, per
+   `dprint-config.reference.md`:
+   - Exit `2`: report the error as the config result and go to step 13.
+   - `existing` non-null (a path with a `../` prefix is a config in a parent directory, which
+     dprint also uses): report "config: <existing> already present", write nothing, go to
+     step 13.
+   - Otherwise ask exactly one `AskUserQuestion`, single-select (`multiSelect: false`), no
+     pre-selected option:
+     - header: `dprint config [currently: none]`
+     - question: `Create .dprint.jsonc in the working directory?`
+     - options: `Create`, described as "Writes .dprint.jsonc; never overwrites"; `Skip`,
+       described as "Write nothing."
+   - Any answer other than `Create`: write nothing, go to step 13.
+
+10. Wizard. A readable source is a `sources` entry whose `settings` is a non-empty object (`null` =
+    unreadable format, `{}` = nothing maps; both are only reported in step 13, never asked about).
+    A `file` with a `../` prefix is the nearest copy in a parent directory.
+    - No readable source: go to step 11 with no settings.
+    - Adopt round: one `AskUserQuestion` call with one single-select question
+      (`multiSelect: false`, no pre-selected option) per readable source (at most 3):
+      - header: `<file> [currently: <k=v, ...>]` (its settings, for example
+        `.editorconfig [currently: lineWidth=200, indentWidth=2]`)
+      - question: `Adopt the settings of <file> into .dprint.jsonc?`
+      - options: `Adopt`, described as "Copies <k=v list> into .dprint.jsonc"; `Skip`, described
+        as "Ignore this file."
+      - Any answer other than `Adopt` counts as `Skip`.
+    - Merge the adopted sources key by key: a key set by only one adopted source, or set to the
+      same value by every adopted source that sets it, is taken directly.
+    - Conflict round: if adopted sources disagree on any key, one more `AskUserQuestion` call with
+      one single-select question (`multiSelect: false`, no pre-selected option) per conflicting
+      key (at most 4):
+      - header: `<key> [currently: conflict]`
+      - question: `Which <key> should .dprint.jsonc use?`
+      - options: one `<file>: <value>` option per adopted source that sets the key, described as
+        "From <file>"; plus `Skip`, described as "Leave dprint default."
+      - The chosen option's value is taken; any other answer omits the key.
+
+11. Read `${CLAUDE_SKILL_DIR}/scripts/dprint-config.reference.md` again (exit codes and output
+    shape of `write`).
+
+12. Write, passing each resulting key as one `key=value` argument (no arguments is valid and
+    writes the minimal file):
+
+    ```bash
+    node ${CLAUDE_SKILL_DIR}/scripts/dprint-config.mjs write <key=value ...>
+    ```
+
+    - Exit `0`: config created with the written keys.
+    - Exit `3`: report "config: <existing> already present, nothing written".
+    - Exit `2`: report the `error` message; nothing written.
+
+13. Final output, as a terse bullet list:
+    - dprint state before (`status`, `version`, `path`)
+    - dprint action taken (command run, or "skipped")
+    - dprint state after (`status`, `version`, `path`, plus the `export PATH` line when needed)
+    - `config`: present (`<path>`), created (`.dprint.jsonc` with the keys written), skipped, or
+      error (message); plus any sources found but not adopted, or unreadable (`settings: null`)
+    - only when the file was created: "No formatter plugins yet. Add some with
+      `dprint add <plugin>` (for example `dprint add typescript json markdown`)", and a note
+      that the values were copied once and do not follow later changes to the source files. If
+      dprint is not installed or still outdated (state after is not `ok`), say instead that the
+      `dprint add` command needs dprint installed or updated first

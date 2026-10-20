@@ -7,8 +7,8 @@ setup() {
   MARKET="$REPO_ROOT/.claude-plugin/marketplace.json"
 }
 
-@test "plugin.json is valid, pins version 0.1.0, and has required fields" {
-  run jq -e '.name == "dprint" and .version == "0.1.0" and (.description | length > 0) and (.author.name == "Kwitsch")' "$PLUGIN/.claude-plugin/plugin.json"
+@test "plugin.json is valid, pins version 0.2.0, and has required fields" {
+  run jq -e '.name == "dprint" and .version == "0.2.0" and (.description | length > 0) and (.author.name == "Kwitsch")' "$PLUGIN/.claude-plugin/plugin.json"
   assert_success
 }
 
@@ -73,10 +73,16 @@ setup() {
 }
 
 @test "SKILL.md invokes the script via the literal CLAUDE_SKILL_DIR token and reads its reference" {
-  run grep -F 'node ${CLAUDE_SKILL_DIR}/check-dprint.mjs' "$SKILL_DIR/SKILL.md"
+  run grep -F 'node ${CLAUDE_SKILL_DIR}/scripts/check-dprint.mjs' "$SKILL_DIR/SKILL.md"
   assert_success
-  run grep -F 'check-dprint.reference.md' "$SKILL_DIR/SKILL.md"
+  run grep -F 'scripts/check-dprint.reference.md' "$SKILL_DIR/SKILL.md"
   assert_success
+}
+
+@test "skill dir holds only SKILL.md and scripts/" {
+  [ -f "$SKILL_DIR/SKILL.md" ]
+  [ -d "$SKILL_DIR/scripts" ]
+  [ "$(ls -A "$SKILL_DIR" | wc -l)" -eq 2 ]
 }
 
 @test "SKILL.md never contains the exclamation-backtick injection sequence" {
@@ -102,4 +108,30 @@ setup() {
 
 @test "SKILL.md stays under 500 lines" {
   [ "$(wc -l < "$SKILL_DIR/SKILL.md")" -lt 500 ]
+}
+
+@test "SKILL.md drives dprint-config detect/write behind an explicit Create answer" {
+  [ -f "$SKILL_DIR/scripts/check-dprint.reference.md" ]
+  [ -f "$SKILL_DIR/scripts/dprint-config.reference.md" ]
+  run grep -F 'node ${CLAUDE_SKILL_DIR}/scripts/dprint-config.mjs detect' "$SKILL_DIR/SKILL.md"
+  assert_success
+  run grep -F 'node ${CLAUDE_SKILL_DIR}/scripts/dprint-config.mjs write' "$SKILL_DIR/SKILL.md"
+  assert_success
+  run grep -F 'dprint-config.reference.md' "$SKILL_DIR/SKILL.md"
+  assert_success
+  run grep -F '.dprint.jsonc' "$SKILL_DIR/SKILL.md"
+  assert_success
+  run grep -F '`Create`' "$SKILL_DIR/SKILL.md"
+  assert_success
+  run grep -F 'dprint add <plugin>' "$SKILL_DIR/SKILL.md"
+  assert_success
+}
+
+@test "plugin README line 3 and the root README row carry the plugin.json description" {
+  plugin_desc="$(jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json")"
+  [[ "$plugin_desc" == *".dprint.jsonc"* ]]
+  [ "$(sed -n 3p "$PLUGIN/README.md")" = "$plugin_desc" ]
+  run grep -F '| [dprint](plugins/dprint/README.md)' "$REPO_ROOT/README.md"
+  assert_success
+  assert_output --partial "| $plugin_desc "
 }
