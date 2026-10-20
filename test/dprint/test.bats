@@ -12,8 +12,8 @@ setup() {
   assert_success
 }
 
-@test "plugin.json carries no userConfig" {
-  run jq -e 'has("userConfig") | not' "$PLUGIN/.claude-plugin/plugin.json"
+@test "plugin.json userConfig is exactly the warn_missing_dprint fail-open toggle" {
+  run jq -e '(.userConfig | keys) == ["warn_missing_dprint"] and (.userConfig | length) == 1 and (.userConfig.warn_missing_dprint | .type == "boolean" and .default == true and (.title | length > 0) and (.description | length > 0))' "$PLUGIN/.claude-plugin/plugin.json"
   assert_success
 }
 
@@ -109,4 +109,27 @@ setup() {
   run git -C "$REPO_ROOT" ls-files --stage -- plugins/dprint/hooks/detect.mjs
   assert_success
   assert_line --regexp '^100755 [0-9a-f]+ 0[[:space:]]+plugins/dprint/hooks/detect\.mjs$'
+}
+
+@test "hooks.json is exactly the mods module list" {
+  run jq -e '. == {"modules":["./register.ts"]}' "$PLUGIN/hooks/hooks.json"
+  assert_success
+}
+
+@test "mod source and wiring-test files exist" {
+  [ -f "$PLUGIN/hooks/register.ts" ]
+  [ -f "$PLUGIN/hooks/detect.mjs" ]
+  [ -f "$PLUGIN/tests/dprint.test.ts" ]
+}
+
+@test "claude plugin validate succeeds" {
+  command -v claude >/dev/null || skip "claude CLI unavailable"
+  run claude plugin validate "$PLUGIN"
+  assert_success
+}
+
+@test "claude plugin test succeeds" {
+  command -v claude >/dev/null || skip "claude CLI unavailable"
+  run claude plugin test "$PLUGIN"
+  assert_success
 }
