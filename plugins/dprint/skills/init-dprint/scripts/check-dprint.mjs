@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // init-dprint skill helper: locate dprint (first executable on PATH, else
-// ~/.dprint/bin/dprint), read `dprint --version`, compare it numerically
+// $DPRINT_INSTALL/bin/dprint, default ~/.dprint/bin/dprint), read `dprint --version`, compare it numerically
 // against MIN_VERSION. Prints exactly one
 // `status=<ok|missing|outdated|error> version=<X.Y.Z|-> min=<MIN> path=<abs|->`
 // line; exit codes per check-dprint.reference.md. Read-only: never installs.
@@ -38,7 +38,8 @@ function findDprint() {
     const p = resolve(dir, "dprint");
     if (isExecutableFile(p)) return p;
   }
-  const fallback = join(homedir(), ".dprint", "bin", "dprint");
+  // the official installer honours $DPRINT_INSTALL, defaulting to ~/.dprint
+  const fallback = join(process.env.DPRINT_INSTALL || join(homedir(), ".dprint"), "bin", "dprint");
   return isExecutableFile(fallback) ? fallback : null;
 }
 

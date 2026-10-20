@@ -10,10 +10,11 @@
 
 ## Environment
 
-| Var    | Purpose                                                                                 | Required |
-| ------ | --------------------------------------------------------------------------------------- | -------- |
-| `PATH` | Searched first, entry by entry, for an executable regular file named `dprint`           | no       |
-| `HOME` | Fallback location `$HOME/.dprint/bin/dprint` (where the official installer puts dprint) | no       |
+| Var              | Purpose                                                                                 | Required |
+| ---------------- | --------------------------------------------------------------------------------------- | -------- |
+| `PATH`           | Searched first, entry by entry, for an executable regular file named `dprint`           | no       |
+| `HOME`           | Fallback location `$HOME/.dprint/bin/dprint` (where the official installer puts dprint) | no       |
+| `DPRINT_INSTALL` | Replaces `$HOME/.dprint` in the fallback location (the installer's own override)        | no       |
 
 ## Output
 
@@ -29,11 +30,11 @@ numerically per component (major, minor, patch). Diagnostics go to stderr.
 
 ## Exit codes
 
-| Code | Meaning  | Notes                                                                                                  |
-| ---- | -------- | ------------------------------------------------------------------------------------------------------ |
-| 0    | ok       | dprint found, version >= `min`                                                                         |
-| 10   | missing  | no executable `dprint` on `PATH` nor at `$HOME/.dprint/bin/dprint`                                     |
-| 11   | outdated | dprint found, version < `min`                                                                          |
-| 2    | error    | usage error, `--version` failed / timed out / exited non-zero, or unparseable output (stderr explains) |
+| Code | Meaning  | Notes                                                                                                     |
+| ---- | -------- | --------------------------------------------------------------------------------------------------------- |
+| 0    | ok       | dprint found, version >= `min`                                                                            |
+| 10   | missing  | no executable `dprint` on `PATH` nor at `$DPRINT_INSTALL/bin/dprint` (default `$HOME/.dprint/bin/dprint`) |
+| 11   | outdated | dprint found, version < `min`                                                                             |
+| 2    | error    | usage error, `--version` failed / timed out / exited non-zero, or unparseable output (stderr explains)    |
 
 Read-only: the script never installs, updates or modifies anything.

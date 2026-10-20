@@ -4,6 +4,19 @@ load 'test_helper'
 
 setup() {
   common_setup
+  SCRIPT="$SKILL_DIR/scripts/check-dprint.mjs"
+}
+
+# make_stub <name> <body-line>... -- drop an executable bash stub into MOCKBIN.
+# Stub bodies must not reference $BATS_TEST_TMPDIR (not exported to stubs).
+make_stub() {
+  local name="$1"
+  shift
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf '%s\n' "$@"
+  } > "$MOCKBIN/$name"
+  chmod +x "$MOCKBIN/$name"
 }
 
 # run_check [args...] -- run the real script on the isolated PATH/HOME.
@@ -112,4 +125,13 @@ min_version() {
   run grep -c 'MIN_VERSION = ' "$SCRIPT"
   assert_success
   assert_output "1"
+}
+
+@test "DPRINT_INSTALL replaces ~/.dprint in the fallback location" {
+  make_stub dprint 'echo "dprint 0.100.0"'
+  mkdir -p "$BATS_TEST_TMPDIR/inst/bin"
+  mv "$MOCKBIN/dprint" "$BATS_TEST_TMPDIR/inst/bin/dprint"
+  run env PATH="$MOCKBIN" HOME="$HOME" DPRINT_INSTALL="$BATS_TEST_TMPDIR/inst" "$MOCKBIN/node" "$SCRIPT"
+  assert_success
+  assert_output "status=ok version=0.100.0 min=$(min_version) path=$BATS_TEST_TMPDIR/inst/bin/dprint"
 }

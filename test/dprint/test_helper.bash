@@ -9,7 +9,6 @@ common_setup() {
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
   PLUGIN="$REPO_ROOT/plugins/dprint"
   SKILL_DIR="$PLUGIN/skills/init-dprint"
-  SCRIPT="$SKILL_DIR/scripts/check-dprint.mjs"
 
   # Isolated PATH: only bash and node symlinked in; dprint stubs added per test.
   MOCKBIN="$BATS_TEST_TMPDIR/bin"
@@ -21,16 +20,4 @@ common_setup() {
   # Isolated HOME so the ~/.dprint/bin fallback never sees a real install.
   export HOME="$BATS_TEST_TMPDIR/home"
   mkdir -p "$HOME"
-}
-
-# make_stub <name> <body-line>... -- drop an executable bash stub into MOCKBIN.
-# Stub bodies must not reference $BATS_TEST_TMPDIR (not exported to stubs).
-make_stub() {
-  local name="$1"
-  shift
-  {
-    printf '#!/usr/bin/env bash\n'
-    printf '%s\n' "$@"
-  } > "$MOCKBIN/$name"
-  chmod +x "$MOCKBIN/$name"
 }
