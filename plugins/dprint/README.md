@@ -1,6 +1,6 @@
 # dprint
 
-Skill that checks for a minimum dprint version and, after confirmation, installs or updates dprint at user level.
+Skill that checks for a minimum dprint version and, after confirmation, installs or updates dprint at user level; a session-start mod warns with a toast when a project has a dprint config but dprint is not installed.
 
 ## Install
 
