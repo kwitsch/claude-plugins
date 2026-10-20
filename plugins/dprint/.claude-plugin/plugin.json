@@ -1,6 +1,6 @@
 {
   "name": "dprint",
-  "version": "0.1.0",
-  "description": "Skill that checks for a minimum dprint version and, after confirmation, installs or updates dprint at user level.",
+  "version": "0.2.0",
+  "description": "Skill that checks for a minimum dprint version, installs or updates dprint after confirmation, and offers to create a .dprint.jsonc from existing style configs.",
   "author": { "name": "Kwitsch" }
 }

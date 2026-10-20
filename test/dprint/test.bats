@@ -7,8 +7,8 @@ setup() {
   MARKET="$REPO_ROOT/.claude-plugin/marketplace.json"
 }
 
-@test "plugin.json is valid, pins version 0.1.0, and has required fields" {
-  run jq -e '.name == "dprint" and .version == "0.1.0" and (.description | length > 0) and (.author.name == "Kwitsch")' "$PLUGIN/.claude-plugin/plugin.json"
+@test "plugin.json is valid, pins version 0.2.0, and has required fields" {
+  run jq -e '.name == "dprint" and .version == "0.2.0" and (.description | length > 0) and (.author.name == "Kwitsch")' "$PLUGIN/.claude-plugin/plugin.json"
   assert_success
 }
 
@@ -125,4 +125,13 @@ setup() {
   assert_success
   run grep -F 'dprint add <plugin>' "$SKILL_DIR/SKILL.md"
   assert_success
+}
+
+@test "plugin README line 3 and the root README row carry the plugin.json description" {
+  plugin_desc="$(jq -r '.description' "$PLUGIN/.claude-plugin/plugin.json")"
+  [[ "$plugin_desc" == *".dprint.jsonc"* ]]
+  [ "$(sed -n 3p "$PLUGIN/README.md")" = "$plugin_desc" ]
+  run grep -F '| [dprint](plugins/dprint/README.md)' "$REPO_ROOT/README.md"
+  assert_success
+  assert_output --partial "| $plugin_desc "
 }
