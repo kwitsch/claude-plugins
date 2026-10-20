@@ -109,3 +109,20 @@ setup() {
 @test "SKILL.md stays under 500 lines" {
   [ "$(wc -l < "$SKILL_DIR/SKILL.md")" -lt 500 ]
 }
+
+@test "SKILL.md drives dprint-config detect/write behind an explicit Create answer" {
+  [ -f "$SKILL_DIR/scripts/check-dprint.reference.md" ]
+  [ -f "$SKILL_DIR/scripts/dprint-config.reference.md" ]
+  run grep -F 'node ${CLAUDE_SKILL_DIR}/scripts/dprint-config.mjs detect' "$SKILL_DIR/SKILL.md"
+  assert_success
+  run grep -F 'node ${CLAUDE_SKILL_DIR}/scripts/dprint-config.mjs write' "$SKILL_DIR/SKILL.md"
+  assert_success
+  run grep -F 'dprint-config.reference.md' "$SKILL_DIR/SKILL.md"
+  assert_success
+  run grep -F '.dprint.jsonc' "$SKILL_DIR/SKILL.md"
+  assert_success
+  run grep -F '`Create`' "$SKILL_DIR/SKILL.md"
+  assert_success
+  run grep -F 'dprint add <plugin>' "$SKILL_DIR/SKILL.md"
+  assert_success
+}
