@@ -3,9 +3,11 @@
 // `detect` (read-only): prints one JSON line naming the first existing dprint config
 // (dprint's own lookup names) and the dprint global settings that .editorconfig,
 // .gitattributes and the Prettier config in the working directory declare.
+// `write [key=value ...]`: creates ./.dprint.jsonc with exclusive create; never
+// overwrites or duplicates a dprint config.
 // Contract: dprint-config.reference.md. All paths are relative to the working directory.
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 // dprint's lookup order (resolve_main_config_path.rs): POSSIBLE_CONFIG_FILE_NAMES in cwd,
 // then DOT_CONFIG_FILE_NAMES in .config/ (non-dot names only).
@@ -36,7 +38,9 @@ const PRETTIER_FILES = [
 const TARGET = ".dprint.jsonc";
 // dprint's global config keys; also the output key order.
 const KEYS = ["lineWidth", "indentWidth", "useTabs", "newLineKind"];
-const USAGE = "usage: node dprint-config.mjs detect";
+const USAGE = "usage: node dprint-config.mjs detect | write [key=value ...]";
+// newLineKind values allowed by https://dprint.dev/schemas/v0.json
+const NEW_LINE_KINDS = ["auto", "crlf", "lf", "system"];
 
 /**
  * @typedef {{ lineWidth?: number, indentWidth?: number, useTabs?: boolean, newLineKind?: string }} Settings
@@ -229,12 +233,53 @@ function detect() {
 }
 
 /**
+ * @param {string[]} args `key=value` arguments
+ * @returns {Result}
+ */
+function write(args) {
+  /** @type {Record<string, number | boolean | string>} */
+  const settings = {};
+  for (const arg of args) {
+    const eq = arg.indexOf("=");
+    const key = arg.slice(0, eq);
+    const value = arg.slice(eq + 1);
+    if (eq < 1 || !KEYS.includes(key)) return fail(`invalid argument '${arg}': expected key=value with key one of ${KEYS.join(", ")}`);
+    if (Object.hasOwn(settings, key)) return fail(`duplicate key '${key}'`);
+    if (key === "useTabs") {
+      if (value !== "true" && value !== "false") return fail(`useTabs must be true or false, got '${value}'`);
+      settings[key] = value === "true";
+    } else if (key === "newLineKind") {
+      if (!NEW_LINE_KINDS.includes(value)) return fail(`newLineKind must be one of ${NEW_LINE_KINDS.join(", ")}, got '${value}'`);
+      settings[key] = value;
+    } else {
+      if (!/^[1-9]\d*$/.test(value)) return fail(`${key} must be a positive integer, got '${value}'`);
+      settings[key] = Number(value);
+    }
+  }
+  const existing = DPRINT_CONFIG_PATHS.find((p) => existsSync(p));
+  if (existing !== undefined) return { code: 3, out: { existing } };
+  /** @type {Record<string, unknown>} */
+  const config = { $schema: "https://dprint.dev/schemas/v0.json" };
+  for (const k of KEYS) if (Object.hasOwn(settings, k)) config[k] = settings[k];
+  config.plugins = [];
+  try {
+    writeFileSync(TARGET, JSON.stringify(config, null, 2) + "\n", { flag: "wx" });
+  } catch (e) {
+    // lost a race against another writer: still never clobber
+    if (e instanceof Error && "code" in e && e.code === "EEXIST") return { code: 3, out: { existing: TARGET } };
+    throw e;
+  }
+  return { code: 0, out: { written: TARGET } };
+}
+
+/**
  * @param {string[]} argv arguments after the script path
  * @returns {Result}
  */
 function main(argv) {
   const [mode, ...rest] = argv;
   if (mode === "detect" && rest.length === 0) return detect();
+  if (mode === "write") return write(rest);
   return fail(USAGE);
 }
 

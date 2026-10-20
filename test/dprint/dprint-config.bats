@@ -175,3 +175,69 @@ EOF
   assert_failure 2
   assert_output --partial '{"error":"usage:'
 }
+
+@test "write: exact file content, keys in canonical order regardless of arg order" {
+  run_config write newLineKind=crlf useTabs=true lineWidth=120 indentWidth=4
+  assert_success
+  assert_output '{"written":".dprint.jsonc"}'
+  cat > "$BATS_TEST_TMPDIR/expected.jsonc" << 'EOT'
+{
+  "$schema": "https://dprint.dev/schemas/v0.json",
+  "lineWidth": 120,
+  "indentWidth": 4,
+  "useTabs": true,
+  "newLineKind": "crlf",
+  "plugins": []
+}
+EOT
+  run diff -u "$BATS_TEST_TMPDIR/expected.jsonc" .dprint.jsonc
+  assert_success
+}
+
+@test "write: no args -> minimal file" {
+  run_config write
+  assert_success
+  cat > "$BATS_TEST_TMPDIR/expected.jsonc" << 'EOT'
+{
+  "$schema": "https://dprint.dev/schemas/v0.json",
+  "plugins": []
+}
+EOT
+  run diff -u "$BATS_TEST_TMPDIR/expected.jsonc" .dprint.jsonc
+  assert_success
+}
+
+@test "write: target already exists -> exit 3, file unchanged" {
+  printf 'keep\n' > .dprint.jsonc
+  run_config write lineWidth=80
+  assert_failure 3
+  assert_output '{"existing":".dprint.jsonc"}'
+  [ "$(cat .dprint.jsonc)" = "keep" ]
+}
+
+@test "write: dprint.json exists -> exit 3, no .dprint.jsonc" {
+  printf '{}\n' > dprint.json
+  run_config write lineWidth=80
+  assert_failure 3
+  assert_output '{"existing":"dprint.json"}'
+  [ "$(cat dprint.json)" = "{}" ]
+  [ ! -e .dprint.jsonc ]
+}
+
+@test "write: bad key, bad value or duplicate key -> exit 2, no file" {
+  local args
+  for args in "foo=1" "lineWidth" "=5" "lineWidth=0" "lineWidth=abc" "indentWidth=2.5" "useTabs=yes" "newLineKind=cr" "lineWidth=80 lineWidth=90"; do
+    # shellcheck disable=SC2086
+    run_config write $args
+    assert_failure 2
+    assert_output --partial '{"error":"'
+    [ ! -e .dprint.jsonc ]
+  done
+}
+
+@test "write: newLineKind auto and system are accepted" {
+  run_config write newLineKind=system
+  assert_success
+  run grep -F '"newLineKind": "system"' .dprint.jsonc
+  assert_success
+}
