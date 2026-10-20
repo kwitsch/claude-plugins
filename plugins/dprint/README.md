@@ -14,6 +14,10 @@ Skill that checks for a minimum dprint version and, after confirmation, installs
 | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `init-dprint` | Checks whether dprint is installed in at least the minimum version; if it is missing or too old, asks once via `AskUserQuestion` and, only on an explicit yes, installs it or updates it, then re-checks. |
 
+## What it does
+
+At the start of every interactive session, a small mod checks the working directory and its `.config/` subdirectory for a dprint config (`dprint.json`, `dprint.jsonc`, `.dprint.json`, `.dprint.jsonc`). If one exists but no dprint binary is found on `PATH` or at `~/.dprint/bin/dprint`, a toast says so and points to `/dprint:init-dprint`. It never touches the transcript, and it is off in `-p`/SDK runs. It is on by default; set `warn_missing_dprint` to `false` to turn it off.
+
 ## Notes
 
 - Minimum dprint version: `0.50.0` (the `MIN_VERSION` constant in `skills/init-dprint/check-dprint.mjs`).
