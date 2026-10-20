@@ -264,3 +264,21 @@ EOT
     assert_success
   done
 }
+
+@test "PRETTIER_FILES matches PRETTIER_CONFIG_FILENAMES in src/universal-format-mcp/prettier.ts" {
+  run "$MOCKBIN/node" -e '
+    const fs = require("node:fs");
+    const list = (file, name) => {
+      const m = new RegExp(name + " = \\[([^\\]]*)\\]").exec(fs.readFileSync(file, "utf8"));
+      if (!m) throw new Error(name + " not found in " + file);
+      return m[1].match(/"[^"]+"/g).join(",");
+    };
+    const a = list(process.argv[1], "PRETTIER_FILES");
+    const b = list(process.argv[2], "PRETTIER_CONFIG_FILENAMES");
+    if (a !== b) {
+      console.error(a + "\n" + b);
+      process.exit(1);
+    }
+  ' "$CONFIG_SCRIPT" "$REPO_ROOT/src/universal-format-mcp/prettier.ts"
+  assert_success
+}

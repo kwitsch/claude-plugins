@@ -24,7 +24,12 @@ Changing it is a one-line edit there plus the "Minimum dprint version" line in
 `indentWidth`, `useTabs`, `newLineKind`) and writes `"plugins": []`.
 `DPRINT_CONFIG_PATHS` mirrors dprint's `resolve_main_config_path.rs`.
 `PRETTIER_FILES` is a copy of `PRETTIER_CONFIG_FILENAMES` in
-`src/universal-format-mcp/prettier.ts`; keep the two in sync.
+`src/universal-format-mcp/prettier.ts`; a bats test fails when the two drift.
+`parseEditorconfig` is a reduced copy of `parseEditorconfig`/`normalizeProps`
+in `src/universal-format-mcp/editorconfig.ts` (only the literal `[*]` section;
+`indent_size=tab` and `max_line_length=off` are skipped). Plugins run from
+isolated cache copies, so neither can be imported: when the shared grammar
+changes, update this copy by hand.
 
 ## Tests
 
