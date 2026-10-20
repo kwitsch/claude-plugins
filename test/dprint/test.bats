@@ -103,3 +103,10 @@ setup() {
 @test "SKILL.md stays under 500 lines" {
   [ "$(wc -l < "$SKILL_DIR/SKILL.md")" -lt 500 ]
 }
+
+# core.fileMode = false in this repo, so `[ -x ]` passes even when git recorded 100644 — assert the index.
+@test "hooks/detect.mjs is executable in the git index (100755)" {
+  run git -C "$REPO_ROOT" ls-files --stage -- plugins/dprint/hooks/detect.mjs
+  assert_success
+  assert_line --regexp '^100755 [0-9a-f]+ 0[[:space:]]+plugins/dprint/hooks/detect\.mjs$'
+}
