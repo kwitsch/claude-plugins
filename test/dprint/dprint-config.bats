@@ -282,3 +282,77 @@ EOT
   ' "$CONFIG_SCRIPT" "$REPO_ROOT/src/universal-format-mcp/prettier.ts"
   assert_success
 }
+
+@test "detect: a dprint config in a parent directory is reported as existing" {
+  printf '{}\n' > ../dprint.json
+  run_config detect
+  assert_success
+  assert_output '{"existing":"../dprint.json","sources":[]}'
+}
+
+@test "write: a dprint config in a parent directory -> exit 3, nothing written" {
+  printf '{}\n' > ../.dprint.jsonc
+  run_config write
+  assert_failure 3
+  assert_output '{"existing":"../.dprint.jsonc"}'
+  [ ! -e .dprint.jsonc ]
+}
+
+@test "detect: style sources are taken from the nearest ancestor, up to the .git boundary" {
+  mkdir -p ../.git
+  printf '[*]\nindent_size = 4\n' > ../.editorconfig
+  run_config detect
+  assert_success
+  assert_output '{"existing":null,"sources":[{"file":"../.editorconfig","settings":{"indentWidth":4}}]}'
+}
+
+@test "detect: style sources above the repository root are not read" {
+  local outer="$BATS_TEST_TMPDIR/outer"
+  mkdir -p "$outer/repo/.git" "$outer/repo/sub"
+  printf '[*]\nindent_size = 4\n' > "$outer/.editorconfig"
+  cd "$outer/repo/sub"
+  run_config detect
+  assert_success
+  assert_output '{"existing":null,"sources":[]}'
+}
+
+@test "detect: an unparseable package.json does not hide .prettierrc.json" {
+  printf '{"name": "x",}\n' > package.json
+  printf '{"printWidth": 100}\n' > .prettierrc.json
+  run_config detect
+  assert_success
+  assert_output '{"existing":null,"sources":[{"file":".prettierrc.json","settings":{"lineWidth":100}}]}'
+}
+
+@test "detect: package.yaml prettier block wins over .prettierrc, nested keys ignored" {
+  cat > package.yaml << 'EOF'
+name: x
+prettier:
+  printWidth: 90
+  useTabs: true
+  overrides:
+    - files: "*.md"
+      options:
+        tabWidth: 8
+other: 1
+EOF
+  printf '{"printWidth": 70}\n' > .prettierrc
+  run_config detect
+  assert_success
+  assert_output '{"existing":null,"sources":[{"file":"package.yaml","settings":{"lineWidth":90,"useTabs":true}}]}'
+}
+
+@test "detect: package.yaml without a prettier key falls through to .prettierrc" {
+  printf 'name: x\n' > package.yaml
+  printf '{"printWidth": 70}\n' > .prettierrc
+  run_config detect
+  assert_success
+  assert_output '{"existing":null,"sources":[{"file":".prettierrc","settings":{"lineWidth":70}}]}'
+}
+
+@test "detect: package.yaml prettier shared-config string is unreadable" {
+  printf 'prettier: "@acme/prettier-config"\n' > package.yaml
+  run_config detect
+  assert_success
+  assert_output '{"existing":null,"sources":[{"file":"package.yaml","settings":null}]}'
+}

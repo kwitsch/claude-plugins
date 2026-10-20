@@ -5,12 +5,14 @@
 // .gitattributes and the Prettier config in the working directory declare.
 // `write [key=value ...]`: creates ./.dprint.jsonc with exclusive create; never
 // overwrites or duplicates a dprint config.
-// Contract: dprint-config.reference.md. All paths are relative to the working directory.
+// Contract: dprint-config.reference.md. All paths are relative to the working directory
+// (ancestor hits are `../`-prefixed).
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 
 // dprint's lookup order (resolve_main_config_path.rs): POSSIBLE_CONFIG_FILE_NAMES in cwd,
-// then DOT_CONFIG_FILE_NAMES in .config/ (non-dot names only).
+// then DOT_CONFIG_FILE_NAMES in .config/ (non-dot names only), repeated in every ancestor directory.
 const DPRINT_CONFIG_PATHS = ["dprint.json", "dprint.jsonc", ".dprint.json", ".dprint.jsonc", ".config/dprint.json", ".config/dprint.jsonc"];
 
 // Copied from src/universal-format-mcp/prettier.ts PRETTIER_CONFIG_FILENAMES (same order).
@@ -186,6 +188,37 @@ function parsePrettier(file, text) {
 }
 
 /**
+ * @param {boolean} stopAtGit stop at the first directory holding `.git` instead of the filesystem root
+ * @returns {string[]} cwd-relative prefixes of the directories to search, nearest first: "", "../", "../../", ...
+ */
+function ancestorPrefixes(stopAtGit) {
+  /** @type {string[]} */
+  const out = [];
+  let dir = resolve(".");
+  let prefix = "";
+  for (;;) {
+    out.push(prefix);
+    if (stopAtGit && existsSync(`${prefix}.git`)) break;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+    prefix += "../";
+  }
+  return out;
+}
+
+/**
+ * @returns {string | null} the nearest existing dprint config (cwd first, then each ancestor, as dprint resolves it), or null
+ */
+function findExisting() {
+  for (const pre of ancestorPrefixes(false)) {
+    const hit = DPRINT_CONFIG_PATHS.find((p) => existsSync(pre + p));
+    if (hit !== undefined) return pre + hit;
+  }
+  return null;
+}
+
+/**
  * @param {string} file cwd-relative path
  * @param {(text: string) => Settings | null} parse
  * @returns {Source | null} null when the file does not exist; settings null when unreadable
@@ -200,41 +233,78 @@ function readSource(file, parse) {
 }
 
 /**
- * @returns {Source | null} the first Prettier config found (package.json key first), or null
+ * @param {string} pre directory prefix
+ * @returns {Source | null} the `prettier:` block of pnpm's package.yaml, or null when there is none
  */
-function prettierSource() {
-  if (existsSync("package.json")) {
-    /** @type {unknown} */
-    let pkg;
-    try {
-      pkg = JSON.parse(readFileSync("package.json", "utf8"));
-    } catch {
-      return { file: "package.json", settings: null };
+function packageYamlSource(pre) {
+  const file = `${pre}package.yaml`;
+  if (!existsSync(file)) return null;
+  try {
+    const lines = String(readFileSync(file, "utf8")).split(/\r?\n/);
+    const i = lines.findIndex((l) => /^prettier:/.test(l));
+    if (i < 0) return null;
+    // an inline value names a shared config this script does not resolve
+    if (!/^prettier:\s*(#.*)?$/.test(lines[i])) return { file, settings: null };
+    // shortcut: only the block's own indent level is read (deeper nesting such as overrides is ignored), use a YAML parser if more keys are adopted
+    /** @type {string[]} */
+    const block = [];
+    let indent = -1;
+    for (const l of lines.slice(i + 1)) {
+      if (l.trim() === "" || /^\s*#/.test(l)) continue;
+      const lead = /^\s*/.exec(l)?.[0].length ?? 0;
+      if (lead === 0) break;
+      if (indent < 0) indent = lead;
+      if (lead === indent) block.push(l.trim());
     }
-    if (isObject(pkg) && Object.hasOwn(pkg, "prettier")) {
-      // a string value names a shared config this script does not resolve
-      const cfg = pkg.prettier;
-      return {
-        file: "package.json",
-        settings: isObject(cfg) ? mapPrettier(cfg) : null,
-      };
+    return { file, settings: mapPrettier(parseFlatYaml(block.join("\n"))) };
+  } catch {
+    return { file, settings: null };
+  }
+}
+
+/**
+ * @param {string} pre directory prefix
+ * @returns {Source | null} the first Prettier config in that directory (package.json key, package.yaml key, then config files), or null
+ */
+function prettierSource(pre) {
+  if (existsSync(`${pre}package.json`)) {
+    try {
+      const pkg = JSON.parse(readFileSync(`${pre}package.json`, "utf8"));
+      if (isObject(pkg) && Object.hasOwn(pkg, "prettier")) {
+        // a string value names a shared config this script does not resolve
+        const cfg = pkg.prettier;
+        return { file: `${pre}package.json`, settings: isObject(cfg) ? mapPrettier(cfg) : null };
+      }
+    } catch {
+      // an invalid package.json counts as absent (as in src/universal-format-mcp/prettier.ts): keep scanning
     }
   }
-  const file = PRETTIER_FILES.find((f) => existsSync(f));
-  return file === undefined ? null : readSource(file, (text) => parsePrettier(file, text));
+  const yaml = packageYamlSource(pre);
+  if (yaml !== null) return yaml;
+  const file = PRETTIER_FILES.find((f) => existsSync(pre + f));
+  return file === undefined ? null : readSource(pre + file, (text) => parsePrettier(file, text));
+}
+
+/**
+ * @param {(pre: string) => Source | null} find
+ * @returns {Source | null} the nearest hit: the working directory, then its ancestors up to the repository root
+ */
+function nearest(find) {
+  for (const pre of ancestorPrefixes(true)) {
+    const s = find(pre);
+    if (s !== null) return s;
+  }
+  return null;
 }
 
 /**
  * @returns {Result}
  */
 function detect() {
-  const existing = DPRINT_CONFIG_PATHS.find((p) => existsSync(p)) ?? null;
-  /** @type {Source[]} */
-  const sources = [];
-  for (const s of [readSource(".editorconfig", parseEditorconfig), readSource(".gitattributes", parseGitattributes), prettierSource()]) {
-    if (s !== null) sources.push(s);
-  }
-  return { code: 0, out: { existing, sources } };
+  const sources = [nearest((pre) => readSource(`${pre}.editorconfig`, parseEditorconfig)), nearest((pre) => readSource(`${pre}.gitattributes`, parseGitattributes)), nearest(prettierSource)].flatMap(
+    (s) => (s === null ? [] : [s]),
+  );
+  return { code: 0, out: { existing: findExisting(), sources } };
 }
 
 /**
@@ -262,8 +332,8 @@ function write(args) {
       settings[key] = n;
     }
   }
-  const existing = DPRINT_CONFIG_PATHS.find((p) => existsSync(p));
-  if (existing !== undefined) return { code: 3, out: { existing } };
+  const existing = findExisting();
+  if (existing !== null) return { code: 3, out: { existing } };
   /** @type {Record<string, unknown>} */
   const config = { $schema: "https://dprint.dev/schemas/v0.json" };
   for (const k of KEYS) if (Object.hasOwn(settings, k)) config[k] = settings[k];

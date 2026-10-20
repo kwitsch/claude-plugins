@@ -27,8 +27,8 @@ Exactly one stdout line of JSON. Diagnostics go to stderr. On exit 2 (both modes
 {"existing":"<cwd-relative path>"|null,"sources":[{"file":"<name>","settings":{...}|null}]}
 ```
 
-- `existing`: first existing of `dprint.json`, `dprint.jsonc`, `.dprint.json`, `.dprint.jsonc`, `.config/dprint.json`, `.config/dprint.jsonc` (dprint's own lookup order), else `null`.
-- `sources`: only files that exist, in order `.editorconfig`, `.gitattributes`, then the Prettier source (`package.json` with a `"prettier"` key, else the first Prettier config file).
+- `existing`: first existing of `dprint.json`, `dprint.jsonc`, `.dprint.json`, `.dprint.jsonc`, `.config/dprint.json`, `.config/dprint.jsonc` (dprint's own lookup order) in the working directory, else in each ancestor directory up to the filesystem root (reported `../`-prefixed, as dprint resolves it), else `null`.
+- `sources`: only files that exist, in order `.editorconfig`, `.gitattributes`, then the Prettier source (`package.json` with a `"prettier"` key, else `package.yaml` with a top-level `prettier:` key, else the first Prettier config file; an unparseable `package.json` counts as absent). Each is the nearest copy: the working directory first, then each ancestor up to the repository root (the first directory holding `.git`, else the filesystem root); an ancestor hit is `../`-prefixed in `file`.
 - `settings`: only mapped dprint global keys, in the order `lineWidth`, `indentWidth`, `useTabs`, `newLineKind`. `{}` = read but nothing maps; `null` = format not readable (JS/TS/TOML/JSON5 configs, malformed JSON, a shared-config string).
 - Mapping: editorconfig `[*]` section only (`max_line_length`, `indent_size` else `tab_width`, `indent_style`, `end_of_line` lf/crlf); gitattributes `*` lines `eol=lf|crlf`; Prettier `printWidth`, `tabWidth`, `useTabs`, `endOfLine` lf/crlf.
 
@@ -36,10 +36,10 @@ Exactly one stdout line of JSON. Diagnostics go to stderr. On exit 2 (both modes
 
 ## Exit codes
 
-| Code | Meaning       | Notes                                                                                  |
-| ---- | ------------- | -------------------------------------------------------------------------------------- |
-| 0    | ok            | A malformed source is never an error for `detect`; it yields `null`.                   |
-| 2    | error         | Usage error, invalid `key=value` (nothing written), or unexpected I/O error.           |
-| 3    | config exists | `write` only: a dprint config already exists at one of the six paths; nothing written. |
+| Code | Meaning       | Notes                                                                               |
+| ---- | ------------- | ----------------------------------------------------------------------------------- |
+| 0    | ok            | A malformed source is never an error for `detect`; it yields `null`.                |
+| 2    | error         | Usage error, invalid `key=value` (nothing written), or unexpected I/O error.        |
+| 3    | config exists | `write` only: a dprint config already exists (cwd or an ancestor); nothing written. |
 
-`detect` is read-only. `write` creates only `./.dprint.jsonc`, with exclusive create, after re-checking all six dprint config paths; it never overwrites.
+`detect` is read-only. `write` creates only `./.dprint.jsonc`, with exclusive create, after re-checking the dprint config paths in the working directory and its ancestors; it never overwrites.

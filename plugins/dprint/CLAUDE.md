@@ -22,7 +22,9 @@ Changing it is a one-line edit there plus the "Minimum dprint version" line in
 
 `dprint-config.mjs` adopts only dprint's four global keys (`lineWidth`,
 `indentWidth`, `useTabs`, `newLineKind`) and writes `"plugins": []`.
-`DPRINT_CONFIG_PATHS` mirrors dprint's `resolve_main_config_path.rs`.
+`DPRINT_CONFIG_PATHS` mirrors dprint's `resolve_main_config_path.rs`, and is searched in the
+working directory and every ancestor (as dprint resolves it); style sources are searched up to
+the repository root (first directory with `.git`).
 `PRETTIER_FILES` is a copy of `PRETTIER_CONFIG_FILENAMES` in
 `src/universal-format-mcp/prettier.ts`; a bats test fails when the two drift.
 `parseEditorconfig` is a reduced copy of `parseEditorconfig`/`normalizeProps`
