@@ -1,0 +1,177 @@
+#!/usr/bin/env bats
+
+load 'test_helper'
+
+setup() {
+  common_setup
+  CONFIG_SCRIPT="$SKILL_DIR/scripts/dprint-config.mjs"
+  PROJ="$BATS_TEST_TMPDIR/proj"
+  mkdir -p "$PROJ"
+  cd "$PROJ"
+}
+
+# run_config <args...> -- run the real script on the isolated PATH/HOME; $output is stdout only.
+run_config() {
+  run --separate-stderr env PATH="$MOCKBIN" HOME="$HOME" "$MOCKBIN/node" "$CONFIG_SCRIPT" "$@"
+}
+
+@test "detect: empty dir -> exit 0, nothing found" {
+  run_config detect
+  assert_success
+  assert_output '{"existing":null,"sources":[]}'
+}
+
+@test "detect: each dprint config path is reported as existing" {
+  local p
+  for p in dprint.json dprint.jsonc .dprint.json .dprint.jsonc .config/dprint.json .config/dprint.jsonc; do
+    cd "$BATS_TEST_TMPDIR"
+    rm -rf "$PROJ"
+    mkdir -p "$PROJ/.config"
+    cd "$PROJ"
+    printf '{}\n' > "$p"
+    run_config detect
+    assert_success
+    assert_output "{\"existing\":\"$p\",\"sources\":[]}"
+  done
+}
+
+@test "detect: .config/.dprint.json is not a dprint config location" {
+  mkdir -p .config
+  printf '{}\n' > .config/.dprint.json
+  run_config detect
+  assert_success
+  assert_output '{"existing":null,"sources":[]}'
+}
+
+@test "detect: editorconfig [*] maps all four keys, lowercased, last value wins, comments skipped" {
+  cat > .editorconfig << 'EOF'
+root = true
+# comment
+; comment
+[*]
+INDENT_STYLE = Space
+indent_size = 2
+max_line_length = 100
+end_of_line = CRLF
+end_of_line = lf
+EOF
+  run_config detect
+  assert_success
+  assert_output '{"existing":null,"sources":[{"file":".editorconfig","settings":{"lineWidth":100,"indentWidth":2,"useTabs":false,"newLineKind":"lf"}}]}'
+}
+
+@test "detect: editorconfig ignores other sections, indent_size=tab falls back to tab_width, off and cr skipped" {
+  cat > .editorconfig << 'EOF'
+[*]
+indent_style = tab
+indent_size = tab
+tab_width = 4
+max_line_length = off
+end_of_line = cr
+
+[*.md]
+indent_style = space
+indent_size = 8
+max_line_length = 80
+end_of_line = crlf
+EOF
+  run_config detect
+  assert_success
+  assert_output '{"existing":null,"sources":[{"file":".editorconfig","settings":{"indentWidth":4,"useTabs":true}}]}'
+}
+
+@test "detect: gitattributes '* eol=crlf' maps; non-* patterns ignored" {
+  printf '* text=auto eol=crlf\n*.sh eol=lf\n' > .gitattributes
+  run_config detect
+  assert_success
+  assert_output '{"existing":null,"sources":[{"file":".gitattributes","settings":{"newLineKind":"crlf"}}]}'
+}
+
+@test "detect: gitattributes with nothing mapping -> {}" {
+  printf '# * eol=lf\n*.bat eol=crlf\n' > .gitattributes
+  run_config detect
+  assert_success
+  assert_output '{"existing":null,"sources":[{"file":".gitattributes","settings":{}}]}'
+}
+
+@test "detect: JSON .prettierrc maps the four keys and ignores the rest" {
+  printf '{"printWidth": 100, "tabWidth": 4, "useTabs": false, "endOfLine": "crlf", "semi": false}\n' > .prettierrc
+  run_config detect
+  assert_success
+  assert_output '{"existing":null,"sources":[{"file":".prettierrc","settings":{"lineWidth":100,"indentWidth":4,"useTabs":false,"newLineKind":"crlf"}}]}'
+}
+
+@test "detect: flat-YAML .prettierrc maps top-level scalars, nested overrides ignored" {
+  cat > .prettierrc << 'EOF'
+# prettier
+printWidth: 90
+tabWidth: 3
+useTabs: true
+endOfLine: "lf"
+overrides:
+  - files: "*.md"
+    options:
+      printWidth: 70
+EOF
+  run_config detect
+  assert_success
+  assert_output '{"existing":null,"sources":[{"file":".prettierrc","settings":{"lineWidth":90,"indentWidth":3,"useTabs":true,"newLineKind":"lf"}}]}'
+}
+
+@test "detect: package.json prettier key takes precedence over .prettierrc" {
+  printf '{"name":"x","prettier":{"printWidth":120}}\n' > package.json
+  printf '{"printWidth": 80}\n' > .prettierrc
+  run_config detect
+  assert_success
+  assert_output '{"existing":null,"sources":[{"file":"package.json","settings":{"lineWidth":120}}]}'
+}
+
+@test "detect: package.json prettier string (shared config) -> null" {
+  printf '{"prettier":"@company/prettier-config"}\n' > package.json
+  run_config detect
+  assert_success
+  assert_output '{"existing":null,"sources":[{"file":"package.json","settings":null}]}'
+}
+
+@test "detect: package.json without prettier key falls through to .prettierrc.yaml" {
+  printf '{"name":"x"}\n' > package.json
+  printf 'printWidth: 110\n' > .prettierrc.yaml
+  run_config detect
+  assert_success
+  assert_output '{"existing":null,"sources":[{"file":".prettierrc.yaml","settings":{"lineWidth":110}}]}'
+}
+
+@test "detect: .prettierrc.js -> null" {
+  printf 'module.exports = { printWidth: 100 };\n' > .prettierrc.js
+  run_config detect
+  assert_success
+  assert_output '{"existing":null,"sources":[{"file":".prettierrc.js","settings":null}]}'
+}
+
+@test "detect: malformed .prettierrc.json -> null" {
+  printf '{printWidth: 100\n' > .prettierrc.json
+  run_config detect
+  assert_success
+  assert_output '{"existing":null,"sources":[{"file":".prettierrc.json","settings":null}]}'
+}
+
+@test "detect: sources are ordered editorconfig, gitattributes, prettier" {
+  printf '{"printWidth": 80}\n' > .prettierrc
+  printf '* eol=lf\n' > .gitattributes
+  printf '[*]\nindent_size = 2\n' > .editorconfig
+  run_config detect
+  assert_success
+  assert_output '{"existing":null,"sources":[{"file":".editorconfig","settings":{"indentWidth":2}},{"file":".gitattributes","settings":{"newLineKind":"lf"}},{"file":".prettierrc","settings":{"lineWidth":80}}]}'
+}
+
+@test "missing, unknown or over-long mode -> exit 2 with an error line" {
+  run_config
+  assert_failure 2
+  assert_output --partial '{"error":"usage:'
+  run_config bogus
+  assert_failure 2
+  assert_output --partial '{"error":"usage:'
+  run_config detect extra
+  assert_failure 2
+  assert_output --partial '{"error":"usage:'
+}
