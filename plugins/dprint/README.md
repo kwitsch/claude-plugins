@@ -14,9 +14,11 @@ Skill that checks for a minimum dprint version and, after confirmation, installs
 | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `init-dprint` | Checks whether dprint is installed in at least the minimum version; if it is missing or too old, asks once via `AskUserQuestion` and, only on an explicit yes, installs it or updates it, then re-checks. |
 
-## What it does
+## Configuration
 
-At the start of every interactive session, a small mod checks the working directory and its `.config/` subdirectory for a dprint config (`dprint.json`, `dprint.jsonc`, `.dprint.json`, `.dprint.jsonc`). If one exists but no dprint binary is found on `PATH` or at `~/.dprint/bin/dprint`, a toast says so and points to `/dprint:init-dprint`. It never touches the transcript, and it is off in `-p`/SDK runs. It is on by default; set `warn_missing_dprint` to `false` to turn it off.
+| Option                | Default | Effect / Value                                                                                                                                                                                                                                                                                                                  |
+| --------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `warn_missing_dprint` | `true`  | At interactive session start, shows a toast when the working directory or its `.config/` holds a dprint config (`dprint.json`, `dprint.jsonc`, `.dprint.json`, `.dprint.jsonc`) but no dprint is found on `PATH` or at `~/.dprint/bin/dprint`; the toast points to `/dprint:init-dprint`. `false` disables it. Off in `-p`/SDK runs. |
 
 ## Notes
 
