@@ -2,5 +2,13 @@
   "name": "dprint",
   "version": "0.1.0",
   "description": "Skill that checks for a minimum dprint version and, after confirmation, installs or updates dprint at user level.",
-  "author": { "name": "Kwitsch" }
+  "author": { "name": "Kwitsch" },
+  "userConfig": {
+    "warn_missing_dprint": {
+      "type": "boolean",
+      "title": "Warn when dprint is missing",
+      "description": "At interactive session start, shows a toast when the working directory (or its .config subdirectory) holds a dprint config (dprint.json, dprint.jsonc, .dprint.json, .dprint.jsonc) but no dprint binary is found on PATH or at ~/.dprint/bin/dprint. Values: true (or unset) = enabled; false = disabled. Fail-open: only the literal value false disables it -- the toast creates no file or state. Default: true.",
+      "default": true
+    }
+  }
 }
