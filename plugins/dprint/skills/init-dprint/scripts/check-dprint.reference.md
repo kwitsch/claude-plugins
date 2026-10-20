@@ -1,6 +1,6 @@
 # check-dprint — script reference
 
-**Invoke:** `node ${CLAUDE_SKILL_DIR}/check-dprint.mjs`
+**Invoke:** `node ${CLAUDE_SKILL_DIR}/scripts/check-dprint.mjs`
 
 ## Parameters
 

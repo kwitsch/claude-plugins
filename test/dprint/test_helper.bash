@@ -9,7 +9,7 @@ common_setup() {
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
   PLUGIN="$REPO_ROOT/plugins/dprint"
   SKILL_DIR="$PLUGIN/skills/init-dprint"
-  SCRIPT="$SKILL_DIR/check-dprint.mjs"
+  SCRIPT="$SKILL_DIR/scripts/check-dprint.mjs"
 
   # Isolated PATH: only bash and node symlinked in; dprint stubs added per test.
   MOCKBIN="$BATS_TEST_TMPDIR/bin"

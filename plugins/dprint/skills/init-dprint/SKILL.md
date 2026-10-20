@@ -6,7 +6,7 @@ allowed-tools: ["AskUserQuestion", "Bash(node:*)"]
 
 # init-dprint
 
-Makes sure a usable dprint, at least the minimum version pinned in `check-dprint.mjs`, is
+Makes sure a usable dprint, at least the minimum version pinned in `scripts/check-dprint.mjs`, is
 available. Detection is read-only. Installing or updating happens only after an explicit
 `Install` / `Update` answer, and the command then runs visibly through the Bash tool (its normal
 permission prompt is a second gate; install/update commands are deliberately not pre-allowed).
@@ -16,12 +16,12 @@ permission prompt is a second gate; install/update commands are deliberately not
 1. **All questions go through the `AskUserQuestion` tool, never as plain text.** Never run an
    install or update command without an explicit `Install` / `Update` answer.
 
-2. Read `${CLAUDE_SKILL_DIR}/check-dprint.reference.md` (output line and exit-code contract).
+2. Read `${CLAUDE_SKILL_DIR}/scripts/check-dprint.reference.md` (output line and exit-code contract).
 
 3. Run the check:
 
    ```bash
-   node ${CLAUDE_SKILL_DIR}/check-dprint.mjs
+   node ${CLAUDE_SKILL_DIR}/scripts/check-dprint.mjs
    ```
 
    Parse `status`, `version`, `min` and `path` from its single stdout line and branch on the exit
@@ -64,7 +64,7 @@ permission prompt is a second gate; install/update commands are deliberately not
 6. Re-run the check:
 
    ```bash
-   node ${CLAUDE_SKILL_DIR}/check-dprint.mjs
+   node ${CLAUDE_SKILL_DIR}/scripts/check-dprint.mjs
    ```
 
    - Exit `0`: report the new version and path. If `path` is `<home>/.dprint/bin/dprint`, also

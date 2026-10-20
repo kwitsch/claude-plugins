@@ -73,10 +73,16 @@ setup() {
 }
 
 @test "SKILL.md invokes the script via the literal CLAUDE_SKILL_DIR token and reads its reference" {
-  run grep -F 'node ${CLAUDE_SKILL_DIR}/check-dprint.mjs' "$SKILL_DIR/SKILL.md"
+  run grep -F 'node ${CLAUDE_SKILL_DIR}/scripts/check-dprint.mjs' "$SKILL_DIR/SKILL.md"
   assert_success
-  run grep -F 'check-dprint.reference.md' "$SKILL_DIR/SKILL.md"
+  run grep -F 'scripts/check-dprint.reference.md' "$SKILL_DIR/SKILL.md"
   assert_success
+}
+
+@test "skill dir holds only SKILL.md and scripts/" {
+  [ -f "$SKILL_DIR/SKILL.md" ]
+  [ -d "$SKILL_DIR/scripts" ]
+  [ "$(ls -A "$SKILL_DIR" | wc -l)" -eq 2 ]
 }
 
 @test "SKILL.md never contains the exclamation-backtick injection sequence" {

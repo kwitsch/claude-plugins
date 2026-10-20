@@ -2,12 +2,12 @@
 
 Skill-only plugin. One model-invocable skill, `init-dprint`
 (`skills/init-dprint/SKILL.md`), plus its zero-dep detection script
-`skills/init-dprint/check-dprint.mjs` (contract: `check-dprint.reference.md`).
+`skills/init-dprint/scripts/check-dprint.mjs` (contract: `scripts/check-dprint.reference.md`).
 No hooks, MCP server, `bin/`, or `userConfig`.
 
 ## Minimum version
 
-`MIN_VERSION` is defined only in `skills/init-dprint/check-dprint.mjs`. Changing
+`MIN_VERSION` is defined only in `skills/init-dprint/scripts/check-dprint.mjs`. Changing
 it is a one-line edit there plus the "Minimum dprint version" line in
 `README.md`; the equal-version bats test reads the value from the script.
 
