@@ -1,7 +1,7 @@
 {
   "name": "dprint",
-  "version": "0.1.0",
-  "description": "Skill that checks for a minimum dprint version and, after confirmation, installs or updates dprint at user level.",
+  "version": "0.2.0",
+  "description": "Skill that checks for a minimum dprint version and, after confirmation, installs or updates dprint at user level; a session-start mod warns with a toast when a project has a dprint config but dprint is not installed.",
   "author": { "name": "Kwitsch" },
   "userConfig": {
     "warn_missing_dprint": {

@@ -7,8 +7,8 @@ setup() {
   MARKET="$REPO_ROOT/.claude-plugin/marketplace.json"
 }
 
-@test "plugin.json is valid, pins version 0.1.0, and has required fields" {
-  run jq -e '.name == "dprint" and .version == "0.1.0" and (.description | length > 0) and (.author.name == "Kwitsch")' "$PLUGIN/.claude-plugin/plugin.json"
+@test "plugin.json is valid, pins version 0.2.0, and has required fields" {
+  run jq -e '.name == "dprint" and .version == "0.2.0" and (.description | length > 0) and (.author.name == "Kwitsch")' "$PLUGIN/.claude-plugin/plugin.json"
   assert_success
 }
 
