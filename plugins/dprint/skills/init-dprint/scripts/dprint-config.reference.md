@@ -6,10 +6,10 @@
 
 ## Parameters
 
-| #   | Name      | Format             | Required | Notes                                                                                                                                                              |
-| --- | --------- | ------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1   | mode      | `detect` / `write` | yes      | Any other mode exits 2. `detect` takes no further argument.                                                                                                        |
-| 2…  | key=value | `key=value`        | no       | `write` only. Keys: `lineWidth`, `indentWidth` (positive integer), `useTabs` (`true`/`false`), `newLineKind` (`auto`/`crlf`/`lf`/`system`). Each key at most once. |
+| #   | Name      | Format             | Required | Notes                                                                                                                                                                               |
+| --- | --------- | ------------------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | mode      | `detect` / `write` | yes      | Any other mode exits 2. `detect` takes no further argument.                                                                                                                         |
+| 2…  | key=value | `key=value`        | no       | `write` only. Keys: `lineWidth`, `indentWidth` (positive integer up to 4294967295), `useTabs` (`true`/`false`), `newLineKind` (`auto`/`crlf`/`lf`/`system`). Each key at most once. |
 
 ## Environment
 

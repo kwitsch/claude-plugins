@@ -80,6 +80,14 @@ EOF
   assert_output '{"existing":null,"sources":[{"file":".editorconfig","settings":{"indentWidth":4,"useTabs":true}}]}'
 }
 
+@test "detect: widths above dprint's u32 range are skipped in editorconfig and Prettier" {
+  printf '[*]\nmax_line_length = 99999999999999999999\nindent_size = 4294967296\n' > .editorconfig
+  printf '{"printWidth": 1e20, "tabWidth": 4294967296}\n' > .prettierrc
+  run_config detect
+  assert_success
+  assert_output '{"existing":null,"sources":[{"file":".editorconfig","settings":{}},{"file":".prettierrc","settings":{}}]}'
+}
+
 @test "detect: gitattributes '* eol=crlf' maps; non-* patterns ignored" {
   printf '* text=auto eol=crlf\n*.sh eol=lf\n' > .gitattributes
   run_config detect
@@ -155,6 +163,17 @@ EOF
   assert_output '{"existing":null,"sources":[{"file":".prettierrc.json","settings":null}]}'
 }
 
+@test "detect: .prettierrc that looks like JSON but does not parse -> null, not {}" {
+  local text
+  for text in '{"printWidth": 120,}' '// c
+{"printWidth": 120}' '{printWidth: 120}'; do
+    printf '%s\n' "$text" > .prettierrc
+    run_config detect
+    assert_success
+    assert_output '{"existing":null,"sources":[{"file":".prettierrc","settings":null}]}'
+  done
+}
+
 @test "detect: sources are ordered editorconfig, gitattributes, prettier" {
   printf '{"printWidth": 80}\n' > .prettierrc
   printf '* eol=lf\n' > .gitattributes
@@ -226,7 +245,7 @@ EOT
 
 @test "write: bad key, bad value or duplicate key -> exit 2, no file" {
   local args
-  for args in "foo=1" "lineWidth" "=5" "lineWidth=0" "lineWidth=abc" "indentWidth=2.5" "useTabs=yes" "newLineKind=cr" "lineWidth=80 lineWidth=90"; do
+  for args in "foo=1" "lineWidth" "=5" "lineWidth=0" "lineWidth=abc" "indentWidth=2.5" "lineWidth=99999999999999999999" "indentWidth=4294967296" "useTabs=yes" "newLineKind=cr" "lineWidth=80 lineWidth=90"; do
     # shellcheck disable=SC2086
     run_config write $args
     assert_failure 2
@@ -236,8 +255,12 @@ EOT
 }
 
 @test "write: newLineKind auto and system are accepted" {
-  run_config write newLineKind=system
-  assert_success
-  run grep -F '"newLineKind": "system"' .dprint.jsonc
-  assert_success
+  local kind
+  for kind in auto system; do
+    rm -f .dprint.jsonc
+    run_config write newLineKind=$kind
+    assert_success
+    run grep -F "\"newLineKind\": \"$kind\"" .dprint.jsonc
+    assert_success
+  done
 }

@@ -41,6 +41,8 @@ const KEYS = ["lineWidth", "indentWidth", "useTabs", "newLineKind"];
 const USAGE = "usage: node dprint-config.mjs detect | write [key=value ...]";
 // newLineKind values allowed by https://dprint.dev/schemas/v0.json
 const NEW_LINE_KINDS = ["auto", "crlf", "lf", "system"];
+// dprint reads lineWidth and indentWidth as u32; larger values make dprint reject its own config
+const U32_MAX = 4294967295;
 
 /**
  * @typedef {{ lineWidth?: number, indentWidth?: number, useTabs?: boolean, newLineKind?: string }} Settings
@@ -58,18 +60,20 @@ function isObject(v) {
 
 /**
  * @param {unknown} v
- * @returns {v is number} true for a positive integer (the only width dprint accepts)
+ * @returns {v is number} true for a positive integer up to U32_MAX (the only width dprint accepts)
  */
 function isPositiveInt(v) {
-  return typeof v === "number" && Number.isInteger(v) && v > 0;
+  return typeof v === "number" && Number.isInteger(v) && v > 0 && v <= U32_MAX;
 }
 
 /**
- * @param {string | undefined} v editorconfig value
- * @returns {number | undefined} the value as a positive integer, else undefined
+ * @param {string | undefined} v decimal string
+ * @returns {number | undefined} the value as a positive integer within dprint's range, else undefined
  */
-function editorconfigInt(v) {
-  return v !== undefined && /^[1-9]\d*$/.test(v) ? Number(v) : undefined;
+function parseWidth(v) {
+  if (v === undefined || !/^[1-9]\d*$/.test(v)) return undefined;
+  const n = Number(v);
+  return isPositiveInt(n) ? n : undefined;
 }
 
 /**
@@ -106,9 +110,9 @@ function parseEditorconfig(text) {
   }
   /** @type {Settings} */
   const s = {};
-  const lineWidth = editorconfigInt(p.max_line_length);
+  const lineWidth = parseWidth(p.max_line_length);
   if (lineWidth !== undefined) s.lineWidth = lineWidth;
-  const indentWidth = editorconfigInt(p.indent_size) ?? editorconfigInt(p.tab_width);
+  const indentWidth = parseWidth(p.indent_size) ?? parseWidth(p.tab_width);
   if (indentWidth !== undefined) s.indentWidth = indentWidth;
   if (p.indent_style === "tab" || p.indent_style === "space") s.useTabs = p.indent_style === "tab";
   if (p.end_of_line === "lf" || p.end_of_line === "crlf") s.newLineKind = p.end_of_line;
@@ -173,7 +177,8 @@ function parsePrettier(file, text) {
       const v = JSON.parse(text);
       return isObject(v) ? mapPrettier(v) : null;
     } catch {
-      if (file === ".prettierrc.json") return null;
+      // JSON-looking text that failed to parse (trailing comma, comments) must not fall through to the flat-YAML reader, which would report it as "nothing maps"
+      if (file === ".prettierrc.json" || /^\s*(\/[/*]|[{[])/.test(text)) return null;
     }
   }
   if (file === ".prettierrc" || file === ".prettierrc.yml" || file === ".prettierrc.yaml") return mapPrettier(parseFlatYaml(text));
@@ -252,8 +257,9 @@ function write(args) {
       if (!NEW_LINE_KINDS.includes(value)) return fail(`newLineKind must be one of ${NEW_LINE_KINDS.join(", ")}, got '${value}'`);
       settings[key] = value;
     } else {
-      if (!/^[1-9]\d*$/.test(value)) return fail(`${key} must be a positive integer, got '${value}'`);
-      settings[key] = Number(value);
+      const n = parseWidth(value);
+      if (n === undefined) return fail(`${key} must be a positive integer up to ${U32_MAX}, got '${value}'`);
+      settings[key] = n;
     }
   }
   const existing = DPRINT_CONFIG_PATHS.find((p) => existsSync(p));

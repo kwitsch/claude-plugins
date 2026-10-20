@@ -150,4 +150,6 @@ by `scripts/dprint-config.mjs`, which never overwrites or duplicates an existing
       error (message); plus any sources found but not adopted, or unreadable (`settings: null`)
     - only when the file was created: "No formatter plugins yet. Add some with
       `dprint add <plugin>` (for example `dprint add typescript json markdown`)", and a note
-      that the values were copied once and do not follow later changes to the source files
+      that the values were copied once and do not follow later changes to the source files. If
+      dprint is not installed or still outdated (state after is not `ok`), say instead that the
+      `dprint add` command needs dprint installed or updated first
