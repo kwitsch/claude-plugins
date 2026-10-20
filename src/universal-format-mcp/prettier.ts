@@ -8,9 +8,6 @@ import path from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import * as prettierNs from "prettier";
-import * as javaPluginNs from "prettier-plugin-java";
-import * as phpPluginNs from "@prettier/plugin-php";
-import * as shPluginNs from "prettier-plugin-sh";
 import { walkToRoot } from "./util.js";
 import { resolveEditorconfig } from "./editorconfig.js";
 
@@ -36,17 +33,43 @@ function asPlugin(ns: unknown): unknown {
  * LATEST release and loads two .wasm sidecars from this bundle's own directory (put there by
  * build.mjs); php is latest and pure JS; sh is pinned to its last pure-JS release on purpose --
  * newer releases are WASM-only and resolve their wasm OUTSIDE this bundle's directory. No plugin
- * OPTION is ever set from here (never experimentalWasm): a project's config is the only knob. */
-export const BUNDLED_PLUGINS: unknown[] = [asPlugin(javaPluginNs), asPlugin(phpPluginNs), asPlugin(shPluginNs)];
+ * OPTION is ever set from here (never experimentalWasm): a project's config is the only knob.
+ * Loaded lazily through `import()` -- `bun build` keeps each in the single-file bundle behind a
+ * lazy init wrapper -- so a server start evaluates none of them (mvdan-sh's GopherJS runtime, the
+ * php printer tables, java's `Parser.init()` wasm load); the module system evaluates each exactly
+ * once, so a burst of first formats shares one evaluation. Numbers: plugins/universal-format/CLAUDE.md. */
+const BUNDLED_PLUGIN_LOADERS = {
+  java: () => import("prettier-plugin-java").then(asPlugin),
+  php: () => import("@prettier/plugin-php").then(asPlugin),
+  // sh-syntax (the plugin's `experimentalWasm: true` path) needs Go's `wasm_exec` runtime on
+  // globalThis. Its own side-effect import of `vendors/wasm_exec.cjs` is tree-shaken by `bun build`
+  // because sh-syntax's package.json lists only `vendors/wasm_exec.js` as side-effectful, so every
+  // wasm format died with "Go is not defined"; importing the exported subpath here keeps it.
+  shell: () => Promise.all([import("sh-syntax/vendors/wasm_exec.cjs"), import("prettier-plugin-sh")]).then(([, ns]) => asPlugin(ns)),
+};
+type BundledPluginName = keyof typeof BUNDLED_PLUGIN_LOADERS;
+
+/** Which bundled plugins a format of `lang` needs: its own one for java/php/shell; all three for
+ * every language prettier formats Markdown inside -- Markdown itself, JS/TS (`md`/`markdown` tagged
+ * templates), HTML (`<script type="text/markdown">`) and Vue (custom blocks with `lang="markdown"`) --
+ * because fenced ```java / ```php / ```sh blocks in that Markdown are formatted through them (the
+ * eager-import behavior this must keep byte-identical); none for JSON/YAML/CSS/SCSS/LESS/GraphQL,
+ * which embed nothing. Loading stays off the server-start path either way. */
+const MARKDOWN_HOSTS: ReadonlySet<string> = new Set(["markdown", "jsts", "html", "vue"]);
+export function bundledPluginsFor(lang: string): BundledPluginName[] {
+  const all = Object.keys(BUNDLED_PLUGIN_LOADERS) as BundledPluginName[];
+  return MARKDOWN_HOSTS.has(lang) ? all : all.filter((name) => name === lang);
+}
 
 // prettier-plugin-java starts `Parser.init()` in a module-scope IIFE, so a floating promise exists
-// from import time. If a .wasm sidecar is missing or corrupt that promise rejects with nothing
-// attached, which KILLS this process under node (verified: exit 1) and exits non-zero under bun --
-// taking down formatting for every OTHER language too. Downgrade it to a stderr note so the server
-// survives and only the affected language fails open. stdout is the JSON-RPC channel: never write
-// there. Deliberately process-global because the hazard is created by this module's own imports;
-// the cost is that an unrelated unhandled rejection is reported instead of fatal, which is the
-// correct trade for a hook whose entire contract is to fail open.
+// from the moment the plugin is first imported (the first java/markdown format). If a .wasm
+// sidecar is missing or corrupt that promise rejects with nothing attached, which KILLS this
+// process under node (verified: exit 1) and exits non-zero under bun -- taking down formatting for
+// every OTHER language too. Downgrade it to a stderr note so the server survives and only the
+// affected language fails open. stdout is the JSON-RPC channel: never write there. Deliberately
+// process-global and armed at import, before any plugin can load, because the hazard is created by
+// this module's own imports; the cost is that an unrelated unhandled rejection is reported instead
+// of fatal, which is the correct trade for a hook whose entire contract is to fail open.
 process.on("unhandledRejection", (reason: unknown) => {
   const msg = String((reason as { message?: string })?.message ?? reason).split("\n")[0];
   process.stderr.write(`[universal-format] background plugin init failed; that language will fail open: ${msg}\n`);
@@ -180,8 +203,9 @@ export async function formatInProcess(src: string, filePath: string, cwd: string
   // prettier without a parser (duplicate registration verified safe). Local array, never assigned
   // back into `config`: resolveConfig's result is cached inside prettier. The resolveConfigPlugins
   // null early-return above MUST stay ahead of this -- a project with an unresolvable custom
-  // plugin must keep getting "leave the file alone", not BUNDLED_PLUGINS-only formatting.
-  const plugins = [...(Array.isArray(config.plugins) ? config.plugins : []), ...BUNDLED_PLUGINS];
+  // plugin must keep getting "leave the file alone", not bundled-plugins-only formatting.
+  const bundled = await Promise.all(bundledPluginsFor(lang).map((name) => BUNDLED_PLUGIN_LOADERS[name]()));
+  const plugins = [...(Array.isArray(config.plugins) ? config.plugins : []), ...bundled];
   return await bundledPrettier.format(src, { ...config, plugins, filepath: filePath });
 }
 

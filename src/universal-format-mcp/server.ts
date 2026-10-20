@@ -7,22 +7,30 @@
 //   worktree_entered (PostToolUse EnterWorktree)   — same, via the signal that actually fires (see handlers.ts)
 import process from "node:process";
 import readline from "node:readline";
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { cwdChanged, formatPost, formatPre, worktreeEntered } from "./handlers.js";
 
 const SERVER_NAME = "universal-format-hooks"; // keep aligned with the .mcp.json key
-// UNIVERSAL_FORMAT_MCP_VERSION is inlined at build time by build.mjs's `bun build --env` flag
-// from plugin.json's own version, so plugin.json stays the single source of truth -- never
-// hand-edit this fallback to "match" a release; it only fires if server.ts runs unbundled.
-const SERVER_INFO = { name: SERVER_NAME, version: process.env.UNIVERSAL_FORMAT_MCP_VERSION ?? "0.0.0" };
+
+// plugin.json ships next to mcp/ in every install (it is the plugin manifest), so the version is
+// read from it at startup rather than baked into the bundle: a release bump needs no rebuild.
+// "0.0.0" only if the manifest is missing; runtime-detect.test.mjs pins the real value.
+function readPluginVersion(): string {
+  try {
+    return String(JSON.parse(readFileSync(new URL("../.claude-plugin/plugin.json", import.meta.url), "utf8")).version ?? "0.0.0");
+  } catch {
+    return "0.0.0";
+  }
+}
+const SERVER_INFO = { name: SERVER_NAME, version: readPluginVersion() };
 const DEFAULT_PROTOCOL = "2025-11-25"; // only used if the client omits protocolVersion
 
-// ---- public surface of the built artifact: exactly 20 names, imported by the test suites ----
-export { BUNDLED_PRETTIER_VERSION, formatInProcess, hasPrettierProjectConfig, resolveConfigPlugins, shouldOverridePrintWidth } from "./prettier.js";
+// ---- public surface of the built artifact, imported by the test suites ----
+export { BUNDLED_PRETTIER_VERSION, bundledPluginsFor, formatInProcess, hasPrettierProjectConfig, resolveConfigPlugins, shouldOverridePrintWidth } from "./prettier.js";
 export { EXT_MAP, PRETTIER_LANGS, REGISTRY } from "./registry.js";
 export { buildInvocation, findNativeConfig, matchGlob, parseEditorconfig, resolveEditorconfig } from "./editorconfig.js";
-export { applyEdit, cwdChanged, formatPost, formatPre, isExcludedPath, resolveBase, worktreeEntered } from "./handlers.js";
+export { applyEdit, cwdChanged, formatPost, formatPre, isExcludedPath, resolveBase, shrinkSwap, worktreeEntered } from "./handlers.js";
 
 type ToolDef = {
   name: string;
@@ -114,6 +122,13 @@ function startServer(): void {
         return fail(id, -32601, `method not found: ${method}`);
     }
   };
+
+  // Claude Code stops a stdio MCP server with SIGINT (SIGTERM after 100 ms, SIGKILL after 400 ms) on
+  // every platform but Windows, where it closes stdin instead. Node writes its V8 compile cache
+  // (NODE_COMPILE_CACHE, set by bin/mjs-launch.sh) only on a normal exit, so both signals must end in
+  // process.exit(0) rather than death by signal. Armed before the startup line below, which the
+  // signal test waits for.
+  for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => process.exit(0));
 
   process.stderr.write(`[${SERVER_NAME}] running under ${detectRuntime()} (v${SERVER_INFO.version})\n`);
 

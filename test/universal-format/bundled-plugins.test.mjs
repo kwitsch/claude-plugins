@@ -1,11 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import process from "node:process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { formatInProcess } from "../../plugins/universal-format/mcp/server.mjs";
+import { PRETTIER_LANGS, bundledPluginsFor, formatInProcess } from "../../plugins/universal-format/mcp/server.mjs";
 
 // The three third-party prettier plugins bundled into the artifact (java, php, shell) plus the
 // four core-parser languages the routing gap opened up (less, html, vue, graphql). Imports the
@@ -18,6 +18,9 @@ function tmp(prefix) {
   return mkdtempSync(path.join(tmpdir(), prefix));
 }
 
+// markdown loads all three plugins: fenced sh/java/php blocks are formatted through them
+const MD_FENCES = "# t\n\n```sh\necho    hi\n```\n\n```java\nclass A {  }\n```\n\n```php\n<?php  echo \"hi\";\n```\n";
+const MD_FENCES_FORMATTED = '# t\n\n```sh\necho hi\n```\n\n```java\nclass A {}\n```\n\n```php\n<?php echo "hi";\n```\n';
 const CASES = [
   ["a.sh", "shell", "echo  hi", "echo hi\n"],
   ["a.bash", "shell", "echo  hi", "echo hi\n"],
@@ -29,6 +32,7 @@ const CASES = [
   ["a.vue", "vue", "<template><p>hi</p></template>\n\n<script setup>\nlet x=1\n</script>", "<template><p>hi</p></template>\n\n<script setup>\nlet x = 1;\n</script>\n"],
   ["a.graphql", "graphql", "query   Q {  a }", "query Q {\n  a\n}\n"],
   ["a.gql", "graphql", "query   Q {  a }", "query Q {\n  a\n}\n"],
+  ["a.md", "markdown", MD_FENCES, MD_FENCES_FORMATTED],
 ];
 
 test("formatInProcess formats every bundled-plugin and newly-routed language", async () => {
@@ -57,4 +61,45 @@ test("importing the bundle arms the unhandledRejection guard", () => {
   // catch the guard being dropped. Identify OUR listener by the stderr note it writes instead.
   const armed = process.listeners("unhandledRejection").filter((/** @type {unknown} */ fn) => String(fn).includes("[universal-format]"));
   assert.equal(armed.length, 1, "prettier.ts must arm exactly one process-level unhandledRejection handler");
+});
+
+// The plugins load lazily, per language: a session that never writes java/php/shell/markdown never
+// evaluates them. Markdown needs all three (the CASES row above pins the fenced-block formatting a
+// lazy loader could otherwise silently drop).
+const TRIO = ["java", "php", "shell"];
+const EXPECTED_PLUGINS = /** @type {Record<string, string[]>} */ ({ java: ["java"], php: ["php"], shell: ["shell"], markdown: TRIO, jsts: TRIO, html: TRIO, vue: TRIO });
+test("bundledPluginsFor: own plugin for java/php/shell, all three for every Markdown-embedding host, none otherwise", () => {
+  for (const lang of [...PRETTIER_LANGS, "kotlin", "nope"]) {
+    assert.deepEqual(bundledPluginsFor(lang), EXPECTED_PLUGINS[lang] ?? [], lang);
+  }
+});
+
+// prettier-plugin-sh's opt-in wasm path (`experimentalWasm: true` in a project's prettier config)
+// runs sh-syntax's Go runtime, which `vendors/wasm_exec.cjs` installs on globalThis. sh-syntax's
+// package.json lists only `wasm_exec.js` as side-effectful, so bun tree-shook that import and every
+// wasm format failed with "Go is not defined" until prettier.ts imported the file explicitly. This
+// is also the only test that reaches the committed main.wasm sidecar through build.mjs's __dirname
+// rewrite (the default path uses mvdan-sh, pure JS).
+test("shell: a project opting into experimentalWasm is formatted through main.wasm", async () => {
+  const cwd = tmp("uf-sh-wasm-");
+  writeFileSync(path.join(cwd, ".prettierrc"), '{ "experimentalWasm": true }\n');
+  assert.equal(await formatInProcess("echo    hi\n", path.join(cwd, "a.sh"), cwd, "shell"), "echo hi\n");
+});
+
+// Prettier formats Markdown embedded in JS/TS (`md` tagged templates), HTML (<script type="text/markdown">)
+// and Vue (lang="markdown" blocks), fenced blocks included -- so those hosts need the trio as well, or a
+// ```sh fence inside them silently stops formatting (it did, between 0.18.0's lazy loading and this test).
+const FENCE = "```sh\necho    hi\n```";
+const EMBEDDED_MARKDOWN_HOSTS = [
+  ["a.ts", "jsts", "const doc = md`\n# T\n\n" + FENCE.replaceAll("`", "\\`") + "\n`;\n"],
+  ["a.html", "html", '<script type="text/markdown">\n' + FENCE + "\n</script>\n"],
+  ["a.vue", "vue", '<docs lang="markdown">\n' + FENCE + "\n</docs>\n"],
+];
+
+test("hosts that embed Markdown still format a fenced shell block through the bundled plugin", async () => {
+  const cwd = tmp("uf-embed-");
+  for (const [file, lang, src] of EMBEDDED_MARKDOWN_HOSTS) {
+    const out = await formatInProcess(src, path.join(cwd, file), cwd, lang);
+    assert.ok(out.includes("echo hi"), `${file}: the fenced block inside the embedded Markdown must be formatted; got ${JSON.stringify(out)}`);
+  }
 });

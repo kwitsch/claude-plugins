@@ -171,6 +171,52 @@ export function applyEdit(current: string, oldStr: string, newStr: string, repla
   return current.slice(0, idx) + newStr + current.slice(idx + oldStr.length);
 }
 
+/** Start index of the line that contains index `i` of `s` (0 for the first line). */
+function lineStart(s: string, i: number): number {
+  return i <= 0 ? 0 : s.lastIndexOf("\n", i - 1) + 1;
+}
+
+/** Index just past the newline that ends the line containing index `i` of `s` (`s.length` for an
+ * unterminated last line). */
+function lineEnd(s: string, i: number): number {
+  const nl = s.indexOf("\n", i);
+  return nl === -1 ? s.length : nl + 1;
+}
+
+const MAX_WIDENINGS = 32; // real edits widen 1-10 times (measured p99 = 5); only repetitive fixtures hit this
+
+/** Shrink a whole-file Edit swap to the smallest run of whole lines that differs between the
+ * pre-edit file and its formatted replacement. Prettier still formats the WHOLE merged file (a
+ * fragment cannot be formatted in isolation); this only trims what the Edit tool is asked to swap,
+ * so a one-line edit to an already-formatted file costs a few lines of updatedInput instead of two
+ * copies of the file (numbers: plugins/universal-format/CLAUDE.md). The run is widened one whole
+ * line at a time -- upward first -- until `applyEdit`, the in-process mirror of the Edit tool's
+ * contract, reproduces `formatted` from it (an empty or non-unique `old_string` never does), bounded
+ * by MAX_WIDENINGS so repetitive text (thousands of identical lines) cannot make the scan quadratic:
+ * past the bound the whole file is swapped, exactly the pre-0.18 payload. Null when nothing differs. */
+export function shrinkSwap(current: string, formatted: string): { old_string: string; new_string: string } | null {
+  if (current === formatted) return null;
+  const max = Math.min(current.length, formatted.length);
+  let prefix = 0;
+  while (prefix < max && current.charCodeAt(prefix) === formatted.charCodeAt(prefix)) prefix++;
+  let suffix = 0;
+  while (suffix < max - prefix && current.charCodeAt(current.length - 1 - suffix) === formatted.charCodeAt(formatted.length - 1 - suffix)) suffix++;
+  // The changed run of `current` is [prefix, current.length - suffix); widen it to whole lines (a
+  // pure insertion has an empty run and takes the line holding the insertion point). The swap stays
+  // correct as long as `start <= prefix` and `end >= current.length - suffix`, which widening only
+  // strengthens -- everything outside the run is common text.
+  let start = lineStart(current, prefix);
+  let end = lineEnd(current, Math.max(prefix, current.length - suffix - 1));
+  const swapAt = () => ({ old_string: current.slice(start, end), new_string: formatted.slice(start, formatted.length - (current.length - end)) });
+  for (let i = 0; i < MAX_WIDENINGS && (start > 0 || end < current.length); i++) {
+    const swap = swapAt();
+    if (applyEdit(current, swap.old_string, swap.new_string, false) === formatted) return swap;
+    if (start > 0) start = lineStart(current, start - 1);
+    else end = lineEnd(current, end);
+  }
+  return { old_string: current, new_string: formatted };
+}
+
 // The ONE base-rooted ignore file. A write to it refreshes THIS server's base-keyed ignore cache
 // (prettier's own getFileInfo still caches nothing). Kept as its own set so formatPost can act on
 // it separately from the config clear. `.gitignore` is deliberately NOT a member -- see
@@ -278,7 +324,13 @@ export async function formatPre(args: ToolHookInput): Promise<HookResult> {
 
     if (args.tool_name === "Edit") {
       if (!existsSync(resolved)) return {};
-      const current = readFileSync(resolved, "utf8");
+      // The Edit tool matches old_string against LF-normalized content and writes CRLF back to a CRLF
+      // file itself, so for such a file everything below runs in LF space: a `\r\n` in the swap's
+      // old_string could never match, and the Edit would fail instead of failing open.
+      const raw = readFileSync(resolved, "utf8");
+      const crlf = raw.includes("\r\n");
+      const toLf = (s: string) => (crlf ? s.replaceAll("\r\n", "\n") : s);
+      const current = toLf(raw);
       const oldStr = args.tool_input.old_string;
       const newStr = args.tool_input.new_string;
       if (typeof oldStr !== "string" || typeof newStr !== "string") return {};
@@ -286,9 +338,23 @@ export async function formatPre(args: ToolHookInput): Promise<HookResult> {
       const replaceAll = args.tool_input.replace_all;
       const merged = applyEdit(current, oldStr, newStr, replaceAll === true || replaceAll === "true");
       if (merged === null) return {}; // absent OR non-unique -> let the original Edit proceed/err
-      const formatted = await formatInProcess(merged, resolved, base, lang);
+      const formatted = toLf(await formatInProcess(merged, resolved, base, lang));
       if (formatted === merged) return {};
-      return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp, old_string: current, new_string: formatted, replace_all: false }, additionalContext: notice } };
+      // null: prettier formats the edit straight back to the pre-edit file, so the formatted result IS
+      // what is on disk. Letting the raw edit land would leave the file unformatted until its next
+      // write, so hand the Edit tool a no-op instead (old_string == new_string: rejected or applied as
+      // nothing, the file stays formatted either way) and tell Claude why.
+      const swap = shrinkSwap(current, formatted);
+      if (swap === null) {
+        return {
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            updatedInput: { file_path: fp, old_string: oldStr, new_string: oldStr, replace_all: replaceAll === true || replaceAll === "true" },
+            additionalContext: `universal-format: prettier formats this edit straight back to the current content of ${display}, so there is nothing to change; the Edit was turned into a no-op and the file is unchanged.`,
+          },
+        };
+      }
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { file_path: fp, ...swap, replace_all: false }, additionalContext: notice } };
     }
 
     return {};

@@ -112,6 +112,29 @@ setup() {
   assert_output --partial "missing argument"
 }
 
+# The node branch's V8 compile cache: exported from CLAUDE_PLUGIN_DATA, a user's own value wins, nothing
+# is exported without it, and the bun branch never sees it. The stubs print the NODE_COMPILE_CACHE they
+# inherit and live in a dir of their own: MOCKBIN's `node` is a symlink to the real one, which
+# make_stub would write through.
+@test "bin/mjs-launch.sh exports NODE_COMPILE_CACHE on the node branch only: from CLAUDE_PLUGIN_DATA, a user value wins" {
+  local stubs="$BATS_TEST_TMPDIR/launch-stubs"
+  mkdir -p "$stubs"
+  printf '#!/bin/sh\nprintf "%%s" "${NODE_COMPILE_CACHE-UNSET}"\n' > "$stubs/node"
+  chmod +x "$stubs/node"
+  launch() { env -i PATH="$stubs" HOME="$HOME" "$@" "$BASH" "$WRAPPER" x.mjs; }
+
+  run launch CLAUDE_PLUGIN_DATA=/data
+  assert_output "/data/node-compile-cache"
+  run launch
+  assert_output "UNSET"
+  run launch CLAUDE_PLUGIN_DATA=/data NODE_COMPILE_CACHE=/mine
+  assert_output "/mine"
+
+  cp "$stubs/node" "$stubs/bun"
+  run launch CLAUDE_PLUGIN_DATA=/data
+  assert_output "UNSET"
+}
+
 @test "mcp/server.mjs is executable, node-shebanged, and passes node --check" {
   [ -x "$SERVER" ]
   run head -n1 "$SERVER"
@@ -167,8 +190,8 @@ setup() {
   assert_failure
 }
 
-@test "plugin.json version is 0.17.1" {
-  run jq -e '.version == "0.17.1"' "$PLUGIN/.claude-plugin/plugin.json"
+@test "plugin.json version is 0.18.0" {
+  run jq -e '.version == "0.18.0"' "$PLUGIN/.claude-plugin/plugin.json"
   assert_success
 }
 

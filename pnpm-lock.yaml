@@ -38,6 +38,9 @@ importers:
       prettier-plugin-sh:
         specifier: 0.16.1
         version: 0.16.1(prettier@3.9.6)
+      sh-syntax:
+        specifier: 0.4.2
+        version: 0.4.2
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
