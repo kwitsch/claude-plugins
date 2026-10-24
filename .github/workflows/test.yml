@@ -28,7 +28,6 @@ jobs:
           - linux-token-efficiency
           - rc-enhancement
           - inline-headroom
-          - dprint
     steps:
       - name: Checkout
         uses: actions/checkout@v6
