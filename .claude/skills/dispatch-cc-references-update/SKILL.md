@@ -16,17 +16,14 @@ disable-model-invocation: true
 Hands one `update-cc-references` refresh to a new, worktree-isolated background Claude Code
 session (`claude --worktree ... --bg`) that runs unattended — a separate session, not an
 in-session subagent. Model `haiku` and effort `high` are fixed in the launch command; this
-skill has no way to override either. The worktree branches from the repository's default branch
-on origin — UNLESS this project's `worktree.baseRef` setting is `"head"`, in which case it
-branches from this session's own current local `HEAD` instead; never assume the default
-`"fresh"`. Either way it starts on an auto-generated branch name, so the payload has the new
-session cut a named `fix/refresh-cc-references-<target>-<YYYYMMDD>` branch as its first action:
-`update-cc-references` Release step 4's inline git fallback only cuts a branch "if currently on
-the default branch" and would otherwise push the auto-named one. This skill's own Bash never
-runs `git`. It is a deliberate fork of taskflow's `dispatch-task`, not a call to it; the design
-rationale lives in [dispatch-task/CLAUDE.md](../../../plugins/taskflow/skills/dispatch-task/CLAUDE.md).
+skill has no way to override either. The worktree starts on an auto-generated branch name, so
+the payload has the new session cut a named `fix/refresh-cc-references-<target>-<YYYYMMDD>`
+branch first: `update-cc-references` Release step 4's inline git fallback only cuts a branch "if
+currently on the default branch". This skill's own Bash never runs `git`. It is a deliberate
+fork of taskflow's `dispatch-task`; the design rationale lives in
+[dispatch-task/CLAUDE.md](../../../plugins/taskflow/skills/dispatch-task/CLAUDE.md).
 
-`$ARGUMENTS`, trimmed, is `target`; empty means `target=all`. `target` must be exactly one of
+The argument text this skill was invoked with, trimmed, is `target`; empty means `target=all`. `target` must be exactly one of
 `skills agents hooks commands mcp plugins memory settings all`, matched case-sensitively as a
 single token. Any other value — multiple words, or any token starting with `--` (there are no
 flags) — stops the skill: report the valid set. Never guess, sanitize or ask.
