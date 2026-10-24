@@ -399,7 +399,7 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
 }
 
 @test "sonnet and haiku workflow assignments stay bare aliases" {
-  run rg_or_grep -F 'explorer: "sonnet"' "$WORKFLOWS/design-to-spec.workflow.js"
+  run rg_or_grep -F 'explorer: "haiku"' "$WORKFLOWS/design-to-spec.workflow.js"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'merger: "haiku"' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]

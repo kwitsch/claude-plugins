@@ -45,7 +45,7 @@
 //
 // Model assignment by difficulty:
 //   scout     haiku   — classify complexity/subsystems
-//   explorer  sonnet  — read-only codebase exploration; conditional dispatch:
+//   explorer  haiku   — read-only codebase exploration; conditional dispatch:
 //                     built-in agentType 'Explore' (repo-explorer tool absent)
 //                     OR default subagent calling explore_repository (present)
 //   designer  sonnet|opus|fable — design, trade-offs, decisions (highest
@@ -120,7 +120,7 @@ if ((EXPLORE_TOOL_AVAILABLE === true || EXPLORE_TOOL_AVAILABLE === "true") && !U
 
 const MODELS = {
   scout: "haiku", // pure classification — deliberately small
-  explorer: "sonnet",
+  explorer: "haiku",
   designReview: "sonnet",
   specWriter: "sonnet", // 1:1 transformation, no new decisions
   specReview: "sonnet", // document comparison draft↔spec
