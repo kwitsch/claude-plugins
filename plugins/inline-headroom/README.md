@@ -1,8 +1,8 @@
 # inline-headroom
 
 Headroom-style levers inside Claude Code as a mod: clamp-only effort routing
-after successful tool results, a detector-only CacheAligner that flags
-volatile system-prompt content and cache-hit drops, and a SmartCrusher with
+after successful tool results, a detector-only CacheAligner that logs
+cache-hit drops, and a SmartCrusher with
 lossless compaction, cross-turn dedup, a dense line elider, a config
 compressor, an HTML extractor, log, search and diff compressors, a text
 crusher and a relevance split that shrink tool results before the model reads
@@ -22,7 +22,7 @@ semantics.
 | Lever             | Upstream mapping                                           | Behavior                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ----------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Effort routing    | headroom effort routing (structural success-vs-error rule) | On a main-loop model step after index 0 whose preceding tool results were all successful, lowers thinking effort to `low`; with `subagent_effort_routing_enabled` on, each subagent and Workflow agent gets the same rule on its own steps, tracked per agent. Clamp-only: never raises effort, never injects one, leaves numeric or absent effort alone. Any tool error or deny since that loop's last step keeps full effort.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| CacheAligner      | headroom CacheAligner (detector only)                      | Scans the cacheable `shared` system-prompt sections for UUID, ISO-8601, JWT and 32/40/64-hex values and logs a line whenever the prompt-cache hit ratio drops from at least 60% to below 60% between steps. Never rewrites or reorders the prompt.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| CacheAligner      | headroom CacheAligner (detector only)                      | Logs a line whenever the prompt-cache hit ratio drops from at least 60% to below 60% between steps. Never rewrites or reorders the prompt.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | SmartCrusher      | headroom SmartCrusher (lossy array paths)                  | Rewrites a successful tool result of any tool whose text (a string or text block) is one JSON document longer than 800 characters, before the model first reads it: in the main loop, and in subagent and Workflow-agent results while `subagent_compression_enabled` is on. Read results never qualify (their line numbers stop the text from parsing). An array of 5 or more objects keeps at most an adaptive K (3 to 15) rows plus every error row, outlier and anomaly (first and last rows, change points, top search results, log clusters, rows matching the conversation); unique entities with no such signal stay whole. Arrays of 9 or more strings, numbers or mixed values keep their errors, outliers and first and last items. A shortened array ends with a `<<ccr:HASH N_rows_offloaded>>` (or `N_items_offloaded`) marker that `headroom_retrieve` resolves. Error results are never rewritten. |
 | Compaction        | headroom SmartCrusher lossless compaction (csv-schema)     | Before the SmartCrusher drops a row, an array of 5 or more objects longer than its adaptive K is rendered as one typed schema line plus CSV rows (`[N]{id:int,name:string,…}` then `1,alice`), heterogeneous arrays split into buckets by a shared string field; when that saves at least 15% of the array's JSON the table replaces the array (as a JSON string), and nothing is dropped, so nothing needs retrieving. Runs while `smart_crusher_enabled` is off too (then an array whose table loses keeps every row). Error results are never rewritten.                                                                                                                                                                                                                                                                                                                                                        |
 | Cross-turn dedup  | headroom cross_turn_dedup.py                               | Replaces each run of 3 or more lines (40+ characters) in a tool result that already appeared in an earlier tool result of the same conversation (the main loop, or one subagent), verbatim or with every line number shifted by one constant, with a one-line pointer: `[↑nL same as result K: "anchor" hash=H]`, or `[↑nL same as result K +dL: "anchor" hash=H]` for a shifted re-read. K counts that conversation's tool results from 1, the earliest copy is never rewritten, and `headroom_retrieve` with the hash returns the run's exact text. A result that repeats an earlier one in full becomes a single pointer. Error results and Read results are never rewritten but count as originals, so a re-Read always shows the file verbatim for the next Edit.                                                                                                                                             |
@@ -90,7 +90,7 @@ turns storage off. Set them via
 | --------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `effort_routing_enabled`          | `true`  | Lower effort to `low` on main-loop steps that only resume after successful tool results.                                                                                                                                                                                                                                                                |
 | `subagent_effort_routing_enabled` | `true`  | Apply the same clamp to each subagent and Workflow agent, per agent. Only active while `effort_routing_enabled` is on. Overrides effort set on purpose (agent frontmatter, Agent tool, Workflow); see [Notes & limitations](#notes--limitations).                                                                                                       |
-| `cache_aligner_enabled`           | `true`  | Flag volatile values in the `shared` system-prompt sections and log prompt-cache hit-ratio drops.                                                                                                                                                                                                                                                       |
+| `cache_aligner_enabled`           | `true`  | Log prompt-cache hit-ratio drops per main-loop step.                                                                                                                                                                                                                                                                                                    |
 | `smart_crusher_enabled`           | `true`  | Compress large JSON arrays in successful tool results of any tool (Read results never qualify); dropped rows stay retrievable with `headroom_retrieve` while the mod is loaded (see [Notes & limitations](#notes--limitations)).                                                                                                                        |
 | `lossless_compaction_enabled`     | `true`  | Before the SmartCrusher drops rows, rewrite a large JSON array of objects as a schema line plus CSV rows when that saves at least 15%; nothing is dropped. Also runs while `smart_crusher_enabled` is off.                                                                                                                                              |
 | `cross_turn_dedup_enabled`        | `true`  | Replace a run of 3 or more lines (40+ characters) that repeats an earlier tool result of the same conversation with a one-line pointer; the run stays retrievable with `headroom_retrieve` while the mod is loaded.                                                                                                                                     |
@@ -157,8 +157,6 @@ session                5    6400
 
 relevance split    texts   saved
 session                1    1210
-
-volatile shared values: unavailable (Claude Code keeps plugins out of the system-prompt hooks)
 ```
 
 - **Rows:** `session` is this session's counters, kept in memory and redrawn
@@ -181,7 +179,7 @@ volatile shared values: unavailable (Claude Code keeps plugins out of the system
 - **Tables follow their levers.** `effort routing` is shown only while
   `effort_routing_enabled` is on, and its `subagents` row only while both
   `effort_routing_enabled` and `subagent_effort_routing_enabled` are on.
-  `cache aligner` and the volatile list are shown only while
+  `cache aligner` only while
   `cache_aligner_enabled` is on, `smart crusher` only while
   `smart_crusher_enabled` is on, `dedup` only while `cross_turn_dedup_enabled`
   is on, `line elider` only while `dense_line_elider_enabled` is on,
@@ -205,10 +203,6 @@ volatile shared values: unavailable (Claude Code keeps plugins out of the system
   they read `–` and the pane says so. When a refresh fails, the rows keep their
   last numbers and the pane shows `storage unavailable: <reason>` (`–` if there
   were none). Closing the pane forgets them, so a reopened pane starts at `…`.
-- **Volatile shared values** are listed below the tables, for this session
-  only, one `<id> <kind> <sample>` line per value (for example
-  `env uuid 123e4567-e89…`). The list reads `none` when no shared section
-  holds a volatile value.
 - When the pane cannot be placed (headless, or a terminal too narrow for it),
   `/headroom` prints the same tables as text instead, read from storage once.
 
@@ -270,10 +264,15 @@ rows. It is the MCP server `storage` (connected as
 
 ## Notes & limitations
 
-- **The volatile-value list is unavailable on Claude Code 2.1.296.** Its built-in
-  security plugin keeps installed plugins out of the system-prompt hooks, so the
-  CacheAligner never sees the prompt and the pane says `unavailable`. Its
-  cache-hit drop counting (`hit`, `drops`, the `cache drop` log) still works.
+- **The CacheAligner only counts and logs cache-hit drops.** Claude Code's
+  built-in security plugin keeps installed plugins out of the system-prompt
+  hooks, so upstream's volatile-value scan of the prompt is not available to a
+  plugin, and the mod registers no `prompt.compose` hook.
+- **One `tool.check` notice per session.** The security plugin re-runs the
+  permission check for the mod's own storage writes beneath the user tier, and
+  Claude Code reports that once per session as
+  `its tool.check hook was skipped`. The write is still allowed; the line is
+  informational.
 
 - **Effort switching can cost cache re-writes.** Upstream headroom removed effort
   routing after measuring about $0.0007 saved per mechanical turn against roughly
