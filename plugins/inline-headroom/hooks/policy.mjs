@@ -373,7 +373,6 @@ export function isToolError(result) {
   return result.isError === true || typeof result.deny === "string";
 }
 
-
 /**
  * @param {{input_tokens: number, cache_read_input_tokens: number, cache_creation_input_tokens: number}} usage
  * @returns {number|undefined}

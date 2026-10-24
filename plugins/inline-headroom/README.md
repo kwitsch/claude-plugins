@@ -157,8 +157,6 @@ session                5    6400
 
 relevance split    texts   saved
 session                1    1210
-
-volatile shared values: unavailable (Claude Code keeps plugins out of the system-prompt hooks)
 ```
 
 - **Rows:** `session` is this session's counters, kept in memory and redrawn
@@ -181,7 +179,7 @@ volatile shared values: unavailable (Claude Code keeps plugins out of the system
 - **Tables follow their levers.** `effort routing` is shown only while
   `effort_routing_enabled` is on, and its `subagents` row only while both
   `effort_routing_enabled` and `subagent_effort_routing_enabled` are on.
-  `cache aligner` and the volatile list are shown only while
+  `cache aligner` only while
   `cache_aligner_enabled` is on, `smart crusher` only while
   `smart_crusher_enabled` is on, `dedup` only while `cross_turn_dedup_enabled`
   is on, `line elider` only while `dense_line_elider_enabled` is on,
@@ -205,8 +203,6 @@ volatile shared values: unavailable (Claude Code keeps plugins out of the system
   they read `–` and the pane says so. When a refresh fails, the rows keep their
   last numbers and the pane shows `storage unavailable: <reason>` (`–` if there
   were none). Closing the pane forgets them, so a reopened pane starts at `…`.
-- **Volatile shared values** below the tables always reads `unavailable` (see
-  Notes & limitations).
 - When the pane cannot be placed (headless, or a terminal too narrow for it),
   `/headroom` prints the same tables as text instead, read from storage once.
 
@@ -268,12 +264,10 @@ rows. It is the MCP server `storage` (connected as
 
 ## Notes & limitations
 
-- **The volatile-value list is unavailable.** Claude Code's built-in security
-  plugin keeps installed plugins out of the system-prompt hooks, and since
-  2.1.310 it reports every registered hook it skips to the user once per
-  session, so the mod registers no `prompt.compose` hook at all and the pane
-  says `unavailable`. The cache-hit drop counting (`hit`, `drops`, the
-  `cache drop` log) still works.
+- **The CacheAligner only counts and logs cache-hit drops.** Claude Code's
+  built-in security plugin keeps installed plugins out of the system-prompt
+  hooks, so upstream's volatile-value scan of the prompt is not available to a
+  plugin, and the mod registers no `prompt.compose` hook.
 - **One `tool.check` notice per session.** The security plugin re-runs the
   permission check for the mod's own storage writes beneath the user tier, and
   Claude Code reports that once per session as

@@ -196,26 +196,6 @@ test("(f) a numeric effort is left unchanged", async ($, on) => {
   expect(st.seen).toBe(8000);
 });
 
-test("(g) no prompt.compose hook is registered and the headroom pane says the volatile list is unavailable", async ($, on) => {
-  // The built-in security plugin keeps user-tier plugins out of prompt.compose, and 2.1.310 reports every registered
-  // hook it skips to the user once per session, so the mod registers none.
-  const sections = [{ id: "env", text: "Session 123e4567-e89b-12d3-a456-426614174000 started.", scope: "shared" as const }];
-  on("prompt.compose", async () => ({ sections }));
-  const out = await $.prompt.compose({
-    model: MODEL,
-    promptModel: MODEL,
-    surfaces: ["terminal"],
-    tools: ["Read"],
-    outputStyle: null,
-    traits: [],
-  });
-  expect(out.sections).toEqual(sections);
-  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
-  expect(await ui.find({ type: "Text", text: /volatile shared values: unavailable/ })).toBeDefined();
-  expect(await ui.find({ type: "Text", text: /env uuid/ })).toBeUndefined();
-  await ui.unmount();
-});
-
 test("(h) a cache-hit drop from 90% to 10% is counted", { options: { effort_routing_enabled: false } }, async ($, on) => {
   const st = bottomStep(on);
   st.usage = usageAt(0.9);
@@ -237,8 +217,8 @@ test("(i) /headroom opens the headroom pane and prints nothing", async ($, on) =
   const out = await $.command.run({ command: "headroom" });
   expect(out.text).toBeUndefined();
   expect(opened.length).toBe(1);
-  // 6 + 5 + 2 × 11 table rows, the storage note, the volatile header and fourteen gaps.
-  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 49 });
+  // 6 + 5 + 2 × 11 table rows, the storage note and thirteen gaps.
+  expect(opened[0]).toMatchObject({ id: "headroom", title: "Headroom", focus: true, closeOnEscape: true, rows: 47 });
 });
 
 test("(i2) /headroom falls back to the stats tables as text when the pane is not placed", async ($, on) => {
@@ -253,7 +233,6 @@ test("(i2) /headroom falls back to the stats tables as text when the pane is not
   expect(out.text).toMatch(/^7 days\s+17\s+9$/m);
   expect(out.text).toMatch(/^cache aligner\s+hit\s+drops$/m);
   expect(out.text).toMatch(/^30 days\s+75%\s+11$/m);
-  expect(out.text).toMatch(/volatile shared values: unavailable/);
   expect(out.text).not.toMatch(/showing:/);
   expect(out.text).not.toMatch(/: on\b/);
   expect(out.text).not.toMatch(/: off\b/);
@@ -499,7 +478,7 @@ test("(y) the effort routing table is shown only while effort_routing_enabled is
   await ui.unmount();
 });
 
-test("(z) the cache aligner table and the volatile list are shown only while cache_aligner_enabled is on", { options: { cache_aligner_enabled: false } }, async ($, on) => {
+test("(z) the cache aligner table is shown only while cache_aligner_enabled is on", { options: { cache_aligner_enabled: false } }, async ($, on) => {
   const clock = mock.clock(on, { now: NOW });
   stubWindows(on, () => windowSums(dayKey(NOW)));
   on("ui.open", async () => ({ value: { isPlaced: true as const } }));
@@ -508,7 +487,6 @@ test("(z) the cache aligner table and the volatile list are shown only while cac
   const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
   expect(await ui.find({ type: "Text", text: /^cache aligner$/ })).toBeUndefined();
   expect(await ui.find({ type: "Text", text: /^effort routing$/ })).toBeDefined();
-  expect(await ui.find({ type: "Text", text: /^volatile shared values/ })).toBeUndefined();
   await ui.unmount();
 });
 
@@ -901,7 +879,7 @@ test(
     });
     await startCrusher(on, $);
     await $.command.run({ command: "headroom" });
-    expect(opened[0].rows).toBe(3); // the crusher table's 2 rows, the empty volatile block and the gap between
+    expect(opened[0].rows).toBe(2); // the crusher table's 2 rows
     const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
     expect(await ui.find({ type: "Text", text: /^smart crusher$/ })).toBeDefined();
     expect(await ui.find({ type: "Text", text: /storage is off/ })).toBeUndefined();

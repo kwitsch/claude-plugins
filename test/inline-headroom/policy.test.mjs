@@ -70,7 +70,6 @@ import {
   zeroCounters,
 } from "../../plugins/inline-headroom/hooks/policy.mjs";
 
-
 test("constants match the spec", () => {
   assert.deepEqual([...EFFORT_ORDER], ["low", "medium", "high", "xhigh", "max"]);
   assert.equal(CACHE_DROP_THRESHOLD, 0.6);

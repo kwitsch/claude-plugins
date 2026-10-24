@@ -55,7 +55,7 @@ const offloaded = new Map<string, string>(); // CCR hash → original text (crus
 const folded = new Map<string, string>(); // CCR hash → a folded dedup run's text, oldest first
 // The session row: this session's counters, in memory.
 const session: Counters = zeroCounters();
-const stats = { lastHit: undefined as number | undefined };
+let lastHit: number | undefined; // the last main-loop step's cache-hit ratio
 const WRITER = Math.random().toString(36).slice(2).padEnd(8, "0"); // this module instance's stats rows
 const pending: Counters = zeroCounters(); // counter deltas since the last fold
 const days: Record<string, Counters> = {}; // this writer's per-day totals that may still need writing
@@ -206,7 +206,7 @@ export const register: Register = (on, options) => {
   // Subagent steps and clamps still reach the storage rows, inside the main loop's steps and clamped columns.
   const tables = (): string[][][] => {
     const [effort, cache, crusher, deduper, elider, compactor, configs, extractor, logs, searches, diffs, crushedTexts, splits] = statsTables(
-      [{ ...session, hit: stats.lastHit }, ...(sums?.data ?? [])],
+      [{ ...session, hit: lastHit }, ...(sums?.data ?? [])],
       note() === undefined ? "…" : "–",
       {
         subagents: subOn ? subagents : undefined,
@@ -239,19 +239,16 @@ export const register: Register = (on, options) => {
       ...(splitOn ? [splits] : []),
     ];
   };
-  // The cache aligner's volatile-value list: the built-in security plugin keeps user-tier plugins out of prompt.compose
-  // (and 2.1.310 reports every registered-but-skipped hook to the user), so the mod registers no such hook and says so.
-  const volatileLines = (): string[] => (cacheOn ? ["volatile shared values: unavailable (Claude Code keeps plugins out of the system-prompt hooks)"] : []);
   // With every lever off there is nothing to show, so nothing is read from storage either.
   const idle = (): string | undefined =>
     effortOn || cacheOn || compressOn
       ? undefined
       : "effort routing, cache aligner, smart crusher, lossless compaction, cross-turn dedup, dense line elider, config compressor, HTML extractor, log compressor, search compressor, diff compressor, text crusher and relevance split are off: nothing to show";
   // Body height asked for when seated inline, mirroring the render: every table, a line for the storage note
-  // wherever one can show, the volatile lines, and a gap between each.
+  // wherever one can show, and a gap between each.
   const paneRows = (): number => {
     if (idle() !== undefined) return 1; // the one "nothing to show" line
-    const blocks = [...tables().map((t) => t.length), ...(storageTables ? [1] : []), volatileLines().length];
+    const blocks = [...tables().map((t) => t.length), ...(storageTables ? [1] : [])];
     return blocks.reduce((a, b) => a + b, 0) + blocks.length - 1;
   };
 
@@ -272,7 +269,7 @@ export const register: Register = (on, options) => {
     if (off !== undefined) return { text: off };
     if (rowsShown) await refresh($);
     const n = note();
-    return { text: [tables().map(tableText).join("\n\n"), ...(n === undefined ? [] : [n]), ...volatileLines()].join("\n") };
+    return { text: [tables().map(tableText).join("\n\n"), ...(n === undefined ? [] : [n])].join("\n") };
   });
 
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
@@ -311,7 +308,6 @@ export const register: Register = (on, options) => {
       children: [
         ...tables().map((t) => table(t)),
         ...(n === undefined ? [] : [Text({ dimColor: true, children: [n] })]),
-        Box({ flexDirection: "column", children: volatileLines().map((s) => Text({ children: [s] })) }),
       ],
     });
   });
@@ -488,11 +484,11 @@ export const register: Register = (on, options) => {
         count("cache_creation_input_tokens", toCount(u.cache_creation_input_tokens));
         const hit = cacheHitRatio(result.usage);
         if (hit !== undefined) {
-          if (isCacheDrop(stats.lastHit, hit)) {
+          if (isCacheDrop(lastHit, hit)) {
             count("cache_drops");
-            $.ui.log(`cache drop ${pct(stats.lastHit)} → ${pct(hit)} (wrote ${result.usage.cache_creation_input_tokens} tok)`);
+            $.ui.log(`cache drop ${pct(lastHit)} → ${pct(hit)} (wrote ${result.usage.cache_creation_input_tokens} tok)`);
           }
-          stats.lastHit = hit;
+          lastHit = hit;
         }
       }
       return result;
@@ -504,8 +500,7 @@ export const register: Register = (on, options) => {
 
   if (storageOn) {
     // The mod's own storage calls need no permission rule: core checks $.mcp.call like a tool call (see isOwnStorageCall).
-    // cc-plugin-sec-default re-runs this check beneath the user tier for the mod's own call and 2.1.310 reports that
-    // once per session as a skipped hook; the allow still stands (live-verified), and calling next() first changes nothing.
+    // 2.1.310 reports this hook as skipped once per session (the allow still stands); unavoidable, see CLAUDE.md.
     on("tool.check", async (_$, e, next) => (isOwnStorageCall(next.origin.plugin, e.tool) ? { decision: "allow" as const, reason: "inline-headroom's own /headroom storage call" } : next(e)));
   }
 
@@ -566,7 +561,7 @@ export const register: Register = (on, options) => {
     Object.assign(split, { texts: 0, saved: 0 });
     dedupStates.clear(); // the next session's results get their own corpus and ordinals
     agentErrored.clear(); // an aborted agent whose turn.complete never came
-    stats.lastHit = undefined;
+    lastHit = undefined;
     $.ui.invalidate("ui.render");
     const r = await next(e);
     // A turn cut off before its turn.complete hook finished may leave a stats_put running: let it finish.

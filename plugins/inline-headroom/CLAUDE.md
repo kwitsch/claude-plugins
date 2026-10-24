@@ -1387,9 +1387,9 @@ it fits, deciding whether `elide` still runs on its rewrite (put the step in
     every registered hook a managed plugin skips, once per session per event,
     as a user-visible notice (`its prompt.compose hook was skipped.
     "cc-plugin-sec-default" runs first and sent the event on past it.`). The mod
-    therefore registers no `prompt.compose` hook (0.8.2); the pane's volatile
-    line is the constant `unavailable`, and the cache-drop counting reads
-    `turn.step` usage and still works.
+    therefore registers no `prompt.compose` hook and has no volatile-value
+    list (0.8.2); the cache-drop counting reads `turn.step` usage and still
+    works.
   - The same notice fires once per session for `tool.check`: for the mod's own
     storage call, `cc-plugin-sec-default` runs the module's `tool.check`
     (nested in the calling hook), then re-dispatches beneath the user tier to
