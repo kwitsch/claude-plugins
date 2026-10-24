@@ -1,13 +1,13 @@
 {
   "name": "inline-headroom",
-  "version": "0.8.1",
-  "description": "Headroom-style levers inside Claude Code as a mod: clamp-only effort routing after successful tool results, a detector-only CacheAligner that flags volatile system-prompt content and cache-hit drops, and a SmartCrusher with lossless compaction, cross-turn dedup, a dense line elider, a config compressor, an HTML extractor, log, search and diff compressors, a text crusher and a relevance split that shrink tool results before the model reads them (originals retrievable, custom workflow tags kept whole). Ships a host-wide SQLite storage MCP server for persistent plugin data.",
+  "version": "0.8.2",
+  "description": "Headroom-style levers inside Claude Code as a mod: clamp-only effort routing after successful tool results, a detector-only CacheAligner that logs cache-hit drops, and a SmartCrusher with lossless compaction, cross-turn dedup, a dense line elider, a config compressor, an HTML extractor, log, search and diff compressors, a text crusher and a relevance split that shrink tool results before the model reads them (originals retrievable, custom workflow tags kept whole). Ships a host-wide SQLite storage MCP server for persistent plugin data.",
   "author": { "name": "Kwitsch" },
   "userConfig": {
     "cache_aligner_enabled": {
       "type": "boolean",
       "title": "CacheAligner",
-      "description": "Flag volatile values (UUID, ISO-8601, JWT, hex hash) in the cacheable system-prompt sections and log prompt-cache hit-ratio drops. Never rewrites the prompt.",
+      "description": "Log prompt-cache hit-ratio drops per main-loop step. Never rewrites the prompt.",
       "default": true
     },
     "effort_routing_enabled": {
