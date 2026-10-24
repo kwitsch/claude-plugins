@@ -1,0 +1,148 @@
+{
+  "source": "https://plugins.dprint.dev/info.json",
+  "snapshot": "2026-10-24",
+  "plugins": [
+    {
+      "id": "typescript",
+      "npm": "@dprint/typescript",
+      "extensions": ["ts", "tsx", "mts", "cts", "js", "jsx", "cjs", "mjs"]
+    },
+    { "id": "json", "npm": "@dprint/json", "extensions": ["json", "jsonc"] },
+    {
+      "id": "markdown",
+      "npm": "@dprint/markdown",
+      "extensions": ["md", "mkd", "mdwn", "mkdn", "mdown", "markdown"]
+    },
+    { "id": "toml", "npm": "@dprint/toml", "extensions": ["toml"] },
+    {
+      "id": "dockerfile",
+      "npm": "@dprint/dockerfile",
+      "extensions": ["dockerfile"],
+      "fileNames": ["Dockerfile"]
+    },
+    { "id": "sql", "npm": "@dprint/sql", "extensions": ["sql"] },
+    {
+      "id": "biome",
+      "npm": "@dprint/biome",
+      "extensions": ["ts", "tsx", "mts", "cts", "js", "jsx", "cjs", "mjs", "json", "jsonc"]
+    },
+    { "id": "mago", "npm": "@dprint/mago", "extensions": ["php"] },
+    { "id": "ruff", "npm": "@dprint/ruff", "extensions": ["py", "pyi"] },
+    { "id": "jupyter", "npm": "@dprint/jupyter", "extensions": ["ipynb"] },
+    {
+      "id": "jakebailey/gofumpt",
+      "npm": "@jakebailey/dprint-plugin-gofumpt",
+      "extensions": ["go"]
+    },
+    {
+      "id": "g-plane/malva",
+      "npm": "dprint-plugin-malva",
+      "extensions": ["css", "scss", "sass", "less"]
+    },
+    {
+      "id": "g-plane/markup_fmt",
+      "npm": "dprint-plugin-markup",
+      "extensions": ["html", "vue", "svelte", "astro", "jinja", "jinja2", "j2", "twig", "njk", "vto", "mustache", "hbs", "handlebars", "xml", "svg", "wsdl", "xsd", "xslt", "xsl"]
+    },
+    {
+      "id": "g-plane/pretty_yaml",
+      "npm": "dprint-plugin-yaml",
+      "extensions": ["yaml", "yml"]
+    },
+    {
+      "id": "g-plane/pretty_graphql",
+      "npm": "dprint-plugin-graphql",
+      "extensions": ["graphql", "gql"]
+    },
+    {
+      "id": "oxc",
+      "npm": "@dprint/oxc",
+      "extensions": ["ts", "tsx", "mts", "cts", "js", "jsx", "cjs", "mjs", "json", "jsonc", "json5", "css", "scss", "less", "graphql", "gql", "yaml", "yml", "toml"]
+    },
+    { "id": "kdl", "npm": "@dprint/kdl", "extensions": ["kdl"] },
+    { "id": "nix", "npm": "@dprint/nix", "extensions": ["nix"] },
+    { "id": "alejandra", "npm": "@dprint/alejandra", "extensions": ["nix"] },
+    {
+      "id": "shuck",
+      "npm": "@dprint/shuck",
+      "extensions": ["sh", "bash", "zsh", "ksh", "mksh", "dash", "bats"],
+      "fileNames": [".envrc", ".bashrc", ".bash_profile", ".bash_aliases", ".bash_login", ".bash_logout", ".profile", ".zshrc", ".zshenv", ".zprofile", ".zlogin", ".zlogout"]
+    },
+    {
+      "id": "shfmt",
+      "npm": "@dprint/shfmt",
+      "extensions": ["sh", "bash", "mksh", "bats", "zsh"],
+      "fileNames": [".bashrc", ".bash_profile", ".bash_logout", ".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zlogout"]
+    },
+    { "id": "typstyle", "npm": "@dprint/typstyle", "extensions": ["typ"] },
+    { "id": "apcamargo/bibtex-tidy", "extensions": ["bib"] },
+    {
+      "id": "bartlomieju/lax-css",
+      "npm": "lax-css",
+      "extensions": ["css", "scss", "less"]
+    },
+    {
+      "id": "bartlomieju/lax-markup",
+      "npm": "lax-markup",
+      "extensions": ["html", "htm", "vue", "svelte", "astro", "xml", "svg"]
+    },
+    { "id": "bartlomieju/lax-sql", "npm": "lax-sql", "extensions": ["sql"] },
+    {
+      "id": "jolars/panache",
+      "extensions": ["md", "qmd", "rmd", "rmarkdown", "markdown", "mdown", "mkd"]
+    },
+    { "id": "drluckyspin/swift", "extensions": ["swift"] },
+    {
+      "id": "prettier",
+      "npm": "@dprint/prettier",
+      "extensions": ["js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts", "json", "css", "scss", "less", "html", "vue", "svelte", "graphql", "gql", "md", "mdx", "yaml", "yml"]
+    },
+    { "id": "roslyn", "npm": "@dprint/roslyn", "extensions": ["cs", "vb"] },
+    {
+      "id": "csharpier",
+      "npm": "@dprint/csharpier",
+      "extensions": ["cs", "csx", "csproj", "props", "targets", "slnx", "config", "xml", "xaml", "axaml"]
+    },
+    {
+      "id": "clang-format",
+      "npm": "@dprint/clang-format",
+      "extensions": ["c", "cc", "cpp", "cxx", "h", "hh", "hpp", "hxx", "m", "mm"]
+    },
+    { "id": "cedar", "npm": "@dprint/cedar", "extensions": ["cedar"] },
+    { "id": "stylua", "npm": "@dprint/stylua", "extensions": ["lua", "luau"] },
+    { "id": "zig", "npm": "@dprint/zig", "extensions": ["zig", "zon"] },
+    {
+      "id": "terraform",
+      "npm": "@dprint/terraform",
+      "extensions": ["tf", "tofu", "tfvars", "hcl"]
+    },
+    {
+      "id": "buildifier",
+      "npm": "@dprint/buildifier",
+      "extensions": ["bzl", "bazel", "star", "sky"],
+      "fileNames": ["BUILD", "WORKSPACE", "WORKSPACE.bzlmod"]
+    },
+    {
+      "id": "cmakefmt/cmakefmt",
+      "extensions": ["cmake"],
+      "fileNames": ["CMakeLists.txt", "CMakeLists.txt.in"]
+    },
+    {
+      "id": "azais-corentin/cmakefmt",
+      "extensions": ["cmake"],
+      "fileNames": ["CMakeLists.txt"]
+    },
+    { "id": "jolars/arity", "extensions": ["r"] },
+    { "id": "jolars/fatou", "extensions": ["jl"] },
+    {
+      "id": "jolars/badness",
+      "extensions": ["tex", "sty", "cls", "dtx", "ins", "bib"]
+    },
+    {
+      "id": "bun",
+      "npm": "@dprint/bun",
+      "extensions": ["js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx", "json", "jsonc", "json5", "css", "scss", "less", "yaml", "yml", "md", "markdown", "mdx", "graphql", "gql", "graphqls", "hbs", "handlebars", "html", "htm", "vue", "mjml", "toml"],
+      "fileNames": [".babelrc", ".jshintrc", ".swcrc", ".prettierrc", ".lintstagedrc", "Pipfile"]
+    }
+  ]
+}
