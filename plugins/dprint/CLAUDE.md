@@ -16,7 +16,7 @@ No hooks, MCP server, `bin/`, or `userConfig`.
 
 `MIN_VERSION` is defined only in `skills/init-dprint/scripts/check-dprint.mjs`.
 Changing it is a one-line edit there plus the "Minimum dprint version" line in
-`README.md`; the equal-version bats test reads the value from the script.
+`README.md`.
 
 ## Config step
 
@@ -26,23 +26,11 @@ Changing it is a one-line edit there plus the "Minimum dprint version" line in
 working directory and every ancestor (as dprint resolves it); style sources are searched up to
 the repository root (first directory with `.git`).
 `PRETTIER_FILES` is a copy of `PRETTIER_CONFIG_FILENAMES` in
-`src/universal-format-mcp/prettier.ts`; a bats test fails when the two drift.
+`src/universal-format-mcp/prettier.ts`; nothing checks drift, so update the copy by hand.
 `parseEditorconfig` is a reduced copy of `parseEditorconfig`/`normalizeProps`
 in `src/universal-format-mcp/editorconfig.ts` (only the literal `[*]` section;
 `indent_size=tab` and `max_line_length=off` are skipped). Plugins run from
 isolated cache copies, so neither can be imported: when the shared grammar
 changes, update this copy by hand.
 
-## Tests
-
-```bash
-BATS_LIB_PATH="$PWD/node_modules" pnpm exec bats test/dprint/
-```
-
-`test/dprint/test.bats` holds manifest/registration/SKILL.md static checks;
-`test/dprint/check-dprint.bats` holds the version-probe contract tests (stub
-`dprint` on an isolated `PATH`, `HOME` redirected); `test/dprint/dprint-config.bats`
-holds the detect/write contract tests (fixtures in a temp project dir). The
-version-pin test is a **rolling pin**: it asserts the exact `plugin.json`
-version. Any future version bump MUST update that assertion in the same commit,
-or CI turns red.
+No bats suite: `test/dprint/` was removed on purpose; do not re-add it or its CI matrix entry.
