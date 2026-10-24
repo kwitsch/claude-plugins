@@ -10,6 +10,7 @@ setup() {
   REFS="$SKILL/references"
   MARKET="$REPO_ROOT/.claude-plugin/marketplace.json"
   MAINT="$REPO_ROOT/.claude/skills/update-cc-references/SKILL.md"
+  DISPATCH_CCREF="$REPO_ROOT/.claude/skills/dispatch-cc-references-update/SKILL.md"
 
   # Isolated PATH for the cc-compress script tests: `node` (to run compress.mjs),
   # `bash`/`cat` (make_stub's `#!/usr/bin/env bash` stubs need both to actually
@@ -276,6 +277,85 @@ make_stub() {
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'CC docs read:' "$MAINT"
   [ "$status" -eq 0 ]
+}
+
+# --- dispatch-cc-references-update launcher (repo-root project skill) ---
+
+@test "dispatch-cc-references-update skill exists and is non-empty" {
+  [ -s "$DISPATCH_CCREF" ]
+}
+
+@test "dispatch-cc-references-update is user-only (disable-model-invocation: true)" {
+  run rg_or_grep -E '^disable-model-invocation:[[:space:]]*true' "$DISPATCH_CCREF"
+  [ "$status" -eq 0 ]
+}
+
+@test "dispatch-cc-references-update allowed-tools is exactly Bash" {
+  run rg_or_grep -E '^allowed-tools: \["Bash"\]$' "$DISPATCH_CCREF"
+  [ "$status" -eq 0 ]
+}
+
+@test "dispatch-cc-references-update launch line pins fixed model haiku and effort high" {
+  run rg_or_grep -F 'claude --worktree "$name" --model haiku --effort high --permission-mode auto --bg' "$DISPATCH_CCREF"
+  [ "$status" -eq 0 ]
+}
+
+@test "dispatch-cc-references-update payload cuts the fix branch then runs update-cc-references" {
+  run rg_or_grep -F 'fix/refresh-cc-references-' "$DISPATCH_CCREF"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F '/update-cc-references <target>' "$DISPATCH_CCREF"
+  [ "$status" -eq 0 ]
+}
+
+@test "dispatch-cc-references-update keeps the safe-name regex and the 64-char length check" {
+  run rg_or_grep -F '^[A-Za-z0-9._-]+$' "$DISPATCH_CCREF"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F '(${#name} <= 64)' "$DISPATCH_CCREF"
+  [ "$status" -eq 0 ]
+}
+
+@test "dispatch-cc-references-update heredoc is single-quoted with the fixed delimiter" {
+  run rg_or_grep -F "cat << 'DISPATCH_CC_REFERENCES_PROMPT_EOF'" "$DISPATCH_CCREF"
+  [ "$status" -eq 0 ]
+  # opener line + terminator line are the only lines ending in the delimiter
+  run grep -cE "DISPATCH_CC_REFERENCES_PROMPT_EOF'?\$" "$DISPATCH_CCREF"
+  [ "$output" = "2" ]
+}
+
+@test "dispatch-cc-references-update argument-hint lists all 9 targets" {
+  run rg_or_grep -E '^argument-hint:' "$DISPATCH_CCREF"
+  [ "$status" -eq 0 ]
+  for tok in skills agents hooks commands mcp plugins memory settings all; do
+    [[ "$output" == *"$tok"* ]]
+  done
+}
+
+@test "dispatch-cc-references-update states the worktree.baseRef conditional" {
+  run rg_or_grep -F 'worktree.baseRef' "$DISPATCH_CCREF"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F '"head"' "$DISPATCH_CCREF"
+  [ "$status" -eq 0 ]
+}
+
+@test "dispatch-cc-references-update has no bang-backtick injection sequence" {
+  # raw grep -c (not rg_or_grep): bare `rg -c` prints nothing on 0 matches
+  run grep -cF "$(printf '!%s' '`')" "$DISPATCH_CCREF"
+  [ "$output" = "0" ]
+}
+
+@test "dispatch-cc-references-update never passes --skip-branch-check" {
+  run rg_or_grep -qF -- '--skip-branch-check' "$DISPATCH_CCREF"
+  [ "$status" -eq 1 ]
+}
+
+@test "dispatch-cc-references-update never mentions WebFetch" {
+  run rg_or_grep -qF 'WebFetch' "$DISPATCH_CCREF"
+  [ "$status" -eq 1 ]
+}
+
+@test "dispatch-cc-references-update has no model/effort override surface" {
+  run rg_or_grep -E '<validated-(model|effort)>|^argument-hint:.*--(model|effort)|^arguments:' "$DISPATCH_CCREF"
+  [ "$status" -eq 1 ]
 }
 
 # --- No stray rejected components ---
