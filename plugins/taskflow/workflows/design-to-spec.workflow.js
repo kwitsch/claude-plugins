@@ -436,7 +436,9 @@ ${TASK}
 
 Draft to review: ${DRAFT_PATH}
 Apply your full checklist (agent definition) against the codebase where
-needed. Structured output only.`;
+needed. The draft builds on explorer reports from a lightweight model: verify
+that every file path, symbol and signature the draft relies on actually exists
+in the codebase, and flag any that do not as blocking. Structured output only.`;
 
 async function reviewDesign(label) {
   const opts = { label, phase: "Design", schema: DESIGN_REVIEW, model: MODELS.designReview, agentType: AGENTS.reviewer };
