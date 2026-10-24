@@ -17,7 +17,7 @@ Hands one `update-cc-references` refresh to a new, worktree-isolated background 
 session (`claude --worktree ... --bg`) that runs unattended — a separate session, not an
 in-session subagent. Model `haiku` and effort `high` are fixed in the launch command; this
 skill has no way to override either. The worktree starts on an auto-generated branch name, so
-the payload has the new session cut a named `fix/refresh-cc-references-<target>-<YYYYMMDD>`
+the payload has the new session cut a named `fix/refresh-cc-references-<target>-<YYYYMMDD-HHMMSS>`
 branch first: `update-cc-references` Release step 4's inline git fallback only cuts a branch "if
 currently on the default branch". This skill's own Bash never runs `git`. It is a deliberate
 fork of taskflow's `dispatch-task`; the design rationale lives in
@@ -40,36 +40,31 @@ name="cc-refs-update-<target>-$(date +%s)-$RANDOM"
   echo "unsafe dispatch name: $name" >&2
   exit 1
 }
-((${#name} <= 64)) || {
-  echo "worktree name too long (${#name} chars, max 64): $name" >&2
-  exit 1
-}
 claude --worktree "$name" --model haiku --effort high --permission-mode auto --bg "$(
   cat << 'DISPATCH_CC_REFERENCES_PROMPT_EOF'
-First, in this fresh worktree (already a clean checkout), run exactly this before
-anything else:
-  git checkout -b "fix/refresh-cc-references-<target>-$(date +%Y%m%d)"
-Then invoke:
 /update-cc-references <target>
+Before its Release step cuts any branch, in this fresh worktree (already a clean checkout), run
+exactly this first:
+  git checkout -b "fix/refresh-cc-references-<target>-$(date +%Y%m%d-%H%M%S)"
 DISPATCH_CC_REFERENCES_PROMPT_EOF
 )"
 ```
 
 - **Fixed model/effort.** `haiku` and `high` are literal tokens in the command; nothing is
   substituted or validated for them. `haiku` is a bare alias (only the Opus tier is pinned).
-- **Name budget.** `cc-refs-update-` is 15 chars; with `-`, a 10-digit epoch, `-` and up to 5
-  `$RANDOM` digits that is 32 chars of fixed overhead, so the longest target (`commands` or
-  `settings`, 8 chars) gives at most 40 — safely under the 64-char limit `claude --worktree`
-  enforces. The script keeps both checks anyway as defense in depth (the same block
-  `dispatch-task` uses).
+- **Name length.** The longest name is 40 chars, well under the 64-char limit `claude --worktree`
+  enforces, so no length check is needed; only the safe-character regex guards the substituted
+  token.
 - **Heredoc.** It is single-quoted with the fixed delimiter named in the script above, so this
   shell expands nothing. The date command inside the payload is literal text: the dispatched
-  session expands it when it runs the branch cut, giving a date-suffixed branch that avoids
+  session expands it when it runs the branch cut, giving a timestamp-suffixed branch that avoids
   colliding with a previous run's local branch (worktrees share refs).
 - **Branch prefix.** `fix/` matches `update-cc-references`' commit subject
   `fix(cc-knowledge): refresh CC reference files`.
 - **Invocation form.** `/update-cc-references` is unnamespaced (it is a project skill) and
-  user-only, so it must reach the new session as a typed slash command in the prompt.
+  user-only, so it must reach the new session as a typed slash command that STARTS the prompt
+  (slash commands expand only at the start of the message); the branch-cut instruction follows
+  it as trailing text.
 - **Permission mode.** `--permission-mode auto` is always set — nobody is present to approve
   tool calls.
 - **Failure.** On any failure (name collision, `claude` missing, launch failure, or a same-day

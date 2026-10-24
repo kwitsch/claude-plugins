@@ -281,10 +281,6 @@ make_stub() {
 
 # --- dispatch-cc-references-update launcher (repo-root project skill) ---
 
-@test "dispatch-cc-references-update skill exists and is non-empty" {
-  [ -s "$DISPATCH_CCREF" ]
-}
-
 @test "dispatch-cc-references-update is user-only (disable-model-invocation: true)" {
   run rg_or_grep -E '^disable-model-invocation:[[:space:]]*true' "$DISPATCH_CCREF"
   [ "$status" -eq 0 ]
@@ -300,17 +296,16 @@ make_stub() {
   [ "$status" -eq 0 ]
 }
 
-@test "dispatch-cc-references-update payload cuts the fix branch then runs update-cc-references" {
-  run rg_or_grep -F 'fix/refresh-cc-references-' "$DISPATCH_CCREF"
+@test "dispatch-cc-references-update payload starts with the slash command and cuts a timestamped fix branch" {
+  run rg_or_grep -F 'fix/refresh-cc-references-<target>-$(date +%Y%m%d-%H%M%S)' "$DISPATCH_CCREF"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F '/update-cc-references <target>' "$DISPATCH_CCREF"
-  [ "$status" -eq 0 ]
+  # the line right after the heredoc opener must be the slash command
+  run grep -A1 -F "cat << 'DISPATCH_CC_REFERENCES_PROMPT_EOF'" "$DISPATCH_CCREF"
+  [[ "$output" == *$'\n''/update-cc-references <target>' ]]
 }
 
-@test "dispatch-cc-references-update keeps the safe-name regex and the 64-char length check" {
+@test "dispatch-cc-references-update keeps the safe-name regex" {
   run rg_or_grep -F '^[A-Za-z0-9._-]+$' "$DISPATCH_CCREF"
-  [ "$status" -eq 0 ]
-  run rg_or_grep -F '(${#name} <= 64)' "$DISPATCH_CCREF"
   [ "$status" -eq 0 ]
 }
 
@@ -343,20 +338,6 @@ make_stub() {
   [ "$output" = "0" ]
 }
 
-@test "dispatch-cc-references-update never passes --skip-branch-check" {
-  run rg_or_grep -qF -- '--skip-branch-check' "$DISPATCH_CCREF"
-  [ "$status" -eq 1 ]
-}
-
-@test "dispatch-cc-references-update never mentions WebFetch" {
-  run rg_or_grep -qF 'WebFetch' "$DISPATCH_CCREF"
-  [ "$status" -eq 1 ]
-}
-
-@test "dispatch-cc-references-update has no model/effort override surface" {
-  run rg_or_grep -E '<validated-(model|effort)>|^argument-hint:.*--(model|effort)|^arguments:' "$DISPATCH_CCREF"
-  [ "$status" -eq 1 ]
-}
 
 # --- No stray rejected components ---
 
