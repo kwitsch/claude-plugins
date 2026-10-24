@@ -99,5 +99,6 @@ repeats until `complete` or `error`.
 - Model assignment: designer model chosen per run by the scout's `difficulty`
   classification (`sonnet`/`opus`/`fable`, default `opus`; see the plugin's
   CLAUDE.md); design reviewer on the `sonnet` alias (judgment-heavy question
-  validation); explorers, spec writer, and spec reviewer on the `sonnet` alias
-  (mechanical/faithful work); classification on the `haiku` alias (scout).
+  validation); spec writer and spec reviewer on the `sonnet` alias
+  (mechanical/faithful work); explorers and classification (scout) on the
+  `haiku` alias.
