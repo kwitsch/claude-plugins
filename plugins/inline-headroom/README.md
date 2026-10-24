@@ -1,8 +1,8 @@
 # inline-headroom
 
 Headroom-style levers inside Claude Code as a mod: clamp-only effort routing
-after successful tool results, a detector-only CacheAligner that flags
-volatile system-prompt content and cache-hit drops, and a SmartCrusher with
+after successful tool results, a detector-only CacheAligner that logs
+cache-hit drops, and a SmartCrusher with
 lossless compaction, cross-turn dedup, a dense line elider, a config
 compressor, an HTML extractor, log, search and diff compressors, a text
 crusher and a relevance split that shrink tool results before the model reads
@@ -90,7 +90,7 @@ turns storage off. Set them via
 | --------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `effort_routing_enabled`          | `true`  | Lower effort to `low` on main-loop steps that only resume after successful tool results.                                                                                                                                                                                                                                                                |
 | `subagent_effort_routing_enabled` | `true`  | Apply the same clamp to each subagent and Workflow agent, per agent. Only active while `effort_routing_enabled` is on. Overrides effort set on purpose (agent frontmatter, Agent tool, Workflow); see [Notes & limitations](#notes--limitations).                                                                                                       |
-| `cache_aligner_enabled`           | `true`  | Flag volatile values in the `shared` system-prompt sections and log prompt-cache hit-ratio drops.                                                                                                                                                                                                                                                       |
+| `cache_aligner_enabled`           | `true`  | Log prompt-cache hit-ratio drops per main-loop step.                                                                                                                                                                                                                                                                                                    |
 | `smart_crusher_enabled`           | `true`  | Compress large JSON arrays in successful tool results of any tool (Read results never qualify); dropped rows stay retrievable with `headroom_retrieve` while the mod is loaded (see [Notes & limitations](#notes--limitations)).                                                                                                                        |
 | `lossless_compaction_enabled`     | `true`  | Before the SmartCrusher drops rows, rewrite a large JSON array of objects as a schema line plus CSV rows when that saves at least 15%; nothing is dropped. Also runs while `smart_crusher_enabled` is off.                                                                                                                                              |
 | `cross_turn_dedup_enabled`        | `true`  | Replace a run of 3 or more lines (40+ characters) that repeats an earlier tool result of the same conversation with a one-line pointer; the run stays retrievable with `headroom_retrieve` while the mod is loaded.                                                                                                                                     |
@@ -205,10 +205,8 @@ volatile shared values: unavailable (Claude Code keeps plugins out of the system
   they read `–` and the pane says so. When a refresh fails, the rows keep their
   last numbers and the pane shows `storage unavailable: <reason>` (`–` if there
   were none). Closing the pane forgets them, so a reopened pane starts at `…`.
-- **Volatile shared values** are listed below the tables, for this session
-  only, one `<id> <kind> <sample>` line per value (for example
-  `env uuid 123e4567-e89…`). The list reads `none` when no shared section
-  holds a volatile value.
+- **Volatile shared values** below the tables always reads `unavailable` (see
+  Notes & limitations).
 - When the pane cannot be placed (headless, or a terminal too narrow for it),
   `/headroom` prints the same tables as text instead, read from storage once.
 
@@ -270,10 +268,17 @@ rows. It is the MCP server `storage` (connected as
 
 ## Notes & limitations
 
-- **The volatile-value list is unavailable on Claude Code 2.1.296.** Its built-in
-  security plugin keeps installed plugins out of the system-prompt hooks, so the
-  CacheAligner never sees the prompt and the pane says `unavailable`. Its
-  cache-hit drop counting (`hit`, `drops`, the `cache drop` log) still works.
+- **The volatile-value list is unavailable.** Claude Code's built-in security
+  plugin keeps installed plugins out of the system-prompt hooks, and since
+  2.1.310 it reports every registered hook it skips to the user once per
+  session, so the mod registers no `prompt.compose` hook at all and the pane
+  says `unavailable`. The cache-hit drop counting (`hit`, `drops`, the
+  `cache drop` log) still works.
+- **One `tool.check` notice per session.** The security plugin re-runs the
+  permission check for the mod's own storage writes beneath the user tier, and
+  Claude Code reports that once per session as
+  `its tool.check hook was skipped`. The write is still allowed; the line is
+  informational.
 
 - **Effort switching can cost cache re-writes.** Upstream headroom removed effort
   routing after measuring about $0.0007 saved per mechanical turn against roughly

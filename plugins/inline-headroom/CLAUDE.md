@@ -73,7 +73,7 @@ Every test that needs `node:sqlite` or spawns processes lives in
 `setup-node`. Its cleanup SIGTERMs every `--service` process for its temp data
 dir, so no daemon outlives the suite.
 
-The bats version-pin test (`plugin.json version is 0.8.1`) is a rolling pin:
+The bats version-pin test (`plugin.json version is 0.8.2`) is a rolling pin:
 every version bump rewrites its name and expected value in the same commit.
 
 ## Storage server
@@ -1255,8 +1255,6 @@ it fits, deciding whether `elide` still runs on its rewrite (put the step in
   `index: number` (0 = the user-ask step); `agentId?: string` set for subagents.
 - `tool.call` result: failure is `isError: true` or `deny: string`; there is no
   `exitCode` (a failing Bash command surfaces as `isError: true`).
-- `PromptComposeSection.scope` is `'shared' | 'session'`; `prompt.compose` returns
-  `{ sections }` and this mod returns `next(e)`'s result unchanged.
 - `turn.step` result `usage` may be `null`.
 - `command.run` returning `{}` prints no transcript row and records no model
   context (`CommandRunResult.text` absent).
@@ -1385,10 +1383,20 @@ it fits, deciding whether `elide` still runs on its rewrite (put the step in
   - The built-in `cc-plugin-sec-default` skips every user-tier hook on
     `prompt.compose`, `prompt.section` and `prompt.context` (debug log:
     `prompt.compose bypassed by cc-plugin-sec-default (tier user)`), and
-    `prompt.compose` is gone from the 2.1.296 typings. The cache aligner's
-    volatile list therefore stays empty for an installed plugin; the pane says
-    `unavailable` while no `prompt.compose` reached the module (`composeSeen`).
-    Its cache-drop counting reads `turn.step` usage and still works.
+    `prompt.compose` is gone from the typings. Since 2.1.310 core also reports
+    every registered hook a managed plugin skips, once per session per event,
+    as a user-visible notice (`its prompt.compose hook was skipped.
+    "cc-plugin-sec-default" runs first and sent the event on past it.`). The mod
+    therefore registers no `prompt.compose` hook (0.8.2); the pane's volatile
+    line is the constant `unavailable`, and the cache-drop counting reads
+    `turn.step` usage and still works.
+  - The same notice fires once per session for `tool.check`: for the mod's own
+    storage call, `cc-plugin-sec-default` runs the module's `tool.check`
+    (nested in the calling hook), then re-dispatches beneath the user tier to
+    get core's verdict, which the engine logs as a bypass. The verdict is still
+    `ask -> allow by plugins cc-plugin-sec-default, inline-headroom`, and
+    calling `next(e)` before answering changes nothing (live, 2.1.310). It is
+    unavoidable while the mod writes storage; documented in the README.
 - Live-run on 2.1.296 for the compression levers (2026-10-11, a throwaway probe
   mod with a `session.append` `{ door: "tool-result" }` hook, headless
   `claude -p … --plugin-dir <probe> --setting-sources project --debug-file …`;
