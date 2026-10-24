@@ -174,7 +174,7 @@ export const register: Register = (on, options) => {
   on("session.start", async ($, e, next) => {
     await $.command.register({
       name: "headroom",
-      description: "inline-headroom stats: effort clamps, cache-hit drops, volatile prompt values, compression savings",
+      description: "inline-headroom stats: effort clamps, cache-hit drops, compression savings",
     });
     if (compressOn) {
       try {
