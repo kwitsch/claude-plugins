@@ -45,7 +45,7 @@
 //
 // Model assignment by difficulty:
 //   scout     haiku   — classify complexity/subsystems
-//   explorer  sonnet  — read-only codebase exploration; conditional dispatch:
+//   explorer  haiku   — read-only codebase exploration; conditional dispatch:
 //                     built-in agentType 'Explore' (repo-explorer tool absent)
 //                     OR default subagent calling explore_repository (present)
 //   designer  sonnet|opus|fable — design, trade-offs, decisions (highest
@@ -120,7 +120,7 @@ if ((EXPLORE_TOOL_AVAILABLE === true || EXPLORE_TOOL_AVAILABLE === "true") && !U
 
 const MODELS = {
   scout: "haiku", // pure classification — deliberately small
-  explorer: "sonnet",
+  explorer: "haiku",
   designReview: "sonnet",
   specWriter: "sonnet", // 1:1 transformation, no new decisions
   specReview: "sonnet", // document comparison draft↔spec
@@ -436,7 +436,9 @@ ${TASK}
 
 Draft to review: ${DRAFT_PATH}
 Apply your full checklist (agent definition) against the codebase where
-needed. Structured output only.`;
+needed. The draft builds on explorer reports from a lightweight model: verify
+that every file path, symbol and signature the draft relies on actually exists
+in the codebase, and flag any that do not as blocking. Structured output only.`;
 
 async function reviewDesign(label) {
   const opts = { label, phase: "Design", schema: DESIGN_REVIEW, model: MODELS.designReview, agentType: AGENTS.reviewer };
