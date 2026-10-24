@@ -4,8 +4,6 @@
 // reads either: time comes in as arguments.
 
 /** @typedef {'low'|'medium'|'high'|'xhigh'|'max'} Effort */
-/** @typedef {'uuid'|'iso8601'|'jwt'|'hex_hash'} VolatileKind */
-/** @typedef {{id: string, kind: VolatileKind, sample: string}} VolatileFinding */
 /** @typedef {{steps: number, clamped: number, cache_drops: number, input_tokens: number, cache_read_input_tokens: number, cache_creation_input_tokens: number}} Counters */
 /** @typedef {Counters & {hit?: number}} Row hit: the ratio to show in place of the token-weighted one (the session row shows its last step's) */
 /** @typedef {{ role: 'user'|'assistant', text: string, toolUses: readonly { input: Record<string, unknown> }[] }} QueryMessage the SessionMessage fields crushQuery reads */
@@ -105,7 +103,6 @@
 
 export const EFFORT_ORDER = /** @type {const} */ (["low", "medium", "high", "xhigh", "max"]);
 export const CACHE_DROP_THRESHOLD = 0.6;
-export const MAX_FINDINGS = 10;
 /** The /headroom table rows, top to bottom. `days`: the rolling window, today included; 0 = this session, in memory. */
 export const ROWS = /** @type {const} */ ([
   { label: "session", days: 0 },
@@ -134,12 +131,7 @@ export const CCR_MAX_CHARS = 16_000_000;
 /** Upstream ERROR_KEYWORDS: a row whose lowercased JSON holds one is never dropped. */
 export const ERROR_KEYWORDS = /** @type {const} */ (["error", "exception", "failed", "failure", "critical", "fatal", "crash", "panic", "abort", "timeout", "denied", "rejected"]);
 
-const TOKEN_SPLIT = /[\s"'`()<>[\]{},;]+/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const ISO_RE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}.*)?$/;
-const JWT_RE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
-const HEX_RE = /^[0-9a-f]+$/i;
-const HEX_LENGTHS = new Set([32, 40, 64]);
 // The persisted counters in mcp/server.mjs STATS_KEYS order. That file stays import-free, so the list is
 // repeated on purpose; test/inline-headroom/storage.test.mjs pins both orders.
 const COUNTER_KEYS = /** @type {const} */ (["steps", "clamped", "cache_drops", "input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"]);
@@ -381,39 +373,6 @@ export function isToolError(result) {
   return result.isError === true || typeof result.deny === "string";
 }
 
-/**
- * Anchored per-token classification (upstream CacheAligner's four classes).
- * @param {string} tok
- * @returns {VolatileKind|undefined}
- */
-function classify(tok) {
-  if (UUID_RE.test(tok)) return "uuid";
-  if (ISO_RE.test(tok) && !Number.isNaN(Date.parse(tok))) return "iso8601";
-  if (tok.startsWith("eyJ") && JWT_RE.test(tok)) return "jwt";
-  if (HEX_LENGTHS.has(tok.length) && HEX_RE.test(tok)) return "hex_hash";
-  return undefined;
-}
-
-/**
- * Flags volatile values in the cacheable (`shared`) system-prompt sections.
- * @param {readonly {id: string, text: string, scope: 'shared'|'session'}[]} sections
- * @returns {VolatileFinding[]}
- */
-export function findVolatile(sections) {
-  /** @type {VolatileFinding[]} */
-  const out = [];
-  for (const s of sections) {
-    if (s.scope !== "shared") continue;
-    for (const raw of s.text.split(TOKEN_SPLIT)) {
-      const tok = raw.replace(/[.:]+$/, "");
-      const kind = classify(tok);
-      if (kind === undefined) continue;
-      out.push({ id: s.id, kind, sample: tok.slice(0, 12) + "…" });
-      if (out.length >= MAX_FINDINGS) return out;
-    }
-  }
-  return out;
-}
 
 /**
  * @param {{input_tokens: number, cache_read_input_tokens: number, cache_creation_input_tokens: number}} usage

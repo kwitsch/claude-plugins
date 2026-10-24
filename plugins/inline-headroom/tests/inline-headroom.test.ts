@@ -196,20 +196,10 @@ test("(f) a numeric effort is left unchanged", async ($, on) => {
   expect(st.seen).toBe(8000);
 });
 
-test("(g) prompt.compose is read-only and the headroom pane shows shared volatile values", async ($, on) => {
-  const sections = [
-    { id: "identity", text: "You are Claude Code.", scope: "shared" as const },
-    {
-      id: "env",
-      text: "Session 123e4567-e89b-12d3-a456-426614174000 started.",
-      scope: "shared" as const,
-    },
-    {
-      id: "clock",
-      text: "Now 2026-10-03T12:00:00Z",
-      scope: "session" as const,
-    },
-  ];
+test("(g) no prompt.compose hook is registered and the headroom pane says the volatile list is unavailable", async ($, on) => {
+  // The built-in security plugin keeps user-tier plugins out of prompt.compose, and 2.1.310 reports every registered
+  // hook it skips to the user once per session, so the mod registers none.
+  const sections = [{ id: "env", text: "Session 123e4567-e89b-12d3-a456-426614174000 started.", scope: "shared" as const }];
   on("prompt.compose", async () => ({ sections }));
   const out = await $.prompt.compose({
     model: MODEL,
@@ -220,12 +210,10 @@ test("(g) prompt.compose is read-only and the headroom pane shows shared volatil
     traits: [],
   });
   expect(out.sections).toEqual(sections);
-  for (const surface of ["terminal", "desktop"] as const) {
-    const ui = await $.ui.mount({ ...PANE, surface });
-    expect(await ui.find({ type: "Text", text: /env uuid/ })).toBeDefined();
-    expect(await ui.find({ type: "Text", text: /^ {2}clock / })).toBeUndefined(); // the session-scope section is not listed (a storage note may name clock.now)
-    await ui.unmount();
-  }
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  expect(await ui.find({ type: "Text", text: /volatile shared values: unavailable/ })).toBeDefined();
+  expect(await ui.find({ type: "Text", text: /env uuid/ })).toBeUndefined();
+  await ui.unmount();
 });
 
 test("(h) a cache-hit drop from 90% to 10% is counted", { options: { effort_routing_enabled: false } }, async ($, on) => {
@@ -265,25 +253,19 @@ test("(i2) /headroom falls back to the stats tables as text when the pane is not
   expect(out.text).toMatch(/^7 days\s+17\s+9$/m);
   expect(out.text).toMatch(/^cache aligner\s+hit\s+drops$/m);
   expect(out.text).toMatch(/^30 days\s+75%\s+11$/m);
-  expect(out.text).toMatch(/volatile shared values: unavailable/); // no prompt.compose reached the mod
+  expect(out.text).toMatch(/volatile shared values: unavailable/);
   expect(out.text).not.toMatch(/showing:/);
   expect(out.text).not.toMatch(/: on\b/);
   expect(out.text).not.toMatch(/: off\b/);
 });
 
-test("(j) an open headroom pane redraws when a step or a compose changes the stats", async ($, on) => {
+test("(j) an open headroom pane redraws when a step changes the stats", async ($, on) => {
   const st = bottomStep(on);
-  on("prompt.compose", async () => ({
-    sections: [{ id: "env", text: "Session 123e4567-e89b-12d3-a456-426614174000 started.", scope: "shared" as const }],
-  }));
   const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
   expect(await cell(ui, "1")).toBeUndefined();
-  expect(await ui.find({ type: "Text", text: /volatile shared values: unavailable/ })).toBeDefined(); // until a compose reaches the mod
   await step($, 0, "high");
   expect(st.seen).toBe("high");
   expect(await cell(ui, "1")).toBeDefined(); // the session row's steps
-  await $.prompt.compose({ model: MODEL, promptModel: MODEL, surfaces: ["terminal"], tools: ["Read"], outputStyle: null, traits: [] });
-  expect(await ui.find({ type: "Text", text: /env uuid/ })).toBeDefined();
   await ui.unmount();
 });
 

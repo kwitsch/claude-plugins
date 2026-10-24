@@ -8,7 +8,6 @@ import {
   cacheHitRatio,
   crushQuery,
   dayKey,
-  findVolatile,
   foldPending,
   isCacheDrop,
   isOwnStorageCall,
@@ -26,7 +25,7 @@ import {
   windowStart,
   zeroCounters,
 } from "./policy.mjs";
-import type { Counters, DedupState, VolatileFinding } from "./policy.mjs";
+import type { Counters, DedupState } from "./policy.mjs";
 
 // Module state resets on hot reload and on an options change (the engine reloads the module).
 // Persisted totals survive: each load writes its own rows under a new WRITER.
@@ -56,13 +55,7 @@ const offloaded = new Map<string, string>(); // CCR hash → original text (crus
 const folded = new Map<string, string>(); // CCR hash → a folded dedup run's text, oldest first
 // The session row: this session's counters, in memory.
 const session: Counters = zeroCounters();
-const stats = {
-  lastHit: undefined as number | undefined,
-  volatile: [] as VolatileFinding[],
-};
-// A prompt.compose reached this module load. Claude Code 2.1.296's built-in security plugin skips every user-tier hook on
-// prompt.compose, prompt.section and prompt.context, so an installed plugin never sees one there (live-verified).
-let composeSeen = false;
+const stats = { lastHit: undefined as number | undefined };
 const WRITER = Math.random().toString(36).slice(2).padEnd(8, "0"); // this module instance's stats rows
 const pending: Counters = zeroCounters(); // counter deltas since the last fold
 const days: Record<string, Counters> = {}; // this writer's per-day totals that may still need writing
@@ -246,13 +239,9 @@ export const register: Register = (on, options) => {
       ...(splitOn ? [splits] : []),
     ];
   };
-  // One row per finding, so a long list wraps per row instead of one clipped line. The list belongs to the cache aligner.
-  const volatileLines = (): string[] =>
-    !cacheOn
-      ? []
-      : !composeSeen
-        ? ["volatile shared values: unavailable (Claude Code keeps plugins out of the system-prompt hooks)"]
-        : [stats.volatile.length ? "volatile shared values:" : "volatile shared values: none", ...stats.volatile.map((v) => `  ${v.id} ${v.kind} ${v.sample}`)];
+  // The cache aligner's volatile-value list: the built-in security plugin keeps user-tier plugins out of prompt.compose
+  // (and 2.1.310 reports every registered-but-skipped hook to the user), so the mod registers no such hook and says so.
+  const volatileLines = (): string[] => (cacheOn ? ["volatile shared values: unavailable (Claude Code keeps plugins out of the system-prompt hooks)"] : []);
   // With every lever off there is nothing to show, so nothing is read from storage either.
   const idle = (): string | undefined =>
     effortOn || cacheOn || compressOn
@@ -501,8 +490,7 @@ export const register: Register = (on, options) => {
         if (hit !== undefined) {
           if (isCacheDrop(stats.lastHit, hit)) {
             count("cache_drops");
-            const ids = [...new Set(stats.volatile.map((v) => v.id))];
-            $.ui.log(`cache drop ${pct(stats.lastHit)} → ${pct(hit)} (wrote ${result.usage.cache_creation_input_tokens} tok)` + (ids.length ? ` · volatile: ${ids.join(", ")}` : ""));
+            $.ui.log(`cache drop ${pct(stats.lastHit)} → ${pct(hit)} (wrote ${result.usage.cache_creation_input_tokens} tok)`);
           }
           stats.lastHit = hit;
         }
@@ -516,6 +504,8 @@ export const register: Register = (on, options) => {
 
   if (storageOn) {
     // The mod's own storage calls need no permission rule: core checks $.mcp.call like a tool call (see isOwnStorageCall).
+    // cc-plugin-sec-default re-runs this check beneath the user tier for the mod's own call and 2.1.310 reports that
+    // once per session as a skipped hook; the allow still stands (live-verified), and calling next() first changes nothing.
     on("tool.check", async (_$, e, next) => (isOwnStorageCall(next.origin.plugin, e.tool) ? { decision: "allow" as const, reason: "inline-headroom's own /headroom storage call" } : next(e)));
   }
 
@@ -576,7 +566,7 @@ export const register: Register = (on, options) => {
     Object.assign(split, { texts: 0, saved: 0 });
     dedupStates.clear(); // the next session's results get their own corpus and ordinals
     agentErrored.clear(); // an aborted agent whose turn.complete never came
-    Object.assign(stats, { lastHit: undefined, volatile: [] });
+    stats.lastHit = undefined;
     $.ui.invalidate("ui.render");
     const r = await next(e);
     // A turn cut off before its turn.complete hook finished may leave a stats_put running: let it finish.
@@ -584,15 +574,4 @@ export const register: Register = (on, options) => {
     await flushing;
     return r;
   });
-
-  if (cacheOn) {
-    // Detector only (upstream CacheAligner): the composed prompt is returned untouched.
-    on("prompt.compose", async ($, e, next) => {
-      const r = await next(e);
-      composeSeen = true;
-      stats.volatile = findVolatile(r.sections);
-      $.ui.invalidate("ui.render");
-      return r;
-    });
-  }
 };
