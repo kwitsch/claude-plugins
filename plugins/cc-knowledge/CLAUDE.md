@@ -19,7 +19,7 @@ The plugin ships these components (mechanics live in each `SKILL.md` / agent fil
 Constraints:
 
 - Adding further components requires a deliberate design decision.
-- Maintenance tooling (`.claude/skills/update-cc-references/` and the `.claude/agents/cc-reference-validator.md` agent its validation gate dispatches) lives at the repo root and does NOT ship — the plugin loader reads only the plugin's own directories.
+- Maintenance tooling (`.claude/skills/update-cc-references/`, its background launcher `.claude/skills/dispatch-cc-references-update/` and the `.claude/agents/cc-reference-validator.md` agent its validation gate dispatches) lives at the repo root and does NOT ship — the plugin loader reads only the plugin's own directories.
 - `cc-author`/`memory-audit`/`cc-author-planner` extend the lookup→review pair into lookup→author→review, all sourced from `cc-reference` — no duplicated reference files.
 - `claude-code-expert` answers only from `cc-reference` — never from training memory; it reaches live docs only through `cc-reference`'s WebFetch fallback.
 - `memory-audit`, `lsp-audit` and `repository-audit` deliberately drop the `cc-*` skill-name prefix — an intentional symmetry break, not an oversight; do not "restore" a `cc-` prefix.
@@ -60,7 +60,7 @@ pnpm run test:unit
 claude plugin test plugins/cc-knowledge
 ```
 
-The suite is structural: it checks the plugin manifest, the cc-reference skill shape, the reference files under `references/` (incl. the `references/` layout convention + `skill-folder-structure.md`), the expert agent, the reroute mod's files and wiring, and that the update-cc-references maintenance skill is present but user-only. Its `claude plugin validate`/`test` cases run only when `claude` is on `PATH`.
+The suite is structural: it checks the plugin manifest, the cc-reference skill shape, the reference files under `references/` (incl. the `references/` layout convention + `skill-folder-structure.md`), the expert agent, the reroute mod's files and wiring, and that the update-cc-references maintenance skill and its dispatch-cc-references-update launcher are present but user-only. Its `claude plugin validate`/`test` cases run only when `claude` is on `PATH`.
 
 ## rtk does not apply
 
