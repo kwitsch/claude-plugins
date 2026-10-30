@@ -1,7 +1,7 @@
 # Claude Code — Hook Handler Selection
 
 <!-- AGENT-FACING REFERENCE. Not prose. Optimize for lookup + decision, not readability. -->
-<!-- Source: code.claude.com/docs/en/hooks + code.claude.com/docs/en/hooks-guide. Verified 2026-10-09. Re-verify against docs if version differs. -->
+<!-- Source: code.claude.com/docs/en/hooks + code.claude.com/docs/en/hooks-guide. Verified 2026-10-30. Re-verify against docs if version differs. -->
 <!-- Scope: choosing the `type` of a hook handler. Not about when hooks vs CLAUDE.md vs skills. -->
 
 ## Handler types
@@ -108,6 +108,8 @@
 - `PreModelSwitch` (`version >= 2.1.251`) inverts the usual timeout-fails-open pattern: a `command`/`http`/`mcp_tool` hook that hits its timeout BLOCKS the model switch instead of letting it proceed — the one event where a stalled hook still gates. `PostModelSwitch` can't block (model already switched); its exit 2 only shows stderr to the user, same non-gating shape as `SessionStart`/`SubagentStart`.
 - State: `command` holds NO state between fires. Stateful/expensive init must live in a persistent server → `mcp_tool` or `http`.
 - Context/token cost: model-facing MCP tools load tool defs into model context (ongoing token cost). A tool used ONLY as an `mcp_tool` hook trigger is config-driven and need not be exposed to the model — keep hook-only tools off the model surface to avoid context cost.
+- Windows without Git Bash: a shell-form `PreToolUse`/`PermissionRequest` command hook with `onFailure` unset blocks the call on any exit code other than 0/2 (error text: `blocking because Git Bash wasn't found, so only exit code 0 or 2 counts as this hook's verdict.`). Set `onFailure: "continue"` to let the call proceed on failure, or `"block"` for a guard that must block with or without Git Bash (PowerShell guard hook: also set `"shell": "powershell"`). `version >= 2.1.309:` the message reads as quoted (before: `... and this hook doesn't set "shell" to "powershell", ...`).
+- Async hooks: JSON response is delivered as `additionalContext`/`systemMessage` on the next turn (an `asyncRewake` exit 2 wakes Claude at once). `version >= 2.1.295:` a multi-line JSON response is accepted when it is the only text on stdout; otherwise print it on one line of its own (`jq -c`). An async `SessionStart` hook's output is skipped when its text matches what Claude last received from that hook (re-delivered after compaction or `/clear`); before 2.1.295 the same text was re-added on every resume.
 - `PreToolUse` decision lives in `hookSpecificOutput.permissionDecision` (allow/deny/ask/defer), NOT top-level `decision` (deprecated for this event). Multi-hook precedence: deny > defer > ask > allow.
 - `Elicitation`/`ElicitationResult`: exit 2 denies/blocks but `hookSpecificOutput` is ignored on exit 2 for these events. Use exit 0 + JSON `hookSpecificOutput` to set `action`/`content`.
 - `PermissionDenied`: denial already occurred — exit code and stderr are ignored; only command hooks can return `hookSpecificOutput.retry: true` to tell the model it may retry; prompt/agent hook output is discarded entirely on this event. Claude Code ignores `retry: true` when the classifier produced no verdict.

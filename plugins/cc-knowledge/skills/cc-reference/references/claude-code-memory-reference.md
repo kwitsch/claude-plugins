@@ -1,7 +1,7 @@
 # Claude Code Memory — Authoring Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (How Claude remembers your project), verified 2026-10-09.
+> (How Claude remembers your project), verified 2026-10-30.
 > Apply when authoring or editing CLAUDE.md files or configuring auto memory.
 
 ## CLAUDE.md: what & when
@@ -15,6 +15,14 @@
 - Target **under 200 lines** per CLAUDE.md file — longer files consume more context and reduce adherence. Over-long files → move instructions into path-scoped rules or trim content not needed every session; `@path` imports help organization but do NOT reduce context.
 - Claude Code loads a CLAUDE.md file **up to 4 MiB** in full; a larger file is skipped entirely (not loaded at all).
 - version >= 2.1.206: the `/doctor` checkup proposes trims for a checked-in CLAUDE.md — it cuts content Claude can derive from the codebase (directory layouts, dependency lists, architecture overviews) and keeps pitfalls, rationale, and conventions that differ from tool defaults.
+- version >= 2.1.309: on-demand files have a smaller **per-file character limit**; over it, Claude receives only the start of the file plus a note to read the rest with the Read tool (later instructions are not in context until it does). Applies to: subdirectory `CLAUDE.md`/`CLAUDE.local.md` and the files they `@path`-import; rules files in a subdirectory's `.claude/rules/`; path-scoped rules in the project's `.claude/rules/` or `~/.claude/rules/`. Launch-loaded CLAUDE.md files keep the 4 MiB limit.
+
+| Context window | Per-file limit (chars)                                             |
+| -------------- | ------------------------------------------------------------------ |
+| 200K           | 40,000                                                             |
+| 1M             | 200,000 on Claude Opus 4.6 and Sonnet 4.6; 150,000 on later models |
+
+- Check with `wc -m path/to/CLAUDE.md`; over → trim or split into rules files (each counts on its own). Under → look for another cause (see Troubleshooting).
 - Size warnings: one instruction file over the recommended length → warning at startup and in `/status`. Files each within that length but adding up past a combined limit at session start → also a warning. Each CLAUDE.md, rules file, and `@path` import counts as a separate file.
 - version >= 2.1.283: `/doctor prompt-audit [path]` audits instruction files for outdated/conflicting content (instructions written for older models, references to nonexistent files/commands, contradicting files); report-only until you ask Claude to apply the proposed edits. Default scope: CLAUDE.md, CLAUDE.local.md, AGENTS.md, plus rules, skills, commands, subagents, and output styles under `.claude/` and `~/.claude/`; pass a path to audit one file or directory (e.g. `/doctor prompt-audit .claude/skills/deploy`). Runs through the bundled `/claude-api` skill → unavailable while that skill is turned off in `skillOverrides` or via `disableBundledSkills`.
 - CLAUDE.md instructions are context, not enforced configuration. To block an action regardless of Claude's decision, use a `PreToolUse` hook instead.
@@ -44,7 +52,7 @@ Files load in the order below (broadest to most specific); a later entry wins on
 - CLAUDE.md and CLAUDE.local.md files **in the directory hierarchy above the working directory** load in full at launch.
 - Files **in subdirectories** (`CLAUDE.md` and `CLAUDE.local.md`) load on demand, once Claude reads, writes, or edits another file in that subdirectory. Reading includes viewing a single file with a Bash command that counts as a read, such as `cat` or `head`. Files inside a worktree under `.claude/worktrees/`: see `/en/worktrees#isolate-subagents-with-worktrees`.
 - Load ordering: Claude walks up the directory tree from cwd, concatenating all discovered files (not overriding). Ordered filesystem-root → cwd, so files closest to launch dir are read **last**. Within each directory, `CLAUDE.local.md` is appended **after** `CLAUDE.md`.
-- Managed policy CLAUDE.md **cannot be excluded** by `claudeMdExcludes` — always loads.
+- Managed policy CLAUDE.md **cannot be excluded** by `claudeMdExcludes` — always loads. Exception: a session started with CLAUDE.md loading turned off altogether doesn't load the managed content either.
 - `claudeMd` key in `managed-settings.json` injects CLAUDE.md content directly instead of deploying a separate file; scope = every session on the machine, every repository; precedence = same as a managed CLAUDE.md file (loads before user and project CLAUDE.md); honored only in managed/policy scope. Setting it in user, project, or local settings has no effect.
 
 ```json
@@ -276,6 +284,7 @@ paths:
 
 - Unparseable YAML between the `---` markers → frontmatter is ignored and the rule loads as if it had no `paths` (unconditional). Run `claude --debug` to see the parse error.
 - version >= 2.1.198: path matching also works when Claude reaches a file through a **symlinked path** to the project directory (e.g. a symlinked checkout).
+- Each `paths` pattern is relative to the rule's base directory: project rules → the directory containing the rule's `.claude` folder; user-level rules → the session's primary working directory. For path-scoped rules to load for files in a sibling git worktree, start Claude Code in that worktree or move the session there with `/cd`.
 - Glob patterns in `paths`; brace expansion matches multiple extensions:
 
 | Pattern                | Matches                                        |
@@ -313,6 +322,8 @@ paths:
 ## Troubleshooting
 
 - Claude not following CLAUDE.md → check in order: `/context` **Memory files** list shows the file (a subdirectory CLAUDE.md is absent there — loads on demand; look for the terminal `Loaded` line instead); file sits in a location loaded for the session; instructions are specific; no conflicting instructions across CLAUDE.md files; your instruction doesn't compete with built-in Claude Code guidance.
+- An `Instruction file not loaded` notice → see the docs `errors` page entry `instruction-file-not-loaded`.
+- Claude ignores the end of a subdirectory CLAUDE.md or on-demand rule → file is over the per-file character limit (see Locations & precedence); `wc -m` it, trim or split into rules files.
 - Competing built-in guidance: if CLAUDE.md sets commit or pull request rules, turn off the built-in ones with `includeGitInstructions` and set the attribution text with `attribution`.
 - Instruction that must run at a fixed point (before every commit, after each file edit) → write it as a hook, not CLAUDE.md. Hooks run as shell commands at lifecycle events regardless of what Claude decides.
 - `AGENTS.md` not loading → (1) a `CLAUDE.md`/`.claude/CLAUDE.md`/`CLAUDE.local.md` in working directory or above (other than `~/.claude/CLAUDE.md`) wins unless **Project instructions** is `claude-md-and-agents-md`; (2) `claude --version` must be v2.1.277 or later (v2.1.281 or later for Bedrock/telemetry-disabled sessions); (3) `/config` **Project instructions** must not be `claude-md` or `managed-only` (setting absent → session can't load `AGENTS.md`). Confirm via `/memory` path list.
@@ -322,27 +333,29 @@ paths:
 
 ## Version notes
 
-| Version gate       | Note                                                                                                                                           |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| version >= 2.1.59  | Auto memory feature available; verify with `claude --version`                                                                                  |
-| version >= 2.1.198 | Path-scoped `.claude/rules/` `paths` matching also works through a symlinked path to the project directory (e.g. a symlinked checkout)         |
-| version >= 2.1.206 | `/doctor` checkup proposes trims for a checked-in CLAUDE.md (cuts codebase-derivable content, keeps pitfalls/rationale/conventions)            |
-| version >= 2.1.210 | Claude Code measures `MEMORY.md` against the 200-line/25 KB read limits after each write; reminder near a limit, error over a limit            |
-| version >= 2.1.213 | `/import` copies a supported coding agent's config (e.g. `AGENTS.md`, MCP servers, commands, subagents, skills) into Claude Code               |
-| version >= 2.1.214 | `modified` ISO 8601 write-time frontmatter field added to memory files that already have frontmatter                                           |
-| version >= 2.1.234 | `CLAUDE_CODE_PROJECT_DIR_NAME` (set alongside `CLAUDE_CONFIG_DIR`) fixes the auto-memory `<project>` directory name regardless of launch repo  |
-| version >= 2.1.239 | `claudeMdExcludes` pattern matches a symlinked rule by either its `.claude/rules/` path or its link target                                     |
-| version >= 2.1.277 | `AGENTS.md` read directly as project instructions (default `claude-md-or-agents-md`); `Project instructions` setting in `/config`              |
-| version >= 2.1.280 | `/memory` and `/context` list an `AGENTS.md` that Claude read directly                                                                         |
-| version >= 2.1.281 | Bedrock/telemetry-disabled sessions also read `AGENTS.md` directly                                                                             |
-| version >= 2.1.283 | `/doctor prompt-audit` audits instruction files (runs through the bundled `/claude-api` skill)                                                 |
-| version >= 2.1.285 | `pluginConfigs` entry for the built-in AGENTS.md plugin read under either `cc-plugin-agents-md@builtin` or `agents-md@builtin`                 |
-| before v2.1.285    | Built-in AGENTS.md plugin ID was `agents-md@builtin`; an entry under `cc-plugin-agents-md@builtin` was ignored                                 |
-| before v2.1.207    | One invalid `[` pattern in a rule's `paths` made the Read tool fail for every file the rule was evaluated against, instead of matching nothing |
-| before v2.1.211    | `MEMORY.md` limit check measured the raw file, so frontmatter/HTML comments could trigger the error even when the loaded content fit           |
-| before v2.1.211    | On-demand rules (path-scoped rules, rules in nested `.claude/rules/`) loaded even when `project` was excluded from `--setting-sources`         |
-| before v2.1.216    | `/memory` waited for the opened file to be closed before responding; from v2.1.216 it returns immediately for GUI editors                      |
-| before v2.1.217    | A `paths` value with many brace groups stalled or crashed the CLI at startup                                                                   |
-| before v2.1.239    | A `claudeMdExcludes` pattern excluded a symlinked rule only when it matched the link target, not the file's own `.claude/rules/` path          |
-| before v2.1.280    | `/memory` and `/context` didn't list an `AGENTS.md` that Claude read directly                                                                  |
-| before v2.1.281    | Some sessions (Amazon Bedrock, telemetry disabled) read `CLAUDE.md` files only, not `AGENTS.md`                                                |
+| Version gate       | Note                                                                                                                                                     |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| version >= 2.1.59  | Auto memory feature available; verify with `claude --version`                                                                                            |
+| version >= 2.1.198 | Path-scoped `.claude/rules/` `paths` matching also works through a symlinked path to the project directory (e.g. a symlinked checkout)                   |
+| version >= 2.1.206 | `/doctor` checkup proposes trims for a checked-in CLAUDE.md (cuts codebase-derivable content, keeps pitfalls/rationale/conventions)                      |
+| version >= 2.1.210 | Claude Code measures `MEMORY.md` against the 200-line/25 KB read limits after each write; reminder near a limit, error over a limit                      |
+| version >= 2.1.213 | `/import` copies a supported coding agent's config (e.g. `AGENTS.md`, MCP servers, commands, subagents, skills) into Claude Code                         |
+| version >= 2.1.214 | `modified` ISO 8601 write-time frontmatter field added to memory files that already have frontmatter                                                     |
+| version >= 2.1.234 | `CLAUDE_CODE_PROJECT_DIR_NAME` (set alongside `CLAUDE_CONFIG_DIR`) fixes the auto-memory `<project>` directory name regardless of launch repo            |
+| version >= 2.1.239 | `claudeMdExcludes` pattern matches a symlinked rule by either its `.claude/rules/` path or its link target                                               |
+| version >= 2.1.277 | `AGENTS.md` read directly as project instructions (default `claude-md-or-agents-md`); `Project instructions` setting in `/config`                        |
+| version >= 2.1.280 | `/memory` and `/context` list an `AGENTS.md` that Claude read directly                                                                                   |
+| version >= 2.1.281 | Bedrock/telemetry-disabled sessions also read `AGENTS.md` directly                                                                                       |
+| version >= 2.1.283 | `/doctor prompt-audit` audits instruction files (runs through the bundled `/claude-api` skill)                                                           |
+| version >= 2.1.285 | `pluginConfigs` entry for the built-in AGENTS.md plugin read under either `cc-plugin-agents-md@builtin` or `agents-md@builtin`                           |
+| before v2.1.285    | Built-in AGENTS.md plugin ID was `agents-md@builtin`; an entry under `cc-plugin-agents-md@builtin` was ignored                                           |
+| before v2.1.207    | One invalid `[` pattern in a rule's `paths` made the Read tool fail for every file the rule was evaluated against, instead of matching nothing           |
+| before v2.1.211    | `MEMORY.md` limit check measured the raw file, so frontmatter/HTML comments could trigger the error even when the loaded content fit                     |
+| before v2.1.211    | On-demand rules (path-scoped rules, rules in nested `.claude/rules/`) loaded even when `project` was excluded from `--setting-sources`                   |
+| before v2.1.216    | `/memory` waited for the opened file to be closed before responding; from v2.1.216 it returns immediately for GUI editors                                |
+| before v2.1.217    | A `paths` value with many brace groups stalled or crashed the CLI at startup                                                                             |
+| before v2.1.239    | A `claudeMdExcludes` pattern excluded a symlinked rule only when it matched the link target, not the file's own `.claude/rules/` path                    |
+| before v2.1.280    | `/memory` and `/context` didn't list an `AGENTS.md` that Claude read directly                                                                            |
+| before v2.1.281    | Some sessions (Amazon Bedrock, telemetry disabled) read `CLAUDE.md` files only, not `AGENTS.md`                                                          |
+| version >= 2.1.309 | Per-file character limit (40,000 on 200K context; 200,000/150,000 on 1M) applies to on-demand files: subdirectory CLAUDE.md and rules, path-scoped rules |
+| before v2.1.309    | The per-file character limit was not applied to files that load on demand                                                                                |

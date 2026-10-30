@@ -68,7 +68,9 @@ so an `mcp_tool` hook has no fail-closed option.
 | `tool`   | yes      | Tool to call on that server                                                                                                                                                                                       |
 | `input`  | no       | Arguments object; string values support `${path}` substitution from the hook JSON (e.g. `${tool_input.file_path}`, `${session_id}`, `${cwd}`). Omit → the tool receives the full hook event JSON as its arguments |
 
-Common fields apply (`if`, `statusMessage`, and `timeout`). `if` is evaluated only on
+Common fields apply (`if`, `statusMessage`, `timeout`, and `once`). `once: true` removes
+the hook after its first successful run and is honored only for hooks declared in skill
+frontmatter (ignored in settings files and agent frontmatter). `if` is evaluated only on
 `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest`, and
 `PermissionDenied`; on any other event a hook with `if` set never runs. Default
 `timeout` is 600 s for most events; `UserPromptSubmit`, `PreModelSwitch`, and

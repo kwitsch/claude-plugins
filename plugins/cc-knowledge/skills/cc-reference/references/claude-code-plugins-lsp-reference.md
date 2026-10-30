@@ -1,7 +1,7 @@
 # Claude Code Plugins — LSP Servers Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (Plugins reference — LSP servers section), verified 2026-10-09.
+> (Plugins reference — LSP servers section), verified 2026-10-30.
 > Split out of claude-code-plugins-reference.md to keep that file under its line budget;
 > linked from that file's "## LSP servers" pointer.
 
@@ -70,7 +70,7 @@ All three resolve in `command`, `args`, `env`, and `workspaceFolder`, and are ex
 
 ## Path validation
 
-- Every `lspServers` path must resolve inside the plugin root and must exist. A path that escapes the root (usually via `..`) or does not exist does not load; the `/plugin` Errors tab shows `<component> path escapes plugin directory: <path>` or `<component> path not found: <path>`.
+- Every `lspServers` path must resolve inside the plugin root and must exist. A path that escapes the root (usually via `..`) or does not exist does not load; the `/plugin` Errors tab shows `<component> path escapes plugin directory: <path>` or `<component> path not found: <path>`. `claude plugin validate` reports `Path contains ".." which could be a path traversal attempt` and `Path not found` respectively.
 - `claude plugin validate` checking `lspServers` paths (also `outputStyles`, `monitors`, `themes`) requires v2.1.283+.
 
 ## Stdout/stderr requirement

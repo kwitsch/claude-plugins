@@ -2,7 +2,7 @@
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
 > (Plugins, Plugins reference, Plugin marketplaces, Plugin dependencies, Plugin hints),
-> verified 2026-10-09.
+> verified 2026-10-30.
 > Apply when creating, reviewing, or distributing a Claude Code plugin.
 > Hook events/schema, agent frontmatter, MCP server config, and settings keys are owned by
 > sibling refs (claude-code-hooks-reference.md, -agents-, -mcp-, -settings-); kept pointer-level here.
@@ -10,7 +10,7 @@
 ## What a plugin is / components
 
 - Plugin = self-contained directory of components that extends Claude Code.
-- Components: skills, agents, hooks, hooks modules (hooks as JS functions that can also draw panes/add commands; a plugin with one is a "mod"; manifest `types` declares its `.d.ts`), MCP servers, LSP servers, monitors, themes, bin executables.
+- Components: skills, agents, hooks, hooks modules (hooks as JS functions that can also draw panes/add commands; a plugin with one is a "mod", and some mods are built into Claude Code; manifest `types` declares its `.d.ts`), MCP servers, LSP servers, monitors, themes, bin executables.
 - An enabled plugin is in EVERY session: name+description of each skill/agent/command Claude can invoke on its own sit in context every turn (full text loads on use) — those tokens count toward usage and shrink the context window even in sessions where nothing from the plugin runs; plugin MCP servers run alongside each session (their per-turn context cost follows MCP tool search), hooks fire at their events; all of it runs as the user. Check cost via the `/plugin` **Context cost** estimate (official-marketplace plugins), `claude plugin details`, Installed tab **Not used recently** group.
 - Plugin vs standalone: skills, subagents, hooks, MCP servers all work on their own (e.g. a skill in `~/.claude/skills/` is available in every project). Package as a plugin only to bundle several of them as one unit — installable with one command, updated from a marketplace, shareable with teammates, versioned releases.
 - An installed plugin must be present at three layers before its skills run: settings (added marketplaces + enabled plugins), disk (`~/.claude/plugins/`), session (plugins load at startup or on `/reload-plugins`).
@@ -186,7 +186,7 @@ Resolved inline in component fields and exported as environment variables to som
 | `${CLAUDE_PROJECT_DIR}` | session     | Project root (same dir hooks receive).                                                                                                                                                                                                                                                                                                                    |
 
 - Exported as env vars per component: hooks → all three + `CLAUDE_PLUGIN_OPTION_<KEY>`; MCP `stdio` → `CLAUDE_PLUGIN_ROOT` + `CLAUDE_PLUGIN_DATA` only; LSP → all three; monitors → none. Inline substitution is per component: skill/command/agent content and hook `command`/`args`, monitor `command` → anywhere the placeholder appears; MCP `stdio` → `command`, `args`, `env`; MCP `http`/`sse`/`ws` → `url`, `headers`, `headersHelper`; LSP → `command`, `args`, `env`, `workspaceFolder`.
-- Use exec form (`"args": []`) for `${CLAUDE_PLUGIN_ROOT}` in hooks (passed as one arg, no quoting); in shell-form hooks/monitor commands wrap in double quotes (`claude plugin validate` warns on an unquoted variable in a shell-form hooks-file command unless the hook sets `shell` to `"powershell"`). On Windows the substituted paths use forward slashes.
+- Use exec form (`"args": []`) for `${CLAUDE_PLUGIN_ROOT}` in hooks (passed as one arg, no quoting); in shell-form hooks/monitor commands wrap in double quotes (`claude plugin validate` warns on an unquoted variable in a shell-form hooks-file command unless the hook sets `shell` to `"powershell"`). On Windows most substituted paths use forward slashes (`C:/Users/you/...`); they keep native backslashes in an exec-form hook and in a hook run through PowerShell (the Windows default shell when Git Bash isn't installed).
 - On mid-session plugin update, hooks/monitors/MCP/LSP keep the old path; `/reload-plugins` switches hooks/MCP/LSP to the new path, monitors need a session restart. In a session with no interactive terminal, `/reload-plugins` leaves plugin MCP servers on the old path until the next session. `/reload-plugins` also keeps live connections of MCP servers whose configuration is unchanged (reconnects only changed servers).
 - Plugin hook/monitor commands additionally substitute any `${ENV_VAR}`; `${user_config.*}` resolves only in exec-form hook commands and MCP/LSP configs other than MCP `headersHelper` (see [userConfig](#userconfig)).
 - Dependency-reinstall pattern: a `SessionStart` hook `diff`s bundled `${CLAUDE_PLUGIN_ROOT}/package.json` vs `${CLAUDE_PLUGIN_DATA}/package.json`; reinstall when they differ (directory-existence check alone misses dependency-manifest changes across updates).
@@ -456,6 +456,7 @@ Array of entries; declare inline via `experimental.monitors` (array) or load fro
 
 - `command` substitutes `${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_DATA}`, `${CLAUDE_PROJECT_DIR}`, any `${ENV_VAR}`. Prefix with `cd "${CLAUDE_PLUGIN_ROOT}" &&` for a script that must run from the plugin's own dir.
 - version >= 2.1.207: `command` may NOT reference `${user_config.*}` — it runs through a shell, so the monitor is rejected with an error instead. Monitor processes also receive no `CLAUDE_PLUGIN_OPTION_<KEY>` env vars; have the script read the value from a config file it owns. Earlier versions substituted.
+- Monitors do not start with the `-p` flag.
 - Disabling a plugin mid-session does not stop monitors already running; they stop when the session ends.
 
 ## Version notes
