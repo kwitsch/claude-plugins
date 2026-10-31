@@ -1,7 +1,7 @@
 # Claude Code Plugins — Marketplace Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (Plugin marketplaces, Plugin dependencies, Plugin hints), verified 2026-10-09.
+> (Plugin marketplaces, Plugin dependencies, Plugin hints), verified 2026-10-30.
 > Split out of claude-code-plugins-reference.md to keep that file under its line budget;
 > linked from that file's "## Marketplace" pointer.
 
@@ -113,6 +113,14 @@ Keep the entry `name` and the manifest `name` identical. Install id = `<entry-na
 - Marketplace-root source (`source: "./"`) with shared `skills/`: list specific subdirs in `skills` so each entry loads only its own (the listed paths are the complete set and the plugin's default `skills/` directory isn't scanned; listing `./skills/` or the plugin root keeps the full scan; if none of the listed paths exist, the default scan runs). A `skills` key in `plugin.json` instead adds to the default location.
 - Admins can block command sources org-wide with managed setting `disableCommandPluginSources`. When `allowManagedHooksOnly` is set, command sources are blocked by default.
 
+### Git submodules in the marketplace repository
+
+version >= 2.1.295: when a user adds the marketplace, Claude Code clones the repo and fetches only the submodules that hold plugin files. Earlier versions are not covered by this rule.
+
+- Plugin in a subdirectory: fetches submodules inside the plugin's directory plus a submodule that contains it. Put a needed submodule inside the plugin dir; keep an unneeded one outside.
+- Plugin at the marketplace root (`source: "./"`): fetches EVERY submodule once one of the plugin's files refers to a path inside any of them. Move the plugin into a subdirectory if the repo has a large build-only submodule.
+- A root plugin that runs a submodule file: write the path literally in its hook/server config (e.g. `${CLAUDE_PLUGIN_ROOT}/vendor/tool/run.sh`). Claude Code reads config paths to detect submodule need; a path a script builds at runtime is invisible to it.
+
 ## Plugin dependencies
 
 Declared in `dependencies` array of `plugin.json` (a marketplace entry may also carry `dependencies`). Each entry: bare string `"name"` (tracks latest in the declaring plugin's own marketplace), string `"name@marketplace"` (resolve in another marketplace), or object:
@@ -167,6 +175,15 @@ Enabling a plugin also enables all its dependencies (recursively) at the same sc
 Disabling a plugin is refused if another enabled plugin still depends on it. The error names the dependents and provides a chained command to disable them in order.
 
 When the last plugin that constrains a dependency is uninstalled, the dependency is no longer held and resumes tracking its marketplace entry on the next update.
+
+### Dependencies when the plugin loads from claude.ai
+
+A plugin the user turns on in their claude.ai account loads as `<name>@synced` (no marketplace). For that copy, a dependency entry naming a marketplace counts as met when the user has either:
+
+- the dependency installed from the named marketplace and enabled (a `version` range is checked against the installed copy's version), or
+- an enabled claude.ai plugin of the same name (a `version` range is checked against that plugin's `version`; a plugin stating no `version` passes).
+
+A claude.ai plugin meets the entry only when the dependent plugin also loads from claude.ai. Tell users to turn the dependency on in claude.ai too, or install it from its marketplace.
 
 ### Pruning orphaned auto-installed dependencies
 

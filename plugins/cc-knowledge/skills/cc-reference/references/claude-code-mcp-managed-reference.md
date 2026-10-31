@@ -1,7 +1,7 @@
 # Claude Code MCP — Managed / Enterprise Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (Managed MCP), verified 2026-10-09.
+> (Managed MCP), verified 2026-10-30.
 > Apply when deploying or troubleshooting enterprise MCP restrictions (`managed-mcp.json`,
 > allowlists/denylists). See `claude-code-mcp-reference.md` for general MCP config/auth/naming.
 
@@ -18,7 +18,7 @@
 | Fixed deployment    | Every user gets the same servers, cannot add others                                                                                                                                                             | `managed-mcp.json` with the servers you want                 |
 | Provided servers    | Every user gets the remote servers you list, plus keeps their own                                                                                                                                               | `managedMcpServers` in managed settings (version >= 2.1.259) |
 | Approved catalog    | Users add from a published approved list; anything else blocked                                                                                                                                                 | `allowedMcpServers` + `allowManagedMcpServersOnly: true`     |
-| Plugin servers only | Users cannot add servers through `~/.claude.json` or `.mcp.json`; plugin servers still load                                                                                                                     | `strictPluginOnlyCustomization` with `mcp` in the list       |
+| Plugin servers only | Users cannot add servers through `~/.claude.json` or `.mcp.json`; skills-directory plugins stop loading as plugins, servers from other plugins still load                                                       | `strictPluginOnlyCustomization` with `mcp` in the list       |
 | Soft allowlist      | Allowlist users can broaden in their own settings                                                                                                                                                               | `allowedMcpServers` without `allowManagedMcpServersOnly`     |
 | Denylist only       | Block known-bad servers, allow everything else                                                                                                                                                                  | `deniedMcpServers`                                           |
 | No restrictions     | Users add anything                                                                                                                                                                                              | Deploy no managed MCP configuration                          |
@@ -47,7 +47,7 @@ Deploy this file to give the system exclusive control over which servers load. U
   - `--strict-mcp-config` always exits at startup on both workstations and cloud sessions (that flag asks to replace the managed set).
 - Exclusive control is not the last word:
   - `deniedMcpServers` applies to managed servers too — a managed server that matches a denylist entry does not load. A user's own `deniedMcpServers` merges in from their settings, so a user can block a managed server for themselves.
-  - `allowedMcpServers` does NOT apply to `managed-mcp.json` entries, with one exception: an entry whose command/args/env/URL/headers use `${VAR}` expansion is still checked, since its effective config comes from the user's environment rather than the file alone. version >= 2.1.259. Before 2.1.259, every managed server had to pass the allowlist whenever one was set — on upgrade to 2.1.259+, a managed server the allowlist previously excluded starts loading with no prompt unless a denylist entry (or a fresh `managed-mcp.json` per group) still blocks it; audit before users upgrade.
+  - `allowedMcpServers` does NOT apply to `managed-mcp.json` entries, with one exception: an entry whose command/args/URL/headers use `${VAR}` expansion (outside `env`) is still checked, since its effective config comes from the user's environment rather than the file alone. version >= 2.1.259. Before 2.1.305, an entry using `${VAR}` only in `env` was also checked. Before 2.1.259, every managed server had to pass the allowlist whenever one was set — on upgrade to 2.1.259+, a managed server the allowlist previously excluded starts loading with no prompt unless a denylist entry (or a fresh `managed-mcp.json` per group) still blocks it; audit before users upgrade.
 - Standalone file; cannot be delivered via server-managed settings. Deploy via MDM/GPO/Intune/fleet tooling (any admin-priv write). To deliver servers through managed settings instead, without exclusive control, use `managedMcpServers`.
 
 | Platform  | Path                                                       |
@@ -155,7 +155,7 @@ Code extension, desktop app's local/SSH sessions) — skip all three checks.
 | Remote (HTTP or SSE) | A `serverUrl` entry. A `serverName` match counts only when the allowlist contains no `serverUrl` entries         |
 | Stdio                | A `serverCommand` entry. A `serverName` match counts only when the allowlist contains no `serverCommand` entries |
 
-- The organization's own servers skip this allowlist check too: every `managedMcpServers` entry, and any `managed-mcp.json` entry whose command/args/env/URL/headers use no `${VAR}` expansion (version >= 2.1.259). A `managed-mcp.json` entry that does use `${VAR}` expansion is still checked, same as any server a user, a plugin, `--mcp-config`, or claude.ai adds.
+- The organization's own servers skip this allowlist check too: every `managedMcpServers` entry, and any `managed-mcp.json` entry whose values use no `${VAR}` expansion outside `env` (version >= 2.1.259; version >= 2.1.305 for the outside-`env` scoping). A `managed-mcp.json` entry that uses `${VAR}` expansion in command/args/URL/headers is still checked, same as any server a user, a plugin, `--mcp-config`, or claude.ai adds.
 - Built-in servers — Claude in Chrome, the `ide` server Claude Code connects to in a running VS Code or JetBrains IDE, and servers the CLI itself configures — skip this allowlist check.
 - A Claude Tag session's Slack tools (the servers it uses to read the thread and post its replies) load without an allowlist entry.
 
@@ -272,3 +272,4 @@ Matching rules:
 | 2.1.259    | `managedMcpServers` setting introduced; `allowedMcpServers` stops applying to `managed-mcp.json` entries (except ones using `${VAR}` expansion), which now skip the allowlist check by default |
 | 2.1.273    | Reading `allowManagedMcpServersOnly`'s lock and its managed allowlist across multiple admin sources (server-managed settings, `managed-settings.json`, MDM plist, registry) is supported       |
 | 2.1.282    | `allowClaudeInChromeWithManagedMcp` setting; before it, the built-in Claude in Chrome server is blocked under `managed-mcp.json` with no way to allow it                                       |
+| 2.1.305    | `${VAR}` expansion only in a `managed-mcp.json` entry's `env` no longer triggers the allowlist check (only expansion in command/args/URL/headers does)                                         |

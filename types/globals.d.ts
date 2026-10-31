@@ -13,6 +13,7 @@ declare var process: {
   stdout: { write(data: string): boolean };
   stderr: { write(data: string): boolean };
   exit(code?: number): never;
+  exitCode?: number;
   execPath: string;
 };
 
