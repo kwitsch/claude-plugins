@@ -1,0 +1,81 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "plugin:dprint:dprint-hooks",
+            "tool": "format_pre",
+            "timeout": 60,
+            "input": {
+              "cwd": "${cwd}",
+              "agent_id": "${agent_id}",
+              "session_id": "${session_id}",
+              "tool_name": "${tool_name}",
+              "tool_input": {
+                "file_path": "${tool_input.file_path}",
+                "content": "${tool_input.content}",
+                "old_string": "${tool_input.old_string}",
+                "new_string": "${tool_input.new_string}",
+                "replace_all": "${tool_input.replace_all}"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "EnterWorktree",
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "plugin:dprint:dprint-hooks",
+            "tool": "worktree_entered",
+            "timeout": 60,
+            "input": {
+              "agent_id": "${agent_id}",
+              "session_id": "${session_id}",
+              "tool_response": { "worktreePath": "${tool_response.worktreePath}" }
+            }
+          }
+        ]
+      },
+      {
+        "matcher": "ExitWorktree",
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "plugin:dprint:dprint-hooks",
+            "tool": "worktree_exited",
+            "timeout": 60,
+            "input": {
+              "agent_id": "${agent_id}",
+              "session_id": "${session_id}",
+              "tool_response": { "restoredCwd": "${tool_response.restoredCwd}" }
+            }
+          }
+        ]
+      }
+    ],
+    "CwdChanged": [
+      {
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "plugin:dprint:dprint-hooks",
+            "tool": "cwd_changed",
+            "timeout": 60,
+            "input": {
+              "agent_id": "${agent_id}",
+              "session_id": "${session_id}",
+              "new_cwd": "${new_cwd}"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
