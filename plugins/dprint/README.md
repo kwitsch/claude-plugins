@@ -1,6 +1,6 @@
 # dprint
 
-Skill that checks for a minimum dprint version, installs or updates dprint at user level after confirmation, and offers to add dprint plugins for file types the project's dprint config does not cover. Also formats every Write and Edit with the project's dprint config via a PreToolUse hook (MCP server dprint-hooks; needs node and dprint >= 0.50 on PATH).
+Skill that checks for a minimum dprint version, installs or updates dprint at user level after confirmation, and offers to add dprint plugins for file types the project's dprint config does not cover. Also formats every Write and Edit with the project's dprint config via a PreToolUse hook when the working directory has a dprint config, and shows a toast when it has none (MCP server dprint-hooks; needs node and dprint >= 0.50 on PATH).
 
 ## Install
 
@@ -16,9 +16,10 @@ Skill that checks for a minimum dprint version, installs or updates dprint at us
 
 ## Hooks
 
-| Event                    | What it does                                                                                                                                                                                                                                                                                                    |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PreToolUse `Write\|Edit` | `format_pre` (MCP server `dprint-hooks`) formats the file with the project's own dprint config via `dprint lsp` before it lands on disk. Write: the whole content. Edit: only the edited lines (range formatting, whole-file fallback trimmed to the edit), returned as a small `old_string`/`new_string` edit. |
+| Event                                                       | What it does                                                                                                                                                                                                                                                                                                                                                                        |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PreToolUse `Write\|Edit`                                    | `format_pre` (MCP server `dprint-hooks`) formats the file with the project's own dprint config via `dprint lsp` before it lands on disk, only when the working directory or an ancestor has a dprint config. Write: the whole content. Edit: only the edited lines (range formatting, whole-file fallback trimmed to the edit), returned as a small `old_string`/`new_string` edit. |
+| Session start, `CwdChanged`, `EnterWorktree`/`ExitWorktree` | hooks module `hooks/notice.mjs` shows a 15 s toast when neither the working directory nor an ancestor (up to the git root) has a dprint config (needs a Claude Code build with function hooks).                                                                                                                                                                                     |
 
 ## Notes
 
@@ -28,9 +29,9 @@ Skill that checks for a minimum dprint version, installs or updates dprint at us
 - Linux, macOS and WSL only. Requires `node` on `PATH`.
 - The plugin list is `skills/init-dprint/dprint-plugins.json`, a snapshot of the plugins.dprint.dev registry (date in the file).
 - Plugins are added with `dprint config add <name>`, which needs network access and resolves the latest version.
-- Only the config in the project root is checked. Plugins of `extends` configs and non-registry plugins (for example `exec`) are not recognized.
+- A dprint config counts in the working directory or in the nearest ancestor directory that has one, but never above the git repository root, or inside a git worktree the worktree root (no global config). This is the format hook's own gate, not dprint's rule: once the gate is open, `dprint lsp` resolves the config per file itself and does not stop at the git root, so a config above the root applies to a started lsp but never opens the gate. The config names are `dprint.json`, `dprint.jsonc`, `.dprint.json`, `.dprint.jsonc`, `.config/dprint.json`, `.config/dprint.jsonc`. Plugins of `extends` configs and non-registry plugins (for example `exec`) are not recognized.
 - The scan needs `git`.
-- The format hook needs dprint >= 0.50 (`dprint lsp`) on `PATH` or in `~/.dprint/bin` and `node` on `PATH`. Without dprint, or on any error or timeout (30 s per request), the Write/Edit goes through unformatted.
+- The format hook needs dprint >= 0.50 (`dprint lsp`) on `PATH` or in `~/.dprint/bin` and `node` on `PATH`. Without a dprint config in the working directory or above (no `dprint lsp` is started then), without dprint, or on any error or timeout (30 s per request), the Write/Edit goes through unformatted.
 - Which files are formatted is decided by dprint's config (plugins, includes, excludes); unmatched files are left alone.
 - One `dprint lsp` process runs per working directory; `CwdChanged`, `EnterWorktree` and `ExitWorktree` hooks re-root the session/agent. Edits to CRLF files are formatted on the LF view Claude Code matches against; the file keeps its CRLF line endings. Files outside the working directory, under `node_modules`, `vendor`, `.git`, `.claude/worktrees`, `.claude/agent-memory`, and `*.local.*` files are never formatted.
 - The first format in a project may download dprint plugins and time out; later calls succeed.

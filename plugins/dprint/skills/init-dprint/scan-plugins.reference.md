@@ -11,12 +11,12 @@ working directory).
 
 ## Environment
 
-| Input                 | Purpose                                                                                                                              | Required |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | -------- |
-| `PATH`                | Must contain `git`                                                                                                                   | yes      |
-| working directory     | The project root. Its dprint config is the first of `dprint.json`, `dprint.jsonc`, `.dprint.json`, `.dprint.jsonc` that exists there | yes      |
-| scanned files         | `git ls-files --cached --others --exclude-standard`: tracked plus untracked-but-not-ignored files under the cwd                      | —        |
-| `dprint-plugins.json` | Plugin list next to the script (registry ids, npm package names, file extensions and file names)                                     | yes      |
+| Input                 | Purpose                                                                                                                                                                                                                                                   | Required |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| `PATH`                | Must contain `git`                                                                                                                                                                                                                                        | yes      |
+| working directory     | The project root. Its dprint config is the first of `dprint.json`, `dprint.jsonc`, `.dprint.json`, `.dprint.jsonc`, `.config/dprint.json`, `.config/dprint.jsonc` that exists there, else in the nearest ancestor that has one (never above the git root) | yes      |
+| scanned files         | `git ls-files --cached --others --exclude-standard`: tracked plus untracked-but-not-ignored files under the cwd                                                                                                                                           | —        |
+| `dprint-plugins.json` | Plugin list next to the script (registry ids, npm package names, file extensions and file names)                                                                                                                                                          | yes      |
 
 ## Output
 
@@ -25,6 +25,10 @@ The first stdout line is always:
 ```
 status=<ok|missing|noconfig|error> config=<config file name|-> missing=<count|->
 ```
+
+`config` is only the config's name relative to the directory holding it (for example `dprint.json` or
+`.config/dprint.jsonc`), never a path. A config found above the cwd (up to the git root) is reported on stderr
+(`scan-plugins: config found above the cwd: <path>`).
 
 When `status=missing`, it is followed by one line per uncovered file type, most files first (equal
 counts sorted by type):
@@ -53,7 +57,7 @@ Diagnostics and the `extends` warning go to stderr.
 | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 0    | ok: every detected file type with a known plugin is covered                                                                                            |
 | 10   | missing: uncovered types listed                                                                                                                        |
-| 11   | noconfig: no config file in the cwd                                                                                                                    |
+| 11   | noconfig: no config file in the cwd or an ancestor up to the git root                                                                                  |
 | 2    | error: usage, config unreadable or invalid JSONC, `plugins` not an array, `git ls-files` failed, or `dprint-plugins.json` unreadable (stderr explains) |
 
 ## Limitations

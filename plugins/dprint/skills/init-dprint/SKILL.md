@@ -101,7 +101,8 @@ uncovered type, offers matching plugins; a plugin is added only after an explici
       `candidates` from each following line, then branch on the exit code:
       - `0` (ok): report "`<config>` covers every detected file type" and go to step 8.
       - `11` (noconfig): report "no dprint config (dprint.json, dprint.jsonc, .dprint.json,
-        .dprint.jsonc) in the project root; plugin scan skipped, create one with `dprint init`"
+        .dprint.jsonc, .config/dprint.json, .config/dprint.jsonc) in the project root or an ancestor up to the git root; plugin scan
+        skipped, create one with `dprint init`"
         and go to step 8.
       - `2` (error): report the stderr diagnostic and go to step 8.
       - `10` (missing): continue with step 7.3.
