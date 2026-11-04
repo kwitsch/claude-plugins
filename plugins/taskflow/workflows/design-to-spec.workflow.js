@@ -116,8 +116,9 @@ if (RESUME && !USER_INPUT) return { status: "error", stage: "args", error: "RESU
 // loud (an empty project would make graphmind answer from the checkout its MCP
 // server started in — silent wrong-branch results in a worktree).
 const REPO = typeof REPO_PATH === "string" ? REPO_PATH.trim() : "";
-const USE_GRAPHMIND = (GRAPHMIND_AVAILABLE === true || GRAPHMIND_AVAILABLE === "true") && REPO.startsWith("/");
-if ((GRAPHMIND_AVAILABLE === true || GRAPHMIND_AVAILABLE === "true") && !USE_GRAPHMIND)
+const wantGraphmind = GRAPHMIND_AVAILABLE === true || GRAPHMIND_AVAILABLE === "true";
+const USE_GRAPHMIND = wantGraphmind && REPO.startsWith("/");
+if (wantGraphmind && !USE_GRAPHMIND)
   return { status: "error", stage: "args", error: "GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH" };
 
 const MODELS = {

@@ -111,8 +111,9 @@ const PLUGIN_ROOT = A.PLUGIN_ROOT && !A.PLUGIN_ROOT.includes("${") ? A.PLUGIN_RO
 // Availability is decided once in build-task/SKILL.md and threaded in
 // (.claude/rules/script-authoring.md §4); "true" string accepted for JSON-string args.
 const REPO = typeof REPO_PATH === "string" ? REPO_PATH.trim() : "";
-const USE_GRAPHMIND = (GRAPHMIND_AVAILABLE === true || GRAPHMIND_AVAILABLE === "true") && REPO.startsWith("/");
-if ((GRAPHMIND_AVAILABLE === true || GRAPHMIND_AVAILABLE === "true") && !USE_GRAPHMIND)
+const wantGraphmind = GRAPHMIND_AVAILABLE === true || GRAPHMIND_AVAILABLE === "true";
+const USE_GRAPHMIND = wantGraphmind && REPO.startsWith("/");
+if (wantGraphmind && !USE_GRAPHMIND)
   return { stage: "args", error: "GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH" };
 
 // ── Model assignment by task difficulty ──────────────────────────────────────
