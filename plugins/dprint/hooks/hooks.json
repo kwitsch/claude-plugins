@@ -26,6 +26,38 @@
             }
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "plugin:dprint:dprint-hooks",
+            "tool": "bash_started",
+            "timeout": 10,
+            "input": {
+              "agent_id": "${agent_id}",
+              "session_id": "${session_id}"
+            }
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|Read|Bash|MultiEdit",
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "plugin:dprint:dprint-hooks",
+            "tool": "drain_notices",
+            "timeout": 10,
+            "input": {
+              "hook_event_name": "${hook_event_name}",
+              "cwd": "${cwd}",
+              "agent_id": "${agent_id}",
+              "session_id": "${session_id}"
+            }
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -75,6 +107,23 @@
               "session_id": "${session_id}",
               "scratchpad_dir": "${scratchpad_dir}",
               "tool_input": { "file_path": "${tool_input.file_path}" }
+            }
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "plugin:dprint:dprint-hooks",
+            "tool": "bash_finished",
+            "timeout": 30,
+            "input": {
+              "cwd": "${cwd}",
+              "agent_id": "${agent_id}",
+              "session_id": "${session_id}",
+              "scratchpad_dir": "${scratchpad_dir}"
             }
           }
         ]
@@ -129,6 +178,24 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/mcp/watch-paths.mjs\"",
             "timeout": 30
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "plugin:dprint:dprint-hooks",
+            "tool": "drain_notices",
+            "timeout": 10,
+            "input": {
+              "hook_event_name": "${hook_event_name}",
+              "cwd": "${cwd}",
+              "agent_id": "${agent_id}",
+              "session_id": "${session_id}"
+            }
           }
         ]
       }
