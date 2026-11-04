@@ -1082,3 +1082,10 @@ mm_git_fixture() {
     [ "$status" -eq 0 ]
   done
 }
+
+@test "build-task probes graphmind once and threads it to both workflows" {
+  for p in 'select:mcp__graphmind__gm_search' 'graphmind which' 'GRAPHMIND_AVAILABLE, REPO_PATH}'; do
+    run rg_or_grep -F "$p" "$SKILL/SKILL.md"
+    [ "$status" -eq 0 ]
+  done
+}
