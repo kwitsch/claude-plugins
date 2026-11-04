@@ -110,7 +110,8 @@ const { SPEC_PATH, PLAN_PATH, BRANCH_NAME, SCRATCH_DIR, BASE_BRANCH, SHIP, GRAPH
 const PLUGIN_ROOT = A.PLUGIN_ROOT && !A.PLUGIN_ROOT.includes("${") ? A.PLUGIN_ROOT : "";
 // Availability is decided once in build-task/SKILL.md and threaded in
 // (.claude/rules/script-authoring.md §4); "true" string accepted for JSON-string args.
-const USE_GRAPHMIND = (GRAPHMIND_AVAILABLE === true || GRAPHMIND_AVAILABLE === "true") && typeof REPO_PATH === "string" && REPO_PATH.trim().startsWith("/");
+const REPO = typeof REPO_PATH === "string" ? REPO_PATH.trim() : "";
+const USE_GRAPHMIND = (GRAPHMIND_AVAILABLE === true || GRAPHMIND_AVAILABLE === "true") && REPO.startsWith("/");
 if ((GRAPHMIND_AVAILABLE === true || GRAPHMIND_AVAILABLE === "true") && !USE_GRAPHMIND)
   return { stage: "args", error: "GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH" };
 
@@ -440,7 +441,7 @@ ToolSearch(query: "select:mcp__graphmind__gm_search,mcp__graphmind__gm_outline,m
 and prefer them for that confirmation — mcp__graphmind__gm_search to locate symbols
 and files, mcp__graphmind__gm_outline for a file's structure with line numbers,
 mcp__graphmind__gm_fn (file= to disambiguate) for an exact signature and its callers.
-Pass project: "${REPO_PATH}" on every graphmind call. Use Read/Grep for string
+Pass project: "${REPO}" on every graphmind call. Use Read/Grep for string
 literals, config values and unindexed files, and fall back to them when a graphmind
 call errors or returns nothing.
 `

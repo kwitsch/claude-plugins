@@ -115,7 +115,8 @@ if (RESUME && !USER_INPUT) return { status: "error", stage: "args", error: "RESU
 // can arrive JSON-string-encoded. A set flag with no absolute REPO_PATH fails
 // loud (an empty project would make graphmind answer from the checkout its MCP
 // server started in — silent wrong-branch results in a worktree).
-const USE_GRAPHMIND = (GRAPHMIND_AVAILABLE === true || GRAPHMIND_AVAILABLE === "true") && typeof REPO_PATH === "string" && REPO_PATH.trim().startsWith("/");
+const REPO = typeof REPO_PATH === "string" ? REPO_PATH.trim() : "";
+const USE_GRAPHMIND = (GRAPHMIND_AVAILABLE === true || GRAPHMIND_AVAILABLE === "true") && REPO.startsWith("/");
 if ((GRAPHMIND_AVAILABLE === true || GRAPHMIND_AVAILABLE === "true") && !USE_GRAPHMIND)
   return { status: "error", stage: "args", error: "GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH" };
 
@@ -321,7 +322,7 @@ designed:\n${TASK}\n${resumeNote}\n
 Your assigned area: ${s.name} — ${s.focus}
 This repository is indexed by graphmind (code graph + project memory). Use it first:
 1. Load the tools: ToolSearch(query: "select:mcp__graphmind__gm_search,mcp__graphmind__gm_outline,mcp__graphmind__gm_fn,mcp__graphmind__gm_deps,mcp__graphmind__gm_memory_search").
-2. Pass project: "${REPO_PATH}" on EVERY graphmind call (absolute checkout path — use
+2. Pass project: "${REPO}" on EVERY graphmind call (absolute checkout path — use
    exactly this value; it pins answers to this checkout's branch, worktrees included).
 3. Recorded knowledge: one mcp__graphmind__gm_memory_search call with ENGLISH keywords
    for your area; keep only entries that bear on the task (decisions, conventions,
