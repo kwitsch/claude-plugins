@@ -1075,3 +1075,10 @@ mm_git_fixture() {
   run rg_or_grep -iF 'over-engineering' "$REFS/spec-driven-delivery.md"
   [ "$status" -eq 0 ]
 }
+
+@test "spec-driven-delivery threads graphmind into the planner" {
+  for p in 'GRAPHMIND_AVAILABLE' 'mcp__graphmind__gm_search' 'project: "${REPO_PATH}"' 'GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH'; do
+    run rg_or_grep -F "$p" "$WORKFLOWS/spec-driven-delivery.workflow.js"
+    [ "$status" -eq 0 ]
+  done
+}
