@@ -22,8 +22,8 @@ apply), so `fmt` with a scope can rewrite files the config leaves out.
 ancestor up to the git root); when either is missing they run nothing and tell the user to run `/dprint init`
 (`/dprint:dprint init`) first.
 
-`init` makes sure a usable dprint, at least the minimum version pinned in `check-dprint.mjs`, is
-available. Detection is read-only. Installing or updating happens only after an explicit
+`init` makes sure a usable dprint (a native binary, or the dprint npm package via npx when no binary is
+installed), at least the minimum version pinned in `check-dprint.mjs`, is available. Detection is read-only. Installing or updating happens only after an explicit
 `Install` / `Update` answer, and the command then runs visibly through the Bash tool (its normal
 permission prompt is a second gate; install/update commands are deliberately not pre-allowed).
 With a usable dprint it then scans the project's file types against `dprint-plugins.json` and, per
@@ -84,7 +84,7 @@ Arguments: "$ARGUMENTS"
 
 1. **All questions go through the `AskUserQuestion` tool, never as plain text.** Never run an
    install or update command without an explicit `Install` / `Update` answer. Never run
-   `config add` without an explicit answer naming that plugin. Never run `<path> init -y` without
+   `config add` without an explicit answer naming that plugin. Never run `<dprint> init -y` without
    an explicit `Create` answer.
 
 2. Read `${CLAUDE_SKILL_DIR}/check-dprint.reference.md` (output line and exit-code contract).
@@ -95,10 +95,12 @@ Arguments: "$ARGUMENTS"
    node ${CLAUDE_SKILL_DIR}/check-dprint.mjs
    ```
 
-   Parse `status`, `version`, `min` and `path` from its single stdout line and branch on the exit
-   code, per the table in `check-dprint.reference.md`:
-   - `0` (ok): report `dprint <version> at <path> (>= <min>)` and go to step 7. Ask nothing about
-     installing.
+   Parse `status`, `version`, `min` and `path` from its single stdout line. From here on,
+   **`<dprint>`** means `<path>`, or `npx --yes dprint` when `path` is `npx` (dprint runs through
+   npx because no binary is installed). Branch on the exit code, per the table in
+   `check-dprint.reference.md`:
+   - `0` (ok): report `dprint <version> at <path> (>= <min>)`, or `dprint <version> via npx (>= <min>)`
+     when `path` is `npx`, and go to step 7. Ask nothing about installing.
    - `2` (error): report the stderr diagnostic and stop. Never guess, never install.
    - `10` (missing) or `11` (outdated): go to step 4.
 
@@ -108,7 +110,12 @@ Arguments: "$ARGUMENTS"
      - question: `Install dprint (minimum <min>) to ~/.dprint/bin via the official installer?`
      - options: `Install`, described as "Runs curl -fsSL https://dprint.dev/install.sh | sh";
        `Skip`, described as "Install nothing."
-   - **outdated** (exit 11):
+   - **outdated** (exit 11) with `path` = `npx` (`upgrade` does not apply to npx):
+     - header: `dprint [currently: <version> via npx, needs >= <min>]`
+     - question: `Install dprint (minimum <min>) to ~/.dprint/bin via the official installer? It takes precedence over npx.`
+     - options: `Install`, described as "Runs curl -fsSL https://dprint.dev/install.sh | sh";
+       `Skip`, described as "Install nothing."
+   - **outdated** (exit 11) with an absolute `path`:
      - header: `dprint [currently: <version>, needs >= <min>]`
      - question: `Update dprint at <path>?`
      - options: `Update`, described as the exact update command chosen in step 5 (for example
@@ -155,8 +162,8 @@ Arguments: "$ARGUMENTS"
      self-upgrade: tell the user to update it through that package manager. Never force a
      reinstall that would shadow the managed copy.
 
-7. **Plugin coverage.** Only reached with exit `0` from step 3 or step 6. `<path>` is the dprint
-   path from that check.
+7. **Plugin coverage.** Only reached with exit `0` from step 3 or step 6. `<dprint>` is built (as
+   defined in step 3) from the `path` of that check.
    1. Read `${CLAUDE_SKILL_DIR}/scan-plugins.reference.md` (output lines and exit-code contract).
    2. From the project root, run the scan and report every stderr line:
 
@@ -172,13 +179,13 @@ Arguments: "$ARGUMENTS"
         - header: `dprint config`
         - question:
           `No dprint config (dprint.json, dprint.jsonc, .dprint.json, .dprint.jsonc, .config/dprint.json, .config/dprint.jsonc) in the current directory or an ancestor up to the git root. Create dprint.json here with plugins for the file types found?`
-        - options: `Create`, described as "Runs `<path> init -y`"; `Skip`, described as "Create
+        - options: `Create`, described as "Runs `<dprint> init -y`"; `Skip`, described as "Create
           no config; the plugin scan, check and fmt need one."
         - `Create`: run it via the Bash tool, one command, visibly (its normal permission prompt
           applies):
 
           ```text
-          <path> init -y
+          <dprint> init -y
           ```
 
           Non-zero exit (or the permission prompt is denied): report the command's error output
@@ -199,7 +206,7 @@ Arguments: "$ARGUMENTS"
         With more than 3 candidates, append
         `Other candidates (type the exact name via Other): <4th>, <5th>, ...`
       - options: the first 3 candidates in output order, each labelled with the candidate name and
-        described as "Runs `<path> config add <candidate>`"; then `Skip`, described as "Add nothing
+        described as "Runs `<dprint> config add <candidate>`"; then `Skip`, described as "Add nothing
         for `<type>`."
       - The chosen plugin is the selected candidate label, or an "Other" answer that exactly
         equals one of this line's candidates: go to step 7.4.
@@ -207,7 +214,7 @@ Arguments: "$ARGUMENTS"
    4. Add the chosen plugin via the Bash tool, one command, visibly:
 
       ```text
-      <path> config add <candidate>
+      <dprint> config add <candidate>
       ```
 
       Non-zero exit (or the permission prompt is denied): report the command's error output, ask
@@ -220,6 +227,6 @@ Arguments: "$ARGUMENTS"
    - state before (`status`, `version`, `path`)
    - action taken (command run, or "skipped")
    - state after (`status`, `version`, `path`, plus the `export PATH` line when needed)
-   - plugin scan: config file (and the `<path> init -y` command run when step 7.2 created it),
+   - plugin scan: config file (and the `<dprint> init -y` command run when step 7.2 created it),
      plugins added (each `config add` command run), types skipped, types still uncovered. If the
      scan did not run, say why.

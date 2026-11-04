@@ -11,11 +11,11 @@
 
 ## Environment
 
-| Var               | Purpose                                                                                                                | Required |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------------- | -------- |
-| `PATH`            | Searched first, entry by entry, for an executable regular file named `dprint`                                          | no       |
-| `HOME`            | Fallback location `$HOME/.dprint/bin/dprint` (where the official installer puts dprint)                                | no       |
-| working directory | The project directory to check or format; dprint runs here with no file arguments when no scope is given (its subtree) | yes      |
+| Var               | Purpose                                                                                                                                                                                          | Required |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
+| `PATH`            | Searched first, entry by entry, for an executable regular file named `dprint`; if neither `PATH` nor `$HOME/.dprint/bin` has one, for `npx` (runs the dprint npm package via `npx --yes dprint`) | no       |
+| `HOME`            | Fallback location `$HOME/.dprint/bin/dprint` (where the official installer puts dprint)                                                                                                          | no       |
+| working directory | The project directory to check or format; dprint runs here with no file arguments when no scope is given (its subtree)                                                                           | yes      |
 
 ## Output
 
@@ -25,7 +25,7 @@ On a not-set-up gate failure only this stdout line, plus one stderr line telling
 status=notsetup reason=<missing|noconfig>
 ```
 
-`missing`: no executable `dprint` on `PATH` nor at `$HOME/.dprint/bin/dprint`. `noconfig`: none of `dprint.json`, `dprint.jsonc`, `.dprint.json`, `.dprint.jsonc`, `.config/dprint.json`, `.config/dprint.jsonc` in the working directory or any ancestor up to the git root (the format hook's lookup; dprint's global config does not count).
+`missing`: no executable `dprint` on `PATH` nor at `$HOME/.dprint/bin/dprint`, and no `npx` on `PATH` or `npx --yes dprint --version` failed (stderr says why). `noconfig`: none of `dprint.json`, `dprint.jsonc`, `.dprint.json`, `.dprint.jsonc`, `.config/dprint.json`, `.config/dprint.jsonc` in the working directory or any ancestor up to the git root (the format hook's lookup; dprint's global config does not count).
 
 Otherwise the output is dprint's own stdout/stderr (may contain ANSI colours); it is not parsed.
 
