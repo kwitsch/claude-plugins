@@ -322,30 +322,40 @@ const graphmindExplorePrompt = (s) => `${NO_NARRATION}\n\nYou are a read-only co
 designed:\n${TASK}\n${resumeNote}\n
 Your assigned area: ${s.name} — ${s.focus}
 This repository is indexed by graphmind (code graph + project memory). Use it first:
-1. Load the tools: ToolSearch(query: "select:mcp__graphmind__gm_search,mcp__graphmind__gm_outline,mcp__graphmind__gm_fn,mcp__graphmind__gm_deps,mcp__graphmind__gm_memory_search").
+1. Load the tools: ToolSearch(query: "select:mcp__graphmind__gm_search,mcp__graphmind__gm_outline,mcp__graphmind__gm_fn,mcp__graphmind__gm_deps").
 2. Pass project: "${REPO}" on EVERY graphmind call (absolute checkout path — use
    exactly this value; it pins answers to this checkout's branch, worktrees included).
-3. Recorded knowledge: one mcp__graphmind__gm_memory_search call with ENGLISH keywords
-   for your area; keep only entries that bear on the task (decisions, conventions,
-   known bugs).
-4. Code: mcp__graphmind__gm_search with an ENGLISH query naming the identifier or intent
+3. Code: mcp__graphmind__gm_search with an ENGLISH query naming the identifier or intent
    (translate the area/focus if needed; ';' separates several queries) to locate
    symbols and files; mcp__graphmind__gm_outline for a file's structure with line
    numbers; mcp__graphmind__gm_deps for what a file imports; mcp__graphmind__gm_fn
    (file= to disambiguate) only when you need full source or callers/callees — do
    not chain it after every search.
-5. The graph does not cover string literals, config values, env vars, or unindexed
+4. The graph does not cover string literals, config values, env vars, or unindexed
    files (dotfiles, gitignored files): use Read/Grep/Glob for those. If a graphmind
    call errors or returns nothing for your area, fall back to Read/Grep/Glob yourself
    and still produce the report — never return empty for a recoverable failure.
-6. graphmind does not cover git history: run \`git log --oneline -n 15\` (and, when
+5. graphmind does not cover git history: run \`git log --oneline -n 15\` (and, when
    useful, scoped to the area's paths) via Bash yourself for recent related commits.
+Project memory (decisions, conventions, known bugs) is recalled once for all explorers
+and handed to the designer separately — do not search it yourself or repeat it.
 Report for the designer: relevant files (exact paths), existing patterns and
-conventions to follow, recorded project knowledge from step 3 (one line each, marked
-"graphmind memory"), the real flow end to end, key signatures/interfaces the design
+conventions to follow, the real flow end to end, key signatures/interfaces the design
 must match, recent related commits, constraints and pitfalls. Dense and exact — file
 paths and symbol names, not prose generalities; write markdown, not raw JSON.
 Structured output only.`;
+
+// One project-memory recall shared by all explorers (they would otherwise each run
+// near-identical gm_memory_search calls); its output joins explorationBlock below.
+const graphmindRecallPrompt = () => `${NO_NARRATION}\n\nYou are a read-only knowledge recaller (never edit anything). Task being
+designed:\n${TASK}\n${resumeNote}\n
+Areas under exploration: ${subsystems.map((s) => s.name + " — " + s.focus).join("; ")}
+1. Load the tool: ToolSearch(query: "select:mcp__graphmind__gm_memory_search").
+2. Call mcp__graphmind__gm_memory_search with project: "${REPO}" (use exactly this value)
+   and ENGLISH keywords (translate if needed) — one call per distinct theme, at most 3.
+3. Report only entries that bear on the task (decisions, conventions, known bugs), one
+   line each. If the tool errors or nothing relevant exists, report exactly "none".
+Write markdown, not raw JSON. Structured output only.`;
 
 const exploreOpts = (s) => {
   const base = { label: "explore:" + s.name, phase: "Explore", schema: EXPLORE_SCHEMA, model: MODELS.explorer };
@@ -372,7 +382,12 @@ if (!exploration)
     error: "all explorers returned null",
   };
 
-const explorationBlock = exploration;
+let explorationBlock = exploration;
+if (USE_GRAPHMIND) {
+  const recalled = await agent(graphmindRecallPrompt(), { label: "explore:memory", phase: "Explore", schema: EXPLORE_SCHEMA, model: MODELS.explorer });
+  const memo = recalled && typeof recalled.report === "string" ? recalled.report.trim() : "";
+  if (memo && memo.toLowerCase() !== "none") explorationBlock += "\n\n## Recorded project knowledge (graphmind memory)\n" + memo;
+}
 
 // ═════════════════════════════════════════════════════════════════════════════
 // PHASE 2 — DESIGN  (write draft → review gate → optional 1 revision round)

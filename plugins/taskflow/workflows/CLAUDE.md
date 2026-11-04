@@ -55,13 +55,16 @@ module-level `USE_GRAPHMIND` boolean from the `GRAPHMIND_AVAILABLE` + `REPO_PATH
 args (a set flag with no absolute `REPO_PATH` fails loud with a `stage: 'args'`
 error before any agent runs). Design-to-spec's per-subsystem explorers run one of
 two ways: when true, a `NO_NARRATION`-prefixed inline `graphmindExplorePrompt` (no
-`agentType`, default subagent) that recalls project knowledge via
-`gm_memory_search`, locates code via `gm_search`/`gm_outline`/`gm_deps`/`gm_fn`
-with `project` = `REPO_PATH`, falls back to Read/Grep/Glob, and runs `git log`
-via Bash; when false, the byte-identical built-in `agentType: "Explore"` path via
-`explorerPrompt`. Both branches return the same `EXPLORE_SCHEMA` `{report}`, so
-the `sections` aggregation, `explorationBlock`, and the designer prompt are
-untouched. Delivery: a conditional paragraph in `plannerPrompt` only (the planner
+`agentType`, default subagent) that locates code via
+`gm_search`/`gm_outline`/`gm_deps`/`gm_fn` with `project` = `REPO_PATH`, falls
+back to Read/Grep/Glob, and runs `git log` via Bash; when false, the
+byte-identical built-in `agentType: "Explore"` path via `explorerPrompt`. Both
+branches return the same `EXPLORE_SCHEMA` `{report}`, so the `sections`
+aggregation and the designer prompt are untouched. Project memory is NOT
+searched per explorer: when true, one extra `graphmindRecallPrompt` agent runs
+`gm_memory_search` once after the explorers and its result is appended to
+`explorationBlock` as a separate "Recorded project knowledge" section (skipped
+when it returns nothing or `none`). Delivery: a conditional paragraph in `plannerPrompt` only (the planner
 is an `agentType` prompt, so it carries no `NO_NARRATION`).
 **Availability detection lives once in `build-task/SKILL.md`** (a `ToolSearch`
 `select:mcp__graphmind__gm_search` probe + `graphmind which` + `git rev-parse
