@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=e5d3f1e36b3bd228 body=b6f8bdccf3c19cc9 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=684e6aa3c5eb0a8f body=7404ac56c0740be1 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -200880,6 +200880,45 @@ function findGitRoot(fileDir, home) {
   gitRootCache.set(fileDir, found);
   return found;
 }
+var DPRINT_CONFIG_NAMES = ["dprint.json", "dprint.jsonc", ".dprint.json", ".dprint.jsonc", ".config/dprint.json", ".config/dprint.jsonc"];
+var DPRINT_CONFIG_BASENAMES = new Set(["dprint.json", "dprint.jsonc", ".dprint.json", ".dprint.jsonc"]);
+var dprintConfigCache = new Map;
+function hasDprintConfig(cwd) {
+  const cached = dprintConfigCache.get(cwd);
+  if (cached !== undefined)
+    return cached;
+  let found = false;
+  walkToRoot(cwd, (dir) => {
+    if (DPRINT_CONFIG_NAMES.some((n4) => existsSync3(path21.join(dir, n4)))) {
+      found = true;
+      return true;
+    }
+    return existsSync3(path21.join(dir, ".git"));
+  });
+  dprintConfigCache.set(cwd, found);
+  return found;
+}
+function isDprintPluginEnabled(cwd) {
+  const files = [path21.join(cwd, ".claude", "settings.local.json"), path21.join(cwd, ".claude", "settings.json"), path21.join(os9.homedir(), ".claude", "settings.json")];
+  for (const file of files) {
+    try {
+      const enabled = JSON.parse(readFileSync3(file, "utf8"))?.enabledPlugins;
+      if (!enabled || typeof enabled !== "object")
+        continue;
+      const key2 = Object.keys(enabled).find((k5) => k5.startsWith("dprint@"));
+      if (key2 !== undefined)
+        return enabled[key2] === true;
+    } catch {}
+  }
+  return false;
+}
+function dprintGoverns(cwd) {
+  try {
+    return hasDprintConfig(cwd) && isDprintPluginEnabled(cwd);
+  } catch {
+    return false;
+  }
+}
 function isClaudeInternalPath(resolved) {
   const segments = resolved.split(path21.sep);
   return segments.some((s, i5) => s === ".claude" && (segments[i5 + 1] === "worktrees" || segments[i5 + 1] === "agent-memory"));
@@ -200919,6 +200958,8 @@ function resolveTarget(args2) {
     return null;
   const resolved = path21.resolve(cwd, fp2);
   const { base, rel } = resolveBaseAndRel(cwd, resolved);
+  if (base === cwd && dprintGoverns(cwd))
+    return null;
   if (isExcludedPath(rel))
     return null;
   if (base !== cwd && isClaudeInternalPath(resolved))
@@ -200953,6 +200994,8 @@ async function formatPost(args2) {
       clearPrettierConfigCaches();
     if (PRETTIER_IGNORE_BASENAMES.has(basename))
       primePrettierIgnoreCache(base);
+    if (DPRINT_CONFIG_BASENAMES.has(basename))
+      dprintConfigCache.clear();
     const lang = EXT_MAP[path21.extname(resolved).toLowerCase()];
     if (!lang)
       return {};
