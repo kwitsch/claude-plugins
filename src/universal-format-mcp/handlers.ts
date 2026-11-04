@@ -68,6 +68,64 @@ function findGitRoot(fileDir: string, home: string): string {
   return found;
 }
 
+// Copy of dprint's skills/dprint/config-names.mjs CONFIG_NAMES (plugins/dprint is synced build
+// output and cannot be imported). Keep in sync by hand when dprint changes it.
+export const DPRINT_CONFIG_NAMES: readonly string[] = ["dprint.json", "dprint.jsonc", ".dprint.json", ".dprint.jsonc", ".config/dprint.json", ".config/dprint.jsonc"];
+// Basenames whose write clears dprintConfigCache (the .config/ variants share these basenames).
+export const DPRINT_CONFIG_BASENAMES: Set<string> = new Set(["dprint.json", "dprint.jsonc", ".dprint.json", ".dprint.jsonc"]);
+
+// cwd -> whether dprint's own config walk finds a config for that cwd. Process-lifetime, same
+// growth class as gitRootCache; cleared by formatPost when a dprint config basename is written.
+const dprintConfigCache = new Map<string, boolean>();
+
+/** Mirrors plugins/dprint's findConfig(cwd): from `cwd` upward, first directory holding one of
+ * DPRINT_CONFIG_NAMES wins; the walk ends after checking a directory that holds a `.git` entry
+ * (file or dir) or the filesystem root. No $HOME stop -- dprint has none. */
+function hasDprintConfig(cwd: string): boolean {
+  const cached = dprintConfigCache.get(cwd);
+  if (cached !== undefined) return cached;
+  let found = false;
+  walkToRoot(cwd, (dir) => {
+    if (DPRINT_CONFIG_NAMES.some((n) => existsSync(path.join(dir, n)))) {
+      found = true;
+      return true;
+    }
+    return existsSync(path.join(dir, ".git")); // dprint stops at the repo root
+  });
+  dprintConfigCache.set(cwd, found);
+  return found;
+}
+
+/** True only when the most specific settings file (local > project > user) that lists a
+ * `dprint@<marketplace>` key under enabledPlugins says true. Unreadable/malformed files are
+ * skipped; no entry anywhere means NOT active, so universal-format keeps formatting. */
+function isDprintPluginEnabled(cwd: string): boolean {
+  const files = [path.join(cwd, ".claude", "settings.local.json"), path.join(cwd, ".claude", "settings.json"), path.join(os.homedir(), ".claude", "settings.json")];
+  for (const file of files) {
+    try {
+      const enabled = JSON.parse(readFileSync(file, "utf8"))?.enabledPlugins;
+      if (!enabled || typeof enabled !== "object") continue;
+      const key = Object.keys(enabled).find((k) => k.startsWith("dprint@"));
+      if (key !== undefined) return enabled[key] === true;
+    } catch {
+      /* missing or malformed file: next scope */
+    }
+  }
+  return false;
+}
+
+/** dprint has priority: when the dprint plugin is enabled and dprint's own config walk from `cwd`
+ * finds a config, universal-format formats nothing for that cwd. Any error -> false (keep
+ * formatting). Order matters: the cached config walk is the cheap short-circuit; the settings
+ * read happens only in dprint-configured repos. */
+function dprintGoverns(cwd: string): boolean {
+  try {
+    return hasDprintConfig(cwd) && isDprintPluginEnabled(cwd);
+  } catch {
+    return false;
+  }
+}
+
 /** Position-independent counterpart to `isExcludedPath`'s `.claude/worktrees`/`.claude/agent-memory`
  * check, for the out-of-cwd case ONLY (callers must gate this on `base !== cwd`): the git-root walk
  * can anchor `base` AT a worktree's own root (a worktree's `.git` is a FILE, so branch 2 stops right
@@ -142,9 +200,9 @@ function resolveCwd(args: { cwd?: unknown; agent_id?: unknown; session_id?: unkn
 /** Resolves the write target shared by both hook handlers: the file path, the `base` directory
  * every project-scoped lookup anchors at, and the base-relative path used for exclusion. Returns
  * null on any guard failure -- callers return {} in that case (fail open). Extracted so the
- * resolution sequence (resolveCwd -> fp guard -> resolve -> resolveBaseAndRel -> isExcludedPath ->
- * isClaudeInternalPath) can't silently drift out of sync between formatPost and formatPre, which
- * must otherwise be edited in lockstep. */
+ * resolution sequence (resolveCwd -> fp guard -> resolve -> resolveBaseAndRel -> dprintGoverns
+ * (in-cwd only) -> isExcludedPath -> isClaudeInternalPath) can't silently drift out of sync
+ * between formatPost and formatPre, which must otherwise be edited in lockstep. */
 function resolveTarget(args: ToolHookInput): { cwd: string; base: string; resolved: string; rel: string; fp: string } | null {
   const cwd = resolveCwd(args);
   const fp = args?.tool_input?.file_path;
@@ -153,6 +211,7 @@ function resolveTarget(args: ToolHookInput): { cwd: string; base: string; resolv
 
   const resolved = path.resolve(cwd, fp);
   const { base, rel } = resolveBaseAndRel(cwd, resolved);
+  if (base === cwd && dprintGoverns(cwd)) return null; // dprint formats this cwd; see dprintGoverns
   if (isExcludedPath(rel)) return null;
   if (base !== cwd && isClaudeInternalPath(resolved)) return null; // out-of-cwd only; see isClaudeInternalPath
   return { cwd, base, resolved, rel, fp };
@@ -208,6 +267,7 @@ export async function formatPost(args: PostToolUseHookInput): Promise<HookResult
     const basename = path.basename(resolved);
     if (CACHE_INVALIDATING_BASENAMES.has(basename)) clearPrettierConfigCaches();
     if (PRETTIER_IGNORE_BASENAMES.has(basename)) primePrettierIgnoreCache(base);
+    if (DPRINT_CONFIG_BASENAMES.has(basename)) dprintConfigCache.clear();
 
     const lang = EXT_MAP[path.extname(resolved).toLowerCase()];
     if (!lang) return {};
@@ -252,8 +312,8 @@ export async function formatPost(args: PostToolUseHookInput): Promise<HookResult
 }
 
 /** PreToolUse handler: every prettier language formatted in-process before the write via
- * updatedInput with the bundled prettier. Never sets permissionDecision. Returns {} on every
- * guard failure / error (fail open). */
+ * updatedInput with the bundled prettier, unless dprint governs the cwd (see dprintGoverns).
+ * Never sets permissionDecision. Returns {} on every guard failure / error (fail open). */
 export async function formatPre(args: ToolHookInput): Promise<HookResult> {
   try {
     const target = resolveTarget(args);
