@@ -1098,3 +1098,20 @@ mm_git_fixture() {
     [ "$status" -eq 0 ]
   done
 }
+
+@test "workflows/CLAUDE.md documents the conditional graphmind path and README mentions graphmind" {
+  run rg_or_grep -F '## Conditional graphmind path (design-to-spec explorers, delivery planner)' "$WORKFLOWS/CLAUDE.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'graphmindExplorePrompt' "$WORKFLOWS/CLAUDE.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'graphmind which' "$PLUGIN/README.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "taskflow carries no repo-explorer references" {
+  # Plain grep -r (not rg_or_grep): that helper passes flags through to rg, where -r means --replace.
+  for p in 'repo-explorer' 'EXPLORE_TOOL_AVAILABLE' 'explore_repository'; do
+    run grep -rniF "$p" "$PLUGIN"
+    [ "$status" -eq 1 ]
+  done
+}
