@@ -4,7 +4,7 @@ Do not "fix" any hook below without reading its section.
 
 ## Layout (mods hooks module)
 
-- `hooks.json` is exactly `{"modules": ["./register.ts"]}`: one in-process mods function-hooks module, no command hook, no MCP server, no process per event. Module rules (no `any`, no `import()`, no Node, `.claude-plugin/types/` engine-written and gitignored) as in `plugins/inline-headroom/CLAUDE.md`.
+- `hooks.json` is exactly `{"modules": ["./register.ts"]}`: one in-process mods function-hooks module, no command hook, no MCP server, no process per event. Module rules (no `any`, no `import()`, no Node, `.claude-plugin/types/` engine-written and gitignored) as in `plugins/CLAUDE.md` `## Mods function-hooks modules`.
 - `register.ts` holds every hook and every `$` use, typed via `import type { EngineInterface, Register } from 'claude-code'`.
 - `policy.mjs` is pure, zero-dep, JSDoc-typed logic that never references `$`. Effects reach it as small `io` objects whose closures `register.ts` builds over `$` (`GuardIo`: `stat`/`sample`; `RefreshIo`: `git`/`realPath`). That keeps the whole detection and refresh flow in `policy.mjs`, so `node --test` drives it with `node:fs`/`child_process` (`test/coding-toolbox/*.test.mjs`).
 - `../tests/coding-toolbox.test.ts` covers the wiring under `claude plugin test` (local only; CI has no `claude` CLI).

@@ -15,7 +15,7 @@ This plugin predates `.claude/rules/plugin-userconfig.md`'s rule and declares no
 
 ## Layout
 
-Mods layout as `plugins/inline-headroom/CLAUDE.md` describes:
+Mods layout as `plugins/CLAUDE.md` `## Mods function-hooks modules` describes:
 
 - `hooks/hooks.json` — exactly `{"modules": ["./register.ts"]}`.
 - `hooks/register.ts` — every hook and every `$` use (`tool.call` / `tool.check` on `Bash`, `session.start`).

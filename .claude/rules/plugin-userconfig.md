@@ -55,4 +55,4 @@ See `plugins/git-sign-key/CLAUDE.md` — one hook-only plugin predates this rule
   2026-10-11) is infrastructure inside a plugin that does have toggles: it has
   no behaviour of its own, and which text a lever sees is governed by that
   lever's own toggle. Each future compressor it routes to brings its own
-  toggle. See `plugins/inline-headroom/CLAUDE.md` `## Content router`.
+  toggle. See `inline-headroom/CLAUDE.md` `## Content router` in kwitsch/claude-plugins-development.

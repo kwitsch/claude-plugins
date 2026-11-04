@@ -11,7 +11,7 @@ auto-memory feature (v2.1.59+).
   holds every hook and `$` use, `hooks/dream.mjs` the pure zero-dep logic —
   see `plugins/memory-enhancement/hooks/CLAUDE.md` for design detail. Module
   rules (typing, no `$` in the `.mjs`, `.claude-plugin/types/` gitignored)
-  follow `plugins/inline-headroom/CLAUDE.md`.
+  follow `plugins/CLAUDE.md` `## Mods function-hooks modules`.
 - The dream-due flag lives in `$.store` since 0.5.0. Deliberate one-time
   migration loss: 0.4.x `dream-due-*.flag` files under `CLAUDE_PLUGIN_DATA`
   are ignored, so a project flagged before the upgrade misses at most one

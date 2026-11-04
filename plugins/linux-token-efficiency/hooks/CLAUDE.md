@@ -26,7 +26,7 @@ Scope: `hooks/` and `hooks/hooks.json`. Toggles (`auto_rewrite`, `steer_enabled`
 
 ## The mods module (`register.ts` + `rtk-rewrite.mjs`)
 
-- Since 0.8.0 the two per-call `PreToolUse` command hooks (`rtk-rewrite.mjs` as a Bash router, `webfetch-steer.mjs`) are in-process `tool.call` hooks: no node process per Bash/WebFetch call. Layout and module rules follow `plugins/inline-headroom/CLAUDE.md` `## Layout`.
+- Since 0.8.0 the two per-call `PreToolUse` command hooks (`rtk-rewrite.mjs` as a Bash router, `webfetch-steer.mjs`) are in-process `tool.call` hooks: no node process per Bash/WebFetch call. Layout and module rules follow `plugins/CLAUDE.md` `## Mods function-hooks modules`.
 - `register.ts` holds every `$` use; `rtk-rewrite.mjs` is the pure, zero-dep, JSDoc-typed policy (no `node:` import, never `$`), covered by root `tsc`, ESLint and `test/linux-token-efficiency/rtk-rewrite.test.mjs`. It keeps `100755` (hooks-executable rule), though nothing execs it.
 - Two hooks with distinct matchers (`{ tool: "Bash" }`, `{ tool: "WebFetch" }`); the Bash one registers only while `steer_enabled` or `auto_rewrite` is on, the WebFetch one only while `steer_enabled` is on. Toggles come from `options` (an options change reloads the module), with the same truthiness as before: only `false` / `"false"` disables.
 - Wiring tests: `tests/linux-token-efficiency.test.ts` (`claude plugin test`, local only); `hook.bats` runs `claude plugin validate`/`test` when `claude` is on `PATH`.
