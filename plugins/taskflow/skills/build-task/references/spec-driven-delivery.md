@@ -44,6 +44,8 @@ rename together with the plugin). An unknown type throws hard at dispatch
 | `SCRATCH_DIR` | string | yes      | Absolute session-scratch directory, trailing slash included (build-task's `<session scratchpad>/build-task/`) — where pr-author/implementer write scratch files (`pr-body.md`, `test-evidence-task-<id>.txt`) for shipper/reviewer to read back |
 | `BASE_BRANCH` | string | no       | Branch the work branch was cut from. Default `main`. Drives the review diff `git diff <base>...HEAD`                                                                                                                                            |
 | `SHIP`        | bool   | no       | Default `true`. Run the Ship stage (push, PR/MR create-or-update, CI watch + bounded fix rounds); `false` ends after Apply                                                                                                                      |
+| `GRAPHMIND_AVAILABLE` | bool | no | Default `false`. `true` ⇒ the planner confirms paths/signatures via the graphmind MCP tools (`project` = `REPO_PATH`) |
+| `REPO_PATH` | string | no | Default `''`. Absolute checkout root (`git rev-parse --show-toplevel`). **Required when `GRAPHMIND_AVAILABLE` is `true`** |
 
 Delivery format (primary/named-workflow invocation): the runtime may hand
 `args` to the script as a JSON STRING depending on the invocation path —
@@ -91,7 +93,7 @@ Consume only this return — never re-derive state from transcript output.
 
 | `stage`     | Meaning                                                                    | Action                                                                                                                                                                                        |
 | :---------- | :------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `args`      | Invocation malformed (no args / missing required keys)                     | Fix the call — do not debug the pipeline                                                                                                                                                      |
+| `args`      | Invocation malformed (no args / missing required keys, or `GRAPHMIND_AVAILABLE: true` with an empty or non-absolute `REPO_PATH`) | Fix the call — do not debug the pipeline                                                                                                                                                      |
 | `Plan`      | Planner failed/blocked, or plan still blocking after one revision round    | Surface `error`; nothing was implemented                                                                                                                                                      |
 | `Implement` | A task failed, a merger failed, or a wave merge hit a conflict — HARD STOP | Never retry the merge, never resolve conflicts, never open a PR on a half-implemented plan. `results` names abandoned worktrees/branches for manual cleanup; partial `minorFindings` included |
 | `Review`    | Scope agent failed or found no diff after a merged implement phase         | Surface `error` + partial `results`                                                                                                                                                           |

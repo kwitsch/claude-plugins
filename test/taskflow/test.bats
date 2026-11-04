@@ -49,10 +49,10 @@ export -f rg_or_grep
   [ "$status" -eq 0 ]
 }
 
-@test "plugin.json version is 1.11.0" {
+@test "plugin.json version is 1.12.0" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "1.11.0" ]
+  [ "$output" = "1.12.0" ]
 }
 
 @test "marketplace entry exists for taskflow" {
@@ -158,9 +158,9 @@ export -f rg_or_grep
     run rg_or_grep -F "$p" "$WORKFLOWS/design-to-spec.workflow.js"
     [ "$status" -eq 0 ]
   done
-  # design-to-spec's MCP-path explorer prompt must exist, carry the NO_NARRATION
-  # prefix, and name the repo-explorer tool + its params (conditional Explore path).
-  for p in 'exploreToolPrompt = (' ') => `${NO_NARRATION}\n\nYou are a read-only codebase explorer' 'mcp__repo-explorer-mcp__explore_repository' 'response_format' 'EXPLORE_TOOL_AVAILABLE'; do
+  # design-to-spec's graphmind-path explorer prompt must exist, carry the NO_NARRATION
+  # prefix, and name the graphmind tools + project param (conditional graphmind path).
+  for p in 'graphmindExplorePrompt = (' ') => `${NO_NARRATION}\n\nYou are a read-only codebase explorer' 'mcp__graphmind__gm_search' 'mcp__graphmind__gm_memory_search' 'project: "${REPO}"' 'GRAPHMIND_AVAILABLE' 'GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH'; do
     run rg_or_grep -F "$p" "$WORKFLOWS/design-to-spec.workflow.js"
     [ "$status" -eq 0 ]
   done
@@ -1074,4 +1074,44 @@ mm_git_fixture() {
   [ "$status" -eq 0 ]
   run rg_or_grep -iF 'over-engineering' "$REFS/spec-driven-delivery.md"
   [ "$status" -eq 0 ]
+}
+
+@test "spec-driven-delivery threads graphmind into the planner" {
+  for p in 'GRAPHMIND_AVAILABLE' 'mcp__graphmind__gm_search' 'project: "${REPO}"' 'GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH'; do
+    run rg_or_grep -F "$p" "$WORKFLOWS/spec-driven-delivery.workflow.js"
+    [ "$status" -eq 0 ]
+  done
+}
+
+@test "build-task probes graphmind once and threads it to both workflows" {
+  for p in 'select:mcp__graphmind__gm_search' 'graphmind which' 'GRAPHMIND_AVAILABLE, REPO_PATH}'; do
+    run rg_or_grep -F "$p" "$SKILL/SKILL.md"
+    [ "$status" -eq 0 ]
+  done
+}
+
+@test "reference docs document GRAPHMIND_AVAILABLE and REPO_PATH for both workflows" {
+  for f in design-to-spec.md spec-driven-delivery.md; do
+    run rg_or_grep -F '`GRAPHMIND_AVAILABLE`' "$REFS/$f"
+    [ "$status" -eq 0 ]
+    run rg_or_grep -F '`REPO_PATH`' "$REFS/$f"
+    [ "$status" -eq 0 ]
+  done
+}
+
+@test "workflows/CLAUDE.md documents the conditional graphmind path and README mentions graphmind" {
+  run rg_or_grep -F '## Conditional graphmind path (design-to-spec explorers, delivery planner)' "$WORKFLOWS/CLAUDE.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'graphmindExplorePrompt' "$WORKFLOWS/CLAUDE.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'graphmind which' "$PLUGIN/README.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "taskflow carries no repo-explorer references" {
+  # Plain grep -r (not rg_or_grep): that helper passes flags through to rg, where -r means --replace.
+  for p in 'repo-explorer' 'EXPLORE_TOOL_AVAILABLE' 'explore_repository'; do
+    run grep -rniF "$p" "$PLUGIN"
+    [ "$status" -eq 1 ]
+  done
 }

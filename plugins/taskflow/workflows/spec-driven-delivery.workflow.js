@@ -55,7 +55,7 @@ export const meta = {
 };
 
 // ── Inputs via the `args` global (decoder with fail-fast guard) ─────────────
-// Expected: { SPEC_PATH, PLAN_PATH, BRANCH_NAME, SCRATCH_DIR, BASE_BRANCH?, PLUGIN_ROOT? }
+// Expected: { SPEC_PATH, PLAN_PATH, BRANCH_NAME, SCRATCH_DIR, BASE_BRANCH?, PLUGIN_ROOT?, GRAPHMIND_AVAILABLE?, REPO_PATH? }
 //   SPEC_PATH   — absolute path of the approved spec file
 //   PLAN_PATH   — absolute temp path for the plan (session scratch, never in the repo)
 //   BRANCH_NAME — current work branch (`git branch --show-current`)
@@ -70,6 +70,11 @@ export const meta = {
 //                 used to build the ship-ensure-mergeable.sh path handed to
 //                 shipper. Absent → shipper skips remediation, reports
 //                 mergeState 'unknown' (today's pre-fix loop behavior).
+//   GRAPHMIND_AVAILABLE — optional; true ⇒ the planner prompt tells it to confirm
+//                 paths/signatures via the graphmind MCP tools. Requires a
+//                 non-empty absolute REPO_PATH.
+//   REPO_PATH   — optional; absolute checkout root (git rev-parse --show-toplevel),
+//                 passed as graphmind's project.
 function decodeArgs(required, defaults) {
   let a = typeof args === "undefined" ? null : args;
   // The runtime delivers args as a JSON STRING instead of an object depending
@@ -96,13 +101,20 @@ function decodeArgs(required, defaults) {
   if (missing.length) return { __error: "missing required args: " + missing.join(", ") + " (got keys: " + Object.keys(a).join(", ") + ")" };
   return { ...defaults, ...a };
 }
-const A = decodeArgs(["SPEC_PATH", "PLAN_PATH", "BRANCH_NAME", "SCRATCH_DIR"], { BASE_BRANCH: "main", SHIP: true, PLUGIN_ROOT: "" });
+const A = decodeArgs(["SPEC_PATH", "PLAN_PATH", "BRANCH_NAME", "SCRATCH_DIR"], { BASE_BRANCH: "main", SHIP: true, PLUGIN_ROOT: "", GRAPHMIND_AVAILABLE: false, REPO_PATH: "" });
 if (A.__error) return { stage: "args", error: A.__error };
-const { SPEC_PATH, PLAN_PATH, BRANCH_NAME, SCRATCH_DIR, BASE_BRANCH, SHIP } = A;
+const { SPEC_PATH, PLAN_PATH, BRANCH_NAME, SCRATCH_DIR, BASE_BRANCH, SHIP, GRAPHMIND_AVAILABLE, REPO_PATH } = A;
 // An unresolved substitution token (e.g. build-task read its own SKILL.md as
 // plain text instead of through the Skill tool) is a non-empty string that
 // would otherwise pass a bare truthiness check — treat it as absent, same as "".
 const PLUGIN_ROOT = A.PLUGIN_ROOT && !A.PLUGIN_ROOT.includes("${") ? A.PLUGIN_ROOT : "";
+// Availability is decided once in build-task/SKILL.md and threaded in
+// (.claude/rules/script-authoring.md §4); "true" string accepted for JSON-string args.
+const REPO = typeof REPO_PATH === "string" ? REPO_PATH.trim() : "";
+const wantGraphmind = GRAPHMIND_AVAILABLE === true || GRAPHMIND_AVAILABLE === "true";
+const USE_GRAPHMIND = wantGraphmind && REPO.startsWith("/");
+if (wantGraphmind && !USE_GRAPHMIND)
+  return { stage: "args", error: "GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH" };
 
 // ── Model assignment by task difficulty ──────────────────────────────────────
 // Role profiles:
@@ -424,6 +436,18 @@ Explore the codebase as needed to confirm exact current file paths, existing
 signatures your Interfaces entries must match, and established patterns. Your
 agent definition carries the full plan requirements and self-review checklist.
 ${
+  USE_GRAPHMIND
+    ? `graphmind indexes this repository: load its tools with
+ToolSearch(query: "select:mcp__graphmind__gm_search,mcp__graphmind__gm_outline,mcp__graphmind__gm_fn")
+and prefer them for that confirmation — mcp__graphmind__gm_search to locate symbols
+and files, mcp__graphmind__gm_outline for a file's structure with line numbers,
+mcp__graphmind__gm_fn (file= to disambiguate) for an exact signature and its callers.
+Pass project: "${REPO}" on every graphmind call. Use Read/Grep for string
+literals, config values and unindexed files, and fall back to them when a graphmind
+call errors or returns nothing.
+`
+    : ""
+}${
   revision
     ? `
 This is a REVISION. Fix exactly these findings from the plan check, then rewrite ${PLAN_PATH} in place:

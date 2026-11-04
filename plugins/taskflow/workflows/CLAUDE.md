@@ -22,7 +22,7 @@ Agent frontmatter `model:` (`agents/designer.md`, `agents/planner.md`) is the ba
 
 ## `NO_NARRATION` on inline prompts
 
-- Several roles are dispatched with a fully inline prompt and no `agentType`, so no `agents/*.md` system prompt backs them: the scout, the exploration-tool explorer, spec writer and reviewer, plan checker, per-task implementer/reviewer/fixer, the scope-gathering and synthesizer agents of both review phases, and `changes-review`'s lean pass.
+- Several roles are dispatched with a fully inline prompt and no `agentType`, so no `agents/*.md` system prompt backs them: the scout, the graphmind explorer, spec writer and reviewer, plan checker, per-task implementer/reviewer/fixer, the scope-gathering and synthesizer agents of both review phases, and `changes-review`'s lean pass.
 - Each script defines `const NO_NARRATION = "…"` (wording identical to the rule in `agents/*.md`) right after its `AGENTS` map, and every inline prompt is prefixed with it. Add the same prefix to any new inline (non-`agentType`) prompt in any workflow script.
 - The built-in `agentType: "Explore"` path (`explorerPrompt`) carries the rule only in the per-call prompt text: its system prompt is foreign to this plugin.
 
@@ -48,19 +48,29 @@ ponytail is an external, non-allowlisted-marketplace plugin, so there is
 deliberately no runtime `Skill`/`dependencies` reference to it (the embedded
 phrasing can drift from upstream — that is the accepted, required trade-off).
 
-## Conditional Explore path (design-to-spec)
+## Conditional graphmind path (design-to-spec explorers, delivery planner)
 
-`design-to-spec.workflow.js`'s per-subsystem explorers run one of two ways,
-selected by the module-level `USE_EXPLORE_TOOL` boolean derived from the
-`EXPLORE_TOOL_AVAILABLE` + `REPO_PATH` args: when true, a `NO_NARRATION`-prefixed
-inline `exploreToolPrompt` (no `agentType`, default subagent) that calls the
-`mcp__repo-explorer-mcp__explore_repository` MCP tool; when false, the
+Both `design-to-spec.workflow.js` and `spec-driven-delivery.workflow.js` derive a
+module-level `USE_GRAPHMIND` boolean from the `GRAPHMIND_AVAILABLE` + `REPO_PATH`
+args (a set flag with no absolute `REPO_PATH` fails loud with a `stage: 'args'`
+error before any agent runs). Design-to-spec's per-subsystem explorers run one of
+two ways: when true, a `NO_NARRATION`-prefixed inline `graphmindExplorePrompt` (no
+`agentType`, default subagent) that locates code via
+`gm_search`/`gm_outline`/`gm_deps`/`gm_fn` with `project` = `REPO_PATH`, falls
+back to Read/Grep/Glob, and runs `git log` via Bash; when false, the
 byte-identical built-in `agentType: "Explore"` path via `explorerPrompt`. Both
 branches return the same `EXPLORE_SCHEMA` `{report}`, so the `sections`
-aggregation, `explorationBlock`, and the designer prompt are untouched.
+aggregation and the designer prompt are untouched. Project memory is NOT
+searched per explorer: when true, one extra `graphmindRecallPrompt` agent runs
+`gm_memory_search` once after the explorers and its result is appended to
+`explorationBlock` as a separate "Recorded project knowledge" section (skipped
+when it returns nothing or `none`). Delivery: a conditional paragraph in `plannerPrompt` only (the planner
+is an `agentType` prompt, so it carries no `NO_NARRATION`).
 **Availability detection lives once in `build-task/SKILL.md`** (a `ToolSearch`
-probe + `git rev-parse --show-toplevel`, threaded in via `args`, per
-`.claude/rules/script-authoring.md` §4 "Inject before query") — the workflow
-script never self-probes and never re-queries per subsystem. The scout pass
-stays on `agentType: "Explore"` regardless: it is a coarse classify-only survey
-(complexity + 1-4 subsystem names), not code-location finding.
+`select:mcp__graphmind__gm_search` probe + `graphmind which` + `git rev-parse
+--show-toplevel`, threaded in via `args`, per `.claude/rules/script-authoring.md`
+§4 "Inject before query") — the workflow scripts never self-probe and never
+re-query per subsystem. The scout pass stays on `agentType: "Explore"`
+regardless: it is a coarse classify-only survey (complexity + 1-4 subsystem
+names), not code-location finding. Review finders/verifiers do not use graphmind
+(their agents are tool-restricted to Read/Grep/Glob/Bash).
