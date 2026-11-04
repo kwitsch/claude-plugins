@@ -158,9 +158,9 @@ export -f rg_or_grep
     run rg_or_grep -F "$p" "$WORKFLOWS/design-to-spec.workflow.js"
     [ "$status" -eq 0 ]
   done
-  # design-to-spec's MCP-path explorer prompt must exist, carry the NO_NARRATION
-  # prefix, and name the repo-explorer tool + its params (conditional Explore path).
-  for p in 'exploreToolPrompt = (' ') => `${NO_NARRATION}\n\nYou are a read-only codebase explorer' 'mcp__repo-explorer-mcp__explore_repository' 'response_format' 'EXPLORE_TOOL_AVAILABLE'; do
+  # design-to-spec's graphmind-path explorer prompt must exist, carry the NO_NARRATION
+  # prefix, and name the graphmind tools + project param (conditional graphmind path).
+  for p in 'graphmindExplorePrompt = (' ') => `${NO_NARRATION}\n\nYou are a read-only codebase explorer' 'mcp__graphmind__gm_search' 'mcp__graphmind__gm_memory_search' 'project: "${REPO_PATH}"' 'GRAPHMIND_AVAILABLE' 'GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH'; do
     run rg_or_grep -F "$p" "$WORKFLOWS/design-to-spec.workflow.js"
     [ "$status" -eq 0 ]
   done
