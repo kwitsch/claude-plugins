@@ -15,6 +15,7 @@ declare var process: {
   exit(code?: number): never;
   exitCode?: number;
   execPath: string;
+  versions: Record<string, string | undefined>;
 };
 
 declare var console: {

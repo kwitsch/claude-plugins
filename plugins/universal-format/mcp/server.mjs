@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=639b7d5300aaa0e8 body=e1d8707a7d3f1f55 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=d63e9df179f58fe6 body=a80c3dd3b03a6446 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -200880,7 +200880,7 @@ function findGitRoot(fileDir, home) {
   return found;
 }
 var DPRINT_CONFIG_NAMES = ["dprint.json", "dprint.jsonc", ".dprint.json", ".dprint.jsonc", ".config/dprint.json", ".config/dprint.jsonc"];
-var DPRINT_CONFIG_BASENAMES = new Set(["dprint.json", "dprint.jsonc", ".dprint.json", ".dprint.jsonc"]);
+var DPRINT_CONFIG_BASENAMES = new Set(DPRINT_CONFIG_NAMES.map((n4) => path21.basename(n4)));
 var dprintConfigCache = new Map;
 function hasDprintConfig(cwd) {
   const cached = dprintConfigCache.get(cwd);
@@ -200957,9 +200957,9 @@ function resolveTarget(args2) {
     return null;
   const resolved = path21.resolve(cwd, fp2);
   const { base, rel } = resolveBaseAndRel(cwd, resolved);
-  if (base === cwd && dprintGoverns(cwd))
-    return null;
   if (isExcludedPath(rel))
+    return null;
+  if (base === cwd && dprintGoverns(cwd))
     return null;
   if (base !== cwd && isClaudeInternalPath(resolved))
     return null;

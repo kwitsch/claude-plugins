@@ -72,7 +72,7 @@ function findGitRoot(fileDir: string, home: string): string {
 // output and cannot be imported). Keep in sync by hand when dprint changes it.
 export const DPRINT_CONFIG_NAMES: readonly string[] = ["dprint.json", "dprint.jsonc", ".dprint.json", ".dprint.jsonc", ".config/dprint.json", ".config/dprint.jsonc"];
 // Basenames whose write clears dprintConfigCache (the .config/ variants share these basenames).
-export const DPRINT_CONFIG_BASENAMES: Set<string> = new Set(["dprint.json", "dprint.jsonc", ".dprint.json", ".dprint.jsonc"]);
+export const DPRINT_CONFIG_BASENAMES: Set<string> = new Set(DPRINT_CONFIG_NAMES.map((n) => path.basename(n)));
 
 // cwd -> whether dprint's own config walk finds a config for that cwd. Process-lifetime, same
 // growth class as gitRootCache; cleared by formatPost when a dprint config basename is written.
@@ -200,8 +200,8 @@ function resolveCwd(args: { cwd?: unknown; agent_id?: unknown; session_id?: unkn
 /** Resolves the write target shared by both hook handlers: the file path, the `base` directory
  * every project-scoped lookup anchors at, and the base-relative path used for exclusion. Returns
  * null on any guard failure -- callers return {} in that case (fail open). Extracted so the
- * resolution sequence (resolveCwd -> fp guard -> resolve -> resolveBaseAndRel -> dprintGoverns
- * (in-cwd only) -> isExcludedPath -> isClaudeInternalPath) can't silently drift out of sync
+ * resolution sequence (resolveCwd -> fp guard -> resolve -> resolveBaseAndRel -> isExcludedPath ->
+ * dprintGoverns (in-cwd only) -> isClaudeInternalPath) can't silently drift out of sync
  * between formatPost and formatPre, which must otherwise be edited in lockstep. */
 function resolveTarget(args: ToolHookInput): { cwd: string; base: string; resolved: string; rel: string; fp: string } | null {
   const cwd = resolveCwd(args);
@@ -211,8 +211,8 @@ function resolveTarget(args: ToolHookInput): { cwd: string; base: string; resolv
 
   const resolved = path.resolve(cwd, fp);
   const { base, rel } = resolveBaseAndRel(cwd, resolved);
+  if (isExcludedPath(rel)) return null; // cheap string test first; the dprint gate does I/O
   if (base === cwd && dprintGoverns(cwd)) return null; // dprint formats this cwd; see dprintGoverns
-  if (isExcludedPath(rel)) return null;
   if (base !== cwd && isClaudeInternalPath(resolved)) return null; // out-of-cwd only; see isClaudeInternalPath
   return { cwd, base, resolved, rel, fp };
 }
