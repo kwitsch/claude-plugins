@@ -1089,3 +1089,12 @@ mm_git_fixture() {
     [ "$status" -eq 0 ]
   done
 }
+
+@test "reference docs document GRAPHMIND_AVAILABLE and REPO_PATH for both workflows" {
+  for f in design-to-spec.md spec-driven-delivery.md; do
+    run rg_or_grep -F '`GRAPHMIND_AVAILABLE`' "$REFS/$f"
+    [ "$status" -eq 0 ]
+    run rg_or_grep -F '`REPO_PATH`' "$REFS/$f"
+    [ "$status" -eq 0 ]
+  done
+}
