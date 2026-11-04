@@ -27,7 +27,7 @@ Constraints:
 
 ## Reroute mod
 
-A mods function-hooks module (layout and module rules as `plugins/inline-headroom/CLAUDE.md`); no hook process, no MCP server.
+A mods function-hooks module (layout and module rules as `plugins/CLAUDE.md` `## Mods function-hooks modules`); no hook process, no MCP server.
 
 - `hooks/hooks.json` — exactly `{"modules": ["./register.ts"]}`.
 - `hooks/register.ts` — one `tool.call` hook, matcher `{ tool: ["Agent", "Task"] }`. It calls `next` with `subagent_type` from `rerouteType`; every other call passes as is.

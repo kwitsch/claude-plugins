@@ -14,7 +14,7 @@ Each plugin: `.claude-plugin/plugin.json` (manifest: `version` plus metadata lik
 | `commands/`              | Skills as flat `.md` files — legacy, avoid for new plugins                                                                                                                                                                                                                                                                                                                                       |
 | `agents/`                | Custom agent definitions                                                                                                                                                                                                                                                                                                                                                                         |
 | `workflows/`             | Dynamic Workflow-tool scripts (`<name>.workflow.js`), auto-discovered and namespaced as `/<plugin>:<name>`. Excluded from `eslint.config.mjs` (top-level `await`/`return`)                                                                                                                                                                                                                       |
-| `hooks/`                 | Event handlers in `hooks.json`, or a mods function-hooks module (`hooks.json` = `{"modules":["./register.ts"]}`, TypeScript, tested via `claude plugin test`; see `plugins/inline-headroom/CLAUDE.md`)                                                                                                                                                                                           |
+| `hooks/`                 | Event handlers in `hooks.json`, or a mods function-hooks module (`hooks.json` = `{"modules":["./register.ts"]}`, TypeScript, tested via `claude plugin test`; see `plugins/CLAUDE.md` `## Mods function-hooks modules`)                                                                                                                                                                          |
 | `mcp/`                   | Self-contained zero-dep MCP stdio server (`server.mjs`) backing `mcp_tool` hooks, invoked directly as the `.mcp.json` `command` (executable `.mjs`, `#!/usr/bin/env node`, `100755`). Documented bundle exception: `universal-format` (committed `bun build` bundle plus `.wasm` sidecars) — see `plugins/universal-format/CLAUDE.md`. Layout and templates: `.claude/rules/hooks-mcp-server.md` |
 | `bin/`                   | Executables added to Bash `PATH` when the plugin is enabled; must be `chmod +x` and `100755` in git (`core.fileMode=false` here — see `.claude/rules/bin-executable.md`). Plugin-specific contents: `plugins/linux-token-efficiency/CLAUDE.md`                                                                                                                                                   |
 | `.mcp.json`              | MCP server configs                                                                                                                                                                                                                                                                                                                                                                               |
@@ -26,3 +26,17 @@ Each plugin: `.claude-plugin/plugin.json` (manifest: `version` plus metadata lik
 ## Hooks
 
 Command hook vs `mcp_tool` hook, MCP-server layout and templates: `.claude/rules/hooks-mcp-server.md`; `hooks.json` conventions: `.claude/rules/hooks-json-authoring.md`.
+
+## Mods function-hooks modules
+
+Layout and module rules for mods plugins:
+
+- `hooks/hooks.json` — exactly `{"modules": ["./register.ts"]}`.
+- `hooks/register.ts` — every hook and every `$` use, typed via `import type { EngineInterface, Register } from 'claude-code'`. No `any`, no `import()` (a module holding `import()` does not load). `100644`: the engine imports it.
+- `hooks/<logic>.mjs` — pure, zero-dep, JSDoc-typed logic with no clock reads (time comes in as arguments), covered by the root `tsconfig.json`, ESLint and `node --test`. It must never reference `$`: the engine rejects passing the mods API into functions imported from another file. It also rejects `$.<noun>` as a bare value (bound, passed or read), so same-file helpers in `register.ts` take the whole `$` typed `EngineInterface`.
+- `tests/<name>.test.ts` — hook-wiring tests for `claude plugin test`. Local only: CI runners have no `claude` CLI; the bats suite runs `claude plugin validate` and `claude plugin test` when `claude` is on `PATH` and skips them otherwise.
+- `.claude-plugin/types/` is written by the engine (typings + tsconfig) at every `claude --plugin-dir` load and is gitignored (`plugins/*/.claude-plugin/types/`). No committed per-mod `tsconfig.json`.
+
+## Synced plugins
+
+`dprint` and `inline-headroom` are developed in kwitsch/claude-plugins-development (`<name>/`, docs in its `<name>/CLAUDE.md`). `plugins/<name>/` here is their synced build output (`Sync <name> <version>` commits pushed by that repo's release workflow): never edit it directly, no bats suite, no `test.yml` matrix entry, excluded from the root `tsconfig.json`.

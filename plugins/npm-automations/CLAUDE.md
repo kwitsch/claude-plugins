@@ -3,7 +3,7 @@
 Mods-API plugin (no skills/agents/command hooks) centralizing npm-lifecycle
 automation: one TypeScript function-hooks module (`hooks/register.ts`) with pure
 logic in `hooks/policy.mjs`, the repo's second mods plugin after
-`inline-headroom` (same layout rules, see `plugins/inline-headroom/CLAUDE.md`).
+`inline-headroom` (same layout rules, see `plugins/CLAUDE.md` `## Mods function-hooks modules`).
 Both hooks are independently gated by a fail-open `userConfig` boolean
 (`default: true`, only a literal `false` disables), read from `register`'s
 `options`.
