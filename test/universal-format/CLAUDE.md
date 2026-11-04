@@ -20,6 +20,7 @@
   - `build-artifact.test.mjs`: artifact freshness and the no-`Bun.` invariant.
   - `bundled-plugins.test.mjs`: the three bundled plugins and the four newly routed core languages against the built bundle, plus the tripwire that the `unhandledRejection` guard is armed.
   - `runtime-detect.test.mjs`: spawns the built server under each runtime.
+  - `dprint-gate.test.mjs`: the dprint priority gate against the built bundle. Owns its `$HOME` override (user-scope settings isolation) and its process's only `goimports` probe (`onPath` caches probes for the process lifetime).
   - Suites importing the built bundle stay stale until `pnpm run build:universal-format-mcp` is rerun (see `src/universal-format-mcp/CLAUDE.md`).
 - **Doc pins:** `scaffold.bats` greps `plugins/universal-format/CLAUDE.md` and `src/universal-format-mcp/CLAUDE.md` for pinned phrases; when you rename a heading there, update the pin in the same change.
 - **Run:**

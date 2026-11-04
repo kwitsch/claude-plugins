@@ -6,7 +6,7 @@ Auto-formatter plugin backed by a plugin-local MCP stdio server, launched via th
 
 Four `mcp_tool` hooks on one server (`hooks/hooks.json`):
 
-- **PreToolUse `format_pre`** (`Write|Edit`): formats the thirteen prettier languages (JS/TS, JSON, YAML, Markdown, CSS, SCSS, LESS, HTML, Vue, GraphQL, Shell, Java, PHP) in-process BEFORE the write via `hookSpecificOutput.updatedInput`, always with the prettier bundled into the server.
+- **PreToolUse `format_pre`** (`Write|Edit`): formats the thirteen prettier languages (JS/TS, JSON, YAML, Markdown, CSS, SCSS, LESS, HTML, Vue, GraphQL, Shell, Java, PHP) in-process BEFORE the write via `hookSpecificOutput.updatedInput`, always with the prettier bundled into the server, unless the session cwd is dprint-governed (dprint config found + dprint plugin enabled) — then every hook returns `{}`; see `src/universal-format-mcp/CLAUDE.md`.
 - **PostToolUse `format_post`** (`Write|Edit`): formats Kotlin/Python/Go/Rust on disk after the write via each tool's CLI; returns `{}` for every prettier language.
 - **CwdChanged `cwd_changed`**: formats nothing — drops the old directory's cached ignore state and primes the new one's.
 - **PostToolUse:EnterWorktree `worktree_entered`** (matcher `EnterWorktree`): same cache priming as `cwd_changed`, plus a session-lifetime cwd override — `CwdChanged` never fires when `EnterWorktree` moves a background-job session's cwd into a worktree (verified live). Do not remove the override on the theory that `CwdChanged` covers it.
@@ -53,7 +53,7 @@ No `userConfig` — the hooks ARE the plugin (see "No toggle").
 
 ## No toggle (do not "fix" without reading this)
 
-This plugin declares no `userConfig` — see `.claude/rules/plugin-userconfig.md`'s exception list. Auto-formatting IS the entire plugin; disabling it is equivalent to uninstalling. The bats suite asserts `userConfig`'s absence as a tripwire.
+This plugin declares no `userConfig` — see `.claude/rules/plugin-userconfig.md`'s exception list. Auto-formatting IS the entire plugin; disabling it is equivalent to uninstalling. The bats suite asserts `userConfig`'s absence as a tripwire. The dprint deferral is runtime detection, not a toggle: nothing in this plugin's manifest enables or disables it.
 
 ## Built artifact (do not edit `mcp/server.mjs`)
 
