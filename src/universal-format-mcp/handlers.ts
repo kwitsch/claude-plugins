@@ -100,7 +100,7 @@ function hasDprintConfig(cwd: string): boolean {
  * `dprint@<marketplace>` key under enabledPlugins says true. Unreadable/malformed files are
  * skipped; no entry anywhere means NOT active, so universal-format keeps formatting. */
 function isDprintPluginEnabled(cwd: string): boolean {
-  const files = [path.join(cwd, ".claude", "settings.local.json"), path.join(cwd, ".claude", "settings.json"), path.join(os.homedir(), ".claude", "settings.json")];
+  const files = [path.join(cwd, ".claude", "settings.local.json"), path.join(cwd, ".claude", "settings.json"), path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude"), "settings.json")];
   for (const file of files) {
     try {
       const enabled = JSON.parse(readFileSync(file, "utf8"))?.enabledPlugins;

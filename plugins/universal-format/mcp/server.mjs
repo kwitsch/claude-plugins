@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=116e8c7943f70372 body=b5f0bd79be8524e4 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=639b7d5300aaa0e8 body=e1d8707a7d3f1f55 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -200898,7 +200898,7 @@ function hasDprintConfig(cwd) {
   return found;
 }
 function isDprintPluginEnabled(cwd) {
-  const files = [path21.join(cwd, ".claude", "settings.local.json"), path21.join(cwd, ".claude", "settings.json"), path21.join(os9.homedir(), ".claude", "settings.json")];
+  const files = [path21.join(cwd, ".claude", "settings.local.json"), path21.join(cwd, ".claude", "settings.json"), path21.join(process.env.CLAUDE_CONFIG_DIR || path21.join(os9.homedir(), ".claude"), "settings.json")];
   for (const file of files) {
     try {
       const enabled = JSON.parse(readFileSync3(file, "utf8"))?.enabledPlugins;
