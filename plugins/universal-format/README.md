@@ -33,6 +33,8 @@ network access.
 
 **All other languages** (Kotlin, Python, Go, Rust) are formatted after the write via each tool's CLI.
 
+**Defers to dprint:** when the dprint plugin is enabled and the repo has a dprint config (`dprint.json`, `.dprint.jsonc`, ...), universal-format formats nothing there; dprint owns formatting.
+
 Your project's Prettier **configuration** is still honored in full — `.prettierrc*`,
 `prettier.config.*`, a top-level `"prettier"` key in `package.json`/`package.yaml`,
 `.editorconfig`, and `.prettierignore`.

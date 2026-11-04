@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=684e6aa3c5eb0a8f body=7404ac56c0740be1 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=116e8c7943f70372 body=b5f0bd79be8524e4 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -171618,7 +171618,6 @@ var require_tslib = __commonJS((exports, module2) => {
 });
 
 // src/universal-format-mcp/server.ts
-import process7 from "node:process";
 import readline from "node:readline";
 import { realpathSync as realpathSync2 } from "node:fs";
 import { fileURLToPath as fileURLToPath8 } from "node:url";
@@ -201109,17 +201108,17 @@ async function worktreeEntered(args2) {
 
 // src/universal-format-mcp/server.ts
 var SERVER_NAME = "universal-format-hooks";
-var SERVER_INFO = { name: SERVER_NAME, version: process7.env.UNIVERSAL_FORMAT_MCP_VERSION ?? "0.0.0" };
+var SERVER_INFO = { name: SERVER_NAME, version: "0.18.0" };
 var DEFAULT_PROTOCOL = "2025-11-25";
 function isMainModule() {
   try {
-    return realpathSync2(process7.argv[1]) === realpathSync2(fileURLToPath8(import.meta.url));
+    return realpathSync2(process.argv[1]) === realpathSync2(fileURLToPath8(import.meta.url));
   } catch {
     return false;
   }
 }
 function detectRuntime() {
-  return process7.versions.bun ? "bun" : "node";
+  return process.versions.bun ? "bun" : "node";
 }
 function startServer() {
   const TOOLS = [
@@ -201149,7 +201148,7 @@ function startServer() {
     }
   ];
   const findTool = (name2) => TOOLS.find((t34) => t34.name === name2);
-  const send = (msg) => process7.stdout.write(JSON.stringify(msg) + `
+  const send = (msg) => process.stdout.write(JSON.stringify(msg) + `
 `);
   const ok2 = (id3, result) => send({ jsonrpc: "2.0", id: id3, result });
   const fail = (id3, code, message) => send({ jsonrpc: "2.0", id: id3, error: { code, message } });
@@ -201169,8 +201168,8 @@ function startServer() {
         const tool = findTool(params?.name);
         if (!tool)
           return fail(id3, -32602, `unknown tool: ${params?.name}`);
-        if (process7.env.MCP_HOOK_DEBUG)
-          process7.stderr.write(`[${SERVER_NAME}] tools/call ${params?.name}
+        if (process.env.MCP_HOOK_DEBUG)
+          process.stderr.write(`[${SERVER_NAME}] tools/call ${params?.name}
 `);
         let result;
         try {
@@ -201187,9 +201186,9 @@ function startServer() {
         return fail(id3, -32601, `method not found: ${method}`);
     }
   };
-  process7.stderr.write(`[${SERVER_NAME}] running under ${detectRuntime()} (v${SERVER_INFO.version})
+  process.stderr.write(`[${SERVER_NAME}] running under ${detectRuntime()} (v${SERVER_INFO.version})
 `);
-  const rl4 = readline.createInterface({ input: process7.stdin });
+  const rl4 = readline.createInterface({ input: process.stdin });
   rl4.on("line", (line5) => {
     const trimmed = line5.trim();
     if (!trimmed)
@@ -201198,18 +201197,18 @@ function startServer() {
     try {
       msg = JSON.parse(trimmed);
     } catch {
-      process7.stderr.write(`[${SERVER_NAME}] non-JSON line ignored
+      process.stderr.write(`[${SERVER_NAME}] non-JSON line ignored
 `);
       return;
     }
     Promise.resolve(handle2(msg)).catch((e7) => {
-      process7.stderr.write(`[${SERVER_NAME}] handler crash: ${e7?.stack ?? e7}
+      process.stderr.write(`[${SERVER_NAME}] handler crash: ${e7?.stack ?? e7}
 `);
       if (msg?.id !== undefined)
         fail(msg.id, -32603, `internal error: ${e7?.message ?? e7}`);
     });
   });
-  rl4.on("close", () => process7.exit(0));
+  rl4.on("close", () => process.exit(0));
 }
 if (isMainModule())
   startServer();

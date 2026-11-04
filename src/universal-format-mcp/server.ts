@@ -5,7 +5,6 @@
 //   format_post      (PostToolUse Write|Edit)      — kotlin/python/go via each tool's CLI
 //   cwd_changed      (CwdChanged)                  — refresh the cwd-keyed prettier ignore/config caches
 //   worktree_entered (PostToolUse EnterWorktree)   — same, via the signal that actually fires (see handlers.ts)
-import process from "node:process";
 import readline from "node:readline";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -15,6 +14,7 @@ const SERVER_NAME = "universal-format-hooks"; // keep aligned with the .mcp.json
 // UNIVERSAL_FORMAT_MCP_VERSION is inlined at build time by build.mjs's `bun build --env` flag
 // from plugin.json's own version, so plugin.json stays the single source of truth -- never
 // hand-edit this fallback to "match" a release; it only fires if server.ts runs unbundled.
+// Uses the global `process`, not a `node:process` import: bun's --env only substitutes the global.
 const SERVER_INFO = { name: SERVER_NAME, version: process.env.UNIVERSAL_FORMAT_MCP_VERSION ?? "0.0.0" };
 const DEFAULT_PROTOCOL = "2025-11-25"; // only used if the client omits protocolVersion
 
