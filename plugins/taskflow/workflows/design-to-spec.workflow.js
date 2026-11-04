@@ -46,8 +46,8 @@
 // Model assignment by difficulty:
 //   scout     haiku   — classify complexity/subsystems
 //   explorer  haiku   — read-only codebase exploration; conditional dispatch:
-//                     built-in agentType 'Explore' (repo-explorer tool absent)
-//                     OR default subagent calling explore_repository (present)
+//                     built-in agentType 'Explore' (graphmind absent)
+//                     OR default subagent using the graphmind MCP tools (present)
 //   designer  sonnet|opus|fable — design, trade-offs, decisions (highest
 //                     judgment load); model chosen per run from the scout's
 //                     `difficulty` verdict (DESIGN_MODEL), default opus
@@ -68,17 +68,18 @@ export const meta = {
 
 // ── Inputs via the `args` global (decoder with fail-fast guard) ─────────────
 // Expected: { TASK, DRAFT_PATH, SPEC_PATH, RESUME?, USER_INPUT?,
-//             EXPLORE_TOOL_AVAILABLE?, REPO_PATH? }
+//             GRAPHMIND_AVAILABLE?, REPO_PATH? }
 //   TASK       — design task / work description
 //   DRAFT_PATH — absolute path of the draft file (persisted between runs)
 //   SPEC_PATH  — absolute target path of the spec (input for spec-driven-delivery)
 //   RESUME     — false on the first run; true when restarting with draft + answers
 //   USER_INPUT — '' on the first run; otherwise the answers to the open questions
-//   EXPLORE_TOOL_AVAILABLE — optional; true ⇒ the per-subsystem explorers call
-//                the repo-explorer MCP tool (default subagent) instead of the
+//   GRAPHMIND_AVAILABLE — optional; true ⇒ the per-subsystem explorers use the
+//                graphmind MCP tools (default subagent) instead of the
 //                built-in Explore agent. Requires a non-empty REPO_PATH.
 //   REPO_PATH  — optional; absolute repo root (git rev-parse --show-toplevel),
-//                threaded from build-task; required when EXPLORE_TOOL_AVAILABLE.
+//                threaded from build-task; required when GRAPHMIND_AVAILABLE;
+//                passed as graphmind's project.
 function decodeArgs(required, defaults) {
   let a = typeof args === "undefined" ? null : args;
   // The runtime delivers args as a JSON STRING instead of an object depending
@@ -105,18 +106,18 @@ function decodeArgs(required, defaults) {
   if (missing.length) return { __error: "missing required args: " + missing.join(", ") + " (got keys: " + Object.keys(a).join(", ") + ")" };
   return { ...defaults, ...a };
 }
-const A = decodeArgs(["TASK", "DRAFT_PATH", "SPEC_PATH"], { RESUME: false, USER_INPUT: "", EXPLORE_TOOL_AVAILABLE: false, REPO_PATH: "" });
+const A = decodeArgs(["TASK", "DRAFT_PATH", "SPEC_PATH"], { RESUME: false, USER_INPUT: "", GRAPHMIND_AVAILABLE: false, REPO_PATH: "" });
 if (A.__error) return { status: "error", stage: "args", error: A.__error };
-const { TASK, DRAFT_PATH, SPEC_PATH, RESUME, USER_INPUT, EXPLORE_TOOL_AVAILABLE, REPO_PATH } = A;
+const { TASK, DRAFT_PATH, SPEC_PATH, RESUME, USER_INPUT, GRAPHMIND_AVAILABLE, REPO_PATH } = A;
 if (RESUME && !USER_INPUT) return { status: "error", stage: "args", error: "RESUME=true requires USER_INPUT (the answers to the previously returned questions)" };
 // Availability is decided once in build-task/SKILL.md and threaded in (see
 // .claude/rules/script-authoring.md §4). Accept the "true" string too — args
 // can arrive JSON-string-encoded. A set flag with no absolute REPO_PATH fails
-// loud (an empty repo_path would make explore_repository search the tool
-// server's own cwd — silent wrong results).
-const USE_EXPLORE_TOOL = (EXPLORE_TOOL_AVAILABLE === true || EXPLORE_TOOL_AVAILABLE === "true") && typeof REPO_PATH === "string" && REPO_PATH.trim().startsWith("/");
-if ((EXPLORE_TOOL_AVAILABLE === true || EXPLORE_TOOL_AVAILABLE === "true") && !USE_EXPLORE_TOOL)
-  return { status: "error", stage: "args", error: "EXPLORE_TOOL_AVAILABLE=true requires a non-empty absolute REPO_PATH" };
+// loud (an empty project would make graphmind answer from the checkout its MCP
+// server started in — silent wrong-branch results in a worktree).
+const USE_GRAPHMIND = (GRAPHMIND_AVAILABLE === true || GRAPHMIND_AVAILABLE === "true") && typeof REPO_PATH === "string" && REPO_PATH.trim().startsWith("/");
+if ((GRAPHMIND_AVAILABLE === true || GRAPHMIND_AVAILABLE === "true") && !USE_GRAPHMIND)
+  return { status: "error", stage: "args", error: "GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH" };
 
 const MODELS = {
   scout: "haiku", // pure classification — deliberately small
@@ -247,7 +248,7 @@ const SPEC_REVIEW = {
 // PHASE 1 — EXPLORE  (scout → 1..N read-only explorers)
 // ═════════════════════════════════════════════════════════════════════════════
 phase("Explore");
-log("Explore path: " + (USE_EXPLORE_TOOL ? "repo-explorer MCP tool" : "Explore agent"));
+log("Explore path: " + (USE_GRAPHMIND ? "graphmind MCP tools" : "Explore agent"));
 
 const resumeNote = RESUME
   ? `\nRESUME RUN: a prior draft exists at ${DRAFT_PATH}. Read it first and scope
@@ -315,38 +316,40 @@ design must match, recent related commits, constraints and pitfalls you can
 see in the code. Dense and exact — file paths and symbol names, not prose
 generalities. Structured output only.`;
 
-const exploreToolPrompt = (s) => `${NO_NARRATION}\n\nYou are a read-only codebase explorer (never edit anything). Task being
+const graphmindExplorePrompt = (s) => `${NO_NARRATION}\n\nYou are a read-only codebase explorer (never edit anything). Task being
 designed:\n${TASK}\n${resumeNote}\n
 Your assigned area: ${s.name} — ${s.focus}
-Find code locations with the repository-exploration MCP tool:
-1. Load it: ToolSearch(query: "select:mcp__repo-explorer-mcp__explore_repository").
-2. Call mcp__repo-explorer-mcp__explore_repository with:
-   - repo_path: "${REPO_PATH}"   (absolute repo root — use exactly this value)
-   - query: an ENGLISH question about your area (translate the area/focus if
-     needed), naming the exact identifier, symbol, or file path you are after
-   - scope_hint: null
-   - max_results: null
-   - response_format: "detailed"
-   Use ONE call per distinct question; issue another call only for a genuinely
-   different question, never to re-fetch a location already returned.
-3. If the tool is unavailable or returns an error, fall back to Read/Grep/Glob
-   yourself and still produce the report — never return empty for a recoverable
-   failure.
-4. The tool does NOT cover git history: run \`git log --oneline -n 15\` (and,
-   when useful, scoped to the area's paths) via Bash yourself for recent
-   related commits.
+This repository is indexed by graphmind (code graph + project memory). Use it first:
+1. Load the tools: ToolSearch(query: "select:mcp__graphmind__gm_search,mcp__graphmind__gm_outline,mcp__graphmind__gm_fn,mcp__graphmind__gm_deps,mcp__graphmind__gm_memory_search").
+2. Pass project: "${REPO_PATH}" on EVERY graphmind call (absolute checkout path — use
+   exactly this value; it pins answers to this checkout's branch, worktrees included).
+3. Recorded knowledge: one mcp__graphmind__gm_memory_search call with ENGLISH keywords
+   for your area; keep only entries that bear on the task (decisions, conventions,
+   known bugs).
+4. Code: mcp__graphmind__gm_search with an ENGLISH query naming the identifier or intent
+   (translate the area/focus if needed; ';' separates several queries) to locate
+   symbols and files; mcp__graphmind__gm_outline for a file's structure with line
+   numbers; mcp__graphmind__gm_deps for what a file imports; mcp__graphmind__gm_fn
+   (file= to disambiguate) only when you need full source or callers/callees — do
+   not chain it after every search.
+5. The graph does not cover string literals, config values, env vars, or unindexed
+   files (dotfiles, gitignored files): use Read/Grep/Glob for those. If a graphmind
+   call errors or returns nothing for your area, fall back to Read/Grep/Glob yourself
+   and still produce the report — never return empty for a recoverable failure.
+6. graphmind does not cover git history: run \`git log --oneline -n 15\` (and, when
+   useful, scoped to the area's paths) via Bash yourself for recent related commits.
 Report for the designer: relevant files (exact paths), existing patterns and
-conventions to follow, the real flow end to end, key signatures/interfaces the
-design must match, recent related commits, constraints and pitfalls. Dense and
-exact — file paths and symbol names, not prose generalities; write markdown,
-not raw JSON. If the tool's retrieval_confidence is low, add a one-line
-confidence caveat. Structured output only.`;
+conventions to follow, recorded project knowledge from step 3 (one line each, marked
+"graphmind memory"), the real flow end to end, key signatures/interfaces the design
+must match, recent related commits, constraints and pitfalls. Dense and exact — file
+paths and symbol names, not prose generalities; write markdown, not raw JSON.
+Structured output only.`;
 
 const exploreOpts = (s) => {
   const base = { label: "explore:" + s.name, phase: "Explore", schema: EXPLORE_SCHEMA, model: MODELS.explorer };
-  return USE_EXPLORE_TOOL ? base : { ...base, agentType: "Explore" };
+  return USE_GRAPHMIND ? base : { ...base, agentType: "Explore" };
 };
-const pickPrompt = (s) => (USE_EXPLORE_TOOL ? exploreToolPrompt(s) : explorerPrompt(s));
+const pickPrompt = (s) => (USE_GRAPHMIND ? graphmindExplorePrompt(s) : explorerPrompt(s));
 const exploreOuts =
   subsystems.length === 0
     ? []
