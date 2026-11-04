@@ -141,15 +141,8 @@ Every pipeline file is session-only, never a repository file:
    skip the `git status --porcelain` clean check and the
    cut/switch-to-`feature/<slug>` logic entirely — trust that the correct
    work branch is already checked out. Still determine `BASE_BRANCH` (short
-   name from `git symbolic-ref refs/remotes/origin/HEAD`, fallback `main`),
-   still capture `BRANCH_NAME` = `git branch --show-current`, and still
-   capture `REPO_PATH` = `git rev-parse --show-toplevel` (absolute repo
-   root) — all three are required downstream: `BASE_BRANCH`/`BRANCH_NAME` by
-   the delivery workflow (step 4), `REPO_PATH` by the design and delivery
-   workflows (steps 2 and 4). Capture `REPO_PATH` on this branch too:
-   `dispatch-task` always passes `--skip-branch-check`, so omitting it here
-   would thread an empty `REPO_PATH` and trip the workflows' fail-loud
-   `stage:'args'` guard whenever graphmind is available.
+   name from `git symbolic-ref refs/remotes/origin/HEAD`, fallback `main`) and
+   capture `BRANCH_NAME`/`REPO_PATH` as in the last sentence below.
    Otherwise (flag absent): `git status --porcelain` must be empty — stray
    state → stop and report. Determine `BASE_BRANCH` once as above. If the
    current branch IS the base branch, cut and switch to `feature/<slug>`.
@@ -158,13 +151,15 @@ Every pipeline file is session-only, never a repository file:
    not cut a new one and do not switch elsewhere; the pipeline (and Ship's
    create-or-update, step 4) continues on it and updates that PR/MR. Either
    way, capture `BRANCH_NAME` = `git branch --show-current` and `REPO_PATH` =
-   `git rev-parse --show-toplevel` (absolute repo root, required by the design
-   and delivery workflows, steps 2 and 4).
+   `git rev-parse --show-toplevel` (absolute repo root) — also on the
+   `--skip-branch-check` path (`dispatch-task` always passes it): both
+   workflows (steps 2 and 4) fail loud with `stage:'args'` on an empty
+   `REPO_PATH` whenever graphmind is available.
 2. **Design.** First probe once whether graphmind is usable for this checkout:
    (a) `ToolSearch(query: "select:mcp__graphmind__gm_search")` — the tool's
    schema present in the result; and (b) run `graphmind which` via Bash — exit 0
-   (it prints the registered project slug; inside an unregistered worktree of a
-   registered repo it registers the worktree first). Both ⇒
+   (it prints the registered project slug; exit 1 when the checkout is not
+   registered). Both ⇒
    `GRAPHMIND_AVAILABLE = true`; no schema, `graphmind` not found, or exit 1 ⇒
    `false`. Compute this once per `build-task` invocation and reuse the same
    value for the initial call, every resume re-run below, and step 4 (a value
@@ -200,8 +195,7 @@ USER_INPUT: '', GRAPHMIND_AVAILABLE, REPO_PATH}` (paths from the temp
    design.
 4. **Deliver.** Run the delivery workflow (invocation rules above) with args
    `{SPEC_PATH, PLAN_PATH, BRANCH_NAME, BASE_BRANCH, PLUGIN_ROOT, SCRATCH_DIR, GRAPHMIND_AVAILABLE, REPO_PATH}`
-   (`GRAPHMIND_AVAILABLE` and `REPO_PATH` come from steps 1–2;
-   `SCRATCH_DIR` is the same session-temp directory from "Session temp files"
+   (`SCRATCH_DIR` is the same session-temp directory from "Session temp files"
    above, trailing slash included — the delivery workflow's pr-author/
    implementer agents write their own scratch files there for
    shipper/reviewer to read back; add `SHIP: false`
