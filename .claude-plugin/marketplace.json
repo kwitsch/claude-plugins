@@ -101,20 +101,12 @@
     {
       "name": "inline-headroom",
       "source": "./plugins/inline-headroom",
-      "description": "Headroom-style levers inside Claude Code as a mod: clamp-only effort routing after successful tool results, a detector-only CacheAligner that logs cache-hit drops, and a SmartCrusher with lossless compaction, cross-turn dedup, a dense line elider, a config compressor, an HTML extractor, log, search and diff compressors, a text crusher and a relevance split that shrink tool results before the model reads them (originals retrievable, custom workflow tags kept whole). Ships a host-wide SQLite storage MCP server for persistent plugin data.",
-      "author": {
-        "name": "Kwitsch"
-      },
       "category": "productivity",
       "tags": ["mods", "hooks", "token-efficiency", "prompt-cache", "effort"]
     },
     {
       "name": "dprint",
       "source": "./plugins/dprint",
-      "description": "Skill that checks for a minimum dprint version, installs or updates dprint after confirmation, and offers to create a .dprint.jsonc from existing style configs.",
-      "author": {
-        "name": "Kwitsch"
-      },
       "category": "development",
       "tags": ["dprint", "formatter", "installer"]
     }
