@@ -151,12 +151,13 @@ also accept the string form for any such field. `plugins/universal-format/CLAUDE
   canonical shape is the direct-`.mjs` `command` shown above. Template:
   `.claude/skills/create-plugin/templates/mjs-launch.sh.tmpl` (prefers bun, falls
   back to node, errors if neither; all messages to stderr because stdout is the MCP
-  stdio channel; prepends `~/.local/bin`/`~/.bun/bin` to PATH).
+  stdio channel; appends `~/.local/bin`/`~/.bun/bin` to PATH).
 - `.mcp.json` shape with the wrapper: `command: ${CLAUDE_PLUGIN_ROOT}/bin/mjs-launch.sh`,
   `args: ["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"]`.
 - Known caveats: empty PATH segment, lingering signal forwarder.
-- A plugin whose wrapper deviates from the template (e.g. appending the user dirs
-  instead of prepending them) documents that in its own `CLAUDE.md`.
+- Append, never prepend, the user dirs: `export PATH="${PATH:+${PATH}:}${HOME:-}/.local/bin:${HOME:-}/.bun/bin"`.
+  The inherited PATH wins, so a stale user-dir binary never shadows a canonical one. The same holds for
+  command-hook PATH helpers (`npm-automations` `pathWithLocalBin`).
 - Do not "restore" a wrapper for a plugin that intentionally invokes its `.mjs`
   directly.
 

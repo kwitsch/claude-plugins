@@ -23,6 +23,8 @@ ONLY literal `false` disables a feature. All of the following count as enabled:
 
 Toggles whose enabled state creates files or external state must be fail-closed: only literal `true` enables — e.g. a toggle that auto-creates a folder or pushes to a remote. An uninterpolated placeholder must NEVER create files or external state.
 
+"State-creating" means the toggle's own hook/tool directly writes files or external state. A toggle that only gates an `additionalContext` nudge (the model or user still decides the write, e.g. `memory-enhancement`'s `auto_dream`) stays fail-open: unset resolves to the declared `default`.
+
 ## configure-* skill sync
 
 If a plugin has a `configure-*` skill, that skill must cover every option in `userConfig`.
@@ -41,11 +43,11 @@ If a plugin has a `configure-*` skill, that skill must cover every option in `us
   against exactly that.
 - `taskflow` is the same case for a different reason — see
   `plugins/taskflow/CLAUDE.md` for why.
-- `dprint` (2026-10-20) intentionally ships no `userConfig`: it is a skill-only
-  plugin whose one skill, `init-dprint`, runs only when explicitly invoked and
-  asks before every install, update or file write, so a toggle would only gate
-  an already opt-in action. Its bats suite asserts `userConfig`'s absence as a
-  tripwire.
+- `dprint` (2026-10-20) intentionally ships no `userConfig`: its one skill,
+  `dprint` (renamed from `init-dprint` in 0.5.0), runs only when explicitly
+  invoked and its `init` action asks before every install, update or file
+  write, so a toggle would only gate an already opt-in action. It is a synced
+  plugin with no bats suite here.
 - `inline-headroom`'s content router (`detectContentType` / `ROUTES`,
   2026-10-11) is infrastructure inside a plugin that does have toggles: it has
   no behaviour of its own, and which text a lever sees is governed by that

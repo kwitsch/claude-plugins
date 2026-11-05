@@ -23,6 +23,7 @@
 - Start every `.bats` file with `load 'test_helper'` and its own `setup() { common_setup; }` (bats has no cross-file `setup()`).
 - `common_setup` builds an isolated `PATH` that symlinks only the listed real tools (`git`, `sed`, `awk`, `jq`, …).
   - Add a deterministic, non-networked tool to that loop when a script under test needs it, rather than a suite-local workaround.
+- Scripts run via `run env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" bash …` lose `$BATS_TEST_TMPDIR`: `make_stub` bodies must write to `$TMPDIR` (same directory), or the redirect silently fails while the script still exits 0.
 
 ## Exit codes
 
