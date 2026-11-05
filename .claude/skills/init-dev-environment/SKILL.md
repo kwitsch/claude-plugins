@@ -6,7 +6,7 @@ description: Install the development tools this repository uses (node pnpm dprin
 # init-dev-environment — install this repository's development tools
 
 The `repository-audit` skill of the cc-knowledge plugin generated this
-skill from the tools it detected in this repository (node pnpm); `dprint` and its step-4 check were added by hand and are lost on regeneration. To regenerate
+skill from the tools it detected in this repository (node pnpm dprint). To regenerate
 it after the repository's tools change, delete this directory and run
 repository-audit again. Everything installs at user level — never as root,
 never via `sudo`, never by editing a shell startup file — into, or symlinked
@@ -54,8 +54,9 @@ are skipped.
 
 ## 4. Verify dprint
 
-Unless `dprint` reported `FAILED:`, run with the Bash tool from the repository
-root (`${CLAUDE_SKILL_DIR}/../../..`):
+Skip this step unless the tool list (`node pnpm dprint`) includes `dprint` and
+`dprint` did not report `FAILED:`. Otherwise run with the Bash tool from the
+repository root (`${CLAUDE_SKILL_DIR}/../../..`):
 
     dprint --version && dprint check
 
@@ -66,8 +67,9 @@ install failure: report the unformatted files and leave fixing them to the user
 
 ## 5. Report
 
-Report every output line (`present:`, `installed:`, `FAILED:`) and the step-4 dprint version and check result, quoting the
-installer's error output for each failed tool. Exit code 1 means at least one
+Report every output line (`present:`, `installed:`, `FAILED:`) and, when step 4
+ran, the dprint version and check result, quoting the installer's error output
+for each failed tool. Exit code 1 means at least one
 tool failed. If a `note:` line lists tools that are not on PATH (found only via
 `~/.local/bin`, `~/.cargo/bin` or `~/.bun/bin`), tell the user to add those
 directories to their shell profile — never edit shell startup files. This note
