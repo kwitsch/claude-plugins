@@ -221,8 +221,8 @@ cm_run() {
   assert_failure
 }
 
-@test "the verbatim file is guarded by .prettierignore and .coderabbit.yaml, and the cave-context orphan is gone" {
-  run grep -F 'plugins/linux-token-efficiency/hooks/SessionStart.md' "$REPO_ROOT/.prettierignore"
+@test "the verbatim file is guarded by dprint.json excludes and .coderabbit.yaml, and the cave-context orphan is gone" {
+  run jq -e '.excludes | index("plugins/linux-token-efficiency/hooks/SessionStart.md")' "$REPO_ROOT/dprint.json"
   assert_success
   # `--` is load-bearing: the pattern starts with "- ", which grep would otherwise
   # parse as an option (same reason as the .gitattributes test above).
