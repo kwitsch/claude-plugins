@@ -8,7 +8,7 @@
 ### Fixtures
 
 - Every fixture is fabricated and a few bytes. The real 279.6 MiB cbm binary is never downloaded or extracted; no test reaches the network.
-  - Releases: an ephemeral 127.0.0.1 server (`RTK_DOWNLOAD_BASE_URL` / `RTK_RELEASE_BASE_URL` / `CBM_DOWNLOAD_BASE_URL` point at it) or a stubbed `curl`.
+  - Releases: an ephemeral 127.0.0.1 server (`RTK_DOWNLOAD_BASE_URL` / `CBM_DOWNLOAD_BASE_URL` point at it) or a stubbed `curl`.
   - cbm: a fake MCP-speaking binary in a fixture plugin tree.
   - Mods module: the wiring tests stub `$.fs`/`$.env`/`$.process`/`$.session.cwd` beneath the plugin (no real rtk, git or file system); `rtk-rewrite.test.mjs` unit-tests the pure policy, plus one real-git worktree case for `gitDirs`.
   - Launcher: stubbed `bunx`/`npx` on an isolated `PATH`; the real runners and the npm registry are never touched.

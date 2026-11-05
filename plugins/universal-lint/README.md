@@ -70,5 +70,5 @@ No standalone, actively-maintained JSON linter has a clean exit-code
 contract: `jsonlint` (npm) is unmaintained, and its successor
 `@prantlf/jsonlint` (like `biome lint`) conflates "invalid JSON" with
 "crashed/misconfigured" under the same exit code. `universal-format`'s
-`prettier`/`biome` chain already rejects malformed JSON, so format-only
+bundled prettier already rejects malformed JSON, so format-only
 coverage is the honest answer here.
