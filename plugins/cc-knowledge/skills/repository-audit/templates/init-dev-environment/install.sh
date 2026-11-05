@@ -174,6 +174,9 @@ fetch_run() {
 # edit when `command -v bun` resolves (it does: PATH includes ~/.local/bin).
 install_bun() { BUN_INSTALL="$HOME/.local" fetch_run https://bun.sh/install bash; }
 
+# official installer; DPRINT_INSTALL is the prefix, the binary lands in $DPRINT_INSTALL/bin
+install_dprint() { DPRINT_INSTALL="$HOME/.local" fetch_run https://dprint.dev/install.sh sh; }
+
 install_cargo() {
   fetch_run https://sh.rustup.rs sh -y --no-modify-path &&
     link "$CARGO_BIN/cargo" && link "$CARGO_BIN/rustc" && link "$CARGO_BIN/rustup"
