@@ -42,6 +42,13 @@ rg_or_grep() {
 }
 export -f rg_or_grep
 
+# The workflows are dprint-formatted, which puts a multi-line arrow body or a
+# `+` continuation on the line after its head: assert "<head> is directly
+# followed by a line containing <next>" instead of pinning one joined line.
+followed_by() { # <head> <next> <file>
+  grep -A1 -F -- "$1" "$3" | grep -qF -- "$2"
+}
+
 # --- Manifest invariants ---
 
 @test "plugin.json is valid and has required fields, no userConfig (deliberate — see CLAUDE.md)" {
@@ -154,23 +161,28 @@ export -f rg_or_grep
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'const NO_NARRATION' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
-  for p in 'scoutPrompt = `${NO_NARRATION}' '`${NO_NARRATION}\n\nYou are a read-only codebase explorer' 'specWriterPrompt = (revision) => `${NO_NARRATION}' 'specReviewerPrompt = `${NO_NARRATION}'; do
+  for p in 'scoutPrompt = `${NO_NARRATION}' '`${NO_NARRATION}\n\nYou are a read-only codebase explorer' 'specReviewerPrompt = `${NO_NARRATION}'; do
     run rg_or_grep -F "$p" "$WORKFLOWS/design-to-spec.workflow.js"
     [ "$status" -eq 0 ]
   done
+  followed_by 'specWriterPrompt = (revision) =>' '`${NO_NARRATION}' "$WORKFLOWS/design-to-spec.workflow.js"
+  followed_by 'graphmindExplorePrompt = (s) =>' '`${NO_NARRATION}\n\nYou are a read-only codebase explorer' "$WORKFLOWS/design-to-spec.workflow.js"
   # design-to-spec's graphmind-path explorer prompt must exist, carry the NO_NARRATION
   # prefix, and name the graphmind tools + project param (conditional graphmind path).
-  for p in 'graphmindExplorePrompt = (' ') => `${NO_NARRATION}\n\nYou are a read-only codebase explorer' 'mcp__graphmind__gm_search' 'mcp__graphmind__gm_memory_search' 'project: "${REPO}"' 'GRAPHMIND_AVAILABLE' 'GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH'; do
+  for p in 'graphmindExplorePrompt = (' 'mcp__graphmind__gm_search' 'mcp__graphmind__gm_memory_search' 'project: "${REPO}"' 'GRAPHMIND_AVAILABLE' 'GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH'; do
     run rg_or_grep -F "$p" "$WORKFLOWS/design-to-spec.workflow.js"
     [ "$status" -eq 0 ]
   done
-  for p in 'planCheckerPrompt = `${NO_NARRATION}' 'implementerPrompt = (t) => `${NO_NARRATION}' 'reviewerPrompt = (t, implReport) => `${NO_NARRATION}' 'fixerPrompt = (t, findings, worktreePath, branch) => `${NO_NARRATION}' 'NO_NARRATION +'; do
-    run rg_or_grep -F "$p" "$WORKFLOWS/spec-driven-delivery.workflow.js"
-    [ "$status" -eq 0 ]
+  run rg_or_grep -F 'planCheckerPrompt = `${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  [ "$status" -eq 0 ]
+  for p in 'implementerPrompt = (t) =>' 'reviewerPrompt = (t, implReport) =>' 'fixerPrompt = (t, findings, worktreePath, branch) =>'; do
+    followed_by "$p" '`${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   done
+  followed_by 'NO_NARRATION' '+ "\n\n' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   run rg_or_grep -F 'const NO_NARRATION' "$WORKFLOWS/changes-review.workflow.js"
   [ "$status" -eq 0 ]
-  for p in 'NO_NARRATION +' 'schema: SCOPE_SCHEMA' 'schema: REPORT_SCHEMA' 'ponytailReviewPrompt ='; do
+  followed_by 'NO_NARRATION' '+ "\n\n' "$WORKFLOWS/changes-review.workflow.js"
+  for p in 'schema: SCOPE_SCHEMA' 'schema: REPORT_SCHEMA' 'ponytailReviewPrompt ='; do
     run rg_or_grep -F "$p" "$WORKFLOWS/changes-review.workflow.js"
     [ "$status" -eq 0 ]
   done
@@ -952,7 +964,7 @@ mm_git_fixture() {
 }
 
 @test "implementer keeps its pinned prompt head and redirects test evidence to the derived path" {
-  run rg_or_grep -F 'implementerPrompt = (t) => `${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run followed_by 'implementerPrompt = (t) =>' '`${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'tevPathFor' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
@@ -963,7 +975,7 @@ mm_git_fixture() {
 }
 
 @test "reviewer reads test evidence from the file named by testEvidencePath" {
-  run rg_or_grep -F 'reviewerPrompt = (t, implReport) => `${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
+  run followed_by 'reviewerPrompt = (t, implReport) =>' '`${NO_NARRATION}' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'named by testEvidencePath' "$WORKFLOWS/spec-driven-delivery.workflow.js"
   [ "$status" -eq 0 ]
