@@ -1945,6 +1945,13 @@ rustup_proxy_fixture() {
   [ ! -e "$HOME/.local" ]
 }
 
+@test "install.sh --dry-run dprint reports missing" {
+  run_install_sh --dry-run dprint
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"missing: dprint"* ]]
+  [ ! -e "$HOME/.local" ]
+}
+
 @test "install.sh --dry-run notes a present tool reachable only via the dirs it appended to PATH" {
   mkdir -p "$HOME/.local/bin"
   printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "$HOME/.local/bin/pnpm"
@@ -2164,6 +2171,10 @@ detect_fixture() {
   local m="$PLUGIN/skills/repository-audit/scripts/tool-map.json"
   run jq empty "$m"
   [ "$status" -eq 0 ]
+  run jq -e 'all(.[]; (.rootFiles == null) or ((.rootFiles|type=="array") and all(.rootFiles[]; type=="string")))' "$m"
+  [ "$status" -eq 0 ]
+  run jq -e '.dprint.rootFiles == ["dprint.json", "dprint.jsonc", ".dprint.json", ".dprint.jsonc", ".config/dprint.json", ".config/dprint.jsonc"]' "$m"
+  [ "$status" -eq 0 ]
   run jq -e 'all(.[]; (.files|type=="array") and (.commands|type=="array") and all(.files[], .commands[]; type=="string"))' "$m"
   [ "$status" -eq 0 ]
   run jq -e '[.[].commands[]] | length == (unique|length)' "$m"
@@ -2275,6 +2286,36 @@ detect_fixture() {
   run_detect "$proj"
   [ "$status" -eq 1 ]
   [[ "$output" == *"Malformed"*".lsp.json"*"an array"* ]]
+}
+
+@test "detection: a root dprint config detects dprint" {
+  local proj="$BATS_TEST_TMPDIR/p_dprint_root"
+  mkdir -p "$proj"
+  printf '{}\n' > "$proj/dprint.json"
+  run_detect "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '[.tools[].id] == ["dprint"]'
+  echo "$output" | jq -e '(.tools[] | select(.id=="dprint") | .evidence) == ["dprint.json"]'
+}
+
+@test "detection: .config/dprint.jsonc at the root detects dprint" {
+  local proj="$BATS_TEST_TMPDIR/p_dprint_config"
+  mkdir -p "$proj/.config"
+  printf '{}\n' > "$proj/.config/dprint.jsonc"
+  run_detect "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '[.tools[].id] == ["dprint"]'
+  echo "$output" | jq -e '(.tools[] | select(.id=="dprint") | .evidence) == [".config/dprint.jsonc"]'
+}
+
+@test "detection: a nested dprint config does not detect dprint" {
+  local proj="$BATS_TEST_TMPDIR/p_dprint_nested"
+  mkdir -p "$proj/sub/.config"
+  printf '{}\n' > "$proj/sub/dprint.json"
+  printf '{}\n' > "$proj/sub/.config/dprint.json"
+  run_detect "$proj"
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.tools == []'
 }
 
 # --- init-dev-environment generation (detect-tools.mjs --write, SKILL.md.tmpl) ---
@@ -2494,6 +2535,20 @@ detect_fixture() {
   done
 }
 
+@test "--write with a root dprint config renders the verify step" {
+  local proj="$BATS_TEST_TMPDIR/p_dprint_write"
+  mkdir -p "$proj"
+  printf '{}\n' > "$proj/dprint.json"
+  run_detect "$proj" --write
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.wrote == true'
+  local s="$proj/.claude/skills/init-dev-environment/SKILL.md"
+  run rg_or_grep -F 'install.sh --dry-run dprint' "$s"; [ "$status" -eq 0 ]
+  run rg_or_grep -F '## 4. Verify dprint' "$s"; [ "$status" -eq 0 ]
+  run rg_or_grep -F '## 5. Report' "$s"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'dprint --version && dprint check' "$s"; [ "$status" -eq 0 ]
+}
+
 # --- repository-audit tool-detection phase (SKILL.md steps 5-7) ---
 
 @test "repository-audit wires the tool-detection phase and the Dev environment report section" {
@@ -2546,8 +2601,8 @@ detect_fixture() {
   [[ "$output" == *"init-dev-environment"* ]]
 }
 
-@test "plugin.json version is 2.0.2 (patch, memory-audit doc moves)" {
+@test "plugin.json version is 2.1.0 (minor, root dprint config detection)" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "2.0.2" ]
+  [ "$output" = "2.1.0" ]
 }

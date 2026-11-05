@@ -12,6 +12,11 @@
     "files": ["bun.lock", "bun.lockb", "bunfig.toml"],
     "commands": ["bun", "bunx"]
   },
+  "dprint": {
+    "files": [],
+    "commands": ["dprint"],
+    "rootFiles": ["dprint.json", "dprint.jsonc", ".dprint.json", ".dprint.jsonc", ".config/dprint.json", ".config/dprint.jsonc"]
+  },
   "cargo": {
     "files": ["Cargo.toml", "rust-toolchain", "rust-toolchain.toml"],
     "commands": ["cargo", "rustc", "rustup"]
