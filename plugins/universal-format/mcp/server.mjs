@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=e5d3f1e36b3bd228 body=b6f8bdccf3c19cc9 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=49efcaf63786cdb7 body=45f9a152e59a9b64 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -171618,7 +171618,6 @@ var require_tslib = __commonJS((exports, module2) => {
 });
 
 // src/universal-format-mcp/server.ts
-import process7 from "node:process";
 import readline from "node:readline";
 import { realpathSync as realpathSync2 } from "node:fs";
 import { fileURLToPath as fileURLToPath8 } from "node:url";
@@ -200880,6 +200879,40 @@ function findGitRoot(fileDir, home) {
   gitRootCache.set(fileDir, found);
   return found;
 }
+var DPRINT_CONFIG_NAMES = ["dprint.json", "dprint.jsonc", ".dprint.json", ".dprint.jsonc", ".config/dprint.json", ".config/dprint.jsonc"];
+function hasDprintConfig(cwd) {
+  let found = false;
+  walkToRoot(cwd, (dir) => {
+    if (DPRINT_CONFIG_NAMES.some((n4) => existsSync3(path21.join(dir, n4)))) {
+      found = true;
+      return true;
+    }
+    return existsSync3(path21.join(dir, ".git"));
+  });
+  return found;
+}
+function isDprintPluginEnabled(cwd) {
+  const projectDirs = [...new Set([cwd, findGitRoot(cwd, os9.homedir()) || cwd])];
+  const files = [...projectDirs.flatMap((d5) => [path21.join(d5, ".claude", "settings.local.json"), path21.join(d5, ".claude", "settings.json")]), path21.join(process.env.CLAUDE_CONFIG_DIR || path21.join(os9.homedir(), ".claude"), "settings.json")];
+  for (const file of files) {
+    try {
+      const enabled = JSON.parse(readFileSync3(file, "utf8"))?.enabledPlugins;
+      if (!enabled || typeof enabled !== "object")
+        continue;
+      const key2 = Object.keys(enabled).find((k5) => k5.startsWith("dprint@"));
+      if (key2 !== undefined)
+        return enabled[key2] === true;
+    } catch {}
+  }
+  return false;
+}
+function dprintGoverns(cwd) {
+  try {
+    return hasDprintConfig(cwd) && isDprintPluginEnabled(cwd);
+  } catch {
+    return false;
+  }
+}
 function isClaudeInternalPath(resolved) {
   const segments = resolved.split(path21.sep);
   return segments.some((s, i5) => s === ".claude" && (segments[i5 + 1] === "worktrees" || segments[i5 + 1] === "agent-memory"));
@@ -200923,7 +200956,7 @@ function resolveTarget(args2) {
     return null;
   if (base !== cwd && isClaudeInternalPath(resolved))
     return null;
-  return { cwd, base, resolved, rel, fp: fp2 };
+  return { cwd, base, resolved, rel, fp: fp2, dprint: base === cwd && dprintGoverns(cwd) };
 }
 function applyEdit(current, oldStr, newStr, replaceAll3) {
   if (oldStr === "")
@@ -200953,6 +200986,8 @@ async function formatPost(args2) {
       clearPrettierConfigCaches();
     if (PRETTIER_IGNORE_BASENAMES.has(basename))
       primePrettierIgnoreCache(base);
+    if (target.dprint)
+      return {};
     const lang = EXT_MAP[path21.extname(resolved).toLowerCase()];
     if (!lang)
       return {};
@@ -200988,7 +201023,7 @@ async function formatPost(args2) {
 async function formatPre(args2) {
   try {
     const target = resolveTarget(args2);
-    if (!target)
+    if (!target || target.dprint)
       return {};
     const { cwd, base, resolved, rel, fp: fp2 } = target;
     const lang = EXT_MAP[path21.extname(resolved).toLowerCase()];
@@ -201066,17 +201101,17 @@ async function worktreeEntered(args2) {
 
 // src/universal-format-mcp/server.ts
 var SERVER_NAME = "universal-format-hooks";
-var SERVER_INFO = { name: SERVER_NAME, version: process7.env.UNIVERSAL_FORMAT_MCP_VERSION ?? "0.0.0" };
+var SERVER_INFO = { name: SERVER_NAME, version: "0.18.0" };
 var DEFAULT_PROTOCOL = "2025-11-25";
 function isMainModule() {
   try {
-    return realpathSync2(process7.argv[1]) === realpathSync2(fileURLToPath8(import.meta.url));
+    return realpathSync2(process.argv[1]) === realpathSync2(fileURLToPath8(import.meta.url));
   } catch {
     return false;
   }
 }
 function detectRuntime() {
-  return process7.versions.bun ? "bun" : "node";
+  return process.versions.bun ? "bun" : "node";
 }
 function startServer() {
   const TOOLS = [
@@ -201106,7 +201141,7 @@ function startServer() {
     }
   ];
   const findTool = (name2) => TOOLS.find((t34) => t34.name === name2);
-  const send = (msg) => process7.stdout.write(JSON.stringify(msg) + `
+  const send = (msg) => process.stdout.write(JSON.stringify(msg) + `
 `);
   const ok2 = (id3, result) => send({ jsonrpc: "2.0", id: id3, result });
   const fail = (id3, code, message) => send({ jsonrpc: "2.0", id: id3, error: { code, message } });
@@ -201126,8 +201161,8 @@ function startServer() {
         const tool = findTool(params?.name);
         if (!tool)
           return fail(id3, -32602, `unknown tool: ${params?.name}`);
-        if (process7.env.MCP_HOOK_DEBUG)
-          process7.stderr.write(`[${SERVER_NAME}] tools/call ${params?.name}
+        if (process.env.MCP_HOOK_DEBUG)
+          process.stderr.write(`[${SERVER_NAME}] tools/call ${params?.name}
 `);
         let result;
         try {
@@ -201144,9 +201179,9 @@ function startServer() {
         return fail(id3, -32601, `method not found: ${method}`);
     }
   };
-  process7.stderr.write(`[${SERVER_NAME}] running under ${detectRuntime()} (v${SERVER_INFO.version})
+  process.stderr.write(`[${SERVER_NAME}] running under ${detectRuntime()} (v${SERVER_INFO.version})
 `);
-  const rl4 = readline.createInterface({ input: process7.stdin });
+  const rl4 = readline.createInterface({ input: process.stdin });
   rl4.on("line", (line5) => {
     const trimmed = line5.trim();
     if (!trimmed)
@@ -201155,18 +201190,18 @@ function startServer() {
     try {
       msg = JSON.parse(trimmed);
     } catch {
-      process7.stderr.write(`[${SERVER_NAME}] non-JSON line ignored
+      process.stderr.write(`[${SERVER_NAME}] non-JSON line ignored
 `);
       return;
     }
     Promise.resolve(handle2(msg)).catch((e7) => {
-      process7.stderr.write(`[${SERVER_NAME}] handler crash: ${e7?.stack ?? e7}
+      process.stderr.write(`[${SERVER_NAME}] handler crash: ${e7?.stack ?? e7}
 `);
       if (msg?.id !== undefined)
         fail(msg.id, -32603, `internal error: ${e7?.message ?? e7}`);
     });
   });
-  rl4.on("close", () => process7.exit(0));
+  rl4.on("close", () => process.exit(0));
 }
 if (isMainModule())
   startServer();
