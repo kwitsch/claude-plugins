@@ -2535,6 +2535,20 @@ detect_fixture() {
   done
 }
 
+@test "--write with a root dprint config renders the verify step" {
+  local proj="$BATS_TEST_TMPDIR/p_dprint_write"
+  mkdir -p "$proj"
+  printf '{}\n' > "$proj/dprint.json"
+  run_detect "$proj" --write
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.wrote == true'
+  local s="$proj/.claude/skills/init-dev-environment/SKILL.md"
+  run rg_or_grep -F 'install.sh --dry-run dprint' "$s"; [ "$status" -eq 0 ]
+  run rg_or_grep -F '## 4. Verify dprint' "$s"; [ "$status" -eq 0 ]
+  run rg_or_grep -F '## 5. Report' "$s"; [ "$status" -eq 0 ]
+  run rg_or_grep -F 'dprint --version && dprint check' "$s"; [ "$status" -eq 0 ]
+}
+
 # --- repository-audit tool-detection phase (SKILL.md steps 5-7) ---
 
 @test "repository-audit wires the tool-detection phase and the Dev environment report section" {
