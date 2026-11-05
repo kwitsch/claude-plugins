@@ -92,7 +92,7 @@ ensure() { # <id>: present | missing (dry-run) | installed | FAILED
 # (a recipe that makes one also records it in TMPD, so the EXIT trap removes it
 # when the installer is killed mid-download).
 # A recipe that needs a runtime starts with `ensure <dep> &&`.
-# ponytail: the download recipes (node, go, bun, cargo, uv, lua-language-server)
+# ponytail: the download recipes (node, go, bun, cargo, uv, dprint, lua-language-server)
 # hard-code upstream URLs and are covered only by bash -n, the id/function
 # parity check and the no-sudo grep; upgrade path: a base-URL override plus a
 # local node:http fixture server, as in rtk-install.bats.
