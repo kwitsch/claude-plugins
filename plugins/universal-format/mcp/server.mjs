@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=80e55dd508fa2787 body=a80c3dd3b03a6446 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=49efcaf63786cdb7 body=45f9a152e59a9b64 prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -200880,12 +200880,7 @@ function findGitRoot(fileDir, home) {
   return found;
 }
 var DPRINT_CONFIG_NAMES = ["dprint.json", "dprint.jsonc", ".dprint.json", ".dprint.jsonc", ".config/dprint.json", ".config/dprint.jsonc"];
-var DPRINT_CONFIG_BASENAMES = new Set(DPRINT_CONFIG_NAMES.map((n4) => path21.basename(n4)));
-var dprintConfigCache = new Map;
 function hasDprintConfig(cwd) {
-  const cached = dprintConfigCache.get(cwd);
-  if (cached !== undefined)
-    return cached;
   let found = false;
   walkToRoot(cwd, (dir) => {
     if (DPRINT_CONFIG_NAMES.some((n4) => existsSync3(path21.join(dir, n4)))) {
@@ -200894,11 +200889,11 @@ function hasDprintConfig(cwd) {
     }
     return existsSync3(path21.join(dir, ".git"));
   });
-  dprintConfigCache.set(cwd, found);
   return found;
 }
 function isDprintPluginEnabled(cwd) {
-  const files = [path21.join(cwd, ".claude", "settings.local.json"), path21.join(cwd, ".claude", "settings.json"), path21.join(process.env.CLAUDE_CONFIG_DIR || path21.join(os9.homedir(), ".claude"), "settings.json")];
+  const projectDirs = [...new Set([cwd, findGitRoot(cwd, os9.homedir()) || cwd])];
+  const files = [...projectDirs.flatMap((d5) => [path21.join(d5, ".claude", "settings.local.json"), path21.join(d5, ".claude", "settings.json")]), path21.join(process.env.CLAUDE_CONFIG_DIR || path21.join(os9.homedir(), ".claude"), "settings.json")];
   for (const file of files) {
     try {
       const enabled = JSON.parse(readFileSync3(file, "utf8"))?.enabledPlugins;
@@ -200959,11 +200954,9 @@ function resolveTarget(args2) {
   const { base, rel } = resolveBaseAndRel(cwd, resolved);
   if (isExcludedPath(rel))
     return null;
-  if (base === cwd && dprintGoverns(cwd))
-    return null;
   if (base !== cwd && isClaudeInternalPath(resolved))
     return null;
-  return { cwd, base, resolved, rel, fp: fp2 };
+  return { cwd, base, resolved, rel, fp: fp2, dprint: base === cwd && dprintGoverns(cwd) };
 }
 function applyEdit(current, oldStr, newStr, replaceAll3) {
   if (oldStr === "")
@@ -200993,8 +200986,8 @@ async function formatPost(args2) {
       clearPrettierConfigCaches();
     if (PRETTIER_IGNORE_BASENAMES.has(basename))
       primePrettierIgnoreCache(base);
-    if (DPRINT_CONFIG_BASENAMES.has(basename))
-      dprintConfigCache.clear();
+    if (target.dprint)
+      return {};
     const lang = EXT_MAP[path21.extname(resolved).toLowerCase()];
     if (!lang)
       return {};
@@ -201030,7 +201023,7 @@ async function formatPost(args2) {
 async function formatPre(args2) {
   try {
     const target = resolveTarget(args2);
-    if (!target)
+    if (!target || target.dprint)
       return {};
     const { cwd, base, resolved, rel, fp: fp2 } = target;
     const lang = EXT_MAP[path21.extname(resolved).toLowerCase()];

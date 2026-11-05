@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -10,8 +10,7 @@ import { formatPre, formatPost } from "../../plugins/universal-format/mcp/server
 // points $HOME (and so os.homedir(), the user-scope settings anchor) at a fresh tmp dir: each
 // `node --test` file is its own process, so the override never leaks into the other suites, and
 // the developer's real ~/.claude/settings.json never leaks in here. Every test uses its own tmp
-// cwd, so dprintConfigCache (keyed by cwd) never carries a verdict between tests. These tests
-// assume no `.git` entry and no dprint config exist above os.tmpdir().
+// cwd. These tests assume no `.git` entry and no dprint config exist above os.tmpdir().
 
 const UNFORMATTED = "const a={b:1}";
 const FORMATTED = "const a = { b: 1 };\n";
@@ -191,11 +190,37 @@ test("dprint gate: format_post runs no CLI formatter in a dprint-governed cwd (s
   });
 });
 
-test("dprint gate: writing dprint.json via Write clears the cached negative verdict", async () => {
+test("dprint gate: config presence is re-checked per call (created / deleted out of band)", async () => {
   freshHome(ENABLED);
-  const cwd = tmp("uf-dg-inval-");
-  assertFormatted(await preWrite(cwd), "no config yet: formatted, and the negative verdict is now cached");
+  const cwd = tmp("uf-dg-live-");
+  assertFormatted(await preWrite(cwd), "no config yet: formatted");
   writeDprintConfig(cwd);
-  await formatPost(/** @type {any} */ (hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "dprint.json") } })));
-  assert.deepEqual(await preWrite(cwd), {}, "format_post on a dprint config basename must clear dprintConfigCache");
+  assert.deepEqual(await preWrite(cwd), {}, "a config created without a Write/Edit is seen immediately");
+  rmSync(path.join(cwd, "dprint.json"));
+  assertFormatted(await preWrite(cwd), "a config deleted out of band (git rm, branch switch) is seen immediately");
+});
+
+test("dprint gate: a session in a repo subdirectory reads project settings at the git root", async () => {
+  freshHome();
+  const repo = tmp("uf-dg-subdir-");
+  mkdirSync(path.join(repo, ".git"));
+  writeDprintConfig(repo);
+  writeSettings(path.join(repo, ".claude", "settings.json"), ENABLED);
+  const cwd = path.join(repo, "packages", "app");
+  mkdirSync(cwd, { recursive: true });
+  assert.deepEqual(await preWrite(cwd), {}, "repo-root .claude/settings.json enables dprint for a subdirectory session");
+});
+
+test("dprint gate: prettier config writes invalidate the cache even while dprint governs", async () => {
+  freshHome();
+  const cwd = tmp("uf-dg-prettier-inval-");
+  writeDprintConfig(cwd);
+  const projectSettings = path.join(cwd, ".claude", "settings.json");
+  assertFormatted(await preWrite(cwd), "dprint not enabled yet: formatted, prettier's negative config lookup is cached");
+  writeSettings(projectSettings, ENABLED);
+  writeFileSync(path.join(cwd, ".prettierrc"), JSON.stringify({ semi: false }));
+  await formatPost(/** @type {any} */ (hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, ".prettierrc") } })));
+  writeSettings(projectSettings, { enabledPlugins: { "dprint@kwitsch-plugins": false } });
+  const res = /** @type {any} */ (await preWrite(cwd));
+  assert.equal(res?.hookSpecificOutput?.updatedInput?.content, "const a = { b: 1 }\n", "the .prettierrc written while gated must be honored after dprint is disabled");
 });
