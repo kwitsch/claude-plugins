@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Detect the development tools (runtimes, package managers, LSP servers) a
-// project uses, from catalog signal-file basenames anywhere in the pruned tree
+// project uses, from catalog signal-file basenames anywhere in the pruned tree,
+// catalog root-only signal paths (rootFiles) at the project root only,
 // and from the bare command names in the project-root .mcp.json and .lsp.json
 // (legacy) and the .lsp.json of the project's lsp plugin (.claude/skills/lsp/,
 // where lsp-audit writes the LSP servers),
@@ -27,7 +28,9 @@ const EVIDENCE_CAP = 5;
 /**
  * Load the bundled catalog and index it. Both indexes are Maps, so a
  * repo-supplied name like "constructor" can never resolve to a tool.
- * @returns {{ fileIndex: Map<string, string>, commandIndex: Map<string, string>, ids: string[] }}
+ * rootFiles holds [root-relative path, id] pairs from the optional
+ * per-entry "rootFiles" arrays, checked at the project root only.
+ * @returns {{ fileIndex: Map<string, string>, commandIndex: Map<string, string>, rootFiles: [string, string][], ids: string[] }}
  */
 function loadCatalog() {
   try {
@@ -37,14 +40,18 @@ function loadCatalog() {
     const fileIndex = new Map();
     /** @type {Map<string, string>} */
     const commandIndex = new Map();
+    /** @type {[string, string][]} */
+    const rootFiles = [];
     const ids = Object.keys(catalog);
     for (const id of ids) {
       const entry = catalog[id];
       if (!entry || !Array.isArray(entry.files) || !Array.isArray(entry.commands)) throw new Error(`"${id}" needs "files" and "commands" arrays`);
+      if (entry.rootFiles !== undefined && (!Array.isArray(entry.rootFiles) || !entry.rootFiles.every((/** @type {unknown} */ f) => typeof f === "string"))) throw new Error(`"${id}" "rootFiles" must be an array of strings`);
       for (const f of entry.files) fileIndex.set(f, id);
       for (const c of entry.commands) commandIndex.set(c, id);
+      for (const p of entry.rootFiles || []) rootFiles.push([p, id]);
     }
-    return { fileIndex, commandIndex, ids };
+    return { fileIndex, commandIndex, rootFiles, ids };
   } catch (err) {
     throw new Error(`Malformed bundled tool-map.json catalog: ${/** @type {any} */ (err).message}`, { cause: err });
   }
@@ -148,15 +155,16 @@ function configCommands(root) {
 }
 
 /**
- * Classify signal files and config commands into catalog tools and manual
- * to-dos. Evidence is unique, in insertion order (signal files first, then
- * config commands), capped at EVIDENCE_CAP. Also returns the catalog ids in
- * catalog key order.
+ * Classify signal files (tree-wide basenames, plus catalog rootFiles paths
+ * checked at the project root only) and config commands into catalog tools
+ * and manual to-dos. Evidence is unique, in insertion order (signal files
+ * first, then config commands), capped at EVIDENCE_CAP. Also returns the
+ * catalog ids in catalog key order.
  * @param {string} root
  * @returns {{ tools: { id: string, evidence: string[] }[], manual: { command: string, evidence: string[] }[], ids: string[] }}
  */
 function detect(root) {
-  const { fileIndex, commandIndex, ids } = loadCatalog();
+  const { fileIndex, commandIndex, rootFiles, ids } = loadCatalog();
   /** @type {Map<string, string[]>} */
   const toolEvidence = new Map();
   /** @type {Map<string, string[]>} */
@@ -173,6 +181,8 @@ function detect(root) {
     map.set(key, list);
   };
   for (const [id, paths] of findSignalFiles(root, fileIndex)) for (const p of paths) add(toolEvidence, id, p);
+  // rootFiles are signal files too, but only at the project root (a nested config never counts)
+  for (const [p, id] of rootFiles) if (existsSync(join(root, p))) add(toolEvidence, id, p);
   for (const { command, source } of configCommands(root)) {
     if (!COMMAND_TOKEN.test(command) || ASSUMED_PRESENT.has(command)) continue;
     const id = commandIndex.get(command);

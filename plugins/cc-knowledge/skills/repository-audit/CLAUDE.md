@@ -13,4 +13,5 @@ Mechanics live in `SKILL.md` and `scripts/detect-tools.reference.md` (script con
 
 - Every `scripts/tool-map.json` id needs an `install_<id>` recipe in `templates/init-dev-environment/install.sh` (bats-enforced). A recipe that needs a prerequisite runtime must also appear in the template's confirm-step prerequisite note.
 - Every non-`npx` server in `lsp-audit`'s `lsp-map.json` needs a `tool-map.json` entry, else detection reports its binary as a manual to-do.
+- A `tool-map.json` entry may carry an optional `rootFiles` array: root-relative paths (e.g. `.config/dprint.json`) checked at the project root only, never in nested directories; `files` stays basename-anywhere.
 - The template renders into a project-level skill outside the plugin: never put `CLAUDE_PLUGIN_ROOT` or dynamic-injection syntax in it (bats-enforced).
