@@ -34,7 +34,8 @@ development environment is complete and stop.
 Ask one `AskUserQuestion`, single-select, header `Install`. The question names
 the missing tool ids and notes that a missing prerequisite runtime is installed
 along with a tool that needs it (`go` for `gopls`, `uv` for `pylsp`/`python`/`python3`,
-`node` for `pnpm`/`yarn`, `cargo` for `rust-analyzer`). Options:
+`node` for `pnpm`/`yarn`, `cargo` for `rust-analyzer`), and that `dprint`
+needs `unzip`, which this skill does not install. Options:
 
 - `Install` — "Install the missing tools now at user level."
 - `Cancel` — "Install nothing."
@@ -56,12 +57,12 @@ are skipped.
 
 Skip this step unless the tool list (`@@TOOLS@@`) includes `dprint` and
 `dprint` did not report `FAILED:`. Otherwise run with the Bash tool from the
-repository root (`${CLAUDE_SKILL_DIR}/../../..`):
+repository root (`${CLAUDE_SKILL_DIR}/../../..`), with `~/.local/bin` on PATH
+because the installer puts `dprint` there:
 
-    dprint --version && dprint check
+    cd ${CLAUDE_SKILL_DIR}/../../.. && PATH="$HOME/.local/bin:$PATH" && dprint --version && dprint check
 
-A non-zero `dprint --version` means the binary is not usable (or not on PATH —
-see the `note:` line). `dprint check` failing with formatting diffs is not an
+A non-zero `dprint --version` means the binary is not usable. `dprint check` failing with formatting diffs is not an
 install failure: report the unformatted files and leave fixing them to the user
 (`dprint fmt`).
 

@@ -174,8 +174,15 @@ fetch_run() {
 # edit when `command -v bun` resolves (it does: PATH includes ~/.local/bin).
 install_bun() { BUN_INSTALL="$HOME/.local" fetch_run https://bun.sh/install bash; }
 
-# official installer; DPRINT_INSTALL is the prefix, the binary lands in $DPRINT_INSTALL/bin
-install_dprint() { DPRINT_INSTALL="$HOME/.local" fetch_run https://dprint.dev/install.sh sh; }
+# official installer; DPRINT_INSTALL is the prefix, the binary lands in $DPRINT_INSTALL/bin.
+# It extracts a zip, and unzip needs root to install, so it is checked, not installed.
+install_dprint() {
+  command -v unzip >/dev/null 2>&1 || {
+    echo "unzip not found: the dprint installer needs it; install unzip, then retry" >&2
+    return 1
+  }
+  DPRINT_INSTALL="$HOME/.local" fetch_run https://dprint.dev/install.sh sh
+}
 
 install_cargo() {
   fetch_run https://sh.rustup.rs sh -y --no-modify-path &&
