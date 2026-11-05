@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // @ts-nocheck -- generated bundle; edit src/universal-format-mcp/*.ts, run `pnpm run build:universal-format-mcp`
-// uf-build-fingerprint src=002484f4dd2649ed body=69e869ab823ef2de prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
+// uf-build-fingerprint src=55de7d69e7a96148 body=269f90c33b903ebd prettier=3.9.6 plugins=prettier-plugin-java@2.10.3+@prettier/plugin-php@0.25.0+prettier-plugin-sh@0.16.1 assets=a5540cbf1f2157e8 bun=1.3.14
 import { createRequire } from "node:module";
 var __create = Object.create;
 var __getProtoOf = Object.getPrototypeOf;
@@ -201099,7 +201099,7 @@ async function worktreeEntered(args2) {
 
 // src/universal-format-mcp/server.ts
 var SERVER_NAME = "universal-format-hooks";
-var SERVER_INFO = { name: SERVER_NAME, version: "0.18.0" };
+var SERVER_INFO = { name: SERVER_NAME, version: "0.18.1" };
 var DEFAULT_PROTOCOL = "2025-11-25";
 function isMainModule() {
   try {

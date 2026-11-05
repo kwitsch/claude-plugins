@@ -33,7 +33,7 @@ TypeScript sources of the generated `plugins/universal-format/mcp/server.mjs`. P
 
 - `prettier --write <file>` filters even an explicitly named file through `--ignore-path` (CLI default `[.gitignore, .prettierignore]`). `isPrettierIgnored` passes ONLY `<base>/.prettierignore` (module-private `PRETTIER_IGNORE_FILENAME`, read by `readIgnoreState` and `probePrettierIgnored`).
 - Do not restore `.gitignore`: a `.gitignore`d-but-not-`.prettierignore`d file (a `dist/` bundle, generated sources, this repo's `docs/`) IS formatted on purpose; `.prettierignore` is the single opt-out.
-- `getFileInfo` does NOT auto-discover ignore files (verified), so the path is passed explicitly, joined to the file's `base`; a missing file is tolerated and any error falls open to formatting. This repo's `pnpm-lock.yaml` and generated `mcp/server.mjs` are in the root `.prettierignore` (not merely `.gitignore`) for exactly that reason.
+- `getFileInfo` does NOT auto-discover ignore files (verified), so the path is passed explicitly, joined to the file's `base`; a missing file is tolerated and any error falls open to formatting. A prettier-governed project must list generated files (a lockfile, a bundle) in its own `.prettierignore`, not merely `.gitignore`, for exactly that reason; this repo has no root `.prettierignore` any more (its formatting is dprint; `pnpm-lock.yaml` and generated `mcp/server.mjs` are excluded in the root `dprint.json`).
 
 ## Config-cache invalidation is event-driven, NOT per format (do not "fix" back)
 

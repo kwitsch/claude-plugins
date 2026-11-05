@@ -9,16 +9,6 @@
   "version": "1.0.0",
   "plugins": [
     {
-      "name": "git-sign-key",
-      "source": "./plugins/git-sign-key",
-      "description": "Signs git commits with a ~/.claude/sign.key file via SSH signing instead of the ssh-agent.",
-      "author": {
-        "name": "Kwitsch"
-      },
-      "category": "git",
-      "tags": ["git", "hooks", "signing", "ssh"]
-    },
-    {
       "name": "cc-knowledge",
       "source": "./plugins/cc-knowledge",
       "description": "Lookup skill plus harness-optimized reference files for authoring and configuring Claude Code — skills, subagents, hooks, slash commands, MCP, plugins, CLAUDE.md memory, and settings — plus a read-only expert agent that replaces the built-in claude-code-guide. Retrieves only the relevant section into context.",

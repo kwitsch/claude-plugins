@@ -7,7 +7,7 @@
 # Non-interactive PATH often lacks ~/.local/bin and ~/.bun/bin; prepend them.
 # Use ${HOME}, never ~. No empty PATH segment.
 set -euo pipefail
-export PATH="${HOME:-}/.local/bin:${HOME:-}/.bun/bin${PATH:+:${PATH}}"
+export PATH="${PATH:+${PATH}:}${HOME:-}/.local/bin:${HOME:-}/.bun/bin"
 
 if [ "$#" -eq 0 ]; then
   echo "mjs-launch.sh: missing argument (expected a .mjs script path)" >&2

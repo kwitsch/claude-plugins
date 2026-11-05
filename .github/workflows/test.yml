@@ -17,7 +17,6 @@ jobs:
       matrix:
         # Add a plugin here when it gains a test/<plugin>/test.bats suite.
         plugin:
-          - git-sign-key
           - cc-knowledge
           - coding-toolbox
           - universal-format

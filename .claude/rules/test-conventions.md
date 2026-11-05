@@ -9,7 +9,7 @@ paths:
 
 - No network in tests.
 - Replace external CLIs with stub executables on an isolated `PATH`.
-- Redirect `$HOME` to a temp dir when hook scripts read `~/…` paths; a mods module mocks `$.env`/`$.fs` in its `claude plugin test` instead (e.g. git-sign-key).
+- Redirect `$HOME` to a temp dir when hook scripts read `~/…` paths; a mods module mocks `$.env`/`$.fs` in its `claude plugin test` instead.
 - Installer tests use `--print-*` modes or `CCTOOLS_SKIP_INSTALL=1` — never download.
 
 ## Exit codes
@@ -43,14 +43,8 @@ CLIs on `PATH`, redirect `$HOME`/`TMPDIR`) apply identically.
 
 ## Splitting a large suite
 
-`bats <dir>` (CI's own invocation) runs every `.bats` file in a directory, so a
-suite that outgrows one file (coding-toolbox's did, past ~2200 lines) can split
-into several — one per thematic group (a skill, a hook, an agent pair) — with
-no CI change. Put whatever setup/helpers are genuinely shared across 2+ groups
-(the common `setup()` body, a text-search wrapper like `rg_or_grep`, a stub
-factory used by two unrelated groups) into one `test_helper.bash`, loaded by
-every split file via `load 'test_helper'`; each file still declares its own
-`setup() { common_setup; }` (bats has no cross-file `setup()`). A helper used by
-only one group stays in that group's own file — don't hoist it "for
-consistency." See `test/coding-toolbox/CLAUDE.md` for a worked example,
-including the grouping rationale.
+`bats <dir>` (CI's own invocation) runs every `.bats` file in a directory, so an
+oversized suite splits into one file per thematic group with no CI change. Only
+helpers shared by 2+ groups go into `test_helper.bash` (`load 'test_helper'`);
+each file still declares its own `setup()`. Worked example and rationale:
+`test/coding-toolbox/CLAUDE.md`.

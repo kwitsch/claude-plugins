@@ -70,7 +70,7 @@ Registers the EXTERNAL npm package `context-mode` (upstream <https://github.com/
 - Probe `bunx` and `npx`, the package RUNNERS. `command -v node` is the wrong check: node alone does not run `npx`.
 - A `.mjs` launcher was rejected outright: a runtime must start it before it can pick one.
 - PATH hardening: `export PATH="${PATH:+${PATH}:}${HOME:-}/.local/bin:${HOME:-}/.bun/bin"`.
-  - APPEND the user dirs (inherited PATH wins) so a stale user-dir binary never shadows a canonical system tool — this matches the hardened sibling wrappers, not the prepending template (`.claude/skills/create-plugin/templates/mjs-launch.sh.tmpl`, described in `.claude/rules/hooks-mcp-server.md`).
+  - APPEND the user dirs (inherited PATH wins) so a stale user-dir binary never shadows a canonical system tool — as the template (`.claude/skills/create-plugin/templates/mjs-launch.sh.tmpl`) and `.claude/rules/hooks-mcp-server.md` require.
   - `${PATH:+${PATH}:}` keeps the expansion empty when PATH is unset or empty (an empty PATH segment resolves to cwd); `${HOME:-}`, never a bare `~`.
 - Every diagnostic goes to stderr: stdout is the MCP stdio channel.
 - `CONTEXT_MODE_SPEC="context-mode@1.0.169"` lives in the wrapper only: an exact version pin, and the only version this plugin pins (rtk and cbm always track the latest release).

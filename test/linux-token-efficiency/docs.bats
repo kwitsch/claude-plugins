@@ -182,7 +182,7 @@ setup() {
     assert_success
   done
   # The verbatim-file contract and its two mechanical guards live with the hooks.
-  for token in 'SessionStart.md' '.prettierignore' '.coderabbit.yaml'; do
+  for token in 'SessionStart.md' 'dprint.json' '.coderabbit.yaml'; do
     run grep -F "$token" "$PLUGIN_HOOKS_CLAUDE"
     assert_success
   done

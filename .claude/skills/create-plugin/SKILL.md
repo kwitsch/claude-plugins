@@ -263,7 +263,7 @@ Wire into CI: in `.github/workflows/test.yml`, append `- <name>` under `plugin:`
 ```yaml
 matrix:
   plugin:
-    - git-sign-key # existing entry — keep it
+    - cc-knowledge # existing entry — keep it
     - <name> # the new plugin
 ```
 
