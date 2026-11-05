@@ -62,7 +62,6 @@ Scope: `hooks/` and `hooks/hooks.json`. Toggles (`auto_rewrite`, `steer_enabled`
 
 - Mods composes rewrites: a hook above this one hands its command in as `e.command`; this hook classifies and rewrites THAT, and the hooks beneath see this hook's result. Cross-plugin order is the engine's (not pinned or documented here).
 - An already-rewritten `rtk …` command is passed on as is: rtk's own `hook claude` answers nothing for its own output (verified on rtk 0.48.0), so a second rtk rewriter is a no-op.
-- `git-sign-key` (also a Bash rewriter): above this hook, its `git -c gpg.format=ssh … commit` reaches rtk, which keeps the `-c` flags (`rtk git -c … commit`, verified). Beneath it, it receives `rtk git commit …`; its rewrite then has to treat a leading `rtk` as transparent, or signing is skipped.
 
 ### WebFetch steer
 

@@ -29,10 +29,6 @@ If a plugin has a `configure-*` skill, that skill must cover every option in `us
 
 **Requirement:** when `userConfig` is changed, update the corresponding `configure-*/SKILL.md` in the same change.
 
-## Legacy exception
-
-See `plugins/git-sign-key/CLAUDE.md` — one hook-only plugin predates this rule and declares no `userConfig` yet.
-
 ## Deliberate no-toggle exception
 
 - `universal-lint` and `universal-format` (2026-07-24) intentionally ship no
