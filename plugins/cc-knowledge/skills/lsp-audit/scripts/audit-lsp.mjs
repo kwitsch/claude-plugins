@@ -12,8 +12,8 @@
 // readback, as the final action.
 // Diagnostics go to stderr; stdout carries only the JSON result object.
 
-import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, unlinkSync, realpathSync } from "node:fs";
-import { resolve, join, basename, dirname } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
 const PRUNE_NAMES = new Set([".git", "node_modules", "vendor", "dist", "build"]);

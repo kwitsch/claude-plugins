@@ -239,7 +239,7 @@ today's proven direct-dispatch logic, unchanged:
 
 1. **Dispatch reviewers (parallel).** For each discovered path, dispatch
    the `cc-reviewer` agent (Agent tool, `subagent_type:
-cc-knowledge:cc-reviewer`) in a single message so they run
+   cc-knowledge:cc-reviewer`) in a single message so they run
    concurrently. Each dispatch prompt is `FINDER_PROMPT(path)` above, with
    its closing line replaced by: "Return ONLY the JSON findings array per
    your output contract."

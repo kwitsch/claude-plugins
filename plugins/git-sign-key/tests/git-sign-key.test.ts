@@ -1,5 +1,5 @@
 import { expect, mock, test, type TestBody } from "claude-code/testing";
-import { MISSING_KEY_WARNING, UNUSABLE_KEY_WARNING, rewriteNote, signFlags } from "../hooks/sign.mjs";
+import { MISSING_KEY_WARNING, rewriteNote, signFlags, UNUSABLE_KEY_WARNING } from "../hooks/sign.mjs";
 
 type Engine = Parameters<TestBody>[0];
 type On = Parameters<TestBody>[1];
@@ -40,7 +40,7 @@ function bottomBash($: Engine, on: On, rule?: string): Seen {
 test("a git commit reaches the tool rewritten, auto-allowed, with the note as context, when the key exists", async ($, on) => {
   world(on, { key: true });
   const seen = bottomBash($, on);
-  const r = await $.tool.call({ tool: "Bash", command: 'git commit -m "x"', description: "commit" });
+  const r = await $.tool.call({ tool: "Bash", command: "git commit -m \"x\"", description: "commit" });
   expect(seen.command).toBe(`git ${signFlags(KEY)} commit -m "x"`);
   expect(seen.description).toBe("commit");
   expect(seen.check).toBe("allow");

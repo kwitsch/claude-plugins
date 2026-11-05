@@ -1,10 +1,10 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { test } from "node:test";
 
-import { formatInProcess, applyEdit, cwdChanged, formatPre, formatPost, resolveConfigPlugins, worktreeEntered } from "../../plugins/universal-format/mcp/server.mjs";
+import { applyEdit, cwdChanged, formatInProcess, formatPost, formatPre, resolveConfigPlugins, worktreeEntered } from "../../plugins/universal-format/mcp/server.mjs";
 
 // No `maybe`/tier gating any more: prettier is bundled into the artifact, so every test here is
 // unconditional. There is exactly one prettier instance in this process.
@@ -61,7 +61,7 @@ const preContent = (res) => res.hookSpecificOutput.updatedInput.content;
 test("formatInProcess formats js/json/markdown with the bundled prettier", async () => {
   const cwd = tmp("uf-fmt-");
   assert.equal(await formatInProcess("let x=1", path.join(cwd, "a.js"), cwd, "jsts"), "let x = 1;\n");
-  assert.equal(await formatInProcess('{"a":1}', path.join(cwd, "a.json"), cwd, "json"), '{ "a": 1 }\n');
+  assert.equal(await formatInProcess("{\"a\":1}", path.join(cwd, "a.json"), cwd, "json"), "{ \"a\": 1 }\n");
   assert.equal(await formatInProcess("#  Title\n", path.join(cwd, "a.md"), cwd, "markdown"), "# Title\n");
 });
 
@@ -131,9 +131,9 @@ test("applyEdit: empty old_string is rejected on both branches", () => {
 
 test("format_pre Write: updatedInput.content formatted, no permissionDecision", async () => {
   const cwd = tmp("uf-pre-w-");
-  const res = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "a.json"), content: '{"a":1}' } })));
+  const res = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "a.json"), content: "{\"a\":1}" } })));
   assert.equal(res.hookSpecificOutput.hookEventName, "PreToolUse");
-  assert.equal(res.hookSpecificOutput.updatedInput.content, '{ "a": 1 }\n');
+  assert.equal(res.hookSpecificOutput.updatedInput.content, "{ \"a\": 1 }\n");
   assert.equal(res.hookSpecificOutput.updatedInput.file_path, path.join(cwd, "a.json"));
   assert.ok(!("permissionDecision" in res.hookSpecificOutput), "format_pre must never set permissionDecision");
   assert.ok(typeof res.hookSpecificOutput.additionalContext === "string");
@@ -147,9 +147,9 @@ test("format_pre Write: updatedInput.content formatted, no permissionDecision", 
 test("format_pre: a .prettierignore'd file is left alone", async () => {
   const cwd = tmp("uf-ign-a-");
   writeFileSync(path.join(cwd, ".prettierignore"), "ignored.json\n");
-  const plain = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "kept.json"), content: '{"a":1}' } })));
+  const plain = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "kept.json"), content: "{\"a\":1}" } })));
   assert.ok(plain.hookSpecificOutput, "a non-ignored file is still formatted");
-  const res = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "ignored.json"), content: '{"a":1}' } }));
+  const res = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "ignored.json"), content: "{\"a\":1}" } }));
   assert.deepEqual(res, {});
 });
 
@@ -157,18 +157,18 @@ test("format_pre: a .gitignore'd file is still formatted (.prettierignore is the
   const cwd = tmp("uf-ign-b-");
   writeFileSync(path.join(cwd, ".gitignore"), "generated.json\n");
   const res = /** @type {any} */ (
-    await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "generated.json"), content: '{"a":1}' } }))
+    await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "generated.json"), content: "{\"a\":1}" } }))
   );
-  assert.equal(preContent(res), '{ "a": 1 }\n', "a .gitignore must not suppress formatting any more");
+  assert.equal(preContent(res), "{ \"a\": 1 }\n", "a .gitignore must not suppress formatting any more");
 });
 
 test("format_pre Edit: whole-file swap old_string=full pre-edit, new_string=formatted, replace_all false", async () => {
   const cwd = tmp("uf-pre-e-");
   const fp = path.join(cwd, "a.json");
-  writeFileSync(fp, '{ "a": 1 }\n');
-  const res = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Edit", tool_input: { file_path: fp, old_string: '"a": 1', new_string: '"a":2' } })));
-  assert.equal(res.hookSpecificOutput.updatedInput.old_string, '{ "a": 1 }\n');
-  assert.equal(res.hookSpecificOutput.updatedInput.new_string, '{ "a": 2 }\n');
+  writeFileSync(fp, "{ \"a\": 1 }\n");
+  const res = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Edit", tool_input: { file_path: fp, old_string: "\"a\": 1", new_string: "\"a\":2" } })));
+  assert.equal(res.hookSpecificOutput.updatedInput.old_string, "{ \"a\": 1 }\n");
+  assert.equal(res.hookSpecificOutput.updatedInput.new_string, "{ \"a\": 2 }\n");
   assert.equal(res.hookSpecificOutput.updatedInput.replace_all, false);
   assert.ok(!("permissionDecision" in res.hookSpecificOutput));
 });
@@ -176,7 +176,7 @@ test("format_pre Edit: whole-file swap old_string=full pre-edit, new_string=form
 test("format_pre Edit: absent old_string -> {}", async () => {
   const cwd = tmp("uf-pre-e2-");
   const fp = path.join(cwd, "a.json");
-  writeFileSync(fp, '{ "a": 1 }\n');
+  writeFileSync(fp, "{ \"a\": 1 }\n");
   const res = await formatPre(hookInput({ cwd, tool_name: "Edit", tool_input: { file_path: fp, old_string: "NOT PRESENT", new_string: "x" } }));
   assert.deepEqual(res, {});
 });
@@ -186,7 +186,7 @@ test("format_pre: non-prettier ext (.go) and excluded path -> {}", async () => {
   const go = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "a.go"), content: "package main" } }));
   assert.deepEqual(go, {});
   mkdirSync(path.join(cwd, "node_modules", "pkg"), { recursive: true });
-  const nm = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "node_modules", "pkg", "a.json"), content: '{"a":1}' } }));
+  const nm = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "node_modules", "pkg", "a.json"), content: "{\"a\":1}" } }));
   assert.deepEqual(nm, {});
 });
 
@@ -209,14 +209,14 @@ test("format_pre: a .prettierrc naming a resolvable local plugin still formats t
   const cwd = tmp("uf-pp-ok-");
   installNoopPrettierPlugin(cwd);
   writeFileSync(path.join(cwd, ".prettierrc"), JSON.stringify({ plugins: ["uf-test-plugin"] }));
-  const res = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "a.json"), content: '{"a":1}' } })));
-  assert.equal(preContent(res), '{ "a": 1 }\n');
+  const res = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "a.json"), content: "{\"a\":1}" } })));
+  assert.equal(preContent(res), "{ \"a\": 1 }\n");
 });
 
 test("format_pre: a .prettierrc naming an unresolvable plugin yields {} rather than plugin-less output", async () => {
   const cwd = tmp("uf-pp-bad2-");
   writeFileSync(path.join(cwd, ".prettierrc"), JSON.stringify({ plugins: ["definitely-not-installed-plugin"] }));
-  const res = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "a.json"), content: '{"a":1}' } }));
+  const res = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "a.json"), content: "{\"a\":1}" } }));
   assert.deepEqual(res, {});
 });
 
@@ -227,16 +227,16 @@ test("format_pre: a .prettierrc naming an unresolvable plugin yields {} rather t
 test("format_pre anchoring: trailing-separator cwd still formats; a file outside cwd is formatted against its own directory", async () => {
   const cwd = tmp("uf-guard-cwd-");
   const inside = /** @type {any} */ (
-    await formatPre(hookInput({ cwd: cwd + path.sep, tool_name: "Write", tool_input: { file_path: path.join(cwd, "a.json"), content: '{"a":1}' } }))
+    await formatPre(hookInput({ cwd: cwd + path.sep, tool_name: "Write", tool_input: { file_path: path.join(cwd, "a.json"), content: "{\"a\":1}" } }))
   );
-  assert.equal(preContent(inside), '{ "a": 1 }\n', "a trailing-separator cwd must not disable the plugin");
+  assert.equal(preContent(inside), "{ \"a\": 1 }\n", "a trailing-separator cwd must not disable the plugin");
 
   const outsideDir = path.join(path.dirname(cwd), path.basename(cwd) + "-other");
   mkdirSync(outsideDir, { recursive: true });
   const outside = /** @type {any} */ (
-    await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(outsideDir, "a.json"), content: '{"a":1}' } }))
+    await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(outsideDir, "a.json"), content: "{\"a\":1}" } }))
   );
-  assert.equal(preContent(outside), '{ "a": 1 }\n', "a sibling directory is anchored at itself, not skipped");
+  assert.equal(preContent(outside), "{ \"a\": 1 }\n", "a sibling directory is anchored at itself, not skipped");
 });
 
 // hasRules is derived from file CONTENT, not mere existence: a base with no .prettierignore at
@@ -247,16 +247,16 @@ test("format_pre anchoring: trailing-separator cwd still formats; a file outside
 test("ignore fast path: no ignore file, and a comments-only .prettierignore, both still format", async () => {
   const empty = tmp("uf-ign-none-");
   const bare = /** @type {any} */ (
-    await formatPre(hookInput({ cwd: empty, tool_name: "Write", tool_input: { file_path: path.join(empty, "a.json"), content: '{"a":1}' } }))
+    await formatPre(hookInput({ cwd: empty, tool_name: "Write", tool_input: { file_path: path.join(empty, "a.json"), content: "{\"a\":1}" } }))
   );
-  assert.equal(preContent(bare), '{ "a": 1 }\n');
+  assert.equal(preContent(bare), "{ \"a\": 1 }\n");
 
   const commented = tmp("uf-ign-hash-");
   writeFileSync(path.join(commented, ".prettierignore"), "# nothing here\n\n   \n");
   const res = /** @type {any} */ (
-    await formatPre(hookInput({ cwd: commented, tool_name: "Write", tool_input: { file_path: path.join(commented, "a.json"), content: '{"a":1}' } }))
+    await formatPre(hookInput({ cwd: commented, tool_name: "Write", tool_input: { file_path: path.join(commented, "a.json"), content: "{\"a\":1}" } }))
   );
-  assert.equal(preContent(res), '{ "a": 1 }\n');
+  assert.equal(preContent(res), "{ \"a\": 1 }\n");
 });
 
 // The verdict memo must not change any answer: gitignore matching is purely path-based, so a
@@ -266,12 +266,12 @@ test("ignore verdict memo: a repeated ignored path stays ignored, an unseen sibl
   const cwd = tmp("uf-ign-memo-");
   writeFileSync(path.join(cwd, ".prettierignore"), "ignored.json\n");
   const fp = path.join(cwd, "ignored.json");
-  assert.deepEqual(await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } })), {});
-  assert.deepEqual(await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } })), {});
+  assert.deepEqual(await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: "{\"a\":1}" } })), {});
+  assert.deepEqual(await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: "{\"a\":1}" } })), {});
   const sibling = /** @type {any} */ (
-    await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "kept.json"), content: '{"a":1}' } }))
+    await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(cwd, "kept.json"), content: "{\"a\":1}" } }))
   );
-  assert.equal(preContent(sibling), '{ "a": 1 }\n');
+  assert.equal(preContent(sibling), "{ \"a\": 1 }\n");
 });
 
 // The documented trade-off of caching the ignore state, mirroring the .prettierrc one above: an
@@ -281,10 +281,10 @@ test("ignore verdict memo: a repeated ignored path stays ignored, an unseen sibl
 test("ignore cache: a .prettierignore appearing out of band is NOT picked up (documented trade-off)", async () => {
   const cwd = tmp("uf-ign-oob-");
   const fp = path.join(cwd, "late.json");
-  await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } })); // primes the cache
+  await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: "{\"a\":1}" } })); // primes the cache
   writeFileSync(path.join(cwd, ".prettierignore"), "late.json\n"); // no hook fires
-  const after = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } })));
-  assert.equal(preContent(after), '{ "a": 1 }\n', "still formatted with the pre-write ignore state");
+  const after = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: "{\"a\":1}" } })));
+  assert.equal(preContent(after), "{ \"a\": 1 }\n", "still formatted with the pre-write ignore state");
 });
 
 // The update path, mirroring the .prettierrc one above: an ignore file written THROUGH the hooks
@@ -293,14 +293,14 @@ test("ignore cache: a .prettierignore appearing out of band is NOT picked up (do
 test("ignore cache: a .prettierignore written through the hooks takes effect on the next format", async () => {
   const cwd = tmp("uf-ign-post-");
   const fp = path.join(cwd, "late.json");
-  const before = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } })));
-  assert.equal(preContent(before), '{ "a": 1 }\n', "no ignore file yet -> formatted");
+  const before = /** @type {any} */ (await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: "{\"a\":1}" } })));
+  assert.equal(preContent(before), "{ \"a\": 1 }\n", "no ignore file yet -> formatted");
 
   const ign = path.join(cwd, ".prettierignore");
   writeFileSync(ign, "late.json\n");
   await formatPost(/** @type {any} */ (hookInput({ cwd, tool_name: "Write", tool_input: { file_path: ign } })));
 
-  const after = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } }));
+  const after = await formatPre(hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: "{\"a\":1}" } }));
   assert.deepEqual(after, {}, "formatPost on .prettierignore must re-read this cwd's ignore state");
 });
 
@@ -317,14 +317,14 @@ test("out-of-cwd anchoring: the file's own git root governs, not the session cwd
 
   const foreign = /** @type {any} */ (
     await formatPre({
-      ...hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(proj, "src", "foreign.json"), content: '{"a":1}' } }),
+      ...hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(proj, "src", "foreign.json"), content: "{\"a\":1}" } }),
       session_id: "uf-anchor-session-1",
     })
   );
-  assert.equal(preContent(foreign), '{ "a": 1 }\n', "the session cwd's ignore rules must not reach into another project");
+  assert.equal(preContent(foreign), "{ \"a\": 1 }\n", "the session cwd's ignore rules must not reach into another project");
 
   const blocked = await formatPre({
-    ...hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(proj, "src", "blocked.json"), content: '{"a":1}' } }),
+    ...hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(proj, "src", "blocked.json"), content: "{\"a\":1}" } }),
     session_id: "uf-anchor-session-2",
   });
   assert.deepEqual(blocked, {}, "the file's own project's .prettierignore must govern it");
@@ -340,18 +340,18 @@ test("out-of-cwd anchoring: a .git FILE (worktree/submodule shape) is a project 
   mkdirSync(path.join(proj, "src"));
 
   const blocked = await formatPre({
-    ...hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(proj, "src", "blocked.json"), content: '{"a":1}' } }),
+    ...hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(proj, "src", "blocked.json"), content: "{\"a\":1}" } }),
     session_id: "uf-anchor-session-3",
   });
   assert.deepEqual(blocked, {}, "the worktree root's own .prettierignore must govern its files");
 
   const kept = /** @type {any} */ (
     await formatPre({
-      ...hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(proj, "src", "kept.json"), content: '{"a":1}' } }),
+      ...hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(proj, "src", "kept.json"), content: "{\"a\":1}" } }),
       session_id: "uf-anchor-session-4",
     })
   );
-  assert.equal(preContent(kept), '{ "a": 1 }\n', "a non-ignored file in that worktree is still formatted");
+  assert.equal(preContent(kept), "{ \"a\": 1 }\n", "a non-ignored file in that worktree is still formatted");
 });
 
 // No residual project-membership gate: a file belonging to no project at all is formatted,
@@ -363,30 +363,30 @@ test("out-of-cwd anchoring: an orphan file formats, its own directory's .prettie
   const orphan = tmp("uf-orphan-");
   const kept = /** @type {any} */ (
     await formatPre({
-      ...hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(orphan, "a.json"), content: '{"a":1}' } }),
+      ...hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(orphan, "a.json"), content: "{\"a\":1}" } }),
       session_id: "uf-orphan-session-1",
     })
   );
-  assert.equal(preContent(kept), '{ "a": 1 }\n', "no project-membership gate: an orphan file is still formatted");
+  assert.equal(preContent(kept), "{ \"a\": 1 }\n", "no project-membership gate: an orphan file is still formatted");
 
   const opted = tmp("uf-orphan-opt-");
   writeFileSync(path.join(opted, ".prettierignore"), "a.json\n");
   const res = await formatPre({
-    ...hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(opted, "a.json"), content: '{"a":1}' } }),
+    ...hookInput({ cwd, tool_name: "Write", tool_input: { file_path: path.join(opted, "a.json"), content: "{\"a\":1}" } }),
     session_id: "uf-orphan-session-2",
   });
   assert.deepEqual(res, {}, "a .prettierignore in the file's own directory is still an opt-out");
 
   const noCwdAbsolute = /** @type {any} */ (
     await formatPre({
-      ...hookInput({ cwd: "", tool_name: "Write", tool_input: { file_path: path.join(orphan, "b.json"), content: '{"a":1}' } }),
+      ...hookInput({ cwd: "", tool_name: "Write", tool_input: { file_path: path.join(orphan, "b.json"), content: "{\"a\":1}" } }),
       session_id: "uf-orphan-session-3",
     })
   );
-  assert.equal(preContent(noCwdAbsolute), '{ "a": 1 }\n', "no cwd at all + an absolute path is still resolvable");
+  assert.equal(preContent(noCwdAbsolute), "{ \"a\": 1 }\n", "no cwd at all + an absolute path is still resolvable");
 
   const noCwdRelative = await formatPre({
-    ...hookInput({ cwd: "", tool_name: "Write", tool_input: { file_path: "b.json", content: '{"a":1}' } }),
+    ...hookInput({ cwd: "", tool_name: "Write", tool_input: { file_path: "b.json", content: "{\"a\":1}" } }),
     session_id: "uf-orphan-session-4",
   });
   assert.deepEqual(noCwdRelative, {}, "a relative path with no cwd has nothing to resolve against");
@@ -400,13 +400,13 @@ test("cwd_changed: entering a directory re-reads its ignore files", async () => 
   const a = tmp("uf-cwd-a-");
   const b = tmp("uf-cwd-b-");
   const fp = path.join(a, "later.json");
-  const primed = /** @type {any} */ (await formatPre(hookInput({ cwd: a, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } })));
-  assert.equal(preContent(primed), '{ "a": 1 }\n', "no ignore file yet -> formatted");
+  const primed = /** @type {any} */ (await formatPre(hookInput({ cwd: a, tool_name: "Write", tool_input: { file_path: fp, content: "{\"a\":1}" } })));
+  assert.equal(preContent(primed), "{ \"a\": 1 }\n", "no ignore file yet -> formatted");
 
   writeFileSync(path.join(a, ".prettierignore"), "later.json\n"); // out of band, no Write/Edit hook fires
   assert.deepEqual(await cwdChanged(cwdChangedInput({ old_cwd: b, new_cwd: a })), {}, "cwd_changed always returns {}");
 
-  const after = await formatPre(hookInput({ cwd: a, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } }));
+  const after = await formatPre(hookInput({ cwd: a, tool_name: "Write", tool_input: { file_path: fp, content: "{\"a\":1}" } }));
   assert.deepEqual(after, {}, "cwd_changed must have re-read the new cwd's ignore files");
 });
 
@@ -432,15 +432,15 @@ test("worktree_entered: before the fix, a stale outer cwd misclassifies a worktr
   const fp = path.join(worktreeDir, "a.json");
   const session_id = "uf-worktree-session-1";
 
-  const before = await formatPre({ ...hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1,"b":2}' } }), session_id });
+  const before = await formatPre({ ...hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: fp, content: "{\"a\":1,\"b\":2}" } }), session_id });
   assert.deepEqual(before, {}, "relative to the stale outer cwd this looks like another agent's worktree scratch state");
 
   await worktreeEntered(/** @type {any} */ ({ ...hookInput({ cwd: outer, tool_name: "EnterWorktree", tool_input: {} }), session_id, tool_response: { worktreePath: worktreeDir } }));
 
   const after = /** @type {any} */ (
-    await formatPre({ ...hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1,"b":2}' } }), session_id })
+    await formatPre({ ...hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: fp, content: "{\"a\":1,\"b\":2}" } }), session_id })
   );
-  assert.equal(preContent(after), '{ "a": 1, "b": 2 }\n', "override must resolve the file relative to the worktree, ignoring the stale outer cwd");
+  assert.equal(preContent(after), "{ \"a\": 1, \"b\": 2 }\n", "override must resolve the file relative to the worktree, ignoring the stale outer cwd");
 });
 
 // A stub "goimports" that deterministically rewrites its target file, so a real format and a
@@ -490,8 +490,8 @@ test("worktree_entered: no tool_response.worktreePath falls back to cwd", async 
   const dir = tmp("uf-fallback-");
   const fp = path.join(dir, "b.json");
   await worktreeEntered(/** @type {any} */ (hookInput({ cwd: dir, tool_name: "EnterWorktree", tool_input: {} })));
-  const result = /** @type {any} */ (await formatPre(hookInput({ cwd: dir, tool_name: "Write", tool_input: { file_path: fp, content: '{"c":3}' } })));
-  assert.equal(preContent(result), '{ "c": 3 }\n', "falling back to cwd must still resolve correctly");
+  const result = /** @type {any} */ (await formatPre(hookInput({ cwd: dir, tool_name: "Write", tool_input: { file_path: fp, content: "{\"c\":3}" } })));
+  assert.equal(preContent(result), "{ \"c\": 3 }\n", "falling back to cwd must still resolve correctly");
 });
 
 // The concurrency case: this MCP server is one long-lived process shared by every subagent in the
@@ -511,11 +511,11 @@ test("worktree_entered: concurrent subagents keep independent overrides, keyed b
   await worktreeEntered(/** @type {any} */ ({ ...hookInput({ cwd: outer, tool_name: "EnterWorktree", tool_input: {} }), agent_id: "agent-A", tool_response: { worktreePath: worktreeA } }));
   await worktreeEntered(/** @type {any} */ ({ ...hookInput({ cwd: outer, tool_name: "EnterWorktree", tool_input: {} }), agent_id: "agent-B", tool_response: { worktreePath: worktreeB } }));
 
-  const resultA = /** @type {any} */ (await formatPre({ ...hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: fpA, content: '{"a":1}' } }), agent_id: "agent-A" }));
-  const resultB = /** @type {any} */ (await formatPre({ ...hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: fpB, content: '{"b":2}' } }), agent_id: "agent-B" }));
+  const resultA = /** @type {any} */ (await formatPre({ ...hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: fpA, content: "{\"a\":1}" } }), agent_id: "agent-A" }));
+  const resultB = /** @type {any} */ (await formatPre({ ...hookInput({ cwd: outer, tool_name: "Write", tool_input: { file_path: fpB, content: "{\"b\":2}" } }), agent_id: "agent-B" }));
 
-  assert.equal(preContent(resultA), '{ "a": 1 }\n', "agent A's file resolves against ITS OWN worktree override");
-  assert.equal(preContent(resultB), '{ "b": 2 }\n', "agent B's file resolves against ITS OWN worktree override, unaffected by agent A's");
+  assert.equal(preContent(resultA), "{ \"a\": 1 }\n", "agent A's file resolves against ITS OWN worktree override");
+  assert.equal(preContent(resultB), "{ \"b\": 2 }\n", "agent B's file resolves against ITS OWN worktree override, unaffected by agent A's");
 
   // A call under a DIFFERENT session_id (a genuinely distinct parent session, not either
   // subagent's agent_id) must be untouched by both subagents' overrides. A dedicated session_id
@@ -524,9 +524,9 @@ test("worktree_entered: concurrent subagents keep independent overrides, keyed b
   const dirC = tmp("uf-parent-");
   const fpC = path.join(dirC, "c.json");
   const resultC = /** @type {any} */ (
-    await formatPre({ ...hookInput({ cwd: dirC, tool_name: "Write", tool_input: { file_path: fpC, content: '{"c":3}' } }), session_id: "concurrency-parent-session" })
+    await formatPre({ ...hookInput({ cwd: dirC, tool_name: "Write", tool_input: { file_path: fpC, content: "{\"c\":3}" } }), session_id: "concurrency-parent-session" })
   );
-  assert.equal(preContent(resultC), '{ "c": 3 }\n', "an unrelated session's own calls are unaffected by either subagent's override");
+  assert.equal(preContent(resultC), "{ \"c\": 3 }\n", "an unrelated session's own calls are unaffected by either subagent's override");
 });
 
 // Out-of-cwd absolute write into a SIBLING agent's worktree, with no override raised for THIS
@@ -543,7 +543,7 @@ test("out-of-cwd absolute write into a sibling agent's worktree is still exclude
   const fp = path.join(siblingWorktree, "a.json");
 
   const result = /** @type {any} */ (
-    await formatPre({ ...hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: '{"a":1}' } }), session_id: "uf-sibling-worktree-session" })
+    await formatPre({ ...hookInput({ cwd, tool_name: "Write", tool_input: { file_path: fp, content: "{\"a\":1}" } }), session_id: "uf-sibling-worktree-session" })
   );
   assert.deepEqual(result, {}, "a sibling agent's worktree must stay excluded even though resolveBase anchors base at its own root");
 });

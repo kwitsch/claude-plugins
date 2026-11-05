@@ -3,16 +3,16 @@
 // project-local probe, no PATH probe, no managed copy and no package-runner fallback: this
 // instance formats every prettier-covered file. A project's prettier CONFIG is still honored in
 // full.
-import process from "node:process";
-import path from "node:path";
+import * as phpPluginNs from "@prettier/plugin-php";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import path from "node:path";
+import process from "node:process";
 import * as prettierNs from "prettier";
 import * as javaPluginNs from "prettier-plugin-java";
-import * as phpPluginNs from "@prettier/plugin-php";
 import * as shPluginNs from "prettier-plugin-sh";
-import { walkToRoot } from "./util.js";
 import { resolveEditorconfig } from "./editorconfig.js";
+import { walkToRoot } from "./util.js";
 
 /** The prettier baked into this bundle by `bun build`. Always available, never probed.
  * `.default` isn't part of prettier's own types -- bundler CJS/ESM interop may wrap the real

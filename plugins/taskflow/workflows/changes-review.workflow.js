@@ -57,24 +57,24 @@ function decodeArgs(required, defaults) {
       a = JSON.parse(a);
     } catch (e) {
       return {
-        __error: 'args arrived as a non-JSON string ("' + a.slice(0, 120) + '") — pass ONE JSON object with keys: ' + required.join(", "),
+        __error: "args arrived as a non-JSON string (\"" + a.slice(0, 120) + "\") — pass ONE JSON object with keys: " + required.join(", "),
       };
     }
   }
   if (typeof a !== "object" || a === null || Array.isArray(a)) {
     const kind = a === null ? (typeof args === "undefined" ? "undefined" : "null") : Array.isArray(a) ? "an array" : typeof a;
     return {
-      __error:
-        "args global is " +
-        kind +
-        " — invoke this as a saved/plugin workflow WITH a JSON object as input, or prepend `const args = {…}` to the script text; the ad-hoc {script, args} tool-call shape does not thread args.",
+      __error: "args global is "
+        + kind
+        + " — invoke this as a saved/plugin workflow WITH a JSON object as input, or prepend `const args = {…}` to the script text; the ad-hoc {script, args} tool-call shape does not thread args.",
     };
   }
   const missing = required.filter((k) => a[k] == null || a[k] === "");
-  if (missing.length)
+  if (missing.length) {
     return {
       __error: "missing required args: " + missing.join(", ") + " (got keys: " + Object.keys(a).join(", ") + ")",
     };
+  }
   return { ...defaults, ...a };
 }
 const A = decodeArgs([], { BASE_BRANCH: "main", LEVEL: "" });
@@ -209,21 +209,21 @@ const CLEANUP_LABELS = ["cleanup:reuse", "cleanup:simplification", "cleanup:effi
 
 // ── Scope ──
 const scope = await agent(
-  NO_NARRATION +
-    "\n\n" +
-    "Establish the scope of a code review of the current branch's accumulated diff.\n\n" +
-    "Run this exact diff command: " +
-    DIFF_CMD +
-    "\n\n" +
-    "0. First confirm `git status --porcelain` is empty — stray working-tree state\n" +
-    "   means there are uncommitted changes; report it instead of reviewing.\n" +
-    "1. Confirm the diff command produces a non-empty diff.\n" +
-    "2. List the changed files (repo-relative).\n" +
-    "3. Summarize what changed in one paragraph.\n" +
-    "4. List the CLAUDE.md files that apply to the changed files (user-level,\n" +
-    "   repo-root, plus any CLAUDE.md/CLAUDE.local.md in an ancestor directory of\n" +
-    "   a changed file). Read each one that exists and note conventions a reviewer\n" +
-    "   should know.\n\nStructured output only.",
+  NO_NARRATION
+    + "\n\n"
+    + "Establish the scope of a code review of the current branch's accumulated diff.\n\n"
+    + "Run this exact diff command: "
+    + DIFF_CMD
+    + "\n\n"
+    + "0. First confirm `git status --porcelain` is empty — stray working-tree state\n"
+    + "   means there are uncommitted changes; report it instead of reviewing.\n"
+    + "1. Confirm the diff command produces a non-empty diff.\n"
+    + "2. List the changed files (repo-relative).\n"
+    + "3. Summarize what changed in one paragraph.\n"
+    + "4. List the CLAUDE.md files that apply to the changed files (user-level,\n"
+    + "   repo-root, plus any CLAUDE.md/CLAUDE.local.md in an ancestor directory of\n"
+    + "   a changed file). Read each one that exists and note conventions a reviewer\n"
+    + "   should know.\n\nStructured output only.",
   {
     label: "scope",
     phase: "Review",
@@ -248,27 +248,26 @@ const SWEEP_MAX = 8;
 log(LEVEL + " review: " + scope.files.length + " changed files");
 
 const claudeMdFiles = scope.claudeMdFiles || [];
-const SCOPE_BLOCK =
-  "## Review scope\n" +
-  "Diff command: " +
-  DIFF_CMD +
-  "\n" +
-  "Changed files (" +
-  scope.files.length +
-  "):\n" +
-  scope.files.map((f) => "  - " + f).join("\n") +
-  "\n" +
-  "Applicable CLAUDE.md files (" +
-  claudeMdFiles.length +
-  "):\n" +
-  (claudeMdFiles.length > 0 ? claudeMdFiles.map((f) => "  - " + f).join("\n") : "  (none)") +
-  "\n\n" +
-  "## What changed\n" +
-  scope.summary +
-  "\n\n" +
-  "## Conventions\n" +
-  (scope.conventions || "(none noted)") +
-  "\n";
+const SCOPE_BLOCK = "## Review scope\n"
+  + "Diff command: "
+  + DIFF_CMD
+  + "\n"
+  + "Changed files ("
+  + scope.files.length
+  + "):\n"
+  + scope.files.map((f) => "  - " + f).join("\n")
+  + "\n"
+  + "Applicable CLAUDE.md files ("
+  + claudeMdFiles.length
+  + "):\n"
+  + (claudeMdFiles.length > 0 ? claudeMdFiles.map((f) => "  - " + f).join("\n") : "  (none)")
+  + "\n\n"
+  + "## What changed\n"
+  + scope.summary
+  + "\n\n"
+  + "## Conventions\n"
+  + (scope.conventions || "(none noted)")
+  + "\n";
 
 // ── Lean review (ponytail): over-engineering ONLY, report-only, not applied.
 //    Kicked off now so its latency overlaps the finder/verify/sweep/synthesis
@@ -277,29 +276,28 @@ const SCOPE_BLOCK =
 //    combined review's surviving findings, before being awaited/used below.
 //    Unlike spec-driven-delivery this prompt has no USER-APPROVED-spec
 //    paragraph — a bare audit has no spec. ──
-const ponytailReviewPrompt =
-  NO_NARRATION +
-  "\n\n## Lean review — over-engineering only\n\n" +
-  SCOPE_BLOCK +
-  "\n" +
-  "Run the diff command above and review the CHANGE for over-engineering ONLY.\n" +
-  "Correctness bugs, security holes, and performance are OUT of scope — the\n" +
-  "combined review already covered those; do NOT re-report them here.\n\n" +
-  "The reuse ladder, in order: (1) is this piece needed at all; (2) a helper/\n" +
-  "util/type/pattern already in this codebase; (3) the stdlib; (4) a native\n" +
-  "platform feature; (5) an already-installed dependency — before any new code.\n" +
-  "Flag: reinvented stdlib, a dependency doing what the platform does, an\n" +
-  "abstraction/config/layer with one caller, dead flexibility, or code that\n" +
-  "could be shorter.\n\n" +
-  "Review HOW the change was built, never propose deleting requested\n" +
-  "functionality. Never flag input validation at trust boundaries, error\n" +
-  "handling that prevents data loss, security, accessibility, or a single\n" +
-  "smoke/assert self-check.\n\n" +
-  "One finding per object: {file, line?, tag, what, replacement}. Tags: delete\n" +
-  '(dead/speculative code, replacement ""), stdlib, native, yagni (one-caller\n' +
-  'abstraction/config), shrink (same logic, fewer lines). verdict: "net: -<N>\n' +
-  'lines possible." or, if nothing to cut, "Lean already. Ship."\n\n' +
-  "Structured output only.";
+const ponytailReviewPrompt = NO_NARRATION
+  + "\n\n## Lean review — over-engineering only\n\n"
+  + SCOPE_BLOCK
+  + "\n"
+  + "Run the diff command above and review the CHANGE for over-engineering ONLY.\n"
+  + "Correctness bugs, security holes, and performance are OUT of scope — the\n"
+  + "combined review already covered those; do NOT re-report them here.\n\n"
+  + "The reuse ladder, in order: (1) is this piece needed at all; (2) a helper/\n"
+  + "util/type/pattern already in this codebase; (3) the stdlib; (4) a native\n"
+  + "platform feature; (5) an already-installed dependency — before any new code.\n"
+  + "Flag: reinvented stdlib, a dependency doing what the platform does, an\n"
+  + "abstraction/config/layer with one caller, dead flexibility, or code that\n"
+  + "could be shorter.\n\n"
+  + "Review HOW the change was built, never propose deleting requested\n"
+  + "functionality. Never flag input validation at trust boundaries, error\n"
+  + "handling that prevents data loss, security, accessibility, or a single\n"
+  + "smoke/assert self-check.\n\n"
+  + "One finding per object: {file, line?, tag, what, replacement}. Tags: delete\n"
+  + "(dead/speculative code, replacement \"\"), stdlib, native, yagni (one-caller\n"
+  + "abstraction/config), shrink (same logic, fewer lines). verdict: \"net: -<N>\n"
+  + "lines possible.\" or, if nothing to cut, \"Lean already. Ship.\"\n\n"
+  + "Structured output only.";
 
 const ponyOpts = {
   label: "lean-review",
@@ -310,17 +308,17 @@ const ponyOpts = {
 const ponytailPromise = agent(ponytailReviewPrompt, ponyOpts);
 
 const FINDER_PROMPT = (f) =>
-  "## Review finder — assigned lens: " +
-  f.label +
-  "\n\n" +
-  SCOPE_BLOCK +
-  "\n" +
-  "Run the diff command above and review ONLY through your assigned lens; the\n" +
-  "full lens catalog, candidate rules, and cleanup precedence are in your\n" +
-  "agent definition. Candidate cap for this run: " +
-  f.cap +
-  ".\n\n" +
-  "Structured output only.";
+  "## Review finder — assigned lens: "
+  + f.label
+  + "\n\n"
+  + SCOPE_BLOCK
+  + "\n"
+  + "Run the diff command above and review ONLY through your assigned lens; the\n"
+  + "full lens catalog, candidate rules, and cleanup precedence are in your\n"
+  + "agent definition. Candidate cap for this run: "
+  + f.cap
+  + ".\n\n"
+  + "Structured output only.";
 
 const canonFile = (raw) => {
   if (!raw) return "";
@@ -340,17 +338,17 @@ const loc = (c) => c.file + (c.line != null ? ":" + c.line : "");
 const inBounds = (i, n) => Number.isInteger(i) && i >= 0 && i < n;
 
 const GROUP_VERIFIER_PROMPT = (group) =>
-  "## Review verifier\n\n" +
-  SCOPE_BLOCK +
-  "\n" +
-  "## Candidate findings at " +
-  loc(group[0]) +
-  "\n" +
-  group.map((c, i) => "[" + i + "] Summary: " + c.summary + "\n    Failure scenario: " + c.failure_scenario).join("\n") +
-  "\n\n" +
-  "Run the diff command above, read the relevant file(s), and return one\n" +
-  "verdict per candidate by its [i] index — verdict ladder and recall rules\n" +
-  "per your agent definition. Structured output only.";
+  "## Review verifier\n\n"
+  + SCOPE_BLOCK
+  + "\n"
+  + "## Candidate findings at "
+  + loc(group[0])
+  + "\n"
+  + group.map((c, i) => "[" + i + "] Summary: " + c.summary + "\n    Failure scenario: " + c.failure_scenario).join("\n")
+  + "\n\n"
+  + "Run the diff command above, read the relevant file(s), and return one\n"
+  + "verdict per candidate by its [i] index — verdict ladder and recall rules\n"
+  + "per your agent definition. Structured output only.";
 
 let verifierAgents = 0;
 async function verifyGroups(candidates) {
@@ -410,17 +408,17 @@ let verified = await verifyGroups(allCandidates);
 if (P.sweep) {
   const knownBlock = verified.length > 0 ? verified.map((c) => "- " + loc(c) + " — " + c.summary).join("\n") : "(none)";
   const sweep = await agent(
-    "## Review finder — assigned lens: sweep\n\n" +
-      SCOPE_BLOCK +
-      "\n" +
-      "## Already-found candidates (do NOT re-derive or re-confirm these)\n" +
-      knownBlock +
-      "\n\n" +
-      "Gap focus and rules per your agent definition. Candidate cap for this\n" +
-      "run: " +
-      SWEEP_MAX +
-      ". If nothing new, return an empty list — do not pad.\n\n" +
-      "Structured output only.",
+    "## Review finder — assigned lens: sweep\n\n"
+      + SCOPE_BLOCK
+      + "\n"
+      + "## Already-found candidates (do NOT re-derive or re-confirm these)\n"
+      + knownBlock
+      + "\n\n"
+      + "Gap focus and rules per your agent definition. Candidate cap for this\n"
+      + "run: "
+      + SWEEP_MAX
+      + ". If nothing new, return an empty list — do not pad.\n\n"
+      + "Structured output only.",
     {
       label: "sweep",
       phase: "Review",
@@ -457,44 +455,44 @@ if (surviving.length > 0) {
   const block = ranked
     .map(
       (c, i) =>
-        "### [" +
-        i +
-        "] " +
-        loc(c) +
-        " (" +
-        c.verdict +
-        (c.kind === "cleanup" ? ", cleanup" : "") +
-        ")\n" +
-        c.summary +
-        "\nFailure scenario: " +
-        c.failure_scenario +
-        "\nVerifier evidence: " +
-        c.evidence +
-        "\n",
+        "### ["
+        + i
+        + "] "
+        + loc(c)
+        + " ("
+        + c.verdict
+        + (c.kind === "cleanup" ? ", cleanup" : "")
+        + ")\n"
+        + c.summary
+        + "\nFailure scenario: "
+        + c.failure_scenario
+        + "\nVerifier evidence: "
+        + c.evidence
+        + "\n",
     )
     .join("\n");
 
   const report = await agent(
-    NO_NARRATION +
-      "\n\n" +
-      "## Synthesis: final review report\n\n" +
-      ranked.length +
-      " findings survived independent verification (" +
-      LEVEL +
-      "-effort review). " +
-      "They are numbered [0]-[" +
-      (ranked.length - 1) +
-      "] below.\n\n" +
-      block +
-      "\n" +
-      "## Instructions\n" +
-      "Return decisions about findings BY INDEX — never re-emit finding text.\n" +
-      "1. One decision per distinct defect; fold same-root-cause findings into its merge array.\n" +
-      "2. Order decisions most-severe first. Correctness bugs always outrank cleanup findings.\n" +
-      "3. Keep at most " +
-      P.maxFindings +
-      " decisions; omit the least severe beyond the cap.\n" +
-      "4. Write a 2-3 sentence summary of the review.\n\nStructured output only.",
+    NO_NARRATION
+      + "\n\n"
+      + "## Synthesis: final review report\n\n"
+      + ranked.length
+      + " findings survived independent verification ("
+      + LEVEL
+      + "-effort review). "
+      + "They are numbered [0]-["
+      + (ranked.length - 1)
+      + "] below.\n\n"
+      + block
+      + "\n"
+      + "## Instructions\n"
+      + "Return decisions about findings BY INDEX — never re-emit finding text.\n"
+      + "1. One decision per distinct defect; fold same-root-cause findings into its merge array.\n"
+      + "2. Order decisions most-severe first. Correctness bugs always outrank cleanup findings.\n"
+      + "3. Keep at most "
+      + P.maxFindings
+      + " decisions; omit the least severe beyond the cap.\n"
+      + "4. Write a 2-3 sentence summary of the review.\n\nStructured output only.",
     {
       label: "synthesize",
       phase: "Review",
@@ -539,21 +537,21 @@ if (surviving.length > 0) {
     });
     backfilled++;
   }
-  reviewSummary =
-    usedDecisions && report
-      ? report.summary + (backfilled > 0 ? " (" + backfilled + " additional verified finding" + (backfilled === 1 ? "" : "s") + " appended unmerged.)" : "")
-      : "Synthesis skipped or unusable — verified findings returned ranked, unmerged.";
+  reviewSummary = usedDecisions && report
+    ? report.summary + (backfilled > 0 ? " (" + backfilled + " additional verified finding" + (backfilled === 1 ? "" : "s") + " appended unmerged.)" : "")
+    : "Synthesis skipped or unusable — verified findings returned ranked, unmerged.";
 }
 
 // ── Lean review (ponytail) result: awaited here where it is used; every raw
 //    claim goes through the same group verifier as every other candidate, then
 //    anything at a location the combined review already covers is dropped. ──
 let ponytail = await ponytailPromise;
-if (ponytail === null)
+if (ponytail === null) {
   ponytail = await agent(ponytailReviewPrompt, {
     ...ponyOpts,
     label: "lean-review:retry",
   });
+}
 const ponytailRaw = ponytail && Array.isArray(ponytail.findings) ? ponytail.findings : [];
 const ponytailCandidates = ingest(
   ponytailRaw.map((f) => ({

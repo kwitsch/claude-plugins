@@ -17,11 +17,11 @@ part="${1:-}"
   exit 2
 }
 case "$part" in
-  major | minor | patch) ;;
-  *)
-    echo "usage: bump-version.sh <major|minor|patch>" >&2
-    exit 2
-    ;;
+major | minor | patch) ;;
+*)
+  echo "usage: bump-version.sh <major|minor|patch>" >&2
+  exit 2
+  ;;
 esac
 
 is_bare_semver() {
@@ -30,18 +30,18 @@ is_bare_semver() {
 
 bump_semver() {
   local major minor patch
-  IFS='.' read -r major minor patch <<< "$1"
+  IFS='.' read -r major minor patch <<<"$1"
   case "$2" in
-    major)
-      major=$((major + 1))
-      minor=0
-      patch=0
-      ;;
-    minor)
-      minor=$((minor + 1))
-      patch=0
-      ;;
-    patch) patch=$((patch + 1)) ;;
+  major)
+    major=$((major + 1))
+    minor=0
+    patch=0
+    ;;
+  minor)
+    minor=$((minor + 1))
+    patch=0
+    ;;
+  patch) patch=$((patch + 1)) ;;
   esac
   echo "$major.$minor.$patch"
 }
@@ -57,7 +57,7 @@ bump_semver() {
 # nonzero count), so this divergence is accepted rather than papered over
 # with --include-zero, which errors on ripgrep < 12.0.0.
 rg_or_grep() {
-  if command -v rg > /dev/null 2>&1; then
+  if command -v rg >/dev/null 2>&1; then
     local args=() a stripped seen_dashdash=false
     for a in "$@"; do
       if [ "$seen_dashdash" = true ]; then
@@ -65,16 +65,16 @@ rg_or_grep() {
         continue
       fi
       case "$a" in
-        --)
-          seen_dashdash=true
-          args+=("$a")
-          ;;
-        -[A-Za-z]*)
-          stripped="${a//E/}"
-          [ "$stripped" = "-" ] && continue
-          args+=("$stripped")
-          ;;
-        *) args+=("$a") ;;
+      --)
+        seen_dashdash=true
+        args+=("$a")
+        ;;
+      -[A-Za-z]*)
+        stripped="${a//E/}"
+        [ "$stripped" = "-" ] && continue
+        args+=("$stripped")
+        ;;
+      *) args+=("$a") ;;
       esac
     done
     command rg "${args[@]}"
@@ -215,13 +215,13 @@ write_plain() {
 # a kind missing from this dispatch printed all four output lines and exited 0
 # while writing nothing (the trailing || guard never fires). Verified live.
 case "$kind" in
-  npm | composer | plugin) write_json ;;
-  maven) write_pom ;;
-  plain) write_plain ;;
-  *)
-    echo "internal error: no writer for kind=$kind" >&2
-    exit 5
-    ;;
+npm | composer | plugin) write_json ;;
+maven) write_pom ;;
+plain) write_plain ;;
+*)
+  echo "internal error: no writer for kind=$kind" >&2
+  exit 5
+  ;;
 esac || {
   echo "failed to write $file" >&2
   exit 5
@@ -238,7 +238,7 @@ sync_lock() {
     return 0
   }
   trap 'rm -f "$sync_log"' EXIT
-  if "$@" > "$sync_log" 2>&1; then
+  if "$@" >"$sync_log" 2>&1; then
     sync_status="synced"
   else
     sync_status="failed"
@@ -246,12 +246,12 @@ sync_lock() {
 }
 
 case "$kind" in
-  npm) sync_lock package-lock.json npm i --package-lock-only ;;
-  composer) sync_lock composer.lock composer update --lock ;;
-  # plugin.json has no lock-file concept: a plugin's version must not be
-  # duplicated anywhere, so marketplace.json is explicitly NOT a lock file to
-  # propagate into. sync_lock never runs here, so exits 6/7 are unreachable.
-  maven | plain | plugin) sync_status="no_convention" ;;
+npm) sync_lock package-lock.json npm i --package-lock-only ;;
+composer) sync_lock composer.lock composer update --lock ;;
+# plugin.json has no lock-file concept: a plugin's version must not be
+# duplicated anywhere, so marketplace.json is explicitly NOT a lock file to
+# propagate into. sync_lock never runs here, so exits 6/7 are unreachable.
+maven | plain | plugin) sync_status="no_convention" ;;
 esac
 
 printf 'file: %s\nold: %s\nnew: %s\nsync: %s\n' "$file" "$old" "$new" "$sync_status"

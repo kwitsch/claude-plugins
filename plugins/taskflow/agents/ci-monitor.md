@@ -17,9 +17,9 @@ anything). Your runtime prompt names the branch, platform, and PR/MR url.
 Procedure:
 
 1. Resolve the branch's exact head commit SHA first (`git rev-parse
-<branch>`). Identify the checks for THAT commit, not just the branch name:
+   <branch>`). Identify the checks for THAT commit, not just the branch name:
    - GitHub: `gh pr checks <branch>` (fallback `gh run list --branch <branch>
---limit 5 --json headSha,...` — filter to runs whose `headSha` matches;
+     --limit 5 --json headSha,...` — filter to runs whose `headSha` matches;
      discard/ignore runs for an older commit).
    - GitLab: `glab ci status --branch <branch>` (fallback
      `glab api "projects/:id/pipelines?ref=<branch>&per_page=5"` — pick the
@@ -46,7 +46,7 @@ Procedure:
    `glab ci trace <job>` or the job log API) trimmed to the failing section,
    and the platform-specific rerun identifier — GitHub: the run id (from
    `gh run list`/`gh pr checks --json`); GitLab: the job id (from `glab ci
-status`/the pipeline jobs API). The CI fixer needs this id to retrigger
+   status`/the pipeline jobs API). The CI fixer needs this id to retrigger
    without re-deriving it.
 
 Return through the structured output schema: status, failedJobs

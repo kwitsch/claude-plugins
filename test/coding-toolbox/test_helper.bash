@@ -46,13 +46,16 @@ rg_or_grep() {
         continue
       fi
       case "$a" in
-        --) seen_dashdash=true; args+=("$a") ;;
-        -[A-Za-z]*)
-          stripped="${a//E/}"
-          [ "$stripped" = "-" ] && continue
-          args+=("$stripped")
-          ;;
-        *) args+=("$a") ;;
+      --)
+        seen_dashdash=true
+        args+=("$a")
+        ;;
+      -[A-Za-z]*)
+        stripped="${a//E/}"
+        [ "$stripped" = "-" ] && continue
+        args+=("$stripped")
+        ;;
+      *) args+=("$a") ;;
       esac
     done
     command rg "${args[@]}"
@@ -64,8 +67,12 @@ export -f rg_or_grep
 
 # make_stub <name> <body-line>... — drop an executable stub into MOCKBIN.
 make_stub() {
-  local name="$1"; shift
+  local name="$1"
+  shift
   rm -f "$MOCKBIN/$name"
-  { printf '#!/usr/bin/env bash\n'; printf '%s\n' "$@"; } > "$MOCKBIN/$name"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf '%s\n' "$@"
+  } >"$MOCKBIN/$name"
   chmod +x "$MOCKBIN/$name"
 }

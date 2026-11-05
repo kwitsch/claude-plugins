@@ -1,7 +1,7 @@
 // util.ts — the unbounded filesystem walker and the process-lifetime PATH probe cache.
+import { accessSync, constants as fsConstants } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { accessSync, constants as fsConstants } from "node:fs";
 
 // Walk from `dir` up to the filesystem root (inclusive), calling `checkDir` at each level;
 // true on the first hit. Unbounded -- unlike editorconfig.ts's `findNativeConfig`, which stops at

@@ -121,7 +121,7 @@ setup signs them).
 ## Security notes
 
 - `~/.claude/sign.key` is an unencrypted private key — protect it with `chmod
-600` and never commit it to a repository.
+  600` and never commit it to a repository.
 - Anyone with read access to the file can sign commits as you. Use a dedicated
   key you can revoke independently from your auth keys.
 - While the key file exists, the commits the hook rewrites are auto-allowed

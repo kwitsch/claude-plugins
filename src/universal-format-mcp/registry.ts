@@ -4,8 +4,8 @@
 // (format_pre needs them), which is exactly why formatPost carries a REGISTRY[lang] existence
 // guard.
 import path from "node:path";
-import type { EditorConfigProps, FormatTool, LangEntry } from "./types.js";
 import { buildInvocation, findNativeConfig, resolveEditorconfig } from "./editorconfig.js";
+import type { EditorConfigProps, FormatTool, LangEntry } from "./types.js";
 import { onPath } from "./util.js";
 
 // Lowercased file extension (incl. leading dot) -> language key.

@@ -40,13 +40,16 @@ rg_or_grep() {
         continue
       fi
       case "$a" in
-        --) seen_dashdash=true; args+=("$a") ;;
-        -[A-Za-z]*)
-          stripped="${a//E/}"
-          [ "$stripped" = "-" ] && continue
-          args+=("$stripped")
-          ;;
-        *) args+=("$a") ;;
+      --)
+        seen_dashdash=true
+        args+=("$a")
+        ;;
+      -[A-Za-z]*)
+        stripped="${a//E/}"
+        [ "$stripped" = "-" ] && continue
+        args+=("$stripped")
+        ;;
+      *) args+=("$a") ;;
       esac
     done
     command rg "${args[@]}"
@@ -58,8 +61,12 @@ export -f rg_or_grep
 
 # make_stub <name> <body-line>... — drop an executable bash stub into MOCKBIN.
 make_stub() {
-  local name="$1"; shift
-  { printf '#!/usr/bin/env bash\n'; printf '%s\n' "$@"; } > "$MOCKBIN/$name"
+  local name="$1"
+  shift
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf '%s\n' "$@"
+  } >"$MOCKBIN/$name"
   chmod +x "$MOCKBIN/$name"
 }
 
@@ -97,18 +104,18 @@ _mcp_call() {
   exec {w}>"$fifo"
   printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n' >&"$w"
   printf '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"%s","arguments":%s}}\n' "$tool" "$args_json" >&"$w"
-  for ((i=0; i<40; i++)); do
+  for ((i = 0; i < 40; i++)); do
     grep -q '"id":2' "$outfile" 2>/dev/null && break
     sleep 0.1
   done
   exec {w}>&-
-  for ((i=0; i<30; i++)); do
+  for ((i = 0; i < 30; i++)); do
     kill -0 "$server_pid" 2>/dev/null || break
     sleep 0.1
   done
   if kill -0 "$server_pid" 2>/dev/null; then
     kill "$server_pid" 2>/dev/null
-    for ((i=0; i<10; i++)); do
+    for ((i = 0; i < 10; i++)); do
       kill -0 "$server_pid" 2>/dev/null || break
       sleep 0.1
     done

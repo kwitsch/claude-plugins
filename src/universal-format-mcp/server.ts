@@ -5,8 +5,8 @@
 //   format_post      (PostToolUse Write|Edit)      — kotlin/python/go via each tool's CLI
 //   cwd_changed      (CwdChanged)                  — refresh the cwd-keyed prettier ignore/config caches
 //   worktree_entered (PostToolUse EnterWorktree)   — same, via the signal that actually fires (see handlers.ts)
-import readline from "node:readline";
 import { realpathSync } from "node:fs";
+import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import { cwdChanged, formatPost, formatPre, worktreeEntered } from "./handlers.js";
 
@@ -19,10 +19,10 @@ const SERVER_INFO = { name: SERVER_NAME, version: process.env.UNIVERSAL_FORMAT_M
 const DEFAULT_PROTOCOL = "2025-11-25"; // only used if the client omits protocolVersion
 
 // ---- public surface of the built artifact: exactly 20 names, imported by the test suites ----
-export { BUNDLED_PRETTIER_VERSION, formatInProcess, hasPrettierProjectConfig, resolveConfigPlugins, shouldOverridePrintWidth } from "./prettier.js";
-export { EXT_MAP, PRETTIER_LANGS, REGISTRY } from "./registry.js";
 export { buildInvocation, findNativeConfig, matchGlob, parseEditorconfig, resolveEditorconfig } from "./editorconfig.js";
 export { applyEdit, cwdChanged, formatPost, formatPre, isExcludedPath, resolveBase, worktreeEntered } from "./handlers.js";
+export { BUNDLED_PRETTIER_VERSION, formatInProcess, hasPrettierProjectConfig, resolveConfigPlugins, shouldOverridePrintWidth } from "./prettier.js";
+export { EXT_MAP, PRETTIER_LANGS, REGISTRY } from "./registry.js";
 
 type ToolDef = {
   name: string;
@@ -54,8 +54,7 @@ function startServer(): void {
   const TOOLS: ToolDef[] = [
     {
       name: "format_pre",
-      description:
-        "PreToolUse Write|Edit: format prettier-language files (jsts/json/yaml/markdown/css/scss/less/html/vue/graphql/shell/java/php) in-process before the write (updatedInput) with the bundled prettier.",
+      description: "PreToolUse Write|Edit: format prettier-language files (jsts/json/yaml/markdown/css/scss/less/html/vue/graphql/shell/java/php) in-process before the write (updatedInput) with the bundled prettier.",
       inputSchema: { type: "object", additionalProperties: true },
       handler: formatPre,
     },
@@ -73,8 +72,7 @@ function startServer(): void {
     },
     {
       name: "worktree_entered",
-      description:
-        "PostToolUse EnterWorktree: CwdChanged does not fire when this switches the session's cwd into a worktree, so capture the worktree path here instead and use it for every later format_pre/format_post cwd resolution.",
+      description: "PostToolUse EnterWorktree: CwdChanged does not fire when this switches the session's cwd into a worktree, so capture the worktree path here instead and use it for every later format_pre/format_post cwd resolution.",
       inputSchema: { type: "object", additionalProperties: true },
       handler: worktreeEntered,
     },

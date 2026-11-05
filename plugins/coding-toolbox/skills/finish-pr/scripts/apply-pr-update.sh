@@ -10,27 +10,51 @@
 #       4 verify_fetch_failed - 5 verify_mismatch
 set -uo pipefail
 
-usage() { echo "usage: apply-pr-update.sh <github|gitlab> <number> <title-file> <body-file>" >&2; exit 2; }
-platform="${1:-}"; number="${2:-}"; title_file="${3:-}"; body_file="${4:-}"
-case "$platform" in github|gitlab) ;; *) usage ;; esac
+usage() {
+  echo "usage: apply-pr-update.sh <github|gitlab> <number> <title-file> <body-file>" >&2
+  exit 2
+}
+platform="${1:-}"
+number="${2:-}"
+title_file="${3:-}"
+body_file="${4:-}"
+case "$platform" in github | gitlab) ;; *) usage ;; esac
 [ -n "$number" ] || usage
-[ -f "$title_file" ] || { echo "title file not found: $title_file" >&2; exit 2; }
-[ -f "$body_file" ] || { echo "body file not found: $body_file" >&2; exit 2; }
+[ -f "$title_file" ] || {
+  echo "title file not found: $title_file" >&2
+  exit 2
+}
+[ -f "$body_file" ] || {
+  echo "body file not found: $body_file" >&2
+  exit 2
+}
 
 if [ "$platform" = github ]; then
-  gh api -X PATCH "repos/{owner}/{repo}/pulls/$number" -F title=@"$title_file" -F body=@"$body_file" >/dev/null 2>&1 \
-    || { echo "gh api PATCH pulls/$number failed" >&2; exit 3; }
+  gh api -X PATCH "repos/{owner}/{repo}/pulls/$number" -F title=@"$title_file" -F body=@"$body_file" >/dev/null 2>&1 ||
+    {
+      echo "gh api PATCH pulls/$number failed" >&2
+      exit 3
+    }
   resp="$(gh api "repos/{owner}/{repo}/pulls/$number" 2>/dev/null)"
-  [ -n "$resp" ] || { echo "failed to re-fetch PR $number for verification" >&2; exit 4; }
+  [ -n "$resp" ] || {
+    echo "failed to re-fetch PR $number for verification" >&2
+    exit 4
+  }
   actual_title="$(printf '%s' "$resp" | jq -r '.title')"
   actual_body="$(printf '%s' "$resp" | jq -r '.body')"
 else
   title="$(cat "$title_file")"
   body="$(cat "$body_file")"
-  glab mr update "$number" --title "$title" --description "$body" >/dev/null 2>&1 \
-    || { echo "glab mr update $number failed" >&2; exit 3; }
+  glab mr update "$number" --title "$title" --description "$body" >/dev/null 2>&1 ||
+    {
+      echo "glab mr update $number failed" >&2
+      exit 3
+    }
   resp="$(glab api "projects/:id/merge_requests/$number" 2>/dev/null)"
-  [ -n "$resp" ] || { echo "failed to re-fetch MR $number for verification" >&2; exit 4; }
+  [ -n "$resp" ] || {
+    echo "failed to re-fetch MR $number for verification" >&2
+    exit 4
+  }
   actual_title="$(printf '%s' "$resp" | jq -r '.title')"
   actual_body="$(printf '%s' "$resp" | jq -r '.description')"
 fi

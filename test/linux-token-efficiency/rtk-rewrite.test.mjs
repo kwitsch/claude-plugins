@@ -1,23 +1,10 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, realpathSync } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import {
-  isAutoRewriteEnabled,
-  isSteerEnabled,
-  resolveManagedRtk,
-  rtkCandidates,
-  parseRtkRewrite,
-  gitDirs,
-  splitTopLevel,
-  commandHead,
-  classifyBashCommand,
-  buildSteerDeny,
-  hasGitOperand,
-  buildWebFetchDeny,
-} from "../../plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs";
+import { test } from "node:test";
+import { buildSteerDeny, buildWebFetchDeny, classifyBashCommand, commandHead, gitDirs, hasGitOperand, isAutoRewriteEnabled, isSteerEnabled, parseRtkRewrite, resolveManagedRtk, rtkCandidates, splitTopLevel } from "../../plugins/linux-token-efficiency/hooks/rtk-rewrite.mjs";
 
 test("isAutoRewriteEnabled: only the literal false disables (fail-open)", () => {
   assert.equal(isAutoRewriteEnabled("false"), false);
@@ -59,8 +46,7 @@ test("rtkCandidates: every non-empty PATH entry in order, then the plugin's own 
 });
 
 test("parseRtkRewrite: only a changed plain updatedInput.command is applied (the former hook.bats rtk-output cases)", () => {
-  const says = (/** @type {string} */ command) =>
-    JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecisionReason: "RTK auto-rewrite", updatedInput: { command, description: "list" } } });
+  const says = (/** @type {string} */ command) => JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecisionReason: "RTK auto-rewrite", updatedInput: { command, description: "list" } } });
   assert.equal(parseRtkRewrite(says("rtk ls -la /tmp") + "\n", "ls -la /tmp"), "rtk ls -la /tmp");
   assert.equal(parseRtkRewrite(says("ls -la /tmp"), "ls -la /tmp"), null, "unchanged");
   assert.equal(parseRtkRewrite("", "echo hi"), null, "rtk had no rewrite");
@@ -77,25 +63,27 @@ test("splitTopLevel: flat chains and pipes split; quotes protect operators", () 
     { text: "cat c", stages: ["cat c"] },
   ]);
   assert.deepEqual(splitTopLevel("cat log | grep ERR | sort"), [{ text: "cat log | grep ERR | sort", stages: ["cat log", "grep ERR", "sort"] }]);
-  const quoted = splitTopLevel('grep -e "a && b" file');
+  const quoted = splitTopLevel("grep -e \"a && b\" file");
   assert.equal(quoted?.length, 1);
-  assert.equal(quoted?.[0].stages[0], 'grep -e "a && b" file');
+  assert.equal(quoted?.[0].stages[0], "grep -e \"a && b\" file");
 });
 
 test("splitTopLevel: null (too complex, stay in Bash) on substitution, redirects, background, subshells, comments", () => {
-  for (const cmd of [
-    "grep foo $(ls)",
-    "grep foo `ls`",
-    "grep foo > out",
-    "grep foo < in",
-    "cat a 2>&1",
-    "sleep 5 &",
-    "(cat a; cat b)",
-    "grep foo # comment",
-    "cat a\ncat b",
-    "grep 'unterminated",
-    "&& cat a",
-  ]) {
+  for (
+    const cmd of [
+      "grep foo $(ls)",
+      "grep foo `ls`",
+      "grep foo > out",
+      "grep foo < in",
+      "cat a 2>&1",
+      "sleep 5 &",
+      "(cat a; cat b)",
+      "grep foo # comment",
+      "cat a\ncat b",
+      "grep 'unterminated",
+      "&& cat a",
+    ]
+  ) {
     assert.equal(splitTopLevel(cmd), null, cmd);
   }
 });
@@ -112,15 +100,17 @@ test("classifyBashCommand: fetch — only a bare curl GET steers", () => {
   assert.deepEqual(classifyBashCommand("curl https://example.com/api"), { kind: "fetch", url: "https://example.com/api" });
   assert.equal(classifyBashCommand("curl -sSL https://example.com").kind, "fetch");
   // Writes, uploads, explicit methods and file outputs stay in Bash.
-  for (const cmd of [
-    "curl -X POST -d x https://example.com",
-    "curl -o out.json https://example.com",
-    "curl --data-raw x https://example.com",
-    "curl --output f https://example.com",
-    "curl ftp://example.com/file",
-    "curl", // no URL at all
-    "wget https://example.com/file", // wget's default is a file download
-  ]) {
+  for (
+    const cmd of [
+      "curl -X POST -d x https://example.com",
+      "curl -o out.json https://example.com",
+      "curl --data-raw x https://example.com",
+      "curl --output f https://example.com",
+      "curl ftp://example.com/file",
+      "curl", // no URL at all
+      "wget https://example.com/file", // wget's default is a file download
+    ]
+  ) {
     assert.equal(classifyBashCommand(cmd).kind, "stay", cmd);
   }
 });
@@ -214,5 +204,5 @@ test("buildWebFetchDeny: deny with the namespaced tool, the URL, the hostname so
   assert.match(reason, /"source": "docs\.example\.org"/);
   assert.match(reason, /Do not retry WebFetch/);
   assert.match(reason, /steer_enabled/);
-  assert.equal(buildWebFetchDeny("not a url").hookSpecificOutput?.permissionDecisionReason?.includes('"source": "web"'), true);
+  assert.equal(buildWebFetchDeny("not a url").hookSpecificOutput?.permissionDecisionReason?.includes("\"source\": \"web\""), true);
 });

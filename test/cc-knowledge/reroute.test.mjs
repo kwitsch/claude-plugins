@@ -1,6 +1,6 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
-import { REROUTE_TARGET, normalize, rerouteType } from "../../plugins/cc-knowledge/hooks/reroute.mjs";
+import { test } from "node:test";
+import { normalize, REROUTE_TARGET, rerouteType } from "../../plugins/cc-knowledge/hooks/reroute.mjs";
 
 test("REROUTE_TARGET is the plugin's expert agent", () => {
   assert.equal(REROUTE_TARGET, "cc-knowledge:claude-code-expert");

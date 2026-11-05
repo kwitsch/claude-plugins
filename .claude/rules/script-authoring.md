@@ -24,7 +24,7 @@ Source: <https://code.claude.com/docs/en/skills#inject-dynamic-context>
     tool. Agents are not skills; `!` preprocessing does not apply to them.
   - **Degrade gracefully:** when `disableSkillShellExecution` is set, each
     `!` block is replaced with `[shell command execution disabled by
-policy]` (the skill/command still loads). Handle that placeholder
+    policy]` (the skill/command still loads). Handle that placeholder
     defensively — never assume the command ran. Bundled and managed skills
     are not affected by the setting.
 - **Substantial** — functions, loops, conditionals, multi-step parsing:

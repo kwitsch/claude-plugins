@@ -1,23 +1,8 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  DEFAULT_MANAGER,
-  INSTALL_TIMEOUT_MS,
-  isEnabled,
-  truncate,
-  detectPackageManager,
-  pathWithLocalBin,
-  isPackageJson,
-  dirname,
-  installArgsFor,
-  countOccurrences,
-  reconstructOld,
-  collectChangedSpecs,
-  planInstall,
-  outcomeMessage,
-} from "../../plugins/npm-automations/hooks/policy.mjs";
+import { test } from "node:test";
+import { collectChangedSpecs, countOccurrences, DEFAULT_MANAGER, detectPackageManager, dirname, INSTALL_TIMEOUT_MS, installArgsFor, isEnabled, isPackageJson, outcomeMessage, pathWithLocalBin, planInstall, reconstructOld, truncate } from "../../plugins/npm-automations/hooks/policy.mjs";
 
-test('isEnabled: fail-open, only a literal false (boolean or "false") disables', () => {
+test("isEnabled: fail-open, only a literal false (boolean or \"false\") disables", () => {
   assert.equal(isEnabled(true), true);
   assert.equal(isEnabled("true"), true);
   assert.equal(isEnabled(""), true);
@@ -99,16 +84,16 @@ test("countOccurrences: counts non-overlapping matches", () => {
 });
 
 test("reconstructOld: Edit with a unique new_string reconstructs the old content", () => {
-  const old = reconstructOld("Edit", { old_string: '"version": "1.0.0"', new_string: '"version": "1.0.1"' }, '{"version": "1.0.1"}');
-  assert.equal(old, '{"version": "1.0.0"}');
+  const old = reconstructOld("Edit", { old_string: "\"version\": \"1.0.0\"", new_string: "\"version\": \"1.0.1\"" }, "{\"version\": \"1.0.1\"}");
+  assert.equal(old, "{\"version\": \"1.0.0\"}");
 });
 
 test("reconstructOld: a `$&` in old_string is inserted literally, not as a replace pattern", () => {
-  assert.equal(reconstructOld("Edit", { old_string: '"a": "$&"', new_string: '"a": "b"' }, '{"a": "b"}'), '{"a": "$&"}');
+  assert.equal(reconstructOld("Edit", { old_string: "\"a\": \"$&\"", new_string: "\"a\": \"b\"" }, "{\"a\": \"b\"}"), "{\"a\": \"$&\"}");
 });
 
 test("reconstructOld: Edit with a non-unique new_string returns null (ambiguous)", () => {
-  assert.equal(reconstructOld("Edit", { old_string: "whatever", new_string: '"1"' }, '{"a": "1", "b": "1"}'), null);
+  assert.equal(reconstructOld("Edit", { old_string: "whatever", new_string: "\"1\"" }, "{\"a\": \"1\", \"b\": \"1\"}"), null);
 });
 
 test("reconstructOld: Write returns null (no prior content available)", () => {
@@ -135,17 +120,17 @@ test("collectChangedSpecs: covers dependencies/devDependencies/optionalDependenc
 });
 
 test("planInstall: a version-only Edit asks for nothing", () => {
-  assert.equal(planInstall("Edit", { old_string: '"version":"1.0.0"', new_string: '"version":"1.0.1"' }, '{"name":"x","version":"1.0.1"}'), null);
+  assert.equal(planInstall("Edit", { old_string: "\"version\":\"1.0.0\"", new_string: "\"version\":\"1.0.1\"" }, "{\"name\":\"x\",\"version\":\"1.0.1\"}"), null);
 });
 
 test("planInstall: an Edit changing a dependency asks for exactly that spec", () => {
-  const plan = planInstall("Edit", { old_string: '"left-pad":"^1.0.0"', new_string: '"left-pad":"^2.0.0"' }, '{"dependencies":{"left-pad":"^2.0.0"}}');
+  const plan = planInstall("Edit", { old_string: "\"left-pad\":\"^1.0.0\"", new_string: "\"left-pad\":\"^2.0.0\"" }, "{\"dependencies\":{\"left-pad\":\"^2.0.0\"}}");
   assert.deepEqual(plan, { specs: ["left-pad@^2.0.0"] });
 });
 
 test("planInstall: a Write, or an ambiguous Edit, falls back to a bare install", () => {
-  assert.deepEqual(planInstall("Write", { content: "{}" }, '{"name":"x"}'), { specs: null });
-  assert.deepEqual(planInstall("Edit", { old_string: '"2"', new_string: '"1"' }, '{"a":"1","b":"1"}'), { specs: null });
+  assert.deepEqual(planInstall("Write", { content: "{}" }, "{\"name\":\"x\"}"), { specs: null });
+  assert.deepEqual(planInstall("Edit", { old_string: "\"2\"", new_string: "\"1\"" }, "{\"a\":\"1\",\"b\":\"1\"}"), { specs: null });
 });
 
 test("planInstall: malformed post-edit JSON fails open (nothing)", () => {
@@ -153,7 +138,7 @@ test("planInstall: malformed post-edit JSON fails open (nothing)", () => {
 });
 
 test("planInstall: an unparsable reconstructed old version falls back to a bare install", () => {
-  assert.deepEqual(planInstall("Edit", { old_string: "{{", new_string: '{"a":1}' }, '{"a":1}'), { specs: null });
+  assert.deepEqual(planInstall("Edit", { old_string: "{{", new_string: "{\"a\":1}" }, "{\"a\":1}"), { specs: null });
 });
 
 const HOOK = "npm-install-on-package-change";

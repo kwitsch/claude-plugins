@@ -1,5 +1,5 @@
 import { expect, mock, test, type TestBody } from "claude-code/testing";
-import { NUDGE, dueKey } from "../hooks/dream.mjs";
+import { dueKey, NUDGE } from "../hooks/dream.mjs";
 
 type Engine = Parameters<TestBody>[0];
 type On = Parameters<TestBody>[1];

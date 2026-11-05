@@ -26,13 +26,16 @@ rg_or_grep() {
         continue
       fi
       case "$a" in
-        --) seen_dashdash=true; args+=("$a") ;;
-        -[A-Za-z]*)
-          stripped="${a//E/}"
-          [ "$stripped" = "-" ] && continue
-          args+=("$stripped")
-          ;;
-        *) args+=("$a") ;;
+      --)
+        seen_dashdash=true
+        args+=("$a")
+        ;;
+      -[A-Za-z]*)
+        stripped="${a//E/}"
+        [ "$stripped" = "-" ] && continue
+        args+=("$stripped")
+        ;;
+      *) args+=("$a") ;;
       esac
     done
     command rg "${args[@]}"

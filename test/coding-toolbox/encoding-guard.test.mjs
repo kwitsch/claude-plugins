@@ -1,13 +1,13 @@
 // encoding guard (tool.call deny gate on Read|Edit|Write|Bash) — the pure logic in
 // plugins/coding-toolbox/hooks/policy.mjs, driven with real fixture files through node:fs.
 // Hook wiring (the deny reaching the model) is covered by plugins/coding-toolbox/tests/.
-import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, openSync, readSync, closeSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, mkdtempSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { SAMPLE_BYTES, bashCandidates, classifyBytes, collectOffenders, decodeBase64, denyReason, resolvePath } from "../../plugins/coding-toolbox/hooks/policy.mjs";
+import { bashCandidates, classifyBytes, collectOffenders, decodeBase64, denyReason, resolvePath, SAMPLE_BYTES } from "../../plugins/coding-toolbox/hooks/policy.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // "Täglich grüßt der Bär" in Windows-1252.
@@ -76,10 +76,10 @@ test("denies Read of a legacy single-byte file with an iconv hint", async () => 
 test("the deny reason text is unchanged from the command hook's", () => {
   assert.equal(
     denyReason([{ path: "/a", label: "UTF-16LE", iconv: "UTF-16LE" }]),
-    "encoding-guard: /a (UTF-16LE) is not UTF-8. " +
-      "Native Read/Edit/Write and plain shell text tools assume UTF-8 and would misread or corrupt the content. " +
-      "Read safely with: iconv -f UTF-16LE -t UTF-8 '/a'. " +
-      "To modify: convert to UTF-8, edit, convert back with iconv -f UTF-8 -t UTF-16LE — or use another encoding-preserving tool.",
+    "encoding-guard: /a (UTF-16LE) is not UTF-8. "
+      + "Native Read/Edit/Write and plain shell text tools assume UTF-8 and would misread or corrupt the content. "
+      + "Read safely with: iconv -f UTF-16LE -t UTF-8 '/a'. "
+      + "To modify: convert to UTF-8, edit, convert back with iconv -f UTF-8 -t UTF-16LE — or use another encoding-preserving tool.",
   );
   assert.match(
     denyReason([
@@ -140,7 +140,7 @@ test("Bash names each offending file once, in command order", async () => {
 });
 
 test("bashCandidates keeps only clean literal tokens", () => {
-  assert.deepEqual(bashCandidates('cat a.txt "$(x)" $F -n b*.txt > out.txt'), ["out.txt", "a.txt"]);
+  assert.deepEqual(bashCandidates("cat a.txt \"$(x)\" $F -n b*.txt > out.txt"), ["out.txt", "a.txt"]);
   assert.deepEqual(bashCandidates("ls a.txt"), []);
 });
 

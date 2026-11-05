@@ -19,7 +19,7 @@ Rules:
 
 - Confirm you are in the checkout that already has the work branch named in
   your prompt checked out, before editing anything: run `git branch
---show-current` and require it to equal that branch. This holds whether
+  --show-current` and require it to equal that branch. This holds whether
   that checkout is the primary repo root or a linked worktree — a build-task
   run resumed inside an existing worktree stays there, so do NOT assume or
   require the primary root. If the current branch does not match, STOP and

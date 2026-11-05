@@ -16,32 +16,15 @@
 // (the tarball only; the extracted binary is trusted) before anything enters the cache,
 // populated by atomic rename into a checksums-derived content-addressed dir. It NEVER sets
 // CBM_CACHE_DIR — that is cbm's own graph-database root; the plugin owns only CBM_BUNDLE_CACHE.
-import process from "node:process";
-import readline from "node:readline";
+import { execFileSync, spawn } from "node:child_process";
+import { accessSync, chmodSync, constants as fsConstants, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import process from "node:process";
+import readline from "node:readline";
 import { fileURLToPath } from "node:url";
-import { accessSync, chmodSync, constants as fsConstants, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
-import { execFileSync, spawn } from "node:child_process";
-import {
-  SYMBOL_LIMIT,
-  isCbmEnabled,
-  resolveBundleCache,
-  resolveProjectCacheDir,
-  readProjectCache,
-  writeProjectCache,
-  unwrapToolResult,
-  pickProjectEntry,
-  graphQueryFromToolInput,
-  formatSessionContext,
-  formatSubagentContext,
-  formatSymbolContext,
-  formatCoverageContext,
-  relativeToProject,
-  buildOutput,
-  usablePath,
-} from "./cbm-context.mjs";
-import { downloadToFile, findBinaries, fetchExpectedSha } from "./binary-fetch.mjs";
+import { downloadToFile, fetchExpectedSha, findBinaries } from "./binary-fetch.mjs";
+import { buildOutput, formatCoverageContext, formatSessionContext, formatSubagentContext, formatSymbolContext, graphQueryFromToolInput, isCbmEnabled, pickProjectEntry, readProjectCache, relativeToProject, resolveBundleCache, resolveProjectCacheDir, SYMBOL_LIMIT, unwrapToolResult, usablePath, writeProjectCache } from "./cbm-context.mjs";
 
 const SERVER_NAME = "codebase-memory"; // keep aligned with the .mcp.json key
 const SERVER_INFO = { name: SERVER_NAME, version: "0.1.0" };

@@ -80,20 +80,38 @@ refresh_onto() {
 
 if [ "$#" -eq 0 ]; then
   base="$(detect_default)"
-  [ -n "$base" ] || { echo "origin/HEAD undetectable (no remote / offline)" >&2; exit 4; }
+  [ -n "$base" ] || {
+    echo "origin/HEAD undetectable (no remote / offline)" >&2
+    exit 4
+  }
   refresh_onto "$base"
 elif [ "$is_worktree" = true ]; then
-  [ "$#" -eq 1 ] || { echo "usage: fresh-branch.sh [base]  (worktree: at most 1 arg)" >&2; exit 2; }
+  [ "$#" -eq 1 ] || {
+    echo "usage: fresh-branch.sh [base]  (worktree: at most 1 arg)" >&2
+    exit 2
+  }
   refresh_onto "$1"
 else
-  [ "$#" -le 2 ] || { echo "usage: fresh-branch.sh <branch-name> [base]  (non-worktree: at most 2 args)" >&2; exit 2; }
+  [ "$#" -le 2 ] || {
+    echo "usage: fresh-branch.sh <branch-name> [base]  (non-worktree: at most 2 args)" >&2
+    exit 2
+  }
   branch="$1"
   base="${2:-}"
   [ -n "$base" ] || base="$(detect_default)"
-  [ -n "$base" ] || { echo "origin/HEAD undetectable (no remote / offline)" >&2; exit 4; }
+  [ -n "$base" ] || {
+    echo "origin/HEAD undetectable (no remote / offline)" >&2
+    exit 4
+  }
 
-  git show-ref --verify --quiet "refs/heads/$branch"          && { echo "$branch exists locally"  >&2; exit 6; }
-  git show-ref --verify --quiet "refs/remotes/origin/$branch" && { echo "$branch exists on remote" >&2; exit 6; }
+  git show-ref --verify --quiet "refs/heads/$branch" && {
+    echo "$branch exists locally" >&2
+    exit 6
+  }
+  git show-ref --verify --quiet "refs/remotes/origin/$branch" && {
+    echo "$branch exists on remote" >&2
+    exit 6
+  }
 
   stash_if_dirty
 

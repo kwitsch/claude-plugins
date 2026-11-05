@@ -1,9 +1,9 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
-import process from "node:process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import process from "node:process";
+import { test } from "node:test";
 
 import { formatInProcess } from "../../plugins/universal-format/mcp/server.mjs";
 
@@ -22,7 +22,7 @@ const CASES = [
   ["a.sh", "shell", "echo  hi", "echo hi\n"],
   ["a.bash", "shell", "echo  hi", "echo hi\n"],
   ["A.java", "java", "class A {  }", "class A {}\n"],
-  ["a.php", "php", '<?php  echo "hi";', '<?php echo "hi";\n'],
+  ["a.php", "php", "<?php  echo \"hi\";", "<?php echo \"hi\";\n"],
   ["a.less", "less", "@c:  red;\n.a{color:@c}\n", "@c: red;\n.a {\n  color: @c;\n}\n"],
   ["a.html", "html", "<div>   <p>hi</p>   </div>", "<div><p>hi</p></div>\n"],
   ["a.htm", "html", "<div>   <p>hi</p>   </div>", "<div><p>hi</p></div>\n"],

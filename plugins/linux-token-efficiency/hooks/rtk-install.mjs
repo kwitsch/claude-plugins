@@ -9,12 +9,12 @@
 // line and the process exits 0), one bounded download attempt. Shares
 // downloadToFile()/findBinaries()/fetchExpectedSha() with mcp/server.mjs's cbm provisioning.
 // It NEVER downloads inside the per-call Bash rewrite (the mods module, register.ts).
-import process from "node:process";
+import { execFileSync } from "node:child_process";
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, renameSync, rmSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { chmodSync, lstatSync, mkdirSync, mkdtempSync, renameSync, rmSync, statSync } from "node:fs";
-import { execFileSync } from "node:child_process";
-import { downloadToFile, findBinaries, fetchExpectedSha } from "../mcp/binary-fetch.mjs";
+import process from "node:process";
+import { downloadToFile, fetchExpectedSha, findBinaries } from "../mcp/binary-fetch.mjs";
 import { usablePath } from "../mcp/cbm-context.mjs";
 
 const BINARY_NAME = "rtk";

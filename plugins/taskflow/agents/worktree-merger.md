@@ -28,7 +28,7 @@ For each entry:
 
 - `git merge --no-ff <branch>`.
 - On success, clean up in this exact order — `git worktree remove
-<worktreePath>` FIRST, then `git branch -d <branch>` (git refuses to delete
+  <worktreePath>` FIRST, then `git branch -d <branch>` (git refuses to delete
   a branch still checked out in a worktree). A failing cleanup command is
   reported but is NOT a merge failure.
 

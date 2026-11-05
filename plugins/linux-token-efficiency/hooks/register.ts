@@ -1,19 +1,5 @@
 import type { EngineInterface, Register } from "claude-code";
-import {
-  GIT_WORKTREE_CHECK_TIMEOUT_MS,
-  INPUT_CAP,
-  RTK_SPAWN_TIMEOUT_MS,
-  buildSteerDeny,
-  buildWebFetchDeny,
-  classifyBashCommand,
-  gitDirs,
-  hasGitOperand,
-  isAutoRewriteEnabled,
-  isSteerEnabled,
-  parseRtkRewrite,
-  resolveManagedRtk,
-  rtkCandidates,
-} from "./rtk-rewrite.mjs";
+import { buildSteerDeny, buildWebFetchDeny, classifyBashCommand, GIT_WORKTREE_CHECK_TIMEOUT_MS, gitDirs, hasGitOperand, INPUT_CAP, isAutoRewriteEnabled, isSteerEnabled, parseRtkRewrite, resolveManagedRtk, RTK_SPAWN_TIMEOUT_MS, rtkCandidates } from "./rtk-rewrite.mjs";
 
 // The two per-call PreToolUse command hooks (Bash router, WebFetch steer) as in-process tool.call hooks.
 // Fail-open everywhere: every helper turns a failure into "no rewrite", and each hook calls next once, outside any try.

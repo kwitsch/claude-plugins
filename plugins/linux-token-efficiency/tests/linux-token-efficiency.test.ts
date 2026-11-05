@@ -1,5 +1,5 @@
-import { expect, test, type TestBody } from "claude-code/testing";
 import type { FsStat, ProcessRunResult } from "claude-code";
+import { expect, test, type TestBody } from "claude-code/testing";
 import { buildSteerDeny, buildWebFetchDeny, classifyBashCommand } from "../hooks/rtk-rewrite.mjs";
 
 type On = Parameters<TestBody>[1];
@@ -77,7 +77,7 @@ test("rewrite: rtk's command reaches the tool; every other field survives; rtk g
 });
 
 test("rewrite: an rtk answer that is empty, unchanged, garbage, a decision or a failure leaves the command as it was", async ($, on) => {
-  const answers = [ran(""), ran(rtkSays("ls -la")), ran("not json"), ran('{"hookSpecificOutput":{"permissionDecision":"deny"}}'), ran(rtkSays("rtk ls -la"), 1)];
+  const answers = [ran(""), ran(rtkSays("ls -la")), ran("not json"), ran("{\"hookSpecificOutput\":{\"permissionDecision\":\"deny\"}}"), ran(rtkSays("rtk ls -la"), 1)];
   let i = 0;
   const { seen } = world(on, { rtk: () => answers[i++] });
   for (let n = 0; n < answers.length; n++) await $.tool.call({ tool: "Bash", command: "ls -la" });
@@ -172,7 +172,7 @@ test("WebFetch: denied with the command hook's exact text, the URL and its host 
   const { seen } = world(on);
   const r = await $.tool.call({ tool: "WebFetch", url: "https://docs.example.org/page?q=1", prompt: "summarize" });
   expect(r.deny).toBe(buildWebFetchDeny("https://docs.example.org/page?q=1").hookSpecificOutput?.permissionDecisionReason);
-  expect(r.deny).toContain('"source": "docs.example.org"');
+  expect(r.deny).toContain("\"source\": \"docs.example.org\"");
   expect(seen).toEqual([]);
 });
 

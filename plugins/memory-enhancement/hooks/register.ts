@@ -1,5 +1,5 @@
 import type { EngineInterface, Register } from "claude-code";
-import { NUDGE, dueKey, isAutoDreamEnabled } from "./dream.mjs";
+import { dueKey, isAutoDreamEnabled, NUDGE } from "./dream.mjs";
 
 // The session-start root (CLAUDE_PROJECT_DIR's semantics): $.session.root() follows /cd and worktree moves,
 // which would flag a throwaway worktree instead of the project. A reload re-captures it from root().

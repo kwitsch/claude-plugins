@@ -106,10 +106,10 @@ function skipToken(s, i) {
     } else if (q === "double") {
       if (esc) esc = false;
       else if (c === "\\") esc = true;
-      else if (c === '"') q = "none";
+      else if (c === "\"") q = "none";
     } else if (esc) esc = false;
     else if (c === "'") q = "single";
-    else if (c === '"') q = "double";
+    else if (c === "\"") q = "double";
     else if (c === "\\") esc = true;
     else if (TOKEN_END.has(c)) break;
   }
@@ -146,7 +146,7 @@ export function rewriteCommand(command, keyFile) {
     if (q === "double") {
       if (esc) esc = false;
       else if (c === "\\") esc = true;
-      else if (c === '"') q = "none";
+      else if (c === "\"") q = "none";
       i++;
       continue;
     }
@@ -156,9 +156,9 @@ export function rewriteCommand(command, keyFile) {
       i++;
       continue;
     }
-    if (c === "'" || c === '"' || c === "\\") {
+    if (c === "'" || c === "\"" || c === "\\") {
       if (c === "'") q = "single";
-      else if (c === '"') q = "double";
+      else if (c === "\"") q = "double";
       else esc = true;
       cmdPos = false;
       i++;
@@ -204,18 +204,16 @@ export function rewriteCommand(command, keyFile) {
   return out + s.slice(start);
 }
 
-export const MISSING_KEY_WARNING =
-  "⚠️ git-sign-key: no signing key found at ~/.claude/sign.key. Git commits will NOT be rewritten for file-based SSH signing — " +
-  "they fall back to your normal git/ssh-agent setup. Surface this to the user and explain how to enable it: " +
-  '1) ssh-keygen -t ed25519 -C "your_email" -f ~/.claude/sign.key -N ""   2) chmod 600 ~/.claude/sign.key   ' +
-  "3) add ~/.claude/sign.key.pub to your Git host as a SIGNING key (GitHub: Settings -> SSH and GPG keys -> New SSH key -> Key type: Signing Key). " +
-  "See the git-sign-key plugin README for full setup and signature verification.";
+export const MISSING_KEY_WARNING = "⚠️ git-sign-key: no signing key found at ~/.claude/sign.key. Git commits will NOT be rewritten for file-based SSH signing — "
+  + "they fall back to your normal git/ssh-agent setup. Surface this to the user and explain how to enable it: "
+  + "1) ssh-keygen -t ed25519 -C \"your_email\" -f ~/.claude/sign.key -N \"\"   2) chmod 600 ~/.claude/sign.key   "
+  + "3) add ~/.claude/sign.key.pub to your Git host as a SIGNING key (GitHub: Settings -> SSH and GPG keys -> New SSH key -> Key type: Signing Key). "
+  + "See the git-sign-key plugin README for full setup and signature verification.";
 
-export const UNUSABLE_KEY_WARNING =
-  "⚠️ git-sign-key: ~/.claude/sign.key cannot be used for non-interactive signing — " +
-  "it is either passphrase-encrypted or has unsafe file permissions. File-based SSH signing bypasses the ssh-agent, so every git commit will FAIL (the hook forces commit.gpgsign=true). " +
-  'Make sure the key is unencrypted (ssh-keygen -p -f ~/.claude/sign.key -N "", understand the security tradeoff) ' +
-  "and locked down (chmod 600 ~/.claude/sign.key). See the git-sign-key plugin README.";
+export const UNUSABLE_KEY_WARNING = "⚠️ git-sign-key: ~/.claude/sign.key cannot be used for non-interactive signing — "
+  + "it is either passphrase-encrypted or has unsafe file permissions. File-based SSH signing bypasses the ssh-agent, so every git commit will FAIL (the hook forces commit.gpgsign=true). "
+  + "Make sure the key is unencrypted (ssh-keygen -p -f ~/.claude/sign.key -N \"\", understand the security tradeoff) "
+  + "and locked down (chmod 600 ~/.claude/sign.key). See the git-sign-key plugin README.";
 
 /**
  * argv that probes whether the key signs non-interactively (empty passphrase).

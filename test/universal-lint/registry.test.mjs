@@ -1,28 +1,9 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import {
-  REGISTRY,
-  resolveCheckstyleConfig,
-  resolveCargoManifest,
-  buildArgv,
-  classifyExit,
-  classifyCheckstyleOutput,
-  truncate,
-  isToolAvailable,
-  isExcludedPath,
-  resolveLintTarget,
-  lintFileHandler,
-  parseRtkPrefix,
-  resolveTsconfig,
-  looksLikeSolutionStyleTsconfig,
-  tsBuildInfoPathFor,
-  tscOutputHasSourceDiagnostic,
-  hasProjectYamllintConfig,
-  hasProjectMarkdownlintConfig,
-} from "../../plugins/universal-lint/hooks/lint-file.mjs";
+import { test } from "node:test";
+import { buildArgv, classifyCheckstyleOutput, classifyExit, hasProjectMarkdownlintConfig, hasProjectYamllintConfig, isExcludedPath, isToolAvailable, lintFileHandler, looksLikeSolutionStyleTsconfig, parseRtkPrefix, REGISTRY, resolveCargoManifest, resolveCheckstyleConfig, resolveLintTarget, resolveTsconfig, truncate, tsBuildInfoPathFor, tscOutputHasSourceDiagnostic } from "../../plugins/universal-lint/hooks/lint-file.mjs";
 
 const shellcheck = REGISTRY.shell.chain[0];
 const checkstyle = REGISTRY.java.chain[0];
@@ -73,7 +54,7 @@ test("buildArgv: checkstyle injects -c <resolved config> before the file", () =>
 
 test("resolveCheckstyleConfig: finds checkstyle.xml walking up to cwd", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ul-cs-"));
-  writeFileSync(path.join(root, "checkstyle.xml"), '<module name="Checker"/>');
+  writeFileSync(path.join(root, "checkstyle.xml"), "<module name=\"Checker\"/>");
   const sub = path.join(root, "src", "main");
   mkdirSync(sub, { recursive: true });
   assert.equal(resolveCheckstyleConfig(sub, root), path.join(root, "checkstyle.xml"));
@@ -82,7 +63,7 @@ test("resolveCheckstyleConfig: finds checkstyle.xml walking up to cwd", () => {
 test("resolveCheckstyleConfig: finds config/checkstyle/checkstyle.xml", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ul-cs-"));
   mkdirSync(path.join(root, "config", "checkstyle"), { recursive: true });
-  writeFileSync(path.join(root, "config", "checkstyle", "checkstyle.xml"), '<module name="Checker"/>');
+  writeFileSync(path.join(root, "config", "checkstyle", "checkstyle.xml"), "<module name=\"Checker\"/>");
   assert.equal(resolveCheckstyleConfig(root, root), path.join(root, "config", "checkstyle", "checkstyle.xml"));
 });
 
@@ -127,7 +108,7 @@ test("classifyCheckstyleOutput: boilerplate + violation lines -> issues (exit-co
 });
 
 test("classifyCheckstyleOutput: no trailing 'Audit done.' -> skip (crash/misconfig)", () => {
-  const r = classifyCheckstyleOutput('Exception in thread "main" java.lang.RuntimeException\n');
+  const r = classifyCheckstyleOutput("Exception in thread \"main\" java.lang.RuntimeException\n");
   assert.equal(r.status, "skip");
 });
 
@@ -245,7 +226,7 @@ test("tscOutputHasSourceDiagnostic: matches through ANSI color codes (real tsc o
 
 test("resolveTsconfig: finds tsconfig.json walking up to cwd", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ul-ts-"));
-  writeFileSync(path.join(root, "tsconfig.json"), '{"compilerOptions":{},"include":["*.ts"]}');
+  writeFileSync(path.join(root, "tsconfig.json"), "{\"compilerOptions\":{},\"include\":[\"*.ts\"]}");
   const sub = path.join(root, "src");
   mkdirSync(sub, { recursive: true });
   assert.equal(resolveTsconfig(sub, root), path.join(root, "tsconfig.json"));
@@ -258,7 +239,7 @@ test("resolveTsconfig: nothing found -> null", () => {
 
 test("resolveTsconfig: solution-style tsconfig (references, no files/include) is skipped, keeps walking, -> null when nothing else found", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ul-ts-"));
-  writeFileSync(path.join(root, "tsconfig.json"), '{"files":[],"references":[{"path":"./pkg"}]}');
+  writeFileSync(path.join(root, "tsconfig.json"), "{\"files\":[],\"references\":[{\"path\":\"./pkg\"}]}");
   const sub = path.join(root, "src");
   mkdirSync(sub, { recursive: true });
   assert.equal(resolveTsconfig(sub, root), null);
@@ -266,16 +247,16 @@ test("resolveTsconfig: solution-style tsconfig (references, no files/include) is
 
 test("resolveTsconfig: solution-style nearer file is skipped in favor of a real one further up", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ul-ts-"));
-  writeFileSync(path.join(root, "tsconfig.json"), '{"compilerOptions":{},"include":["**/*.ts"]}');
+  writeFileSync(path.join(root, "tsconfig.json"), "{\"compilerOptions\":{},\"include\":[\"**/*.ts\"]}");
   const sub = path.join(root, "pkg");
   mkdirSync(sub, { recursive: true });
-  writeFileSync(path.join(sub, "tsconfig.json"), '{"files":[],"references":[{"path":"./other"}]}');
+  writeFileSync(path.join(sub, "tsconfig.json"), "{\"files\":[],\"references\":[{\"path\":\"./other\"}]}");
   assert.equal(resolveTsconfig(sub, root), path.join(root, "tsconfig.json"));
 });
 
 test("resolveTsconfig: unreadable tsconfig.json (a directory of that name -> EISDIR) is treated as absent, walk continues upward", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ul-ts-"));
-  writeFileSync(path.join(root, "tsconfig.json"), '{"compilerOptions":{},"include":["*.ts"]}');
+  writeFileSync(path.join(root, "tsconfig.json"), "{\"compilerOptions\":{},\"include\":[\"*.ts\"]}");
   const sub = path.join(root, "pkg");
   // a directory named tsconfig.json: existsSync -> true, readFileSync -> EISDIR
   mkdirSync(path.join(sub, "tsconfig.json"), { recursive: true });
@@ -283,32 +264,32 @@ test("resolveTsconfig: unreadable tsconfig.json (a directory of that name -> EIS
 });
 
 test("looksLikeSolutionStyleTsconfig: references with no files/include -> true", () => {
-  assert.equal(looksLikeSolutionStyleTsconfig('{\n  "files": [],\n  "references": [{"path": "./pkg"}]\n}'), true);
+  assert.equal(looksLikeSolutionStyleTsconfig("{\n  \"files\": [],\n  \"references\": [{\"path\": \"./pkg\"}]\n}"), true);
 });
 
 test("looksLikeSolutionStyleTsconfig: references alongside include -> false", () => {
-  assert.equal(looksLikeSolutionStyleTsconfig('{\n  "include": ["src/**/*.ts"],\n  "references": [{"path": "./pkg"}]\n}'), false);
+  assert.equal(looksLikeSolutionStyleTsconfig("{\n  \"include\": [\"src/**/*.ts\"],\n  \"references\": [{\"path\": \"./pkg\"}]\n}"), false);
 });
 
 test("looksLikeSolutionStyleTsconfig: no references at all -> false", () => {
-  assert.equal(looksLikeSolutionStyleTsconfig('{\n  "compilerOptions": {}\n}'), false);
+  assert.equal(looksLikeSolutionStyleTsconfig("{\n  \"compilerOptions\": {}\n}"), false);
 });
 
 test("looksLikeSolutionStyleTsconfig: a // comment mentioning the literal '\"references\":' text doesn't misclassify a normal default-discovery config (no include/files at all)", () => {
-  assert.equal(looksLikeSolutionStyleTsconfig('{\n  // mentions "references": here for docs, not a real key\n  "compilerOptions": {}\n}'), false);
+  assert.equal(looksLikeSolutionStyleTsconfig("{\n  // mentions \"references\": here for docs, not a real key\n  \"compilerOptions\": {}\n}"), false);
 });
 
 test("looksLikeSolutionStyleTsconfig: a /* */ comment mentioning the literal '\"references\":' text doesn't misclassify a normal default-discovery config", () => {
-  assert.equal(looksLikeSolutionStyleTsconfig('{\n  /* mentions "references": here for docs */\n  "compilerOptions": {}\n}'), false);
+  assert.equal(looksLikeSolutionStyleTsconfig("{\n  /* mentions \"references\": here for docs */\n  \"compilerOptions\": {}\n}"), false);
 });
 
 test("looksLikeSolutionStyleTsconfig: a genuine solution-style config with an unrelated comment is still detected", () => {
-  assert.equal(looksLikeSolutionStyleTsconfig('{\n  // solution file, compiles nothing directly\n  "files": [],\n  "references": [{"path": "./pkg"}]\n}'), true);
+  assert.equal(looksLikeSolutionStyleTsconfig("{\n  // solution file, compiles nothing directly\n  \"files\": [],\n  \"references\": [{\"path\": \"./pkg\"}]\n}"), true);
 });
 
 test("looksLikeSolutionStyleTsconfig: a string value containing // is not misread as a comment start (files array entry survives stripping)", () => {
   assert.equal(
-    looksLikeSolutionStyleTsconfig('{\n  "files": ["http://example/a.ts"],\n  "references": [{"path": "./pkg"}]\n}'),
+    looksLikeSolutionStyleTsconfig("{\n  \"files\": [\"http://example/a.ts\"],\n  \"references\": [{\"path\": \"./pkg\"}]\n}"),
     false, // files has a real non-empty entry -> not solution-style
   );
 });
@@ -566,7 +547,7 @@ test("REGISTRY: rust chain's clippy entry is probed as cargo-clippy but spawned 
 
 test("resolveCargoManifest: finds Cargo.toml walking up from a nested dir", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ul-cargo-"));
-  writeFileSync(path.join(root, "Cargo.toml"), '[package]\nname = "x"\n');
+  writeFileSync(path.join(root, "Cargo.toml"), "[package]\nname = \"x\"\n");
   const sub = path.join(root, "src", "inner");
   mkdirSync(sub, { recursive: true });
   assert.equal(resolveCargoManifest(sub, root), path.join(root, "Cargo.toml"));
@@ -574,7 +555,7 @@ test("resolveCargoManifest: finds Cargo.toml walking up from a nested dir", () =
 
 test("resolveCargoManifest: finds Cargo.toml at cwd", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ul-cargo-"));
-  writeFileSync(path.join(root, "Cargo.toml"), '[package]\nname = "x"\n');
+  writeFileSync(path.join(root, "Cargo.toml"), "[package]\nname = \"x\"\n");
   assert.equal(resolveCargoManifest(root, root), path.join(root, "Cargo.toml"));
 });
 
@@ -586,7 +567,7 @@ test("resolveCargoManifest: nothing found -> null", () => {
 test("buildArgv: cargo-clippy inserts --manifest-path before the -- separator, no trailing positional", () => {
   const clippy = REGISTRY.rust.chain[0];
   const root = mkdtempSync(path.join(tmpdir(), "ul-cargo-"));
-  writeFileSync(path.join(root, "Cargo.toml"), '[package]\nname = "x"\n');
+  writeFileSync(path.join(root, "Cargo.toml"), "[package]\nname = \"x\"\n");
   const sub = path.join(root, "src");
   mkdirSync(sub, { recursive: true });
   assert.deepEqual(buildArgv(clippy, path.join(sub, "main.rs"), root), ["--manifest-path", path.join(root, "Cargo.toml"), "--", "-D", "warnings"]);
@@ -595,7 +576,7 @@ test("buildArgv: cargo-clippy inserts --manifest-path before the -- separator, n
 test("buildArgv: cargo check appends --manifest-path, no trailing positional", () => {
   const cargo = REGISTRY.rust.chain[1];
   const root = mkdtempSync(path.join(tmpdir(), "ul-cargo-"));
-  writeFileSync(path.join(root, "Cargo.toml"), '[package]\nname = "x"\n');
+  writeFileSync(path.join(root, "Cargo.toml"), "[package]\nname = \"x\"\n");
   assert.deepEqual(buildArgv(cargo, path.join(root, "main.rs"), root), ["check", "--manifest-path", path.join(root, "Cargo.toml")]);
 });
 

@@ -13,10 +13,10 @@ dream cycle.
 
 ## Skills
 
-| Skill              | What it does                                                                                                                                                                                                                                        |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Skill              | What it does                                                                                                                                                                                                                               |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `dream`            | Consolidates this project's auto-memory files in four phases (orient, gather signal, consolidate, update the MEMORY.md index), optionally compressing touched detail files via `cc-knowledge`'s `cc-compress` when that plugin is enabled. |
-| `self-improvement` | Reflects on the current session's own tool calls and reasoning to find concrete ways the task could have been solved faster or more efficiently, reports a summary to the user, and saves durable, deduped lessons as feedback memory.              |
+| `self-improvement` | Reflects on the current session's own tool calls and reasoning to find concrete ways the task could have been solved faster or more efficiently, reports a summary to the user, and saves durable, deduped lessons as feedback memory.     |
 
 ## What it does
 

@@ -22,7 +22,7 @@ CONTEXT_MODE_SPEC="context-mode@1.0.169"
 
 # Probe the package RUNNERS, not the runtimes: checking only for the node executable would be
 # the wrong fallback check here, because node alone does not run npx.
-if command -v bunx > /dev/null 2>&1; then exec bunx "$CONTEXT_MODE_SPEC" "$@"; fi
-if command -v npx > /dev/null 2>&1; then exec npx --yes "$CONTEXT_MODE_SPEC" "$@"; fi
+if command -v bunx >/dev/null 2>&1; then exec bunx "$CONTEXT_MODE_SPEC" "$@"; fi
+if command -v npx >/dev/null 2>&1; then exec npx --yes "$CONTEXT_MODE_SPEC" "$@"; fi
 echo "context-mode-launch.sh: neither bunx nor npx is available. Install Node.js or Bun." >&2
 exit 1

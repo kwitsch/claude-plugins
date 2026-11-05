@@ -1,17 +1,5 @@
 import type { EngineInterface, Register } from "claude-code";
-import {
-  FULL_READ_MAX,
-  GATE_REASON,
-  GIT_TIMEOUT_MS,
-  SAMPLE_BYTES,
-  collectOffenders,
-  decodeBase64,
-  denyReason,
-  isBareQuestion,
-  isGateTurn,
-  isWorktreeRefreshEnabled,
-  refreshWorktree,
-} from "./policy.mjs";
+import { collectOffenders, decodeBase64, denyReason, FULL_READ_MAX, GATE_REASON, GIT_TIMEOUT_MS, isBareQuestion, isGateTurn, isWorktreeRefreshEnabled, refreshWorktree, SAMPLE_BYTES } from "./policy.mjs";
 
 // The main-loop turn the gate's own re-prompt started: never gated again, so at most one re-prompt per user turn.
 // Module state: a hot reload forgets it, which at worst lets one more re-prompt through.

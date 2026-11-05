@@ -22,15 +22,17 @@ trap 'exit 130' INT TERM HUP
 os() { uname -s | tr '[:upper:]' '[:lower:]'; } # linux | darwin
 arch() {
   case "$(uname -m)" in
-    x86_64 | amd64) echo x64 ;;
-    aarch64 | arm64) echo arm64 ;;
-    *)
-      echo "unsupported architecture: $(uname -m)" >&2
-      return 1
-      ;;
+  x86_64 | amd64) echo x64 ;;
+  aarch64 | arm64) echo arm64 ;;
+  *)
+    echo "unsupported architecture: $(uname -m)" >&2
+    return 1
+    ;;
   esac
 }
-sha256() { if command -v sha256sum > /dev/null 2>&1; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
+sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$@"; else shasum -a 256 "$@"; fi
+}
 
 # <path>: 0 when nothing is there; a dangling symlink is removed first
 vacant() {
@@ -46,11 +48,11 @@ link() {
 # the post-install check, so both always agree.
 present() {
   case "$1" in
-    # rustup ships ~/.cargo/bin proxies for cargo, rustc and rust-analyzer that
-    # exist without a toolchain / the component and exit non-zero, so command -v
-    # is not enough
-    cargo | rustc | rust-analyzer) "$1" --version > /dev/null 2>&1 ;;
-    *) command -v "$1" > /dev/null 2>&1 ;;
+  # rustup ships ~/.cargo/bin proxies for cargo, rustc and rust-analyzer that
+  # exist without a toolchain / the component and exit non-zero, so command -v
+  # is not enough
+  cargo | rustc | rust-analyzer) "$1" --version >/dev/null 2>&1 ;;
+  *) command -v "$1" >/dev/null 2>&1 ;;
   esac
 }
 
@@ -62,7 +64,7 @@ offpath() {
 
 ensure() { # <id>: present | missing (dry-run) | installed | FAILED
   local id="$1" fn="install_${1//-/_}"
-  if ! declare -F "$fn" > /dev/null; then
+  if ! declare -F "$fn" >/dev/null; then
     echo "FAILED: $id (unknown tool id)"
     return 1
   fi
@@ -100,10 +102,10 @@ ensure() { # <id>: present | missing (dry-run) | installed | FAILED
 # else (lts/*, node, no file) means no pin.
 node_pin() {
   local root p f
-  root=$(cd "$(dirname -- "$0")/../../.." 2> /dev/null && pwd) || return 0
+  root=$(cd "$(dirname -- "$0")/../../.." 2>/dev/null && pwd) || return 0
   for f in .nvmrc .node-version; do
     p=""
-    [ -r "$root/$f" ] && { read -r p < "$root/$f" || :; }
+    [ -r "$root/$f" ] && { read -r p <"$root/$f" || :; }
     p=${p//[[:space:]]/}
     p=${p#v}
     case "$p" in '' | *[!0-9.]*) ;; *) echo "$p" && return 0 ;; esac
@@ -124,10 +126,10 @@ install_node() {
   f="node-$v-$(os)-$a.tar.gz"
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/ide.XXXXXX") || return 1
   TMPD=$tmp
-  curl -fsSL -o "$tmp/$f" "https://nodejs.org/dist/$v/$f" \
-    && curl -fsSL "https://nodejs.org/dist/$v/SHASUMS256.txt" | grep " $f\$" | (cd "$tmp" && sha256 -c -) \
-    && mkdir -p "$d" && tar -xzf "$tmp/$f" -C "$d" --strip-components=1 \
-    && link "$d/bin/node" && link "$d/bin/npm" && link "$d/bin/npx"
+  curl -fsSL -o "$tmp/$f" "https://nodejs.org/dist/$v/$f" &&
+    curl -fsSL "https://nodejs.org/dist/$v/SHASUMS256.txt" | grep " $f\$" | (cd "$tmp" && sha256 -c -) &&
+    mkdir -p "$d" && tar -xzf "$tmp/$f" -C "$d" --strip-components=1 &&
+    link "$d/bin/node" && link "$d/bin/npm" && link "$d/bin/npx"
   rc=$?
   rm -rf "$tmp"
   return "$rc"
@@ -136,7 +138,7 @@ install_node() {
 # a system node can be present without npm (e.g. apt install nodejs), so the
 # npm-backed recipes check npm itself rather than trusting `ensure node`
 need_npm() {
-  command -v npm > /dev/null 2>&1 || {
+  command -v npm >/dev/null 2>&1 || {
     echo "npm not found: node is present without npm; install npm, then retry" >&2
     return 1
   }
@@ -149,9 +151,9 @@ install_pnpm() { ensure node && need_npm && npm install -g --prefix "$HOME/.loca
 # give Classic 1.x, which refuses to run in a Berry project. corepack ships
 # with node < 25, so fetch it through npm when it is missing.
 install_yarn() {
-  ensure node && need_npm \
-    && { command -v corepack > /dev/null 2>&1 || npm install -g --prefix "$HOME/.local" corepack; } \
-    && corepack enable --install-directory "$BIN" yarn
+  ensure node && need_npm &&
+    { command -v corepack >/dev/null 2>&1 || npm install -g --prefix "$HOME/.local" corepack; } &&
+    corepack enable --install-directory "$BIN" yarn
 }
 
 # <url> <interpreter> [arg...]: run a downloaded installer script. It goes
@@ -173,14 +175,14 @@ fetch_run() {
 install_bun() { BUN_INSTALL="$HOME/.local" fetch_run https://bun.sh/install bash; }
 
 install_cargo() {
-  fetch_run https://sh.rustup.rs sh -y --no-modify-path \
-    && link "$CARGO_BIN/cargo" && link "$CARGO_BIN/rustc" && link "$CARGO_BIN/rustup"
+  fetch_run https://sh.rustup.rs sh -y --no-modify-path &&
+    link "$CARGO_BIN/cargo" && link "$CARGO_BIN/rustc" && link "$CARGO_BIN/rustup"
 }
 
 # `rustup component add` needs rustup itself: a distro cargo alone has none
 install_rust_analyzer() {
-  ensure cargo && { command -v rustup > /dev/null 2>&1 || install_cargo; } \
-    && rustup component add rust-analyzer && link "$CARGO_BIN/rust-analyzer"
+  ensure cargo && { command -v rustup >/dev/null 2>&1 || install_cargo; } &&
+    rustup component add rust-analyzer && link "$CARGO_BIN/rust-analyzer"
 }
 
 # GOROOT gets its own directory: ~/.local/share/go is the common XDG GOPATH, and
@@ -194,10 +196,10 @@ install_go() {
   f="$v.$(os)-$a.tar.gz"
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/ide.XXXXXX") || return 1
   TMPD=$tmp
-  curl -fsSL -o "$tmp/$f" "https://dl.google.com/go/$f" \
-    && echo "$(curl -fsSL "https://dl.google.com/go/$f.sha256")  $tmp/$f" | sha256 -c - \
-    && mkdir -p "$d" && tar -xzf "$tmp/$f" -C "$d" --strip-components=1 \
-    && link "$d/bin/go" && link "$d/bin/gofmt"
+  curl -fsSL -o "$tmp/$f" "https://dl.google.com/go/$f" &&
+    echo "$(curl -fsSL "https://dl.google.com/go/$f.sha256")  $tmp/$f" | sha256 -c - &&
+    mkdir -p "$d" && tar -xzf "$tmp/$f" -C "$d" --strip-components=1 &&
+    link "$d/bin/go" && link "$d/bin/gofmt"
   rc=$?
   rm -rf "$tmp"
   return "$rc"
@@ -225,10 +227,10 @@ install_lua_language_server() {
   f="lua-language-server-$t-$(os)-$a.tar.gz"
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/ide.XXXXXX") || return 1
   TMPD=$tmp
-  curl -fsSL -o "$tmp/$f" "https://github.com/LuaLS/lua-language-server/releases/download/$t/$f" \
-    && mkdir -p "$d" && tar -xzf "$tmp/$f" -C "$d" \
-    && if vacant "$w"; then
-      printf '%s\n' '#!/usr/bin/env bash' 'exec "$HOME/.local/share/lua-language-server/bin/lua-language-server" "$@"' > "$w" && chmod 755 "$w"
+  curl -fsSL -o "$tmp/$f" "https://github.com/LuaLS/lua-language-server/releases/download/$t/$f" &&
+    mkdir -p "$d" && tar -xzf "$tmp/$f" -C "$d" &&
+    if vacant "$w"; then
+      printf '%s\n' '#!/usr/bin/env bash' 'exec "$HOME/.local/share/lua-language-server/bin/lua-language-server" "$@"' >"$w" && chmod 755 "$w"
     fi
   rc=$?
   rm -rf "$tmp"

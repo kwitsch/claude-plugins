@@ -1,14 +1,14 @@
 // handlers.ts — the two hook handlers plus their pure helpers. Fail open is the contract: every
 // guard failure and every caught error returns {}. The TS port must never "tighten" that away
 // because a type says a value cannot be undefined.
-import path from "node:path";
-import os from "node:os";
-import { existsSync, readFileSync } from "node:fs";
 import { execFile as execFileCb } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { promisify } from "node:util";
+import { clearPrettierConfigCaches, clearPrettierIgnoreCache, formatInProcess, isPrettierIgnored, PRETTIER_CONFIG_FILENAMES, primePrettierIgnoreCache, warmPrettierConfigCache } from "./prettier.js";
 import { EXT_MAP, PRETTIER_LANGS, REGISTRY, selectFormatter } from "./registry.js";
 import { walkToRoot } from "./util.js";
-import { PRETTIER_CONFIG_FILENAMES, clearPrettierConfigCaches, clearPrettierIgnoreCache, formatInProcess, isPrettierIgnored, primePrettierIgnoreCache, warmPrettierConfigCache } from "./prettier.js";
 
 const SPAWN_TIMEOUT_MS = 30000; // inner formatter timeout; the hook-level timeout:60 is the backstop
 

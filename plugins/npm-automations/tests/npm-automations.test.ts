@@ -32,27 +32,27 @@ async function settle(): Promise<void> {
 }
 
 test("a package.json Write runs a bare npm install in its directory, with ~/.local/bin on PATH", async ($, on) => {
-  const runs = host(on, { [PKG]: '{"name":"x"}' }, { [PROJ]: ["package.json"] });
+  const runs = host(on, { [PKG]: "{\"name\":\"x\"}" }, { [PROJ]: ["package.json"] });
   on("tool.call", () => ({ result: { type: "create", filePath: PKG, content: "{}", structuredPatch: [], originalFile: null } }));
-  const r = await $.tool.call({ tool: "Write", file_path: PKG, content: '{"name":"x"}' });
+  const r = await $.tool.call({ tool: "Write", file_path: PKG, content: "{\"name\":\"x\"}" });
   await settle();
   expect(r.deny).toBe(undefined);
   expect(runs).toEqual([{ argv: ["npm", "install"], cwd: PROJ, env: { PATH: "/usr/bin:/home/u/.local/bin" }, timeoutMs: 300000 }]);
 });
 
 test("an Edit adding a dependency under pnpm-lock.yaml runs `pnpm add <spec>`", async ($, on) => {
-  const after = '{"dependencies":{"left-pad":"^2.0.0"}}';
+  const after = "{\"dependencies\":{\"left-pad\":\"^2.0.0\"}}";
   const runs = host(on, { [PKG]: after }, { [PROJ]: ["package.json", "pnpm-lock.yaml"] });
   on("tool.call", () => ({ result: { filePath: PKG } }));
-  await $.tool.call({ tool: "Edit", file_path: PKG, old_string: '"left-pad":"^1.0.0"', new_string: '"left-pad":"^2.0.0"' });
+  await $.tool.call({ tool: "Edit", file_path: PKG, old_string: "\"left-pad\":\"^1.0.0\"", new_string: "\"left-pad\":\"^2.0.0\"" });
   await settle();
   expect(runs.map((x) => x.argv)).toEqual([["pnpm", "add", "left-pad@^2.0.0"]]);
 });
 
 test("a version-only Edit runs nothing", async ($, on) => {
-  const runs = host(on, { [PKG]: '{"version":"1.0.1"}' }, { [PROJ]: ["package.json"] });
+  const runs = host(on, { [PKG]: "{\"version\":\"1.0.1\"}" }, { [PROJ]: ["package.json"] });
   on("tool.call", () => ({ result: { filePath: PKG } }));
-  await $.tool.call({ tool: "Edit", file_path: PKG, old_string: '"version":"1.0.0"', new_string: '"version":"1.0.1"' });
+  await $.tool.call({ tool: "Edit", file_path: PKG, old_string: "\"version\":\"1.0.0\"", new_string: "\"version\":\"1.0.1\"" });
   await settle();
   expect(runs).toEqual([]);
 });

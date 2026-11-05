@@ -1,5 +1,5 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import { parseExpectedSha } from "../../plugins/linux-token-efficiency/mcp/binary-fetch.mjs";
 
 const HASH = "a".repeat(64);

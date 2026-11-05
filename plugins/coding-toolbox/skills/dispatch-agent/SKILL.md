@@ -82,7 +82,7 @@ anything else. Never guess.
    `--force`.
 
 2. **Report.** Relay the CLI's own printed session id and management hints verbatim (`claude
-agents`, `claude attach <id>`, `claude logs <id>`, `claude stop <id>`, `claude rm <id>` —
+   agents`, `claude attach <id>`, `claude logs <id>`, `claude stop <id>`, `claude rm <id>` —
    this last one now fully removes the worktree too, since `claude --worktree` owns it), plus
    the model/effort actually used. State plainly: the dispatched session's worktree started
    from the repository's default branch on origin, unless this project has `worktree.baseRef`

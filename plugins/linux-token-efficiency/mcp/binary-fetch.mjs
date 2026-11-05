@@ -5,9 +5,9 @@
 // or fail closed), download the tarball while streaming its sha256 (downloadToFile), and
 // compare the two. The single verified tarball is trusted; the extracted binary is not
 // re-hashed. Each consumer owns its own asset name and target path.
-import path from "node:path";
-import { createReadStream, createWriteStream, readdirSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { createReadStream, createWriteStream, readdirSync } from "node:fs";
+import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
@@ -35,7 +35,7 @@ export async function downloadToFile(url, dest, timeoutMs) {
   const hash = createHash("sha256");
   await pipeline(
     Readable.fromWeb(response.body),
-    async function* (/** @type {any} */ source) {
+    async function*(/** @type {any} */ source) {
       for await (const chunk of source) {
         hash.update(chunk);
         yield chunk;

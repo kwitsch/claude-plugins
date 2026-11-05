@@ -110,7 +110,7 @@ concurrently across the wave, plus two additions:
    Agent tool's own return value, not confirmed for the Workflow-script
    `agent()` primitive; self-report works identically in both engines.
 2. **Review.** Unchanged — no isolation, no path targeting: `git show
-<commitHash>` reads shared objects from any worktree, including the main
+   <commitHash>` reads shared objects from any worktree, including the main
    checkout.
 3. **Fix (if blocking findings).** Dispatched **without** `isolation` (that
    would mint a third, unrelated worktree) but instructed to operate at the
@@ -128,7 +128,7 @@ concurrently across the wave, plus two additions:
    list for every task that reached `approved`, runs in task-id order:
    `git merge --no-ff <branch>`, then
    cleans up in the only order git allows — `git worktree remove
-<worktreePath>` **first**, then `git branch -d <branch>` (git refuses to
+   <worktreePath>` **first**, then `git branch -d <branch>` (git refuses to
    delete a branch still checked out in a worktree). Disjoint files by
    construction ⇒ no _textual_ conflict is expected. **A reported conflict
    is a hard stop** — it means the parallelism analysis missed a real

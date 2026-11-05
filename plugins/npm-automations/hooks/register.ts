@@ -1,17 +1,5 @@
 import type { EngineInterface, Register } from "claude-code";
-import {
-  DEFAULT_MANAGER,
-  DELIVERY_FRAME,
-  INSTALL_TIMEOUT_MS,
-  detectPackageManager,
-  dirname,
-  installArgsFor,
-  isEnabled,
-  isPackageJson,
-  outcomeMessage,
-  pathWithLocalBin,
-  planInstall,
-} from "./policy.mjs";
+import { DEFAULT_MANAGER, DELIVERY_FRAME, detectPackageManager, dirname, INSTALL_TIMEOUT_MS, installArgsFor, isEnabled, isPackageJson, outcomeMessage, pathWithLocalBin, planInstall } from "./policy.mjs";
 
 type Install = { hook: string; cwd: string; bin: string; args: string[]; command: string };
 

@@ -21,7 +21,7 @@ common_setup() {
   MOCKBIN="$BATS_TEST_TMPDIR/bin"
   mkdir -p "$MOCKBIN"
   for t in bash env node jq git grep sed awk cat cut head find ls cp mv rm mkdir chmod tar sha256sum uname timeout sleep mktemp printf id dirname gzip stat wc mkfifo kill; do
-    src="$(command -v "$t" 2> /dev/null)" && [ -n "$src" ] && ln -s "$src" "$MOCKBIN/$t"
+    src="$(command -v "$t" 2>/dev/null)" && [ -n "$src" ] && ln -s "$src" "$MOCKBIN/$t"
   done
 
   # Isolated HOME so no test reads real user config.
@@ -45,7 +45,7 @@ make_stub_in() {
   {
     printf '#!/usr/bin/env bash\n'
     printf '%s\n' "$@"
-  } > "$dir/$name"
+  } >"$dir/$name"
   chmod +x "$dir/$name"
 }
 
@@ -71,7 +71,7 @@ write_fake_cbm() {
   local target="$1"
   mkdir -p "$(dirname "$target")"
   rm -f "$target"
-  cat > "$target" << 'FAKE_CBM'
+  cat >"$target" <<'FAKE_CBM'
 #!/usr/bin/env node
 import fs from "node:fs";
 import readline from "node:readline";
@@ -158,14 +158,14 @@ make_cbm_server_fixture() {
   cp "$CBM_BINARY_FETCH" "$dir/mcp/binary-fetch.mjs"
   chmod +x "$dir/mcp/server.mjs"
   write_fake_cbm "$FAKE_BIN"
-  printf 'fixture installer\n' > "$BATS_TEST_TMPDIR/pack/install.sh"
+  printf 'fixture installer\n' >"$BATS_TEST_TMPDIR/pack/install.sh"
   tar -czf "$RELEASE_DIR/$FIXTURE_ASSET" -C "$BATS_TEST_TMPDIR/pack" codebase-memory-mcp install.sh
-  FAKE_BIN_SHA="$(sha256sum < "$FAKE_BIN" | cut -d' ' -f1)"
-  ASSET_SHA="$(sha256sum < "$RELEASE_DIR/$FIXTURE_ASSET" | cut -d' ' -f1)"
+  FAKE_BIN_SHA="$(sha256sum <"$FAKE_BIN" | cut -d' ' -f1)"
+  ASSET_SHA="$(sha256sum <"$RELEASE_DIR/$FIXTURE_ASSET" | cut -d' ' -f1)"
   write_cbm_checksums "$ASSET_SHA  $FIXTURE_ASSET"
   jq -n '{tools:[{name:"list_projects", description:"fixture list_projects", inputSchema:{type:"object", additionalProperties:true}},
-                 {name:"search_graph",  description:"fixture search_graph",  inputSchema:{type:"object", additionalProperties:true}}]}' > "$dir/cbm-tools.json"
-  : > "$FAKE_LOG"
+                 {name:"search_graph",  description:"fixture search_graph",  inputSchema:{type:"object", additionalProperties:true}}]}' >"$dir/cbm-tools.json"
+  : >"$FAKE_LOG"
   set_fake_payloads '{}'
   CBM_DOWNLOAD_BASE_URL="http://127.0.0.1:1/releases/latest/download" # unreachable unless a test starts one
   CBM_RPC_ENV=()
@@ -173,12 +173,12 @@ make_cbm_server_fixture() {
 }
 
 # write_cbm_checksums <line>... -- write a goreleaser-style checksums.txt into the release dir.
-write_cbm_checksums() { printf '%s\n' "$@" > "$RELEASE_DIR/checksums.txt"; }
+write_cbm_checksums() { printf '%s\n' "$@" >"$RELEASE_DIR/checksums.txt"; }
 
 # refresh_asset_sha -- re-derive checksums.txt for the fixture asset's current bytes, so a
 # case exercising a LATER guard is not short-circuited by the asset-hash check.
 refresh_asset_sha() {
-  ASSET_SHA="$(sha256sum < "$RELEASE_DIR/$FIXTURE_ASSET" | cut -d' ' -f1)"
+  ASSET_SHA="$(sha256sum <"$RELEASE_DIR/$FIXTURE_ASSET" | cut -d' ' -f1)"
   write_cbm_checksums "$ASSET_SHA  $FIXTURE_ASSET"
 }
 
@@ -194,7 +194,7 @@ warm_cbm_cache() {
 
 # set_fake_payloads <json-object> -- tool-name -> canned payload map for the fake binary.
 set_fake_payloads() {
-  printf '%s\n' "$1" > "$FAKE_PAYLOADS"
+  printf '%s\n' "$1" >"$FAKE_PAYLOADS"
 }
 
 # cbm_rpc <wait-id> <request-line>... -- drive one fresh fixture server over stdio. stdin
@@ -214,30 +214,30 @@ cbm_rpc() {
   env -i PATH="$MOCKBIN" HOME="$HOME" TMPDIR="$BATS_TEST_TMPDIR" \
     CBM_BUNDLE_CACHE="$CBM_CACHE" CBM_DOWNLOAD_BASE_URL="$CBM_DOWNLOAD_BASE_URL" \
     CBM_FAKE_LOG="$FAKE_LOG" CBM_FAKE_PAYLOADS="$FAKE_PAYLOADS" \
-    "${CBM_RPC_ENV[@]}" node "$FIXTURE_SERVER" < "$fifo" > "$outfile" 2> "$errfile" &
+    "${CBM_RPC_ENV[@]}" node "$FIXTURE_SERVER" <"$fifo" >"$outfile" 2>"$errfile" &
   local server_pid=$!
-  exec {w}> "$fifo"
+  exec {w}>"$fifo"
   for line in "$@"; do
     printf '%s\n' "$line" >&"$w"
   done
   for ((i = 0; i < 80; i++)); do
-    grep -q "\"id\":$wait_id" "$outfile" 2> /dev/null && break
+    grep -q "\"id\":$wait_id" "$outfile" 2>/dev/null && break
     sleep 0.1
   done
   exec {w}>&-
   for ((i = 0; i < 30; i++)); do
-    kill -0 "$server_pid" 2> /dev/null || break
+    kill -0 "$server_pid" 2>/dev/null || break
     sleep 0.1
   done
-  if kill -0 "$server_pid" 2> /dev/null; then
-    kill "$server_pid" 2> /dev/null
+  if kill -0 "$server_pid" 2>/dev/null; then
+    kill "$server_pid" 2>/dev/null
     for ((i = 0; i < 10; i++)); do
-      kill -0 "$server_pid" 2> /dev/null || break
+      kill -0 "$server_pid" 2>/dev/null || break
       sleep 0.1
     done
-    kill -0 "$server_pid" 2> /dev/null && kill -9 "$server_pid" 2> /dev/null
+    kill -0 "$server_pid" 2>/dev/null && kill -9 "$server_pid" 2>/dev/null
   fi
-  wait "$server_pid" 2> /dev/null || true
+  wait "$server_pid" 2>/dev/null || true
   rm -f "$fifo"
   CBM_RPC_STDOUT="$(cat "$outfile")"
   CBM_RPC_STDERR="$(cat "$errfile")"
@@ -264,9 +264,9 @@ cbm_rpc_result() {
 start_release_server() {
   local script="$BATS_TEST_TMPDIR/release-server.mjs" portfile="$BATS_TEST_TMPDIR/release-port" i
   RELEASE_LOG="$BATS_TEST_TMPDIR/release-requests.log"
-  : > "$RELEASE_LOG"
+  : >"$RELEASE_LOG"
   rm -f "$portfile"
-  cat > "$script" << 'RELEASE_SERVER'
+  cat >"$script" <<'RELEASE_SERVER'
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -298,7 +298,7 @@ RELEASE_SERVER
 
 # stop_release_server -- always safe to call from teardown, even if none was started.
 stop_release_server() {
-  [ -n "${RELEASE_PID:-}" ] && kill "$RELEASE_PID" 2> /dev/null
+  [ -n "${RELEASE_PID:-}" ] && kill "$RELEASE_PID" 2>/dev/null
   RELEASE_PID=""
   return 0
 }

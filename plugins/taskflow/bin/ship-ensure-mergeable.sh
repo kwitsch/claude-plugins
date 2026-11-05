@@ -51,11 +51,11 @@ if [ "$#" -ne 4 ] || [ -z "$PLATFORM" ] || [ -z "$BRANCH" ] || [ -z "$BASE" ] ||
 fi
 
 case "$PLATFORM" in
-  github | gitlab) ;;
-  *)
-    echo "unknown platform: $PLATFORM (expected github or gitlab)" >&2
-    exit 64
-    ;;
+github | gitlab) ;;
+*)
+  echo "unknown platform: $PLATFORM (expected github or gitlab)" >&2
+  exit 64
+  ;;
 esac
 
 fail() {
@@ -86,7 +86,7 @@ retry_poll() {
 # ── Classification: echo one of clean|behind|conflict|unknown ────────────────
 classify_github_attempt() {
   local out rc mss mergeable
-  out="$(gh pr view "$PR_ID" --json mergeable,mergeStateStatus 2> /dev/null)"
+  out="$(gh pr view "$PR_ID" --json mergeable,mergeStateStatus 2>/dev/null)"
   rc=$?
   if [ "$rc" -ne 0 ] || [ -z "$out" ]; then
     return 1
@@ -114,7 +114,7 @@ classify_github() {
 
 classify_gitlab_attempt() {
   local out rc dms ms
-  out="$(glab api "projects/:id/merge_requests/$PR_ID" 2> /dev/null)"
+  out="$(glab api "projects/:id/merge_requests/$PR_ID" 2>/dev/null)"
   rc=$?
   if [ "$rc" -ne 0 ] || [ -z "$out" ]; then
     return 1
@@ -146,12 +146,12 @@ classify() {
 
 # ── behind remediation (platform update / rebase; non-force) ─────────────────
 remediate_behind_github() {
-  gh pr update-branch "$PR_ID" > /dev/null 2>&1 || fail "gh pr update-branch $PR_ID failed"
+  gh pr update-branch "$PR_ID" >/dev/null 2>&1 || fail "gh pr update-branch $PR_ID failed"
 }
 
 remediate_behind_gitlab_attempt() {
   local out rip merr
-  out="$(glab api "projects/:id/merge_requests/$PR_ID" 2> /dev/null)" || return 1
+  out="$(glab api "projects/:id/merge_requests/$PR_ID" 2>/dev/null)" || return 1
   merr="$(printf '%s' "$out" | jq -r '.merge_error // "null"')"
   if [ -n "$merr" ] && [ "$merr" != "null" ]; then
     fail "GitLab rebase reported merge_error: $merr"
@@ -161,10 +161,10 @@ remediate_behind_gitlab_attempt() {
 }
 
 remediate_behind_gitlab() {
-  glab api -X PUT "projects/:id/merge_requests/$PR_ID/rebase" > /dev/null 2>&1 \
-    || fail "glab rebase API failed for MR $PR_ID"
-  retry_poll remediate_behind_gitlab_attempt 1 \
-    || fail "GitLab rebase still in progress for MR $PR_ID after $RETRIES poll attempts"
+  glab api -X PUT "projects/:id/merge_requests/$PR_ID/rebase" >/dev/null 2>&1 ||
+    fail "glab rebase API failed for MR $PR_ID"
+  retry_poll remediate_behind_gitlab_attempt 1 ||
+    fail "GitLab rebase still in progress for MR $PR_ID after $RETRIES poll attempts"
 }
 
 remediate_behind() {
@@ -173,16 +173,16 @@ remediate_behind() {
 
 # ── conflict remediation (local -X ours merge, non-force push) ───────────────
 remediate_conflict() {
-  git fetch origin "$BASE" > /dev/null 2>&1 || fail "git fetch origin $BASE failed"
-  if ! git merge --no-edit -X ours "origin/$BASE" > /dev/null 2>&1; then
-    if [ -n "$(git ls-files --unmerged 2> /dev/null)" ]; then
-      git merge --abort > /dev/null 2>&1
+  git fetch origin "$BASE" >/dev/null 2>&1 || fail "git fetch origin $BASE failed"
+  if ! git merge --no-edit -X ours "origin/$BASE" >/dev/null 2>&1; then
+    if [ -n "$(git ls-files --unmerged 2>/dev/null)" ]; then
+      git merge --abort >/dev/null 2>&1
       fail "merge -X ours left unmerged paths (add/add, rename/modify, modify/delete, or binary conflict); aborted without force-picking a side"
     fi
-    git merge --abort > /dev/null 2>&1 || true
+    git merge --abort >/dev/null 2>&1 || true
     fail "git merge -X ours origin/$BASE failed"
   fi
-  git push origin "$BRANCH" > /dev/null 2>&1 || fail "git push origin $BRANCH rejected (remote moved); not force-pushing"
+  git push origin "$BRANCH" >/dev/null 2>&1 || fail "git push origin $BRANCH rejected (remote moved); not force-pushing"
   local c
   c="$(classify)"
   [ "$c" = "conflict" ] && fail "merge-state still conflicting after -X ours resolution and push"
@@ -192,32 +192,32 @@ remediate_conflict() {
 # ── Dispatch ─────────────────────────────────────────────────────────────────
 class="$(classify)"
 case "$class" in
-  clean)
-    echo "mergeState=clean"
-    exit 0
-    ;;
-  unknown)
-    echo "mergeState=unknown"
-    exit 0
-    ;;
-  behind)
-    remediate_behind
-    class="$(classify)"
-    if [ "$class" = "conflict" ]; then
-      remediate_conflict
-      echo "mergeState=resolved"
-      exit 0
-    fi
-    echo "mergeState=rebased"
-    exit 0
-    ;;
-  conflict)
+clean)
+  echo "mergeState=clean"
+  exit 0
+  ;;
+unknown)
+  echo "mergeState=unknown"
+  exit 0
+  ;;
+behind)
+  remediate_behind
+  class="$(classify)"
+  if [ "$class" = "conflict" ]; then
     remediate_conflict
     echo "mergeState=resolved"
     exit 0
-    ;;
-  *)
-    echo "mergeState=unknown"
-    exit 0
-    ;;
+  fi
+  echo "mergeState=rebased"
+  exit 0
+  ;;
+conflict)
+  remediate_conflict
+  echo "mergeState=resolved"
+  exit 0
+  ;;
+*)
+  echo "mergeState=unknown"
+  exit 0
+  ;;
 esac
