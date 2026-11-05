@@ -85,16 +85,15 @@ function decodeArgs(required, defaults) {
     try {
       a = JSON.parse(a);
     } catch (e) {
-      return { __error: 'args arrived as a non-JSON string ("' + a.slice(0, 120) + '") — pass ONE JSON object with keys: ' + required.join(", ") };
+      return { __error: "args arrived as a non-JSON string (\"" + a.slice(0, 120) + "\") — pass ONE JSON object with keys: " + required.join(", ") };
     }
   }
   if (typeof a !== "object" || a === null || Array.isArray(a)) {
     const kind = a === null ? (typeof args === "undefined" ? "undefined" : "null") : Array.isArray(a) ? "an array" : typeof a;
     return {
-      __error:
-        "args global is " +
-        kind +
-        " — invoke this as a saved/plugin workflow WITH a JSON object as input, or prepend `const args = {…}` to the script text; the ad-hoc {script, args} tool-call shape does not thread args.",
+      __error: "args global is "
+        + kind
+        + " — invoke this as a saved/plugin workflow WITH a JSON object as input, or prepend `const args = {…}` to the script text; the ad-hoc {script, args} tool-call shape does not thread args.",
     };
   }
   const missing = required.filter((k) => a[k] == null || a[k] === "");
@@ -113,8 +112,9 @@ const PLUGIN_ROOT = A.PLUGIN_ROOT && !A.PLUGIN_ROOT.includes("${") ? A.PLUGIN_RO
 const REPO = typeof REPO_PATH === "string" ? REPO_PATH.trim() : "";
 const wantGraphmind = GRAPHMIND_AVAILABLE === true || GRAPHMIND_AVAILABLE === "true";
 const USE_GRAPHMIND = wantGraphmind && REPO.startsWith("/");
-if (wantGraphmind && !USE_GRAPHMIND)
+if (wantGraphmind && !USE_GRAPHMIND) {
   return { stage: "args", error: "GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH" };
+}
 
 // ── Model assignment by task difficulty ──────────────────────────────────────
 // Role profiles:
@@ -430,14 +430,15 @@ const CI_FIX_RESULT = {
 // ═════════════════════════════════════════════════════════════════════════════
 phase("Plan");
 
-const plannerPrompt = (revision) => `Spec to plan: ${SPEC_PATH}
+const plannerPrompt = (revision) =>
+  `Spec to plan: ${SPEC_PATH}
 Plan file to write (create/overwrite): ${PLAN_PATH}
 Explore the codebase as needed to confirm exact current file paths, existing
 signatures your Interfaces entries must match, and established patterns. Your
 agent definition carries the full plan requirements and self-review checklist.
 ${
-  USE_GRAPHMIND
-    ? `graphmind indexes this repository: load its tools with
+    USE_GRAPHMIND
+      ? `graphmind indexes this repository: load its tools with
 ToolSearch(query: "select:mcp__graphmind__gm_search,mcp__graphmind__gm_outline,mcp__graphmind__gm_fn")
 and prefer them for that confirmation — mcp__graphmind__gm_search to locate symbols
 and files, mcp__graphmind__gm_outline for a file's structure with line numbers,
@@ -446,15 +447,15 @@ Pass project: "${REPO}" on every graphmind call. Use Read/Grep for string
 literals, config values and unindexed files, and fall back to them when a graphmind
 call errors or returns nothing.
 `
-    : ""
-}${
-  revision
-    ? `
+      : ""
+  }${
+    revision
+      ? `
 This is a REVISION. Fix exactly these findings from the plan check, then rewrite ${PLAN_PATH} in place:
 ${revision}
 `
-    : ""
-}
+      : ""
+  }
 Return structured output: status, the '## Global Constraints' section verbatim
 as 'constraints', and the machine-readable tasks array as 'tasks'.`;
 
@@ -561,7 +562,7 @@ function computeWaves(tasksIn) {
       const matched = sorted.some((o) => Number(o.id) < Number(t.id) && producesOf[o.id].has(c));
       if (!matched) ambiguous = true;
     }
-    if (ambiguous) for (const other of sorted) if (Number(other.id) < Number(t.id)) deps.add(other.id);
+    if (ambiguous) { for (const other of sorted) if (Number(other.id) < Number(t.id)) deps.add(other.id); }
     let w = 1;
     for (const d of deps) w = Math.max(w, waveOf[d] + 1);
     waveOf[t.id] = w;
@@ -578,7 +579,8 @@ log("Wave plan: " + waves.map((w, i) => i + 1 + ":[" + w.join(",") + "]").join("
 // id (schema-typed number, but be defensive) — never the whole path, which
 // would mangle SCRATCH_DIR's separators.
 const tevPathFor = (t) => SCRATCH_DIR + "test-evidence-task-" + String(t.id).replace(/[^A-Za-z0-9._-]/g, "_") + ".txt";
-const implementerPrompt = (t) => `${NO_NARRATION}
+const implementerPrompt = (t) =>
+  `${NO_NARRATION}
 
 You are the implementer for exactly one plan
 task, running in your own isolated git worktree.
@@ -601,7 +603,8 @@ exact output, set testEvidencePath to that same absolute path, and report any
 deviation from the plan inline in deviations. Return through the structured
 output schema.`;
 
-const reviewerPrompt = (t, implReport) => `${NO_NARRATION}
+const reviewerPrompt = (t, implReport) =>
+  `${NO_NARRATION}
 
 You are a read-only reviewer for one
 plan task. Plan file: ${PLAN_PATH} — Read it; review ONLY task ${t.id}
@@ -615,7 +618,8 @@ The test evidence is in the file named by testEvidencePath in the report — use
 the Read tool on it if you need it; do not re-run the tests the implementer
 already ran. Return your verdict through the structured output schema.`;
 
-const fixerPrompt = (t, findings, worktreePath, branch) => `${NO_NARRATION}
+const fixerPrompt = (t, findings, worktreePath, branch) =>
+  `${NO_NARRATION}
 
 You are the fixer
 for one reviewed plan task. You are on branch ${branch} at ${worktreePath} — an
@@ -628,7 +632,8 @@ Apply exactly these findings — nothing else — then commit (repo conventions,
 no co-author trailers): ${JSON.stringify(findings)}
 Return: STATUS: done|blocked, commit hash, what changed.`;
 
-const mergerPrompt = (approved) => `Merge target branch: ${BRANCH_NAME}
+const mergerPrompt = (approved) =>
+  `Merge target branch: ${BRANCH_NAME}
 Approved task branches — merge in exactly this order, one at a time:
 ${JSON.stringify(approved)}
 (each entry is {id, branch, worktreePath}). Procedure, cleanup order, conflict
@@ -653,16 +658,15 @@ async function runTask(t) {
     const blocking = review.findings.filter((f) => f.severity !== "minor");
     if (blocking.length) {
       const fix = await agent(fixerPrompt(t, blocking, impl.worktreePath, impl.branch), { label: "fix:" + t.id, phase: "Implement", model });
-      const reReport =
-        "Post-fix re-review. Branch: " +
-        impl.branch +
-        " — the fix commit is the LATEST commit on that branch (run `git log " +
-        impl.branch +
-        " -1`); diff that too, not only the original commit. " +
-        "Original report: " +
-        implReport +
-        ". Fix report: " +
-        fix;
+      const reReport = "Post-fix re-review. Branch: "
+        + impl.branch
+        + " — the fix commit is the LATEST commit on that branch (run `git log "
+        + impl.branch
+        + " -1`); diff that too, not only the original commit. "
+        + "Original report: "
+        + implReport
+        + ". Fix report: "
+        + fix;
       const reOpts = { ...revOpts, label: "re-review:" + t.id };
       review = await agent(reviewerPrompt(t, reReport), reOpts);
       if (review === null) review = await agent(reviewerPrompt(t, reReport), { ...reOpts, label: reOpts.label + ":retry" });
@@ -687,17 +691,17 @@ for (let i = 0; i < waves.length; i++) {
   const waveIds = waves[i];
   const waveTasks = waveIds.map((id) => tasks.find((t) => Number(t.id) === Number(id)));
   log(
-    "Wave " +
-      (i + 1) +
-      "/" +
-      waves.length +
-      ": dispatching " +
-      waveTasks.length +
-      " task(s) in isolated worktrees (ids " +
-      waveIds.join(", ") +
-      "; models " +
-      waveTasks.map((t) => implModel(t)).join(", ") +
-      ")",
+    "Wave "
+      + (i + 1)
+      + "/"
+      + waves.length
+      + ": dispatching "
+      + waveTasks.length
+      + " task(s) in isolated worktrees (ids "
+      + waveIds.join(", ")
+      + "; models "
+      + waveTasks.map((t) => implModel(t)).join(", ")
+      + ")",
   );
 
   // Always isolated; parallel() only when >1 (barrier, thunks — never started promises).
@@ -761,21 +765,21 @@ const CLEANUP_LABELS = ["cleanup:reuse", "cleanup:simplification", "cleanup:effi
 
 // ── Scope ──
 const scope = await agent(
-  NO_NARRATION +
-    "\n\n" +
-    "Establish the scope of a code review of the current branch's accumulated diff.\n\n" +
-    "Run this exact diff command: " +
-    DIFF_CMD +
-    "\n\n" +
-    "0. First confirm `git status --porcelain` is empty — stray working-tree state\n" +
-    "   means Implement did not finish cleanly; report it instead of reviewing.\n" +
-    "1. Confirm the diff command produces a non-empty diff.\n" +
-    "2. List the changed files (repo-relative).\n" +
-    "3. Summarize what changed in one paragraph.\n" +
-    "4. List the CLAUDE.md files that apply to the changed files (user-level,\n" +
-    "   repo-root, plus any CLAUDE.md/CLAUDE.local.md in an ancestor directory of\n" +
-    "   a changed file). Read each one that exists and note conventions a reviewer\n" +
-    "   should know.\n\nStructured output only.",
+  NO_NARRATION
+    + "\n\n"
+    + "Establish the scope of a code review of the current branch's accumulated diff.\n\n"
+    + "Run this exact diff command: "
+    + DIFF_CMD
+    + "\n\n"
+    + "0. First confirm `git status --porcelain` is empty — stray working-tree state\n"
+    + "   means Implement did not finish cleanly; report it instead of reviewing.\n"
+    + "1. Confirm the diff command produces a non-empty diff.\n"
+    + "2. List the changed files (repo-relative).\n"
+    + "3. Summarize what changed in one paragraph.\n"
+    + "4. List the CLAUDE.md files that apply to the changed files (user-level,\n"
+    + "   repo-root, plus any CLAUDE.md/CLAUDE.local.md in an ancestor directory of\n"
+    + "   a changed file). Read each one that exists and note conventions a reviewer\n"
+    + "   should know.\n\nStructured output only.",
   { label: "scope", phase: "Review", schema: SCOPE_SCHEMA, model: MODELS.scope },
 );
 if (!scope) return { stage: "Review", error: "scope agent returned no result", results, minorFindings: minorLedger };
@@ -785,27 +789,26 @@ if (!scope.files || scope.files.length === 0) {
 log(LEVEL + " review: " + scope.files.length + " changed files");
 
 const claudeMdFiles = scope.claudeMdFiles || [];
-const SCOPE_BLOCK =
-  "## Review scope\n" +
-  "Diff command: " +
-  DIFF_CMD +
-  "\n" +
-  "Changed files (" +
-  scope.files.length +
-  "):\n" +
-  scope.files.map((f) => "  - " + f).join("\n") +
-  "\n" +
-  "Applicable CLAUDE.md files (" +
-  claudeMdFiles.length +
-  "):\n" +
-  (claudeMdFiles.length > 0 ? claudeMdFiles.map((f) => "  - " + f).join("\n") : "  (none)") +
-  "\n\n" +
-  "## What changed\n" +
-  scope.summary +
-  "\n\n" +
-  "## Conventions\n" +
-  (scope.conventions || "(none noted)") +
-  "\n";
+const SCOPE_BLOCK = "## Review scope\n"
+  + "Diff command: "
+  + DIFF_CMD
+  + "\n"
+  + "Changed files ("
+  + scope.files.length
+  + "):\n"
+  + scope.files.map((f) => "  - " + f).join("\n")
+  + "\n"
+  + "Applicable CLAUDE.md files ("
+  + claudeMdFiles.length
+  + "):\n"
+  + (claudeMdFiles.length > 0 ? claudeMdFiles.map((f) => "  - " + f).join("\n") : "  (none)")
+  + "\n\n"
+  + "## What changed\n"
+  + scope.summary
+  + "\n\n"
+  + "## Conventions\n"
+  + (scope.conventions || "(none noted)")
+  + "\n";
 
 // ── Lean review (ponytail): over-engineering ONLY, report-only, not applied,
 //    not escalated. Kicked off now (only SCOPE_BLOCK/SPEC_PATH needed) so its
@@ -814,32 +817,31 @@ const SCOPE_BLOCK =
 //    checked through the same group-verifier step as every other candidate,
 //    and deduped against the combined review's surviving findings, before
 //    being awaited/used below (see ponytailReview assembly). ──
-const ponytailReviewPrompt =
-  NO_NARRATION +
-  "\n\n## Lean review — over-engineering only\n\n" +
-  SCOPE_BLOCK +
-  "\n" +
-  "Run the diff command above and review the CHANGE for over-engineering ONLY.\n" +
-  "Correctness bugs, security holes, and performance are OUT of scope — the\n" +
-  "combined review already covered those; do NOT re-report them here.\n\n" +
-  "The reuse ladder, in order: (1) is this piece needed at all; (2) a helper/\n" +
-  "util/type/pattern already in this codebase; (3) the stdlib; (4) a native\n" +
-  "platform feature; (5) an already-installed dependency — before any new code.\n" +
-  "Flag: reinvented stdlib, a dependency doing what the platform does, an\n" +
-  "abstraction/config/layer with one caller, dead flexibility, or code that\n" +
-  "could be shorter.\n\n" +
-  "The spec (" +
-  SPEC_PATH +
-  ") is USER-APPROVED: review HOW the change was\n" +
-  "built, never WHETHER an approved feature should exist — do not propose\n" +
-  "deleting spec-required functionality. Never flag input validation at trust\n" +
-  "boundaries, error handling that prevents data loss, security, accessibility,\n" +
-  "or a single smoke/assert self-check.\n\n" +
-  "One finding per object: {file, line?, tag, what, replacement}. Tags: delete\n" +
-  '(dead/speculative code, replacement ""), stdlib, native, yagni (one-caller\n' +
-  'abstraction/config), shrink (same logic, fewer lines). verdict: "net: -<N>\n' +
-  'lines possible." or, if nothing to cut, "Lean already. Ship."\n\n' +
-  "Structured output only.";
+const ponytailReviewPrompt = NO_NARRATION
+  + "\n\n## Lean review — over-engineering only\n\n"
+  + SCOPE_BLOCK
+  + "\n"
+  + "Run the diff command above and review the CHANGE for over-engineering ONLY.\n"
+  + "Correctness bugs, security holes, and performance are OUT of scope — the\n"
+  + "combined review already covered those; do NOT re-report them here.\n\n"
+  + "The reuse ladder, in order: (1) is this piece needed at all; (2) a helper/\n"
+  + "util/type/pattern already in this codebase; (3) the stdlib; (4) a native\n"
+  + "platform feature; (5) an already-installed dependency — before any new code.\n"
+  + "Flag: reinvented stdlib, a dependency doing what the platform does, an\n"
+  + "abstraction/config/layer with one caller, dead flexibility, or code that\n"
+  + "could be shorter.\n\n"
+  + "The spec ("
+  + SPEC_PATH
+  + ") is USER-APPROVED: review HOW the change was\n"
+  + "built, never WHETHER an approved feature should exist — do not propose\n"
+  + "deleting spec-required functionality. Never flag input validation at trust\n"
+  + "boundaries, error handling that prevents data loss, security, accessibility,\n"
+  + "or a single smoke/assert self-check.\n\n"
+  + "One finding per object: {file, line?, tag, what, replacement}. Tags: delete\n"
+  + "(dead/speculative code, replacement \"\"), stdlib, native, yagni (one-caller\n"
+  + "abstraction/config), shrink (same logic, fewer lines). verdict: \"net: -<N>\n"
+  + "lines possible.\" or, if nothing to cut, \"Lean already. Ship.\"\n\n"
+  + "Structured output only.";
 
 const ponyOpts = {
   label: "lean-review",
@@ -850,17 +852,17 @@ const ponyOpts = {
 const ponytailPromise = agent(ponytailReviewPrompt, ponyOpts);
 
 const FINDER_PROMPT = (f) =>
-  "## Review finder — assigned lens: " +
-  f.label +
-  "\n\n" +
-  SCOPE_BLOCK +
-  "\n" +
-  "Run the diff command above and review ONLY through your assigned lens; the\n" +
-  "full lens catalog, candidate rules, and cleanup precedence are in your\n" +
-  "agent definition. Candidate cap for this run: " +
-  f.cap +
-  ".\n\n" +
-  "Structured output only.";
+  "## Review finder — assigned lens: "
+  + f.label
+  + "\n\n"
+  + SCOPE_BLOCK
+  + "\n"
+  + "Run the diff command above and review ONLY through your assigned lens; the\n"
+  + "full lens catalog, candidate rules, and cleanup precedence are in your\n"
+  + "agent definition. Candidate cap for this run: "
+  + f.cap
+  + ".\n\n"
+  + "Structured output only.";
 
 const canonFile = (raw) => {
   if (!raw) return "";
@@ -880,17 +882,17 @@ const loc = (c) => c.file + (c.line != null ? ":" + c.line : "");
 const inBounds = (i, n) => Number.isInteger(i) && i >= 0 && i < n;
 
 const GROUP_VERIFIER_PROMPT = (group) =>
-  "## Review verifier\n\n" +
-  SCOPE_BLOCK +
-  "\n" +
-  "## Candidate findings at " +
-  loc(group[0]) +
-  "\n" +
-  group.map((c, i) => "[" + i + "] Summary: " + c.summary + "\n    Failure scenario: " + c.failure_scenario).join("\n") +
-  "\n\n" +
-  "Run the diff command above, read the relevant file(s), and return one\n" +
-  "verdict per candidate by its [i] index — verdict ladder and recall rules\n" +
-  "per your agent definition. Structured output only.";
+  "## Review verifier\n\n"
+  + SCOPE_BLOCK
+  + "\n"
+  + "## Candidate findings at "
+  + loc(group[0])
+  + "\n"
+  + group.map((c, i) => "[" + i + "] Summary: " + c.summary + "\n    Failure scenario: " + c.failure_scenario).join("\n")
+  + "\n\n"
+  + "Run the diff command above, read the relevant file(s), and return one\n"
+  + "verdict per candidate by its [i] index — verdict ladder and recall rules\n"
+  + "per your agent definition. Structured output only.";
 
 let verifierAgents = 0;
 async function verifyGroups(candidates) {
@@ -938,17 +940,17 @@ let verified = await verifyGroups(allCandidates);
 if (P.sweep) {
   const knownBlock = verified.length > 0 ? verified.map((c) => "- " + loc(c) + " — " + c.summary).join("\n") : "(none)";
   const sweep = await agent(
-    "## Review finder — assigned lens: sweep\n\n" +
-      SCOPE_BLOCK +
-      "\n" +
-      "## Already-found candidates (do NOT re-derive or re-confirm these)\n" +
-      knownBlock +
-      "\n\n" +
-      "Gap focus and rules per your agent definition. Candidate cap for this\n" +
-      "run: " +
-      SWEEP_MAX +
-      ". If nothing new, return an empty list — do not pad.\n\n" +
-      "Structured output only.",
+    "## Review finder — assigned lens: sweep\n\n"
+      + SCOPE_BLOCK
+      + "\n"
+      + "## Already-found candidates (do NOT re-derive or re-confirm these)\n"
+      + knownBlock
+      + "\n\n"
+      + "Gap focus and rules per your agent definition. Candidate cap for this\n"
+      + "run: "
+      + SWEEP_MAX
+      + ". If nothing new, return an empty list — do not pad.\n\n"
+      + "Structured output only.",
     { label: "sweep", phase: "Review", schema: CANDIDATES_SCHEMA, model: MODELS.finder, agentType: AGENTS.finder },
   );
   if (sweep && Array.isArray(sweep.candidates) && sweep.candidates.length > 0) {
@@ -971,54 +973,54 @@ if (surviving.length > 0) {
   const block = ranked
     .map(
       (c, i) =>
-        "### [" +
-        i +
-        "] " +
-        loc(c) +
-        " (" +
-        c.verdict +
-        (c.kind === "cleanup" ? ", cleanup" : "") +
-        ")\n" +
-        c.summary +
-        "\nFailure scenario: " +
-        c.failure_scenario +
-        "\nVerifier evidence: " +
-        c.evidence +
-        "\n",
+        "### ["
+        + i
+        + "] "
+        + loc(c)
+        + " ("
+        + c.verdict
+        + (c.kind === "cleanup" ? ", cleanup" : "")
+        + ")\n"
+        + c.summary
+        + "\nFailure scenario: "
+        + c.failure_scenario
+        + "\nVerifier evidence: "
+        + c.evidence
+        + "\n",
     )
     .join("\n");
 
   const report = await agent(
-    NO_NARRATION +
-      "\n\n" +
-      "## Synthesis: final review report\n\n" +
-      ranked.length +
-      " findings survived independent verification (" +
-      LEVEL +
-      "-effort review). " +
-      "They are numbered [0]-[" +
-      (ranked.length - 1) +
-      "] below.\n\n" +
-      block +
-      "\n" +
-      "## Design/plan context\nRead these files before deciding: " +
-      SPEC_PATH +
-      ", " +
-      PLAN_PATH +
-      "\n" +
-      "For each decision, set reversesDecision: true when applying the finding's fix would " +
-      "reverse a decision those documents record (an approach, interface, or scope choice) " +
-      "rather than merely polishing its execution. The spec is USER-APPROVED — anything " +
-      "reversing it must never be auto-applied. Default false.\n\n" +
-      "## Instructions\n" +
-      "Return decisions about findings BY INDEX — never re-emit finding text.\n" +
-      "1. One decision per distinct defect; fold same-root-cause findings into its merge array.\n" +
-      "2. Order decisions most-severe first. Correctness bugs always outrank cleanup findings.\n" +
-      "3. Keep at most " +
-      P.maxFindings +
-      " decisions; omit the least severe beyond the cap.\n" +
-      "4. Set reversesDecision per the design/plan context above.\n" +
-      "5. Write a 2-3 sentence summary of the review.\n\nStructured output only.",
+    NO_NARRATION
+      + "\n\n"
+      + "## Synthesis: final review report\n\n"
+      + ranked.length
+      + " findings survived independent verification ("
+      + LEVEL
+      + "-effort review). "
+      + "They are numbered [0]-["
+      + (ranked.length - 1)
+      + "] below.\n\n"
+      + block
+      + "\n"
+      + "## Design/plan context\nRead these files before deciding: "
+      + SPEC_PATH
+      + ", "
+      + PLAN_PATH
+      + "\n"
+      + "For each decision, set reversesDecision: true when applying the finding's fix would "
+      + "reverse a decision those documents record (an approach, interface, or scope choice) "
+      + "rather than merely polishing its execution. The spec is USER-APPROVED — anything "
+      + "reversing it must never be auto-applied. Default false.\n\n"
+      + "## Instructions\n"
+      + "Return decisions about findings BY INDEX — never re-emit finding text.\n"
+      + "1. One decision per distinct defect; fold same-root-cause findings into its merge array.\n"
+      + "2. Order decisions most-severe first. Correctness bugs always outrank cleanup findings.\n"
+      + "3. Keep at most "
+      + P.maxFindings
+      + " decisions; omit the least severe beyond the cap.\n"
+      + "4. Set reversesDecision per the design/plan context above.\n"
+      + "5. Write a 2-3 sentence summary of the review.\n\nStructured output only.",
     { label: "synthesize", phase: "Review", schema: REPORT_SCHEMA, model: MODELS.synthesizer },
   );
 
@@ -1046,21 +1048,21 @@ if (surviving.length > 0) {
     findings.push({ file: c.file, line: c.line, summary: c.summary, failure_scenario: c.failure_scenario, category: c.kind, verdict: c.verdict, reversesDecision: false });
     backfilled++;
   }
-  reviewSummary =
-    usedDecisions && report
-      ? report.summary + (backfilled > 0 ? " (" + backfilled + " additional verified finding" + (backfilled === 1 ? "" : "s") + " appended unmerged.)" : "")
-      : "Synthesis skipped or unusable — verified findings returned ranked, unmerged.";
+  reviewSummary = usedDecisions && report
+    ? report.summary + (backfilled > 0 ? " (" + backfilled + " additional verified finding" + (backfilled === 1 ? "" : "s") + " appended unmerged.)" : "")
+    : "Synthesis skipped or unusable — verified findings returned ranked, unmerged.";
 }
 
 // ── Lean review (ponytail) result: kicked off right after SCOPE_BLOCK was
 //    built (above), overlapping its latency with the finder/verify/sweep/
 //    synthesis pipeline; awaited here where the result is actually used. ──
 let ponytail = await ponytailPromise;
-if (ponytail === null)
+if (ponytail === null) {
   ponytail = await agent(ponytailReviewPrompt, {
     ...ponyOpts,
     label: "lean-review:retry",
   });
+}
 const ponytailRaw = ponytail && Array.isArray(ponytail.findings) ? ponytail.findings : [];
 
 // Every raw claim goes through the same group verifier as every other review
@@ -1100,19 +1102,19 @@ let applyReport = { applied: [], skipped: [], commits: [] };
 if (applicable.length > 0) {
   const numbered = applicable.map((f, i) => ({ index: i, ...f }));
   const applier = await agent(
-    "Fix-application run.\n" +
-      "Work branch: " +
-      BRANCH_NAME +
-      "\n" +
-      "Approved spec (skip-rule reference): " +
-      SPEC_PATH +
-      "\n" +
-      "Findings to apply, numbered, most-severe first:\n" +
-      JSON.stringify(numbered) +
-      "\n" +
-      "Locate-by-content, skip rule, commit-by-category, and test gate per your\n" +
-      "agent definition. Return through the structured output schema: applied\n" +
-      "indexes, skipped {index, reason}, and the commit hash(es).",
+    "Fix-application run.\n"
+      + "Work branch: "
+      + BRANCH_NAME
+      + "\n"
+      + "Approved spec (skip-rule reference): "
+      + SPEC_PATH
+      + "\n"
+      + "Findings to apply, numbered, most-severe first:\n"
+      + JSON.stringify(numbered)
+      + "\n"
+      + "Locate-by-content, skip rule, commit-by-category, and test gate per your\n"
+      + "agent definition. Return through the structured output schema: applied\n"
+      + "indexes, skipped {index, reason}, and the commit hash(es).",
     { label: "apply-fixes", phase: "Apply", schema: APPLY_RESULT, model: MODELS.applier, agentType: AGENTS.applier },
   );
   if (applier) applyReport = applier;
@@ -1148,67 +1150,68 @@ if (SHIP) {
   const PR_BODY_PATH = SCRATCH_DIR + "pr-body.md";
   const prOpts = { label: "pr-author", phase: "Ship", schema: PR_TEXT, model: MODELS.prAuthor, agentType: AGENTS.prAuthor };
   let prText = await agent(
-    "Write the PR/MR title and body for branch " +
-      BRANCH_NAME +
-      " → " +
-      BASE_BRANCH +
-      ".\n" +
-      "Pipeline summary (faithful source of truth):\n" +
-      JSON.stringify(pipelineSummary) +
-      "\n" +
-      "Spec (context): " +
-      SPEC_PATH +
-      " — Plan (context): " +
-      PLAN_PATH +
-      "\n" +
-      "Template discovery, structure, title/language conventions per your agent\n" +
-      "definition.\n" +
-      "Write the complete PR/MR body to this absolute file using Bash redirection\n" +
-      "(a `cat > \"<path>\" <<'EOF' … EOF` heredoc — " +
-      WRITE_VIA_BASH_NOT_WRITE_EDIT +
-      "): " +
-      PR_BODY_PATH +
-      "\n" +
-      "Return the title inline and bodyPath set to exactly that path (do not return\n" +
-      "the body text). Structured output only.",
+    "Write the PR/MR title and body for branch "
+      + BRANCH_NAME
+      + " → "
+      + BASE_BRANCH
+      + ".\n"
+      + "Pipeline summary (faithful source of truth):\n"
+      + JSON.stringify(pipelineSummary)
+      + "\n"
+      + "Spec (context): "
+      + SPEC_PATH
+      + " — Plan (context): "
+      + PLAN_PATH
+      + "\n"
+      + "Template discovery, structure, title/language conventions per your agent\n"
+      + "definition.\n"
+      + "Write the complete PR/MR body to this absolute file using Bash redirection\n"
+      + "(a `cat > \"<path>\" <<'EOF' … EOF` heredoc — "
+      + WRITE_VIA_BASH_NOT_WRITE_EDIT
+      + "): "
+      + PR_BODY_PATH
+      + "\n"
+      + "Return the title inline and bodyPath set to exactly that path (do not return\n"
+      + "the body text). Structured output only.",
     prOpts,
   );
-  if (prText === null)
+  if (prText === null) {
     prText = await agent(
-      "Retry. Write the PR/MR title and body for branch " +
-        BRANCH_NAME +
-        " → " +
-        BASE_BRANCH +
-        " from this summary per your agent definition:\n" +
-        JSON.stringify(pipelineSummary) +
-        "\nWrite the body to " +
-        PR_BODY_PATH +
-        " via Bash redirection (heredoc — " +
-        WRITE_VIA_BASH_NOT_WRITE_EDIT +
-        "), then return bodyPath = that path with the title inline.",
+      "Retry. Write the PR/MR title and body for branch "
+        + BRANCH_NAME
+        + " → "
+        + BASE_BRANCH
+        + " from this summary per your agent definition:\n"
+        + JSON.stringify(pipelineSummary)
+        + "\nWrite the body to "
+        + PR_BODY_PATH
+        + " via Bash redirection (heredoc — "
+        + WRITE_VIA_BASH_NOT_WRITE_EDIT
+        + "), then return bodyPath = that path with the title inline.",
       { ...prOpts, label: "pr-author:retry" },
     );
+  }
 
   if (!prText) {
     ship = { status: "blocked", detail: "pr-author returned null twice" };
   } else {
     const created = await agent(
-      "Ship branch " +
-        BRANCH_NAME +
-        " to base " +
-        BASE_BRANCH +
-        " (procedure, platform\n" +
-        "detection, create-or-update, mergeability check, and hard limits per your agent definition).\n" +
-        "PR/MR title: " +
-        prText.title +
-        "\n" +
-        "PR/MR body file (absolute path, already written): " +
-        prText.bodyPath +
-        "\n" +
-        "Mergeability script (absolute path): " +
-        (PLUGIN_ROOT ? PLUGIN_ROOT + "/bin/ship-ensure-mergeable.sh" : "(none — skip the mergeability step and report mergeState 'unknown')") +
-        "\n" +
-        "Structured output only.",
+      "Ship branch "
+        + BRANCH_NAME
+        + " to base "
+        + BASE_BRANCH
+        + " (procedure, platform\n"
+        + "detection, create-or-update, mergeability check, and hard limits per your agent definition).\n"
+        + "PR/MR title: "
+        + prText.title
+        + "\n"
+        + "PR/MR body file (absolute path, already written): "
+        + prText.bodyPath
+        + "\n"
+        + "Mergeability script (absolute path): "
+        + (PLUGIN_ROOT ? PLUGIN_ROOT + "/bin/ship-ensure-mergeable.sh" : "(none — skip the mergeability step and report mergeState 'unknown')")
+        + "\n"
+        + "Structured output only.",
       { label: "ship", phase: "Ship", schema: SHIP_RESULT, model: MODELS.shipper, agentType: AGENTS.shipper },
     );
     if (!created || created.status === "blocked") {
@@ -1219,15 +1222,15 @@ if (SHIP) {
       for (let round = 1; round <= MAX_CI_MONITOR_ROUNDS; round++) {
         ship.ci.monitorRounds = round;
         const ci = await agent(
-          "Watch CI for branch " +
-            BRANCH_NAME +
-            " (platform: " +
-            created.platform +
-            ", PR/MR: " +
-            created.url +
-            ").\n" +
-            "Bounded wait, classification, and failing-log collection per your agent\n" +
-            "definition. Structured output only.",
+          "Watch CI for branch "
+            + BRANCH_NAME
+            + " (platform: "
+            + created.platform
+            + ", PR/MR: "
+            + created.url
+            + ").\n"
+            + "Bounded wait, classification, and failing-log collection per your agent\n"
+            + "definition. Structured output only.",
           { label: "ci-monitor:" + round, phase: "Ship", schema: CI_RESULT, model: MODELS.ciMonitor, agentType: AGENTS.ciMonitor },
         );
         if (!ci) break;
@@ -1242,19 +1245,19 @@ if (SHIP) {
         if (ship.ci.fixRounds >= MAX_CI_FIX_ROUNDS) break;
         ship.ci.fixRounds++;
         const fix = await agent(
-          "CI is red for branch " +
-            BRANCH_NAME +
-            " (platform: " +
-            created.platform +
-            ", PR/MR: " +
-            created.url +
-            ").\n" +
-            (rerunTried ? "A rerun was ALREADY tried for this failure — treat flaky-looking failures as code-caused now.\n" : "") +
-            "Failing jobs with log excerpts:\n" +
-            JSON.stringify(ci.failedJobs || []) +
-            "\n" +
-            "Classification, fix scope, and hard limits per your agent definition.\n" +
-            "Structured output only.",
+          "CI is red for branch "
+            + BRANCH_NAME
+            + " (platform: "
+            + created.platform
+            + ", PR/MR: "
+            + created.url
+            + ").\n"
+            + (rerunTried ? "A rerun was ALREADY tried for this failure — treat flaky-looking failures as code-caused now.\n" : "")
+            + "Failing jobs with log excerpts:\n"
+            + JSON.stringify(ci.failedJobs || [])
+            + "\n"
+            + "Classification, fix scope, and hard limits per your agent definition.\n"
+            + "Structured output only.",
           { label: "ci-fix:" + ship.ci.fixRounds, phase: "Ship", schema: CI_FIX_RESULT, model: MODELS.ciFixer, agentType: AGENTS.ciFixer },
         );
         if (!fix || fix.status === "blocked") {

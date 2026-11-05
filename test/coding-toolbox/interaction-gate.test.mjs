@@ -1,8 +1,8 @@
 // Interaction gate (turn.complete → one framed $.prompt.submit) — the pure heuristic and
 // loop-guard predicate in plugins/coding-toolbox/hooks/policy.mjs. Hook wiring (exactly
 // one re-prompt per user turn) is covered by plugins/coding-toolbox/tests/.
-import { test } from "node:test";
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import { GATE_REASON, isBareQuestion, isGateTurn } from "../../plugins/coding-toolbox/hooks/policy.mjs";
 
 test("gates when the final line ends in a bare '?'", () => {

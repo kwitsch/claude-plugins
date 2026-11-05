@@ -166,7 +166,7 @@ Every pipeline file is session-only, never a repository file:
    held in this running skill — never written to a file; no cross-run
    caching). Then run the design workflow (invocation rules above) with args
    `{TASK: $task_description, DRAFT_PATH, SPEC_PATH, RESUME: false,
-USER_INPUT: '', GRAPHMIND_AVAILABLE, REPO_PATH}` (paths from the temp
+   USER_INPUT: '', GRAPHMIND_AVAILABLE, REPO_PATH}` (paths from the temp
    directory; `REPO_PATH` from step 1). Then by `status`:
    - `user_input_required` → one `AskUserQuestion` call covering the returned
      `questions` (their `options` verbatim as choices; free text arrives via

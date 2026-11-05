@@ -1,7 +1,7 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { NUDGE, dueKey, isAutoDreamEnabled } from "../../plugins/memory-enhancement/hooks/dream.mjs";
+import { test } from "node:test";
+import { dueKey, isAutoDreamEnabled, NUDGE } from "../../plugins/memory-enhancement/hooks/dream.mjs";
 
 test("dueKey is deterministic for the same project dir", async () => {
   assert.equal(await dueKey("/tmp/project-a"), await dueKey("/tmp/project-a"));
@@ -22,7 +22,7 @@ test("dueKey's hash is the 0.4.x flag file's node:crypto hash", async () => {
   }
 });
 
-test('isAutoDreamEnabled: fail-open, only false / "false" disables', () => {
+test("isAutoDreamEnabled: fail-open, only false / \"false\" disables", () => {
   assert.equal(isAutoDreamEnabled(true), true);
   assert.equal(isAutoDreamEnabled("true"), true);
   assert.equal(isAutoDreamEnabled(false), false);

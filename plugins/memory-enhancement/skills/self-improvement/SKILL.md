@@ -61,7 +61,7 @@ already documented in a CLAUDE.md, no ephemeral/in-progress state):
    `feedback_self_improvement_efficiency.md.bak` first, then write the
    merged content. If it doesn't exist yet, author it fresh via this
    session's own auto-memory two-step save process: frontmatter `name:
-self-improvement-efficiency`, `description:` one line,
+   self-improvement-efficiency`, `description:` one line,
    `metadata.type: feedback`; body structured per lesson as **Why:** /
    **How to apply:** lines. State plainly in the body that these are
    self-derived retrospective findings from Claude's own analysis, not

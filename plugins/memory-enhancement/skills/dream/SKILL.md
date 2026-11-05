@@ -67,7 +67,7 @@ types structure the body with **Why:** and **How to apply:** lines):
    the actual rollback point for a failed compression; restoring from the
    pre-dream `.bak` instead would silently discard this cycle's
    consolidation work). Extract the file's reference set with `rg -o
-'\[\[[^]]+\]\]|\b[\w-]+\.md\b' <file> | sort -u` (wikilinks plus
+   '\[\[[^]]+\]\]|\b[\w-]+\.md\b' <file> | sort -u` (wikilinks plus
    bare-`.md` filenames — `cc-compress`'s path-preservation check does not
    protect either, only slash-containing paths and full URLs). Invoke
    `cc-knowledge:cc-compress` (Skill tool) on it with `--confirmed`

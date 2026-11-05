@@ -1,12 +1,12 @@
 // Ports every case of the former bats suite for sign-commits.sh / check-sign-key.sh
 // to the pure plugins/git-sign-key/hooks/sign.mjs.
-import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MISSING_KEY_WARNING, UNUSABLE_KEY_WARNING, keyPath, probeArgv, rewriteCommand, rewriteNote, sessionWarning, signFlags } from "../../plugins/git-sign-key/hooks/sign.mjs";
+import { test } from "node:test";
+import { keyPath, MISSING_KEY_WARNING, probeArgv, rewriteCommand, rewriteNote, sessionWarning, signFlags, UNUSABLE_KEY_WARNING } from "../../plugins/git-sign-key/hooks/sign.mjs";
 
 const HOME = "/tmp/home";
 const KEY = keyPath(HOME);
@@ -24,11 +24,11 @@ test("keyPath appends .claude/sign.key; unset HOME gives the root path", () => {
 });
 
 test("rewrites git commit", () => {
-  const out = rw('git commit -m "Fix bug"');
+  const out = rw("git commit -m \"Fix bug\"");
   assert.match(out, /gpg\.format=ssh/);
   assert.ok(out.includes(`user.signingkey='${KEY}'`));
   assert.match(out, /commit\.gpgsign=true/);
-  assert.ok(out.includes('commit -m "Fix bug"'));
+  assert.ok(out.includes("commit -m \"Fix bug\""));
 });
 
 test("rtk-wrapped git commit is signed (rtk is a transparent wrapper)", () => {
@@ -64,13 +64,13 @@ test("ampersand in $HOME stays literal in the injected key path", () => {
 });
 
 test("injects signing config exactly once when the message contains 'git commit'", () => {
-  const out = rw('git commit -m "fix the git commit flow"');
+  const out = rw("git commit -m \"fix the git commit flow\"");
   assert.equal(count(out, "user.signingkey="), 1);
   assert.ok(out.includes("fix the git commit flow"));
 });
 
 test("rewritten command is valid shell", () => {
-  const out = rw('git commit -m "Fix bug"');
+  const out = rw("git commit -m \"Fix bug\"");
   assert.match(out, /gpg\.format=ssh/);
   assert.ok(parses(out));
 });
@@ -119,9 +119,9 @@ test("commit followed by a newline is signed", () => {
 });
 
 test("quoted 'git commit' in an earlier argument is not mistaken for the real commit", () => {
-  const out = rw('echo "git commit now" && git commit -m x');
+  const out = rw("echo \"git commit now\" && git commit -m x");
   assert.equal(count(out, "user.signingkey="), 1);
-  assert.ok(out.includes('echo "git commit now"'));
+  assert.ok(out.includes("echo \"git commit now\""));
   assert.ok(out.includes("commit -m x"));
 });
 
@@ -131,21 +131,21 @@ test("already-wired command is left untouched (idempotent)", () => {
 });
 
 test("a separator inside the commit message does not corrupt the message", () => {
-  const out = rw('git commit -m "fix; git commit later"');
+  const out = rw("git commit -m \"fix; git commit later\"");
   assert.equal(count(out, "user.signingkey="), 1);
-  assert.ok(out.includes('-m "fix; git commit later"'));
+  assert.ok(out.includes("-m \"fix; git commit later\""));
 });
 
 test("parenthesised 'git commit' inside the message does not corrupt the message", () => {
-  const out = rw('git commit -m "see (git commit) here"');
+  const out = rw("git commit -m \"see (git commit) here\"");
   assert.equal(count(out, "user.signingkey="), 1);
   assert.ok(out.includes("see (git commit) here"));
 });
 
 test("separator + 'git commit' inside a quoted argument is left untouched", () => {
-  const out = rw('echo "x; git commit" && git commit -m x');
+  const out = rw("echo \"x; git commit\" && git commit -m x");
   assert.equal(count(out, "user.signingkey="), 1);
-  assert.ok(out.includes('echo "x; git commit"'));
+  assert.ok(out.includes("echo \"x; git commit\""));
   assert.ok(out.includes("commit -m x"));
 });
 
@@ -168,7 +168,7 @@ test("degenerate 'git -- commit' is not treated as a commit invocation", () => {
 });
 
 test("env-var assignment prefix before git commit is still signed", () => {
-  const out = rw('GIT_COMMITTER_DATE="2020-01-01 00:00:00" git commit -m x');
+  const out = rw("GIT_COMMITTER_DATE=\"2020-01-01 00:00:00\" git commit -m x");
   assert.match(out, /gpg\.format=ssh/);
   assert.ok(out.includes("commit -m x"));
 });

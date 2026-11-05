@@ -384,7 +384,7 @@ return { results, docManifest };
   shared-worktree root; the doc manifest's absolute local paths) — this session's 8 parallel dispatches
   already proved this lands edits in the correct worktree.
 - After the `Workflow` call returns: aggregate `results` into the provenance report — `file · claim ·
-old → new · verdict · docPath/quote · action (kept/reverted)`. Each `results` entry now carries
+  old → new · verdict · docPath/quote · action (kept/reverted)`. Each `results` entry now carries
   `changelog` and `diffPath`: use `changelog` for the per-file summary and `Read` `diffPath` for the
   old→new diff detail (the diff files persist on disk under `${scratchDir}/diffs/` after the run, so read
   them in this same session before any scratch cleanup). List every reverted/blocked item explicitly,

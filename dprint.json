@@ -1,0 +1,31 @@
+{
+  "lineWidth": 2147483647,
+  "indentWidth": 2,
+  "useTabs": false,
+  "typescript": {},
+  "json": {},
+  "markdown": {
+    "table.minColumnWidth": 3,
+    "codeBlock.skipFormat": true
+  },
+  "yaml": {},
+  "shuck": {},
+  "excludes": [
+    "**/node_modules",
+    "**/*-lock.json",
+    "**/pnpm-lock.yaml",
+    ".claude/worktrees",
+    "**/*.bats",
+    "plugins/dprint",
+    "plugins/inline-headroom",
+    "plugins/universal-format/mcp/server.mjs",
+    "plugins/linux-token-efficiency/hooks/SessionStart.md"
+  ],
+  "plugins": [
+    "npm:@dprint/typescript@0.96.1",
+    "npm:@dprint/json@0.25.2",
+    "npm:@dprint/markdown@0.28.2",
+    "npm:dprint-plugin-yaml@0.6.0",
+    "npm:@dprint/shuck@0.2.2"
+  ]
+}

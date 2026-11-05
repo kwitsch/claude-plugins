@@ -1,9 +1,9 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { parseEditorconfig, matchGlob, resolveEditorconfig, buildInvocation, REGISTRY } from "../../plugins/universal-format/mcp/server.mjs";
+import { test } from "node:test";
+import { buildInvocation, matchGlob, parseEditorconfig, REGISTRY, resolveEditorconfig } from "../../plugins/universal-format/mcp/server.mjs";
 
 // The artifact is a @ts-nocheck generated bundle, so TS infers resolveEditorconfig's `props` from
 // the emitted JS as a union that still includes the empty-object start state — a direct

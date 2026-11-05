@@ -11,8 +11,8 @@
 // install.sh with the listed detected tools it lacks added. Diagnostics go to
 // stderr; stdout carries only the JSON result object.
 
-import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync, mkdtempSync, chmodSync, renameSync, rmSync, rmdirSync, statSync } from "node:fs";
-import { resolve, join, basename, relative } from "node:path";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { basename, join, relative, resolve } from "node:path";
 
 // audit-lsp.mjs's denylist plus virtualenv, cache and build-output directories:
 // third-party packages in them ship their own package.json / requirements.txt,
@@ -139,11 +139,11 @@ function configCommands(root) {
   };
   for (const source of [".lsp.json", ".claude/skills/lsp/.lsp.json"]) {
     const lsp = readJsonObject(join(root, source));
-    if (lsp) for (const block of Object.values(lsp)) take(block, source);
+    if (lsp) { for (const block of Object.values(lsp)) take(block, source); }
   }
   const mcp = readJsonObject(join(root, ".mcp.json"));
   const servers = mcp ? mcp.mcpServers : null;
-  if (servers && typeof servers === "object" && !Array.isArray(servers)) for (const block of Object.values(servers)) take(block, ".mcp.json");
+  if (servers && typeof servers === "object" && !Array.isArray(servers)) { for (const block of Object.values(servers)) take(block, ".mcp.json"); }
   return out;
 }
 

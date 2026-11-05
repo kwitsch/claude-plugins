@@ -29,7 +29,7 @@ plugin_root: ${CLAUDE_PLUGIN_ROOT}
 1. **Assert a named branch:** take `current_branch:` from the git context
    above; if empty or the line itself is missing (detached HEAD, or
    `disableSkillShellExecution` replaced the block with `[shell command
-execution disabled by policy]` — the `git fetch origin` above silently
+   execution disabled by policy]` — the `git fetch origin` above silently
    never ran either), abort and tell the user to check out a branch (and,
    for the policy case, run `git fetch origin` themselves) before
    retrying — nothing below can be trusted otherwise.

@@ -70,15 +70,15 @@ Run all scripts and fetch commands via the Bash tool.
    - `1` → `ci: "red"` — pull the evidence (step 2)
    - `2` → `ci: "red"` with exactly one synthetic failure entry
      `{"job": "ci-watch", "cause": "watch hit its deadline without a
-conclusive CI result"}` (no `log_excerpt` — there is no log to pull)
+     conclusive CI result"}` (no `log_excerpt` — there is no log to pull)
    - `64` → `ci: "red"` with exactly one synthetic failure entry
      `{"job": "ci-watch", "cause": "environment error: <the script's stderr
-line>"}` (no `log_excerpt`)
+     line>"}` (no `log_excerpt`)
      Run the watch on plain Bash: it is long-blocking with a guaranteed-small
      final output — run it directly, not through any other tooling.
 2. **On a non-synthetic failure (exit code 1), pull the evidence.**
    - GitHub: ONE call — `cd "<worktree path>" && gh run view <run-id>
---log-failed` returns the logs of every failed step; extract the relevant
+     --log-failed` returns the logs of every failed step; extract the relevant
      sections (job names, "error", "FAIL").
    - GitLab: one `cd "<worktree path>" && glab ci trace <job>` per failing job
      (up to 4 at a time if possible), collecting output per job.

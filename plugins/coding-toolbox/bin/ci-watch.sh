@@ -42,30 +42,45 @@
 set -euo pipefail
 
 # Print usage to stderr and exit 64; called on bad arg count or unknown platform.
-usage() { echo "usage: ci-watch.sh <github|gitlab> <pr-number|branch> [--coderabbit-check]" >&2; exit 64; }
+usage() {
+  echo "usage: ci-watch.sh <github|gitlab> <pr-number|branch> [--coderabbit-check]" >&2
+  exit 64
+}
 [ $# -eq 2 ] || [ $# -eq 3 ] || usage
 platform="$1" ref="$2" mode="watch"
 if [ -n "${3:-}" ]; then
   [ "$3" = "--coderabbit-check" ] || usage
-  [ "$platform" = github ] || { echo "--coderabbit-check is only supported for github" >&2; exit 64; }
+  [ "$platform" = github ] || {
+    echo "--coderabbit-check is only supported for github" >&2
+    exit 64
+  }
   mode="coderabbit"
 fi
 case "$platform" in
-  github) cli=gh ;;
-  gitlab) cli=glab ;;
-  *) usage ;;
+github) cli=gh ;;
+gitlab) cli=glab ;;
+*) usage ;;
 esac
-command -v "$cli" >/dev/null 2>&1 || { echo "$cli not installed" >&2; exit 64; }
+command -v "$cli" >/dev/null 2>&1 || {
+  echo "$cli not installed" >&2
+  exit 64
+}
 # Every poll wraps the CLI in coreutils `timeout` (see poll() below); a missing
 # `timeout` would otherwise fail each poll silently and spin to the deadline.
-command -v timeout >/dev/null 2>&1 || { echo "timeout not installed" >&2; exit 64; }
+command -v timeout >/dev/null 2>&1 || {
+  echo "timeout not installed" >&2
+  exit 64
+}
 
 deadline="${CI_WATCH_TIMEOUT:-1800}"
 [ "$mode" = coderabbit ] && deadline="${CI_WATCH_CODERABBIT_TIMEOUT:-600}"
 interval="${CI_WATCH_INTERVAL:-30}"
-errf=$(mktemp) || { echo "mktemp failed (bad/unwritable TMPDIR?)" >&2; exit 64; }
+errf=$(mktemp) || {
+  echo "mktemp failed (bad/unwritable TMPDIR?)" >&2
+  exit 64
+}
 trap 'rm -f "$errf"' EXIT
-missing=0   # strictly consecutive "no checks / no pipeline / no coderabbit check" answers
+missing=0 # strictly consecutive "no checks / no pipeline / no coderabbit check" answers
 
 # One bounded CLI call: stdout = data, stderr lands in $errf; never throws.
 poll() { timeout -k 10 60 "$@" 2>"$errf" || true; }
@@ -89,13 +104,16 @@ rg_or_grep() {
         continue
       fi
       case "$a" in
-        --) seen_dashdash=true; args+=("$a") ;;
-        -[A-Za-z]*)
-          stripped="${a//E/}"
-          [ "$stripped" = "-" ] && continue
-          args+=("$stripped")
-          ;;
-        *) args+=("$a") ;;
+      --)
+        seen_dashdash=true
+        args+=("$a")
+        ;;
+      -[A-Za-z]*)
+        stripped="${a//E/}"
+        [ "$stripped" = "-" ] && continue
+        args+=("$stripped")
+        ;;
+      *) args+=("$a") ;;
       esac
     done
     command rg "${args[@]}"
@@ -115,31 +133,36 @@ while :; do
     if [ -n "$out" ]; then
       cr=$(rg_or_grep -iE $'\t.*coderabbit' <<<"$out" || true)
       if [ -z "$cr" ]; then
-        missing=$((missing+1))
-        if [ "$missing" -ge 3 ]; then echo "note: no coderabbit check found"; exit 0; fi
+        missing=$((missing + 1))
+        if [ "$missing" -ge 3 ]; then
+          echo "note: no coderabbit check found"
+          exit 0
+        fi
       elif rg_or_grep -q '^pending' <<<"$cr"; then
-        missing=0                # a real coderabbit check exists; keep waiting on it specifically
+        missing=0 # a real coderabbit check exists; keep waiting on it specifically
       else
         printf '%s\n' "$cr"
         exit 0
       fi
     else
       case "${err,,}" in
-        *"unknown flag"*)
-          echo "gh too old: pr checks --json unsupported" >&2; exit 64 ;;
-        *) : ;;                  # transient: retry
+      *"unknown flag"*)
+        echo "gh too old: pr checks --json unsupported" >&2
+        exit 64
+        ;;
+      *) : ;; # transient: retry
       esac
     fi
   elif [ "$platform" = github ]; then
     # rc 1 (a check failed) and rc 8 (pending) still print valid data —
     # poll() discards the rc, the content below decides.
     out=$(poll gh pr checks "$ref" --json name,bucket \
-            --jq '.[] | .bucket + "\t" + .name')
+      --jq '.[] | .bucket + "\t" + .name')
     err=$(cat "$errf")
     if [ -n "$out" ]; then
       missing=0
-      real=$(rg_or_grep -ivE $'\t.*coderabbit' <<<"$out" || true)  # match the NAME field
-      if ! rg_or_grep -q '^pending' <<<"$real"; then               # all real checks done
+      real=$(rg_or_grep -ivE $'\t.*coderabbit' <<<"$out" || true) # match the NAME field
+      if ! rg_or_grep -q '^pending' <<<"$real"; then              # all real checks done
         printf '%s\n' "$out"
         if rg_or_grep -Eq '^(fail|cancel)' <<<"$real"; then exit 1; fi
         if rg_or_grep -iE $'\t.*coderabbit' <<<"$out" | rg_or_grep -Evq '^pass'; then
@@ -149,19 +172,25 @@ while :; do
       fi
     else
       case "${err,,}" in
-        *"no checks reported"*)
-          missing=$((missing+1))
-          if [ "$missing" -ge 3 ]; then echo "note: no checks reported"; exit 0; fi ;;
-        *"unknown flag"*)
-          echo "gh too old: pr checks --json unsupported" >&2; exit 64 ;;
-        *) missing=0 ;;                                      # transient: retry
+      *"no checks reported"*)
+        missing=$((missing + 1))
+        if [ "$missing" -ge 3 ]; then
+          echo "note: no checks reported"
+          exit 0
+        fi
+        ;;
+      *"unknown flag"*)
+        echo "gh too old: pr checks --json unsupported" >&2
+        exit 64
+        ;;
+      *) missing=0 ;; # transient: retry
       esac
     fi
   else
     out=$(poll glab ci get -b "$ref" --output json)
     err=$(cat "$errf")
     if [ -z "$out" ] && rg_or_grep -qi "unknown flag" <<<"$err"; then
-      out=$(poll glab ci get -b "$ref")                      # old glab: text output
+      out=$(poll glab ci get -b "$ref") # old glab: text output
       err=$(cat "$errf")
     fi
     if [ -n "$out" ]; then
@@ -176,27 +205,45 @@ while :; do
         tolower($1) ~ /^status:?$/ { print $NF; exit }
       ' <<<"$out")
       case "${status,,}" in
-        success)         echo "pipeline status: $status"; exit 0 ;;
-        skipped)         echo "pipeline status: $status"
-                         echo "note: pipeline skipped"; exit 0 ;;
-        manual)          echo "pipeline status: $status"
-                         echo "note: pipeline blocked on a manual gate"; exit 0 ;;
-        failed|canceled) echo "pipeline status: $status"; exit 1 ;;
-      esac                          # created/pending/running/…: keep polling
+      success)
+        echo "pipeline status: $status"
+        exit 0
+        ;;
+      skipped)
+        echo "pipeline status: $status"
+        echo "note: pipeline skipped"
+        exit 0
+        ;;
+      manual)
+        echo "pipeline status: $status"
+        echo "note: pipeline blocked on a manual gate"
+        exit 0
+        ;;
+      failed | canceled)
+        echo "pipeline status: $status"
+        exit 1
+        ;;
+      esac # created/pending/running/…: keep polling
     else
       case "${err,,}" in
-        *"no pipeline"*|*"404"*)
-          missing=$((missing+1))
-          if [ "$missing" -ge 3 ]; then echo "note: no pipeline found"; exit 0; fi ;;
-        *) missing=0 ;;                                      # transient: retry
+      *"no pipeline"* | *"404"*)
+        missing=$((missing + 1))
+        if [ "$missing" -ge 3 ]; then
+          echo "note: no pipeline found"
+          exit 0
+        fi
+        ;;
+      *) missing=0 ;; # transient: retry
       esac
     fi
   fi
   if [ "$SECONDS" -ge "$deadline" ]; then
     if [ "$mode" = coderabbit ]; then
-      echo "timeout: coderabbit check still pending"; exit 2
+      echo "timeout: coderabbit check still pending"
+      exit 2
     fi
-    echo "timeout: no conclusive CI result before the deadline"; exit 2
+    echo "timeout: no conclusive CI result before the deadline"
+    exit 2
   fi
   sleep "$interval"
 done

@@ -23,7 +23,7 @@ installs that land there.
 - **Clean install on worktree entry:** after `EnterWorktree` creates or
   switches into a worktree whose project has a lockfile, runs that manager's
   lockfile-frozen install there in the background (`npm ci` / `pnpm install
---frozen-lockfile` / `yarn install --frozen-lockfile`; never blocks the agent).
+  --frozen-lockfile` / `yarn install --frozen-lockfile`; never blocks the agent).
   Toggle: `npm_ci_on_worktree`. Silent on success; a real install failure or
   a missing binary on `PATH` surfaces as context on the next turn.
 - **Install on package.json dependency change:** after a

@@ -34,7 +34,7 @@ available:
   skipped on every run.
 - **`SessionStart` at launch** (incl. `--continue`/`--resume`) → servers aren't up
   yet → skipped, with `mcp_tool hooks are not available for the 'SessionStart' hook
-event (no MCP client context)` in the debug log.
+  event (no MCP client context)` in the debug log.
 - **`SessionStart` mid-session** (after `/clear` or compaction) → servers are
   already connected by then → its `mcp_tool` hooks **do** run.
 
@@ -115,7 +115,7 @@ emit exit code 2.
 
 - Return the same `hookSpecificOutput` shape a command hook would print, e.g. for
   `PreToolUse`: `{"hookSpecificOutput":{"hookEventName":"PreToolUse",
-"permissionDecision":"allow","updatedInput":{…}}}` — `updatedInput` works
+  "permissionDecision":"allow","updatedInput":{…}}}` — `updatedInput` works
   identically (full-replace before the tool runs).
 - Self-contained servers should return both `content:[{type:"text",text:JSON}]`
   (the parsed surface) and `structuredContent` (the same object).

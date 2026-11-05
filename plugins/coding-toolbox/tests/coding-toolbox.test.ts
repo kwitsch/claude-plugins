@@ -73,16 +73,14 @@ function stubGit(on: On, answer: (args: readonly string[]) => Run): string[][] {
 
 const OK = (stdout = ""): Run => ({ exitCode: 0, stdout, stderr: "" });
 // A linked worktree at /r/wt of the repo /r whose origin's default branch is main.
-const worktreeGit =
-  (rebase: Run) =>
-  (args: readonly string[]): Run => {
-    const a = args.join(" ");
-    if (a === "rev-parse --git-dir") return OK("/r/.git/worktrees/wt\n");
-    if (a === "rev-parse --git-common-dir") return OK("/r/.git\n");
-    if (a === "symbolic-ref --short refs/remotes/origin/HEAD") return OK("origin/main\n");
-    if (a === "rebase origin/main") return rebase;
-    return OK();
-  };
+const worktreeGit = (rebase: Run) => (args: readonly string[]): Run => {
+  const a = args.join(" ");
+  if (a === "rev-parse --git-dir") return OK("/r/.git/worktrees/wt\n");
+  if (a === "rev-parse --git-common-dir") return OK("/r/.git\n");
+  if (a === "symbolic-ref --short refs/remotes/origin/HEAD") return OK("origin/main\n");
+  if (a === "rebase origin/main") return rebase;
+  return OK();
+};
 
 test("EnterWorktree: a rebase conflict is aborted and reported as context after the tool's result", async ($, on) => {
   stubFiles(on, {});

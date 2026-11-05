@@ -1,9 +1,9 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { BUNDLED_PRETTIER_VERSION } from "../../plugins/universal-format/mcp/server.mjs";

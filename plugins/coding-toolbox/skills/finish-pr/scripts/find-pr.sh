@@ -12,11 +12,14 @@ set -uo pipefail
 
 branch="${1:-}"
 platform_override="${2:-}"
-usage() { echo "usage: find-pr.sh <branch> [github|gitlab]" >&2; exit 2; }
+usage() {
+  echo "usage: find-pr.sh <branch> [github|gitlab]" >&2
+  exit 2
+}
 [ -n "$branch" ] || usage
 case "$platform_override" in
-  ""|github|gitlab) ;;
-  *) usage ;;
+"" | github | gitlab) ;;
+*) usage ;;
 esac
 
 # "anchor" match on the origin URL, same heuristic the skill body used to
@@ -25,16 +28,31 @@ esac
 # substring) falls to the auth-status probe below.
 detect_platform() {
   local url host gh_ok=no glab_ok=no
-  url="$(git remote get-url origin 2>/dev/null)" || { echo "no origin remote configured" >&2; return 3; }
+  url="$(git remote get-url origin 2>/dev/null)" || {
+    echo "no origin remote configured" >&2
+    return 3
+  }
   case "$url" in
-    *github*) echo github; return 0 ;;
-    *gitlab*) echo gitlab; return 0 ;;
+  *github*)
+    echo github
+    return 0
+    ;;
+  *gitlab*)
+    echo gitlab
+    return 0
+    ;;
   esac
   host="$(printf '%s' "$url" | sed -E 's#^[A-Za-z]+://##; s#^[^@]*@##; s#[:/].*$##')"
   gh auth status --hostname "$host" >/dev/null 2>&1 && gh_ok=yes
   glab auth status --hostname "$host" >/dev/null 2>&1 && glab_ok=yes
-  if [ "$gh_ok" = yes ] && [ "$glab_ok" = no ]; then echo github; return 0; fi
-  if [ "$glab_ok" = yes ] && [ "$gh_ok" = no ]; then echo gitlab; return 0; fi
+  if [ "$gh_ok" = yes ] && [ "$glab_ok" = no ]; then
+    echo github
+    return 0
+  fi
+  if [ "$glab_ok" = yes ] && [ "$gh_ok" = no ]; then
+    echo gitlab
+    return 0
+  fi
   echo "ambiguous host $host -- gh_ok=$gh_ok glab_ok=$glab_ok" >&2
   return 4
 }
@@ -49,14 +67,26 @@ fi
 # both fail non-zero for "not found" and "dead token" alike, so checking
 # auth first is the only way to tell those apart.
 case "$platform" in
-  github)
-    command -v gh >/dev/null 2>&1 || { echo "gh not found on PATH -- install the GitHub CLI" >&2; exit 3; }
-    gh auth status >/dev/null 2>&1 || { echo "gh is not authenticated -- run: gh auth login" >&2; exit 3; }
-    ;;
-  gitlab)
-    command -v glab >/dev/null 2>&1 || { echo "glab not found on PATH -- install the GitLab CLI" >&2; exit 3; }
-    glab auth status >/dev/null 2>&1 || { echo "glab is not authenticated -- run: glab auth login" >&2; exit 3; }
-    ;;
+github)
+  command -v gh >/dev/null 2>&1 || {
+    echo "gh not found on PATH -- install the GitHub CLI" >&2
+    exit 3
+  }
+  gh auth status >/dev/null 2>&1 || {
+    echo "gh is not authenticated -- run: gh auth login" >&2
+    exit 3
+  }
+  ;;
+gitlab)
+  command -v glab >/dev/null 2>&1 || {
+    echo "glab not found on PATH -- install the GitLab CLI" >&2
+    exit 3
+  }
+  glab auth status >/dev/null 2>&1 || {
+    echo "glab is not authenticated -- run: glab auth login" >&2
+    exit 3
+  }
+  ;;
 esac
 
 found=no state="" number="" pr_url="" base="" draft="" head_sha="" \
@@ -73,18 +103,24 @@ if [ "$platform" = github ]; then
     draft="$(printf '%s' "$resp" | jq -r '.isDraft')"
     head_sha="$(printf '%s' "$resp" | jq -r '.headRefOid')"
     case "$(printf '%s' "$resp" | jq -r '.state')" in
-      OPEN) state=open ;;
-      CLOSED) state=closed ;;
-      MERGED) state=merged ;;
+    OPEN) state=open ;;
+    CLOSED) state=closed ;;
+    MERGED) state=merged ;;
     esac
     # Only the open path ever reaches the reconcile step that reads these --
     # skip the mktemp entirely for merged/closed so a report-and-stop run
     # never leaves two unread temp files behind.
     if [ "$state" = open ]; then
-      title_file="$(mktemp)" || { echo "mktemp failed -- check TMPDIR" >&2; exit 3; }
-      body_file="$(mktemp)" || { echo "mktemp failed -- check TMPDIR" >&2; exit 3; }
-      printf '%s' "$resp" | jq -r '.title' > "$title_file"
-      printf '%s' "$resp" | jq -r '.body' > "$body_file"
+      title_file="$(mktemp)" || {
+        echo "mktemp failed -- check TMPDIR" >&2
+        exit 3
+      }
+      body_file="$(mktemp)" || {
+        echo "mktemp failed -- check TMPDIR" >&2
+        exit 3
+      }
+      printf '%s' "$resp" | jq -r '.title' >"$title_file"
+      printf '%s' "$resp" | jq -r '.body' >"$body_file"
     fi
   fi
 else
@@ -108,15 +144,21 @@ else
     should_remove_source_branch="$(printf '%s' "$resp" | jq -r '.should_remove_source_branch')"
     force_remove_source_branch="$(printf '%s' "$resp" | jq -r '.force_remove_source_branch')"
     case "$(printf '%s' "$resp" | jq -r '.state')" in
-      opened) state=open ;;
-      closed) state=closed ;;
-      merged) state=merged ;;
+    opened) state=open ;;
+    closed) state=closed ;;
+    merged) state=merged ;;
     esac
     if [ "$state" = open ]; then
-      title_file="$(mktemp)" || { echo "mktemp failed -- check TMPDIR" >&2; exit 3; }
-      body_file="$(mktemp)" || { echo "mktemp failed -- check TMPDIR" >&2; exit 3; }
-      printf '%s' "$resp" | jq -r '.title' > "$title_file"
-      printf '%s' "$resp" | jq -r '.description' > "$body_file"
+      title_file="$(mktemp)" || {
+        echo "mktemp failed -- check TMPDIR" >&2
+        exit 3
+      }
+      body_file="$(mktemp)" || {
+        echo "mktemp failed -- check TMPDIR" >&2
+        exit 3
+      }
+      printf '%s' "$resp" | jq -r '.title' >"$title_file"
+      printf '%s' "$resp" | jq -r '.description' >"$body_file"
     fi
   fi
 fi

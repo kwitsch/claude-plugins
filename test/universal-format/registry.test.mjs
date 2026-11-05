@@ -1,9 +1,9 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { buildInvocation, isExcludedPath, REGISTRY, EXT_MAP, PRETTIER_LANGS, hasPrettierProjectConfig, shouldOverridePrintWidth } from "../../plugins/universal-format/mcp/server.mjs";
+import { test } from "node:test";
+import { buildInvocation, EXT_MAP, hasPrettierProjectConfig, isExcludedPath, PRETTIER_LANGS, REGISTRY, shouldOverridePrintWidth } from "../../plugins/universal-format/mcp/server.mjs";
 
 const gofmt = REGISTRY.go.chain[1];
 const ruff = REGISTRY.python.chain[0];
@@ -89,19 +89,19 @@ test("hasPrettierProjectConfig: finds prettier.config.mjs walking up from a nest
   assert.equal(hasPrettierProjectConfig(sub), true);
 });
 
-test('hasPrettierProjectConfig: top-level "prettier" key in package.json counts', () => {
+test("hasPrettierProjectConfig: top-level \"prettier\" key in package.json counts", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "uf-pc-"));
   writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "x", prettier: { printWidth: 100 } }));
   assert.equal(hasPrettierProjectConfig(dir), true);
 });
 
-test('hasPrettierProjectConfig: package.json WITHOUT a top-level "prettier" key does not count -- devDependencies listing prettier is not a config', () => {
+test("hasPrettierProjectConfig: package.json WITHOUT a top-level \"prettier\" key does not count -- devDependencies listing prettier is not a config", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "uf-pc-"));
   writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "x", devDependencies: { prettier: "^3.9.0" } }));
   assert.equal(hasPrettierProjectConfig(dir), false);
 });
 
-test('hasPrettierProjectConfig: top-level "prettier" key in package.yaml counts', () => {
+test("hasPrettierProjectConfig: top-level \"prettier\" key in package.yaml counts", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "uf-pc-"));
   writeFileSync(path.join(dir, "package.yaml"), "name: x\nprettier:\n  printWidth: 100\n");
   assert.equal(hasPrettierProjectConfig(dir), true);

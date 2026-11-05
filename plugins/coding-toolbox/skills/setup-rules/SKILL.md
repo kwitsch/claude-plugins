@@ -158,9 +158,9 @@ options:
   mkdir -p "$HOME/.claude/rules"
   cat > "$HOME/.claude/rules/coding-toolbox-tools.md" << 'EOF'
   # Tool routing
-  
+
   Detected on this machine — prefer these over the generic default when available.
-  
+
   | Task | Prefer | Why |
   |---|---|---|
   <one line per tool in `detected`, from the candidate rows file below, in this order>

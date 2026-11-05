@@ -135,14 +135,14 @@ export function splitTopLevel(command) {
       continue;
     }
     if (inDouble) {
-      if (ch === '"') inDouble = false;
+      if (ch === "\"") inDouble = false;
       else if (ch === "`" || (ch === "$" && command[i + 1] === "(")) return null;
       stage += ch;
       text += ch;
       continue;
     }
     if (ch === "'") inSingle = true;
-    else if (ch === '"') inDouble = true;
+    else if (ch === "\"") inDouble = true;
     else if (ch === "`" || ch === ">" || ch === "<" || ch === "(" || ch === ")" || ch === "#" || ch === "\n") return null;
     else if (ch === "$" && command[i + 1] === "(") return null;
     else if ((ch === "{" || ch === "}") && command[i - 1] !== "$" && !/[{,]/.test(command[i - 1] ?? "")) return null;
@@ -252,23 +252,20 @@ export function buildSteerDeny(classification) {
     } catch {
       /* keep the fallback label */
     }
-    reason =
-      `context-mode steer: do not fetch URLs through Bash and do not retry this command. ` +
-      `Call ctx_fetch_and_index (${CTX_TOOL_PREFIX}ctx_fetch_and_index) with ` +
-      `{"url": ${JSON.stringify(classification.url)}, "source": ${JSON.stringify(source)}}, ` +
-      `then ctx_search(queries: [...]) to read the indexed content — the raw response never enters the context window.`;
+    reason = `context-mode steer: do not fetch URLs through Bash and do not retry this command. `
+      + `Call ctx_fetch_and_index (${CTX_TOOL_PREFIX}ctx_fetch_and_index) with `
+      + `{"url": ${JSON.stringify(classification.url)}, "source": ${JSON.stringify(source)}}, `
+      + `then ctx_search(queries: [...]) to read the indexed content — the raw response never enters the context window.`;
   } else if (classification.kind === "batch") {
     const commands = classification.commands.map((c, i) => ({ label: `${i + 1}: ${commandHead(c) || "cmd"}`, command: c }));
-    reason =
-      `context-mode steer: this read-only multi-command gather floods the context window via Bash. ` +
-      `Do not retry it as a Bash call. Call ctx_batch_execute (${CTX_TOOL_PREFIX}ctx_batch_execute) with ` +
-      `commands: ${JSON.stringify(commands)} and queries for what you actually need — ` +
-      `output is indexed and only search results enter context.`;
+    reason = `context-mode steer: this read-only multi-command gather floods the context window via Bash. `
+      + `Do not retry it as a Bash call. Call ctx_batch_execute (${CTX_TOOL_PREFIX}ctx_batch_execute) with `
+      + `commands: ${JSON.stringify(commands)} and queries for what you actually need — `
+      + `output is indexed and only search results enter context.`;
   } else if (classification.kind === "pipeline") {
-    reason =
-      `context-mode steer: this read-only pipeline floods the context window via Bash. ` +
-      `Do not retry it as a Bash call. Call ctx_execute (${CTX_TOOL_PREFIX}ctx_execute) with ` +
-      `{"language": "shell", "code": ${JSON.stringify(classification.command)}} — only stdout you print enters context.`;
+    reason = `context-mode steer: this read-only pipeline floods the context window via Bash. `
+      + `Do not retry it as a Bash call. Call ctx_execute (${CTX_TOOL_PREFIX}ctx_execute) with `
+      + `{"language": "shell", "code": ${JSON.stringify(classification.command)}} — only stdout you print enters context.`;
   } else {
     return null;
   }
@@ -389,12 +386,11 @@ export function buildWebFetchDeny(url) {
   } catch {
     /* keep the fallback label */
   }
-  const reason =
-    `context-mode steer: WebFetch is routed through the context-mode MCP server. ` +
-    `Do not retry WebFetch for this URL. Call ctx_fetch_and_index (${CTX_TOOL_PREFIX}ctx_fetch_and_index) with ` +
-    `{"url": ${JSON.stringify(url)}, "source": ${JSON.stringify(source)}}, then ctx_search(queries: [...]) ` +
-    `to read the indexed content — the raw page never enters the context window. ` +
-    `(Set the linux-token-efficiency plugin option steer_enabled to false to disable this routing.)`;
+  const reason = `context-mode steer: WebFetch is routed through the context-mode MCP server. `
+    + `Do not retry WebFetch for this URL. Call ctx_fetch_and_index (${CTX_TOOL_PREFIX}ctx_fetch_and_index) with `
+    + `{"url": ${JSON.stringify(url)}, "source": ${JSON.stringify(source)}}, then ctx_search(queries: [...]) `
+    + `to read the indexed content — the raw page never enters the context window. `
+    + `(Set the linux-token-efficiency plugin option steer_enabled to false to disable this routing.)`;
   return {
     hookSpecificOutput: {
       hookEventName: "PreToolUse",

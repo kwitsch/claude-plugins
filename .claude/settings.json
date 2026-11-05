@@ -6,5 +6,17 @@
     "commit": "",
     "pr": "",
     "sessionUrl": false
+  },
+  "enabledPlugins": {
+    "universal-format@kwitsch-plugins": false,
+    "dprint@kwitsch-plugins": true
+  },
+  "extraKnownMarketplaces": {
+    "kwitsch-plugins": {
+      "source": {
+        "source": "github",
+        "repo": "kwitsch/claude-plugins"
+      }
+    }
   }
 }

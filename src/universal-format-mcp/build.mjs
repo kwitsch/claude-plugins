@@ -10,13 +10,13 @@
 // artifact freshness is a node-only assertion in test/universal-format/build-artifact.test.mjs.
 // Run `pnpm install --frozen-lockfile` in this tree first: the bundle embeds that prettier, and
 // bun's `// <path>` provenance comments are relative to the tree's own node_modules.
-import process from "node:process";
-import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
+import path from "node:path";
+import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 const SRC_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -78,8 +78,7 @@ function canonicalize(text) {
 // self-contained; anchoring it one directory ("lib") deeper than the bundle's own directory
 // preserves sh-syntax's `path.resolve(__dirname, "../main.wasm")` lookup landing next to the
 // bundle, exactly where the other wasm sidecars are copied.
-const SH_SYNTAX_DIRNAME_RE =
-  /(\/\/ node_modules\/sh-syntax\/lib\/index\.js\nvar __dirname = )"[^"]*"(;\nvar _dirname = typeof __dirname === "undefined" \? (\w+)\.dirname\((\w+)\(import\.meta\.url\)\) : __dirname;)/;
+const SH_SYNTAX_DIRNAME_RE = /(\/\/ node_modules\/sh-syntax\/lib\/index\.js\nvar __dirname = )"[^"]*"(;\nvar _dirname = typeof __dirname === "undefined" \? (\w+)\.dirname\((\w+)\(import\.meta\.url\)\) : __dirname;)/;
 
 /** Replace the hardcoded absolute path bun emits for sh-syntax's `__dirname` with an expression
  * built from the SAME import.meta.url fallback the next line already uses — reusing whatever

@@ -51,9 +51,9 @@ If the block above rendered as literally `[shell command execution disabled by p
     tmp="$(mktemp "$HOME/.claude/rules/.coding-toolbox-tools.md.XXXXXX")" || exit 1
     cat > "$tmp" << 'EOF'
   # Tool routing
-  
+
   Detected on this machine — prefer these over the generic default when available.
-  
+
   | Task | Prefer | Why |
   |---|---|---|
   <one line per detected tool, from the candidate rows file below, in this order>

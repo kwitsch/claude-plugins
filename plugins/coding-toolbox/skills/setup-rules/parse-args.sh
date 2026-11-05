@@ -21,7 +21,10 @@ raw="$(cat "$args_file")"
 usage_msg() {
   printf 'Couldn'"'"'t parse "%s" -- expected a verb (install/update/remove) and, for remove, an explicit target (rules/tools/both). Examples: "install", "update tools rule", "remove rules", "remove both".\n' "$raw" >&2
 }
-die() { usage_msg; exit "$1"; }
+die() {
+  usage_msg
+  exit "$1"
+}
 
 # noglob during the split: this is a whitespace split on lowercased free
 # text, never a filename expansion, even if the text happens to contain a
@@ -42,12 +45,12 @@ both_named=false
 bare_rule_present=false
 for w in "${words[@]:-}"; do
   case "$w" in
-    remove|uninstall|delete|disable|no) no_match=true ;;
-    install|add|enable|update|refresh|yes) yes_match=true ;;
-    tool|tools|tool-routing|routing) tools_named=true ;;
-    golden|golden-rules) golden_named=true ;;
-    rule|rules) bare_rule_present=true ;;
-    both|all|everything) both_named=true ;;
+  remove | uninstall | delete | disable | no) no_match=true ;;
+  install | add | enable | update | refresh | yes) yes_match=true ;;
+  tool | tools | tool-routing | routing) tools_named=true ;;
+  golden | golden-rules) golden_named=true ;;
+  rule | rules) bare_rule_present=true ;;
+  both | all | everything) both_named=true ;;
   esac
 done
 
@@ -90,9 +93,12 @@ fi
 golden_rules=unset
 tools=unset
 case "$target" in
-  rules) golden_rules="$answer" ;;
-  tools) tools="$answer" ;;
-  both) golden_rules="$answer"; tools="$answer" ;;
+rules) golden_rules="$answer" ;;
+tools) tools="$answer" ;;
+both)
+  golden_rules="$answer"
+  tools="$answer"
+  ;;
 esac
 
 printf 'golden_rules: %s\ntools: %s\n' "$golden_rules" "$tools"

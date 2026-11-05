@@ -2,13 +2,13 @@
 // plugins/coding-toolbox/hooks/policy.mjs, driven with real git against hermetic fixture
 // repos (a bare file-path origin, no network). Hook wiring (the note reaching the model as
 // context, the toggle, the switch-into-existing skip) is covered by plugins/coding-toolbox/tests/.
-import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { test } from "node:test";
 import { isWorktreeRefreshEnabled, refreshWorktree } from "../../plugins/coding-toolbox/hooks/policy.mjs";
 
 // Isolated from the host's git config (HOME, system config) like the bats suite's common_setup.

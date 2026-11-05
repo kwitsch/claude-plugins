@@ -8,9 +8,9 @@
 // valid result exists — a crash mid-retry can never leave it half-compressed.
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync, unlinkSync, mkdirSync, statSync } from "node:fs";
-import { basename, dirname, extname, resolve, sep } from "node:path";
 import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { basename, dirname, extname, resolve, sep } from "node:path";
 
 const MAX_RETRIES = 2; // 1 initial compress attempt + 1 targeted-fix retry
 const MAX_FILE_SIZE = 500_000; // 500KB
@@ -405,10 +405,10 @@ function compressFile(filepath, backupRoot, confirmed) {
   }
   if (isSensitivePath(filepath)) {
     console.log(
-      `Refusing to compress ${filepath}: filename looks sensitive ` +
-        "(credentials, keys, secrets, or known private paths). " +
-        "Compression sends file contents to the Anthropic API. " +
-        "Rename the file if this is a false positive.",
+      `Refusing to compress ${filepath}: filename looks sensitive `
+        + "(credentials, keys, secrets, or known private paths). "
+        + "Compression sends file contents to the Anthropic API. "
+        + "Rename the file if this is a false positive.",
     );
     return 1;
   }

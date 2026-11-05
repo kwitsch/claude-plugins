@@ -95,7 +95,7 @@ Self-contained: every script/agent used here lives in `coding-toolbox`.
    - GitLab (`gitlab.` or a self-managed GitLab host) → `glab`.
    - Neither anchor matches (custom-domain Enterprise/self-managed host): check
      `gh auth status --hostname <host>` and `glab auth status --hostname
-<host>` — if exactly one knows the host, use that tool; otherwise ask the
+     <host>` — if exactly one knows the host, use that tool; otherwise ask the
      user.
 
    If the required CLI is missing or unauthenticated, stop and give the user

@@ -13,10 +13,10 @@
 //     coverage_lookup,status,freshness,recommended_action,coverage:[]}],…}
 //     -> formatCoverageContext().
 // An unrecognized payload is always silence, never a guess.
-import process from "node:process";
-import path from "node:path";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import process from "node:process";
 
 /** Hard cap on injected context per event — well under the 10 000-char hook-output cap. */
 export const CONTEXT_CHAR_LIMIT = 1500;
@@ -471,8 +471,8 @@ export function formatCoverageContext(payload, filePath) {
   if (entry.indexed === false || entry.covered === false) flagged.push("not indexed");
   if (flagged.length === 0) return null;
   return truncate(
-    `codebase-memory graph coverage warning for ${wanted}: ${flagged.join("; ")}. ` +
-      "The graph's view of this file is incomplete — rely on the file's own contents rather than on graph results for it.",
+    `codebase-memory graph coverage warning for ${wanted}: ${flagged.join("; ")}. `
+      + "The graph's view of this file is incomplete — rely on the file's own contents rather than on graph results for it.",
   );
 }
 

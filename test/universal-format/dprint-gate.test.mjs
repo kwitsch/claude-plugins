@@ -1,10 +1,10 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { test } from "node:test";
 
-import { formatPre, formatPost } from "../../plugins/universal-format/mcp/server.mjs";
+import { formatPost, formatPre } from "../../plugins/universal-format/mcp/server.mjs";
 
 // The dprint priority gate (handlers.ts dprintGoverns). Its own file because every test here
 // points $HOME (and so os.homedir(), the user-scope settings anchor) at a fresh tmp dir: each

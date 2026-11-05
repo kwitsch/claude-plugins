@@ -1,6 +1,6 @@
 // editorconfig.ts — .editorconfig resolver + registry flag mapping (pure, unit-tested).
-import path from "node:path";
 import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import type { EditorConfigProps, FormatTool } from "./types.js";
 
 // Build the argv-tail for a mapped tool given whether a tool-native config governs the file and

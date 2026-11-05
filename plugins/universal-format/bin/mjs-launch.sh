@@ -14,7 +14,7 @@ if [ "$#" -eq 0 ]; then
   exit 64
 fi
 
-if command -v bun  >/dev/null 2>&1; then exec bun  "$@"; fi
+if command -v bun >/dev/null 2>&1; then exec bun "$@"; fi
 if command -v node >/dev/null 2>&1; then exec node "$@"; fi
 echo "mjs-launch.sh: neither bun nor node is available. Install Node.js or Bun." >&2
 exit 1

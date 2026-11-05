@@ -114,7 +114,7 @@ TypeScript sources of the generated `plugins/universal-format/mcp/server.mjs`. P
   - `bun=` is provenance only, never asserted: bun is pinned nowhere in this repo and byte-equality across bun versions is not claimed.
 - Freshness is enforced by `test/universal-format/build-artifact.test.mjs` under `pnpm run test:unit` (recomputes the source and body hashes, compares the bundled prettier version with the installed one), so CI needs no bun and no byte-reproducibility.
 - Bundle the WHOLE prettier package (all parser plugins) on purpose: prettier delegates embedded `html`/`graphql`/`css` blocks inside Markdown to those parsers, so trimming would silently break accepted inputs.
-- `eslint.config.mjs` and the root `.prettierignore` both exclude the artifact; neither matches `.wasm`, and `EXT_MAP` has no `.wasm` entry, so nothing ever tries to format a sidecar.
+- `eslint.config.mjs` and the root `dprint.json` both exclude the artifact; neither matches `.wasm`, and `EXT_MAP` has no `.wasm` entry, so nothing ever tries to format a sidecar.
 
 ### Build flags (every one is load-bearing)
 

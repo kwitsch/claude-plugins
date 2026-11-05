@@ -17,14 +17,14 @@
 //   `warning`); (2) for .ts/.tsx/.mts/.cts only, a whole-project `tsc --noEmit` via
 //   the nearest tsconfig.json (see runTypeCheck). Any issues found: truncated,
 //   joined additionalContext; no finding from either check: nothing printed.
-import process from "node:process";
 import { spawnSync } from "node:child_process";
-import { accessSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync, constants as fsConstants } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
-import { tmpdir, homedir } from "node:os";
+import { accessSync, constants as fsConstants, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import process from "node:process";
 import { setTimeout as sleep } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 
 const SPAWN_TIMEOUT_MS = 30000; // inner linter timeout; the hook-level timeout (hooks.json: 95 = 5s debounce wait + 90s lint budget) is the backstop
 const NPX_SPAWN_TIMEOUT_MS = 55000; // cold npx install can exceed SPAWN_TIMEOUT_MS; stay inside the 90s lint budget (hooks.json timeout 95 minus the 5s debounce wait)
@@ -393,12 +393,12 @@ function stripJsonComments(text) {
         i += 2;
         continue;
       }
-      if (c === '"') inString = false;
+      if (c === "\"") inString = false;
       out += c;
       i++;
       continue;
     }
-    if (c === '"') {
+    if (c === "\"") {
       inString = true;
       out += c;
       i++;

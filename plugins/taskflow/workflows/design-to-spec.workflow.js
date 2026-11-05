@@ -90,16 +90,15 @@ function decodeArgs(required, defaults) {
     try {
       a = JSON.parse(a);
     } catch (e) {
-      return { __error: 'args arrived as a non-JSON string ("' + a.slice(0, 120) + '") — pass ONE JSON object with keys: ' + required.join(", ") };
+      return { __error: "args arrived as a non-JSON string (\"" + a.slice(0, 120) + "\") — pass ONE JSON object with keys: " + required.join(", ") };
     }
   }
   if (typeof a !== "object" || a === null || Array.isArray(a)) {
     const kind = a === null ? (typeof args === "undefined" ? "undefined" : "null") : Array.isArray(a) ? "an array" : typeof a;
     return {
-      __error:
-        "args global is " +
-        kind +
-        " — invoke this as a saved/plugin workflow WITH a JSON object as input, or prepend `const args = {…}` to the script text; the ad-hoc {script, args} tool-call shape does not thread args.",
+      __error: "args global is "
+        + kind
+        + " — invoke this as a saved/plugin workflow WITH a JSON object as input, or prepend `const args = {…}` to the script text; the ad-hoc {script, args} tool-call shape does not thread args.",
     };
   }
   const missing = required.filter((k) => a[k] == null || a[k] === "");
@@ -118,8 +117,9 @@ if (RESUME && !USER_INPUT) return { status: "error", stage: "args", error: "RESU
 const REPO = typeof REPO_PATH === "string" ? REPO_PATH.trim() : "";
 const wantGraphmind = GRAPHMIND_AVAILABLE === true || GRAPHMIND_AVAILABLE === "true";
 const USE_GRAPHMIND = wantGraphmind && REPO.startsWith("/");
-if (wantGraphmind && !USE_GRAPHMIND)
+if (wantGraphmind && !USE_GRAPHMIND) {
   return { status: "error", stage: "args", error: "GRAPHMIND_AVAILABLE=true requires a non-empty absolute REPO_PATH" };
+}
 
 const MODELS = {
   scout: "haiku", // pure classification — deliberately small
@@ -277,12 +277,13 @@ const scout = await agent(scoutPrompt, {
   model: MODELS.scout,
   agentType: "Explore",
 });
-if (!scout)
+if (!scout) {
   return {
     status: "error",
     stage: "Explore",
     error: "scout returned no result",
   };
+}
 
 let DESIGNER_MODEL = designerModel(scout.difficulty);
 
@@ -292,18 +293,17 @@ let DESIGNER_MODEL = designerModel(scout.difficulty);
 // LLM-chosen name's literal '|' is replaced with '/' so no downstream name
 // (the '## <area>' section headings, the dedup key) carries a pipe.
 const seenProposedNames = new Set();
-const proposed =
-  scout && Array.isArray(scout.subsystems)
-    ? scout.subsystems
-        .filter((s) => s && typeof s.name === "string" && s.name.trim() !== "")
-        .map((s) => ({ ...s, name: s.name.replace(/\|/g, "/").trim() }))
-        .filter((s) => {
-          const key = s.name.toLowerCase();
-          if (seenProposedNames.has(key)) return false;
-          seenProposedNames.add(key);
-          return true;
-        })
-    : [];
+const proposed = scout && Array.isArray(scout.subsystems)
+  ? scout.subsystems
+    .filter((s) => s && typeof s.name === "string" && s.name.trim() !== "")
+    .map((s) => ({ ...s, name: s.name.replace(/\|/g, "/").trim() }))
+    .filter((s) => {
+      const key = s.name.toLowerCase();
+      if (seenProposedNames.has(key)) return false;
+      seenProposedNames.add(key);
+      return true;
+    })
+  : [];
 const subsystems = proposed.slice(0, MAX_PARALLEL_EXPLORES);
 if (subsystems.length === 0) subsystems.push({ name: "whole task", focus: TASK });
 log("Scout: difficulty " + scout.difficulty + " (designer: " + DESIGNER_MODEL + "), " + subsystems.length + " exploration target(s)");
@@ -318,7 +318,8 @@ design must match, recent related commits, constraints and pitfalls you can
 see in the code. Dense and exact — file paths and symbol names, not prose
 generalities. Structured output only.`;
 
-const graphmindExplorePrompt = (s) => `${NO_NARRATION}\n\nYou are a read-only codebase explorer (never edit anything). Task being
+const graphmindExplorePrompt = (s) =>
+  `${NO_NARRATION}\n\nYou are a read-only codebase explorer (never edit anything). Task being
 designed:\n${TASK}\n${resumeNote}\n
 Your assigned area: ${s.name} — ${s.focus}
 This repository is indexed by graphmind (code graph + project memory). Use it first:
@@ -347,7 +348,8 @@ Structured output only.`;
 
 // One project-memory recall shared by all explorers (they would otherwise each run
 // near-identical gm_memory_search calls); its output joins explorationBlock below.
-const graphmindRecallPrompt = () => `${NO_NARRATION}\n\nYou are a read-only knowledge recaller (never edit anything). Task being
+const graphmindRecallPrompt = () =>
+  `${NO_NARRATION}\n\nYou are a read-only knowledge recaller (never edit anything). Task being
 designed:\n${TASK}\n${resumeNote}\n
 Areas under exploration: ${subsystems.map((s) => s.name + " — " + s.focus).join("; ")}
 1. Load the tool: ToolSearch(query: "select:mcp__graphmind__gm_memory_search").
@@ -362,12 +364,11 @@ const exploreOpts = (s) => {
   return USE_GRAPHMIND ? base : { ...base, agentType: "Explore" };
 };
 const pickPrompt = (s) => (USE_GRAPHMIND ? graphmindExplorePrompt(s) : explorerPrompt(s));
-const exploreOuts =
-  subsystems.length === 0
-    ? []
-    : subsystems.length > 1
-      ? await parallel(subsystems.map((s) => () => agent(pickPrompt(s), exploreOpts(s))))
-      : [await agent(pickPrompt(subsystems[0]), exploreOpts(subsystems[0]))];
+const exploreOuts = subsystems.length === 0
+  ? []
+  : subsystems.length > 1
+  ? await parallel(subsystems.map((s) => () => agent(pickPrompt(s), exploreOpts(s))))
+  : [await agent(pickPrompt(subsystems[0]), exploreOpts(subsystems[0]))];
 
 const sections = [];
 for (let i = 0; i < exploreOuts.length; i++) {
@@ -375,12 +376,13 @@ for (let i = 0; i < exploreOuts.length; i++) {
   if (r && r.report) sections.push("## " + subsystems[i].name + "\n" + r.report);
 }
 const exploration = sections.join("\n\n");
-if (!exploration)
+if (!exploration) {
   return {
     status: "error",
     stage: "Explore",
     error: "all explorers returned null",
   };
+}
 
 let explorationBlock = exploration;
 if (USE_GRAPHMIND) {
@@ -394,7 +396,8 @@ if (USE_GRAPHMIND) {
 // ═════════════════════════════════════════════════════════════════════════════
 phase("Design");
 
-const designerPrompt = (mode, extra) => `${mode}
+const designerPrompt = (mode, extra) =>
+  `${mode}
 Task:
 ${TASK}
 
@@ -480,8 +483,7 @@ const blocking = review.findings.filter((f) => f.severity === "blocking");
 const resolvable = (review.questionVerdicts || []).filter((v) => v.verdict === "resolvable");
 if (blocking.length || resolvable.length) {
   log("Design review: " + blocking.length + " blocking, " + resolvable.length + " resolvable question(s) — one revision round");
-  const revisionExtra =
-    `## Revision input (from the design review)
+  const revisionExtra = `## Revision input (from the design review)
 Blocking findings to fix:\n${JSON.stringify(blocking)}\n
 Questions judged RESOLVABLE — decide them yourself now (the reviewer's
 suggested resolution is a hint, verify it against the code), record each under
@@ -528,7 +530,8 @@ if (genuineQuestions.length > 0) {
 // ═════════════════════════════════════════════════════════════════════════════
 phase("Spec");
 
-const specWriterPrompt = (revision) => `${NO_NARRATION}
+const specWriterPrompt = (revision) =>
+  `${NO_NARRATION}
 
 You are the spec writer. The design
 draft at ${DRAFT_PATH} is approved and decision-complete (its Open-questions

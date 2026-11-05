@@ -201,9 +201,9 @@ function blankNonLiterals(text) {
       i = skipEscaped(text, i + 2, "'");
       continue;
     }
-    if (c === '"') {
+    if (c === "\"") {
       out += SENTINEL;
-      i = skipEscaped(text, i + 1, '"');
+      i = skipEscaped(text, i + 1, "\"");
       continue;
     }
     if (c === "$" && c2 === "(") {
@@ -509,10 +509,10 @@ export function denyReason(offenders) {
   const list = offenders.map((o) => `${o.path} (${o.label})`).join(", ");
   const first = offenders[0];
   return (
-    `encoding-guard: ${list} ${offenders.length === 1 ? "is" : "are"} not UTF-8. ` +
-    "Native Read/Edit/Write and plain shell text tools assume UTF-8 and would misread or corrupt the content. " +
-    `Read safely with: iconv -f ${first.iconv} -t UTF-8 '${first.path}'. ` +
-    `To modify: convert to UTF-8, edit, convert back with iconv -f UTF-8 -t ${first.iconv} — or use another encoding-preserving tool.`
+    `encoding-guard: ${list} ${offenders.length === 1 ? "is" : "are"} not UTF-8. `
+    + "Native Read/Edit/Write and plain shell text tools assume UTF-8 and would misread or corrupt the content. "
+    + `Read safely with: iconv -f ${first.iconv} -t UTF-8 '${first.path}'. `
+    + `To modify: convert to UTF-8, edit, convert back with iconv -f UTF-8 -t ${first.iconv} — or use another encoding-preserving tool.`
   );
 }
 
@@ -534,8 +534,7 @@ export function decodeBase64(b64) {
 
 // The prompt the gate submits. The turn it starts is recognized by this text,
 // so it never re-prompts its own retry (the loop guard).
-export const GATE_REASON =
-  "Interaction rule violation: the final response ends with a plain-text question to the user. Route it through the AskUserQuestion tool instead — no exceptions, not even a casual yes/no offer.";
+export const GATE_REASON = "Interaction rule violation: the final response ends with a plain-text question to the user. Route it through the AskUserQuestion tool instead — no exceptions, not even a casual yes/no offer.";
 
 /**
  * True when the last non-empty line outside fenced code blocks ends in `?` —
