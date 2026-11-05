@@ -92,7 +92,7 @@ Scope: `hooks/` and `hooks/hooks.json`. Toggles (`auto_rewrite`, `steer_enabled`
 
 - `hooks/SessionStart.md` is upstream's `configs/claude-code/CLAUDE.md` byte-for-byte, git mode `100644`. NEVER edit it — not by a formatter, a markdownlint fix or an applied CodeRabbit suggestion.
 - Two mechanical guards plus the rule:
-  - `.prettierignore` lists it (`universal-format` prettier-formats `.md` on every `Write`/`Edit` and honors `.prettierignore`).
+  - Root `dprint.json`'s `excludes` lists it (the project formats with `dprint` and disables `universal-format`; a formatter run over it would break byte-for-byte fidelity).
   - `.coderabbit.yaml`'s `reviews.path_filters` excludes it. The inline `<!-- coderabbit-skip: … -->` alternative from `.claude/rules/coderabbit-md-review.md` is unusable here: the comment itself would break fidelity.
   - `universal-lint`'s markdownlint pass is check-only and never rewrites, so any finding it prints on this file is knowingly left unfixed.
 - Re-syncing with upstream is a plain file copy plus a diff, nothing else.

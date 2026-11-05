@@ -2,10 +2,8 @@
 
 ## Layout (mods hooks module)
 
-- `hooks.json` — exactly `{"modules": ["./register.ts"]}`; no classic command hooks.
-- `register.ts` — every hook and every `$` use, typed via `import type { EngineInterface, Register } from 'claude-code'`. No `any`, no `import()`, no Node.
+- `hooks.json`, `register.ts` and `.claude-plugin/types/` follow `plugins/CLAUDE.md` `## Mods function-hooks modules`; no classic command hooks, no Node in `register.ts`.
 - `policy.mjs` — pure, zero-dep, JSDoc-typed decision logic (`100755`, as every `.mjs` under `hooks/`). It never references `$` and imports no `node:` module (the engine rejects both in a file the module imports); file listings, file contents and env values come in as arguments. Covered by root `tsc`, ESLint and `test/npm-automations/policy.test.mjs`.
-- `.claude-plugin/types/` is engine-written at every `claude --plugin-dir` load and gitignored.
 
 ## Hook flow (shared, both hooks)
 

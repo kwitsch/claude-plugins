@@ -22,7 +22,7 @@ Agent frontmatter `model:` (`agents/designer.md`, `agents/planner.md`) is the ba
 
 ## `NO_NARRATION` on inline prompts
 
-- Several roles are dispatched with a fully inline prompt and no `agentType`, so no `agents/*.md` system prompt backs them: the scout, the graphmind explorer, spec writer and reviewer, plan checker, per-task implementer/reviewer/fixer, the scope-gathering and synthesizer agents of both review phases, and `changes-review`'s lean pass.
+- Several roles are dispatched with a fully inline prompt and no `agentType`, so no `agents/*.md` system prompt backs them: the graphmind explorer, spec writer and reviewer, plan checker, per-task implementer/reviewer/fixer, the scope-gathering and synthesizer agents of both review phases, and `changes-review`'s lean pass.
 - Each script defines `const NO_NARRATION = "…"` (wording identical to the rule in `agents/*.md`) right after its `AGENTS` map, and every inline prompt is prefixed with it. Add the same prefix to any new inline (non-`agentType`) prompt in any workflow script.
 - The built-in `agentType: "Explore"` path (`explorerPrompt`) carries the rule only in the per-call prompt text: its system prompt is foreign to this plugin.
 
