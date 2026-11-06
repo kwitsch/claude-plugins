@@ -1,7 +1,7 @@
 # Claude Code Memory — Authoring Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (How Claude remembers your project), verified 2026-10-30.
+> (How Claude remembers your project), verified 2026-11-06.
 > Apply when authoring or editing CLAUDE.md files or configuring auto memory.
 
 ## CLAUDE.md: what & when
@@ -65,7 +65,7 @@ Files load in the order below (broadest to most specific); a later entry wins on
 - version >= 2.1.239: to exclude a `.claude/rules/` file reached through a symlink, a pattern matching **either** the file's path under `.claude/rules/` **or** its link target excludes it (before v2.1.239, only a pattern matching the link target worked).
 - `--add-dir` directories do NOT load their CLAUDE.md by default. Set `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` to load `CLAUDE.md`, `.claude/CLAUDE.md`, `.claude/rules/*.md`, `CLAUDE.local.md` from them (`CLAUDE.local.md` skipped if `local` is excluded from `--setting-sources`).
 - Compaction: project-root CLAUDE.md **survives `/compact`** — re-read from disk and re-injected. Nested subdirectory CLAUDE.md files and rules with `paths:` frontmatter are NOT re-injected automatically; they reload next time Claude reads a file in that subdirectory or a file matching the rule's patterns. An instruction missing after compaction was either given only in conversation (never written to a file), lives in a nested CLAUDE.md that hasn't reloaded yet, or is a path-scoped rule that hasn't matched a file since — put conversation-only instructions into a CLAUDE.md to make them persist.
-- Debug: run `/context` and read the list under **Memory files** to confirm a CLAUDE.md/CLAUDE.local.md file actually loaded at launch — a file missing there is invisible to Claude that session. `/memory` lists memory-file _locations_ and opens them for editing; `/context` is the load check.
+- Debug: run `/context all` and read the list (in fullscreen mode, bare `/context` collapses that list) under **Memory files** to confirm a CLAUDE.md/CLAUDE.local.md file actually loaded at launch — a file missing there is invisible to Claude that session. `/memory` lists memory-file _locations_ and opens them for editing; `/context all` is the load check.
 - A subdirectory CLAUDE.md does NOT appear under **Memory files** (loads on demand, not at launch). When it loads, a `Loaded` line with its path appears in the terminal. To test a new one: create it from your shell (not by asking Claude to write it), then ask Claude to read a file in that subdirectory.
 
 ### User-level rules
@@ -164,7 +164,7 @@ In those sessions import `AGENTS.md` from a `CLAUDE.md` (below).
 - Use when the project also has a `CLAUDE.md`, **Project instructions** is `claude-md`, or the session can't load `AGENTS.md`: create a `CLAUDE.md` that imports it (`@AGENTS.md`) — add Claude-specific instructions below the import (Claude reads the imported file first). Or symlink (`ln -s AGENTS.md CLAUDE.md`) if no Claude-specific content is needed.
 - Symlink constraints: Claude reads `CLAUDE.md` through the link, but Edit/Write refuse to write through a symlink and direct Claude to edit the link target (`AGENTS.md`).
 - Windows (anyone on the repo): use the `@AGENTS.md` import. Symlinks need Administrator/Developer Mode, and Git checks a committed symlink out as a plain-text file unless `core.symlinks` is enabled, leaving a one-line `CLAUDE.md` in place of your instructions.
-- Confirm in the next session with `/context` → `CLAUDE.md` under **Memory files**.
+- Confirm in the next session with `/context all` → `CLAUDE.md` under **Memory files**.
 - version >= 2.1.213: `/import` brings a supported coding agent's configuration into Claude Code — appends a one-time copy of instruction files such as `AGENTS.md` to the matching CLAUDE.md and carries over MCP servers, commands, subagents, and skills.
 
 ## Auto memory
@@ -287,13 +287,14 @@ paths:
 - Each `paths` pattern is relative to the rule's base directory: project rules → the directory containing the rule's `.claude` folder; user-level rules → the session's primary working directory. For path-scoped rules to load for files in a sibling git worktree, start Claude Code in that worktree or move the session there with `/cd`.
 - Glob patterns in `paths`; brace expansion matches multiple extensions:
 
-| Pattern                | Matches                                        |
-| ---------------------- | ---------------------------------------------- |
-| `**/*.ts`              | All TypeScript files in any directory          |
-| `src/**/*`             | All files under `src/`                         |
-| `*.md`                 | Markdown files in project root                 |
-| `src/components/*.tsx` | React components in a specific directory       |
-| `src/**/*.{ts,tsx}`    | Both extensions under `src/` (brace expansion) |
+| Pattern                | Matches                                                                            |
+| ---------------------- | ---------------------------------------------------------------------------------- |
+| `**/*.ts`              | `.ts` files anywhere under the base directory                                      |
+| `src/**/*`             | All files under the base directory's `src/`                                        |
+| `*.md`                 | `.md` files anywhere under the base directory                                      |
+| `/*.md`                | `.md` files directly in the base directory, not in subfolders                      |
+| `src/components/*.tsx` | `.tsx` files directly in the base directory's `src/components/`, not in subfolders |
+| `src/**/*.{ts,tsx}`    | Both extensions under `src/` (brace expansion)                                     |
 
 - Multiple patterns per rule are allowed. Brace-expansion budget: each brace group multiplies the expanded pattern count (`src/*.{ts,tsx}` → 2; `{a,b}/{c,d}/*.{ts,tsx}` → 8). A rule's whole `paths` list shares **one budget of 1,000 expanded patterns and 4 MiB**; brace-free patterns do not count against it. A pattern that would exceed the budget is used unexpanded, and its literal braces then match no files.
 - Glob treats `[` as the start of a bracket expression (`[abc]`). A pattern whose `[` cannot be read as a bracket expression (e.g. `photos [2024/**`) is invalid: it matches nothing while the rule's other patterns keep working. Escape a literal `[` — `photos \[2024/**`.
@@ -308,7 +309,7 @@ paths:
 | Action                           | How                                                                                                                                                                 |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Open memory viewer               | `/memory` — lists CLAUDE.md, CLAUDE.local.md, and other memory file **locations** across user and project scopes, including entries for files that do not exist yet |
-| Check what actually loaded       | `/context` → **Memory files** list (`/memory` shows locations, not load state)                                                                                      |
+| Check what actually loaded       | `/context all` → **Memory files** list (`/memory` shows locations, not load state)                                                                                  |
 | Toggle auto memory               | `/memory` → auto memory toggle (writes `autoMemoryEnabled` to `~/.claude/settings.json`)                                                                            |
 | Open auto memory folder          | `/memory` → link to open folder                                                                                                                                     |
 | Edit a memory file               | `/memory` → select file to open in editor; selecting one that does not exist creates it first                                                                       |
@@ -321,7 +322,7 @@ paths:
 
 ## Troubleshooting
 
-- Claude not following CLAUDE.md → check in order: `/context` **Memory files** list shows the file (a subdirectory CLAUDE.md is absent there — loads on demand; look for the terminal `Loaded` line instead); file sits in a location loaded for the session; instructions are specific; no conflicting instructions across CLAUDE.md files; your instruction doesn't compete with built-in Claude Code guidance.
+- Claude not following CLAUDE.md → check in order: `/context all` **Memory files** list shows the file (a subdirectory CLAUDE.md is absent there — loads on demand; look for the terminal `Loaded` line instead); file sits in a location loaded for the session; instructions are specific; no conflicting instructions across CLAUDE.md files; your instruction doesn't compete with built-in Claude Code guidance.
 - An `Instruction file not loaded` notice → see the docs `errors` page entry `instruction-file-not-loaded`.
 - Claude ignores the end of a subdirectory CLAUDE.md or on-demand rule → file is over the per-file character limit (see Locations & precedence); `wc -m` it, trim or split into rules files.
 - Competing built-in guidance: if CLAUDE.md sets commit or pull request rules, turn off the built-in ones with `includeGitInstructions` and set the attribution text with `attribution`.
