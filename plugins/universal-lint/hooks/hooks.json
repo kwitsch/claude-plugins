@@ -1,5 +1,5 @@
 {
-  "description": "PostToolUse Write|Edit -> lint-file.mjs: runs the just-written file's standard linter (check-only) and surfaces findings as context.",
+  "description": "PostToolUse Write|Edit -> lint-file.mjs: runs the just-written file's standard linter (check-only) in the background; findings exit 2 and wake Claude (asyncRewake).",
   "hooks": {
     "PostToolUse": [
       {
@@ -9,7 +9,7 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/lint-file.mjs\"",
             "timeout": 95,
-            "async": true
+            "asyncRewake": true
           }
         ]
       }
