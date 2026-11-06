@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/lint-file.mjs",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/lint-file.mjs\"",
             "timeout": 95,
             "async": true
           }
