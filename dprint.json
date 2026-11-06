@@ -18,6 +18,7 @@
     "**/*.bats",
     "plugins/dprint",
     "plugins/inline-headroom",
+    "plugins/universal-lint",
     "plugins/universal-format/mcp/server.mjs",
     "plugins/linux-token-efficiency/hooks/SessionStart.md"
   ],

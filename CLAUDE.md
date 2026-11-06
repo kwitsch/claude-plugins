@@ -6,7 +6,7 @@ Claude Code plugin marketplace.
 
 - Plugins live in `plugins/<name>/` (conventions: `plugins/CLAUDE.md`), each with a bats suite in `test/<name>/` (conventions: `.claude/rules/test-conventions.md`).
 - `src/<name>/` holds TypeScript sources whose build output is a **committed** plugin artifact — `universal-format` only; the repo-wide convention stays hand-written zero-dep `.mjs`. Editing `src/` requires `pnpm run build:universal-format-mcp` before commit — see `plugins/universal-format/CLAUDE.md` and `src/universal-format-mcp/CLAUDE.md`. Mods plugins (a TypeScript `hooks/register.ts` function-hooks module, e.g. `cc-knowledge`) are another exception to the zero-dep `.mjs` convention; their pure logic still lives in zero-dep `.mjs` beside it — see `plugins/CLAUDE.md` `## Mods function-hooks modules`.
-- `plugins/dprint/` and `plugins/inline-headroom/` are build output synced from kwitsch/claude-plugins-development — never edit them here (see `plugins/CLAUDE.md` `## Synced plugins`).
+- `plugins/dprint/`, `plugins/inline-headroom/` and `plugins/universal-lint/` are build output synced from kwitsch/claude-plugins-development — never edit them here (see `plugins/CLAUDE.md` `## Synced plugins`).
 - `.claude/rules/` — path-scoped rules, loaded when Claude edits matching files.
 - `tag-on-version-bump.yml` tags any plugin whose `plugin.json` version has no tag yet.
 
@@ -42,6 +42,6 @@ jq empty .claude-plugin/marketplace.json \
 - Commit messages: never include `Co-Authored-By:` trailer or "Generated with [Claude Code]" footer. `.claude/settings.json` also blanks the built-in `attribution`.
 - New plugins: use `create-plugin` skill — scaffolds plugin, test, README, CLAUDE.md, `test.yml` matrix entry, registers in `marketplace.json`.
 - Plugin versions live ONLY in `.claude-plugin/plugin.json`, never in `marketplace.json` entries. See `.claude/rules/plugin-versioning.md`.
-- Formatting: dprint (`dprint.json`, `pnpm run format`); the project enables the `dprint` plugin and disables `universal-format` in `.claude/settings.json`. Excludes are only generated/synced output (universal-format bundle, `plugins/dprint/`, `plugins/inline-headroom/`), lockfiles, the byte-for-byte vendored `linux-token-efficiency/hooks/SessionStart.md`, and `*.bats` (shuck cannot parse `@test`). Tests that grep source text must not pin one formatter's line layout.
+- Formatting: dprint (`dprint.json`, `pnpm run format`); the project enables the `dprint` plugin and disables `universal-format` in `.claude/settings.json`. Excludes are only generated/synced output (universal-format bundle, `plugins/dprint/`, `plugins/inline-headroom/`, `plugins/universal-lint/`), lockfiles, the byte-for-byte vendored `linux-token-efficiency/hooks/SessionStart.md`, and `*.bats` (shuck cannot parse `@test`). Tests that grep source text must not pin one formatter's line layout.
 - `docs/` holds local planning artifacts; gitignored, never pushed.
 - Script authoring: trivial scripts stay inline (skills/commands use `!` dynamic-context injection, agents use Bash-run fenced blocks); substantial scripts go to a standalone file per `.claude/rules/script-authoring.md`.
