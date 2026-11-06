@@ -38,9 +38,9 @@ If a plugin has a `configure-*` skill, that skill must cover every option in `us
 - The hook IS the entire plugin (read-only linting / auto-formatting is its
   one behavior); disabling that behavior is equivalent to uninstalling the
   plugin, so no separate on/off switch is offered.
-- Do not "fix" this by re-adding a toggle — the bats suites of `universal-lint`,
-  `universal-format` and `taskflow` assert `userConfig`'s absence as a tripwire
-  against exactly that.
+- Do not "fix" this by re-adding a toggle — the bats suites of `universal-format`
+  and `taskflow` assert `userConfig`'s absence as a tripwire against exactly that
+  (`universal-lint` is a synced plugin now: its guard lives in kwitsch/claude-plugins-development).
 - `taskflow` is the same case for a different reason — see
   `plugins/taskflow/CLAUDE.md` for why.
 - `dprint` (2026-10-20) intentionally ships no `userConfig`: its one skill,
