@@ -1,7 +1,7 @@
 # Claude Code Subagents / Agents — Authoring Reference
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
-> (Claude Code "Create custom subagents"; Agent SDK "Subagents in the SDK"), verified 2026-10-30.
+> (Claude Code "Create custom subagents"; Agent SDK "Subagents in the SDK"), verified 2026-11-06.
 > Apply when authoring, reviewing, or refactoring a subagent definition (`.claude/agents/*.md`).
 
 ## What a subagent is / when to choose it
@@ -318,6 +318,7 @@ Two independent caps: concurrently running, and nesting depth (see Nested subage
 - **Manual: `/subtask <directive>`** (version >= 2.1.212; works with or without fork mode; Claude Code names the fork from the first words of the task). `/fork` copies the whole session into a new background session with its own budget — EXCEPT when agent view is turned off, where `/subtask` is unavailable and `/fork` starts the forked subagent instead.
 - version 2.1.161–2.1.211: the forked-subagent command is `/fork`, not default-on in interactive sessions (still required `CLAUDE_CODE_FORK_SUBAGENT=1`). version 2.1.117–2.1.160: `/fork` required `CLAUDE_CODE_FORK_SUBAGENT=1`.
 - Panel keys: ↑/↓ move, Enter open+steer, x stop a running fork / dismiss a non-running one's row (on the main-session row, or the row of the fork whose transcript you opened with Enter, `x` types into the prompt instead), Esc back to prompt. With a transcript open, follow-up messages and skills go to that agent, but built-in commands still run in the main conversation.
+- version >= 2.1.314: with a fork's or subagent's transcript open, `/btw` answers from that open transcript.
 - With a transcript open, `/compact`, `/clear`, `/rewind` act on the main conversation and ask for confirmation first; `/model` and `/fast` set the main conversation's model/fast mode, not the viewed agent's, so they don't run from this view (a notice explains why; version >= 2.1.199 shows the notice instead of applying silently).
 - version >= 2.1.286: send a message with `Ctrl+Enter` or `Ctrl+X Ctrl+S` to have the viewed agent read it before the work it's waiting on finishes; any shell command or subagent it's waiting on that can move to the background does so and keeps running. While the agent is writing a response, or waiting on work that can't be backgrounded, it keeps going and reads the message once that finishes.
 
@@ -445,4 +446,5 @@ Agent SDK "Subagents in the SDK". Applies to the `agents` param passed to `query
 - v2.1.299 names Claude gave a subagent survive a restart + session resume (was: none survived).
 - v2.1.302 fork mode on by default in every session type incl. `-p` and the Agent SDK (was: interactive only, since v2.1.232).
 - v2.1.304 a subagent messaged/resumed right after finishing keeps its most recent work (was: could forget it).
+- v2.1.314 `/btw` answers from the open fork/subagent transcript.
 - v2.1.292 Claude can pass a per-invocation `effort` param when running a non-fork subagent (overrides the `effort` field, persists on resume; `CLAUDE_CODE_EFFORT_LEVEL` still wins). TS Agent SDK 0.3.292 adds `agent_id` on subagent assistant/user messages.

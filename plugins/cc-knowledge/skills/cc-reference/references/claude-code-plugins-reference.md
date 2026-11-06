@@ -2,7 +2,7 @@
 
 > Harness-optimized knowledge file. Directives, not prose. Source: Anthropic official docs
 > (Plugins, Plugins reference, Plugin marketplaces, Plugin dependencies, Plugin hints),
-> verified 2026-10-30.
+> verified 2026-11-06.
 > Apply when creating, reviewing, or distributing a Claude Code plugin.
 > Hook events/schema, agent frontmatter, MCP server config, and settings keys are owned by
 > sibling refs (claude-code-hooks-reference.md, -agents-, -mcp-, -settings-); kept pointer-level here.
@@ -222,6 +222,7 @@ A marketplace is a `marketplace.json` catalog that lets users browse and install
 - Inside a session, `/plugin marketplace add <source>` registers a marketplace like the CLI; `/plugin install <plugin>@<marketplace>` opens the plugin's details in the `/plugin` panel, where the install is confirmed.
 - Entry vs `plugin.json` (entry accepts every manifest field except the directory-listing fields; `strict` defaults `true`): NO `plugin.json` → entry IS the manifest regardless of `strict`, and entry `hooks` loads only as an inline object (path/array → `/plugin` Errors tab `not yet supported in a marketplace entry`). `plugin.json` + `strict` unset/`true` → entry `commands`/`agents`/`skills`/`outputStyles`/`themes` are appended; for `hooks` the entry's matchers for an event REPLACE the manifest's for that event, manifest-only events are kept. `plugin.json` + `strict: false` → an entry declaring any of `commands`/`agents`/`skills`/`hooks`/`outputStyles`/`themes` fails the load with `Plugin <name> has conflicting manifests`.
 - Precedence: entry `defaultEnabled` + display fields (e.g. `displayName`) override the manifest; manifest `version` overrides the entry's. Entry `name` = install id `<entry-name>@<marketplace>` + `enabledPlugins` key; components namespace under the manifest `name`. Installing by the manifest name when they differ → `Plugin "<manifest-name>" not found in marketplace "<marketplace>"` — keep both names identical.
+- Git submodules (version >= 2.1.295): adding a marketplace clones the repo and fetches only submodules that hold plugin files. Plugin in a subdirectory → fetches submodules inside its directory plus a submodule containing it; keep needed submodules inside the plugin dir, unneeded ones outside. Plugin at the marketplace root → fetches EVERY submodule once any plugin file refers to a path inside any of them; move the plugin into a subdirectory if a large build-only submodule exists. A root plugin running a submodule file must write the path literally in hook/server config (e.g. `${CLAUDE_PLUGIN_ROOT}/vendor/tool/run.sh`); paths built by a script at runtime are not seen.
 - Anthropic tiers: official (`claude-plugins-official`, demo `claude-code-plugins`), community (e.g. `claude-community`), third-party (all others); official/community names are accepted only for marketplaces sourced from `github.com/anthropics/` repos. Claude Code adds the official marketplace on first interactive terminal session unless managed policy blocks it; it does not add the community or demo marketplaces on its own.
 
 ## Plugin dependencies
@@ -499,6 +500,7 @@ Array of entries; declare inline via `experimental.monitors` (array) or load fro
 - version >= 2.1.281: `claude plugin validate` accepts the directory-listing fields (`icon`, `documentationUrl`, `supportUrl`, `privacyPolicyUrl`, `termsOfServiceUrl`) without an `Unknown field` warning and checks MCP server entries (see [Unrecognized fields](#unrecognized-fields)).
 - version >= 2.1.283: `claude plugin validate` checks existence/containment of `outputStyles`, `lspServers`, `monitors`, and `themes` paths.
 - version >= 2.1.288: LSP `requestTimeout` field (ms to wait for a server answer, default 60000); schema in `references/claude-code-plugins-lsp-reference.md`.
+- version >= 2.1.295: marketplace git-submodule fetch limited to submodules holding plugin files (see [Marketplace](#marketplace)).
 - Version lives ONLY in `.claude-plugin/plugin.json` (repo convention). Resolution order: plugin.json → marketplace entry → git SHA → archive digest → `unknown` (npm/non-git).
 - Omitting `version`: git commit SHA used; updates on every new commit. Setting it: updates only on version change; bump every release.
 - Orphaned plugin version directories cleaned up automatically ~14 days after update/uninstall.
