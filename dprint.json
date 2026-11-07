@@ -19,8 +19,7 @@
     "plugins/dprint",
     "plugins/inline-headroom",
     "plugins/universal-lint",
-    "plugins/universal-format/mcp/server.mjs",
-    "plugins/linux-token-efficiency/hooks/SessionStart.md"
+    "plugins/universal-format/mcp/server.mjs"
   ],
   "plugins": [
     "npm:@dprint/typescript@0.96.1",

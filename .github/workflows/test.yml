@@ -23,7 +23,6 @@ jobs:
           - memory-enhancement
           - npm-automations
           - taskflow
-          - linux-token-efficiency
           - rc-enhancement
     steps:
       - name: Checkout
