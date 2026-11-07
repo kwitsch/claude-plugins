@@ -51,11 +51,13 @@ setup() {
 }
 
 @test "dream and self-improvement probe graphmind and save via graphmind memory add" {
-  for f in "$PLUGIN/skills/dream/SKILL.md"; do
+  for f in "$PLUGIN/skills/dream/SKILL.md" "$PLUGIN/skills/self-improvement/SKILL.md"; do
     run grep -F 'graphmind which' "$f"; assert_success
     run grep -F 'graphmind memory add' "$f"; assert_success
     run grep -F 'graphmind memory search' "$f"; assert_success
   done
+  run grep -E '^allowed-tools:.*\bBash\b' "$PLUGIN/skills/self-improvement/SKILL.md"
+  assert_success
 }
 
 @test "claude plugin validate succeeds" {
