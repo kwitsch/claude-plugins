@@ -8,7 +8,6 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 const SPAWN_TIMEOUT_MS = 3e4;
 const NPX_SPAWN_TIMEOUT_MS = 55e3;
-const RTK_NPX_ATTEMPT_TIMEOUT_MS = 5e3;
 const MAX_CONTEXT_CHARS = 4e3;
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 const TSC_SPAWN_TIMEOUT_MS = 45e3;
@@ -149,49 +148,8 @@ function onPath(tool) {
 export function isToolAvailable(tool, toolOnPath, npxOnPath) {
 	return toolOnPath || !!tool.npmSpec && npxOnPath;
 }
-const RTK_PROBE_TIMEOUT_MS = 5e3;
-export function parseRtkPrefix(stdout) {
-	const tokens = String(stdout ?? "").trim().split(/\s+/);
-	const probeIdx = tokens.indexOf("__RTK_PROBE__");
-	if (tokens[0] !== "rtk" || probeIdx < 2) return null;
-	return tokens.slice(1, probeIdx);
-}
-const rtkPrefixCache = new Map();
-function getRtkPrefix(tool) {
-	const cached = rtkPrefixCache.get(tool.name);
-	if (cached !== undefined) return cached;
-	const probe = spawnSync("rtk", [
-		"rewrite",
-		tool.name,
-		...tool.args,
-		"__RTK_PROBE__"
-	], {
-		timeout: RTK_PROBE_TIMEOUT_MS,
-		encoding: "utf8"
-	});
-	if (probe.error || probe.signal) return null;
-	const prefix = parseRtkPrefix(probe.stdout);
-	rtkPrefixCache.set(tool.name, prefix);
-	return prefix;
-}
-function tryRtk(argv, spawnOpts) {
-	const result = spawnSync("rtk", argv, spawnOpts);
-	if (result.error || result.signal) return null;
-	if (result.status !== 0 && !String(result.stdout || "").trim()) return null;
-	return result;
-}
 function runLintTool(tool, argv, spawnOpts) {
 	if (tool.npmSpec && !onPath(tool.name)) {
-		if (!tool.manifestPath && onPath("rtk")) {
-			const rtkPrefix = getRtkPrefix(tool);
-			if (rtkPrefix) {
-				const rtkResult = tryRtk([...rtkPrefix, ...argv.slice(tool.args.length)], {
-					...spawnOpts,
-					timeout: RTK_NPX_ATTEMPT_TIMEOUT_MS
-				});
-				if (rtkResult) return rtkResult;
-			}
-		}
 		return spawnSync("npx", [
 			"--yes",
 			tool.npmSpec,
@@ -200,13 +158,6 @@ function runLintTool(tool, argv, spawnOpts) {
 			...spawnOpts,
 			timeout: NPX_SPAWN_TIMEOUT_MS
 		});
-	}
-	if (!tool.manifestPath && onPath("rtk")) {
-		const rtkPrefix = getRtkPrefix(tool);
-		if (rtkPrefix) {
-			const rtkResult = tryRtk([...rtkPrefix, ...argv.slice(tool.args.length)], spawnOpts);
-			if (rtkResult) return rtkResult;
-		}
 	}
 	const spawnName = tool.spawnAs?.name ?? tool.name;
 	const spawnArgv = tool.spawnAs ? [...tool.spawnAs.args, ...argv] : argv;
@@ -595,25 +546,17 @@ function runTypeCheck(resolved, cwd) {
 	} catch {
 		return null;
 	}
-	const staticArgs = ["--noEmit", "--incremental"];
-	const dynamicTail = [
+	const localTsc = path.join(cwd, "node_modules", ".bin", "tsc");
+	const bin = onPath("tsc") ? "tsc" : existsSync(localTsc) ? localTsc : null;
+	if (!bin) return null;
+	const result = spawnSync(bin, [
+		"--noEmit",
+		"--incremental",
 		"--tsBuildInfoFile",
 		cachePath,
 		"-p",
 		tsconfigPath
-	];
-	const spawnOpts = buildSpawnOpts(cwd, TSC_SPAWN_TIMEOUT_MS);
-	let result;
-	if (onPath("tsc")) {
-		result = runLintTool({
-			name: "tsc",
-			args: staticArgs
-		}, [...staticArgs, ...dynamicTail], spawnOpts);
-	} else {
-		const localTsc = path.join(cwd, "node_modules", ".bin", "tsc");
-		if (!existsSync(localTsc)) return null;
-		result = spawnSync(localTsc, [...staticArgs, ...dynamicTail], spawnOpts);
-	}
+	], buildSpawnOpts(cwd, TSC_SPAWN_TIMEOUT_MS));
 	if (result.error || result.signal) return null;
 	if (classifyExit("tsc", result.status) !== "issues") return null;
 	const text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
