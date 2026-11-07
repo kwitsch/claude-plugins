@@ -81,4 +81,4 @@ taskflow/
 /taskflow:build-task Add IrDA transport support to the kiosk app
 ```
 
-The skill cuts a work branch if needed, runs the design workflow (looping through `AskUserQuestion` rounds while it exits `user_input_required`), presents the spec's key points for approval, then runs the delivery workflow and reports waves, findings, and commits. All intermediate files live in a `build-task/` subfolder of the session temp directory and are never committed.
+The skill creates a `feature/<slug>` worktree and switches into it if needed (not with `--skip-branch-check`), runs the design workflow (looping through `AskUserQuestion` rounds while it exits `user_input_required`), presents the spec's key points for approval, then runs the delivery workflow and reports waves, findings, and commits. All intermediate files live in a `build-task/` subfolder of the session temp directory and are never committed.

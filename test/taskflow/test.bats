@@ -308,6 +308,15 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -ne 0 ]
 }
 
+@test "taskflow docs describe build-task worktree creation" {
+  run rg_or_grep -F 'creates a `feature/<slug>` worktree' "$PLUGIN/CLAUDE.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'creates a `feature/<slug>` worktree' "$PLUGIN/README.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'only creates a `feature/<slug>` worktree' "$DISPATCH/CLAUDE.md"
+  [ "$status" -eq 0 ]
+}
+
 @test "fix-applier applies and tests fixes per-fix before a single category commit" {
   run rg_or_grep -iF 'PER-FIX' "$AGENTS_DIR/fix-applier.md"
   [ "$status" -eq 0 ]

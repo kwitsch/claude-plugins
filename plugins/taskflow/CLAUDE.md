@@ -35,7 +35,7 @@ No `userConfig` in `plugin.json` — deliberate; see the `taskflow` entry in `.c
 
 ## Resuming inside an existing worktree/PR
 
-- `build-task` step 1 cuts a new `feature/<slug>` only when the current branch IS the base branch; otherwise it stays on the current branch, including an already-checked-out worktree with an open PR/MR.
+- `build-task` step 1 (without `--skip-branch-check`) creates a `feature/<slug>` worktree under `.claude/worktrees/<slug>` and enters it via `EnterWorktree` only when the current branch IS the base branch; otherwise it stays on the current branch, including an already-checked-out worktree with an open PR/MR.
 - Ship's create-or-update (`shipper.md`, via `gh pr view <branch>`) then updates that PR/MR instead of opening a new one.
 - `fix-applier.md` and `worktree-merger.md` check "is the named work/merge-target branch checked out here" (`git branch --show-current`), never "is this the primary repo root, not a worktree" — the latter would wrongly abort (fix-applier) or silently merge into the wrong branch (worktree-merger) in this case.
 - A non-isolated `agent()`/Agent-tool dispatch from a worktree-isolated session resolves `pwd` and `git rev-parse --show-toplevel` to that worktree, so no checkout-path threading is needed. The bridge/remote-control cwd-defaults-to-primary-root behavior is a different path; do not conflate the two.
