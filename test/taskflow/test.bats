@@ -56,10 +56,10 @@ followed_by() { # <head> <next> <file>
   [ "$status" -eq 0 ]
 }
 
-@test "plugin.json version is 1.12.1" {
+@test "plugin.json version is 1.13.0" {
   run jq -r '.version' "$PLUGIN/.claude-plugin/plugin.json"
   [ "$status" -eq 0 ]
-  [ "$output" = "1.12.1" ]
+  [ "$output" = "1.13.0" ]
 }
 
 @test "marketplace entry exists for taskflow" {
@@ -291,6 +291,37 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
 
 @test "build-task SKILL.md documents the --skip-branch-check prefix flag" {
   run rg_or_grep -F -- '--skip-branch-check' "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "build-task SKILL.md allowed-tools includes EnterWorktree" {
+  run rg_or_grep -E '^allowed-tools:.*EnterWorktree' "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "build-task step 1 creates a feature/<slug> worktree and enters it by path" {
+  run rg_or_grep -F 'git worktree add -b "feature/<slug>"' "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'select:EnterWorktree' "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'git checkout -b' "$SKILL/SKILL.md"
+  [ "$status" -ne 0 ]
+  run rg_or_grep -F 'never with' "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'already exists) → stop and report' "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'git worktree list --porcelain' "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'check-ignore -q' "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "taskflow docs describe build-task worktree creation" {
+  run rg_or_grep -F 'creates a `feature/<slug>` worktree' "$PLUGIN/CLAUDE.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'creates a `feature/<slug>` worktree' "$PLUGIN/README.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'only creates a `feature/<slug>` worktree' "$DISPATCH/CLAUDE.md"
   [ "$status" -eq 0 ]
 }
 

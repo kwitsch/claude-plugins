@@ -4,7 +4,7 @@
 
 The plugin ships these components:
 
-- `skills/build-task/` — inline orchestrator skill. Owns branch handling and `AskUserQuestion` checkpoints, invokes the design and delivery workflows by name, applies escalated review fixes.
+- `skills/build-task/` — inline orchestrator skill. Creates a `feature/<slug>` worktree and calls `EnterWorktree`, and owns `AskUserQuestion` checkpoints, invokes the design and delivery workflows by name, applies escalated review fixes.
 - `skills/dispatch-task/` — one-step skill that dispatches `build-task` into a worktree-isolated background session. Self-contained by requirement: no reference to any other plugin, its own copy of the `claude --worktree … --bg` mechanics. Design notes: `skills/dispatch-task/CLAUDE.md`.
 - `skills/changes-audit/` — standalone audit skill. Runs the `changes-review` workflow over the branch diff, then owns apply: `--fix` auto-applies every finding, otherwise an `AskUserQuestion` multi-select applies the picks — both by re-dispatching `fix-applier` (findings carry no patch text). Model-invocable, runs inline (depth 0). No PR/merge step.
 - `workflows/design-to-spec.workflow.js` + `workflows/spec-driven-delivery.workflow.js` + `workflows/changes-review.workflow.js` — the Workflow-tool scripts that do the heavy lifting; run namespaced as `/taskflow:<name>`.
@@ -35,7 +35,7 @@ No `userConfig` in `plugin.json` — deliberate; see the `taskflow` entry in `.c
 
 ## Resuming inside an existing worktree/PR
 
-- `build-task` step 1 cuts a new `feature/<slug>` only when the current branch IS the base branch; otherwise it stays on the current branch, including an already-checked-out worktree with an open PR/MR.
+- `build-task` step 1 (without `--skip-branch-check`) creates a `feature/<slug>` worktree under `.claude/worktrees/<slug>` and enters it via `EnterWorktree` only when the current branch IS the base branch; otherwise it stays on the current branch, including an already-checked-out worktree with an open PR/MR.
 - Ship's create-or-update (`shipper.md`, via `gh pr view <branch>`) then updates that PR/MR instead of opening a new one.
 - `fix-applier.md` and `worktree-merger.md` check "is the named work/merge-target branch checked out here" (`git branch --show-current`), never "is this the primary repo root, not a worktree" — the latter would wrongly abort (fix-applier) or silently merge into the wrong branch (worktree-merger) in this case.
 - A non-isolated `agent()`/Agent-tool dispatch from a worktree-isolated session resolves `pwd` and `git rev-parse --show-toplevel` to that worktree, so no checkout-path threading is needed. The bridge/remote-control cwd-defaults-to-primary-root behavior is a different path; do not conflate the two.

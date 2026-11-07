@@ -14,7 +14,7 @@ Requires Claude Code v2.1.154+ (dynamic workflows). On Pro plans, enable Dynamic
 
 | Skill           | What it does                                                                                                                                                                                                                                                                                                 |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `build-task`    | Orchestrator: branch handling, `AskUserQuestion` checkpoints (open design questions, spec approval, escalated review fixes), final report. Invokes the two workflows below.                                                                                                                                  |
+| `build-task`    | Orchestrator: creates and enters a `feature/<slug>` worktree, `AskUserQuestion` checkpoints (open design questions, spec approval, escalated review fixes), final report. Invokes the two workflows below.                                                                                                   |
 | `dispatch-task` | Hands the described task to a new worktree-isolated background session (`claude --worktree … --bg`, `sonnet`/`xhigh` by default, `--model=`/`--effort=` overridable) that runs `build-task` unattended.                                                                                                      |
 | `changes-audit` | Runs the `changes-review` workflow over the current branch's committed diff, then applies findings by re-dispatching `fix-applier`: `--fix` auto-applies every finding, otherwise an `AskUserQuestion` multi-select applies only your picks. Report-only lean (over-engineering) findings are never applied. |
 
@@ -81,4 +81,4 @@ taskflow/
 /taskflow:build-task Add IrDA transport support to the kiosk app
 ```
 
-The skill cuts a work branch if needed, runs the design workflow (looping through `AskUserQuestion` rounds while it exits `user_input_required`), presents the spec's key points for approval, then runs the delivery workflow and reports waves, findings, and commits. All intermediate files live in a `build-task/` subfolder of the session temp directory and are never committed.
+The skill creates a `feature/<slug>` worktree and switches into it if needed (not with `--skip-branch-check`), runs the design workflow (looping through `AskUserQuestion` rounds while it exits `user_input_required`), presents the spec's key points for approval, then runs the delivery workflow and reports waves, findings, and commits. All intermediate files live in a `build-task/` subfolder of the session temp directory and are never committed.
