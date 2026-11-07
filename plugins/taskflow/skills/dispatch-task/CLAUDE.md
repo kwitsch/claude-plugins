@@ -38,7 +38,7 @@ This file may name other plugins; the bats self-containment tripwire excludes `C
 
 - `claude --worktree` bases the worktree on `origin/<default branch>` unless the project's `worktree.baseRef` setting (`settings.json`) is `"head"` (default `"fresh"`) — then on the dispatching session's own local `HEAD`, unpushed commits included. This also applies to `EnterWorktree` and subagent `isolation: worktree`.
 - Never assume `"fresh"` in docs or `SKILL.md`; describe the conditional. Do not override the project's choice.
-- Either way the worktree is checked out under an auto-generated branch NAME, never the base branch by name. `build-task` step 1 without the flag only creates a `feature/<slug>` worktree when the current branch equals `BASE_BRANCH`, so the payload's first instruction is `git checkout -b "feature/<same-slug>"`, run by the dispatched session. The cut is required so `BRANCH_NAME` is already the pretty `feature/<slug>` name that `build-task` trusts verbatim.
+- Either way the worktree is checked out under an auto-generated branch NAME, never the base branch by name. The payload passes `--skip-branch-check`, which skips `build-task` step 1's worktree creation entirely (without the flag it would not fire here either: step 1 only creates a `feature/<slug>` worktree when the current branch equals `BASE_BRANCH`), so the payload's first instruction is `git checkout -b "feature/<same-slug>"`, run by the dispatched session. The cut is required so `BRANCH_NAME` is already the pretty `feature/<slug>` name that `build-task` trusts verbatim.
 
 ## Unattended checkpoints
 
