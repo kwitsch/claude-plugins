@@ -306,6 +306,10 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
   run rg_or_grep -F 'git checkout -b' "$SKILL/SKILL.md"
   [ "$status" -ne 0 ]
+  run rg_or_grep -F 'never with' "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'Non-zero exit (branch or path already' "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
 }
 
 @test "taskflow docs describe build-task worktree creation" {

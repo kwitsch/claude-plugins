@@ -153,7 +153,10 @@ Every pipeline file is session-only, never a repository file:
    `git rev-parse --path-format=absolute --git-common-dir` (the main
    checkout); no start point, so the branch starts at the current,
    just-verified base-branch `HEAD`. Non-zero exit (branch or path already
-   exists) → stop and report. (b) `ToolSearch(query: "select:EnterWorktree")`,
+   exists) → stop and report. The new worktree has no gitignored files
+   (`node_modules`, `.env`, build output): if the project's docs (root
+   `CLAUDE.md`/README) name an install or setup command, run it there before
+   step 2. (b) `ToolSearch(query: "select:EnterWorktree")`,
    then `EnterWorktree` with `path` = that absolute directory, never with
    `name`, which would create its own `worktree-...` branch from
    `worktree.baseRef`'s base. Tool absent or the call rejected → stop and
