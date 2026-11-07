@@ -149,11 +149,15 @@ Every pipeline file is session-only, never a repository file:
    current branch IS the base branch, do not cut a branch in this checkout;
    create a worktree and move the session into it: (a) Bash
    `git worktree add -b "feature/<slug>" "<root>/.claude/worktrees/<slug>"`,
-   where `<root>` is the parent directory of
-   `git rev-parse --path-format=absolute --git-common-dir` (the main
-   checkout); no start point, so the branch starts at the current,
-   just-verified base-branch `HEAD`. Non-zero exit (branch or path already
-   exists) → stop and report. The new worktree has no gitignored files
+   where `<root>` is the path after the `worktree` keyword on the first line
+   of `git worktree list --porcelain` (the main worktree — correct for
+   submodules and separate git dirs too); no start point, so the branch
+   starts at the current, just-verified base-branch `HEAD`. Before creating
+   it, `git -C "<root>" check-ignore -q ".claude/worktrees/<slug>"` must
+   exit 0 — otherwise the worktree would show up as untracked in the main
+   checkout: stop and report, asking the user to add `.claude/worktrees/`
+   to the repo's `.gitignore`. Non-zero exit of `git worktree add` (branch
+   or path already exists) → stop and report. The new worktree has no gitignored files
    (`node_modules`, `.env`, build output): if the project's docs (root
    `CLAUDE.md`/README) name an install or setup command, run it there before
    step 2. (b) `ToolSearch(query: "select:EnterWorktree")`,

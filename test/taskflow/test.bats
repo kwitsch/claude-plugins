@@ -308,7 +308,11 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -ne 0 ]
   run rg_or_grep -F 'never with' "$SKILL/SKILL.md"
   [ "$status" -eq 0 ]
-  run rg_or_grep -F 'Non-zero exit (branch or path already' "$SKILL/SKILL.md"
+  run rg_or_grep -F 'already exists) → stop and report' "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'git worktree list --porcelain' "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'check-ignore -q' "$SKILL/SKILL.md"
   [ "$status" -eq 0 ]
 }
 
