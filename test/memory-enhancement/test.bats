@@ -50,6 +50,14 @@ setup() {
   assert_success
 }
 
+@test "dream and self-improvement probe graphmind and save via graphmind memory add" {
+  for f in "$PLUGIN/skills/dream/SKILL.md"; do
+    run grep -F 'graphmind which' "$f"; assert_success
+    run grep -F 'graphmind memory add' "$f"; assert_success
+    run grep -F 'graphmind memory search' "$f"; assert_success
+  done
+}
+
 @test "claude plugin validate succeeds" {
   command -v claude >/dev/null || skip "claude CLI unavailable"
   run claude plugin validate "$PLUGIN"
