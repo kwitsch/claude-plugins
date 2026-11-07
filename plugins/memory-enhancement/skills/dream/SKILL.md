@@ -1,6 +1,6 @@
 ---
 name: dream
-description: Consolidates this project's auto-memory files (~/.claude/projects/<project>/memory/) in four phases -- orient, gather signal from recent session transcripts, consolidate (merge duplicates, drop stale entries, resolve contradictions, author a new memory file for any signal with no existing memory home), update the MEMORY.md index. Optionally compresses touched detail files caveman-style via cc-knowledge's cc-compress when that plugin is enabled (silent no-op otherwise). Surgical -- only touches files that need a change. Trigger on natural language such as "dream", "run a dream", "dream cycle", "consolidate my memory", "clean up my memory files", "did I forget to save something as memory", "check for missed learnings" -- no slash command needed.
+description: Consolidates this project's auto-memory files (~/.claude/projects/<project>/memory/) in four phases -- orient, gather signal from recent session transcripts, consolidate (merge duplicates, drop stale entries, resolve contradictions, author a new memory file for any signal with no existing memory home -- or, when the cwd is a graphmind-registered project, save it to graphmind memory instead), update the MEMORY.md index. Optionally compresses touched detail files caveman-style via cc-knowledge's cc-compress when that plugin is enabled (silent no-op otherwise). Surgical -- only touches files that need a change. Trigger on natural language such as "dream", "run a dream", "dream cycle", "consolidate my memory", "clean up my memory files", "did I forget to save something as memory", "check for missed learnings" -- no slash command needed.
 allowed-tools: Read, Write, Edit, Bash, Skill, AskUserQuestion
 ---
 
@@ -24,6 +24,14 @@ dream about.
 
 Read `MEMORY.md` and list every topic file in the memory directory.
 
+Then run `graphmind which` once via the Bash tool in the session's current
+working directory (no `cd`). Exit 0 → **graphmind mode**: note the printed
+slug for the report. Any other outcome (exit 1 = this directory is not
+registered, command not found = graphmind not installed, any other error)
+→ graphmind mode off: the cycle runs exactly as described below with no
+graphmind step and no note about it. Do not re-run the probe later in this
+cycle.
+
 ## Phase 2 — Gather signal
 
 `<project-dir>` = the parent of the memory directory (same directory that
@@ -44,12 +52,15 @@ For each memory file that needs a change based on phase 1's read and phase
 2's signal — merge duplicate memories, drop stale or superseded entries,
 resolve contradictions preferring the most recent evidence (an unresolvable
 contradiction gets noted in the file itself rather than blocking or asking).
-This includes authoring a brand-new file for any phase 2 signal with no
-existing memory home — a correction, preference, or decision with no file
-to fold into — via this session's own auto-memory system prompt's two-step
-save process (pick the fitting type: user/feedback/project/reference; write
-frontmatter `name`/`description`/`metadata.type`; for feedback/project
-types structure the body with **Why:** and **How to apply:** lines):
+A phase 2 signal with no existing memory home — a correction, preference,
+or decision with no file to fold into — is a _new finding_. In graphmind
+mode it is saved per **New findings in graphmind mode** below instead of as
+a file. Otherwise it is authored as a brand-new file via this session's own
+auto-memory system prompt's two-step save process (pick the fitting type:
+user/feedback/project/reference; write frontmatter
+`name`/`description`/`metadata.type`; for feedback/project types structure
+the body with **Why:** and **How to apply:** lines). Steps 1-3 apply to
+files only:
 
 1. If the file already exists, copy the pre-dream version to a sibling
    `<file>.bak` next to it (backup "daneben", not session-temp — this is
@@ -83,6 +94,38 @@ types structure the body with **Why:** and **How to apply:** lines):
    `<file>.pre-compress.bak` once its job is done — only the pre-dream
    `.bak` persists as the lasting rollback record.
 
+**New findings in graphmind mode.** For each new finding:
+
+1. Dedup: `graphmind memory search "<3-6 distinctive keywords>" --limit 5 --max-chars 200`.
+   If a result already captures the finding (even paraphrased), skip it
+   and count it as a duplicate. If the search itself fails, treat it as no
+   duplicate and continue to step 2.
+2. Save with the type from the table, the content passed through a quoted
+   heredoc so no shell expansion touches it (never put a line consisting
+   solely of `EOF` inside the content):
+
+   ```bash
+   graphmind memory add --type <type> "$(cat <<'EOF'
+   <one self-contained statement; for feedback- or project-like findings add a "Why:" and a "How to apply:" sentence>
+   EOF
+   )"
+   ```
+
+   | Finding (auto-memory type it would have had)      | graphmind flags           |
+   | ------------------------------------------------- | ------------------------- |
+   | feedback (correction, preference, way of working) | `--type convention`       |
+   | project (decision, project state)                 | `--type decision`         |
+   | reference describing a defect or failure mode     | `--type bug`              |
+   | reference, any other                              | `--type pattern`          |
+   | user (facts about the user, cross-project)        | `--type context --global` |
+
+   Never pass `--priority` or `--slug`.
+3. Non-zero exit from `memory add` → save that finding as a new file via
+   the two-step save instead (the normal path above, steps 1-3) and note
+   the fallback, with the error line, in the report.
+
+graphmind entries get no `.bak`, no cc-compress and no `MEMORY.md` line.
+
 Files that need no change: leave alone entirely — do not open, backup, or
 touch them.
 
@@ -102,4 +145,7 @@ itself, so it must never risk a reworded filename.
 One short summary: files merged/dropped/changed/created, files left
 untouched, files compressed vs. rolled back after a failed compression (with
 why — cc-compress simply being unavailable is not itself called out, per
-phase 3), the final `MEMORY.md` line count.
+phase 3), the final `MEMORY.md` line count; in graphmind mode, also: the
+slug, findings added to graphmind, findings skipped as graphmind
+duplicates, and any findings that fell back to files (with the error).
+Nothing about graphmind when the mode is off.
