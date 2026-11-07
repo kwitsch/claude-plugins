@@ -294,6 +294,20 @@ AGENT_NAMES="planner designer design-reviewer review-finder review-verifier work
   [ "$status" -eq 0 ]
 }
 
+@test "build-task SKILL.md allowed-tools includes EnterWorktree" {
+  run rg_or_grep -E '^allowed-tools:.*EnterWorktree' "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
+}
+
+@test "build-task step 1 creates a feature/<slug> worktree and enters it by path" {
+  run rg_or_grep -F 'git worktree add -b "feature/<slug>"' "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'select:EnterWorktree' "$SKILL/SKILL.md"
+  [ "$status" -eq 0 ]
+  run rg_or_grep -F 'git checkout -b' "$SKILL/SKILL.md"
+  [ "$status" -ne 0 ]
+}
+
 @test "fix-applier applies and tests fixes per-fix before a single category commit" {
   run rg_or_grep -iF 'PER-FIX' "$AGENTS_DIR/fix-applier.md"
   [ "$status" -eq 0 ]

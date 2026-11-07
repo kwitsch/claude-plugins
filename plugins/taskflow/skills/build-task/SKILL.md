@@ -8,7 +8,7 @@ description: >-
   checkpoints: open design questions and spec approval, via AskUserQuestion.
 argument-hint: "[--skip-branch-check] [task-description]"
 arguments: task_description
-allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash", "Workflow", "AskUserQuestion", "ToolSearch"]
+allowed-tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash", "Workflow", "AskUserQuestion", "ToolSearch", "EnterWorktree"]
 ---
 
 # build-task
@@ -46,7 +46,7 @@ message).
 boolean flag, no value) — parse and strip it before anything else; whatever
 remains (trimmed) is the actual task text used everywhere `$task_description`
 is referenced below. When present it makes step 1 trust the
-already-checked-out work branch and skip its clean-tree check and branch cut
+already-checked-out work branch and skip its clean-tree check and worktree creation
 (see step 1). Callers that have already established the correct, clean work
 branch — notably `dispatch-task`, which always passes it — use this to avoid
 a redundant check.
@@ -84,7 +84,8 @@ Every pipeline file is session-only, never a repository file:
   available → stop and report; every phase needs these files.
 - **`<slug>`:** the work-branch name without its `<type>/` prefix when a work
   branch is already checked out; otherwise kebab-case from
-  `$task_description`, ≤40 chars (then also used to cut the branch, step 1).
+  `$task_description`, ≤40 chars (then also names the worktree directory and
+  its `feature/<slug>` branch, step 1).
 - **Files:** `draft-<slug>.md`, `spec-<slug>.md`, `plan-<slug>.md` — record
   and hand the workflows **absolute paths**, never inlined content. Always
   written in English by the designer/spec-writer/planner agents, regardless
@@ -139,18 +140,32 @@ Every pipeline file is session-only, never a repository file:
 
 1. **Branch.** When `--skip-branch-check` was passed (flag paragraph above),
    skip the `git status --porcelain` clean check and the
-   cut/switch-to-`feature/<slug>` logic entirely — trust that the correct
+   worktree creation/switch logic entirely — trust that the correct
    work branch is already checked out. Still determine `BASE_BRANCH` (short
    name from `git symbolic-ref refs/remotes/origin/HEAD`, fallback `main`) and
    capture `BRANCH_NAME`/`REPO_PATH` as in the last sentence below.
    Otherwise (flag absent): `git status --porcelain` must be empty — stray
    state → stop and report. Determine `BASE_BRANCH` once as above. If the
-   current branch IS the base branch, cut and switch to `feature/<slug>`.
+   current branch IS the base branch, do not cut a branch in this checkout;
+   create a worktree and move the session into it: (a) Bash
+   `git worktree add -b "feature/<slug>" "<root>/.claude/worktrees/<slug>"`,
+   where `<root>` is the parent directory of
+   `git rev-parse --path-format=absolute --git-common-dir` (the main
+   checkout); no start point, so the branch starts at the current,
+   just-verified base-branch `HEAD`. Non-zero exit (branch or path already
+   exists) → stop and report. (b) `ToolSearch(query: "select:EnterWorktree")`,
+   then `EnterWorktree` with `path` = that absolute directory, never with
+   `name`, which would create its own `worktree-...` branch from
+   `worktree.baseRef`'s base. Tool absent or the call rejected → stop and
+   report, naming the created worktree path and branch for manual cleanup.
+   The session stays in this worktree for the rest of the run; never call
+   `ExitWorktree`.
    Otherwise — including when resumed inside an existing worktree that
    already has an open PR/MR for its branch — stay on the current branch, do
    not cut a new one and do not switch elsewhere; the pipeline (and Ship's
    create-or-update, step 4) continues on it and updates that PR/MR. Either
-   way, capture `BRANCH_NAME` = `git branch --show-current` and `REPO_PATH` =
+   way — after the switch when (b) ran — capture `BRANCH_NAME` =
+   `git branch --show-current` and `REPO_PATH` =
    `git rev-parse --show-toplevel` (absolute repo root) — also on the
    `--skip-branch-check` path (`dispatch-task` always passes it): both
    workflows (steps 2 and 4) fail loud with `stage:'args'` on an empty
