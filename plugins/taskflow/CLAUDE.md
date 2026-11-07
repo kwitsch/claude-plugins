@@ -4,7 +4,7 @@
 
 The plugin ships these components:
 
-- `skills/build-task/` — inline orchestrator skill. Owns branch handling and `AskUserQuestion` checkpoints, invokes the design and delivery workflows by name, applies escalated review fixes.
+- `skills/build-task/` — inline orchestrator skill. Creates a `feature/<slug>` worktree and calls `EnterWorktree`, and owns `AskUserQuestion` checkpoints, invokes the design and delivery workflows by name, applies escalated review fixes.
 - `skills/dispatch-task/` — one-step skill that dispatches `build-task` into a worktree-isolated background session. Self-contained by requirement: no reference to any other plugin, its own copy of the `claude --worktree … --bg` mechanics. Design notes: `skills/dispatch-task/CLAUDE.md`.
 - `skills/changes-audit/` — standalone audit skill. Runs the `changes-review` workflow over the branch diff, then owns apply: `--fix` auto-applies every finding, otherwise an `AskUserQuestion` multi-select applies the picks — both by re-dispatching `fix-applier` (findings carry no patch text). Model-invocable, runs inline (depth 0). No PR/merge step.
 - `workflows/design-to-spec.workflow.js` + `workflows/spec-driven-delivery.workflow.js` + `workflows/changes-review.workflow.js` — the Workflow-tool scripts that do the heavy lifting; run namespaced as `/taskflow:<name>`.
