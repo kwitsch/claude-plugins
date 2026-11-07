@@ -13,10 +13,10 @@ dream cycle.
 
 ## Skills
 
-| Skill              | What it does                                                                                                                                                                                                                               |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `dream`            | Consolidates this project's auto-memory files in four phases (orient, gather signal, consolidate, update the MEMORY.md index), optionally compressing touched detail files via `cc-knowledge`'s `cc-compress` when that plugin is enabled. |
-| `self-improvement` | Reflects on the current session's own tool calls and reasoning to find concrete ways the task could have been solved faster or more efficiently, reports a summary to the user, and saves durable, deduped lessons as feedback memory.     |
+| Skill              | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dream`            | Consolidates this project's auto-memory files in four phases (orient, gather signal, consolidate, update the MEMORY.md index), optionally compressing touched detail files via `cc-knowledge`'s `cc-compress` when that plugin is enabled. When the current directory is a graphmind-registered project (`graphmind which` exits 0), new findings are saved with `graphmind memory add` instead of as new memory files; existing memory files and the `MEMORY.md` index are still consolidated as usual. |
+| `self-improvement` | Reflects on the current session's own tool calls and reasoning to find concrete ways the task could have been solved faster or more efficiently, reports a summary to the user, and saves durable, deduped lessons as feedback memory (or graphmind memory in a graphmind-registered project).                                                                                                                                                                                                           |
 
 ## What it does
 
@@ -30,7 +30,10 @@ its 200-line load cutoff. If `cc-knowledge` is enabled, touched
 detail files also get compressed caveman-style via its `cc-compress` skill --
 no hard dependency, silent no-op if that plugin isn't installed.
 Only files that actually need a change are touched -- untouched memory files
-are left byte-for-byte alone.
+are left byte-for-byte alone. When the current directory is a
+graphmind-registered project (`graphmind which` exits 0), new findings are
+saved with `graphmind memory add` instead of as new memory files; existing
+memory files and the `MEMORY.md` index are still consolidated as usual.
 
 An in-process mods hooks module (no hook process is spawned) flags each
 finished main-loop turn's project as dream-due; at the next genuinely new

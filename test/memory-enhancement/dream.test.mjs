@@ -32,7 +32,8 @@ test("isAutoDreamEnabled: fail-open, only false / \"false\" disables", () => {
   assert.equal(isAutoDreamEnabled("${user_config.auto_dream}"), true);
 });
 
-test("NUDGE names the dream cycle and the MEMORY.md index", () => {
+test("NUDGE names the dream cycle, the graphmind branch and the MEMORY.md index", () => {
   assert.match(NUDGE, /^A memory dream cycle is due for this project\./);
+  assert.match(NUDGE, /graphmind memory add/);
   assert.match(NUDGE, /MEMORY\.md index/);
 });
