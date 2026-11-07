@@ -339,7 +339,7 @@ function parseSegment(segment) {
         cmdWord = word === "read" ? "cat" : word; // `rtk read` is rtk's cat; grep/rg/diff/... keep their names
         continue;
       }
-      // rtk (linux-token-efficiency's proxy) wraps the real tool: its mods rewrite may reach this hook first
+      // rtk (a CLI output proxy) wraps the real tool: an rtk rewrite hook may reach this hook first
       // (`cat X` → `rtk read X`), so the subcommand is the command word.
       if (word === "rtk") {
         rtkWrapped = true;

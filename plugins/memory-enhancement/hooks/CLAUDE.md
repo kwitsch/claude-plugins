@@ -36,8 +36,7 @@ spawned per turn.
 ## `session.start` (was `SessionStart` matcher `startup`)
 
 - Registered only while `auto_dream` is enabled (`isAutoDreamEnabled`:
-  only `false` / `"false"` disables; fail-open, the hook creates no state —
-  same reasoning as `linux-token-efficiency`'s `auto_rewrite`).
+  only `false` / `"false"` disables; fail-open, the hook creates no state).
 - `session.start` has no source field and fires once per process plus on a
   plugin enable / reload, never on `/clear` or `/compact`. `startup` is
   matched as "the transcript holds no user turn yet" (`$.session.turns() === 0`):
