@@ -41,9 +41,6 @@ These hooks are always active once the plugin is installed — there is no toggl
 run via `npx` when not installed locally (all official npm packages);
 `yamllint` has no npm distribution and is `PATH`-only, and Rust's `cargo`/
 `cargo clippy` are rustup-only and likewise `PATH`-only (no npx fallback).
-When a linter is on
-`PATH` and `rtk` is also on `PATH`, findings run through `rtk` for more
-token-efficient output — same pass/fail verdict either way.
 
 `tsc` gets no `npx` fallback and is cached via `--incremental`/
 `--tsBuildInfoFile` under a persistent plugin data directory to keep repeat
