@@ -1,11 +1,10 @@
 #!/usr/bin/env node
-import { spawnSync } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
-import { accessSync, constants as fsConstants, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { accessSync, constants as fsConstants, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 const SPAWN_TIMEOUT_MS = 3e4;
 const NPX_SPAWN_TIMEOUT_MS = 55e3;
@@ -14,11 +13,8 @@ const MAX_CONTEXT_CHARS = 4e3;
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 const TSC_SPAWN_TIMEOUT_MS = 45e3;
 const CARGO_SPAWN_TIMEOUT_MS = 45e3;
-const DEBOUNCE_MS = (() => {
-	const raw = process.env.UNIVERSAL_LINT_DEBOUNCE_MS;
-	const n = raw ? Number(raw) : NaN;
-	return Number.isFinite(n) && n >= 0 ? n : 5e3;
-})();
+export const WATCH_LIMIT = 5e3;
+const GIT_TIMEOUT_MS = 1e4;
 const TYPE_CHECK_EXTS = new Set([
 	".ts",
 	".tsx",
@@ -372,7 +368,7 @@ export function looksLikeSolutionStyleTsconfig(text) {
 	const hasNonEmptyFiles = !!filesMatch && filesMatch[1].trim() !== "";
 	return !hasNonEmptyFiles;
 }
-function hashPath(p) {
+export function hashPath(p) {
 	return createHash("sha256").update(p).digest("hex");
 }
 export function tsBuildInfoPathFor(tsconfigPath) {
@@ -573,18 +569,21 @@ function runChainLint(lang, resolved, cwd, rel) {
 		text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
 	}
 	if (verdict === "skip") return none;
+	const base = manifest ? path.dirname(manifest) : tool.targetsDir ? path.dirname(resolved) : cwd;
 	return {
 		ran: true,
 		finding: verdict === "issues" ? {
 			tool: tool.name,
 			target,
-			text
+			text,
+			base
 		} : null
 	};
 }
 const TSC_SOURCE_DIAGNOSTIC_RE = /\.(?:ts|tsx|mts|cts)[:(]\d+/;
+const ANSI_SGR_RE = /\x1b\[[0-9;]*m/g;
 export function tscOutputHasSourceDiagnostic(text) {
-	const plain = text.replace(/\x1b\[[0-9;]*m/g, "");
+	const plain = text.replace(ANSI_SGR_RE, "");
 	return TSC_SOURCE_DIAGNOSTIC_RE.test(plain);
 }
 function runTypeCheck(resolved, cwd) {
@@ -622,7 +621,8 @@ function runTypeCheck(resolved, cwd) {
 	return {
 		tool: "tsc",
 		target: path.relative(cwd, path.dirname(tsconfigPath)) || ".",
-		text
+		text,
+		base: cwd
 	};
 }
 export function isExcludedPath(rel) {
@@ -631,59 +631,300 @@ export function isExcludedPath(rel) {
 	if (segments.some((s, i) => s === ".claude" && (segments[i + 1] === "worktrees" || segments[i + 1] === "agent-memory"))) return true;
 	return segments[segments.length - 1].includes(".local.");
 }
-export function resolveLintTarget(args) {
+function realish(p) {
+	try {
+		return realpathSync(p);
+	} catch (e) {
+		if (e.code !== "ENOENT") throw e;
+		try {
+			lstatSync(p);
+		} catch {
+			const dir = path.dirname(p);
+			return dir === p ? p : path.join(realish(dir), path.basename(p));
+		}
+		throw e;
+	}
+}
+function scratchpadOf(args) {
+	return typeof args.scratchpad_dir === "string" ? args.scratchpad_dir : undefined;
+}
+export function scopedTarget(cwd, file, scratchpad, roots) {
+	try {
+		const fp = path.resolve(cwd, file);
+		const real = realish(fp);
+		const outside = (rel) => rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel);
+		const rel = path.relative(roots?.cwd ?? realish(cwd), real);
+		if (rel === "" || outside(rel) || isExcludedPath(rel)) return null;
+		if (scratchpad) {
+			const rs = roots ? roots.scratchpad ?? realish(scratchpad) : realish(scratchpad);
+			if (real === rs || real.startsWith(rs + path.sep)) return null;
+		}
+		const ext = path.extname(fp).toLowerCase();
+		if (!EXT_MAP[ext] && !TYPE_CHECK_EXTS.has(ext)) return null;
+		if (!existsSync(fp)) return null;
+		return {
+			fp,
+			real
+		};
+	} catch {
+		return null;
+	}
+}
+function postToolScope(args) {
 	try {
 		if (args?.tool_response?.success === false) return null;
 		const cwd = typeof args?.cwd === "string" ? args.cwd : "";
 		const fp = args?.tool_input?.file_path;
 		if (!cwd || typeof fp !== "string" || !fp) return null;
-		const resolved = path.resolve(cwd, fp);
-		if (resolved !== cwd && !resolved.startsWith(cwd + path.sep)) return null;
-		const rel = path.relative(cwd, resolved);
-		if (isExcludedPath(rel)) return null;
-		const ext = path.extname(resolved).toLowerCase();
-		if (!EXT_MAP[ext] && !TYPE_CHECK_EXTS.has(ext)) return null;
-		if (!existsSync(resolved)) return null;
-		return resolved;
+		return scopedTarget(cwd, fp, scratchpadOf(args));
 	} catch {
 		return null;
 	}
 }
-export function lintFileHandler(args) {
+export function resolveLintTarget(args) {
+	return postToolScope(args)?.fp ?? null;
+}
+export function editRanges(args) {
+	const patch = args?.tool_response?.structuredPatch;
+	if (args?.tool_name !== "Edit" || !Array.isArray(patch)) return null;
+	const ranges = [];
+	for (const h of patch) {
+		if (typeof h?.newStart !== "number" || !Array.isArray(h.lines)) return null;
+		let cur = h.newStart - 1;
+		let start = -1;
+		let deleted = false;
+		const flush = () => {
+			if (start !== -1) ranges.push([start, cur - 1]);
+			else if (deleted) ranges.push([Math.max(cur - 1, 0), Math.max(cur, 0)]);
+			start = -1;
+			deleted = false;
+		};
+		for (const l of h.lines) {
+			const c = typeof l === "string" ? l[0] : " ";
+			if (c === "+") {
+				if (start === -1) start = cur;
+				cur++;
+			} else if (c === "-") deleted = true;
+			else if (c !== "\\") {
+				flush();
+				cur++;
+			}
+		}
+		flush();
+	}
+	return ranges;
+}
+const LOC_PATH_RE = /(?<path>[^\s:()[\]'"]+\.[A-Za-z0-9]+)[:(](?<line>\d+)(?:[:,]\d+)?/;
+const LOC_ROW_RE = /^\s*(?<line>\d+):\d+\s/;
+const LOC_SHELLCHECK_RE = /^In .+ line (?<line>\d+):/;
+const PARSE_ERROR_RE = /pars(?:e|ing) error|syntax ?error|unexpected (?:token|end|eof|character|indent)|unterminated|unclosed|end of (?:file|input)|\bexpected [`'"]|\b(?:TS1|SC1)\d{3}\b/i;
+export function gateFinding(finding, ranges, resolved) {
+	const hit = (line) => ranges === null || ranges.some(([s, e]) => s <= line - 1 && line - 1 <= e) ? "hit" : "miss";
+	const classify = (raw) => {
+		const plain = raw.replace(ANSI_SGR_RE, "");
+		const row = LOC_ROW_RE.exec(plain);
+		if (row?.groups) return hit(Number(row.groups.line));
+		const a = LOC_PATH_RE.exec(plain);
+		if (a?.groups) {
+			const p = path.normalize(a.groups.path);
+			const abs = path.resolve(finding.base, p);
+			const own = abs === resolved || !path.isAbsolute(p) && !existsSync(abs) && resolved.endsWith(path.sep + p);
+			return own ? hit(Number(a.groups.line)) : "foreign";
+		}
+		const b = LOC_SHELLCHECK_RE.exec(plain);
+		return b?.groups ? hit(Number(b.groups.line)) : null;
+	};
+	let located = false;
+	let reportable = false;
+	const kept = [];
+	for (const para of finding.text.split(/\n\s*\n/)) {
+		const lines = para.split("\n");
+		const kinds = lines.map(classify);
+		const starts = kinds.flatMap((k, i) => k === null ? [] : [i]);
+		if (starts.length === 0) {
+			kept.push(para);
+			continue;
+		}
+		located = true;
+		const out = lines.slice(0, starts[0]);
+		let any = false;
+		const preambleParse = PARSE_ERROR_RE.test(out.join("\n"));
+		starts.forEach((start, n) => {
+			const seg = lines.slice(start, starts[n + 1] ?? lines.length);
+			if (kinds[start] === "miss" && !preambleParse && !PARSE_ERROR_RE.test(seg.join("\n"))) return;
+			out.push(...seg);
+			any = true;
+		});
+		if (any) {
+			kept.push(out.join("\n"));
+			reportable = true;
+		}
+	}
+	if (!located) return finding;
+	return reportable ? {
+		...finding,
+		text: kept.join("\n\n")
+	} : null;
+}
+function writtenDigestPath(real) {
+	return path.resolve(process.env.CLAUDE_PLUGIN_DATA || tmpdir(), "written", hashPath(real));
+}
+function fileDigest(fp) {
+	return createHash("sha256").update(readFileSync(fp)).digest("base64");
+}
+export function recordWritten(fp, real) {
 	try {
-		const resolved = resolveLintTarget(args);
+		const file = writtenDigestPath(real);
+		mkdirSync(path.dirname(file), { recursive: true });
+		const tmp = `${file}.${process.pid}.tmp`;
+		writeFileSync(tmp, fileDigest(fp));
+		renameSync(tmp, file);
+	} catch {}
+}
+function recordWrittenFor(s) {
+	if (s) recordWritten(s.fp, s.real);
+}
+function lintResolved(resolved, cwd, ranges, hookEventName, label) {
+	const rel = path.relative(cwd, resolved);
+	const ext = path.extname(resolved).toLowerCase();
+	const lang = EXT_MAP[ext];
+	const typeCheckEligible = TYPE_CHECK_EXTS.has(ext);
+	const oxlintConfig = lang === "jsts" ? resolveOxlintConfig(path.dirname(resolved), cwd) : null;
+	const findings = [];
+	let oxlintRan = false;
+	if (lang) {
+		const entry = oxlintConfig ? { chain: REGISTRY.oxlint.chain.map((t) => ({
+			...t,
+			args: [
+				...t.args,
+				"-c",
+				oxlintConfig
+			]
+		})) } : REGISTRY[lang];
+		const chain = runChainLint(entry, resolved, cwd, rel);
+		if (chain.finding) findings.push(chain.finding);
+		oxlintRan = oxlintConfig !== null && chain.ran;
+	}
+	if (typeCheckEligible && !(oxlintRan && oxlintConfig && oxlintConfigTypeChecks(oxlintConfig))) {
+		const tsResult = runTypeCheck(resolved, cwd);
+		if (tsResult) findings.push(tsResult);
+	}
+	const kept = findings.flatMap((f) => {
+		const g = gateFinding(f, ranges, resolved);
+		return g ? [g] : [];
+	});
+	if (kept.length === 0) return {};
+	const blocks = kept.map((f) => `${f.tool} found issues in ${f.target}:\n${truncate(f.text)}`);
+	return { hookSpecificOutput: {
+		hookEventName,
+		additionalContext: `${label}: ${truncate(blocks.join("\n\n"))}`
+	} };
+}
+export function lintFileHandler(args, scoped = postToolScope(args)) {
+	try {
+		const resolved = scoped?.fp;
 		if (!resolved) return {};
-		const cwd = args.cwd;
-		const rel = path.relative(cwd, resolved);
-		const ext = path.extname(resolved).toLowerCase();
-		const lang = EXT_MAP[ext];
-		const typeCheckEligible = TYPE_CHECK_EXTS.has(ext);
-		const oxlintConfig = lang === "jsts" ? resolveOxlintConfig(path.dirname(resolved), cwd) : null;
-		const findings = [];
-		let oxlintRan = false;
-		if (lang) {
-			const entry = oxlintConfig ? { chain: REGISTRY.oxlint.chain.map((t) => ({
-				...t,
-				args: [
-					...t.args,
-					"-c",
-					oxlintConfig
+		const ranges = editRanges(args);
+		if (ranges?.length === 0) return {};
+		return lintResolved(resolved, args.cwd, ranges, "PostToolUse", "universal-lint");
+	} catch {
+		return {};
+	}
+}
+export function fileChangedHandler(args) {
+	try {
+		if (args?.event === "unlink") return {};
+		const cwd = args?.cwd;
+		const file = args?.file_path;
+		if (typeof cwd !== "string" || !cwd || typeof file !== "string" || !file) return {};
+		const s = scopedTarget(cwd, file, scratchpadOf(args));
+		if (!s) return {};
+		let recorded = null;
+		try {
+			recorded = readFileSync(writtenDigestPath(s.real), "utf8");
+		} catch {}
+		if (recorded !== null) {
+			if (recorded === fileDigest(s.fp)) return {};
+			rmSync(writtenDigestPath(s.real), { force: true });
+		}
+		try {
+			const status = execFileSync("git", [
+				"--no-optional-locks",
+				"status",
+				"--porcelain",
+				"--untracked-files=normal",
+				"--ignored=matching",
+				"--",
+				s.fp
+			], {
+				cwd: path.dirname(s.fp),
+				encoding: "utf8",
+				timeout: GIT_TIMEOUT_MS,
+				stdio: [
+					"ignore",
+					"pipe",
+					"ignore"
 				]
-			})) } : REGISTRY[lang];
-			const chain = runChainLint(entry, resolved, cwd, rel);
-			if (chain.finding) findings.push(chain.finding);
-			oxlintRan = oxlintConfig !== null && chain.ran;
-		}
-		if (typeCheckEligible && !(oxlintRan && oxlintConfig && oxlintConfigTypeChecks(oxlintConfig))) {
-			const tsResult = runTypeCheck(resolved, cwd);
-			if (tsResult) findings.push(tsResult);
-		}
-		if (findings.length === 0) return {};
-		const blocks = findings.map((f) => `${f.tool} found issues in ${f.target}:\n${truncate(f.text)}`);
-		return { hookSpecificOutput: {
-			hookEventName: "PostToolUse",
-			additionalContext: `universal-lint: ${truncate(blocks.join("\n\n"))}`
-		} };
+			});
+			if (status === "" || status.startsWith("!!")) return {};
+		} catch {}
+		return lintResolved(s.fp, cwd, null, "FileChanged", "universal-lint (changed outside Write/Edit)");
+	} catch {
+		return {};
+	}
+}
+export function watchList(cwd, scratchpad) {
+	let out;
+	try {
+		out = execFileSync("git", [
+			"ls-files",
+			"-co",
+			"--exclude-standard",
+			"-z"
+		], {
+			cwd,
+			encoding: "utf8",
+			timeout: GIT_TIMEOUT_MS,
+			maxBuffer: MAX_BUFFER_BYTES,
+			stdio: [
+				"ignore",
+				"pipe",
+				"ignore"
+			]
+		});
+	} catch {
+		return [];
+	}
+	let roots;
+	try {
+		roots = {
+			cwd: realish(cwd),
+			scratchpad: scratchpad ? realish(scratchpad) : undefined
+		};
+	} catch {
+		return [];
+	}
+	const list = [...new Set(out.split("\0").filter(Boolean).flatMap((rel) => {
+		const fp = scopedTarget(cwd, rel, scratchpad, roots)?.fp;
+		return fp ? [fp] : [];
+	}))];
+	if (list.length > WATCH_LIMIT) {
+		process.stderr.write(`universal-lint: watch list: ${list.length} files above ${WATCH_LIMIT}, FileChanged linting off for this cwd\n`);
+		return [];
+	}
+	return list;
+}
+export function watchPathsHandler(args) {
+	try {
+		const ev = typeof args?.hook_event_name === "string" ? args.hook_event_name : "";
+		if (ev !== "SessionStart" && ev !== "CwdChanged") return {};
+		const cwd = typeof args.new_cwd === "string" && args.new_cwd ? args.new_cwd : args.cwd;
+		if (typeof cwd !== "string" || !cwd) return {};
+		const list = watchList(cwd, scratchpadOf(args));
+		return list.length > 0 ? { hookSpecificOutput: {
+			hookEventName: ev,
+			watchPaths: list
+		} } : {};
 	} catch {
 		return {};
 	}
@@ -695,36 +936,26 @@ function isMainModule() {
 		return false;
 	}
 }
-async function debounceGate(resolved) {
-	const token = `${Date.now()}-${process.pid}-${randomBytes(6).toString("hex")}`;
-	const dir = path.join(tmpdir(), "universal-lint-debounce");
-	const marker = path.join(dir, hashPath(resolved) + ".mark");
-	try {
-		mkdirSync(dir, { recursive: true });
-		const tmp = `${marker}.${token}.tmp`;
-		writeFileSync(tmp, token);
-		renameSync(tmp, marker);
-	} catch {
-		return true;
-	}
-	await sleep(DEBOUNCE_MS);
-	try {
-		return readFileSync(marker, "utf8").trim() === token;
-	} catch {
-		return true;
-	}
-}
-async function main() {
+function main() {
 	try {
 		const input = JSON.parse(readFileSync(0, "utf8"));
-		const resolved = resolveLintTarget(input);
-		if (!resolved) return;
-		if (!await debounceGate(resolved)) return;
-		const ctx = lintFileHandler(input).hookSpecificOutput?.additionalContext;
+		const ev = input?.hook_event_name;
+		if (ev === "SessionStart" || ev === "CwdChanged") {
+			const r = watchPathsHandler(input);
+			if (r.hookSpecificOutput) process.stdout.write(JSON.stringify(r));
+			return;
+		}
+		let ctx;
+		if (ev === "FileChanged") ctx = fileChangedHandler(input).hookSpecificOutput?.additionalContext;
+		else {
+			const scoped = postToolScope(input);
+			recordWrittenFor(scoped);
+			ctx = lintFileHandler(input, scoped).hookSpecificOutput?.additionalContext;
+		}
 		if (ctx) {
 			process.stderr.write(ctx + "\n");
 			process.exitCode = 2;
 		}
 	} catch {}
 }
-if (isMainModule()) void main();
+if (isMainModule()) main();

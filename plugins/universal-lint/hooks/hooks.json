@@ -1,5 +1,5 @@
 {
-  "description": "PostToolUse Write|Edit -> lint-file.mjs: runs the just-written file's standard linter (check-only) in the background; findings exit 2 and wake Claude (asyncRewake).",
+  "description": "One entry, lint-file.mjs, for four events: PostToolUse Write|Edit lints the just-written file (check-only) in the background; SessionStart and CwdChanged print the cwd's lintable git files as watchPaths; FileChanged lints a watched file changed outside Write/Edit in the background. Findings exit 2 and wake Claude (asyncRewake).",
   "hooks": {
     "PostToolUse": [
       {
@@ -8,7 +8,41 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/lint-file.mjs\"",
-            "timeout": 95,
+            "timeout": 90,
+            "asyncRewake": true
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/lint-file.mjs\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "CwdChanged": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/lint-file.mjs\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "FileChanged": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/lint-file.mjs\"",
+            "timeout": 90,
             "asyncRewake": true
           }
         ]

@@ -1,6 +1,6 @@
 # universal-lint
 
-Silently runs each language's standard linter (read-only — never autofixes) on just-written source files after Write/Edit, surfacing any findings as additional context for Claude to fix by hand.
+Silently runs each language's standard linter (read-only — never autofixes) on source files after Write/Edit, and on files changed by anything else inside the project, surfacing any findings as additional context for Claude to fix by hand.
 
 ## Install
 
@@ -16,9 +16,9 @@ Silently runs each language's standard linter (read-only — never autofixes) on
 
 ## What it does
 
-A background (`asyncRewake`) PostToolUse `Write|Edit` command hook (no MCP server — the plugin has exactly one hook) runs the just-written file's standard linter, check-only, for ten languages. The linter runs when its CLI is on `PATH` — or, for `eslint`/`oxlint`/`markdownlint-cli2`/`markdownlint`/`stylelint`, via the `npx` fallback (see below); an unavailable linter (no `PATH` CLI and no `npx` fallback), any crash or misconfiguration, an unsupported extension, a file outside the project, or a file under `node_modules/`/`vendor/`/`.git/` is a **silent no-op** — the hook never blocks or degrades the session, and it never modifies the file (that's `universal-format`'s job, not this plugin's — this plugin never passes `--fix`/`--format`/`--write` to anything). When (and only when) the linter reports real findings, the hook exits 2 with them on stderr, which wakes Claude with the findings as soon as the lint finishes so it can fix them itself.
+A background (`asyncRewake`) PostToolUse `Write|Edit` command hook (no MCP server — all hooks are plain command hooks sharing one script) runs the just-written file's standard linter, check-only, for ten languages. At session start (and when the working directory changes) the plugin asks Claude Code to watch the project's lintable git files (tracked and untracked, not ignored; nothing above 5000 files); when one of them changes outside Write/Edit — a formatter run from Bash, `git stash pop`, an external editor — it is linted the same way in the background, unless it is git-ignored, unchanged against git, or still exactly what Write/Edit just wrote. The linter runs when its CLI is on `PATH` — or, for `eslint`/`oxlint`/`markdownlint-cli2`/`markdownlint`/`stylelint`, via the `npx` fallback (see below); an unavailable linter (no `PATH` CLI and no `npx` fallback), any crash or misconfiguration, an unsupported extension, a file outside the project (real path, so symlinks pointing out count as outside), or a file under `node_modules/`/`vendor/`/`.git/` is a **silent no-op** — the hooks never block or degrade the session, and they never modify the file (that's `universal-format`'s job, not this plugin's — this plugin never passes `--fix`/`--format`/`--write` to anything). When (and only when) the linter reports real findings, the hook exits 2 with them on stderr, which wakes Claude with the findings as soon as the lint finishes so it can fix them itself.
 
-This hook is always active once the plugin is installed — there is no toggle. Per-language opt-out is simply not installing that linter.
+These hooks are always active once the plugin is installed — there is no toggle. Per-language opt-out is simply not installing that linter.
 
 ## Supported linters
 
