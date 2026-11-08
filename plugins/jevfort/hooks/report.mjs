@@ -100,15 +100,12 @@ export function buildReport(log, threshold) {
 	const scores = routes.map((e) => num(e.data?.score)).filter((s) => s !== undefined);
 	const lowered = routes.filter((e) => e.data?.lowered === true);
 	const raised = routes.filter((e) => e.data?.raised === true);
-	const gates = of("gate");
-	const by = (d) => gates.filter((e) => e.data?.decision === d);
 	const dones = of("done");
 	const continued = dones.filter((e) => e.data?.continued === true);
-	out.push("", "### Routing, gate and done check");
+	out.push("", "### Routing and done check");
 	out.push("| Decision | Checked | Result |");
 	out.push("|---|---|---|");
 	out.push(`| Effort routing | ${routes.length} turns | avg difficulty ${scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(2) : "—"} (0 trivial … 3 hard) · ${lowered.length} lowered, ${raised.length} raised, ${[...lowered, ...raised].filter((e) => e.applied).length} applied |`);
-	out.push(`| Gate | ${gates.length} calls | ${by("allow").length} allow · ${by("ask").length} ask · ${by("deny").length} deny |`);
 	out.push(`| Done check | ${dones.length} stops | ${continued.length} unfinished, ${continued.filter((e) => e.applied).length} sent back |`);
 	const classified = of("classify");
 	if (classified.length) {
@@ -126,12 +123,6 @@ export function buildReport(log, threshold) {
 	if (compacts.length) {
 		const sum = (k) => compacts.reduce((a, e) => a + (num(e.data?.[k]) ?? 0), 0);
 		out.push(`| Compaction | ${compacts.length} runs | ${sum("items")} results scored · ${sum("keep")} kept in detail · ${sum("drop")} marked droppable |`);
-	}
-	const flagged = [...by("ask"), ...by("deny")].slice(-5);
-	if (flagged.length) {
-		out.push("", "**Recent asks and denies**");
-		const latest = log[log.length - 1].at;
-		for (const e of flagged) out.push(`- ${when(e.at, latest)} \`${cell(e.text, 80)}\``);
 	}
 	const aborted = of("turn").filter((e) => e.data?.reason === "aborted").length;
 	if (aborted) out.push("", `_${aborted} interrupted turn(s)._`);

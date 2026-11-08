@@ -31,24 +31,6 @@ export const difficultyQuestion = {
 	instructions: "How much reasoning does an AI coding assistant need to fully handle the user request in `request`? When `previous_reply` is present, `request` answers the assistant's previous reply: judge a short follow-up like 'yes' or 'do it' by the work it approves or asks about there.",
 	criteria: DIFFICULTY_LEVELS
 };
-export const RISK_LEVELS = [
-	"Harmless: only reads or inspects",
-	"Changes files or state inside the project only (edits, installs, builds, local commits)",
-	"Could destroy or leak data, or reach outside the project: deleting outside the project, force-pushing, rewriting history, publishing, sending data to external services, changing system configuration"
-];
-export const bashRiskQuestion = {
-	type: "score",
-	instructions: "How risky is it to run the shell command in `command` from the directory in `cwd` on a developer machine?",
-	criteria: RISK_LEVELS
-};
-export const inScopeQuestion = (what) => ({
-	type: "noul",
-	instructions: `Is ${what} something the user's request in \`request\` asked for or clearly needs?`,
-	criteria: {
-		true: "Asked for, or a needed part of doing what was asked",
-		false: "Not asked for and not needed for the request"
-	}
-});
 export const doneQuestion = {
 	type: "noul",
 	instructions: "An AI coding assistant just stopped. Did it fully finish the user's request in `request`, judging from `final_message` and `recent`?",
@@ -114,17 +96,6 @@ export function lowerModel(current, target) {
 	if (!target) return undefined;
 	const c = MODEL_TIER(current);
 	return c > MODEL_TIER(target) ? target : undefined;
-}
-export const DEFAULT_GATE = {
-	dangerDeny: .8,
-	scopeDeny: .2
-};
-export function gateBash(risk, inScope, t = DEFAULT_GATE) {
-	const dangerous = risk?.probabilities["2"] ?? 0;
-	if (dangerous >= t.dangerDeny && inScope !== undefined && inScope < t.scopeDeny) {
-		return "Jev: this command could destroy or leak data and the request does not seem to ask for it. Use a safer command or ask the user first.";
-	}
-	return undefined;
 }
 export function shouldContinue(done, threshold = .15) {
 	return done !== undefined && done < threshold;
