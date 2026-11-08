@@ -4,7 +4,7 @@ import { compactInstructions, compactItems, RELEVANCE } from "./compact.mjs";
 import { clip, splitTurn, summarize, toolCalls } from "./context.mjs";
 import { choice, jevUrl, MODEL, noul, score, TIMEOUT_MS } from "./jev.mjs";
 import { LOG_KEY, MAX_ENTRIES, recentDecisions, remember, statsKey } from "./log.mjs";
-import { adjustEffort, bestAction, difficultyQuestion, doneQuestion, effortKeepsCache, inScratchpad, lowerModel, nextActionQuestion, pickCandidate, route, shouldContinue, singleActionQuestion } from "./policy.mjs";
+import { bestAction, bounds, difficultyQuestion, doneQuestion, EFFORT_ORDER, effortQuestion, ESTIMATE_SPEC, ESTIMATE_TOOL, estimateEffort, EVERY_TURN_MODELS, inScratchpad, isEffort, lowerModel, mechanicalQuestion, modelFamily, nextActionQuestion, parseEstimateInput, pickCandidate, route, shouldContinue, singleActionQuestion } from "./policy.mjs";
 import { hints, NONE, promptQuestions } from "./prompt.mjs";
 import { buildReport } from "./report.mjs";
 import { SUMMARY_MODEL, SYSTEM } from "./summarize.mjs";
@@ -356,6 +356,12 @@ export const register = (on, options) => {
 		return typeof v === "number" ? v : fallback;
 	};
 	const doneThreshold = threshold("doneThreshold", .15);
+	const configuredRange = bounds(options.minEffort, options.maxEffort);
+	const effortRange = configuredRange ?? {
+		minEffort: "low",
+		maxEffort: "xhigh"
+	};
+	const badRange = !configuredRange && (options.minEffort !== undefined || options.maxEffort !== undefined) ? `minEffort ${String(options.minEffort)}, maxEffort ${String(options.maxEffort)}` : undefined;
 	on("ui.render", {
 		component: "CommandOutput",
 		props: { command: "jev" }
@@ -495,12 +501,28 @@ export const register = (on, options) => {
 		});
 	}
 	const turns = new Map();
+	const firstTurns = new Map();
 	const ownCalls = new Set();
 	on("session.start", async function onSessionStart($, e, next) {
+		firstTurns.clear();
+		if (badRange) await record($, {
+			kind: "error",
+			applied: false,
+			text: `invalid effort bounds (${badRange}): using low..xhigh`
+		}).catch(() => undefined);
 		await $.command.register({
 			name: "jev",
 			description: "Jev pilot: status, /jev report, /jev candidates, /jev export, /jev clear"
 		});
+		try {
+			await $.tool.register(ESTIMATE_SPEC);
+		} catch (err) {
+			await record($, {
+				kind: "error",
+				applied: false,
+				text: `estimate_effort not registered: ${String(err)}`
+			}).catch(() => undefined);
+		}
 		return next(e);
 	});
 	on("command.run", { command: "jev" }, async function onJevCommand($, e) {
@@ -587,6 +609,31 @@ export const register = (on, options) => {
 		return next(e);
 	});
 	on("tool.call", async function onToolCall($, e, next) {
+		if (e.tool === ESTIMATE_TOOL) {
+			const input = parseEstimateInput(e);
+			if (typeof input === "string") return {
+				isError: true,
+				result: `estimate_effort: ${input}`
+			};
+			const r = await askJev($, { request: clip(input.prompt, 4e3) }, {
+				effort: effortQuestion,
+				mechanical: mechanicalQuestion
+			});
+			const est = estimateEffort(r.ok ? score(r.answers, "effort") : undefined, r.ok ? noul(r.answers, "mechanical") : undefined, input);
+			await record($, {
+				kind: "estimate",
+				applied: est.source !== "fallback",
+				text: `${input.model}: ${est.effort} (${est.source}${r.ok ? "" : `, ${r.error}`})`,
+				ms: r.ms,
+				data: {
+					model: input.model,
+					effort: est.effort,
+					source: est.source,
+					error: r.ok ? undefined : r.error
+				}
+			});
+			return { result: JSON.stringify(est) };
+		}
 		const result = await next(e);
 		if (e.tool_use_id && ownCalls.has(e.tool_use_id)) {
 			const isError = result.deny !== undefined || result.isError === true;
@@ -665,12 +712,40 @@ export const register = (on, options) => {
 			})));
 			if (candidates.length) questions.next_action = nextActionQuestion(candidates);
 		}
-		if (routing !== "off" && e.index === 0) questions.difficulty = difficultyQuestion;
+		let estimate;
+		let held;
+		let firstTurn;
+		if (routing !== "off" && e.index === 0) {
+			if (routing === "model") questions.difficulty = difficultyQuestion;
+			const loop = e.agentId ?? "";
+			const first = firstTurns.get(loop);
+			const family = modelFamily(e.model);
+			const fresh = !first || first.family !== family;
+			if (fresh) {
+				firstTurn = {
+					family,
+					from: e.effort
+				};
+				firstTurns.set(loop, firstTurn);
+			}
+			const sessionEffort = isEffort(e.effort) ? e.effort : undefined;
+			estimate = family && sessionEffort && (fresh || EVERY_TURN_MODELS.includes(family)) ? {
+				model: family,
+				defaultEffort: sessionEffort,
+				...effortRange
+			} : undefined;
+			if (estimate) {
+				questions.effort = effortQuestion;
+				questions.mechanical = mechanicalQuestion;
+			}
+			held = !estimate && first?.effort && first.family === family && first.from === e.effort ? first.effort : undefined;
+			if (held && held !== e.effort) turn.effort = held;
+		}
 		if (bypass && e.index === 0 && questions.next_action && !e.agentId) questions.single_action = singleActionQuestion;
 		const routed = (step) => {
-			if (!turn.route) return step;
-			const effort = effortKeepsCache(step.model) ? adjustEffort(step.effort, turn.route.effort) : undefined;
-			const model = lowerModel(step.model, turn.route.model);
+			if (!turn.route && !turn.effort) return step;
+			const effort = turn.effort;
+			const model = lowerModel(step.model, turn.route?.model);
 			return effort || model ? {
 				...step,
 				...effort ? { effort } : {},
@@ -715,19 +790,26 @@ export const register = (on, options) => {
 				ms: r.ms,
 				turnId: e.turnId
 			});
-			return yield* next(e);
+			return yield* next(routed(e));
 		}
-		if (questions.difficulty) {
-			const difficulty = score(r.answers, "difficulty");
-			turn.route = route(difficulty, routing === "model" ? "model" : "effort");
-			const effort = effortKeepsCache(e.model) ? adjustEffort(e.effort, turn.route?.effort) : undefined;
+		if (questions.difficulty || estimate) {
+			const difficulty = questions.difficulty ? score(r.answers, "difficulty") : undefined;
+			turn.route = difficulty ? route(difficulty, "model") : undefined;
 			const model = lowerModel(e.model, turn.route?.model);
-			const raised = effort === "high";
+			const mechanical = noul(r.answers, "mechanical");
+			const est = estimate ? estimateEffort(score(r.answers, "effort"), mechanical, estimate) : undefined;
+			if (est) {
+				turn.effort = est.effort !== e.effort ? est.effort : undefined;
+				if (firstTurn) firstTurn.effort = est.effort;
+			}
+			const effort = turn.effort;
+			const raised = effort !== undefined && EFFORT_ORDER.indexOf(effort) > (isEffort(e.effort) ? EFFORT_ORDER.indexOf(e.effort) : -1);
 			const lowered = Boolean(effort && !raised || model);
+			const source = est?.source ?? (held ? "held" : undefined);
 			await record($, {
 				kind: "route",
 				applied: lowered || raised,
-				text: `difficulty ${(difficulty?.score ?? 0).toFixed(2)} → ${lowered || raised ? `${model ?? e.model}, effort ${effort ?? String(e.effort)}` : effortKeepsCache(e.model) ? "no change" : `no change (effort is left alone on ${e.model})`}`,
+				text: `${difficulty ? `difficulty ${difficulty.score.toFixed(2)}` : "effort"} → ${lowered || raised ? `${model ?? e.model}, effort ${effort ?? String(e.effort)}` : "no change"}${source ? ` · ${source}` : ""}`,
 				ms: r.ms,
 				turnId: e.turnId,
 				data: {
@@ -736,7 +818,10 @@ export const register = (on, options) => {
 					effort,
 					model,
 					lowered,
-					raised
+					raised,
+					estimate: est?.effort,
+					source,
+					mechanical
 				}
 			});
 		}
@@ -807,6 +892,11 @@ export const register = (on, options) => {
 	let scratchpad;
 	on("tool.check", async function onToolCheck($, e, next) {
 		const base = await next(e);
+		if (e.tool === ESTIMATE_TOOL && base.decision !== "deny") return {
+			...base,
+			decision: "allow",
+			reason: "jevfort: estimate_effort is answered locally"
+		};
 		if (e.tool_use_id && ownCalls.has(e.tool_use_id)) {
 			if (base.decision === "deny") return base;
 			return {

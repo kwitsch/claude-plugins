@@ -55,41 +55,147 @@ export function pickCandidate(answer, candidates, threshold) {
 	if ((answer.probabilities[answer.choice] ?? 0) < threshold) return undefined;
 	return candidates.find((c) => c.key === answer.choice);
 }
-const EFFORT_ORDER = [
+export const EFFORT_ORDER = [
 	"low",
 	"medium",
 	"high",
 	"xhigh",
 	"max"
 ];
+export function isEffort(v) {
+	return EFFORT_ORDER.includes(v);
+}
+export const ESTIMATE_MODELS = [
+	"haiku",
+	"sonnet",
+	"opus",
+	"fable"
+];
+const MODEL_BIAS = {
+	haiku: .75,
+	sonnet: .25,
+	opus: -.25,
+	fable: -.75
+};
+export const EVERY_TURN_MODELS = ["sonnet", "opus"];
+export const MIN_CONFIDENCE = .5;
+export const MECHANICAL_FROM = .8;
+export const ESTIMATE_NAME = "estimate_effort";
+export const ESTIMATE_TOOL = `mcp__jevfort__${ESTIMATE_NAME}`;
+const isModel = (v) => ESTIMATE_MODELS.includes(v);
+export function modelFamily(id) {
+	return ESTIMATE_MODELS.find((m) => id.includes(m));
+}
+export function bounds(min, max) {
+	if (!isEffort(min) || !isEffort(max) || EFFORT_ORDER.indexOf(min) > EFFORT_ORDER.indexOf(max)) return undefined;
+	return {
+		minEffort: min,
+		maxEffort: max
+	};
+}
+export function parseEstimateInput(raw) {
+	const { model, defaultEffort, minEffort, maxEffort, prompt } = raw;
+	const effortError = (name) => `${name} must be one of ${EFFORT_ORDER.join(", ")}`;
+	if (!isModel(model)) return `model must be one of ${ESTIMATE_MODELS.join(", ")}`;
+	if (!isEffort(defaultEffort)) return effortError("defaultEffort");
+	if (!isEffort(minEffort)) return effortError("minEffort");
+	if (!isEffort(maxEffort)) return effortError("maxEffort");
+	if (!bounds(minEffort, maxEffort)) return "minEffort must not be above maxEffort";
+	if (typeof prompt !== "string" || prompt.trim() === "") return "prompt must be a non-empty string";
+	return {
+		model,
+		defaultEffort,
+		minEffort,
+		maxEffort,
+		prompt
+	};
+}
+export function estimateEffort(effort, mechanical, b) {
+	if (mechanical !== undefined && mechanical >= MECHANICAL_FROM) return {
+		effort: b.minEffort,
+		source: "mechanical"
+	};
+	if (!effort || !Number.isFinite(effort.score) || !(effort.confidence >= MIN_CONFIDENCE)) return {
+		effort: b.defaultEffort,
+		source: "fallback"
+	};
+	const i = Math.round(effort.score + MODEL_BIAS[b.model]);
+	const clamped = Math.min(Math.max(i, EFFORT_ORDER.indexOf(b.minEffort)), EFFORT_ORDER.indexOf(b.maxEffort));
+	return {
+		effort: EFFORT_ORDER[clamped],
+		source: "jev"
+	};
+}
+export const EFFORT_LEVELS = [
+	"Low: a lookup, running a known command, or a short factual answer",
+	"Medium: a small, well-specified change or explanation in one place",
+	"High: changes across several files, debugging with an unclear cause, or design choices",
+	"Extra high: architecture, subtle concurrency or security issues, or a large ambiguous task",
+	"Max: a long multi-part task needing deep, novel reasoning where mistakes are costly"
+];
+export const effortQuestion = {
+	type: "score",
+	instructions: "How much reasoning effort does a mid-tier AI coding model need to fully handle the user request in `request`? When `previous_reply` is present, `request` answers the assistant's previous reply: judge a short follow-up like 'yes' or 'do it' by the work it approves or asks about there.",
+	criteria: EFFORT_LEVELS
+};
+export const mechanicalQuestion = {
+	type: "noul",
+	instructions: "Is the user request in `request` a purely mechanical task that needs no judgment, design or investigation?",
+	criteria: {
+		true: "Yes: renaming, reformatting, moving or copying, running a named command, or applying an edit spelled out exactly",
+		false: "No: it needs understanding, choices, debugging, explanation or design"
+	}
+};
+export const ESTIMATE_SPEC = {
+	name: ESTIMATE_NAME,
+	description: "Estimate the reasoning effort a prompt most likely needs, decided by TypeSafe Jev. Returns JSON {\"effort\": level, \"source\": \"jev\"|\"mechanical\"|\"fallback\"}: a purely mechanical prompt gets minEffort; Jev's estimate is biased by the model (a stronger model needs less) and kept within minEffort..maxEffort; when Jev is unreachable or unsure, defaultEffort.",
+	inputSchema: {
+		type: "object",
+		properties: {
+			model: {
+				type: "string",
+				enum: [...ESTIMATE_MODELS],
+				description: "The model that will run the prompt"
+			},
+			defaultEffort: {
+				type: "string",
+				enum: [...EFFORT_ORDER],
+				description: "Returned when Jev is unreachable or unsure"
+			},
+			minEffort: {
+				type: "string",
+				enum: [...EFFORT_ORDER],
+				description: "Lowest effort to return; also the answer for a mechanical prompt"
+			},
+			maxEffort: {
+				type: "string",
+				enum: [...EFFORT_ORDER],
+				description: "Highest effort to return"
+			},
+			prompt: {
+				type: "string",
+				description: "The prompt to estimate"
+			}
+		},
+		required: [
+			"model",
+			"defaultEffort",
+			"minEffort",
+			"maxEffort",
+			"prompt"
+		]
+	}
+};
 export const LOW_BELOW = 1;
 export const HIGH_FROM = 1.8;
 export function route(answer, mode) {
-	if (!answer || answer.confidence < .5) return undefined;
+	if (!answer || answer.confidence < MIN_CONFIDENCE) return undefined;
 	const level = answer.score;
-	if (level < LOW_BELOW) return {
-		level,
-		effort: "low",
-		...mode === "model" ? { model: "claude-haiku-5-5" } : {}
-	};
-	if (level < HIGH_FROM) return {
-		level,
-		effort: "medium",
-		...mode === "model" ? { model: "claude-sonnet-5-5" } : {}
-	};
+	if (mode === "effort" || level >= HIGH_FROM) return { level };
 	return {
 		level,
-		effort: "high"
+		model: level < LOW_BELOW ? "claude-haiku-5-5" : "claude-sonnet-5-5"
 	};
-}
-export const effortKeepsCache = (model) => /(opus|sonnet)-5-5/.test(model);
-export function adjustEffort(current, target) {
-	if (!target || typeof current !== "string") return undefined;
-	const ci = EFFORT_ORDER.indexOf(current);
-	const ti = EFFORT_ORDER.indexOf(target);
-	if (ci < 0) return undefined;
-	if (target === "high") return ci < ti ? target : undefined;
-	return ci > ti ? target : undefined;
 }
 const MODEL_TIER = (model) => /haiku/.test(model) ? 0 : /sonnet/.test(model) ? 1 : /opus|fable/.test(model) ? 2 : -1;
 export function lowerModel(current, target) {

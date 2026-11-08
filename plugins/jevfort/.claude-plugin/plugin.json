@@ -1,6 +1,6 @@
 {
   "name": "jevfort",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Lets TypeSafe Jev take routine steps, route effort and check that work is done (port of nim-f/jev-pilot; endpoint from JEV_URL).",
   "author": {
     "name": "Kwitsch"
@@ -89,6 +89,32 @@
       "title": "Measure steps inside a turn",
       "description": "While Claude takes a step inside a longer turn, ask Jev in parallel which listed action it would take, and log whether it matches. Adds no delay; costs one Jev request per step. Never takes the step.",
       "default": true
+    },
+    "minEffort": {
+      "type": "string",
+      "title": "Minimum effort",
+      "description": "Lowest effort Jev's turn-start effort estimate may pick; also the effort of a purely mechanical turn.",
+      "options": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "default": "low"
+    },
+    "maxEffort": {
+      "type": "string",
+      "title": "Maximum effort",
+      "description": "Highest effort Jev's turn-start effort estimate may pick.",
+      "options": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "default": "xhigh"
     }
   }
 }
