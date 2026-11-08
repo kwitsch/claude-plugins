@@ -1,6 +1,6 @@
 {
   "name": "jevfort",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Lets TypeSafe Jev take routine steps, route effort, gate risky calls and check that work is done (port of nim-f/jev-pilot; endpoint from JEV_URL).",
   "author": {
     "name": "Kwitsch"

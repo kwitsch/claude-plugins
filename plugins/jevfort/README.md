@@ -1,7 +1,7 @@
 # jevfort
 
 Lets TypeSafe **Jev** take routine steps, answer simple prompts without the main model, route effort or model by
-difficulty, gate risky Bash commands and edits, check that work is done when Claude stops, classify prompts, pick
+difficulty, gate risky Bash commands and edits, check that work is done when Claude answers, classify prompts, pick
 subagent types and guide compaction. Every decision is logged and reported through `/jev`.
 
 A port of [nim-f/jev-pilot](https://github.com/nim-f/jev-pilot) 0.5.0 by Code and Bird into this repository's plugin
@@ -33,7 +33,7 @@ layout, with the endpoint configurable through `JEV_URL`.
 | `routing`           | `effort` | Per-turn routing by difficulty: `effort`, `model` (also a cheaper model) or `off`     |
 | `takeSteps`         | `true`   | Let Jev make routine tool calls (Read, git, project scripts) itself                   |
 | `gate`              | `true`   | Let Jev tighten permissions on risky or out-of-scope Bash and edits                   |
-| `doneCheck`         | `true`   | Send Claude back once when a request looks unfinished                                 |
+| `doneCheck`         | `true`   | After an answer that looks unfinished, send Claude one follow-up message to continue  |
 | `takeThreshold`     | `0.85`   | Minimum probability for Jev to take a step                                            |
 | `subagents`         | `true`   | Also take steps and route effort inside subagent loops                                |
 | `dangerAsk`         | `0.5`    | Ask before a Bash command at this danger probability                                  |

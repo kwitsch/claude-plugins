@@ -17,6 +17,18 @@ const GATED = new Set([
 	"NotebookEdit"
 ]);
 const SINGLE_ACTION = .8;
+const DONE_PROMPT = "Jev: the user's request doesn't look finished yet. Continue with what remains. If it is actually complete, say so in one line.";
+const FINISHED = new Set([
+	"completed",
+	"done",
+	"failed",
+	"error",
+	"killed",
+	"cancelled",
+	"canceled",
+	"stopped",
+	"aborted"
+]);
 const asText = (v) => String(v);
 async function currentMode($, configured) {
 	const stored = await $.store.get("mode");
@@ -114,7 +126,7 @@ async function clearLog($) {
 async function readTurn($, agentId) {
 	const messages = await $.session.messages(agentId ? { agentId } : {});
 	if (!Array.isArray(messages)) return undefined;
-	return splitTurn(messages);
+	return splitTurn(messages.filter((m) => !(m.role === "user" && m.text.includes(DONE_PROMPT))));
 }
 async function previousReply($) {
 	const messages = await $.session.messages({}).catch(() => undefined);
@@ -304,6 +316,46 @@ async function blockSkill($, name) {
 	const list = await $.store.get(SKILL_BLOCKLIST_KEY) ?? [];
 	if (!list.includes(name)) await $.store.set(SKILL_BLOCKLIST_KEY, [...list, name]);
 }
+async function checkDone($, e, configuredMode, threshold) {
+	const m = await currentMode($, configuredMode);
+	if (m === "off") return false;
+	const agents = await $.agent.list().catch(() => undefined);
+	if (!agents) return false;
+	const waitingOn = agents.filter((a) => !FINISHED.has(a.status)).length;
+	if (waitingOn > 0) {
+		await record($, {
+			kind: "done",
+			applied: false,
+			text: `skipped: waiting on ${waitingOn} background task(s)`,
+			data: {
+				skipped: "background",
+				continued: false
+			}
+		});
+		return false;
+	}
+	const ctx = await readTurn($);
+	if (!ctx) return false;
+	const r = await askJev($, {
+		request: clip(ctx.request, 3e3),
+		final_message: clip(e.answer ?? "", 2e3),
+		recent: summarize(ctx.steps)
+	}, { done: doneQuestion });
+	if (!r.ok) return false;
+	const done = noul(r.answers, "done");
+	const unfinished = shouldContinue(done, threshold);
+	await record($, {
+		kind: "done",
+		applied: unfinished,
+		text: unfinished ? `not finished (p=${(done ?? 0).toFixed(2)}), continuing` : `finished (p=${(done ?? 0).toFixed(2)})`,
+		ms: r.ms,
+		data: {
+			p: done,
+			continued: unfinished
+		}
+	});
+	return unfinished;
+}
 export const register = (on, options) => {
 	const routing = options.routing === "model" || options.routing === "off" ? options.routing : "effort";
 	const takeSteps = options.takeSteps !== false;
@@ -333,9 +385,14 @@ export const register = (on, options) => {
 		const { Markdown } = $.ui.resolve(e);
 		return Markdown({ text: e.props.text });
 	});
-	if (options.classify !== false) {
+	let donePending = false;
+	{
 		on("prompt.submit", async function onPromptSubmit($, e, next) {
-			if (e.command || e.isMeta || e.text.trim().length < 3) return next(e);
+			if (e.text.includes(DONE_PROMPT)) {
+				donePending = true;
+				return next(e);
+			}
+			if (options.classify === false || e.command || e.isMeta || e.text.trim().length < 3) return next(e);
 			const m = await currentMode($, options.mode);
 			if (m === "off") return next(e);
 			const questions = promptQuestions(await skillOptions($));
@@ -528,6 +585,32 @@ export const register = (on, options) => {
 				turnId: e.turnId,
 				data: { reason: e.reason }
 			});
+		}
+		if (e.agentId === undefined) {
+			const exempt = donePending;
+			donePending = false;
+			let again = false;
+			if (doneCheck && !exempt && e.reason === "answer") {
+				try {
+					again = await checkDone($, e, options.mode, doneThreshold);
+				} catch (err) {
+					await record($, {
+						kind: "error",
+						applied: false,
+						text: `done check failed: ${String(err)}`
+					}).catch(() => undefined);
+				}
+			}
+			if (again) {
+				$.prompt.submit({ text: DONE_PROMPT }).catch((err) => {
+					donePending = false;
+					void record($, {
+						kind: "error",
+						applied: false,
+						text: `done follow-up not sent: ${String(err)}`
+					}).catch(() => undefined);
+				});
+			}
 		}
 		return next(e);
 	});
@@ -827,50 +910,5 @@ export const register = (on, options) => {
 			decision: verdict.decision,
 			reason: verdict.reason
 		} : base;
-	});
-	on("classic.Stop", async function onStop($, e, next) {
-		if (!doneCheck || e.stop_hook_active) return next(e);
-		const m = await currentMode($, options.mode);
-		if (m === "off") return next(e);
-		const waitingOn = e.background_tasks?.length ?? 0;
-		if (waitingOn > 0) {
-			await record($, {
-				kind: "done",
-				applied: false,
-				text: `skipped: waiting on ${waitingOn} background task(s)`,
-				data: {
-					skipped: "background",
-					continued: false
-				}
-			});
-			return next(e);
-		}
-		const ctx = await readTurn($);
-		if (!ctx) return next(e);
-		const r = await askJev($, {
-			request: clip(ctx.request, 3e3),
-			final_message: clip(e.last_assistant_message ?? "", 2e3),
-			recent: summarize(ctx.steps)
-		}, { done: doneQuestion });
-		if (!r.ok) return next(e);
-		const done = noul(r.answers, "done");
-		const unfinished = shouldContinue(done, doneThreshold);
-		await record($, {
-			kind: "done",
-			applied: unfinished,
-			text: unfinished ? `not finished (p=${(done ?? 0).toFixed(2)}), continuing` : `finished (p=${(done ?? 0).toFixed(2)})`,
-			ms: r.ms,
-			data: {
-				p: done,
-				continued: unfinished
-			}
-		});
-		if (!unfinished) return next(e);
-		const below = await next(e);
-		if (below.block) return below;
-		return {
-			...below,
-			block: "Jev: the user's request doesn't look finished yet. Continue with what remains. If it is actually complete, say so in one line."
-		};
 	});
 };
