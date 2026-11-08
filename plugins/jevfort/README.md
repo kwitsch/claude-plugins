@@ -1,8 +1,9 @@
 # jevfort
 
 Lets TypeSafe **Jev** take routine steps, answer simple prompts without the main model, route effort or model by
-difficulty, gate risky Bash commands and edits, check that work is done when Claude answers, classify prompts, pick
-subagent types and guide compaction. Every decision is logged and reported through `/jev`.
+difficulty, deny dangerous out-of-scope Bash commands, allow writes into the session scratchpad, check that work is
+done when Claude answers, classify prompts, pick subagent types and guide compaction. Every decision is logged and
+reported through `/jev`.
 
 A port of [nim-f/jev-pilot](https://github.com/nim-f/jev-pilot) 0.5.0 by Code and Bird into this repository's plugin
 layout, with the endpoint configurable through `JEV_URL`.
@@ -32,14 +33,12 @@ layout, with the endpoint configurable through `JEV_URL`.
 | `mode`              | `active` | `active` applies Jev's decisions, `off` disables the mod                              |
 | `routing`           | `effort` | Per-turn routing by difficulty: `effort`, `model` (also a cheaper model) or `off`     |
 | `takeSteps`         | `true`   | Let Jev make routine tool calls (Read, git, project scripts) itself                   |
-| `gate`              | `true`   | Let Jev tighten permissions on risky or out-of-scope Bash and edits                   |
+| `gate`              | `true`   | Let Jev deny dangerous Bash commands the request does not ask for                     |
 | `doneCheck`         | `true`   | After an answer that looks unfinished, send Claude one follow-up message to continue  |
 | `takeThreshold`     | `0.85`   | Minimum probability for Jev to take a step                                            |
 | `subagents`         | `true`   | Also take steps and route effort inside subagent loops                                |
-| `dangerAsk`         | `0.5`    | Ask before a Bash command at this danger probability                                  |
 | `dangerDeny`        | `0.8`    | Deny a dangerous Bash command at this probability when it is also out of scope        |
 | `scopeDeny`         | `0.2`    | A Bash command counts as out of scope below this in-scope probability                 |
-| `editScope`         | `0.15`   | Ask before an edit below this in-scope probability                                    |
 | `doneThreshold`     | `0.15`   | Send Claude back below this finished probability                                      |
 | `bypass`            | `true`   | Answer a one-action prompt with Jev's action plus a small-model summary               |
 | `classify`          | `true`   | Classify each prompt and add a skill or plan hint                                     |
@@ -47,3 +46,5 @@ layout, with the endpoint configurable through `JEV_URL`.
 | `compaction`        | `true`   | Tell the summarizer which tool results to keep in detail                              |
 | `takeOnlyForBypass` | `true`   | Take a step only when the whole prompt is one read-only action                        |
 | `measureSteps`      | `true`   | Inside longer turns, ask Jev in parallel which action it would take and log the match |
+
+The gate never asks, so auto mode is unaffected: it only denies a dangerous Bash command the request does not ask for, otherwise Claude Code's own verdict stands. Write, Edit and NotebookEdit calls into this session's scratchpad directory are allowed in every permission mode, also with `gate: false`, but not with mode `off`; a settings deny or ask rule still wins (only a mode's own ask becomes allow). Paths containing `..` are never allowed. Bash commands that write there are not covered.

@@ -4,31 +4,21 @@ import { compactInstructions, compactItems, RELEVANCE } from "./compact.mjs";
 import { clip, splitTurn, summarize, toolCalls } from "./context.mjs";
 import { choice, jevUrl, MODEL, noul, score, TIMEOUT_MS } from "./jev.mjs";
 import { LOG_KEY, MAX_ENTRIES, recentDecisions, remember, statsKey } from "./log.mjs";
-import { adjustEffort, bashRiskQuestion, bestAction, difficultyQuestion, doneQuestion, effortKeepsCache, gateBash, gateEdit, inScopeQuestion, lowerModel, nextActionQuestion, pickCandidate, route, shouldContinue, singleActionQuestion } from "./policy.mjs";
+import { adjustEffort, bashRiskQuestion, bestAction, difficultyQuestion, doneQuestion, effortKeepsCache, gateBash, inScopeQuestion, inScratchpad, lowerModel, nextActionQuestion, pickCandidate, route, shouldContinue, singleActionQuestion } from "./policy.mjs";
 import { hints, NONE, promptQuestions } from "./prompt.mjs";
 import { buildReport } from "./report.mjs";
 import { SUMMARY_MODEL, SYSTEM } from "./summarize.mjs";
 const MODES = ["active", "off"];
 const MAX_TAKES_PER_TURN = 3;
-const GATED = new Set([
-	"Bash",
+const WRITE_TOOLS = new Set([
 	"Edit",
 	"Write",
 	"NotebookEdit"
 ]);
 const SINGLE_ACTION = .8;
+const PLUGIN_NAME = "jevfort";
 const DONE_PROMPT = "Jev: the user's request doesn't look finished yet. Continue with what remains. If it is actually complete, say so in one line.";
-const FINISHED = new Set([
-	"completed",
-	"done",
-	"failed",
-	"error",
-	"killed",
-	"cancelled",
-	"canceled",
-	"stopped",
-	"aborted"
-]);
+const ACTIVE = new Set(["running", "pending"]);
 const asText = (v) => String(v);
 async function currentMode($, configured) {
 	const stored = await $.store.get("mode");
@@ -321,7 +311,7 @@ async function checkDone($, e, configuredMode, threshold) {
 	if (m === "off") return false;
 	const agents = await $.agent.list().catch(() => undefined);
 	if (!agents) return false;
-	const waitingOn = agents.filter((a) => !FINISHED.has(a.status)).length;
+	const waitingOn = agents.filter((a) => ACTIVE.has(a.status)).length;
 	if (waitingOn > 0) {
 		await record($, {
 			kind: "done",
@@ -371,10 +361,8 @@ export const register = (on, options) => {
 		return typeof v === "number" ? v : fallback;
 	};
 	const gateThresholds = {
-		dangerAsk: threshold("dangerAsk", .5),
 		dangerDeny: threshold("dangerDeny", .8),
-		scopeDeny: threshold("scopeDeny", .2),
-		editScope: threshold("editScope", .15)
+		scopeDeny: threshold("scopeDeny", .2)
 	};
 	const doneThreshold = threshold("doneThreshold", .15);
 	on("ui.render", {
@@ -388,10 +376,8 @@ export const register = (on, options) => {
 	let donePending = false;
 	{
 		on("prompt.submit", async function onPromptSubmit($, e, next) {
-			if (e.text.includes(DONE_PROMPT)) {
-				donePending = true;
-				return next(e);
-			}
+			donePending = e.origin?.kind === "plugin" && e.origin.name === PLUGIN_NAME;
+			if (donePending) return next(e);
 			if (options.classify === false || e.command || e.isMeta || e.text.trim().length < 3) return next(e);
 			const m = await currentMode($, options.mode);
 			if (m === "off") return next(e);
@@ -589,10 +575,18 @@ export const register = (on, options) => {
 		if (e.agentId === undefined) {
 			const exempt = donePending;
 			donePending = false;
-			let again = false;
 			if (doneCheck && !exempt && e.reason === "answer") {
 				try {
-					again = await checkDone($, e, options.mode, doneThreshold);
+					if (await checkDone($, e, options.mode, doneThreshold)) {
+						$.prompt.submit({ text: DONE_PROMPT }).catch((err) => {
+							donePending = false;
+							void record($, {
+								kind: "error",
+								applied: false,
+								text: `done follow-up not sent: ${String(err)}`
+							}).catch(() => undefined);
+						});
+					}
 				} catch (err) {
 					await record($, {
 						kind: "error",
@@ -600,16 +594,6 @@ export const register = (on, options) => {
 						text: `done check failed: ${String(err)}`
 					}).catch(() => undefined);
 				}
-			}
-			if (again) {
-				$.prompt.submit({ text: DONE_PROMPT }).catch((err) => {
-					donePending = false;
-					void record($, {
-						kind: "error",
-						applied: false,
-						text: `done follow-up not sent: ${String(err)}`
-					}).catch(() => undefined);
-				});
 			}
 		}
 		return next(e);
@@ -833,6 +817,7 @@ export const register = (on, options) => {
 		if (answer) await recordCompare($, e.turnId, e.index, ctx.request, answer, candidates, result.toolUses, false);
 		return result;
 	});
+	let scratchpad;
 	on("tool.check", async function onToolCheck($, e, next) {
 		const base = await next(e);
 		if (e.tool_use_id && ownCalls.has(e.tool_use_id)) {
@@ -843,72 +828,63 @@ export const register = (on, options) => {
 				reason: "Jev pilot: vetted action from its read-only/project-script list"
 			};
 		}
-		if (!gate || !GATED.has(e.tool) || base.decision !== "allow" && base.decision !== "ask" || !e.tool_use_id) return base;
+		const input = e.input ?? {};
+		if (WRITE_TOOLS.has(e.tool) && base.decision !== "deny" && !(base.decision === "ask" && base.rule !== undefined)) {
+			if (await currentMode($, options.mode) !== "off") {
+				scratchpad ??= {
+					roots: [
+						await $.env.get("CLAUDE_CODE_TMPDIR"),
+						await $.env.get("TMPDIR"),
+						"/tmp"
+					].filter((r) => Boolean(r)),
+					sid: await $.session.id()
+				};
+				if (inScratchpad(asText(input.file_path ?? input.notebook_path ?? ""), scratchpad.sid, scratchpad.roots)) {
+					return {
+						...base,
+						decision: "allow",
+						reason: "jevfort: write inside this session's scratchpad"
+					};
+				}
+			}
+		}
+		if (!gate || e.tool !== "Bash" || base.decision !== "allow" && base.decision !== "ask" || !e.tool_use_id) return base;
 		const m = await currentMode($, options.mode);
 		if (m === "off") return base;
 		const ctx = await readTurn($, e.agentId);
-		const input = e.input ?? {};
 		const request = clip(ctx?.request ?? "", 3e3);
 		const cwd = await $.session.cwd();
-		let verdict;
-		if (e.tool === "Bash") {
-			const r = await askJev($, {
-				request,
-				command: asText(input.command ?? ""),
-				cwd
-			}, {
-				risk: bashRiskQuestion,
-				in_scope: inScopeQuestion("running the command in `command`")
-			});
-			if (!r.ok) return base;
-			const risk = score(r.answers, "risk");
-			const inScope = noul(r.answers, "in_scope");
-			verdict = gateBash(risk, inScope, gateThresholds);
-			await record($, {
-				kind: "gate",
-				applied: verdict !== undefined,
-				text: `${verdict?.decision ?? "allow"} Bash: ${clip(String(input.command), 50)}`,
-				ms: r.ms,
-				data: {
-					tool: "Bash",
-					target: clip(String(input.command), 200),
-					decision: verdict?.decision ?? "allow",
-					danger: risk?.probabilities["2"],
-					inScope
-				}
-			});
-		} else {
-			const change = clip(asText(input.new_string ?? input.content ?? input.new_source ?? ""), 1200);
-			const file = asText(input.file_path ?? input.notebook_path ?? "");
-			const r = await askJev($, {
-				request,
-				tool: e.tool,
-				file,
-				change,
-				cwd
-			}, { in_scope: inScopeQuestion("this change to the file in `file`") });
-			if (!r.ok) return base;
-			const inScope = noul(r.answers, "in_scope");
-			verdict = gateEdit(inScope, gateThresholds);
-			await record($, {
-				kind: "gate",
-				applied: verdict !== undefined,
-				text: `${verdict?.decision ?? "allow"} ${e.tool}: ${file}`,
-				ms: r.ms,
-				data: {
-					tool: e.tool,
-					target: file,
-					decision: verdict?.decision ?? "allow",
-					inScope
-				}
-			});
-		}
-		if (!verdict) return base;
-		const tighter = verdict.decision === "deny" || base.decision === "allow";
-		return tighter ? {
+		const r = await askJev($, {
+			request,
+			command: asText(input.command ?? ""),
+			cwd
+		}, {
+			risk: bashRiskQuestion,
+			in_scope: inScopeQuestion("running the command in `command`")
+		});
+		if (!r.ok) return base;
+		const risk = score(r.answers, "risk");
+		const inScope = noul(r.answers, "in_scope");
+		const denyReason = gateBash(risk, inScope, gateThresholds);
+		const decision = denyReason === undefined ? "allow" : "deny";
+		await record($, {
+			kind: "gate",
+			applied: denyReason !== undefined,
+			text: `${decision} Bash: ${clip(String(input.command), 50)}`,
+			ms: r.ms,
+			data: {
+				tool: "Bash",
+				target: clip(String(input.command), 200),
+				decision,
+				danger: risk?.probabilities["2"],
+				inScope
+			}
+		});
+		if (denyReason === undefined) return base;
+		return {
 			...base,
-			decision: verdict.decision,
-			reason: verdict.reason
-		} : base;
+			decision: "deny",
+			reason: denyReason
+		};
 	});
 };
