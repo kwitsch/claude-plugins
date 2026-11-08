@@ -1,0 +1,876 @@
+import { GENERAL, SWITCH_AT } from "./agents.mjs";
+import { absolute, AUTH_TOOL, bash, BUILTIN_COMMANDS, clipScript, coversStep, dedupeSkills, isSafeToOffer, MAX_READS, mentionedPaths, quotedTerms, relevant, SAFE_MAKE, SAFE_SCRIPT, sameCall, SKILL_BLOCKLIST_KEY } from "./candidates.mjs";
+import { compactInstructions, compactItems, RELEVANCE } from "./compact.mjs";
+import { clip, splitTurn, summarize, toolCalls } from "./context.mjs";
+import { choice, jevUrl, MODEL, noul, score, TIMEOUT_MS } from "./jev.mjs";
+import { LOG_KEY, MAX_ENTRIES, recentDecisions, remember, statsKey } from "./log.mjs";
+import { adjustEffort, bashRiskQuestion, bestAction, difficultyQuestion, doneQuestion, effortKeepsCache, gateBash, gateEdit, inScopeQuestion, lowerModel, nextActionQuestion, pickCandidate, route, shouldContinue, singleActionQuestion } from "./policy.mjs";
+import { hints, NONE, promptQuestions } from "./prompt.mjs";
+import { buildReport } from "./report.mjs";
+import { SUMMARY_MODEL, SYSTEM } from "./summarize.mjs";
+const MODES = ["active", "off"];
+const MAX_TAKES_PER_TURN = 3;
+const GATED = new Set([
+	"Bash",
+	"Edit",
+	"Write",
+	"NotebookEdit"
+]);
+const SINGLE_ACTION = .8;
+const asText = (v) => String(v);
+async function currentMode($, configured) {
+	const stored = await $.store.get("mode");
+	if (MODES.includes(stored)) return stored;
+	if (MODES.includes(configured)) return configured;
+	return "active";
+}
+async function askJev($, state, questions) {
+	const startedAt = await $.clock.now();
+	const done = async (r) => ({
+		...r,
+		ms: await $.clock.now() - startedAt
+	});
+	const key = await $.env.get("TYPESAFE_API_KEY");
+	if (!key) return done({
+		ok: false,
+		error: "TYPESAFE_API_KEY is not set"
+	});
+	const target = jevUrl(await $.env.get("JEV_URL"));
+	if (!target.ok) return done({
+		ok: false,
+		error: target.error
+	});
+	const request = $.http.fetch(target.url, {
+		method: "POST",
+		headers: {
+			Authorization: `Bearer ${key}`,
+			"Content-Type": "application/json"
+		},
+		body: JSON.stringify({
+			model: MODEL,
+			state,
+			questions
+		})
+	});
+	request.catch(() => undefined);
+	const timeout = $.clock.sleep(TIMEOUT_MS).then(() => undefined);
+	try {
+		const res = await Promise.race([request, timeout]);
+		if (!res) return done({
+			ok: false,
+			error: `timeout after ${TIMEOUT_MS}ms`
+		});
+		if (!res.ok) return done({
+			ok: false,
+			error: `HTTP ${res.status}`
+		});
+		const body = JSON.parse(res.text);
+		if (!body.answers) return done({
+			ok: false,
+			error: "response had no answers"
+		});
+		return done({
+			ok: true,
+			answers: body.answers
+		});
+	} catch (err) {
+		return done({
+			ok: false,
+			error: err instanceof Error ? err.message : String(err)
+		});
+	}
+}
+async function readLog($) {
+	return await $.store.get(LOG_KEY) ?? [];
+}
+async function stats($) {
+	return await $.store.get("stats") ?? {};
+}
+let storeQueue = Promise.resolve();
+async function record($, d) {
+	const entry = {
+		...d,
+		at: await $.clock.now()
+	};
+	remember(entry);
+	const run = storeQueue.then(async () => {
+		const log = await readLog($);
+		await $.store.set(LOG_KEY, [...log, entry].slice(-MAX_ENTRIES));
+		const tally = await stats($);
+		const key = statsKey(d);
+		await $.store.set("stats", {
+			...tally,
+			[key]: (tally[key] ?? 0) + 1
+		});
+	});
+	storeQueue = run.catch(() => undefined);
+	await run;
+	if (d.kind !== "outcome" && d.kind !== "turn") void $.ui.status(`jev: ${d.text}`.slice(0, 80));
+}
+async function clearLog($) {
+	await $.store.set(LOG_KEY, []);
+	await $.store.set("stats", {});
+}
+async function readTurn($, agentId) {
+	const messages = await $.session.messages(agentId ? { agentId } : {});
+	if (!Array.isArray(messages)) return undefined;
+	return splitTurn(messages);
+}
+async function previousReply($) {
+	const messages = await $.session.messages({}).catch(() => undefined);
+	if (!Array.isArray(messages)) return undefined;
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const m = messages[i];
+		if (m.role === "assistant" && m.text.trim()) return m.text.length > 800 ? `…${m.text.slice(-800)}` : m.text;
+	}
+	return undefined;
+}
+async function packageRunner($, cwd) {
+	for (const [file, runner] of [
+		["pnpm-lock.yaml", "pnpm"],
+		["yarn.lock", "yarn"],
+		["bun.lockb", "bun"],
+		["bun.lock", "bun"]
+	]) {
+		if (await $.fs.exists(`${cwd}/${file}`).catch(() => false)) return runner;
+	}
+	return "npm";
+}
+async function buildCandidates($, request, steps, calls, stepIndex) {
+	const cwd = await $.session.cwd();
+	const out = [];
+	const has = (file) => $.fs.exists(`${cwd}/${file}`).catch(() => false);
+	const texts = [
+		request,
+		...steps.map((m) => m.text),
+		...calls.map((c) => c.text ?? "")
+	];
+	const alreadyRead = new Set(calls.filter((c) => c.tool === "Read").map((c) => String(c.input.file_path)));
+	let reads = 0;
+	for (const p of mentionedPaths(texts)) {
+		if (reads >= MAX_READS) break;
+		if (p.startsWith("~")) continue;
+		const file = absolute(cwd, p);
+		if (alreadyRead.has(file) || !isSafeToOffer(file, cwd)) continue;
+		const stat = await $.fs.stat(file).catch(() => undefined);
+		if (stat?.kind !== "file" || stat.size > 2e6) continue;
+		out.push({
+			key: `read ${p}`,
+			description: `Read the file ${p}`,
+			tool: "Read",
+			input: { file_path: file }
+		});
+		reads += 1;
+	}
+	for (const term of quotedTerms(request)) {
+		out.push(bash(`grep -rnF --exclude-dir=node_modules --exclude-dir=.git -- '${term}' .`, `Search the project for the text "${term}"`));
+	}
+	if (await has(".git")) {
+		out.push(bash("git status --short && git diff --stat", "Show what changed: which files are modified, staged or untracked, with a per-file count of changed lines"));
+		out.push(bash("git diff", "Show the full line-by-line diff of unstaged changes"));
+		out.push(bash("git log --oneline -n 15", "Show the 15 most recent commits"));
+	}
+	const pkg = await $.fs.read(`${cwd}/package.json`).catch(() => undefined);
+	if (typeof pkg === "string") {
+		let scripts = {};
+		try {
+			scripts = JSON.parse(pkg).scripts ?? {};
+		} catch {}
+		const runner = await packageRunner($, cwd);
+		for (const name of Object.keys(scripts).filter((n) => SAFE_SCRIPT.test(n))) {
+			const command = name === "test" ? `${runner} test` : `${runner} run ${name}`;
+			out.push(bash(command, `Run the project's "${name}" script (${clipScript(scripts[name])})`));
+		}
+	}
+	const makefile = await $.fs.read(`${cwd}/Makefile`).catch(() => undefined);
+	if (typeof makefile === "string") {
+		const targets = new Set([...makefile.matchAll(/^([A-Za-z][\w-]*):(?!=)/gm)].map((m) => m[1]));
+		for (const t of [...targets].filter((t) => SAFE_MAKE.test(t))) out.push(bash(`make ${t}`, `Run the Makefile's "${t}" target`));
+	}
+	if (await has("Cargo.toml")) {
+		out.push(bash("cargo test", "Run the Rust tests"));
+		out.push(bash("cargo check", "Type-check the Rust project"));
+		out.push(bash("cargo clippy", "Lint the Rust project"));
+	}
+	if (await has("go.mod")) {
+		out.push(bash("go test ./...", "Run the Go tests"));
+		out.push(bash("go vet ./...", "Vet the Go code"));
+		out.push(bash("go build ./...", "Build the Go packages"));
+	}
+	if (await has("pytest.ini") || await has("conftest.py") || /\[tool\.pytest/.test(String(await $.fs.read(`${cwd}/pyproject.toml`).catch(() => "")))) {
+		out.push(bash("python -m pytest -q", "Run the Python tests"));
+	}
+	if (stepIndex === 0) {
+		const commands = await $.command.list().catch(() => []);
+		const blocked = new Set(await $.store.get(SKILL_BLOCKLIST_KEY).catch(() => undefined) ?? []);
+		const allSkills = dedupeSkills(commands.filter((c) => (c.source === "plugin" || c.source === "user") && c.name !== "jev" && !BUILTIN_COMMANDS.has(c.name) && !blocked.has(c.name)));
+		const skills = /\bskills?\b/i.test(request) ? allSkills : relevant(request, allSkills);
+		for (const c of skills) {
+			out.push({
+				key: `skill ${c.name}`,
+				description: `Use the skill or command "${c.name}": ${clipScript(c.description)}`,
+				tool: "Skill",
+				input: { skill: c.name }
+			});
+		}
+		const loaded = new Set(calls.filter((c) => c.tool === "ToolSearch").map((c) => String(c.input.query)));
+		const tools = (await $.tool.list().catch(() => [])).filter((t) => t.mcp && !AUTH_TOOL.test(t.name) && !loaded.has(`select:${t.name}`));
+		for (const t of relevant(request, tools)) {
+			out.push({
+				key: `load ${t.name}`,
+				description: `Load the tool ${t.name}: ${clipScript(t.description)}`,
+				tool: "ToolSearch",
+				input: {
+					query: `select:${t.name}`,
+					max_results: 1
+				}
+			});
+		}
+	}
+	return out.slice(0, 254);
+}
+async function summarizeResult($, request, action, output) {
+	const r = await $.model.complete({
+		model: SUMMARY_MODEL,
+		system: SYSTEM,
+		prompt: `Request: ${clip(request, 2e3)}\nAction: ${action}\nOutput:\n${clip(output, 12e3)}`,
+		maxTokens: 600,
+		timeoutMs: 2e4
+	});
+	if (!r.isAnswered) return {
+		ok: false,
+		reason: r.reason
+	};
+	const text = r.text.trim();
+	return text ? {
+		ok: true,
+		text,
+		usage: r.usage
+	} : {
+		ok: false,
+		reason: "empty-reply"
+	};
+}
+async function skillOptions($) {
+	const commands = await $.command.list().catch(() => []);
+	const blocked = new Set(await $.store.get(SKILL_BLOCKLIST_KEY).catch(() => undefined) ?? []);
+	const criteria = { [NONE]: "No listed skill is meant for this request" };
+	for (const c of commands) {
+		if ((c.source === "plugin" || c.source === "user") && c.name !== "jev" && !BUILTIN_COMMANDS.has(c.name) && !blocked.has(c.name)) criteria[c.name] = clip(c.description, 160);
+	}
+	return Object.keys(criteria).length > 1 ? criteria : undefined;
+}
+function summarizeCalls(calls) {
+	if (!calls.length) return "replied";
+	const parts = new Map();
+	for (const c of calls) {
+		const target = typeof c.input.file_path === "string" ? c.input.file_path.split("/").pop() : typeof c.input.command === "string" ? c.input.command.replace(/\s+/g, " ").slice(0, 30) : typeof c.input.skill === "string" ? c.input.skill : "";
+		const key = target ? `${c.tool} ${target}` : c.tool;
+		parts.set(key, (parts.get(key) ?? 0) + 1);
+	}
+	return [...parts].map(([k, n]) => n > 1 ? `${k} ×${n}` : k).join(", ");
+}
+async function recordCompare($, turnId, step, request, answer, candidates, toolUses, measured) {
+	const best = bestAction(answer);
+	const claudeCalls = toolUses.map((u) => ({
+		tool: u.name,
+		input: u.input ?? {}
+	}));
+	const bestCandidate = candidates.find((c) => c.key === best?.key);
+	const agree = Boolean(bestCandidate && coversStep(claudeCalls, bestCandidate));
+	const claudeUsedCandidate = claudeCalls.some((c) => candidates.some((k) => coversStep([c], k)));
+	const claudeSummary = summarizeCalls(claudeCalls);
+	await record($, {
+		kind: "compare",
+		applied: false,
+		text: `Claude: ${claudeSummary} · Jev best ${best?.key ?? "none"}${agree ? " ✓" : ""}`,
+		turnId,
+		data: {
+			request: clip(request, 120),
+			step,
+			measured,
+			claudeSummary,
+			pick: answer.choice,
+			best: best?.key,
+			bestP: best?.p,
+			claude: claudeCalls.map((c) => c.tool),
+			claudeCalls: claudeCalls.map((c) => clip(asText(c.input.command ?? c.input.file_path ?? c.input.skill ?? c.input.query ?? ""), 200)),
+			agree,
+			claudeUsedCandidate
+		}
+	});
+}
+async function blockSkill($, name) {
+	const list = await $.store.get(SKILL_BLOCKLIST_KEY) ?? [];
+	if (!list.includes(name)) await $.store.set(SKILL_BLOCKLIST_KEY, [...list, name]);
+}
+export const register = (on, options) => {
+	const routing = options.routing === "model" || options.routing === "off" ? options.routing : "effort";
+	const takeSteps = options.takeSteps !== false;
+	const gate = options.gate !== false;
+	const doneCheck = options.doneCheck !== false;
+	const takeThreshold = typeof options.takeThreshold === "number" ? options.takeThreshold : .85;
+	const subagents = options.subagents !== false;
+	const bypass = options.bypass !== false;
+	const takeOnlyForBypass = options.takeOnlyForBypass !== false;
+	const measureSteps = options.measureSteps !== false;
+	const threshold = (key, fallback) => {
+		const v = options[key];
+		return typeof v === "number" ? v : fallback;
+	};
+	const gateThresholds = {
+		dangerAsk: threshold("dangerAsk", .5),
+		dangerDeny: threshold("dangerDeny", .8),
+		scopeDeny: threshold("scopeDeny", .2),
+		editScope: threshold("editScope", .15)
+	};
+	const doneThreshold = threshold("doneThreshold", .15);
+	on("ui.render", {
+		component: "CommandOutput",
+		props: { command: "jev" }
+	}, function onRenderJev($, e, next) {
+		if (e.props.isErrored) return next(e);
+		const { Markdown } = $.ui.resolve(e);
+		return Markdown({ text: e.props.text });
+	});
+	if (options.classify !== false) {
+		on("prompt.submit", async function onPromptSubmit($, e, next) {
+			if (e.command || e.isMeta || e.text.trim().length < 3) return next(e);
+			const m = await currentMode($, options.mode);
+			if (m === "off") return next(e);
+			const questions = promptQuestions(await skillOptions($));
+			const previous = await previousReply($);
+			const r = await askJev($, {
+				request: clip(e.text, 3e3),
+				...previous ? { previous_reply: previous } : {}
+			}, questions);
+			if (!r.ok) return next(e);
+			const kind = choice(r.answers, "kind");
+			const needsPlan = noul(r.answers, "needs_plan");
+			const skillAnswer = choice(r.answers, "skill");
+			const skill = skillAnswer ? {
+				name: skillAnswer.choice,
+				p: skillAnswer.probabilities[skillAnswer.choice] ?? 0
+			} : undefined;
+			const added = hints(kind?.choice, needsPlan, skill, takeThreshold);
+			await record($, {
+				kind: "classify",
+				applied: added.length > 0,
+				text: `${kind?.choice ?? "?"}${needsPlan !== undefined ? `, plan ${needsPlan.toFixed(2)}` : ""}${skill && skill.name !== NONE ? `, skill ${skill.name} ${skill.p.toFixed(2)}` : ""}${added.length ? " → hint" : ""}`,
+				ms: r.ms,
+				data: {
+					request: clip(e.text, 120),
+					kind: kind?.choice,
+					kindP: kind?.confidence,
+					needsPlan,
+					skill: skill?.name,
+					skillP: skill?.p,
+					hints: added.length
+				}
+			});
+			if (!added.length) return next(e);
+			return next({
+				...e,
+				context: [...e.context ?? [], ...added]
+			});
+		});
+	}
+	if (options.agentTypes !== false) {
+		const offered = new Map();
+		on("agent.offer", function onAgentOffer($, e, next) {
+			offered.set(e.agent, e.description);
+			return next(e);
+		});
+		on("tool.call", { tool: "Agent" }, async function onAgentCall($, e, next) {
+			const m = await currentMode($, options.mode);
+			const claudeType = e.subagent_type ?? "";
+			if (m === "off" || offered.size < 2 || claudeType === "fork") return next(e);
+			const criteria = {};
+			for (const [name, description] of offered) criteria[name] = clip(description, 200);
+			const r = await askJev($, {
+				task: clip(e.prompt, 3e3),
+				description: e.description
+			}, { agent_type: {
+				type: "choice",
+				instructions: "Which agent type is best suited to carry out `task`?",
+				criteria
+			} });
+			if (!r.ok) return next(e);
+			const answer = choice(r.answers, "agent_type");
+			if (!answer) return next(e);
+			const p = answer.probabilities[answer.choice] ?? 0;
+			const canSwitch = GENERAL.has(claudeType) && !GENERAL.has(answer.choice) && p >= SWITCH_AT;
+			await record($, {
+				kind: "agent",
+				applied: canSwitch,
+				text: `Claude ${claudeType || "(default)"} · Jev ${answer.choice} p=${p.toFixed(2)}${canSwitch ? " → switched" : ""}`,
+				ms: r.ms,
+				data: {
+					claude: claudeType || "general-purpose",
+					jev: answer.choice,
+					p,
+					switched: canSwitch,
+					agree: answer.choice === (claudeType || "general-purpose")
+				}
+			});
+			return canSwitch ? next({
+				...e,
+				subagent_type: answer.choice
+			}) : next(e);
+		});
+	}
+	if (options.compaction !== false) {
+		on("session.compact", async function onCompact($, e, next) {
+			if (e.agentId || e.trigger !== "manual" && e.trigger !== "auto") return next(e);
+			const m = await currentMode($, options.mode);
+			if (m === "off") return next(e);
+			const items = compactItems(e.messages);
+			if (items.length < 3) return next(e);
+			const request = splitTurn(e.messages)?.request ?? "";
+			const questions = {};
+			items.forEach((it, i) => {
+				questions[`item_${i}`] = {
+					type: "score",
+					instructions: `How relevant is this earlier tool call and its result to continuing the work on \`request\`? Call: ${it.label}. Result: ${it.result || "(no output)"}`,
+					criteria: RELEVANCE
+				};
+			});
+			const r = await askJev($, {
+				request: clip(request, 2e3),
+				item_count: items.length
+			}, questions);
+			if (!r.ok) return next(e);
+			const scores = items.map((_, i) => score(r.answers, `item_${i}`)?.score);
+			const added = compactInstructions(items, scores);
+			const keep = scores.filter((s) => (s ?? 0) >= 2.2).length;
+			const drop = scores.filter((s) => s !== undefined && s < .8).length;
+			await record($, {
+				kind: "compact",
+				applied: added !== undefined,
+				text: `${e.trigger} compaction: ${items.length} results scored, keep ${keep}, drop ${drop}`,
+				ms: r.ms,
+				data: {
+					trigger: e.trigger,
+					items: items.length,
+					keep,
+					drop
+				}
+			});
+			if (!added) return next(e);
+			return next({
+				...e,
+				instructions: e.instructions ? `${e.instructions}\n\n${added}` : added
+			});
+		});
+	}
+	const turns = new Map();
+	const ownCalls = new Set();
+	on("session.start", async function onSessionStart($, e, next) {
+		await $.command.register({
+			name: "jev",
+			description: "Jev pilot: status, /jev report, /jev candidates, /jev export, /jev clear, or switch mode with /jev active|off"
+		});
+		return next(e);
+	});
+	on("command.run", { command: "jev" }, async function onJevCommand($, e) {
+		const arg = e.args.trim();
+		if (MODES.includes(arg)) {
+			await $.store.set("mode", arg);
+			return { text: `Jev pilot mode: ${arg}` };
+		}
+		if (arg === "report") {
+			return { text: buildReport(await readLog($), takeThreshold) };
+		}
+		if (arg === "candidates") {
+			const ctx = await readTurn($);
+			const calls = ctx ? toolCalls(ctx.steps) : [];
+			const list = await buildCandidates($, ctx?.request ?? "", ctx?.steps ?? [], calls, 0);
+			const kind = (c) => c.tool === "Skill" ? "Skills" : c.tool === "ToolSearch" ? "Tools to load" : c.tool === "Read" ? "File reads" : "Commands";
+			const groups = new Map();
+			for (const c of list) groups.set(kind(c), [...groups.get(kind(c)) ?? [], c]);
+			const sections = [...groups].map(([name, items]) => `### ${name} (${items.length})\n\n| Option | Description |\n|---|---|\n` + items.map((c) => `| \`${c.key.replace(/\|/g, "\\|")}\` | ${c.description.replace(/\|/g, "\\|").replace(/\s+/g, " ")} |`).join("\n"));
+			return { text: [
+				`## Jev candidates: ${list.length + 1} options`,
+				`_For the last prompt: "${clip(ctx?.request ?? "(none)", 60)}". Plus \`claude\`: leave the step to Claude._`,
+				...sections
+			].join("\n\n") };
+		}
+		if (arg === "clear") {
+			await clearLog($);
+			return { text: "Jev pilot: log cleared." };
+		}
+		if (arg === "export") {
+			const log = await readLog($);
+			const path = `${await $.session.cwd()}/.jev/decisions.jsonl`;
+			try {
+				await $.fs.write(path, log.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+				return { text: `Jev pilot: wrote ${log.length} entries to ${path}` };
+			} catch (err) {
+				return { text: `Jev pilot: could not write ${path}: ${err instanceof Error ? err.message : String(err)}` };
+			}
+		}
+		const counts = Object.entries(await stats($)).map(([k, v]) => `${k}=${v}`).join(", ") || "none yet";
+		const lines = recentDecisions().slice(-10).map((d) => `- ${d.kind}${d.applied ? "" : " (pass)"}: ${d.text}${d.ms !== undefined ? ` [${Math.round(d.ms)}ms]` : ""}`);
+		return { text: [
+			`Jev pilot: mode ${await currentMode($, options.mode)}, routing ${routing}, take steps ${takeSteps} (p ≥ ${takeThreshold}), gate ${gate}, done check ${doneCheck}, subagents ${subagents}`,
+			`Decisions (all sessions): ${counts}`,
+			lines.length ? `Recent:\n${lines.join("\n")}` : "No decisions this session yet.",
+			"Full analysis: /jev report"
+		].join("\n") };
+	});
+	on("turn.complete", async function onTurnComplete($, e, next) {
+		turns.delete(e.turnId);
+		if (e.reason === "aborted" || e.reason === "error") {
+			await record($, {
+				kind: "turn",
+				applied: false,
+				text: `turn ${e.reason}`,
+				turnId: e.turnId,
+				data: { reason: e.reason }
+			});
+		}
+		return next(e);
+	});
+	on("tool.call", async function onToolCall($, e, next) {
+		const result = await next(e);
+		if (e.tool_use_id && ownCalls.has(e.tool_use_id)) {
+			const isError = result.deny !== undefined || result.isError === true;
+			ownCalls.delete(e.tool_use_id);
+			await record($, {
+				kind: "outcome",
+				applied: true,
+				text: `${e.tool} ${isError ? "failed" : "ok"}`,
+				data: {
+					id: e.tool_use_id,
+					isError
+				}
+			});
+			const skill = e.skill;
+			if (isError && e.tool === "Skill" && typeof skill === "string") await blockSkill($, skill);
+		}
+		return result;
+	});
+	on("turn.step", async function* onTurnStep($, e, next) {
+		const m = await currentMode($, options.mode);
+		if (m === "off" || e.agentId && !subagents) return yield* next(e);
+		const turn = turns.get(e.turnId) ?? { taken: 0 };
+		turns.set(e.turnId, turn);
+		const ctx = await readTurn($, e.agentId);
+		if (!ctx) return yield* next(e);
+		const calls = toolCalls(ctx.steps);
+		const last = calls.at(-1);
+		if (turn.bypassId && e.index > 0) {
+			const id = turn.bypassId;
+			turn.bypassId = undefined;
+			const done = calls.find((c) => c.tool_use_id === id);
+			if (done?.text !== undefined) {
+				const s = await summarizeResult($, ctx.request, turn.bypassAction ?? done.tool, done.text);
+				await record($, {
+					kind: "bypass",
+					applied: s.ok,
+					text: s.ok ? `answered with ${SUMMARY_MODEL} after ${turn.bypassAction}` : `summary failed (${s.reason}), Claude answers`,
+					turnId: e.turnId,
+					data: {
+						action: turn.bypassAction,
+						model: SUMMARY_MODEL,
+						...s.ok ? { usage: s.usage } : { reason: s.reason }
+					}
+				});
+				if (s.ok) {
+					const usage = {
+						...s.usage,
+						model: SUMMARY_MODEL
+					};
+					yield {
+						kind: "text",
+						index: 0,
+						text: s.text
+					};
+					yield {
+						kind: "stop",
+						stopReason: "end_turn",
+						usage
+					};
+					return {
+						turnId: e.turnId,
+						index: e.index,
+						answer: s.text,
+						toolUses: [],
+						stopReason: "end_turn",
+						usage
+					};
+				}
+			}
+		}
+		const questions = {};
+		let candidates = [];
+		if (takeSteps && turn.taken < MAX_TAKES_PER_TURN && (!takeOnlyForBypass || bypass && e.index === 0 && !e.agentId)) {
+			candidates = (await buildCandidates($, ctx.request, ctx.steps, calls, e.index)).filter((c) => !(last && sameCall(last, {
+				tool: c.tool,
+				input: c.input
+			})));
+			if (candidates.length) questions.next_action = nextActionQuestion(candidates);
+		}
+		if (routing !== "off" && e.index === 0) questions.difficulty = difficultyQuestion;
+		if (bypass && e.index === 0 && questions.next_action && !e.agentId) questions.single_action = singleActionQuestion;
+		const routed = (step) => {
+			if (!turn.route) return step;
+			const effort = effortKeepsCache(step.model) ? adjustEffort(step.effort, turn.route.effort) : undefined;
+			const model = lowerModel(step.model, turn.route.model);
+			return effort || model ? {
+				...step,
+				...effort ? { effort } : {},
+				...model ? { model } : {}
+			} : step;
+		};
+		if (!Object.keys(questions).length) {
+			let measure;
+			let measured = [];
+			if (measureSteps && takeSteps && e.index > 0 && !e.agentId) {
+				measured = (await buildCandidates($, ctx.request, ctx.steps, calls, e.index)).filter((c) => !(last && sameCall(last, {
+					tool: c.tool,
+					input: c.input
+				})));
+				if (measured.length) {
+					measure = askJev($, {
+						request: clip(ctx.request, 4e3),
+						recent: summarize(ctx.steps),
+						cwd: await $.session.cwd()
+					}, { next_action: nextActionQuestion(measured) });
+				}
+			}
+			const claudeResult = yield* next(routed(e));
+			const measureResult = await measure;
+			const measureAnswer = measureResult?.ok ? choice(measureResult.answers, "next_action") : undefined;
+			if (measureAnswer) await recordCompare($, e.turnId, e.index, ctx.request, measureAnswer, measured, claudeResult.toolUses, true);
+			return claudeResult;
+		}
+		const previous = e.index === 0 && !e.agentId ? await previousReply($) : undefined;
+		const state = {
+			request: clip(ctx.request, 4e3),
+			...previous ? { previous_reply: previous } : {},
+			recent: summarize(ctx.steps),
+			cwd: await $.session.cwd()
+		};
+		const r = await askJev($, state, questions);
+		if (!r.ok) {
+			await record($, {
+				kind: "error",
+				applied: false,
+				text: `unavailable: ${r.error}`,
+				ms: r.ms,
+				turnId: e.turnId
+			});
+			return yield* next(e);
+		}
+		if (questions.difficulty) {
+			const difficulty = score(r.answers, "difficulty");
+			turn.route = route(difficulty, routing === "model" ? "model" : "effort");
+			const effort = effortKeepsCache(e.model) ? adjustEffort(e.effort, turn.route?.effort) : undefined;
+			const model = lowerModel(e.model, turn.route?.model);
+			const raised = effort === "high";
+			const lowered = Boolean(effort && !raised || model);
+			await record($, {
+				kind: "route",
+				applied: lowered || raised,
+				text: `difficulty ${(difficulty?.score ?? 0).toFixed(2)} → ${lowered || raised ? `${model ?? e.model}, effort ${effort ?? String(e.effort)}` : effortKeepsCache(e.model) ? "no change" : `no change (effort is left alone on ${e.model})`}`,
+				ms: r.ms,
+				turnId: e.turnId,
+				data: {
+					score: difficulty?.score,
+					confidence: difficulty?.confidence,
+					effort,
+					model,
+					lowered,
+					raised
+				}
+			});
+		}
+		const answer = choice(r.answers, "next_action");
+		const best = bestAction(answer);
+		const singleAction = noul(r.answers, "single_action") ?? 0;
+		const pick = takeOnlyForBypass && singleAction < SINGLE_ACTION ? undefined : pickCandidate(answer, candidates, takeThreshold);
+		if (answer) {
+			const p = answer.probabilities[answer.choice] ?? 0;
+			await record($, {
+				kind: "take",
+				applied: pick !== undefined,
+				text: `${answer.choice} (p=${p.toFixed(2)})${pick ? "" : best ? `; best action ${best.key} p=${best.p.toFixed(2)}` : ""}`,
+				ms: r.ms,
+				turnId: e.turnId,
+				data: {
+					pick: answer.choice,
+					p,
+					best: best?.key,
+					bestP: best?.p,
+					candidates: candidates.length,
+					threshold: takeThreshold,
+					singleAction: noul(r.answers, "single_action"),
+					agentId: e.agentId
+				}
+			});
+		}
+		if (pick) {
+			turn.taken += 1;
+			const id = `toolu_jev_${crypto.randomUUID().replace(/-/g, "")}`;
+			ownCalls.add(id);
+			if (singleAction >= SINGLE_ACTION) {
+				turn.bypassId = id;
+				turn.bypassAction = pick.key;
+			}
+			yield {
+				kind: "tool",
+				index: 0,
+				id,
+				name: pick.tool
+			};
+			yield {
+				kind: "input",
+				index: 0,
+				json: JSON.stringify(pick.input)
+			};
+			yield {
+				kind: "stop",
+				stopReason: "tool_use",
+				usage: null
+			};
+			return {
+				turnId: e.turnId,
+				index: e.index,
+				answer: "",
+				toolUses: [{
+					name: pick.tool,
+					input: pick.input
+				}],
+				stopReason: "tool_use",
+				usage: null
+			};
+		}
+		const result = yield* next(routed(e));
+		if (answer) await recordCompare($, e.turnId, e.index, ctx.request, answer, candidates, result.toolUses, false);
+		return result;
+	});
+	on("tool.check", async function onToolCheck($, e, next) {
+		const base = await next(e);
+		if (e.tool_use_id && ownCalls.has(e.tool_use_id)) {
+			if (base.decision === "deny") return base;
+			return {
+				...base,
+				decision: "allow",
+				reason: "Jev pilot: vetted action from its read-only/project-script list"
+			};
+		}
+		if (!gate || !GATED.has(e.tool) || base.decision !== "allow" && base.decision !== "ask" || !e.tool_use_id) return base;
+		const m = await currentMode($, options.mode);
+		if (m === "off") return base;
+		const ctx = await readTurn($, e.agentId);
+		const input = e.input ?? {};
+		const request = clip(ctx?.request ?? "", 3e3);
+		const cwd = await $.session.cwd();
+		let verdict;
+		if (e.tool === "Bash") {
+			const r = await askJev($, {
+				request,
+				command: asText(input.command ?? ""),
+				cwd
+			}, {
+				risk: bashRiskQuestion,
+				in_scope: inScopeQuestion("running the command in `command`")
+			});
+			if (!r.ok) return base;
+			const risk = score(r.answers, "risk");
+			const inScope = noul(r.answers, "in_scope");
+			verdict = gateBash(risk, inScope, gateThresholds);
+			await record($, {
+				kind: "gate",
+				applied: verdict !== undefined,
+				text: `${verdict?.decision ?? "allow"} Bash: ${clip(String(input.command), 50)}`,
+				ms: r.ms,
+				data: {
+					tool: "Bash",
+					target: clip(String(input.command), 200),
+					decision: verdict?.decision ?? "allow",
+					danger: risk?.probabilities["2"],
+					inScope
+				}
+			});
+		} else {
+			const change = clip(asText(input.new_string ?? input.content ?? input.new_source ?? ""), 1200);
+			const file = asText(input.file_path ?? input.notebook_path ?? "");
+			const r = await askJev($, {
+				request,
+				tool: e.tool,
+				file,
+				change,
+				cwd
+			}, { in_scope: inScopeQuestion("this change to the file in `file`") });
+			if (!r.ok) return base;
+			const inScope = noul(r.answers, "in_scope");
+			verdict = gateEdit(inScope, gateThresholds);
+			await record($, {
+				kind: "gate",
+				applied: verdict !== undefined,
+				text: `${verdict?.decision ?? "allow"} ${e.tool}: ${file}`,
+				ms: r.ms,
+				data: {
+					tool: e.tool,
+					target: file,
+					decision: verdict?.decision ?? "allow",
+					inScope
+				}
+			});
+		}
+		if (!verdict) return base;
+		const tighter = verdict.decision === "deny" || base.decision === "allow";
+		return tighter ? {
+			...base,
+			decision: verdict.decision,
+			reason: verdict.reason
+		} : base;
+	});
+	on("classic.Stop", async function onStop($, e, next) {
+		if (!doneCheck || e.stop_hook_active) return next(e);
+		const m = await currentMode($, options.mode);
+		if (m === "off") return next(e);
+		const waitingOn = e.background_tasks?.length ?? 0;
+		if (waitingOn > 0) {
+			await record($, {
+				kind: "done",
+				applied: false,
+				text: `skipped: waiting on ${waitingOn} background task(s)`,
+				data: {
+					skipped: "background",
+					continued: false
+				}
+			});
+			return next(e);
+		}
+		const ctx = await readTurn($);
+		if (!ctx) return next(e);
+		const r = await askJev($, {
+			request: clip(ctx.request, 3e3),
+			final_message: clip(e.last_assistant_message ?? "", 2e3),
+			recent: summarize(ctx.steps)
+		}, { done: doneQuestion });
+		if (!r.ok) return next(e);
+		const done = noul(r.answers, "done");
+		const unfinished = shouldContinue(done, doneThreshold);
+		await record($, {
+			kind: "done",
+			applied: unfinished,
+			text: unfinished ? `not finished (p=${(done ?? 0).toFixed(2)}), continuing` : `finished (p=${(done ?? 0).toFixed(2)})`,
+			ms: r.ms,
+			data: {
+				p: done,
+				continued: unfinished
+			}
+		});
+		if (!unfinished) return next(e);
+		const below = await next(e);
+		if (below.block) return below;
+		return {
+			...below,
+			block: "Jev: the user's request doesn't look finished yet. Continue with what remains. If it is actually complete, say so in one line."
+		};
+	});
+};

@@ -1,0 +1,134 @@
+{
+  "name": "jevfort",
+  "version": "0.1.0",
+  "description": "Lets TypeSafe Jev take routine steps, route effort, gate risky calls and check that work is done (port of nim-f/jev-pilot; endpoint from JEV_URL).",
+  "author": {
+    "name": "Kwitsch"
+  },
+  "keywords": [
+    "mods",
+    "hooks",
+    "typesafe",
+    "jev",
+    "effort"
+  ],
+  "userConfig": {
+    "mode": {
+      "type": "string",
+      "title": "Mode",
+      "description": "active applies Jev's decisions, off disables the mod.",
+      "options": [
+        "active",
+        "off"
+      ],
+      "default": "active"
+    },
+    "routing": {
+      "type": "string",
+      "title": "Routing",
+      "description": "Per-turn routing by difficulty: lower effort, also switch to a cheaper model, or off.",
+      "options": [
+        "effort",
+        "model",
+        "off"
+      ],
+      "default": "effort"
+    },
+    "takeSteps": {
+      "type": "boolean",
+      "title": "Take steps",
+      "description": "Let Jev make routine tool calls (Read, git, project scripts) instead of Claude.",
+      "default": true
+    },
+    "gate": {
+      "type": "boolean",
+      "title": "Gate",
+      "description": "Let Jev tighten permissions on risky or out-of-scope Bash and edits.",
+      "default": true
+    },
+    "doneCheck": {
+      "type": "boolean",
+      "title": "Done check",
+      "description": "Let Jev send Claude back once when a request looks unfinished.",
+      "default": true
+    },
+    "takeThreshold": {
+      "type": "number",
+      "title": "Take threshold",
+      "description": "Minimum probability for Jev to take a step itself.",
+      "default": 0.85
+    },
+    "subagents": {
+      "type": "boolean",
+      "title": "Subagents",
+      "description": "Also take steps and route effort inside subagent loops.",
+      "default": true
+    },
+    "dangerAsk": {
+      "type": "number",
+      "title": "Gate: ask at",
+      "description": "Ask before a Bash command when its probability of being dangerous is at least this.",
+      "default": 0.5
+    },
+    "dangerDeny": {
+      "type": "number",
+      "title": "Gate: deny at",
+      "description": "Deny a dangerous Bash command (this probability or more) when it is also out of scope.",
+      "default": 0.8
+    },
+    "scopeDeny": {
+      "type": "number",
+      "title": "Gate: out of scope below",
+      "description": "A Bash command counts as out of scope below this in-scope probability.",
+      "default": 0.2
+    },
+    "editScope": {
+      "type": "number",
+      "title": "Gate: edit scope below",
+      "description": "Ask before an edit whose in-scope probability is below this.",
+      "default": 0.15
+    },
+    "doneThreshold": {
+      "type": "number",
+      "title": "Done check: unfinished below",
+      "description": "Send Claude back when the probability that the work is finished is below this.",
+      "default": 0.15
+    },
+    "bypass": {
+      "type": "boolean",
+      "title": "Answer simple prompts without Claude",
+      "description": "When a prompt only needs one read-only action Jev takes (run the tests, git status, read a file), a small model reports the result and the main Claude model is skipped.",
+      "default": true
+    },
+    "classify": {
+      "type": "boolean",
+      "title": "Classify prompts",
+      "description": "Classify each prompt and add a hint Claude reads when a skill fits or the change needs a plan first.",
+      "default": true
+    },
+    "agentTypes": {
+      "type": "boolean",
+      "title": "Pick subagent types",
+      "description": "Let Jev switch a general-purpose subagent to a specialised type when it is confident.",
+      "default": true
+    },
+    "compaction": {
+      "type": "boolean",
+      "title": "Guide compaction",
+      "description": "Before a compaction, tell the summarizer which earlier tool results to keep in detail.",
+      "default": true
+    },
+    "takeOnlyForBypass": {
+      "type": "boolean",
+      "title": "Take steps only for whole-turn answers",
+      "description": "Jev takes a step only when the whole prompt is one read-only action it can answer without Claude. Off: Jev may also take routine steps inside longer turns (measured to add turns without saving cost).",
+      "default": true
+    },
+    "measureSteps": {
+      "type": "boolean",
+      "title": "Measure steps inside a turn",
+      "description": "While Claude takes a step inside a longer turn, ask Jev in parallel which listed action it would take, and log whether it matches. Adds no delay; costs one Jev request per step. Never takes the step.",
+      "default": true
+    }
+  }
+}
