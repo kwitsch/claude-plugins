@@ -19,6 +19,7 @@
     "plugins/dprint",
     "plugins/inline-headroom",
     "plugins/universal-lint",
+    "plugins/jevfort",
     "plugins/universal-format/mcp/server.mjs"
   ],
   "plugins": [
