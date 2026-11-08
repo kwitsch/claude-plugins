@@ -95,6 +95,12 @@
       "source": "./plugins/dprint",
       "category": "development",
       "tags": ["dprint", "formatter", "installer"]
+    },
+    {
+      "name": "jevfort",
+      "source": "./plugins/jevfort",
+      "category": "productivity",
+      "tags": ["mods", "hooks", "typesafe", "jev", "effort"]
     }
   ]
 }
