@@ -1,19 +1,31 @@
 #!/usr/bin/env node
-import { execFileSync, spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { accessSync, constants as fsConstants, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { execFileSync, spawn } from "node:child_process";
+import { accessSync, constants as fsConstants, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { availableParallelism, homedir, tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { json } from "node:stream/consumers";
+import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+function createHash(algorithm) {
+	return (process.getBuiltinModule?.("node:crypto") ?? createRequire(import.meta.url)("node:crypto")).createHash(algorithm);
+}
 const SPAWN_TIMEOUT_MS = 3e4;
 const NPX_SPAWN_TIMEOUT_MS = 55e3;
+const NPX_REFRESH_MS = 24 * 60 * 60 * 1e3;
+const PROBE_MISS_TTL_MS = 10 * 60 * 1e3;
 const MAX_CONTEXT_CHARS = 4e3;
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 const TSC_SPAWN_TIMEOUT_MS = 45e3;
 const CARGO_SPAWN_TIMEOUT_MS = 45e3;
+const KILL_GRACE_MS = 1e3;
+const BATCH_MAX_FILES = 100;
 export const WATCH_LIMIT = 5e3;
 const GIT_TIMEOUT_MS = 1e4;
+const HOOK_TIMEOUT_MS = 9e4;
+const FILE_CHANGED_BUDGET_MS = HOOK_TIMEOUT_MS - 5e3;
+export const FILE_CHANGED_SLOTS = Math.max(2, Math.floor(availableParallelism() / 4));
 const TYPE_CHECK_EXTS = new Set([
 	".ts",
 	".tsx",
@@ -90,7 +102,7 @@ export const REGISTRY = {
 	}] },
 	markdown: { chain: [{
 		name: "markdownlint-cli2",
-		args: [],
+		args: ["--no-globs"],
 		npmSpec: "markdownlint-cli2",
 		guardMarkdownLineLength: true
 	}, {
@@ -130,38 +142,264 @@ export const REGISTRY = {
 	}] }
 };
 const probeCache = new Map();
+let probeStore = null;
+function probeFilePath() {
+	return path.resolve(process.env.CLAUDE_PLUGIN_DATA || tmpdir(), `probe-${hashPath(process.env.PATH || "")}.json`);
+}
+function loadProbeStore(file) {
+	const isObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+	try {
+		const s = JSON.parse(readFileSync(file, "utf8"));
+		if (isObject(s) && isObject(s?.hits) && isObject(s?.misses)) return s;
+	} catch {}
+	return {
+		hits: {},
+		misses: {}
+	};
+}
+function saveProbeStore(file, store) {
+	try {
+		mkdirSync(path.dirname(file), { recursive: true });
+		const tmp = `${file}.${process.pid}.tmp`;
+		writeFileSync(tmp, JSON.stringify(store));
+		renameSync(tmp, file);
+	} catch {}
+}
 function onPath(tool) {
 	const cached = probeCache.get(tool);
 	if (cached !== undefined) return cached;
-	let found = false;
+	const file = probeFilePath();
+	probeStore ??= loadProbeStore(file);
+	const known = probeStore.hits[tool];
+	if (typeof known === "string" && path.isAbsolute(known)) {
+		try {
+			accessSync(path.join(known, tool), fsConstants.X_OK);
+			probeCache.set(tool, true);
+			return true;
+		} catch {}
+	}
+	const at = probeStore.misses[tool];
+	if (typeof at === "number") {
+		const age = Date.now() - at;
+		if (age >= 0 && age < PROBE_MISS_TTL_MS) {
+			probeCache.set(tool, false);
+			return false;
+		}
+	}
+	let foundDir = null;
 	for (const dir of (process.env.PATH || "").split(path.delimiter)) {
 		if (!dir) continue;
 		try {
 			accessSync(path.join(dir, tool), fsConstants.X_OK);
-			found = true;
+			foundDir = dir;
 			break;
 		} catch {}
 	}
+	if (foundDir === null || path.isAbsolute(foundDir)) {
+		Reflect.deleteProperty(probeStore.hits, tool);
+		Reflect.deleteProperty(probeStore.misses, tool);
+		if (foundDir === null) probeStore.misses[tool] = Date.now();
+		else probeStore.hits[tool] = foundDir;
+		saveProbeStore(file, probeStore);
+	}
+	const found = foundDir !== null;
 	probeCache.set(tool, found);
 	return found;
 }
 export function isToolAvailable(tool, toolOnPath, npxOnPath) {
 	return toolOnPath || !!tool.npmSpec && npxOnPath;
 }
-function runLintTool(tool, argv, spawnOpts) {
-	if (tool.npmSpec && !onPath(tool.name)) {
-		return spawnSync("npx", [
-			"--yes",
-			tool.npmSpec,
-			...argv
-		], {
+const GROUP_KILL_SIGNALS = [
+	"SIGTERM",
+	"SIGINT",
+	"SIGHUP"
+];
+const liveGroups = new Set();
+let groupSignalHandlerInstalled = false;
+function killGroup(pgid, sig) {
+	try {
+		process.kill(-pgid, sig);
+	} catch {}
+}
+function installSignalHandler() {
+	if (groupSignalHandlerInstalled) return;
+	groupSignalHandlerInstalled = true;
+	const onSignal = (sig) => {
+		for (const pgid of liveGroups) killGroup(pgid, "SIGKILL");
+		liveGroups.clear();
+		for (const s of GROUP_KILL_SIGNALS) process.removeListener(s, onSignal);
+		process.kill(process.pid, sig);
+	};
+	for (const s of GROUP_KILL_SIGNALS) process.on(s, onSignal);
+}
+export function spawnGroup(cmd, argv, opts) {
+	installSignalHandler();
+	const maxBuffer = opts.maxBuffer ?? MAX_BUFFER_BYTES;
+	const timeout = opts.timeout ?? SPAWN_TIMEOUT_MS;
+	return new Promise((resolve) => {
+		let error;
+		let done = false;
+		let killTimer;
+		let child;
+		try {
+			child = spawn(cmd, [...argv], {
+				cwd: opts.cwd,
+				env: opts.env,
+				stdio: [
+					"ignore",
+					"pipe",
+					"pipe"
+				],
+				detached: true
+			});
+		} catch (e) {
+			error = e instanceof Error ? e : new Error(String(e));
+			resolve({
+				pid: 0,
+				output: [
+					null,
+					"",
+					""
+				],
+				stdout: "",
+				stderr: "",
+				status: null,
+				signal: null,
+				error
+			});
+			return;
+		}
+		const pid = child.pid;
+		if (pid !== undefined) liveGroups.add(pid);
+		const kill = () => {
+			if (pid === undefined || killTimer) return;
+			killGroup(pid, "SIGTERM");
+			killTimer = setTimeout(() => killGroup(pid, "SIGKILL"), KILL_GRACE_MS);
+		};
+		const fail = (code) => {
+			error ??= Object.assign(new Error(`spawnGroup ${cmd}: ${code}`), { code });
+			kill();
+		};
+		const timer = setTimeout(() => fail("ETIMEDOUT"), timeout);
+		const out = [];
+		const err = [];
+		const collect = (chunks) => {
+			let total = 0;
+			return (chunk) => {
+				if (total > maxBuffer) return;
+				total += chunk.length;
+				if (total > maxBuffer) fail("ENOBUFS");
+				else chunks.push(chunk);
+			};
+		};
+		child.stdout?.on("data", collect(out));
+		child.stderr?.on("data", collect(err));
+		const finish = (status, signal, stdout, stderr) => {
+			if (done) return;
+			done = true;
+			clearTimeout(timer);
+			if (killTimer) clearTimeout(killTimer);
+			if (pid !== undefined) liveGroups.delete(pid);
+			resolve({
+				pid: pid ?? 0,
+				output: [
+					null,
+					stdout,
+					stderr
+				],
+				stdout,
+				stderr,
+				status,
+				signal,
+				error
+			});
+		};
+		child.on("error", (e) => {
+			error = e;
+			finish(null, null, "", "");
+		});
+		child.on("close", (status, signal) => finish(status, signal, Buffer.concat(out).toString("utf8"), Buffer.concat(err).toString("utf8")));
+	});
+}
+async function spawnBin(bin, argv, spawnOpts) {
+	const PATH = process.env.PATH ? path.dirname(bin) + path.delimiter + process.env.PATH : path.dirname(bin);
+	const result = await spawnGroup(bin, argv, {
+		...spawnOpts,
+		env: {
+			...process.env,
+			PATH
+		}
+	});
+	const code = result.error && "code" in result.error ? result.error.code : undefined;
+	return code === "ENOENT" || code === "EACCES" ? null : result;
+}
+async function runNpx(name, npmSpec, argv, spawnOpts) {
+	const npx = () => spawnGroup("npx", [
+		"--yes",
+		npmSpec,
+		...argv
+	], {
+		...spawnOpts,
+		timeout: NPX_SPAWN_TIMEOUT_MS,
+		env: {
+			...spawnOpts.env ?? process.env,
+			npm_config_update_notifier: "false",
+			npm_config_fund: "false",
+			npm_config_audit: "false"
+		}
+	});
+	const rel = path.join("node_modules", ".bin", name);
+	if (walkToRoot(String(spawnOpts.cwd), (d) => configExists(d, rel))) return npx();
+	const key = createHash("sha512").update(npmSpec).digest("hex").slice(0, 16);
+	const dir = path.join(process.env.npm_config_cache || process.env.NPM_CONFIG_CACHE || path.join(homedir(), ".npm"), "_npx", key);
+	const stamp = path.resolve(process.env.CLAUDE_PLUGIN_DATA || tmpdir(), `npx-refreshed-${key}`);
+	let fresh = false;
+	try {
+		const age = Date.now() - lstatSync(stamp).mtimeMs;
+		fresh = age >= 0 && age < NPX_REFRESH_MS;
+	} catch {}
+	if (fresh && !existsSync(path.join(dir, "concurrency.lock"))) {
+		const cached = await spawnBin(path.join(dir, rel), argv, {
 			...spawnOpts,
 			timeout: NPX_SPAWN_TIMEOUT_MS
 		});
+		if (cached) return cached;
 	}
+	const result = await npx();
+	if (!result.error) {
+		try {
+			mkdirSync(path.dirname(stamp), { recursive: true });
+			writeFileSync(stamp, "");
+		} catch {}
+	}
+	return result;
+}
+async function runLintTool(tool, argv, spawnOpts, local) {
+	const viaLocal = local ? await spawnBin(local, argv, spawnOpts) : null;
+	if (viaLocal) return viaLocal;
+	if (tool.npmSpec && !onPath(tool.name)) return runNpx(tool.name, tool.npmSpec, argv, spawnOpts);
 	const spawnName = tool.spawnAs?.name ?? tool.name;
 	const spawnArgv = tool.spawnAs ? [...tool.spawnAs.args, ...argv] : argv;
-	return spawnSync(spawnName, spawnArgv, spawnOpts);
+	return spawnGroup(spawnName, spawnArgv, spawnOpts);
+}
+const dirEntries = new Map();
+export function configExists(dir, name, prefilter = dir.startsWith("/mnt/")) {
+	if (prefilter) {
+		let names = dirEntries.get(dir);
+		if (names === undefined) {
+			try {
+				names = new Set(readdirSync(dir).map((n) => n.toUpperCase()));
+			} catch {
+				names = null;
+			}
+			dirEntries.set(dir, names);
+		}
+		if (names && !names.has(name.split("/", 1)[0].toUpperCase())) return false;
+	}
+	return existsSync(path.join(dir, name));
+}
+function anyConfigExists(dir, names) {
+	return names.some((n) => configExists(dir, n));
 }
 function walkUpToCwd(fileDir, cwd, checkDir) {
 	let dir = fileDir;
@@ -175,6 +413,10 @@ function walkUpToCwd(fileDir, cwd, checkDir) {
 	}
 	return null;
 }
+function localBin(name, fileDir, cwd) {
+	const rel = path.join("node_modules", ".bin", name);
+	return walkUpToCwd(fileDir, cwd, (dir) => !outside(path.relative(cwd, dir)) && configExists(dir, rel) ? path.join(dir, rel) : null);
+}
 export function resolveCheckstyleConfig(fileDir, cwd) {
 	const candidates = [
 		"checkstyle.xml",
@@ -183,8 +425,7 @@ export function resolveCheckstyleConfig(fileDir, cwd) {
 	];
 	return walkUpToCwd(fileDir, cwd, (dir) => {
 		for (const rel of candidates) {
-			const p = path.join(dir, rel);
-			if (existsSync(p)) return p;
+			if (configExists(dir, rel)) return path.join(dir, rel);
 		}
 		return null;
 	});
@@ -192,13 +433,13 @@ export function resolveCheckstyleConfig(fileDir, cwd) {
 export function resolveCargoManifest(fileDir, cwd) {
 	return walkUpToCwd(fileDir, cwd, (dir) => {
 		const p = path.join(dir, "Cargo.toml");
-		return existsSync(p) ? p : null;
+		return configExists(dir, "Cargo.toml") ? p : null;
 	});
 }
 export function resolveTsconfig(fileDir, cwd) {
 	return walkUpToCwd(fileDir, cwd, (dir) => {
 		const p = path.join(dir, "tsconfig.json");
-		if (!existsSync(p)) return null;
+		if (!configExists(dir, "tsconfig.json")) return null;
 		let text;
 		try {
 			text = readFileSync(p, "utf8");
@@ -230,8 +471,7 @@ const OXLINT_CONFIG_FILENAMES = [
 export function resolveOxlintConfig(fileDir, cwd) {
 	const hit = walkUpToCwd(fileDir, cwd, (dir) => {
 		for (const n of [...OXLINT_CONFIG_FILENAMES, ...ESLINT_CONFIG_FILENAMES]) {
-			const p = path.join(dir, n);
-			if (existsSync(p)) return p;
+			if (configExists(dir, n)) return path.join(dir, n);
 		}
 		return null;
 	});
@@ -342,7 +582,7 @@ export function hasProjectYamllintConfig(cwd) {
 	let dir = path.resolve(cwd);
 	const home = path.resolve(homedir());
 	for (;;) {
-		if (YAMLLINT_CONFIG_FILENAMES.some((name) => existsSync(path.join(dir, name)))) return true;
+		if (anyConfigExists(dir, YAMLLINT_CONFIG_FILENAMES)) return true;
 		if (dir === home) return false;
 		const parent = path.dirname(dir);
 		if (parent === dir) return false;
@@ -371,7 +611,44 @@ function walkToRoot(dir, checkDir) {
 	}
 }
 export function hasProjectMarkdownlintConfig(fileDir) {
-	return walkToRoot(fileDir, (dir) => MARKDOWNLINT_CONFIG_FILENAMES.some((name) => existsSync(path.join(dir, name))));
+	return walkToRoot(fileDir, (dir) => anyConfigExists(dir, MARKDOWNLINT_CONFIG_FILENAMES));
+}
+const STYLELINT_CONFIG_FILENAMES = [
+	".stylelintrc",
+	".stylelintrc.json",
+	".stylelintrc.yaml",
+	".stylelintrc.yml",
+	".stylelintrc.js",
+	".stylelintrc.ts",
+	".stylelintrc.cjs",
+	".stylelintrc.mjs",
+	".config/stylelintrc",
+	".config/stylelintrc.json",
+	".config/stylelintrc.yaml",
+	".config/stylelintrc.yml",
+	".config/stylelintrc.js",
+	".config/stylelintrc.ts",
+	".config/stylelintrc.cjs",
+	".config/stylelintrc.mjs",
+	"stylelint.config.js",
+	"stylelint.config.ts",
+	"stylelint.config.cjs",
+	"stylelint.config.mjs"
+];
+function hasStylelintConfig(fileDir, cwd) {
+	const hasKey = (dir) => {
+		if (!configExists(dir, "package.json")) return false;
+		const pkg = path.join(dir, "package.json");
+		try {
+			return JSON.parse(readFileSync(pkg, "utf8"))?.stylelint != null;
+		} catch {
+			return true;
+		}
+	};
+	const found = (d) => anyConfigExists(d, STYLELINT_CONFIG_FILENAMES) || hasKey(d);
+	if (walkToRoot(fileDir, found) || walkToRoot(cwd, found)) return true;
+	const home = homedir();
+	return [process.env.XDG_CONFIG_HOME || path.join(home, ".config"), path.join(home, "Library", "Preferences")].some((d) => existsSync(path.join(d, "stylelint")));
 }
 const MARKDOWNLINT_NO_LINE_LENGTH_CONFIG_NAME = "markdownlint-no-line-length.json";
 const MARKDOWNLINT_NO_LINE_LENGTH_CONFIG = "{\n  \"MD013\": false\n}\n";
@@ -463,18 +740,31 @@ export function classifyCheckstyleOutput(stdout) {
 		text: ""
 	};
 }
-export function truncate(text) {
+export function truncate(text, max = MAX_CONTEXT_CHARS) {
 	const collapsed = text.replace(/\n{3,}/g, "\n\n").trim();
-	if (collapsed.length <= MAX_CONTEXT_CHARS) return collapsed;
-	return collapsed.slice(0, MAX_CONTEXT_CHARS) + "\n… (truncated)";
+	if (collapsed.length <= max) return collapsed;
+	return collapsed.slice(0, max) + "\n… (truncated)";
 }
-function selectLintTool(chain) {
+function selectLintTool(chain, fileDir, cwd) {
 	for (const tool of chain) {
-		if (onPath(tool.name)) return tool;
+		if (onPath(tool.name)) return {
+			tool,
+			local: null
+		};
+	}
+	for (const tool of chain) {
+		const local = tool.npmSpec ? localBin(tool.name, fileDir, cwd) : null;
+		if (local) return {
+			tool,
+			local
+		};
 	}
 	if (!onPath("npx")) return null;
 	for (const tool of chain) {
-		if (tool.npmSpec) return tool;
+		if (tool.npmSpec) return {
+			tool,
+			local: null
+		};
 	}
 	return null;
 }
@@ -491,24 +781,35 @@ function buildSpawnOpts(cwd, timeout) {
 		maxBuffer: MAX_BUFFER_BYTES
 	};
 }
-function runChainLint(lang, resolved, cwd, rel) {
-	const none = {
-		ran: false,
-		finding: null
-	};
-	const tool = selectLintTool(lang.chain);
-	if (!tool) return none;
+function isFileScoped(tool) {
+	return !tool.targetsDir && !tool.manifestPath;
+}
+function chainTarget(tool, manifest, cwd, fp) {
+	return tool.targetsDir ? path.relative(cwd, path.dirname(fp)) || "." : manifest ? path.relative(cwd, path.dirname(manifest)) || "." : path.relative(cwd, fp);
+}
+function planChainLint(lang, resolved, cwd) {
+	const sel = selectLintTool(lang.chain, path.dirname(resolved), cwd);
+	if (!sel) return null;
+	const { tool } = sel;
 	let manifest = null;
 	if (tool.manifestPath) {
 		manifest = resolveCargoManifest(path.dirname(resolved), cwd);
-		if (!manifest) return none;
+		if (!manifest) return null;
 	}
 	const argv = buildArgv(tool, resolved, cwd, manifest);
 	const timeout = tool.manifestPath ? CARGO_SPAWN_TIMEOUT_MS : SPAWN_TIMEOUT_MS;
-	const spawnOpts = buildSpawnOpts(cwd, timeout);
-	const result = runLintTool(tool, argv, spawnOpts);
-	if (result.error || result.signal) return none;
-	const target = tool.targetsDir ? path.relative(cwd, path.dirname(resolved)) || "." : manifest ? path.relative(cwd, path.dirname(manifest)) || "." : rel;
+	const spawnCwd = sel.local ? path.join(sel.local, "../../..") : cwd;
+	return {
+		tool,
+		local: sel.local,
+		argv,
+		spawnCwd,
+		timeout,
+		manifest
+	};
+}
+function chainOutcome(tool, result) {
+	if (!result || result.error || result.signal) return null;
 	let verdict;
 	let text;
 	if (tool.classify === "output") {
@@ -519,8 +820,26 @@ function runChainLint(lang, resolved, cwd, rel) {
 		verdict = classifyExit(tool.name, result.status);
 		text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
 	}
+	return {
+		verdict,
+		text
+	};
+}
+async function runChainLint(lang, resolved, cwd, rel, coalesce = false) {
+	const none = NO_CHAIN;
+	const plan = planChainLint(lang, resolved, cwd);
+	if (!plan) return none;
+	const { tool, argv, timeout, spawnCwd, manifest } = plan;
+	const spawnOpts = buildSpawnOpts(spawnCwd, timeout);
+	const spawnTool = () => runLintTool(tool, argv, spawnOpts, plan.local);
+	const key = coalesce ? tool.targetsDir ? hashPath(`${tool.name}:${path.dirname(resolved)}`) : manifest ? hashPath(`${tool.name}:${manifest}`) : null : null;
+	const result = key ? await coalesceProjectCheck(key, resolved, timeout, spawnTool) : await spawnTool();
+	const outcome = chainOutcome(tool, result);
+	if (!outcome) return none;
+	const target = chainTarget(tool, manifest, cwd, resolved);
+	const { verdict, text } = outcome;
 	if (verdict === "skip") return none;
-	const base = manifest ? path.dirname(manifest) : tool.targetsDir ? path.dirname(resolved) : cwd;
+	const base = manifest ? path.dirname(manifest) : tool.targetsDir ? path.dirname(resolved) : spawnCwd;
 	return {
 		ran: true,
 		finding: verdict === "issues" ? {
@@ -537,7 +856,7 @@ export function tscOutputHasSourceDiagnostic(text) {
 	const plain = text.replace(ANSI_SGR_RE, "");
 	return TSC_SOURCE_DIAGNOSTIC_RE.test(plain);
 }
-function runTypeCheck(resolved, cwd) {
+async function runTypeCheck(resolved, cwd, coalesce = false) {
 	const tsconfigPath = resolveTsconfig(path.dirname(resolved), cwd);
 	if (!tsconfigPath) return null;
 	const cachePath = tsBuildInfoPathFor(tsconfigPath);
@@ -549,7 +868,7 @@ function runTypeCheck(resolved, cwd) {
 	const localTsc = path.join(cwd, "node_modules", ".bin", "tsc");
 	const bin = onPath("tsc") ? "tsc" : existsSync(localTsc) ? localTsc : null;
 	if (!bin) return null;
-	const result = spawnSync(bin, [
+	const spawnTsc = () => spawnGroup(bin, [
 		"--noEmit",
 		"--incremental",
 		"--tsBuildInfoFile",
@@ -557,7 +876,8 @@ function runTypeCheck(resolved, cwd) {
 		"-p",
 		tsconfigPath
 	], buildSpawnOpts(cwd, TSC_SPAWN_TIMEOUT_MS));
-	if (result.error || result.signal) return null;
+	const result = coalesce ? await coalesceProjectCheck(hashPath(`tsc:${tsconfigPath}`), resolved, TSC_SPAWN_TIMEOUT_MS, spawnTsc) : await spawnTsc();
+	if (!result || result.error || result.signal) return null;
 	if (classifyExit("tsc", result.status) !== "issues") return null;
 	const text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
 	if (result.status === 1 && !tscOutputHasSourceDiagnostic(text)) return null;
@@ -591,20 +911,39 @@ function realish(p) {
 function scratchpadOf(args) {
 	return typeof args.scratchpad_dir === "string" ? args.scratchpad_dir : undefined;
 }
+function outside(rel) {
+	return rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel);
+}
 export function scopedTarget(cwd, file, scratchpad, roots) {
 	try {
 		const fp = path.resolve(cwd, file);
-		const real = realish(fp);
-		const outside = (rel) => rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel);
+		const ext = path.extname(fp).toLowerCase();
+		if (!EXT_MAP[ext] && !TYPE_CHECK_EXTS.has(ext)) return null;
+		let real;
+		if (roots?.dirs) {
+			const st = lstatSync(fp, { throwIfNoEntry: false });
+			if (!st) return null;
+			if (st.isSymbolicLink()) {
+				real = realish(fp);
+			} else {
+				const dir = path.dirname(fp);
+				let dirReal = roots.dirs.get(dir);
+				if (dirReal === undefined) {
+					dirReal = realish(dir);
+					roots.dirs.set(dir, dirReal);
+				}
+				real = path.join(dirReal, path.basename(fp));
+			}
+		} else {
+			real = realish(fp);
+		}
 		const rel = path.relative(roots?.cwd ?? realish(cwd), real);
 		if (rel === "" || outside(rel) || isExcludedPath(rel)) return null;
 		if (scratchpad) {
 			const rs = roots ? roots.scratchpad ?? realish(scratchpad) : realish(scratchpad);
 			if (real === rs || real.startsWith(rs + path.sep)) return null;
 		}
-		const ext = path.extname(fp).toLowerCase();
-		if (!EXT_MAP[ext] && !TYPE_CHECK_EXTS.has(ext)) return null;
-		if (!existsSync(fp)) return null;
+		if (!roots?.dirs && !existsSync(fp)) return null;
 		return {
 			fp,
 			real
@@ -657,11 +996,20 @@ export function editRanges(args) {
 	}
 	return ranges;
 }
-const LOC_PATH_RE = /(?<path>[^\s:()[\]'"]+\.[A-Za-z0-9]+)[:(](?<line>\d+)(?:[:,]\d+)?/;
+const LOC_PATH_RE = /(?<![^\s:()[\]'"])(?<path>[^\s:()[\]'"]+\.[A-Za-z0-9]+)[:(](?<line>\d+)(?:[:,]\d+)?/;
 const LOC_ROW_RE = /^\s*(?<line>\d+):\d+\s/;
 const LOC_SHELLCHECK_RE = /^In .+ line (?<line>\d+):/;
 const PARSE_ERROR_RE = /pars(?:e|ing) error|syntax ?error|unexpected (?:token|end|eof|character|indent)|unterminated|unclosed|end of (?:file|input)|\bexpected [`'"]|\b(?:TS1|SC1)\d{3}\b/i;
 export function gateFinding(finding, ranges, resolved) {
+	const seen = new Map();
+	const exists = (abs) => {
+		let found = seen.get(abs);
+		if (found === undefined) {
+			found = existsSync(abs);
+			seen.set(abs, found);
+		}
+		return found;
+	};
 	const hit = (line) => ranges === null || ranges.some(([s, e]) => s <= line - 1 && line - 1 <= e) ? "hit" : "miss";
 	const classify = (raw) => {
 		const plain = raw.replace(ANSI_SGR_RE, "");
@@ -671,7 +1019,7 @@ export function gateFinding(finding, ranges, resolved) {
 		if (a?.groups) {
 			const p = path.normalize(a.groups.path);
 			const abs = path.resolve(finding.base, p);
-			const own = abs === resolved || !path.isAbsolute(p) && !existsSync(abs) && resolved.endsWith(path.sep + p);
+			const own = abs === resolved || !path.isAbsolute(p) && resolved.endsWith(path.sep + p) && !exists(abs);
 			return own ? hit(Number(a.groups.line)) : "foreign";
 		}
 		const b = LOC_SHELLCHECK_RE.exec(plain);
@@ -727,31 +1075,54 @@ export function recordWritten(fp, real) {
 function recordWrittenFor(s) {
 	if (s) recordWritten(s.fp, s.real);
 }
-function lintResolved(resolved, cwd, ranges, hookEventName, label) {
-	const rel = path.relative(cwd, resolved);
+function chainEntryFor(resolved, cwd) {
 	const ext = path.extname(resolved).toLowerCase();
 	const lang = EXT_MAP[ext];
-	const typeCheckEligible = TYPE_CHECK_EXTS.has(ext);
 	const oxlintConfig = lang === "jsts" ? resolveOxlintConfig(path.dirname(resolved), cwd) : null;
+	const noJstsConfig = lang === "jsts" && !oxlintConfig && !walkToRoot(path.dirname(resolved), (d) => anyConfigExists(d, ESLINT_CONFIG_FILENAMES));
+	const noCssConfig = lang === "css" && !hasStylelintConfig(path.dirname(resolved), cwd);
+	if (!lang || noJstsConfig || noCssConfig) return {
+		entry: null,
+		oxlintConfig
+	};
+	const entry = oxlintConfig ? { chain: REGISTRY.oxlint.chain.map((t) => ({
+		...t,
+		args: [
+			...t.args,
+			"-c",
+			oxlintConfig
+		]
+	})) } : REGISTRY[lang];
+	return {
+		entry,
+		oxlintConfig
+	};
+}
+const NO_CHAIN = {
+	ran: false,
+	finding: null
+};
+function tscNeeded(typeCheckEligible, oxlintConfig, chainRan) {
+	return typeCheckEligible && !(oxlintConfig !== null && chainRan && oxlintConfigTypeChecks(oxlintConfig));
+}
+async function lintResolved(resolved, cwd, ranges, hookEventName, label) {
+	const rel = path.relative(cwd, resolved);
+	const coalesce = hookEventName === "FileChanged";
+	const ext = path.extname(resolved).toLowerCase();
+	const typeCheckEligible = TYPE_CHECK_EXTS.has(ext);
+	const { entry, oxlintConfig } = chainEntryFor(resolved, cwd);
+	const chainP = entry ? runChainLint(entry, resolved, cwd, rel, coalesce) : Promise.resolve(NO_CHAIN);
+	let chain;
+	let tsResult = null;
+	if (tscNeeded(typeCheckEligible, oxlintConfig, true)) {
+		[chain, tsResult] = await Promise.all([chainP, runTypeCheck(resolved, cwd, coalesce)]);
+	} else {
+		chain = await chainP;
+		if (tscNeeded(typeCheckEligible, oxlintConfig, chain.ran)) tsResult = await runTypeCheck(resolved, cwd, coalesce);
+	}
 	const findings = [];
-	let oxlintRan = false;
-	if (lang) {
-		const entry = oxlintConfig ? { chain: REGISTRY.oxlint.chain.map((t) => ({
-			...t,
-			args: [
-				...t.args,
-				"-c",
-				oxlintConfig
-			]
-		})) } : REGISTRY[lang];
-		const chain = runChainLint(entry, resolved, cwd, rel);
-		if (chain.finding) findings.push(chain.finding);
-		oxlintRan = oxlintConfig !== null && chain.ran;
-	}
-	if (typeCheckEligible && !(oxlintRan && oxlintConfig && oxlintConfigTypeChecks(oxlintConfig))) {
-		const tsResult = runTypeCheck(resolved, cwd);
-		if (tsResult) findings.push(tsResult);
-	}
+	if (chain.finding) findings.push(chain.finding);
+	if (tsResult) findings.push(tsResult);
 	const kept = findings.flatMap((f) => {
 		const g = gateFinding(f, ranges, resolved);
 		return g ? [g] : [];
@@ -763,18 +1134,185 @@ function lintResolved(resolved, cwd, ranges, hookEventName, label) {
 		additionalContext: `${label}: ${truncate(blocks.join("\n\n"))}`
 	} };
 }
-export function lintFileHandler(args, scoped = postToolScope(args)) {
+export async function lintFileHandler(args, scoped = postToolScope(args)) {
 	try {
 		const resolved = scoped?.fp;
 		if (!resolved) return {};
 		const ranges = editRanges(args);
 		if (ranges?.length === 0) return {};
-		return lintResolved(resolved, args.cwd, ranges, "PostToolUse", "universal-lint");
+		return await lintResolved(resolved, args.cwd, ranges, "PostToolUse", "universal-lint");
 	} catch {
 		return {};
 	}
 }
-export function fileChangedHandler(args) {
+export async function lintFilesHandler(cwd, files) {
+	let roots;
+	try {
+		roots = { cwd: realish(cwd) };
+	} catch {
+		return [];
+	}
+	const scoped = new Set();
+	for (const file of files) {
+		const s = scopedTarget(cwd, file, undefined, roots);
+		if (s) scoped.add(s.fp);
+	}
+	const oxlintConfigs = new Map();
+	const groups = new Map();
+	for (const fp of scoped) {
+		try {
+			const { entry, oxlintConfig } = chainEntryFor(fp, cwd);
+			const plan = entry ? planChainLint(entry, fp, cwd) : null;
+			oxlintConfigs.set(fp, oxlintConfig);
+			if (!plan) continue;
+			const fileScoped = isFileScoped(plan.tool);
+			const key = [
+				plan.tool.name,
+				plan.local ?? "",
+				plan.spawnCwd,
+				...fileScoped ? plan.argv.slice(0, -1) : plan.argv
+			].join("\0");
+			const group = groups.get(key);
+			if (group) group.push({
+				fp,
+				plan
+			});
+			else groups.set(key, [{
+				fp,
+				plan
+			}]);
+		} catch {}
+	}
+	const ran = new Set();
+	const chainBlocks = [];
+	const spawnPlan = async (plan, argv) => chainOutcome(plan.tool, await runLintTool(plan.tool, argv, buildSpawnOpts(plan.spawnCwd, plan.timeout), plan.local));
+	const record = (members, out) => {
+		if (!out || out.verdict === "skip") return;
+		for (const m of members) ran.add(m.fp);
+		if (out.verdict !== "issues") return;
+		const { tool, manifest } = members[0].plan;
+		const targets = new Set(members.map(({ fp }) => chainTarget(tool, manifest, cwd, fp)));
+		chainBlocks.push(`universal-lint: ${tool.name} found issues in ${[...targets].join(", ")}:\n${truncate(out.text, MAX_CONTEXT_CHARS * members.length)}`);
+	};
+	for (const group of groups.values()) {
+		const { plan } = group[0];
+		const fileScoped = isFileScoped(plan.tool);
+		const step = fileScoped ? BATCH_MAX_FILES : group.length;
+		for (let i = 0; i < group.length; i += step) {
+			const chunk = group.slice(i, i + step);
+			try {
+				const argv = fileScoped ? [...plan.argv.slice(0, -1), ...chunk.map((m) => m.fp)] : plan.argv;
+				const out = await spawnPlan(plan, argv);
+				if ((!out || out.verdict === "skip") && fileScoped && chunk.length > 1) {
+					for (const m of chunk) {
+						try {
+							record([m], await spawnPlan(m.plan, m.plan.argv));
+						} catch {}
+					}
+				} else {
+					record(chunk, out);
+				}
+			} catch {}
+		}
+	}
+	const tsFirst = new Map();
+	for (const [fp, oxlintConfig] of oxlintConfigs) {
+		try {
+			if (!tscNeeded(TYPE_CHECK_EXTS.has(path.extname(fp).toLowerCase()), oxlintConfig, ran.has(fp))) continue;
+			const tsconfig = resolveTsconfig(path.dirname(fp), cwd);
+			if (tsconfig && !tsFirst.has(tsconfig)) tsFirst.set(tsconfig, fp);
+		} catch {}
+	}
+	const tscBlocks = [];
+	for (const fp of tsFirst.values()) {
+		try {
+			const f = await runTypeCheck(fp, cwd);
+			if (f) tscBlocks.push(`universal-lint: ${f.tool} found issues in ${f.target}:\n${truncate(f.text)}`);
+		} catch {}
+	}
+	return [...chainBlocks, ...tscBlocks];
+}
+function slotStale(slot) {
+	try {
+		if (Math.abs(Date.now() - lstatSync(slot).mtimeMs) >= HOOK_TIMEOUT_MS) return true;
+		const pid = Number(readFileSync(slot, "utf8"));
+		if (Number.isInteger(pid) && pid > 0) process.kill(pid, 0);
+		return false;
+	} catch (e) {
+		return e.code === "ESRCH";
+	}
+}
+function claimFile(file) {
+	if (slotStale(file)) rmSync(file, { force: true });
+	try {
+		writeFileSync(file, String(process.pid), { flag: "wx" });
+		return true;
+	} catch (e) {
+		if (e.code !== "EEXIST") throw e;
+		return false;
+	}
+}
+function sleep100() {
+	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+}
+export function acquireSlot(untilMs) {
+	const dir = path.resolve(process.env.CLAUDE_PLUGIN_DATA || tmpdir(), "fc-slots");
+	mkdirSync(dir, { recursive: true });
+	for (;;) {
+		for (let i = 0; i < FILE_CHANGED_SLOTS; i++) {
+			const slot = path.join(dir, String(i));
+			if (claimFile(slot)) return slot;
+		}
+		if (process.uptime() * 1e3 >= untilMs) return null;
+		sleep100();
+	}
+}
+export async function coalesceProjectCheck(key, file, reserveMs, run) {
+	const dir = path.resolve(process.env.CLAUDE_PLUGIN_DATA || tmpdir(), "fc-locks");
+	const lock = path.join(dir, `${key}.lock`);
+	const last = path.join(dir, `${key}.last`);
+	let changed;
+	try {
+		changed = statSync(file).ctimeMs;
+	} catch {
+		return await run();
+	}
+	const covered = () => {
+		try {
+			const t = Number(readFileSync(last, "utf8"));
+			return t > changed && t <= Date.now();
+		} catch {
+			return false;
+		}
+	};
+	for (;;) {
+		if (covered()) return null;
+		try {
+			mkdirSync(dir, { recursive: true });
+			if (claimFile(lock)) break;
+		} catch {
+			return await run();
+		}
+		if (process.uptime() * 1e3 >= FILE_CHANGED_BUDGET_MS - reserveMs) return await run();
+		await sleep(100);
+	}
+	try {
+		if (covered()) return null;
+		const start = Date.now();
+		const r = await run();
+		if (!r.error && !r.signal) {
+			try {
+				writeFileSync(last, String(start));
+			} catch {}
+		}
+		return r;
+	} finally {
+		try {
+			rmSync(lock, { force: true });
+		} catch {}
+	}
+}
+export async function fileChangedHandler(args) {
 	try {
 		if (args?.event === "unlink") return {};
 		const cwd = args?.cwd;
@@ -811,7 +1349,23 @@ export function fileChangedHandler(args) {
 			});
 			if (status === "" || status.startsWith("!!")) return {};
 		} catch {}
-		return lintResolved(s.fp, cwd, null, "FileChanged", "universal-lint (changed outside Write/Edit)");
+		const ext = path.extname(s.fp).toLowerCase();
+		const lintMs = (EXT_MAP[ext] === "rust" ? CARGO_SPAWN_TIMEOUT_MS : SPAWN_TIMEOUT_MS) + (TYPE_CHECK_EXTS.has(ext) ? TSC_SPAWN_TIMEOUT_MS : 0);
+		let slot;
+		try {
+			slot = acquireSlot(FILE_CHANGED_BUDGET_MS - lintMs);
+		} catch {}
+		if (slot === null) {
+			process.stderr.write(`universal-lint: FileChanged: no lint slot free in time, ${s.fp} not linted\n`);
+			return {};
+		}
+		try {
+			return await lintResolved(s.fp, cwd, null, "FileChanged", "universal-lint (changed outside Write/Edit)");
+		} finally {
+			try {
+				if (slot) rmSync(slot, { force: true });
+			} catch {}
+		}
 	} catch {
 		return {};
 	}
@@ -842,20 +1396,23 @@ export function watchList(cwd, scratchpad) {
 	try {
 		roots = {
 			cwd: realish(cwd),
-			scratchpad: scratchpad ? realish(scratchpad) : undefined
+			scratchpad: scratchpad ? realish(scratchpad) : undefined,
+			dirs: new Map()
 		};
 	} catch {
 		return [];
 	}
-	const list = [...new Set(out.split("\0").filter(Boolean).flatMap((rel) => {
+	const list = new Set();
+	for (const rel of out.split("\0")) {
+		if (!rel) continue;
 		const fp = scopedTarget(cwd, rel, scratchpad, roots)?.fp;
-		return fp ? [fp] : [];
-	}))];
-	if (list.length > WATCH_LIMIT) {
-		process.stderr.write(`universal-lint: watch list: ${list.length} files above ${WATCH_LIMIT}, FileChanged linting off for this cwd\n`);
-		return [];
+		if (fp) list.add(fp);
+		if (list.size > WATCH_LIMIT) {
+			process.stderr.write(`universal-lint: watch list: more than ${WATCH_LIMIT} files, FileChanged linting off for this cwd\n`);
+			return [];
+		}
 	}
-	return list;
+	return [...list];
 }
 export function watchPathsHandler(args) {
 	try {
@@ -879,9 +1436,9 @@ function isMainModule() {
 		return false;
 	}
 }
-function main() {
+async function main() {
 	try {
-		const input = JSON.parse(readFileSync(0, "utf8"));
+		const input = await json(process.stdin);
 		const ev = input?.hook_event_name;
 		if (ev === "SessionStart" || ev === "CwdChanged") {
 			const r = watchPathsHandler(input);
@@ -889,11 +1446,11 @@ function main() {
 			return;
 		}
 		let ctx;
-		if (ev === "FileChanged") ctx = fileChangedHandler(input).hookSpecificOutput?.additionalContext;
+		if (ev === "FileChanged") ctx = (await fileChangedHandler(input)).hookSpecificOutput?.additionalContext;
 		else {
 			const scoped = postToolScope(input);
 			recordWrittenFor(scoped);
-			ctx = lintFileHandler(input, scoped).hookSpecificOutput?.additionalContext;
+			ctx = (await lintFileHandler(input, scoped)).hookSpecificOutput?.additionalContext;
 		}
 		if (ctx) {
 			process.stderr.write(ctx + "\n");
@@ -901,4 +1458,4 @@ function main() {
 		}
 	} catch {}
 }
-if (isMainModule()) main();
+if (isMainModule()) void main();

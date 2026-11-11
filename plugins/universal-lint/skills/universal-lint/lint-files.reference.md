@@ -16,9 +16,11 @@
 
 ## Exit codes
 
-| Code | Meaning | Notes                                                                                          |
-| ---- | ------- | ---------------------------------------------------------------------------------------------- |
-| 0    | ok      | Always on a real run. Prints one aggregated findings report, or `universal-lint: no findings.` |
-| 2    | usage   | No `<listfile>` argument was given.                                                            |
+| Code | Meaning | Notes                                                                                                                                    |
+| ---- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | ok      | Always on a real run. Prints one block per tool run, then `universal-lint: N block(s) with findings.`; or `universal-lint: no findings.` |
+| 2    | usage   | No `<listfile>` argument was given.                                                                                                      |
 
-Read-only: the driver only reports findings — it never runs any autofix path. Files outside `process.cwd()`, excluded paths, unsupported extensions (`.json` included), and clean files contribute nothing to the report (the handler returns nothing for them); per-file errors fail open and are dropped. Guard/exclusion behavior is inherited from `lintFileHandler`, not re-implemented here.
+Read-only: the driver only reports findings — it never runs any autofix path. Files outside `process.cwd()`, excluded paths, unsupported extensions (`.json` included), and clean files contribute nothing to the report (the handler returns nothing for them); per-file errors fail open and are dropped. Guard/exclusion behavior is inherited from `lintFilesHandler`, not re-implemented here.
+
+Output contract (inherited from `lintFilesHandler`): files sharing a tool, its binary, spawn cwd and config-derived arguments are linted in one run (at most 100 files; go/cargo once per package/crate), tsc once per tsconfig. Each run with issues prints one block `universal-lint: <tool> found issues in <targets>:` followed by the tool's own output. The header names every file of the run, including files the tool found clean (the tool's own output says which have findings). Each block is truncated on its own, at 4,000 characters per file of the run (a batch of 10 files may print 40,000; the tsc block stays at 4,000); there is no outer cap over the joined report.
