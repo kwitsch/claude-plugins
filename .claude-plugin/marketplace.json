@@ -101,6 +101,12 @@
       "source": "./plugins/jevfort",
       "category": "productivity",
       "tags": ["mods", "hooks", "typesafe", "jev", "effort"]
+    },
+    {
+      "name": "jev-api",
+      "source": "./plugins/jev-api",
+      "category": "productivity",
+      "tags": ["mods", "hooks", "typesafe", "jev", "tools"]
     }
   ]
 }
