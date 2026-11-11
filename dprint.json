@@ -20,6 +20,7 @@
     "plugins/inline-headroom",
     "plugins/universal-lint",
     "plugins/jevfort",
+    "plugins/jev-api",
     "plugins/universal-format/mcp/server.mjs"
   ],
   "plugins": [
