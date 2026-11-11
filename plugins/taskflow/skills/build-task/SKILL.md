@@ -147,26 +147,27 @@ Every pipeline file is session-only, never a repository file:
    Otherwise (flag absent): `git status --porcelain` must be empty — stray
    state → stop and report. Determine `BASE_BRANCH` once as above. If the
    current branch IS the base branch, do not cut a branch in this checkout;
-   create a worktree and move the session into it: (a) Bash
-   `git worktree add -b "feature/<slug>" "<root>/.claude/worktrees/<slug>"`,
-   where `<root>` is the path after the `worktree` keyword on the first line
-   of `git worktree list --porcelain` (the main worktree — correct for
-   submodules and separate git dirs too); no start point, so the branch
-   starts at the current, just-verified base-branch `HEAD`. Before creating
+   create a worktree and move the session into it: (a) Before creating
    it, `git -C "<root>" check-ignore -q ".claude/worktrees/<slug>"` must
-   exit 0 — otherwise the worktree would show up as untracked in the main
-   checkout: stop and report, asking the user to add `.claude/worktrees/`
-   to the repo's `.gitignore`. Non-zero exit of `git worktree add` (branch
-   or path already exists) → stop and report. The new worktree has no gitignored files
-   (`node_modules`, `.env`, build output): if the project's docs (root
-   `CLAUDE.md`/README) name an install or setup command, run it there before
-   step 2. (b) `ToolSearch(query: "select:EnterWorktree")`,
-   then `EnterWorktree` with `path` = that absolute directory, never with
-   `name`, which would create its own `worktree-...` branch from
-   `worktree.baseRef`'s base. Tool absent or the call rejected → stop and
-   report, naming the created worktree path and branch for manual cleanup.
-   The session stays in this worktree for the rest of the run; never call
-   `ExitWorktree`.
+   exit 0, where `<root>` is the path after the `worktree` keyword on the
+   first line of `git worktree list --porcelain` (the main worktree —
+   correct for submodules and separate git dirs too) — otherwise the
+   worktree would show up as untracked in the main checkout: stop and
+   report, asking the user to add `.claude/worktrees/` to the repo's
+   `.gitignore`. (b) `ToolSearch(query: "select:EnterWorktree")`, then
+   `EnterWorktree` with `name: "<slug>"` — never with `path` on a worktree
+   made by hand: `ExitWorktree` cannot remove a worktree entered by
+   `path`, so the user could not clean it up after the run. It branches
+   from `worktree.baseRef`'s base (default: `origin/<BASE_BRANCH>`). Tool
+   absent or the call rejected (e.g. the worktree already exists) → stop
+   and report. (c) Rename its `worktree-<slug>` branch:
+   `git branch -m "feature/<slug>"`; non-zero exit (branch already exists)
+   → stop and report, naming the worktree path for manual cleanup. The new
+   worktree has no gitignored files (`node_modules`, `.env`, build
+   output): if the project's docs (root `CLAUDE.md`/README) name an install
+   or setup command, run it there before step 2. The session stays in this
+   worktree for the rest of the run; never call `ExitWorktree` — the user
+   leaves it with `ExitWorktree` after the PR/MR is merged.
    Otherwise — including when resumed inside an existing worktree that
    already has an open PR/MR for its branch — stay on the current branch, do
    not cut a new one and do not switch elsewhere; the pipeline (and Ship's
