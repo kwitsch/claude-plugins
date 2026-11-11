@@ -39,7 +39,7 @@ Ask one at a time. Collect:
 - **author** — default `Kwitsch` unless told otherwise.
 - **version** — default `0.1.0`.
 - **category** — single string, e.g. `productivity`, `example` (optional).
-- **tags** — short keywords array (optional).
+- **keywords** — short discovery terms array for `plugin.json` (optional). Never `tags` on the marketplace entry (`.claude/rules/marketplace-synced-entries.md` `## No tags`).
 - **components** — which of `skills`, `agents`, `hooks`, `commands` (legacy) to scaffold. Min one; `skills` is default. For `hooks`, also pick the **hook kind** (see `.claude/rules/hooks-mcp-server.md` decision tree):
   - **command** — required only for: pre-connect events (`SessionStart`/`Setup`), fail-closed hard gates (need exit 2), or fail-open-sensitive side-effects that must reliably fire (e.g. `PreCompact` snapshot, a state-write other hooks read). Also the default for latency-sensitive high-frequency events (`MessageDisplay`; `UserPromptSubmit` is a latency/cost trade-off where `mcp_tool` is also viable — see the matrix) → a `.mjs`/`.sh` command hook.
   - **mcp** — otherwise, non-blocking mid-session hooks (`PreToolUse`, `PostToolUse`, `Stop`, `SubagentStop`, `PreCompact`/`ConfigChange` when no must-fire side-effect, …) → an `mcp_tool` hook backed by a self-contained plugin-local MCP server (preferred). See the per-event `hooks-mcp-tool-event-matrix`.
@@ -63,9 +63,12 @@ Create `plugins/<name>/.claude-plugin/plugin.json`:
   "description": "<description>",
   "author": {
     "name": "<author>"
-  }
+  },
+  "keywords": ["<keyword1>", "<keyword2>"]
 }
 ```
+
+Omit `keywords` if not provided.
 
 **Important**: Component dirs at plugin root. Never put `skills/`, `commands/`, `agents/`, or `hooks/` inside `.claude-plugin/` — only `plugin.json` there.
 
@@ -279,12 +282,11 @@ Add entry to `plugins` array in `.claude-plugin/marketplace.json`. Preserve exis
   "author": {
     "name": "<author>"
   },
-  "category": "<category>",
-  "tags": ["<tag1>", "<tag2>"]
+  "category": "<category>"
 }
 ```
 
-Use full `./plugins/<name>` path — never bare names or `metadata.pluginRoot` (see `.claude/rules/plugin-versioning.md`). No `version` field — `plugin.json` is single source of truth (CI fails if marketplace entry declares one). Omit `category`/`tags` if not provided. `name` and `source` only required fields.
+Use full `./plugins/<name>` path — never bare names or `metadata.pluginRoot` (see `.claude/rules/plugin-versioning.md`). No `version` field — `plugin.json` is single source of truth (CI fails if marketplace entry declares one). Omit `category` if not provided; never add `tags`. `name` and `source` only required fields.
 
 ## Step 7 — Verify (mirror the CI)
 

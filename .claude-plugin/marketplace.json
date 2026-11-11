@@ -15,8 +15,7 @@
       "author": {
         "name": "Kwitsch"
       },
-      "category": "development",
-      "tags": ["claude-code", "authoring", "agents", "skills", "hooks"]
+      "category": "development"
     },
     {
       "name": "coding-toolbox",
@@ -25,8 +24,7 @@
       "author": {
         "name": "Kwitsch"
       },
-      "category": "productivity",
-      "tags": ["hooks", "behavior", "guidelines", "context"]
+      "category": "productivity"
     },
     {
       "name": "universal-format",
@@ -35,14 +33,12 @@
       "author": {
         "name": "Kwitsch"
       },
-      "category": "productivity",
-      "tags": ["hooks", "formatting", "editorconfig", "mcp"]
+      "category": "productivity"
     },
     {
       "name": "universal-lint",
       "source": "./plugins/universal-lint",
-      "category": "productivity",
-      "tags": ["hooks", "linting", "quality"]
+      "category": "productivity"
     },
     {
       "name": "memory-enhancement",
@@ -51,8 +47,7 @@
       "author": {
         "name": "Kwitsch"
       },
-      "category": "productivity",
-      "tags": ["memory", "skills", "hooks"]
+      "category": "productivity"
     },
     {
       "name": "npm-automations",
@@ -61,8 +56,7 @@
       "author": {
         "name": "Kwitsch"
       },
-      "category": "productivity",
-      "tags": ["npm", "hooks", "automation"]
+      "category": "productivity"
     },
     {
       "name": "taskflow",
@@ -71,8 +65,7 @@
       "author": {
         "name": "Kwitsch"
       },
-      "category": "productivity",
-      "tags": ["workflow", "agents", "spec-driven", "pipeline"]
+      "category": "productivity"
     },
     {
       "name": "rc-enhancement",
@@ -81,32 +74,27 @@
       "author": {
         "name": "Kwitsch"
       },
-      "category": "productivity",
-      "tags": ["hooks", "session-start", "remote-control", "askuserquestion"]
+      "category": "productivity"
     },
     {
       "name": "inline-headroom",
       "source": "./plugins/inline-headroom",
-      "category": "productivity",
-      "tags": ["mods", "hooks", "token-efficiency", "prompt-cache", "effort"]
+      "category": "productivity"
     },
     {
       "name": "dprint",
       "source": "./plugins/dprint",
-      "category": "development",
-      "tags": ["dprint", "formatter", "installer"]
+      "category": "development"
     },
     {
       "name": "jevfort",
       "source": "./plugins/jevfort",
-      "category": "productivity",
-      "tags": ["mods", "hooks", "typesafe", "jev", "effort"]
+      "category": "productivity"
     },
     {
       "name": "jev-api",
       "source": "./plugins/jev-api",
-      "category": "productivity",
-      "tags": ["mods", "hooks", "typesafe", "jev", "tools"]
+      "category": "productivity"
     }
   ]
 }
