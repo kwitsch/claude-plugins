@@ -1,7 +1,7 @@
 {
   "name": "jevfort",
-  "version": "0.4.0",
-  "description": "Lets TypeSafe Jev take routine steps, route effort and check that work is done (port of nim-f/jev-pilot; endpoint from JEV_URL).",
+  "version": "0.5.0",
+  "description": "Lets TypeSafe Jev take routine steps, route effort and check that work is done (port of nim-f/jev-pilot; asks Jev through the jev-api plugin's tools).",
   "author": {
     "name": "Kwitsch"
   },
@@ -11,6 +11,9 @@
     "typesafe",
     "jev",
     "effort"
+  ],
+  "dependencies": [
+    "jev-api"
   ],
   "userConfig": {
     "routing": {

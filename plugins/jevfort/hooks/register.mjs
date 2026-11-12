@@ -2,7 +2,7 @@ import { GENERAL, SWITCH_AT } from "./agents.mjs";
 import { absolute, AUTH_TOOL, bash, BUILTIN_COMMANDS, clipScript, coversStep, dedupeSkills, isSafeToOffer, MAX_READS, mentionedPaths, quotedTerms, relevant, SAFE_MAKE, SAFE_SCRIPT, sameCall, SKILL_BLOCKLIST_KEY } from "./candidates.mjs";
 import { compactInstructions, compactItems, RELEVANCE } from "./compact.mjs";
 import { clip, splitTurn, summarize, toolCalls } from "./context.mjs";
-import { choice, jevUrl, MODEL, noul, score, TIMEOUT_MS } from "./jev.mjs";
+import { choice, JEV_API_TIMEOUT_S, JEV_BATCH, JEV_TOOL_PREFIX, JEV_TOOLS, MAX_CHOICE_OPTIONS, missingJevTools, noul, score, TIMEOUT_MS } from "./jev.mjs";
 import { LOG_KEY, MAX_ENTRIES, recentDecisions, remember, statsKey } from "./log.mjs";
 import { bestAction, bounds, difficultyQuestion, doneQuestion, EFFORT_ORDER, effortQuestion, ESTIMATE_SPEC, ESTIMATE_TOOL, estimateEffort, EVERY_TURN_MODELS, inScratchpad, isEffort, lowerModel, mechanicalQuestion, modelFamily, nextActionQuestion, parseEstimateInput, pickCandidate, route, shouldContinue, singleActionQuestion } from "./policy.mjs";
 import { hints, NONE, promptQuestions } from "./prompt.mjs";
@@ -30,48 +30,40 @@ async function askJev($, state, questions) {
 		...r,
 		ms: await $.clock.now() - startedAt
 	});
-	const key = await $.env.get("TYPESAFE_API_KEY");
-	if (!key) return done({
-		ok: false,
-		error: "TYPESAFE_API_KEY is not set"
-	});
-	const target = jevUrl(await $.env.get("JEV_URL"));
-	if (!target.ok) return done({
-		ok: false,
-		error: target.error
-	});
-	const request = $.http.fetch(target.url, {
-		method: "POST",
-		headers: {
-			Authorization: `Bearer ${key}`,
-			"Content-Type": "application/json"
-		},
-		body: JSON.stringify({
-			model: MODEL,
-			state,
-			questions
-		})
-	});
-	request.catch(() => undefined);
+	const entries = Object.entries(questions);
+	const call = (async () => {
+		const r = await $.tool.call({
+			tool: JEV_BATCH,
+			state: JSON.stringify(state),
+			questions: entries.map(([, q]) => q),
+			timeout: JEV_API_TIMEOUT_S
+		});
+		if (r.deny !== undefined) throw new Error(asText(r.deny));
+		if (r.isError === true || typeof r.result !== "string") throw new Error(`batch: ${r.result === undefined ? "no result" : typeof r.result === "string" ? r.result : JSON.stringify(r.result)}`);
+		let list;
+		try {
+			list = JSON.parse(r.result);
+		} catch {
+			throw new Error("batch: result is not JSON");
+		}
+		if (!Array.isArray(list) || list.length !== entries.length) throw new Error(`batch: expected ${entries.length} answers`);
+		return Object.fromEntries(entries.map(([id, q], i) => {
+			const answer = list[i];
+			if (answer?.type !== q.type) throw new Error(`batch: no ${q.type} answer for questions[${i}]`);
+			return [id, answer];
+		}));
+	})();
+	call.catch(() => undefined);
 	const timeout = $.clock.sleep(TIMEOUT_MS).then(() => undefined);
 	try {
-		const res = await Promise.race([request, timeout]);
-		if (!res) return done({
+		const answers = await Promise.race([call, timeout]);
+		if (!answers) return done({
 			ok: false,
 			error: `timeout after ${TIMEOUT_MS}ms`
 		});
-		if (!res.ok) return done({
-			ok: false,
-			error: `HTTP ${res.status}`
-		});
-		const body = JSON.parse(res.text);
-		if (!body.answers) return done({
-			ok: false,
-			error: "response had no answers"
-		});
 		return done({
 			ok: true,
-			answers: body.answers
+			answers
 		});
 	} catch (err) {
 		return done({
@@ -79,6 +71,10 @@ async function askJev($, state, questions) {
 			error: err instanceof Error ? err.message : String(err)
 		});
 	}
+}
+let jevTools;
+function jevMissing($) {
+	return jevTools ??= $.tool.list().then((t) => missingJevTools(t.map((x) => x.name))).catch(() => [...JEV_TOOLS]);
 }
 async function readLog($) {
 	return await $.store.get(LOG_KEY) ?? [];
@@ -214,7 +210,7 @@ async function buildCandidates($, request, steps, calls, stepIndex) {
 			});
 		}
 		const loaded = new Set(calls.filter((c) => c.tool === "ToolSearch").map((c) => String(c.input.query)));
-		const tools = (await $.tool.list().catch(() => [])).filter((t) => t.mcp && !AUTH_TOOL.test(t.name) && !loaded.has(`select:${t.name}`));
+		const tools = (await $.tool.list().catch(() => [])).filter((t) => t.mcp && !AUTH_TOOL.test(t.name) && !t.name.startsWith(JEV_TOOL_PREFIX) && !loaded.has(`select:${t.name}`));
 		for (const t of relevant(request, tools)) {
 			out.push({
 				key: `load ${t.name}`,
@@ -227,7 +223,7 @@ async function buildCandidates($, request, steps, calls, stepIndex) {
 			});
 		}
 	}
-	return out.slice(0, 254);
+	return out.slice(0, MAX_CHOICE_OPTIONS - 1);
 }
 async function summarizeResult($, request, action, output) {
 	const r = await $.model.complete({
@@ -256,7 +252,10 @@ async function skillOptions($) {
 	const blocked = new Set(await $.store.get(SKILL_BLOCKLIST_KEY).catch(() => undefined) ?? []);
 	const criteria = { [NONE]: "No listed skill is meant for this request" };
 	for (const c of commands) {
-		if ((c.source === "plugin" || c.source === "user") && c.name !== "jev" && !BUILTIN_COMMANDS.has(c.name) && !blocked.has(c.name)) criteria[c.name] = clip(c.description, 160);
+		if (Object.keys(criteria).length >= MAX_CHOICE_OPTIONS) break;
+		if ((c.source === "plugin" || c.source === "user") && c.name !== "jev" && !BUILTIN_COMMANDS.has(c.name) && !blocked.has(c.name) && !Object.hasOwn(criteria, c.name)) {
+			criteria[c.name] = clip(c.description, 160);
+		}
 	}
 	return Object.keys(criteria).length > 1 ? criteria : undefined;
 }
@@ -373,6 +372,7 @@ export const register = (on, options) => {
 	let donePending = false;
 	let lostFollowUp;
 	on("prompt.submit", async function onPromptSubmit($, e, next) {
+		if ((await jevMissing($)).length) return next(e);
 		if (e.origin?.kind === "plugin" && e.origin.name === PLUGIN_NAME) {
 			donePending = true;
 			return next(e);
@@ -417,15 +417,17 @@ export const register = (on, options) => {
 	});
 	if (options.agentTypes !== false) {
 		const offered = new Map();
-		on("agent.offer", function onAgentOffer($, e, next) {
+		on("agent.offer", async function onAgentOffer($, e, next) {
+			if ((await jevMissing($)).length) return next(e);
 			offered.set(e.agent, e.description);
 			return next(e);
 		});
 		on("tool.call", { tool: "Agent" }, async function onAgentCall($, e, next) {
+			if ((await jevMissing($)).length) return next(e);
 			const claudeType = e.subagent_type ?? "";
 			if (offered.size < 2 || claudeType === "fork") return next(e);
 			const criteria = {};
-			for (const [name, description] of offered) criteria[name] = clip(description, 200);
+			for (const [name, description] of [...offered].slice(0, MAX_CHOICE_OPTIONS)) criteria[name] = clip(description, 200);
 			const r = await askJev($, {
 				task: clip(e.prompt, 3e3),
 				description: e.description
@@ -460,6 +462,7 @@ export const register = (on, options) => {
 	}
 	if (options.compaction !== false) {
 		on("session.compact", async function onCompact($, e, next) {
+			if ((await jevMissing($)).length) return next(e);
 			if (e.agentId || e.trigger !== "manual" && e.trigger !== "auto") return next(e);
 			const items = compactItems(e.messages);
 			if (items.length < 3) return next(e);
@@ -514,6 +517,17 @@ export const register = (on, options) => {
 			name: "jev",
 			description: "Jev pilot: status, /jev report, /jev candidates, /jev export, /jev clear"
 		});
+		const result = await next(e);
+		jevTools = undefined;
+		const missing = await jevMissing($);
+		if (missing.length) {
+			await record($, {
+				kind: "error",
+				applied: false,
+				text: `inactive: jev-api tools missing (${missing.join(", ")})`
+			}).catch(() => undefined);
+			return result;
+		}
 		try {
 			await $.tool.register(ESTIMATE_SPEC);
 		} catch (err) {
@@ -523,7 +537,7 @@ export const register = (on, options) => {
 				text: `estimate_effort not registered: ${String(err)}`
 			}).catch(() => undefined);
 		}
-		return next(e);
+		return result;
 	});
 	on("command.run", { command: "jev" }, async function onJevCommand($, e) {
 		const arg = e.args.trim();
@@ -558,9 +572,11 @@ export const register = (on, options) => {
 				return { text: `Jev pilot: could not write ${path}: ${err instanceof Error ? err.message : String(err)}` };
 			}
 		}
+		const missing = await jevMissing($);
 		const counts = Object.entries(await stats($)).map(([k, v]) => `${k}=${v}`).join(", ") || "none yet";
 		const lines = recentDecisions().slice(-10).map((d) => `- ${d.kind}${d.applied ? "" : " (pass)"}: ${d.text}${d.ms !== undefined ? ` [${Math.round(d.ms)}ms]` : ""}`);
 		return { text: [
+			...missing.length ? [`Jev pilot: inactive, the jev-api tools are missing (${missing.join(", ")}). jevfort needs jev-api 0.2.0 or later and no permissions.deny rule matching its tools; then restart Claude Code.`] : [],
 			`Jev pilot: routing ${routing}, take steps ${takeSteps} (p ≥ ${takeThreshold}), done check ${doneCheck}, subagents ${subagents}`,
 			`Decisions (all sessions): ${counts}`,
 			lines.length ? `Recent:\n${lines.join("\n")}` : "No decisions this session yet.",
@@ -568,6 +584,7 @@ export const register = (on, options) => {
 		].join("\n") };
 	});
 	on("turn.complete", async function onTurnComplete($, e, next) {
+		if ((await jevMissing($)).length) return next(e);
 		turns.delete(e.turnId);
 		if (e.reason === "aborted" || e.reason === "error") {
 			await record($, {
@@ -609,6 +626,7 @@ export const register = (on, options) => {
 		return next(e);
 	});
 	on("tool.call", async function onToolCall($, e, next) {
+		if ((await jevMissing($)).length) return next(e);
 		if (e.tool === ESTIMATE_TOOL) {
 			const input = parseEstimateInput(e);
 			if (typeof input === "string") return {
@@ -653,6 +671,7 @@ export const register = (on, options) => {
 		return result;
 	});
 	on("turn.step", async function* onTurnStep($, e, next) {
+		if ((await jevMissing($)).length) return yield* next(e);
 		if (e.agentId && !subagents) return yield* next(e);
 		const turn = turns.get(e.turnId) ?? { taken: 0 };
 		turns.set(e.turnId, turn);
@@ -891,6 +910,7 @@ export const register = (on, options) => {
 	});
 	let scratchpad;
 	on("tool.check", async function onToolCheck($, e, next) {
+		if ((await jevMissing($)).length) return next(e);
 		const base = await next(e);
 		if (e.tool === ESTIMATE_TOOL && base.decision !== "deny") return {
 			...base,

@@ -7,14 +7,15 @@ pick subagent types and guide compaction. Every decision is logged and reported 
 jevfort has no off switch of its own: disable the plugin (`/plugin`, or `claude plugin disable`) to turn it off.
 
 A port of [nim-f/jev-pilot](https://github.com/nim-f/jev-pilot) 0.5.0 by Code and Bird into this repository's plugin
-layout, with the endpoint configurable through `JEV_URL`.
+layout. jevfort makes no network request of its own: it asks Jev through the tools of the jev-api plugin.
 
-## Environment
+## Requires
 
-| Variable           | Required | Meaning                                                                                                                                                                                                                                                                                           |
-| ------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TYPESAFE_API_KEY` | yes      | Bearer token for the TypeSafe API. Without it every Jev decision is logged as `unavailable` and Claude Code behaves as usual.                                                                                                                                                                     |
-| `JEV_URL`          | no       | The Jev endpoint, read on every request. Default `https://api.typesafe.ai/v1/systemone`. Any `http://` or `https://` URL is accepted (trimmed); blank counts as unset; anything else is logged as a Jev error and no request is sent. Over plain `http://` the bearer token travels in cleartext. |
+The **jev-api** plugin, installed and enabled together with jevfort. jevfort declares it as a plugin dependency, so Claude Code keeps jevfort disabled while jev-api is missing or disabled. jevfort asks Jev only through jev-api's tool `mcp__jev-api__batch` (jev-api 0.2.0 or later): one call, and one request, per decision.
+
+The endpoint and the key are configured for jev-api, not for jevfort: its environment variables `TYPESAFE_API_KEY`, `TYPESAFE_BASE_URL`, `JEV_URL` and `TYPESAFE_DEFAULT_MODEL` are described in the jev-api README. Coming from jevfort 0.4, which sent its own request: jev-api sends the key only to an `https://` endpoint (an `http://` `JEV_URL` now gets no `Authorization` header), and it also reads `TYPESAFE_BASE_URL` and `TYPESAFE_DEFAULT_MODEL`, which jevfort 0.4 ignored.
+
+Without jev-api's batch tool in a session (for example denied by a permission rule), jevfort does nothing: it changes no event, does not register `estimate_effort`, and `/jev` says so. jevfort looks the tool up once when Claude Code starts, so a permission rule added later reaches jevfort only after a restart (or a reload of jevfort). When jev-api is not configured, fails, or does not answer a decision within 4 seconds, jevfort leaves that decision to Claude Code's own behaviour: a turn step logs it as `unavailable`, an `estimate_effort` call answers its default effort.
 
 ## Commands
 
