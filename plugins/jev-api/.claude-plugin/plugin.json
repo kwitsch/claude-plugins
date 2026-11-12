@@ -1,7 +1,7 @@
 {
   "name": "jev-api",
-  "version": "0.1.0",
-  "description": "Registers the TypeSafe Jev System One question types noul, choice and score as tools; configured by TYPESAFE_API_KEY, TYPESAFE_BASE_URL or JEV_URL.",
+  "version": "0.2.0",
+  "description": "Registers the TypeSafe Jev System One question types noul, choice and score as tools, plus batch for several questions in one request; configured by TYPESAFE_API_KEY, TYPESAFE_BASE_URL or JEV_URL.",
   "author": {
     "name": "Kwitsch"
   },
@@ -11,5 +11,13 @@
     "typesafe",
     "jev",
     "tools"
-  ]
+  ],
+  "userConfig": {
+    "timeout": {
+      "type": "number",
+      "title": "Timeout",
+      "description": "HTTP timeout of one System One request in seconds, at most 30, used when a tool call gives no valid timeout of its own (invalid or unset: 20).",
+      "default": 20
+    }
+  }
 }
