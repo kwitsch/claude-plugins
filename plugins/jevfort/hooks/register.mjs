@@ -73,8 +73,42 @@ async function askJev($, state, questions) {
 	}
 }
 let jevTools;
+let jevState;
+let estimateRegistered = false;
+let bandStale = false;
 function jevMissing($) {
-	return jevTools ??= $.tool.list().then((t) => missingJevTools(t.map((x) => x.name))).catch(() => [...JEV_TOOLS]);
+	return jevTools ??= $.tool.list().then((t) => missingJevTools(t.map((x) => x.name))).catch(() => [...JEV_TOOLS]).then(async (missing) => {
+		if (jevState !== undefined) await jevApply($, missing);
+		return missing;
+	});
+}
+async function jevApply($, missing) {
+	const key = missing.join(", ");
+	const changed = key !== jevState;
+	if (!changed && !bandStale && (key || estimateRegistered)) return;
+	jevState = key;
+	bandStale = false;
+	try {
+		$.ui.invalidate("ui.render");
+	} catch {}
+	if (key) {
+		await record($, {
+			kind: "error",
+			applied: false,
+			text: `inactive: jev-api tools missing (${key})`
+		}).catch(() => undefined);
+		return;
+	}
+	try {
+		if (!estimateRegistered) await $.tool.register(ESTIMATE_SPEC);
+		estimateRegistered = true;
+	} catch (err) {
+		await record($, {
+			kind: "error",
+			applied: false,
+			text: `estimate_effort not registered: ${String(err)}`
+		}).catch(() => undefined);
+	}
 }
 async function readLog($) {
 	return await $.store.get(LOG_KEY) ?? [];
@@ -369,6 +403,32 @@ export const register = (on, options) => {
 		const { Markdown } = $.ui.resolve(e);
 		return Markdown({ text: e.props.text });
 	});
+	let band = {};
+	let autoOff = false;
+	on("ui.render", { component: "AbovePrompt" }, function onRenderBand($, e, next) {
+		if (routing === "off" || jevState !== "" || e.props.hasSurvey) return next(e);
+		const { Box, Text, Button } = $.ui.resolve(e);
+		return Box({
+			flexDirection: "row",
+			children: [...EFFORT_ORDER.map((level) => Text({
+				...level === band.configured ? { bold: true } : {},
+				...level === band.chosen ? { color: "blue" } : {},
+				...level !== band.configured && level !== band.chosen ? { dimColor: true } : {},
+				children: [`${level} `]
+			})), Button({
+				key: "auto",
+				label: `Jev auto: ${autoOff ? "off" : "on"}`,
+				onPress: () => {
+					autoOff = !autoOff;
+					try {
+						$.ui.invalidate("ui.render");
+					} catch {
+						bandStale = true;
+					}
+				}
+			})]
+		});
+	});
 	let donePending = false;
 	let lostFollowUp;
 	on("prompt.submit", async function onPromptSubmit($, e, next) {
@@ -508,6 +568,11 @@ export const register = (on, options) => {
 	const ownCalls = new Set();
 	on("session.start", async function onSessionStart($, e, next) {
 		firstTurns.clear();
+		band = {};
+		autoOff = false;
+		jevState = undefined;
+		estimateRegistered = false;
+		bandStale = false;
 		if (badRange) await record($, {
 			kind: "error",
 			applied: false,
@@ -519,24 +584,7 @@ export const register = (on, options) => {
 		});
 		const result = await next(e);
 		jevTools = undefined;
-		const missing = await jevMissing($);
-		if (missing.length) {
-			await record($, {
-				kind: "error",
-				applied: false,
-				text: `inactive: jev-api tools missing (${missing.join(", ")})`
-			}).catch(() => undefined);
-			return result;
-		}
-		try {
-			await $.tool.register(ESTIMATE_SPEC);
-		} catch (err) {
-			await record($, {
-				kind: "error",
-				applied: false,
-				text: `estimate_effort not registered: ${String(err)}`
-			}).catch(() => undefined);
-		}
+		await jevApply($, await jevMissing($));
 		return result;
 	});
 	on("command.run", { command: "jev" }, async function onJevCommand($, e) {
@@ -576,15 +624,17 @@ export const register = (on, options) => {
 		const counts = Object.entries(await stats($)).map(([k, v]) => `${k}=${v}`).join(", ") || "none yet";
 		const lines = recentDecisions().slice(-10).map((d) => `- ${d.kind}${d.applied ? "" : " (pass)"}: ${d.text}${d.ms !== undefined ? ` [${Math.round(d.ms)}ms]` : ""}`);
 		return { text: [
-			...missing.length ? [`Jev pilot: inactive, the jev-api tools are missing (${missing.join(", ")}). jevfort needs jev-api 0.2.0 or later and no permissions.deny rule matching its tools; then restart Claude Code.`] : [],
-			`Jev pilot: routing ${routing}, take steps ${takeSteps} (p ≥ ${takeThreshold}), done check ${doneCheck}, subagents ${subagents}`,
+			...missing.length ? [`Jev pilot: inactive, the jev-api tools are missing (${missing.join(", ")}). jevfort needs jev-api 0.2.0 or later and no permissions.deny rule matching its tools; it looks again at the next turn.`] : [],
+			`Jev pilot: routing ${routing}${autoOff ? " (effort auto off)" : ""}, take steps ${takeSteps} (p ≥ ${takeThreshold}), done check ${doneCheck}, subagents ${subagents}`,
 			`Decisions (all sessions): ${counts}`,
 			lines.length ? `Recent:\n${lines.join("\n")}` : "No decisions this session yet.",
 			"Full analysis: /jev report"
 		].join("\n") };
 	});
 	on("turn.complete", async function onTurnComplete($, e, next) {
-		if ((await jevMissing($)).length) return next(e);
+		const missing = await jevMissing($);
+		if (e.agentId === undefined) jevTools = undefined;
+		if (missing.length) return next(e);
 		turns.delete(e.turnId);
 		if (e.reason === "aborted" || e.reason === "error") {
 			await record($, {
@@ -626,7 +676,6 @@ export const register = (on, options) => {
 		return next(e);
 	});
 	on("tool.call", async function onToolCall($, e, next) {
-		if ((await jevMissing($)).length) return next(e);
 		if (e.tool === ESTIMATE_TOOL) {
 			const input = parseEstimateInput(e);
 			if (typeof input === "string") return {
@@ -652,6 +701,7 @@ export const register = (on, options) => {
 			});
 			return { result: JSON.stringify(est) };
 		}
+		if ((await jevMissing($)).length) return next(e);
 		const result = await next(e);
 		if (e.tool_use_id && ownCalls.has(e.tool_use_id)) {
 			const isError = result.deny !== undefined || result.isError === true;
@@ -736,29 +786,39 @@ export const register = (on, options) => {
 		let firstTurn;
 		if (routing !== "off" && e.index === 0) {
 			if (routing === "model") questions.difficulty = difficultyQuestion;
-			const loop = e.agentId ?? "";
-			const first = firstTurns.get(loop);
-			const family = modelFamily(e.model);
-			const fresh = !first || first.family !== family;
-			if (fresh) {
-				firstTurn = {
-					family,
-					from: e.effort
-				};
-				firstTurns.set(loop, firstTurn);
-			}
 			const sessionEffort = isEffort(e.effort) ? e.effort : undefined;
-			estimate = family && sessionEffort && (fresh || EVERY_TURN_MODELS.includes(family)) ? {
-				model: family,
-				defaultEffort: sessionEffort,
-				...effortRange
-			} : undefined;
-			if (estimate) {
-				questions.effort = effortQuestion;
-				questions.mechanical = mechanicalQuestion;
+			if (!e.agentId) {
+				band = sessionEffort ? { configured: sessionEffort } : {};
+				$.ui.invalidate("ui.render");
 			}
-			held = !estimate && first?.effort && first.family === family && first.from === e.effort ? first.effort : undefined;
-			if (held && held !== e.effort) turn.effort = held;
+			if (!autoOff) {
+				const loop = e.agentId ?? "";
+				const first = firstTurns.get(loop);
+				const family = modelFamily(e.model);
+				const fresh = !first || first.family !== family;
+				if (fresh) {
+					firstTurn = {
+						family,
+						from: e.effort
+					};
+					firstTurns.set(loop, firstTurn);
+				}
+				estimate = family && sessionEffort && (fresh || EVERY_TURN_MODELS.includes(family)) ? {
+					model: family,
+					defaultEffort: sessionEffort,
+					...effortRange
+				} : undefined;
+				if (estimate) {
+					questions.effort = effortQuestion;
+					questions.mechanical = mechanicalQuestion;
+				}
+				held = !estimate && first?.effort && first.family === family && first.from === e.effort ? first.effort : undefined;
+				if (held && held !== e.effort) turn.effort = held;
+				if (held && !e.agentId) {
+					band.chosen = held;
+					$.ui.invalidate("ui.render");
+				}
+			}
 		}
 		if (bypass && e.index === 0 && questions.next_action && !e.agentId) questions.single_action = singleActionQuestion;
 		const routed = (step) => {
@@ -820,6 +880,10 @@ export const register = (on, options) => {
 			if (est) {
 				turn.effort = est.effort !== e.effort ? est.effort : undefined;
 				if (firstTurn) firstTurn.effort = est.effort;
+				if (!e.agentId) {
+					band.chosen = est.effort;
+					$.ui.invalidate("ui.render");
+				}
 			}
 			const effort = turn.effort;
 			const raised = effort !== undefined && EFFORT_ORDER.indexOf(effort) > (isEffort(e.effort) ? EFFORT_ORDER.indexOf(e.effort) : -1);
@@ -910,13 +974,16 @@ export const register = (on, options) => {
 	});
 	let scratchpad;
 	on("tool.check", async function onToolCheck($, e, next) {
+		if (e.tool === ESTIMATE_TOOL) {
+			const base = await next(e);
+			return base.decision !== "deny" ? {
+				...base,
+				decision: "allow",
+				reason: "jevfort: estimate_effort is answered locally"
+			} : base;
+		}
 		if ((await jevMissing($)).length) return next(e);
 		const base = await next(e);
-		if (e.tool === ESTIMATE_TOOL && base.decision !== "deny") return {
-			...base,
-			decision: "allow",
-			reason: "jevfort: estimate_effort is answered locally"
-		};
 		if (e.tool_use_id && ownCalls.has(e.tool_use_id)) {
 			if (base.decision === "deny") return base;
 			return {

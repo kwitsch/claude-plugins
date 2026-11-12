@@ -15,17 +15,21 @@ The **jev-api** plugin, installed and enabled together with jevfort. jevfort dec
 
 The endpoint and the key are configured for jev-api, not for jevfort: its environment variables `TYPESAFE_API_KEY`, `TYPESAFE_BASE_URL`, `JEV_URL` and `TYPESAFE_DEFAULT_MODEL` are described in the jev-api README. Coming from jevfort 0.4, which sent its own request: jev-api sends the key only to an `https://` endpoint (an `http://` `JEV_URL` now gets no `Authorization` header), and it also reads `TYPESAFE_BASE_URL` and `TYPESAFE_DEFAULT_MODEL`, which jevfort 0.4 ignored.
 
-Without jev-api's batch tool in a session (for example denied by a permission rule), jevfort does nothing: it changes no event, does not register `estimate_effort`, and `/jev` says so. jevfort looks the tool up once when Claude Code starts, so a permission rule added later reaches jevfort only after a restart (or a reload of jevfort). When jev-api is not configured, fails, or does not answer a decision within 4 seconds, jevfort leaves that decision to Claude Code's own behaviour: a turn step logs it as `unavailable`, an `estimate_effort` call answers its default effort.
+Without jev-api's batch tool in a session (for example denied by a permission rule), jevfort does nothing: it changes no event, does not register `estimate_effort` (once registered, `estimate_effort` keeps answering its default effort), and `/jev` says so. jevfort looks the tool up again at every turn, so jev-api appearing or going away (for example through a permission rule added later) takes effect from the next turn. When jev-api is not configured, fails, or does not answer a decision within 4 seconds, jevfort leaves that decision to Claude Code's own behaviour: a turn step logs it as `unavailable`, an `estimate_effort` call answers its default effort.
 
 ## Commands
 
-| Command           | Does                                                                                                                                                                                  |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/jev`            | Status: routing, thresholds, decision counts, the last 10 decisions (` (pass)` marks one that changed nothing)                                                                        |
-| `/jev report`     | Markdown report: steps Jev took, turns answered without Claude, agreement with Claude step by step, take-threshold table, routing, done check, classifier, subagent types, compaction |
-| `/jev candidates` | The options Jev is offered at step 0 for the last prompt                                                                                                                              |
-| `/jev export`     | Writes the log to `<cwd>/.jev/decisions.jsonl`                                                                                                                                        |
-| `/jev clear`      | Clears the log and the counters                                                                                                                                                       |
+| Command           | Does                                                                                                                                                                                              |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/jev`            | Status: routing (`(effort auto off)` while the effort band's Auto button pauses the effort choice), thresholds, decision counts, the last 10 decisions (` (pass)` marks one that changed nothing) |
+| `/jev report`     | Markdown report: steps Jev took, turns answered without Claude, agreement with Claude step by step, take-threshold table, routing, done check, classifier, subagent types, compaction             |
+| `/jev candidates` | The options Jev is offered at step 0 for the last prompt                                                                                                                                          |
+| `/jev export`     | Writes the log to `<cwd>/.jev/decisions.jsonl`                                                                                                                                                    |
+| `/jev clear`      | Clears the log and the counters                                                                                                                                                                   |
+
+## Effort band
+
+In the terminal and the desktop app jevfort draws one row above the prompt: `low medium high xhigh max` and a `Jev auto: on` button. From each turn's start, the effort Claude Code is set to (the session effort) is bold and the effort Jev chose for the current turn is blue; the other levels are dim. Pressing `Jev auto` pauses Jev's automatic effort choice: turns run at the session effort until you press it again or a new session starts (a reload of jevfort also turns it back on). Taking steps, model routing and the `estimate_effort` tool keep working. The row shows the main conversation only, not subagents, and is hidden with `routing: off` and while jevfort is inactive. `/jev` shows `(effort auto off)` while the choice is paused.
 
 ## Tool
 
