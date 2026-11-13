@@ -1,35 +1,36 @@
 # jev-solver
 
-A collection of workflow skills modelled on the superpowers plugin, without its SessionStart steering and subagent-driven-development. Start with `/jev-solver:solve <task>`.
+One workflow skill modelled on the superpowers plugin, without its SessionStart steering and subagent-driven-development. Start with `/jev-solver:solve <task>`.
 
 ## Requirements
 
-The `jev-api` plugin (declared as dependency) with `TYPESAFE_API_KEY`, `TYPESAFE_BASE_URL` or `JEV_URL` set. Without it, or on any jev-api error, the skills decide with Claude's own reasoning.
+The `jev-api` plugin (declared as dependency) with `TYPESAFE_API_KEY`, `TYPESAFE_BASE_URL` or `JEV_URL` set. Without it, or on any jev-api error, the skill decides with Claude's own reasoning.
 
-## Skills
+## Skill, references and agent
 
-| Skill            | What it does                                                                  |
-| ---------------- | ----------------------------------------------------------------------------- |
-| `solve`          | Entry point. Triages the task (track and size) through jev-api and routes it  |
-| `decide`         | Shared rule for direction decisions through jev-api `choice`, `score`, `noul` |
-| `design`         | Explores the task and writes a spec to the session scratchpad                 |
-| `plan`           | Turns the spec into a step-by-step plan in the scratchpad                     |
-| `execute`        | Carries out the plan inline, step by step                                     |
-| `tdd`            | Test first, then code                                                         |
-| `debug`          | Root cause before any fix                                                     |
-| `request-review` | Reviews a change; depth depends on size                                       |
-| `receive-review` | Handles review feedback with verification                                     |
-| `verify`         | Evidence before any success claim                                             |
-| `worktree`       | Own worktree on a `feat/` or `fix/` branch, entered by `solve` for every task |
-| `finish`         | Wraps up a finished branch                                                    |
+`solve` is the only skill. Its phases are reference files next to it (`skills/solve/<name>.reference.md`), loaded through the decision matrix in `solve/SKILL.md`: `decide`, `worktree`, `design`, `spec`, `plan`, `pr`, `execute`, `tdd`, `debug`, `verify`, `request-review`, `receive-review`, `finish`.
+
+The `decider` agent answers the questions of a `--headless` run: opus with high effort for sizes S, M and L, Fable with high effort for XL.
+
+## Arguments
+
+| Argument               | Meaning                                                                                               |
+| ---------------------- | ----------------------------------------------------------------------------------------------------- |
+| `--headless`           | No `AskUserQuestion`; the `decider` agent is asked instead, with the options, task and document paths |
+| `--type=<tiny\|feature\|bugfix>` | Uses that track instead of the triage choice                                                  |
+| `--size=<S\|M\|L\|XL>` | Uses that size instead of the triage score                                                            |
+
+Without `--headless`, every question goes through `AskUserQuestion`.
+
+Every track pushes after the first commit and opens a draft PR, updates the PR description on every push, and ends with the branch pushed, up to date with its base (conflicts resolved), checks green and the PR marked ready (merge-ready).
 
 ## Tracks
 
-| Track   | Flow                                                                                                           |
-| ------- | -------------------------------------------------------------------------------------------------------------- |
-| tiny    | Implement directly, light review of the diff                                                                   |
-| feature | design, plan, execute, verify, `/simplify`; review depth grows with size (M, L, XL), then `/code-review --fix` |
-| bugfix  | `fix/` branch, debug, failing test, one fix, verify, review, `/code-review --fix`                              |
+| Track   | Flow                                                                                                                                                |
+| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| tiny    | Implement directly, light review of the diff                                                                                                        |
+| feature | by size: S direct; M plan; L design, plan; XL design, spec, plan (each confirmed), then execute, verify, `/simplify`, reviews, `/code-review --fix` |
+| bugfix  | `fix/` branch, debug, failing test, one fix, verify, review, `/code-review --fix`                                                                   |
 
 ## Options
 

@@ -1,8 +1,3 @@
----
-name: verify
-description: Runs the checks and reads their output before any claim that work is done, fixed or passing. Use before saying a task is complete, before committing and before opening a PR.
----
-
 # verify
 
 Evidence before claims.

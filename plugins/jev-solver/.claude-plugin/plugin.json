@@ -1,7 +1,7 @@
 {
   "name": "jev-solver",
-  "version": "0.2.0",
-  "description": "Skills for solving coding tasks after the superpowers plugin (design, plan, execute, debug, review, verify); one entry skill, solve, triages the task through the jev-api tools and keeps specs and plans in the session scratchpad.",
+  "version": "0.3.0",
+  "description": "One skill, solve, for coding tasks after the superpowers plugin (design, plan, execute, debug, review, verify as references, a decider agent for --headless runs); it triages the task through the jev-api tools and keeps specs and plans in the session scratchpad.",
   "author": {
     "name": "Kwitsch"
   },
