@@ -95,6 +95,11 @@
       "name": "jev-api",
       "source": "./plugins/jev-api",
       "category": "productivity"
+    },
+    {
+      "name": "jev-solver",
+      "source": "./plugins/jev-solver",
+      "category": "productivity"
     }
   ]
 }
