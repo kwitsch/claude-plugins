@@ -72,7 +72,7 @@ const MAX_RELATED = 8;
 const STOPWORDS = new Set(("the and for with this that these those when what which where how why who any all can could would should will " + "you your use used using user users from into onto about over than then them they its it's are was were has have " + "had not but also only just some more most very like want need make made create new get set show see one two " + "file files read run runs tool tools skill skills command commands claude code project before after first step " + "please let lets now ok okay yes here there out other each every such via per our we me my is be to of in on at " + "an a or do does did done if so as by up no").split(" "));
 export function words(text) {
 	const out = new Set();
-	for (const w of text.toLowerCase().split(/[^a-z0-9]+/)) {
+	for (const w of text.toLowerCase().split(/[^\p{L}\p{N}]+/u)) {
 		if (w.length < 3 || STOPWORDS.has(w) || /^\d+$/.test(w)) continue;
 		const stem = w.replace(/(ing|ed|es|e|s)$/, "");
 		out.add(stem.length >= 3 && !w.endsWith("ss") ? stem : w);

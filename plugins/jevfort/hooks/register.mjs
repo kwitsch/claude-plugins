@@ -819,7 +819,8 @@ export const register = (on, options) => {
 				effort: effortQuestion,
 				mechanical: mechanicalQuestion
 			});
-			const est = estimateEffort(r.ok ? score(r.answers, "effort") : undefined, r.ok ? noul(r.answers, "mechanical") : undefined, input);
+			const effortAnswer = r.ok ? score(r.answers, "effort") : undefined;
+			const est = estimateEffort(effortAnswer, r.ok ? noul(r.answers, "mechanical") : undefined, input);
 			await record($, {
 				kind: "estimate",
 				applied: est.source !== "fallback",
@@ -829,7 +830,9 @@ export const register = (on, options) => {
 					model: input.model,
 					effort: est.effort,
 					source: est.source,
-					error: r.ok ? undefined : r.error
+					error: r.ok ? undefined : r.error,
+					effortScore: effortAnswer?.score,
+					effortConfidence: effortAnswer?.confidence
 				}
 			});
 			return { result: JSON.stringify(est) };
@@ -1011,7 +1014,8 @@ export const register = (on, options) => {
 			turn.route = difficulty ? route(difficulty, "model") : undefined;
 			const model = lowerModel(e.model, turn.route?.model);
 			const mechanical = noul(r.answers, "mechanical");
-			const est = estimate ? estimateEffort(score(r.answers, "effort"), mechanical, estimate) : undefined;
+			const effortAnswer = estimate ? score(r.answers, "effort") : undefined;
+			const est = estimate ? estimateEffort(effortAnswer, mechanical, estimate) : undefined;
 			if (est) {
 				turn.effort = est.effort !== e.effort ? est.effort : undefined;
 				if (firstTurn) firstTurn.effort = est.effort;
@@ -1039,7 +1043,9 @@ export const register = (on, options) => {
 					raised,
 					estimate: est?.effort,
 					source,
-					mechanical
+					mechanical,
+					effortScore: effortAnswer?.score,
+					effortConfidence: effortAnswer?.confidence
 				}
 			});
 		}

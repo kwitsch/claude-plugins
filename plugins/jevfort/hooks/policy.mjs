@@ -71,15 +71,30 @@ export const ESTIMATE_MODELS = [
 	"opus",
 	"fable"
 ];
-const MODEL_BIAS = {
-	haiku: .75,
-	sonnet: .25,
-	opus: -.25,
-	fable: -.75
-};
 export const EVERY_TURN_MODELS = ["sonnet", "opus"];
 export const MIN_CONFIDENCE = .5;
-export const MECHANICAL_FROM = .8;
+export const MECHANICAL_FROM = .95;
+export const EFFORT_CUTS = [
+	1.05,
+	1.9,
+	2.5,
+	3.1
+];
+const CUT_X = [
+	0,
+	...EFFORT_CUTS,
+	4
+];
+const CUT_Y = [
+	0,
+	...EFFORT_CUTS.map((_, i) => i + .5),
+	4
+];
+export function effortLevel(score) {
+	const s = Math.min(Math.max(score, 0), 4);
+	const i = Math.max(1, CUT_X.findIndex((x) => s <= x));
+	return CUT_Y[i - 1] + (s - CUT_X[i - 1]) / (CUT_X[i] - CUT_X[i - 1]) * (CUT_Y[i] - CUT_Y[i - 1]);
+}
 export const ESTIMATE_NAME = "estimate_effort";
 export const ESTIMATE_TOOL = `mcp__jevfort__${ESTIMATE_NAME}`;
 const isModel = (v) => ESTIMATE_MODELS.includes(v);
@@ -119,11 +134,11 @@ export function estimateEffort(effort, mechanical, b) {
 		effort: b.minEffort,
 		source: "mechanical"
 	};
-	if (!effort || !Number.isFinite(effort.score) || !(effort.confidence >= MIN_CONFIDENCE)) return {
+	if (!effort || !Number.isFinite(effort.score)) return {
 		effort: b.defaultEffort,
 		source: "fallback"
 	};
-	const i = Math.round(effort.score + MODEL_BIAS[b.model]);
+	const i = Math.round(effortLevel(effort.score));
 	const clamped = Math.min(Math.max(i, EFFORT_ORDER.indexOf(b.minEffort)), EFFORT_ORDER.indexOf(b.maxEffort));
 	return {
 		effort: EFFORT_ORDER[clamped],
@@ -152,7 +167,7 @@ export const mechanicalQuestion = {
 };
 export const ESTIMATE_SPEC = {
 	name: ESTIMATE_NAME,
-	description: "Estimate the reasoning effort a prompt most likely needs, decided by TypeSafe Jev. Returns JSON {\"effort\": level, \"source\": \"jev\"|\"mechanical\"|\"fallback\"}: a purely mechanical prompt gets minEffort; Jev's estimate is biased by the model (a stronger model needs less) and kept within minEffort..maxEffort; when Jev is unreachable or unsure, defaultEffort.",
+	description: "Estimate the reasoning effort a prompt most likely needs, decided by TypeSafe Jev. Returns JSON {\"effort\": level, \"source\": \"jev\"|\"mechanical\"|\"fallback\"}: a purely mechanical prompt gets minEffort; Jev's estimate (the same for every model) is kept within minEffort..maxEffort; when Jev is unreachable or gives no effort score, defaultEffort.",
 	inputSchema: {
 		type: "object",
 		properties: {
@@ -164,7 +179,7 @@ export const ESTIMATE_SPEC = {
 			defaultEffort: {
 				type: "string",
 				enum: [...EFFORT_ORDER],
-				description: "Returned when Jev is unreachable or unsure"
+				description: "Returned when Jev is unreachable or gives no effort score"
 			},
 			minEffort: {
 				type: "string",
