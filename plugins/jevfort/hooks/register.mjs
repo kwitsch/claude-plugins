@@ -3,7 +3,7 @@ import { CACHE_TTL, cacheColor, cacheLabel, minutesLeft, nextTtl } from "./cache
 import { absolute, AUTH_TOOL, bash, BUILTIN_COMMANDS, clipScript, coversStep, dedupeSkills, isSafeToOffer, MAX_READS, mentionedPaths, quotedTerms, relevant, SAFE_MAKE, SAFE_SCRIPT, sameCall, SKILL_BLOCKLIST_KEY } from "./candidates.mjs";
 import { COMPACT_MAX_TOKENS, COMPACT_MODEL, COMPACT_SYSTEM, compactInstructions, compactItems, haikuTranscript, RELEVANCE } from "./compact.mjs";
 import { clip, splitTurn, summarize, toolCalls } from "./context.mjs";
-import { choice, JEV_API_TIMEOUT_S, JEV_BATCH, JEV_TOOL_PREFIX, JEV_TOOLS, MAX_CHOICE_OPTIONS, missingJevTools, noul, score, TIMEOUT_MS } from "./jev.mjs";
+import { choice, HAIKU_API_TIMEOUT_S, HAIKU_TIMEOUT_MS, JEV_API_TIMEOUT_S, JEV_BATCH, JEV_TOOL_PREFIX, JEV_TOOLS, MAX_CHOICE_OPTIONS, missingJevTools, noul, score, TIMEOUT_MS } from "./jev.mjs";
 import { LOG_KEY, MAX_ENTRIES, recentDecisions, remember, statsKey } from "./log.mjs";
 import { bestAction, bounds, difficultyQuestion, doneQuestion, EFFORT_ORDER, effortQuestion, ESTIMATE_SPEC, ESTIMATE_TOOL, estimateEffort, EVERY_TURN_MODELS, inBandRange, inScratchpad, isEffort, lowerModel, mechanicalQuestion, modelFamily, nextActionQuestion, parseEstimateInput, pickCandidate, route, shouldContinue, singleActionQuestion } from "./policy.mjs";
 import { hints, NONE, promptQuestions } from "./prompt.mjs";
@@ -32,13 +32,28 @@ async function askJev($, state, questions) {
 		...r,
 		ms: await $.clock.now() - startedAt
 	});
+	const [key, base, jevUrl] = await Promise.all([
+		$.env.get("TYPESAFE_API_KEY"),
+		$.env.get("TYPESAFE_BASE_URL"),
+		$.env.get("JEV_URL")
+	]).catch(() => [
+		undefined,
+		undefined,
+		undefined
+	]);
+	const haiku = ![
+		key,
+		base,
+		jevUrl
+	].some((v) => v?.trim());
+	const budgetMs = haiku ? HAIKU_TIMEOUT_MS : TIMEOUT_MS;
 	const entries = Object.entries(questions);
 	const call = (async () => {
 		const r = await $.tool.call({
 			tool: JEV_BATCH,
 			state: JSON.stringify(state),
 			questions: entries.map(([, q]) => q),
-			timeout: JEV_API_TIMEOUT_S
+			timeout: haiku ? HAIKU_API_TIMEOUT_S : JEV_API_TIMEOUT_S
 		});
 		if (r.deny !== undefined) throw new Error(asText(r.deny));
 		if (r.isError === true || typeof r.result !== "string") throw new Error(`batch: ${r.result === undefined ? "no result" : typeof r.result === "string" ? r.result : JSON.stringify(r.result)}`);
@@ -56,12 +71,12 @@ async function askJev($, state, questions) {
 		}));
 	})();
 	call.catch(() => undefined);
-	const timeout = $.clock.sleep(TIMEOUT_MS).then(() => undefined);
+	const timeout = $.clock.sleep(budgetMs).then(() => undefined);
 	try {
 		const answers = await Promise.race([call, timeout]);
 		if (!answers) return done({
 			ok: false,
-			error: `timeout after ${TIMEOUT_MS}ms`
+			error: `timeout after ${budgetMs}ms`
 		});
 		return done({
 			ok: true,
