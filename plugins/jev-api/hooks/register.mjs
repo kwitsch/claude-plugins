@@ -10,7 +10,9 @@ const HAIKU_SYSTEM = `You stand in for a text classifier. Answer every question 
 An answer is, by question type:
 - noul: {"type":"noul","noul":<probability 0..1 that the answer is yes>}
 - choice: {"type":"choice","choice":"<exactly one option name>","confidence":<0..1>,"probabilities":{"<option>":<0..1>,...}} with every option listed
-- score: {"type":"score","score":<number from 0 to levels-1, fractional between levels>,"confidence":<0..1>,"probabilities":{"0":<0..1>,"1":<0..1>,...}} with every level index listed`;
+- score: {"type":"score","score":<number from 0 to levels-1, fractional between levels>,"confidence":<0..1>,"probabilities":{"0":<0..1>,"1":<0..1>,...}} with every level index listed
+Calibration: be a calibrated estimator, not a cautious one. For noul use the whole range: 0.97 to 0.99 when the answer is clearly yes, 0.01 to 0.03 when it is clearly no, values in between only when the case is genuinely open. For choice and score spread the probabilities honestly over neighbouring options; a score is the probability-weighted mean of the level indexes, so it is rarely a whole number. For a score over ordered levels pick the lowest level that fully handles the case: most everyday cases sit in the lower half of the scale and the top two levels are rare, so when two neighbouring levels fit, give the lower one more weight.`;
+const NOUL_STRETCH = 2.5;
 const STATE = {
 	type: "string",
 	description: "The text the question is about."
@@ -283,11 +285,18 @@ function isUnit(v) {
 function hasProbabilities(v, keys) {
 	return isRecord(v) && keys.every((k) => isUnit(v[k]));
 }
+function stretch(p) {
+	const c = Math.min(Math.max(p, .001), .999);
+	return 1 / (1 + Math.exp(-NOUL_STRETCH * Math.log(c / (1 - c))));
+}
+function round4(v) {
+	return Math.round(v * 1e4) / 1e4;
+}
 function checkAnswer(q, a) {
 	if (!isRecord(a) || a["type"] !== q.type) return undefined;
 	if (q.type === "noul") return isUnit(a["noul"]) ? {
 		type: "noul",
-		noul: a["noul"]
+		noul: round4(stretch(a["noul"]))
 	} : undefined;
 	const { confidence, probabilities } = a;
 	if (!isUnit(confidence)) return undefined;
@@ -303,14 +312,17 @@ function checkAnswer(q, a) {
 		};
 	}
 	const levels = q.criteria.map((_, i) => String(i));
-	const value = a["score"];
-	if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > levels.length - 1 || !hasProbabilities(probabilities, levels)) return undefined;
+	if (!hasProbabilities(probabilities, levels)) return undefined;
+	const total = levels.reduce((sum, l) => sum + probabilities[l], 0);
+	if (!(total > 0)) return undefined;
+	const normalized = levels.map((l) => probabilities[l] / total);
+	const mean = normalized.reduce((sum, p, i) => sum + i * p, 0);
 	return {
 		type: "score",
-		score: value,
+		score: round4(mean),
 		confidence,
 		legend: Object.fromEntries(q.criteria.map((l, i) => [i, l])),
-		probabilities: Object.fromEntries(levels.map((l) => [l, probabilities[l]]))
+		probabilities: Object.fromEntries(levels.map((l, i) => [l, round4(normalized[i])]))
 	};
 }
 async function askHaiku($, tool, state, questions, timeoutMs, signal) {

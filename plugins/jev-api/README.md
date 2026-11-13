@@ -74,7 +74,7 @@ All questions go out in one System One request. Result: a JSON array of the answ
 
 Errors come back as a tool error (Claude reads it as an error result) whose text starts with the tool's name and a colon (for example `noul:` or `batch:`).
 
-- No configuration (none of the three variables set): Haiku answers; `<tool>: fallback: <reason>` when it does not answer or its reply is invalid.
+- No configuration (none of the three variables set): Haiku answers, calibrated toward Jev (its `noul` probability is stretched away from 0.5, a `score` is the mean level index of its probabilities, and its prompt asks for honest, uninflated estimates); the numbers remain estimates of a language model, not Jev's; `<tool>: fallback: <reason>` when it does not answer or its reply is invalid.
 - Invalid input, or a `JEV_URL` / `TYPESAFE_BASE_URL` that is not an `http(s)` URL (for `TYPESAFE_BASE_URL` also one with a query or fragment): no request is sent.
 - HTTP 4xx/5xx: `HTTP <status>` plus the API's reason (its `detail`, or its `error.message`) when there is one.
 - No answer of the asked type in the response, a network error or an unparsable body: the reason. Where Claude Code's error quotes the endpoint, the text shows `<JEV_URL>` or `<TYPESAFE_BASE_URL>/v1/systemone` instead of the configured URL.
