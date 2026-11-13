@@ -21,6 +21,7 @@
     "plugins/universal-lint",
     "plugins/jevfort",
     "plugins/jev-api",
+    "plugins/jev-solver",
     "plugins/universal-format/mcp/server.mjs"
   ],
   "plugins": [
