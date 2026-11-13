@@ -25,11 +25,11 @@ The `jev-api` plugin (declared as dependency) with `TYPESAFE_API_KEY`, `TYPESAFE
 
 ## Tracks
 
-| Track   | Flow                                                                   |
-| ------- | ---------------------------------------------------------------------- |
-| tiny    | Implement directly, light review of the diff                           |
-| feature | design, plan, execute, verify; review depth grows with size (M, L, XL) |
-| bugfix  | `fix/` branch, debug, failing test, one fix, verify, review          |
+| Track   | Flow                                                                                                           |
+| ------- | -------------------------------------------------------------------------------------------------------------- |
+| tiny    | Implement directly, light review of the diff                                                                   |
+| feature | design, plan, execute, verify, `/simplify`; review depth grows with size (M, L, XL), then `/code-review --fix` |
+| bugfix  | `fix/` branch, debug, failing test, one fix, verify, review, `/code-review --fix`                              |
 
 ## Options
 

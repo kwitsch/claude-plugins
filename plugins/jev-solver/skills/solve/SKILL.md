@@ -44,7 +44,7 @@ Details and baseline: `jev-solver:worktree`.
 
 ### tiny
 
-Implement directly. Then `jev-solver:verify` and a light review: read your own diff once (`git diff`), nothing more. No spec, no plan.
+Implement directly. Then `jev-solver:verify` and a light review: read your own diff once (`git diff`), nothing more. Then `jev-solver:finish`. No spec, no plan.
 
 ### feature
 
@@ -52,7 +52,8 @@ Implement directly. Then `jev-solver:verify` and a light review: read your own d
 2. `jev-solver:plan`: writes the plan to the scratchpad.
 3. `jev-solver:execute` (with `jev-solver:tdd` for code).
 4. `jev-solver:verify`.
-5. `jev-solver:request-review`, depth by size:
+5. `/simplify` once on the finished work (any size), then `jev-solver:verify` again.
+6. `jev-solver:request-review`, depth by size (L and XL: the per-phase and spec/plan reviews; the final diff is covered by the `/code-review` of the section below):
 
 | Size | Review                                                          |
 | ---- | --------------------------------------------------------------- |
@@ -61,11 +62,19 @@ Implement directly. Then `jev-solver:verify` and a light review: read your own d
 | L    | a review after each plan phase, plus one of the final diff      |
 | XL   | additionally a review of the spec and of the plan before coding |
 
-Findings are handled with `jev-solver:receive-review`. Then `jev-solver:finish`.
+Findings are handled with `jev-solver:receive-review`. Then the final `/code-review` and `jev-solver:finish`.
 
 ### bugfix
 
-On its `fix/` work branch (step 2): `jev-solver:debug` (root cause, failing test, one fix), `jev-solver:verify`, `jev-solver:request-review` (S, M: read your own diff; L and above: one review of the final diff; findings via `jev-solver:receive-review`), `jev-solver:finish`. No spec or plan, unless the root cause shows the fix is really a feature: then switch to the feature track and say so.
+On its `fix/` work branch (step 2): `jev-solver:debug` (root cause, failing test, one fix), `jev-solver:verify`, `jev-solver:request-review` (S, M: read your own diff; L and above: one review of the final diff; findings via `jev-solver:receive-review`), the final `/code-review`, `jev-solver:finish`. No spec or plan, unless the root cause shows the fix is really a feature: then switch to the feature track and say so.
+
+### Final code review (feature and bugfix, never tiny)
+
+After the track's own reviews and before `jev-solver:finish`, run `/code-review <level> --fix` on the branch, the level taken from the size: S `low`, M `medium`, L `high`, XL `xhigh`. Never `max` unless the user asks. Re-run `jev-solver:verify` after it applied fixes.
+
+### Done means pushed
+
+The skill ends only when every change is committed and pushed on the work branch and a draft PR for it exists (`jev-solver:finish` does this; no question about opening it). Report the PR URL.
 
 ## Documents
 

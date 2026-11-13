@@ -12,6 +12,6 @@ Run the plan in this session, in order. No subagents.
 3. **Per step:** mark it in progress, follow it exactly (tests first, `jev-solver:tdd`), run its check, mark it done. Commit per step or per phase, following the repo's commit conventions.
 4. **Stop and ask** when a dependency is missing, a check fails repeatedly, the plan has a gap, or you do not understand an instruction. Do not guess. A failing check is a `jev-solver:debug` case, not something to patch over.
 5. **Phase end** (size L and above): `jev-solver:request-review` on the phase's diff before the next phase.
-6. **Done:** `jev-solver:verify`, then the final review for the size (see `jev-solver:solve`), then `jev-solver:finish`.
+6. **Done:** `jev-solver:verify`, then the closing steps of the track in `jev-solver:solve` (`/simplify` on the feature track, reviews, final `/code-review`), then `jev-solver:finish`.
 
 Do not add anything the plan does not call for; note ideas for later instead.

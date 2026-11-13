@@ -14,4 +14,4 @@ Review the change as a reader who has not seen how it was made.
 5. **Rate blocking findings** when unsure with `jev-solver:decide` (`score`), but verify against the code before acting.
 6. Hand the findings to `jev-solver:receive-review`. Re-review only what the fixes changed.
 
-For a review from a clean context, the user may run `/code-review`; do not spawn subagents on your own for this.
+The clean-context pass is `/code-review <level> --fix`, run by `jev-solver:solve` after this skill (level by size: S low, M medium, L high, XL xhigh); do not spawn subagents on your own for this.
