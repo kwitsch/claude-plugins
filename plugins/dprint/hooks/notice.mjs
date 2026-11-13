@@ -10,7 +10,7 @@ const TOAST_MS = 15e3;
 const PROBE_TIMEOUT_MS = 1e4;
 const PROBE_RETRY_MS = 3e4;
 const MIN_VERSION = "0.50.0";
-const NOT_INSTALLED = "no dprint is installed (none on PATH, in ~/.dprint/bin or in the npx cache)";
+const NOT_INSTALLED = "no dprint is installed (none on PATH, in $DPRINT_INSTALL/bin (default ~/.dprint/bin) or in the npx cache)";
 let shownAt;
 let probe = null;
 let dprintRuns = false;
@@ -58,12 +58,17 @@ async function judge($, argv, cwd, name) {
 function dprintProblem($) {
 	if (probe && (probe.failedAt === undefined || withinMs(probe.failedAt, PROBE_RETRY_MS))) return probe.problem;
 	const entry = { problem: (async () => {
-		const [home, pathVar] = await Promise.all([$.env.get("HOME"), $.env.get("PATH")]);
+		const [home, pathVar, install] = await Promise.all([
+			$.env.get("HOME"),
+			$.env.get("PATH"),
+			$.env.get("DPRINT_INSTALL")
+		]);
 		const cwd = home && await $.fs.exists(home) ? home : "/";
 		const candidates = (pathVar ?? "").split(":").filter((d) => d.startsWith("/")).map((d) => `${d.replace(/\/+$/, "")}/dprint`);
 		const found = await Promise.all(candidates.map((p) => $.fs.exists(p)));
 		let pick = candidates.find((_, i) => found[i]);
-		if (!pick && home && await $.fs.exists(`${home}/.dprint/bin/dprint`)) pick = `${home}/.dprint/bin/dprint`;
+		const fallback = install ? `${install.replace(/\/+$/, "")}/bin/dprint` : home ? `${home}/.dprint/bin/dprint` : "";
+		if (!pick && fallback && await $.fs.exists(fallback)) pick = fallback;
 		if (pick) return (await judge($, [pick, "--version"], cwd, pick))?.text ?? null;
 		const npx = await judge($, [
 			"npx",
@@ -104,10 +109,17 @@ async function warnIfNoDprint($, dir) {
 	$.ui.toast(`dprint: ${dir} (or a parent up to the git root) has a dprint config but ${problem}; run /dprint:dprint init`, { timeoutMs: TOAST_MS });
 }
 async function resultingCwd($, e, r) {
-	const fromEvent = e?.tool_response;
-	for (const x of [fromEvent, r]) {
-		const dir = x?.worktreePath ?? x?.restoredCwd;
-		if (typeof dir === "string" && dir) return dir;
+	const ev = e;
+	const key = ev?.tool === "ExitWorktree" ? "restoredCwd" : ev?.tool === "EnterWorktree" ? "worktreePath" : null;
+	if (key !== null) {
+		for (const x of [
+			ev?.tool_response,
+			r?.result,
+			r
+		]) {
+			const dir = x?.[key];
+			if (typeof dir === "string" && dir) return dir;
+		}
 	}
 	return $.session.cwd();
 }

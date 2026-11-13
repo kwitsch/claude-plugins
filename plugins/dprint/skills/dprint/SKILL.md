@@ -107,12 +107,12 @@ Arguments: "$ARGUMENTS"
 4. Ask exactly one `AskUserQuestion`, single-select (`multiSelect: false`), no pre-selected option:
    - **missing** (exit 10):
      - header: `dprint [currently: not installed]`
-     - question: `Install dprint (minimum <min>) to ~/.dprint/bin via the official installer?`
+     - question: `Install dprint (minimum <min>) to ~/.dprint/bin (or $DPRINT_INSTALL/bin when set) via the official installer?`
      - options: `Install`, described as "Runs curl -fsSL https://dprint.dev/install.sh | sh";
        `Skip`, described as "Install nothing."
    - **outdated** (exit 11) with `path` = `npx` (`upgrade` does not apply to npx):
      - header: `dprint [currently: <version> via npx, needs >= <min>]`
-     - question: `Install dprint (minimum <min>) to ~/.dprint/bin via the official installer? It takes precedence over npx.`
+     - question: `Install dprint (minimum <min>) to ~/.dprint/bin (or $DPRINT_INSTALL/bin when set) via the official installer? It takes precedence over npx.`
      - options: `Install`, described as "Runs curl -fsSL https://dprint.dev/install.sh | sh";
        `Skip`, described as "Install nothing."
    - **outdated** (exit 11) with an absolute `path`:
@@ -146,7 +146,7 @@ Arguments: "$ARGUMENTS"
    node ${CLAUDE_SKILL_DIR}/check-dprint.mjs
    ```
 
-   - Exit `0`: report the new version and path. If `path` is `<home>/.dprint/bin/dprint`, also
+   - Exit `0`: report the new version and path. If `path` is `<home>/.dprint/bin/dprint` (or `$DPRINT_INSTALL/bin/dprint`; use that directory in the line below), also
      check whether that directory is on `PATH` with `node -e "console.log(process.env.PATH)"`. If
      it is not, print this line for the user to add to their shell profile (never edit shell rc
      files yourself):

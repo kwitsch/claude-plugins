@@ -40,7 +40,7 @@ type=<.ext|FileName> files=<count> candidates=<id>[,<id>...]
 Candidates are in preference order (registry order of `dprint-plugins.json`) and are exactly the
 names `dprint config add` accepts.
 
-A file type is `.` plus the lower-cased last extension, or the exact file name when it is one of the
+A file type is `.` plus the last extension as written (case-sensitive, like dprint: `README.MD` is no `.md` file), or the exact file name when it is one of the
 `fileNames` in `dprint-plugins.json` (exact names take precedence). Dotfiles and extension-less
 files that are not such file names are ignored, and so are types no plugin in `dprint-plugins.json`
 formats.
@@ -65,5 +65,8 @@ Diagnostics and the `extends` warning go to stderr.
 - Plugins of `extends` configs are not checked (stderr warning).
 - Plugins outside `dprint-plugins.json` (for example `exec`) are unknown, so the types they handle
   may be reported as missing.
+- The config's `excludes` and `includes` are not evaluated: the scan counts every file git lists, so a type
+  that only occurs in excluded files (for example under `node_modules` when it is not gitignored) is still reported.
+- A config that starts with a UTF-8 BOM is an error (exit 2): dprint rejects it.
 
 Read-only: the script never modifies anything and makes no network access.

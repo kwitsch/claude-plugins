@@ -36,8 +36,11 @@
             "tool": "bash_started",
             "timeout": 10,
             "input": {
+              "cwd": "${cwd}",
               "agent_id": "${agent_id}",
-              "session_id": "${session_id}"
+              "session_id": "${session_id}",
+              "scratchpad_dir": "${scratchpad_dir}",
+              "tool_use_id": "${tool_use_id}"
             }
           }
         ]
@@ -120,10 +123,33 @@
             "tool": "bash_finished",
             "timeout": 30,
             "input": {
+              "hook_event_name": "${hook_event_name}",
               "cwd": "${cwd}",
               "agent_id": "${agent_id}",
               "session_id": "${session_id}",
-              "scratchpad_dir": "${scratchpad_dir}"
+              "scratchpad_dir": "${scratchpad_dir}",
+              "tool_use_id": "${tool_use_id}"
+            }
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "mcp_tool",
+            "server": "plugin:dprint:dprint-hooks",
+            "tool": "bash_finished",
+            "timeout": 30,
+            "input": {
+              "hook_event_name": "${hook_event_name}",
+              "cwd": "${cwd}",
+              "agent_id": "${agent_id}",
+              "session_id": "${session_id}",
+              "scratchpad_dir": "${scratchpad_dir}",
+              "tool_use_id": "${tool_use_id}"
             }
           }
         ]
