@@ -11,7 +11,7 @@ Gives Claude three tools that ask TypeSafe's **Jev System One** API one question
 | `JEV_URL`                | no       | The full System One route; wins over `TYPESAFE_BASE_URL`. A jev-api variable, not an SDK one.                                    |
 | `TYPESAFE_DEFAULT_MODEL` | no       | Model sent with each request, default `jev-latest`.                                                                              |
 
-The four tools are always registered. A call fails locally, without any request, until at least one of `TYPESAFE_API_KEY`, `TYPESAFE_BASE_URL` or `JEV_URL` is non-blank. The variables are read from Claude Code's own environment on every call, so set them before Claude Code starts (in the shell or in the settings' `env`): a variable exported in another shell later does not reach it. With only `TYPESAFE_API_KEY` set, the default endpoint `https://api.typesafe.ai/v1/systemone` is used.
+The four tools are always registered. While none of `TYPESAFE_API_KEY`, `TYPESAFE_BASE_URL` or `JEV_URL` is non-blank, Claude Haiku (`claude-haiku-5-5`, through the session's own login) answers instead of Jev: it is asked for JSON in the System One response format, and a reply that does not fit the question (wrong type, option, level or probability range) is an error starting with `<tool>: fallback`, never a made-up answer. A configured Jev that fails is an error, with no Haiku fallback. The variables are read from Claude Code's own environment on every call, so set them before Claude Code starts (in the shell or in the settings' `env`): a variable exported in another shell later does not reach it. With only `TYPESAFE_API_KEY` set, the default endpoint `https://api.typesafe.ai/v1/systemone` is used.
 
 ## Options
 
@@ -74,7 +74,7 @@ All questions go out in one System One request. Result: a JSON array of the answ
 
 Errors come back as a tool error (Claude reads it as an error result) whose text starts with the tool's name and a colon (for example `noul:` or `batch:`).
 
-- No configuration (none of the three variables set): no request is sent.
+- No configuration (none of the three variables set): Haiku answers; `<tool>: fallback: <reason>` when it does not answer or its reply is invalid.
 - Invalid input, or a `JEV_URL` / `TYPESAFE_BASE_URL` that is not an `http(s)` URL (for `TYPESAFE_BASE_URL` also one with a query or fragment): no request is sent.
 - HTTP 4xx/5xx: `HTTP <status>` plus the API's reason (its `detail`, or its `error.message`) when there is one.
 - No answer of the asked type in the response, a network error or an unparsable body: the reason. Where Claude Code's error quotes the endpoint, the text shows `<JEV_URL>` or `<TYPESAFE_BASE_URL>/v1/systemone` instead of the configured URL.
