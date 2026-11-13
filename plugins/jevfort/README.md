@@ -29,7 +29,7 @@ Without jev-api's batch tool in a session (for example denied by a permission ru
 
 ## Effort band
 
-In the terminal and the desktop app jevfort draws one row above the prompt: `low medium high xhigh max` and a `Jev auto: on` button. From each turn's start, the effort Claude Code is set to (the session effort) is bold and the effort Jev chose for the current turn is blue; the other levels are dim. Pressing `Jev auto` pauses Jev's automatic effort choice: turns run at the session effort until you press it again or a new session starts (a reload of jevfort also turns it back on). Taking steps, model routing and the `estimate_effort` tool keep working. The row shows the main conversation only, not subagents, and is hidden with `routing: off` and while jevfort is inactive. `/jev` shows `(effort auto off)` while the choice is paused.
+In the terminal and the desktop app jevfort draws one row above the prompt: the efforts from `minEffort` to `maxEffort` (default `low medium high xhigh`; a session effort outside that range is added) and a `Jev auto: on` button. From each turn's start, the effort Claude Code is set to (the session effort) is bold and the effort Jev chose for the current turn is blue; the other levels are dim. Pressing `Jev auto` pauses Jev's automatic effort choice: turns run at the session effort until you press it again or a new session starts (a reload of jevfort also turns it back on). Taking steps, model routing and the `estimate_effort` tool keep working. The row shows the main conversation only, not subagents, and is hidden with `routing: off` and while jevfort is inactive. `/jev` shows `(effort auto off)` while the choice is paused.
 
 ## Cache countdown, Haiku compaction and auto-compact
 

@@ -86,6 +86,10 @@ const isModel = (v) => ESTIMATE_MODELS.includes(v);
 export function modelFamily(id) {
 	return ESTIMATE_MODELS.find((m) => id.includes(m));
 }
+export function inBandRange(level, range) {
+	const i = EFFORT_ORDER.indexOf(level);
+	return i >= EFFORT_ORDER.indexOf(range.minEffort) && i <= EFFORT_ORDER.indexOf(range.maxEffort);
+}
 export function bounds(min, max) {
 	if (!isEffort(min) || !isEffort(max) || EFFORT_ORDER.indexOf(min) > EFFORT_ORDER.indexOf(max)) return undefined;
 	return {
