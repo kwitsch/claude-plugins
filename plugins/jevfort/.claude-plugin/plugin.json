@@ -1,6 +1,6 @@
 {
   "name": "jevfort",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Lets TypeSafe Jev take routine steps, route effort and check that work is done (port of nim-f/jev-pilot; asks Jev through the jev-api plugin's tools).",
   "author": {
     "name": "Kwitsch"
@@ -80,6 +80,20 @@
       "title": "Guide compaction",
       "description": "Before a compaction, tell the summarizer which earlier tool results to keep in detail.",
       "default": true
+    },
+    "haikuCompact": {
+      "type": "boolean",
+      "title": "Compact with Haiku",
+      "description": "Haiku 5.5 writes every compaction summary (also /compact and the automatic one) at a fraction of the chat model's price; if it fails, Claude Code compacts as usual. It replaces Claude Code's own compaction step: PreCompact hooks do not run and recently read files are not re-attached.",
+      "default": true
+    },
+    "autoCompactPercent": {
+      "type": "number",
+      "title": "Auto-compact from context fill (%)",
+      "description": "When the prompt cache has gone cold and the context is at least this full, the idle chat is compacted by itself. 0 turns it off.",
+      "min": 0,
+      "max": 100,
+      "default": 60
     },
     "takeOnlyForBypass": {
       "type": "boolean",

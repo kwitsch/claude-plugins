@@ -1,6 +1,7 @@
 import { GENERAL, SWITCH_AT } from "./agents.mjs";
+import { CACHE_TTL, cacheColor, cacheLabel, minutesLeft, nextTtl } from "./cache.mjs";
 import { absolute, AUTH_TOOL, bash, BUILTIN_COMMANDS, clipScript, coversStep, dedupeSkills, isSafeToOffer, MAX_READS, mentionedPaths, quotedTerms, relevant, SAFE_MAKE, SAFE_SCRIPT, sameCall, SKILL_BLOCKLIST_KEY } from "./candidates.mjs";
-import { compactInstructions, compactItems, RELEVANCE } from "./compact.mjs";
+import { COMPACT_MAX_TOKENS, COMPACT_MODEL, COMPACT_SYSTEM, compactInstructions, compactItems, haikuTranscript, RELEVANCE } from "./compact.mjs";
 import { clip, splitTurn, summarize, toolCalls } from "./context.mjs";
 import { choice, JEV_API_TIMEOUT_S, JEV_BATCH, JEV_TOOL_PREFIX, JEV_TOOLS, MAX_CHOICE_OPTIONS, missingJevTools, noul, score, TIMEOUT_MS } from "./jev.mjs";
 import { LOG_KEY, MAX_ENTRIES, recentDecisions, remember, statsKey } from "./log.mjs";
@@ -8,6 +9,7 @@ import { bestAction, bounds, difficultyQuestion, doneQuestion, EFFORT_ORDER, eff
 import { hints, NONE, promptQuestions } from "./prompt.mjs";
 import { buildReport } from "./report.mjs";
 import { SUMMARY_MODEL, SYSTEM } from "./summarize.mjs";
+const CACHE_TICK_MS = 15e3;
 const MAX_TAKES_PER_TURN = 3;
 const WRITE_TOOLS = new Set([
 	"Edit",
@@ -76,6 +78,95 @@ let jevTools;
 let jevState;
 let estimateRegistered = false;
 let bandStale = false;
+let cacheExpires = 0;
+let cacheTtl = "1h";
+let lastResponseAt;
+let shownMinutes = null;
+let turnRunning = false;
+let coldCompacted = false;
+let cacheTimer;
+function showMinutes($, minutes) {
+	if (minutes === shownMinutes) return;
+	shownMinutes = minutes;
+	try {
+		$.ui.invalidate("ui.render");
+	} catch {}
+}
+function resetCache($) {
+	cacheExpires = 0;
+	cacheTtl = "1h";
+	lastResponseAt = undefined;
+	coldCompacted = false;
+	showMinutes($, null);
+}
+async function cacheTick($, autoCompactPercent) {
+	if (cacheExpires <= 0 && shownMinutes === null) return;
+	const minutes = minutesLeft(cacheExpires, await $.clock.now());
+	showMinutes($, minutes);
+	if (turnRunning || autoCompactPercent <= 0 || minutes !== 0 || coldCompacted) return;
+	const expires = cacheExpires;
+	const percent = (await $.session.usage()).context.percent ?? 0;
+	if (percent < autoCompactPercent || coldCompacted || turnRunning || cacheExpires !== expires) return;
+	coldCompacted = true;
+	await $.command.run({
+		command: "compact",
+		args: ""
+	}).catch((err) => $.ui.status(`jev: auto-compact failed: ${String(err)}`.slice(0, 80)));
+}
+async function* cacheWatch($, original, request, run) {
+	const result = yield* run;
+	if (original.agentId === undefined && result.usage && request.model === original.model) {
+		try {
+			const now = await $.clock.now();
+			cacheTtl = nextTtl(result.usage, cacheTtl, lastResponseAt === undefined ? undefined : now - lastResponseAt);
+			lastResponseAt = now;
+			cacheExpires = now + CACHE_TTL[cacheTtl];
+			coldCompacted = false;
+			showMinutes($, minutesLeft(cacheExpires, now));
+		} catch {}
+	}
+	return result;
+}
+async function withJevRanking($, e) {
+	if ((await jevMissing($)).length) return e;
+	if (e.trigger !== "manual" && e.trigger !== "auto") return e;
+	const items = compactItems(e.messages);
+	if (items.length < 3) return e;
+	const request = splitTurn(e.messages)?.request ?? "";
+	const questions = {};
+	items.forEach((it, i) => {
+		questions[`item_${i}`] = {
+			type: "score",
+			instructions: `How relevant is this earlier tool call and its result to continuing the work on \`request\`? Call: ${it.label}. Result: ${it.result || "(no output)"}`,
+			criteria: RELEVANCE
+		};
+	});
+	const r = await askJev($, {
+		request: clip(request, 2e3),
+		item_count: items.length
+	}, questions);
+	if (!r.ok) return e;
+	const scores = items.map((_, i) => score(r.answers, `item_${i}`)?.score);
+	const added = compactInstructions(items, scores);
+	const keep = scores.filter((s) => (s ?? 0) >= 2.2).length;
+	const drop = scores.filter((s) => s !== undefined && s < .8).length;
+	await record($, {
+		kind: "compact",
+		applied: added !== undefined,
+		text: `${e.trigger} compaction: ${items.length} results scored, keep ${keep}, drop ${drop}`,
+		ms: r.ms,
+		data: {
+			trigger: e.trigger,
+			items: items.length,
+			keep,
+			drop
+		}
+	}).catch(() => undefined);
+	return added ? {
+		...e,
+		instructions: e.instructions ? `${e.instructions}\n\n${added}` : added
+	} : e;
+}
 function jevMissing($) {
 	return jevTools ??= $.tool.list().then((t) => missingJevTools(t.map((x) => x.name))).catch(() => [...JEV_TOOLS]).then(async (missing) => {
 		if (jevState !== undefined) await jevApply($, missing);
@@ -395,6 +486,9 @@ export const register = (on, options) => {
 		maxEffort: "xhigh"
 	};
 	const badRange = !configuredRange && (options.minEffort !== undefined || options.maxEffort !== undefined) ? `minEffort ${String(options.minEffort)}, maxEffort ${String(options.maxEffort)}` : undefined;
+	const jevRanking = options.compaction !== false;
+	const haikuCompact = options.haikuCompact !== false;
+	const autoCompactPercent = threshold("autoCompactPercent", 60);
 	on("ui.render", {
 		component: "CommandOutput",
 		props: { command: "jev" }
@@ -405,28 +499,45 @@ export const register = (on, options) => {
 	});
 	let band = {};
 	let autoOff = false;
-	on("ui.render", { component: "AbovePrompt" }, function onRenderBand($, e, next) {
-		if (routing === "off" || jevState !== "" || e.props.hasSurvey) return next(e);
+	on("ui.render", { component: "AbovePrompt" }, async function onRenderBand($, e, next) {
+		const effortRow = routing !== "off" && jevState === "";
+		if (e.props.hasSurvey || !effortRow && shownMinutes === null) return next(e);
 		const { Box, Text, Button } = $.ui.resolve(e);
+		const color = shownMinutes === null ? undefined : cacheColor(shownMinutes);
+		const cache = shownMinutes === null ? [] : [Text({
+			...color ? { color } : { dimColor: true },
+			children: [` ${cacheLabel(shownMinutes)}`]
+		})];
+		if (!effortRow) return Box({
+			flexDirection: "column",
+			children: [Box({
+				flexDirection: "row",
+				children: cache
+			}), await next(e)]
+		});
 		return Box({
 			flexDirection: "row",
-			children: [...EFFORT_ORDER.map((level) => Text({
-				...level === band.configured ? { bold: true } : {},
-				...level === band.chosen ? { color: "blue" } : {},
-				...level !== band.configured && level !== band.chosen ? { dimColor: true } : {},
-				children: [`${level} `]
-			})), Button({
-				key: "auto",
-				label: `Jev auto: ${autoOff ? "off" : "on"}`,
-				onPress: () => {
-					autoOff = !autoOff;
-					try {
-						$.ui.invalidate("ui.render");
-					} catch {
-						bandStale = true;
+			children: [
+				...EFFORT_ORDER.map((level) => Text({
+					...level === band.configured ? { bold: true } : {},
+					...level === band.chosen ? { color: "blue" } : {},
+					...level !== band.configured && level !== band.chosen ? { dimColor: true } : {},
+					children: [`${level} `]
+				})),
+				Button({
+					key: "auto",
+					label: `Jev auto: ${autoOff ? "off" : "on"}`,
+					onPress: () => {
+						autoOff = !autoOff;
+						try {
+							$.ui.invalidate("ui.render");
+						} catch {
+							bandStale = true;
+						}
 					}
-				}
-			})]
+				}),
+				...cache
+			]
 		});
 	});
 	let donePending = false;
@@ -520,59 +631,60 @@ export const register = (on, options) => {
 			}) : next(e);
 		});
 	}
-	if (options.compaction !== false) {
-		on("session.compact", async function onCompact($, e, next) {
-			if ((await jevMissing($)).length) return next(e);
-			if (e.agentId || e.trigger !== "manual" && e.trigger !== "auto") return next(e);
-			const items = compactItems(e.messages);
-			if (items.length < 3) return next(e);
-			const request = splitTurn(e.messages)?.request ?? "";
-			const questions = {};
-			items.forEach((it, i) => {
-				questions[`item_${i}`] = {
-					type: "score",
-					instructions: `How relevant is this earlier tool call and its result to continuing the work on \`request\`? Call: ${it.label}. Result: ${it.result || "(no output)"}`,
-					criteria: RELEVANCE
-				};
-			});
-			const r = await askJev($, {
-				request: clip(request, 2e3),
-				item_count: items.length
-			}, questions);
-			if (!r.ok) return next(e);
-			const scores = items.map((_, i) => score(r.answers, `item_${i}`)?.score);
-			const added = compactInstructions(items, scores);
-			const keep = scores.filter((s) => (s ?? 0) >= 2.2).length;
-			const drop = scores.filter((s) => s !== undefined && s < .8).length;
-			await record($, {
-				kind: "compact",
-				applied: added !== undefined,
-				text: `${e.trigger} compaction: ${items.length} results scored, keep ${keep}, drop ${drop}`,
-				ms: r.ms,
-				data: {
-					trigger: e.trigger,
-					items: items.length,
-					keep,
-					drop
-				}
-			});
-			if (!added) return next(e);
-			return next({
-				...e,
-				instructions: e.instructions ? `${e.instructions}\n\n${added}` : added
-			});
-		});
-	}
+	on("session.compact", async function onCompact($, e, next) {
+		if (e.agentId) return next(e);
+		const ranked = jevRanking ? await withJevRanking($, e) : e;
+		const passOn = async () => {
+			const r = await next(ranked);
+			if (e.trigger !== "precompute" && r?.skip === undefined) cacheExpires = 0;
+			return r;
+		};
+		if (!haikuCompact) return passOn();
+		if (e.trigger === "precompute") return { skip: "jevfort compacts with Haiku when it is time" };
+		const transcript = haikuTranscript(ranked.messages);
+		if (transcript === undefined) return passOn();
+		const note = ranked.instructions?.trim();
+		const r = await $.model.complete({
+			model: COMPACT_MODEL,
+			system: COMPACT_SYSTEM,
+			prompt: `${transcript}\n\n---\nWrite the summary now.${note ? `\nThe summary should keep or stress: ${note}` : ""}`,
+			maxTokens: COMPACT_MAX_TOKENS,
+			timeoutMs: 24e4
+		}).catch((err) => ({
+			isAnswered: false,
+			reason: String(err).slice(0, 80)
+		}));
+		const text = r.isAnswered ? r.text.trim() : "";
+		const written = text.length > 200 && r.isAnswered && r.usage.output_tokens < COMPACT_MAX_TOKENS;
+		await record($, {
+			kind: "summary",
+			applied: written,
+			text: written ? `${e.trigger} compaction written by ${COMPACT_MODEL}` : `${COMPACT_MODEL} could not compact (${r.isAnswered ? "empty or cut-off summary" : r.reason}), Claude Code does it`
+		}).catch(() => undefined);
+		if (!written) return passOn();
+		cacheExpires = 0;
+		return { messages: [{
+			role: "user",
+			text: `This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation, written by Haiku 5.5 for jevfort.\n\n${text}\n\nContinue the conversation from where it left off without asking the user any further questions.`,
+			toolUses: []
+		}] };
+	});
 	const turns = new Map();
 	const firstTurns = new Map();
 	const ownCalls = new Set();
-	on("session.start", async function onSessionStart($, e, next) {
+	const forgetConversation = () => {
 		firstTurns.clear();
 		band = {};
 		autoOff = false;
+	};
+	on("session.start", async function onSessionStart($, e, next) {
+		forgetConversation();
+		resetCache($);
 		jevState = undefined;
 		estimateRegistered = false;
 		bandStale = false;
+		cacheTimer?.cancel();
+		cacheTimer = $.clock.every(CACHE_TICK_MS, () => void cacheTick($, autoCompactPercent).catch(() => undefined));
 		if (badRange) await record($, {
 			kind: "error",
 			applied: false,
@@ -586,6 +698,11 @@ export const register = (on, options) => {
 		jevTools = undefined;
 		await jevApply($, await jevMissing($));
 		return result;
+	});
+	on("session.end", async function onSessionEnd($, e, next) {
+		forgetConversation();
+		resetCache($);
+		return next(e);
 	});
 	on("command.run", { command: "jev" }, async function onJevCommand($, e) {
 		const arg = e.args.trim();
@@ -632,6 +749,7 @@ export const register = (on, options) => {
 		].join("\n") };
 	});
 	on("turn.complete", async function onTurnComplete($, e, next) {
+		if (e.agentId === undefined) turnRunning = false;
 		const missing = await jevMissing($);
 		if (e.agentId === undefined) jevTools = undefined;
 		if (missing.length) return next(e);
@@ -720,7 +838,9 @@ export const register = (on, options) => {
 		}
 		return result;
 	});
-	on("turn.step", async function* onTurnStep($, e, next) {
+	on("turn.step", async function* onTurnStep($, e, rawNext) {
+		if (e.agentId === undefined) turnRunning = true;
+		const next = (request) => cacheWatch($, e, request, rawNext(request));
 		if ((await jevMissing($)).length) return yield* next(e);
 		if (e.agentId && !subagents) return yield* next(e);
 		const turn = turns.get(e.turnId) ?? { taken: 0 };
