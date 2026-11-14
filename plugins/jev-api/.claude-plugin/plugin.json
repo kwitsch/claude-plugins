@@ -1,6 +1,6 @@
 {
   "name": "jev-api",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "Registers the TypeSafe Jev System One question types noul, choice and score as tools, plus batch for several questions in one request; configured by TYPESAFE_API_KEY, TYPESAFE_BASE_URL or JEV_URL.",
   "author": {
     "name": "Kwitsch"
@@ -18,6 +18,12 @@
       "title": "Timeout",
       "description": "HTTP timeout of one System One request in seconds, at most 30, used when a tool call gives no valid timeout of its own (invalid or unset: 20).",
       "default": 20
+    },
+    "overflow": {
+      "type": "string",
+      "title": "Overflow",
+      "description": "What a call does when its state and questions are too large for System One or for the timeout, used when the call names no valid overflow of its own: error (refuse with the numbers), truncate (cut the middle of the state) or haiku (answer with Claude Haiku). Invalid or unset: haiku.",
+      "default": "haiku"
     }
   }
 }

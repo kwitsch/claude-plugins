@@ -15,15 +15,36 @@ The four tools are always registered. While none of `TYPESAFE_API_KEY`, `TYPESAF
 
 ## Options
 
-| Option    | Default | Meaning                                                                                                     |
-| --------- | ------- | ----------------------------------------------------------------------------------------------------------- |
-| `timeout` | `20`    | HTTP timeout of one System One request in seconds, for tool calls that give no valid `timeout` of their own |
+| Option     | Default | Meaning                                                                                                     |
+| ---------- | ------- | ----------------------------------------------------------------------------------------------------------- |
+| `timeout`  | `20`    | HTTP timeout of one System One request in seconds, for tool calls that give no valid `timeout` of their own |
+| `overflow` | `haiku` | What a call does when its state and questions are too large for System One: `error`, `truncate` or `haiku`  |
 
 The timeout of a call is its `timeout` input when that is a number above 0; otherwise the `timeout` option when that is a number above 0; otherwise 20 seconds. Claude Code ends one request after 30 seconds on its own, so a longer timeout counts as 30.
 
+The overflow mode of a call is its `overflow` input (`error`, `truncate` or `haiku`; anything else is an input error); otherwise the `overflow` option when it is one of the three; otherwise `haiku`.
+
+## Large states
+
+System One takes at most 32767 prompt tokens (the state plus the questions), and its latency grows with the prompt: about 3 s at 4k tokens, 15 s at 16k, 35 s at 28k. Characters per token vary from 1 (emoji, `€`) over 3.3 to 4.8 (code, prose) to 8 (repetitive text), so the plugin works with an estimate and the server's own counts:
+
+- Before sending, a call is refused (or handled by its overflow mode) when even an optimistic estimate (twice the learned characters per token, at least 6 and at most 8) exceeds what the server and the timeout allow: about 4k tokens at 4 s, 15.6k at 20 s, 21k at 30 s. The time budget never drops below 1000 tokens: a prompt that small is always sent, even with a very short timeout (the call then just times out); a larger one is still refused or handled by its overflow mode.
+- When the server refuses a prompt (HTTP 400, `exceed_context_size_error`), its exact token count is used: the plugin learns the real characters per token and, per overflow mode, reacts.
+- The characters per token are learned from every answer (`usage.input_tokens`) and refusal, smoothed, and kept between sessions in the plugin's own store (`$.store`, shared by every session on the machine); a failing store only loses the statistic.
+
+Overflow modes, for a prompt that does not fit:
+
+| Mode       | What happens                                                                                                                                                                                                                                                                                                                               |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `error`    | The call fails with the numbers and a state size to aim for, for example `state too large for System One: the request has 40025 tokens, the limit is 32767; shorten the state to about 52700 characters` (at the 30 s timeout: the size to aim for also fits what the timeout allows). Nothing is sent when the estimate already shows it. |
+| `truncate` | The middle of the state is cut (60 % head, 40 % tail, a `[... N characters omitted ...]` marker between) to fit, and the request is sent; after a server refusal it is retried once with the exact cut. The answer does not say that the state was cut.                                                                                    |
+| `haiku`    | Claude Haiku answers (the fallback described above, calibrated differently from Jev); a state over 150000 characters is cut the same way first.                                                                                                                                                                                            |
+
+Without a configured Jev there is no preflight and no store access: Haiku answers as before, with a state over 150000 characters cut the same way first.
+
 ## Tools
 
-Each tool is registered at session start and called by its full name, `mcp__jev-api__<type>`. `instructions` and `state` are text; `criteria` is an object or an array depending on the type; `batch` takes its questions as a required array of objects; the optional `timeout` is a number of seconds.
+Each tool is registered at session start and called by its full name, `mcp__jev-api__<type>`. `instructions` and `state` are text; `criteria` is an object or an array depending on the type; `batch` takes its questions as a required array of objects; the optional `timeout` is a number of seconds; the optional `overflow` is `error`, `truncate` or `haiku` (see Large states).
 
 The plugin answers these calls itself, before Claude Code's permission check: there is no permission prompt, `ask` rules and PreToolUse hooks do not apply, and the text goes to the configured endpoint as soon as Claude calls a tool. A `permissions.deny` rule for `mcp__jev-api` (or `mcp__jev-api__<type>`) removes the tools (`--disallowedTools mcp__jev-api__batch` removes only `batch`).
 
@@ -80,6 +101,7 @@ Errors come back as a tool error (Claude reads it as an error result) whose text
 
 - No configuration (none of the three variables set): Haiku answers, calibrated toward Jev (its `noul` probability is stretched away from 0.5, a `score` is the mean level index of its probabilities, and its prompt asks for honest, uninflated estimates); the numbers remain estimates of a language model, not Jev's; `<tool>: fallback: <reason>` when it does not answer or its reply is invalid.
 - Invalid input, or a `JEV_URL` / `TYPESAFE_BASE_URL` that is not an `http(s)` URL (for `TYPESAFE_BASE_URL` also one with a query or fragment): no request is sent.
+- A state too large for System One or for the timeout, with `overflow` `error` (or after a second refusal in `truncate`): `state too large ...` with the numbers (see Large states).
 - HTTP 4xx/5xx: `HTTP <status>` plus the API's reason (its `detail`, or its `error.message`) when there is one.
 - No answer of the asked type in the response, a network error or an unparsable body: the reason. Where Claude Code's error quotes the endpoint, the text shows `<JEV_URL>` or `<TYPESAFE_BASE_URL>/v1/systemone` instead of the configured URL.
 - A request taking longer than its timeout (default 20 seconds): `timeout after <ms>ms`, or Claude Code's own limit on one request (`... aborted: no complete answer within 30000ms`) when that comes first.
