@@ -1,6 +1,6 @@
 {
   "name": "jev-api",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Registers the TypeSafe Jev System One question types noul, choice and score as tools, plus batch for several questions in one request; configured by TYPESAFE_API_KEY, TYPESAFE_BASE_URL or JEV_URL.",
   "author": {
     "name": "Kwitsch"

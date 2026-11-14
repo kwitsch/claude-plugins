@@ -4,7 +4,6 @@ const TYPES = [
 	"score"
 ];
 const TOOLS = [...TYPES, "batch"];
-const NEEDS = " Set TYPESAFE_API_KEY, TYPESAFE_BASE_URL or JEV_URL to use Jev; without any of them Claude Haiku answers instead.";
 const HAIKU_MODEL = "claude-haiku-5-5";
 const HAIKU_SYSTEM = `You stand in for a text classifier. Answer every question about the given text and reply with JSON only (no prose, no code fence): {"answers":{"<id>":<answer>}} with one answer per question id.
 An answer is, by question type:
@@ -32,10 +31,16 @@ const HTTP_BASE = /^https?:\/\/[^/?#\s]+(?:\/[^?#\s]*)?$/i;
 const MAX_OPTIONS = 255;
 const MIN_LEVELS = 2;
 const MAX_LEVELS = 10;
+const HAIKU_MAX_TOKENS = 16384;
+const MAX_DETAIL = 1e3;
+const REGISTER_WAIT_MS = 1e3;
+const MAX_RETRY_MS = 3e5;
+const RETRY_BASE_MS = 5e3;
+const MIN_REDACT_KEY = 6;
 const TOOL_PREFIX = "mcp__jev-api__";
 const SPECS = {
 	noul: {
-		description: "Ask TypeSafe Jev a yes/no question about a text; returns the probability (0..1) that the answer is true." + NEEDS,
+		description: "Ask TypeSafe Jev a yes/no question about a text; returns the probability (0..1) that the answer is true.",
 		inputSchema: {
 			type: "object",
 			properties: {
@@ -65,7 +70,7 @@ const SPECS = {
 		}
 	},
 	choice: {
-		description: "Ask TypeSafe Jev to pick one of named options for a text; returns the choice, its confidence and every option's probability." + NEEDS,
+		description: "Ask TypeSafe Jev to pick one of named options for a text; returns the choice, its confidence and every option's probability.",
 		inputSchema: {
 			type: "object",
 			properties: {
@@ -91,7 +96,7 @@ const SPECS = {
 		}
 	},
 	score: {
-		description: "Ask TypeSafe Jev to rate a text along ordered levels; returns the score (the expected level: 0 is the first, values between levels are fractional), its confidence, each level's probability and the legend." + NEEDS,
+		description: "Ask TypeSafe Jev to rate a text along ordered levels; returns the score (the expected level: 0 is the first, values between levels are fractional), its confidence, each level's probability and the legend.",
 		inputSchema: {
 			type: "object",
 			properties: {
@@ -117,7 +122,7 @@ const SPECS = {
 		}
 	},
 	batch: {
-		description: "Ask TypeSafe Jev several noul, choice and score questions about one text in a single request; returns a JSON array of the answers in question order, each as the noul, choice or score tool returns it. One invalid or unanswered question fails the whole call." + NEEDS,
+		description: "Ask TypeSafe Jev several noul, choice and score questions about one text in a single request; returns a JSON array of the answers in question order, each as the noul, choice or score tool returns it. One invalid or unanswered question fails the whole call.",
 		inputSchema: {
 			type: "object",
 			properties: {
@@ -155,9 +160,9 @@ function isRecord(v) {
 function isOptionalString(v) {
 	return v === undefined || typeof v === "string";
 }
-function json(text) {
+function json(text, reviver) {
 	try {
-		return JSON.parse(text);
+		return JSON.parse(text, reviver);
 	} catch {
 		return undefined;
 	}
@@ -172,7 +177,12 @@ function isType(v) {
 	return TYPES.includes(v);
 }
 function message(err) {
-	return err instanceof Error ? err.message : String(err);
+	if (err instanceof Error) return err.message;
+	try {
+		return String(err);
+	} catch {
+		return "unknown error";
+	}
 }
 function hide(text, url, placeholder) {
 	let href = url;
@@ -180,6 +190,20 @@ function hide(text, url, placeholder) {
 		href = new URL(url).href;
 	} catch {}
 	return text.replaceAll(href, placeholder).replaceAll(url, placeholder);
+}
+function hideHost(text, url) {
+	let host = "";
+	try {
+		host = new URL(url).hostname;
+	} catch {
+		return text;
+	}
+	if (!host) return text;
+	let t = text;
+	for (const h of new Set([host, host.replace(/^\[(.*)\]$/, "$1")])) {
+		t = t.replace(new RegExp(`(?<![\\w.-])${h.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`, "gi"), "<host>");
+	}
+	return t;
 }
 function isText(v) {
 	return typeof v === "string" && v.trim() !== "";
@@ -271,13 +295,18 @@ function endpoint(jev, base) {
 		url: DEFAULT_JEV_URL
 	};
 }
-function detail(text) {
-	const body = json(text);
+function detail(text, redact, numbers) {
+	const body = json(text, numbers ? (_k, v, c) => typeof v === "number" && c?.source !== undefined && redact(c.source) !== c.source ? c.source : v : undefined);
 	if (!isRecord(body)) return undefined;
 	const error = body["error"];
 	const why = body["detail"] ?? (isRecord(error) ? error["message"] : undefined);
 	if (why === undefined) return undefined;
-	return typeof why === "string" ? why : JSON.stringify(why);
+	const clean = (v) => {
+		if (typeof v === "string") return redact(v);
+		if (typeof v === "number") return numbers && redact(String(v)) !== String(v) ? redact(String(v)) : v;
+		return isRecord(v) ? Object.fromEntries(Object.entries(v).map(([k, x]) => [redact(k), x])) : v;
+	};
+	return typeof why === "string" ? redact(why) : JSON.stringify(why, (_k, v) => clean(v));
 }
 function isUnit(v) {
 	return typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1;
@@ -304,11 +333,13 @@ function checkAnswer(q, a) {
 		const options = Object.keys(q.criteria);
 		const picked = a["choice"];
 		if (typeof picked !== "string" || !options.includes(picked) || !hasProbabilities(probabilities, options)) return undefined;
+		const sum = options.reduce((t, o) => t + probabilities[o], 0);
+		if (!(sum > 0)) return undefined;
 		return {
 			type: "choice",
 			choice: picked,
 			confidence,
-			probabilities: Object.fromEntries(options.map((o) => [o, probabilities[o]]))
+			probabilities: Object.fromEntries(options.map((o) => [o, round4(probabilities[o] / sum)]))
 		};
 	}
 	const levels = q.criteria.map((_, i) => String(i));
@@ -325,26 +356,43 @@ function checkAnswer(q, a) {
 		probabilities: Object.fromEntries(levels.map((l, i) => [l, round4(normalized[i])]))
 	};
 }
+function haikuTokens(questions) {
+	let n = 256;
+	for (const q of questions) {
+		n += 256;
+		if (q.type === "choice") {
+			for (const key of Object.keys(q.criteria)) n += Math.ceil(key.length / 3) + 12;
+		} else if (q.type === "score") n += 16 * q.criteria.length;
+	}
+	return Math.min(HAIKU_MAX_TOKENS, n);
+}
 async function askHaiku($, tool, state, questions, timeoutMs, signal) {
 	const ids = questions.map((_, i) => tool === "batch" ? `q${i}` : QUESTION_ID);
 	const prompt = `Text:\n${state}\n\nQuestions (JSON):\n${JSON.stringify(Object.fromEntries(ids.map((id, i) => [id, questions[i]])))}`;
+	let onAbort;
 	try {
 		const reply = $.model.complete({
 			model: HAIKU_MODEL,
 			system: HAIKU_SYSTEM,
 			prompt,
-			maxTokens: Math.min(4096, 256 + 256 * questions.length),
+			maxTokens: haikuTokens(questions),
 			timeoutMs
-		});
+		}, { signal });
 		reply.catch(() => undefined);
 		const aborted = new Promise((resolve) => {
 			if (signal.aborted) resolve("aborted");
-			else signal.addEventListener("abort", () => resolve("aborted"), { once: true });
+			else {
+				onAbort = () => resolve("aborted");
+				signal.addEventListener("abort", onAbort, { once: true });
+			}
 		});
 		const r = await Promise.race([reply, aborted]);
 		if (r === "aborted") return fail(tool, "the call was abandoned");
-		if (!r.isAnswered) return fail(tool, `fallback: ${r.reason}`);
-		const body = json(r.text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""));
+		if (!r.isAnswered) {
+			if (r.reason !== "aborted") return fail(tool, `fallback: ${r.reason}`);
+			return fail(tool, signal.aborted ? "the call was abandoned" : `fallback: timeout after ${timeoutMs}ms`);
+		}
+		const body = json(r.text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```$/, ""));
 		const answers = isRecord(body) ? body["answers"] : undefined;
 		const list = [];
 		for (const [i, q] of questions.entries()) {
@@ -355,6 +403,8 @@ async function askHaiku($, tool, state, questions, timeoutMs, signal) {
 		return { result: JSON.stringify(tool === "batch" ? list : list[0]) };
 	} catch (err) {
 		return fail(tool, `fallback: ${message(err)}`);
+	} finally {
+		if (onAbort) signal.removeEventListener("abort", onAbort);
 	}
 }
 async function ask($, tool, state, questions, env, timeoutMs, signal) {
@@ -365,7 +415,13 @@ async function ask($, tool, state, questions, env, timeoutMs, signal) {
 	const model = env.model ?? DEFAULT_MODEL;
 	const headers = { "Content-Type": "application/json" };
 	if (key && /^https:/i.test(target.url)) headers["Authorization"] = `Bearer ${key}`;
+	const redact = (text) => {
+		let t = env.jevUrl ? hide(text, target.url, "<JEV_URL>") : env.base ? hide(text, target.url, "<TYPESAFE_BASE_URL>/v1/systemone") : text;
+		if (key && key.length >= MIN_REDACT_KEY) t = t.replaceAll(key, "<TYPESAFE_API_KEY>");
+		return env.jevUrl || env.base ? hideHost(t, target.url) : t;
+	};
 	let timer;
+	let onAbort;
 	try {
 		const request = $.http.fetch(target.url, {
 			method: "POST",
@@ -380,14 +436,23 @@ async function ask($, tool, state, questions, env, timeoutMs, signal) {
 		const stop = new Promise((resolve) => {
 			timer = $.clock.after(timeoutMs, () => resolve("timeout"));
 			if (signal.aborted) resolve("aborted");
-			else signal.addEventListener("abort", () => resolve("aborted"), { once: true });
+			else {
+				onAbort = () => resolve("aborted");
+				signal.addEventListener("abort", onAbort, { once: true });
+			}
 		});
 		const res = await Promise.race([request, stop]);
 		if (res === "timeout") return fail(tool, `timeout after ${timeoutMs}ms`);
 		if (res === "aborted") return fail(tool, "the call was abandoned");
 		if (!res.ok) {
-			const why = detail(res.text);
-			return fail(tool, `HTTP ${res.status}${why === undefined ? "" : `: ${why}`}`);
+			const why = detail(res.text, redact, key !== undefined && key.length >= MIN_REDACT_KEY && /^[-+.\deE]+$/.test(key));
+			let text = why === undefined ? "" : why.trim();
+			if (text.length > MAX_DETAIL) {
+				text = text.slice(0, MAX_DETAIL);
+				if (/[\uD800-\uDBFF]$/.test(text)) text = text.slice(0, -1);
+				text += "…";
+			}
+			return fail(tool, `HTTP ${res.status}${text === "" ? "" : `: ${text}`}`);
 		}
 		const body = json(res.text);
 		if (body === undefined) return fail(tool, `HTTP ${res.status} response was not valid JSON`);
@@ -400,54 +465,100 @@ async function ask($, tool, state, questions, env, timeoutMs, signal) {
 		}
 		return { result: JSON.stringify(tool === "batch" ? list : list[0]) };
 	} catch (err) {
-		const why = message(err);
-		return fail(tool, env.jevUrl ? hide(why, target.url, "<JEV_URL>") : env.base ? hide(why, target.url, "<TYPESAFE_BASE_URL>/v1/systemone") : why);
+		return fail(tool, redact(message(err)));
 	} finally {
 		timer?.cancel();
+		if (onAbort) signal.removeEventListener("abort", onAbort);
 	}
 }
-async function registerTools($, names) {
-	const results = await Promise.allSettled(TOOLS.map((type) => $.tool.register({
-		name: type,
-		...SPECS[type]
-	})));
-	for (const [i, r] of results.entries()) {
-		const type = TOOLS[i];
-		if (r.status === "rejected") await Promise.resolve($.ui.log(`registering ${type} failed: ${message(r.reason)}`)).catch(() => undefined);
-		else {
-			const tool = r.value?.tool;
-			if (tool?.startsWith("mcp__") && tool.endsWith(`__${type}`)) names.set(tool, type);
+async function registerOne($, st, type) {
+	try {
+		const r = await $.tool.register({
+			name: type,
+			...SPECS[type]
+		});
+		const tool = r?.tool;
+		if (typeof tool === "string" && tool.startsWith("mcp__") && tool.endsWith(`__${type}`)) st.names.set(tool, type);
+		st.missing.delete(type);
+	} catch (err) {
+		const n = (st.failures.get(type) ?? 0) + 1;
+		st.failures.set(type, n);
+		st.retryAt.set(type, Date.now() + (n === 1 ? 0 : Math.min(MAX_RETRY_MS, RETRY_BASE_MS * 2 ** (n - 2))));
+		if (n === 1) {
+			try {
+				void Promise.resolve($.ui.log(`registering ${type} failed: ${message(err)}`)).catch(() => undefined);
+			} catch {}
 		}
+	}
+}
+async function ensureTools($, st, ms) {
+	const now = Date.now();
+	for (const type of TOOLS) {
+		if (!st.missing.has(type) || st.pending.has(type) || (st.retryAt.get(type) ?? 0) > now) continue;
+		const p = registerOne($, st, type);
+		st.pending.set(type, p);
+		void p.then(() => {
+			st.pending.delete(type);
+			st.stuck.delete(type);
+		});
+	}
+	const waiting = [...st.pending].filter(([type]) => !st.stuck.has(type));
+	if (waiting.length === 0) return;
+	let timer;
+	try {
+		const late = await Promise.race([Promise.all(waiting.map(([, p]) => p)).then(() => false), new Promise((resolve) => {
+			timer = $.clock.after(ms, () => resolve(true));
+		})]);
+		if (late) {
+			for (const [type] of waiting) if (st.pending.has(type)) st.stuck.add(type);
+		}
+	} finally {
+		timer?.cancel();
 	}
 }
 export function register(on, options) {
 	const fallbackS = seconds(options?.["timeout"]) ?? DEFAULT_TIMEOUT_S;
 	const names = new Map(TOOLS.map((t) => [TOOL_PREFIX + t, t]));
-	let registering;
+	const st = {
+		names,
+		missing: new Set(TOOLS),
+		pending: new Map(),
+		retryAt: new Map(),
+		failures: new Map(),
+		stuck: new Set()
+	};
 	on("session.start", async function onSessionStart($, e, next) {
-		await (registering ??= registerTools($, names));
+		try {
+			if (st.missing.size > 0) await ensureTools($, st, 5 * REGISTER_WAIT_MS);
+		} catch {}
 		return next(e);
 	});
 	on("tool.call", async function onToolCall($, e, next) {
 		const type = names.get(e.tool);
 		if (type === undefined) return next(e);
 		try {
-			await (registering ??= registerTools($, names)).catch(() => undefined);
+			if (st.missing.size > 0) {
+				try {
+					await ensureTools($, st, REGISTER_WAIT_MS);
+				} catch {}
+			}
+			const input = parseInput(type, e);
+			if (typeof input === "string") return fail(type, input);
 			const [key, base, jevUrl, model] = (await Promise.all([
 				$.env.get("TYPESAFE_API_KEY"),
 				$.env.get("TYPESAFE_BASE_URL"),
 				$.env.get("JEV_URL"),
 				$.env.get("TYPESAFE_DEFAULT_MODEL")
 			])).map((v) => v?.trim() || undefined);
-			const input = parseInput(type, e);
-			if (typeof input === "string") return fail(type, input);
-			if (!key && !base && !jevUrl) return await askHaiku($, type, input.state, input.questions, (seconds(e["timeout"]) ?? fallbackS) * 1e3, next.signal);
+			if (next.signal.aborted) return fail(type, "the call was abandoned");
+			const timeoutMs = Math.max(1, Math.round((seconds(e["timeout"]) ?? fallbackS) * 1e3));
+			if (!key && !base && !jevUrl) return await askHaiku($, type, input.state, input.questions, timeoutMs, next.signal);
 			return await ask($, type, input.state, input.questions, {
 				key,
 				base,
 				jevUrl,
 				model
-			}, (seconds(e["timeout"]) ?? fallbackS) * 1e3, next.signal);
+			}, timeoutMs, next.signal);
 		} catch (err) {
 			return fail(type, message(err));
 		}
