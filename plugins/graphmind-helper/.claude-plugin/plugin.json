@@ -1,0 +1,14 @@
+{
+  "name": "graphmind-helper",
+  "version": "0.2.0",
+  "description": "Does what `graphmind setup` and `graphmind init` do for Claude Code from the plugin: hooks, MCP server and project indexing, active only while the graphmind binary exists.",
+  "author": {
+    "name": "Kwitsch"
+  },
+  "keywords": [
+    "graphmind",
+    "hooks",
+    "mcp",
+    "memory"
+  ]
+}
