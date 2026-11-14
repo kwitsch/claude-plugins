@@ -1,3 +1,4 @@
+import { head } from "./context.mjs";
 const THRESHOLDS = [
 	.6,
 	.7,
@@ -11,9 +12,10 @@ const pct = (n, of) => of ? `${Math.round(n / of * 100)}%` : "—";
 const num = (v) => typeof v === "number" ? v : undefined;
 const str = (v) => typeof v === "string" ? v : undefined;
 const p2 = (v) => v === undefined ? "—" : v.toFixed(2);
+export const escapePipes = (s) => s.replace(/(\\*)\|/g, "$1$1\\|");
 const cell = (s, max = 48) => {
-	const one = s.replace(/\s+/g, " ").replace(/\|/g, "\\|").trim();
-	return one.length > max ? `${one.slice(0, max - 1)}…` : one;
+	const one = escapePipes(s.replace(/\s+/g, " ")).trim();
+	return one.length > max ? `${head(one, max - 1)}…` : one;
 };
 const bar = (n, of, width = 10) => {
 	const filled = of ? Math.round(n / of * width) : 0;
@@ -51,7 +53,8 @@ export function buildReport(log, threshold) {
 	if (!log.length) return "**Jev pilot report:** the log is empty. Use Claude for a while and run `/jev report` again.";
 	const of = (kind) => log.filter((e) => e.kind === kind);
 	const out = [];
-	const since = new Date(log[0].at).toISOString().slice(0, 16).replace("T", " ");
+	const first = new Date(log[0].at);
+	const since = `${day(first)} ${pad(first.getHours())}:${pad(first.getMinutes())}`;
 	const takes = of("take");
 	const taken = takes.filter((e) => e.applied);
 	const compares = of("compare");
@@ -108,7 +111,7 @@ export function buildReport(log, threshold) {
 	out.push("", "### Routing and done check");
 	out.push("| Decision | Checked | Result |");
 	out.push("|---|---|---|");
-	out.push(`| Effort routing | ${routes.length} turns | ${scores.length || !effortScores.length ? `avg difficulty ${scores.length ? avgOf(scores) : "—"} (0 trivial … 3 hard)` : `avg effort score ${avgOf(effortScores)} (0 mechanical … 4 hardest)`} · ${lowered.length} lowered, ${raised.length} raised, ${[...lowered, ...raised].filter((e) => e.applied).length} applied |`);
+	out.push(`| Effort routing | ${routes.length} turns | ${scores.length || !effortScores.length ? `avg difficulty ${scores.length ? avgOf(scores) : "—"} (0 trivial … 3 hard)` : `avg effort score ${avgOf(effortScores)} (0 mechanical … 4 hardest)`} · ${lowered.length} lowered, ${raised.length} raised, ${new Set([...lowered, ...raised].filter((e) => e.applied)).size} applied |`);
 	out.push(`| Done check | ${dones.length} stops | ${continued.length} unfinished, ${continued.filter((e) => e.applied).length} sent back |`);
 	const classified = of("classify");
 	if (classified.length) {

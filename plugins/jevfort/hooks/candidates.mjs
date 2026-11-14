@@ -1,13 +1,17 @@
 export const MAX_READS = 8;
+export const MAX_STATS = 16;
 const MAX_SEARCHES = 3;
-export const SAFE_SCRIPT = /^(test|tests|lint|build|typecheck|type-check|check|test:[\w:-]+|lint:[\w:-]+)$/;
+const SCRIPT_HEAD = /^(?:test|tests|lint|build|typecheck|type-check|check|test:[\w:-]+|lint:[\w:-]+)$/;
+const UNSAFE_WORD = /^(?:(?:auto)?fix|write|format|update|u|watch|dev|serve|ui|open|debug)$/;
+export function isSafeScript(name) {
+	return SCRIPT_HEAD.test(name) && !name.split(/[:_-]|(?<=[a-z\d])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])/).some((w) => UNSAFE_WORD.test(w.toLowerCase()));
+}
 export const BUILTIN_COMMANDS = new Set(("add-dir agents bug clear compact config context cost diff doctor exit export help hooks ide init " + "install-github-app login logout mcp memory model permissions plugin pr-comments release-notes resume " + "review rewind status statusline terminal-setup theme upgrade usage vim").split(" "));
 export const SKILL_BLOCKLIST_KEY = "skillBlocklist";
 export const SAFE_MAKE = /^(test|tests|check|lint|build|typecheck)$/;
-const PATH = /(?:^|[\s`'"([])((?:~|\.{1,2})?\/?[\w@.-]+(?:\/[\w@.-]+)*\.[A-Za-z][A-Za-z0-9]{0,7})(?=$|[\s`'"),:;\]])/g;
+const PATH = /(?:^|[\s`'"([])((?:~|\.{1,2})?\/?[\w@.-]+(?:\/[\w@.-]+)*\.[A-Za-z][A-Za-z0-9]{0,7})(?=[.?!]*(?:$|[\s`'"),:;\]]))/g;
 const QUOTED = /`([^`\n]{3,60})`|"([^"\n]{3,60})"/g;
-export function mentionedPaths(texts) {
-	const seen = new Set();
+export function mentionedPaths(texts, seen = new Set()) {
 	for (const text of texts) {
 		for (const m of text.matchAll(PATH)) {
 			const p = m[1];
@@ -25,10 +29,11 @@ export function quotedTerms(text) {
 	}
 	return [...seen].slice(0, MAX_SEARCHES);
 }
-const UNSAFE_PATH = /(^|\/)(tmp|private\/tmp|private\/var\/folders|var\/folders)\/|\/\.claude\/|\/tasks\/[^/]+\.output$|\.output$|\.jsonl$/;
-const TRANSCRIPT = /\/tasks\/[^/]+\.output$|\.output$|\.jsonl$/;
-export const isSafeToOffer = (file, cwd) => cwd && file.startsWith(`${cwd}/`) ? !TRANSCRIPT.test(file) : !UNSAFE_PATH.test(file);
-export const absolute = (cwd, p) => p.startsWith("/") ? p : `${cwd}/${p.replace(/^\.\//, "")}`;
+const UNSAFE_PATH = /(^|\/)(tmp|private\/tmp|private\/var\/folders|var\/folders)\/|\/\.claude\/|\/tasks\/[^/]+\.output$|\.output$|\.jsonl$/i;
+const TRANSCRIPT = /\/tasks\/[^/]+\.output$|\.output$|\.jsonl$/i;
+const CLAUDE_CONFIG = /\/\.claude\.json(?:$|[.~-])|\/\.claude\/(?:projects\/|(?:\.credentials|settings(?:\.local)?)\.json(?:$|[.~-]))/i;
+export const isSafeToOffer = (file, cwd) => !/(^|\/)\.\.(\/|$)/.test(file) && !CLAUDE_CONFIG.test(file) && (cwd && file.startsWith(`${cwd}/`) ? !TRANSCRIPT.test(file) : !UNSAFE_PATH.test(file));
+export const absolute = (cwd, p) => (p.startsWith("/") ? p : `${cwd}/${p}`).replace(/\/(?:\.\/)+/g, "/");
 export function sameCall(a, b) {
 	if (a.tool !== b.tool) return false;
 	if (a.tool === "Read") return a.input.file_path === b.input.file_path;
@@ -72,7 +77,7 @@ const MAX_RELATED = 8;
 const STOPWORDS = new Set(("the and for with this that these those when what which where how why who any all can could would should will " + "you your use used using user users from into onto about over than then them they its it's are was were has have " + "had not but also only just some more most very like want need make made create new get set show see one two " + "file files read run runs tool tools skill skills command commands claude code project before after first step " + "please let lets now ok okay yes here there out other each every such via per our we me my is be to of in on at " + "an a or do does did done if so as by up no").split(" "));
 export function words(text) {
 	const out = new Set();
-	for (const w of text.toLowerCase().split(/[^\p{L}\p{N}]+/u)) {
+	for (const w of text.normalize("NFC").toLowerCase().split(/[^\p{L}\p{M}\p{N}]+/u)) {
 		if (w.length < 3 || STOPWORDS.has(w) || /^\d+$/.test(w)) continue;
 		const stem = w.replace(/(ing|ed|es|e|s)$/, "");
 		out.add(stem.length >= 3 && !w.endsWith("ss") ? stem : w);
@@ -96,7 +101,11 @@ export function relevant(prompt, items) {
 	return scored.filter((s) => s.score >= 2).sort((a, b) => b.score - a.score).slice(0, MAX_RELATED).map((s) => s.item);
 }
 export function dedupeSkills(skills) {
-	const base = (n) => n.slice(n.lastIndexOf(":") + 1);
+	const bare = new Set(skills.filter((s) => !s.name.includes(":")).map((s) => s.name));
+	const base = (n) => {
+		const b = n.slice(n.lastIndexOf(":") + 1);
+		return bare.has(b) ? b : n;
+	};
 	const byBase = new Map();
 	for (const s of skills) {
 		const kept = byBase.get(base(s.name));

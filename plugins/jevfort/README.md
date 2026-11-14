@@ -13,6 +13,8 @@ layout. jevfort makes no network request of its own: it asks Jev through the too
 
 The **jev-api** plugin, installed and enabled together with jevfort. jevfort declares it as a plugin dependency, so Claude Code keeps jevfort disabled while jev-api is missing or disabled. jevfort asks Jev only through jev-api's tool `mcp__jev-api__batch` (jev-api 0.2.0 or later): one call, and one request, per decision.
 
+Coming from 0.10: the prompt classifier offers Jev only the skills whose name or description shares words with the prompt (at most 8); with no such skill it asks no skill question, so a large skill list no longer slows every prompt (a German prompt rarely matches an English skill description and then gets no skill hint).
+
 Coming from 0.9.0: `/jev export` writes a new `decisions-<time>.jsonl` per export instead of `decisions.jsonl`; with `takeOnlyForBypass` (the default) Jev takes only a Read or Bash step and a confident skill match is passed on to Claude as a hint; `estimate_effort` reports invalid input as an error result; a turn started by a slash command is judged by that command, not by the prompt before it.
 
 The endpoint and the key are configured for jev-api, not for jevfort: its environment variables `TYPESAFE_API_KEY`, `TYPESAFE_BASE_URL`, `JEV_URL` and `TYPESAFE_DEFAULT_MODEL` are described in the jev-api README. Coming from jevfort 0.4, which sent its own request: jev-api sends the key only to an `https://` endpoint (an `http://` `JEV_URL` now gets no `Authorization` header), and it also reads `TYPESAFE_BASE_URL` and `TYPESAFE_DEFAULT_MODEL`, which jevfort 0.4 ignored.
@@ -45,7 +47,7 @@ Ported from [HeyCubit/effortless](https://github.com/HeyCubit/effortless). None 
 
 ## Tool
 
-`estimate_effort` (model-visible name `mcp__jevfort__estimate_effort`, deferred: load it with ToolSearch `select:mcp__jevfort__estimate_effort`) estimates the reasoning effort a prompt most likely needs; Skills and subagents can call it. Claude Code runs it without a permission prompt; a deny rule for `mcp__jevfort__estimate_effort` withholds it.
+`estimate_effort` (model-visible name `mcp__jevfort__estimate_effort`, deferred: load it with ToolSearch `select:mcp__jevfort__estimate_effort`) estimates the reasoning effort a prompt most likely needs; Skills and subagents can call it. Claude Code runs it without a permission prompt; a deny rule for `mcp__jevfort__estimate_effort` withholds it, an ask rule keeps the prompt.
 
 | Input           | Values                                  | Meaning                                                                              |
 | --------------- | --------------------------------------- | ------------------------------------------------------------------------------------ |

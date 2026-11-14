@@ -9,6 +9,9 @@ export function remember(entry) {
 export function recentDecisions() {
 	return recent.slice();
 }
+export function forgetRecent() {
+	recent.length = 0;
+}
 export function statsKey(d) {
 	return d.applied ? d.kind : `${d.kind}:pass`;
 }

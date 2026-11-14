@@ -1,4 +1,9 @@
-export const clip = (text, max) => text.length > max ? `${text.slice(0, max)}… [${text.length - max} more chars]` : text;
+export const head = (text, n) => text.slice(0, n).replace(/[\uD800-\uDBFF]$/, "");
+export const clip = (text, max) => {
+	if (text.length <= max) return text;
+	const kept = head(text, max);
+	return `${kept}… [${text.length - kept.length} more chars]`;
+};
 const TRANSCRIPT_ONLY = /^\s*<(bash-input|bash-stdout|bash-stderr|local-command-stdout|local-command-caveat|command-name|command-message|command-args|system-reminder|task-notification)>/;
 function isTranscriptOnly(text) {
 	const m = TRANSCRIPT_ONLY.exec(text);
@@ -51,17 +56,20 @@ export function toolCalls(steps) {
 }
 export function summarize(steps, limit = 8) {
 	const out = [];
-	for (const m of steps) {
+	for (let i = steps.length - 1; i >= 0 && out.length < limit; i--) {
+		const m = steps[i];
 		if (m.role !== "assistant") continue;
-		if (m.text.trim()) out.push({ assistant: clip(m.text, 400) });
+		const row = [];
+		if (m.text.trim()) row.push({ assistant: clip(m.text, 400) });
 		for (const use of m.toolUses) {
-			out.push({
+			row.push({
 				tool: use.tool,
 				input: clip(JSON.stringify(use.input), 300),
 				...use.text !== undefined ? { result: clip(use.text, 400) } : {},
 				...use.isError ? { isError: true } : {}
 			});
 		}
+		out.unshift(...row);
 	}
 	return out.slice(-limit);
 }

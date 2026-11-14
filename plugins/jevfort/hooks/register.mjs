@@ -1,14 +1,23 @@
 import { GENERAL, SWITCH_AT } from "./agents.mjs";
 import { CACHE_TTL, cacheColor, cacheLabel, minutesLeft, nextTtl } from "./cache.mjs";
-import { absolute, AUTH_TOOL, bash, BUILTIN_COMMANDS, clipScript, coversStep, dedupeSkills, isSafeToOffer, MAX_READS, mentionedPaths, quotedTerms, relevant, SAFE_MAKE, SAFE_SCRIPT, sameCall, SKILL_BLOCKLIST_KEY } from "./candidates.mjs";
+import { absolute, AUTH_TOOL, bash, BUILTIN_COMMANDS, clipScript, coversStep, dedupeSkills, isSafeScript, isSafeToOffer, MAX_READS, MAX_STATS, mentionedPaths, quotedTerms, relevant, SAFE_MAKE, sameCall, SKILL_BLOCKLIST_KEY } from "./candidates.mjs";
 import { COMPACT_MAX_TOKENS, COMPACT_MODEL, COMPACT_SYSTEM, compactInstructions, compactItems, haikuTranscript, RELEVANCE } from "./compact.mjs";
-import { clip, splitTurn, summarize, toolCalls } from "./context.mjs";
+import { clip, head, splitTurn, summarize, toolCalls } from "./context.mjs";
 import { choice, COMPACT_API_TIMEOUT_S, COMPACT_TIMEOUT_MS, HAIKU_API_TIMEOUT_S, HAIKU_TIMEOUT_MS, isAnswer, JEV_API_TIMEOUT_S, JEV_BATCH, JEV_TOOL_PREFIX, JEV_TOOLS, MAX_CHOICE_OPTIONS, MAX_ERROR, MAX_PAUSE_MS, MEASURE_GRACE_MS, missingJevTools, noul, PAUSE_MS, score, TIMEOUT_MS } from "./jev.mjs";
-import { LOG_KEY, MAX_ENTRIES, recentDecisions, remember, statsKey } from "./log.mjs";
+import { forgetRecent, LOG_KEY, MAX_ENTRIES, recentDecisions, remember, statsKey } from "./log.mjs";
 import { bestAction, bounds, difficultyQuestion, doneQuestion, EFFORT_ORDER, effortQuestion, ESTIMATE_SPEC, ESTIMATE_TOOL, estimateEffort, EVERY_TURN_MODELS, inBandRange, inScratchpad, isEffort, lowerModel, mechanicalQuestion, modelFamily, nextActionQuestion, parseEstimateInput, pickCandidate, route, shouldContinue, singleActionQuestion, taskEndQuestion } from "./policy.mjs";
 import { hints, NONE, promptQuestions } from "./prompt.mjs";
-import { buildReport } from "./report.mjs";
+import { buildReport, escapePipes } from "./report.mjs";
 import { SUMMARY_MODEL, SYSTEM } from "./summarize.mjs";
+const newScan = () => ({
+	steps: 0,
+	calls: new Set(),
+	paths: new Set()
+});
+const newCache = () => ({
+	statted: new Map(),
+	scan: newScan()
+});
 const CACHE_TICK_MS = 15e3;
 const MAX_TAKES_PER_TURN = 3;
 const WRITE_TOOLS = new Set([
@@ -16,7 +25,11 @@ const WRITE_TOOLS = new Set([
 	"Write",
 	"NotebookEdit"
 ]);
+function settled(base) {
+	return base.decision === "deny" || base.decision === "allow" || base.decision === "ask" && base.rule !== undefined;
+}
 const SINGLE_ACTION = .8;
+const REFUSED = /^(The user doesn't want to proceed with this tool use|Permission for this tool use was denied|Permission to use .*has been denied|Hook '[^']*' blocked)/s;
 const PLUGIN_NAME = "jevfort";
 const DONE_PROMPT = "Jev: the user's request doesn't look finished yet. Continue with what remains. If it is actually complete, say so in one line.";
 const FINISHED = new Set([
@@ -59,20 +72,11 @@ async function askJev($, state, questions, slow = false) {
 		ok: false,
 		error: `paused for ${Math.ceil((jevPause.until - startedAt) / 1e3)} s after a timeout (${jevPause.error})`
 	};
-	const [key, base, jevUrl] = await Promise.all([
+	const haiku = await (haikuPath ??= Promise.all([
 		$.env.get("TYPESAFE_API_KEY"),
 		$.env.get("TYPESAFE_BASE_URL"),
 		$.env.get("JEV_URL")
-	]).catch(() => [
-		undefined,
-		undefined,
-		undefined
-	]);
-	const haiku = ![
-		key,
-		base,
-		jevUrl
-	].some((v) => v?.trim());
+	]).then((vals) => !vals.some((v) => v?.trim()), () => true));
 	const budgetMs = haiku ? HAIKU_TIMEOUT_MS : slow ? COMPACT_TIMEOUT_MS : TIMEOUT_MS;
 	const apiTimeoutS = haiku ? HAIKU_API_TIMEOUT_S : slow ? COMPACT_API_TIMEOUT_S : JEV_API_TIMEOUT_S;
 	const entries = Object.entries(questions);
@@ -99,9 +103,9 @@ async function askJev($, state, questions, slow = false) {
 		}));
 	})();
 	call.catch(() => undefined);
-	const timeout = $.clock.sleep(budgetMs).then(() => undefined);
+	const timer = deadline($, budgetMs);
 	try {
-		const answers = await Promise.race([call, timeout]);
+		const answers = await Promise.race([call, timer.elapsed]);
 		if (!answers) {
 			pauseAfterTimeout(startedAt, budgetMs, `timeout after ${budgetMs}ms`);
 			return done({
@@ -123,9 +127,30 @@ async function askJev($, state, questions, slow = false) {
 			ok: false,
 			error
 		});
+	} finally {
+		timer.cancel();
 	}
 }
+function deadline($, ms) {
+	let timer;
+	const elapsed = new Promise((resolve) => {
+		timer = $.clock.after(ms, () => resolve(undefined));
+	});
+	return {
+		elapsed,
+		cancel: () => timer?.cancel()
+	};
+}
 let jevTools;
+let toolListing;
+let skillList;
+let haikuPath;
+function dropTurnReads() {
+	jevTools = undefined;
+	toolListing = undefined;
+	skillList = undefined;
+	haikuPath = undefined;
+}
 let jevState;
 let estimateRegistered = false;
 let bandStale = false;
@@ -151,14 +176,19 @@ function resetCache($) {
 	lastResponseAt = undefined;
 	coldCompacted = false;
 	compactQueued = false;
-	showMinutes($, null);
+	shownMinutes = null;
+	try {
+		$.ui.invalidate("ui.render");
+	} catch {}
 }
 async function cacheTick($, autoCompactPercent) {
 	if (cacheExpires <= 0 && shownMinutes === null) return;
-	const minutes = minutesLeft(cacheExpires, await $.clock.now());
+	const expires = cacheExpires;
+	const now = await $.clock.now();
+	if (cacheExpires !== expires) return;
+	const minutes = minutesLeft(expires, now);
 	showMinutes($, minutes);
 	if (turnRunning || autoCompactPercent <= 0 || minutes !== 0 || coldCompacted) return;
-	const expires = cacheExpires;
 	const percent = (await $.session.usage()).context.percent ?? 0;
 	if (!Number.isFinite(percent) || percent < autoCompactPercent || coldCompacted || turnRunning || cacheExpires !== expires) return;
 	coldCompacted = true;
@@ -186,7 +216,7 @@ async function withJevRanking($, e) {
 	if (e.trigger !== "manual" && e.trigger !== "auto") return e;
 	const items = compactItems(e.messages);
 	if (items.length < 3) return e;
-	const request = splitTurn(e.messages)?.request ?? "";
+	const request = turnOf([...e.messages])?.request ?? "";
 	const questions = {};
 	items.forEach((it, i) => {
 		questions[`item_${i}`] = {
@@ -222,7 +252,7 @@ async function withJevRanking($, e) {
 	} : e;
 }
 function jevMissing($) {
-	return jevTools ??= $.tool.list().then((t) => missingJevTools(t.map((x) => x.name))).catch(() => [...JEV_TOOLS]).then(async (missing) => {
+	return jevTools ??= (toolListing = $.tool.list()).then((t) => missingJevTools(t.map((x) => x.name))).catch(() => [...JEV_TOOLS]).then(async (missing) => {
 		if (jevState !== undefined) await jevApply($, missing);
 		return missing;
 	});
@@ -262,27 +292,32 @@ async function stats($) {
 	return await $.store.get("stats") ?? {};
 }
 let storeQueue = Promise.resolve();
+const pending = [];
 async function record($, d) {
 	const entry = {
 		...d,
 		at: await $.clock.now().catch(() => Date.now())
 	};
 	remember(entry);
+	pending.push(entry);
+	if (d.kind !== "outcome" && d.kind !== "turn") void $.ui.status(head(`jev: ${d.text}`, 80));
+}
+async function flushLog($) {
+	if (!pending.length) return storeQueue;
+	const entries = pending.splice(0);
 	const run = storeQueue.then(async () => {
 		const log = await readLog($);
-		await $.store.set(LOG_KEY, [...log, entry].slice(-MAX_ENTRIES));
+		await $.store.set(LOG_KEY, [...log, ...entries].slice(-MAX_ENTRIES));
 		const tally = await stats($);
-		const key = statsKey(d);
-		await $.store.set("stats", {
-			...tally,
-			[key]: (tally[key] ?? 0) + 1
-		});
+		for (const key of entries.map(statsKey)) tally[key] = (tally[key] ?? 0) + 1;
+		await $.store.set("stats", tally);
 	});
 	storeQueue = run.catch(() => undefined);
 	await storeQueue;
-	if (d.kind !== "outcome" && d.kind !== "turn") void $.ui.status(`jev: ${d.text}`.slice(0, 80));
 }
 async function clearLog($) {
+	pending.length = 0;
+	forgetRecent();
 	const run = storeQueue.then(async () => {
 		await $.store.set(LOG_KEY, []);
 		await $.store.set("stats", {});
@@ -291,99 +326,129 @@ async function clearLog($) {
 	await run;
 }
 async function readTurn($, agentId) {
-	const messages = await $.session.messages(agentId ? { agentId } : {});
+	return turnOf(await $.session.messages(agentId ? { agentId } : {}));
+}
+function turnOf(messages) {
 	if (!Array.isArray(messages)) return undefined;
 	const own = (t) => t === DONE_PROMPT || t.startsWith(`The ${PLUGIN_NAME} plugin sent a message:\n${DONE_PROMPT}\n`);
 	return splitTurn(messages.filter((m) => !(m.role === "user" && own(m.text.trim()))));
 }
-async function previousReply($) {
-	const messages = await $.session.messages({}).catch(() => undefined);
+function previousReply(messages) {
 	if (!Array.isArray(messages)) return undefined;
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const m = messages[i];
-		if (m.role === "assistant" && m.text.trim()) return m.text.length > 800 ? `…${m.text.slice(-800)}` : m.text;
+		if (m.role === "assistant" && m.text.trim()) return m.text.length > 800 ? `…${m.text.slice(-800).replace(/^[\uDC00-\uDFFF]/, "")}` : m.text;
 	}
 	return undefined;
 }
 async function packageRunner($, cwd) {
-	for (const [file, runner] of [
+	const locks = [
 		["pnpm-lock.yaml", "pnpm"],
 		["yarn.lock", "yarn"],
 		["bun.lockb", "bun"],
 		["bun.lock", "bun"]
-	]) {
-		if (await $.fs.exists(`${cwd}/${file}`).catch(() => false)) return runner;
-	}
-	return "npm";
+	];
+	const found = await Promise.all(locks.map(([file]) => $.fs.exists(`${cwd}/${file}`).catch(() => false)));
+	return locks.find((_, i) => found[i])?.[1] ?? "npm";
 }
-async function buildCandidates($, request, steps, calls, stepIndex) {
-	const cwd = await $.session.cwd();
+async function projectCommands($, cwd) {
 	const out = [];
 	const has = (file) => $.fs.exists(`${cwd}/${file}`).catch(() => false);
-	const texts = [
-		request,
-		...steps.map((m) => m.text),
-		...calls.map((c) => c.text ?? "")
-	];
-	const alreadyRead = new Set(calls.filter((c) => c.tool === "Read").map((c) => String(c.input.file_path)));
+	const read = (file) => $.fs.read(`${cwd}/${file}`).catch(() => undefined);
+	const [git, pkg, makefile, cargo, gomod, pytestIni, conftest, pyproject] = await Promise.all([
+		has(".git"),
+		read("package.json"),
+		read("Makefile"),
+		has("Cargo.toml"),
+		has("go.mod"),
+		has("pytest.ini"),
+		has("conftest.py"),
+		read("pyproject.toml")
+	]);
+	if (git) {
+		out.push(bash("git status --short && git diff --stat", "Show what changed: which files are modified, staged or untracked, with a per-file count of changed lines"));
+		out.push(bash("git diff", "Show the full line-by-line diff of unstaged changes"));
+		out.push(bash("git log --oneline -n 15", "Show the 15 most recent commits"));
+	}
+	if (typeof pkg === "string") {
+		let scripts = {};
+		try {
+			scripts = JSON.parse(pkg.replace(/^\uFEFF/, "")).scripts ?? {};
+		} catch {}
+		const runner = await packageRunner($, cwd);
+		for (const name of Object.keys(scripts).filter((n) => isSafeScript(n) && typeof scripts[n] === "string")) {
+			const command = name === "test" ? `${runner} test` : `${runner} run ${name}`;
+			out.push(bash(command, `Run the project's "${name}" script (${clipScript(scripts[name])})`));
+		}
+	}
+	if (typeof makefile === "string") {
+		const targets = new Set([...makefile.matchAll(/^([A-Za-z][\w-]*):(?!=)/gm)].map((m) => m[1]));
+		for (const t of [...targets].filter((t) => SAFE_MAKE.test(t))) out.push(bash(`make ${t}`, `Run the Makefile's "${t}" target`));
+	}
+	if (cargo) {
+		out.push(bash("cargo test", "Run the Rust tests"));
+		out.push(bash("cargo check", "Type-check the Rust project"));
+		out.push(bash("cargo clippy", "Lint the Rust project"));
+	}
+	if (gomod) {
+		out.push(bash("go test ./...", "Run the Go tests"));
+		out.push(bash("go vet ./...", "Vet the Go code"));
+		out.push(bash("go build ./...", "Build the Go packages"));
+	}
+	if (pytestIni || conftest || /\[tool\.pytest/.test(String(pyproject ?? ""))) {
+		out.push(bash("python -m pytest -q", "Run the Python tests"));
+	}
+	return out;
+}
+async function buildCandidates($, request, steps, calls, stepIndex, cache = newCache()) {
+	const { statted } = cache;
+	const cwd = await $.session.cwd();
+	if (cache.cwd !== cwd) {
+		cache.cwd = cwd;
+		cache.project = undefined;
+	}
+	const out = [];
+	if (cache.scan.request !== undefined && (cache.scan.request !== request || steps.length < cache.scan.steps)) cache.scan = newScan();
+	const { scan } = cache;
+	const texts = scan.request === undefined ? [request] : [];
+	scan.request = request;
+	for (; scan.steps < steps.length; scan.steps++) texts.push(steps[scan.steps].text);
+	calls.forEach((c, i) => {
+		if (c.text === undefined || scan.calls.has(i)) return;
+		scan.calls.add(i);
+		texts.push(c.text);
+	});
+	const alreadyRead = new Set(calls.filter((c) => c.tool === "Read").map((c) => absolute(cwd, String(c.input.file_path))));
+	const offered = new Set();
 	let reads = 0;
-	for (const p of mentionedPaths(texts)) {
+	let probes = 0;
+	for (const p of mentionedPaths(texts, scan.paths)) {
 		if (reads >= MAX_READS) break;
 		if (p.startsWith("~")) continue;
 		const file = absolute(cwd, p);
-		if (alreadyRead.has(file) || !isSafeToOffer(file, cwd)) continue;
-		const stat = await $.fs.stat(file).catch(() => undefined);
-		if (stat?.kind !== "file" || stat.size > 2e6) continue;
+		if (offered.has(file) || alreadyRead.has(file) || !isSafeToOffer(file, cwd)) continue;
+		if (!statted.has(file)) {
+			if (probes >= MAX_STATS) continue;
+			probes += 1;
+			statted.set(file, await $.fs.stat(file).catch(() => undefined));
+		}
+		const stat = statted.get(file);
+		if (stat?.kind !== "file" || stat.isLink || stat.size > 2e6) continue;
 		out.push({
 			key: `read ${p}`,
 			description: `Read the file ${p}`,
 			tool: "Read",
 			input: { file_path: file }
 		});
+		offered.add(file);
 		reads += 1;
 	}
 	for (const term of quotedTerms(request)) {
 		out.push(bash(`grep -rnF --exclude-dir=node_modules --exclude-dir=.git -- '${term}' .`, `Search the project for the text "${term}"`));
 	}
-	if (await has(".git")) {
-		out.push(bash("git status --short && git diff --stat", "Show what changed: which files are modified, staged or untracked, with a per-file count of changed lines"));
-		out.push(bash("git diff", "Show the full line-by-line diff of unstaged changes"));
-		out.push(bash("git log --oneline -n 15", "Show the 15 most recent commits"));
-	}
-	const pkg = await $.fs.read(`${cwd}/package.json`).catch(() => undefined);
-	if (typeof pkg === "string") {
-		let scripts = {};
-		try {
-			scripts = JSON.parse(pkg).scripts ?? {};
-		} catch {}
-		const runner = await packageRunner($, cwd);
-		for (const name of Object.keys(scripts).filter((n) => SAFE_SCRIPT.test(n) && typeof scripts[n] === "string")) {
-			const command = name === "test" ? `${runner} test` : `${runner} run ${name}`;
-			out.push(bash(command, `Run the project's "${name}" script (${clipScript(scripts[name])})`));
-		}
-	}
-	const makefile = await $.fs.read(`${cwd}/Makefile`).catch(() => undefined);
-	if (typeof makefile === "string") {
-		const targets = new Set([...makefile.matchAll(/^([A-Za-z][\w-]*):(?!=)/gm)].map((m) => m[1]));
-		for (const t of [...targets].filter((t) => SAFE_MAKE.test(t))) out.push(bash(`make ${t}`, `Run the Makefile's "${t}" target`));
-	}
-	if (await has("Cargo.toml")) {
-		out.push(bash("cargo test", "Run the Rust tests"));
-		out.push(bash("cargo check", "Type-check the Rust project"));
-		out.push(bash("cargo clippy", "Lint the Rust project"));
-	}
-	if (await has("go.mod")) {
-		out.push(bash("go test ./...", "Run the Go tests"));
-		out.push(bash("go vet ./...", "Vet the Go code"));
-		out.push(bash("go build ./...", "Build the Go packages"));
-	}
-	if (await has("pytest.ini") || await has("conftest.py") || /\[tool\.pytest/.test(String(await $.fs.read(`${cwd}/pyproject.toml`).catch(() => "")))) {
-		out.push(bash("python -m pytest -q", "Run the Python tests"));
-	}
+	out.push(...cache.project ??= await projectCommands($, cwd));
 	if (stepIndex === 0) {
-		const commands = await $.command.list().catch(() => []);
-		const blocked = new Set(await $.store.get(SKILL_BLOCKLIST_KEY).catch(() => undefined) ?? []);
-		const allSkills = dedupeSkills(commands.filter((c) => (c.source === "plugin" || c.source === "user") && c.name !== "jev" && !BUILTIN_COMMANDS.has(c.name) && !blocked.has(c.name)));
+		const allSkills = await offerableSkills($);
 		const skills = /\bskills?\b/i.test(request) ? allSkills : relevant(request, allSkills);
 		for (const c of skills) {
 			out.push({
@@ -394,7 +459,7 @@ async function buildCandidates($, request, steps, calls, stepIndex) {
 			});
 		}
 		const loaded = new Set(calls.filter((c) => c.tool === "ToolSearch").map((c) => String(c.input.query)));
-		const tools = (await $.tool.list().catch(() => [])).filter((t) => t.mcp && !AUTH_TOOL.test(t.name) && !t.name.startsWith(JEV_TOOL_PREFIX) && !loaded.has(`select:${t.name}`));
+		const tools = (await (toolListing ?? $.tool.list()).catch(() => [])).filter((t) => t.mcp && !AUTH_TOOL.test(t.name) && !t.name.startsWith(JEV_TOOL_PREFIX) && !loaded.has(`select:${t.name}`));
 		for (const t of relevant(request, tools)) {
 			out.push({
 				key: `load ${t.name}`,
@@ -431,23 +496,25 @@ async function summarizeResult($, request, action, output) {
 		reason: "empty-reply"
 	};
 }
-async function skillOptions($) {
-	const commands = await $.command.list().catch(() => []);
-	const blocked = new Set(await $.store.get(SKILL_BLOCKLIST_KEY).catch(() => undefined) ?? []);
+function offerableSkills($) {
+	return skillList ??= (async () => {
+		const commands = await $.command.list().catch(() => []);
+		const blocked = new Set(await $.store.get(SKILL_BLOCKLIST_KEY).catch(() => undefined) ?? []);
+		return dedupeSkills(commands.filter((c) => (c.source === "plugin" || c.source === "user") && c.name !== "jev" && !BUILTIN_COMMANDS.has(c.name) && !blocked.has(c.name)));
+	})();
+}
+async function skillOptions($, request) {
+	const skills = relevant(request, await offerableSkills($)).filter((c) => c.name !== NONE);
+	if (!skills.length) return undefined;
 	const criteria = { [NONE]: "No listed skill is meant for this request" };
-	for (const c of commands) {
-		if (Object.keys(criteria).length >= MAX_CHOICE_OPTIONS) break;
-		if ((c.source === "plugin" || c.source === "user") && c.name !== "jev" && !BUILTIN_COMMANDS.has(c.name) && !blocked.has(c.name) && !Object.hasOwn(criteria, c.name)) {
-			criteria[c.name] = clip(c.description, 160);
-		}
-	}
-	return Object.keys(criteria).length > 1 ? criteria : undefined;
+	for (const c of skills) criteria[c.name] = clip(c.description, 160);
+	return criteria;
 }
 function summarizeCalls(calls) {
 	if (!calls.length) return "replied";
 	const parts = new Map();
 	for (const c of calls) {
-		const target = typeof c.input.file_path === "string" ? c.input.file_path.split("/").pop() : typeof c.input.command === "string" ? c.input.command.replace(/\s+/g, " ").slice(0, 30) : typeof c.input.skill === "string" ? c.input.skill : "";
+		const target = typeof c.input.file_path === "string" ? c.input.file_path.split("/").pop() : typeof c.input.command === "string" ? head(c.input.command.replace(/\s+/g, " "), 30) : typeof c.input.skill === "string" ? c.input.skill : "";
 		const key = target ? `${c.tool} ${target}` : c.tool;
 		parts.set(key, (parts.get(key) ?? 0) + 1);
 	}
@@ -487,25 +554,28 @@ async function blockSkill($, name) {
 	try {
 		const list = await $.store.get(SKILL_BLOCKLIST_KEY) ?? [];
 		if (!list.includes(name)) await $.store.set(SKILL_BLOCKLIST_KEY, [...list, name]);
+		skillList = undefined;
 	} catch {}
 }
-async function contextCompact($, e, ready, continued, fromPercent, forcePercent) {
+async function contextCompact($, e, ready, continued, fromPercent, forcePercent, asked) {
 	if (e.agentId !== undefined || compactQueued || fromPercent <= 0 && forcePercent <= 0) return;
-	const reported = (await $.session.usage().catch(() => undefined))?.context.percent ?? 0;
-	const percent = Number.isFinite(reported) ? reported : 0;
+	const percent = await fillPercent($);
 	const forced = forcePercent > 0 && percent >= forcePercent;
 	if (!forced && (fromPercent <= 0 || percent < fromPercent || !ready || continued || e.reason !== "answer")) return;
 	let text = `${percent.toFixed(0)}% full, forced`;
 	if (!forced) {
-		const ctx = await readTurn($);
-		if (!ctx) return;
-		const r = await askJev($, {
-			request: clip(ctx.request, 3e3),
-			final_message: clip(e.answer ?? "", 2e3),
-			recent: summarize(ctx.steps)
-		}, { end: taskEndQuestion });
-		if (!r.ok) return;
-		const end = noul(r.answers, "end");
+		let end = asked?.end;
+		if (!asked) {
+			const ctx = await readTurn($);
+			if (!ctx) return;
+			const r = await askJev($, {
+				request: clip(ctx.request, 3e3),
+				final_message: clip(e.answer ?? "", 2e3),
+				recent: summarize(ctx.steps)
+			}, { end: taskEndQuestion });
+			if (!r.ok) return;
+			end = noul(r.answers, "end");
+		}
 		if (end === undefined || end < .5) return;
 		text = `${percent.toFixed(0)}% full, task ended (p=${end.toFixed(2)})`;
 	}
@@ -523,14 +593,20 @@ async function contextCompact($, e, ready, continued, fromPercent, forcePercent)
 	$.command.run({
 		command: "compact",
 		args: ""
-	}).catch((err) => {
+	}).then(() => {
+		compactQueued = false;
+	}, (err) => {
 		compactQueued = false;
 		lostCompact = String(err);
 	});
 }
-async function checkDone($, e, threshold) {
+async function fillPercent($) {
+	const reported = (await $.session.usage().catch(() => undefined))?.context.percent ?? 0;
+	return Number.isFinite(reported) ? reported : 0;
+}
+async function checkDone($, e, threshold, withEnd) {
 	const agents = await $.agent.list().catch(() => undefined);
-	if (!agents) return false;
+	if (!agents) return { unfinished: false };
 	const waitingOn = agents.filter((a) => !FINISHED.has(a.status)).length;
 	if (waitingOn > 0) {
 		await record($, {
@@ -542,16 +618,22 @@ async function checkDone($, e, threshold) {
 				continued: false
 			}
 		});
-		return false;
+		return { unfinished: false };
 	}
 	const ctx = await readTurn($);
-	if (!ctx) return false;
+	if (!ctx) return { unfinished: false };
 	const r = await askJev($, {
 		request: clip(ctx.request, 3e3),
 		final_message: clip(e.answer ?? "", 2e3),
 		recent: summarize(ctx.steps)
-	}, { done: doneQuestion });
-	if (!r.ok) return false;
+	}, withEnd ? {
+		done: doneQuestion,
+		end: taskEndQuestion
+	} : { done: doneQuestion });
+	if (!r.ok) return {
+		unfinished: false,
+		asked: withEnd ? { end: undefined } : undefined
+	};
 	const done = noul(r.answers, "done");
 	const unfinished = shouldContinue(done, threshold);
 	await record($, {
@@ -564,7 +646,10 @@ async function checkDone($, e, threshold) {
 			continued: unfinished
 		}
 	});
-	return unfinished;
+	return {
+		unfinished,
+		asked: withEnd ? { end: noul(r.answers, "end") } : undefined
+	};
 }
 export const register = (on, options) => {
 	const routing = options.routing === "model" || options.routing === "off" ? options.routing : "effort";
@@ -646,6 +731,7 @@ export const register = (on, options) => {
 	let sessionEpoch = 0;
 	let followUpEpoch = 0;
 	let lostFollowUp;
+	let agentTurn = 0;
 	on("prompt.submit", async function onPromptSubmit($, e, next) {
 		if ((await jevMissing($)).length) return next(e);
 		if (e.origin?.kind === "plugin" && e.origin.name === PLUGIN_NAME) {
@@ -653,10 +739,11 @@ export const register = (on, options) => {
 			donePending = true;
 			return next(e);
 		}
-		if (e.origin?.kind === "composer" && !e.isMeta) donePending = false;
+		if (e.origin?.kind === "composer" && !e.isMeta && e.turnId === undefined) donePending = false;
 		if (options.classify === false || e.command || e.isMeta || e.origin?.kind === "task-notification" || e.text.trim().length < 3) return next(e);
-		const questions = promptQuestions(await skillOptions($));
-		const previous = await previousReply($);
+		const skillCriteria = await skillOptions($, e.text);
+		const questions = promptQuestions(skillCriteria);
+		const previous = previousReply(await $.session.messages({}).catch(() => undefined));
 		const r = await askJev($, {
 			request: clip(e.text, 3e3),
 			...previous ? { previous_reply: previous } : {}
@@ -665,7 +752,7 @@ export const register = (on, options) => {
 		const kind = choice(r.answers, "kind");
 		const needsPlan = noul(r.answers, "needs_plan");
 		const skillAnswer = choice(r.answers, "skill");
-		const skill = skillAnswer ? {
+		const skill = skillAnswer && skillCriteria && Object.hasOwn(skillCriteria, skillAnswer.choice) ? {
 			name: skillAnswer.choice,
 			p: skillAnswer.probabilities[skillAnswer.choice] ?? 0
 		} : undefined;
@@ -697,15 +784,20 @@ export const register = (on, options) => {
 			if ((await jevMissing($)).length) return next(e);
 			const r = await next(e);
 			if (r?.isOffered === false) offered.delete(e.agent);
-			else offered.set(e.agent, e.description);
+			else offered.set(e.agent, {
+				description: e.description,
+				turn: agentTurn
+			});
 			return r;
 		});
 		on("tool.call", { tool: "Agent" }, async function onAgentCall($, e, next) {
 			if ((await jevMissing($)).length) return next(e);
 			const claudeType = e.subagent_type ?? "";
+			const latest = Math.max(...[...offered.values()].map((o) => o.turn));
+			for (const [name, o] of offered) if (o.turn < latest) offered.delete(name);
 			if (offered.size < 2 || claudeType === "fork") return next(e);
 			const criteria = {};
-			for (const [name, description] of [...offered].slice(0, MAX_CHOICE_OPTIONS)) criteria[name] = clip(description, 200);
+			for (const [name, o] of [...offered].slice(0, MAX_CHOICE_OPTIONS)) criteria[name] = clip(o.description, 200);
 			const r = await askJev($, {
 				task: clip(e.prompt, 3e3),
 				description: e.description
@@ -718,7 +810,7 @@ export const register = (on, options) => {
 			const answer = choice(r.answers, "agent_type");
 			if (!answer) return next(e);
 			const p = answer.probabilities[answer.choice] ?? 0;
-			const canSwitch = GENERAL.has(claudeType) && !GENERAL.has(answer.choice) && p >= SWITCH_AT;
+			const canSwitch = GENERAL.has(claudeType) && !GENERAL.has(answer.choice) && Object.hasOwn(criteria, answer.choice) && p >= SWITCH_AT;
 			await record($, {
 				kind: "agent",
 				applied: canSwitch,
@@ -783,10 +875,13 @@ export const register = (on, options) => {
 	const turns = new Map();
 	const firstTurns = new Map();
 	const ownCalls = new Set();
+	let scratchpad;
 	const forgetConversation = () => {
 		firstTurns.clear();
+		forgetRecent();
 		band = {};
 		autoOff = false;
+		scratchpad = undefined;
 	};
 	on("session.start", async function onSessionStart($, e, next) {
 		sessionEpoch += 1;
@@ -811,67 +906,77 @@ export const register = (on, options) => {
 			text: `/jev not registered: ${err instanceof Error ? err.message : String(err)}`
 		}).catch(() => undefined));
 		const result = await next(e);
-		jevTools = undefined;
+		dropTurnReads();
 		await jevApply($, await jevMissing($));
+		toolListing = undefined;
 		return result;
 	});
 	on("session.end", async function onSessionEnd($, e, next) {
 		sessionEpoch += 1;
 		forgetConversation();
 		resetCache($);
+		await flushLog($);
 		return next(e);
 	});
 	on("command.run", { command: "jev" }, async function onJevCommand($, e) {
-		const arg = e.args.trim();
-		if (arg === "report") {
-			return { text: buildReport(await readLog($), takeThreshold) };
-		}
-		if (arg === "candidates") {
-			const ctx = await readTurn($);
-			const calls = ctx ? toolCalls(ctx.steps) : [];
-			const list = await buildCandidates($, ctx?.request ?? "", ctx?.steps ?? [], calls, 0);
-			const kind = (c) => c.tool === "Skill" ? "Skills" : c.tool === "ToolSearch" ? "Tools to load" : c.tool === "Read" ? "File reads" : "Commands";
-			const groups = new Map();
-			for (const c of list) groups.set(kind(c), [...groups.get(kind(c)) ?? [], c]);
-			const sections = [...groups].map(([name, items]) => `### ${name} (${items.length})\n\n| Option | Description |\n|---|---|\n` + items.map((c) => `| \`${c.key.replace(/\|/g, "\\|")}\` | ${c.description.replace(/\|/g, "\\|").replace(/\s+/g, " ")} |`).join("\n"));
-			return { text: [
-				`## Jev candidates: ${list.length + 1} options`,
-				`_For the last prompt: "${clip(ctx?.request ?? "(none)", 60)}". Plus \`claude\`: leave the step to Claude._`,
-				...sections
-			].join("\n\n") };
-		}
-		if (arg === "clear") {
-			await clearLog($);
-			return { text: "Jev pilot: log cleared." };
-		}
-		if (arg === "export") {
-			const log = await readLog($);
-			const path = `${await $.session.cwd()}/.jev/decisions-${await $.clock.now().catch(() => Date.now())}.jsonl`;
-			try {
-				if (await $.fs.exists(path)) return { text: `Jev pilot: ${path} exists, nothing written` };
-				await $.fs.write(path, log.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
-				return { text: `Jev pilot: wrote ${log.length} entries to ${path}` };
-			} catch (err) {
-				return { text: `Jev pilot: could not write ${path}: ${err instanceof Error ? err.message : String(err)}` };
+		try {
+			const arg = e.args.trim();
+			await flushLog($);
+			if (arg === "report") {
+				return { text: buildReport(await readLog($), takeThreshold) };
 			}
+			if (arg === "candidates") {
+				const ctx = await readTurn($);
+				const list = await buildCandidates($, ctx?.request ?? "", [], [], 0);
+				const kind = (c) => c.tool === "Skill" ? "Skills" : c.tool === "ToolSearch" ? "Tools to load" : c.tool === "Read" ? "File reads" : "Commands";
+				const groups = new Map();
+				for (const c of list) groups.set(kind(c), [...groups.get(kind(c)) ?? [], c]);
+				const sections = [...groups].map(([name, items]) => `### ${name} (${items.length})\n\n| Option | Description |\n|---|---|\n` + items.map((c) => `| \`${escapePipes(c.key)}\` | ${escapePipes(c.description).replace(/\s+/g, " ")} |`).join("\n"));
+				return { text: [
+					`## Jev candidates: ${list.length + 1} options`,
+					`_For the last prompt: "${clip(ctx?.request ?? "(none)", 60)}". Plus \`claude\`: leave the step to Claude._`,
+					...sections
+				].join("\n\n") };
+			}
+			if (arg === "clear") {
+				await clearLog($);
+				return { text: "Jev pilot: log cleared." };
+			}
+			if (arg === "export") {
+				const log = await readLog($);
+				const path = `${await $.session.cwd()}/.jev/decisions-${await $.clock.now().catch(() => Date.now())}.jsonl`;
+				try {
+					if (await $.fs.exists(path)) return { text: `Jev pilot: ${path} exists, nothing written` };
+					await $.fs.write(path, log.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+					return { text: `Jev pilot: wrote ${log.length} entries to ${path}` };
+				} catch (err) {
+					return { text: `Jev pilot: could not write ${path}: ${err instanceof Error ? err.message : String(err)}` };
+				}
+			}
+			const missing = await jevMissing($);
+			const counts = Object.entries(await stats($).catch(() => ({ unreadable: 1 }))).map(([k, v]) => `${k}=${v}`).join(", ") || "none yet";
+			const lines = recentDecisions().slice(-10).map((d) => `- ${d.kind}${d.applied ? "" : " (pass)"}: ${d.text}${d.ms !== undefined ? ` [${Math.round(d.ms)}ms]` : ""}`);
+			return { text: [
+				...missing.length ? [`Jev pilot: inactive, the jev-api tools are missing (${missing.join(", ")}). jevfort needs jev-api 0.2.0 or later and no permissions.deny rule matching its tools; it looks again at the next turn.`] : [],
+				`Jev pilot: routing ${routing}${autoOff ? " (effort auto off)" : ""}, take steps ${takeSteps} (p ≥ ${takeThreshold}), done check ${doneCheck}, subagents ${subagents}`,
+				`Decisions (all sessions): ${counts}`,
+				lines.length ? `Recent:\n${lines.join("\n")}` : "No decisions this session yet.",
+				"Full analysis: /jev report"
+			].join("\n") };
+		} finally {
+			if (!turnRunning) dropTurnReads();
 		}
-		const missing = await jevMissing($);
-		const counts = Object.entries(await stats($).catch(() => ({ unreadable: 1 }))).map(([k, v]) => `${k}=${v}`).join(", ") || "none yet";
-		const lines = recentDecisions().slice(-10).map((d) => `- ${d.kind}${d.applied ? "" : " (pass)"}: ${d.text}${d.ms !== undefined ? ` [${Math.round(d.ms)}ms]` : ""}`);
-		return { text: [
-			...missing.length ? [`Jev pilot: inactive, the jev-api tools are missing (${missing.join(", ")}). jevfort needs jev-api 0.2.0 or later and no permissions.deny rule matching its tools; it looks again at the next turn.`] : [],
-			`Jev pilot: routing ${routing}${autoOff ? " (effort auto off)" : ""}, take steps ${takeSteps} (p ≥ ${takeThreshold}), done check ${doneCheck}, subagents ${subagents}`,
-			`Decisions (all sessions): ${counts}`,
-			lines.length ? `Recent:\n${lines.join("\n")}` : "No decisions this session yet.",
-			"Full analysis: /jev report"
-		].join("\n") };
 	});
 	on("turn.complete", async function onTurnComplete($, e, next) {
-		if (e.agentId === undefined) turnRunning = false;
+		if (e.agentId === undefined) {
+			turnRunning = false;
+			agentTurn += 1;
+		}
 		const missing = await jevMissing($);
-		if (e.agentId === undefined) jevTools = undefined;
+		if (e.agentId === undefined) dropTurnReads();
 		if (missing.length) {
 			await contextCompact($, e, false, false, taskCompactPercent, forceCompactPercent).catch(() => undefined);
+			await flushLog($);
 			return next(e);
 		}
 		turns.delete(e.turnId);
@@ -901,13 +1006,18 @@ export const register = (on, options) => {
 			lostCompact = undefined;
 		}
 		let continued = false;
+		let asked;
 		if (e.agentId === undefined) {
 			const exempt = donePending;
 			donePending = false;
 			if (doneCheck && !exempt && e.reason === "answer") {
 				try {
 					const epoch = sessionEpoch;
-					if (await checkDone($, e, doneThreshold)) {
+					const fill = taskCompactPercent > 0 && !compactQueued ? await fillPercent($) : 0;
+					const withEnd = taskCompactPercent > 0 && fill >= taskCompactPercent && !(forceCompactPercent > 0 && fill >= forceCompactPercent);
+					const done = await checkDone($, e, doneThreshold, withEnd);
+					asked = done.asked;
+					if (done.unfinished) {
 						continued = true;
 						followUpEpoch = epoch;
 						$.prompt.submit({ text: DONE_PROMPT }).catch((err) => {
@@ -924,11 +1034,13 @@ export const register = (on, options) => {
 				}
 			}
 		}
-		await contextCompact($, e, true, continued, taskCompactPercent, forceCompactPercent).catch((err) => record($, {
+		await contextCompact($, e, true, continued, taskCompactPercent, forceCompactPercent, asked).catch((err) => record($, {
 			kind: "error",
 			applied: false,
 			text: `context compaction check failed: ${String(err)}`
 		}).catch(() => undefined));
+		await flushLog($);
+		if (e.agentId === undefined) haikuPath = undefined;
 		return next(e);
 	});
 	on("tool.call", async function onToolCall($, e, next) {
@@ -981,9 +1093,13 @@ export const register = (on, options) => {
 		const next = (request) => cacheWatch($, e, request, rawNext(request));
 		if ((await jevMissing($)).length) return yield* next(e);
 		if (e.agentId && !subagents) return yield* next(e);
-		const turn = turns.get(e.turnId) ?? { taken: 0 };
+		const turn = turns.get(e.turnId) ?? {
+			taken: 0,
+			cache: newCache()
+		};
 		turns.set(e.turnId, turn);
-		const ctx = await readTurn($, e.agentId);
+		const messages = await $.session.messages(e.agentId ? { agentId: e.agentId } : {});
+		const ctx = turnOf(messages);
 		if (!ctx) return yield* next(e);
 		const calls = toolCalls(ctx.steps);
 		const last = calls.at(-1);
@@ -991,7 +1107,7 @@ export const register = (on, options) => {
 			const id = turn.bypassId;
 			turn.bypassId = undefined;
 			const done = calls.find((c) => c.tool_use_id === id);
-			if (done?.text !== undefined) {
+			if (done?.text !== undefined && !(done.isError && REFUSED.test(done.text))) {
 				const s = await summarizeResult($, ctx.request, turn.bypassAction ?? done.tool, done.text);
 				await record($, {
 					kind: "bypass",
@@ -1033,7 +1149,7 @@ export const register = (on, options) => {
 		const questions = {};
 		let candidates = [];
 		if (takeSteps && !ctx.command && turn.taken < MAX_TAKES_PER_TURN && (!takeOnlyForBypass || bypass && e.index === 0 && !e.agentId)) {
-			candidates = (await buildCandidates($, ctx.request, ctx.steps, calls, e.index)).filter((c) => !(last && sameCall(last, {
+			candidates = (await buildCandidates($, ctx.request, ctx.steps, calls, e.index, turn.cache)).filter((c) => !(last && sameCall(last, {
 				tool: c.tool,
 				input: c.input
 			})));
@@ -1093,7 +1209,7 @@ export const register = (on, options) => {
 			let measure;
 			let measured = [];
 			if (measureSteps && takeSteps && !ctx.command && e.index > 0 && !e.agentId) {
-				measured = (await buildCandidates($, ctx.request, ctx.steps, calls, e.index)).filter((c) => !(last && sameCall(last, {
+				measured = (await buildCandidates($, ctx.request, ctx.steps, calls, e.index, turn.cache)).filter((c) => !(last && sameCall(last, {
 					tool: c.tool,
 					input: c.input
 				})));
@@ -1101,22 +1217,27 @@ export const register = (on, options) => {
 					measure = askJev($, {
 						request: clip(ctx.request, 4e3),
 						recent: summarize(ctx.steps),
-						cwd: await $.session.cwd()
+						cwd: turn.cache.cwd ??= await $.session.cwd()
 					}, { next_action: nextActionQuestion(measured) });
 				}
 			}
 			const claudeResult = yield* next(routed(e));
-			const measureResult = await Promise.race([measure, $.clock.sleep(MEASURE_GRACE_MS).then(() => undefined, () => undefined)]);
+			let measureResult;
+			if (measure) {
+				const grace = deadline($, MEASURE_GRACE_MS);
+				measureResult = await Promise.race([measure, grace.elapsed]).catch(() => undefined);
+				grace.cancel();
+			}
 			const measureAnswer = measureResult?.ok ? choice(measureResult.answers, "next_action") : undefined;
 			if (measureAnswer) await recordCompare($, e.turnId, e.index, ctx.request, measureAnswer, measured, claudeResult.toolUses, true);
 			return claudeResult;
 		}
-		const previous = e.index === 0 && !e.agentId ? await previousReply($) : undefined;
+		const previous = e.index === 0 && !e.agentId ? previousReply(messages) : undefined;
 		const state = {
 			request: clip(ctx.request, 4e3),
 			...previous ? { previous_reply: previous } : {},
 			recent: summarize(ctx.steps),
-			cwd: await $.session.cwd()
+			cwd: turn.cache.cwd ??= await $.session.cwd()
 		};
 		const r = await askJev($, state, questions);
 		if (!r.ok) {
@@ -1234,20 +1355,19 @@ export const register = (on, options) => {
 		if (answer) await recordCompare($, e.turnId, e.index, ctx.request, answer, candidates, result.toolUses, false);
 		return result;
 	});
-	let scratchpad;
 	on("tool.check", async function onToolCheck($, e, next) {
 		if (e.tool === ESTIMATE_TOOL) {
 			const base = await next(e);
-			return base.decision !== "deny" ? {
+			return settled(base) ? base : {
 				...base,
 				decision: "allow",
 				reason: "jevfort: estimate_effort is answered locally"
-			} : base;
+			};
 		}
 		if ((await jevMissing($)).length) return next(e);
 		const base = await next(e);
 		if (e.tool_use_id && ownCalls.has(e.tool_use_id)) {
-			if (base.decision === "deny" || base.decision === "allow") return base;
+			if (settled(base) || e.tool === "Read") return base;
 			return {
 				...base,
 				decision: "allow",
@@ -1255,7 +1375,7 @@ export const register = (on, options) => {
 			};
 		}
 		const input = e.input ?? {};
-		if (WRITE_TOOLS.has(e.tool) && base.decision !== "deny" && base.decision !== "allow" && !(base.decision === "ask" && base.rule !== undefined)) {
+		if (WRITE_TOOLS.has(e.tool) && !settled(base)) {
 			scratchpad ??= {
 				roots: [
 					await $.env.get("CLAUDE_CODE_TMPDIR"),
