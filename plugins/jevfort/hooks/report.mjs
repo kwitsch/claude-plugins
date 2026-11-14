@@ -58,7 +58,8 @@ export function buildReport(log, threshold) {
 	const verdicts = compares.map((e) => verdict(e, threshold));
 	const agreed = verdicts.filter((v) => v === "match" || v === "both-claude").length;
 	const errored = of("outcome").filter((e) => e.data?.isError === true);
-	const timed = log.map((e) => e.ms).filter((m) => typeof m === "number");
+	const routed = new Set(of("route").map((e) => `${e.turnId}:${e.ms}`));
+	const timed = log.filter((e) => !(e.kind === "take" && routed.has(`${e.turnId}:${e.ms}`))).map((e) => e.ms).filter((m) => typeof m === "number");
 	const avgMs = timed.length ? Math.round(timed.reduce((a, b) => a + b, 0) / timed.length) : undefined;
 	out.push("## Jev pilot report");
 	out.push(`_${log.length} log entries since ${since} · take threshold **${threshold}**_`);
@@ -98,6 +99,8 @@ export function buildReport(log, threshold) {
 	}
 	const routes = of("route");
 	const scores = routes.map((e) => num(e.data?.score)).filter((s) => s !== undefined);
+	const effortScores = routes.map((e) => num(e.data?.effortScore)).filter((s) => s !== undefined);
+	const avgOf = (xs) => (xs.reduce((a, b) => a + b, 0) / xs.length).toFixed(2);
 	const lowered = routes.filter((e) => e.data?.lowered === true);
 	const raised = routes.filter((e) => e.data?.raised === true);
 	const dones = of("done");
@@ -105,7 +108,7 @@ export function buildReport(log, threshold) {
 	out.push("", "### Routing and done check");
 	out.push("| Decision | Checked | Result |");
 	out.push("|---|---|---|");
-	out.push(`| Effort routing | ${routes.length} turns | avg difficulty ${scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(2) : "—"} (0 trivial … 3 hard) · ${lowered.length} lowered, ${raised.length} raised, ${[...lowered, ...raised].filter((e) => e.applied).length} applied |`);
+	out.push(`| Effort routing | ${routes.length} turns | ${scores.length || !effortScores.length ? `avg difficulty ${scores.length ? avgOf(scores) : "—"} (0 trivial … 3 hard)` : `avg effort score ${avgOf(effortScores)} (0 mechanical … 4 hardest)`} · ${lowered.length} lowered, ${raised.length} raised, ${[...lowered, ...raised].filter((e) => e.applied).length} applied |`);
 	out.push(`| Done check | ${dones.length} stops | ${continued.length} unfinished, ${continued.filter((e) => e.applied).length} sent back |`);
 	const classified = of("classify");
 	if (classified.length) {

@@ -1,6 +1,6 @@
 {
   "name": "jevfort",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "Lets TypeSafe Jev take routine steps, route effort and check that work is done (port of nim-f/jev-pilot; asks Jev through the jev-api plugin's tools).",
   "author": {
     "name": "Kwitsch"
@@ -48,7 +48,7 @@
     "subagents": {
       "type": "boolean",
       "title": "Subagents",
-      "description": "Also take steps and route effort inside subagent loops.",
+      "description": "Also route effort inside subagent loops, and take steps there when takeOnlyForBypass is off.",
       "default": true
     },
     "doneThreshold": {
@@ -120,7 +120,7 @@
     "measureSteps": {
       "type": "boolean",
       "title": "Measure steps inside a turn",
-      "description": "While Claude takes a step inside a longer turn, ask Jev in parallel which listed action it would take, and log whether it matches. Adds no delay; costs one Jev request per step. Never takes the step.",
+      "description": "While Claude takes a step inside a longer turn, ask Jev in parallel which listed action it would take, and log whether it matches. Adds at most about 250 ms per step; costs one Jev request per step. Never takes the step.",
       "default": true
     },
     "minEffort": {

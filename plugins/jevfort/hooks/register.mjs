@@ -3,7 +3,7 @@ import { CACHE_TTL, cacheColor, cacheLabel, minutesLeft, nextTtl } from "./cache
 import { absolute, AUTH_TOOL, bash, BUILTIN_COMMANDS, clipScript, coversStep, dedupeSkills, isSafeToOffer, MAX_READS, mentionedPaths, quotedTerms, relevant, SAFE_MAKE, SAFE_SCRIPT, sameCall, SKILL_BLOCKLIST_KEY } from "./candidates.mjs";
 import { COMPACT_MAX_TOKENS, COMPACT_MODEL, COMPACT_SYSTEM, compactInstructions, compactItems, haikuTranscript, RELEVANCE } from "./compact.mjs";
 import { clip, splitTurn, summarize, toolCalls } from "./context.mjs";
-import { choice, HAIKU_API_TIMEOUT_S, HAIKU_TIMEOUT_MS, JEV_API_TIMEOUT_S, JEV_BATCH, JEV_TOOL_PREFIX, JEV_TOOLS, MAX_CHOICE_OPTIONS, missingJevTools, noul, score, TIMEOUT_MS } from "./jev.mjs";
+import { choice, COMPACT_API_TIMEOUT_S, COMPACT_TIMEOUT_MS, HAIKU_API_TIMEOUT_S, HAIKU_TIMEOUT_MS, isAnswer, JEV_API_TIMEOUT_S, JEV_BATCH, JEV_TOOL_PREFIX, JEV_TOOLS, MAX_CHOICE_OPTIONS, MAX_ERROR, MAX_PAUSE_MS, MEASURE_GRACE_MS, missingJevTools, noul, PAUSE_MS, score, TIMEOUT_MS } from "./jev.mjs";
 import { LOG_KEY, MAX_ENTRIES, recentDecisions, remember, statsKey } from "./log.mjs";
 import { bestAction, bounds, difficultyQuestion, doneQuestion, EFFORT_ORDER, effortQuestion, ESTIMATE_SPEC, ESTIMATE_TOOL, estimateEffort, EVERY_TURN_MODELS, inBandRange, inScratchpad, isEffort, lowerModel, mechanicalQuestion, modelFamily, nextActionQuestion, parseEstimateInput, pickCandidate, route, shouldContinue, singleActionQuestion, taskEndQuestion } from "./policy.mjs";
 import { hints, NONE, promptQuestions } from "./prompt.mjs";
@@ -26,12 +26,39 @@ const FINISHED = new Set([
 	"idle"
 ]);
 const asText = (v) => String(v);
-async function askJev($, state, questions) {
-	const startedAt = await $.clock.now();
-	const done = async (r) => ({
-		...r,
-		ms: await $.clock.now() - startedAt
+const jevPause = {
+	until: 0,
+	ms: 0,
+	at: 0,
+	error: ""
+};
+const API_TIMEOUT = /\btimeout after \d+ms\b/;
+function pauseAfterTimeout(startedAt, budgetMs, error) {
+	if (startedAt < jevPause.until) return;
+	jevPause.ms = jevPause.ms ? Math.min(jevPause.ms * 2, MAX_PAUSE_MS) : PAUSE_MS;
+	jevPause.until = startedAt + budgetMs + jevPause.ms;
+	jevPause.at = startedAt;
+	jevPause.error = error;
+}
+async function askJev($, state, questions, slow = false) {
+	const startedAt = await $.clock.now().catch(() => Date.now());
+	if (startedAt < jevPause.at) Object.assign(jevPause, {
+		until: 0,
+		ms: 0,
+		at: 0,
+		error: ""
 	});
+	const done = async (r) => ({
+		...r.ok ? r : {
+			ok: false,
+			error: clip(r.error, MAX_ERROR)
+		},
+		ms: await $.clock.now().catch(() => Date.now()) - startedAt
+	});
+	if (startedAt < jevPause.until) return {
+		ok: false,
+		error: `paused for ${Math.ceil((jevPause.until - startedAt) / 1e3)} s after a timeout (${jevPause.error})`
+	};
 	const [key, base, jevUrl] = await Promise.all([
 		$.env.get("TYPESAFE_API_KEY"),
 		$.env.get("TYPESAFE_BASE_URL"),
@@ -46,14 +73,15 @@ async function askJev($, state, questions) {
 		base,
 		jevUrl
 	].some((v) => v?.trim());
-	const budgetMs = haiku ? HAIKU_TIMEOUT_MS : TIMEOUT_MS;
+	const budgetMs = haiku ? HAIKU_TIMEOUT_MS : slow ? COMPACT_TIMEOUT_MS : TIMEOUT_MS;
+	const apiTimeoutS = haiku ? HAIKU_API_TIMEOUT_S : slow ? COMPACT_API_TIMEOUT_S : JEV_API_TIMEOUT_S;
 	const entries = Object.entries(questions);
 	const call = (async () => {
 		const r = await $.tool.call({
 			tool: JEV_BATCH,
 			state: JSON.stringify(state),
 			questions: entries.map(([, q]) => q),
-			timeout: haiku ? HAIKU_API_TIMEOUT_S : JEV_API_TIMEOUT_S
+			timeout: apiTimeoutS
 		});
 		if (r.deny !== undefined) throw new Error(asText(r.deny));
 		if (r.isError === true || typeof r.result !== "string") throw new Error(`batch: ${r.result === undefined ? "no result" : typeof r.result === "string" ? r.result : JSON.stringify(r.result)}`);
@@ -66,7 +94,7 @@ async function askJev($, state, questions) {
 		if (!Array.isArray(list) || list.length !== entries.length) throw new Error(`batch: expected ${entries.length} answers`);
 		return Object.fromEntries(entries.map(([id, q], i) => {
 			const answer = list[i];
-			if (answer?.type !== q.type) throw new Error(`batch: no ${q.type} answer for questions[${i}]`);
+			if (!isAnswer(answer, q.type)) throw new Error(`batch: no valid ${q.type} answer for questions[${i}]`);
 			return [id, answer];
 		}));
 	})();
@@ -74,18 +102,26 @@ async function askJev($, state, questions) {
 	const timeout = $.clock.sleep(budgetMs).then(() => undefined);
 	try {
 		const answers = await Promise.race([call, timeout]);
-		if (!answers) return done({
-			ok: false,
-			error: `timeout after ${budgetMs}ms`
-		});
+		if (!answers) {
+			pauseAfterTimeout(startedAt, budgetMs, `timeout after ${budgetMs}ms`);
+			return done({
+				ok: false,
+				error: `timeout after ${budgetMs}ms`
+			});
+		}
+		jevPause.ms = 0;
+		jevPause.until = 0;
 		return done({
 			ok: true,
 			answers
 		});
 	} catch (err) {
+		const error = err instanceof Error ? err.message : String(err);
+		const timedOut = API_TIMEOUT.exec(error);
+		if (timedOut) pauseAfterTimeout(startedAt, budgetMs, timedOut[0]);
 		return done({
 			ok: false,
-			error: err instanceof Error ? err.message : String(err)
+			error
 		});
 	}
 }
@@ -124,7 +160,7 @@ async function cacheTick($, autoCompactPercent) {
 	if (turnRunning || autoCompactPercent <= 0 || minutes !== 0 || coldCompacted) return;
 	const expires = cacheExpires;
 	const percent = (await $.session.usage()).context.percent ?? 0;
-	if (percent < autoCompactPercent || coldCompacted || turnRunning || cacheExpires !== expires) return;
+	if (!Number.isFinite(percent) || percent < autoCompactPercent || coldCompacted || turnRunning || cacheExpires !== expires) return;
 	coldCompacted = true;
 	await $.command.run({
 		command: "compact",
@@ -162,7 +198,7 @@ async function withJevRanking($, e) {
 	const r = await askJev($, {
 		request: clip(request, 2e3),
 		item_count: items.length
-	}, questions);
+	}, questions, true);
 	if (!r.ok) return e;
 	const scores = items.map((_, i) => score(r.answers, `item_${i}`)?.score);
 	const added = compactInstructions(items, scores);
@@ -229,7 +265,7 @@ let storeQueue = Promise.resolve();
 async function record($, d) {
 	const entry = {
 		...d,
-		at: await $.clock.now()
+		at: await $.clock.now().catch(() => Date.now())
 	};
 	remember(entry);
 	const run = storeQueue.then(async () => {
@@ -243,17 +279,22 @@ async function record($, d) {
 		});
 	});
 	storeQueue = run.catch(() => undefined);
-	await run;
+	await storeQueue;
 	if (d.kind !== "outcome" && d.kind !== "turn") void $.ui.status(`jev: ${d.text}`.slice(0, 80));
 }
 async function clearLog($) {
-	await $.store.set(LOG_KEY, []);
-	await $.store.set("stats", {});
+	const run = storeQueue.then(async () => {
+		await $.store.set(LOG_KEY, []);
+		await $.store.set("stats", {});
+	});
+	storeQueue = run.catch(() => undefined);
+	await run;
 }
 async function readTurn($, agentId) {
 	const messages = await $.session.messages(agentId ? { agentId } : {});
 	if (!Array.isArray(messages)) return undefined;
-	return splitTurn(messages.filter((m) => !(m.role === "user" && m.text.trim() === DONE_PROMPT)));
+	const own = (t) => t === DONE_PROMPT || t.startsWith(`The ${PLUGIN_NAME} plugin sent a message:\n${DONE_PROMPT}\n`);
+	return splitTurn(messages.filter((m) => !(m.role === "user" && own(m.text.trim()))));
 }
 async function previousReply($) {
 	const messages = await $.session.messages({}).catch(() => undefined);
@@ -316,7 +357,7 @@ async function buildCandidates($, request, steps, calls, stepIndex) {
 			scripts = JSON.parse(pkg).scripts ?? {};
 		} catch {}
 		const runner = await packageRunner($, cwd);
-		for (const name of Object.keys(scripts).filter((n) => SAFE_SCRIPT.test(n))) {
+		for (const name of Object.keys(scripts).filter((n) => SAFE_SCRIPT.test(n) && typeof scripts[n] === "string")) {
 			const command = name === "test" ? `${runner} test` : `${runner} run ${name}`;
 			out.push(bash(command, `Run the project's "${name}" script (${clipScript(scripts[name])})`));
 		}
@@ -443,12 +484,15 @@ async function recordCompare($, turnId, step, request, answer, candidates, toolU
 	});
 }
 async function blockSkill($, name) {
-	const list = await $.store.get(SKILL_BLOCKLIST_KEY) ?? [];
-	if (!list.includes(name)) await $.store.set(SKILL_BLOCKLIST_KEY, [...list, name]);
+	try {
+		const list = await $.store.get(SKILL_BLOCKLIST_KEY) ?? [];
+		if (!list.includes(name)) await $.store.set(SKILL_BLOCKLIST_KEY, [...list, name]);
+	} catch {}
 }
 async function contextCompact($, e, ready, continued, fromPercent, forcePercent) {
 	if (e.agentId !== undefined || compactQueued || fromPercent <= 0 && forcePercent <= 0) return;
-	const percent = (await $.session.usage().catch(() => undefined))?.context.percent ?? 0;
+	const reported = (await $.session.usage().catch(() => undefined))?.context.percent ?? 0;
+	const percent = Number.isFinite(reported) ? reported : 0;
 	const forced = forcePercent > 0 && percent >= forcePercent;
 	if (!forced && (fromPercent <= 0 || percent < fromPercent || !ready || continued || e.reason !== "answer")) return;
 	let text = `${percent.toFixed(0)}% full, forced`;
@@ -599,15 +643,18 @@ export const register = (on, options) => {
 		});
 	});
 	let donePending = false;
+	let sessionEpoch = 0;
+	let followUpEpoch = 0;
 	let lostFollowUp;
 	on("prompt.submit", async function onPromptSubmit($, e, next) {
 		if ((await jevMissing($)).length) return next(e);
 		if (e.origin?.kind === "plugin" && e.origin.name === PLUGIN_NAME) {
+			if (followUpEpoch !== sessionEpoch) return { drop: "jevfort: done follow-up dropped, the conversation was cleared" };
 			donePending = true;
 			return next(e);
 		}
 		if (e.origin?.kind === "composer" && !e.isMeta) donePending = false;
-		if (options.classify === false || e.command || e.isMeta || e.text.trim().length < 3) return next(e);
+		if (options.classify === false || e.command || e.isMeta || e.origin?.kind === "task-notification" || e.text.trim().length < 3) return next(e);
 		const questions = promptQuestions(await skillOptions($));
 		const previous = await previousReply($);
 		const r = await askJev($, {
@@ -622,7 +669,7 @@ export const register = (on, options) => {
 			name: skillAnswer.choice,
 			p: skillAnswer.probabilities[skillAnswer.choice] ?? 0
 		} : undefined;
-		const added = hints(kind?.choice, needsPlan, skill, takeThreshold);
+		const added = hints(kind?.choice, needsPlan, skill, takeSteps && !takeOnlyForBypass ? takeThreshold : Number.POSITIVE_INFINITY);
 		await record($, {
 			kind: "classify",
 			applied: added.length > 0,
@@ -648,8 +695,10 @@ export const register = (on, options) => {
 		const offered = new Map();
 		on("agent.offer", async function onAgentOffer($, e, next) {
 			if ((await jevMissing($)).length) return next(e);
-			offered.set(e.agent, e.description);
-			return next(e);
+			const r = await next(e);
+			if (r?.isOffered === false) offered.delete(e.agent);
+			else offered.set(e.agent, e.description);
+			return r;
 		});
 		on("tool.call", { tool: "Agent" }, async function onAgentCall($, e, next) {
 			if ((await jevMissing($)).length) return next(e);
@@ -740,6 +789,7 @@ export const register = (on, options) => {
 		autoOff = false;
 	};
 	on("session.start", async function onSessionStart($, e, next) {
+		sessionEpoch += 1;
 		forgetConversation();
 		resetCache($);
 		jevState = undefined;
@@ -755,13 +805,18 @@ export const register = (on, options) => {
 		await $.command.register({
 			name: "jev",
 			description: "Jev pilot: status, /jev report, /jev candidates, /jev export, /jev clear"
-		});
+		}).catch((err) => record($, {
+			kind: "error",
+			applied: false,
+			text: `/jev not registered: ${err instanceof Error ? err.message : String(err)}`
+		}).catch(() => undefined));
 		const result = await next(e);
 		jevTools = undefined;
 		await jevApply($, await jevMissing($));
 		return result;
 	});
 	on("session.end", async function onSessionEnd($, e, next) {
+		sessionEpoch += 1;
 		forgetConversation();
 		resetCache($);
 		return next(e);
@@ -791,8 +846,9 @@ export const register = (on, options) => {
 		}
 		if (arg === "export") {
 			const log = await readLog($);
-			const path = `${await $.session.cwd()}/.jev/decisions.jsonl`;
+			const path = `${await $.session.cwd()}/.jev/decisions-${await $.clock.now().catch(() => Date.now())}.jsonl`;
 			try {
+				if (await $.fs.exists(path)) return { text: `Jev pilot: ${path} exists, nothing written` };
 				await $.fs.write(path, log.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
 				return { text: `Jev pilot: wrote ${log.length} entries to ${path}` };
 			} catch (err) {
@@ -800,7 +856,7 @@ export const register = (on, options) => {
 			}
 		}
 		const missing = await jevMissing($);
-		const counts = Object.entries(await stats($)).map(([k, v]) => `${k}=${v}`).join(", ") || "none yet";
+		const counts = Object.entries(await stats($).catch(() => ({ unreadable: 1 }))).map(([k, v]) => `${k}=${v}`).join(", ") || "none yet";
 		const lines = recentDecisions().slice(-10).map((d) => `- ${d.kind}${d.applied ? "" : " (pass)"}: ${d.text}${d.ms !== undefined ? ` [${Math.round(d.ms)}ms]` : ""}`);
 		return { text: [
 			...missing.length ? [`Jev pilot: inactive, the jev-api tools are missing (${missing.join(", ")}). jevfort needs jev-api 0.2.0 or later and no permissions.deny rule matching its tools; it looks again at the next turn.`] : [],
@@ -850,8 +906,10 @@ export const register = (on, options) => {
 			donePending = false;
 			if (doneCheck && !exempt && e.reason === "answer") {
 				try {
+					const epoch = sessionEpoch;
 					if (await checkDone($, e, doneThreshold)) {
 						continued = true;
+						followUpEpoch = epoch;
 						$.prompt.submit({ text: DONE_PROMPT }).catch((err) => {
 							donePending = false;
 							lostFollowUp = String(err);
@@ -876,10 +934,7 @@ export const register = (on, options) => {
 	on("tool.call", async function onToolCall($, e, next) {
 		if (e.tool === ESTIMATE_TOOL) {
 			const input = parseEstimateInput(e);
-			if (typeof input === "string") return {
-				isError: true,
-				result: `estimate_effort: ${input}`
-			};
+			if (typeof input === "string") return { deny: `estimate_effort: ${input}` };
 			const r = await askJev($, { request: clip(input.prompt, 4e3) }, {
 				effort: effortQuestion,
 				mechanical: mechanicalQuestion
@@ -977,7 +1032,7 @@ export const register = (on, options) => {
 		}
 		const questions = {};
 		let candidates = [];
-		if (takeSteps && turn.taken < MAX_TAKES_PER_TURN && (!takeOnlyForBypass || bypass && e.index === 0 && !e.agentId)) {
+		if (takeSteps && !ctx.command && turn.taken < MAX_TAKES_PER_TURN && (!takeOnlyForBypass || bypass && e.index === 0 && !e.agentId)) {
 			candidates = (await buildCandidates($, ctx.request, ctx.steps, calls, e.index)).filter((c) => !(last && sameCall(last, {
 				tool: c.tool,
 				input: c.input
@@ -1037,7 +1092,7 @@ export const register = (on, options) => {
 		if (!Object.keys(questions).length) {
 			let measure;
 			let measured = [];
-			if (measureSteps && takeSteps && e.index > 0 && !e.agentId) {
+			if (measureSteps && takeSteps && !ctx.command && e.index > 0 && !e.agentId) {
 				measured = (await buildCandidates($, ctx.request, ctx.steps, calls, e.index)).filter((c) => !(last && sameCall(last, {
 					tool: c.tool,
 					input: c.input
@@ -1051,7 +1106,7 @@ export const register = (on, options) => {
 				}
 			}
 			const claudeResult = yield* next(routed(e));
-			const measureResult = await measure;
+			const measureResult = await Promise.race([measure, $.clock.sleep(MEASURE_GRACE_MS).then(() => undefined, () => undefined)]);
 			const measureAnswer = measureResult?.ok ? choice(measureResult.answers, "next_action") : undefined;
 			if (measureAnswer) await recordCompare($, e.turnId, e.index, ctx.request, measureAnswer, measured, claudeResult.toolUses, true);
 			return claudeResult;
@@ -1117,7 +1172,8 @@ export const register = (on, options) => {
 		const answer = choice(r.answers, "next_action");
 		const best = bestAction(answer);
 		const singleAction = noul(r.answers, "single_action") ?? 0;
-		const pick = takeOnlyForBypass && singleAction < SINGLE_ACTION ? undefined : pickCandidate(answer, candidates, takeThreshold);
+		const picked = pickCandidate(answer, candidates, takeThreshold);
+		const pick = takeOnlyForBypass && (singleAction < SINGLE_ACTION || picked?.tool !== "Read" && picked?.tool !== "Bash") ? undefined : picked;
 		if (answer) {
 			const p = answer.probabilities[answer.choice] ?? 0;
 			await record($, {
@@ -1142,7 +1198,7 @@ export const register = (on, options) => {
 			turn.taken += 1;
 			const id = `toolu_jev_${crypto.randomUUID().replace(/-/g, "")}`;
 			ownCalls.add(id);
-			if (singleAction >= SINGLE_ACTION) {
+			if (singleAction >= SINGLE_ACTION && (pick.tool === "Read" || pick.tool === "Bash")) {
 				turn.bypassId = id;
 				turn.bypassAction = pick.key;
 			}
@@ -1191,7 +1247,7 @@ export const register = (on, options) => {
 		if ((await jevMissing($)).length) return next(e);
 		const base = await next(e);
 		if (e.tool_use_id && ownCalls.has(e.tool_use_id)) {
-			if (base.decision === "deny") return base;
+			if (base.decision === "deny" || base.decision === "allow") return base;
 			return {
 				...base,
 				decision: "allow",
@@ -1199,7 +1255,7 @@ export const register = (on, options) => {
 			};
 		}
 		const input = e.input ?? {};
-		if (WRITE_TOOLS.has(e.tool) && base.decision !== "deny" && !(base.decision === "ask" && base.rule !== undefined)) {
+		if (WRITE_TOOLS.has(e.tool) && base.decision !== "deny" && base.decision !== "allow" && !(base.decision === "ask" && base.rule !== undefined)) {
 			scratchpad ??= {
 				roots: [
 					await $.env.get("CLAUDE_CODE_TMPDIR"),

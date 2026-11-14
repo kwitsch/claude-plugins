@@ -234,7 +234,7 @@ export function shouldContinue(done, threshold = .15) {
 	return done !== undefined && done < threshold;
 }
 export function inScratchpad(file, sessionId, roots) {
-	if (!file.startsWith("/") || !sessionId) return false;
+	if (!file.startsWith("/") || file.startsWith("//") || file.includes("\\") || !sessionId) return false;
 	const segs = file.split("/");
 	if (segs.includes("..")) return false;
 	const path = `/${segs.filter((seg) => seg !== "" && seg !== ".").join("/")}`;

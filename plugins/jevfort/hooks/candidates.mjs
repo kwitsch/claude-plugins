@@ -86,7 +86,8 @@ export function relevant(prompt, items) {
 		const name = words(item.name.replace(/^mcp__/, "").replace(/[_:]+/g, " "));
 		const desc = words(item.description);
 		let score = 0;
-		for (const w of want) score += name.has(w) ? 2 : desc.has(w) ? 1 : 0;
+		for (const w of name) if (want.has(w)) score += 2;
+		for (const w of desc) if (want.has(w) && !name.has(w)) score += 1;
 		return {
 			item,
 			score
