@@ -1,6 +1,6 @@
 {
   "name": "jevfort",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Lets TypeSafe Jev take routine steps, route effort and check that work is done (port of nim-f/jev-pilot; asks Jev through the jev-api plugin's tools).",
   "author": {
     "name": "Kwitsch"
@@ -94,6 +94,22 @@
       "min": 0,
       "max": 100,
       "default": 60
+    },
+    "taskCompactPercent": {
+      "type": "number",
+      "title": "Compact at task end from context fill (%)",
+      "description": "From this context fill, the first turn Jev judges to have closed a task (not an intermediate result) ends with a compaction. 0 turns it off.",
+      "min": 0,
+      "max": 100,
+      "default": 80
+    },
+    "forceCompactPercent": {
+      "type": "number",
+      "title": "Force compaction from context fill (%)",
+      "description": "From this context fill, the next turn end compacts without asking Jev, when no task end came before. 0 turns it off.",
+      "min": 0,
+      "max": 100,
+      "default": 95
     },
     "takeOnlyForBypass": {
       "type": "boolean",
