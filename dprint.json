@@ -22,6 +22,7 @@
     "plugins/jevfort",
     "plugins/jev-api",
     "plugins/jev-solver",
+    "plugins/graphmind-helper",
     "plugins/universal-format/mcp/server.mjs"
   ],
   "plugins": [
