@@ -41,4 +41,4 @@ Layout and module rules for mods plugins:
 
 ## Synced plugins
 
-`dprint`, `inline-headroom`, `universal-lint`, `jevfort`, `jev-api` and `jev-solver` are developed in kwitsch/claude-plugins-development (`<name>/`, docs in its `<name>/CLAUDE.md`). `plugins/<name>/` here is their synced build output (`Sync <name> <version>` commits pushed by that repo's release workflow): never edit it directly, no bats suite, no `test.yml` matrix entry, excluded from the root `tsconfig.json`. Their marketplace entries carry no display fields (`.claude/rules/marketplace-synced-entries.md`).
+`dprint`, `inline-headroom`, `universal-lint`, `jevfort`, `jev-api`, `jev-solver` and `graphmind-helper` are developed in kwitsch/claude-plugins-development (`<name>/`, docs in its `<name>/CLAUDE.md`). `plugins/<name>/` here is their synced build output (`Sync <name> <version>` commits pushed by that repo's release workflow): never edit it directly, no bats suite, no `test.yml` matrix entry, excluded from the root `tsconfig.json`. Their marketplace entries carry no display fields (`.claude/rules/marketplace-synced-entries.md`).

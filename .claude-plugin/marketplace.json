@@ -100,6 +100,11 @@
       "name": "jev-solver",
       "source": "./plugins/jev-solver",
       "category": "productivity"
+    },
+    {
+      "name": "graphmind-helper",
+      "source": "./plugins/graphmind-helper",
+      "category": "productivity"
     }
   ]
 }
