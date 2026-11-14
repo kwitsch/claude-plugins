@@ -16,7 +16,7 @@ Silently runs each language's standard linter (read-only — never autofixes) on
 
 ## What it does
 
-A background (`asyncRewake`) PostToolUse `Write|Edit` command hook (no MCP server — all hooks are plain command hooks sharing one script) runs the just-written file's standard linter, check-only, for every language in the table below. At session start (and when the working directory changes) the plugin asks Claude Code to watch the project's lintable git files (tracked and untracked, not ignored; nothing above 5000 files); when one of them changes outside Write/Edit — a formatter run from Bash, `git stash pop`, an external editor — it is linted the same way in the background, unless it is git-ignored, unchanged against git, or still exactly what Write/Edit just wrote. The linter runs when its CLI is on `PATH` — or, for `eslint`/`oxlint`/`markdownlint-cli2`/`markdownlint`/`stylelint`, from the project's own `node_modules/.bin` or via the `npx` fallback (see below); an unavailable linter (no `PATH` CLI, no project-local bin and no `npx` fallback), any crash or misconfiguration, an unsupported extension, a file outside the project (real path, so symlinks pointing out count as outside), or a file under `node_modules/`/`vendor/`/`.git/` is a **silent no-op** — the hooks never block or degrade the session, and they never modify the file (that's `universal-format`'s job, not this plugin's — this plugin never passes `--fix`/`--format`/`--write` to anything). When (and only when) the linter reports real findings, the hook exits 2 with them on stderr, which wakes Claude with the findings as soon as the lint finishes so it can fix them itself.
+A background (`asyncRewake`) PostToolUse `Write|Edit` command hook (no MCP server — all hooks are plain command hooks sharing one script) runs the just-written file's standard linter, check-only, for every language in the table below. At session start (and when the working directory changes) the plugin asks Claude Code to watch the project's lintable git files (tracked and untracked, not ignored; nothing above 5000 files); when one of them changes outside Write/Edit — a formatter run from Bash, `git stash pop`, an external editor — it is linted the same way in the background, unless it is git-ignored, unchanged against git, or still exactly what Write/Edit just wrote. The linter runs when its CLI is on `PATH` — or, for `eslint`/`oxlint`/`markdownlint-cli2`/`markdownlint`/`stylelint`, from the project's own `node_modules/.bin` or via the `npx` fallback (see below); an unavailable linter (no `PATH` CLI, no project-local bin and no `npx` fallback), any crash or misconfiguration, an unsupported extension, a file outside the project (real path, so symlinks pointing out count as outside), or a file under `node_modules/`/`vendor/`/`.git/` is a **silent no-op** — the hooks never block or degrade the session, and they never modify the file (that's `universal-format`'s job, not this plugin's — this plugin never passes `--fix`/`--format`/`--write` to anything). When (and only when) the linter reports real findings, the hook holds them for a 5 second settle window (not held when no finding sits on a line of the edited file) and then exits 2 with them on stderr, which wakes Claude so it can fix them itself. If a later edit of the file rewrites the line a finding sits on during that window, the finding is dropped (that edit's own lint reports whatever is still wrong there); edits elsewhere drop nothing. In headless `claude -p` runs the hook is not backgrounded by Claude Code, so the hold delays that turn by up to 5 seconds.
 
 These hooks are always active once the plugin is installed — there is no toggle. Per-language opt-out is simply not installing that linter.
 
@@ -55,14 +55,17 @@ whole-project checks fast.
 
 checkstyle's exit code only counts `error`-severity violations, and `google_checks.xml` (like many real projects' own configs) runs at `warning` severity by default — so its exit code alone can't tell you whether it found anything. Findings are detected from checkstyle's own output instead: it always prints `Starting audit...` first and `Audit done.` last, regardless of violation count; anything left after stripping those two lines is a real finding.
 
-## YAML/Markdown: max line length isn't enforced without a project config
+## YAML/Markdown: max line length isn't enforced without a linter config
 
 `yamllint` and `markdownlint`/`markdownlint-cli2` both flag lines over 80
-characters by default. When a project has no linter config of its own for
-that file type (no `.yamllint*`, no `.markdownlint*`), this hook disables just
-that one rule so it doesn't flag ordinary long lines the project never opted
-into limiting — every other check still runs normally. A project with its own
-config is never touched; its line-length choice always wins.
+characters by default. When neither the project nor your user-level linter
+config sets it (no `.yamllint*`/`.markdownlint*` in the project; for yamllint
+also no `$YAMLLINT_CONFIG_FILE` / `~/.config/yamllint/config`; for classic
+markdownlint also no `~/.markdownlintrc`, `~/.config/markdownlint*` or
+`/etc/markdownlint*`), this hook disables just that one rule so it doesn't
+flag ordinary long lines nobody opted into limiting — every other check still
+runs normally. A project or user config is never touched; its line-length
+choice always wins.
 
 ## JSON: not covered (why)
 

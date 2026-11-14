@@ -84,7 +84,7 @@ export const REGISTRY = {
 	}] },
 	python: { chain: [{
 		name: "ruff",
-		args: ["check"]
+		args: ["check", "--force-exclude"]
 	}] },
 	go: { chain: [{
 		name: "golangci-lint",
@@ -165,6 +165,21 @@ function saveProbeStore(file, store) {
 		renameSync(tmp, file);
 	} catch {}
 }
+function isExecutableFile(p) {
+	try {
+		accessSync(p, fsConstants.X_OK);
+	} catch {
+		return false;
+	}
+	return isFile(p);
+}
+function isFile(p) {
+	try {
+		return statSync(p).isFile();
+	} catch {
+		return false;
+	}
+}
 function onPath(tool) {
 	const cached = probeCache.get(tool);
 	if (cached !== undefined) return cached;
@@ -172,11 +187,10 @@ function onPath(tool) {
 	probeStore ??= loadProbeStore(file);
 	const known = probeStore.hits[tool];
 	if (typeof known === "string" && path.isAbsolute(known)) {
-		try {
-			accessSync(path.join(known, tool), fsConstants.X_OK);
+		if (isExecutableFile(path.join(known, tool))) {
 			probeCache.set(tool, true);
 			return true;
-		} catch {}
+		}
 	}
 	const at = probeStore.misses[tool];
 	if (typeof at === "number") {
@@ -189,11 +203,10 @@ function onPath(tool) {
 	let foundDir = null;
 	for (const dir of (process.env.PATH || "").split(path.delimiter)) {
 		if (!dir) continue;
-		try {
-			accessSync(path.join(dir, tool), fsConstants.X_OK);
+		if (isExecutableFile(path.join(dir, tool))) {
 			foundDir = dir;
 			break;
-		} catch {}
+		}
 	}
 	if (foundDir === null || path.isAbsolute(foundDir)) {
 		Reflect.deleteProperty(probeStore.hits, tool);
@@ -333,7 +346,7 @@ async function spawnBin(bin, argv, spawnOpts) {
 	const code = result.error && "code" in result.error ? result.error.code : undefined;
 	return code === "ENOENT" || code === "EACCES" ? null : result;
 }
-async function runNpx(name, npmSpec, argv, spawnOpts) {
+async function runNpx(name, npmSpec, argv, spawnOpts, failed) {
 	const npx = () => spawnGroup("npx", [
 		"--yes",
 		npmSpec,
@@ -349,7 +362,7 @@ async function runNpx(name, npmSpec, argv, spawnOpts) {
 		}
 	});
 	const rel = path.join("node_modules", ".bin", name);
-	if (walkToRoot(String(spawnOpts.cwd), (d) => configExists(d, rel))) return npx();
+	if (walkToRoot(String(spawnOpts.cwd), (d) => path.join(d, rel) !== failed && configExists(d, rel))) return npx();
 	const key = createHash("sha512").update(npmSpec).digest("hex").slice(0, 16);
 	const dir = path.join(process.env.npm_config_cache || process.env.NPM_CONFIG_CACHE || path.join(homedir(), ".npm"), "_npx", key);
 	const stamp = path.resolve(process.env.CLAUDE_PLUGIN_DATA || tmpdir(), `npx-refreshed-${key}`);
@@ -377,7 +390,7 @@ async function runNpx(name, npmSpec, argv, spawnOpts) {
 async function runLintTool(tool, argv, spawnOpts, local) {
 	const viaLocal = local ? await spawnBin(local, argv, spawnOpts) : null;
 	if (viaLocal) return viaLocal;
-	if (tool.npmSpec && !onPath(tool.name)) return runNpx(tool.name, tool.npmSpec, argv, spawnOpts);
+	if (tool.npmSpec && !onPath(tool.name)) return runNpx(tool.name, tool.npmSpec, argv, spawnOpts, local);
 	const spawnName = tool.spawnAs?.name ?? tool.name;
 	const spawnArgv = tool.spawnAs ? [...tool.spawnAs.args, ...argv] : argv;
 	return spawnGroup(spawnName, spawnArgv, spawnOpts);
@@ -556,8 +569,7 @@ export function looksLikeSolutionStyleTsconfig(text) {
 	const hasInclude = /"include"\s*:/.test(stripped);
 	if (hasInclude) return false;
 	const filesMatch = stripped.match(/"files"\s*:\s*\[([^\]]*)\]/);
-	const hasNonEmptyFiles = !!filesMatch && filesMatch[1].trim() !== "";
-	return !hasNonEmptyFiles;
+	return !!filesMatch && filesMatch[1].trim() === "";
 }
 export function hashPath(p) {
 	return createHash("sha256").update(p).digest("hex");
@@ -580,6 +592,9 @@ const YAMLLINT_CONFIG_FILENAMES = [
 ];
 export function hasProjectYamllintConfig(cwd) {
 	let dir = path.resolve(cwd);
+	try {
+		dir = realpathSync(dir);
+	} catch {}
 	const home = path.resolve(homedir());
 	for (;;) {
 		if (anyConfigExists(dir, YAMLLINT_CONFIG_FILENAMES)) return true;
@@ -588,6 +603,11 @@ export function hasProjectYamllintConfig(cwd) {
 		if (parent === dir) return false;
 		dir = parent;
 	}
+}
+export function hasUserGlobalYamllintConfig() {
+	const env = process.env;
+	const p = env.YAMLLINT_CONFIG_FILE !== undefined ? env.YAMLLINT_CONFIG_FILE.replace(/^~(?=$|\/)/, homedir()) : path.join(env.XDG_CONFIG_HOME ?? path.join(homedir(), ".config"), "yamllint", "config");
+	return isFile(p);
 }
 const YAMLLINT_NO_LINE_LENGTH_CONFIG_DATA = "{extends: default, rules: {line-length: disable}}";
 const MARKDOWNLINT_CONFIG_FILENAMES = [
@@ -612,6 +632,30 @@ function walkToRoot(dir, checkDir) {
 }
 export function hasProjectMarkdownlintConfig(fileDir) {
 	return walkToRoot(fileDir, (dir) => anyConfigExists(dir, MARKDOWNLINT_CONFIG_FILENAMES));
+}
+const MARKDOWNLINT_CLASSIC_CONFIG_FILENAMES = [
+	".markdownlint.jsonc",
+	".markdownlint.json",
+	".markdownlint.yaml",
+	".markdownlint.yml"
+];
+function hasMarkdownlintRc(spawnCwd) {
+	let real = spawnCwd;
+	try {
+		real = realpathSync(spawnCwd);
+	} catch {}
+	if (anyConfigExists(real, MARKDOWNLINT_CLASSIC_CONFIG_FILENAMES) || walkToRoot(real, (d) => configExists(d, ".markdownlintrc"))) return true;
+	const home = homedir();
+	const env = process.env.markdownlint_config;
+	return [
+		...env ? [path.resolve(real, env)] : [],
+		path.join(home, ".config", "markdownlint", "config"),
+		path.join(home, ".config", "markdownlint"),
+		path.join(home, ".markdownlint", "config"),
+		path.join(home, ".markdownlintrc"),
+		"/etc/markdownlint/config",
+		"/etc/markdownlintrc"
+	].some(isFile);
 }
 const STYLELINT_CONFIG_FILENAMES = [
 	".stylelintrc",
@@ -663,16 +707,16 @@ function markdownlintNoLineLengthConfigPath() {
 	renameSync(tmp, file);
 	return file;
 }
-export function buildArgv(tool, resolvedFile, cwd, manifest) {
+export function buildArgv(tool, resolvedFile, cwd, manifest, spawnCwd = cwd) {
 	const dir = path.dirname(resolvedFile);
 	const argv = tool.args.slice();
 	if (tool.needsCheckstyleConfig) {
 		argv.push("-c", resolveCheckstyleConfig(dir, cwd) ?? "/google_checks.xml");
 	}
-	if (tool.guardYamlLineLength && !hasProjectYamllintConfig(cwd)) {
+	if (tool.guardYamlLineLength && !hasProjectYamllintConfig(cwd) && !hasUserGlobalYamllintConfig()) {
 		argv.push("-d", YAMLLINT_NO_LINE_LENGTH_CONFIG_DATA);
 	}
-	if (tool.guardMarkdownLineLength && !hasProjectMarkdownlintConfig(dir)) {
+	if (tool.guardMarkdownLineLength && !(tool.name === "markdownlint" ? hasMarkdownlintRc(spawnCwd) : hasProjectMarkdownlintConfig(dir))) {
 		argv.push("--config", markdownlintNoLineLengthConfigPath());
 	}
 	if (tool.manifestPath) {
@@ -683,8 +727,12 @@ export function buildArgv(tool, resolvedFile, cwd, manifest) {
 		}
 		return argv;
 	}
-	argv.push(tool.targetsDir ? dir : resolvedFile);
+	argv.push(tool.targetsDir ? dir : fileArg(tool, resolvedFile, spawnCwd));
 	return argv;
+}
+function fileArg(tool, fp, spawnCwd) {
+	if (tool.name === "yamllint") return `./${path.relative(spawnCwd, fp)}`;
+	return tool.name === "markdownlint-cli2" ? `:${fp}` : fp;
 }
 export function classifyExit(toolName, status) {
 	if (status === null) return "skip";
@@ -796,9 +844,9 @@ function planChainLint(lang, resolved, cwd) {
 		manifest = resolveCargoManifest(path.dirname(resolved), cwd);
 		if (!manifest) return null;
 	}
-	const argv = buildArgv(tool, resolved, cwd, manifest);
-	const timeout = tool.manifestPath ? CARGO_SPAWN_TIMEOUT_MS : SPAWN_TIMEOUT_MS;
 	const spawnCwd = sel.local ? path.join(sel.local, "../../..") : cwd;
+	const argv = buildArgv(tool, resolved, cwd, manifest, spawnCwd);
+	const timeout = tool.manifestPath ? CARGO_SPAWN_TIMEOUT_MS : SPAWN_TIMEOUT_MS;
 	return {
 		tool,
 		local: sel.local,
@@ -806,6 +854,20 @@ function planChainLint(lang, resolved, cwd) {
 		spawnCwd,
 		timeout,
 		manifest
+	};
+}
+const CLIPPY_MISSING_RE = /'cargo-clippy' is not installed for/;
+async function runPlan(plan, argv, resolved, cwd) {
+	const spawnOpts = buildSpawnOpts(plan.spawnCwd, plan.timeout);
+	const result = await runLintTool(plan.tool, argv, spawnOpts, plan.local);
+	const next = REGISTRY.rust.chain[REGISTRY.rust.chain.indexOf(plan.tool) + 1];
+	if (plan.tool.name !== "cargo-clippy" || !next || result.error || result.signal || result.status === 0 || !CLIPPY_MISSING_RE.test(result.stderr ?? "") || !onPath(next.name)) return {
+		tool: plan.tool,
+		result
+	};
+	return {
+		tool: next,
+		result: await runLintTool(next, buildArgv(next, resolved, cwd, plan.manifest, plan.spawnCwd), spawnOpts, null)
 	};
 }
 function chainOutcome(tool, result) {
@@ -825,15 +887,19 @@ function chainOutcome(tool, result) {
 		text
 	};
 }
-async function runChainLint(lang, resolved, cwd, rel, coalesce = false) {
+async function runChainLint(lang, resolved, cwd, rel, coalesce = false, session = "") {
 	const none = NO_CHAIN;
 	const plan = planChainLint(lang, resolved, cwd);
 	if (!plan) return none;
-	const { tool, argv, timeout, spawnCwd, manifest } = plan;
-	const spawnOpts = buildSpawnOpts(spawnCwd, timeout);
-	const spawnTool = () => runLintTool(tool, argv, spawnOpts, plan.local);
+	const { argv, timeout, spawnCwd, manifest } = plan;
+	let tool = plan.tool;
+	const spawnTool = async () => {
+		const ran = await runPlan(plan, argv, resolved, cwd);
+		tool = ran.tool;
+		return ran.result;
+	};
 	const key = coalesce ? tool.targetsDir ? hashPath(`${tool.name}:${path.dirname(resolved)}`) : manifest ? hashPath(`${tool.name}:${manifest}`) : null : null;
-	const result = key ? await coalesceProjectCheck(key, resolved, timeout, spawnTool) : await spawnTool();
+	const result = key ? await coalesceProjectCheck(key, resolved, timeout, spawnTool, session) : await spawnTool();
 	const outcome = chainOutcome(tool, result);
 	if (!outcome) return none;
 	const target = chainTarget(tool, manifest, cwd, resolved);
@@ -856,7 +922,7 @@ export function tscOutputHasSourceDiagnostic(text) {
 	const plain = text.replace(ANSI_SGR_RE, "");
 	return TSC_SOURCE_DIAGNOSTIC_RE.test(plain);
 }
-async function runTypeCheck(resolved, cwd, coalesce = false) {
+async function runTypeCheck(resolved, cwd, coalesce = false, session = "") {
 	const tsconfigPath = resolveTsconfig(path.dirname(resolved), cwd);
 	if (!tsconfigPath) return null;
 	const cachePath = tsBuildInfoPathFor(tsconfigPath);
@@ -876,7 +942,7 @@ async function runTypeCheck(resolved, cwd, coalesce = false) {
 		"-p",
 		tsconfigPath
 	], buildSpawnOpts(cwd, TSC_SPAWN_TIMEOUT_MS));
-	const result = coalesce ? await coalesceProjectCheck(hashPath(`tsc:${tsconfigPath}`), resolved, TSC_SPAWN_TIMEOUT_MS, spawnTsc) : await spawnTsc();
+	const result = coalesce ? await coalesceProjectCheck(hashPath(`tsc:${tsconfigPath}`), resolved, TSC_SPAWN_TIMEOUT_MS, spawnTsc, session) : await spawnTsc();
 	if (!result || result.error || result.signal) return null;
 	if (classifyExit("tsc", result.status) !== "issues") return null;
 	const text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
@@ -996,11 +1062,58 @@ export function editRanges(args) {
 	}
 	return ranges;
 }
+export const SETTLE_MS = 5e3;
+export function settleWaitMs(uptimeMs = process.uptime() * 1e3) {
+	const raw = process.env.UNIVERSAL_LINT_SETTLE_MS;
+	const n = raw === undefined || raw.trim() === "" ? Number.NaN : Number(raw);
+	const base = Number.isFinite(n) && n >= 0 ? n : SETTLE_MS;
+	return Math.max(0, Math.min(base, HOOK_TIMEOUT_MS - 1e3 - uptimeMs));
+}
+export function editHunks(args) {
+	const patch = args?.tool_response?.structuredPatch;
+	if (args?.tool_name !== "Edit" || !Array.isArray(patch)) return null;
+	const hunks = [];
+	for (const h of patch) {
+		if (typeof h?.oldStart !== "number" || typeof h.newStart !== "number" || !Array.isArray(h.lines)) return null;
+		const map = [];
+		let next = h.newStart - 1;
+		for (const l of h.lines) {
+			const c = typeof l === "string" ? l[0] : " ";
+			if (c === "\\") continue;
+			if (c === "-") map.push(-1);
+			else if (c === "+") next++;
+			else map.push(next++);
+		}
+		hunks.push({
+			oldStart: h.oldStart,
+			oldLines: map.length,
+			newStart: h.newStart,
+			newLines: next - (h.newStart - 1),
+			map
+		});
+	}
+	return hunks;
+}
+export function carryLine(line, hunks) {
+	let shift = 0;
+	for (const h of hunks) {
+		const start = h.oldLines === 0 ? h.oldStart : h.oldStart - 1;
+		if (line < start) break;
+		if (line < start + h.oldLines) {
+			const n = h.map[line - start];
+			return n < 0 ? null : n;
+		}
+		shift += h.newLines - h.oldLines;
+	}
+	return line + shift;
+}
 const LOC_PATH_RE = /(?<![^\s:()[\]'"])(?<path>[^\s:()[\]'"]+\.[A-Za-z0-9]+)[:(](?<line>\d+)(?:[:,]\d+)?/;
 const LOC_ROW_RE = /^\s*(?<line>\d+):\d+\s/;
 const LOC_SHELLCHECK_RE = /^In .+ line (?<line>\d+):/;
-const PARSE_ERROR_RE = /pars(?:e|ing) error|syntax ?error|unexpected (?:token|end|eof|character|indent)|unterminated|unclosed|end of (?:file|input)|\bexpected [`'"]|\b(?:TS1|SC1)\d{3}\b/i;
-export function gateFinding(finding, ranges, resolved) {
+const SHELLCHECK_GCC_RE = /:\d+:\d+: (?:error|warning|info|style|note): /;
+const CODE_FRAME_RE = /^\s*\d*\s*[|│]/;
+const PARSE_ERROR_RE = /pars(?:e|ing) error|syntax ?error|unexpected (?:token|end|eof|character|indent)|unterminated|unclosed|end of (?:file|input)|\berror: expected\b|\b(?:TS1|SC1)\d{3}\b/i;
+export function gateFinding(finding, ranges, resolved, keepParseErrors = true) {
 	const seen = new Map();
 	const exists = (abs) => {
 		let found = seen.get(abs);
@@ -1010,9 +1123,14 @@ export function gateFinding(finding, ranges, resolved) {
 		}
 		return found;
 	};
-	const hit = (line) => ranges === null || ranges.some(([s, e]) => s <= line - 1 && line - 1 <= e) ? "hit" : "miss";
+	const hit = (line) => ranges === null || (typeof ranges === "function" ? ranges(line - 1) : ranges.some(([s, e]) => s <= line - 1 && line - 1 <= e)) ? "hit" : "miss";
 	const classify = (raw) => {
 		const plain = raw.replace(ANSI_SGR_RE, "");
+		if (finding.tool === "shellcheck" && !SHELLCHECK_GCC_RE.test(plain)) {
+			const sc = LOC_SHELLCHECK_RE.exec(plain);
+			return sc?.groups ? hit(Number(sc.groups.line)) : null;
+		}
+		if (CODE_FRAME_RE.test(plain)) return null;
 		const row = LOC_ROW_RE.exec(plain);
 		if (row?.groups) return hit(Number(row.groups.line));
 		const a = LOC_PATH_RE.exec(plain);
@@ -1042,7 +1160,9 @@ export function gateFinding(finding, ranges, resolved) {
 		const preambleParse = PARSE_ERROR_RE.test(out.join("\n"));
 		starts.forEach((start, n) => {
 			const seg = lines.slice(start, starts[n + 1] ?? lines.length);
-			if (kinds[start] === "miss" && !preambleParse && !PARSE_ERROR_RE.test(seg.join("\n"))) return;
+			const parse = preambleParse || PARSE_ERROR_RE.test(seg.join("\n"));
+			if (keepParseErrors === "drop" && parse && kinds[start] !== "foreign") return;
+			if (kinds[start] === "miss" && !(keepParseErrors === true && parse)) return;
 			out.push(...seg);
 			any = true;
 		});
@@ -1061,19 +1181,148 @@ function writtenDigestPath(real) {
 	return path.resolve(process.env.CLAUDE_PLUGIN_DATA || tmpdir(), "written", hashPath(real));
 }
 function fileDigest(fp) {
-	return createHash("sha256").update(readFileSync(fp)).digest("base64");
+	return digest(readFileSync(fp));
 }
-export function recordWritten(fp, real) {
+function digest(data) {
+	return createHash("sha256").update(data).digest("base64");
+}
+export function writtenContent(args) {
+	if (args?.tool_name === "Write") return typeof args.tool_input?.content === "string" ? args.tool_input.content : null;
+	const original = args?.tool_response?.originalFile;
+	const patch = args?.tool_response?.structuredPatch;
+	if (args?.tool_name !== "Edit" || typeof original !== "string" || !Array.isArray(patch)) return null;
+	const src = original.match(/[^\n]*\n|[^\n]+$/g) ?? [];
+	let out = "";
+	let i = 0;
+	for (const h of patch) {
+		if (typeof h?.oldStart !== "number" || !Array.isArray(h.lines) || !h.lines.every((l) => typeof l === "string")) return null;
+		const lines = h.lines;
+		const old = lines.filter((l) => l[0] === " " || l[0] === "-").length;
+		const start = old === 0 ? h.oldStart : h.oldStart - 1;
+		if (start < i || start + old > src.length) return null;
+		out += src.slice(i, start).join("");
+		i = start;
+		lines.forEach((l, k) => {
+			if (l[0] === " ") out += src[i++];
+			else if (l[0] === "-") i++;
+			else if (l[0] === "+") out += l.slice(1) + (lines[k + 1]?.startsWith("\\") ? "" : "\n");
+		});
+	}
+	return out + src.slice(i).join("");
+}
+export function recordWritten(real, content) {
 	try {
 		const file = writtenDigestPath(real);
+		if (content === null) {
+			rmSync(file, { force: true });
+			return;
+		}
 		mkdirSync(path.dirname(file), { recursive: true });
 		const tmp = `${file}.${process.pid}.tmp`;
-		writeFileSync(tmp, fileDigest(fp));
+		writeFileSync(tmp, digest(content));
 		renameSync(tmp, file);
 	} catch {}
 }
-function recordWrittenFor(s) {
-	if (s) recordWritten(s.fp, s.real);
+function recordWrittenFor(s, args) {
+	if (s) recordWritten(s.real, writtenContent(args));
+}
+function digestOrNull(fp) {
+	try {
+		return fileDigest(fp);
+	} catch {
+		return null;
+	}
+}
+function hasForeignLineBreak(fp) {
+	try {
+		return /\r(?!\n)|[\u0085\u2028\u2029]/.test(readFileSync(fp, "utf8"));
+	} catch {
+		return true;
+	}
+}
+function settleDir() {
+	return path.resolve(process.env.CLAUDE_PLUGIN_DATA || tmpdir(), "settle");
+}
+export function recordEdit(fp, real, hunks, before, written) {
+	try {
+		const dir = settleDir();
+		mkdirSync(dir, { recursive: true });
+		const now = Date.now();
+		for (const n of readdirSync(dir)) if (Math.abs(now - Number(n.split("-")[1])) > HOOK_TIMEOUT_MS) rmSync(path.join(dir, n), { force: true });
+		const key = hashPath(real);
+		const name = `${key}-${String(now).padStart(15, "0")}-${process.pid}.json`;
+		const tmp = path.join(dir, `${name}.tmp`);
+		writeFileSync(tmp, JSON.stringify({
+			hunks,
+			digest: written === undefined ? fileDigest(fp) : written,
+			before: before ?? null
+		}));
+		renameSync(tmp, path.join(dir, name));
+		return {
+			key,
+			name
+		};
+	} catch {
+		return null;
+	}
+}
+function journalTail(rec) {
+	if (!rec) return null;
+	try {
+		return readdirSync(settleDir()).filter((n) => n.startsWith(`${rec.key}-`) && n.endsWith(".json")).sort().at(-1) ?? null;
+	} catch {
+		return null;
+	}
+}
+export async function settleFindings(findings, resolved, rec, d0, d1) {
+	if (findings.length === 0 || !rec || d0 === null || d0 !== d1) return findings;
+	try {
+		if (findings.every((f) => gateFinding(f, () => false, resolved, "drop")?.text === f.text)) return findings;
+	} catch {}
+	const wait = settleWaitMs();
+	if (wait > 0) await sleep(wait);
+	let later;
+	try {
+		const dir = settleDir();
+		const recs = readdirSync(dir).filter((n) => n.startsWith(`${rec.key}-`) && n.endsWith(".json")).sort().map((n) => ({
+			name: n,
+			...JSON.parse(readFileSync(path.join(dir, n), "utf8"))
+		}));
+		if (recs.some((r) => r.hunks !== null && !Array.isArray(r.hunks))) return findings;
+		let at = -1;
+		recs.forEach((r, i) => {
+			if (r.digest === d0) at = i;
+		});
+		if (at === -1) return findings;
+		const after = recs.slice(at + 1).filter((r) => r.name !== rec.name);
+		if (after.length === 0) return findings;
+		let prev = recs[at].digest;
+		for (const r of after) {
+			if (r.hunks !== null && r.before !== prev) return findings;
+			prev = r.digest;
+		}
+		later = after.map((r) => r.hunks);
+	} catch {
+		return findings;
+	}
+	const survives = (line0) => {
+		let l = line0;
+		for (const h of later) {
+			if (h === null) return false;
+			const n = carryLine(l, h);
+			if (n === null) return false;
+			l = n;
+		}
+		return true;
+	};
+	try {
+		return findings.flatMap((f) => {
+			const g = gateFinding(f, survives, resolved, "drop");
+			return g ? [g] : [];
+		});
+	} catch {
+		return findings;
+	}
 }
 function chainEntryFor(resolved, cwd) {
 	const ext = path.extname(resolved).toLowerCase();
@@ -1105,28 +1354,30 @@ const NO_CHAIN = {
 function tscNeeded(typeCheckEligible, oxlintConfig, chainRan) {
 	return typeCheckEligible && !(oxlintConfig !== null && chainRan && oxlintConfigTypeChecks(oxlintConfig));
 }
-async function lintResolved(resolved, cwd, ranges, hookEventName, label) {
+async function lintResolved(resolved, cwd, ranges, hookEventName, session = "") {
 	const rel = path.relative(cwd, resolved);
 	const coalesce = hookEventName === "FileChanged";
 	const ext = path.extname(resolved).toLowerCase();
 	const typeCheckEligible = TYPE_CHECK_EXTS.has(ext);
 	const { entry, oxlintConfig } = chainEntryFor(resolved, cwd);
-	const chainP = entry ? runChainLint(entry, resolved, cwd, rel, coalesce) : Promise.resolve(NO_CHAIN);
+	const chainP = entry ? runChainLint(entry, resolved, cwd, rel, coalesce, session) : Promise.resolve(NO_CHAIN);
 	let chain;
 	let tsResult = null;
 	if (tscNeeded(typeCheckEligible, oxlintConfig, true)) {
-		[chain, tsResult] = await Promise.all([chainP, runTypeCheck(resolved, cwd, coalesce)]);
+		[chain, tsResult] = await Promise.all([chainP, runTypeCheck(resolved, cwd, coalesce, session)]);
 	} else {
 		chain = await chainP;
-		if (tscNeeded(typeCheckEligible, oxlintConfig, chain.ran)) tsResult = await runTypeCheck(resolved, cwd, coalesce);
+		if (tscNeeded(typeCheckEligible, oxlintConfig, chain.ran)) tsResult = await runTypeCheck(resolved, cwd, coalesce, session);
 	}
 	const findings = [];
 	if (chain.finding) findings.push(chain.finding);
 	if (tsResult) findings.push(tsResult);
-	const kept = findings.flatMap((f) => {
+	return findings.flatMap((f) => {
 		const g = gateFinding(f, ranges, resolved);
 		return g ? [g] : [];
 	});
+}
+function formatFindings(kept, hookEventName, label) {
 	if (kept.length === 0) return {};
 	const blocks = kept.map((f) => `${f.tool} found issues in ${f.target}:\n${truncate(f.text)}`);
 	return { hookSpecificOutput: {
@@ -1137,10 +1388,19 @@ async function lintResolved(resolved, cwd, ranges, hookEventName, label) {
 export async function lintFileHandler(args, scoped = postToolScope(args)) {
 	try {
 		const resolved = scoped?.fp;
-		if (!resolved) return {};
+		if (!scoped || !resolved) return {};
 		const ranges = editRanges(args);
 		if (ranges?.length === 0) return {};
-		return await lintResolved(resolved, args.cwd, ranges, "PostToolUse", "universal-lint");
+		const original = args.tool_response?.originalFile;
+		const before = typeof original === "string" ? digest(original) : null;
+		const wc = writtenContent(args);
+		const rec = recordEdit(resolved, scoped.real, editHunks(args), before, wc === null ? null : digest(wc));
+		const odd = hasForeignLineBreak(resolved);
+		const d0 = digestOrNull(resolved);
+		const t0 = journalTail(rec);
+		const kept = await lintResolved(resolved, args.cwd, odd ? null : ranges, "PostToolUse");
+		const d1 = kept.length > 0 && journalTail(rec) === t0 ? digestOrNull(resolved) : null;
+		return formatFindings(await settleFindings(kept, resolved, odd ? null : rec, d0, d1), "PostToolUse", "universal-lint");
 	} catch {
 		return {};
 	}
@@ -1185,12 +1445,20 @@ export async function lintFilesHandler(cwd, files) {
 	}
 	const ran = new Set();
 	const chainBlocks = [];
-	const spawnPlan = async (plan, argv) => chainOutcome(plan.tool, await runLintTool(plan.tool, argv, buildSpawnOpts(plan.spawnCwd, plan.timeout), plan.local));
+	const spawnPlan = async (plan, argv, fp) => {
+		const { tool, result } = await runPlan(plan, argv, fp, cwd);
+		const out = chainOutcome(tool, result);
+		return out && {
+			...out,
+			tool
+		};
+	};
 	const record = (members, out) => {
 		if (!out || out.verdict === "skip") return;
 		for (const m of members) ran.add(m.fp);
 		if (out.verdict !== "issues") return;
-		const { tool, manifest } = members[0].plan;
+		const { tool } = out;
+		const { manifest } = members[0].plan;
 		const targets = new Set(members.map(({ fp }) => chainTarget(tool, manifest, cwd, fp)));
 		chainBlocks.push(`universal-lint: ${tool.name} found issues in ${[...targets].join(", ")}:\n${truncate(out.text, MAX_CONTEXT_CHARS * members.length)}`);
 	};
@@ -1201,12 +1469,12 @@ export async function lintFilesHandler(cwd, files) {
 		for (let i = 0; i < group.length; i += step) {
 			const chunk = group.slice(i, i + step);
 			try {
-				const argv = fileScoped ? [...plan.argv.slice(0, -1), ...chunk.map((m) => m.fp)] : plan.argv;
-				const out = await spawnPlan(plan, argv);
+				const argv = fileScoped ? [...plan.argv.slice(0, -1), ...chunk.map((m) => fileArg(plan.tool, m.fp, plan.spawnCwd))] : plan.argv;
+				const out = await spawnPlan(plan, argv, chunk[0].fp);
 				if ((!out || out.verdict === "skip") && fileScoped && chunk.length > 1) {
 					for (const m of chunk) {
 						try {
-							record([m], await spawnPlan(m.plan, m.plan.argv));
+							record([m], await spawnPlan(m.plan, m.plan.argv, m.fp));
 						} catch {}
 					}
 				} else {
@@ -1267,10 +1535,10 @@ export function acquireSlot(untilMs) {
 		sleep100();
 	}
 }
-export async function coalesceProjectCheck(key, file, reserveMs, run) {
+export async function coalesceProjectCheck(key, file, reserveMs, run, session = "") {
 	const dir = path.resolve(process.env.CLAUDE_PLUGIN_DATA || tmpdir(), "fc-locks");
 	const lock = path.join(dir, `${key}.lock`);
-	const last = path.join(dir, `${key}.last`);
+	const last = path.join(dir, `${key}-${hashPath(session)}.last`);
 	let changed;
 	try {
 		changed = statSync(file).ctimeMs;
@@ -1312,6 +1580,9 @@ export async function coalesceProjectCheck(key, file, reserveMs, run) {
 		} catch {}
 	}
 }
+export function slotDeadlineMs(ext) {
+	return FILE_CHANGED_BUDGET_MS - (EXT_MAP[ext] === "rust" ? CARGO_SPAWN_TIMEOUT_MS : SPAWN_TIMEOUT_MS) - (TYPE_CHECK_EXTS.has(ext) ? TSC_SPAWN_TIMEOUT_MS : 0);
+}
 export async function fileChangedHandler(args) {
 	try {
 		if (args?.event === "unlink") return {};
@@ -1326,19 +1597,23 @@ export async function fileChangedHandler(args) {
 		} catch {}
 		if (recorded !== null) {
 			if (recorded === fileDigest(s.fp)) return {};
-			rmSync(writtenDigestPath(s.real), { force: true });
+			try {
+				rmSync(writtenDigestPath(s.real), { force: true });
+			} catch {}
 		}
+		const rec = recordEdit(s.fp, s.real, null);
 		try {
 			const status = execFileSync("git", [
 				"--no-optional-locks",
+				"--literal-pathspecs",
 				"status",
 				"--porcelain",
 				"--untracked-files=normal",
 				"--ignored=matching",
 				"--",
-				s.fp
+				s.real
 			], {
-				cwd: path.dirname(s.fp),
+				cwd: path.dirname(s.real),
 				encoding: "utf8",
 				timeout: GIT_TIMEOUT_MS,
 				stdio: [
@@ -1349,23 +1624,30 @@ export async function fileChangedHandler(args) {
 			});
 			if (status === "" || status.startsWith("!!")) return {};
 		} catch {}
-		const ext = path.extname(s.fp).toLowerCase();
-		const lintMs = (EXT_MAP[ext] === "rust" ? CARGO_SPAWN_TIMEOUT_MS : SPAWN_TIMEOUT_MS) + (TYPE_CHECK_EXTS.has(ext) ? TSC_SPAWN_TIMEOUT_MS : 0);
 		let slot;
 		try {
-			slot = acquireSlot(FILE_CHANGED_BUDGET_MS - lintMs);
+			slot = acquireSlot(slotDeadlineMs(path.extname(s.fp).toLowerCase()));
 		} catch {}
 		if (slot === null) {
 			process.stderr.write(`universal-lint: FileChanged: no lint slot free in time, ${s.fp} not linted\n`);
 			return {};
 		}
+		let kept = [];
+		let d0 = null;
+		let d1 = null;
+		let odd = false;
 		try {
-			return await lintResolved(s.fp, cwd, null, "FileChanged", "universal-lint (changed outside Write/Edit)");
+			odd = hasForeignLineBreak(s.fp);
+			d0 = digestOrNull(s.fp);
+			const t0 = journalTail(rec);
+			kept = await lintResolved(s.fp, cwd, null, "FileChanged", typeof args.session_id === "string" ? args.session_id : "");
+			if (kept.length > 0 && journalTail(rec) === t0) d1 = digestOrNull(s.fp);
 		} finally {
 			try {
 				if (slot) rmSync(slot, { force: true });
 			} catch {}
 		}
+		return formatFindings(await settleFindings(kept, s.fp, odd ? null : rec, d0, d1), "FileChanged", "universal-lint (changed outside Write/Edit)");
 	} catch {
 		return {};
 	}
@@ -1449,7 +1731,7 @@ async function main() {
 		if (ev === "FileChanged") ctx = (await fileChangedHandler(input)).hookSpecificOutput?.additionalContext;
 		else {
 			const scoped = postToolScope(input);
-			recordWrittenFor(scoped);
+			recordWrittenFor(scoped, input);
 			ctx = (await lintFileHandler(input, scoped)).hookSpecificOutput?.additionalContext;
 		}
 		if (ctx) {
