@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "http": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/server.mjs"],
+      "env": {
+        "NODE_USE_ENV_PROXY": "${NODE_USE_ENV_PROXY:-1}"
+      }
+    }
+  }
+}

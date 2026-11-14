@@ -1,4 +1,4 @@
-import { DEFAULT_CONTEXT_TOKENS, DEFAULT_DENSITY, DEFAULT_OVERFLOW, DEFAULT_TIMEOUT_S, HAIKU_MAX_CHARS, REGISTER_WAIT_MS, TOOLS, TOOL_PREFIX, answerJev, askHaiku, cutState, ensureTools, fail, isOverflow, loadKnowledge, message, parseInput, seconds } from "./lib.mjs";
+import { DEFAULT_CONTEXT_TOKENS, DEFAULT_DENSITY, DEFAULT_OVERFLOW, DEFAULT_TIMEOUT_S, HAIKU_MAX_CHARS, PLUGIN, REGISTER_WAIT_MS, SERVER_TOOL_PREFIX, TOOLS, TOOL_PREFIX, answerJev, askHaiku, configureServer, cutState, ensureTools, fail, isOverflow, loadKnowledge, message, newLink, parseInput, seconds } from "./lib.mjs";
 export function register(on, options) {
 	const fallbackS = seconds(options?.["timeout"]) ?? DEFAULT_TIMEOUT_S;
 	const optionOverflow = options?.["overflow"];
@@ -19,9 +19,24 @@ export function register(on, options) {
 		nctx: DEFAULT_CONTEXT_TOKENS,
 		loaded: undefined
 	};
+	const link = newLink();
 	on("session.start", async function onSessionStart($, e, next) {
 		try {
 			if (st.missing.size > 0) await ensureTools($, st, 5 * REGISTER_WAIT_MS);
+		} catch {}
+		try {
+			const [key, base, jevUrl, model] = (await Promise.all([
+				$.env.get("TYPESAFE_API_KEY"),
+				$.env.get("TYPESAFE_BASE_URL"),
+				$.env.get("JEV_URL"),
+				$.env.get("TYPESAFE_DEFAULT_MODEL")
+			])).map((v) => v?.trim() || undefined);
+			if (key || base || jevUrl) await configureServer($, link, {
+				key,
+				base,
+				jevUrl,
+				model
+			}, new AbortController().signal);
 		} catch {}
 		return next(e);
 	});
@@ -52,9 +67,20 @@ export function register(on, options) {
 				base,
 				jevUrl,
 				model
-			}, timeoutMs, next.signal, know);
+			}, timeoutMs, next.signal, know, link);
 		} catch (err) {
 			return fail(type, message(err));
 		}
+	});
+	on("tool.check", async function onToolCheck(_$, e, next) {
+		if (!e.tool.startsWith(SERVER_TOOL_PREFIX)) return next(e);
+		if (next.origin?.plugin === PLUGIN) return {
+			decision: "allow",
+			reason: `${PLUGIN}'s own HTTP transport`
+		};
+		return {
+			decision: "deny",
+			reason: `this tool is the internal HTTP transport of the ${PLUGIN} plugin; use ${TOOLS.map((t) => TOOL_PREFIX + t).join(", ")}`
+		};
 	});
 }
