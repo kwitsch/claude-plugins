@@ -14,11 +14,11 @@ The `decider` agent answers the questions of a `--headless` run: opus with high 
 
 ## Arguments
 
-| Argument               | Meaning                                                                                               |
-| ---------------------- | ----------------------------------------------------------------------------------------------------- |
-| `--headless`           | No `AskUserQuestion`; the `decider` agent is asked instead, with the options, task and document paths |
-| `--type=<tiny\|feature\|bugfix>` | Uses that track instead of the triage choice                                                  |
-| `--size=<S\|M\|L\|XL>` | Uses that size instead of the triage score                                                            |
+| Argument                         | Meaning                                                                                               |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `--headless`                     | No `AskUserQuestion`; the `decider` agent is asked instead, with the options, task and document paths |
+| `--type=<tiny\|feature\|bugfix>` | Uses that track instead of the triage choice                                                          |
+| `--size=<S\|M\|L\|XL>`           | Uses that size instead of the triage score                                                            |
 
 Without `--headless`, every question goes through `AskUserQuestion`.
 
@@ -28,9 +28,11 @@ Every track pushes after the first commit and opens a draft PR, updates the PR d
 
 | Track   | Flow                                                                                                                                                |
 | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| tiny    | Implement directly, light review of the diff                                                                                                        |
+| tiny    | Single-file or config edit without significant effect on functionality or tests: implement directly, light review of the diff                       |
 | feature | by size: S direct; M plan; L design, plan; XL design, spec, plan (each confirmed), then execute, verify, `/simplify`, reviews, `/code-review --fix` |
 | bugfix  | `fix/` branch, debug, failing test, one fix, verify, review, `/code-review --fix`                                                                   |
+
+Size floor: a functional change is at least size M, one touching several functionalities, modules or subprojects at least L; an explicit `--size` is never raised.
 
 ## Options
 

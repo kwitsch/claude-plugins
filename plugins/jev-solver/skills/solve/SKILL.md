@@ -41,15 +41,25 @@ questions:
   - type: choice
     instructions: Which kind of task is this?
     criteria:
-      tiny: a very small change (rename, typo, one-line or config tweak, one small edit)
+      tiny: only a single-file or configuration tweak (rename, typo, one-line edit) without significant influence on functionality or tests; any change to behaviour is feature
       feature: new behaviour, a feature, a refactor or anything needing design decisions
       bugfix: something is broken, a failing test, an error, unexpected behaviour
   - type: score
     instructions: How large is the work?
-    criteria: [S: a few lines in one place, M: one component, L: several components, XL: cross-cutting or architectural]
+    criteria: [S: a few lines in one place, M: one component, L: several functionalities, modules or subprojects, XL: cross-cutting or architectural]
 ```
 
 Put the task-ambiguity question in the same call (`noul`: is the task text too ambiguous to start?; it counts only for the `feature` and `bugfix` tracks, and only a confident yes goes to the user via `AskUserQuestion`, headless: decider). With `--size`, leave out the score question; with `--type`, the track question; with `--type=tiny`, all questions (tiny needs neither size nor ambiguity check, so no call is made). With `--type=feature` or `bugfix` and a valid `--size`, only the ambiguity question remains. The score is fractional: round to the nearest level. Apply the confidence rule of [decide](decide.reference.md) to every answer; if it is low or the call fails (any error, no configuration), triage with your own reasoning using the same criteria and say so in one line.
+
+### Size floor
+
+The triage under-rates tasks, so after rounding (and after the fallback to own reasoning) raise the size on the feature track:
+
+- A functional change (behaviour of code, skills, hooks or tests; not documentation-only) is at least `M`.
+- A change touching several functionalities, modules or subprojects (several plugins, packages or components) is at least `L`.
+- `tiny` only for a single file or configuration edit without significant influence on functionality or tests; a tiny pick that changes behaviour or needs test changes is a `feature` and takes size `M` (`L` per the rule above) without a score.
+
+The floor applies to a triaged size only: an explicit `--size` is never raised. The bugfix track keeps its triaged size.
 
 ## 2. Worktree and work branch
 
