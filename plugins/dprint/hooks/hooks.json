@@ -1,5 +1,5 @@
 {
-  "modules": ["./notice.mjs"],
+  "modules": ["./register.mjs"],
   "hooks": {
     "PreToolUse": [
       {
