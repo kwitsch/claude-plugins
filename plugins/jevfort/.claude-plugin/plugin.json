@@ -1,7 +1,7 @@
 {
   "name": "jevfort",
-  "version": "0.11.1",
-  "description": "Lets TypeSafe Jev take routine steps, route effort and check that work is done (port of nim-f/jev-pilot; asks Jev through the jev-api plugin's tools).",
+  "version": "0.12.0",
+  "description": "Lets TypeSafe Jev take routine steps and route effort (port of nim-f/jev-pilot; asks Jev through the jev-api plugin's tools).",
   "author": {
     "name": "Kwitsch"
   },
@@ -17,26 +17,15 @@
   ],
   "userConfig": {
     "routing": {
-      "type": "string",
-      "title": "Routing",
-      "description": "Per-turn routing by difficulty: lower effort, also switch to a cheaper model, or off.",
-      "options": [
-        "effort",
-        "model",
-        "off"
-      ],
-      "default": "effort"
+      "type": "boolean",
+      "title": "Effort routing",
+      "description": "Choose the effort of every turn by Jev's estimate and show the effort row above the prompt. Off: turns run at the session effort and the effort row is hidden (the estimate_effort tool and the cache countdown stay).",
+      "default": true
     },
     "takeSteps": {
       "type": "boolean",
       "title": "Take steps",
       "description": "Let Jev make routine tool calls (Read, git, project scripts) instead of Claude.",
-      "default": true
-    },
-    "doneCheck": {
-      "type": "boolean",
-      "title": "Done check",
-      "description": "Let Jev send Claude back once when a request looks unfinished.",
       "default": true
     },
     "takeThreshold": {
@@ -51,22 +40,10 @@
       "description": "Also route effort inside subagent loops, and take steps there when takeOnlyForBypass is off.",
       "default": true
     },
-    "doneThreshold": {
-      "type": "number",
-      "title": "Done check: unfinished below",
-      "description": "Send Claude back when the probability that the work is finished is below this.",
-      "default": 0.15
-    },
     "bypass": {
       "type": "boolean",
       "title": "Answer simple prompts without Claude",
       "description": "When a prompt only needs one read-only action Jev takes (run the tests, git status, read a file), a small model reports the result and the main Claude model is skipped.",
-      "default": true
-    },
-    "classify": {
-      "type": "boolean",
-      "title": "Classify prompts",
-      "description": "Classify each prompt and add a hint Claude reads when a skill fits or the change needs a plan first.",
       "default": true
     },
     "agentTypes": {
@@ -115,12 +92,6 @@
       "type": "boolean",
       "title": "Take steps only for whole-turn answers",
       "description": "Jev takes a step only when the whole prompt is one read-only action it can answer without Claude. Off: Jev may also take routine steps inside longer turns (measured to add turns without saving cost).",
-      "default": true
-    },
-    "measureSteps": {
-      "type": "boolean",
-      "title": "Measure steps inside a turn",
-      "description": "While Claude takes a step inside a longer turn, ask Jev in parallel which listed action it would take, and log whether it matches. Adds at most about 250 ms per step; costs one Jev request per step. Never takes the step.",
       "default": true
     },
     "minEffort": {
