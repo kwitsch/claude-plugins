@@ -89,7 +89,7 @@ Result: `{"type":"score","score":<expected level>,"confidence":<0..1>,"legend":{
 | `timeout`   | number, optional                         | HTTP timeout of the request in seconds (see Options)                                                                                 |
 | `questions` | array of at least one question, required | Each is `{ "type": "noul" \| "choice" \| "score", "instructions", "criteria" }` with that tool's `instructions` and `criteria` rules |
 
-All questions go out in one System One request. Result: a JSON array of the answers in question order, each exactly as the matching single tool returns it. The call is all or nothing: an invalid question (the error names it, `questions[<index>]: ...`), an HTTP error or a missing answer fails the whole call.
+All questions go out in one System One request. Result: a JSON array of the answers in question order, each exactly as the matching single tool returns it. The call is all or nothing: an invalid question (the error names it, `questions[<index>]: ...`), an HTTP error that Haiku cannot take over (see Errors) or a missing answer fails the whole call.
 
 ## HTTP transport
 
@@ -111,7 +111,7 @@ Errors come back as a tool error (Claude reads it as an error result) whose text
 - No configuration (none of the three variables set): Haiku answers, calibrated toward Jev (its `noul` probability is stretched away from 0.5, a `score` is the mean level index of its probabilities, and its prompt asks for honest, uninflated estimates); the numbers remain estimates of a language model, not Jev's; `<tool>: fallback: <reason>` when it does not answer or its reply is invalid.
 - Invalid input, or a `JEV_URL` / `TYPESAFE_BASE_URL` that is not an `http(s)` URL (for `TYPESAFE_BASE_URL` also one with a query or fragment): no request is sent.
 - A state too large for System One or for the timeout, with `overflow` `error` (or after a second refusal in `truncate`): `state too large ...` with the numbers (see Large states).
-- HTTP 4xx/5xx: Haiku answers instead (see above); when it cannot either (or no time is left), `HTTP <status>` plus the API's reason (its `detail`, or its `error.message`) when there is one, then `; fallback: <why Haiku failed>`.
+- HTTP 4xx/5xx: Haiku answers instead (see above); when it cannot either, `HTTP <status>` plus the API's reason (its `detail`, or its `error.message`) when there is one, then `; fallback: <why Haiku failed>` (or `; no time left for the Haiku fallback` when the timeout is used up).
 - No answer of the asked type in the response, a network error or an unparsable body: the reason. Where Claude Code's error quotes the endpoint, the text shows `<JEV_URL>` or `<TYPESAFE_BASE_URL>/v1/systemone` instead of the configured URL.
 - A request taking longer than its timeout (default 20 seconds): `timeout after <ms>ms`, or Claude Code's own limit on one request (`... aborted: no complete answer within 30000ms`) when that comes first.
 - A call that is interrupted while it waits answers at once and the server closes the request's connection; only on the fallback path (see HTTP transport) the request itself still runs to its end (in `claude -p` and other headless runs the process, and the next prompt, may wait for it, up to Claude Code's own 30 seconds per request).
