@@ -1,5 +1,5 @@
 {
-  "description": "One entry, lint-file.mjs, for four events: PostToolUse Write|Edit lints the just-written file (check-only) in the background; SessionStart and CwdChanged print the cwd's lintable git files as watchPaths; FileChanged lints a watched file changed outside Write/Edit in the background. Findings exit 2 and wake Claude (asyncRewake).",
+  "description": "One entry, lint-file.mjs, for six events: PostToolUse Write|Edit lints the just-written file (check-only) in the background; SessionStart and CwdChanged print the cwd's lintable git files as watchPaths; FileChanged lints a watched file changed outside Write/Edit in the background; Stop and SubagentStop lint the files whose edits no report has covered yet. Findings exit 2: they wake Claude (asyncRewake) or keep the stopping agent going.",
   "hooks": {
     "PostToolUse": [
       {
@@ -44,6 +44,28 @@
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/lint-file.mjs\"",
             "timeout": 90,
             "asyncRewake": true
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/lint-file.mjs\"",
+            "timeout": 90
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/lint-file.mjs\"",
+            "timeout": 90
           }
         ]
       }

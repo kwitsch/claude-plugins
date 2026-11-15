@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync, spawn } from "node:child_process";
-import { accessSync, constants as fsConstants, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { accessSync, constants as fsConstants, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { availableParallelism, homedir, tmpdir } from "node:os";
 import path from "node:path";
@@ -1062,12 +1062,14 @@ export function editRanges(args) {
 	}
 	return ranges;
 }
-export const SETTLE_MS = 5e3;
-export function settleWaitMs(uptimeMs = process.uptime() * 1e3) {
+export const SETTLE_MS = 2e4;
+const SETTLE_POLL_MS = 250;
+const PENDING_TTL_MS = 24 * 60 * 60 * 1e3;
+export function settleWaitMs(uptimeMs = process.uptime() * 1e3, idleMs = 0) {
 	const raw = process.env.UNIVERSAL_LINT_SETTLE_MS;
 	const n = raw === undefined || raw.trim() === "" ? Number.NaN : Number(raw);
-	const base = Number.isFinite(n) && n >= 0 ? n : SETTLE_MS;
-	return Math.max(0, Math.min(base, HOOK_TIMEOUT_MS - 1e3 - uptimeMs));
+	const base = Number.isFinite(n) && n >= 0 ? n : process.env.CLAUDE_CODE_ENTRYPOINT?.startsWith("sdk") ? 0 : SETTLE_MS;
+	return Math.max(0, Math.min(base - idleMs, HOOK_TIMEOUT_MS - 1e3 - uptimeMs));
 }
 export function editHunks(args) {
 	const patch = args?.tool_response?.structuredPatch;
@@ -1113,7 +1115,7 @@ const LOC_SHELLCHECK_RE = /^In .+ line (?<line>\d+):/;
 const SHELLCHECK_GCC_RE = /:\d+:\d+: (?:error|warning|info|style|note): /;
 const CODE_FRAME_RE = /^\s*\d*\s*[|│]/;
 const PARSE_ERROR_RE = /pars(?:e|ing) error|syntax ?error|unexpected (?:token|end|eof|character|indent)|unterminated|unclosed|end of (?:file|input)|\berror: expected\b|\b(?:TS1|SC1)\d{3}\b/i;
-export function gateFinding(finding, ranges, resolved, keepParseErrors = true) {
+export function gateFinding(finding, ranges, resolved) {
 	const seen = new Map();
 	const exists = (abs) => {
 		let found = seen.get(abs);
@@ -1123,7 +1125,7 @@ export function gateFinding(finding, ranges, resolved, keepParseErrors = true) {
 		}
 		return found;
 	};
-	const hit = (line) => ranges === null || (typeof ranges === "function" ? ranges(line - 1) : ranges.some(([s, e]) => s <= line - 1 && line - 1 <= e)) ? "hit" : "miss";
+	const hit = (line) => ranges === null || ranges.some(([s, e]) => s <= line - 1 && line - 1 <= e) ? "hit" : "miss";
 	const classify = (raw) => {
 		const plain = raw.replace(ANSI_SGR_RE, "");
 		if (finding.tool === "shellcheck" && !SHELLCHECK_GCC_RE.test(plain)) {
@@ -1160,9 +1162,7 @@ export function gateFinding(finding, ranges, resolved, keepParseErrors = true) {
 		const preambleParse = PARSE_ERROR_RE.test(out.join("\n"));
 		starts.forEach((start, n) => {
 			const seg = lines.slice(start, starts[n + 1] ?? lines.length);
-			const parse = preambleParse || PARSE_ERROR_RE.test(seg.join("\n"));
-			if (keepParseErrors === "drop" && parse && kinds[start] !== "foreign") return;
-			if (kinds[start] === "miss" && !(keepParseErrors === true && parse)) return;
+			if (kinds[start] === "miss" && !(preambleParse || PARSE_ERROR_RE.test(seg.join("\n")))) return;
 			out.push(...seg);
 			any = true;
 		});
@@ -1243,21 +1243,41 @@ function hasForeignLineBreak(fp) {
 function settleDir() {
 	return path.resolve(process.env.CLAUDE_PLUGIN_DATA || tmpdir(), "settle");
 }
-export function recordEdit(fp, real, hunks, before, written) {
+export function ownerOf(args) {
+	const part = (v) => typeof v === "string" ? v : "";
+	return hashPath(`${part(args?.session_id)}\0${part(args?.agent_id)}`).slice(0, 16);
+}
+function lastActivity(owner) {
+	try {
+		const n = Number(readFileSync(path.join(settleDir(), "act", owner), "utf8"));
+		return Number.isFinite(n) ? n : 0;
+	} catch {
+		return 0;
+	}
+}
+export function recordEdit(fp, real, hunks, before, written, owner = ownerOf(undefined), ranges, cwd = "") {
 	try {
 		const dir = settleDir();
-		mkdirSync(dir, { recursive: true });
+		mkdirSync(path.join(dir, "act"), { recursive: true });
 		const now = Date.now();
-		for (const n of readdirSync(dir)) if (Math.abs(now - Number(n.split("-")[1])) > HOOK_TIMEOUT_MS) rmSync(path.join(dir, n), { force: true });
+		for (const n of readdirSync(dir)) {
+			const at = Number(n.split("-")[1]);
+			if (now - at > PENDING_TTL_MS || at - now > HOOK_TIMEOUT_MS) rmSync(path.join(dir, n), { force: true });
+		}
 		const key = hashPath(real);
-		const name = `${key}-${String(now).padStart(15, "0")}-${process.pid}.json`;
+		const name = `${key}-${String(now).padStart(15, "0")}-${process.pid}-${owner}.json`;
 		const tmp = path.join(dir, `${name}.tmp`);
-		writeFileSync(tmp, JSON.stringify({
+		const record = {
 			hunks,
+			ranges: ranges ?? null,
 			digest: written === undefined ? fileDigest(fp) : written,
-			before: before ?? null
-		}));
+			before: before ?? null,
+			fp,
+			cwd
+		};
+		writeFileSync(tmp, JSON.stringify(record));
 		renameSync(tmp, path.join(dir, name));
+		writeFileSync(path.join(dir, "act", owner), String(now));
 		return {
 			key,
 			name
@@ -1274,55 +1294,78 @@ function journalTail(rec) {
 		return null;
 	}
 }
-export async function settleFindings(findings, resolved, rec, d0, d1) {
-	if (findings.length === 0 || !rec || d0 === null || d0 !== d1) return findings;
+function recordNames(key, owner) {
+	return readdirSync(settleDir()).filter((n) => n.startsWith(`${key}-`) && n.endsWith(`-${owner}.json`)).sort();
+}
+function readRecords(names) {
+	return names.map((n) => JSON.parse(readFileSync(path.join(settleDir(), n), "utf8")));
+}
+function clearRecords(names) {
+	for (const n of names) {
+		try {
+			rmSync(path.join(settleDir(), n), { force: true });
+		} catch {}
+	}
+}
+export function pendingRanges(recs, d0) {
+	if (recs.length === 1) return Array.isArray(recs[0].ranges) ? recs[0].ranges : null;
+	let lines = [];
+	let prev;
+	for (const r of recs) {
+		const chained = prev === undefined || prev !== null && r.before === prev;
+		if (lines === null || !chained || !Array.isArray(r.hunks) || !Array.isArray(r.ranges)) lines = null;
+		else {
+			const hunks = r.hunks;
+			const carried = [];
+			for (const [s, e] of lines) {
+				for (let l = s; l <= e; l++) {
+					const n = carryLine(l, hunks);
+					if (n !== null) carried.push([n, n]);
+				}
+			}
+			lines = [...carried, ...r.ranges];
+		}
+		prev = r.digest;
+	}
+	return typeof prev === "string" && prev === d0 ? lines : null;
+}
+function pendingUnion(rec, owner, d0, fallback) {
+	if (!rec) return fallback;
 	try {
-		if (findings.every((f) => gateFinding(f, () => false, resolved, "drop")?.text === f.text)) return findings;
+		return pendingRanges(readRecords(recordNames(rec.key, owner)), d0);
+	} catch {
+		return null;
+	}
+}
+function settleClean(rec, owner, unchanged) {
+	if (!rec || !unchanged) return;
+	try {
+		clearRecords(recordNames(rec.key, owner).filter((n) => n <= rec.name));
 	} catch {}
-	const wait = settleWaitMs();
-	if (wait > 0) await sleep(wait);
-	let later;
-	try {
-		const dir = settleDir();
-		const recs = readdirSync(dir).filter((n) => n.startsWith(`${rec.key}-`) && n.endsWith(".json")).sort().map((n) => ({
-			name: n,
-			...JSON.parse(readFileSync(path.join(dir, n), "utf8"))
-		}));
-		if (recs.some((r) => r.hunks !== null && !Array.isArray(r.hunks))) return findings;
-		let at = -1;
-		recs.forEach((r, i) => {
-			if (r.digest === d0) at = i;
-		});
-		if (at === -1) return findings;
-		const after = recs.slice(at + 1).filter((r) => r.name !== rec.name);
-		if (after.length === 0) return findings;
-		let prev = recs[at].digest;
-		for (const r of after) {
-			if (r.hunks !== null && r.before !== prev) return findings;
-			prev = r.digest;
+}
+export async function settleFindings(findings, resolved, rec, d0, d1, owner = ownerOf(undefined)) {
+	if (findings.length === 0 || !rec || d0 === null) return findings;
+	if (d0 !== d1) return [];
+	let names;
+	for (;;) {
+		try {
+			names = recordNames(rec.key, owner);
+		} catch {
+			return findings;
 		}
-		later = after.map((r) => r.hunks);
-	} catch {
-		return findings;
+		if (names.at(-1) !== rec.name) return [];
+		const left = settleWaitMs(undefined, Date.now() - lastActivity(owner));
+		if (left <= 0) break;
+		await sleep(Math.min(left, SETTLE_POLL_MS));
 	}
-	const survives = (line0) => {
-		let l = line0;
-		for (const h of later) {
-			if (h === null) return false;
-			const n = carryLine(l, h);
-			if (n === null) return false;
-			l = n;
-		}
-		return true;
-	};
+	if (digestOrNull(resolved) !== d0) return [];
 	try {
-		return findings.flatMap((f) => {
-			const g = gateFinding(f, survives, resolved, "drop");
-			return g ? [g] : [];
-		});
+		unlinkSync(path.join(settleDir(), rec.name));
 	} catch {
-		return findings;
+		return [];
 	}
+	clearRecords(names);
+	return findings;
 }
 function chainEntryFor(resolved, cwd) {
 	const ext = path.extname(resolved).toLowerCase();
@@ -1394,16 +1437,81 @@ export async function lintFileHandler(args, scoped = postToolScope(args)) {
 		const original = args.tool_response?.originalFile;
 		const before = typeof original === "string" ? digest(original) : null;
 		const wc = writtenContent(args);
-		const rec = recordEdit(resolved, scoped.real, editHunks(args), before, wc === null ? null : digest(wc));
+		const owner = ownerOf(args);
+		const rec = recordEdit(resolved, scoped.real, editHunks(args), before, wc === null ? null : digest(wc), owner, ranges, args.cwd);
+		if (rec && typeof args.agent_id === "string" && args.agent_id) return {};
 		const odd = hasForeignLineBreak(resolved);
 		const d0 = digestOrNull(resolved);
 		const t0 = journalTail(rec);
-		const kept = await lintResolved(resolved, args.cwd, odd ? null : ranges, "PostToolUse");
-		const d1 = kept.length > 0 && journalTail(rec) === t0 ? digestOrNull(resolved) : null;
-		return formatFindings(await settleFindings(kept, resolved, odd ? null : rec, d0, d1), "PostToolUse", "universal-lint");
+		const kept = await lintResolved(resolved, args.cwd, odd ? null : pendingUnion(rec, owner, d0, ranges), "PostToolUse");
+		const d1 = journalTail(rec) === t0 ? digestOrNull(resolved) : null;
+		if (kept.length === 0) settleClean(rec, owner, d0 !== null && d0 === d1);
+		return formatFindings(await settleFindings(kept, resolved, rec, d0, d1, owner), "PostToolUse", "universal-lint");
 	} catch {
 		return {};
 	}
+}
+export async function sweepHandler(args) {
+	try {
+		const ev = args.hook_event_name === "SubagentStop" ? "SubagentStop" : "Stop";
+		const owner = ownerOf(args);
+		const dir = settleDir();
+		const mark = path.join(dir, "act", `${owner}.blocked`);
+		if (args.stop_hook_active !== true) rmSync(mark, { force: true });
+		else if (existsSync(mark)) return {};
+		pruneActivity();
+		const groups = new Map();
+		for (const n of readdirSync(dir).sort()) {
+			if (!n.endsWith(`-${owner}.json`)) continue;
+			const key = n.split("-")[0];
+			groups.set(key, [...groups.get(key) ?? [], n]);
+		}
+		const files = [...groups.values()];
+		const found = files.map(() => []);
+		let next = 0;
+		const lane = async () => {
+			while (next < files.length) {
+				const i = next++;
+				try {
+					found[i] = await sweepFile(files[i], args);
+				} catch {}
+			}
+		};
+		await Promise.all(Array.from({ length: Math.min(FILE_CHANGED_SLOTS, files.length) }, lane));
+		const out = formatFindings(found.flat(), ev, "universal-lint");
+		if (out.hookSpecificOutput) writeFileSync(mark, "");
+		return out;
+	} catch {
+		return {};
+	}
+}
+function pruneActivity() {
+	try {
+		const act = path.join(settleDir(), "act");
+		for (const n of readdirSync(act)) {
+			const file = path.join(act, n);
+			if (Date.now() - statSync(file).mtimeMs > PENDING_TTL_MS) rmSync(file, { force: true });
+		}
+	} catch {}
+}
+async function sweepFile(names, args) {
+	let recs = null;
+	try {
+		recs = readRecords(names);
+	} catch {}
+	const last = recs?.at(-1);
+	const known = typeof last?.fp === "string" && typeof last.cwd === "string";
+	if (known && process.uptime() * 1e3 >= slotDeadlineMs(path.extname(last.fp).toLowerCase())) return [];
+	unlinkSync(path.join(settleDir(), names[names.length - 1]));
+	clearRecords(names);
+	if (!recs || !known) return [];
+	const s = scopedTarget(last.cwd, last.fp, scratchpadOf(args));
+	if (!s) return [];
+	let ranges = null;
+	try {
+		if (!hasForeignLineBreak(s.fp)) ranges = pendingRanges(recs, digestOrNull(s.fp));
+	} catch {}
+	return lintResolved(s.fp, last.cwd, ranges, "PostToolUse");
 }
 export async function lintFilesHandler(cwd, files) {
 	let roots;
@@ -1601,7 +1709,8 @@ export async function fileChangedHandler(args) {
 				rmSync(writtenDigestPath(s.real), { force: true });
 			} catch {}
 		}
-		const rec = recordEdit(s.fp, s.real, null);
+		const owner = ownerOf(args);
+		const rec = recordEdit(s.fp, s.real, null, undefined, undefined, owner, null, cwd);
 		try {
 			const status = execFileSync("git", [
 				"--no-optional-locks",
@@ -1635,19 +1744,18 @@ export async function fileChangedHandler(args) {
 		let kept = [];
 		let d0 = null;
 		let d1 = null;
-		let odd = false;
 		try {
-			odd = hasForeignLineBreak(s.fp);
 			d0 = digestOrNull(s.fp);
 			const t0 = journalTail(rec);
 			kept = await lintResolved(s.fp, cwd, null, "FileChanged", typeof args.session_id === "string" ? args.session_id : "");
-			if (kept.length > 0 && journalTail(rec) === t0) d1 = digestOrNull(s.fp);
+			if (journalTail(rec) === t0) d1 = digestOrNull(s.fp);
+			if (kept.length === 0) settleClean(rec, owner, d0 !== null && d0 === d1);
 		} finally {
 			try {
 				if (slot) rmSync(slot, { force: true });
 			} catch {}
 		}
-		return formatFindings(await settleFindings(kept, s.fp, odd ? null : rec, d0, d1), "FileChanged", "universal-lint (changed outside Write/Edit)");
+		return formatFindings(await settleFindings(kept, s.fp, rec, d0, d1, owner), "FileChanged", "universal-lint (changed outside Write/Edit)");
 	} catch {
 		return {};
 	}
@@ -1729,6 +1837,7 @@ async function main() {
 		}
 		let ctx;
 		if (ev === "FileChanged") ctx = (await fileChangedHandler(input)).hookSpecificOutput?.additionalContext;
+		else if (ev === "Stop" || ev === "SubagentStop") ctx = (await sweepHandler(input)).hookSpecificOutput?.additionalContext;
 		else {
 			const scoped = postToolScope(input);
 			recordWrittenFor(scoped, input);
