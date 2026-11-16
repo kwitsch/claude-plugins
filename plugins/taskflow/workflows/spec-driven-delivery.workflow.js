@@ -8,10 +8,12 @@
 // implementation and review process up to applied review fixes.
 //
 // Deviations from the original skill (deliberate, per requirement):
-//   1. Implementers ALWAYS run in their own worktree (isolation:'worktree'),
-//      even for wave size 1 — never a direct commit on the work branch.
-//   2. Every wave is merged into the work branch at the end by a SEPARATE
-//      merge agent (git merge --no-ff, task-id order).
+//   1. Implementers run in their own worktree (isolation:'worktree') only when
+//      their wave has more than one task; a single-task wave's implementer
+//      commits directly on the work branch.
+//   2. Every multi-task wave is merged into the work branch at the end by a
+//      SEPARATE merge agent (git merge --no-ff, task-id order); single-task
+//      waves need no merge.
 //   3. Model assignment by difficulty: the planner assigns each task a
 //      complexity ∈ trivial|standard|complex → haiku|haiku|opus; roles with a
 //      fixed difficulty profile use the value from MODELS below (all bare
@@ -37,17 +39,18 @@
 //     everything file-related runs through agent() workers.
 //   - Preconditions: work branch checked out, `git status --porcelain`
 //     empty, spec file exists and is readable by subagents.
-//   - Worktree isolation branches from the DEFAULT branch (worktree.baseRef),
-//     not the work branch → every implementer hard-resets to BRANCH_NAME
-//     first thing (see the implementer prompt).
+//   - For isolated (multi-task-wave) implementers: worktree isolation branches
+//     from the DEFAULT branch (worktree.baseRef), not the work branch → every
+//     isolated implementer hard-resets to BRANCH_NAME first thing (see the
+//     implementer prompt).
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const meta = {
   name: "spec-driven-delivery",
-  description: "Approved spec → plan → wave-parallel implementation in worktrees → wave merge by a dedicated agent → combined review → fix application",
+  description: "Approved spec → plan → wave-parallel implementation (worktrees + per-wave merge for multi-task waves) → combined review → fix application",
   phases: [
     { title: "Plan", detail: "Spec → implementation plan + machine-readable tasks" },
-    { title: "Implement", detail: "Waves, one worktree per task, review/fix per task, merge per wave" },
+    { title: "Implement", detail: "Waves; multi-task waves use one worktree per task and a per-wave merge, single-task waves commit directly; review/fix per task" },
     { title: "Review", detail: "Correctness angles + cleanup lenses over the combined diff" },
     { title: "Apply", detail: "Apply verified findings, commit by category" },
     { title: "Ship", detail: "Push, create/update PR/MR, watch CI + bounded fix rounds" },
@@ -527,7 +530,7 @@ const constraints = planned.plan.constraints;
 log("Plan approved: " + tasks.length + " task(s) — " + tasks.map((t) => t.id + ":" + (t.complexity || "standard")).join(", "));
 
 // ═════════════════════════════════════════════════════════════════════════════
-// PHASE 2 — IMPLEMENT  (waves; always worktree; merge per wave by the merger)
+// PHASE 2 — IMPLEMENT  (waves; worktree + merger only for multi-task waves)
 // ═════════════════════════════════════════════════════════════════════════════
 phase("Implement");
 
@@ -579,15 +582,20 @@ log("Wave plan: " + waves.map((w, i) => i + 1 + ":[" + w.join(",") + "]").join("
 // id (schema-typed number, but be defensive) — never the whole path, which
 // would mangle SCRATCH_DIR's separators.
 const tevPathFor = (t) => SCRATCH_DIR + "test-evidence-task-" + String(t.id).replace(/[^A-Za-z0-9._-]/g, "_") + ".txt";
-const implementerPrompt = (t) =>
+const implementerPrompt = (t, isolated) =>
   `${NO_NARRATION}
 
 You are the implementer for exactly one plan
-task, running in your own isolated git worktree.
+task, ${
+    isolated
+      ? `running in your own isolated git worktree.
 FIRST, before anything else: run \`git reset --hard ${BRANCH_NAME}\`. Your
 worktree was branched from the repo's default branch, not ${BRANCH_NAME} —
 skipping this means working from a stale base missing every earlier wave's
-merged work.
+merged work.`
+      : `working directly on branch ${BRANCH_NAME} in the current checkout (single-task wave: no worktree, no merge step).
+FIRST, before anything else: run \`git branch --show-current\` and \`git status --porcelain\`; if the branch is not ${BRANCH_NAME} or the status output is non-empty, change nothing and return status blocked with the reason in deviations. Never run \`git reset\`, \`git stash\`, \`git checkout\`/\`git switch\`, or create a branch or worktree. Commit onto ${BRANCH_NAME} and leave the working tree clean (\`git status --porcelain\` empty) before returning.`
+  }
 Plan file: ${PLAN_PATH} — Read it; execute ONLY task ${t.id} (${t.title}).
 Global constraints (binding): ${constraints}
 Work test-first: write the task's failing test, watch it fail, implement
@@ -622,8 +630,9 @@ const fixerPrompt = (t, findings, worktreePath, branch) =>
   `${NO_NARRATION}
 
 You are the fixer
-for one reviewed plan task. You are on branch ${branch} at ${worktreePath} — an
-isolated worktree; run your commands there, do not create a new one. A
+for one reviewed plan task. You are on branch ${branch} at ${worktreePath} — run
+your commands there; do not create a new worktree or branch, and do not switch
+branches. A
 standalone \`cd\` does NOT persist to your next Bash call — chain
 \`cd "${worktreePath}" && ...\` into every single command, or every command
 after the first silently runs in your default checkout.
@@ -640,12 +649,12 @@ ${JSON.stringify(approved)}
 protocol, and toplevel self-report per your agent definition.
 Return through the structured output schema — one entry per task attempted.`;
 
-// Per-task loop: implement (isolated) → review → at most one fix → re-review.
-async function runTask(t) {
+// Per-task loop: implement (isolated only in multi-task waves) → review → at most one fix → re-review.
+async function runTask(t, isolated) {
   const model = implModel(t);
-  const implOpts = { label: "task:" + t.id + ":" + model, phase: "Implement", isolation: "worktree", schema: IMPL_RESULT, model };
-  let impl = await agent(implementerPrompt(t), implOpts);
-  if (impl === null) impl = await agent(implementerPrompt(t), { ...implOpts, label: implOpts.label + ":retry" });
+  const implOpts = { label: "task:" + t.id + ":" + model, phase: "Implement", ...(isolated ? { isolation: "worktree" } : {}), schema: IMPL_RESULT, model };
+  let impl = await agent(implementerPrompt(t, isolated), implOpts);
+  if (impl === null) impl = await agent(implementerPrompt(t, isolated), { ...implOpts, label: implOpts.label + ":retry" });
   if (impl === null) return { id: t.id, status: "failed", reason: "implementer returned null twice" };
   if (impl.status === "blocked") {
     return { id: t.id, status: "failed", reason: "implementer blocked: " + impl.deviations, branch: impl.branch, worktreePath: impl.worktreePath };
@@ -690,6 +699,7 @@ let implementFailed = false;
 for (let i = 0; i < waves.length; i++) {
   const waveIds = waves[i];
   const waveTasks = waveIds.map((id) => tasks.find((t) => Number(t.id) === Number(id)));
+  const isolated = waveTasks.length > 1;
   log(
     "Wave "
       + (i + 1)
@@ -697,22 +707,24 @@ for (let i = 0; i < waves.length; i++) {
       + waves.length
       + ": dispatching "
       + waveTasks.length
-      + " task(s) in isolated worktrees (ids "
+      + " task(s) "
+      + (isolated ? "in isolated worktrees" : "directly on " + BRANCH_NAME)
+      + " (ids "
       + waveIds.join(", ")
       + "; models "
       + waveTasks.map((t) => implModel(t)).join(", ")
       + ")",
   );
 
-  // Always isolated; parallel() only when >1 (barrier, thunks — never started promises).
-  const waveResults = waveTasks.length > 1 ? await parallel(waveTasks.map((t) => () => runTask(t))) : [await runTask(waveTasks[0])];
+  // Isolated + parallel() only when >1 (barrier, thunks — never started promises); a single task commits directly on BRANCH_NAME.
+  const waveResults = isolated ? await parallel(waveTasks.map((t) => () => runTask(t, true))) : [await runTask(waveTasks[0], false)];
   results.push(...waveResults);
 
-  // Merge-back: ALWAYS through the separate merge agent, even for wave size 1.
+  // Merge-back only for multi-task waves, through the separate merge agent; a single-task wave already committed on BRANCH_NAME.
   const approved = waveResults.filter((r) => r && r.status === "done").map((r) => ({ id: r.id, branch: r.branch, worktreePath: r.worktreePath }));
   for (const r of waveResults) if (r && r.minor && r.minor.length) minorLedger.push({ id: r.id, minor: r.minor });
 
-  if (approved.length) {
+  if (isolated && approved.length) {
     const mOpts = { label: "merge:wave" + (i + 1), phase: "Implement", schema: MERGE_RESULT, model: MODELS.merger, agentType: AGENTS.merger };
     let merge = await agent(mergerPrompt(approved), mOpts);
     if (merge === null) merge = await agent(mergerPrompt(approved), { ...mOpts, label: mOpts.label + ":retry" });
